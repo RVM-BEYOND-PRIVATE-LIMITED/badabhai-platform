@@ -975,6 +975,20 @@
       "when": 1793452574775,
       "tag": "0138_payer_password_auth",
       "breakpoints": true
+    },
+    {
+      "idx": 139,
+      "version": "7",
+      "when": 1793615464981,
+      "tag": "0139_job_role_kind_3d",
+      "breakpoints": true
+    },
+    {
+      "idx": 140,
+      "version": "7",
+      "when": 1793616190501,
+      "tag": "0140_wri_role_kind_3d",
+      "breakpoints": true
     }
   ]
 }

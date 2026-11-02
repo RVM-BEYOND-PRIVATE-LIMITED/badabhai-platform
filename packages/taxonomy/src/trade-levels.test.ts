@@ -19,12 +19,13 @@ import {
  * alias spelling lands on the canonical key, and null prices Lower.
  */
 describe("trade-level crosswalk", () => {
-  it("covers the four v1 trades, each with its skill and level key", () => {
+  it("covers the four v1 trades plus the 3D trade, each with its skill and level key", () => {
     expect(TRADE_LEVEL_PACKS).toEqual({
       qp_cnc_turning: { skillId: "mskill_cnc_turner", levelKey: "turning_level" },
       qp_vmc_milling: { skillId: "mskill_vmc_operator", levelKey: "milling_level" },
       qp_cnc_grinding: { skillId: "mskill_cnc_grinding_operator", levelKey: "grinding_level" },
       qp_cam_programming: { skillId: "mskill_cam_programmer", levelKey: "cam_level" },
+      qp_cad_design_3d: { skillId: "mskill_cad_designer_3d", levelKey: "design_level" },
     });
   });
 
@@ -326,5 +327,56 @@ describe("trade-level crosswalk", () => {
     expect(cam("supervisor", { attributeKey: "cam_team_confirm", value: "6 machine, 4 log" })).toEqual(
       [{ skillId: "mskill_cam_programmer", tradeLevel: "supervisor", levelConfirmed: true }],
     );
+  });
+
+  it("wires the 3D design confirms the same way (CEO Launch Plan Pack v1, Track A #4)", () => {
+    const design3d = (
+      level: string,
+      confirm: { attributeKey: string; value: unknown } | null,
+    ) =>
+      tradeLevelEntriesForPackAnswers(
+        "qp_cad_design_3d",
+        confirm === null
+          ? [{ attributeKey: "design_level", value: level }]
+          : [{ attributeKey: "design_level", value: level }, confirm],
+      );
+    // No confirm answer: the rung rule stands (senior_designer+ confirmed, below not).
+    expect(design3d("senior_designer", null)).toEqual([
+      {
+        skillId: "mskill_cad_designer_3d",
+        tradeLevel: "senior_designer",
+        levelConfirmed: true,
+      },
+    ]);
+    expect(design3d("designer", null)).toEqual([
+      { skillId: "mskill_cad_designer_3d", tradeLevel: "designer", levelConfirmed: false },
+    ]);
+    // Self confirms, other disconfirms — per rung.
+    expect(
+      design3d("senior_designer", { attributeKey: "design_senior_confirm", value: "self" }),
+    ).toEqual([
+      {
+        skillId: "mskill_cad_designer_3d",
+        tradeLevel: "senior_designer",
+        levelConfirmed: true,
+      },
+    ]);
+    expect(
+      design3d("senior_designer", { attributeKey: "design_senior_confirm", value: "other" }),
+    ).toEqual([
+      {
+        skillId: "mskill_cad_designer_3d",
+        tradeLevel: "senior_designer",
+        levelConfirmed: false,
+      },
+    ]);
+    expect(design3d("lead", { attributeKey: "design_lead_confirm", value: "self" })).toEqual([
+      { skillId: "mskill_cad_designer_3d", tradeLevel: "lead", levelConfirmed: true },
+    ]);
+    expect(
+      design3d("supervisor", { attributeKey: "design_team_confirm", value: "4 designer" }),
+    ).toEqual([
+      { skillId: "mskill_cad_designer_3d", tradeLevel: "supervisor", levelConfirmed: true },
+    ]);
   });
 });

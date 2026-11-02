@@ -243,15 +243,18 @@ const EASY_REQUIRED_UNIVERSAL_KEYS: Readonly<Record<string, readonly string[]>> 
   qp_cnc_turning: ["primary_trade", "current_city", "availability"],
   qp_vmc_milling: ["primary_trade", "current_city", "availability"],
   qp_cam_programming: ["primary_trade", "current_city", "availability"],
+  qp_cad_design_3d: ["primary_trade", "current_city", "availability"],
 };
 
 const TRADE_REQUIRED_KEYS: Readonly<Record<string, readonly string[]>> = {
   // CEO Launch Pack v1 (RULED 2026-11-02): Turner Easy Q2–Q3 (Track A #1),
-  // VMC Easy Q2–Q3 (Track A #2), CAM Easy Q2–Q3 (Track A #3). Machine/software/
-  // controller moved to Medium (Q6–Q7) — asked, never required.
+  // VMC Easy Q2–Q3 (Track A #2), CAM Easy Q2–Q3 (Track A #3), 3D Easy Q2–Q3
+  // (Track A #4). Machine/software/controller moved to Medium (Q6–Q7) —
+  // asked, never required.
   qp_cnc_turning: ["turning_experience", "turning_level"],
   qp_vmc_milling: ["milling_experience", "milling_level"],
   qp_cam_programming: ["programming_experience", "cam_level"],
+  qp_cad_design_3d: ["design_experience", "design_level"],
   qp_cnc_grinding: [
     "grinding_machine",
     "grinding_experience",

@@ -2,11 +2,12 @@ import { describe, it, expect } from "vitest";
 import { ROLES, RELATED_ROLE_IDS, getRole, getMachine, DOMAINS } from "./index";
 
 describe("taxonomy", () => {
-  it("exposes the 7 initial CNC/VMC roles plus the 6 multi-trade roles", () => {
+  it("exposes the 7 initial CNC/VMC roles plus the 7 multi-trade roles", () => {
     // 7 launch roles + role_welder (TAX-WELD-1) + role_cnc_operator (TD94) +
-    // role_plumber + role_carpenter + role_designer + role_interior_designer.
+    // role_plumber + role_carpenter + role_designer + role_interior_designer +
+    // role_cad_designer_3d (CEO Launch Plan Pack v1 Track A #4).
     // The id space only ever GROWS (see the file header).
-    expect(ROLES).toHaveLength(13);
+    expect(ROLES).toHaveLength(14);
     expect(getRole("role_vmc_operator")?.name).toBe("VMC Operator");
     expect(getRole("role_welder")?.name).toBe("Welder");
     expect(getRole("role_welder")?.domainId).toBe("dom_welding");

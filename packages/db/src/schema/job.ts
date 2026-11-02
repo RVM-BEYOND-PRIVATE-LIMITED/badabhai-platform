@@ -395,9 +395,10 @@ export const jobPostings = pgTable(
     // record. NULL-tolerant, because "no role picked" is every legacy and chat-published row.
     // A 22nd declared kind widens this list (and `jobs_role_kind_chk`) in the same change —
     // `migration-0131-job-role-kind.test.ts` reads this model and turns red until it does.
+    // Migration 0139 (Track A #4): the 22nd kind is `cad_designer_3d`.
     check(
       "job_postings_role_kind_chk",
-      sql`${t.roleKind} IS NULL OR ${t.roleKind} IN ('cnc_turner', 'vmc_milling', 'cnc_grinding', 'cam_programmer', 'cad_draughtsman', 'conventional_machinist', 'tool_die_maker', 'welder', 'sheet_metal_worker', 'press_operator', 'painter_coating', 'fitter', 'maintenance_technician', 'industrial_electrician', 'assembly_line_worker', 'quality_inspector', 'injection_moulding_operator', 'mould_die_maker', 'blow_moulding_operator', 'rubber_moulding_operator', 'plastic_process_technician')`,
+      sql`${t.roleKind} IS NULL OR ${t.roleKind} IN ('cnc_turner', 'vmc_milling', 'cnc_grinding', 'cam_programmer', 'cad_draughtsman', 'conventional_machinist', 'tool_die_maker', 'welder', 'sheet_metal_worker', 'press_operator', 'painter_coating', 'fitter', 'maintenance_technician', 'industrial_electrician', 'assembly_line_worker', 'quality_inspector', 'injection_moulding_operator', 'mould_die_maker', 'blow_moulding_operator', 'rubber_moulding_operator', 'plastic_process_technician', 'cad_designer_3d')`,
     ),
     // Migration 0133 (ADR-0050 §4.1) — the closed provenance set. NULL-tolerant: every native
     // posting and every D4 conversion is NULL.
@@ -641,9 +642,10 @@ export const jobs = pgTable(
       sql`${t.payType} IS NULL OR ${t.payType} IN ('in_hand', 'gross', 'ctc')`,
     ),
     // Migration 0131 — mirrors `job_postings_role_kind_chk` (the same 21 literals, same order).
+    // Migration 0139 (Track A #4): the 22nd kind is `cad_designer_3d`.
     check(
       "jobs_role_kind_chk",
-      sql`${t.roleKind} IS NULL OR ${t.roleKind} IN ('cnc_turner', 'vmc_milling', 'cnc_grinding', 'cam_programmer', 'cad_draughtsman', 'conventional_machinist', 'tool_die_maker', 'welder', 'sheet_metal_worker', 'press_operator', 'painter_coating', 'fitter', 'maintenance_technician', 'industrial_electrician', 'assembly_line_worker', 'quality_inspector', 'injection_moulding_operator', 'mould_die_maker', 'blow_moulding_operator', 'rubber_moulding_operator', 'plastic_process_technician')`,
+      sql`${t.roleKind} IS NULL OR ${t.roleKind} IN ('cnc_turner', 'vmc_milling', 'cnc_grinding', 'cam_programmer', 'cad_draughtsman', 'conventional_machinist', 'tool_die_maker', 'welder', 'sheet_metal_worker', 'press_operator', 'painter_coating', 'fitter', 'maintenance_technician', 'industrial_electrician', 'assembly_line_worker', 'quality_inspector', 'injection_moulding_operator', 'mould_die_maker', 'blow_moulding_operator', 'rubber_moulding_operator', 'plastic_process_technician', 'cad_designer_3d')`,
     ),
     // Migration 0133 (ADR-0050 §4.1) — the column is always a JSON array (`[]` or ids), never
     // a scalar or object a careless write could store.

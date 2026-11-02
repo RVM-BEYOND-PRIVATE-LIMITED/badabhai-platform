@@ -72,6 +72,8 @@ export const TRADE_LEVEL_PACKS: Readonly<Record<string, TradeLevelPack>> = {
   qp_vmc_milling: { skillId: "mskill_vmc_operator", levelKey: "milling_level" },
   qp_cnc_grinding: { skillId: "mskill_cnc_grinding_operator", levelKey: "grinding_level" },
   qp_cam_programming: { skillId: "mskill_cam_programmer", levelKey: "cam_level" },
+  // Track A #4 — the 3D CAD Designer (CEO Launch Plan Pack v1, sheet 4).
+  qp_cad_design_3d: { skillId: "mskill_cad_designer_3d", levelKey: "design_level" },
 };
 
 /** Legacy/alias spellings that name a `TradeLevel` without being one. */
@@ -271,6 +273,13 @@ export const TRADE_LEVEL_CONFIRM_ITEMS: Readonly<
     senior: "cam_senior_confirm",
     lead: "cam_lead_confirm",
     supervisor: "cam_team_confirm",
+  },
+  // Track A #4 — the 3D design confirms (CEO Launch Plan Pack v1, sheet 4).
+  // Confirmed from `senior_designer`: senior_designer, lead, supervisor.
+  qp_cad_design_3d: {
+    senior_designer: "design_senior_confirm",
+    lead: "design_lead_confirm",
+    supervisor: "design_team_confirm",
   },
 };
 

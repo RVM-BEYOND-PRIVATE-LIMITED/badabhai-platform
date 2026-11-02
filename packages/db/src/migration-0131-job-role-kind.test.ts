@@ -67,7 +67,10 @@ const checkText = (name: string): string => {
   return end < 0 ? FLAT.slice(start) : FLAT.slice(start, end);
 };
 const listed = (text: string): string[] =>
-  [...text.matchAll(/'([a-z_]+)'/g)].map((m) => m[1] as string);
+  // [a-z_0-9], not [a-z_]: `cad_designer_3d` (migration 0139) is the first kind
+  // with a digit, and the 0131 helper predates it. The frozen 0131 assertions
+  // below contain no digits, so this widens nothing they pin.
+  [...text.matchAll(/'([a-z_0-9]+)'/g)].map((m) => m[1] as string);
 
 describe("the fixture is real", () => {
   it("reads a migration that adds both columns and both CHECKs", () => {

@@ -741,6 +741,23 @@ describe("Middle-Way required close (P3a) — the settled slots end the intervie
     expect(decision.completionReason).toBe("required_complete");
   });
 
+  it("3D closes on its Easy 5 too (Track A #4) — software/work-area optional", () => {
+    const design: EnginePacks = {
+      occupation: pack("qp_cad_design_3d", []),
+      universal: pack("pk_universal", []),
+    };
+    const easy5 = settledAnswers([
+      "primary_trade",
+      "design_experience",
+      "design_level",
+      "current_city",
+      "availability",
+    ]);
+    const decision = nextQuestion(state({ answers: easy5 }), design);
+    expect(decision.kind).toBe("close");
+    expect(decision.completionReason).toBe("required_complete");
+  });
+
   it("other packs still need all 8 — grinding still gates on machine + salary", () => {
     const grinding: EnginePacks = {
       occupation: pack("qp_cnc_grinding", []),

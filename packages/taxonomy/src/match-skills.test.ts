@@ -374,7 +374,7 @@ describe("bridge — ROLE_TO_MATCH_SKILL", () => {
   it("is EXHAUSTIVE over ROLES at runtime, not just at compile time", () => {
     const keys = Object.keys(ROLE_TO_MATCH_SKILL).sort();
     expect(keys).toEqual(ROLES.map((r) => r.id).sort());
-    expect(keys).toHaveLength(13);
+    expect(keys).toHaveLength(14);
   });
 
   it("maps every role to a real match skill", () => {

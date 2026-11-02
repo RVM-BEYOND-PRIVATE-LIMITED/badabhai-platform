@@ -129,6 +129,9 @@ describe("the reachable set per pack — pinned exactly", () => {
     // designer; 2D chips stay on the (relabeled) 2D ID. Reach widening, written here
     // explicitly per this table's contract.
     qp_cad_drafting: ["mskill_3d_designer", "mskill_designer"],
+    // CEO Launch Plan Pack v1, Track A #4: the new trade's software answers derive
+    // its permanent ID directly (role bridge); the E0 ID stays reachable via pairing.
+    qp_cad_design_3d: ["mskill_cad_designer_3d"],
     qp_welding_trade: ["mskill_arc_welder", "mskill_mig_welder", "mskill_tig_welder"],
     qp_fitter: ["mskill_fitter"],
     qp_quality_inspection: ["mskill_quality_inspector"],

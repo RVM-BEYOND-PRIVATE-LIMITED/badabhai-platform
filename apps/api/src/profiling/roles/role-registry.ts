@@ -23,6 +23,7 @@ import {
 
 import { ASSEMBLY_LINE_WORKER } from "./assembly-line-worker.role";
 import { BLOW_MOULDING_OPERATOR } from "./blow-moulding-operator.role";
+import { CAD_DESIGN_3D } from "./cad-design-3d.role";
 import { CAD_DRAUGHTSMAN } from "./cad-draughtsman.role";
 import { CAM_PROGRAMMER } from "./cam-programmer.role";
 import { CNC_GRINDING } from "./cnc-grinding.role";
@@ -62,6 +63,7 @@ const DECLARED = [
   // ── design ───────────────────────────────────────────────────────────────────────────────────
   CAM_PROGRAMMER,
   CAD_DRAUGHTSMAN,
+  CAD_DESIGN_3D,
   // ── fabrication ──────────────────────────────────────────────────────────────────────────────
   WELDER,
   SHEET_METAL_WORKER,

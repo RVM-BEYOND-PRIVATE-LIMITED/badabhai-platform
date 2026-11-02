@@ -1,0 +1,18 @@
+# RVM-minted trade domain: 3D CAD DESIGNER (mechanical).
+#
+# CEO Launch Plan Pack v1, Track A #4 (sheet 4, RULED 2026-11-02): the 3D trade is
+# a trade in its own right — parts, assemblies and surfacing from a requirement —
+# not a senior 2D draughtsman. NCO has no code for it (3118.0401/0402 name the
+# draughtsman, and fam_cad_drafting binds both), so the domain is minted here
+# under the established `jd_rvm_<slug>` rule rather than forced onto a
+# draughting code it would collide with. Level 5 under ISCO 3118 Draughtspersons,
+# the same parent the NCO mechanical-draughting rows hang off.
+#
+# The aliases below are the sheet-4 Hinglish words that name 3D work outright,
+# plus the three 3D-meaning phrases moved off jd_nco_3118_0401 (retired there,
+# re-added here — see rvm-alias-retirements.jsonl). Deliberately NOT here:
+# "cad"/"cad operator"/"autocad" (ambiguous or 2D — stay on 3118_0401),
+# "designer" (garment's, by ruling), bare "fusion"/"nx"/"ug" (too short —
+# the honest-miss ruling that holds back bare "fusion"), "toolpath"
+# (CAM's E5 pair), Devanagari (no recent pack authors it).
+{"source": "rvm", "code": null, "id_slug": "3d_cad_designer", "level": 5, "parent_code": "3118", "parent_source": "isco08", "isco_major": "3", "isco_unit": "3118", "skill_level": 3, "label_en": "3D CAD Designer", "label_hi": "3D CAD \u0921\u093f\u091c\u093c\u093e\u0907\u0928\u0930", "description_en": "Mechanical 3D CAD designer: parts, assemblies and surfacing from a requirement in SolidWorks, Creo, NX, CATIA, Inventor, Fusion 360 or Solid Edge; 2D drawings from the model; tolerance stack-up and DFM.", "selectable": true, "industry_id": "ind_industrial_manufacturing", "canonical_role_id": "role_cad_designer_3d", "aliases": [{"text": "cad designer", "lang": "en", "source": "rvm"}, {"text": "mechanical designer", "lang": "en", "source": "rvm"}, {"text": "solidworks", "lang": "en", "source": "rvm"}, {"text": "3d designer", "lang": "en", "source": "rvm"}, {"text": "design engineer", "lang": "en", "source": "rvm"}, {"text": "product design", "lang": "en", "source": "rvm"}, {"text": "machine design", "lang": "en", "source": "rvm"}, {"text": "mechanical design", "lang": "en", "source": "rvm"}, {"text": "3d modelling", "lang": "en", "source": "rvm"}, {"text": "3d modeling", "lang": "en", "source": "rvm"}, {"text": "nx", "lang": "en", "source": "rvm"}, {"text": "catia", "lang": "en", "source": "rvm"}, {"text": "creo", "lang": "en", "source": "rvm"}, {"text": "inventor", "lang": "en", "source": "rvm"}, {"text": "fusion 360", "lang": "en", "source": "rvm"}, {"text": "solid edge", "lang": "en", "source": "rvm"}, {"text": "unigraphics", "lang": "en", "source": "rvm"}]}
