@@ -46,6 +46,17 @@ export function hashPhone(phoneE164: string, pepper: string): string {
   return hmacSha256Hex(pepper, `phone:${phoneE164}`);
 }
 
+/**
+ * Stable, peppered, non-reversible key for a NORMALIZED org display name (#2497 —
+ * payer password login by exact company/agency name). Same HMAC-SHA256 construction
+ * as the other lookup keys, with its OWN `payer_org:` domain so an org name can
+ * never collide with a phone/OTP/email digest even if the strings match. The input
+ * MUST already be normalized (trim + lowercase); hashing is not normalizing.
+ */
+export function hashOrgName(normalizedOrgName: string, pepper: string): string {
+  return hmacSha256Hex(pepper, `payer_org:${normalizedOrgName}`);
+}
+
 /** Peppered hash of an IP for consent/audit records. */
 export function hashIp(ip: string, pepper: string): string {
   return hmacSha256Hex(pepper, `ip:${ip}`);
@@ -311,4 +322,81 @@ export function verifyPin(pin: string, token: string, pepper: string): boolean {
 /** Is this a `hashPin` token (vs an empty/legacy value)? For rehash-on-verify checks. */
 export function isPinHash(value: string): boolean {
   return typeof value === "string" && value.startsWith(`${PIN_HASH_VERSION}.`) && value.split(".").length === 3;
+}
+
+// ---------------------------------------------------------------------------
+// PASSWORD hashing (#2497 — payer password login).
+//
+// Same construction as the PIN above, NOT Argon2id — the ADR-0026 R3 reconciliation
+// (TD55) deliberately deferred Argon2id repo-wide in favor of Node stdlib scrypt +
+// per-value salt + server pepper, with a versioned token so a future Argon2id swap is
+// non-breaking. A payer password reuses the SAME scrypt cost (proven: a few ms
+// server-side, so a login flood cannot CPU-DoS the API) and the SAME pepper the HMAC
+// lookups use (`PII_HASH_PEPPER`), kept domain-separated by a `password:` KDF prefix
+// (the same namespacing `otp:` / `phone:` / `pin:` already use in this file) — so no
+// new secret is minted and no box change is needed to arm this.
+//
+// SELF-ENCODED token (no separate salt/algo column):
+//   "password-v1.<salt_b64>.<derived_b64>"
+// The salt is random per password (equal passwords hash differently); the pepper is
+// mixed into the KDF input (a row leak still cannot be brute-forced without the
+// server pepper). The RAW password and the pepper NEVER appear in the token, an
+// event, a log, ai_jobs, or audit_logs (CLAUDE.md §2).
+// ---------------------------------------------------------------------------
+const PASSWORD_HASH_VERSION = "password-v1";
+const PASSWORD_SALT_BYTES = 16;
+const PASSWORD_KEY_BYTES = 32;
+// Same cost as the PIN KDF above: N=2^15 (~32MB), r=8, p=1.
+const PASSWORD_SCRYPT = { N: 32768, r: 8, p: 1, maxmem: 64 * 1024 * 1024 } as const;
+
+/** Mix the pepper into the KDF input under its own domain, so one pepper serves many uses. */
+function passwordKdfInput(password: string, pepper: string): string {
+  return `password:${pepper}:${password}`;
+}
+
+/**
+ * Hash a payer password to a self-encoded scrypt token. The CALLER enforces the
+ * policy (8–128 chars, letter + digit) FIRST — this only hashes. Returns the token;
+ * the caller stores it with the pepper version in `password_pepper_version`. Pure
+ * (secrets supplied by the caller).
+ */
+export function hashPassword(password: string, pepper: string): string {
+  const salt = randomBytes(PASSWORD_SALT_BYTES);
+  const derived = scryptSync(passwordKdfInput(password, pepper), salt, PASSWORD_KEY_BYTES, PASSWORD_SCRYPT);
+  return [PASSWORD_HASH_VERSION, salt.toString("base64"), derived.toString("base64")].join(".");
+}
+
+/**
+ * Constant-time verify of a password against a `hashPassword` token. Returns false on
+ * any malformed token, wrong version, or mismatch (fail-closed — never throws). The
+ * scrypt recompute uses the token's own salt; the comparison is timing-safe. Callers
+ * should still burn a dummy verify on unknown accounts so miss/hit timing matches.
+ */
+export function verifyPassword(password: string, token: string, pepper: string): boolean {
+  const [version, saltB64, derivedB64] = token.split(".");
+  if (version !== PASSWORD_HASH_VERSION || !saltB64 || !derivedB64) return false;
+  let expected: Buffer;
+  let actual: Buffer;
+  try {
+    expected = Buffer.from(derivedB64, "base64");
+    if (expected.length !== PASSWORD_KEY_BYTES) return false;
+    actual = scryptSync(
+      passwordKdfInput(password, pepper),
+      Buffer.from(saltB64, "base64"),
+      expected.length,
+      PASSWORD_SCRYPT,
+    );
+  } catch {
+    return false;
+  }
+  return actual.length === expected.length && timingSafeEqual(actual, expected);
+}
+
+/** Is this a `hashPassword` token (vs an empty/legacy value)? For rehash-on-verify checks. */
+export function isPasswordHash(value: string): boolean {
+  return (
+    typeof value === "string" &&
+    value.startsWith(`${PASSWORD_HASH_VERSION}.`) &&
+    value.split(".").length === 3
+  );
 }

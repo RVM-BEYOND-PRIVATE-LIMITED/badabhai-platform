@@ -73,9 +73,13 @@ describe("PayersRepository — payer PII at rest (ADR-0019 B-R2 / ADR-0004 disci
       role: "agent",
       emailEnc: pii.encrypt(EMAIL.toLowerCase()),
       emailHash: pii.hmac(EMAIL.toLowerCase()),
+      orgNameEnc: pii.encrypt(ORG),
+      orgNameLookupHash: pii.hashOrgName(ORG.toLowerCase()),
       phoneEnc: pii.encrypt(PHONE),
       phoneHash: pii.hashPhone(PHONE),
-      orgNameEnc: pii.encrypt(ORG),
+      passwordHash: null,
+      passwordSetAt: null,
+      passwordPepperVersion: null,
       status: "active",
       previousStatus: null,
       createdAt: new Date(),
@@ -89,5 +93,149 @@ describe("PayersRepository — payer PII at rest (ADR-0019 B-R2 / ADR-0004 disci
       orgName: ORG,
       phone: PHONE,
     });
+  });
+
+  it("decryptContact reads null email for a phone-only row (never throws, never fabricates)", () => {
+    const repo = new PayersRepository(makeDb().db, pii);
+    const row = {
+      id: "payer-1",
+      role: "employer",
+      emailEnc: null,
+      emailHash: null,
+      orgNameEnc: pii.encrypt(ORG),
+      orgNameLookupHash: pii.hashOrgName(ORG.toLowerCase()),
+      phoneEnc: pii.encrypt(PHONE),
+      phoneHash: pii.hashPhone(PHONE),
+      passwordHash: null,
+      passwordSetAt: null,
+      passwordPepperVersion: null,
+      status: "pending",
+      previousStatus: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    } as unknown as Payer;
+    expect(repo.decryptContact(row).email).toBeNull();
+  });
+});
+
+describe("PayersRepository — phone signup + org lookup + passwords (#2497)", () => {
+  /** Mock db with a scripted select-one result and an update captor. */
+  function makeRepo(selectRows: unknown[] = []) {
+    let updated: Record<string, unknown> | null = null;
+    const db = {
+      select: () => ({
+        from: () => ({
+          where: () => ({ limit: async () => selectRows }),
+        }),
+      }),
+      update: () => ({
+        set: (v: Record<string, unknown>) => {
+          updated = v;
+          return {
+            where: () => ({ returning: async () => [{ id: "payer-1" }] }),
+          };
+        },
+      }),
+    } as unknown as Database;
+    return { db, updated: () => updated };
+  }
+
+  it("create stores the org lookup hash (normalized) alongside the encrypted contacts", async () => {
+    const { db, captured } = makeDb();
+    const repo = new PayersRepository(db, pii);
+    await repo.create({ role: "employer", email: "  Boss@Acme.com ", orgName: ORG });
+    expect(captured().orgNameLookupHash).toBe(pii.hashOrgName("acme staffing"));
+  });
+
+  it("create with phone-only stores no email keys (null, never empty string)", async () => {
+    let seen: Record<string, unknown> = {};
+    const db = {
+      insert: () => ({
+        values: (v: Record<string, unknown>) => {
+          seen = v;
+          return { returning: async () => [{ id: "payer-1" }] };
+        },
+      }),
+    } as unknown as Database;
+    const repo = new PayersRepository(db, pii);
+    await repo.create({ role: "agent", orgName: ORG, phone: PHONE });
+    expect(seen.emailEnc).toBeNull();
+    expect(seen.emailHash).toBeNull();
+    expect(seen.phoneHash).toBe(pii.hashPhone(PHONE));
+    expect(seen.orgNameLookupHash).toBe(pii.hashOrgName("acme staffing"));
+  });
+
+  it("createOrGet with neither contact fails fast (programming error, not a contactless row)", async () => {
+    const repo = new PayersRepository(makeDb().db, pii);
+    await expect(repo.createOrGet({ role: "employer", orgName: ORG })).rejects.toThrow(
+      "at least one of email/phone",
+    );
+  });
+
+  it("setPassword stores hash + pepper version + timestamp in one row write", async () => {
+    const { db, updated } = makeRepo();
+    const repo = new PayersRepository(db, pii);
+    await repo.setPassword("payer-1", { hash: "password-v1.s.h", pepperVersion: 1 });
+    expect(updated()).toMatchObject({
+      passwordHash: "password-v1.s.h",
+      passwordPepperVersion: 1,
+    });
+    expect((updated()!.passwordSetAt as unknown) instanceof Date).toBe(true);
+  });
+
+  it("ensureOrgLookupHash fills a missing hash from the decrypted org name, and no-ops when present", async () => {
+    const withHash = {
+      id: "payer-1",
+      orgNameEnc: pii.encrypt(ORG),
+      orgNameLookupHash: "org<already>",
+    };
+    const withoutHash = { ...withHash, orgNameLookupHash: null };
+    // Present → no write at all.
+    let writes = 0;
+    const dbNoop = {
+      update: () => ({
+        set: (_v: unknown) => {
+          writes++;
+          return { where: async () => [] };
+        },
+      }),
+    } as unknown as Database;
+    const repoNoop = new PayersRepository(dbNoop, pii);
+    await repoNoop.ensureOrgLookupHash(withHash as never);
+    expect(writes).toBe(0);
+
+    // Missing → decrypts, hashes the NORMALIZED name, and writes it back.
+    const { db, updated } = makeRepo();
+    const repo = new PayersRepository(db, pii);
+    await repo.ensureOrgLookupHash(withoutHash as never);
+    expect(updated()).toMatchObject({ orgNameLookupHash: pii.hashOrgName("acme staffing") });
+  });
+
+  it("update refreshes the org lookup hash when the org name changes (never drifts)", async () => {
+    const { db, updated } = makeRepo();
+    const repo = new PayersRepository(db, pii);
+    await repo.update("payer-1", { orgName: "New Name Ltd" });
+    expect((updated() as Record<string, unknown>).orgNameLookupHash).toBe(
+      pii.hashOrgName("new name ltd"),
+    );
+  });
+
+  it("findByOrgName asks for at most 2 rows (0 / 1 / many is all any caller needs)", async () => {
+    let limitSeen = -1;
+    const db = {
+      select: () => ({
+        from: () => ({
+          where: () => ({
+            limit: async (n: number) => {
+              limitSeen = n;
+              return [];
+            },
+          }),
+        }),
+      }),
+    } as unknown as Database;
+    const repo = new PayersRepository(db, pii);
+    await repo.findByOrgName("Acme Staffing");
+    expect(limitSeen).toBe(2);
   });
 });

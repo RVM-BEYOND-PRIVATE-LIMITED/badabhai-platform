@@ -1,12 +1,27 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, eq } from "drizzle-orm";
-import { type Database, payers, type Payer, type PayerRole, type PayerStatus } from "@badabhai/db";
+import { and, eq, isNull, sql } from "drizzle-orm";
+import {
+  type Database,
+  payers,
+  type Payer,
+  type PayerRole,
+  type PayerStatus,
+} from "@badabhai/db";
 import { DATABASE } from "../database/database.module";
 import { PiiCryptoService } from "../common/pii-crypto.service";
 
+/**
+ * The pepper version that produced a row's `password_hash` (#2497). Today only v1
+ * exists (the `password-v1` scrypt token); an unexpected version fails closed at
+ * verify time, and a future v2 rehashes on successful verify (mirrors the worker-PIN
+ * `CURRENT_PIN_PEPPER_VERSION` pattern).
+ */
+export const CURRENT_PASSWORD_PEPPER_VERSION = 1;
+
 export interface CreatePayerInput {
   role: PayerRole;
-  email: string;
+  /** Login email (optional since #2497 — phone-only signup has none). Normalized on write. */
+  email?: string;
   orgName: string;
   phone?: string;
 }
@@ -16,7 +31,8 @@ export interface PayerContact {
   id: string;
   role: PayerRole;
   status: Payer["status"];
-  email: string;
+  /** NULL for phone-only accounts (#2497) — callers must not assume an email. */
+  email: string | null;
   orgName: string;
   phone: string | null;
 }
@@ -41,16 +57,27 @@ export class PayersRepository {
     return email.trim().toLowerCase();
   }
 
+  /**
+   * Normalize an org display name for the lookup hash (#2497 — exact company-name
+   * login is trimmed + case-insensitive). The STORED name keeps its original casing;
+   * only the hash input is folded. Unicode-aware `toLowerCase` (locale-insensitive),
+   * so "SHARMA TRADING" and "sharma trading" hash identically.
+   */
+  static normOrgName(orgName: string): string {
+    return orgName.trim().toLowerCase();
+  }
+
   /** Create a payer, encrypting all contact PII at rest. Returns the new id only. */
   async create(input: CreatePayerInput): Promise<{ id: string }> {
-    const normEmail = PayersRepository.normEmail(input.email);
+    const normEmail = input.email ? PayersRepository.normEmail(input.email) : null;
     const [row] = await this.db
       .insert(payers)
       .values({
         role: input.role,
-        emailEnc: this.pii.encrypt(normEmail),
-        emailHash: this.pii.hmac(normEmail),
+        emailEnc: normEmail ? this.pii.encrypt(normEmail) : null,
+        emailHash: normEmail ? this.pii.hmac(normEmail) : null,
         orgNameEnc: this.pii.encrypt(input.orgName),
+        orgNameLookupHash: this.pii.hashOrgName(PayersRepository.normOrgName(input.orgName)),
         phoneEnc: input.phone ? this.pii.encrypt(input.phone) : null,
         phoneHash: input.phone ? this.pii.hashPhone(input.phone) : null,
       })
@@ -59,17 +86,38 @@ export class PayersRepository {
   }
 
   /**
-   * Idempotent, race-safe create-or-get keyed on the login email's keyed HMAC — the
-   * payer analogue of `WorkersRepository.createOrGetByPhoneHash` (TD23). Two concurrent
-   * first-time signups for the same email both reach here; a plain insert would 23505 on
-   * `payers_email_hash_uq`. `created` is true ONLY for the request that actually inserted.
+   * Idempotent, race-safe create-or-get keyed on the payer's contact (#2497: the login
+   * email's keyed HMAC when one is supplied, the phone's when the signup is phone-only) —
+   * the payer analogue of `WorkersRepository.createOrGetByPhoneHash` (TD23). Two
+   * concurrent first-time signups for the same contact both reach here; a plain insert
+   * would 23505 on `payers_email_hash_uq`. `created` is true ONLY for the request that
+   * actually inserted.
    *
-   * SECURITY (XB-H no-enumeration): an existing email returns `{created:false}` WITHOUT
-   * a duplicate row, an error, or any overwrite of the stored role/org-name — so signup
-   * for a known email is indistinguishable (same neutral HTTP response, no 500-vs-200
-   * oracle) from signup for a new one. The existing account is never mutated here.
+   * EMAIL path is unchanged (unique hash → `ON CONFLICT DO NOTHING`). PHONE has no unique
+   * index (historical rows may share a phone), so the phone path serializes on a
+   * transaction-scoped advisory lock keyed on the phone hash (the `unlocks`/`posting-plans`
+   * pattern) instead: find-inside-the-lock, insert when absent.
+   *
+   * SECURITY (XB-H no-enumeration): an existing contact returns `{created:false}`
+   * WITHOUT a duplicate row, an error, or any overwrite of the stored role/org-name — so
+   * signup for a known contact is indistinguishable (same neutral HTTP response, no
+   * 500-vs-200 oracle) from signup for a new one. The existing account is never mutated
+   * here. At least one of `email`/`phone` is REQUIRED (the DTO guarantees it); neither
+   * is a programming error and throws rather than inserting a contactless row.
    */
   async createOrGet(input: CreatePayerInput): Promise<{ id: string; created: boolean }> {
+    if (!input.email && !input.phone) {
+      throw new Error("payer signup requires at least one of email/phone");
+    }
+    // Email wins on a both-supplied body (deterministic + preserves the unique-key dedup).
+    if (input.email) return this.createOrGetByEmail({ ...input, email: input.email });
+    return this.createOrGetByPhone(input as { role: PayerRole; orgName: string; phone: string });
+  }
+
+  /** Email-keyed path — the pre-#2497 behaviour, unchanged. */
+  private async createOrGetByEmail(
+    input: CreatePayerInput & { email: string },
+  ): Promise<{ id: string; created: boolean }> {
     const normEmail = PayersRepository.normEmail(input.email);
     const emailHash = this.pii.hmac(normEmail);
     const inserted = await this.db
@@ -79,6 +127,7 @@ export class PayersRepository {
         emailEnc: this.pii.encrypt(normEmail),
         emailHash,
         orgNameEnc: this.pii.encrypt(input.orgName),
+        orgNameLookupHash: this.pii.hashOrgName(PayersRepository.normOrgName(input.orgName)),
         phoneEnc: input.phone ? this.pii.encrypt(input.phone) : null,
         phoneHash: input.phone ? this.pii.hashPhone(input.phone) : null,
       })
@@ -94,6 +143,45 @@ export class PayersRepository {
       .limit(1);
     if (!existing) throw new Error("payer insert hit a conflict but no row was found");
     return { id: existing.id, created: false };
+  }
+
+  /**
+   * Phone-keyed path (#2497 — phone-only signup). Serialized by an advisory lock on the
+   * phone hash so two concurrent same-phone signups cannot both insert: the loser reads
+   * the winner's row inside the same lock. The lock is transaction-scoped (released on
+   * commit/rollback) and keyed on the opaque hash, never the raw phone.
+   */
+  private async createOrGetByPhone(input: {
+    role: PayerRole;
+    orgName: string;
+    phone: string;
+  }): Promise<{ id: string; created: boolean }> {
+    const phoneHash = this.pii.hashPhone(input.phone);
+    return this.db.transaction(async (tx) => {
+      await tx.execute(
+        sql`select pg_advisory_xact_lock(hashtextextended(${phoneHash}, 0))`,
+      );
+      const [existing] = await tx
+        .select({ id: payers.id })
+        .from(payers)
+        .where(eq(payers.phoneHash, phoneHash))
+        .limit(1);
+      if (existing) return { id: existing.id, created: false };
+      const [inserted] = await tx
+        .insert(payers)
+        .values({
+          role: input.role,
+          emailEnc: null,
+          emailHash: null,
+          orgNameEnc: this.pii.encrypt(input.orgName),
+          orgNameLookupHash: this.pii.hashOrgName(PayersRepository.normOrgName(input.orgName)),
+          phoneEnc: this.pii.encrypt(input.phone),
+          phoneHash,
+        })
+        .returning({ id: payers.id });
+      if (!inserted) throw new Error("payer insert returned no row");
+      return { id: inserted.id, created: true };
+    });
   }
 
   /** Fetch the raw row by id (ciphertext fields; decrypt only via {@link decryptContact}). */
@@ -169,7 +257,12 @@ export class PayersRepository {
     patch: { orgName?: string; phone?: string },
   ): Promise<Payer | undefined> {
     const set: Partial<typeof payers.$inferInsert> = { updatedAt: new Date() };
-    if (patch.orgName !== undefined) set.orgNameEnc = this.pii.encrypt(patch.orgName);
+    if (patch.orgName !== undefined) {
+      set.orgNameEnc = this.pii.encrypt(patch.orgName);
+      // #2497 — the exact-name login key follows the display name (same write, so
+      // they can never drift: a renamed payer keeps logging in by the new name).
+      set.orgNameLookupHash = this.pii.hashOrgName(PayersRepository.normOrgName(patch.orgName));
+    }
     if (patch.phone !== undefined) {
       set.phoneEnc = this.pii.encrypt(patch.phone);
       set.phoneHash = this.pii.hashPhone(patch.phone);
@@ -183,6 +276,29 @@ export class PayersRepository {
     const hash = this.pii.hmac(PayersRepository.normEmail(email));
     const [row] = await this.db.select().from(payers).where(eq(payers.emailHash, hash)).limit(1);
     return row;
+  }
+
+  /**
+   * Rows for an E.164 phone via the keyed hash (#2497 — up to 2, newest... in row
+   * order). Phone has NO unique index (historical rows may share one), so callers —
+   * not this method — decide what multiples mean: the OTP door takes the first match
+   * (proving the shared contact), the password door requires exactly one (else
+   * neutral 401). `limit(2)` is all any caller needs to tell 0 / 1 / many apart.
+   */
+  async findByPhone(phone: string): Promise<Payer[]> {
+    const hash = this.pii.hashPhone(phone);
+    return this.db.select().from(payers).where(eq(payers.phoneHash, hash)).limit(2);
+  }
+
+  /**
+   * Look up payers by EXACT org display name (#2497 — company-name login). The name is
+   * normalized (trim + lowercase) and matched on the keyed HMAC — the raw name is
+   * never scanned and never leaves this boundary. `limit(2)`: the caller only ever
+   * needs to distinguish 0 / exactly-1 / many (many logs in NOBODY, neutral 401).
+   */
+  async findByOrgName(orgName: string): Promise<Payer[]> {
+    const hash = this.pii.hashOrgName(PayersRepository.normOrgName(orgName));
+    return this.db.select().from(payers).where(eq(payers.orgNameLookupHash, hash)).limit(2);
   }
 
   /**
@@ -207,9 +323,51 @@ export class PayersRepository {
       id: row.id,
       role: row.role,
       status: row.status,
-      email: this.pii.decrypt(row.emailEnc),
+      // #2497 — email is nullable now (phone-only accounts); decrypt only when set.
+      email: row.emailEnc ? this.pii.decrypt(row.emailEnc) : null,
       orgName: this.pii.decrypt(row.orgNameEnc),
       phone: row.phoneEnc ? this.pii.decrypt(row.phoneEnc) : null,
     };
+  }
+
+  /**
+   * Store (or replace) a payer's login password (#2497 — `POST /payer/password/set`).
+   * Writes the self-encoded scrypt token + its pepper version + the set timestamp in
+   * ONE row write; the raw password never reaches this layer (the service hashes
+   * first). Returns the updated row.
+   */
+  async setPassword(
+    id: string,
+    password: { hash: string; pepperVersion: number },
+  ): Promise<Payer | undefined> {
+    const [row] = await this.db
+      .update(payers)
+      .set({
+        passwordHash: password.hash,
+        passwordPepperVersion: password.pepperVersion,
+        passwordSetAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(eq(payers.id, id))
+      .returning();
+    return row;
+  }
+
+  /**
+   * Lazily fill `org_name_lookup_hash` for rows created before #2497 (#2497 — the
+   * HMAC key lives server-side, so no SQL backfill can compute it). Called on the
+   * next successful login; the `WHERE ... IS NULL` guard makes concurrent logins
+   * converge on one write and makes this a no-op for rows that already have a hash.
+   * Best-effort by contract: the caller never fails a login on this write.
+   */
+  async ensureOrgLookupHash(row: Payer): Promise<void> {
+    if (row.orgNameLookupHash) return;
+    const hash = this.pii.hashOrgName(
+      PayersRepository.normOrgName(this.pii.decrypt(row.orgNameEnc)),
+    );
+    await this.db
+      .update(payers)
+      .set({ orgNameLookupHash: hash, updatedAt: new Date() })
+      .where(and(eq(payers.id, row.id), isNull(payers.orgNameLookupHash)));
   }
 }

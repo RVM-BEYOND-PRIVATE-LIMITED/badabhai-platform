@@ -19,6 +19,8 @@ import type { ActiveMembershipFacts } from "../payers/payer-tenant-scope";
 
 const CTX: RequestContext = { correlationId: "11111111-1111-4111-8111-111111111111", requestId: "req-1" };
 const PAYER_ID = "aaaaaaaa-0000-4000-8000-000000000001";
+/** Opaque test-double password hash (deterministic, never embeds the raw password). */
+const pwHashFor = (p: string): string => `pw$${[...p].reverse().join("")}${p.length}`;
 const EMAIL = "boss@acme.com";
 /** Inside the reserved RFC 2606 `.invalid` domain the test-login seam is allowed to mint for. */
 const SYNTHETIC_EMAIL = `e2e-1${PAYER_TEST_LOGIN_DOMAIN}`;
@@ -29,13 +31,19 @@ function setup(over: { method?: "email_otp" | "whatsapp" | "supabase" } = {}) {
   const config = {
     PAYER_LOGIN_METHOD: over.method ?? "email_otp",
     OTP_RESEND_COOLDOWN_SECONDS: 30,
+    PAYER_PASSWORD_MAX_ATTEMPTS: 5,
+    PAYER_PASSWORD_LOCKOUT_SECONDS: 900,
   } as unknown as ServerConfig;
 
-  const account = { id: PAYER_ID, role: "employer", status: "active" } as never;
+  const account: Record<string, unknown> = { id: PAYER_ID, role: "employer", status: "active" };
   const payers = {
     createOrGet: vi.fn(async () => ({ id: PAYER_ID, created: true })),
-    findByEmail: vi.fn(async () => account),
-    findById: vi.fn(async () => account),
+    findByEmail: vi.fn(async (): Promise<Record<string, unknown> | undefined> => account),
+    findByPhone: vi.fn(async (): Promise<Record<string, unknown>[]> => []),
+    findByOrgName: vi.fn(async (): Promise<Record<string, unknown>[]> => []),
+    setPassword: vi.fn(async () => ({})),
+    ensureOrgLookupHash: vi.fn(async () => undefined),
+    findById: vi.fn(async (): Promise<Record<string, unknown> | undefined> => account),
     // ADR-0037 — first successful verify promotes pending → active. Default: the account
     // is already active in this fixture, so the guarded update moves no row (undefined)
     // and no `payer.activated` event fires. Tests that exercise activation override this.
@@ -70,8 +78,22 @@ function setup(over: { method?: "email_otp" | "whatsapp" | "supabase" } = {}) {
         Promise.resolve(),
     ),
   };
-  const pii = { hmac: (v: string) => `hmac<${v}>` };
+  const pii = {
+    hmac: (v: string) => `hmac<${v}>`,
+    hashPhone: (v: string) => `phone<${v}>`,
+    hashOrgName: (v: string) => `org<${v}>`,
+    hashPassword: (v: string) => pwHashFor(v),
+    verifyPassword: (v: string, t: string) => t === pwHashFor(v),
+  };
   const freeTier = { grantQuietly: vi.fn().mockResolvedValue(undefined) };
+  // Per-account password-attempt lockout (Redis). Defaults: no lockout recorded.
+  const redis = {
+    incr: vi.fn(async () => 1),
+    expire: vi.fn(async () => 1),
+    get: vi.fn(async () => null as string | null),
+    del: vi.fn(async () => 1),
+  };
+  const queue = { client: redis };
 
   const svc = new PayerAuthService(
     config,
@@ -84,8 +106,9 @@ function setup(over: { method?: "email_otp" | "whatsapp" | "supabase" } = {}) {
     // ADR-0036 §8 — the free-tier grant. `grantQuietly` is contractually never-throwing.
     freeTier as never,
     tenancy as never,
+    queue as never,
   );
-  return { svc, payers, orgs, tenancy, otp, sessions, events, freeTier };
+  return { svc, payers, orgs, tenancy, otp, sessions, events, freeTier, queue, redis, pii };
 }
 
 /** Every string the raw contact PII could be — must NEVER appear in an emitted event. */
@@ -186,7 +209,7 @@ describe("PayerAuthService.requestLogin (no user-enumeration)", () => {
 
   it("an UNKNOWN email runs the no-delivery reserve, emits NOTHING, and returns the SAME shape", async () => {
     const d = setup();
-    d.payers.findByEmail.mockResolvedValueOnce(undefined as never);
+    d.payers.findByEmail.mockResolvedValueOnce(undefined);
     const res = await d.svc.requestLogin({ email: "ghost@nowhere.com" }, CTX);
     expect(d.otp.issueWithoutDelivery).toHaveBeenCalledTimes(1);
     expect(d.otp.issueAndSend).not.toHaveBeenCalled();
@@ -261,7 +284,7 @@ describe("PayerAuthService global send-cap breach (OTP-5 — PII-free event + no
 
     // UNKNOWN account → the existence-independent issueWithoutDelivery trips the SAME breaker.
     const unknown = setup();
-    unknown.payers.findByEmail.mockResolvedValueOnce(undefined as never);
+    unknown.payers.findByEmail.mockResolvedValueOnce(undefined);
     unknown.otp.issueWithoutDelivery.mockRejectedValueOnce(breach());
     const unknownRes = await unknown.svc.requestLogin({ email: "ghost@nowhere.com" }, CTX);
 
@@ -312,7 +335,7 @@ describe("PayerAuthService.verifyLogin", () => {
 
   it("a verified code for an UNKNOWN account does NOT mint a session — returns the SAME 401 (no oracle)", async () => {
     const d = setup();
-    d.payers.findByEmail.mockResolvedValueOnce(undefined as never); // reserved code, no account
+    d.payers.findByEmail.mockResolvedValueOnce(undefined); // reserved code, no account
     await expect(d.svc.verifyLogin({ email: "ghost@nowhere.com", code: "999999" }, CTX)).rejects.toBeInstanceOf(
       UnauthorizedException,
     );
@@ -357,6 +380,256 @@ describe("PayerAuthService.verifyLogin", () => {
   });
 });
 
+describe("PayerAuthService.signup/request/verify with phone (#2497)", () => {
+  it("signup with PHONE ONLY creates keyed on the phone hash and issues via the phone-keyed reserve", async () => {
+    const d = setup();
+    const res = await d.svc.signup({ role: "employer", org_name: ORG, phone: PHONE }, CTX);
+    expect(d.payers.createOrGet).toHaveBeenCalledWith({
+      role: "employer",
+      email: undefined,
+      orgName: ORG,
+      phone: PHONE,
+    });
+    // The OTP reserve/store is keyed on the phone hash (never the email hash, never raw).
+    expect(d.otp.issueAndSend).toHaveBeenCalledWith(
+      expect.objectContaining({ emailHash: `phone<${PHONE}>`, payerId: PAYER_ID }),
+    );
+    expect(res).toEqual({ status: "code_sent", resend_in_seconds: 30 });
+    assertNoPiiInEvents(d.events);
+  });
+
+  it("login/request by phone looks the account up by phone hash (not email)", async () => {
+    const d = setup();
+    d.payers.findByPhone.mockResolvedValueOnce([{ id: PAYER_ID }]);
+    await d.svc.requestLogin({ phone: PHONE }, CTX);
+    expect(d.payers.findByPhone).toHaveBeenCalledWith(PHONE);
+    expect(d.payers.findByEmail).not.toHaveBeenCalled();
+    expect(d.otp.issueAndSend).toHaveBeenCalledWith(
+      expect.objectContaining({ emailHash: `phone<${PHONE}>` }),
+    );
+  });
+
+  it("login/verify by phone verifies the phone-keyed code", async () => {
+    const d = setup();
+    d.payers.findByPhone.mockResolvedValueOnce([{ id: PAYER_ID, role: "employer", status: "active" }]);
+    await d.svc.verifyLogin({ phone: PHONE, code: "123456" }, CTX);
+    expect(d.otp.verify).toHaveBeenCalledWith(`phone<${PHONE}>`, "123456");
+  });
+
+  it("email wins when BOTH contacts are supplied (deterministic OTP key)", async () => {
+    const d = setup();
+    await d.svc.requestLogin({ email: EMAIL, phone: PHONE }, CTX);
+    expect(d.payers.findByEmail).toHaveBeenCalledWith(EMAIL);
+    expect(d.otp.issueWithoutDelivery).not.toHaveBeenCalled();
+    expect(d.otp.issueAndSend).toHaveBeenCalledWith(expect.objectContaining({ emailHash: `hmac<${EMAIL}>` }));
+  });
+});
+
+describe("PayerAuthService.setPassword (#2497)", () => {
+  it("stores the scrypt hash + pepper version — never the password, never an event", async () => {
+    const d = setup();
+    await d.svc.setPassword(PAYER_ID, "CorrectHorse9");
+    expect(d.payers.setPassword).toHaveBeenCalledWith(PAYER_ID, {
+      hash: pwHashFor("CorrectHorse9"),
+      pepperVersion: 1,
+    });
+    expect(d.events.emit).not.toHaveBeenCalled();
+    const blob = JSON.stringify([
+      d.payers.setPassword.mock.calls,
+      d.events.emit.mock.calls,
+    ]);
+    expect(blob).not.toContain("CorrectHorse9");
+  });
+});
+
+describe("PayerAuthService.loginWithPassword (#2497)", () => {
+  const PW = "CorrectHorse9";
+  /** An active account WITH a versioned password hash and a filled org lookup hash. */
+  const pwAccount = (over: Record<string, unknown> = {}) => ({
+    id: PAYER_ID,
+    role: "employer",
+    status: "active",
+    orgNameLookupHash: "org<acme manufacturing pvt ltd>",
+    passwordHash: pwHashFor(PW),
+    passwordPepperVersion: 1,
+    ...over,
+  });
+
+  it("email login: verifies, clears attempts, mints a session, emits session_started with method password", async () => {
+    const d = setup();
+    d.payers.findByEmail.mockResolvedValueOnce(pwAccount());
+    const res = await d.svc.loginWithPassword(EMAIL, PW, CTX);
+    expect(d.payers.findByEmail).toHaveBeenCalledWith(EMAIL);
+    // Success clears the failure counter.
+    expect(d.redis.del).toHaveBeenCalledWith(`payer_pw:attempts:${PAYER_ID}`);
+    expect(d.sessions.create).toHaveBeenCalledWith(PAYER_ID, "employer", {
+      orgId: "org-1",
+      orgRole: "owner",
+    });
+    const evt = d.events.emit.mock.calls.find((c) => c[0].event_name === "payer.session_started");
+    expect(evt![0].payload).toEqual({ payer_id: PAYER_ID, method: "password", is_new_payer: false });
+    expect(res).toMatchObject({ payer_id: PAYER_ID, role: "employer", is_new_payer: false });
+    const blob = JSON.stringify(d.events.emit.mock.calls);
+    expect(blob).not.toContain(PW);
+    expect(blob).not.toContain(EMAIL);
+  });
+
+  it("phone login resolves by phone hash (and email is never consulted)", async () => {
+    const d = setup();
+    d.payers.findByPhone.mockResolvedValueOnce([pwAccount()]);
+    const res = await d.svc.loginWithPassword(PHONE, PW, CTX);
+    expect(d.payers.findByPhone).toHaveBeenCalledWith(PHONE);
+    expect(d.payers.findByEmail).not.toHaveBeenCalled();
+    expect(res.payer_id).toBe(PAYER_ID);
+  });
+
+  it("org-name login is trimmed + case-insensitive, and requires EXACTLY one match", async () => {
+    const d = setup();
+    d.payers.findByOrgName.mockResolvedValueOnce([pwAccount()]);
+    await d.svc.loginWithPassword("  ACME Manufacturing Pvt Ltd ", PW, CTX);
+    // Trimmed, original case preserved for the repository's own normalization + keyed hash —
+    // the raw casing never reaches a lookup (and over-long input never reaches the DB).
+    expect(d.payers.findByOrgName).toHaveBeenCalledWith("ACME Manufacturing Pvt Ltd");
+    expect(d.sessions.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("an over-long identifier never reaches the org lookup (no HMAC on attacker-width input)", async () => {
+    const d = setup();
+    await expect(d.svc.loginWithPassword("x".repeat(250), PW, CTX)).rejects.toBeInstanceOf(
+      UnauthorizedException,
+    );
+    expect(d.payers.findByEmail).not.toHaveBeenCalled();
+    expect(d.payers.findByPhone).not.toHaveBeenCalled();
+    expect(d.payers.findByOrgName).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["unknown identifier", "ghost@nowhere.example"],
+    ["unknown phone", "+919800000000"],
+    ["unknown org name", "No Such Company"],
+    ["colliding org name (2 matches)", "Sharma Trading"],
+    ["garbage identifier", "!!!"],
+  ])("%s → the SAME neutral 401, no session, no event", async (_, identifier) => {
+    const d = setup();
+    // Default mocks resolve an account for any EMAIL (existing-suite fixture) — the unknown
+    // cases must explicitly resolve nothing; phone/org default to empty already.
+    if (identifier === "Sharma Trading") {
+      d.payers.findByOrgName.mockResolvedValueOnce([pwAccount(), pwAccount()]);
+    } else if (identifier.includes("@")) {
+      d.payers.findByEmail.mockResolvedValueOnce(undefined);
+    }
+    await expect(d.svc.loginWithPassword(identifier, PW, CTX)).rejects.toBeInstanceOf(
+      UnauthorizedException,
+    );
+    expect(d.sessions.create).not.toHaveBeenCalled();
+    expect(d.events.emit).not.toHaveBeenCalled();
+  });
+
+  it("a wrong password burns a full KDF, records the attempt, and stays neutral 401", async () => {
+    const d = setup();
+    d.payers.findByEmail.mockResolvedValueOnce(pwAccount());
+    await expect(d.svc.loginWithPassword(EMAIL, "Wrongpass1", CTX)).rejects.toBeInstanceOf(
+      UnauthorizedException,
+    );
+    expect(d.redis.incr).toHaveBeenCalledWith(`payer_pw:attempts:${PAYER_ID}`);
+    // First failure arms the TTL = the lockout window.
+    expect(d.redis.expire).toHaveBeenCalledWith(`payer_pw:attempts:${PAYER_ID}`, 900);
+    expect(d.sessions.create).not.toHaveBeenCalled();
+  });
+
+  it("an OTP-only account (no hash) is a neutral 401 — and still counts the attempt", async () => {
+    const d = setup();
+    d.payers.findByEmail.mockResolvedValueOnce(
+      pwAccount({ passwordHash: null, passwordPepperVersion: null }) as never,
+    );
+    await expect(d.svc.loginWithPassword(EMAIL, PW, CTX)).rejects.toBeInstanceOf(
+      UnauthorizedException,
+    );
+    expect(d.redis.incr).toHaveBeenCalledTimes(1);
+  });
+
+  it("a stale pepper version fails closed (no verify against the old token)", async () => {
+    const d = setup();
+    d.payers.findByEmail.mockResolvedValueOnce(
+      pwAccount({ passwordPepperVersion: 0 }) as never,
+    );
+    await expect(d.svc.loginWithPassword(EMAIL, PW, CTX)).rejects.toBeInstanceOf(
+      UnauthorizedException,
+    );
+  });
+
+  it("a locked-out account answers the SAME neutral 401 without touching the real hash", async () => {
+    const d = setup();
+    d.payers.findByEmail.mockResolvedValueOnce(pwAccount());
+    d.redis.get.mockResolvedValueOnce("5");
+    await expect(d.svc.loginWithPassword(EMAIL, PW, CTX)).rejects.toBeInstanceOf(
+      UnauthorizedException,
+    );
+    // No second attempt recorded while locked (would extend/refresh nothing useful).
+    expect(d.redis.incr).not.toHaveBeenCalled();
+    expect(d.sessions.create).not.toHaveBeenCalled();
+  });
+
+  it("a SUSPENDED account with the RIGHT password gets the distinct 403 (proven credential, no oracle)", async () => {
+    const d = setup();
+    d.payers.findByEmail.mockResolvedValueOnce(pwAccount({ status: "suspended" }));
+    await expect(d.svc.loginWithPassword(EMAIL, PW, CTX)).rejects.toBeInstanceOf(ForbiddenException);
+    expect(d.sessions.create).not.toHaveBeenCalled();
+  });
+
+  it("a PENDING account never promotes on password alone — neutral 401, no activation event", async () => {
+    const d = setup();
+    d.payers.findByEmail.mockResolvedValueOnce(pwAccount({ status: "pending" }));
+    await expect(d.svc.loginWithPassword(EMAIL, PW, CTX)).rejects.toBeInstanceOf(
+      UnauthorizedException,
+    );
+    expect(d.sessions.create).not.toHaveBeenCalled();
+    expect(
+      d.events.emit.mock.calls.find((c) => c[0].event_name === "payer.activated"),
+    ).toBeUndefined();
+  });
+
+  it("lazily fills a missing org lookup hash on success (and never fails the login on it)", async () => {
+    const d = setup();
+    d.payers.findByEmail.mockResolvedValueOnce(pwAccount({ orgNameLookupHash: null }));
+    await d.svc.loginWithPassword(EMAIL, PW, CTX);
+    expect(d.payers.ensureOrgLookupHash).toHaveBeenCalledTimes(1);
+    expect(d.sessions.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("skips the org-hash fill when the row already has one", async () => {
+    const d = setup();
+    d.payers.findByEmail.mockResolvedValueOnce(pwAccount());
+    await d.svc.loginWithPassword(EMAIL, PW, CTX);
+    expect(d.payers.ensureOrgLookupHash).not.toHaveBeenCalled();
+  });
+
+  it("a Redis outage LOCKS the login out (fail-closed 503) rather than uncapping it", async () => {
+    const failing = setup();
+    failing.redis.get.mockRejectedValueOnce(new Error("redis down"));
+    await expect(failing.svc.loginWithPassword(EMAIL, PW, CTX)).rejects.toMatchObject({
+      status: 503,
+    });
+    const counting = setup();
+    counting.payers.findByEmail.mockResolvedValueOnce(pwAccount());
+    counting.redis.incr.mockRejectedValueOnce(new Error("redis down"));
+    await expect(counting.svc.loginWithPassword(EMAIL, "Wrongpass1", CTX)).rejects.toMatchObject({
+      status: 503,
+    });
+  });
+
+  it("no password, identifier, or org name ever reaches an event or a log line", async () => {
+    const d = setup();
+    d.payers.findByEmail.mockResolvedValueOnce(pwAccount());
+    await d.svc.loginWithPassword(EMAIL, PW, CTX).catch(() => undefined);
+    await d.svc.loginWithPassword(EMAIL, "Wrongpass1", CTX).catch(() => undefined);
+    const blob = JSON.stringify(d.events.emit.mock.calls);
+    for (const secret of [PW, "Wrongpass1", EMAIL, "Acme"]) {
+      expect(blob).not.toContain(secret);
+    }
+  });
+});
+
 describe("login heals a missing org ONCE, through the resolver (ADR-0053 R4; review L1)", () => {
   /**
    * The REAL resolver over a fake membership read: login's org repair must have one entry point.
@@ -389,6 +662,7 @@ describe("login heals a missing org ONCE, through the resolver (ADR-0053 R4; rev
       { hmac: (v: string) => `hmac<${v}>` } as never,
       d.freeTier as never,
       r.tenancy,
+      d.queue as never,
     );
     return { svc, d };
   }
@@ -531,7 +805,7 @@ describe("PayerAuthService.verifyLogin — lifecycle (ADR-0037)", () => {
   it("emits NOTHING on a later login — activation is once per payer, not per session", async () => {
     const d = setup();
     // The guarded UPDATE matched no row (already active), so activate() returns undefined.
-    d.payers.activate.mockResolvedValue(undefined as never);
+    d.payers.activate.mockResolvedValue(undefined);
 
     await d.svc.verifyLogin({ email: EMAIL, code: "123456" } as never, CTX);
 

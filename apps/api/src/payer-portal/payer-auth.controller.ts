@@ -12,9 +12,13 @@ import {
   PayerSignupSchema,
   PayerLoginRequestSchema,
   PayerLoginVerifySchema,
+  PayerPasswordSetSchema,
+  PayerPasswordLoginSchema,
   type PayerSignupDto,
   type PayerLoginRequestDto,
   type PayerLoginVerifyDto,
+  type PayerPasswordSetDto,
+  type PayerPasswordLoginDto,
   type PayerAuthCodeResponse,
   type PayerSessionResponse,
   type PayerRefreshResponse,
@@ -26,7 +30,13 @@ import {
  * Self-serve PAYER auth surface (ADR-0019 Decision B — closes R16/LC-1/TD33). A NEW route
  * group under `/payer/*` for the THIRD principal — DISTINCT from the worker `/auth/*`
  * (WorkerAuthGuard) and the ops `InternalServiceGuard` routes. Signup + login are PUBLIC
- * (an external untrusted boundary); refresh + logout require a valid payer session.
+ * (an external untrusted boundary); refresh + logout + password-set require a valid payer
+ * session.
+ *
+ * #2497 — password auth rides the same envelope: OTP stays the proof that SETS a password
+ * (`password/set`, bearer), and `login/password` mints the same session shape as verify.
+ * The identifier order is email → E.164 phone → exact org name; every miss is the same
+ * neutral 401, with per-IP + per-account throttling behind it.
  *
  * XB-H (auth hardening): the public endpoints are PER-IP rate-limited (an account-farming /
  * credential-stuffing backstop, fail-closed via {@link IpRateLimit}); the no-enumeration
@@ -76,6 +86,43 @@ export class PayerAuthController {
   ): Promise<PayerSessionResponse> {
     await this.assertWithinIpCap(req);
     return this.auth.verifyLogin(dto, ctx);
+  }
+
+  /**
+   * POST /payer/password/set — store the caller's login password (#2497).
+   *
+   * Bearer-guarded (the OTP-verified session minted by `login/verify`): only the proven
+   * account holder gets here. The DTO enforces the policy (8–128 chars, letter+digit);
+   * the raw password is never logged or evented. The app calls this with the verify
+   * token and persists the session only on success — abandoning the password screen
+   * leaves no persisted client session (the unused server session simply expires).
+   */
+  @Post("password/set")
+  @HttpCode(204)
+  @UseGuards(PayerAuthGuard)
+  async setPassword(
+    @CurrentPayer() payer: AuthenticatedPayer,
+    @Body(new ZodValidationPipe(PayerPasswordSetSchema)) dto: PayerPasswordSetDto,
+  ): Promise<void> {
+    await this.auth.setPassword(payer.id, dto.password);
+  }
+
+  /**
+   * POST /payer/login/password — verify a password and mint a payer session (#2497).
+   *
+   * Public (same per-IP cap as the other public auth endpoints). The identifier is an
+   * email, an E.164 phone, or the exact org name; EVERY miss is the same neutral 401
+   * (no oracle), and per-account attempt lockout (5 fails → 15 min) sits behind it.
+   */
+  @Post("login/password")
+  @HttpCode(200)
+  async loginWithPassword(
+    @Body(new ZodValidationPipe(PayerPasswordLoginSchema)) dto: PayerPasswordLoginDto,
+    @Req() req: Request,
+    @Ctx() ctx: RequestContext,
+  ): Promise<PayerSessionResponse> {
+    await this.assertWithinIpCap(req);
+    return this.auth.loginWithPassword(dto.identifier, dto.password, ctx);
   }
 
   /**

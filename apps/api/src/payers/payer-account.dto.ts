@@ -23,8 +23,11 @@ export const PayerMeSchema = z.object({
   status: z.enum(["pending", "active", "suspended"]),
   /** The payer's own org display label. Their own data; never logged/eventized. */
   orgName: z.string(),
-  /** The payer's OWN login email — returned only to themselves; never logged/eventized. */
-  email: z.string().email(),
+  /**
+   * The payer's OWN login email — returned only to themselves; never logged/eventized.
+   * NULL for phone-only accounts (#2497 — additive: email accounts still validate).
+   */
+  email: z.string().email().nullable(),
   /** Last 4 digits of the payer's OWN contact phone (masked), or null if none is set. */
   phoneLast4: z.string().length(4).nullable(),
   /**

@@ -5,24 +5,29 @@ import {
   Inject,
   Injectable,
   Logger,
+  ServiceUnavailableException,
   UnauthorizedException,
   NotFoundException,
 } from "@nestjs/common";
+import { InjectQueue } from "@nestjs/bullmq";
+import type { Queue } from "bullmq";
 import type { ServerConfig } from "@badabhai/config";
 import type { PayerLoginMethodEnum } from "@badabhai/event-schema";
+import { isE164Phone, emailSchema } from "@badabhai/validators";
 import { SERVER_CONFIG } from "../config/config.module";
 import { isSyntheticPayerEmail } from "../payers/payer-test-login.guard";
 import { PiiCryptoService } from "../common/pii-crypto.service";
 import { OtpSendCapExceededException } from "../common/otp-send-cap";
 import type { RequestContext } from "../common/request-context";
 import { EventsService } from "../events/events.service";
-import { PayersRepository } from "../payers/payers.repository";
+import { PayersRepository, CURRENT_PASSWORD_PEPPER_VERSION } from "../payers/payers.repository";
 import { PayerOrgsRepository, type ResolvedOrg } from "../payers/payer-orgs.repository";
 import { PayerSessionService } from "../payers/payer-session.service";
 import { resolveSessionOrgClaim } from "../payers/payer-session-org-claim";
 import { PayerTenantScopeService } from "../payers/payer-tenant-scope.service";
 import { PayerOtpService, type PayerOtpIssued } from "../payers/payer-otp.service";
 import { FreeTierService } from "../match/free-tier.service";
+import { RESUME_RENDER_QUEUE } from "../queue/queue.constants";
 import type {
   PayerSignupDto,
   PayerLoginRequestDto,
@@ -31,6 +36,31 @@ import type {
   PayerSessionResponse,
   PayerRefreshResponse,
 } from "./payer-auth.dto";
+
+/**
+ * The supplied OTP contact (#2497 — email and/or phone; at least one, enforced by the
+ * DTOs). EMAIL WINS when both are supplied: signup stays keyed on the email hash
+ * (preserving the pre-#2497 dedup), and request/verify MUST carry the same contact in
+ * both calls, so the rule has to be deterministic AND identical everywhere.
+ */
+type PayerLoginContact = { kind: "email"; value: string } | { kind: "phone"; value: string };
+
+/** Minimal typed view of the raw Redis commands the password lockout needs. */
+interface RedisPasswordClient {
+  incr(key: string): Promise<number>;
+  expire(key: string, seconds: number): Promise<number>;
+  get(key: string): Promise<string | null>;
+  del(...keys: string[]): Promise<number>;
+}
+
+/**
+ * A well-formed but never-matching scrypt token (#2497). `verifyPassword` against this
+ * still runs the FULL KDF (format checks pass, bytes differ), so the unknown-identifier
+ * and no-password paths burn the same scrypt time as a real mismatch — miss/hit timing
+ * cannot distinguish "no account" from "wrong password". Deterministic (no per-call
+ * hash cost); the zero bytes carry no secret.
+ */
+const DUMMY_PASSWORD_HASH = `password-v1.${Buffer.alloc(16).toString("base64")}.${Buffer.alloc(32).toString("base64")}`;
 
 /**
  * Self-serve PAYER auth orchestration (ADR-0019 Decision B — closes R16/LC-1/TD33). The
@@ -65,6 +95,9 @@ export class PayerAuthService {
     private readonly freeTier: FreeTierService,
     // ADR-0053 — the ONE acting-org choice (session claim + login), shared with the guards.
     private readonly tenancy: PayerTenantScopeService,
+    // Password-attempt lockout counter (per payer id) — reuse BullMQ's existing Redis
+    // connection, do NOT add a second client (same rule as IpRateLimit / PayerOtpService).
+    @InjectQueue(RESUME_RENDER_QUEUE) private readonly queue: Queue,
   ) {}
 
   private get method(): PayerLoginMethodEnum {
@@ -110,26 +143,38 @@ export class PayerAuthService {
 
     // Issue a code to the canonical stored contact (uniform for new + existing — no
     // overwrite of an existing account; the response is identical either way, XB-H).
+    // The contact is whichever the caller supplied (email wins on a both-supplied body).
     try {
-      const issued = await this.issueForExistingAccount(id, dto.email, ctx, false);
+      const issued = await this.issueForExistingAccount(
+        id,
+        { email: dto.email, phone: dto.phone },
+        ctx,
+        false,
+      );
       return this.codeResponse(issued);
     } catch (err) {
       return this.neutralOnSendCapBreach(err, ctx);
     }
   }
 
-  /** POST /payer/login/request — issue a code; NO-ENUMERATION across known/unknown emails. */
+  /** POST /payer/login/request — issue a code; NO-ENUMERATION across known/unknown contacts. */
   async requestLogin(dto: PayerLoginRequestDto, ctx: RequestContext): Promise<PayerAuthCodeResponse> {
     try {
-      const account = await this.payers.findByEmail(dto.email);
+      const contact = PayerAuthService.mustContact(dto);
+      const account = await this.findByContact(contact);
       let issued: PayerOtpIssued;
       if (account) {
-        issued = await this.issueForExistingAccount(account.id, dto.email, ctx, true);
+        issued = await this.issueForExistingAccount(
+          account.id,
+          { email: dto.email, phone: dto.phone },
+          ctx,
+          true,
+        );
       } else {
-        // UNKNOWN email: run the IDENTICAL reserve (cooldown/cap/store) WITHOUT delivery so
+        // UNKNOWN contact: run the IDENTICAL reserve (cooldown/cap/store) WITHOUT delivery so
         // the observable timing/response + 429s match a known account. No event is emitted
         // (no subject), and that asymmetry is not caller-observable (the body is identical).
-        issued = await this.otp.issueWithoutDelivery(this.emailHash(dto.email));
+        issued = await this.otp.issueWithoutDelivery(this.contactHash(contact));
       }
       return this.codeResponse(issued);
     } catch (err) {
@@ -216,12 +261,14 @@ export class PayerAuthService {
 
   /** POST /payer/login/verify — verify the code then mint a session (only for a real account). */
   async verifyLogin(dto: PayerLoginVerifyDto, ctx: RequestContext): Promise<PayerSessionResponse> {
+    // The OTP key is the keyed hash of the SAME contact the request carried (#2497).
+    const contact = PayerAuthService.mustContact(dto);
     // Verify FIRST (single message on failure — no enumeration, constant-time, single-use).
-    await this.otp.verify(this.emailHash(dto.email), dto.code);
+    await this.otp.verify(this.contactHash(contact), dto.code);
 
-    // A reserved code for an UNKNOWN email (issued for timing parity) can verify, but a
+    // A reserved code for an UNKNOWN contact (issued for timing parity) can verify, but a
     // session is minted ONLY for a real account — otherwise return the SAME 401 (no oracle).
-    const account = await this.payers.findByEmail(dto.email);
+    const account = await this.findByContact(contact);
     if (!account) throw new UnauthorizedException("Incorrect or expired code");
 
     // Guarantee the payer's solo org + owner membership (ADR-0027 / B5). Cheap common case
@@ -325,11 +372,16 @@ export class PayerAuthService {
    */
   private async issueForExistingAccount(
     payerId: string,
-    email: string,
+    supplied: { email?: string; phone?: string },
     ctx: RequestContext,
     emitRequested: boolean,
   ): Promise<PayerOtpIssued> {
     const row = await this.payers.findById(payerId);
+
+    // The OTP key is the keyed hash of the SUPPLIED contact (#2497 — the same key the
+    // request/verify doors reserve under, whether it is an email or a phone).
+    const contact = PayerAuthService.mustContact(supplied);
+    const contactHash = this.contactHash(contact);
 
     // ADR-0037 Decision 5 — RESERVE but do NOT DELIVER for a suspended account.
     //
@@ -351,7 +403,7 @@ export class PayerAuthService {
     // the spine, which is what makes repeated probing of a banned account visible to ops
     // without being visible to the caller.
     if (row?.status === "suspended") {
-      const issued = await this.otp.issueWithoutDelivery(this.emailHash(email));
+      const issued = await this.otp.issueWithoutDelivery(contactHash);
       // Emitted INSTEAD of `payer.login_requested`, not alongside it: no login code was
       // delivered, so counting one would overstate the login funnel and would bury repeated
       // probing of a banned account inside ordinary traffic.
@@ -366,14 +418,40 @@ export class PayerAuthService {
       return issued;
     }
 
-    const contact = row ? this.payers.decryptContact(row) : null;
+    const contactRow = row ? this.payers.decryptContact(row) : null;
+    // The STORED contact is canonical (an existing account is never overwritten here),
+    // falling back to the supplied one for a just-created row. Either may be email or
+    // phone — whichever the payer signed up with (#2497).
+    const deliverEmail = contactRow?.email ?? supplied.email ?? "";
+    const deliverPhone = contactRow?.phone ?? supplied.phone ?? null;
+
+    // No destination for the ACTIVE channel (a phone-only account while the method is
+    // email_otp, or an email-only account while it is whatsapp): reserve WITHOUT
+    // delivery — the same neutral path as the unknown/suspended branches above. The
+    // reserve still runs, so cooldown/cap/429 behavior is identical; no code is sent
+    // nowhere and no delivery failure is possible. (Mock WhatsApp in alpha behaves the
+    // same way through the provider — this branch is for the method/contact mismatch.
+    // `supabase` is intentionally NOT diverted: the adapter is documented-inert and
+    // its throw is today's behavior.)
+    const deliverable =
+      this.method === "email_otp"
+        ? deliverEmail !== ""
+        : this.method === "whatsapp"
+          ? deliverPhone !== null
+          : true;
+    if (!deliverable) {
+      this.logger.warn(
+        `payer login code not deliverable for active channel payer=${payerId.slice(0, 8)}…`,
+      );
+      return await this.otp.issueWithoutDelivery(contactHash);
+    }
 
     let issued: PayerOtpIssued;
     try {
       issued = await this.otp.issueAndSend({
-        emailHash: this.emailHash(email),
-        email: contact?.email ?? email,
-        phone: contact?.phone ?? null,
+        emailHash: contactHash,
+        email: deliverEmail,
+        phone: deliverPhone,
         payerId,
       });
     } catch (err) {
@@ -400,10 +478,228 @@ export class PayerAuthService {
     return issued;
   }
 
-  private emailHash(email: string): string {
-    // DTOs already trim+lowercase the email; PayersRepository hashes the same normalized
-    // form, so this keyed HMAC matches the stored `email_hash` lookup key.
-    return this.pii.hmac(email);
+  /**
+   * The OTP key for one request: the keyed hash of the SUPPLIED contact (#2497).
+   * Email keeps the exact pre-#2497 key (`pii.hmac` of the normalized email — existing
+   * rows and reserves keep working); phones hash via `hashPhone` (a distinct peppered
+   * domain, so an email and a phone can never share a key).
+   */
+  private contactHash(contact: PayerLoginContact): string {
+    return contact.kind === "email" ? this.pii.hmac(contact.value) : this.pii.hashPhone(contact.value);
+  }
+
+  /**
+   * Resolve the request's OTP contact (#2497 — email and/or phone, at least one per the
+   * DTOs). EMAIL WINS on a both-supplied body: deterministic, identical on
+   * signup/request/verify, and signup stays keyed on the email hash (the dedup the
+   * unique index enforces). Throws only when NEITHER is supplied — a contract the DTO
+   * refine already enforces, so this is unreachable-by-client defence in depth.
+   */
+  private static mustContact(contact: { email?: string; phone?: string }): PayerLoginContact {
+    if (contact.email !== undefined) return { kind: "email", value: contact.email };
+    if (contact.phone !== undefined) return { kind: "phone", value: contact.phone };
+    throw new Error("payer auth contact requires at least one of email/phone");
+  }
+
+  /**
+   * The row for an OTP contact: email and phone read their own keyed hash (#2497).
+   * Email is unique (first row is the only row); a shared phone resolves to its FIRST
+   * row — proving the shared contact is what OTP asserts, and the password door
+   * (which demands uniqueness) re-resolves strictly below.
+   */
+  private async findByContact(contact: PayerLoginContact) {
+    if (contact.kind === "email") return this.payers.findByEmail(contact.value);
+    const [first] = await this.payers.findByPhone(contact.value);
+    return first;
+  }
+
+  /**
+   * POST /payer/password/set — store the payer's login password (#2497).
+   *
+   * Bearer-guarded (the OTP-verified session), so only the proven account holder gets
+   * here. Stores the scrypt token + pepper version + timestamp; the RAW password is
+   * never logged, never evented, and never leaves this call (CLAUDE.md §2). No event
+   * is emitted — there is nothing PII-free to say beyond "a write happened", and the
+   * verify that authorized this call already has its spine trail (`payer.session_started`).
+   */
+  async setPassword(payerId: string, password: string): Promise<void> {
+    await this.payers.setPassword(payerId, {
+      hash: this.pii.hashPassword(password),
+      pepperVersion: CURRENT_PASSWORD_PEPPER_VERSION,
+    });
+  }
+
+  /**
+   * POST /payer/login/password — verify a password and mint a session (#2497).
+   *
+   * The identifier is, in order: a normalized email, an E.164 phone, or the exact org
+   * display name (trimmed, case-insensitive). EVERY MISS IS THE SAME NEUTRAL 401 —
+   * unknown identifier, wrong password, OTP-only account (no hash), colliding org name
+   * (2+ rows), and pending status (never promoted without a fresh OTP proof) are all
+   * indistinguishable (XB-H). Only a proven credential on a SUSPENDED account gets the
+   * distinct 403, mirroring verifyLogin (the caller proved the account exists AND the
+   * secret, so no oracle remains). Per-account attempt lockout (5 fails → 15 min,
+   * Redis, fail-closed) sits beside the shared per-IP cap on the route.
+   */
+  async loginWithPassword(
+    identifier: string,
+    password: string,
+    ctx: RequestContext,
+  ): Promise<PayerSessionResponse> {
+    const account = await this.resolvePasswordAccount(identifier);
+    if (!account) {
+      // No row: still burn one full KDF so miss/hit timing matches a real mismatch.
+      this.pii.verifyPassword(password, DUMMY_PASSWORD_HASH);
+      throw new UnauthorizedException("Incorrect identifier or password");
+    }
+
+    if (await this.isPasswordLockedOut(account.id)) {
+      // Locked out: same neutral 401 (a 429 would announce the throttle — and the
+      // account's existence — to a prober). The lockout is logged prefix-only.
+      this.pii.verifyPassword(password, DUMMY_PASSWORD_HASH);
+      throw new UnauthorizedException("Incorrect identifier or password");
+    }
+
+    // Fail CLOSED on an unknown pepper version OR a missing hash (OTP-only account):
+    // both read exactly like a wrong password (dummy KDF burned above/below as needed).
+    const verified =
+      account.passwordHash !== null &&
+      account.passwordPepperVersion === CURRENT_PASSWORD_PEPPER_VERSION &&
+      this.pii.verifyPassword(password, account.passwordHash);
+    if (!verified) {
+      await this.recordPasswordFailure(account.id);
+      throw new UnauthorizedException("Incorrect identifier or password");
+    }
+    await this.clearPasswordFailures(account.id);
+
+    if (account.status === "suspended") {
+      throw new ForbiddenException("Account is suspended");
+    }
+    if (account.status !== "active") {
+      // Pending (or any future non-active state): a password alone NEVER promotes —
+      // activation is the OTP proof's job (verifyLogin). Neutral 401, no oracle.
+      this.logger.warn(
+        `payer password login refused for non-active account payer=${account.id.slice(0, 8)}…`,
+      );
+      throw new UnauthorizedException("Incorrect identifier or password");
+    }
+
+    // Lazy org-hash fill for pre-#2493 rows (best-effort — never fails a good login).
+    if (!account.orgNameLookupHash) {
+      await this.payers.ensureOrgLookupHash(account).catch((err: unknown) => {
+        this.logger.warn(
+          `payer org lookup backfill failed payer=${account.id.slice(0, 8)}… reason=${err instanceof Error ? err.message : String(err)}`,
+        );
+      });
+    }
+
+    const org = await this.resolveOrEnsureOrg(account.id);
+    const session = await this.sessions.create(account.id, account.role, org);
+    await this.events.emit({
+      event_name: "payer.session_started",
+      actor: { actor_type: "payer", actor_id: account.id },
+      subject: { subject_type: "payer", subject_id: account.id },
+      payload: { payer_id: account.id, method: "password" as PayerLoginMethodEnum, is_new_payer: false },
+      correlationId: ctx.correlationId,
+      requestId: ctx.requestId,
+    });
+
+    return {
+      access_token: session.token,
+      token_type: "Bearer",
+      expires_in_seconds: session.expiresInSeconds,
+      payer_id: account.id,
+      role: account.role,
+      is_new_payer: false,
+    };
+  }
+
+  /**
+   * The single row a password identifier names — or null when it names none or more
+   * than one (#2497). Email → one row max (unique). Phone → first match ONLY when it
+   * is the only match (historical dupes log in NOBODY, neutrally). Org name → exact
+   * normalized match, again only when unique. Anything else (unknown, colliding,
+   * overlong) is null: the caller answers the same neutral 401.
+   */
+  private async resolvePasswordAccount(identifier: string) {
+    if (emailSchema.safeParse(identifier).success) {
+      return this.payers.findByEmail(identifier) ?? null;
+    }
+    if (isE164Phone(identifier)) {
+      // No unique index on phone_hash (historical dupes possible): read two and
+      // require exactly one — a shared phone logs in NOBODY, neutrally.
+      const matches = await this.payers.findByPhone(identifier);
+      return matches.length === 1 ? matches[0]! : null;
+    }
+    const name = identifier.trim();
+    // DTO caps identifiers at 320 chars; org names cap at 200 (per PayerSignupSchema) —
+    // anything longer cannot be one (and skips the HMAC work on attacker-width input).
+    if (name.length === 0 || name.length > 200) return null;
+    const matches = await this.payers.findByOrgName(name);
+    return matches.length === 1 ? matches[0]! : null;
+  }
+
+  /** Redis client for the per-account password lockout (fail-closed on error). */
+  private async passwordRedis(): Promise<RedisPasswordClient> {
+    return (await this.queue.client) as unknown as RedisPasswordClient;
+  }
+
+  private static passwordAttemptsKey(payerId: string): string {
+    return `payer_pw:attempts:${payerId}`;
+  }
+
+  /**
+   * True while this account's password failures are locked out (#2497: N fails inside
+   * the window). Keyed on the resolved `payer_id` (bounded space — never the raw
+   * identifier, whose attacker-controlled width would let a prober grow Redis
+   * unboundedly). Redis failure → 503 (fail-closed, mirroring the OTP reserve path).
+   */
+  private async isPasswordLockedOut(payerId: string): Promise<boolean> {
+    let count = 0;
+    try {
+      const raw = await (await this.passwordRedis()).get(PayerAuthService.passwordAttemptsKey(payerId));
+      count = raw ? Number.parseInt(raw, 10) || 0 : 0;
+    } catch {
+      this.logger.error(
+        `payer password lockout check failed (failing closed) payer=${payerId.slice(0, 8)}…`,
+      );
+      throw new ServiceUnavailableException("Login is temporarily unavailable, please retry");
+    }
+    return count >= this.config.PAYER_PASSWORD_MAX_ATTEMPTS;
+  }
+
+  /**
+   * Record one failed password for this account. First failure arms the TTL (= the
+   * lockout window); the window does NOT slide (a steady trickle cannot hold the lock
+   * forever, and a burst hits the cap). Redis failure → 503 fail-closed (a failure we
+   * cannot count is a failure we must not allow past).
+   */
+  private async recordPasswordFailure(payerId: string): Promise<void> {
+    try {
+      const redis = await this.passwordRedis();
+      const count = await redis.incr(PayerAuthService.passwordAttemptsKey(payerId));
+      if (count === 1) await redis.expire(PayerAuthService.passwordAttemptsKey(payerId), this.config.PAYER_PASSWORD_LOCKOUT_SECONDS);
+    } catch {
+      this.logger.error(
+        `payer password failure record failed (failing closed) payer=${payerId.slice(0, 8)}…`,
+      );
+      throw new ServiceUnavailableException("Login is temporarily unavailable, please retry");
+    }
+  }
+
+  /**
+   * Clear the failure counter after a successful login. Best-effort (a stale counter
+   * only costs the payer future headroom, and it self-expires with the TTL) — a Redis
+   * failure here logs and lets the verified login through.
+   */
+  private async clearPasswordFailures(payerId: string): Promise<void> {
+    try {
+      await (await this.passwordRedis()).del(PayerAuthService.passwordAttemptsKey(payerId));
+    } catch (err) {
+      this.logger.warn(
+        `payer password failure clear failed payer=${payerId.slice(0, 8)}… reason=${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
   }
 
   private codeResponse(issued: PayerOtpIssued): PayerAuthCodeResponse {

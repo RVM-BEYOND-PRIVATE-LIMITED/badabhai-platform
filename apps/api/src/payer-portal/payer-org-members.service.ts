@@ -71,12 +71,16 @@ type AcceptOutcome =
  * A member as shown to the team list — FACELESS by default: opaque `member_id` + role +
  * status + a MASKED email label (never the raw email) + when they were invited. `is_self`
  * lets the UI mark the caller's own row. No PII, no invite token.
+ *
+ * `email_masked` is null for a phone-only founder (#2497 — their owner row carries no
+ * email); invited members always carry one. Additive: email rows still validate.
  */
 export interface OrgMemberView {
   member_id: string;
   org_role: OrgRole;
   status: PayerMemberStatus;
-  email_masked: string;
+  /** Null for a phone-only founder (#2497); invited members always carry one. */
+  email_masked: string | null;
   invited_at: string;
   is_self: boolean;
 }
@@ -357,7 +361,8 @@ export class PayerOrgMembersService {
       member_id: row.id,
       org_role: row.orgRole,
       status: row.status,
-      email_masked: PayerOrgMembersService.maskEmail(this.pii.decrypt(row.emailEnc)),
+      // #2497 — a phone-only founder's owner row has no email; null, never "null" text.
+      email_masked: row.emailEnc ? PayerOrgMembersService.maskEmail(this.pii.decrypt(row.emailEnc)) : null,
       invited_at: row.invitedAt.toISOString(),
       is_self: row.memberPayerId === callerPayerId,
     };

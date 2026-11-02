@@ -6,9 +6,15 @@ import {
   encryptPiiWithKeyring,
   decryptPiiWithKeyring,
   isEncryptedPii,
+  hashPhone,
+  hmacSha256Hex,
   hashPin,
   verifyPin,
   isPinHash,
+  hashPassword,
+  verifyPassword,
+  isPasswordHash,
+  hashOrgName,
   type PiiKeyring,
 } from "./crypto";
 
@@ -238,5 +244,77 @@ describe("PIN hashing (scrypt-v1, peppered, per-PIN salt, constant-time)", () =>
     expect(verifyPin("1357", "scrypt-v1.onlytwo", PEPPER)).toBe(false);
     expect(verifyPin("1357", "argon2id.salt.derived", PEPPER)).toBe(false); // future algo not yet supported
     expect(isPinHash("not-a-token")).toBe(false);
+  });
+});
+
+describe("password hashing (password-v1, peppered, per-password salt, constant-time — #2497)", () => {
+  const PEPPER = "a-server-side-pii-pepper-min-16";
+  const OTHER_PEPPER = "a-different-pii-pepper-value-16!";
+
+  it("verifies the correct password under the same pepper", () => {
+    const token = hashPassword("CorrectHorse9", PEPPER);
+    expect(isPasswordHash(token)).toBe(true);
+    expect(token.startsWith("password-v1.")).toBe(true);
+    expect(token.split(".")).toHaveLength(3); // password-v1.<salt>.<derived>
+    expect(verifyPassword("CorrectHorse9", token, PEPPER)).toBe(true);
+  });
+
+  it("rejects a wrong password", () => {
+    const token = hashPassword("CorrectHorse9", PEPPER);
+    expect(verifyPassword("correcthorse9", token, PEPPER)).toBe(false);
+    expect(verifyPassword("", token, PEPPER)).toBe(false);
+  });
+
+  it("rejects the correct password under a WRONG pepper (a row leak can't brute-force without the server pepper)", () => {
+    const token = hashPassword("CorrectHorse9", PEPPER);
+    expect(verifyPassword("CorrectHorse9", token, OTHER_PEPPER)).toBe(false);
+  });
+
+  it("is non-deterministic (fresh salt → equal passwords hash differently)", () => {
+    expect(hashPassword("CorrectHorse9", PEPPER)).not.toBe(hashPassword("CorrectHorse9", PEPPER));
+  });
+
+  it("never embeds the raw password or the pepper in the token", () => {
+    const token = hashPassword("CorrectHorse9", PEPPER);
+    expect(token).not.toContain("CorrectHorse9");
+    expect(token).not.toContain(PEPPER);
+  });
+
+  it("a PIN token is not a password token and vice versa (distinct version prefixes)", () => {
+    const pinToken = hashPin("1357", PEPPER);
+    const passwordToken = hashPassword("1357", PEPPER);
+    expect(isPasswordHash(pinToken)).toBe(false);
+    expect(isPinHash(passwordToken)).toBe(false);
+    // Cross-verify fails even for the same secret: the KDF domains differ.
+    expect(verifyPin("1357", passwordToken, PEPPER)).toBe(false);
+    expect(verifyPassword("1357", pinToken, PEPPER)).toBe(false);
+  });
+
+  it("verifyPassword fails CLOSED (false, never throws) on a malformed/wrong-version token", () => {
+    expect(verifyPassword("CorrectHorse9", "not-a-token", PEPPER)).toBe(false);
+    expect(verifyPassword("CorrectHorse9", "password-v1.onlytwo", PEPPER)).toBe(false);
+    expect(verifyPassword("CorrectHorse9", "argon2id.salt.derived", PEPPER)).toBe(false);
+    expect(isPasswordHash("not-a-token")).toBe(false);
+  });
+});
+
+describe("org lookup hash (payer_org domain, #2497)", () => {
+  const PEPPER = "a-server-side-pii-pepper-min-16";
+  const OTHER_PEPPER = "a-different-pii-pepper-value-16!";
+
+  it("is deterministic for one normalized name and differs across names", () => {
+    expect(hashOrgName("acme staffing", PEPPER)).toBe(hashOrgName("acme staffing", PEPPER));
+    expect(hashOrgName("acme staffing", PEPPER)).not.toBe(hashOrgName("other works", PEPPER));
+  });
+
+  it("never matches another keyed domain for the same string (domain separation)", () => {
+    expect(hashOrgName("12345678", PEPPER)).not.toBe(hashPhone("12345678", PEPPER));
+    expect(hashOrgName("acme", PEPPER)).not.toBe(hmacSha256Hex(PEPPER, "otp:acme"));
+  });
+
+  it("is keyed: a wrong pepper gives a different digest", () => {
+    expect(hashOrgName("acme staffing", PEPPER)).not.toBe(
+      hashOrgName("acme staffing", OTHER_PEPPER),
+    );
   });
 });
