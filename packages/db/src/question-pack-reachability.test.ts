@@ -590,15 +590,19 @@ describe("role-pack reachability — do a worker's own words reach the pack for 
     // to the garment trade. Both are fixed the same way the shipped driver/Drover and
     // fitter/Father rows are: a bare L0 row pre-empts the fold, and a longer L0 span beats a
     // shorter one.
+    //
+    // TRACK A #4 (CEO Launch Plan Pack v1, sheet 4): the three 3D-meaning phrases below
+    // moved to jd_rvm_3d_cad_designer (retired off 3118_0401, same change) — a
+    // SolidWorks-main-job worker is a 3D designer, not a draughtsman.
     expect(routing).toEqual({
       cad: "fam_cad_drafting",
       "cad operator": "fam_cad_drafting",
-      "cad designer": "fam_cad_drafting",
-      "mechanical designer": "fam_cad_drafting",
+      "cad designer": "fam_cad_design_3d",
+      "mechanical designer": "fam_cad_design_3d",
       "draughtsman mechanical": "fam_cad_drafting",
       "mechanical draughtsman": "fam_cad_drafting",
       autocad: "fam_cad_drafting",
-      solidworks: "fam_cad_drafting",
+      solidworks: "fam_cad_design_3d",
       कैड: "fam_cad_drafting",
       ऑटोकैड: "fam_cad_drafting",
     });

@@ -65,10 +65,10 @@ describe("the template gate (Layer A (i) — no map, no cliff)", () => {
     expect(TRADE_RESUME_MAPS.length).toBeGreaterThan(0);
   });
 
-  it("selects the trade sheet for EVERY one of the 21 predefined roles, form or not", () => {
-    // The 21 are the owner's line, not the 16 with a form live today: the five polymer roles are
-    // declared but formless, and they stay on the trade sheet with the rest of the 21.
-    expect(ROLE_FORM_DESCRIPTORS).toHaveLength(21);
+  it("selects the trade sheet for EVERY one of the 22 predefined roles, form or not", () => {
+    // The 22 are the owner's line, not the 16 with a form live today: the five polymer roles and
+    // the 3D designer are declared but formless, and they stay on the trade sheet with the rest.
+    expect(ROLE_FORM_DESCRIPTORS).toHaveLength(22);
     for (const role of ROLE_FORM_DESCRIPTORS) {
       expect(packIsPredefinedRole(role.packId), role.packId).toBe(true);
       expect(templateIdForPack(role.packId), role.packId).toBe("bb_trade");
@@ -76,7 +76,7 @@ describe("the template gate (Layer A (i) — no map, no cliff)", () => {
   });
 
   it("selects the GENERAL sheet for every other pack — the owner's format of 2026-09-25", () => {
-    // ~102 packs are outside the 21: the universal fallback and every family pack without a
+    // ~102 packs are outside the 22: the universal fallback and every family pack without a
     // trade form. They rendered through `bb_trade` with its capability zone collapsed; they now
     // get the owner's general format. Still a BadaBhai sheet — verdict line, terms rows, QR and
     // footer all print — so the cliff Layer A (i) closed stays closed.

@@ -110,6 +110,8 @@ describe("the shipped corpus, as the trade form serves it", () => {
     // Every list that carried a duplicate escape on 2026-10-22. Listed so a change to the set
     // shows up as a reviewed diff here rather than as a chip quietly appearing or vanishing.
     expect(dropped.sort()).toEqual([
+      "qp_cad_design_3d:design_software",
+      "qp_cad_design_3d:design_work_area",
       "qp_cad_drafting:cad_software",
       "qp_cam_programming:cam_software",
       "qp_cam_programming:machine_programmed",

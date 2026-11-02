@@ -187,6 +187,10 @@ export const FAMILY_CHIP_LABELS: Readonly<Record<string, string>> = Object.freez
   // role's occupation term, so an occupation that falls back to this label hands over the form on
   // the pin — the intended route, pinned in the test.
   fam_maintenance_tech: "maintenance technician",
+  // Track A #4. The Latin reading of `label_hi` ("3D CAD डिज़ाइनर"). Formless, like the
+  // polymer batch: a pin here keeps talking (chat retrieval serves the pack), so the label
+  // names the trade without routing to a form that does not exist.
+  fam_cad_design_3d: "3D CAD design",
 });
 
 /**

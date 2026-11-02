@@ -135,7 +135,8 @@ describe("the LIVE schema — both kind CHECKs agree with the shared constant", 
     const check = config.checks.find((c) => c.name === name);
     if (!check) throw new Error(`${name} is not on the model`);
     const text = dialect.sqlToQuery(check.value).sql;
-    return [...text.matchAll(/'([a-z_]+)'/g)].map((m) => m[1] as string).sort();
+    // [a-z_0-9]: `cad_designer_3d` (migration 0140) is the first kind with a digit.
+    return [...text.matchAll(/'([a-z_0-9]+)'/g)].map((m) => m[1] as string).sort();
   };
 
   it.each(["wri_identity_role_kind_chk", "wri_association_kind_chk"])(

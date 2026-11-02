@@ -1,0 +1,369 @@
+{
+  "_why": "Role track for 3D CAD DESIGN, the first pack authored for a trade with no NCO code. fam_cad_design_3d binds the RVM-minted jd_rvm_3d_cad_designer at job-domain specificity 50; 2D phrases stay on fam_cad_drafting and the twelve other 3118 occupations on fam_draughting, so a draughtsman never meets 3D depth and a modeller never meets tracing questions.",
+  "_scope": "3D MECHANICAL DESIGN, NOT 2D DRAFTING, by CEO Launch Plan Pack v1 sheet 4 (RULED 2026-11-02). A worker who only edits drawings under a senior, traces, or runs AutoCAD 2D all day is a 2D draughtsman and belongs on qp_cad_drafting: 'AutoCAD only, 2D hi karta hoon' routes there, and the software question's escape chip ('Koi aur software') plus the work-area escape keep a 2D-only worker from claiming 3D rungs. The separating questions (senior/lead) are what stop a model-copier from printing as a designer.",
+  "_depth": "THE TIER GATE IS design_experience, and it is asked SECOND (after nothing — there is no disambiguator split in this pack; the trade picker is shared). It cannot be experience_years from qp_universal: phase order runs occupation_specific BEFORE universal_tail, so the universal answer does not exist yet when these items are selected. Its options carry value_number ONLY. pack-registry.service.ts resolves valueText ?? valueNumber ?? valueBool, so adding a value_text would make the answer a STRING; every gte below would then compare a string to a number, compare() returns null, and the predicate is false forever. A permanently-false ask_if is a question that is never asked, silently -- the #776 defect that sat in qp_welding for the life of the pack.",
+  "_budget": "MAX_ENGINE_ASKS is 28 and qp_universal spends 8. Easy is 2 trade items + 3 confirms (only the confirmed rungs are ever asked their confirm, so a trainee sees 2); Medium adds 2 (software, work area); Advanced adds 3 (depth, tolerance, industry). Worst case 2 + 1 + 2 + 3 = 8 occupation asks + 8 universal = 16, retries included still inside the budget with room for the offer turn.",
+  "_sheet": "SECTION B IS READ OFF CEO LAUNCH PLAN PACK v1 SHEET 4 (not a ratified page — Track A #4 is a new trade). Section title 'Design, software & capability'. Its rows are 3D Software, Work Area, Depth in Software, Tolerance / GD&T and Industry, and every row has exactly one question here that fills it. Headline per sheet 4: role, level, years, software, work areas.",
+  "pack_id": "qp_cad_design_3d",
+  "version": 1,
+  "family_id": "fam_cad_design_3d",
+  "locale": "hi-IN",
+  "status": "active",
+  "review_note": "v1 (CEO Launch Plan Pack v1, Track A #4): new trade. Easy/Medium/Advanced tiers; 6-band experience; sheet-4 level ladder (Trainee/Designer/Senior Designer/Lead/Supervisor); sheet-4 software + work-area sets (Medium); Advanced depth/tolerance/industry rows; 3 separating confirm items (easy, gated on rung). No fresher/ITI block (Track A supply is RVM alumni + poly/BTech; the shared ITI block is Track B packs only). No separate Other controller question (no controllers on this trade). Drafted for owner review (Prakash).",
+  "items": [
+    {
+      "_why": "THE TIER GATE. value_number ONLY on every option -- see _depth.",
+      "question_key": "design_experience",
+      "min_tier": "easy",
+      "prompt_text": "3D design ka kitna tajurba hai?",
+      "why_text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain.",
+      "retry_text": "Lagbhag kitne saal 3D design ka kaam kiya hai?",
+      "target_kind": "attribute",
+      "target_field": "design_experience",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        { "option_key": "fresher", "label_text": "Fresher", "value_number": 0 },
+        { "option_key": "below_one", "label_text": "1 saal se kam", "value_number": 0 },
+        { "option_key": "one_to_three", "label_text": "1 se 3 saal", "value_number": 2 },
+        { "option_key": "three_to_five", "label_text": "3 se 5 saal", "value_number": 4 },
+        { "option_key": "five_to_ten", "label_text": "5 se 10 saal", "value_number": 7 },
+        { "option_key": "above_ten", "label_text": "10 saal se zyada", "value_number": 12 }
+      ]
+    },
+    {
+      "_why": "CEO Launch Pack v1 sheet 4. The rung opens the Advanced rows for a worker who claims it even when his years would not -- gate is years OR level.",
+      "question_key": "design_level",
+      "min_tier": "easy",
+      "prompt_text": "Aap 3D design me kya karte hain?",
+      "why_text": "Level ke hisaab se sahi sawaal poochhe jaate hain.",
+      "retry_text": "Trainee, designer, senior, lead ya head hain?",
+      "target_kind": "attribute",
+      "target_field": "design_level",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "trainee",
+          "label_text": "Trainee",
+          "value_text": "trainee"
+        },
+        {
+          "option_key": "designer",
+          "label_text": "Designer",
+          "value_text": "designer"
+        },
+        {
+          "option_key": "senior_designer",
+          "label_text": "Senior Designer",
+          "value_text": "senior_designer"
+        },
+        {
+          "option_key": "lead",
+          "label_text": "Lead / Design Engineer",
+          "value_text": "lead"
+        },
+        {
+          "option_key": "supervisor",
+          "label_text": "Design Head",
+          "value_text": "supervisor"
+        }
+      ]
+    },
+    {
+      "question_key": "design_senior_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Sirf requirement mile to design khud karte ho, ya drawing dekh ke model banate ho?",
+      "why_text": "Requirement se design karne wale senior designer ko alag kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "design_senior_confirm",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "design_level"
+        },
+        "right": {
+          "const": ["senior_designer"]
+        }
+      },
+      "options": [
+        {
+          "option_key": "self_design",
+          "label_text": "Khud design karta hoon",
+          "value_text": "self"
+        },
+        {
+          "option_key": "other_design",
+          "label_text": "Drawing dekh ke banata hoon",
+          "value_text": "other"
+        }
+      ]
+    },
+    {
+      "question_key": "design_lead_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Design ki calculation aur doosron ke design ka review aap karte ho?",
+      "why_text": "Calculation aur review karne wale lead ko alag zimmedari milti hai.",
+      "target_kind": "attribute",
+      "target_field": "design_lead_confirm",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "design_level"
+        },
+        "right": {
+          "const": ["lead"]
+        }
+      },
+      "options": [
+        {
+          "option_key": "self_lead",
+          "label_text": "Haan, main karta hoon",
+          "value_text": "self"
+        },
+        {
+          "option_key": "other_lead",
+          "label_text": "Nahi, team me kaam karta hoon",
+          "value_text": "other"
+        }
+      ]
+    },
+    {
+      "question_key": "design_team_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Kitne designer aapke under kaam karte hain?",
+      "why_text": "Team sambhalne wale design head ko alag zimmedari milti hai.",
+      "target_kind": "attribute",
+      "target_field": "design_team_confirm",
+      "answer_type": "text",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "design_level"
+        },
+        "right": {
+          "const": ["supervisor"]
+        }
+      }
+    },
+    {
+      "_why": "Sheet row 'Software' (Medium Q6). A named package is a 3D claim; the escape chip carries value_text 'unknown' so a 2D-only worker's non-answer resolves to nothing and the row simply does not print.",
+      "question_key": "design_software",
+      "min_tier": "medium",
+      "prompt_text": "Aap kaunsa 3D software chalate hain?",
+      "why_text": "Software ke hisaab se sahi kaam dikhaya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "design_software",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        { "option_key": "solidworks", "label_text": "SolidWorks", "value_text": "solidworks" },
+        { "option_key": "creo", "label_text": "Creo", "value_text": "creo" },
+        { "option_key": "nx", "label_text": "NX", "value_text": "nx" },
+        { "option_key": "catia", "label_text": "CATIA", "value_text": "catia" },
+        { "option_key": "inventor", "label_text": "Inventor", "value_text": "inventor" },
+        { "option_key": "fusion", "label_text": "Fusion 360", "value_text": "fusion" },
+        { "option_key": "solid_edge", "label_text": "Solid Edge", "value_text": "solid_edge" },
+        {
+          "option_key": "other_software",
+          "label_text": "Koi aur software",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "_why": "Sheet row 'Work area' (Medium Q7) -- the sheet-4 closed vocabulary.",
+      "question_key": "design_work_area",
+      "min_tier": "medium",
+      "prompt_text": "Kis cheez ka design karte hain?",
+      "why_text": "Kaam ki jagah ke hisaab se sahi company milti hai.",
+      "target_kind": "attribute",
+      "target_field": "design_work_area",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "machine_spm",
+          "label_text": "Machine / SPM",
+          "value_text": "machine_spm"
+        },
+        {
+          "option_key": "sheet_metal",
+          "label_text": "Sheet metal",
+          "value_text": "sheet_metal"
+        },
+        {
+          "option_key": "plastic_parts",
+          "label_text": "Plastic parts",
+          "value_text": "plastic_parts"
+        },
+        {
+          "option_key": "fixture_jig",
+          "label_text": "Fixture / jig",
+          "value_text": "fixture_jig"
+        },
+        {
+          "option_key": "mould_die",
+          "label_text": "Mould / die / tooling",
+          "value_text": "mould_die"
+        },
+        {
+          "option_key": "auto_parts",
+          "label_text": "Automotive parts",
+          "value_text": "auto_parts"
+        },
+        {
+          "option_key": "other_area",
+          "label_text": "Koi aur",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "_why": "Sheet row 'Depth in software' (Advanced Q9). What the worker makes inside the package is the rung signal a senior answers and a trainee never sees (tier-1 gate).",
+      "question_key": "design_depth",
+      "min_tier": "hard",
+      "prompt_text": "Software me kya kya banate hain?",
+      "why_text": "Software ki pakad se level pata chalta hai.",
+      "target_kind": "attribute",
+      "target_field": "design_depth",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 2,
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          { "op": "gte", "left": { "field": "design_experience" }, "right": { "const": 2 } },
+          {
+            "op": "in",
+            "left": { "field": "design_level" },
+            "right": { "const": ["designer", "senior_designer", "lead", "supervisor"] }
+          }
+        ]
+      },
+      "options": [
+        { "option_key": "part", "label_text": "Part", "value_text": "part" },
+        { "option_key": "assembly", "label_text": "Assembly", "value_text": "assembly" },
+        {
+          "option_key": "sheet_metal_work",
+          "label_text": "Sheet metal",
+          "value_text": "sheet_metal_work"
+        },
+        { "option_key": "weldment", "label_text": "Weldment", "value_text": "weldment" },
+        { "option_key": "surfacing", "label_text": "Surfacing", "value_text": "surfacing" },
+        {
+          "option_key": "two_d_model",
+          "label_text": "2D drawing from model",
+          "value_text": "two_d_model"
+        }
+      ]
+    },
+    {
+      "_why": "Sheet row 'Tolerance / GD&T' (Advanced Q10). No escape chip: 'Nahi' is a real answer with its own value, not a non-answer.",
+      "question_key": "design_tolerance",
+      "min_tier": "hard",
+      "prompt_text": "Tolerance aur GD&T ka kitna kaam karte hain?",
+      "why_text": "GD&T jaanne wale designer ki alag maang hai.",
+      "target_kind": "attribute",
+      "target_field": "design_tolerance",
+      "answer_type": "single_select",
+      "is_core": true,
+      "max_asks": 2,
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          { "op": "gte", "left": { "field": "design_experience" }, "right": { "const": 2 } },
+          {
+            "op": "in",
+            "left": { "field": "design_level" },
+            "right": { "const": ["designer", "senior_designer", "lead", "supervisor"] }
+          }
+        ]
+      },
+      "options": [
+        { "option_key": "no_tol", "label_text": "Nahi", "value_text": "none" },
+        { "option_key": "basic_tol", "label_text": "Basic plus-minus", "value_text": "basic" },
+        { "option_key": "gdt_tol", "label_text": "GD&T symbols", "value_text": "gdt" },
+        { "option_key": "stackup", "label_text": "Tolerance stack-up", "value_text": "stackup" }
+      ]
+    },
+    {
+      "_why": "Sheet row 'Industry' (Advanced Q11). Same gate as the other Advanced rows.",
+      "question_key": "design_industry",
+      "min_tier": "hard",
+      "prompt_text": "Kis industry ke liye design karte hain?",
+      "why_text": "Industry ke hisaab se milti julti company milti hai.",
+      "target_kind": "attribute",
+      "target_field": "design_industry",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 2,
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          { "op": "gte", "left": { "field": "design_experience" }, "right": { "const": 2 } },
+          {
+            "op": "in",
+            "left": { "field": "design_level" },
+            "right": { "const": ["designer", "senior_designer", "lead", "supervisor"] }
+          }
+        ]
+      },
+      "options": [
+        {
+          "option_key": "auto_ancil",
+          "label_text": "Auto / ancillary",
+          "value_text": "auto_ancil"
+        },
+        {
+          "option_key": "spm_ind",
+          "label_text": "SPM / machine",
+          "value_text": "spm_ind"
+        },
+        {
+          "option_key": "elec_panel",
+          "label_text": "Electrical / panel",
+          "value_text": "elec_panel"
+        },
+        {
+          "option_key": "consumer",
+          "label_text": "Consumer products",
+          "value_text": "consumer"
+        },
+        {
+          "option_key": "aero_def",
+          "label_text": "Aerospace / defence",
+          "value_text": "aero_def"
+        },
+        { "option_key": "medical", "label_text": "Medical", "value_text": "medical" },
+        {
+          "option_key": "other_sector",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    }
+  ]
+}

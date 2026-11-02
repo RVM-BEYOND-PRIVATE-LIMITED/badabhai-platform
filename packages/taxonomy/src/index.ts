@@ -82,6 +82,9 @@ export const ROLES = [
   { id: "role_carpenter", name: "Carpenter", domainId: "dom_carpentry" },
   { id: "role_designer", name: "Designer", domainId: "dom_design" },
   { id: "role_interior_designer", name: "Interior Designer", domainId: "dom_interior_design" },
+  // CEO Launch Plan Pack v1, Track A #4: the 3D CAD Designer — parts, assemblies and
+  // surfacing in SolidWorks/Creo/NX/CATIA, not 2D drafting. APPENDED, never inserted.
+  { id: "role_cad_designer_3d", name: "3D CAD Designer", domainId: "dom_design" },
 ] as const satisfies readonly Role[];
 
 // ---- Skills (placeholder) ----

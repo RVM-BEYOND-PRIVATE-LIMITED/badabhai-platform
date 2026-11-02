@@ -136,6 +136,7 @@ describe("trade resume map — qp_cnc_turning", () => {
       "qp_cnc_grinding",
       "qp_cam_programming",
       "qp_cad_drafting",
+      "qp_cad_design_3d",
       "qp_conventional_machining",
       "qp_tool_die_making",
       "qp_welding_trade",

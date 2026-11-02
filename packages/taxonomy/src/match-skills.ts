@@ -587,6 +587,10 @@ export const ROLE_TO_MATCH_SKILL: Record<RoleId, MatchSkillId> = {
   role_carpenter: "mskill_carpenter",
   role_designer: "mskill_designer",
   role_interior_designer: "mskill_interior_designer",
+  // CEO Launch Plan Pack v1, Track A #4: the new trade's permanent ID. New
+  // assignments (including the future qp_cad_design_3d pack's answers) derive
+  // this ID directly; the E0 mskill_3d_designer stays live and related.
+  role_cad_designer_3d: "mskill_cad_designer_3d",
 };
 
 const _ROLE_TO_MATCH_SKILL = new Map<string, MatchSkillId>(Object.entries(ROLE_TO_MATCH_SKILL));

@@ -433,6 +433,28 @@ const QUESTION_TTS_TEXT: Readonly<Record<string, string>> = {
   "Kis tarah ke parts ke program banate hain?":
     "किस तरह के पार्ट्स के प्रोग्राम बनाते हैं?",
   "Program ke alawa aur kya karte hain?": "प्रोग्राम के अलावा और क्या करते हैं?",
+  // --- qp_cad_design_3d (Track A #4) — the new trade's prompts ---------------
+  // Shared-verbatim whys (experience gate, level, software) reuse the twins
+  // above; everything below is 3D-specific.
+  "3D design ka kitna tajurba hai?": "3D डिज़ाइन का कितना तजुर्बा है?",
+  "Lagbhag kitne saal 3D design ka kaam kiya hai?":
+    "लगभग कितने साल 3D डिज़ाइन का काम किया है?",
+  "Aap 3D design me kya karte hain?": "आप 3D डिज़ाइन में क्या करते हैं?",
+  "Trainee, designer, senior, lead ya head hain?":
+    "ट्रेनी, डिज़ाइनर, सीनियर, लीड या हेड हैं?",
+  "Sirf requirement mile to design khud karte ho, ya drawing dekh ke model banate ho?":
+    "सिर्फ़ रिक्वायरमेंट मिले तो डिज़ाइन खुद करते हो, या ड्राइंग देख के मॉडल बनाते हो?",
+  "Design ki calculation aur doosron ke design ka review aap karte ho?":
+    "डिज़ाइन की कैलकुलेशन और दूसरों के डिज़ाइन का रिव्यू आप करते हो?",
+  "Kitne designer aapke under kaam karte hain?":
+    "कितने डिज़ाइनर आपके अंडर काम करते हैं?",
+  "Aap kaunsa 3D software chalate hain?": "आप कौनसा 3D सॉफ्टवेयर चलाते हैं?",
+  "Kis cheez ka design karte hain?": "किस चीज़ का डिज़ाइन करते हैं?",
+  "Software me kya kya banate hain?": "सॉफ्टवेयर में क्या क्या बनाते हैं?",
+  "Tolerance aur GD&T ka kitna kaam karte hain?":
+    "टॉलरेंस और GD&T का कितना काम करते हैं?",
+  "Kis industry ke liye design karte hain?":
+    "किस इंडस्ट्री के लिए डिज़ाइन करते हैं?",
   // --- Middle Way v2 (level question, all four machining packs) -------------------------
   //
   // ONE PROMPT PAIR, SHARED VERBATIM. Turner, VMC and grinding ask the level question in the
@@ -1016,6 +1038,22 @@ const WHY_TTS_TEXT: Readonly<Record<string, string>> = {
     "पार्ट्स के हिसाब से सही कंपनी दिखाई जाती है।",
   "Zyada kaam jaanne wale programmer ki alag maang hai.":
     "ज़्यादा काम जानने वाले प्रोग्रामर की अलग माँग है।",
+  // --- qp_cad_design_3d (Track A #4) — the new trade's whys ------------------
+  // Experience-gate, level and software whys are shared verbatim (twins above).
+  "Requirement se design karne wale senior designer ko alag kaam milta hai.":
+    "रिक्वायरमेंट से डिज़ाइन करने वाले सीनियर डिज़ाइनर को अलग काम मिलता है।",
+  "Calculation aur review karne wale lead ko alag zimmedari milti hai.":
+    "कैलकुलेशन और रिव्यू करने वाले लीड को अलग ज़िम्मेदारी मिलती है।",
+  "Team sambhalne wale design head ko alag zimmedari milti hai.":
+    "टीम सँभालने वाले डिज़ाइन हेड को अलग ज़िम्मेदारी मिलती है।",
+  "Kaam ki jagah ke hisaab se sahi company milti hai.":
+    "काम की जगह के हिसाब से सही कंपनी मिलती है।",
+  "Software ki pakad se level pata chalta hai.":
+    "सॉफ्टवेयर की पकड़ से लेवल पता चलता है।",
+  "GD&T jaanne wale designer ki alag maang hai.":
+    "GD&T जानने वाले डिज़ाइनर की अलग माँग है।",
+  "Industry ke hisaab se milti julti company milti hai.":
+    "इंडस्ट्री के हिसाब से मिलती जुलती कंपनी मिलती है।",
   // --- qp_vmc_milling@1 (role pack, VMC milling) — R14 §3.1 ---------------------------
   //
   // NINE WHY-TEXTS. The tenth — "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain." — is

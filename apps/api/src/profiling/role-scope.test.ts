@@ -21,7 +21,7 @@ import { routeToTradeForm } from "./trade-form-router";
 /**
  * THE LANE READ, ASSERTED CASE BY CASE (ADR-0045 §3.1).
  *
- * The regression that matters most is a FALSE `outside`: one of the 21 sent down the general road
+ * The regression that matters most is a FALSE `outside`: one of the 22 sent down the general road
  * and handed a general résumé instead of the trade form the owner built for them. So the
  * `declared` and `unknown` tables are as long as the `outside` one, and every rule that keeps a
  * worker off the road has a case that fails if the rule is removed.
@@ -48,7 +48,7 @@ function fold(term: string): string {
 }
 
 describe("classifyRoleScope", () => {
-  describe("outside — the model captured a role, and it names none of the 21", () => {
+  describe("outside — the model captured a role, and it names none of the 22", () => {
     const outside: readonly string[] = [
       "Software developer",
       "Pilot",
@@ -72,7 +72,7 @@ describe("classifyRoleScope", () => {
       "AC technician",
       "Software programmer",
       "रसोइया",
-      // The vehicle mechanic is `fam_auto_mechanic`, not the 21's machine mechanic.
+      // The vehicle mechanic is `fam_auto_mechanic`, not the 22's machine mechanic.
       "Mechanic",
       "Car mechanic",
       // A discipline word is stripped; the trade beside it still stands.
@@ -88,7 +88,7 @@ describe("classifyRoleScope", () => {
       });
     }
 
-    it("a pin to a family outside the 21 does not pull a role in", () => {
+    it("a pin to a family outside the 22 does not pull a role in", () => {
       expect(
         scope("Electrician", { pinFamilyId: "fam_electrical", pinLabel: "bijli ka kaam" }),
       ).toBe("outside");
@@ -101,15 +101,15 @@ describe("classifyRoleScope", () => {
     });
 
     it("a qualified shared rung is decided by its qualifier, as the rung's own role file rules", () => {
-      // `fitter.role.ts`: a pipe fitter is plumbing, not the 21's fitter.
+      // `fitter.role.ts`: a pipe fitter is plumbing, not the 22's fitter.
       expect(scope("Pipe fitter")).toBe("outside");
       // `cad-draughtsman.role.ts`: the bare draughtsman belongs to twelve occupations; civil is
-      // one of the ones the 21 does not model.
+      // one of the ones the 22 does not model.
       expect(scope("Civil draughtsman")).toBe("outside");
     });
   });
 
-  describe("declared — something names one of the 21", () => {
+  describe("declared — something names one of the 22", () => {
     describe("each descriptor's first occupation term, as the role alone", () => {
       for (const descriptor of ROLE_FORM_DESCRIPTORS) {
         const term = descriptor.detection.occupationTerms[0]!;
@@ -128,7 +128,7 @@ describe("classifyRoleScope", () => {
       expect(misses).toEqual([]);
     });
 
-    describe("a pin to any of the 21's own families, with only a rung for a role", () => {
+    describe("a pin to any of the 22's own families, with only a rung for a role", () => {
       for (const descriptor of ROLE_FORM_DESCRIPTORS) {
         it(descriptor.familyId, () => {
           expect(scope("operator", { pinFamilyId: descriptor.familyId })).toBe("declared");
@@ -144,7 +144,7 @@ describe("classifyRoleScope", () => {
       }
     });
 
-    it("two of the 21 at once is still the 21 — the router's veto is not applied", () => {
+    it("two of the 22 at once is still the 22 — the router's veto is not applied", () => {
       const input = {
         domainLabel: null,
         roleLabel: "CNC turning aur VMC",
@@ -152,7 +152,7 @@ describe("classifyRoleScope", () => {
         pinLabel: null,
       };
       // The router refuses it: "vmc" is turning's conflict term, and the honest answer to "which
-      // ONE form" is none. That is a different question from "is this one of the 21".
+      // ONE form" is none. That is a different question from "is this one of the 22".
       expect(
         routeToTradeForm({
           draft: { domain_label: null, role_label: input.roleLabel, skills: [], experiences: [] },
@@ -165,7 +165,7 @@ describe("classifyRoleScope", () => {
       expect(scope("CNC turning aur VMC")).toBe("declared");
     });
 
-    it("a formless polymer role, which the router can never route, is still one of the 21", () => {
+    it("a formless polymer role, which the router can never route, is still one of the 22", () => {
       expect(scope("injection moulding operator")).toBe("declared");
       expect(
         scope("Plastic moulding machine operator", { pinFamilyId: "fam_rubber_plastic" }),
@@ -229,7 +229,7 @@ describe("classifyRoleScope", () => {
 
     it("the two generic packs the role files name as siblings are adjacent", () => {
       // `assembly-line-worker.role.ts`: `fam_assemblers_other` (minor 821) is a generic pack it
-      // sits beside. A wiring-harness assembler is minor 821; his words name none of the 21.
+      // sits beside. A wiring-harness assembler is minor 821; his words name none of the 22.
       expect(scope("Wiring harness worker")).toBe("outside");
       expect(scope("Wiring harness worker", { pinFamilyId: "fam_assemblers_other" })).toBe(
         "declared",
@@ -259,7 +259,7 @@ describe("classifyRoleScope", () => {
 
     it("ACCEPTED FALSE DECLARED: a printing press operator", () => {
       // "press operator" is the press operator's occupation term, and the printing press is not a
-      // trade the 21 model — the router vetoes it on "printing". Here it reads `declared`, and that
+      // trade the 22 model — the router vetoes it on "printing". Here it reads `declared`, and that
       // is accepted rather than patched: a false `declared` costs the worker nothing they have
       // today (the classic lane is today's interview, and the router still refuses the offer),
       // while the only patch available — reading the veto here — would make "CNC turning aur VMC"
@@ -268,9 +268,9 @@ describe("classifyRoleScope", () => {
     });
 
     // ACCEPTED FALSE DECLARED, the same trade as the printing press: each is an outsider named by
-    // a word one of the 21 owns, and each costs the worker nothing he has today — the classic lane
+    // a word one of the 22 owns, and each costs the worker nothing he has today — the classic lane
     // is today's path, byte for byte. Patching any of them means reading a veto or a context here,
-    // which is how a real member of the 21 ("CNC turning aur VMC") would be pushed out. So they are
+    // which is how a real member of the 22 ("CNC turning aur VMC") would be pushed out. So they are
     // pinned, not fixed. Three of them — "प्रेस वाला", "Rice milling", "Mixer grinder repair" — the
     // live router ROUTES today (a form is offered), and the lane must follow the offer (check (d)):
     // that is the router's precision, owned by the role files, not this module's recall.
@@ -282,7 +282,7 @@ describe("classifyRoleScope", () => {
       ["Rice milling", "a rice mill hand"],
       // "qc" is the quality inspector's term; the router vetoes pharma and chemist, this does not.
       ["Pharma QC chemist", "a pharmaceutical QC chemist"],
-      // "autocad" is the CAD draughtsman's term; civil drafting is not a trade the 21 model.
+      // "autocad" is the CAD draughtsman's term; civil drafting is not a trade the 22 model.
       ["Civil draughtsman AutoCAD", "a civil draughtsman"],
       // "grinder" is the grinding operator's term; a kitchen appliance repairer says it.
       ["Mixer grinder repair", "a mixer-grinder repairer"],
@@ -317,7 +317,7 @@ describe("classifyRoleScope", () => {
       ["Hinglish around a machine word", "khraad par kaam karta hoon", {}],
       ["Hinglish around generic words", "machine chalata hoon", {}],
       ["Devanagari rung", "ऑपरेटर", {}],
-      ["a pin outside the 21 does not rescue a rung", "operator", { pinFamilyId: "fam_packing" }],
+      ["a pin outside the 22 does not rescue a rung", "operator", { pinFamilyId: "fam_packing" }],
       // THE PRESS FAMILY: the Latin word is not evidence either way (the Devanagari is declared).
       ["the Latin press word", "Press machine operator", {}],
       ["the Latin press word", "Press worker", {}],
@@ -428,7 +428,7 @@ describe("classifyRoleScope", () => {
       expect(scope("Setter", { pinFamilyId: "fam_press_operation" })).toBe("declared");
     });
 
-    it("the ruled rungs are the exception: bare they are outside, but never against the 21's evidence", () => {
+    it("the ruled rungs are the exception: bare they are outside, but never against the 22's evidence", () => {
       expect(scope("Electrician")).toBe("outside");
       expect(scope("Wireman")).toBe("outside");
       expect(scope("Painter")).toBe("outside");
@@ -441,27 +441,27 @@ describe("classifyRoleScope", () => {
   });
 
   describe("the domain and the pin can prove declared, never outside", () => {
-    it("with no role, a domain outside the 21 is `unknown`", () => {
+    it("with no role, a domain outside the 22 is `unknown`", () => {
       expect(scope(null, { domainLabel: "Software" })).toBe("unknown");
       expect(scope("   ", { domainLabel: "Hospitality" })).toBe("unknown");
     });
 
-    it("with no role, a pin outside the 21 is `unknown`", () => {
+    it("with no role, a pin outside the 22 is `unknown`", () => {
       expect(scope(null, { pinFamilyId: "fam_cooking", pinLabel: "khana banana" })).toBe("unknown");
     });
 
-    it("a domain never supplies the residue: a rung under a non-21 domain is still `unknown`", () => {
+    it("a domain never supplies the residue: a rung under a non-22 domain is still `unknown`", () => {
       expect(scope("Operator", { domainLabel: "Software" })).toBe("unknown");
     });
 
-    it("with no role, a domain or a pin that names one of the 21 is `declared`", () => {
+    it("with no role, a domain or a pin that names one of the 22 is `declared`", () => {
       expect(scope(null, { domainLabel: "CNC Turning" })).toBe("declared");
       expect(scope(null, { pinFamilyId: "fam_cnc_turning" })).toBe("declared");
       expect(scope(null, { pinFamilyId: "fam_welding" })).toBe("declared");
     });
 
-    it("a domain naming one of the 21 outranks a role that does not", () => {
-      // The safe direction: one piece of 21 evidence anywhere is enough.
+    it("a domain naming one of the 22 outranks a role that does not", () => {
+      // The safe direction: one piece of 22 evidence anywhere is enough.
       expect(scope("Cook", { domainLabel: "Welding" })).toBe("declared");
     });
   });
@@ -479,7 +479,7 @@ describe("classifyRoleScope", () => {
       expect(scope(decomposed)).toBe("unknown");
     });
 
-    // DOCUMENTARY TODAY: neither placeholder spelling contains any of the 21's terms, so dropping
+    // DOCUMENTARY TODAY: neither placeholder spelling contains any of the 22's terms, so dropping
     // the filter changes no answer. The filter is there so a future term cannot make "General" —
     // which the #1691 ruling says is never a trade — into evidence of one.
     it("the universal placeholder pin label contributes nothing", () => {
@@ -518,14 +518,14 @@ describe("classifyRoleScope", () => {
 });
 
 describe("the closed sets", () => {
-  it("DECLARED_FAMILY_IDS is exactly the 21 descriptors' families", () => {
-    expect(ROLE_FORM_DESCRIPTORS).toHaveLength(21);
+  it("DECLARED_FAMILY_IDS is exactly the 22 descriptors' families", () => {
+    expect(ROLE_FORM_DESCRIPTORS).toHaveLength(22);
     expect([...DECLARED_FAMILY_IDS].sort()).toEqual(
       ROLE_FORM_DESCRIPTORS.map((descriptor) => descriptor.familyId).sort(),
     );
   });
 
-  it("ADJACENT_FAMILY_IDS is disjoint from the 21 and names real families", () => {
+  it("ADJACENT_FAMILY_IDS is disjoint from the 22 and names real families", () => {
     for (const familyId of ADJACENT_FAMILY_IDS) {
       expect(DECLARED_FAMILY_IDS.has(familyId), familyId).toBe(false);
       expect(FAMILY_CHIP_LABELS[familyId], familyId).toBeDefined();
@@ -542,7 +542,7 @@ describe("the closed sets", () => {
     expect(ADJACENT_FAMILY_IDS.has("fam_auto_mechanic")).toBe(false);
   });
 
-  it("no not-evidence word is an occupation term of the 21", () => {
+  it("no not-evidence word is an occupation term of the 22", () => {
     const occupation = new Set(DECLARED_OCCUPATION_TERMS);
     expect(NOT_EVIDENCE_WORDS.filter((word) => occupation.has(word))).toEqual([]);
   });
@@ -564,7 +564,7 @@ describe("the closed sets", () => {
     }
   });
 
-  it("every ruled rung is a rung of the 21 and nothing else, and is never stripped", () => {
+  it("every ruled rung is a rung of the 22 and nothing else, and is never stripped", () => {
     const levels = new Set(ROLE_FORM_DESCRIPTORS.flatMap((d) => d.detection.levelTerms).map(fold));
     const claimed = new Set(
       ROLE_FORM_DESCRIPTORS.flatMap((d) => [

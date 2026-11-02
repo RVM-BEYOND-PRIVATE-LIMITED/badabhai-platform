@@ -1455,6 +1455,102 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
     ],
   },
 
+  // ══ TRACK A #4 — 3D CAD DESIGNER (CEO Launch Plan Pack v1, sheet 4) ═══════
+  //
+  // THE FIRST MAP WITH NO RATIFIED PAGE: sheet 4 of the CEO pack is the spec,
+  // and the headline example on it ("3D CAD Designer · Senior Designer ·
+  // 5 years · SolidWorks + Creo · Sheet metal & SPM · Noida · 15 days") is the
+  // parity reference until a practising designer ratifies the wording. Every
+  // row below exists because sheet 4 names it, and every `values` key is the
+  // option's STORED `value_text`.
+  //
+  // RANKED LIKE A MACHINING MAP: software first (the hire is for the seat),
+  // then the work area, then depth, tolerance and industry. Nine rows against
+  // the budget of ten, so nothing sheds.
+  {
+    pack_id: "qp_cad_design_3d",
+    section_title: "Design, software & capability",
+    tier_section_titles: { easy: "Design & software" },
+    capability: [
+      {
+        from: "design_software",
+        rank: 21,
+        inHeadline: true,
+        maxValues: 4,
+        label: "3D software",
+        kind: "chips",
+        values: {
+          solidworks: "SolidWorks",
+          creo: "Creo",
+          nx: "NX",
+          catia: "CATIA",
+          inventor: "Inventor",
+          fusion: "Fusion 360",
+          solid_edge: "Solid Edge",
+        },
+      },
+      {
+        from: "design_work_area",
+        rank: 22,
+        inHeadline: true,
+        maxValues: 4,
+        label: "Work area",
+        kind: "chips",
+        values: {
+          machine_spm: "Machine / SPM",
+          sheet_metal: "Sheet metal",
+          plastic_parts: "Plastic parts",
+          fixture_jig: "Fixture / jig",
+          mould_die: "Mould / die / tooling",
+          auto_parts: "Automotive parts",
+        },
+      },
+      {
+        from: "design_depth",
+        rank: 41,
+        label: "Depth in software",
+        kind: "ticks",
+        values: {
+          part: "Part modelling",
+          assembly: "Assembly modelling",
+          sheet_metal_work: "Sheet metal",
+          weldment: "Weldment",
+          surfacing: "Surfacing",
+          two_d_model: "2D drawing from model",
+        },
+      },
+      {
+        from: "design_tolerance",
+        rank: 42,
+        label: "Tolerance / GD&T",
+        kind: "fact",
+        // `none` has no entry ON PURPOSE — the drawing_reading precedent on
+        // every other map. "Does not do tolerance work" is matching data, not
+        // a line on the worker's own document.
+        values: {
+          basic: "Basic ±",
+          gdt: "GD&T symbols",
+          stackup: "Tolerance stack-up",
+        },
+      },
+      {
+        from: "design_industry",
+        rank: 71,
+        label: "Industry",
+        kind: "fact",
+        join: ", ",
+        values: {
+          auto_ancil: "Auto / ancillary",
+          spm_ind: "SPM / machine",
+          elec_panel: "Electrical / panel",
+          consumer: "Consumer products",
+          aero_def: "Aerospace / defence",
+          medical: "Medical",
+        },
+      },
+    ],
+  },
+
   // ══ BATCH 2, PART ONE ═══════════════════════════════════════════════════════════════
   //
   // Four roles, and the reason it is four and not eleven is REACH rather than effort:

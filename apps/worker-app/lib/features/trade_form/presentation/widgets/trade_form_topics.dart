@@ -96,6 +96,14 @@ const Map<String, (String, String)> _kTopics = <String, (String, String)>{
   // Track A #3 (qp_cam_programming@4) — same mechanism, same category.
   'cam_program_confirm': _level, 'cam_senior_confirm': _level,
   'cam_lead_confirm': _level, 'cam_team_confirm': _level,
+  // Track A #4 (qp_cad_design_3d) — chat-only pack, no form walks it, but the
+  // coverage test reads every tier-tagged active pack: each key is listed with
+  // its true category so the table stays complete rather than failing closed.
+  'design_experience': _experience, 'design_level': _level,
+  'design_software': _software, 'design_work_area': _operations,
+  'design_depth': _operations, 'design_tolerance': _precision,
+  'design_industry': _sector, 'design_senior_confirm': _level,
+  'design_lead_confirm': _level, 'design_team_confirm': _level,
   // Machines
   'turning_machine': _machines, 'milling_machine': _machines,
   'grinding_machine': _machines, 'machining_machine': _machines,

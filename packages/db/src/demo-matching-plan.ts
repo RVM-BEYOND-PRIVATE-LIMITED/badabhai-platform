@@ -326,6 +326,24 @@ export const DEMO_TRADES: readonly DemoTrade[] = [
     requirements: ["AutoCAD layouts", "Site measurement", "Modular furniture drawings"],
     shiftWeights: [10, 0, 0],
   },
+  // Track A #4 — the new 3D trade posts under its own permanent ID.
+  {
+    roleKind: "cad_designer_3d",
+    skillId: "mskill_cad_designer_3d",
+
+    weight: 3,
+    titles: ["3D CAD Designer", "SolidWorks Design Engineer", "Mechanical Design Engineer"],
+    pay: [28000, 50000],
+    minExp: [1, 5],
+    unit: "design office",
+    requirements: [
+      "SolidWorks or Creo",
+      "Part and assembly modelling",
+      "2D drawings from model",
+      "Tolerance stack-up",
+    ],
+    shiftWeights: [10, 0, 0],
+  },
   // ── fabrication ──
   {
     roleKind: "welder",

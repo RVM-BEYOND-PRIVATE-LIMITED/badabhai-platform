@@ -780,3 +780,5 @@
 {"kind":"binding","family_id":"fam_maintenance_tech","job_domain_id":"jd_nco_7233_0301"}
 {"kind":"binding","family_id":"fam_maintenance_tech","job_domain_id":"jd_nco_7233_1100"}
 {"kind":"binding","family_id":"fam_maintenance_tech","job_domain_id":"jd_nco_7233_1200"}
+{"kind":"family","family_id":"fam_cad_design_3d","label_en":"3D CAD Designer (Mechanical)","label_hi":"3D CAD \u0921\u093f\u091c\u093c\u0907\u0928\u0930","canonical_role_id":"role_cad_designer_3d","industry_id":"ind_industrial_manufacturing"}
+{"kind":"binding","family_id":"fam_cad_design_3d","job_domain_id":"jd_rvm_3d_cad_designer"}

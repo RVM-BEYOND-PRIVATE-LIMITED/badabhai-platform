@@ -76,16 +76,21 @@ senior_programmer`; P5 crosswalk already handles). Role `levelTerms` += rung
 > shape as Turner). Deviations in the @6 review_note. ✅ Seeds after merge
 > (`db:seed:packs` + verify by Divyanshu).
 >
-> TRACK A #3 — CAM/CNC PROGRAMMER RETAG ✅ CODE DONE (`feat/mw-cam-retag`, PR next).
-> `qp_cam_programming@4`: Easy/Medium/Advanced tiers; 6-band experience;
-> sheet-3 level ladder (Trainee/Programmer/Senior/Lead/Supervisor); sheet-3
-> software set (+NX/Fusion/hyperMILL/Cimatron/WorkNC/ESPRIT/Manual G-code),
-> Medium; sheet-3 machine set (+CNC Turning/Wire-cut-EDM/Router), Medium;
-> controller posts Advanced (+Mitsubishi/Haas/Mazatrol); NEW part-types +
-> extra-work rows (Advanced); 4 separating confirm items wired into
-> `tradeLevelEntriesForPackAnswers`. Engine: CAM Easy = Q1–Q5 close (same
-> shape as Turner/VMC). Deviations in the @4 review_note. ✅ Seeds after merge
-> (`db:seed:packs` + verify by Divyanshu).
+> TRACK A #3 — CAM/CNC PROGRAMMER RETAG ✅ CODE DONE (`feat/mw-cam-retag`, PR #2512, merged).
+> `qp_cam_programming@4` live on production (seeded + verified post-merge).
+>
+> TRACK A #4 — 3D CAD DESIGNER (NEW BUILD) ✅ CODE DONE (`feat/mw-3d-designer`, PR next).
+> New `jd_rvm_3d_cad_designer` domain (first RVM-minted) + `fam_cad_design_3d` +
+> `qp_cad_design_3d@1`: Easy/Medium/Advanced tiers; 6-band experience;
+> sheet-4 level ladder (Trainee/Designer/Senior Designer/Lead/Supervisor);
+> sheet-4 software + work-area sets (Medium); Advanced depth/tolerance/industry
+> rows; 3 separating confirm items (senior/lead/supervisor). 3D-meaning aliases
+> moved off `jd_nco_3118_0401` (retired there, re-added here); `cad`/`cad
+> operator`/`autocad` stay on drafting. Role `role_cad_designer_3d` + bridge;
+> formless descriptor (chat-only, no form kind); `TRADE_FORM_KINDS_ALL` now 22
+> with migrations 0139 (job_postings/jobs role_kind) + 0140 (wri role kinds).
+> Deviations in the @1 review_note. ✅ Seeds after merge (`db:migrate` 0139+0140
+> then `db:seed:packs` + verify by Divyanshu).
 
 | #   | Trade (kind)                                      | Pack                           | Level Q today                       | Notes                                                                                                                                                                     |
 | --- | ------------------------------------------------- | ------------------------------ | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

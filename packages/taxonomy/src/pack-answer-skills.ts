@@ -398,7 +398,21 @@ export const PACK_ANSWER_SKILLS: Readonly<Record<string, PackMap>> = {
     },
   },
 
-  // ══ CAD DRAFTING ════════════════════════════════════════════════════════════════════════════
+  // ══ 3D CAD DESIGN (Track A #4) ════════════════════════════════════════════════
+  // "Aap kaunsa 3D software chalate hain?" A named package is a 3D claim; `other_software`
+  // names nothing. The role bridge derives the trade's permanent ID directly.
+  qp_cad_design_3d: {
+    design_software: {
+      solidworks: ["role_cad_designer_3d"],
+      creo: ["role_cad_designer_3d"],
+      nx: ["role_cad_designer_3d"],
+      catia: ["role_cad_designer_3d"],
+      inventor: ["role_cad_designer_3d"],
+      fusion: ["role_cad_designer_3d"],
+      solid_edge: ["role_cad_designer_3d"],
+    },
+  },
+  // ══ CAD DRAFTING ════════════════════════════════════════════════════════════════════
   // The MODULE he works in is the claim, not the brand of software: "AutoCAD" alone does not say
   // whether he drafts or models. `other_module` names nothing.
   qp_cad_drafting: {

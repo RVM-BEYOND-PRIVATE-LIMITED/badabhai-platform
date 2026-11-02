@@ -237,18 +237,18 @@ export const COMPANION_V3_OUTCOMES = [
 export type CompanionV3Outcome = (typeof COMPANION_V3_OUTCOMES)[number];
 
 // ---- The general road (ADR-0045) ----
-// A chat worker whose role is OUTSIDE the 21 predefined roles runs role → skills and closes with
+// A chat worker whose role is OUTSIDE the 22 predefined roles runs role → skills and closes with
 // a card to the offline general form. Shared by the API (which decides) and the event spine
 // (which records), so an event can never carry a value the service does not know. IDS AND CLOSED
 // SETS, NEVER TEXT: nothing here names a role, a skill or anything the worker typed.
 //
 // WHICH LANE a chat session settled into once its role was known. `skills` is the general road;
-// `classic` is today's interview (every one of the 21 roles, and every fallback).
+// `classic` is today's interview (every one of the 22 roles, and every fallback).
 export const PROFILING_LANES = ["skills", "classic"] as const;
 export type ProfilingLane = (typeof PROFILING_LANES)[number];
 // WHY the lane was chosen.
-//   outside_declared_roles  the role is known and is not one of the 21     → skills
-//   declared_role           the role is one of the 21                      → classic
+//   outside_declared_roles  the role is known and is not one of the 22     → skills
+//   declared_role           the role is one of the 22                      → classic
 //   form_offered            the trade-form offer went on screen            → classic
 //   model_unavailable       the model could not run the stretch            → classic
 //   role_unresolved         Phase A ended without a role                   → classic
@@ -1143,20 +1143,23 @@ export const TRADE_FORM_KINDS_ALL = Object.freeze([
   "blow_moulding_operator", // qp_blow_moulding — `polymer`
   "rubber_moulding_operator", // qp_rubber_moulding — `polymer`
   "plastic_process_technician", // qp_plastic_process — `polymer`
+
+  // ── TRACK A #4 — 3D CAD Designer (CEO Launch Plan Pack v1, sheet 4) ──
+  "cad_designer_3d", // qp_cad_design_3d — `design`; formless, like the polymer batch
 ] as const);
 
 export type TradeFormKindName = (typeof TRADE_FORM_KINDS_ALL)[number];
 
 const TRADE_FORM_KIND_SET: ReadonlySet<string> = new Set(TRADE_FORM_KINDS_ALL);
 
-/** Whether a value is one of the 21 DECLARED role kinds. A type guard, like the others here. */
+/** Whether a value is one of the 22 DECLARED role kinds. A type guard, like the others here. */
 export function isTradeFormKindName(value: unknown): value is TradeFormKindName {
   return typeof value === "string" && TRADE_FORM_KIND_SET.has(value);
 }
 
 // ---- Job-posting role (migration 0131) ----
 //
-// HERE FOR THE SAME REASON AS THE SETS BELOW: `packages/db` spells the 21 kinds into
+// HERE FOR THE SAME REASON AS THE SETS BELOW: `packages/db` spells the 22 kinds into
 // `job_postings_role_kind_chk` / `jobs_role_kind_chk`, `packages/event-schema` puts `role_kind` on
 // `job.created` / `job_posting.created`, `apps/api` validates the posting routes by it, and the web
 // clients render the picker and the preview from the labels below. Declared once so none can drift.
@@ -1167,7 +1170,7 @@ export function isTradeFormKindName(value: unknown): value is TradeFormKindName 
 // 2026-09-29, #1823).
 
 /**
- * The six role FAMILIES the picker groups the 21 kinds under — the same six the API's
+ * The six role FAMILIES the picker groups the 22 kinds under — the same six the API's
  * `ROLE_CLUSTERS` (`apps/api/src/profiling/roles/role-form-descriptor.ts`) veto within, in the same
  * order. The API's parity test asserts the two agree, so a seventh cluster turns it red until this
  * list learns it.
@@ -1207,9 +1210,9 @@ export interface JobRoleLabel {
  * `job-role-labels.parity.test.ts` asserts label === displayName and family === cluster for every
  * kind, so an edit to either side alone turns it red.
  *
- * EXHAUSTIVE AT COMPILE TIME: a `Record` over {@link TradeFormKindName}, so a 22nd declared kind
+ * EXHAUSTIVE AT COMPILE TIME: a `Record` over {@link TradeFormKindName}, so a 23rd declared kind
  * does not type-check until it has a label here. Deliberately carries no `formEnabled`: whether a
- * worker-side FORM exists says nothing about whether an employer may post the role, and all 21 are
+ * worker-side FORM exists says nothing about whether an employer may post the role, and all 22 are
  * postable by owner ruling.
  */
 export const JOB_ROLE_LABELS: Readonly<Record<TradeFormKindName, JobRoleLabel>> = Object.freeze({
@@ -1234,10 +1237,11 @@ export const JOB_ROLE_LABELS: Readonly<Record<TradeFormKindName, JobRoleLabel>> 
   blow_moulding_operator: { label: "Blow Moulding / Extrusion Operator", family: "polymer" },
   rubber_moulding_operator: { label: "Rubber Moulding / Compression Operator", family: "polymer" },
   plastic_process_technician: { label: "Plastic Process / Quality Technician", family: "polymer" },
+  cad_designer_3d: { label: "3D CAD Designer", family: "design" },
 } satisfies Record<TradeFormKindName, JobRoleLabel>);
 
 /**
- * The display label for a stored `role_kind`, or `null` when it is not one of the 21.
+ * The display label for a stored `role_kind`, or `null` when it is not one of the 22.
  *
  * TAKES `unknown` ON PURPOSE: the value comes off a wire or a row, and a reader must not have to
  * narrow before asking. NEVER ECHOES ITS INPUT — an unknown or malformed value is `null`, so a

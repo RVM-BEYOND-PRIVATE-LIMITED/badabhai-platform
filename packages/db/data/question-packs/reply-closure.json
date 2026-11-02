@@ -1,12 +1,12 @@
 {
   "schema_version": 1,
-  "clip_count": 1281,
+  "clip_count": 1312,
   "producers": {
-    "retry": 103,
-    "clarify": 462,
-    "prompt": 333,
+    "retry": 105,
+    "clarify": 474,
+    "prompt": 343,
     "constant": 97,
-    "why": 286
+    "why": 293
   },
   "clips": [
     {
@@ -645,6 +645,11 @@
       "producer": "prompt"
     },
     {
+      "id": "18776ae1a1f9fe7d",
+      "text": "3D design ka kitna tajurba hai?",
+      "producer": "prompt"
+    },
+    {
       "id": "187c347d1e0d8daa",
       "text": "Training se aapki skill aur certificate pata chalta hai. Aapne kaunsi training ya course ki hai?",
       "producer": "clarify"
@@ -840,6 +845,11 @@
       "producer": "prompt"
     },
     {
+      "id": "1fa9e751eb463af3",
+      "text": "Software ki pakad se level pata chalta hai. Software me kya kya banate hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "1fd66ae9f93c86e6",
       "text": "Trade test diya hai?",
       "producer": "prompt"
@@ -887,6 +897,11 @@
     {
       "id": "226d26aa39fcdf00",
       "text": "Kis cheez ki sheet metal fabrication me kaam kiya hai?",
+      "producer": "prompt"
+    },
+    {
+      "id": "22764f5c0c39c4b6",
+      "text": "Kitne designer aapke under kaam karte hain?",
       "producer": "prompt"
     },
     {
@@ -955,6 +970,11 @@
       "producer": "clarify"
     },
     {
+      "id": "24b96ebb11b7b345",
+      "text": "Trainee, designer, senior, lead ya head hain?",
+      "producer": "retry"
+    },
+    {
       "id": "24d5a0e42726f761",
       "text": "Sahi naap lene wale ko accurate kaam milta hai.",
       "producer": "why"
@@ -962,6 +982,11 @@
     {
       "id": "24d91ccea3955b25",
       "text": "Har gaadi ka licence alag hota hai. Aap kya chalate hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "2532bbe6ad2271b9",
+      "text": "Industry ke hisaab se milti julti company milti hai. Kis industry ke liye design karte hain?",
       "producer": "clarify"
     },
     {
@@ -1690,6 +1715,11 @@
       "producer": "clarify"
     },
     {
+      "id": "43ef3e5b539be3c2",
+      "text": "Kis industry ke liye design karte hain?",
+      "producer": "prompt"
+    },
+    {
       "id": "43f6557b1908d259",
       "text": "Kripya apne state ka naam likhiye.",
       "producer": "constant"
@@ -1898,6 +1928,11 @@
       "id": "4ab006c9f06a7f76",
       "text": "Ye aap baad mein Profile page pe bhar sakte hain.",
       "producer": "constant"
+    },
+    {
+      "id": "4b1433cc998b3d26",
+      "text": "GD&T jaanne wale designer ki alag maang hai.",
+      "producer": "why"
     },
     {
       "id": "4b3d94dd81fadc18",
@@ -2208,6 +2243,11 @@
       "id": "562e3504a8dc4ca7",
       "text": "Dikkat sudhaarne wale operator ki shop par zaroorat rehti hai. Belt, gear ya bearing ki dikkat kya khud theek karte hain?",
       "producer": "clarify"
+    },
+    {
+      "id": "56555528e5bf3cfa",
+      "text": "Design ki calculation aur doosron ke design ka review aap karte ho?",
+      "producer": "prompt"
     },
     {
       "id": "5677eda9dc04cf1e",
@@ -2745,6 +2785,11 @@
       "producer": "prompt"
     },
     {
+      "id": "6aa3e492c6a1209a",
+      "text": "Tolerance aur GD&T ka kitna kaam karte hain?",
+      "producer": "prompt"
+    },
+    {
       "id": "6ab9581e605c12ec",
       "text": "Control wiring jaanne wale ko panel ki zimmedaari milti hai. Kaunsa control circuit khud wire kar lete hain?",
       "producer": "clarify"
@@ -2995,6 +3040,11 @@
       "producer": "retry"
     },
     {
+      "id": "73507ae6c1e43bf2",
+      "text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain. Lagbhag kitne saal 3D design ka kaam kiya hai?",
+      "producer": "clarify"
+    },
+    {
       "id": "73579872d71349cd",
       "text": "Kaleen aur kapda bunai alag hai. Aap kya bunte hain?",
       "producer": "clarify"
@@ -3003,6 +3053,11 @@
       "id": "73ad82524c63eb4a",
       "text": "Aap pump par kya karte hain?",
       "producer": "prompt"
+    },
+    {
+      "id": "73b4dc0938729c8d",
+      "text": "Calculation aur review karne wale lead ko alag zimmedari milti hai.",
+      "producer": "why"
     },
     {
       "id": "73ebecdde72f55fa",
@@ -3073,6 +3128,11 @@
       "id": "76804f0de7afc92d",
       "text": "Theek hai, ab se Telugu mein baat karenge.",
       "producer": "constant"
+    },
+    {
+      "id": "76b9366ca2129718",
+      "text": "Aap kaunsa 3D software chalate hain?",
+      "producer": "prompt"
     },
     {
       "id": "76b9bc08faf44c3a",
@@ -3695,9 +3755,19 @@
       "producer": "why"
     },
     {
+      "id": "8e014b5bb04ef178",
+      "text": "Lagbhag kitne saal 3D design ka kaam kiya hai?",
+      "producer": "retry"
+    },
+    {
       "id": "8e47bce4b2f5e29a",
       "text": "Aap mahine ka kitna vetan chahte hain?",
       "producer": "prompt"
+    },
+    {
+      "id": "8e70a4566ee6bcbe",
+      "text": "Calculation aur review karne wale lead ko alag zimmedari milti hai. Design ki calculation aur doosron ke design ka review aap karte ho?",
+      "producer": "clarify"
     },
     {
       "id": "8e98e2dbdaf93e4c",
@@ -3868,6 +3938,11 @@
       "id": "95e04ac6d49c634d",
       "text": "Setting ka kaunsa kaam khud karte hain?",
       "producer": "prompt"
+    },
+    {
+      "id": "96058ee36f82d9fa",
+      "text": "Software ke hisaab se sahi kaam dikhaya jaata hai. Aap kaunsa 3D software chalate hain?",
+      "producer": "clarify"
     },
     {
       "id": "9627f7da8c63e99a",
@@ -4095,6 +4170,11 @@
       "producer": "why"
     },
     {
+      "id": "9fc28fcdd596934a",
+      "text": "Sirf requirement mile to design khud karte ho, ya drawing dekh ke model banate ho?",
+      "producer": "prompt"
+    },
+    {
       "id": "a01d21acf280bc8f",
       "text": "Gaadi chalane wale ka vetan alag hai.",
       "producer": "why"
@@ -4122,6 +4202,11 @@
     {
       "id": "a1201448053c1ee2",
       "text": "Licence wale ko badi company rakhti hai. Kya aapke paas guard ka licence hai?",
+      "producer": "clarify"
+    },
+    {
+      "id": "a17bc9fce8172575",
+      "text": "Level ke hisaab se sahi sawaal poochhe jaate hain. Trainee, designer, senior, lead ya head hain?",
       "producer": "clarify"
     },
     {
@@ -4182,6 +4267,16 @@
     {
       "id": "a38a2cc1d77279fb",
       "text": "Mixer aur plant ka kaam alag hai. Aap kaunsi machine chalate hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "a3bf36178be1118f",
+      "text": "Software me kya kya banate hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "a49bc6dec7930e79",
+      "text": "Team sambhalne wale design head ko alag zimmedari milti hai. Kitne designer aapke under kaam karte hain?",
       "producer": "clarify"
     },
     {
@@ -4440,6 +4535,11 @@
       "producer": "retry"
     },
     {
+      "id": "adbf53bc2d9c6988",
+      "text": "Team sambhalne wale design head ko alag zimmedari milti hai.",
+      "producer": "why"
+    },
+    {
       "id": "adef7dc09ea6b88b",
       "text": "Training kis saal ki thi?",
       "producer": "prompt"
@@ -4593,6 +4693,11 @@
       "id": "b3b1ad2be1deab25",
       "text": "Har kaam alag hunar hai, isse sahi naukri milti hai. Sheet par kaunsa kaam khud karte hain?",
       "producer": "clarify"
+    },
+    {
+      "id": "b48fd7fe119bf353",
+      "text": "Industry ke hisaab se milti julti company milti hai.",
+      "producer": "why"
     },
     {
       "id": "b49ad5b5b256b36e",
@@ -4853,6 +4958,11 @@
       "id": "be61683c035f7fb5",
       "text": "Sinchai jaanne wale ki maang hai.",
       "producer": "why"
+    },
+    {
+      "id": "be685f57376905dd",
+      "text": "Requirement se design karne wale senior designer ko alag kaam milta hai. Sirf requirement mile to design khud karte ho, ya drawing dekh ke model banate ho?",
+      "producer": "clarify"
     },
     {
       "id": "bec721ae710285a5",
@@ -5540,6 +5650,16 @@
       "producer": "constant"
     },
     {
+      "id": "d8aab19ed5695e3a",
+      "text": "Aap 3D design me kya karte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "d8d8ef06108ed641",
+      "text": "Level ke hisaab se sahi sawaal poochhe jaate hain. Aap 3D design me kya karte hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "d8f7660181858b96",
       "text": "Armed guard ka vetan zyada hota hai. Kya aap hathiyar wali duty kar sakte hain?",
       "producer": "clarify"
@@ -5790,6 +5910,11 @@
       "producer": "clarify"
     },
     {
+      "id": "e2eeacc2205cfe91",
+      "text": "Kaam ki jagah ke hisaab se sahi company milti hai.",
+      "producer": "why"
+    },
+    {
       "id": "e30f7ea97325c22b",
       "text": "Aap factory mein kaam karte hain ya site par?",
       "producer": "prompt"
@@ -5812,6 +5937,11 @@
     {
       "id": "e512c82bb98270a2",
       "text": "Model theek kar lena programmer ka apna hunar hai. CAD model ke saath kaunsa kaam karte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "e5a9ea484ae10b55",
+      "text": "Kaam ki jagah ke hisaab se sahi company milti hai. Kis cheez ka design karte hain?",
       "producer": "clarify"
     },
     {
@@ -5880,6 +6010,11 @@
       "producer": "why"
     },
     {
+      "id": "e8c4fee8580128f2",
+      "text": "Requirement se design karne wale senior designer ko alag kaam milta hai.",
+      "producer": "why"
+    },
+    {
       "id": "e918aa44af7420cc",
       "text": "Grahak se baat karne wale alag rakhe jaate hain.",
       "producer": "why"
@@ -5917,6 +6052,11 @@
     {
       "id": "ebf5353a1c1b98a0",
       "text": "Training se aapki skill aur certificate pata chalta hai. Aapne koi course ya training ki hai?",
+      "producer": "clarify"
+    },
+    {
+      "id": "ebf8bc6afaed9e33",
+      "text": "GD&T jaanne wale designer ki alag maang hai. Tolerance aur GD&T ka kitna kaam karte hain?",
       "producer": "clarify"
     },
     {
@@ -6020,6 +6160,16 @@
       "producer": "why"
     },
     {
+      "id": "ee5e717052c9277a",
+      "text": "Software ki pakad se level pata chalta hai.",
+      "producer": "why"
+    },
+    {
+      "id": "eee4d64a15d35ece",
+      "text": "Kis cheez ka design karte hain?",
+      "producer": "prompt"
+    },
+    {
       "id": "ef8daaea9ee37bfc",
       "text": "Aas-paas ki naukri dikhane ke liye doori pata honi chahiye.",
       "producer": "why"
@@ -6048,6 +6198,11 @@
       "id": "f040500c0ce5bcaf",
       "text": "Bending, punching, notching ya rolling, kaunsa kaam karte hain?",
       "producer": "retry"
+    },
+    {
+      "id": "f168538f253fb8df",
+      "text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain. 3D design ka kitna tajurba hai?",
+      "producer": "clarify"
     },
     {
       "id": "f18b9bf04c1eacc2",
