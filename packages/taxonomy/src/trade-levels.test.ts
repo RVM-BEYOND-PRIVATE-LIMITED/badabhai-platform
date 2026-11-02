@@ -19,13 +19,24 @@ import {
  * alias spelling lands on the canonical key, and null prices Lower.
  */
 describe("trade-level crosswalk", () => {
-  it("covers the four v1 trades plus the 3D trade, each with its skill and level key", () => {
+  it("covers the four v1 trades plus the two CAD trades, each with its skill and level key", () => {
     expect(TRADE_LEVEL_PACKS).toEqual({
       qp_cnc_turning: { skillId: "mskill_cnc_turner", levelKey: "turning_level" },
       qp_vmc_milling: { skillId: "mskill_vmc_operator", levelKey: "milling_level" },
       qp_cnc_grinding: { skillId: "mskill_cnc_grinding_operator", levelKey: "grinding_level" },
       qp_cam_programming: { skillId: "mskill_cam_programmer", levelKey: "cam_level" },
       qp_cad_design_3d: { skillId: "mskill_cad_designer_3d", levelKey: "design_level" },
+      qp_cad_drafting: {
+        skillId: "mskill_designer",
+        levelKey: "cad_level",
+        labels: {
+          trainee: "Trainee",
+          designer: "Draughtsman",
+          senior_designer: "Senior Draughtsman",
+          lead: "Lead",
+          supervisor: "Head",
+        },
+      },
     });
   });
 
@@ -378,5 +389,55 @@ describe("trade-level crosswalk", () => {
     ).toEqual([
       { skillId: "mskill_cad_designer_3d", tradeLevel: "supervisor", levelConfirmed: true },
     ]);
+  });
+
+  it("wires the 2D draughtsman confirms the same way (CEO Launch Plan Pack v1, Track A #5)", () => {
+    const drafting = (
+      level: string,
+      confirm: { attributeKey: string; value: unknown } | null,
+    ) =>
+      tradeLevelEntriesForPackAnswers(
+        "qp_cad_drafting",
+        confirm === null
+          ? [{ attributeKey: "cad_level", value: level }]
+          : [{ attributeKey: "cad_level", value: level }, confirm],
+      );
+    // No confirm answer: the rung rule stands (senior_designer+ confirmed, below not).
+    expect(drafting("senior_designer", null)).toEqual([
+      { skillId: "mskill_designer", tradeLevel: "senior_designer", levelConfirmed: true },
+    ]);
+    expect(drafting("designer", null)).toEqual([
+      { skillId: "mskill_designer", tradeLevel: "designer", levelConfirmed: false },
+    ]);
+    // Self confirms, other disconfirms — per rung.
+    expect(
+      drafting("senior_designer", { attributeKey: "cad_senior_confirm", value: "self" }),
+    ).toEqual([
+      { skillId: "mskill_designer", tradeLevel: "senior_designer", levelConfirmed: true },
+    ]);
+    expect(
+      drafting("senior_designer", { attributeKey: "cad_senior_confirm", value: "other" }),
+    ).toEqual([
+      { skillId: "mskill_designer", tradeLevel: "senior_designer", levelConfirmed: false },
+    ]);
+    expect(drafting("lead", { attributeKey: "cad_lead_confirm", value: "self" })).toEqual([
+      { skillId: "mskill_designer", tradeLevel: "lead", levelConfirmed: true },
+    ]);
+    expect(
+      drafting("supervisor", { attributeKey: "cad_team_confirm", value: "3 designer" }),
+    ).toEqual([{ skillId: "mskill_designer", tradeLevel: "supervisor", levelConfirmed: true }]);
+  });
+
+  it("prints the 2D trade's own rung words (CEO Launch Plan Pack v1, Track A #5)", () => {
+    // Shared crosswalk everywhere else; the draughtsman's sheet headlines his own ladder.
+    expect(tradeLevelLabelFor("qp_cad_drafting", "trainee")).toBe("Trainee");
+    expect(tradeLevelLabelFor("qp_cad_drafting", "designer")).toBe("Draughtsman");
+    expect(tradeLevelLabelFor("qp_cad_drafting", "senior_designer")).toBe("Senior Draughtsman");
+    expect(tradeLevelLabelFor("qp_cad_drafting", "lead")).toBe("Lead");
+    expect(tradeLevelLabelFor("qp_cad_drafting", "supervisor")).toBe("Head");
+    expect(tradeLevelLabelFor("qp_cad_drafting", "boss")).toBeNull();
+    // Other trades keep the shared labels.
+    expect(tradeLevelLabelFor("qp_cnc_turning", "setter")).toBe("Setter");
+    expect(tradeLevelLabelFor("qp_cam_programming", "senior")).toBe("Senior");
   });
 });

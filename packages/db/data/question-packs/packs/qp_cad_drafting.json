@@ -12,7 +12,7 @@
   "version": 1,
   "family_id": "fam_cad_drafting",
   "locale": "hi-IN",
-  "status": "active",
+  "status": "deprecated",
   "review_note": "DRAFTED, NOT RATIFIED. Shop-floor and drawing-office vocabulary here -- and the alias tranche that makes this pack reachable at all -- is drafted for human ratification and has NOT yet been corrected by a practising draughtsman. See docs/registers/trade-content-ratification.md.",
   "items": [
     {

@@ -448,6 +448,19 @@ const QUESTION_TTS_TEXT: Readonly<Record<string, string>> = {
     "डिज़ाइन की कैलकुलेशन और दूसरों के डिज़ाइन का रिव्यू आप करते हो?",
   "Kitne designer aapke under kaam karte hain?":
     "कितने डिज़ाइनर आपके अंडर काम करते हैं?",
+  // --- qp_cad_drafting@2 (Track A #5) — the level question, work-area row,
+  // 3D-to-2D row and separating confirms -------------------------------------
+  // team_confirm + work-area why reuse the 3D twins verbatim (above / in the
+  // 3D why block). Only the level wording, the subject row and the senior/lead
+  // confirms need twins.
+  "Drawing office me aap kya karte hain?": "ड्राइंग ऑफिस में आप क्या करते हैं?",
+  "Trainee, draughtsman, senior, lead ya head hain?":
+    "ट्रेनी, ड्राफ्ट्समैन, सीनियर, लीड या हेड हैं?",
+  "Kis cheez ki drawing banate hain?": "किस चीज़ की ड्राइंग बनाते हैं?",
+  "3D model se 2D nikalte ho?": "3D मॉडल से 2D निकालते हो?",
+  "Doosron ki drawing aap check karte ho?": "दूसरों की ड्राइंग आप चेक करते हो?",
+  "Poore project ki drawings aapke naam se jaati hain?":
+    "पूरे प्रोजेक्ट की ड्राइंग्स आपके नाम से जाती हैं?",
   "Aap kaunsa 3D software chalate hain?": "आप कौनसा 3D सॉफ्टवेयर चलाते हैं?",
   "Kis cheez ka design karte hain?": "किस चीज़ का डिज़ाइन करते हैं?",
   "Software me kya kya banate hain?": "सॉफ्टवेयर में क्या क्या बनाते हैं?",
@@ -1046,6 +1059,15 @@ const WHY_TTS_TEXT: Readonly<Record<string, string>> = {
     "कैलकुलेशन और रिव्यू करने वाले लीड को अलग ज़िम्मेदारी मिलती है।",
   "Team sambhalne wale design head ko alag zimmedari milti hai.":
     "टीम सँभालने वाले डिज़ाइन हेड को अलग ज़िम्मेदारी मिलती है।",
+  // --- qp_cad_drafting@2 (Track A #5) — new + confirm whys ------------------
+  // The level why and the 3D→2D-adjacent "Kaam ki jagah" why are shared
+  // verbatim (twins above).
+  "Model se drawing nikalna 3D ki taraf pehla kadam hai.":
+    "मॉडल से ड्राइंग निकालना 3D की तरफ पहला कदम है।",
+  "Doosron ki drawing check karne wale senior ko alag kaam milta hai.":
+    "दूसरों की ड्राइंग चेक करने वाले सीनियर को अलग काम मिलता है।",
+  "Project ki drawings sambhalne wale lead ko alag zimmedari milti hai.":
+    "प्रोजेक्ट की ड्राइंग्स सँभालने वाले लीड को अलग ज़िम्मेदारी मिलती है।",
   "Kaam ki jagah ke hisaab se sahi company milti hai.":
     "काम की जगह के हिसाब से सही कंपनी मिलती है।",
   "Software ki pakad se level pata chalta hai.":

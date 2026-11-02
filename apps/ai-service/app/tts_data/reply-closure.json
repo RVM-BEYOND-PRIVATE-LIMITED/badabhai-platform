@@ -1,12 +1,12 @@
 {
   "schema_version": 1,
-  "clip_count": 1312,
+  "clip_count": 1327,
   "producers": {
-    "retry": 105,
-    "clarify": 474,
-    "prompt": 343,
+    "retry": 106,
+    "clarify": 480,
+    "prompt": 348,
     "constant": 97,
-    "why": 293
+    "why": 296
   },
   "clips": [
     {
@@ -47,6 +47,11 @@
     {
       "id": "016bf496584744a4",
       "text": "Har machine ka licence alag hota hai.",
+      "producer": "why"
+    },
+    {
+      "id": "016e7230f9ae0e45",
+      "text": "Model se drawing nikalna 3D ki taraf pehla kadam hai.",
       "producer": "why"
     },
     {
@@ -530,6 +535,11 @@
       "producer": "prompt"
     },
     {
+      "id": "11a13bb9097c7971",
+      "text": "Kaam ki jagah ke hisaab se sahi company milti hai. Kis cheez ki drawing banate hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "12f14c3571a737c0",
       "text": "Shop floor par kaunse tareeke follow karte hain?",
       "producer": "prompt"
@@ -562,6 +572,11 @@
     {
       "id": "14d9343338724c80",
       "text": "Sahi tareeke se vetan dikhane ke liye period pata hona chahiye. Aapki salary mahine, din ya saal ke hisaab se hai?",
+      "producer": "clarify"
+    },
+    {
+      "id": "15f00785f1b20ee7",
+      "text": "Level ke hisaab se sahi sawaal poochhe jaate hain. Drawing office me aap kya karte hain?",
       "producer": "clarify"
     },
     {
@@ -1355,6 +1370,11 @@
       "producer": "why"
     },
     {
+      "id": "3334c5068ebd89fc",
+      "text": "Doosron ki drawing aap check karte ho?",
+      "producer": "prompt"
+    },
+    {
       "id": "3350a2cbfd799ab8",
       "text": "Har badi gaadi ka kaam alag hai.",
       "producer": "why"
@@ -1528,6 +1548,11 @@
       "id": "3bffb7c6c0fe39ec",
       "text": "Press ka size batata hai ki kitni badi tooling banayi hai. Chhoti press ya badi press, kis par tryout kiya hai?",
       "producer": "clarify"
+    },
+    {
+      "id": "3c1fe50a98759947",
+      "text": "3D model se 2D nikalte ho?",
+      "producer": "prompt"
     },
     {
       "id": "3c222ec76f57f57d",
@@ -1930,6 +1955,11 @@
       "producer": "constant"
     },
     {
+      "id": "4b10d87137674ec2",
+      "text": "Poore project ki drawings aapke naam se jaati hain?",
+      "producer": "prompt"
+    },
+    {
       "id": "4b1433cc998b3d26",
       "text": "GD&T jaanne wale designer ki alag maang hai.",
       "producer": "why"
@@ -2115,6 +2145,11 @@
       "producer": "clarify"
     },
     {
+      "id": "524399d94bd1d305",
+      "text": "Drawing office me aap kya karte hain?",
+      "producer": "prompt"
+    },
+    {
       "id": "525d2ba59ec6d1f9",
       "text": "Auto parts, white goods ya furniture, kis line me kaam kiya hai?",
       "producer": "retry"
@@ -2218,6 +2253,11 @@
       "id": "5568c594a2fec706",
       "text": "Overhead welding ka alag rate milta hai. Kya aap overhead welding kar lete hain?",
       "producer": "clarify"
+    },
+    {
+      "id": "5575a2d1fd5fdb5c",
+      "text": "Project ki drawings sambhalne wale lead ko alag zimmedari milti hai.",
+      "producer": "why"
     },
     {
       "id": "55998ba805e5ce9b",
@@ -3050,6 +3090,11 @@
       "producer": "clarify"
     },
     {
+      "id": "735cf12abb893516",
+      "text": "Level ke hisaab se sahi sawaal poochhe jaate hain. Trainee, draughtsman, senior, lead ya head hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "73ad82524c63eb4a",
       "text": "Aap pump par kya karte hain?",
       "producer": "prompt"
@@ -3515,6 +3560,11 @@
       "producer": "prompt"
     },
     {
+      "id": "8543137f06eccea8",
+      "text": "Kis cheez ki drawing banate hain?",
+      "producer": "prompt"
+    },
+    {
       "id": "8586edec2b09e8dd",
       "text": "Kya aap billing kar lete hain?",
       "producer": "prompt"
@@ -3632,6 +3682,11 @@
     {
       "id": "8948d9c6bb3a4534",
       "text": "Wheel chunna grinding ka asli hunar hai.",
+      "producer": "why"
+    },
+    {
+      "id": "897dfce721e4fc45",
+      "text": "Doosron ki drawing check karne wale senior ko alag kaam milta hai.",
       "producer": "why"
     },
     {
@@ -4407,6 +4462,11 @@
     {
       "id": "a80ec40f7c025a63",
       "text": "Machine ke hisaab se sahi kaam dikhaya jaata hai. Kaunsi welding machine par kaam karte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "a8225fb7b6a9845b",
+      "text": "Model se drawing nikalna 3D ki taraf pehla kadam hai. 3D model se 2D nikalte ho?",
       "producer": "clarify"
     },
     {
@@ -5785,6 +5845,11 @@
       "producer": "constant"
     },
     {
+      "id": "de9f1ebf400b89ba",
+      "text": "Trainee, draughtsman, senior, lead ya head hain?",
+      "producer": "retry"
+    },
+    {
       "id": "debddcf585f0bec3",
       "text": "Drawing padhna kai jagah zaroori hota hai. Kya aap drawing padh lete hain?",
       "producer": "clarify"
@@ -6500,9 +6565,19 @@
       "producer": "why"
     },
     {
+      "id": "fcfa39d8ee228e9c",
+      "text": "Project ki drawings sambhalne wale lead ko alag zimmedari milti hai. Poore project ki drawings aapke naam se jaati hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "fd398a3b0db03fb5",
       "text": "Standard jaanne wale ko badi company me kaam milta hai.",
       "producer": "why"
+    },
+    {
+      "id": "fd7eee3055bd82a3",
+      "text": "Doosron ki drawing check karne wale senior ko alag kaam milta hai. Doosron ki drawing aap check karte ho?",
+      "producer": "clarify"
     },
     {
       "id": "fd9fc3424db92e44",

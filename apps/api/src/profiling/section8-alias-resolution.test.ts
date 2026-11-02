@@ -358,6 +358,23 @@ describe("§8 rung words resolve to the rung; signal phrases corroborate the tra
     expect(rungFor(camLevel4, text as string)).toEqual([expected]);
   });
 
+  // TRACK A #5 (@2) — the sheet-5 ladder. CAD had no level question before, so
+  // there are no frozen rows; @2 asks trainee/designer (Draughtsman)/senior/
+  // lead/supervisor, and the chips capture the same way.
+  const cadLevel2 = loadItem("qp_cad_drafting@2.json", "cad_level");
+  it.each([
+    ["Trainee", "trainee"],
+    ["trainee hoon", "trainee"],
+    ["Draughtsman", "designer"],
+    ["draughtsman hoon", "designer"],
+    ["Senior Draughtsman", "senior_designer"],
+    ["Lead / Checker", "lead"],
+    ["lead hoon", "lead"],
+    ["Head", "supervisor"],
+  ])("design_level@2: %s → %s", (text, expected) => {
+    expect(rungFor(cadLevel2, text as string)).toEqual([expected]);
+  });
+
   // The P4 contract, owner-approved: §8 signal phrases corroborate the family pin
   // (asserted in the routing tables above) and NEVER write a rung by themselves.
   // The rung lands when the worker taps a chip or names it. Each null below is the
@@ -667,6 +684,42 @@ describe("§8 machine/controller rows resolve at capture; unlisted spellings re-
     ["qp_cam_programming@4.json", "cam_program_confirm", "Bana-banaya chalata hoon", "other"],
     ["qp_cam_programming@4.json", "cam_senior_confirm", "Haan, khud karta hoon", "self"],
     ["qp_cam_programming@4.json", "cam_lead_confirm", "Haan, main chalata hoon", "self"],
+  ] as ReadonlyArray<readonly [string, string, string, string | null]>)(
+    "%s %s: %s → %s",
+    (packFile, questionKey, text, expected) => {
+      expect(capturedOption(packFile, questionKey, text)).toEqual(
+        expected === null ? [] : [expected],
+      );
+    },
+  );
+
+  // TRACK A #5 (@2) — the sheet-5 software/work-area sets and the separating
+  // confirms resolve at capture. The AutoCAD Mechanical / DraftSight / ZWCAD /
+  // BricsCAD chips are new; the kept history chips (SolidWorks, Fusion, Creo,
+  // CATIA) capture the same way.
+  it.each([
+    ["qp_cad_drafting@2.json", "cad_software", "AutoCAD", "autocad"],
+    ["qp_cad_drafting@2.json", "cad_software", "AutoCAD Mechanical", "autocad_mech"],
+    ["qp_cad_drafting@2.json", "cad_software", "DraftSight", "draftsight"],
+    ["qp_cad_drafting@2.json", "cad_software", "ZWCAD", "zwcad"],
+    ["qp_cad_drafting@2.json", "cad_software", "BricsCAD", "bricscad"],
+    ["qp_cad_drafting@2.json", "cad_software", "SolidWorks", "solidworks"],
+    ["qp_cad_drafting@2.json", "cad_software", "Fusion 360", "fusion"],
+    // The none-of-above chips capture `unknown` (their stored value); the
+    // engine — not capture — decides what that closes.
+    ["qp_cad_drafting@2.json", "cad_software", "Koi aur software", "unknown"],
+    ["qp_cad_drafting@2.json", "drawing_subject", "Machine parts", "machine_parts"],
+    ["qp_cad_drafting@2.json", "drawing_subject", "Sheet metal", "sheetmetal_fab"],
+    ["qp_cad_drafting@2.json", "drawing_subject", "Structural", "structural"],
+    ["qp_cad_drafting@2.json", "drawing_subject", "Conveyor / SPM", "conveyor_spm"],
+    ["qp_cad_drafting@2.json", "drawing_subject", "Electrical / panel", "elec_panel"],
+    ["qp_cad_drafting@2.json", "drawing_subject", "Piping", "piping"],
+    ["qp_cad_drafting@2.json", "drawing_subject", "Civil / architecture", "civil_arch"],
+    ["qp_cad_drafting@2.json", "drawing_subject", "Koi aur", "unknown"],
+    ["qp_cad_drafting@2.json", "drawing_from_model", "Haan, nikalta hoon", "yes"],
+    ["qp_cad_drafting@2.json", "cad_senior_confirm", "Haan, check karta hoon", "self"],
+    ["qp_cad_drafting@2.json", "cad_senior_confirm", "Nahi, sirf apni dekhta hoon", "other"],
+    ["qp_cad_drafting@2.json", "cad_lead_confirm", "Haan, mere naam se jaati hain", "self"],
   ] as ReadonlyArray<readonly [string, string, string, string | null]>)(
     "%s %s: %s → %s",
     (packFile, questionKey, text, expected) => {
