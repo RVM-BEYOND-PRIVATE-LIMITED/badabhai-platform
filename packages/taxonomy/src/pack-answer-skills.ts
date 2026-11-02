@@ -381,12 +381,20 @@ export const PACK_ANSWER_SKILLS: Readonly<Record<string, PackMap>> = {
       both_modes: ["skill_cam_software", "skill_cnc_programming"],
     },
     // "Aap kaunsa CAM software chalate hain?" A named package is a CAM claim; `other_software`
-    // names nothing.
+    // names nothing. Track A #3 (@4): the sheet-3 packages claim the same chair.
     cam_software: {
       mastercam: ["skill_cam_software"],
       powermill: ["skill_cam_software"],
       solidcam: ["skill_cam_software"],
       edgecam: ["skill_cam_software"],
+      nx_cam: ["skill_cam_software"],
+      fusion: ["skill_cam_software"],
+      hypermill: ["skill_cam_software"],
+      cimatron: ["skill_cam_software"],
+      worknc: ["skill_cam_software"],
+      esprit: ["skill_cam_software"],
+      // MDI-only: a programming claim without a CAM seat — the CNC programmer's skill.
+      manual_gcode: ["skill_cnc_programming"],
     },
   },
 

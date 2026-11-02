@@ -264,6 +264,14 @@ export const TRADE_LEVEL_CONFIRM_ITEMS: Readonly<
     programmer: "milling_program_write_confirm",
     supervisor: "milling_team_confirm",
   },
+  // Track A #3 — the CAM confirms (CEO Launch Plan Pack v1, sheet 3).
+  // Confirmed from `programmer`: programmer, senior, lead, supervisor.
+  qp_cam_programming: {
+    programmer: "cam_program_confirm",
+    senior: "cam_senior_confirm",
+    lead: "cam_lead_confirm",
+    supervisor: "cam_team_confirm",
+  },
 };
 
 /**
