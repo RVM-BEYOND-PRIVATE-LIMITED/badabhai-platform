@@ -56,9 +56,11 @@ export const dynamic = "force-dynamic";
 export default async function AccountPage() {
   const session = await requirePayer();
 
-  // The core identity field (email) is rollout-optional on the session. If it is missing the
+  // The core identity field (email) is rollout-optional on the session. `undefined` means the
   // /payer/me read hasn't populated this session yet — show a neutral retry, never a blank page.
-  if (!session.email) {
+  // `null` is NOT a failure: it is a phone-only account (#2497/#2499), rendered below without
+  // an email row.
+  if (session.email === undefined) {
     return (
       <div className="account-page">
         <PageHeader title="Account" description={ACCOUNT_DESCRIPTION} />
@@ -134,8 +136,17 @@ export default async function AccountPage() {
           <dl className="kv">
             <dt className="kv__k">Organisation</dt>
             <dd className="kv__v">{session.displayLabel}</dd>
-            <dt className="kv__k">Account email</dt>
-            <dd className="kv__v bb-mono">{session.email}</dd>
+            {session.email ? (
+              <>
+                <dt className="kv__k">Account email</dt>
+                <dd className="kv__v bb-mono">{session.email}</dd>
+              </>
+            ) : session.phoneLast4 ? (
+              <>
+                <dt className="kv__k">Phone</dt>
+                <dd className="kv__v bb-mono">{maskLast4(session.phoneLast4)}</dd>
+              </>
+            ) : null}
             <dt className="kv__k">Role</dt>
             <dd className="kv__v">
               <Badge tone="brand" upper>
