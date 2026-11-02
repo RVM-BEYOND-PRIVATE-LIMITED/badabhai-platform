@@ -339,6 +339,25 @@ describe("§8 rung words resolve to the rung; signal phrases corroborate the tra
     expect(rungFor(camLevel, text as string)).toEqual([expected]);
   });
 
+  // TRACK A #3 (@4) — the sheet-3 ladder. Old junior/senior-programmer keys
+  // live on in frozen @3 (rows above); @4 asks trainee/programmer/senior/
+  // lead/supervisor, and the new chips capture the same way.
+  const camLevel4 = loadItem("qp_cam_programming@4.json", "cam_level");
+  it.each([
+    ["Trainee", "trainee"],
+    ["trainee hoon", "trainee"],
+    ["Programmer", "programmer"],
+    ["programmer hoon", "programmer"],
+    ["Senior Programmer", "senior"],
+    ["senior programmer hoon", "senior"],
+    ["Lead", "lead"],
+    ["lead hoon", "lead"],
+    ["Supervisor", "supervisor"],
+    ["CAM programmer", "programmer"],
+  ])("cam_level@4: %s → %s", (text, expected) => {
+    expect(rungFor(camLevel4, text as string)).toEqual([expected]);
+  });
+
   // The P4 contract, owner-approved: §8 signal phrases corroborate the family pin
   // (asserted in the routing tables above) and NEVER write a rung by themselves.
   // The rung lands when the worker taps a chip or names it. Each null below is the
@@ -608,6 +627,46 @@ describe("§8 machine/controller rows resolve at capture; unlisted spellings re-
     ["qp_vmc_milling@6.json", "milling_setting_confirm", "Koi aur karta hai", "other"],
     ["qp_vmc_milling@6.json", "milling_program_write_confirm", "Haan, khud banata hoon", "self"],
     ["qp_vmc_milling@6.json", "milling_program_write_confirm", "Bana-banaya chalata hoon", "other"],
+  ] as ReadonlyArray<readonly [string, string, string, string | null]>)(
+    "%s %s: %s → %s",
+    (packFile, questionKey, text, expected) => {
+      expect(capturedOption(packFile, questionKey, text)).toEqual(
+        expected === null ? [] : [expected],
+      );
+    },
+  );
+
+  // TRACK A #3 (@4) — the sheet-3 machine/controller/software sets resolve at
+  // capture. Bare "EDM" hits the "Wire-cut / EDM" chip, but bare "Wire cut"
+  // re-asks (hyphen-joined labels do not split — same finding as Track A #2).
+  it.each([
+    ["qp_cam_programming@4.json", "machine_programmed", "VMC 3-axis", "vmc_three_axis"],
+    ["qp_cam_programming@4.json", "machine_programmed", "VMC 4-axis", "vmc_four_axis"],
+    ["qp_cam_programming@4.json", "machine_programmed", "5-axis trunnion", "five_axis_trunnion"],
+    ["qp_cam_programming@4.json", "machine_programmed", "Turn-mill", "turn_mill"],
+    ["qp_cam_programming@4.json", "machine_programmed", "CNC Turning", "cnc_turning"],
+    ["qp_cam_programming@4.json", "machine_programmed", "Wire-cut / EDM", "wirecut_edm"],
+    ["qp_cam_programming@4.json", "machine_programmed", "EDM", "wirecut_edm"],
+    ["qp_cam_programming@4.json", "machine_programmed", "Router", "router"],
+    ["qp_cam_programming@4.json", "controller_brand", "Fanuc", "fanuc"],
+    ["qp_cam_programming@4.json", "controller_brand", "Heidenhain", "heidenhain"],
+    ["qp_cam_programming@4.json", "controller_brand", "Siemens", "siemens"],
+    ["qp_cam_programming@4.json", "controller_brand", "Mitsubishi", "mitsubishi"],
+    ["qp_cam_programming@4.json", "controller_brand", "Haas", "haas"],
+    ["qp_cam_programming@4.json", "controller_brand", "Mazatrol", "mazatrol"],
+    ["qp_cam_programming@4.json", "controller_brand", "Pata nahi", null],
+    ["qp_cam_programming@4.json", "cam_software", "NX CAM", "nx_cam"],
+    ["qp_cam_programming@4.json", "cam_software", "Fusion 360", "fusion"],
+    ["qp_cam_programming@4.json", "cam_software", "hyperMILL", "hypermill"],
+    ["qp_cam_programming@4.json", "cam_software", "Cimatron", "cimatron"],
+    ["qp_cam_programming@4.json", "cam_software", "WorkNC", "worknc"],
+    ["qp_cam_programming@4.json", "cam_software", "ESPRIT", "esprit"],
+    ["qp_cam_programming@4.json", "cam_software", "Manual G-code only", "manual_gcode"],
+    // Separating confirms (self/other VALUES resolve).
+    ["qp_cam_programming@4.json", "cam_program_confirm", "Haan, khud banata hoon", "self"],
+    ["qp_cam_programming@4.json", "cam_program_confirm", "Bana-banaya chalata hoon", "other"],
+    ["qp_cam_programming@4.json", "cam_senior_confirm", "Haan, khud karta hoon", "self"],
+    ["qp_cam_programming@4.json", "cam_lead_confirm", "Haan, main chalata hoon", "self"],
   ] as ReadonlyArray<readonly [string, string, string, string | null]>)(
     "%s %s: %s → %s",
     (packFile, questionKey, text, expected) => {

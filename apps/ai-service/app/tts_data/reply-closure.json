@@ -1,12 +1,12 @@
 {
   "schema_version": 1,
-  "clip_count": 1265,
+  "clip_count": 1281,
   "producers": {
-    "retry": 102,
-    "clarify": 456,
-    "prompt": 328,
+    "retry": 103,
+    "clarify": 462,
+    "prompt": 333,
     "constant": 97,
-    "why": 282
+    "why": 286
   },
   "clips": [
     {
@@ -305,6 +305,11 @@
       "producer": "clarify"
     },
     {
+      "id": "0bf2165291662c5e",
+      "text": "Parts ke hisaab se sahi company dikhayi jaati hai.",
+      "producer": "why"
+    },
+    {
       "id": "0c14cc0ee3a6b2c4",
       "text": "Training me chalayi hui machine bhi tajurba hai, employer ise dekhte hain. ITI ke workshop me kaunsi machine par kaam kiya hai?",
       "producer": "clarify"
@@ -515,6 +520,11 @@
       "producer": "retry"
     },
     {
+      "id": "1173af0a76364482",
+      "text": "Programming team chalane wale lead ko alag zimmedari milti hai.",
+      "producer": "why"
+    },
+    {
       "id": "11780093039e2c1f",
       "text": "Aap ek shift me kitne piece karte hain?",
       "producer": "prompt"
@@ -587,6 +597,11 @@
     {
       "id": "163d852105bf6075",
       "text": "Erection aur commissioning jaanne wale ko site ka kaam milta hai. Erection me kaunsa kaam khud sambhalte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "16a84549a042a582",
+      "text": "Zyada kaam jaanne wale programmer ki alag maang hai. Program ke alawa aur kya karte hain?",
       "producer": "clarify"
     },
     {
@@ -1370,6 +1385,11 @@
       "producer": "clarify"
     },
     {
+      "id": "36ee4b710b4fb63b",
+      "text": "3D ya 5-axis programming khud karte ho?",
+      "producer": "prompt"
+    },
+    {
       "id": "373e5128c351185d",
       "text": "Saal se employer ko aapka experience samajh aata hai.",
       "producer": "why"
@@ -2035,6 +2055,11 @@
       "producer": "why"
     },
     {
+      "id": "515799198fc3b054",
+      "text": "Level ke hisaab se sahi sawaal poochhe jaate hain. Trainee, programmer, senior, lead ya supervisor hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "5191b9f38b191212",
       "text": "Kaunse turning operation aap karte hain?",
       "producer": "prompt"
@@ -2420,6 +2445,11 @@
       "producer": "prompt"
     },
     {
+      "id": "5e1a18b52cd3742a",
+      "text": "Drawing se naya program khud banate ho, prove-out bhi aap?",
+      "producer": "prompt"
+    },
+    {
       "id": "5e5804e2386efd72",
       "text": "Kya aapne beauty ka course kiya hai?",
       "producer": "prompt"
@@ -2692,6 +2722,11 @@
     {
       "id": "69ea72e8f161b18d",
       "text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain. Lagbhag kitne saal press par kaam kiya hai?",
+      "producer": "clarify"
+    },
+    {
+      "id": "69f0ea4720451c24",
+      "text": "Programming team chalane wale lead ko alag zimmedari milti hai. Programming team aap chalate ho?",
       "producer": "clarify"
     },
     {
@@ -3110,6 +3145,11 @@
       "producer": "prompt"
     },
     {
+      "id": "794a597e19fc0a44",
+      "text": "Kis tarah ke parts ke program banate hain?",
+      "producer": "prompt"
+    },
+    {
       "id": "7995badfedf8a4e3",
       "text": "Machine par helper, operator ya setter hain?",
       "producer": "retry"
@@ -3148,6 +3188,11 @@
       "id": "7ae09cc9c37c58c0",
       "text": "Lagbhag kitne saal grinding ka kaam kiya hai?",
       "producer": "retry"
+    },
+    {
+      "id": "7ae7c5f552ee8837",
+      "text": "Programming team aap chalate ho?",
+      "producer": "prompt"
     },
     {
       "id": "7bb20e249abd5a35",
@@ -3537,6 +3582,11 @@
     {
       "id": "8986f18bd200ee0a",
       "text": "Model theek kar lena programmer ka apna hunar hai.",
+      "producer": "why"
+    },
+    {
+      "id": "899ba991b29aabcb",
+      "text": "3D programming khud karne wale senior ko alag kaam milta hai.",
       "producer": "why"
     },
     {
@@ -5020,6 +5070,11 @@
       "producer": "prompt"
     },
     {
+      "id": "c69a72c18ce4fa4c",
+      "text": "Zyada kaam jaanne wale programmer ki alag maang hai.",
+      "producer": "why"
+    },
+    {
       "id": "c6bfdd6575340071",
       "text": "HMV bina badi gaadi nahi chala sakte. Aapke paas kaunsa licence hai?",
       "producer": "clarify"
@@ -5240,6 +5295,11 @@
       "producer": "why"
     },
     {
+      "id": "ce8d4c405ecac033",
+      "text": "Trainee, programmer, senior, lead ya supervisor hain?",
+      "producer": "retry"
+    },
+    {
       "id": "ced94bb42f4feead",
       "text": "Kaleen aur kapda bunai alag hai.",
       "producer": "why"
@@ -5247,6 +5307,11 @@
     {
       "id": "ceff9ef323d35853",
       "text": "Yeh feature wali machine chalane wale kam milte hain. Aapki machine mein kaunsa feature hai?",
+      "producer": "clarify"
+    },
+    {
+      "id": "cf2a0be5bd5a58b1",
+      "text": "Drawing se program banane wale programmer ki alag maang hai. Drawing se naya program khud banate ho, prove-out bhi aap?",
       "producer": "clarify"
     },
     {
@@ -5420,6 +5485,11 @@
       "producer": "prompt"
     },
     {
+      "id": "d646c8b0c5090d78",
+      "text": "Parts ke hisaab se sahi company dikhayi jaati hai. Kis tarah ke parts ke program banate hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "d699f2f1a95b422d",
       "text": "Badi machine chalane wale ko bade job ka kaam milta hai. Khraad par kitne bade job tak kaam kiya hai?",
       "producer": "clarify"
@@ -5523,6 +5593,11 @@
       "id": "db7d2cbd1b7ed994",
       "text": "Kis machine ka poora overhaul khud kar lete hain?",
       "producer": "prompt"
+    },
+    {
+      "id": "dba5695e49c3685d",
+      "text": "3D programming khud karne wale senior ko alag kaam milta hai. 3D ya 5-axis programming khud karte ho?",
+      "producer": "clarify"
     },
     {
       "id": "dbab2912758df65f",
@@ -6057,6 +6132,11 @@
     {
       "id": "f40b782741a0a817",
       "text": "Assembly me jodne ka kaunsa kaam khud karte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "f4491324189bbbbb",
+      "text": "Program ke alawa aur kya karte hain?",
       "producer": "prompt"
     },
     {

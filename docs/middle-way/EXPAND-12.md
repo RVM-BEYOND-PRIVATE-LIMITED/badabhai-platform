@@ -75,6 +75,17 @@ senior_programmer`; P5 crosswalk already handles). Role `levelTerms` += rung
 > into `tradeLevelEntriesForPackAnswers`. Engine: VMC Easy = Q1–Q5 close (same
 > shape as Turner). Deviations in the @6 review_note. ✅ Seeds after merge
 > (`db:seed:packs` + verify by Divyanshu).
+>
+> TRACK A #3 — CAM/CNC PROGRAMMER RETAG ✅ CODE DONE (`feat/mw-cam-retag`, PR next).
+> `qp_cam_programming@4`: Easy/Medium/Advanced tiers; 6-band experience;
+> sheet-3 level ladder (Trainee/Programmer/Senior/Lead/Supervisor); sheet-3
+> software set (+NX/Fusion/hyperMILL/Cimatron/WorkNC/ESPRIT/Manual G-code),
+> Medium; sheet-3 machine set (+CNC Turning/Wire-cut-EDM/Router), Medium;
+> controller posts Advanced (+Mitsubishi/Haas/Mazatrol); NEW part-types +
+> extra-work rows (Advanced); 4 separating confirm items wired into
+> `tradeLevelEntriesForPackAnswers`. Engine: CAM Easy = Q1–Q5 close (same
+> shape as Turner/VMC). Deviations in the @4 review_note. ✅ Seeds after merge
+> (`db:seed:packs` + verify by Divyanshu).
 
 | #   | Trade (kind)                                      | Pack                           | Level Q today                       | Notes                                                                                                                                                                     |
 | --- | ------------------------------------------------- | ------------------------------ | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

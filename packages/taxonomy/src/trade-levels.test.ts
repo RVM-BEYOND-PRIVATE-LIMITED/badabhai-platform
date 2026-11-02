@@ -297,4 +297,34 @@ describe("trade-level crosswalk", () => {
       { skillId: "mskill_vmc_operator", tradeLevel: "supervisor", levelConfirmed: true },
     ]);
   });
+
+  it("wires the CAM confirms the same way (CEO Launch Pack v1, Track A #3)", () => {
+    const cam = (level: string, confirm: { attributeKey: string; value: unknown } | null) =>
+      tradeLevelEntriesForPackAnswers(
+        "qp_cam_programming",
+        confirm === null
+          ? [{ attributeKey: "cam_level", value: level }]
+          : [{ attributeKey: "cam_level", value: level }, confirm],
+      );
+    // No confirm answer: the rung rule stands (programmer+ confirmed, trainee not).
+    expect(cam("programmer", null)).toEqual([
+      { skillId: "mskill_cam_programmer", tradeLevel: "programmer", levelConfirmed: true },
+    ]);
+    expect(cam("trainee", null)).toEqual([
+      { skillId: "mskill_cam_programmer", tradeLevel: "trainee", levelConfirmed: false },
+    ]);
+    // Self confirms, other disconfirms — per rung.
+    expect(cam("programmer", { attributeKey: "cam_program_confirm", value: "self" })).toEqual([
+      { skillId: "mskill_cam_programmer", tradeLevel: "programmer", levelConfirmed: true },
+    ]);
+    expect(cam("senior", { attributeKey: "cam_senior_confirm", value: "other" })).toEqual([
+      { skillId: "mskill_cam_programmer", tradeLevel: "senior", levelConfirmed: false },
+    ]);
+    expect(cam("lead", { attributeKey: "cam_lead_confirm", value: "self" })).toEqual([
+      { skillId: "mskill_cam_programmer", tradeLevel: "lead", levelConfirmed: true },
+    ]);
+    expect(cam("supervisor", { attributeKey: "cam_team_confirm", value: "6 machine, 4 log" })).toEqual(
+      [{ skillId: "mskill_cam_programmer", tradeLevel: "supervisor", levelConfirmed: true }],
+    );
+  });
 });

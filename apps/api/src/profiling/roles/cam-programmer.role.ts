@@ -77,6 +77,15 @@ export const CAM_PROGRAMMER = {
       "powermill",
       "solidcam",
       "edgecam",
+      // TRACK A #3 (CEO Launch Plan Pack v1, sheet 3): the sheet's package
+      // names route to this trade. "Fusion" and "NX" alone are too broad
+      // (CAD lives on them too), so the longer forms route alone.
+      "nx cam",
+      "fusion 360",
+      "hypermill",
+      "cimatron",
+      "worknc",
+      "esprit",
       "कैम प्रोग्रामर",
       "सीएनसी प्रोग्रामर",
     ],
@@ -94,6 +103,13 @@ export const CAM_PROGRAMMER = {
       "programmer hoon",
       "senior programmer hoon",
       "toolpath banata hoon",
+      // TRACK A #3 (CEO Launch Plan Pack v1, sheet 3): the new ladder's rungs.
+      // Old junior/senior-programmer phrases stay (stored answers keep them).
+      "trainee",
+      "trainee hoon",
+      "senior hoon",
+      "lead",
+      "lead hoon",
     ],
   },
   /**

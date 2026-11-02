@@ -1024,6 +1024,14 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           powermill: "PowerMill",
           solidcam: "SolidCAM",
           edgecam: "EdgeCAM",
+          // Track A #3 (@4): sheet-3 software set.
+          nx_cam: "NX CAM",
+          fusion: "Fusion 360",
+          hypermill: "hyperMILL",
+          cimatron: "Cimatron",
+          worknc: "WorkNC",
+          esprit: "ESPRIT",
+          manual_gcode: "Manual G-code",
         },
       },
       {
@@ -1053,6 +1061,10 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           vmc_four_axis: "VMC · 4-axis",
           five_axis_trunnion: "5-axis trunnion",
           turn_mill: "Turn-mill",
+          // Track A #3 (@4): sheet-3 machine set.
+          cnc_turning: "CNC Turning",
+          wirecut_edm: "Wire-cut / EDM",
+          router: "Router",
         },
       },
       {
@@ -1073,6 +1085,10 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           fanuc: "Fanuc",
           heidenhain: "Heidenhain",
           siemens: "Siemens",
+          // Track A #3 (@4): sheet-3 posts set (Advanced Q9).
+          mitsubishi: "Mitsubishi",
+          haas: "Haas",
+          mazatrol: "Mazatrol",
         },
       },
       {
@@ -1087,6 +1103,39 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           cycle_time: "Cycle-time optimisation",
           strategy_selection: "Machining strategy selection",
           tryout_support: "Shop-floor tryout support",
+        },
+      },
+      {
+        // Track A #3 (@4): sheet rows 'Part types' (Advanced Q10) and 'Extra
+        // work' (Advanced Q11). Ranked 72/73 — below every shipped row — so a
+        // worker who answers everything sheds the new rows first and every
+        // pre-@4 sheet renders byte-identically.
+        from: "part_types",
+        rank: 72,
+        label: "Part types",
+        kind: "ticks",
+        values: {
+          die_mould_core: "Die-mould / core-cavity",
+          precision: "Precision components",
+          aerospace: "Aerospace",
+          automotive: "Automotive",
+          spm_fixture: "SPM / fixtures",
+          electrode: "Electrodes",
+          prototype: "Prototypes",
+        },
+      },
+      {
+        from: "extra_work",
+        rank: 73,
+        label: "Extra work",
+        kind: "ticks",
+        values: {
+          tool_select: "Tool selection",
+          cycle_opt: "Cycle-time optimisation",
+          post_edit: "Post editing",
+          prove_out: "Prove-out on machine",
+          fixture_design: "Fixture design",
+          quoting: "Quoting / estimation",
         },
       },
       {

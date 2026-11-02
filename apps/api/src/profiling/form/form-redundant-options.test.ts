@@ -117,6 +117,8 @@ describe("the shipped corpus, as the trade form serves it", () => {
       "qp_cam_programming@2:machine_programmed",
       "qp_cam_programming@3:cam_software",
       "qp_cam_programming@3:machine_programmed",
+      "qp_cam_programming@4:cam_software",
+      "qp_cam_programming@4:machine_programmed",
       "qp_cnc_grinding:grinding_machine",
       "qp_cnc_grinding@2:grinding_machine",
       "qp_cnc_grinding@3:grinding_machine",

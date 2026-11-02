@@ -422,6 +422,17 @@ const QUESTION_TTS_TEXT: Readonly<Record<string, string>> = {
     "पोस्ट-प्रोसेसर के साथ आप कितना काम करते हैं?",
   "Program release se pehle simulation kaise karte hain?":
     "प्रोग्राम रिलीज़ से पहले सिमुलेशन कैसे करते हैं?",
+  // --- qp_cam_programming@4 (Track A #3) — new + confirm prompts ------------
+  // program_edit_confirm reuses the Turner prompt verbatim (twin above);
+  // team_confirm reuses its twin too. Only the programmer/senior/lead
+  // wordings and the two new Advanced rows need twins.
+  "Drawing se naya program khud banate ho, prove-out bhi aap?":
+    "ड्राइंग से नया प्रोग्राम खुद बनाते हो, प्रूव-आउट भी आप?",
+  "3D ya 5-axis programming khud karte ho?": "3D या 5-एक्सिस प्रोग्रामिंग खुद करते हो?",
+  "Programming team aap chalate ho?": "प्रोग्रामिंग टीम आप चलाते हो?",
+  "Kis tarah ke parts ke program banate hain?":
+    "किस तरह के पार्ट्स के प्रोग्राम बनाते हैं?",
+  "Program ke alawa aur kya karte hain?": "प्रोग्राम के अलावा और क्या करते हैं?",
   // --- Middle Way v2 (level question, all four machining packs) -------------------------
   //
   // ONE PROMPT PAIR, SHARED VERBATIM. Turner, VMC and grinding ask the level question in the
@@ -450,6 +461,10 @@ const QUESTION_TTS_TEXT: Readonly<Record<string, string>> = {
   "Machine par helper, operator ya setter hain?": "मशीन पर हेल्पर, ऑपरेटर या सेटर हैं?",
   "Junior programmer, programmer ya senior programmer hain?":
     "जूनियर प्रोग्रामर, प्रोग्रामर या सीनियर प्रोग्रामर हैं?",
+  // Track A #3 (qp_cam_programming@4): the sheet-3 ladder retry. The @3
+  // twin above stays — frozen packs keep their clips.
+  "Trainee, programmer, senior, lead ya supervisor hain?":
+    "ट्रेनी, प्रोग्रामर, सीनियर, लीड या सुपरवाइज़र हैं?",
   // --- qp_cad_drafting@1 and qp_draughting@1 (the drawing office) — Batch 1 -------------------
   //
   // TWO PACKS, ONE BLOCK, BECAUSE THEY SHARE SIX OF THEIR SERVED STRINGS. `qp_draughting` is the
@@ -991,6 +1006,16 @@ const WHY_TTS_TEXT: Readonly<Record<string, string>> = {
   // program_write_confirm reuses the Turner why verbatim (above).
   "Fixture aur zero khud lagane wale setter ko alag kaam milta hai.":
     "फिक्सचर और ज़ीरो खुद लगाने वाले सेटर को अलग काम मिलता है।",
+  // --- qp_cam_programming@4 (Track A #3) — new + confirm whys ---------------
+  // cam_program_confirm reuses the Turner program why verbatim (above).
+  "3D programming khud karne wale senior ko alag kaam milta hai.":
+    "3D प्रोग्रामिंग खुद करने वाले सीनियर को अलग काम मिलता है।",
+  "Programming team chalane wale lead ko alag zimmedari milti hai.":
+    "प्रोग्रामिंग टीम चलाने वाले लीड को अलग ज़िम्मेदारी मिलती है।",
+  "Parts ke hisaab se sahi company dikhayi jaati hai.":
+    "पार्ट्स के हिसाब से सही कंपनी दिखाई जाती है।",
+  "Zyada kaam jaanne wale programmer ki alag maang hai.":
+    "ज़्यादा काम जानने वाले प्रोग्रामर की अलग माँग है।",
   // --- qp_vmc_milling@1 (role pack, VMC milling) — R14 §3.1 ---------------------------
   //
   // NINE WHY-TEXTS. The tenth — "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain." — is
