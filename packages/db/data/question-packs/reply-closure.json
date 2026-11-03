@@ -1,12 +1,12 @@
 {
   "schema_version": 1,
-  "clip_count": 1336,
+  "clip_count": 1341,
   "producers": {
-    "retry": 107,
-    "clarify": 484,
-    "prompt": 350,
+    "retry": 108,
+    "clarify": 486,
+    "prompt": 351,
     "constant": 97,
-    "why": 298
+    "why": 299
   },
   "clips": [
     {
@@ -1155,6 +1155,11 @@
       "producer": "why"
     },
     {
+      "id": "2b6d3a4458705ab2",
+      "text": "Khud fault dhoondhne wale senior electrician ko alag kaam milta hai.",
+      "producer": "why"
+    },
+    {
       "id": "2ba0145326cb38c3",
       "text": "Banane wali cheez se hunar pata chalta hai. Aap kya banate hain?",
       "producer": "clarify"
@@ -1403,6 +1408,11 @@
       "id": "346f334612985ee9",
       "text": "Burr, punch tootna ya strip jam, kya theek karte hain?",
       "producer": "retry"
+    },
+    {
+      "id": "34923d5ae4125839",
+      "text": "Khud fault dhoondhne wale senior electrician ko alag kaam milta hai. Machine ki electrical fault aap khud dhoondh ke theek karte ho?",
+      "producer": "clarify"
     },
     {
       "id": "34d34720d74d5bb2",
@@ -2422,6 +2432,11 @@
     {
       "id": "59e2fd2d7781105a",
       "text": "Aap kaunsi machine chalate hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "5a0bb8eb78e9aa71",
+      "text": "Machine ki electrical fault aap khud dhoondh ke theek karte ho?",
       "producer": "prompt"
     },
     {
@@ -5710,6 +5725,11 @@
       "producer": "retry"
     },
     {
+      "id": "d734be85c3de7dbb",
+      "text": "Level ke hisaab se sahi sawaal poochhe jaate hain. Helper, electrician, senior ya supervisor hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "d7c389f3f7b0e909",
       "text": "Aapki salary mahine, din ya saal ke hisaab se hai?",
       "producer": "prompt"
@@ -6678,6 +6698,11 @@
       "id": "ff1024eba951f9b7",
       "text": "State se aapke paas ki naukri dhoondhi jaati hai.",
       "producer": "constant"
+    },
+    {
+      "id": "ff3a38a56f6f45b9",
+      "text": "Helper, electrician, senior ya supervisor hain?",
+      "producer": "retry"
     },
     {
       "id": "ff6eab4528653fce",

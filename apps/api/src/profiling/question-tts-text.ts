@@ -710,6 +710,12 @@ const QUESTION_TTS_TEXT: Readonly<Record<string, string>> = {
   "Motor ki kaunsi kharabi khud pakad lete hain?": "मोटर की कौनसी खराबी खुद पकड़ लेते हैं?",
   "Kaam shuru karne se pehle kaunsi safety khud karte hain?":
     "काम शुरू करने से पहले कौनसी सेफ्टी खुद करते हैं?",
+  // --- qp_industrial_electrician@2 (Track B #2) — level + separating confirm.
+  // The level prompt/why reuse the twins above verbatim (lines 250/1131).
+  "Helper, electrician, senior ya supervisor hain?":
+    "हेल्पर, इलेक्ट्रीशियन, सीनियर या सुपरवाइज़र हैं?",
+  "Machine ki electrical fault aap khud dhoondh ke theek karte ho?":
+    "मशीन की इलेक्ट्रिकल फॉल्ट आप खुद ढूँढ के ठीक करते हो?",
   // qp_press_operation@1 — Batch 2 part two. The three fresher prompts and the drawing prompt are
   // the welder's verbatim and reuse its twins above, so they are not repeated here.
   "Press par kaam ka kitna tajurba hai?": "प्रेस पर काम का कितना तजुर्बा है?",
@@ -1262,6 +1268,11 @@ const WHY_TTS_TEXT: Readonly<Record<string, string>> = {
     "कंट्रोल वायरिंग जानने वाले को पैनल की ज़िम्मेदारी मिलती है।",
   "Kharabi pakadne wale electrician ki plant me zaroorat rehti hai.":
     "खराबी पकड़ने वाले इलेक्ट्रीशियन की प्लांट में ज़रूरत रहती है।",
+  // --- qp_industrial_electrician@2 (Track B #2) — the separating-confirm why.
+  // Filed HERE, not in the question table: `composeClarify` scans only this
+  // table for the clarify prefix (R10 §2.6).
+  "Khud fault dhoondhne wale senior electrician ko alag kaam milta hai.":
+    "खुद फॉल्ट ढूँढने वाले सीनियर इलेक्ट्रीशियन को अलग काम मिलता है।",
   // qp_press_operation@1 — why-texts. The other fourteen (tenure, machine, level, material,
   // safety, tonnage, drawing, setting, stroke rate, sector, maintenance and the three fresher ones)
   // are shared verbatim with packs already twinned above, and reuse their clips.
