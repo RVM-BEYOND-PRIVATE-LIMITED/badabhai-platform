@@ -1377,3 +1377,65 @@ describe("Phase 2 #4 Painter / coating / plating — routing, rungs and capture 
     },
   );
 });
+
+describe("Phase 2 #5 Maintenance — routing, rungs and capture (CEO Launch Plan Pack v1, sheet 21)", () => {
+  const cases: ReadonlyArray<
+    readonly [string | null, string | null, string | null, TradeFormKind | null]
+  > = [
+    // Occupation-tier: the trade named whole routes alone — the new compounds included.
+    ["Manufacturing", "maintenance technician", null, "maintenance_technician"],
+    ["Manufacturing", "machine maintenance", null, "maintenance_technician"],
+    ["Manufacturing", "mechanical maintenance", null, "maintenance_technician"],
+    ["Manufacturing", "machine tool maintenance", null, "maintenance_technician"],
+    // Machine-tier (CNC / TPM words) corroborates the pin, never routes alone.
+    ["Manufacturing", "ball screw", "fam_maintenance_tech", "maintenance_technician"],
+    ["Manufacturing", "tpm", "fam_maintenance_tech", "maintenance_technician"],
+    ["Manufacturing", "tpm", null, null],
+    // Rung words corroborate the pin.
+    ["Manufacturing", "trainee hoon", "fam_maintenance_tech", "maintenance_technician"],
+  ];
+  for (const [domain, role, family, expected] of cases) {
+    it(`${JSON.stringify(role)}${family ? ` + pin` : ""} → ${expected ?? "nothing"}`, () => {
+      expect(route(domain, role, family)).toBe(expected);
+    });
+  }
+
+  // The sheet-21 ladder. The first chip reads "Helper/Trainee" and stores `trainee`.
+  const maintLevel2 = loadItem("qp_maintenance_tech@2.json", "maintenance_level");
+  it.each([
+    ["Helper/Trainee", "trainee"],
+    ["Helper", "trainee"],
+    ["Technician", "technician"],
+    ["Senior technician", "senior_technician"],
+    ["senior technician hoon", "senior_technician"],
+    ["Supervisor / maintenance in-charge", "supervisor"],
+    ["maintenance in-charge", "supervisor"],
+  ])("maintenance_level@2: %s → %s", (text, expected) => {
+    expect(matchOptions(maintLevel2 as never, text as string)).toEqual([expected]);
+  });
+
+  it.each([
+    ["qp_maintenance_tech@2.json", "maintenance_equipment", "CNC / VMC machines", "cnc_machines"],
+    ["qp_maintenance_tech@2.json", "maintenance_equipment", "Injection moulding machines", "imm_machines"],
+    ["qp_maintenance_tech@2.json", "maintenance_equipment", "Boilers", "boilers"],
+    ["qp_maintenance_tech@2.json", "maintenance_equipment", "Packaging machines", "packaging_machines"],
+    ["qp_maintenance_tech@2.json", "maintenance_discipline", "Lubrication", "lubrication"],
+    ["qp_maintenance_tech@2.json", "maintenance_discipline", "Welding / fabrication for repair", "welding_repair"],
+    ["qp_maintenance_tech@2.json", "maintenance_cnc_work", "Spindle", "spindle"],
+    ["qp_maintenance_tech@2.json", "maintenance_cnc_work", "Ball-screw", "ball_screw"],
+    ["qp_maintenance_tech@2.json", "maintenance_cnc_work", "ATC, tool changer", "atc"],
+    ["qp_maintenance_tech@2.json", "maintenance_type", "TPM / autonomous maintenance", "tpm"],
+    ["qp_maintenance_tech@2.json", "maintenance_documentation", "CMMS / SAP PM entry", "cmms"],
+    ["qp_maintenance_tech@2.json", "maintenance_utilities", "Chiller", "chiller"],
+    ["qp_maintenance_tech@2.json", "maintenance_utilities", "ETP / water treatment", "etp"],
+    ["qp_maintenance_tech@2.json", "maintenance_senior_confirm", "Haan, khud karta hoon", "self"],
+    ["qp_maintenance_tech@2.json", "maintenance_senior_confirm", "Nahi, koi aur karta hai", "other"],
+  ] as ReadonlyArray<readonly [string, string, string, string | null]>)(
+    "%s %s: %s → %s",
+    (packFile, questionKey, text, expected) => {
+      expect(capturedOption(packFile, questionKey, text)).toEqual(
+        expected === null ? [] : [expected],
+      );
+    },
+  );
+});

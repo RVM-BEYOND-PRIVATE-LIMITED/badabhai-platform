@@ -54,7 +54,7 @@ export const MAINTENANCE_TECHNICIAN = {
   formEnabled: true,
   displayName: "Maintenance Technician",
   offerName: "maintenance technician",
-  levelLadder: ["Helper", "Technician", "Senior Technician"],
+  levelLadder: ["Trainee", "Technician", "Senior Technician", "Supervisor"],
   tenureQuestionKey: "maintenance_experience",
   fresher: {
     // KEYED BY STORED `value_text`, read off `iti_workshop_machines` in qp_maintenance_tech@1. The
@@ -88,7 +88,18 @@ export const MAINTENANCE_TECHNICIAN = {
     "First Aid",
   ],
   detection: {
-    occupationTerms: ["maintenance technician", "maintenance fitter", "plant maintenance"],
+    // Phase 2 #5 (sheet 21 "Words"): + the machine-maintenance compounds. They
+    // are also new alias rows, so whichever becomes a code's chip label routes.
+    occupationTerms: [
+      "maintenance technician",
+      "maintenance fitter",
+      "plant maintenance",
+      "machine maintenance",
+      "mechanical maintenance",
+      "hydraulic maintenance",
+      "machine tool maintenance",
+      "cnc maintenance",
+    ],
     machineTerms: [
       "maintenance",
       "मेंटेनेंस",
@@ -101,7 +112,13 @@ export const MAINTENANCE_TECHNICIAN = {
       "vibration pen",
       "lubrication schedule",
       "shutdown overhaul",
+      // Phase 2 #5 (sheet 21): the CNC and utility words. Corroborate a pin.
+      "ball screw",
+      "spindle repair",
+      "tpm",
+      "cmms",
     ],
-    levelTerms: ["helper", "technician", "senior technician", "टेक्नीशियन"],
+    // Phase 2 #5 (sheet 21): + the trainee rung word.
+    levelTerms: ["helper", "trainee", "technician", "senior technician", "टेक्नीशियन"],
   },
 } as const satisfies RoleFormDescriptor;

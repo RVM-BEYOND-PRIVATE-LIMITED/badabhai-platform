@@ -1,12 +1,12 @@
 {
   "schema_version": 1,
-  "clip_count": 1440,
+  "clip_count": 1451,
   "producers": {
-    "retry": 120,
-    "clarify": 524,
-    "prompt": 376,
+    "retry": 121,
+    "clarify": 528,
+    "prompt": 379,
     "constant": 97,
-    "why": 323
+    "why": 326
   },
   "clips": [
     {
@@ -598,6 +598,11 @@
       "id": "14c44c4c6acff900",
       "text": "Aapne koi course ya training ki hai?",
       "producer": "retry"
+    },
+    {
+      "id": "14d762f90e8af353",
+      "text": "Machine overhaul, hydraulic/pneumatic fault, CNC spindle/ball-screw — aap khud karte ho?",
+      "producer": "prompt"
     },
     {
       "id": "14d9343338724c80",
@@ -1225,6 +1230,11 @@
       "producer": "clarify"
     },
     {
+      "id": "2b384e208fb6c262",
+      "text": "Level se employer ko aapka darja saaf pata chalta hai. Helper, technician, senior technician ya supervisor hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "2b5dda572df653cc",
       "text": "Season wale kaam ki timing alag hoti hai.",
       "producer": "why"
@@ -1513,6 +1523,11 @@
       "id": "34d34720d74d5bb2",
       "text": "Team sambhalne wale ka rate zyada hai.",
       "producer": "why"
+    },
+    {
+      "id": "34f770cc4a0b4515",
+      "text": "CNC machine sambhalne wale technician ki alag maang hai. CNC machine ki kaunsi maintenance khud karte hain?",
+      "producer": "clarify"
     },
     {
       "id": "350abad484bca81e",
@@ -2208,6 +2223,11 @@
       "id": "4e52aed1d979a772",
       "text": "Pump ka kaam alag se milta hai.",
       "producer": "why"
+    },
+    {
+      "id": "4e6cb46e9972c982",
+      "text": "CNC machine ki kaunsi maintenance khud karte hain?",
+      "producer": "prompt"
     },
     {
       "id": "4e83dcf832f5c32a",
@@ -4330,6 +4350,11 @@
       "producer": "prompt"
     },
     {
+      "id": "971dd9a2276f4d88",
+      "text": "CNC machine sambhalne wale technician ki alag maang hai.",
+      "producer": "why"
+    },
+    {
       "id": "97b4b25f05a284ca",
       "text": "Fitting ka kitna tajurba hai?",
       "producer": "prompt"
@@ -4343,6 +4368,11 @@
       "id": "980d65214d86a4c5",
       "text": "Thoda sa aur. Bas 23 sawaal bache hain.",
       "producer": "constant"
+    },
+    {
+      "id": "9826d69ee973f7f0",
+      "text": "Overhaul aur fault khud sambhalne wale senior ko alag kaam milta hai.",
+      "producer": "why"
     },
     {
       "id": "987415f0e1349e95",
@@ -4377,6 +4407,11 @@
     {
       "id": "99addaf8a6e30f77",
       "text": "Machine wale ko plant me kaam milta hai. Kya aap plant ki machine chalate hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "99b5bd8427e337cb",
+      "text": "Overhaul aur fault khud sambhalne wale senior ko alag kaam milta hai. Machine overhaul, hydraulic/pneumatic fault, CNC spindle/ball-screw — aap khud karte ho?",
       "producer": "clarify"
     },
     {
@@ -4483,6 +4518,11 @@
       "id": "9de97bb233478719",
       "text": "Kis stage par inspection karte hain?",
       "producer": "prompt"
+    },
+    {
+      "id": "9e12b718f388e0ef",
+      "text": "Utility sambhalne wale technician ko poore plant ki zimmedari milti hai. Plant ki kaunsi utility sambhaali hai?",
+      "producer": "clarify"
     },
     {
       "id": "9e21d3becf1b1333",
@@ -6100,6 +6140,11 @@
       "producer": "clarify"
     },
     {
+      "id": "d6323bcd27a1c202",
+      "text": "Utility sambhalne wale technician ko poore plant ki zimmedari milti hai.",
+      "producer": "why"
+    },
+    {
       "id": "d63e472dc1e7772b",
       "text": "Kya aap stock ginte hain?",
       "producer": "prompt"
@@ -6520,6 +6565,11 @@
       "producer": "prompt"
     },
     {
+      "id": "e665317f6c1b34e0",
+      "text": "Helper, technician, senior technician ya supervisor hain?",
+      "producer": "retry"
+    },
+    {
       "id": "e69799f0a3543c3a",
       "text": "Har service ka alag hunar hota hai. Aap kaunsi service dete hain?",
       "producer": "clarify"
@@ -6793,6 +6843,11 @@
       "id": "f040500c0ce5bcaf",
       "text": "Bending, punching, notching ya rolling, kaunsa kaam karte hain?",
       "producer": "retry"
+    },
+    {
+      "id": "f120df72675c0ea3",
+      "text": "Plant ki kaunsi utility sambhaali hai?",
+      "producer": "prompt"
     },
     {
       "id": "f168538f253fb8df",

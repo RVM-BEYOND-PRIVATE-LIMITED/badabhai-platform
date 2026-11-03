@@ -929,6 +929,24 @@
 {"kind":"alias","job_domain_id":"jd_nco_7233_0101","text":"machine repair","lang":"en"}
 {"kind":"alias","job_domain_id":"jd_nco_7233_0101","text":"breakdown maintenance","lang":"en"}
 {"kind":"alias","job_domain_id":"jd_nco_7233_0101","text":"plant maintenance","lang":"en"}
+# PHASE 2 #5 (CEO Launch Plan Pack v1, sheet 21 "Words"). Measured before this
+# block: "machine/mechanical/hydraulic maintenance" and "मेंटेनेंस टेक्नीशियन"
+# reached nothing, "cnc maintenance" reached the CNC operator code
+# (fam_machining) and "machine tool maintenance" a cart puller. Each row is a
+# maintenance-technician.role.ts occupation term. NO CHIP LABEL MOVES: the
+# machine rows sit on 7233.0101 beside "plant/breakdown maintenance", where the
+# shorter "machine repair" keeps the chip (on 3113.0401, which has no
+# vernacular of its own, they would have replaced its chip — measured,
+# family-chip-labels.test.ts); "cnc maintenance" sits on 7233.1200, where the
+# shorter "Millwright" keeps the chip; the Devanagari row sits on 7233.0101 too.
+# NOT authored: "mmtm" (4 letters, it would become a chip), "maintenance
+# mechanic" (the NCO's own electronics title, 7422.0200).
+{"kind":"alias","job_domain_id":"jd_nco_7233_0101","text":"machine maintenance","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7233_0101","text":"mechanical maintenance","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7233_0101","text":"hydraulic maintenance","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7233_0101","text":"machine tool maintenance","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7233_1200","text":"cnc maintenance","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7233_0101","text":"मेंटेनेंस टेक्नीशियन","lang":"hi"}
 #
 # ── Industrial electrician — NCO 7412.0200 (Electrical Fitter) — items 17-19 ──
 # Ruling A2: the generic words (bijli mistri, wiring, electrician) STAY on the domestic
