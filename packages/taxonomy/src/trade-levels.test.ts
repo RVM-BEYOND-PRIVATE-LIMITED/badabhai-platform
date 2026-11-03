@@ -19,7 +19,7 @@ import {
  * alias spelling lands on the canonical key, and null prices Lower.
  */
 describe("trade-level crosswalk", () => {
-  it("covers the four v1 trades plus the CAD trades, the fitter, the electrician, the welder, the conventional machinist, the sheet-metal operator, the assembly technician, the QC inspector, the tool & die maker, the press-shop operator, the painter / coater and the maintenance technician, each with its skill and level key", () => {
+  it("covers the four v1 trades plus the CAD trades, the fitter, the electrician, the welder, the conventional machinist, the sheet-metal operator, the assembly technician, the QC inspector, the tool & die maker, the press-shop operator, the painter / coater, the maintenance technician and the PLC / automation technician, each with its skill and level key", () => {
     expect(TRADE_LEVEL_PACKS).toEqual({
       qp_cnc_turning: { skillId: "mskill_cnc_turner", levelKey: "turning_level" },
       qp_vmc_milling: { skillId: "mskill_vmc_operator", levelKey: "milling_level" },
@@ -51,6 +51,7 @@ describe("trade-level crosswalk", () => {
         skillId: "mskill_maintenance_technician",
         levelKey: "maintenance_level",
       },
+      qp_plc_automation: { skillId: "mskill_plc_automation_tech", levelKey: "plc_level" },
     });
   });
 
@@ -1036,6 +1037,34 @@ describe("trade-level crosswalk", () => {
     // Supervisor: no confirm item, rung rule (confirmed).
     expect(maint("supervisor", asked("other"))).toEqual(row("supervisor", true));
     expect(tradeLevelLabelFor("qp_maintenance_tech", "senior_technician")).toBe("Senior Technician");
+  });
+
+  it("wires the two PLC confirms, the senior one shared with lead (CEO Launch Plan Pack v1, Phase 2 #6)", () => {
+    const plc = (level: string, confirm: { attributeKey: string; value: unknown } | null) =>
+      tradeLevelEntriesForPackAnswers(
+        "qp_plc_automation@1",
+        confirm === null
+          ? [{ attributeKey: "plc_level", value: level }]
+          : [{ attributeKey: "plc_level", value: level }, confirm],
+      );
+    const tech = (value: string) => ({ attributeKey: "plc_technician_confirm", value });
+    const senior = (value: string) => ({ attributeKey: "plc_senior_confirm", value });
+    const row = (tradeLevel: string, levelConfirmed: boolean) => [
+      { skillId: "mskill_plc_automation_tech", tradeLevel, levelConfirmed },
+    ];
+    // The technician key is shared and NOT a confirmed rung (maintenance/electrician
+    // sheets rule it Lower): unanswered it stays unconfirmed; its own confirm confirms it.
+    expect(plc("trainee", null)).toEqual(row("trainee", false));
+    expect(plc("technician", null)).toEqual(row("technician", false));
+    expect(plc("technician", tech("self"))).toEqual(row("technician", true));
+    expect(plc("technician", tech("other"))).toEqual(row("technician", false));
+    // Senior technician and lead share the sheet's senior question.
+    expect(plc("senior_technician", null)).toEqual(row("senior_technician", true));
+    expect(plc("senior_technician", senior("other"))).toEqual(row("senior_technician", false));
+    expect(plc("lead", senior("self"))).toEqual(row("lead", true));
+    expect(plc("lead", senior("other"))).toEqual(row("lead", false));
+    // Supervisor: no confirm item, rung rule (confirmed).
+    expect(plc("supervisor", senior("other"))).toEqual(row("supervisor", true));
   });
 
   it("prints the 2D trade's own rung words (CEO Launch Plan Pack v1, Track A #5)", () => {

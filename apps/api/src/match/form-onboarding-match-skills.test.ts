@@ -178,6 +178,8 @@ describe("the reachable set per mapped pack — every chip, exhaustively", () =>
     qp_press_operation: ["mskill_press_operator"],
     qp_powder_coating: ["mskill_painter_coater"],
     qp_maintenance_tech: ["mskill_maintenance_technician"],
+    // Phase 2 #6: the new PLC trade reaches its own permanent ID.
+    qp_plc_automation: ["mskill_plc_automation_tech"],
     qp_industrial_electrician: ["mskill_industrial_electrician"],
     qp_assembly_line: ["mskill_assembly_line_worker"],
   };

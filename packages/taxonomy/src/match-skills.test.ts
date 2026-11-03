@@ -97,8 +97,16 @@ describe("Matching V1 — the mskill_* vocabulary", () => {
     // more — positional asserts, not from-the-end, so each mint's slot is pinned.
     expect(MATCH_SKILLS[26]?.skillId).toBe("mskill_3d_designer");
     expect(MATCH_SKILLS[27]?.skillId).toBe("mskill_cad_designer_3d");
-    expect(MATCH_SKILLS.at(-1)?.skillId).toBe("mskill_welder");
-    for (const id of ["mskill_3d_designer", "mskill_cad_designer_3d", "mskill_welder"] as const) {
+    expect(MATCH_SKILLS[28]?.skillId).toBe("mskill_welder");
+    // Phase 2 #6 (CEO Launch Plan Pack v1, sheet 14) appended the PLC trade after them.
+    expect(MATCH_SKILLS.at(-1)?.skillId).toBe("mskill_plc_automation_tech");
+    expect(matchSkillLabel("mskill_plc_automation_tech")).toBe("PLC / Automation Technician");
+    for (const id of [
+      "mskill_3d_designer",
+      "mskill_cad_designer_3d",
+      "mskill_welder",
+      "mskill_plc_automation_tech",
+    ] as const) {
       expect(matchSkillIndustry(id), id).toBe("ind_industrial_manufacturing");
     }
     // Pack-only: no role and no corpus attribute bridges to them yet.
@@ -466,8 +474,9 @@ describe("bridge — ATTRIBUTE_TO_MATCH_SKILLS", () => {
     // E0 (Q3, 2026-10-31) split the 3D designer off the generic designer; and the CEO-pack
     // reconcile (2026-11-02) minted the permanent 3D ID plus the welder umbrella. No ruling
     // re-dispositioned any promotable skill (the five-mapping pin above still
-    // holds), and no promotable skill reaches a #2022 skill.
-    expect(MATCH_SKILLS).toHaveLength(18 + MINTED_FOR_2022.length + 3);
+    // holds), and no promotable skill reaches a #2022 skill. Phase 2 #6 (2026-11-03)
+    // minted one more: the PLC / automation trade, a new CEO-pack trade.
+    expect(MATCH_SKILLS).toHaveLength(18 + MINTED_FOR_2022.length + 4);
     for (const id of PROMOTABLE_SKILL_IDS) {
       for (const m of ATTRIBUTE_TO_MATCH_SKILLS[id] ?? []) {
         expect(MINTED_FOR_2022 as readonly string[], `${id} -> ${m}`).not.toContain(m);

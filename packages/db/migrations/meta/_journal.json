@@ -996,6 +996,20 @@
       "when": 1793695965412,
       "tag": "0141_trade_posting_fields",
       "breakpoints": true
+    },
+    {
+      "idx": 142,
+      "version": "7",
+      "when": 1793710849274,
+      "tag": "0142_job_role_kind_plc",
+      "breakpoints": true
+    },
+    {
+      "idx": 143,
+      "version": "7",
+      "when": 1793710858642,
+      "tag": "0143_wri_role_kind_plc",
+      "breakpoints": true
     }
   ]
 }

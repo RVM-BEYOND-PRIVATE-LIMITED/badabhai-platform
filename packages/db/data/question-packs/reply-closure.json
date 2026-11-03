@@ -1,12 +1,12 @@
 {
   "schema_version": 1,
-  "clip_count": 1451,
+  "clip_count": 1481,
   "producers": {
-    "retry": 121,
-    "clarify": 528,
-    "prompt": 379,
+    "retry": 124,
+    "clarify": 540,
+    "prompt": 388,
     "constant": 97,
-    "why": 326
+    "why": 332
   },
   "clips": [
     {
@@ -145,6 +145,11 @@
       "producer": "prompt"
     },
     {
+      "id": "04bd640bdb8c782e",
+      "text": "PLC ke brand se sahi plant ka kaam dikhaya jaata hai.",
+      "producer": "why"
+    },
+    {
       "id": "053f2c388f8a8004",
       "text": "Machine wale ko badi jagah kaam milta hai. Kya aap safai ki machine chalate hain?",
       "producer": "clarify"
@@ -267,6 +272,11 @@
     {
       "id": "08e58977bcae54ca",
       "text": "Aap kahaan kaam karte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "08e5a3f2f4f82497",
+      "text": "Kaunsa HMI ya SCADA chalaya hai?",
       "producer": "prompt"
     },
     {
@@ -765,6 +775,11 @@
       "producer": "clarify"
     },
     {
+      "id": "1a18134a76393a40",
+      "text": "PLC ke brand se sahi plant ka kaam dikhaya jaata hai. Siemens, Allen-Bradley, Mitsubishi ya Delta, kaunsa PLC chalaya hai?",
+      "producer": "clarify"
+    },
+    {
       "id": "1a5bfa8cc6ff4a10",
       "text": "Banane wali cheez se hunar pata chalta hai.",
       "producer": "why"
@@ -818,6 +833,11 @@
       "id": "1cbf4193c46f4966",
       "text": "Kharabi pakadne wale ki line par zaroorat rehti hai. Assembly ki kaunsi kharabi pakad kar sudhaar lete hain?",
       "producer": "clarify"
+    },
+    {
+      "id": "1ce57bd8cc3f9ab5",
+      "text": "HMI aur SCADA jaanne wale technician ki alag maang hai.",
+      "producer": "why"
     },
     {
       "id": "1d1479929722fcb3",
@@ -1023,6 +1043,11 @@
       "id": "2302ff0206c59239",
       "text": "Ye badlaav aap baad mein Profile page pe kar sakte hain.",
       "producer": "constant"
+    },
+    {
+      "id": "239664d7fcb04225",
+      "text": "PLC ya automation ka kitna tajurba hai?",
+      "producer": "prompt"
     },
     {
       "id": "239e6c2d9592d079",
@@ -1355,6 +1380,11 @@
       "producer": "clarify"
     },
     {
+      "id": "2e2c5e2610df2c95",
+      "text": "PLC ke brand se sahi plant ka kaam dikhaya jaata hai. Kaunsa PLC chalate hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "2eab0af9486fb227",
       "text": "Electrician ke kaam ka kitna tajurba hai?",
       "producer": "prompt"
@@ -1520,6 +1550,11 @@
       "producer": "clarify"
     },
     {
+      "id": "34a5d9d6160247e3",
+      "text": "Kaunsa PLC chalate hain?",
+      "producer": "prompt"
+    },
+    {
       "id": "34d34720d74d5bb2",
       "text": "Team sambhalne wale ka rate zyada hai.",
       "producer": "why"
@@ -1605,6 +1640,11 @@
       "producer": "clarify"
     },
     {
+      "id": "37eedb05942b5e29",
+      "text": "HMI aur SCADA jaanne wale technician ki alag maang hai. Kaunsa HMI ya SCADA chalaya hai?",
+      "producer": "clarify"
+    },
+    {
       "id": "384662507ca31241",
       "text": "Stock wale ko godam sambhalne milta hai. Kya aap stock ginte hain?",
       "producer": "clarify"
@@ -1673,6 +1713,11 @@
       "id": "3b1f3fff0c843d4c",
       "text": "Jaldi breakdown sambhaalne wale technician ki plant par zaroorat rehti hai. Breakdown aane par kitni der me machine tak pahunchna hota tha?",
       "producer": "clarify"
+    },
+    {
+      "id": "3b2e58e9fd6f7d72",
+      "text": "Naya program aur HMI banane wale senior ko alag kaam milta hai.",
+      "producer": "why"
     },
     {
       "id": "3b36eb949c5e52e7",
@@ -1877,6 +1922,11 @@
     {
       "id": "42a0cb94346f5908",
       "text": "Aap kaunsa kapda silte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "4319384c86ec86e0",
+      "text": "Naya PLC program, HMI aur servo / motion khud banate ho?",
       "producer": "prompt"
     },
     {
@@ -3015,6 +3065,11 @@
       "producer": "clarify"
     },
     {
+      "id": "686bfabc7d219962",
+      "text": "Kis industry ki automation par kaam kiya hai?",
+      "producer": "prompt"
+    },
+    {
       "id": "68cca9462ec037b9",
       "text": "Licence wale ko badi company rakhti hai.",
       "producer": "why"
@@ -3460,6 +3515,11 @@
       "producer": "prompt"
     },
     {
+      "id": "76e06cbd1da348ee",
+      "text": "Field device jaanne wale ko line jaldi sambhalne di jaati hai. Kaunse field device ka kaam aata hai?",
+      "producer": "clarify"
+    },
+    {
       "id": "770a3cebdcfcb702",
       "text": "Nesting jaanne wale ko machine ki zimmedaari milti hai. Nesting ya program ka kaunsa kaam kar lete hain?",
       "producer": "clarify"
@@ -3613,6 +3673,16 @@
       "id": "7d430e13ac7a0dbc",
       "text": "Kaunsi welding machine par kaam karte hain?",
       "producer": "prompt"
+    },
+    {
+      "id": "7de69a9666be18b3",
+      "text": "Automation me aap kis level par kaam karte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "7deae3d4a053e21b",
+      "text": "Program kholke fault dhoondhne wale technician ko alag kaam milta hai. PLC ka program kholke fault dhoondh lete ho, choti editing karte ho?",
+      "producer": "clarify"
     },
     {
       "id": "7e39270dfb1cd57f",
@@ -4005,6 +4075,11 @@
       "producer": "why"
     },
     {
+      "id": "8993e48f840e621d",
+      "text": "Sector ka tajurba usi line ke employer dhoondhte hain. Kis industry ki automation par kaam kiya hai?",
+      "producer": "clarify"
+    },
+    {
       "id": "899ba991b29aabcb",
       "text": "3D programming khud karne wale senior ko alag kaam milta hai.",
       "producer": "why"
@@ -4038,6 +4113,11 @@
       "id": "8ae77cc90d8f82b8",
       "text": "Har jagah ki duty alag hoti hai.",
       "producer": "why"
+    },
+    {
+      "id": "8afe090b61040497",
+      "text": "Naya program aur HMI banane wale senior ko alag kaam milta hai. Naya PLC program, HMI aur servo / motion khud banate ho?",
+      "producer": "clarify"
     },
     {
       "id": "8b4d04b738c4f181",
@@ -4495,6 +4575,11 @@
       "producer": "clarify"
     },
     {
+      "id": "9cecd25602c26659",
+      "text": "Field device jaanne wale ko line jaldi sambhalne di jaati hai.",
+      "producer": "why"
+    },
+    {
       "id": "9d15d4b24ba624f1",
       "text": "Bhatti ke paas kaam mushkil hota hai.",
       "producer": "why"
@@ -4820,6 +4905,11 @@
       "producer": "clarify"
     },
     {
+      "id": "a7c922db36ad0da9",
+      "text": "Kaam ke hisaab se sahi project dikhaya jaata hai. Automation me kya kya karte hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "a7cc5b4eb3be225c",
       "text": "Post-processor theek karne wale programmer kam milte hain.",
       "producer": "why"
@@ -4993,6 +5083,11 @@
       "id": "ad9ed65379f291e0",
       "text": "Wire-cut program, electrode ya setting, kya karte hain?",
       "producer": "retry"
+    },
+    {
+      "id": "adb939f3a93003a5",
+      "text": "Level se employer ko aapka darja saaf pata chalta hai. Automation me aap kis level par kaam karte hain?",
+      "producer": "clarify"
     },
     {
       "id": "adbf53bc2d9c6988",
@@ -5665,6 +5760,11 @@
       "producer": "why"
     },
     {
+      "id": "c48bf81e21620462",
+      "text": "Level se employer ko aapka darja saaf pata chalta hai. Trainee, technician, senior technician, lead ya supervisor hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "c4e5abdf1476a954",
       "text": "Oven ka temperature aur time coating ki jaan hai.",
       "producer": "why"
@@ -5735,6 +5835,11 @@
       "producer": "prompt"
     },
     {
+      "id": "c75c2997f4eb517e",
+      "text": "PLC ka program kholke fault dhoondh lete ho, choti editing karte ho?",
+      "producer": "prompt"
+    },
+    {
       "id": "c784b76aedaf3ed8",
       "text": "Aap kaise packing karte hain?",
       "producer": "prompt"
@@ -5777,6 +5882,11 @@
     {
       "id": "c93ed0df8b1fdbdb",
       "text": "Checking jaanne wale welder ko quality ka kaam milta hai.",
+      "producer": "why"
+    },
+    {
+      "id": "c94dcd779eb69831",
+      "text": "Program kholke fault dhoondhne wale technician ko alag kaam milta hai.",
       "producer": "why"
     },
     {
@@ -5918,6 +6028,11 @@
       "id": "cdea9095a6060927",
       "text": "Mushkil kaam karne wale machinist ki alag pehchaan hoti hai. Kaunsa mushkil kaam aap kar lete hain?",
       "producer": "clarify"
+    },
+    {
+      "id": "cdedbf1cb8e0795e",
+      "text": "Kaam ke hisaab se sahi project dikhaya jaata hai.",
+      "producer": "why"
     },
     {
       "id": "ce11c36b3e77dcc8",
@@ -6128,6 +6243,11 @@
       "id": "d540b93f67369e3c",
       "text": "Hydraulic ka kaunsa kaam khud karte hain?",
       "producer": "prompt"
+    },
+    {
+      "id": "d5cd9b9181e7dffa",
+      "text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain. PLC ya automation ka kitna tajurba hai?",
+      "producer": "clarify"
     },
     {
       "id": "d5ff946d5cb28216",
@@ -6580,9 +6700,19 @@
       "producer": "clarify"
     },
     {
+      "id": "e6b03e1f87bbdfb3",
+      "text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain. Lagbhag kitne saal PLC ya automation ka kaam kiya hai?",
+      "producer": "clarify"
+    },
+    {
       "id": "e6d48607b10dbc8d",
       "text": "Furniture aur gaadi body alag hai. Aap kya banate hain?",
       "producer": "clarify"
+    },
+    {
+      "id": "e6f33e5bd584c09c",
+      "text": "Trainee, technician, senior technician, lead ya supervisor hain?",
+      "producer": "retry"
     },
     {
       "id": "e7054a12c3f63a6c",
@@ -6795,6 +6925,11 @@
       "producer": "clarify"
     },
     {
+      "id": "ee3906b5ac55f50e",
+      "text": "Kaunse field device ka kaam aata hai?",
+      "producer": "prompt"
+    },
+    {
       "id": "ee4f5f0765b52bb7",
       "text": "Bridal ka paisa sabse zyada hota hai.",
       "producer": "why"
@@ -6812,6 +6947,11 @@
     {
       "id": "eee4d64a15d35ece",
       "text": "Kis cheez ka design karte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "eef469c30d96616b",
+      "text": "Automation me kya kya karte hain?",
       "producer": "prompt"
     },
     {
@@ -6883,6 +7023,16 @@
       "id": "f21d39b3c32db933",
       "text": "Auto electrician ki alag maang hai. Kya aap gaadi ki wiring karte hain?",
       "producer": "clarify"
+    },
+    {
+      "id": "f2515c1a94c95dec",
+      "text": "Lagbhag kitne saal PLC ya automation ka kaam kiya hai?",
+      "producer": "retry"
+    },
+    {
+      "id": "f2533b4316b0c10b",
+      "text": "Siemens, Allen-Bradley, Mitsubishi ya Delta, kaunsa PLC chalaya hai?",
+      "producer": "retry"
     },
     {
       "id": "f286e0978e55fa2c",

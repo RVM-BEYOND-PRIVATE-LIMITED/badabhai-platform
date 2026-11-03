@@ -262,7 +262,9 @@ senior_programmer`; P5 crosswalk already handles). Role `levelTerms` += rung
 > routing to the Press form; `hydraulic press`; `die setter`).
 > Deviations in the @2 review_note.
 >
-> PHASE 2 #4 — PAINTER / POWDER COATING / PLATING RETAG ✅ CODE DONE (`feat/mw-painter-retag`).
+> PHASE 2 #4 — PAINTER / POWDER COATING / PLATING RETAG ✅ CODE DONE (`feat/mw-painter-retag`, PR #2534, merged).
+> `qp_powder_coating@2` live on production (seeded 2026-11-03, verify:packs +
+> verify:domains all PASS, curated aliases 560/560, Electroplater binding live).
 > `qp_powder_coating@2`: first Middle-Way version of this pack (crosswalk +
 > required close are new). Sheet-20 ladder (Helper/Trainee/Operator/Skilled/
 > Senior-line leader/Supervisor, now mandatory; first chip stores `trainee`)
@@ -281,7 +283,9 @@ senior_programmer`; P5 crosswalk already handles). Role `levelTerms` += rung
 > Electroplater chip label); "e coat" still misroutes to 3D CAD offline.
 > Deviations in the @2 review_note. Seeds after merge.
 >
-> PHASE 2 #5 — MAINTENANCE TECHNICIAN RETAG ✅ CODE DONE (`feat/mw-maintenance-retag`).
+> PHASE 2 #5 — MAINTENANCE TECHNICIAN RETAG ✅ CODE DONE (`feat/mw-maintenance-retag`, PR #2535, merged).
+> `qp_maintenance_tech@2` live on production (seeded 2026-11-03, verify:packs +
+> verify:domains all PASS, curated aliases 566/566).
 > `qp_maintenance_tech@2`: first Middle-Way version of this pack (crosswalk +
 > required close are new). Sheet-21 ladder (Helper/Trainee/Technician/Senior
 > technician/Supervisor-maintenance in-charge, now mandatory; first chip
@@ -293,7 +297,24 @@ senior_programmer`; P5 crosswalk already handles). Role `levelTerms` += rung
 > years OR rung. Union extension: none. Aliases: `machine/mechanical/hydraulic/
 > machine tool maintenance` + Hindi `मेंटेनेंस टेक्नीशियन` -> 7233.0101,
 > `cnc maintenance` -> 7233.1200 (it reached the CNC operator code before; no
-> chip label moves). Deviations in the @2 review_note. Seeds after merge.
+> chip label moves). Deviations in the @2 review_note.
+>
+> PHASE 2 #6 — PLC / AUTOMATION TECHNICIAN (NEW BUILD) ✅ CODE DONE (`feat/mw-plc-automation`).
+> New 23rd declared kind `plc_automation_technician` (formless, chat-only, like 3D)
+> with migrations 0142 (job_postings/jobs role_kind) + 0143 (wri role kinds) —
+> APPLY BOTH BEFORE MERGE. New `mskill_plc_automation_tech` (unpaired: #2022 kept
+> the electrician unpaired; a pair is an owner call), `fam_plc_automation` bound to
+> NCO 7412.0101 Automation Specialist (left fam_electrical_equipment), new
+> `qp_plc_automation@1`: sheet-14 ladder (Trainee/Technician/Senior technician/
+> Lead/Supervisor, mandatory) + 2 separating confirms (technician; senior
+> technician, also asked of lead by the standing rule); supervisor by rule;
+> 6-band experience; Medium PLC brand + work done; Advanced HMI/SCADA, industry,
+> field devices. Aliases: plc programming/programmer/technician, automation
+> technician/engineer (+Hi) -> 7412.0101 (bare `plc` held out: police/place
+> skeleton, and "PLC panel wiring" is the electrician's). Role art + generated
+> artifacts. Deviation: the sheet prices technician Higher, the shared key stays
+> Lower (per-pack tier override is a follow-up; the hook only logs). Seeds after
+> migrations + merge.
 
 | #   | Trade (kind)                                      | Pack                           | Level Q today                       | Notes                                                                                                                                                                     |
 | --- | ------------------------------------------------- | ------------------------------ | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

@@ -1439,3 +1439,40 @@ describe("Phase 2 #5 Maintenance — routing, rungs and capture (CEO Launch Plan
     },
   );
 });
+
+describe("Phase 2 #6 PLC / automation — rungs and capture (CEO Launch Plan Pack v1, sheet 14)", () => {
+  // Formless (chat-only, like 3D): no form route to pin. The level item and the chips are
+  // asserted against the REAL pack, so a relabel breaks this before it breaks a worker.
+  const plcLevel = loadItem("qp_plc_automation.json", "plc_level");
+  it.each([
+    ["Trainee / helper", "trainee"],
+    ["Trainee", "trainee"],
+    ["Technician", "technician"],
+    ["Senior technician", "senior_technician"],
+    ["Lead / project", "lead"],
+    ["Supervisor", "supervisor"],
+  ])("plc_level: %s → %s", (text, expected) => {
+    expect(matchOptions(plcLevel as never, text as string)).toEqual([expected]);
+  });
+
+  it.each([
+    ["qp_plc_automation.json", "plc_brand", "Siemens / TIA / S7", "siemens"],
+    ["qp_plc_automation.json", "plc_brand", "TIA", "siemens"],
+    ["qp_plc_automation.json", "plc_brand", "Allen-Bradley / Rockwell", "allen_bradley"],
+    ["qp_plc_automation.json", "plc_brand", "Delta", "delta"],
+    ["qp_plc_automation.json", "plc_work", "HMI / SCADA", "hmi_scada"],
+    ["qp_plc_automation.json", "plc_work", "VFD / servo", "vfd_servo"],
+    ["qp_plc_automation.json", "plc_work", "Commissioning", "commissioning"],
+    ["qp_plc_automation.json", "plc_hmi_brand", "Siemens WinCC", "wincc"],
+    ["qp_plc_automation.json", "plc_field_devices", "Vision system", "vision"],
+    ["qp_plc_automation.json", "plc_technician_confirm", "Haan, khud karta hoon", "self"],
+    ["qp_plc_automation.json", "plc_senior_confirm", "Nahi, koi aur karta hai", "other"],
+  ] as ReadonlyArray<readonly [string, string, string, string | null]>)(
+    "%s %s: %s → %s",
+    (packFile, questionKey, text, expected) => {
+      expect(capturedOption(packFile, questionKey, text)).toEqual(
+        expected === null ? [] : [expected],
+      );
+    },
+  );
+});

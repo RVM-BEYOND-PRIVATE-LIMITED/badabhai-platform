@@ -557,7 +557,8 @@ describe("the match-skill wall", () => {
     // Middle Way E0 (Q3, owner-approved 2026-10-31) + the 2 minted in the CEO-pack
     // reconcile (2026-11-02) — taxonomy rulings, not anything this pipeline
     // produced. A further change here needs its own ruling.
-    expect(MATCH_SKILLS).toHaveLength(18 + 8 + 3);
+    // + 1: Phase 2 #6 (CEO Launch Plan Pack v1, sheet 14, 2026-11-03) minted the PLC trade.
+    expect(MATCH_SKILLS).toHaveLength(18 + 8 + 4);
     expect(SKILL_CORPUS.length).toBeGreaterThan(0);
     for (const s of MATCH_SKILLS) expect(s.skillId.startsWith("mskill_")).toBe(true);
   });

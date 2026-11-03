@@ -544,6 +544,26 @@ export const DEMO_TRADES: readonly DemoTrade[] = [
     ],
     shiftWeights: [4, 5, 1],
   },
+  // Phase 2 #6 — the new PLC / automation trade posts under its own permanent ID. Weight 1: a
+  // niche trade, and the weight the demo profile needs to stay non-vacuous (measured on a
+  // throwaway DB: weight 2 or 3 left no persona whose top 10 the interleave changes).
+  {
+    roleKind: "plc_automation_technician",
+    skillId: "mskill_plc_automation_tech",
+
+    weight: 1,
+    titles: ["PLC Technician", "Automation Technician", "PLC Programmer"],
+    pay: [22000, 45000],
+    minExp: [1, 5],
+    unit: PLANT,
+    requirements: [
+      "Siemens or Delta PLC",
+      "Ladder logic fault finding",
+      "HMI / VFD basics",
+      "Commissioning support",
+    ],
+    shiftWeights: [6, 3, 1],
+  },
   {
     roleKind: "industrial_electrician",
     skillId: "mskill_industrial_electrician",

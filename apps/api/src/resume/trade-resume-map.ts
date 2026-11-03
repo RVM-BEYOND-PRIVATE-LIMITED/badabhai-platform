@@ -3685,6 +3685,102 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
       },
     ],
   },
+  // ══ PHASE 2 #6 — PLC / AUTOMATION TECHNICIAN (CEO Launch Plan Pack v1, sheet 14) ══
+  //
+  // A NEW TRADE WITH NO RATIFIED PAGE, like the 3D map: sheet 14 is the spec and its
+  // headline ("PLC/Automation Technician · Senior · 6 years · Siemens TIA + Delta · HMI &
+  // servo · SPM commissioning · Noida · 30 days") is the parity reference until a practising
+  // technician ratifies the wording. Every `values` key is the option's STORED `value_text`;
+  // the escape chips carry "unknown" and are never labelled.
+  //
+  // RANKED FOR THE SEAT: the PLC brands lead (the hire is for the platform), then the work
+  // done, then HMI/SCADA, field devices and industry. Five rows against the budget of ten.
+  {
+    pack_id: "qp_plc_automation",
+    section_title: "Automation, PLC & capability",
+    tier_section_titles: { easy: "Automation & PLC" },
+    capability: [
+      {
+        from: "plc_brand",
+        rank: 21,
+        inHeadline: true,
+        maxValues: 4,
+        label: "PLC",
+        kind: "chips",
+        values: {
+          siemens: "Siemens TIA / S7",
+          allen_bradley: "Allen-Bradley",
+          mitsubishi: "Mitsubishi",
+          delta: "Delta",
+          omron: "Omron",
+          schneider: "Schneider",
+          fuji: "Fuji",
+          keyence: "Keyence",
+        },
+      },
+      {
+        from: "plc_work",
+        rank: 22,
+        inHeadline: true,
+        maxValues: 4,
+        label: "Work done",
+        kind: "chips",
+        values: {
+          panel_wiring: "Panel wiring",
+          io_troubleshooting: "I/O & sensor troubleshooting",
+          program_editing: "Program editing",
+          program_writing: "New program writing",
+          hmi_scada: "HMI / SCADA",
+          vfd_servo: "VFD / servo",
+          robot_teaching: "Robot teaching",
+          commissioning: "Commissioning",
+        },
+      },
+      {
+        from: "plc_hmi_brand",
+        rank: 41,
+        label: "HMI / SCADA",
+        kind: "chips",
+        values: {
+          wincc: "WinCC",
+          factorytalk: "FactoryTalk",
+          weintek: "Weintek",
+          delta_hmi: "Delta HMI",
+          mitsubishi_got: "Mitsubishi GOT",
+        },
+      },
+      {
+        from: "plc_field_devices",
+        rank: 42,
+        label: "Field devices",
+        kind: "ticks",
+        values: {
+          sensors: "Sensors",
+          pneumatics: "Pneumatics",
+          vision: "Vision system",
+          safety_relays: "Safety relays / light curtains",
+          encoders: "Encoders",
+        },
+      },
+      {
+        from: "sector_worked",
+        rank: 71,
+        maxValues: 3,
+        label: "Industry",
+        kind: "fact",
+        join: ", ",
+        values: {
+          spm_builder: "SPM / machine builder",
+          auto_line: "Auto line",
+          packaging: "Packaging",
+          pharma: "Pharma",
+          food: "Food",
+          plastics: "Plastics",
+          steel: "Steel",
+        },
+      },
+    ],
+  },
 ];
 
 export function tradeResumeMapFor(packId: string | null | undefined): TradeResumeMap | undefined {

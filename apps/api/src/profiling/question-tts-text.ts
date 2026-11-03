@@ -914,6 +914,26 @@ const QUESTION_TTS_TEXT: Readonly<Record<string, string>> = {
   // "Machine ki kaunsi dikkat aap sudhaar lete hain?" (the turner's) and "Kis machine ka poora
   // overhaul khud kar lete hain?" (the fitter's).
   "Maintenance ka kitna tajurba hai?": "मेंटेनेंस का कितना तजुर्बा है?",
+  // --- qp_plc_automation@1 (Phase 2 #6, a new trade) — prompts and retries. "PLC", "HMI",
+  // "SCADA" and "I/O" stay Latin: a hi-IN voice spells an initialism letter by letter, which is
+  // how a technician says it. The tenure, level and sector whys are shared and twinned above.
+  "PLC ya automation ka kitna tajurba hai?": "PLC या ऑटोमेशन का कितना तजुर्बा है?",
+  "Lagbhag kitne saal PLC ya automation ka kaam kiya hai?":
+    "लगभग कितने साल PLC या ऑटोमेशन का काम किया है?",
+  "Automation me aap kis level par kaam karte hain?": "ऑटोमेशन में आप किस लेवल पर काम करते हैं?",
+  "Trainee, technician, senior technician, lead ya supervisor hain?":
+    "ट्रेनी, टेक्नीशियन, सीनियर टेक्नीशियन, लीड या सुपरवाइज़र हैं?",
+  "PLC ka program kholke fault dhoondh lete ho, choti editing karte ho?":
+    "PLC का प्रोग्राम खोलके फॉल्ट ढूँढ लेते हो, छोटी एडिटिंग करते हो?",
+  "Naya PLC program, HMI aur servo / motion khud banate ho?":
+    "नया PLC प्रोग्राम, HMI और सर्वो या मोशन खुद बनाते हो?",
+  "Kaunsa PLC chalate hain?": "कौनसा PLC चलाते हैं?",
+  "Siemens, Allen-Bradley, Mitsubishi ya Delta, kaunsa PLC chalaya hai?":
+    "सीमेंस, एलन-ब्रैडली, मित्सुबिशी या डेल्टा, कौनसा PLC चलाया है?",
+  "Automation me kya kya karte hain?": "ऑटोमेशन में क्या क्या करते हैं?",
+  "Kaunsa HMI ya SCADA chalaya hai?": "कौनसा HMI या SCADA चलाया है?",
+  "Kis industry ki automation par kaam kiya hai?": "किस इंडस्ट्री की ऑटोमेशन पर काम किया है?",
+  "Kaunse field device ka kaam aata hai?": "कौनसे फील्ड डिवाइस का काम आता है?",
   // qp_maintenance_tech@2 (Phase 2 #5) — the new level retry, the senior
   // technician's separating confirm (the sheet's question verbatim) and the
   // two new Advanced rows.
@@ -1503,6 +1523,19 @@ const WHY_TTS_TEXT: Readonly<Record<string, string>> = {
   // the three fresher ones) are shared verbatim with packs twinned above.
   "Kaam ki kism se sahi plant ka kaam dikhaya jaata hai.":
     "काम की किस्म से सही प्लांट का काम दिखाया जाता है।",
+  // --- qp_plc_automation@1 (Phase 2 #6) — why-texts. Filed HERE: `composeClarify` scans
+  // only this table.
+  "Program kholke fault dhoondhne wale technician ko alag kaam milta hai.":
+    "प्रोग्राम खोलके फॉल्ट ढूँढने वाले टेक्नीशियन को अलग काम मिलता है।",
+  "Naya program aur HMI banane wale senior ko alag kaam milta hai.":
+    "नया प्रोग्राम और HMI बनाने वाले सीनियर को अलग काम मिलता है।",
+  "PLC ke brand se sahi plant ka kaam dikhaya jaata hai.":
+    "PLC के ब्रांड से सही प्लांट का काम दिखाया जाता है।",
+  "Kaam ke hisaab se sahi project dikhaya jaata hai.": "काम के हिसाब से सही प्रोजेक्ट दिखाया जाता है।",
+  "HMI aur SCADA jaanne wale technician ki alag maang hai.":
+    "HMI और SCADA जानने वाले टेक्नीशियन की अलग माँग है।",
+  "Field device jaanne wale ko line jaldi sambhalne di jaati hai.":
+    "फील्ड डिवाइस जानने वाले को लाइन जल्दी संभालने दी जाती है।",
   // qp_maintenance_tech@2 (Phase 2 #5) — the confirm's and the two new rows'
   // whys. Filed HERE: `composeClarify` scans only this table.
   "Overhaul aur fault khud sambhalne wale senior ko alag kaam milta hai.":

@@ -62,13 +62,15 @@ describe("pack-answer bridge — every id rides an existing bridge or is a pack-
     expect(bypassing).toEqual([]);
   });
 
-  it("names exactly the eight pack-only skills the owner minted for #2022", () => {
+  it("names exactly the eight pack-only skills the owner minted for #2022, plus the PLC trade", () => {
     expect(packAnswerIdsEmitted().filter((id) => id.startsWith("mskill_"))).toEqual([
       "mskill_assembly_line_worker",
       "mskill_conventional_machinist",
       "mskill_industrial_electrician",
       "mskill_maintenance_technician",
       "mskill_painter_coater",
+      // Phase 2 #6: the new PLC trade's own ID, pack-only like the #2022 mints.
+      "mskill_plc_automation_tech",
       "mskill_press_operator",
       "mskill_sheet_metal_worker",
       "mskill_tool_die_maker",
@@ -145,6 +147,8 @@ describe("the reachable set per pack — pinned exactly", () => {
     qp_press_operation: ["mskill_press_operator"],
     qp_powder_coating: ["mskill_painter_coater"],
     qp_maintenance_tech: ["mskill_maintenance_technician"],
+    // Phase 2 #6: a named PLC or a programming/HMI/drive task reaches the new trade.
+    qp_plc_automation: ["mskill_plc_automation_tech"],
     qp_industrial_electrician: ["mskill_industrial_electrician"],
     qp_assembly_line: ["mskill_assembly_line_worker"],
   };
