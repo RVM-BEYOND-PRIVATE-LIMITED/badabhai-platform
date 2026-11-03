@@ -158,6 +158,14 @@ const GRINDING_PHRASES = [
   "centreless grinding",
   "centerless grinding",
   "internal grinding",
+  // PHASE 2 #2 (CEO Launch Plan Pack v1, sheet 15 "Words"): the part and process
+  // compounds, authored on jd_nco_7223_2200 like the E4 rows.
+  "bore grinding",
+  "thread grinding",
+  "gear grinding",
+  "bearing grinding",
+  "shaft grinding",
+  "crank grinding",
 ] as const;
 
 /**
@@ -406,10 +414,11 @@ describe("role-pack reachability — do a worker's own words reach the pack for 
 
   it("CHARACTERIZES which grinding phrases reach grinding depth today", () => {
     const routing = Object.fromEntries(GRINDING_PHRASES.map((p) => [p, familyFor(p)]));
-    // Read this as a report. All ten reach the pack — the four shipped rows plus
-    // the six E4 machine-variant rows. A grinder who types only "grinder" still
-    // has to be recognised by the interview, because that phrase is an alias
-    // nowhere in the corpus (fab-shop angle-grinder collision, pinned above).
+    // Read this as a report. All sixteen reach the pack — the four shipped rows,
+    // the six E4 machine-variant rows and the six Phase 2 #2 part compounds. A
+    // grinder who types only "grinder" still has to be recognised by the
+    // interview, because that phrase is an alias nowhere in the corpus (fab-shop
+    // angle-grinder collision, pinned above).
     expect(routing).toEqual({
       "grinding machine": "fam_cnc_grinding",
       ghisai: "fam_cnc_grinding",
@@ -421,6 +430,12 @@ describe("role-pack reachability — do a worker's own words reach the pack for 
       "centreless grinding": "fam_cnc_grinding",
       "centerless grinding": "fam_cnc_grinding",
       "internal grinding": "fam_cnc_grinding",
+      "bore grinding": "fam_cnc_grinding",
+      "thread grinding": "fam_cnc_grinding",
+      "gear grinding": "fam_cnc_grinding",
+      "bearing grinding": "fam_cnc_grinding",
+      "shaft grinding": "fam_cnc_grinding",
+      "crank grinding": "fam_cnc_grinding",
     });
   });
 

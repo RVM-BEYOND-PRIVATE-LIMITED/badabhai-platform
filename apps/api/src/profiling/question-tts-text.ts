@@ -397,6 +397,11 @@ const QUESTION_TTS_TEXT: Readonly<Record<string, string>> = {
   "Setting ka kaunsa kaam khud karte hain?": "सेटिंग का कौन सा काम खुद करते हैं?",
   "Kitna surface finish nikaal lete hain?": "कितना सरफेस फिनिश निकाल लेते हैं?",
   "Wheel dressing kaise karte hain?": "व्हील ड्रेसिंग कैसे करते हैं?",
+  // --- qp_cnc_grinding@6 (Phase 2 #2) — the one separating confirm, asked of
+  // setter and setter-cum-programmer. Every other @6 prompt and retry is an
+  // earlier version's verbatim, so its twin is already above.
+  "Wheel change, dressing aur naya job setting aap karte ho?":
+    "व्हील चेंज, ड्रेसिंग और नया जॉब सेटिंग आप करते हो?",
   // --- qp_cam_programming@1 (role pack, part programming — CAM seat and at-machine MDI) — Batch 1
   //
   // TEN PROMPTS AND TWO RETRIES ACROSS TEN KEYS. The pack has fourteen items; the other four
@@ -1206,6 +1211,10 @@ const WHY_TTS_TEXT: Readonly<Record<string, string>> = {
     "फिनिश ग्राइंडिंग के काम की सबसे बड़ी पहचान है।",
   "Dressing ka tarika wheel ki umar aur finish tay karta hai.":
     "ड्रेसिंग का तरीका व्हील की उम्र और फिनिश तय करता है।",
+  // --- qp_cnc_grinding@6 (Phase 2 #2) — the separating confirm's why. Filed
+  // HERE, not in the question table: `composeClarify` scans only this table.
+  "Wheel aur setting khud karne wale setter ko alag kaam milta hai.":
+    "व्हील और सेटिंग खुद करने वाले सेटर को अलग काम मिलता है।",
   // --- qp_cam_programming@1 (role pack) — Batch 1 --------------------------------------------
   //
   // FIVE WHY-TEXTS. The pack's other nine are the turner's, miller's and grinder's verbatim and

@@ -218,42 +218,18 @@ export const COMPLETION_REASONS = [
 export type CompletionReason = (typeof COMPLETION_REASONS)[number];
 
 /**
- * Middle-Way C2 (P3a): the 8 required slots per trade — Trade, Machine/Software,
- * Years, Level, Second detail (controller), Location, Salary, Availability.
+ * CEO Launch Plan Pack v1 (RULED 2026-11-02): Easy = Q1–Q5 closes the interview.
+ * Trade (Q1), location (Q4) and availability (Q5) live on the universal pack and
+ * are shared keys, so this one list covers every trade below; years (Q2) and
+ * level (Q3) come from the trade's own pack. Machine, controller and salary are
+ * Medium — asked, never required.
  *
- * Trade + Location + Salary + Availability live on the universal pack and are
- * shared keys, so one list covers all four trades for those four slots.
+ * Grinding was the last pack on the v1 8-slot shape (Trade, Machine, Years,
+ * Level, Controller, Location, Salary, Availability); its Phase 2 #2 retag
+ * retired that shape, and with it the per-pack universal lists.
  * "Nahi pata" counts as done: {@link isSettled} treats declined as settled.
  */
-const UNIVERSAL_REQUIRED_KEYS = [
-  "primary_trade",
-  "current_city",
-  "salary_expected",
-  "availability",
-] as const;
-
-/**
- * CEO Launch Plan Pack v1 (RULED 2026-11-02): Easy = Q1–Q5 closes the interview.
- * Turner led in Track A #1; VMC follows in Track A #2. Trade + years + level
- * from the pack, location + availability shared — machine, controller and salary
- * move to Medium (asked, not required). Other packs keep the v1 8-required
- * shape until their own retag PR.
- */
-const EASY_REQUIRED_UNIVERSAL_KEYS: Readonly<Record<string, readonly string[]>> = {
-  qp_cnc_turning: ["primary_trade", "current_city", "availability"],
-  qp_vmc_milling: ["primary_trade", "current_city", "availability"],
-  qp_cam_programming: ["primary_trade", "current_city", "availability"],
-  qp_cad_design_3d: ["primary_trade", "current_city", "availability"],
-  qp_cad_drafting: ["primary_trade", "current_city", "availability"],
-  qp_fitter: ["primary_trade", "current_city", "availability"],
-  qp_industrial_electrician: ["primary_trade", "current_city", "availability"],
-  qp_welding_trade: ["primary_trade", "current_city", "availability"],
-  qp_conventional_machining: ["primary_trade", "current_city", "availability"],
-  qp_sheet_metal_fab: ["primary_trade", "current_city", "availability"],
-  qp_assembly_line: ["primary_trade", "current_city", "availability"],
-  qp_quality_inspection: ["primary_trade", "current_city", "availability"],
-  qp_tool_die_making: ["primary_trade", "current_city", "availability"],
-};
+const EASY_UNIVERSAL_REQUIRED_KEYS = ["primary_trade", "current_city", "availability"] as const;
 
 const TRADE_REQUIRED_KEYS: Readonly<Record<string, readonly string[]>> = {
   // CEO Launch Pack v1 (RULED 2026-11-02): Turner Easy Q2–Q3 (Track A #1),
@@ -261,10 +237,10 @@ const TRADE_REQUIRED_KEYS: Readonly<Record<string, readonly string[]>> = {
   // (Track A #4), 2D Easy Q2–Q3 (Track A #5), Fitter Easy Q2–Q3 (Track B #1),
   // Electrician Easy Q2–Q3 (Track B #2), Conventional Easy Q2–Q3 (Track B #4),
   // Sheet-metal Easy Q2–Q3 (Track B #5), Assembly Easy Q2–Q3 (Track B #6),
-  // QC Easy Q2–Q3 (Track B #7), Tool-room Easy Q2–Q3 (Phase 2 #1).
-  // Machine/software/controller moved to Medium (Q6–Q7) — asked, never required.
-  // The two process trades keep their required Medium chip: grinding's
-  // controller, the welder's process (sheet 8, Rules Q14).
+  // QC Easy Q2–Q3 (Track B #7), Tool-room Easy Q2–Q3 (Phase 2 #1), Grinding
+  // Easy Q2–Q3 (Phase 2 #2). Machine/software/controller moved to Medium
+  // (Q6–Q7) — asked, never required. The one exception is the welder's
+  // process, a required Medium chip by ruling (sheet 8, Rules Q14).
   qp_cnc_turning: ["turning_experience", "turning_level"],
   qp_vmc_milling: ["milling_experience", "milling_level"],
   qp_cam_programming: ["programming_experience", "cam_level"],
@@ -279,12 +255,7 @@ const TRADE_REQUIRED_KEYS: Readonly<Record<string, readonly string[]>> = {
   qp_assembly_line: ["assembly_experience", "assembly_level"],
   qp_quality_inspection: ["inspection_experience", "inspection_level"],
   qp_tool_die_making: ["toolroom_experience", "toolroom_level"],
-  qp_cnc_grinding: [
-    "grinding_machine",
-    "grinding_experience",
-    "grinding_level",
-    "controller_brand",
-  ],
+  qp_cnc_grinding: ["grinding_experience", "grinding_level"],
 };
 
 /** True when every required slot for this occupation pack is settled. */
@@ -295,8 +266,7 @@ export function requiredSlotsSettled(
   if (occupationPackId === null) return false;
   const tradeKeys = TRADE_REQUIRED_KEYS[occupationPackId];
   if (tradeKeys === undefined) return false;
-  const universalKeys = EASY_REQUIRED_UNIVERSAL_KEYS[occupationPackId] ?? UNIVERSAL_REQUIRED_KEYS;
-  return [...universalKeys, ...tradeKeys].every((key) => isSettled(answers, key));
+  return [...EASY_UNIVERSAL_REQUIRED_KEYS, ...tradeKeys].every((key) => isSettled(answers, key));
 }
 
 /** True when the pack is one of the Middle-Way v2+ trades (P3b caps apply). */
@@ -688,7 +658,7 @@ export const HARDSHIP_REPLY_TEXTS = [
 /** Served when the interview ends normally. */
 export const CLOSING_REPLY_TEXT = "Aapki baat poori ho chuki hai. Profile taiyaar ho rahi hai.";
 
-/** Served when the 8 required slots are done (Middle-Way C2 stop rule, P3a). */
+/** Served when the trade's required slots (Easy Q1–Q5) are done (Middle-Way C2 stop rule, P3a). */
 export const REQUIRED_COMPLETE_REPLY_TEXT = "Bas ho gaya. Resume ban raha hai.";
 
 /** The close copy for a completion reason — the required-complete line when P3a fired. */

@@ -207,6 +207,19 @@ describe("E4 Grinding — trade routing (DoD §7.9, trade column)", () => {
     ["Manufacturing", "cylindrical grinding", null, "cnc_grinding"],
     ["Manufacturing", "surface grinding", "fam_machining", "cnc_grinding"],
     ["Manufacturing", "surface grinding", "fam_vmc_milling", "cnc_grinding"],
+    // Phase 2 #2 (sheet 15 "Words"): the part/process compounds and the new
+    // machine term carry "grinding"/"grinder", so they route on their own too.
+    ["Manufacturing", "thread grinding", null, "cnc_grinding"],
+    ["Manufacturing", "gear grinding", null, "cnc_grinding"],
+    ["Manufacturing", "bore grinding", null, "cnc_grinding"],
+    ["Manufacturing", "bearing grinding", null, "cnc_grinding"],
+    ["Manufacturing", "shaft grinding", null, "cnc_grinding"],
+    ["Manufacturing", "crank grinding", null, "cnc_grinding"],
+    ["Manufacturing", "double disc grinder", null, "cnc_grinding"],
+    ["Manufacturing", "gear grinding", "fam_machining", "cnc_grinding"],
+    // Phase 2 #2: the bottom rung's words corroborate the pin, never route alone.
+    ["Manufacturing", "trainee hoon", "fam_cnc_grinding", "cnc_grinding"],
+    ["Manufacturing", "trainee hoon", null, null],
     // Level signals corroborate the pin, never route alone (E4 starter).
     ["Manufacturing", "setting karta hoon", "fam_cnc_grinding", "cnc_grinding"],
     ["Manufacturing", "job lagata hoon", "fam_cnc_grinding", "cnc_grinding"],
@@ -532,6 +545,30 @@ describe("§8 rung words resolve to the rung; signal phrases corroborate the tra
     ["supervisor hoon", "supervisor"],
   ])("toolroom_level@2: %s → %s", (text, expected) => {
     expect(rungFor(toolLevel2, text as string)).toEqual([expected]);
+  });
+
+  // PHASE 2 #2 (@6) — the sheet-15 ladder. The first chip reads "Helper/Trainee"
+  // and stores `trainee` (Turner @6 precedent); @5's `helper` lives on frozen.
+  const grindingLevel6 = loadItem("qp_cnc_grinding@6.json", "grinding_level");
+  it.each([
+    ["Helper/Trainee", "trainee"],
+    ["Helper", "trainee"],
+    ["Trainee", "trainee"],
+    ["trainee hoon", "trainee"],
+    ["Operator", "operator"],
+    ["operator hoon", "operator"],
+    ["Setter", "setter"],
+    ["setter hoon", "setter"],
+    ["Setter-cum-Programmer", "setter_programmer"],
+    ["Supervisor", "supervisor"],
+    ["supervisor hoon", "supervisor"],
+  ])("grinding_level@6: %s → %s", (text, expected) => {
+    expect(rungFor(grindingLevel6, text as string)).toEqual([expected]);
+  });
+
+  it("grinding_level@6: programmer still claims no rung (no such rung on sheet 15)", () => {
+    expect(rungFor(grindingLevel6, "Programmer" as string)).toEqual([]);
+    expect(rungFor(grindingLevel6, "programmer hoon" as string)).toEqual([]);
   });
 
   // The P4 contract, owner-approved: §8 signal phrases corroborate the family pin
@@ -1067,7 +1104,7 @@ describe("§8 machine/controller rows resolve at capture; unlisted spellings re-
     },
   );
 
-  // TRACK B #6 (@2) \u2014 the sheet-11 product/tools/skills/company rows and the
+  // TRACK B #6 (@2) — the sheet-11 product/tools/skills/company rows and the
   // separating confirms resolve at capture. The segment product chips, the
   // hand/press-jig/soldering/test-bench tool chips, the skills/company rows
   // and the confirms are new; the kept history chips capture the same way.
@@ -1103,7 +1140,7 @@ describe("§8 machine/controller rows resolve at capture; unlisted spellings re-
     },
   );
 
-  // TRACK B #7 (@2) \u2014 the sheet-12 instrument/inspection/material/drawing
+  // TRACK B #7 (@2) — the sheet-12 instrument/inspection/material/drawing
   // rows, the systems chips and the separating confirms resolve at capture.
   // The split vernier/micrometer, the bore/thread/hardness/multimeter
   // instruments, the segment materials, the tolerance-stack drawing chip, the
@@ -1137,7 +1174,7 @@ describe("§8 machine/controller rows resolve at capture; unlisted spellings re-
     },
   );
 
-  // PHASE 2 #1 (@2) \u2014 the sheet-13 tooling/machine/steel/work rows, the
+  // PHASE 2 #1 (@2) — the sheet-13 tooling/machine/steel/work rows, the
   // institute row and the separating confirms resolve at capture. The
   // plastic/die-casting/forging/rubber tool chips, the VMC/EDM/jig-boring/
   // polishing machine chips, the H13/P20 steels, the spotting/maintenance/
@@ -1168,6 +1205,33 @@ describe("§8 machine/controller rows resolve at capture; unlisted spellings re-
     ["qp_tool_die_making@2.json", "toolroom_skilled_confirm", "Nahi, senior karte hain", "other"],
     ["qp_tool_die_making@2.json", "toolroom_senior_confirm", "Haan, main lead karta hoon", "self"],
     ["qp_tool_die_making@2.json", "toolroom_senior_confirm", "Nahi, doosre karte hain", "other"],
+  ] as ReadonlyArray<readonly [string, string, string, string | null]>)(
+    "%s %s: %s → %s",
+    (packFile, questionKey, text, expected) => {
+      expect(capturedOption(packFile, questionKey, text)).toEqual(
+        expected === null ? [] : [expected],
+      );
+    },
+  );
+
+  // PHASE 2 #2 (@6) — the sheet-15 machine and tolerance chips and the
+  // separating confirm resolve at capture. Thread/gear and double-disc are new
+  // machine chips, the micron band is a new tolerance chip and 0.002 is a band
+  // of its own; the kept chips capture as they did on @5.
+  it.each([
+    ["qp_cnc_grinding@6.json", "grinding_machine", "Thread / gear grinding", "thread_gear"],
+    ["qp_cnc_grinding@6.json", "grinding_machine", "gear grinding", "thread_gear"],
+    ["qp_cnc_grinding@6.json", "grinding_machine", "Double disc", "double_disc"],
+    ["qp_cnc_grinding@6.json", "grinding_machine", "double disc grinder", "double_disc"],
+    ["qp_cnc_grinding@6.json", "grinding_machine", "centreless grinding", "centreless"],
+    ["qp_cnc_grinding@6.json", "grinding_machine", "Tool aur cutter grinder", "tool_cutter"],
+    ["qp_cnc_grinding@6.json", "tolerance_band", "0.002 mm tak", "0.002"],
+    ["qp_cnc_grinding@6.json", "tolerance_band", "Micron / 0.001 mm ya usse kam", "0.001"],
+    ["qp_cnc_grinding@6.json", "tolerance_band", "micron", "0.001"],
+    ["qp_cnc_grinding@6.json", "tolerance_band", "micron ka kaam", "0.001"],
+    ["qp_cnc_grinding@6.json", "controller_brand", "Sinumerik", "siemens"],
+    ["qp_cnc_grinding@6.json", "grinding_setting_confirm", "Haan, khud karta hoon", "self"],
+    ["qp_cnc_grinding@6.json", "grinding_setting_confirm", "Nahi, koi aur karta hai", "other"],
   ] as ReadonlyArray<readonly [string, string, string, string | null]>)(
     "%s %s: %s → %s",
     (packFile, questionKey, text, expected) => {

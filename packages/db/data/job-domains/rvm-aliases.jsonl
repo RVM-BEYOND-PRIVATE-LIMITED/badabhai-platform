@@ -231,6 +231,17 @@
 {"kind":"alias","job_domain_id":"jd_nco_7223_2200","text":"centreless grinding","lang":"en"}
 {"kind":"alias","job_domain_id":"jd_nco_7223_2200","text":"centerless grinding","lang":"en"}
 {"kind":"alias","job_domain_id":"jd_nco_7223_2200","text":"internal grinding","lang":"en"}
+# PHASE 2 #2 (CEO Launch Plan Pack v1, sheet 15 "Words"): the trade's part and
+# process compounds, same shape as the E4 rows above. Each names the trade
+# whole; the bare part words ("gear", "bearing", "shaft") stay out — they are a
+# gear cutter's, a bearing fitter's and a turner's words too. Dressing, CBN,
+# balancing and "micron ka kaam" are capture vocabulary, never a route.
+{"kind":"alias","job_domain_id":"jd_nco_7223_2200","text":"bore grinding","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2200","text":"thread grinding","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2200","text":"gear grinding","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2200","text":"bearing grinding","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2200","text":"shaft grinding","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2200","text":"crank grinding","lang":"en"}
 {"kind":"alias","job_domain_id":"jd_nco_7223_0500","text":"machine shop","lang":"en"}
 {"kind":"alias","job_domain_id":"jd_nco_7223_0500","text":"machinist","lang":"en"}
 

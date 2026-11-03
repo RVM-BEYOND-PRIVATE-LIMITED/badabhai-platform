@@ -18,10 +18,11 @@ import type { RoleFormDescriptor } from "./role-form-descriptor";
  * Widening the alias corpus further is ratification work, not typing: "grinder" alone is also
  * what an angle-grinder hand in a fabrication shop says.
  *
- * ITS LADDER STOPS AT SETTER-CUM-PROGRAMMER. The taxonomy gives grinding three rungs where
- * turning and milling get four: grinding wheels are dressed and compensated rather than
- * programmed as toolpaths, so there is no "Programmer" rung to claim. Copying the four-rung
- * ladder across would offer a grinder a level that does not exist on their shop floor.
+ * ITS LADDER STOPS AT SETTER-CUM-PROGRAMMER. Grinding wheels are dressed and compensated rather
+ * than programmed as toolpaths, so there is no "Programmer" rung to claim. Copying the turner's
+ * ladder across would offer a grinder a level that does not exist on their shop floor. Phase 2
+ * #2 (CEO Launch Plan Pack v1, sheet 15) adds the bottom and top rungs the sheet names —
+ * Trainee and Supervisor — and still no Programmer.
  */
 export const CNC_GRINDING = {
   kind: "cnc_grinding",
@@ -31,7 +32,7 @@ export const CNC_GRINDING = {
   formEnabled: true,
   displayName: "CNC Grinding Operator",
   offerName: "CNC grinding operator",
-  levelLadder: ["Operator", "Setter", "Setter-cum-Programmer"],
+  levelLadder: ["Trainee", "Operator", "Setter", "Setter-cum-Programmer", "Supervisor"],
   tenureQuestionKey: "grinding_experience",
   detection: {
     occupationTerms: [
@@ -65,8 +66,22 @@ export const CNC_GRINDING = {
       "centreless grinding",
       "centerless grinding",
       "internal grinding",
+      // Phase 2 #2 (sheet 15): the new machine chips and the sheet's part words.
+      // Each carries "grinding"/"grinder", so — like the E4 forms above — it
+      // also routes on its own; listing it here keeps the slot-2 vocabulary
+      // whole. Dressing, CBN and balancing are NOT here: they are capture chips
+      // (wheel_type, setting_work, dressing_method), and a machine term becomes
+      // a rival role's veto word.
+      "thread grinding",
+      "gear grinding",
+      "bore grinding",
+      "double disc grinder",
     ],
     levelTerms: [
+      // Phase 2 #2 (sheet 15): the bottom rung's words. The chip reads
+      // "Helper/Trainee"; both corroborate, neither routes.
+      "helper",
+      "trainee",
       "setter",
       "setter cum programmer",
       "operator",

@@ -211,8 +211,10 @@ senior_programmer`; P5 crosswalk already handles). Role `levelTerms` += rung
 > confirm; trainee/inspector already Lower). No new aliases. Deviations in
 > the @2 review_note.
 >
-> PHASE 2 #1 — TOOL & DIE RETAG (in progress, `feat/mw-tooldie-retag`).
-> `qp_tool_die_making@2`: sheet-13 ladder (Trainee/Operator/Skilled/Senior/
+> PHASE 2 #1 — TOOL & DIE RETAG ✅ CODE DONE (`feat/mw-tooldie-retag`, PR #2527, merged).
+> `qp_tool_die_making@2` live on production (seeded 2026-11-03: seed:domains →
+> normalize:aliases → seed:packs, verify:packs + verify:domains all PASS).
+> Sheet-13 ladder (Trainee/Operator/Skilled/Senior/
 > Supervisor, mandatory; stored `tool_maker` aliases to skilled) + 2
 > separating confirms (skilled + senior self/other; supervisor by rule);
 > 6-band experience; tooling retagged Medium (+plastic-injection/die-casting/
@@ -222,6 +224,22 @@ senior_programmer`; P5 crosswalk already handles). Role `levelTerms` += rung
 > rung. Union extension: none (alias `tool_maker` -> skilled); new aliases
 > `toolroom` + `mould maker` (+Hi) -> 7222.0200. Deviations in the @2
 > review_note.
+>
+> PHASE 2 #2 — CNC GRINDING RETAG ✅ CODE DONE (`feat/mw-grinding-retag`).
+> `qp_cnc_grinding@6`: sheet-15 ladder (Helper/Trainee/Operator/Setter/
+> Setter-cum-Programmer/Supervisor, mandatory; first chip stores `trainee`,
+> Turner @6 precedent; still no Programmer rung) + 1 separating confirm asked
+> of setter AND setter-cum-programmer (owner ruling 2026-11-03: the sheet
+> writes one question, none for setter-cum-programmer); supervisor by rule;
+> 6-band experience; machine + controller move to Medium, asked never
+> required — grinding was the last pack on the v1 8-slot shape, so the engine's
+> per-pack universal lists collapse to one Easy-5 list (only the welder keeps a
+> required Medium chip); machine +thread/gear, +double-disc; tolerance +micron
+> (0.001) chip; materials/wheels/measuring/drawing retagged Advanced;
+> `grinding_type` stays Medium (only reach-carrying row). Union extension:
+> none. New aliases `bore/thread/gear/bearing/shaft/crank grinding` ->
+> 7223.2200. Deviations in the @6 review_note. Seeds after merge
+> (`db:seed:domains` → normalize → `db:seed:packs` + verify).
 
 | #   | Trade (kind)                                      | Pack                           | Level Q today                       | Notes                                                                                                                                                                     |
 | --- | ------------------------------------------------- | ------------------------------ | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

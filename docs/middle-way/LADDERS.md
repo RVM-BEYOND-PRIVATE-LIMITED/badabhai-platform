@@ -21,9 +21,9 @@ Signals: zero lagata hoon / G54 → setter; Mastercam/PowerMill/NX → programme
 
 ## Grinding (`mskill_cnc_grinding_operator` / `cnc_grinding` / `qp_cnc_grinding`)
 
-Code: `["Operator", "Setter", "Setter-cum-Programmer"]` — stops here, no Programmer rung (wheels dressed, not programmed).
-Spec: no ladder given — reuse Turner shape minus programmer: `helper, operator, setter, setter_programmer, supervisor`.
-P1 decision needed: confirm no `programmer` key for grinding.
+Code: `["Trainee", "Operator", "Setter", "Setter-cum-Programmer", "Supervisor"]` — no Programmer rung (wheels dressed, not programmed).
+CEO Launch Plan Pack v1, sheet 15 (RULED 2026-11-02; shipped as `qp_cnc_grinding@6`, Phase 2 #2): `trainee, operator, setter, setter_programmer, supervisor`. Confirmed from `setter`; Higher from `setter`.
+Decided: no `programmer` key for grinding (sheet 15). The sheet's one separating question ("Wheel change, dressing aur naya job setting aap karte ho?") is asked of setter and setter_programmer (owner ruling 2026-11-03); supervisor by rule. Stored `helper` (@1–@5) still renders.
 
 ## CAM (`mskill_cam_programmer` / `cam_programmer` / `qp_cam_programming`)
 

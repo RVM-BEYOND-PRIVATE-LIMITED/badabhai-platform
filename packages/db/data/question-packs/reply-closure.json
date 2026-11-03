@@ -1,12 +1,12 @@
 {
   "schema_version": 1,
-  "clip_count": 1425,
+  "clip_count": 1428,
   "producers": {
     "retry": 119,
-    "clarify": 518,
-    "prompt": 372,
+    "clarify": 519,
+    "prompt": 373,
     "constant": 97,
-    "why": 319
+    "why": 320
   },
   "clips": [
     {
@@ -803,6 +803,11 @@
       "id": "1cbf4193c46f4966",
       "text": "Kharabi pakadne wale ki line par zaroorat rehti hai. Assembly ki kaunsi kharabi pakad kar sudhaar lete hain?",
       "producer": "clarify"
+    },
+    {
+      "id": "1d1479929722fcb3",
+      "text": "Wheel change, dressing aur naya job setting aap karte ho?",
+      "producer": "prompt"
     },
     {
       "id": "1d152a0f7aa1a57b",
@@ -1663,6 +1668,11 @@
       "id": "3c222ec76f57f57d",
       "text": "Press par kaam ka kitna tajurba hai?",
       "producer": "prompt"
+    },
+    {
+      "id": "3c50d40af56fe25e",
+      "text": "Wheel aur setting khud karne wale setter ko alag kaam milta hai. Wheel change, dressing aur naya job setting aap karte ho?",
+      "producer": "clarify"
     },
     {
       "id": "3c64c553cfe4fcd9",
@@ -4543,6 +4553,11 @@
       "id": "a1814cc9cb3ca347",
       "text": "Kai station jaanne wale ko line par aage rakha jaata hai. Line ke kitne station ka kaam aata hai?",
       "producer": "clarify"
+    },
+    {
+      "id": "a19381e7e7fa59ba",
+      "text": "Wheel aur setting khud karne wale setter ko alag kaam milta hai.",
+      "producer": "why"
     },
     {
       "id": "a1a235fa11580e95",

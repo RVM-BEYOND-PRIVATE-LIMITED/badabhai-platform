@@ -795,6 +795,9 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           centreless: "Centreless grinder",
           internal: "Internal grinder",
           tool_cutter: "Tool and cutter grinder",
+          // Phase 2 #2 (@6): the sheet-15 machine chips.
+          thread_gear: "Thread / gear grinder",
+          double_disc: "Double disc grinder",
         },
       },
       {
@@ -908,7 +911,11 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           "0.02": "±0.02 mm",
           "0.01": "±0.01 mm",
           "0.005": "±0.005 mm",
-          "0.002": "±0.002 mm or finer",
+          // Phase 2 #2 (@6): 0.002 is a band of its own now that a micron chip
+          // sits below it. A @5 "0.002 or finer" answer prints as ±0.002 mm —
+          // understated, never overstated.
+          "0.002": "±0.002 mm",
+          "0.001": "±0.001 mm (micron) or finer",
         },
       },
       {
