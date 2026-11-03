@@ -144,6 +144,10 @@ export const TRADE_LEVEL_PACKS: Readonly<Record<string, TradeLevelPack>> = {
   // Plan Pack v1, sheet 20). No union extension: every sheet-20 rung is already
   // a member, and @1's stored `helper`/`skilled` render as they always did.
   qp_powder_coating: { skillId: "mskill_painter_coater", levelKey: "coating_level" },
+  // Phase 2 #5 — the maintenance technician (CEO Launch Plan Pack v1, sheet 21).
+  // No union extension: technician (Lower) and senior_technician (confirmed,
+  // Higher) are already members. Supervisor by rule.
+  qp_maintenance_tech: { skillId: "mskill_maintenance_technician", levelKey: "maintenance_level" },
 };
 
 /** Legacy/alias spellings that name a `TradeLevel` without being one. */
@@ -459,6 +463,12 @@ export const TRADE_LEVEL_CONFIRM_ITEMS: Readonly<
   qp_powder_coating: {
     skilled: "coating_skilled_confirm",
     senior: "coating_skilled_confirm",
+  },
+  // Phase 2 #5 — the maintenance confirm (CEO Launch Plan Pack v1, sheet 21).
+  // Confirmed from `senior_technician`; the only rung above is supervisor,
+  // confirmed by rule — so one rung, one question.
+  qp_maintenance_tech: {
+    senior_technician: "maintenance_senior_confirm",
   },
 };
 

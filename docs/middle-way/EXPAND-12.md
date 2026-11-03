@@ -280,6 +280,20 @@ senior_programmer`; P5 crosswalk already handles). Role `levelTerms` += rung
 > and CED/E-coat words are chips only (as aliases they would become the
 > Electroplater chip label); "e coat" still misroutes to 3D CAD offline.
 > Deviations in the @2 review_note. Seeds after merge.
+>
+> PHASE 2 #5 — MAINTENANCE TECHNICIAN RETAG ✅ CODE DONE (`feat/mw-maintenance-retag`).
+> `qp_maintenance_tech@2`: first Middle-Way version of this pack (crosswalk +
+> required close are new). Sheet-21 ladder (Helper/Trainee/Technician/Senior
+> technician/Supervisor-maintenance in-charge, now mandatory; first chip
+> stores `trainee`) + 1 separating confirm for senior_technician (the sheet's
+> question verbatim; the only rung above is supervisor, by rule); 6-band
+> experience; Easy closes on Q1–Q5; Medium machine type (+conventional/IMM/
+> boilers/packaging) + systems (+lubrication, +welding for repair); Advanced
+> NEW CNC-specific row, TPM + CMMS chips, NEW utilities row; depth rows gated
+> years OR rung. Union extension: none. Aliases: `machine/mechanical/hydraulic/
+> machine tool maintenance` + Hindi `मेंटेनेंस टेक्नीशियन` -> 7233.0101,
+> `cnc maintenance` -> 7233.1200 (it reached the CNC operator code before; no
+> chip label moves). Deviations in the @2 review_note. Seeds after merge.
 
 | #   | Trade (kind)                                      | Pack                           | Level Q today                       | Notes                                                                                                                                                                     |
 | --- | ------------------------------------------------- | ------------------------------ | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

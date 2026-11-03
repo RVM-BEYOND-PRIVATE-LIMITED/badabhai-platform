@@ -255,6 +255,11 @@ const Map<String, (String, String)> _kTopics = <String, (String, String)>{
   'maintenance_response': ('Maintenance', 'Breakdown response'),
   'maintenance_documentation': ('Maintenance', 'Records & documentation'),
   'maintenance_fluid_power': _fluidPower, 'maintenance_overhaul': _overhaul,
+  // Phase 2 #5 (qp_maintenance_tech@2) — the separating confirm is a level
+  // follow-up; the CNC and utility rows are maintenance craft.
+  'maintenance_senior_confirm': _level,
+  'maintenance_cnc_work': _overhaul,
+  'maintenance_utilities': ('Maintenance', 'Utilities'),
   'maintenance_fault_finding': _trouble,
   // Industrial electrician (qp_industrial_electrician)
   'electrical_experience': _experience, 'electrician_level': _level,

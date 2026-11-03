@@ -119,8 +119,10 @@ export const TRADE_FORM_CASES: readonly TradeFormCase[] = [
   },
   {
     kind: "maintenance_technician",
+    // Phase 2 #5 (@2): the 6-band scale replaced three_to_seven (5) with
+    // three_to_five (4) and five_to_ten (7) — the fixture keeps a senior band.
     answers: {
-      maintenance_experience: ["three_to_seven"],
+      maintenance_experience: ["five_to_ten"],
       maintenance_discipline: ["mechanical", "hydraulic"],
     },
     expected: ["mskill_maintenance_technician"],

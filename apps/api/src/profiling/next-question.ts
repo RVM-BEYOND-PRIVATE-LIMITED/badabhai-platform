@@ -260,6 +260,8 @@ const TRADE_REQUIRED_KEYS: Readonly<Record<string, readonly string[]>> = {
   qp_cnc_grinding: ["grinding_experience", "grinding_level"],
   qp_press_operation: ["press_experience", "press_level"],
   qp_powder_coating: ["coating_experience", "coating_level"],
+  // Phase 2 #5 — maintenance Easy Q2–Q3; like press, new to the Middle-Way set.
+  qp_maintenance_tech: ["maintenance_experience", "maintenance_level"],
 };
 
 /** True when every required slot for this occupation pack is settled. */

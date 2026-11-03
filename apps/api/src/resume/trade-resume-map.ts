@@ -3559,6 +3559,9 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           hydraulic: "Hydraulic",
           pneumatic: "Pneumatic",
           basic_electrical: "Basic electrical",
+          // Phase 2 #5 (@2) — Medium Q7 per sheet 21.
+          lubrication: "Lubrication",
+          welding_repair: "Welding / fabrication for repair",
         },
       },
       {
@@ -3576,6 +3579,11 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           conveyors: "Conveyors",
           hydraulic_power_packs: "Hydraulic power packs",
           pumps_blowers: "Pumps & blowers",
+          // Phase 2 #5 (@2) — Medium Q6 per sheet 21.
+          conventional_machines: "Conventional machines",
+          imm_machines: "Injection moulding machines",
+          boilers: "Boilers",
+          packaging_machines: "Packaging machines",
         },
       },
       {
@@ -3594,6 +3602,8 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           spare_planning: "Spare planning",
           lubrication_schedule: "Lubrication schedule",
           shutdown_overhaul: "Shutdown overhaul",
+          // Phase 2 #5 (@2) — Advanced Q10 per sheet 21.
+          tpm: "TPM / autonomous maintenance",
         },
       },
       {
@@ -3652,6 +3662,8 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           mttr_record: "MTTR record",
           history_card: "Machine history card",
           spare_register: "Spare register",
+          // Phase 2 #5 (@2) — Advanced Q10 per sheet 21.
+          cmms: "CMMS / SAP PM",
         },
       },
       {

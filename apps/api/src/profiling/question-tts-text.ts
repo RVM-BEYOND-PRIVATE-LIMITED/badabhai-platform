@@ -914,6 +914,16 @@ const QUESTION_TTS_TEXT: Readonly<Record<string, string>> = {
   // "Machine ki kaunsi dikkat aap sudhaar lete hain?" (the turner's) and "Kis machine ka poora
   // overhaul khud kar lete hain?" (the fitter's).
   "Maintenance ka kitna tajurba hai?": "मेंटेनेंस का कितना तजुर्बा है?",
+  // qp_maintenance_tech@2 (Phase 2 #5) — the new level retry, the senior
+  // technician's separating confirm (the sheet's question verbatim) and the
+  // two new Advanced rows.
+  "Helper, technician, senior technician ya supervisor hain?":
+    "हेल्पर, टेक्नीशियन, सीनियर टेक्नीशियन या सुपरवाइज़र हैं?",
+  "Machine overhaul, hydraulic/pneumatic fault, CNC spindle/ball-screw — aap khud karte ho?":
+    "मशीन ओवरहॉल, हाइड्रोलिक या न्यूमैटिक फॉल्ट, CNC स्पिंडल या बॉल-स्क्रू, आप खुद करते हो?",
+  "CNC machine ki kaunsi maintenance khud karte hain?":
+    "CNC मशीन की कौनसी मेंटेनेंस खुद करते हैं?",
+  "Plant ki kaunsi utility sambhaali hai?": "प्लांट की कौनसी यूटिलिटी संभाली है?",
   "Lagbhag kitne saal maintenance ka kaam kiya hai?": "लगभग कितने साल मेंटेनेंस का काम किया है?",
   "Aap kis tarah ki maintenance karte hain?": "आप किस तरह की मेंटेनेंस करते हैं?",
   "Mechanical, hydraulic, pneumatic ya electrical, kaunsi maintenance ki hai?":
@@ -1493,6 +1503,14 @@ const WHY_TTS_TEXT: Readonly<Record<string, string>> = {
   // the three fresher ones) are shared verbatim with packs twinned above.
   "Kaam ki kism se sahi plant ka kaam dikhaya jaata hai.":
     "काम की किस्म से सही प्लांट का काम दिखाया जाता है।",
+  // qp_maintenance_tech@2 (Phase 2 #5) — the confirm's and the two new rows'
+  // whys. Filed HERE: `composeClarify` scans only this table.
+  "Overhaul aur fault khud sambhalne wale senior ko alag kaam milta hai.":
+    "ओवरहॉल और फॉल्ट खुद संभालने वाले सीनियर को अलग काम मिलता है।",
+  "CNC machine sambhalne wale technician ki alag maang hai.":
+    "CNC मशीन संभालने वाले टेक्नीशियन की अलग माँग है।",
+  "Utility sambhalne wale technician ko poore plant ki zimmedari milti hai.":
+    "यूटिलिटी संभालने वाले टेक्नीशियन को पूरे प्लांट की ज़िम्मेदारी मिलती है।",
   "Preventive aur breakdown dono jaanne wale ki maang zyada hai.":
     "प्रिवेंटिव और ब्रेकडाउन दोनों जानने वाले की माँग ज़्यादा है।",
   "Instrument chalane wale technician par employer zyada bharosa karte hain.":

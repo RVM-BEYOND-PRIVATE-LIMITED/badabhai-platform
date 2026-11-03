@@ -1862,3 +1862,42 @@ describe("Batch 2 part two — maintenance technician", () => {
     }
   });
 });
+
+describe("Phase 2 #5 — the sheet-21 maintenance words (CEO Launch Plan Pack v1)", () => {
+  // PRODUCTION'S VIEW as well as the offline helper's: shadowed ISCO units removed, every
+  // claimant listed — the same check the Batch 2 maintenance block above makes.
+  const offline = resolveJobDomainCorpus();
+  const parents = new Set(
+    offline.filter((d) => d.selectable && d.parentJobDomainId).map((d) => d.parentJobDomainId),
+  );
+  const live = offline.filter(
+    (d) => d.selectable && !(d.source === "isco08" && parents.has(d.jobDomainId)),
+  );
+  const liveClaimants = (phrase: string) => {
+    const norm = normalizeOccupationText(phrase);
+    return live
+      .filter((d) => d.aliases.some((a) => normalizeOccupationText(a.text) === norm))
+      .map((d) => d.jobDomainId)
+      .sort();
+  };
+
+  it("reaches the maintenance family, each the ONLY claimant in production", () => {
+    const claimed: Record<string, string> = {
+      "machine maintenance": "jd_nco_7233_0101",
+      "mechanical maintenance": "jd_nco_7233_0101",
+      "hydraulic maintenance": "jd_nco_7233_0101",
+      "machine tool maintenance": "jd_nco_7233_0101",
+      "cnc maintenance": "jd_nco_7233_1200",
+      "मेंटेनेंस टेक्नीशियन": "jd_nco_7233_0101",
+    };
+    for (const [phrase, code] of Object.entries(claimed)) {
+      expect(familyFor(phrase), phrase).toBe("fam_maintenance_tech");
+      expect(liveClaimants(phrase), phrase).toEqual([code]);
+    }
+  });
+
+  it("leaves the CNC operator and the electronics mechanic where they were", () => {
+    expect(familyFor("cnc operator")).toBe("fam_machining");
+    expect(familyFor("maintenance mechanic")).toBe("fam_electronics_install");
+  });
+});
