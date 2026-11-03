@@ -248,6 +248,36 @@ beforeEach(() => {
       ],
       nextCursor: null,
     }),
+    // All candidates: the options, and one page with one masked row, so the list renders.
+    getCandidateFilters: async () => ({
+      roles: [{ id: "mskill_cnc_turner", label: "CNC Turner", industryId: "ind_industrial_manufacturing" }],
+      industries: [{ id: "ind_industrial_manufacturing", label: "Industrial Manufacturing" }],
+      experienceBuckets: [{ id: "1_3", label: "1–3 years" }],
+      cities: ["Pune"],
+      maxRoles: 5,
+    }),
+    searchCandidates: async () => ({
+      total: 1,
+      matched: 1,
+      unrecorded: 0,
+      filtered: false,
+      strict: false,
+      candidates: [
+        {
+          workerId: "a1b2c3d4-0000-4000-8000-000000000001",
+          matchesFilters: true,
+          matchTier: null,
+          role: { id: "mskill_cnc_turner", label: "CNC Turner" },
+          otherRoles: [],
+          skillMonths: 48,
+          industry: { id: "ind_industrial_manufacturing", label: "Industrial Manufacturing" },
+          industryMonths: 54,
+          city: "Pune",
+          tradeLevels: [],
+        },
+      ],
+      nextCursor: null,
+    }),
   });
 });
 
@@ -290,6 +320,7 @@ const PAGE = {
   agencyRevenue: (await import("./agency/revenue/page")) as PageModule,
   agencyBulk: (await import("./agency/bulk-upload/page")) as PageModule,
   candidates: (await import("./candidates/page")) as PageModule,
+  candidatesApplied: (await import("./candidates/applied/page")) as PageModule,
 };
 
 /** Every portal page, for each persona that can open it. */
@@ -303,6 +334,7 @@ const ROUTES: Route[] = [
   { persona: "company", path: `/postings/${POSTING}/edit`, file: "postings/[id]/edit/page.tsx", mod: PAGE.postingEdit, props: params({ id: POSTING }) },
   { persona: "company", path: `/postings/${POSTING}/applicants`, file: "postings/[id]/applicants/page.tsx", mod: PAGE.applicants, props: params({ id: POSTING }) },
   { persona: "company", path: "/candidates", file: "candidates/page.tsx", mod: PAGE.candidates },
+  { persona: "company", path: "/candidates/applied", file: "candidates/applied/page.tsx", mod: PAGE.candidatesApplied },
   { persona: "company", path: "/plans", file: "plans/page.tsx", mod: PAGE.plans },
   { persona: "company", path: "/credits", file: "credits/page.tsx", mod: PAGE.credits },
   { persona: "company", path: "/account", file: "account/page.tsx", mod: PAGE.account },
@@ -316,6 +348,7 @@ const ROUTES: Route[] = [
   { persona: "agency", path: `/agency/jobs/${JOB}/edit`, file: "agency/jobs/[jobId]/edit/page.tsx", mod: PAGE.agencyJobEdit, props: params({ jobId: JOB }) },
   { persona: "agency", path: `/agency/jobs/${JOB}/applicants`, file: "agency/jobs/[jobId]/applicants/page.tsx", mod: PAGE.agencyJobApplicants, props: params({ jobId: JOB }) },
   { persona: "agency", path: "/candidates", file: "candidates/page.tsx", mod: PAGE.candidates },
+  { persona: "agency", path: "/candidates/applied", file: "candidates/applied/page.tsx", mod: PAGE.candidatesApplied },
   { persona: "agency", path: "/agency/workers", file: "agency/workers/page.tsx", mod: PAGE.agencyWorkers },
   { persona: "agency", path: "/agency/referrals", file: "agency/referrals/page.tsx", mod: PAGE.agencyReferrals },
   { persona: "agency", path: "/agency/qr", file: "agency/qr/page.tsx", mod: PAGE.agencyQr },

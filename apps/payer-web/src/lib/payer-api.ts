@@ -16,9 +16,15 @@ import {
   applicantStageChangeWireSchema,
   buyCapacityWireSchema,
   buyPackResultWireSchema,
+  candidateFiltersWireSchema,
   candidateInboxQuerySchema,
   candidateInboxSchema,
   candidateInboxWireSchema,
+  candidateSearchBodySchema,
+  candidateSearchRowWireSchema,
+  candidateSearchWireSchema,
+  labelledIdWireSchema,
+  tradeLevelBadgeWireSchema,
   capacitySchema,
   creditLedgerWireSchema,
   creditOrderWireSchema,
@@ -63,8 +69,11 @@ import {
   type AgencyWorker,
   type ApplicantFeed,
   type ApplicantStageChange,
+  type CandidateFilters,
   type CandidateInbox,
   type CandidateInboxQuery,
+  type CandidateSearchBody,
+  type CandidateSearchPage,
   type Capacity,
   type CreatePostingInput,
   type CreditBalance,
@@ -423,6 +432,63 @@ export async function getCandidateInbox(query: CandidateInboxQuery = {}): Promis
 }
 
 /**
+ * TRANSPORT schema for the all-candidates search — the contract's shape, but LENIENT at every
+ * level (unknown keys pass through), for the inbox's reason: a plain `z.object` strips unknown
+ * keys, so a regressed payload carrying a worker name would be swallowed before
+ * {@link assertNoAgencyPII} could see it. {@link candidateSearchWireSchema} is applied after the
+ * guard as the final projection.
+ */
+const candidateSearchTransportSchema = candidateSearchWireSchema
+  .extend({
+    candidates: z.array(
+      candidateSearchRowWireSchema
+        .extend({
+          role: labelledIdWireSchema.passthrough(),
+          otherRoles: z.array(labelledIdWireSchema.passthrough()),
+          industry: labelledIdWireSchema.passthrough(),
+          tradeLevels: z.array(tradeLevelBadgeWireSchema.passthrough()),
+        })
+        .passthrough(),
+    ),
+  })
+  .passthrough();
+
+/**
+ * POST /payer/candidates/search — the payer's ALL-CANDIDATES search (ADR-0040 E2; owner rulings
+ * 2026-11-03): everyone in the eligible pool (the API decides membership), ranked, MASKED, with
+ * the counts from the same response. Both personas; payer-scoped by the Bearer (XB-A — the body
+ * has no slot for a payer id, and the server's `.strict()` refuses one).
+ *
+ *  - The body is snake_case and carries only what the caller set (see `candidateSearchBody`);
+ *    it is SHAPE-checked here, so a malformed one never reaches the network.
+ *  - `cursor` is the previous page's `nextCursor`, verbatim. One the server did not mint is a 400
+ *    (`isPayerBadRequest`) — the page's cursor refusal; any other refused body is a 400 too.
+ *  - FACELESS, ENFORCED: the response crosses {@link assertNoAgencyPII} through a lenient
+ *    transport, so a forbidden key is SEEN (throws in dev/test, stripped in prod).
+ *  - SCRAPE BOUND: the payer's hourly cap answers 429 (`isPayerRateLimited`). Any failure
+ *    throws — the page renders its own state; nothing here fabricates a row or a count.
+ */
+export async function searchCandidates(body: CandidateSearchBody = {}): Promise<CandidateSearchPage> {
+  const sent = candidateSearchBodySchema.parse(body);
+  const wire = await payerFetch("/payer/candidates/search", {
+    method: "POST",
+    body: sent,
+    schema: candidateSearchTransportSchema,
+  });
+  return candidateSearchWireSchema.parse(assertNoAgencyPII(wire, "payer/candidates/search"));
+}
+
+/**
+ * GET /payer/candidates/filters — the options the search's filter controls offer: roles,
+ * industries, the experience buckets and the cities the pool records. Vocabulary, not worker
+ * data; payer-authed like the match vocabulary. A failure throws — the page then offers only
+ * "Any …" and says why.
+ */
+export async function getCandidateFilters(): Promise<CandidateFilters> {
+  return payerFetch("/payer/candidates/filters", { schema: candidateFiltersWireSchema });
+}
+
+/**
  * PUT /payer/reach/jobs/:jobId/applicants/:workerId/stage — move one applicant on a posting's SAVED
  * New / Shortlist / Passed board (owner ruling 2026-10-07; API #2137). Either persona: the board is
  * governed by posting OWNERSHIP, which the server checks against the session (XB-A — the body is
@@ -466,13 +532,17 @@ export async function setApplicantStage(input: {
 
 /**
  * POST /payer/unlocks — spend a credit to unlock a candidate (LIVE). The body carries
- * ONLY `worker_id` (+ optional `job_id`); the payer is the session token (XB-A — there
+ * ONLY `worker_id` + `job_id`; the payer is the session token (XB-A — there
  * is nowhere to put a payer_id). Every deny cause (no credits / no consent / capped /
  * already-unlocked) returns the SAME neutral body (no-oracle, F-3) → mapped to the one
  * neutral UnlockResult.
+ *
+ * `postingId` is the unlock's job context: the posting an applicant applied to, or `null` for a
+ * candidate found through the all-candidates search (ADR-0040 E2) — sent as an explicit
+ * `job_id: null`, the API's own default for "no posting".
  */
 export async function requestUnlock(input: {
-  postingId: string;
+  postingId: string | null;
   workerId: string;
 }): Promise<UnlockResult> {
   const wire = await payerFetch("/payer/unlocks", {

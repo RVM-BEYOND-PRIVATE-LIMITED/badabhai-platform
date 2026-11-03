@@ -129,6 +129,35 @@ describe("requestUnlock — tenancy (XB-A): no client payer_id is ever sent", ()
     });
     expect(res).toEqual({ status: "unavailable" });
   });
+
+  it("an all-candidates unlock (no posting) sends an explicit job_id: null — and the posting's id otherwise", async () => {
+    fetchMock.mockImplementation(async () =>
+      jsonResponse({
+        ok: true,
+        unlock_id: "22222222-2222-4222-8222-222222222222",
+        status: "granted",
+        expires_at: "2026-07-01T00:00:00.000Z",
+      }),
+    );
+    const { requestUnlock } = await import("./payer-api");
+    await requestUnlock({ postingId: null, workerId: "44444444-4444-4444-8444-444444444444" });
+    await requestUnlock({
+      postingId: "33333333-3333-4333-8333-333333333333",
+      workerId: "44444444-4444-4444-8444-444444444444",
+    });
+    const bodies = fetchMock.mock.calls.map(
+      ([, init]) => JSON.parse((init as RequestInit).body as string) as Record<string, unknown>,
+    );
+    expect(bodies).toEqual([
+      { worker_id: "44444444-4444-4444-8444-444444444444", job_id: null },
+      {
+        worker_id: "44444444-4444-4444-8444-444444444444",
+        job_id: "33333333-3333-4333-8333-333333333333",
+      },
+    ]);
+    // Present and null — the API's own "no posting" — never an omitted key.
+    expect(Object.keys(bodies[0]!).sort()).toEqual(["job_id", "worker_id"]);
+  });
 });
 
 describe("getUnlocks — the payer's own history, with its grant day passed through", () => {

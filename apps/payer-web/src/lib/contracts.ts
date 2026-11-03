@@ -1213,6 +1213,102 @@ export const candidateInboxSchema = z.object({
 });
 export type CandidateInbox = z.infer<typeof candidateInboxSchema>;
 
+/* ── All candidates — POST /payer/candidates/search · GET /payer/candidates/filters ──────────
+ *
+ * The payer's ALL-CANDIDATES search (ADR-0040, phase E2; owner rulings 2026-11-03): every worker
+ * in the eligible pool — the API decides membership — ranked, MASKED, with the counts beside the
+ * list. Pinned for all three parsers by packages/types/fixtures/candidate-search-contract.json
+ * (candidate-search.contract.test.ts parses it with THESE schemas). Request bodies are snake_case,
+ * responses camelCase, like the routes beside them.
+ */
+
+/** A closed-vocabulary id with its display label (a role, an industry, an experience bucket). */
+export const labelledIdWireSchema = z.object({ id: z.string().min(1), label: z.string() });
+export type LabelledId = z.infer<typeof labelledIdWireSchema>;
+
+/**
+ * One MASKED candidate — the backend `CandidateSearchRowDto` exactly. Closed vocabularies, bucketed
+ * months and counts only: NO name, phone, photo, employer, salary, address or free text — identity
+ * stays behind `POST /payer/unlocks`. `workerId` is the SAME id that route takes.
+ *  - `matchesFilters`: every supplied filter matched (always true unfiltered);
+ *  - `matchTier`: only with a role filter — 1 holds a picked role, 2 holds one related to it, null
+ *    neither (or no role filter);
+ *  - `skillMonths`: months on `role`, bucketed to 6 (never exact);
+ *  - `industryMonths` / `city`: null = not recorded (never a guess);
+ *  - `tradeLevels`: the rungs he stated (display only) — the applicant card's own badge source.
+ */
+export const candidateSearchRowWireSchema = z.object({
+  workerId: z.string().uuid(),
+  matchesFilters: z.boolean(),
+  matchTier: z.union([z.literal(1), z.literal(2)]).nullable(),
+  role: labelledIdWireSchema,
+  otherRoles: z.array(labelledIdWireSchema),
+  skillMonths: z.number().int().nonnegative(),
+  industry: labelledIdWireSchema,
+  industryMonths: z.number().int().nonnegative().nullable(),
+  city: z.string().nullable(),
+  tradeLevels: z.array(tradeLevelBadgeWireSchema),
+});
+export type CandidateSearchRow = z.infer<typeof candidateSearchRowWireSchema>;
+
+/**
+ * `CandidateSearchResponseDto`: the page AND its counts, from ONE response (ADR-0040 Decision 3 —
+ * the screen says why it shows what it shows). THREE numbers, never folded: `total` is the eligible
+ * pool, `matched` those whose RECORDED values match every filter, `unrecorded` those kept only
+ * because a filtered field is unrecorded. `filtered` is true when any filter was sent; `strict`
+ * echoes the request. `nextCursor` is opaque — passed back verbatim, null on the last page.
+ */
+export const candidateSearchWireSchema = z.object({
+  total: z.number().int().nonnegative(),
+  matched: z.number().int().nonnegative(),
+  unrecorded: z.number().int().nonnegative(),
+  filtered: z.boolean(),
+  strict: z.boolean(),
+  candidates: z.array(candidateSearchRowWireSchema),
+  nextCursor: z.string().nullable(),
+});
+export type CandidateSearchPage = z.infer<typeof candidateSearchWireSchema>;
+
+/**
+ * `CandidateFiltersDto` — the options the filter controls offer, served so no client keeps a copy
+ * (experience is offered as BUCKETS: the months behind them are bucketed to 6). `cities` are the
+ * ones the pool actually records. `maxRoles` is the API's cap on one search's roles; this portal
+ * sends at most one (a single Role select).
+ */
+export const candidateFiltersWireSchema = z.object({
+  roles: z.array(labelledIdWireSchema.extend({ industryId: z.string() })),
+  industries: z.array(labelledIdWireSchema),
+  experienceBuckets: z.array(labelledIdWireSchema),
+  cities: z.array(z.string()),
+  maxRoles: z.number().int().positive(),
+});
+export type CandidateFilters = z.infer<typeof candidateFiltersWireSchema>;
+
+/**
+ * The search body the seam sends — the backend `CandidateSearchSchema` minus what the server owns:
+ * NO payer id (the session is the payer, XB-A; `.strict()` refuses one here as the API does). Every
+ * key is optional and OMITTED when unset (the API's own defaults: no filter, not strict, 20 a
+ * page). A SHAPE guard only — the page sends nothing but values the filters read offered
+ * (lib/candidate-search.ts); membership is the server's. The cursor is the previous page's
+ * `nextCursor`, untouched (≤256 chars, the server's bound).
+ */
+const closedVocabIdSchema = z.string().regex(/^[a-z0-9_]{1,64}$/);
+/** The API's own cap on one search's roles (`CANDIDATE_SEARCH_MAX_ROLES`). */
+const CANDIDATE_SEARCH_MAX_ROLES = 5;
+export const candidateSearchBodySchema = z
+  .object({
+    skill_ids: z.array(matchSkillIdSchema).max(CANDIDATE_SEARCH_MAX_ROLES).optional(),
+    experience: closedVocabIdSchema.optional(),
+    industry_id: closedVocabIdSchema.optional(),
+    industry_experience: closedVocabIdSchema.optional(),
+    city: z.string().trim().min(1).max(80).optional(),
+    strict: z.boolean().optional(),
+    limit: z.number().int().min(1).max(50).optional(),
+    cursor: z.string().min(1).max(256).optional(),
+  })
+  .strict();
+export type CandidateSearchBody = z.infer<typeof candidateSearchBodySchema>;
+
 /* ── Saved applicant stage — PUT /payer/reach/jobs/:jobId/applicants/:workerId/stage ───────── */
 
 /**
