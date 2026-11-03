@@ -96,6 +96,9 @@ describe("one level below a destination whose pages link back to it — the GROU
   it.each([
     [`/postings/${ID}`, "Hiring", "Postings", COMPANY],
     [`/agency/jobs/${ID}`, "Demand", "Postings", AGENCY],
+    // Candidates' Applied view: its H1 is "Candidates" and its view switch links back (2026-11-03).
+    ["/candidates/applied", "Hiring", "Candidates", COMPANY],
+    ["/candidates/applied", "Demand", "Candidates", AGENCY],
   ] as const)("%s → '%s' (never '%s' again), no link, no landmark", (path, group, parent, s) => {
     const out = crumb(path, s);
     expect(words(out)).toBe(group);

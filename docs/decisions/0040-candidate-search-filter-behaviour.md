@@ -234,6 +234,34 @@ so a worker made visible by this ADR would have no exit but account deletion. Ow
 R-E3 orders E4 ahead of E2 for that reason, and it is recorded here because it is a property
 of this decision rather than of the schedule.
 
+## Implementation — 2026-11-03 (owner rulings of that date)
+
+Built as `POST /payer/candidates/search` + `GET /payer/candidates/filters` (`apps/api/src/candidates/`),
+served to company and agency sessions on payer-web ("Candidates" opens on it; the applicant inbox
+moved to "Applied") and the payer app's Find tab. How each decision landed:
+
+- **§6 membership** — the LATEST consent row (max `accepted_at`; every tied row must pass) is
+  unrevoked and lists `employer_sharing`; `deletion_scheduled_at IS NULL`; `status` is `pending` or
+  `active` (an allowlist); at least one `wants = true` skill. `candidate-search.db.test.ts` executes the
+  invariant and each predicate's deletion turns it red.
+- **§1/§2/§4** — `filter_match` is TRUE only on recorded matches; strict drops only the definite
+  "no"s, so an unrecorded value is kept by both modes and counted in `unrecorded`, never in
+  `matched`. Unrecorded = a NULL or gazetteer-unrecognised city, 0 role months and a missing or
+  0-month industry tenure — the derivation writes 0 for "we do not know" (`bucketMonths(null)`), so
+  a 0 can be neither a fresher match nor an experienced "no". Role and industry are always recorded.
+- **§3** — every response, empty or not, carries `total`, `matched` and `unrecorded` from the same
+  statement as its rows.
+- **§5, with no posting** — the ADR-0036 §2 key with the payer's role filter standing in for the
+  posting's skills: effective tier (asked role 1; curated related role 2, promoted to 1 at the live
+  `tier_floor_months`; neither 3; everyone 1 without a role filter), lead-role months, lead-role
+  industry months (floored to 6; unrecorded last), the UTC day of last activity, worker id.
+  `last_worked_at` is NULL for every worker at launch and is omitted. No score and no money enters it.
+- **The location exclusion of 2026-09-05 is reversed** — `workers.current_city` exists (#1436); the city
+  filter matches every spelling in the pool that canonicalises to the asked city (PARKED P-018 note).
+- **Not in this ADR, shipped with it** — the payer résumé route requires a live unlock server-side (the
+  search hands out every consented worker id, and the employer copy prints the phone), and a new
+  `payer.candidate_search_performed` v1 records the shape of each page (never a worker id).
+
 ## Alternatives considered
 
 **Pure reorder-and-count, no strict mode (R7 option (a) alone).** Rejected: on a pool of any

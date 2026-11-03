@@ -1,3 +1,4 @@
+import 'candidate_search_models.dart';
 import 'job_posting_chat_models.dart';
 import 'models.dart';
 import 'payer_api_client.dart';
@@ -18,6 +19,9 @@ class MockPayerApiClient implements PayerApiClient {
 
   int _credits = 200;
   final Set<int> _unlocked = <int>{};
+
+  /// workerId → unlockId for every [unlock] grant this session.
+  final Map<String, String> _grants = <String, String>{};
 
   static const List<Candidate> _candidates = <Candidate>[
     Candidate(
@@ -192,6 +196,91 @@ class MockPayerApiClient implements PayerApiClient {
   @override
   Future<List<Applicant>> fetchApplicants(String jobId) async =>
       _applicantsFrom(_candidates);
+
+  // --- All-candidates search (canned, deterministic) ------------------------
+  // A small synthetic pool run through the SAME rules the route documents:
+  // filters reorder (matches first, nobody removed) unless `strict`; an
+  // unrecorded city/industry tenure excludes nobody and counts in
+  // `unrecorded`, never in `matched`; a related role is tier 2 and does not
+  // pass a role filter. Faceless rows only — there is no name to leak.
+
+  @override
+  Future<CandidateSearchPage> searchCandidates(
+    CandidateSearchQuery query,
+  ) async {
+    final int offset = _mockSearchOffset(query.cursor);
+    final Set<String> asked = query.skillIds.toSet();
+    final Set<String> related = <String>{
+      for (final String id in asked) ...?_kMockRelatedRoles[id],
+    }..removeAll(asked);
+    final List<_MockScored> scored = _kMockPool
+        .map((_MockWorker w) => w.score(query, asked, related))
+        .toList(growable: false);
+    final List<_MockScored> ordered = scored
+        .where((_MockScored s) => !query.strict || s.pass)
+        .toList()
+      ..sort(_MockScored.compare);
+    final List<_MockScored> page = ordered
+        .skip(offset)
+        .take(query.limit ?? _kMockSearchPageSize)
+        .toList(growable: false);
+    final int next = offset + page.length;
+    final bool filtered = query.hasFilters;
+    return CandidateSearchPage(
+      total: _kMockPool.length,
+      matched: filtered
+          ? scored.where((_MockScored s) => s.pass && !s.unrecorded).length
+          : _kMockPool.length,
+      unrecorded: filtered
+          ? scored.where((_MockScored s) => s.pass && s.unrecorded).length
+          : 0,
+      filtered: filtered,
+      strict: query.strict,
+      candidates: page.map((_MockScored s) => s.row).toList(growable: false),
+      nextCursor: next < ordered.length ? '$_kMockCursorPrefix$next' : null,
+    );
+  }
+
+  @override
+  Future<CandidateFilters> fetchCandidateFilters() async {
+    final Map<String, CandidateRoleOption> roles =
+        <String, CandidateRoleOption>{};
+    final Set<String> cities = <String>{};
+    for (final _MockWorker w in _kMockPool) {
+      for (final (LabelledId role, int _) in w.roles) {
+        roles.putIfAbsent(
+          role.id,
+          () => CandidateRoleOption(
+            id: role.id,
+            label: role.label,
+            industryId: w.industry.id,
+          ),
+        );
+      }
+      if (w.city != null) cities.add(w.city!);
+    }
+    return CandidateFilters(
+      roles: roles.values.toList(growable: false),
+      industries: const <LabelledId>[_kMockManufacturing, _kMockQuickCommerce],
+      experienceBuckets: _kMockBuckets
+          .map((_MockBucket b) => LabelledId(id: b.id, label: b.label))
+          .toList(growable: false),
+      cities: cities.toList()..sort(),
+      maxRoles: 5,
+    );
+  }
+
+  @override
+  Future<List<PayerUnlock>> fetchOwnUnlocks() async => _grants.entries
+      .map(
+        (MapEntry<String, String> g) => PayerUnlock(
+          unlockId: g.value,
+          workerId: g.key,
+          status: 'granted',
+          expiresAt: _kMockGrantExpiry,
+        ),
+      )
+      .toList(growable: false);
 
   @override
   // `status` is a no-op on the mock (canned list is already the "open" feed).
@@ -1192,9 +1281,12 @@ class MockPayerApiClient implements PayerApiClient {
     final String tail = workerId.length >= 4
         ? workerId.substring(workerId.length - 4)
         : workerId;
+    final String unlockId = 'mock-unlock-$tail';
+    // Remembered so [fetchOwnUnlocks] reports it, as `GET /payer/unlocks` does.
+    _grants[workerId] = unlockId;
     return UnlockResult.granted(
-      unlockId: 'mock-unlock-$tail',
-      expiresAt: '2026-12-31T00:00:00Z',
+      unlockId: unlockId,
+      expiresAt: _kMockGrantExpiry,
     );
   }
 
@@ -1494,6 +1586,298 @@ class MockPayerApiClient implements PayerApiClient {
     }).toList(growable: false);
   }
 }
+
+// ===========================================================================
+// MOCK all-candidates pool (ADR-0040 E2)
+// ===========================================================================
+
+/// The expiry every canned grant carries: a fresh 14-day window from now (the
+/// real unlock window), so a demo build never re-locks on a calendar date.
+String get _kMockGrantExpiry =>
+    DateTime.now().toUtc().add(const Duration(days: 14)).toIso8601String();
+
+/// Small on purpose, so a demo build shows "Load more" over a 10-worker pool.
+const int _kMockSearchPageSize = 5;
+
+/// The only cursors the mock mints; anything else is refused like the API's.
+const String _kMockCursorPrefix = 'mock:';
+
+/// The offset a mock cursor names. A cursor the mock did not mint is the
+/// route's 400 — a page link "the server did not mint".
+int _mockSearchOffset(String? cursor) {
+  if (cursor == null) return 0;
+  final int? offset = cursor.startsWith(_kMockCursorPrefix)
+      ? int.tryParse(cursor.substring(_kMockCursorPrefix.length))
+      : null;
+  if (offset == null || offset < 0) throw const PayerApiException(400);
+  return offset;
+}
+
+class _MockBucket {
+  const _MockBucket(this.id, this.label, this.min, this.max);
+
+  final String id;
+  final String label;
+  final int min;
+
+  /// Exclusive; null = no upper edge.
+  final int? max;
+
+  bool holds(int months) => months >= min && (max == null || months < max!);
+}
+
+/// The API's closed bucket list (`EXPERIENCE_BUCKETS`), edges in months.
+const List<_MockBucket> _kMockBuckets = <_MockBucket>[
+  _MockBucket('under_1', 'Under 1 year', 0, 12),
+  _MockBucket('1_3', '1–3 years', 12, 36),
+  _MockBucket('3_5', '3–5 years', 36, 60),
+  _MockBucket('5_10', '5–10 years', 60, 120),
+  _MockBucket('10_plus', '10+ years', 120, null),
+];
+
+bool _mockInBucket(int months, String bucketId) {
+  for (final _MockBucket b in _kMockBuckets) {
+    if (b.id == bucketId) return b.holds(months);
+  }
+  return false;
+}
+
+const LabelledId _kMockManufacturing = LabelledId(
+  id: 'ind_industrial_manufacturing',
+  label: 'Industrial Manufacturing',
+);
+const LabelledId _kMockQuickCommerce = LabelledId(
+  id: 'ind_quick_commerce',
+  label: 'Quick-commerce Delivery',
+);
+
+const LabelledId _kMockTurner =
+    LabelledId(id: 'mskill_cnc_turner', label: 'CNC Turner');
+const LabelledId _kMockVmc =
+    LabelledId(id: 'mskill_vmc_operator', label: 'VMC Operator');
+const LabelledId _kMockSetter =
+    LabelledId(id: 'mskill_cnc_setter_operator', label: 'CNC Setter-Operator');
+const LabelledId _kMockWelder =
+    LabelledId(id: 'mskill_mig_welder', label: 'MIG Welder');
+const LabelledId _kMockFitter = LabelledId(id: 'mskill_fitter', label: 'Fitter');
+const LabelledId _kMockRider =
+    LabelledId(id: 'mskill_delivery_rider', label: 'Delivery Rider');
+
+/// The roles a role search widens into (tier 2), a slice of the curated map.
+const Map<String, List<String>> _kMockRelatedRoles = <String, List<String>>{
+  'mskill_cnc_turner': <String>[
+    'mskill_cnc_setter_operator',
+    'mskill_vmc_operator',
+  ],
+  'mskill_cnc_setter_operator': <String>['mskill_cnc_turner'],
+  'mskill_vmc_operator': <String>['mskill_cnc_turner'],
+};
+
+CandidateTradeLevel _mockLevel(LabelledId trade, String key, String label) =>
+    CandidateTradeLevel(
+      skillId: trade.id,
+      skillLabel: trade.label,
+      tradeLevel: key,
+      tradeLevelLabel: label,
+      levelConfirmed: key != 'helper' && key != 'operator',
+    );
+
+/// One synthetic worker: his wanted roles (months each, most first), his
+/// industry tenure and city (either may be unrecorded) and stated rungs.
+class _MockWorker {
+  const _MockWorker(
+    this.n, {
+    required this.roles,
+    required this.industry,
+    this.industryMonths,
+    this.city,
+    this.levels = const <CandidateTradeLevel>[],
+  });
+
+  final int n;
+  final List<(LabelledId, int)> roles;
+  final LabelledId industry;
+  final int? industryMonths;
+  final String? city;
+  final List<CandidateTradeLevel> levels;
+
+  String get workerId =>
+      '00000000-0000-4000-8000-1000000000${n.toString().padLeft(2, '0')}';
+
+  _MockScored score(
+    CandidateSearchQuery q,
+    Set<String> asked,
+    Set<String> related,
+  ) {
+    // The lead role: a picked one, else a related one, else his most months.
+    (LabelledId, int)? pick(bool Function(LabelledId) test) {
+      for (final (LabelledId, int) r in roles) {
+        if (test(r.$1)) return r;
+      }
+      return null;
+    }
+
+    final (LabelledId, int) lead = pick((LabelledId r) => asked.contains(r.id)) ??
+        pick((LabelledId r) => related.contains(r.id)) ??
+        roles.first;
+    final int matchClass = asked.isEmpty || asked.contains(lead.$1.id)
+        ? 1
+        : (related.contains(lead.$1.id) ? 2 : 3);
+
+    bool pass = matchClass == 1;
+    bool unrecorded = false;
+    if (q.experience != null) {
+      pass = pass && _mockInBucket(lead.$2, q.experience!);
+    }
+    if (q.industryId != null) pass = pass && industry.id == q.industryId;
+    if (q.industryExperience != null) {
+      if (industryMonths == null) {
+        unrecorded = true; // unrecorded excludes nobody
+      } else {
+        pass = pass && _mockInBucket(industryMonths!, q.industryExperience!);
+      }
+    }
+    if (q.city != null) {
+      if (city == null) {
+        unrecorded = true;
+      } else {
+        pass = pass && city!.toLowerCase() == q.city!.toLowerCase();
+      }
+    }
+
+    return _MockScored(
+      pass: pass,
+      unrecorded: pass && unrecorded,
+      matchClass: matchClass,
+      row: CandidateSearchRow(
+        workerId: workerId,
+        matchesFilters: pass,
+        matchTier: asked.isEmpty || matchClass == 3 ? null : matchClass,
+        role: lead.$1,
+        otherRoles: roles
+            .where(((LabelledId, int) r) => r.$1.id != lead.$1.id)
+            .map(((LabelledId, int) r) => r.$1)
+            .take(4)
+            .toList(growable: false),
+        skillMonths: lead.$2,
+        industry: industry,
+        industryMonths: industryMonths,
+        city: city,
+        tradeLevels: levels,
+      ),
+    );
+  }
+}
+
+class _MockScored {
+  const _MockScored({
+    required this.pass,
+    required this.unrecorded,
+    required this.matchClass,
+    required this.row,
+  });
+
+  final bool pass;
+  final bool unrecorded;
+  final int matchClass;
+  final CandidateSearchRow row;
+
+  /// Matches first, then tier, role months, industry months (unrecorded
+  /// last), worker id — the documented order, minus the activity term.
+  static int compare(_MockScored a, _MockScored b) {
+    if (a.pass != b.pass) return a.pass ? -1 : 1;
+    if (a.matchClass != b.matchClass) return a.matchClass - b.matchClass;
+    if (a.row.skillMonths != b.row.skillMonths) {
+      return b.row.skillMonths - a.row.skillMonths;
+    }
+    final int ai = a.row.industryMonths ?? -1;
+    final int bi = b.row.industryMonths ?? -1;
+    if (ai != bi) return bi - ai;
+    return a.row.workerId.compareTo(b.row.workerId);
+  }
+}
+
+final List<_MockWorker> _kMockPool = <_MockWorker>[
+  _MockWorker(
+    1,
+    roles: const <(LabelledId, int)>[(_kMockTurner, 48), (_kMockSetter, 24)],
+    industry: _kMockManufacturing,
+    industryMonths: 54,
+    city: 'Pune',
+    levels: <CandidateTradeLevel>[_mockLevel(_kMockTurner, 'setter', 'Setter')],
+  ),
+  const _MockWorker(
+    2,
+    roles: <(LabelledId, int)>[(_kMockVmc, 24)],
+    industry: _kMockManufacturing,
+  ),
+  _MockWorker(
+    3,
+    roles: const <(LabelledId, int)>[
+      (_kMockSetter, 72),
+      (_kMockTurner, 60),
+      (_kMockVmc, 30),
+    ],
+    industry: _kMockManufacturing,
+    industryMonths: 84,
+    city: 'Pune',
+    levels: <CandidateTradeLevel>[
+      _mockLevel(_kMockSetter, 'setter_programmer', 'Setter-cum-Programmer'),
+    ],
+  ),
+  const _MockWorker(
+    4,
+    roles: <(LabelledId, int)>[(_kMockWelder, 36)],
+    industry: _kMockManufacturing,
+    industryMonths: 36,
+    city: 'Chennai',
+  ),
+  const _MockWorker(
+    5,
+    roles: <(LabelledId, int)>[(_kMockFitter, 120), (_kMockWelder, 18)],
+    industry: _kMockManufacturing,
+    industryMonths: 126,
+    city: 'Nashik',
+  ),
+  _MockWorker(
+    6,
+    roles: const <(LabelledId, int)>[(_kMockTurner, 18)],
+    industry: _kMockManufacturing,
+    city: 'Chennai',
+    levels: <CandidateTradeLevel>[
+      _mockLevel(_kMockTurner, 'operator', 'Operator'),
+    ],
+  ),
+  const _MockWorker(
+    7,
+    roles: <(LabelledId, int)>[(_kMockRider, 30)],
+    industry: _kMockQuickCommerce,
+    industryMonths: 30,
+    city: 'Pune',
+  ),
+  _MockWorker(
+    8,
+    roles: const <(LabelledId, int)>[(_kMockVmc, 60), (_kMockTurner, 12)],
+    industry: _kMockManufacturing,
+    industryMonths: 66,
+    levels: <CandidateTradeLevel>[_mockLevel(_kMockVmc, 'setter', 'Setter')],
+  ),
+  const _MockWorker(
+    9,
+    roles: <(LabelledId, int)>[(_kMockRider, 6)],
+    industry: _kMockQuickCommerce,
+    industryMonths: 6,
+    city: 'Chennai',
+  ),
+  _MockWorker(
+    10,
+    roles: const <(LabelledId, int)>[(_kMockTurner, 0)],
+    industry: _kMockManufacturing,
+    industryMonths: 0,
+    city: 'Pune',
+    levels: <CandidateTradeLevel>[_mockLevel(_kMockTurner, 'helper', 'Helper')],
+  ),
+];
 
 // ===========================================================================
 // MOCK job-posting interview engine (ADR-0035)

@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:get_it/get_it.dart';
 
 import 'package:payer_app/core/auth/payer_token_store.dart';
+import 'package:payer_app/core/data/candidate_search_models.dart';
 import 'package:payer_app/core/data/mock_payer_api_client.dart';
 import 'package:payer_app/core/data/models.dart';
 import 'package:payer_app/core/di/locator.dart';
@@ -227,8 +228,10 @@ void main() {
   });
 }
 
-/// Counts the call [FindCubit.load] makes in the mock seam, so a test can prove
-/// the tab's cubit was NOT recreated on a tab switch (#382).
+/// Counts the Find tab's load in the mock seam, so a test can prove the tab's
+/// cubit was NOT recreated on a tab switch (#382). Find opens on All candidates
+/// (2026-11-03 rulings), whose load is the search's first page; the Applicants
+/// view's mock list is counted too, should a test open it.
 class _CountingPayerApi extends MockPayerApiClient {
   int candidateLoads = 0;
 
@@ -236,5 +239,11 @@ class _CountingPayerApi extends MockPayerApiClient {
   Future<List<Candidate>> fetchCandidates() {
     candidateLoads++;
     return super.fetchCandidates();
+  }
+
+  @override
+  Future<CandidateSearchPage> searchCandidates(CandidateSearchQuery query) {
+    candidateLoads++;
+    return super.searchCandidates(query);
   }
 }

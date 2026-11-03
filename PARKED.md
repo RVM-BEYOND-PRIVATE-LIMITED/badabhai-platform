@@ -677,6 +677,8 @@ confirms the target, never against the audit's.
 
 ## P-018 · A worker has no city, so the payer's first-named filter cannot be built
 
+> **SUPERSEDED 2026-11-03 — the premise is stale.** `workers.current_city` / `current_state` have existed since #1428/#1436 (migration 0099), written by `WorkersService.setLocation` from the onboarding identity intake (ADR-0048) — the worker's own typed or picked answer, canonicalised on write. The owner ruled the full filter set on 2026-11-03, and `POST /payer/candidates/search` filters on it NULL-safely (an unrecorded city excludes nobody and is counted as `unrecorded`). The text below is the 2026-09-05 record.
+
 **Found:** 2026-09-05, the E-chain design session (PR #1427), measuring the filter set for E2.
 **Owner ruling:** SHIP E2 WITHOUT A LOCATION FILTER and label the absence; do NOT edit the
 trade form question flow to get a city column — Prakash, 2026-09-05. Parked so the next

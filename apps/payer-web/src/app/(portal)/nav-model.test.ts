@@ -63,6 +63,7 @@ describe("nav model — which paths light which item up", () => {
     ["/postings", "/postings"],
     ["/postings/new", "/postings"],
     ["/candidates", "/candidates"],
+    ["/candidates/applied", "/candidates"],
     ["/plans", "/plans"],
     ["/credits", "/credits"],
     ["/team", "/team"],
@@ -89,7 +90,7 @@ describe("nav model — which paths light which item up", () => {
   });
 
   it("exactly one item is active on every ordinary route (no double highlight)", () => {
-    for (const p of ["/dashboard", "/postings", "/postings/new", "/candidates", "/plans", "/credits", "/team"]) {
+    for (const p of ["/dashboard", "/postings", "/postings/new", "/candidates", "/candidates/applied", "/plans", "/credits", "/team"]) {
       expect(activeHrefs(p), p).toHaveLength(1);
     }
   });
@@ -337,6 +338,8 @@ describe("navTrail — where a path sits (the header trail and the error boundar
     ["/postings/ai", ["Hiring", "/postings", 1]],
     ["/postings/ai/new", ["Hiring", "/postings", 2]],
     ["/candidates", ["Hiring", "/candidates", 0]],
+    // The Applied view is a child of Candidates (its view switch links back — childrenLinkBack).
+    ["/candidates/applied", ["Hiring", "/candidates", 1]],
     ["/dashboard", ["-", "/dashboard", 0]],
     ["/team/accept", ["Organisation", "/team", 1]],
   ] as const)("%s → %j", (path, expected) => {
@@ -347,13 +350,14 @@ describe("navTrail — where a path sits (the header trail and the error boundar
     expect(at("/agency/jobs/2f8c", agency)).toEqual(["Demand", "/agency/jobs", 1]);
     expect(at("/agency/jobs/new", agency)).toEqual(["Demand", "/agency/jobs", 1]);
     expect(at("/candidates", agency)).toEqual(["Demand", "/candidates", 0]);
+    expect(at("/candidates/applied", agency)).toEqual(["Demand", "/candidates", 1]);
     for (const path of ["/account", "/nowhere", "/postings-archive"]) expect(at(path), path).toBeNull();
     // A company's posting path is not an agency's (no agency destination owns it).
     expect(at("/postings/2f8c", agency)).toBeNull();
   });
 });
 
-describe("nav model — Candidates: every applicant across your postings (owner request 2026-10-07)", () => {
+describe("nav model — Candidates: All candidates + Applied (owner request 2026-10-07; rulings 2026-11-03)", () => {
   const groupOf = (sections: NavSection[], href: string) =>
     sections.find((s) => s.items.some((i) => i.href === href))?.title;
 
@@ -384,14 +388,27 @@ describe("nav model — Candidates: every applicant across your postings (owner 
     }
   });
 
-  it("its own route only: a posting's per-posting Applicants page still lights Postings", () => {
+  it("its own routes only — both views; a posting's per-posting Applicants page still lights Postings", () => {
     for (const isAgency of [false, true]) {
       const items = allItems(navSections({ isAgency, isOwner: true, ...ON }));
       const lit = (p: string) => items.filter((i) => isNavItemActive(i.match, p)).map((i) => i.href);
       expect(lit("/candidates")).toEqual(["/candidates"]);
+      expect(lit("/candidates/applied")).toEqual(["/candidates"]);
       expect(lit("/candidates-archive")).toEqual([]);
       const applicants = isAgency ? "/agency/jobs/2f8c/applicants" : "/postings/2f8c/applicants";
       expect(lit(applicants)).toEqual([isAgency ? "/agency/jobs" : "/postings"]);
+    }
+  });
+
+  it("its description covers both views; its Applied page links back to it (the trail is the group there)", () => {
+    for (const isAgency of [false, true]) {
+      const item = allItems(navSections({ isAgency, isOwner: true, ...ON })).find(
+        (i) => i.href === "/candidates",
+      )!;
+      expect(item.description).toBe(
+        "Everyone you can unlock on BadaBhai, and everyone who applied to your postings.",
+      );
+      expect(item.childrenLinkBack).toBe(true);
     }
   });
 

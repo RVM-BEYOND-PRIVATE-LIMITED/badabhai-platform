@@ -15,8 +15,8 @@ import {
 import { PayerValidationError } from "./payer-errors";
 
 /**
- * Candidates (`/candidates`) — the pure reads behind the page: what the URL asks for, where each
- * row's posting leads for THIS session, and what the posting filter offers.
+ * Candidates › Applied (`/candidates/applied`) — the pure reads behind the page: what the URL
+ * asks for, where each row's posting leads for THIS session, and what the posting filter offers.
  */
 
 const P1 = "11111111-0000-4000-8000-000000000001";
@@ -119,25 +119,25 @@ describe("inboxRefusal — a refused read is not an outage (the admin console's 
   });
 });
 
-describe("candidatesHref — the pager's and the states' links", () => {
+describe("candidatesHref — the pager's and the states' links (the Applied view, /candidates/applied)", () => {
   it("only the keys that are set: never an empty postingId= or cursor=", () => {
-    expect(candidatesHref({})).toBe("/candidates");
-    expect(candidatesHref({ postingId: null, cursor: null })).toBe("/candidates");
-    expect(candidatesHref({ postingId: P1 })).toBe(`/candidates?postingId=${P1}`);
-    expect(candidatesHref({ cursor: CURSOR })).toBe(`/candidates?cursor=${CURSOR}`);
+    expect(candidatesHref({})).toBe("/candidates/applied");
+    expect(candidatesHref({ postingId: null, cursor: null })).toBe("/candidates/applied");
+    expect(candidatesHref({ postingId: P1 })).toBe(`/candidates/applied?postingId=${P1}`);
+    expect(candidatesHref({ cursor: CURSOR })).toBe(`/candidates/applied?cursor=${CURSOR}`);
   });
 
   it("the next page keeps the posting filter", () => {
     expect(candidatesHref({ postingId: P1, cursor: CURSOR })).toBe(
-      `/candidates?postingId=${P1}&cursor=${CURSOR}`,
+      `/candidates/applied?postingId=${P1}&cursor=${CURSOR}`,
     );
   });
 
   it("a stage rides along only when set — never an empty stage= (#2139)", () => {
-    expect(candidatesHref({ stage: null })).toBe("/candidates");
-    expect(candidatesHref({ stage: "shortlist" })).toBe("/candidates?stage=shortlist");
+    expect(candidatesHref({ stage: null })).toBe("/candidates/applied");
+    expect(candidatesHref({ stage: "shortlist" })).toBe("/candidates/applied?stage=shortlist");
     expect(candidatesHref({ postingId: P1, stage: "passed", cursor: CURSOR })).toBe(
-      `/candidates?postingId=${P1}&stage=passed&cursor=${CURSOR}`,
+      `/candidates/applied?postingId=${P1}&stage=passed&cursor=${CURSOR}`,
     );
   });
 });

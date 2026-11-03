@@ -252,10 +252,12 @@ member, so Credits is P (with the nav item and the chip link for everyone).
 | Both    | —            | Dashboard        | `/dashboard`        | `dashboard/page.tsx`        | What needs you, position, quick actions, recent work       | P                                              |
 | Company | Hiring       | New posting      | `/postings/new`     | `postings/new/page.tsx`     | Create a company posting (`job_postings`)                  | P; agent → redirected to `/agency/jobs/new`    |
 | Company | Hiring       | Postings         | `/postings`         | `postings/page.tsx`         | List + pause / resume / add applicant slots / close        | P; agent → see "Agency on the company surface" |
-| Company | Hiring       | Candidates       | `/candidates`       | `candidates/page.tsx`       | Every applicant across your postings, newest first; filter by posting (and stage, when saved); unlock | P                                  |
+| Company | Hiring       | Candidates       | `/candidates`       | `candidates/page.tsx`       | **All candidates** (default view, 2026-11-03): every unlockable worker on BadaBhai, filters reorder (strict opt-in), counts badge; unlock | P                                  |
+| Company | Hiring       | Candidates · Applied | `/candidates/applied` | `candidates/applied/page.tsx` | Every applicant across your postings, newest first; filter by posting (and stage, when saved); unlock | P                                  |
 | Agency  | Demand       | New posting      | `/agency/jobs/new`  | `agency/jobs/new/page.tsx`  | Create an agency posting (`jobs`, the worker feed's table) | A + F; nav-F                                   |
 | Agency  | Demand       | Postings         | `/agency/jobs`      | `agency/jobs/page.tsx`      | List + pause / resume / close; links details, applicants, edit | A + F; nav-F                               |
-| Agency  | Demand       | Candidates       | `/candidates`       | `candidates/page.tsx`       | Every applicant across your postings, newest first; filter by posting (and stage, when saved); unlock | P + F (agent); nav-F               |
+| Agency  | Demand       | Candidates       | `/candidates`       | `candidates/page.tsx`       | **All candidates** (default view, 2026-11-03), as for a company | P + F (agent); nav-F               |
+| Agency  | Demand       | Candidates · Applied | `/candidates/applied` | `candidates/applied/page.tsx` | Every applicant across your postings, newest first; filter by posting (and stage, when saved); unlock | P + F (agent); nav-F               |
 | Agency  | Supply       | Worker activity  | `/agency/workers`   | `agency/workers/page.tsx`   | Faceless funnel of the workers the agency referred         | A + F; nav-F                                   |
 | Agency  | Supply       | Referrals        | `/agency/referrals` | `agency/referrals/page.tsx` | Invite link, batch links, funnel, earnings / KYC / payouts | A + F; nav-F                                   |
 | Agency  | Supply       | QR invite        | `/agency/qr`        | `agency/qr/page.tsx`        | Printable QR invite sheet                                  | A + F; nav-F                                   |
@@ -269,7 +271,9 @@ violation that will never be built (ADR-0022 Amendment 3) — and is never frame
 the portal links to it (final sweep F17: the dashboard's "not available" tile was a dead end, and is
 gone); the route stays so an old link lands on its explanation, which points at batch invite links.
 
-**Candidates** (`/candidates`, owner request 2026-10-07) is ONE list of every applicant to every
+**Candidates — two views (owner rulings 2026-11-03).** `/candidates` opens on **All candidates**: every worker in the ADR-0040 pool (`POST /payer/candidates/search`), a plain GET filter form (Role, Years in role, Industry, Years in industry, City, "Only show matches"), the counts badge from the same response, an "Other candidates" divider when filters reorder, and the same faceless card + unlock (`job_id: null`). A link-based switch on both pages — "All candidates" | "Applied" — with `aria-current`. The applicant inbox described next moved, unchanged, to `/candidates/applied`; an old `/candidates?postingId=` or `?stage=` link is redirected there with its query.
+
+**Candidates · Applied** (`/candidates/applied`, owner request 2026-10-07) is ONE list of every applicant to every
 posting the payer owns, newest application first (`GET /payer/reach/applicants`) — the same faceless
 card and unlock as a posting's Applicants page (which keeps its name), with one confirm-on-spend
 dialog for the list and the balance as an affordance. Both personas, one route: a company's sits in
@@ -357,6 +361,7 @@ reopen. The applicants page's "No posting found here" state links to Postings.
 | ---------------------------- | -------------------------------- | ------------------------- |
 | `/postings`, `/postings/new` | "Hiring" (text)                  | —                         |
 | `/candidates`                | "Hiring" / "Demand" (text)       | —                         |
+| `/candidates/applied`        | "Hiring" / "Demand" (text)       | — (the view switch)       |
 | `/postings/<id>`             | "Hiring › Postings" (text)       | Postings                  |
 | `/postings/ai/new`           | "Hiring › New posting" (text)    | New posting               |
 | `/postings/<id>/edit`        | "Hiring › **Postings**" (link)   | the posting, by its title |

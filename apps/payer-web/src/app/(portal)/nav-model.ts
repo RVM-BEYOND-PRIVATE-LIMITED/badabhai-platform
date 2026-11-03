@@ -49,11 +49,13 @@
  * user: "Bulk invite upload" is dead by design (ADR-0022 Amendment 3) and is never framed as
  * coming.) `parked` stays: a reachable page that explains what is not built yet.
  *
- * CANDIDATES (owner request 2026-10-07): "Candidates" is every applicant across every posting the
- * payer owns, newest first (`/candidates`, the cross-posting inbox), for BOTH personas, in the group
- * that holds Postings — Hiring for a company, Demand for an agency (so, for an agency, behind the
- * same flag as the Postings beside it, which its page checks too). A posting's own feed stays
- * "Applicants", reached from that posting; it still lights Postings, never Candidates.
+ * CANDIDATES (owner request 2026-10-07; owner rulings 2026-11-03): "Candidates" opens on ALL
+ * candidates — everyone the payer can unlock on BadaBhai (`/candidates`) — and keeps every applicant
+ * across every posting the payer owns one click away as its "Applied" view (`/candidates/applied`,
+ * the cross-posting inbox), for BOTH personas, in the group that holds Postings — Hiring for a
+ * company, Demand for an agency (so, for an agency, behind the same flag as the Postings beside it,
+ * which both its pages check too). A posting's own feed stays "Applicants", reached from that
+ * posting; it still lights Postings, never Candidates.
  *
  * NAMING (owner ruling 2026-10-01): the job entity is a "Posting" for BOTH personas — "New
  * posting" creates one, "Postings" lists them. An agency posts AGENCY jobs only (the `jobs`
@@ -99,8 +101,9 @@ export interface NavItem {
   match: NavMatch;
   /**
    * The pages ONE level below this destination lead back to it from the page itself: a back link
-   * that names it (a posting's details → Postings) or, for Post with AI — a mode of New posting —
-   * the chat's own "Use the manual form instead". The header trail then shows only the GROUP on
+   * that names it (a posting's details → Postings), for Post with AI — a mode of New posting —
+   * the chat's own "Use the manual form instead", or, for Candidates' Applied view, the view
+   * switch's "All candidates". The header trail then shows only the GROUP on
    * those pages: the page already offers (and names) the way up, and one page offers one door per
    * destination. Deeper pages (a posting's applicants) keep it as a link. Leave unset for a
    * destination whose children have no way back to it (/team/accept is an invite landing).
@@ -216,17 +219,22 @@ const PLANS_MATCH: NavMatch = { prefix: ["/plans"] };
 const DASHBOARD_MATCH: NavMatch = { exact: ["/dashboard"] };
 
 /**
- * Candidates — the cross-posting applicant inbox, one route for both personas. A posting's own
- * Applicants page lives under its posting (`/postings/<id>/applicants`, `/agency/jobs/<id>/…`) and
- * keeps lighting Postings.
+ * Candidates — one destination, two views, for both personas (owner rulings 2026-11-03): it opens
+ * on All candidates (`/candidates`, everyone the payer can unlock on BadaBhai) and the cross-posting
+ * applicant inbox is its Applied view (`/candidates/applied`). The prefix lights the item on both.
+ * Its child page links back to it from the page itself — the view switch's "All candidates" — so
+ * there the header trail is the group alone (`childrenLinkBack`). A posting's own Applicants page
+ * lives under its posting (`/postings/<id>/applicants`, `/agency/jobs/<id>/…`) and keeps lighting
+ * Postings.
  */
 function candidatesItem(): NavItem {
   return {
     href: "/candidates",
     label: "Candidates",
     icon: ACTION_ICON.candidate,
-    description: "Everyone who applied to your postings, newest first.",
+    description: "Everyone you can unlock on BadaBhai, and everyone who applied to your postings.",
     match: { prefix: ["/candidates"] },
+    childrenLinkBack: true,
   };
 }
 

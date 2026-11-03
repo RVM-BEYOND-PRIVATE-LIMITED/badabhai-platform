@@ -9,18 +9,23 @@ import {
 } from "./applicant-stages";
 
 /**
- * PURE reads for the Candidates tab (`/candidates`, the cross-posting applicant inbox) — no I/O,
- * no React. The page reads the URL, the inbox and the payer's own postings list; these decide what
- * the URL asks for, what a failed read refused, which page each row's posting opens, and what the
- * posting filter offers.
+ * PURE reads for the Candidates tab's APPLIED view (`/candidates/applied`, the cross-posting
+ * applicant inbox) — no I/O, no React. The page reads the URL, the inbox and the payer's own
+ * postings list; these decide what the URL asks for, what a failed read refused, which page each
+ * row's posting opens, and what the posting filter offers. (The tab opens on All candidates,
+ * `/candidates` — lib/candidate-search.ts; owner rulings 2026-11-03.)
  *
  * AFFORDANCE ONLY: nothing here authorizes anything. The inbox endpoint decides which rows the
  * session sees and the unlock endpoint decides every spend; this module only mirrors the portal's
  * own page gates so a row never links to a page that would refuse this session.
  */
 
-/** The route. Labels only — the per-posting page stays "Applicants". */
-export const CANDIDATES_PATH = "/candidates";
+/**
+ * The inbox's route: the Candidates tab's "Applied" view (it was `/candidates` until the tab
+ * opened on All candidates — an old `/candidates?postingId=` / `?stage=` link is redirected here,
+ * query kept). Labels only — the per-posting page stays "Applicants".
+ */
+export const CANDIDATES_PATH = "/candidates/applied";
 
 /** The posting filter's query key. */
 export const POSTING_FILTER_PARAM = "postingId";
@@ -51,14 +56,17 @@ export interface CandidatesQuery {
   stage: ApplicantStage | null;
 }
 
-/** The SHAPE of a cursor the server mints: base64url, at most 256 characters (its own bound). */
-const CURSOR_SHAPE = /^[A-Za-z0-9_-]{1,256}$/;
+/**
+ * The SHAPE of a cursor the server mints: base64url, at most 256 characters (its own bound) — the
+ * inbox's and the all-candidates search's alike (lib/candidate-search.ts reads it too).
+ */
+export const CURSOR_SHAPE = /^[A-Za-z0-9_-]{1,256}$/;
 const uuid = z.string().uuid();
 
 type SearchParams = Record<string, string | string[] | undefined>;
 
 /**
- * Read `/candidates?postingId=&stage=&cursor=`. An empty `postingId` is "all" (the filter form's
+ * Read `/candidates/applied?postingId=&stage=&cursor=`. An empty `postingId` is "all" (the filter form's
  * "All postings" option submits it). A posting id is lowercased — the form of every id the payer's
  * own data carries — so an uppercase spelling selects its option rather than adding a second one.
  *
@@ -112,8 +120,8 @@ export function selectedPosting(filter: CandidateFilter): string | null {
 }
 
 /**
- * `/candidates` with only the keys that are set — never an empty `postingId=`, `stage=` or
- * `cursor=`.
+ * `/candidates/applied` with only the keys that are set — never an empty `postingId=`, `stage=`
+ * or `cursor=`.
  */
 export function candidatesHref({
   postingId,

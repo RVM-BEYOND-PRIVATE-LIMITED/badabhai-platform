@@ -1,22 +1,22 @@
 import { ACTION_ICON } from "@badabhai/icons";
-import { Button, Select } from "../../../components/ds";
+import { Button, Select } from "../../../../components/ds";
 import {
   CANDIDATES_PATH,
   POSTING_FILTER_PARAM,
   STAGE_FILTER_PARAM,
   STAGE_OPTIONS,
   type PostingOption,
-} from "../../../lib/candidate-inbox";
-import type { ApplicantStage } from "../../../lib/applicant-stages";
+} from "../../../../lib/candidate-inbox";
+import type { ApplicantStage } from "../../../../lib/applicant-stages";
 
 /**
- * The Candidates filter — the page head's toolbar row.
+ * The Candidates › Applied filter — the page head's toolbar row, under the view switch.
  *
  * A PLAIN `GET` form, server-rendered, with no client code: "Show" submits `?postingId=` (and,
- * when offered, `&stage=`) to `/candidates` (the browser's own navigation, so it works before
- * hydration and never waits on a router transition). The submitted form drops `cursor`, so a new
- * filter starts at the newest page — a cursor is a position, never a filter. "All postings" / "All
- * stages" submit an empty value, which the page reads as no filter.
+ * when offered, `&stage=`) to `/candidates/applied` (the browser's own navigation, so it works
+ * before hydration and never waits on a router transition). The submitted form drops `cursor`, so a
+ * new filter starts at the newest page — a cursor is a position, never a filter. "All postings" /
+ * "All stages" submit an empty value, which the page reads as no filter.
  *
  * A select changes nothing until "Show" is pressed — choosing an option is never a navigation
  * (WCAG 3.2.2). The posting options are the payer's OWN postings, from the list read the page

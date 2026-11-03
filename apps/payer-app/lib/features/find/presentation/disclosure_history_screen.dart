@@ -13,6 +13,32 @@ import '../../../core/widgets/bb_icon_button.dart';
 import '../../../core/widgets/bb_status_view.dart';
 import 'cubit/reveal_cubit.dart';
 
+/// The "History" link both Find views (All candidates and Applicants) put
+/// beside their title — the entry to [DisclosureHistoryScreen], pushed as a
+/// real route so Android back pops it normally.
+class DisclosureHistoryButton extends StatelessWidget {
+  const DisclosureHistoryButton({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return TextButton.icon(
+      onPressed: () => Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          settings: const RouteSettings(name: 'payer/disclosures'),
+          builder: (_) => const DisclosureHistoryScreen(),
+        ),
+      ),
+      icon: const Icon(Icons.history, size: 18),
+      label: const Text('History'),
+      style: TextButton.styleFrom(
+        foregroundColor: AppColors.textSecondary,
+        minimumSize: const Size(0, AppSpacing.tap),
+        tapTargetSize: MaterialTapTargetSize.padded,
+      ),
+    );
+  }
+}
+
 /// The caller's OWN masked-résumé disclosure history
 /// (`GET /payer/resume-disclosures`, newest-first). PII-FREE: an opaque worker
 /// UUID (masked here), a status pill, and disclosed/expiry timestamps — never a

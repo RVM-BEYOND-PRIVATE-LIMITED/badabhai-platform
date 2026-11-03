@@ -5730,3 +5730,44 @@ export const ProfilingFieldEditCancelledPayload = z
   .object({ ...profilingFieldEditShape, reason: z.enum(PROFILING_EDIT_CANCEL_REASONS) })
   .strict();
 export type ProfilingFieldEditCancelledPayload = z.infer<typeof ProfilingFieldEditCancelledPayload>;
+
+/**
+ * OWNER RULINGS 2026-11-03 (ADR-0040, phase E2) — A PAYER RAN ONE PAGE OF THE ALL-CANDIDATES
+ * SEARCH (`POST /payer/candidates/search`): the payer-web "Candidates" tab and the payer app's Find
+ * tab, company and agency alike. The durable read trail the payer applicant reads never had (they
+ * are rate-limited but not audited); search volume and "searched and found nothing" are the
+ * demand-side twin of the worker's `job.search_performed`.
+ *
+ * THE SHAPE OF THE SEARCH, NEVER WHO WAS SHOWN. No worker id — a page of masked candidates is not
+ * a disclosure (identity costs an unlock, which is its own event) and not a feed impression (E2_BUILD:
+ * never a reused `feed.shown`, which would pollute the LEARN corpus). No city, the same rule
+ * `job.search_performed` follows for location values: which filters were engaged is recorded as
+ * booleans. `skill_ids` ARE recorded: a closed `mskill_*` vocabulary, never free text, and the one
+ * fact this event exists for ("which roles do payers look for?").
+ *
+ * Actor and subject are the acting payer login. `.strict()` keeps a later "helpful" field from
+ * carrying a worker id or a value.
+ */
+export const PayerCandidateSearchPerformedPayload = z
+  .object({
+    skill_ids: z
+      .array(z.string().regex(/^mskill_[a-z0-9_]+$/, "not a match skill id"))
+      .max(10),
+    experience_filtered: z.boolean(),
+    industry_filtered: z.boolean(),
+    industry_experience_filtered: z.boolean(),
+    city_filtered: z.boolean(),
+    strict: z.boolean(),
+    /** True for the first page of a search (no cursor) — the "searches" count, not page views. */
+    first_page: z.boolean(),
+    /** Rows on this page, and the three ADR-0040 counts the response carried. */
+    result_count: z.number().int().nonnegative(),
+    matched: z.number().int().nonnegative(),
+    unrecorded: z.number().int().nonnegative(),
+    total: z.number().int().nonnegative(),
+    limit: z.number().int().positive(),
+  })
+  .strict();
+export type PayerCandidateSearchPerformedPayload = z.infer<
+  typeof PayerCandidateSearchPerformedPayload
+>;

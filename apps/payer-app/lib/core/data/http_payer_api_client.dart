@@ -1,4 +1,5 @@
 import '../auth/payer_http.dart';
+import 'candidate_search_models.dart';
 import 'job_posting_chat_models.dart';
 import 'models.dart';
 import 'payer_api_client.dart';
@@ -712,6 +713,56 @@ class HttpPayerApiClient implements PayerApiClient {
     return rows
         .whereType<Map<String, dynamic>>()
         .map(_applicantFromRow)
+        .toList(growable: false);
+  }
+
+  // --- All-candidates search (ADR-0040 E2) -----------------------------------
+
+  @override
+  Future<CandidateSearchPage> searchCandidates(
+    CandidateSearchQuery query,
+  ) async {
+    // POST, though it writes nothing (the filter set is a list — the
+    // reach-preview precedent). PayerHttp never auto-retries a POST, so each
+    // call is exactly one unit of the payer's hourly search cap.
+    final PayerResponse res = await _http.send(
+      PayerMethod.post,
+      '/payer/candidates/search',
+      body: query.toJson(),
+    );
+    // 429 = the hourly cap, 400 = a refused body or cursor, 5xx = an outage.
+    // The status rides the exception so the screen can say which — none may
+    // decode to an empty page, which would read as "nobody on the portal".
+    if (!res.isSuccess) throw PayerApiException(res.statusCode);
+    final CandidateSearchPage? page = CandidateSearchPage.tryFromJson(res.body);
+    // #370 — a 2xx that is not the contract (captive-portal HTML decodes to
+    // `{}`) is an error, never a zero-candidate pool.
+    if (page == null) throw PayerApiException(res.statusCode);
+    return page;
+  }
+
+  @override
+  Future<CandidateFilters> fetchCandidateFilters() async {
+    final PayerResponse res =
+        await _http.send(PayerMethod.get, '/payer/candidates/filters');
+    if (!res.isSuccess) throw PayerApiException(res.statusCode);
+    final CandidateFilters? filters = CandidateFilters.tryFromJson(res.body);
+    if (filters == null) throw PayerApiException(res.statusCode);
+    return filters;
+  }
+
+  @override
+  Future<List<PayerUnlock>> fetchOwnUnlocks() async {
+    final PayerResponse res =
+        await _http.send(PayerMethod.get, '/payer/unlocks');
+    if (!res.isSuccess) throw PayerApiException(res.statusCode);
+    final Object? rows = res.body['unlocks'];
+    // Same #370 rule: a 2xx without the list is a contract error, not "you
+    // have unlocked nobody".
+    if (rows is! List<dynamic>) throw PayerApiException(res.statusCode);
+    return rows
+        .map(PayerUnlock.tryFromJson)
+        .whereType<PayerUnlock>()
         .toList(growable: false);
   }
 

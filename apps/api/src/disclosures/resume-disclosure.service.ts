@@ -157,6 +157,20 @@ export class ResumeDisclosureService {
     }
     const { jobPostingId } = resolved;
 
+    // ---- 2026-11-03 — THE UNLOCK GATE, on the payer-session route ---------------------------
+    // The employer copy prints the worker's phone (#1594), and the render step below says that
+    // copy is "only ever produced post-unlock" — but nothing here enforced it: only the clients
+    // hid the button until an unlock. Once the all-candidates search (ADR-0040, E2) hands every
+    // payer the worker ids of the whole consented pool, that gap is a free phone harvest. So the
+    // PAYER route now requires a LIVE grant for (tenant, worker) — the unlock chokepoint's own
+    // definition of live. `"payer_owned"` is how this method knows the caller is the payer
+    // session (every payer-portal caller must pass it — payer-job-ref-policy.static.test.ts).
+    // No grant → the ONE neutral body, before any consent read, row or event (no oracle: it is
+    // byte-identical to every other deny). The ops route (`"normalise"`) is unchanged.
+    if (jobRefPolicy === "payer_owned" && !(await this.repo.hasLiveUnlock(tenant, workerId))) {
+      return neutralUnavailable();
+    }
+
     // ---- [1] consent + render-source resolved BEFORE the lock (pool-vs-lock deadlock
     // fix; mirrors UnlockService). Both are tx-external reads on the global pool. ----
     const consented = await this.isConsentedForSharing(workerId);

@@ -296,6 +296,12 @@ NestJS boot assertion).
   secret set to `true` plus a redeploy; values lowercase `true`/`false`/`1`/`0`/empty only. Its write
   cap `PAYER_APPLICANT_STAGE_MAX_PER_HOUR` (default 600 per payer per UTC hour, its own Redis
   bucket) runs on its default; neither compose file forwards it.
+- **Payer all-candidates search cap (ADR-0040 / E2, owner rulings 2026-11-03)** —
+  `PAYER_CANDIDATE_SEARCH_MAX_PER_HOUR`, api only (default 120 pages per payer login per UTC hour,
+  its own Redis bucket `payer_candidate_search`, fail-closed). Bounds how fast one login can page
+  the whole consented pool through `POST /payer/candidates/search` (≤ 50 masked rows a page);
+  identity still costs an unlock per worker. Not a flag — the route is always on. Runs on its
+  default; neither compose file forwards it.
 - **Admin Engine view demo allow-list (owner ruling 2026-10-06, #2014)** —
   `ADMIN_ENGINE_VIEW_ALLOW_PHONES`, api only. The Engine view (`/admin/match/engine/*`) shows
   DEMO WORKERS ONLY: phones in the reserved demo block `+910000026xxx`, plus the handsets listed

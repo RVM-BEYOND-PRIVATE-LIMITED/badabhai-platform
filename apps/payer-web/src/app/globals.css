@@ -2588,6 +2588,80 @@ textarea.input {
     justify-content: center;
   }
 }
+/* ------------------------------------------------------------------
+ * CANDIDATES — the tab's two views (owner rulings 2026-11-03): ALL CANDIDATES (`/candidates`, the
+ * pool search) and APPLIED (`/candidates/applied`, the inbox above). Both pages wrap in
+ * `.applicants-page.candidates-page`, so the card, touch-target and pager rules above apply to
+ * both; these are only the view switch, the search filter's extra row, the counts and the divider.
+ * Tokens only.
+ * ------------------------------------------------------------------ */
+/* The head's toolbar row: the view switch, then the page's own filter. */
+.candidates-toolbar {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+}
+/* The view switch is the DS underline tabs drawn as two LINKS (candidates-views.tsx): the active
+   tab's underline marks the current view, so a link's own hover underline is not drawn on it.
+   (Its 44px phone / coarse-pointer target is the page's `.applicants-page .bb-tab` rule above.) */
+.applicants-page .candidates-views > .bb-tab:hover {
+  text-decoration: none;
+}
+/* The search form's last row: Show, and Clear filters when there is something to clear. */
+.candidates-filter__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+/* THE COUNTS (ADR-0040 Decision 3), right above the list they describe: three numbers, read
+   from the same response as the cards — tabular, so a changing count does not jitter. */
+.candidate-search__summary {
+  display: grid;
+  gap: var(--space-1);
+  margin: var(--section-gap) 0 var(--space-4);
+}
+.candidate-search__count {
+  margin: 0;
+  font-weight: var(--weight-semibold);
+  color: var(--text-heading);
+  font-variant-numeric: tabular-nums;
+}
+.candidate-search__note {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}
+/* "Other candidates" — a heading and a hairline before the first card that does not match every
+   filter, so it is plain that the matches lead (filters reorder; nobody is removed). */
+.candidate-search__divider {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin: var(--space-2) 0 0;
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-normal);
+  color: var(--text-secondary);
+}
+.candidate-search__divider::after {
+  content: "";
+  flex: 1;
+  border-top: var(--border-hairline) solid var(--border-default);
+}
+/* A card's other roles: a short lead, then the applicant card's own outline tags. */
+.candidate-card__roles {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+.candidate-card__roles-lead {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
 
 .reveal-card {
   width: 100%;

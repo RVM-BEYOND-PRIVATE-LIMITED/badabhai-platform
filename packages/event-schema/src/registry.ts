@@ -1507,6 +1507,17 @@ export const EVENT_REGISTRY = {
     domain: "profile",
     payload: p.ProfilingFieldEditCancelledPayload,
   },
+
+  // OWNER RULINGS 2026-11-03 (ADR-0040, phase E2) — one page of the payer's ALL-CANDIDATES search
+  // (POST /payer/candidates/search): the SHAPE of the search (closed role ids, which filters were
+  // engaged, strict, the three counts), never a worker id and never the city. A NEW event — not a
+  // reused feed.shown (a search page is not a feed impression; E2_BUILD). Appended at the tail per
+  // protocol. v1.
+  "payer.candidate_search_performed": {
+    version: 1,
+    domain: "payer",
+    payload: p.PayerCandidateSearchPerformedPayload,
+  },
 } as const satisfies Record<string, EventDefinition>;
 
 /** Union of all known event names. */

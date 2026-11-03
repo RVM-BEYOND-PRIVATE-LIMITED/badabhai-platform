@@ -1,6 +1,7 @@
 import 'package:equatable/equatable.dart';
 
 import '../session/app_session.dart';
+import '../util/name_mask.dart';
 
 /// PII-free, swappable DTOs for the payer app. These mirror the sample-data
 /// arrays in the Payer App kit's `.dc.html` script block and are the binding
@@ -438,12 +439,9 @@ class Applicant extends Equatable {
   bool get viaRelated => matchTier == 2;
 
   /// Masked, PII-free label derived from the opaque UUID — e.g. "Worker ••3f9a".
-  /// Never a real name. Used on the faceless feed card + the unlock dialog.
-  String get maskedLabel {
-    final String id = workerId.replaceAll('-', '');
-    final String tail = id.length >= 4 ? id.substring(id.length - 4) : id;
-    return 'Worker ••$tail';
-  }
+  /// Never a real name. Used on the faceless feed card + the unlock dialog. One
+  /// derivation for every faceless card ([NameMask.workerLabel]).
+  String get maskedLabel => NameMask.workerLabel(workerId);
 
   /// Up to [max] SOFT signal chips synthesized from the ranking reasons. Only
   /// the qualitative `reason` text — never a raw/weight number or a score.
@@ -518,6 +516,59 @@ class UnlockResult extends Equatable {
 
   @override
   List<Object?> get props => <Object?>[available, unlockId, expiresAt];
+}
+
+/// One row of `GET /payer/unlocks` — the caller's OWN unlocks (#2033 payer
+/// view). PII-free: opaque ids, the payer-visible [status] (`granted` |
+/// `revealed` | `expired` | `revoked`; the server derives `expired` from
+/// `expires_at` at read time) and the grant window. Never a name or phone.
+///
+/// Read so a card the payer ALREADY paid for opens on "View" instead of asking
+/// for another credit. Display state only: the server stays the authority — a
+/// re-unlock of a live grant returns that grant without a second debit (F-6).
+class PayerUnlock extends Equatable {
+  const PayerUnlock({
+    required this.unlockId,
+    required this.workerId,
+    required this.status,
+    this.expiresAt,
+  });
+
+  final String unlockId;
+
+  /// Null after a DSAR hard-delete SET NULL the column (migration 0030).
+  final String? workerId;
+  final String status;
+  final String? expiresAt;
+
+  /// A grant this payer can still reveal: the server says `granted`/`revealed`
+  /// AND its window has not lapsed by [now]. Both must agree, so a device clock
+  /// running behind can never present a grant the server already expired.
+  bool isLiveAt(DateTime now) {
+    if (status != 'granted' && status != 'revealed') return false;
+    final DateTime? until =
+        expiresAt == null ? null : DateTime.tryParse(expiresAt!);
+    return until == null || until.isAfter(now);
+  }
+
+  /// Null for a row without an unlock id — nothing could reveal it.
+  static PayerUnlock? tryFromJson(Object? json) {
+    if (json is! Map<String, dynamic>) return null;
+    final Object? id = json['unlock_id'];
+    if (id is! String || id.isEmpty) return null;
+    final Object? worker = json['worker_id'];
+    final Object? status = json['status'];
+    final Object? expires = json['expires_at'];
+    return PayerUnlock(
+      unlockId: id,
+      workerId: worker is String && worker.isNotEmpty ? worker : null,
+      status: status is String ? status : '',
+      expiresAt: expires is String && expires.isNotEmpty ? expires : null,
+    );
+  }
+
+  @override
+  List<Object?> get props => <Object?>[unlockId, workerId, status, expiresAt];
 }
 
 /// Result of `POST /payer/unlocks/:unlockId/reveal`. Success carries a

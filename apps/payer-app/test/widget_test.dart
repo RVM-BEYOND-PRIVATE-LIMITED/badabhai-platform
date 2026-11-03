@@ -218,8 +218,11 @@ void main() {
     await boot(tester);
     await loginAs(tester, 'pick_company');
 
-    // Go to the Find tab.
+    // Go to the Find tab, then its Applicants view (Find opens on All
+    // candidates since the 2026-11-03 rulings; this mock feed moved one tap).
     await tester.tap(find.text('Find'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('find_view_applicants')));
     await tester.pumpAndSettle();
 
     // A masked candidate renders a redacted name (soft dots, no solid block) and

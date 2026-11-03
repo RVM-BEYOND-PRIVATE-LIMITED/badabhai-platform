@@ -21,10 +21,20 @@ ops console's privileged data access.
 4. **Applicants (LIVE)** — one posting's feed, reached from that posting:
    `GET /payer/reach/jobs/:jobId/applicants` — faceless ranked rows (opaque id, rank and
    match signals). No name/phone/employer.
-5. **Candidates (LIVE, #2121)** — `/candidates`, a top-level rail item for both personas:
-   every applicant across the payer's own postings, newest first, filterable by posting —
-   `GET /payer/reach/applicants` (#2116). Same faceless cards and the same unlock as
-   Applicants; it shares the per-payer hourly reach cap with the per-posting feed.
+5. **Candidates** — a top-level rail item for both personas, two views (owner rulings
+   2026-11-03):
+   - **All candidates** — `/candidates`, where the tab opens: everyone in the eligible pool
+     (the API decides membership), faceless, filtered by role, years in role, industry, years
+     in industry, city and an opt-in "Only show matches" — `POST /payer/candidates/search` +
+     `GET /payer/candidates/filters` (ADR-0040 E2; contract
+     `packages/types/fixtures/candidate-search-contract.json`). Filters reorder (matches
+     first); the counts come from the same response. Unlock / reveal / masked résumé are the
+     Applicants flow with no posting (`job_id` / `job_posting_id` null).
+   - **Applied (LIVE, #2121)** — `/candidates/applied`: every applicant across the payer's own
+     postings, newest first, filterable by posting — `GET /payer/reach/applicants` (#2116).
+     Same faceless cards and the same unlock as Applicants; it shares the per-payer hourly
+     reach cap with the per-posting feed. An old `/candidates?postingId=` / `?stage=` link is
+     redirected here.
 6. **Unlock (LIVE)** — `POST /payer/unlocks`; no-oracle neutral on any deny cause.
 7. **Reveal (LIVE)** — `POST /payer/unlocks/:id/reveal` → a **routed relay handle**
    (opaque, expiring) — **never a raw phone**.

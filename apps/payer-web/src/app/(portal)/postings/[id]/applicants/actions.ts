@@ -25,8 +25,8 @@ import {
  *
  * SECURITY:
  *  - XB-A: the payer is resolved from the SERVER-HELD session inside the data seam
- *    (the payer JWT). The client supplies only a postingId + opaque workerId, never
- *    a payer id.
+ *    (the payer JWT). The client supplies only a postingId + opaque workerId (a search
+ *    row's unlock: the workerId alone), never a payer id.
  *  - XB-C (no-oracle): the mappers collapse every deny cause to ONE neutral view;
  *    no branch here infers the cause; nothing is logged.
  *  - REVEAL = ROUTED contact handle ONLY (no phone/number anywhere) — LIVE endpoint.
@@ -46,8 +46,28 @@ export async function unlockAction(input: {
   if (!uuid.safeParse(input.postingId).success || !uuid.safeParse(input.workerId).success) {
     return { ok: false, error: "Invalid request." };
   }
+  return spendUnlock(input.postingId, input.workerId);
+}
+
+/**
+ * The SAME unlock for a candidate found through the all-candidates search (`/candidates`, ADR-0040
+ * E2): he applied to no posting, so there is no job context — `job_id` goes out as an explicit
+ * null (the API's own default). The client names only the opaque worker id; the server still
+ * decides every spend (the one neutral body for every deny cause, F-3).
+ */
+export async function candidateUnlockAction(input: {
+  workerId: string;
+}): Promise<UnlockActionResult> {
+  if (!uuid.safeParse(input.workerId).success) {
+    return { ok: false, error: "Invalid request." };
+  }
+  return spendUnlock(null, input.workerId);
+}
+
+/** One ids-only unlock call — the posting context, or null for none — mapped to its view. */
+async function spendUnlock(postingId: string | null, workerId: string): Promise<UnlockActionResult> {
   try {
-    const result = await requestUnlock(input);
+    const result = await requestUnlock({ postingId, workerId });
     return { ok: true, view: mapUnlockResult(result) };
   } catch {
     return { ok: false, error: "Unlock failed (service unavailable). Please retry." };

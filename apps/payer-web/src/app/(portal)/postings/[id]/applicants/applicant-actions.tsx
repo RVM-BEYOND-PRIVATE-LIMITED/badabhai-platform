@@ -5,16 +5,16 @@ import { ACTION_ICON, Icon } from "@badabhai/icons";
 import type { FacelessApplicant, TradeLevelBadgeWire } from "../../../../../lib/contracts";
 import type { ApplicantPosting } from "../../../../../lib/candidate-inbox";
 import type { ContactView, RevealView, UnlockView } from "../../../../../lib/unlock-view";
-import { isoDay, type GrantedUnlock } from "../../../../../lib/unlock-history";
+import type { GrantedUnlock } from "../../../../../lib/unlock-history";
 import { Avatar, Badge, Button, Card, Tabs, Toast } from "../../../../../components/ds";
 import { PageHeader, type PageHeaderProps } from "../../../../../components/page-header";
 import { PortalLink } from "../../../../../components/portal-link";
 import { bandLabel, monthsLabel, opaqueId } from "../../../../../lib/masking";
 import { hasSavedStages, STAGE_LABEL } from "../../../../../lib/applicant-stages";
+import { shownTradeLevel } from "../../../../../lib/trade-level";
 import {
   ConfirmSpendDialog,
-  MaskedResumeCard,
-  RoutedContactCard,
+  contactBand,
   UnlockResultToast,
   type UnlockResultKind,
 } from "../../../../../components/unlock";
@@ -83,8 +83,8 @@ import {
  * id. Confirm-on-spend (C11): only the FIRST unlock per row prompts, via a DS Dialog.
  *
  * TWO CALLERS, ONE CARD. A posting's Applicants page passes `postingId`: ONE posting's feed, with
- * the New / Shortlist board. The Candidates tab (`/candidates`, the cross-posting inbox) passes no
- * `postingId`; each row carries its OWN `posting` instead, and:
+ * the New / Shortlist board. The Candidates tab's Applied view (`/candidates/applied`, the
+ * cross-posting inbox) passes no `postingId`; each row carries its OWN `posting` instead, and:
  *  - the row's posting is the unlock's `job_id` and the masked resume's context — per row, so the
  *    confirm dialog remembers WHICH row asked (a worker who applied to two postings is two rows);
  *  - confirm-on-spend is per ROW (its key), not per worker: a row that has not confirmed always
@@ -219,15 +219,11 @@ function feedRows(feed: FeedProps): FeedRow[] {
  * for the trade IT is showing, not all of them: `matchedSkillLabel` is the skill this
  * posting matched him on (E18), and `tradeLabel` is the legacy card's trade. With several
  * rungs and no match on the shown trade, print none — a rung for a different trade would
- * misstate him. An absent/empty list is no badge, never a placeholder.
+ * misstate him. An absent/empty list is no badge, never a placeholder. (The rule is
+ * lib/trade-level.ts, shared with the all-candidates card.)
  */
 function levelBadgeFor(a: FacelessApplicant): TradeLevelBadgeWire | null {
-  const levels = a.tradeLevels;
-  if (levels === undefined || levels.length === 0) return null;
-  if (levels.length === 1) return levels[0]!;
-  const trade = a.matchedSkillLabel ?? a.tradeLabel;
-  if (trade === undefined) return null;
-  return levels.find((level) => level.skillLabel === trade) ?? null;
+  return shownTradeLevel(a.tradeLevels, { skillLabel: a.matchedSkillLabel ?? a.tradeLabel });
 }
 
 interface RowState {
@@ -666,7 +662,6 @@ export function ApplicantActions(props: ApplicantActionsProps) {
           {visible.map((r, i) => {
             const a = r.applicant;
             const row = rowOf(a.workerId);
-            const granted = row.unlock?.kind === "granted" ? row.unlock : null;
             const routed = row.contact?.kind === "routed" ? row.contact : null;
             const stage = stageOf(r);
             // A failed unlock's "Retry" (which never re-prompts) and its error line are the row's
@@ -851,150 +846,18 @@ export function ApplicantActions(props: ApplicantActionsProps) {
                   </div>
                 ) : null}
 
-                <div className="applicant__contact">
-                  {r.posting?.viewOnly ? (
-                    // Its posting's own Applicants page offers this session no unlock, so
-                    // neither does its card (candidate-inbox.ts). A constant line, never a
-                    // statement about this applicant.
-                    <p className="applicant__neutral">
-                      View only — applicants to this posting can&rsquo;t be unlocked here.
-                    </p>
-                  ) : granted ? (
-                    <div className="applicant__granted">
-                      {/* The UNLOCK status only. "Contacted" is a pipeline stage and shows once,
-                          in the toolbar where "Mark as contacted" was (W3-A: it was repeated
-                          here as a second solid badge); the unlock itself stays true. */}
-                      <div className="applicant__granted-head">
-                        <Badge tone="success">Unlocked</Badge>
-                        <span className="applicant__until">
-                          until <span className="bb-mono">{isoDay(granted.expiresAt)}</span>
-                        </span>
-                      </div>
-                      <div className="applicant__reveal">
-                        {row.contact?.kind === "routed" ? (
-                          <RoutedContactCard view={row.contact} />
-                        ) : row.contact?.kind === "unavailable" ? (
-                          // No-oracle: a reveal that comes back unavailable shows the SAME
-                          // neutral message for every cause; no retry button (not transient).
-                          <p className="applicant__neutral">{row.contact.message}</p>
-                        ) : (
-                          // A read-out of what the unlock already granted: the VIEW glyph (no
-                          // spend, no new tab, nothing to message or dial yet), as on the resume.
-                          <Button
-                            variant="secondary"
-                            size="sm"
-                            iconLeft={ACTION_ICON.view}
-                            disabled={row.contactBusy}
-                            loading={row.contactBusy}
-                            aria-busy={row.contactBusy}
-                            onClick={() => onRevealContact(granted.unlockId, a.workerId)}
-                          >
-                            {row.contactBusy
-                              ? "Opening…"
-                              : row.contactError
-                                ? "Retry — open routed contact"
-                                : "Open routed contact"}
-                          </Button>
-                        )}
-                        {/* Transient reveal failure: retryable inline error (the button above
-                            stays), aria-live for SRs; the row/feed are never blanked. */}
-                        <div aria-live="polite">
-                          {row.contactError ? (
-                            <p className="applicant__error">{row.contactError}</p>
-                          ) : null}
-                        </div>
-                      </div>
-                      <div className="applicant__reveal">
-                        {row.resume?.kind === "masked" ? (
-                          <MaskedResumeCard view={row.resume} />
-                        ) : row.resume?.kind === "unavailable" ? (
-                          <p className="applicant__neutral">{row.resume.message}</p>
-                        ) : (
-                          <Button
-                            variant="secondary"
-                            size="sm"
-                            iconLeft={ACTION_ICON.view}
-                            disabled={row.resumeBusy}
-                            loading={row.resumeBusy}
-                            aria-busy={row.resumeBusy}
-                            onClick={() => onMaskedResume(granted.unlockId, a.workerId, r.context)}
-                          >
-                            {row.resumeBusy
-                              ? "Loading…"
-                              : row.resumeError
-                                ? "Retry — view masked resume"
-                                : "View masked resume"}
-                          </Button>
-                        )}
-                        <div aria-live="polite">
-                          {row.resumeError ? (
-                            <p className="applicant__error">{row.resumeError}</p>
-                          ) : null}
-                        </div>
-                      </div>
-                    </div>
-                  ) : row.unlock?.kind === "unavailable" ? (
-                    // CURRENTLY ENGAGED / UNAVAILABLE (no-oracle): one neutral state, IDENTICAL
-                    // copy for capped vs unknown vs no-consent vs already-unlocked. The badge is
-                    // a constant label (never a deny reason); the message comes from the mapper.
-                    <div className="applicant__engaged">
-                      <Badge tone="warning">Currently engaged</Badge>
-                      <p className="applicant__neutral">{row.unlock.message}</p>
-                    </div>
-                  ) : (
-                    <div className="applicant__unlock">
-                      <div className="applicant__unlock-actions">
-                        {/* A disabled button takes no hover, so a `title` here was never shown:
-                            the reason is the visible line below, tied to the button. */}
-                        <Button
-                          variant="primary"
-                          size="md"
-                          iconLeft={ACTION_ICON.unlock}
-                          disabled={row.busy || balance === 0}
-                          loading={row.busy}
-                          aria-busy={row.busy}
-                          aria-describedby={balance === 0 ? unlockHintId : undefined}
-                          onClick={() => onUnlock(r)}
-                        >
-                          {row.busy
-                            ? "Unlocking…"
-                            : unlockError
-                              ? "Retry unlock (1 credit)"
-                              : "Unlock contact (1 credit)"}
-                        </Button>
-                        {/* A REAL zero balance only — an unread balance arrives here as 1 (the
-                            page's affordance default), so Unlock stays enabled and this never
-                            shows. Every member can open Credits, so the disabled Unlock always
-                            gets an enabled next step beside it; it is about the payer's own
-                            balance, never a signal about this applicant. */}
-                        {balance === 0 ? (
-                          <PortalLink
-                            className="bb-btn bb-btn--secondary"
-                            href="/credits"
-                            pendingLabel="Credits"
-                          >
-                            <Icon name={ACTION_ICON.credits} />
-                            <span>Buy credits</span>
-                          </PortalLink>
-                        ) : null}
-                      </div>
-                      {/* Plain text, not a link: the "Buy credits" button right above is this
-                          band's one way to /credits (a second link to the same page was a
-                          redundant tab stop on every card). */}
-                      {balance === 0 ? (
-                        <p className="applicant__hint" id={unlockHintId}>
-                          Buy credits to unlock. Guidance only — this is your own balance, never a
-                          signal about this applicant.
-                        </p>
-                      ) : null}
-                      {/* Transient unlock failure: retryable inline error (the Unlock button
-                          stays + relabels to "Retry"); aria-live for SRs; never blanks the row. */}
-                      <div aria-live="polite">
-                        {unlockError ? <p className="applicant__error">{unlockError}</p> : null}
-                      </div>
-                    </div>
-                  )}
-                </div>
+                {/* The spend → reveal band (components/unlock/contact-band.tsx — shared with the
+                    all-candidates card). A `viewOnly` inbox posting offers no unlock here. */}
+                {contactBand({
+                  row,
+                  unlockError,
+                  balance,
+                  unlockHintId,
+                  viewOnly: r.posting?.viewOnly === true,
+                  onUnlock: () => onUnlock(r),
+                  onRevealContact: (unlockId) => onRevealContact(unlockId, a.workerId),
+                  onMaskedResume: (unlockId) => onMaskedResume(unlockId, a.workerId, r.context),
+                })}
               </Card>
             );
           })}
