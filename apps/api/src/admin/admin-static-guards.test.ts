@@ -127,7 +127,20 @@ describe("Admin every-route-guarded build-blocker (must-fix #4)", () => {
   //
   // Adding a name here is a SECURITY decision, which is the whole point of this test: the
   // list is the reviewable record of every route reachable without a session.
-  const PUBLIC_ROUTES = new Set(["requestLogin", "verifyLogin", "verifyMfa", "acceptInvite"]);
+  //
+  // Migration 0144 (owner ruling 2026-11-03) adds three, each on the login routes' footing and
+  // behind the same per-IP cap: `loginWithPassword` (the password IS the first factor — it hands
+  // off to the same MFA gate as `verifyLogin`), and `forgotPassword` / `resetPassword` (the
+  // emailed reset code is the credential; the reset NEVER mints a session).
+  const PUBLIC_ROUTES = new Set([
+    "requestLogin",
+    "verifyLogin",
+    "verifyMfa",
+    "acceptInvite",
+    "loginWithPassword",
+    "forgotPassword",
+    "resetPassword",
+  ]);
 
   // Discover the route handlers on the admin auth controller (its own enumerable methods).
   const proto = AdminAuthController.prototype as unknown as Record<string, unknown>;
@@ -153,7 +166,7 @@ describe("Admin every-route-guarded build-blocker (must-fix #4)", () => {
     }
   });
 
-  it("the public set is exactly {requestLogin, verifyLogin, verifyMfa, acceptInvite} — no unguarded privileged route", () => {
+  it("the public set is exactly the login/MFA/invite/password-reset doors — no unguarded privileged route", () => {
     const unguarded = routeMethods.filter(
       (m) => !effectiveGuards(AdminAuthController, m).includes(AdminAuthGuard.name),
     );
@@ -232,7 +245,7 @@ describe("ADMIN-3a entity-action routes — guarded + exactly one capability (mu
     );
   }
 
-  it("discovers the ten entity-action routes (no route silently dropped)", () => {
+  it("discovers the eleven entity-action routes (no route silently dropped)", () => {
     expect(routeMethods.sort()).toEqual(
       [
         "suspendPayer",
@@ -248,6 +261,9 @@ describe("ADMIN-3a entity-action routes — guarded + exactly one capability (mu
         // PERMANENT lockout: clear() had zero callers and setMfaEnrolled was only ever
         // called with true.
         "resetAdminMfa",
+        // Migration 0144 — create an ACTIVE admin with a temporary password (the invite link
+        // still renders as mock:// in production, so it cannot onboard anyone on its own).
+        "createAdminDirect",
       ].sort(),
     );
   });
@@ -290,6 +306,8 @@ describe("ADMIN-3a entity-action routes — guarded + exactly one capability (mu
     // under the SAME super_admin-only capability. A weaker one (say ops_admin) would let a
     // lower-privileged role strip MFA off a super_admin, which inverts the whole hierarchy.
     expect(capabilityOf("resetAdminMfa")).toBe("manage_admins");
+    // 0144 — minting an account with a credential is the most direct admin-management act.
+    expect(capabilityOf("createAdminDirect")).toBe("manage_admins");
   });
 });
 

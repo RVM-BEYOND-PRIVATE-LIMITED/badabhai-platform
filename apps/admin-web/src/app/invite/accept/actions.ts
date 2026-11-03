@@ -18,8 +18,9 @@ import {
  * component ever receives it, consistent with how `adminFetch` keeps the API origin off the
  * client bundle.
  *
- * ACCEPTING MINTS NO SESSION, by design: the invitee signs in normally afterwards (emailed
- * code → TOTP enrolment), so there is exactly one door into a session. Nothing here is
+ * ACCEPTING MINTS NO SESSION, by design: the invitee signs in normally afterwards (the emailed
+ * code, then the authenticator only if they later turn two-step verification on — ADR-0060), so
+ * this route is never a door into a session. Nothing here is
  * stored, and there is nothing for a caller to persist.
  */
 

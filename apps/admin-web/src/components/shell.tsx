@@ -1,13 +1,15 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { ACTION_ICON, Icon } from "@badabhai/icons";
 import { BrandLockup } from "./brand-lockup";
 import { holdFocusInDrawer } from "./drawer-focus";
 import { IconButton } from "./icon-button";
 import { SidebarNav } from "./nav";
 import { TopbarCrumb } from "./topbar-crumb";
-import { NavPendingStatus } from "./nav-pending";
+import { NavPendingCue, NavPendingStatus } from "./nav-pending";
 import type { NavSection } from "./nav-model";
 
 /**
@@ -16,6 +18,9 @@ import type { NavSection } from "./nav-model";
  * breakpoint lives in one place, the stylesheet.
  */
 export const MENU_TOGGLE_ID = "portal-menu-toggle";
+
+/** The signed-in admin's own settings page (ADR-0060) — reached from the user area, not the nav. */
+export const ACCOUNT_HREF = "/account";
 
 /**
  * The portal chrome: sidebar + top bar + content region.
@@ -133,6 +138,20 @@ export function Shell({
               {adminId.slice(0, 8)}…
             </span>
           </div>
+          {/* Account sits in the USER area, beside who you are and Sign out — the conventional
+              place for your own settings, and where payer-web's account menu puts it. Not a
+              section of the nav: it is not a part of the platform being operated, and every
+              admin has it (no capability), so it never appears or disappears with a role. It
+              wears the nav row's styling so the active page reads the same way. */}
+          <Link
+            href={ACCOUNT_HREF}
+            className={`sidebar__link${pathname === ACCOUNT_HREF ? " is-active" : ""}`}
+            aria-current={pathname === ACCOUNT_HREF ? "page" : undefined}
+          >
+            <Icon name={ACTION_ICON.settings} className="sidebar__icon" />
+            <span className="sidebar__label">Account</span>
+            <NavPendingCue message="Opening Account…" />
+          </Link>
           {onSignOut}
         </div>
       </aside>

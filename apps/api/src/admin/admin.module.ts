@@ -19,6 +19,11 @@ import { AdminRolesGuard } from "./admin-roles.guard";
 import { AdminAiTraceFlagGuard } from "./admin-ai-trace-flag.guard";
 import { AdminAuthService } from "./admin-auth.service";
 import { AdminAuthController } from "./admin-auth.controller";
+import { AdminAttemptLockoutService } from "./admin-attempt-lockout.service";
+import { AdminTrustedDeviceService } from "./admin-trusted-device.service";
+import { AdminPasswordService } from "./admin-password.service";
+import { AdminMfaSelfService } from "./admin-mfa-self.service";
+import { AdminProvisioningService } from "./admin-provisioning.service";
 import { AdminInviteService } from "./admin-invite.service";
 import {
   ADMIN_INVITE_MAILER,
@@ -207,6 +212,17 @@ import { AdminMatchEngineController } from "./admin-match-engine.controller";
     AdminAuthService,
     AdminAuthGuard,
     AdminRolesGuard,
+    // Migration 0144 — password sign-in, forgot/reset, self-service password change, the
+    // per-admin two-step switch (owner Amendment 1), "trust this device", and direct admin
+    // creation. The lockout + trusted-device providers reuse the BullMQ Redis client (the
+    // queue registered below); AdminPasswordService hands every first factor to the SAME
+    // AdminAuthService MFA gate the emailed-code door uses. A dropped registration here is a
+    // BOOT failure no unit test constructing these by hand can see (admin.module.boot.test.ts).
+    AdminAttemptLockoutService,
+    AdminTrustedDeviceService,
+    AdminPasswordService,
+    AdminMfaSelfService,
+    AdminProvisioningService,
     // The invite accept-link seam: mints/hashes the single-use token, renders the link, and
     // delivers it. Shared by BOTH sides of the flow — AdminActionsService issues the token,
     // AdminAuthService hashes a presented one — which is why it is a provider rather than a

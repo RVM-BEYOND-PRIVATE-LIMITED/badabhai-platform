@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { AdminRole, WorkerFlagReasonCode } from "@badabhai/db";
+import { PasswordPolicySchema } from "../common/password-policy";
 
 /**
  * Zod DTOs for the ADMIN-3a governed entity actions (ADR-0025 Decision 3/5/6). Every body is
@@ -93,6 +94,22 @@ export const AdminInviteSchema = z
   })
   .strict();
 export type AdminInviteDto = z.infer<typeof AdminInviteSchema>;
+
+/**
+ * POST /admin/admins/direct body (migration 0144) — create an ACTIVE admin with a TEMPORARY
+ * password (super_admin only). The name and email are ADMIN-class PII: encrypted at rest, never
+ * evented. The temporary password meets the SAME shared policy as every password, and the new
+ * admin must replace it on first sign-in.
+ */
+export const AdminCreateDirectSchema = z
+  .object({
+    email: z.string().trim().toLowerCase().email().max(254),
+    name: z.string().trim().min(1).max(100),
+    role: AdminRoleEnum,
+    temporary_password: PasswordPolicySchema,
+  })
+  .strict();
+export type AdminCreateDirectDto = z.infer<typeof AdminCreateDirectSchema>;
 
 /** PATCH /admin/admins/:id/role body — the new role CODE. */
 export const AdminChangeRoleSchema = z.object({ role: AdminRoleEnum }).strict();

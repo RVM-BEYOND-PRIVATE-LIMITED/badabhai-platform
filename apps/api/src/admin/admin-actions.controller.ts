@@ -4,8 +4,11 @@ import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
 import { AdminAuthGuard, CurrentAdmin, type AuthenticatedAdmin } from "./admin-auth.guard";
 import { AdminRolesGuard, RequireAdminRole } from "./admin-roles.guard";
 import { AdminActionsService } from "./admin-actions.service";
+import { AdminProvisioningService } from "./admin-provisioning.service";
 import {
   AdminChangeRoleSchema,
+  AdminCreateDirectSchema,
+  type AdminCreateDirectDto,
   AdminFlagWorkerSchema,
   AdminGrantCreditsSchema,
   AdminInviteSchema,
@@ -37,7 +40,11 @@ import {
 @Controller("admin")
 @UseGuards(AdminAuthGuard, AdminRolesGuard)
 export class AdminActionsController {
-  constructor(private readonly service: AdminActionsService) {}
+  constructor(
+    private readonly service: AdminActionsService,
+    // 0144 — direct admin creation (the one admin action that handles a credential).
+    private readonly provisioning: AdminProvisioningService,
+  ) {}
 
   // ----- payers -------------------------------------------------------------
 
@@ -124,6 +131,21 @@ export class AdminActionsController {
     @Ctx() ctx: RequestContext,
   ) {
     return this.service.inviteAdmin(admin.id, dto, ctx);
+  }
+
+  /**
+   * Create an ACTIVE admin directly with a temporary password (migration 0144) — the onboarding
+   * path that does not depend on the invite link reaching anyone. 409 when the email is taken.
+   */
+  @Post("admins/direct")
+  @HttpCode(201)
+  @RequireAdminRole("manage_admins")
+  createAdminDirect(
+    @CurrentAdmin() admin: AuthenticatedAdmin,
+    @Body(new ZodValidationPipe(AdminCreateDirectSchema)) dto: AdminCreateDirectDto,
+    @Ctx() ctx: RequestContext,
+  ): Promise<{ admin_id: string }> {
+    return this.provisioning.createDirect(admin.id, dto, ctx);
   }
 
   @Patch("admins/:id/role")

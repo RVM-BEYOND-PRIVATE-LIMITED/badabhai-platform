@@ -842,6 +842,31 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "builds on a migrated database are fine (a superset); new builds on an unmigrated one " +
       "are not, which is why this is APPLY-BEFORE-DEPLOY",
   },
+  // 0144 (owner rulings 2026-11-03): admin password sign-in + the per-admin two-step switch.
+  // Unconditional — no flag — because `admin_users` is read through bare `select()` /
+  // `.returning()`, which name every model column, and the session guard reads the row on EVERY
+  // admin request. The five columns ride one migration, so one column answers for all. Registered
+  // up front — the #2506 lesson: 0138 shipped without an entry and took payer login down.
+  {
+    id: "0144-admin-users-password-hash",
+    migration: "0144_admin_password_auth",
+    kind: "column",
+    table: "admin_users",
+    object: "password_hash",
+    requiredBy:
+      "AdminRepository's bare `select()` / `.returning()` (findByEmailHash, findById, " +
+      "acceptInvite, markActive, setMfaEnrolled, updateRole, suspend, setPassword) — every admin " +
+      "sign-in (password AND emailed code), the MFA step, invite accept, and " +
+      "AdminSessionService.validateAndTouch on every signed-in admin request. " +
+      "`password_set_at`, `password_pepper_version`, `must_change_password` and `mfa_enabled` " +
+      "ride the same migration and fail together",
+    failureMode:
+      "the whole Admin Portal 500s (column does not exist): every POST /admin/login/*, " +
+      "/admin/mfa/verify and /admin/invites/accept, and every guarded /admin/* route returns 401 " +
+      "or 500 because the session guard cannot read the admin row. Old builds on a migrated " +
+      "database are fine (a superset); new builds on an unmigrated one are not, which is why " +
+      "this is APPLY-BEFORE-DEPLOY",
+  },
   // 0134: THE API names `payer_applicant_stages` only while PAYER_APPLICANT_STAGES_ENABLED is on
   // (owner ruling 2026-10-07, the payer pipeline board), so a deploy ahead of the migration breaks
   // no request and the table is NOT a `table` entry. It is listed for its lock, exactly as 0128's

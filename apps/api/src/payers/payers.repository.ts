@@ -11,12 +11,11 @@ import { DATABASE } from "../database/database.module";
 import { PiiCryptoService } from "../common/pii-crypto.service";
 
 /**
- * The pepper version that produced a row's `password_hash` (#2497). Today only v1
- * exists (the `password-v1` scrypt token); an unexpected version fails closed at
- * verify time, and a future v2 rehashes on successful verify (mirrors the worker-PIN
- * `CURRENT_PIN_PEPPER_VERSION` pattern).
+ * The pepper version that produced a row's `password_hash` (#2497). Defined once in
+ * `common/password-policy.ts` (shared with the admin password door, migration 0144) and
+ * re-exported here so every existing payer import keeps resolving unchanged.
  */
-export const CURRENT_PASSWORD_PEPPER_VERSION = 1;
+export { CURRENT_PASSWORD_PEPPER_VERSION } from "../common/password-policy";
 
 export interface CreatePayerInput {
   role: PayerRole;

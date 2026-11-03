@@ -7,6 +7,7 @@ import { describeAdminActionError } from "../../../lib/describe-admin-error";
 import { ADMIN_ROLES, ROLE_LABELS, type AdminRole } from "../../../lib/auth/capabilities";
 import { shortId } from "../../../lib/format";
 import type { AdminActionOutcome } from "../../../lib/admin-action-result";
+import { PASSWORD_POLICY_ERROR, newPasswordSchema } from "../../../lib/password-policy";
 
 /**
  * Admin-user lifecycle actions (`manage_admins`, super_admin only server-side —
@@ -61,6 +62,66 @@ export async function inviteAdminAction(input: {
       acceptExpiresAt: res.expires_at,
     };
   } catch (err) {
+    return { ok: false, error: describeAdminActionError(err) };
+  }
+}
+
+/**
+ * ADR-0060 A6 — create an admin directly, with a temporary password: `POST /admin/admins/direct`
+ * (`manage_admins`). The account is ACTIVE at once, must replace the password at its first
+ * sign-in, and starts with two-step verification off.
+ *
+ * This is the onboarding path that works without email delivery: the creator hands the
+ * temporary password over privately. The password goes to the API and nowhere else — it is not
+ * echoed in the result, so the banner (and anything that ever logs an outcome) never holds it.
+ */
+const createInputSchema = z.object({
+  email: emailSchema,
+  name: z.string().trim().min(1).max(100),
+  role: roleEnum,
+  temporaryPassword: newPasswordSchema,
+});
+const createResultSchema = z.object({ admin_id: z.string().min(1) });
+
+export async function createAdminAction(input: {
+  email: string;
+  name: string;
+  role: AdminRole;
+  temporaryPassword: string;
+}): Promise<AdminActionOutcome> {
+  const parsed = createInputSchema.safeParse(input);
+  if (!parsed.success) {
+    const passwordOnly = parsed.error.issues.every((i) => i.path[0] === "temporaryPassword");
+    return {
+      ok: false,
+      error: passwordOnly
+        ? PASSWORD_POLICY_ERROR
+        : "Enter a valid work email and a full name, choose a role, and set a temporary password.",
+    };
+  }
+
+  try {
+    const res = await adminFetch("/admin/admins/direct", {
+      method: "POST",
+      body: {
+        email: parsed.data.email,
+        name: parsed.data.name,
+        role: parsed.data.role,
+        temporary_password: parsed.data.temporaryPassword,
+      },
+      schema: createResultSchema,
+    });
+    return {
+      ok: true,
+      changed: true,
+      message:
+        `Created ${shortId(res.admin_id)} as ${ROLE_LABELS[parsed.data.role]}. Share the temporary ` +
+        "password with them privately — never in the same message as the email address. At " +
+        "their first sign-in they must choose their own password; they can then turn on " +
+        "two-step verification from their Account page.",
+    };
+  } catch (err) {
+    // 409 = the email already belongs to an admin; its reason is shown as the server wrote it.
     return { ok: false, error: describeAdminActionError(err) };
   }
 }

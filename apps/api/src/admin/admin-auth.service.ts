@@ -1,4 +1,4 @@
-import { Inject, Injectable, UnauthorizedException } from "@nestjs/common";
+import { ConflictException, Inject, Injectable, UnauthorizedException } from "@nestjs/common";
 import type { ServerConfig } from "@badabhai/config";
 import type { AdminUser } from "@badabhai/db";
 import { SERVER_CONFIG } from "../config/config.module";
@@ -9,6 +9,11 @@ import { AdminOtpService } from "./admin-otp.service";
 import { AdminInviteService } from "./admin-invite.service";
 import { AdminSessionService } from "./admin-session.service";
 import { AdminMfaSecretStore } from "./admin-mfa.store";
+import { AdminTrustedDeviceService } from "./admin-trusted-device.service";
+import { AdminAttemptLockoutService } from "./admin-attempt-lockout.service";
+import { passwordEpochOf } from "./admin-credential-epoch";
+import { ADMIN_ACTION_CODES } from "./admin-actions.service";
+import { emitAdminAccountAction } from "./admin-account-event";
 import { generateTotpEnrollment, verifyTotp } from "./admin-mfa";
 import type {
   AdminLoginRequestDto,
@@ -20,19 +25,26 @@ import type {
   AdminMfaRequiredResponse,
   AdminSessionResponse,
   AdminRefreshResponse,
+  AdminAccountFlags,
 } from "./admin-auth.dto";
+
+/** 409 copy when an emailed-code sign-in meets an account that must replace its temporary password. */
+export const MUST_CHANGE_VIA_PASSWORD =
+  "Sign in with your password to replace the temporary one first, or use Forgot password";
 
 /**
  * Admin auth orchestration (ADR-0025 ADMIN-1) — the login flow for the 4th principal:
- *   request code (no-enumeration) → verify code → **MFA gate** → mint session.
+ *   first factor (emailed code, or — migration 0144 — a password) → **MFA gate** → session.
  *
- * MUST-FIX #1 (MFA enforced server-side AT SESSION-MINT for ALL roles — owner OQ-1): a
- * verified-OTP admin does NOT get a full session unless the second factor is satisfied.
- *   - A `mfa_enrolled = false` admin (any role) gets ONLY an enrollment step (a TOTP secret
- *     to set up) — NEVER a session.
- *   - An enrolled admin must pass a TOTP step (POST /admin/mfa/verify) before a session is minted.
- *   - When ADMIN_MFA_REQUIRED is false (non-default), the OTP-verified path mints directly —
- *     but the default (and the owner decision) is MFA for ALL roles.
+ * THE MFA GATE (`gateMfaThenMaybeMint`, shared by BOTH first factors). Must-fix #1 originally
+ * made TOTP mandatory for every role; owner AMENDMENT 1 (2026-11-03) made it OPTIONAL, PER
+ * ADMIN (`admin_users.mfa_enabled`, default off, switched from the Account page):
+ *   - ADMIN_MFA_REQUIRED=false (config) → two-step off for everyone: mint after the first factor.
+ *   - `mfa_enabled = false` → mint after the first factor. This is now the DEFAULT path.
+ *   - `mfa_enabled = true`  → a valid "trusted device" mints; otherwise NO session — an
+ *     un-enrolled admin gets an enrolment step, an enrolled one a TOTP step (POST
+ *     /admin/mfa/verify). The second factor stays enforced SERVER-SIDE at session-mint for
+ *     every admin who has it on.
  * STATUS-GATING: only an `'active'` admin authenticates; `'pending'` (invited, not activated)
  * and `'suspended'` admins authenticate to NOTHING — they get the SAME neutral OTP-failure
  * response (no oracle), exactly as an unknown email does.
@@ -58,6 +70,11 @@ export class AdminAuthService {
     // Needed for exactly one thing here: hashing a presented accept token so the raw value is
     // never compared, logged, or held beyond the lookup.
     private readonly invites: AdminInviteService,
+    // 0144 — "trust this device": consulted at the MFA gate only when a token is presented, and
+    // asked to issue one only on a TOTP success with `trust_device`.
+    private readonly devices: AdminTrustedDeviceService,
+    // Security review B1 — the per-admin TOTP attempt cap on POST /admin/mfa/verify.
+    private readonly lockout: AdminAttemptLockoutService,
   ) {}
 
   /** POST /admin/login/request — issue a code; NO-ENUMERATION across known/unknown emails. */
@@ -95,7 +112,15 @@ export class AdminAuthService {
     // nothing (neutral).
     const account = await this.requireActiveAccount(emailHash);
 
-    return this.gateMfaThenMaybeMint(account, ctx);
+    // ADR-0060 — an account still on the TEMPORARY password a super_admin chose must replace it
+    // through the password door before any other way in. Without this, the emailed code skips
+    // the forced change and the creator keeps knowing a live password for this account. Safe to
+    // say plainly: the caller has just proven control of the mailbox, so nothing leaks.
+    if (account.mustChangePassword) {
+      throw new ConflictException(MUST_CHANGE_VIA_PASSWORD);
+    }
+
+    return this.gateMfaThenMaybeMint(account, ctx, dto.device_token);
   }
 
   /**
@@ -106,38 +131,74 @@ export class AdminAuthService {
    * provisioned on the OTP-gated enrollment branch of `verifyLogin`, so possessing a valid
    * TOTP already implies a prior OTP-gated enrollment for this account.
    *
-   * NOTE: this step is independently rate-limited at the controller (per-IP cap) like the OTP
-   * routes. A future hardening can bind it to a short-lived OTP-pending marker minted by
-   * `verifyLogin` (an `admin_mfa_pending:<emailHash>` Redis flag) to require OTP success in the
-   * SAME flow; the seam is here. ADMIN-1 ships the secret-possession binding above.
+   * RATE LIMITS: the shared per-IP cap at the controller, the single-use OTP-pending marker (one
+   * guess per first-factor success), and — the one that actually bounds a leaked first factor —
+   * a per-ADMIN failure counter (`mfa_login` scope) that only a correct TOTP clears.
    */
   async verifyMfa(dto: AdminMfaVerifyDto, ctx: RequestContext): Promise<AdminSessionResponse> {
     const emailHash = this.admins.emailHash(dto.email);
     const account = await this.requireActiveAccount(emailHash);
 
+    // PER-ADMIN TOTP ATTEMPT CAP (security review B1), checked BEFORE the marker is consumed.
+    // The marker below allows one guess per first-factor success — but a correct password
+    // re-mints it every time, so on its own it bounds nothing: a leaked password became an
+    // unlimited "password → one TOTP guess" loop. This counter is the one no first factor can
+    // reset (only a correct TOTP clears it). Locked → the SAME neutral 401; Redis error → 503.
+    if (await this.lockout.isLockedOut("mfa_login", account.id)) {
+      throw new UnauthorizedException("Incorrect or expired code");
+    }
+
     // SINGLE-FLOW binding: this admin must have passed OTP in the SAME (recent) flow — the
     // marker is set by verifyLogin's MFA branch and consumed (single-use) here. Absent/expired
     // → fail closed (same 401), so a leaked TOTP secret alone cannot mint a session without a
     // fresh OTP success. Consume BEFORE the TOTP check so a wrong code still burns the marker.
-    const otpPassed = await this.mfaStore.consumeOtpPending(account.id);
+    const otpPassed = await this.mfaStore.consumeOtpPending(account.id, passwordEpochOf(account.passwordSetAt));
     if (!otpPassed) throw new UnauthorizedException("Incorrect or expired code");
 
+    // No stored secret → cannot verify a second factor → fail closed (same 401 as a wrong code),
+    // and it COUNTS: from the outside it is a guess that did not land.
     const secret = await this.mfaStore.load(account.id);
-    // No stored secret → cannot verify a second factor → fail closed (same 401 as a wrong code).
-    if (!secret) throw new UnauthorizedException("Incorrect or expired code");
-
-    const ok = verifyTotp(secret, dto.code);
-    if (!ok) throw new UnauthorizedException("Incorrect or expired code");
+    if (!secret || !verifyTotp(secret, dto.code)) {
+      await this.lockout.recordFailure("mfa_login", account.id);
+      throw new UnauthorizedException("Incorrect or expired code");
+    }
+    await this.lockout.clear("mfa_login", account.id);
 
     // First successful TOTP also confirms enrollment (idempotent if already enrolled).
     if (!account.mfaEnrolled) await this.admins.setMfaEnrolled(account.id, true);
 
-    return this.mintSession(account, ctx);
+    const session = await this.mintSession(account, ctx);
+    if (!dto.trust_device) return session;
+    return { ...session, ...(await this.trustThisDevice(account, ctx)) };
   }
 
-  /** POST /admin/refresh — mint a fresh JWT for the already-validated admin+session. */
-  async refresh(adminId: string, sid: string, role: AdminUser["role"]): Promise<AdminRefreshResponse> {
-    const fresh = await this.sessions.mint(adminId, sid, role);
+  /**
+   * 0144 — the account flags `GET /admin/me` adds, read from the LIVE row (the guard already
+   * proved the session; a row that vanished in between is the same neutral 401 the guard gives).
+   * Booleans only — the hash, the seed and the timestamps never leave this method.
+   */
+  async accountFlags(adminId: string): Promise<AdminAccountFlags> {
+    const row = await this.admins.findById(adminId);
+    if (!row) throw new UnauthorizedException("Invalid or expired admin session");
+    return {
+      has_password: row.passwordHash !== null,
+      must_change_password: row.mustChangePassword,
+      mfa_enabled: row.mfaEnabled,
+    };
+  }
+
+  /**
+   * POST /admin/refresh — mint a fresh JWT for the already-validated admin+session.
+   * `passwordEpoch` is the one the guard validated this request against (B2) — deliberately NOT
+   * re-read here, so a refresh racing a password reset stays on the dead epoch.
+   */
+  async refresh(
+    adminId: string,
+    sid: string,
+    role: AdminUser["role"],
+    passwordEpoch: number,
+  ): Promise<AdminRefreshResponse> {
+    const fresh = await this.sessions.mint(adminId, sid, role, passwordEpoch);
     return {
       access_token: fresh.token,
       token_type: "Bearer",
@@ -208,24 +269,34 @@ export class AdminAuthService {
   // ---------------------------------------------------------------------------
 
   /**
-   * The MFA gate (must-fix #1). Decides what a verified-OTP admin gets:
-   *   - MFA NOT required (config off) → mint a session directly.
-   *   - MFA required + NOT enrolled → an enrollment step ONLY (a fresh TOTP secret), NO session.
-   *   - MFA required + enrolled → `mfa_required` with no enrollment material; the admin must
+   * The MFA gate — what an admin who has JUST passed a first factor (emailed code via
+   * `verifyLogin`, or a password via `AdminPasswordService`) gets. The caller has already
+   * proven the factor AND that the account is active; this method never re-checks either.
+   *   - ADMIN_MFA_REQUIRED false (config: two-step off for everyone) → mint a session.
+   *   - the admin's own two-step is OFF (`mfa_enabled = false`, Amendment 1) → mint a session.
+   *   - two-step ON + a valid trusted-device token for THIS admin → mint (TOTP skipped; 0144).
+   *   - two-step ON + NOT enrolled → an enrollment step ONLY (a fresh TOTP secret), NO session.
+   *   - two-step ON + enrolled → `mfa_required` with no enrollment material; the admin must
    *     POST /admin/mfa/verify to complete and get a session. NO session is minted here.
-   * In NO branch does a `mfa_enrolled=false` admin (any role) receive a full session.
+   * For an admin with two-step ON, no branch mints without the TOTP or a trusted device.
    */
-  private async gateMfaThenMaybeMint(
+  async gateMfaThenMaybeMint(
     account: AdminUser,
     ctx: RequestContext,
+    deviceToken?: string,
   ): Promise<AdminMfaRequiredResponse | AdminSessionResponse> {
-    if (!this.config.ADMIN_MFA_REQUIRED) {
+    if (!this.config.ADMIN_MFA_REQUIRED || !account.mfaEnabled) {
+      return this.mintSession(account, ctx);
+    }
+
+    // Consulted ONLY when the browser presented one — no token, no Redis read.
+    if (deviceToken !== undefined && (await this.devices.isTrusted(deviceToken, account))) {
       return this.mintSession(account, ctx);
     }
 
     // Mark OTP-passed for the single-flow OTP→MFA binding (consumed by verifyMfa). Set on BOTH
     // MFA branches so the subsequent TOTP step is reachable only after a fresh OTP success.
-    await this.mfaStore.markOtpPassed(account.id);
+    await this.mfaStore.markOtpPassed(account.id, passwordEpochOf(account.passwordSetAt));
 
     if (!account.mfaEnrolled) {
       // Enrollment step ONLY — provision a fresh TOTP secret (account label = the opaque admin
@@ -243,9 +314,40 @@ export class AdminAuthService {
     return { status: "mfa_required", needs_enrollment: false };
   }
 
-  /** Mint the session + emit `admin.session_started` (PII-free). Touch last_login (best-effort). */
-  private async mintSession(account: AdminUser, ctx: RequestContext): Promise<AdminSessionResponse> {
-    const session = await this.sessions.create(account.id, account.role);
+  /**
+   * 0144 — issue a trusted-device token after a TOTP success with `trust_device`, and record it
+   * (`admin_device_trusted`, value-free). Nothing is issued — and nothing evented — when the
+   * feature is off (ADMIN_TRUSTED_DEVICE_DAYS=0) or Redis refused the write: the session is
+   * already minted, and an un-trusted browser is simply asked for TOTP next time.
+   */
+  private async trustThisDevice(
+    account: AdminUser,
+    ctx: RequestContext,
+  ): Promise<Pick<AdminSessionResponse, "device_token" | "device_expires_in_seconds">> {
+    const device = await this.devices.issue(account);
+    if (!device) return {};
+    await emitAdminAccountAction(this.events, {
+      actorAdminId: account.id,
+      targetAdminId: account.id,
+      actionCode: ADMIN_ACTION_CODES.admin_device_trusted,
+      ctx,
+    });
+    return { device_token: device.token, device_expires_in_seconds: device.expiresInSeconds };
+  }
+
+  /**
+   * Mint the session + emit `admin.session_started` (PII-free). Touch last_login (best-effort).
+   * Public for `AdminPasswordService` (0144), whose password change hands back a FRESH session:
+   * every session start, whatever the door, goes through this one method and this one event.
+   */
+  async mintSession(account: AdminUser, ctx: RequestContext): Promise<AdminSessionResponse> {
+    // B2 — the session is bound to THIS row's credential epoch. For the change-password path the
+    // caller passes the UPDATED row, so the fresh session carries the NEW epoch.
+    const session = await this.sessions.create(
+      account.id,
+      account.role,
+      passwordEpochOf(account.passwordSetAt),
+    );
     await this.events.emit({
       event_name: "admin.session_started",
       actor: { actor_type: "admin", actor_id: account.id },

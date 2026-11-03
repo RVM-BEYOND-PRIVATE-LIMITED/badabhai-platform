@@ -42,6 +42,7 @@ vi.mock("../../../lib/entities", async (importOriginal) => ({
 
 // Client Components (useState / useTransition), stubbed so the page renders in this harness.
 vi.mock("./invite-admin-form", () => ({ InviteAdminForm: () => null }));
+vi.mock("./create-admin-form", () => ({ CreateAdminForm: () => null }));
 vi.mock("./admin-row-actions", () => ({ AdminRowActions: () => null }));
 
 const { default: AdminsPage } = await import("./page");
@@ -197,11 +198,15 @@ describe("a directory read that failed", () => {
 });
 
 describe("the header (owner ruling 2026-10-01)", () => {
-  it("puts the page's own action first: Invite an admin, to the form at the foot", async () => {
+  it("puts the page's own actions first: Create (primary), then Invite, to the forms at the foot", async () => {
+    // ADR-0060 A6: creating with a temporary password works with no email delivery configured,
+    // which an invite link does not — so it is the primary action, and inviting stays beside it.
     stub.capabilities = ["manage_admins", "read_events"];
     const out = await render();
     const actions = out.slice(out.indexOf('<div class="page__actions">'));
+    expect(actions).toMatch(/<a class="btn btn--primary" href="#ad-create">/);
     expect(actions).toContain('href="#ad-invite"');
+    expect(actions.indexOf("Create an admin")).toBeLessThan(actions.indexOf("Invite an admin"));
     expect(actions.indexOf("Invite an admin")).toBeLessThan(
       actions.indexOf("View all admin actions"),
     );

@@ -731,12 +731,17 @@ already sets for every other long option list.
 
 | Method | Route | Purpose | Auth |
 |--------|-------|---------|------|
-| `POST /admin/login/request` | Request admin login | None (public, IP-limited) |
-| `POST /admin/login/verify` | Verify + MFA required | None (public, IP-limited) |
-| `POST /admin/mfa/verify` | Verify TOTP, mint session | None (public, IP-limited) |
+| `POST /admin/login/password` | Email + password sign-in (ADR-0060); temp-password change step; session, or TOTP when the admin's two-step is on | None (public, IP-limited + per-account lockout) |
+| `POST /admin/login/request` | Request an emailed login code | None (public, IP-limited) |
+| `POST /admin/login/verify` | Verify the emailed code; session, or TOTP when two-step is on | None (public, IP-limited) |
+| `POST /admin/mfa/verify` | Verify TOTP, mint session; optional "trust this device" | None (public, IP-limited) |
+| `POST /admin/password/forgot` | Email a password-reset code (no enumeration) | None (public, IP-limited) |
+| `POST /admin/password/reset` | Code + new password; signs out every session, never signs in | None (public, IP-limited) |
 | `POST /admin/refresh` | Refresh session | AdminAuthGuard |
 | `POST /admin/logout` | Revoke session | AdminAuthGuard |
-| `GET /admin/me` | Admin identity + role | AdminAuthGuard |
+| `GET /admin/me` | Admin identity + role + `has_password` / `must_change_password` / `mfa_enabled` | AdminAuthGuard |
+| `POST /admin/me/password` | Set or change own password; returns a fresh session | AdminAuthGuard |
+| `POST /admin/me/mfa/enable` · `/confirm` · `/disable` | Own two-step switch (QR → code to turn on; current code to turn off) | AdminAuthGuard |
 
 ## 5.31 Admin Action APIs
 
@@ -749,6 +754,7 @@ already sets for every other long option list.
 | `POST /admin/workers/:id/flag` | Flag worker | AdminAuthGuard | flag_worker |
 | `POST /admin/workers/:id/unflag` | Unflag worker | AdminAuthGuard | flag_worker |
 | `POST /admin/admins` | Invite new admin | AdminAuthGuard | manage_admins |
+| `POST /admin/admins/direct` | Create an active admin with a temporary password (must change at first sign-in; ADR-0060) | AdminAuthGuard | manage_admins |
 | `PATCH /admin/admins/:id/role` | Change admin role | AdminAuthGuard | manage_admins |
 | `POST /admin/admins/:id/mfa/reset` | Reset admin MFA | AdminAuthGuard | manage_admins |
 | `POST /admin/admins/:id/suspend` | Suspend admin | AdminAuthGuard | manage_admins |

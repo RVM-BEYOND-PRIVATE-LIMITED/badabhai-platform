@@ -87,7 +87,7 @@ export function InviteAdminForm({
         <div className="form-actions">
           <AdminActionButton
             label="Invite an admin"
-            icon="user-plus"
+            icon={ACTION_ICON.send}
             confirmLabel={`Confirm invite for ${email || "this address"}?`}
             variant="primary"
             disabled={!emailValid}

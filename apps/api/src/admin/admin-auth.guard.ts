@@ -22,11 +22,21 @@ export interface AuthenticatedAdmin {
   sid: string;
 }
 
+/**
+ * What {@link AdminAuthGuard} actually attaches: the identity PLUS the credential epoch the
+ * session was validated against (security review B2 — `admin-credential-epoch.ts`). A refresh
+ * re-mints with exactly this epoch, never a re-read one, so a refresh that lands after a password
+ * reset cannot carry the old session onto the new epoch. A number, not PII.
+ */
+export interface AuthenticatedAdminSession extends AuthenticatedAdmin {
+  passwordEpoch: number;
+}
+
 declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace
   namespace Express {
     interface Request {
-      admin?: AuthenticatedAdmin;
+      admin?: AuthenticatedAdminSession;
     }
   }
 }
@@ -35,7 +45,7 @@ declare global {
  * Guards admin-only routes (ADR-0025 ADMIN-1) — the 4th, highly-privileged principal.
  * Reads `Authorization: Bearer <jwt>`, validates the ADMIN session (audience-pinned
  * `typ:"admin"`, own Redis namespace, signed with the admin's OWN secret), and attaches
- * `req.admin = { id, role, sid }`. Missing/invalid → 401 (fail-closed).
+ * `req.admin = { id, role, sid, passwordEpoch }`. Missing/invalid → 401 (fail-closed).
  *
  * ISOLATION: this is a DISTINCT principal from the worker session, the payer session, and the
  * ops `InternalServiceGuard`. A worker/payer token can NEVER satisfy this guard (different JWT
@@ -64,11 +74,21 @@ export class AdminAuthGuard implements CanActivate {
     const validated = await this.session.validateAndTouch(token);
     if (!validated) throw new UnauthorizedException("Invalid or expired admin session");
 
-    req.admin = { id: validated.adminId, role: validated.role, sid: validated.sid };
+    req.admin = {
+      id: validated.adminId,
+      role: validated.role,
+      sid: validated.sid,
+      passwordEpoch: validated.passwordEpoch,
+    };
 
     const fullTtl = this.config.SESSION_TTL_DAYS * 86400;
     if (validated.remainingSeconds < fullTtl / 2) {
-      const fresh = await this.session.mint(validated.adminId, validated.sid, validated.role);
+      const fresh = await this.session.mint(
+        validated.adminId,
+        validated.sid,
+        validated.role,
+        validated.passwordEpoch,
+      );
       res.setHeader("x-session-token", fresh.token);
     }
 
@@ -86,10 +106,10 @@ export class AdminAuthGuard implements CanActivate {
 
 /**
  * Param decorator surfacing the authenticated admin attached by {@link AdminAuthGuard}.
- * Use only on guarded routes. Exposes `{ id, role, sid }` — NEVER PII.
+ * Use only on guarded routes. Exposes `{ id, role, sid, passwordEpoch }` — NEVER PII.
  */
 export const CurrentAdmin = createParamDecorator(
-  (_data: unknown, ctx: ExecutionContext): AuthenticatedAdmin => {
+  (_data: unknown, ctx: ExecutionContext): AuthenticatedAdminSession => {
     const req = ctx.switchToHttp().getRequest<Request>();
     if (!req.admin) {
       throw new UnauthorizedException("No authenticated admin on request");

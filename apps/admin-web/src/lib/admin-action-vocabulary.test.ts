@@ -5,6 +5,8 @@ import {
   WORKER_FLAG_REASON_CODES,
   WORKER_FLAG_REASON_LABELS,
   ADMIN_CREDIT_GRANT_MAX,
+  ADMIN_ACTION_CODE_LABELS,
+  adminActionLabel,
 } from "./admin-action-vocabulary";
 
 /**
@@ -43,5 +45,34 @@ describe("worker flag reason codes", () => {
     for (const code of WORKER_FLAG_REASON_CODES) {
       expect(WORKER_FLAG_REASON_LABELS[code]).toBeTruthy();
     }
+  });
+});
+
+describe("admin.action_performed action codes", () => {
+  it("names ADR-0060's six new codes", () => {
+    for (const code of [
+      "admin_created",
+      "admin_password_set",
+      "admin_password_reset",
+      "admin_device_trusted",
+      "admin_mfa_enabled",
+      "admin_mfa_disabled",
+    ]) {
+      expect(ADMIN_ACTION_CODE_LABELS[code], code).toBeTruthy();
+      expect(adminActionLabel(code)).not.toBe(code);
+    }
+  });
+
+  it("still names the codes that predate it", () => {
+    for (const code of ["admin_invited", "admin_suspended", "admin_mfa_reset", "credits_granted"]) {
+      expect(adminActionLabel(code)).not.toBe(code);
+    }
+  });
+
+  it("falls back to the skill-decision sentences, then to the raw code", () => {
+    expect(adminActionLabel("skill_candidate_rejected")).toBe("Rejected");
+    expect(adminActionLabel("some_future_code")).toBe("some_future_code");
+    // An inherited key is not a label.
+    expect(adminActionLabel("toString")).toBe("toString");
   });
 });

@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, eq, gt, ne, sql } from "drizzle-orm";
+import { and, eq, gt, isNotNull, ne, sql } from "drizzle-orm";
 import {
   type Database,
   adminUsers,
@@ -20,6 +20,32 @@ export interface CreateAdminInput {
    */
   inviteTokenHash: string;
   inviteExpiresAt: Date;
+}
+
+/**
+ * A password write (migration 0144). The RAW password never reaches this layer — the service
+ * hashes first, exactly as the payer door does (#2497).
+ */
+export interface AdminPasswordWrite {
+  /** The self-encoded scrypt token from `PiiCryptoService.hashPassword`. */
+  hash: string;
+  pepperVersion: number;
+  /**
+   * When it was set. Also the credential epoch: every admin JWT carries it as `pwe` and
+   * `AdminSessionService` refuses one that does not EQUAL the row, so a write here signs out
+   * every older session. The caller mints its fresh session from the row this write RETURNS,
+   * never from its own clock, so the two always agree to the millisecond.
+   */
+  setAt: Date;
+}
+
+/** A super_admin creating an ACTIVE admin directly with a temporary password (0144). */
+export interface CreateActiveAdminInput {
+  role: AdminRole;
+  email: string;
+  /** Display name — encrypted at rest here, like the email (ADR-0004). */
+  name: string;
+  password: AdminPasswordWrite;
 }
 
 /**
@@ -261,6 +287,118 @@ export class AdminRepository {
       .where(eq(adminUsers.id, id))
       .limit(1);
     return row?.mfaSecretEnc ?? null;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Migration 0144 — password sign-in + the per-admin two-step switch. Every write takes a
+  // HASH or a CIPHERTEXT, never a raw password or TOTP seed; every guard lives in the WHERE so
+  // a concurrent change is a no-op (undefined / false), never a silent overwrite.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Create an ACTIVE admin with a temporary password (`POST /admin/admins/direct`), or return
+   * undefined when the email already belongs to ANY admin row (pending, active or suspended) —
+   * `ON CONFLICT (email_hash) DO NOTHING`, for the same #1811 reason as the invite insert: a
+   * raised 23505 would abort the caller's transaction. Born `must_change_password = true` with
+   * no second factor (`mfa_enrolled`/`mfa_enabled` false). Returns the new id only.
+   */
+  async createActiveWithTemporaryPassword(
+    input: CreateActiveAdminInput,
+    tx: Database = this.db,
+  ): Promise<{ id: string } | undefined> {
+    const normEmail = AdminRepository.normEmail(input.email);
+    const [row] = await tx
+      .insert(adminUsers)
+      .values({
+        role: input.role,
+        status: "active" satisfies AdminStatus,
+        emailEnc: this.pii.encrypt(normEmail),
+        emailHash: this.pii.hmac(normEmail),
+        nameEnc: this.pii.encrypt(input.name),
+        passwordHash: input.password.hash,
+        passwordPepperVersion: input.password.pepperVersion,
+        passwordSetAt: input.password.setAt,
+        mustChangePassword: true,
+        mfaEnrolled: false,
+        mfaEnabled: false,
+      })
+      .onConflictDoNothing({ target: adminUsers.emailHash })
+      .returning({ id: adminUsers.id });
+    return row;
+  }
+
+  /**
+   * Store (or replace) an ACTIVE admin's password and clear `must_change_password`. Guarded on
+   * `status = 'active'` so a suspended or pending admin can never be given a password by any
+   * path (a reset racing a suspension loses). Returns the updated row, or undefined when the
+   * guard matched nothing.
+   */
+  async setPassword(
+    id: string,
+    password: AdminPasswordWrite,
+    tx: Database = this.db,
+  ): Promise<AdminUser | undefined> {
+    const [row] = await tx
+      .update(adminUsers)
+      .set({
+        passwordHash: password.hash,
+        passwordPepperVersion: password.pepperVersion,
+        passwordSetAt: password.setAt,
+        mustChangePassword: false,
+        updatedAt: password.setAt,
+      })
+      .where(and(eq(adminUsers.id, id), eq(adminUsers.status, "active")))
+      .returning();
+    return row;
+  }
+
+  /**
+   * Stage a FRESH TOTP seed for an admin switching two-step ON (`POST /admin/me/mfa/enable`):
+   * the ciphertext replaces any previous seed and `mfa_enrolled` drops to false until the
+   * confirm step proves the authenticator works. Guarded on `mfa_enabled = false` — an admin
+   * whose two-step is ON cannot have their live seed swapped from a session alone.
+   */
+  async stageMfaEnrolment(id: string, secretEnc: string, tx: Database = this.db): Promise<boolean> {
+    const rows = await tx
+      .update(adminUsers)
+      .set({ mfaSecretEnc: secretEnc, mfaEnrolled: false, updatedAt: new Date() })
+      .where(and(eq(adminUsers.id, id), eq(adminUsers.mfaEnabled, false)))
+      .returning({ id: adminUsers.id });
+    return rows.length > 0;
+  }
+
+  /**
+   * Switch two-step ON after a confirmed code: `mfa_enrolled` + `mfa_enabled` together, in one
+   * statement. Guarded on a staged seed being present and two-step being OFF, so a double
+   * confirm is a no-op rather than a second event.
+   */
+  async enableMfa(id: string, tx: Database = this.db): Promise<boolean> {
+    const rows = await tx
+      .update(adminUsers)
+      .set({ mfaEnrolled: true, mfaEnabled: true, updatedAt: new Date() })
+      .where(
+        and(
+          eq(adminUsers.id, id),
+          eq(adminUsers.mfaEnabled, false),
+          isNotNull(adminUsers.mfaSecretEnc),
+        ),
+      )
+      .returning({ id: adminUsers.id });
+    return rows.length > 0;
+  }
+
+  /**
+   * Switch two-step OFF: enabled, enrolled AND the seed go together, so re-enabling always shows
+   * a new QR and every trusted device (fingerprinted on the seed ciphertext) dies with it.
+   * Guarded on `mfa_enabled = true` (a double disable is a no-op).
+   */
+  async disableMfa(id: string, tx: Database = this.db): Promise<boolean> {
+    const rows = await tx
+      .update(adminUsers)
+      .set({ mfaEnabled: false, mfaEnrolled: false, mfaSecretEnc: null, updatedAt: new Date() })
+      .where(and(eq(adminUsers.id, id), eq(adminUsers.mfaEnabled, true)))
+      .returning({ id: adminUsers.id });
+    return rows.length > 0;
   }
 
   /** Stamp last_login_at (observability only). Best-effort — never blocks a login. */

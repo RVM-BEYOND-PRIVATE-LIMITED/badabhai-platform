@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { e164PhoneSchema } from "@badabhai/validators";
 import type { PayerRole } from "@badabhai/db";
+import { PasswordPolicySchema } from "../common/password-policy";
 
 /**
  * Payer auth DTOs (ADR-0019 Decision B). The login identifier is an EMAIL (the keyed-hash
@@ -52,14 +53,11 @@ export type PayerLoginVerifyDto = z.infer<typeof PayerLoginVerifySchema>;
 
 /**
  * #2497 — `POST /payer/password/set` body. The SERVER is the policy authority (the
- * client mirrors): 8–128 chars with at least one letter and one digit.
+ * client mirrors): 8–128 chars with at least one letter and one digit — the ONE shared
+ * {@link PasswordPolicySchema} (also the admin password door's, migration 0144).
  */
 export const PayerPasswordSetSchema = z.object({
-  password: z
-    .string()
-    .min(8, "Password must be at least 8 characters")
-    .max(128, "Password must be at most 128 characters")
-    .regex(/^(?=.*[A-Za-z])(?=.*\d).+$/, "Password must include at least one letter and one digit"),
+  password: PasswordPolicySchema,
 });
 export type PayerPasswordSetDto = z.infer<typeof PayerPasswordSetSchema>;
 

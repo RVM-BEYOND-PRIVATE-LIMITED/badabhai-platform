@@ -31,11 +31,13 @@ function setup(account: { status: string } | undefined) {
     issueWithoutDelivery: vi.fn(async () => ({ resendInSeconds: 30 })),
   } as unknown as AdminOtpService;
 
-  // Constructor order: (config, admins, otp, sessions, mfaStore, events, invites).
+  // Constructor order: (config, admins, otp, sessions, mfaStore, events, invites, devices, lockout).
   const svc = new AdminAuthService(
     { ADMIN_OTP_RESEND_COOLDOWN_SECONDS: 30 } as never,
     admins,
     otp,
+    {} as never,
+    {} as never,
     {} as never,
     {} as never,
     {} as never,

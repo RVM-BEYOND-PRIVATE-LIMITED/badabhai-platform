@@ -150,6 +150,23 @@ describe("AdminModule wiring (DI regression guard)", () => {
     expect(queueModules.length, "AdminModule must register the BullMQ queue").toBeGreaterThan(0);
   });
 
+  it("provides every 0144 password / two-step / provisioning dependency the two controllers inject", () => {
+    // AdminAuthController now injects AdminPasswordService + AdminMfaSelfService, and
+    // AdminActionsController injects AdminProvisioningService; those in turn need the lockout +
+    // trusted-device providers. Each missing registration is a BOOT failure that typecheck, lint
+    // and every hand-constructed unit test miss.
+    const tokens = providerTokens();
+    for (const name of [
+      "AdminPasswordService",
+      "AdminMfaSelfService",
+      "AdminProvisioningService",
+      "AdminAttemptLockoutService",
+      "AdminTrustedDeviceService",
+    ]) {
+      expect(tokens, name).toContain(name);
+    }
+  });
+
   it("the providers reference the real classes (no accidental shadowing)", () => {
     const providers = getMeta("providers", AdminModule);
     expect(providers).toContain(AdminRepository);

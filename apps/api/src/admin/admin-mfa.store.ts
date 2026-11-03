@@ -39,8 +39,15 @@ export class AdminMfaSecretStore {
     private readonly admins: AdminRepository,
   ) {}
 
-  private static pendingKey(adminId: string): string {
-    return `admin_mfa_pending:${adminId}`;
+  /**
+   * ADR-0060: the marker key carries the admin's credential epoch (`password_set_at` ms, 0 when
+   * none). A password reset/change moves the epoch, so a marker earned under the OLD password
+   * sits under a key the TOTP step never looks up — even if it was written after the reset
+   * committed (a first factor that read the row just before the commit). Race-free by
+   * construction: the invariant lives in the key, not in a clear-on-write that can lose a race.
+   */
+  private static pendingKey(adminId: string, epoch: number): string {
+    return `admin_mfa_pending:${adminId}:${epoch}`;
   }
 
   private async client(): Promise<RedisKvClient> {
@@ -50,6 +57,16 @@ export class AdminMfaSecretStore {
   /** Persist a TOTP secret ENCRYPTED (overwrites any prior, e.g. a re-enroll). */
   async save(adminId: string, secret: string): Promise<void> {
     await this.admins.setMfaSecret(adminId, this.pii.encrypt(secret));
+  }
+
+  /**
+   * 0144 (Amendment 1) — stage a FRESH seed for an admin switching two-step ON from the Account
+   * page: encrypted here (the one place a seed is encrypted), written with `mfa_enrolled=false`
+   * until the confirm step proves it. Returns false when the admin's two-step is already ON (the
+   * repository guard) — a live seed is never swapped from a session alone.
+   */
+  async stageEnrolment(adminId: string, secret: string): Promise<boolean> {
+    return this.admins.stageMfaEnrolment(adminId, this.pii.encrypt(secret));
   }
 
   /** Load + decrypt an admin's TOTP secret, or null if none/decrypt fails (fail-closed). */
@@ -85,19 +102,19 @@ export class AdminMfaSecretStore {
    * so a leaked TOTP secret alone cannot mint a session without a fresh OTP success in the same
    * flow. TTL-bounded so a stale marker cannot be replayed.
    */
-  async markOtpPassed(adminId: string): Promise<void> {
+  async markOtpPassed(adminId: string, epoch: number): Promise<void> {
     const redis = await this.client();
-    await redis.setex(AdminMfaSecretStore.pendingKey(adminId), MFA_PENDING_TTL_SECONDS, "1");
+    await redis.setex(AdminMfaSecretStore.pendingKey(adminId, epoch), MFA_PENDING_TTL_SECONDS, "1");
   }
 
   /**
    * Atomically CONSUME the OTP-pending marker. Returns true only if it was present (single-use:
    * the marker is deleted). Fail-closed: a Redis error returns false (deny the MFA step).
    */
-  async consumeOtpPending(adminId: string): Promise<boolean> {
+  async consumeOtpPending(adminId: string, epoch: number): Promise<boolean> {
     try {
       const redis = await this.client();
-      const removed = await redis.del(AdminMfaSecretStore.pendingKey(adminId));
+      const removed = await redis.del(AdminMfaSecretStore.pendingKey(adminId, epoch));
       return removed > 0;
     } catch {
       return false;

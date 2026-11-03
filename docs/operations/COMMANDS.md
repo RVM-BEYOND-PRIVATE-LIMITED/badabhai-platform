@@ -99,16 +99,25 @@ Extra fields in your output are not a fault:
 
 #### Admin login gotchas
 
-Admin auth is email → OTP → **TOTP MFA**
+Admin sign-in is **email + password**, then the authenticator (TOTP) code **only for admins
+who switched two-step verification on** (ADR-0060). The old email-code login
+(email → emailed code → TOTP if on) still works for admins with no password
 ([`apps/api/src/admin/admin-auth.controller.ts`](../../apps/api/src/admin/admin-auth.controller.ts)).
 
-- **Never set `ADMIN_MFA_REQUIRED=false` to skip MFA.** It defaults to `true`
-  ([`packages/config/src/server.ts`](../../packages/config/src/server.ts)) and
-  turning it off makes the API mint a session directly at
-  [`admin-auth.service.ts`](../../apps/api/src/admin/admin-auth.service.ts) — but
-  `apps/admin-web` has **no reference to that variable anywhere in `src`**, so its login
-  UI still walks the MFA step and breaks. It does not become a bypass; it becomes a
-  broken screen.
+- **Two-step verification is per admin, and starts OFF.** Each admin turns it on or off on
+  the portal's Account page. Turning it on shows a QR code; turning it off needs a current
+  code. `ADMIN_MFA_REQUIRED` (default `true`) now means "honour each admin's switch";
+  `false` turns the authenticator off for everyone.
+- **Forgot password:** "Forgot password?" on `/login` → code by email → new password. It
+  never signs you in and never skips the authenticator. It signs out every session.
+- **Locked out after wrong passwords:** 5 failures lock that account for 15 minutes
+  (`ADMIN_PASSWORD_MAX_ATTEMPTS` / `ADMIN_PASSWORD_LOCKOUT_SECONDS`). The error stays the
+  neutral "Incorrect email or password", so wait out the window or use Forgot password.
+- **"Trust this device for 30 days"** (`ADMIN_TRUSTED_DEVICE_DAYS`, `0` = off) skips the
+  authenticator on that browser. Any password change or authenticator reset drops it.
+- **New admin without an invite link:** Admins → **Create admin** (super_admin) with email,
+  name, role and a temporary password. Share it privately; they must change it at first
+  sign-in.
 - **Lost/desynced TOTP — use the route, not the CLI.** The ordinary fix is
   `POST /admin/admins/:id/mfa/reset`, called by _another_ super*admin (it refuses a
   self-reset by design). The CLI below is **break-glass only**, for the case where the
