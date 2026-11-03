@@ -38,6 +38,8 @@ const source = (overrides: Partial<AgencyTwinSource> = {}): AgencyTwinSource => 
   requirements: ["ITI Turner"],
   roleKind: "cnc_turner",
   matchSkillIds: [TURNER],
+  tradeLevel: "setter",
+  tradeAnswers: { controller_brand: ["fanuc"] },
   createdAt: CREATED,
   ...overrides,
 });

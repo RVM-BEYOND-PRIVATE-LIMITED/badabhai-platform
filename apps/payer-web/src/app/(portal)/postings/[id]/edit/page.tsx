@@ -1,8 +1,8 @@
 import { notFound, redirect } from "next/navigation";
 import { z } from "zod";
-import { getPostingDetail, listMatchSkills } from "../../../../../lib/payer-api";
+import { getPostingDetail, listMatchSkills, listPostingTrades } from "../../../../../lib/payer-api";
 import { requirePayer } from "../../../../../lib/auth";
-import type { MatchSkillWire } from "../../../../../lib/contracts";
+import type { MatchSkillWire, PostingTradeFormWire } from "../../../../../lib/contracts";
 import { Badge } from "../../../../../components/ds";
 import { PageHeader } from "../../../../../components/page-header";
 import { EditPostingForm } from "./edit-posting-form";
@@ -46,6 +46,15 @@ export default async function EditPostingPage({ params }: { params: Promise<{ id
     matchSkills = [];
   }
 
+  // Migration 0141 — the trade form catalogue; a fetch failure hides the trade fields
+  // rather than blocking an edit of the rest of the posting.
+  let postingTrades: PostingTradeFormWire[] = [];
+  try {
+    postingTrades = await listPostingTrades();
+  } catch {
+    postingTrades = [];
+  }
+
   const { summary, card, description } = detail;
 
   // The page head leads the FORM column, so the card-preview rail starts beside it at the top.
@@ -77,6 +86,7 @@ export default async function EditPostingPage({ params }: { params: Promise<{ id
       postingId={id}
       status={summary.status}
       matchSkills={matchSkills}
+      postingTrades={postingTrades}
       matchSelection={{
         matchSkillIds: detail.matchSkillIds,
         untickedRelatedIds: detail.untickedRelatedIds,
@@ -98,6 +108,8 @@ export default async function EditPostingPage({ params }: { params: Promise<{ id
         neededBy: card.needed_by,
         requirements: card.requirements,
         benefits: card.benefits,
+        tradeLevel: detail.tradeLevel,
+        tradeAnswers: detail.tradeAnswers,
       }}
       lead={lead}
     />

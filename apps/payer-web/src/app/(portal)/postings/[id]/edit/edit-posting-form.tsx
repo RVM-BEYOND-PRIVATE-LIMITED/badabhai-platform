@@ -5,12 +5,17 @@ import type { ReactNode } from "react";
 import { looksLikePii } from "@badabhai/validators";
 import { Button, Input, Select, Textarea } from "../../../../../components/ds";
 import { ChipEditor } from "../../../../../components/chip-editor";
-import { PostingActions, PostingPreviewRail, zeroReachLabel } from "../../../../../components/posting-preview-rail";
+import {
+  PostingActions,
+  PostingPreviewRail,
+  zeroReachLabel,
+} from "../../../../../components/posting-preview-rail";
 import {
   NEEDED_BY,
   PAY_TYPES,
   SHIFTS,
   type MatchSkillWire,
+  type PostingTradeFormWire,
   type ReachPreview,
 } from "../../../../../lib/contracts";
 import { roleOptionGroups } from "../../../../../lib/job-roles";
@@ -35,6 +40,7 @@ import { companyPostingFacts } from "../../../../../lib/posting-facts";
 import { workerCardGap, workerCardGaps } from "../../../../../lib/worker-card-gap";
 import type { PostingEditInitial } from "../../../../../lib/payer-api";
 import { MatchSkillPicker, type MatchSelection } from "../../new/match-skill-picker";
+import { TradePostingFields, derivedMatchSkills, type TradeFormValue } from "../../trade-fields";
 import { updatePostingAction } from "./actions";
 import { withPublishedReach } from "../../../../../lib/published-reach";
 import { usePortalNavigation } from "../../../../../components/portal-navigation";
@@ -49,7 +55,6 @@ import { usePortalNavigation } from "../../../../../components/portal-navigation
  * re-seeded whenever the server copy changes.
  */
 
-const ROLE_GROUPS = roleOptionGroups();
 const FORM_ID = "edit-posting-form";
 
 interface FormFields {
@@ -69,7 +74,6 @@ interface FormFields {
   description: string;
 }
 
-
 export interface EditPostingInitial extends PostingEditInitial {
   roleTitle: string;
   /** A count INSIDE the stored band, as the edit seed (the server re-derives from a submitted count). */
@@ -86,6 +90,7 @@ export function EditPostingForm({
   initial,
   matchSkills = [],
   matchSelection,
+  postingTrades = [],
   lead,
 }: {
   postingId: string;
@@ -93,12 +98,14 @@ export function EditPostingForm({
   initial: EditPostingInitial;
   matchSkills?: MatchSkillWire[];
   matchSelection?: MatchSelection;
+  /** The 16-trade posting catalogue (migration 0141). */
+  postingTrades?: PostingTradeFormWire[];
   /** The page head, drawn at the top of the form column (the rail starts beside it). */
   lead?: ReactNode;
 }) {
   // useState order (mirrored positionally by edit-posting-form.test.tsx): fields, requirements,
-  // benefits, reqDraft, benDraft, error, selection, preview, revealed, navigating, problem,
-  // submitting. APPEND new state only.
+  // benefits, reqDraft, benDraft, error, trade, preview, revealed, navigating, problem,
+  // submitting, serverFieldErrors, legacySelection. APPEND new state only.
   const [fields, setFields] = useState<FormFields>({
     roleTitle: initial.roleTitle,
     roleKind: initial.roleKind ?? "",
@@ -109,8 +116,10 @@ export function EditPostingForm({
     payMin: initial.payMin !== null ? String(initial.payMin) : "",
     payMax: initial.payMax !== null ? String(initial.payMax) : "",
     payType: seedEnum(initial.payType, PAY_TYPES),
-    minExperienceYears: initial.minExperienceYears !== null ? String(initial.minExperienceYears) : "",
-    maxExperienceYears: initial.maxExperienceYears !== null ? String(initial.maxExperienceYears) : "",
+    minExperienceYears:
+      initial.minExperienceYears !== null ? String(initial.minExperienceYears) : "",
+    maxExperienceYears:
+      initial.maxExperienceYears !== null ? String(initial.maxExperienceYears) : "",
     shift: seedEnum(initial.shift, SHIFTS),
     neededBy: seedEnum(initial.neededBy, NEEDED_BY),
     description: initial.description ?? "",
@@ -120,9 +129,21 @@ export function EditPostingForm({
   const [reqDraft, setReqDraft] = useState("");
   const [benDraft, setBenDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [selection, setSelection] = useState<MatchSelection>(
-    matchSelection ?? { matchSkillIds: [], untickedRelatedIds: [] },
-  );
+  // A posting created with the trade form stores answers; its match set is exactly the set
+  // those answers derive, so seed from them rather than from a possibly stale row echo (a
+  // draft save persists answers before its first publish materializes the match set).
+  const storedTradeSeed =
+    (initial.tradeLevel ?? null) !== null || (initial.tradeAnswers ?? null) !== null;
+  const initialTradeForm = postingTrades.find((form) => form.role_kind === initial.roleKind);
+  const [trade, setTrade] = useState<TradeFormValue & { matchSkillIds: string[]; dirty: boolean }>({
+    tradeLevel: initial.tradeLevel ?? "",
+    answers: initial.tradeAnswers ?? {},
+    matchSkillIds:
+      storedTradeSeed && initialTradeForm
+        ? derivedMatchSkills(initialTradeForm, initial.tradeAnswers ?? {})
+        : (matchSelection?.matchSkillIds ?? []),
+    dirty: false,
+  });
   const [preview, setPreview] = useState<ReachPreview | null>(null);
   const [revealed, setRevealed] = useState<RevealedNumbers>({});
   // Set the moment a save succeeds: the buttons stay disabled through the navigation and the
@@ -136,12 +157,27 @@ export function EditPostingForm({
   // The server's per-field refusals (#1912), keyed by form control. APPENDED after the seeded
   // prefix (the test mirrors the earlier states positionally).
   const [serverFieldErrors, setServerFieldErrors] = useState<Record<string, string>>({});
+  // The legacy flat picker's selection, used only when the 16-trade catalogue could not be
+  // loaded. APPENDED too, so the earlier positional state order is unchanged.
+  const [legacySelection, setLegacySelection] = useState<MatchSelection>(
+    matchSelection ?? { matchSkillIds: [], untickedRelatedIds: [] },
+  );
   const [pending, startTransition] = useTransition();
   // A saved form lands on the posting with the shell's "Opening <title>…" cue; its button stays
   // pending (`navigating`) until the page is gone.
   const { navigate } = usePortalNavigation();
 
   const isDraft = status === "draft";
+  const tradeMode = postingTrades.length > 0;
+  // A posting created before migration 0141 has no trade fields and may carry a hand-picked
+  // match set. Showing the trade panel there would let a display-only rung (or a facet chip)
+  // rewrite that set to the role's base skill — a silent reach loss. The panel is therefore
+  // for drafts and for postings that already use the trade form; a ROLE change reveals it too,
+  // because that is an explicit replacement of the old trade.
+  const showTradeForm = tradeMode && (isDraft || storedTradeSeed || trade.dirty);
+  // The match set the publish button, the rail and the PATCH all read: the role's derived
+  // chips when the catalogue loaded, else the legacy flat pick.
+  const activeMatchSkillIds = tradeMode ? trade.matchSkillIds : legacySelection.matchSkillIds;
 
   // THE ONE READ — the preview, the inline errors, the gaps and the save all use it.
   const read = readCardForm(
@@ -151,6 +187,16 @@ export function EditPostingForm({
 
   function set<K extends keyof FormFields>(key: K, value: string) {
     setFields((prev) => ({ ...prev, [key]: value }));
+    if (key === "roleKind") {
+      const form = postingTrades.find((tradeForm) => tradeForm.role_kind === value);
+      setTrade({
+        tradeLevel: "",
+        answers: {},
+        matchSkillIds: form ? derivedMatchSkills(form, {}) : [],
+        dirty: true,
+      });
+      setPreview(null);
+    }
     const pair = numberPairOf(key);
     if (pair !== null) setRevealed((prev) => revealNumberPair(prev, pair, false));
     clearRefusalAt(key);
@@ -204,7 +250,10 @@ export function EditPostingForm({
       return { message: "Openings must be a positive number.", control: "vacancies" };
     }
     if (fields.description.trim() !== "" && looksLikePii(fields.description)) {
-      return { message: "Remove contact details (phone/email) from the description.", control: "description" };
+      return {
+        message: "Remove contact details (phone/email) from the description.",
+        control: "description",
+      };
     }
     // A number that cannot be saved as typed must block the save: sending it as "not stated"
     // would CLEAR the stored value through the `clear` diff.
@@ -271,8 +320,30 @@ export function EditPostingForm({
         neededBy: v.neededBy,
         requirements: v.requirements,
         benefits: v.benefits,
+        // Send the trade fields when the payer edited them OR the posting already has them,
+        // so an unrelated save cannot trip the clear diff and silently erase the answers.
+        ...(trade.dirty ||
+        (initial.tradeLevel ?? null) !== null ||
+        (initial.tradeAnswers ?? null) !== null
+          ? {
+              tradeLevel: trade.tradeLevel || undefined,
+              tradeAnswers: trade.answers,
+            }
+          : {}),
         initial,
-        ...(mode === "publish" ? { publish: selection } : {}),
+        ...(mode === "publish"
+          ? {
+              publish: {
+                matchSkillIds: activeMatchSkillIds,
+                // Preserve the stored untick choice only while the old pick is untouched.
+                untickedRelatedIds: tradeMode
+                  ? trade.dirty
+                    ? []
+                    : (matchSelection?.untickedRelatedIds ?? [])
+                  : legacySelection.untickedRelatedIds,
+              },
+            }
+          : {}),
       });
       if (res.ok) {
         setNavigating(true);
@@ -302,7 +373,7 @@ export function EditPostingForm({
   }
 
   const busy = pending || navigating;
-  const publishDisabled = busy || selection.matchSkillIds.length === 0;
+  const publishDisabled = busy || activeMatchSkillIds.length === 0;
   const primary = isDraft ? (
     <Button
       type="button"
@@ -379,7 +450,10 @@ export function EditPostingForm({
               onChange={(e) => set("roleKind", e.target.value)}
             >
               <option value="">— pick the role —</option>
-              {ROLE_GROUPS.map((group) => (
+              {(postingTrades.length > 0
+                ? roleOptionGroups(postingTrades.map((tradeForm) => tradeForm.role_kind))
+                : roleOptionGroups()
+              ).map((group) => (
                 <optgroup key={group.family} label={group.label}>
                   {group.options.map((o) => (
                     <option key={o.value} value={o.value}>
@@ -483,7 +557,11 @@ export function EditPostingForm({
                 inputMode="numeric"
                 value={fields.minExperienceYears}
                 error={errorOf("minExperienceYears", numberError("minExperienceYears"))}
-                aria-invalid={errorOf("minExperienceYears", numberError("minExperienceYears")) ? true : undefined}
+                aria-invalid={
+                  errorOf("minExperienceYears", numberError("minExperienceYears"))
+                    ? true
+                    : undefined
+                }
                 onChange={(e) => set("minExperienceYears", e.target.value)}
                 onBlur={() => reveal("experience")}
               />
@@ -493,7 +571,11 @@ export function EditPostingForm({
                 inputMode="numeric"
                 value={fields.maxExperienceYears}
                 error={errorOf("maxExperienceYears", numberError("maxExperienceYears"))}
-                aria-invalid={errorOf("maxExperienceYears", numberError("maxExperienceYears")) ? true : undefined}
+                aria-invalid={
+                  errorOf("maxExperienceYears", numberError("maxExperienceYears"))
+                    ? true
+                    : undefined
+                }
                 onChange={(e) => set("maxExperienceYears", e.target.value)}
                 onBlur={() => reveal("experience")}
               />
@@ -573,8 +655,30 @@ export function EditPostingForm({
             />
           </div>
 
-          {isDraft && matchSkills.length > 0 ? (
-            <MatchSkillPicker vocabulary={matchSkills} selection={selection} onChange={setSelection} onPreviewChange={setPreview} />
+          {showTradeForm ? (
+            <TradePostingFields
+              trades={postingTrades}
+              roleKind={fields.roleKind}
+              value={{ tradeLevel: trade.tradeLevel, answers: trade.answers }}
+              onChange={(next) => {
+                const form = postingTrades.find((t) => t.role_kind === fields.roleKind);
+                setTrade({
+                  ...next,
+                  matchSkillIds: form ? derivedMatchSkills(form, next.answers) : [],
+                  dirty: true,
+                });
+              }}
+              onMatchSkillIdsChange={() => undefined}
+              onPreviewChange={setPreview}
+              vocabulary={matchSkills}
+            />
+          ) : isDraft && matchSkills.length > 0 ? (
+            <MatchSkillPicker
+              vocabulary={matchSkills}
+              selection={legacySelection}
+              onChange={setLegacySelection}
+              onPreviewChange={setPreview}
+            />
           ) : null}
 
           <div className="posting-layout__end">
@@ -590,8 +694,11 @@ export function EditPostingForm({
           roleKind: read.values.roleKind ?? null,
           openings: fields.vacancies,
           locationNote: fields.locationLabel,
+          tradeLevel: showTradeForm ? trade.tradeLevel || null : null,
+          tradeAnswers: showTradeForm ? trade.answers : null,
+          postingTrades: showTradeForm ? postingTrades : [],
           matchSkills:
-            matchSkills.length > 0 ? { ids: selection.matchSkillIds, vocabulary: matchSkills } : null,
+            matchSkills.length > 0 ? { ids: activeMatchSkillIds, vocabulary: matchSkills } : null,
           description: fields.description,
         })}
         actions={

@@ -93,6 +93,16 @@ interface JobPostingApi {
    * illustration key (ADR-0024 addendum 2026-10-05).
    */
   role_kind: TradeFormKindName | null;
+  /**
+   * Migration 0141 — the trade-specific posting form.
+   *
+   * `trade_level` is ONE display-only ladder rung (never a match input). `trade_answers` is
+   * the poster's selected chips keyed by the role pack's question_key. Returned so the payer
+   * edit form can prefill the exact answer set and the employer list can read facets.
+   * NULL means "not stated", never an empty object.
+   */
+  trade_level: string | null;
+  trade_answers: Record<string, string[]> | null;
   published_at: Date | null;
   /** Boost window end. Null = not boosted. A time, so a boost expires with no sweep. */
   boosted_until: Date | null;
@@ -143,6 +153,8 @@ function toJobPostingApi(row: JobPosting): JobPostingApi {
     shift: row.shift,
     needed_by: row.neededBy,
     role_kind: row.roleKind,
+    trade_level: row.tradeLevel,
+    trade_answers: row.tradeAnswers,
     published_at: row.publishedAt,
     boosted_until: row.boostedUntil,
     created_at: row.createdAt,
@@ -197,6 +209,10 @@ export type JobPostingUpdate = Partial<
     // Migration 0131 — the display role. Patchable like any card field; it never feeds
     // `PublishReachService`, so it is not a Policy 10 concern.
     | "roleKind"
+    // Migration 0141 — the trade-specific form. Also display/filter data: the derived
+    // `matchSkillIds` is what reaches `PublishReachService`, never these fields directly.
+    | "tradeLevel"
+    | "tradeAnswers"
   >
 > & { updatedAt: Date };
 

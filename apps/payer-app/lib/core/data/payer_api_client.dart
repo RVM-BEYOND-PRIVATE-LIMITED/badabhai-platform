@@ -84,6 +84,8 @@ abstract class PayerApiClient {
     String? roleKind,
     List<String>? benefits,
     List<String>? requirements,
+    String? tradeLevel,
+    Map<String, List<String>>? tradeAnswers,
   });
 
   /// One owned posting (`GET /payer/job-postings/:id`). A neutral 404 (unknown or
@@ -132,6 +134,8 @@ abstract class PayerApiClient {
     String? roleKind,
     List<String>? benefits,
     List<String>? requirements,
+    String? tradeLevel,
+    Map<String, List<String>>? tradeAnswers,
     List<JobPostingClearField>? clear,
   });
 
@@ -149,7 +153,8 @@ abstract class PayerApiClient {
 
   /// Buy an applicant-visibility plan for a posting
   /// (`POST /payer/job-postings/:id/plan` → 201). [tier] is `'standard'|'pro'`.
-  Future<PlanPurchase> buyPlan(String id, {required String tier, String? coupon});
+  Future<PlanPurchase> buyPlan(String id,
+      {required String tier, String? coupon});
 
   /// Boost a posting (`POST /payer/job-postings/:id/boost` → 201). 409 when an
   /// active boost already exists → [PayerApiException].
@@ -176,6 +181,10 @@ abstract class PayerApiClient {
   /// Each [MatchSkill] carries its related-skill ids the reach preview widens
   /// into. A non-2xx surfaces as [PayerApiException].
   Future<List<MatchSkill>> fetchMatchSkills();
+
+  /// The 16-trade posting form catalogue (`GET /payer/posting-trades`).
+  /// One read per form; each trade carries its display-only ladder and chip questions.
+  Future<List<PostingTradeForm>> fetchPostingTrades();
 
   /// Deterministic reach preview for a picked skill set
   /// (`POST /payer/match/reach-preview`, body `{match_skill_ids,
@@ -341,7 +350,13 @@ abstract class PayerApiClient {
     String? shift,
     List<String>? benefits,
     List<String>? requirements,
-    /// ADR-0050 — the closed-set demand skills (`match_skill_ids`). OPTIONAL: an
+
+    /// The display role (one of the 16 postable kinds) and migration 0141's
+    /// trade-specific fields.
+    String? tradeLevel,
+    Map<String, List<String>>? tradeAnswers,
+
+    /// ADR-0050 - the closed-set demand skills (`match_skill_ids`). OPTIONAL: an
     /// empty/null pick sends nothing. Persists once the API adds the field
     /// (#1960/#1957); today the route strips it.
     List<String>? matchSkillIds,
@@ -387,7 +402,12 @@ abstract class PayerApiClient {
     String? shift,
     List<String>? benefits,
     List<String>? requirements,
-    /// ADR-0050 — the closed-set demand skills (`match_skill_ids`). A null list
+
+    /// The display role and migration 0141's trade-specific fields.
+    String? tradeLevel,
+    Map<String, List<String>>? tradeAnswers,
+
+    /// ADR-0050 - the closed-set demand skills (`match_skill_ids`). A null list
     /// is OMITTED (leaves the stored set alone); a passed list (including `[]`)
     /// is sent, so `[]` clears it. Persists once the API adds the field.
     List<String>? matchSkillIds,

@@ -16,6 +16,7 @@ import 'cubit/agency_jobs_cubit.dart';
 import '../domain/worker_card_fields.dart';
 import 'widgets/job_content_input.dart';
 import 'widgets/match_skill_picker.dart';
+import 'widgets/trade_posting_fields.dart';
 
 /// Edit an existing AGENCY posting (`PATCH /payer/agency/jobs/:id`). The
 /// [AgencyJobView] carries every field the route accepts, so the WHOLE form is
@@ -66,21 +67,22 @@ class _EditAgencyJobScreenState extends State<EditAgencyJobScreen> {
       TextEditingController(text: widget.job.payMin?.toString() ?? '');
   late final TextEditingController _payMax =
       TextEditingController(text: widget.job.payMax?.toString() ?? '');
-  late final TextEditingController _expMin =
-      TextEditingController(text: widget.job.minExperienceYears?.toString() ?? '');
-  late final TextEditingController _expMax =
-      TextEditingController(text: widget.job.maxExperienceYears?.toString() ?? '');
+  late final TextEditingController _expMin = TextEditingController(
+      text: widget.job.minExperienceYears?.toString() ?? '');
+  late final TextEditingController _expMax = TextEditingController(
+      text: widget.job.maxExperienceYears?.toString() ?? '');
 
   // NULL when the row states neither — never the FIRST option. A fallback to
   // `kAgencyTradeKeys.first` put 'CNC Operator' on the chip for any row whose
   // trade was unknown, and a save then wrote it to the worker's card as fact.
-  late String? _tradeKey =
-      kAgencyTradeKeys.contains(widget.job.tradeKey) ? widget.job.tradeKey : null;
-  late String? _neededBy =
-      kAgencyNeededBy.contains(widget.job.neededBy) ? widget.job.neededBy : null;
-  late String? _roleKind = kJobRoleKinds.contains(widget.job.roleKind)
-      ? widget.job.roleKind
+  late String? _tradeKey = kAgencyTradeKeys.contains(widget.job.tradeKey)
+      ? widget.job.tradeKey
       : null;
+  late String? _neededBy = kAgencyNeededBy.contains(widget.job.neededBy)
+      ? widget.job.neededBy
+      : null;
+  late String? _roleKind =
+      kJobRoleKinds.contains(widget.job.roleKind) ? widget.job.roleKind : null;
 
   // --- Worker-visible content, PREFILLED from the row (#1647) ---------------
   // All four come back on the job view now, so there is a real stored value to
@@ -111,7 +113,6 @@ class _EditAgencyJobScreenState extends State<EditAgencyJobScreen> {
   /// The coarse shift enum the PATCH accepts (`day|night|rotational`).
   static const List<String> _shifts = <String>['day', 'night', 'rotational'];
 
-
   bool _saving = false;
 
   // --- ADR-0050 demand skills (optional; #1960) ------------------------------
@@ -129,11 +130,86 @@ class _EditAgencyJobScreenState extends State<EditAgencyJobScreen> {
   bool get _matchSkillsAvailable =>
       !_matchSkillsLoading && !_matchSkillsFailed && _matchSkills.isNotEmpty;
 
+  // --- Migration 0141 — the role and its trade-specific form -----------------
+  List<PostingTradeForm> _postingTrades = const <PostingTradeForm>[];
+  late String _tradeLevel = widget.job.tradeLevel ?? '';
+  late Map<String, List<String>> _tradeAnswers =
+      widget.job.tradeAnswers ?? const <String, List<String>>{};
+  late bool _tradeDirty = false;
+
+  bool get _storedTradeFields =>
+      widget.job.tradeLevel != null || widget.job.tradeAnswers != null;
+
+  /// A pre-0141 OPEN job may hold a hand-picked match set; the trade panel is
+  /// hidden there so a display-only rung cannot rewrite it. Drafts and jobs
+  /// already using the trade form show it, and an explicit role change reveals
+  /// it (that is a replacement of the old trade).
+  bool get _showTradeForm =>
+      _postingTrades.isNotEmpty &&
+      (widget.job.status == 'draft' || _storedTradeFields || _tradeDirty);
+
+  PostingTradeForm? _formForKind(String? kind) {
+    if (kind == null) return null;
+    for (final PostingTradeForm trade in _postingTrades) {
+      if (trade.roleKind == kind) return trade;
+    }
+    return null;
+  }
+
   @override
   void initState() {
     super.initState();
     // ignore: discarded_futures — fire-and-forget; state updates on done.
     _loadMatchSkills();
+    // ignore: discarded_futures — the 16-trade form catalogue.
+    _loadPostingTrades();
+  }
+
+  Future<void> _loadPostingTrades() async {
+    try {
+      final List<PostingTradeForm> trades =
+          await locator<PayerApiClient>().fetchPostingTrades();
+      if (!mounted) return;
+      setState(() {
+        _postingTrades = trades;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _postingTrades = const <PostingTradeForm>[];
+      });
+    }
+  }
+
+  void _selectRole(String kind) {
+    final PostingTradeForm? form = _formForKind(kind);
+    setState(() {
+      _roleKind = kind;
+      _tradeLevel = '';
+      _tradeAnswers = const <String, List<String>>{};
+      _tradeDirty = true;
+      _pickedSkillIds
+        ..clear()
+        ..addAll(form?.matchSkillIdsFor(const <String, List<String>>{}) ??
+            const <String>[]);
+    });
+  }
+
+  /// Order-insensitive compare for the trade answer map (question keys and each
+  /// selected option list), so a re-tap in another order is not a change.
+  static bool _sameTradeAnswers(
+    Map<String, List<String>> a,
+    Map<String, List<String>>? b,
+  ) {
+    final Map<String, List<String>> other = b ?? const <String, List<String>>{};
+    if (a.length != other.length) return false;
+    for (final MapEntry<String, List<String>> entry in a.entries) {
+      final List<String>? theirs = other[entry.key];
+      if (theirs == null || theirs.length != entry.value.length) return false;
+      final Set<String> set = theirs.toSet();
+      if (!entry.value.every(set.contains)) return false;
+    }
+    return true;
   }
 
   Future<void> _loadMatchSkills() async {
@@ -278,14 +354,18 @@ class _EditAgencyJobScreenState extends State<EditAgencyJobScreen> {
         area.isEmpty && (widget.job.area ?? '').trim().isNotEmpty;
     final bool roleKindEmptied =
         _roleKind == null && widget.job.roleKind != null;
-    final String? roleKind = roleKindEmptied || _roleKind == widget.job.roleKind
-        ? null
-        : _roleKind;
+    final String? roleKind =
+        roleKindEmptied || _roleKind == widget.job.roleKind ? null : _roleKind;
     // ADR-0050 — send the demand-skill pick only when it CHANGED (an untouched
     // pick omits it, leaving the stored set alone). Stripped by the route until
     // the API field lands (#1960/#1957).
     final List<String> picked = _pickedSkillIds.toList(growable: false);
     final bool skillsChanged = !_sameMembers(picked, widget.job.matchSkillIds);
+    // Migration 0141 — the role/rung/answer map is one editorial act. Send it
+    // only when it actually moved; the server re-derives `match_skill_ids`.
+    final bool tradeChanged = _roleKind != widget.job.roleKind ||
+        _tradeLevel != (widget.job.tradeLevel ?? '') ||
+        !_sameTradeAnswers(_tradeAnswers, widget.job.tradeAnswers);
     final JobActionResult result = await widget.cubit.editJob(
       widget.job.id,
       tradeKey: tradeKey,
@@ -301,7 +381,8 @@ class _EditAgencyJobScreenState extends State<EditAgencyJobScreen> {
       minExperienceYears: expMin,
       maxExperienceYears: expMax,
       neededBy: _neededBy,
-      roleKind: roleKind,
+      roleKind:
+          roleKind ?? (tradeChanged && !roleKindEmptied ? _roleKind : null),
       // An EMPTIED description is not sent: `description` is `min(1)` on the
       // contract, so a blank would 400 rather than clear the stored text.
       description: description.isEmpty || description == widget.job.description
@@ -313,12 +394,19 @@ class _EditAgencyJobScreenState extends State<EditAgencyJobScreen> {
       benefits: _benefitsTouched ? List<String>.of(_benefits) : null,
       requirements:
           _requirementsTouched ? List<String>.of(_requirements) : null,
-      matchSkillIds:
-          _matchSkillsAvailable && skillsChanged ? picked : null,
+      tradeLevel: tradeChanged && !roleKindEmptied && _tradeLevel.isNotEmpty
+          ? _tradeLevel
+          : null,
+      tradeAnswers: tradeChanged && !roleKindEmptied ? _tradeAnswers : null,
+      matchSkillIds: _matchSkillsAvailable && skillsChanged ? picked : null,
       clear: (areaEmptied || roleKindEmptied)
           ? <AgencyJobClearField>[
               if (areaEmptied) AgencyJobClearField.area,
               if (roleKindEmptied) AgencyJobClearField.roleKind,
+              if (roleKindEmptied && widget.job.tradeLevel != null)
+                AgencyJobClearField.tradeLevel,
+              if (roleKindEmptied && widget.job.tradeAnswers != null)
+                AgencyJobClearField.tradeAnswers,
             ]
           : null,
     );
@@ -485,21 +573,35 @@ class _EditAgencyJobScreenState extends State<EditAgencyJobScreen> {
               // row, not an input) — the edit test edits it via TextField.first.
               BbField(label: 'Job title', controller: _title),
               const SizedBox(height: AppSpacing.s4),
+              if (_postingTrades.isNotEmpty) ...<Widget>[
+                _chipField<String>(
+                  label: 'Role',
+                  value: _roleKind,
+                  options: _postingTrades
+                      .map((PostingTradeForm t) => t.roleKind)
+                      .toList(growable: false),
+                  labelOf: (String kind) =>
+                      _formForKind(kind)?.roleLabel ?? kind,
+                  onSelected: _selectRole,
+                ),
+                const SizedBox(height: AppSpacing.s4),
+              ] else ...<Widget>[
+                BbSelect<String?>(
+                  label: 'Role (card illustration)',
+                  value: _roleKind,
+                  items: <String?>[null, ...kJobRoleKinds],
+                  labelOf: (String? v) =>
+                      v == null ? 'Not specified' : (jobRoleLabel(v) ?? v),
+                  onChanged: (String? v) => setState(() => _roleKind = v),
+                ),
+                const SizedBox(height: AppSpacing.s4),
+              ],
               _chipField<String>(
                 label: 'Trade',
                 value: _tradeKey,
                 options: kAgencyTradeKeys,
                 labelOf: agencyTradeLabel,
                 onSelected: (String v) => setState(() => _tradeKey = v),
-              ),
-              const SizedBox(height: AppSpacing.s4),
-              BbSelect<String?>(
-                label: 'Role (card illustration)',
-                value: _roleKind,
-                items: <String?>[null, ...kJobRoleKinds],
-                labelOf: (String? v) =>
-                    v == null ? 'Not specified' : (jobRoleLabel(v) ?? v),
-                onChanged: (String? v) => setState(() => _roleKind = v),
               ),
               const SizedBox(height: AppSpacing.s4),
               Row(
@@ -603,7 +705,8 @@ class _EditAgencyJobScreenState extends State<EditAgencyJobScreen> {
                 ),
               ),
               const SizedBox(height: AppSpacing.s3),
-              JobDescriptionField(controller: _description, label: 'Description'),
+              JobDescriptionField(
+                  controller: _description, label: 'Description'),
               const SizedBox(height: AppSpacing.s4),
               _chipField<String>(
                 label: 'Shift',
@@ -637,9 +740,56 @@ class _EditAgencyJobScreenState extends State<EditAgencyJobScreen> {
                 }),
               ),
             ]),
-            // ADR-0050 — the demand-skill picker (optional). Hidden entire when
-            // the match vocabulary is unavailable, so an edit never blocks on it.
-            if (_matchSkillsAvailable) ...<Widget>[
+            // Migration 0141 — the role's own chips replace the flat picker when
+            // the catalogue loaded and this job uses the trade form. An older
+            // open job with a hand-picked set keeps the legacy picker.
+            if (_showTradeForm) ...<Widget>[
+              const SizedBox(height: AppSpacing.s4),
+              _sectionCard('Trade requirements', <Widget>[
+                if (_formForKind(_roleKind) case final PostingTradeForm form)
+                  TradePostingFields(
+                    trade: form,
+                    tradeLevel: _tradeLevel,
+                    answers: _tradeAnswers,
+                    onChanged: (
+                      String level,
+                      Map<String, List<String>> answers,
+                    ) {
+                      final List<String> nextMatch =
+                          form.matchSkillIdsFor(answers);
+                      if (nextMatch.length > _maxSkillsPerPosting) {
+                        showBbToast(
+                          context,
+                          title: 'Too many match skills',
+                          message: 'Pick up to $_maxSkillsPerPosting match '
+                              'skills — the rest are requirements and do not '
+                              'change reach.',
+                          icon: Icons.info_outline,
+                        );
+                        return;
+                      }
+                      setState(() {
+                        _tradeLevel = level;
+                        _tradeAnswers = answers;
+                        _tradeDirty = true;
+                        _pickedSkillIds
+                          ..clear()
+                          ..addAll(nextMatch);
+                      });
+                    },
+                  )
+                else
+                  Text(
+                    'Pick a role above and the facts that role is hired on '
+                    'appear here.',
+                    style: AppTypography.body(
+                      size: AppTypography.sizeSm,
+                      color: AppColors.textMuted,
+                      height: 1.45,
+                    ),
+                  ),
+              ]),
+            ] else if (_matchSkillsAvailable) ...<Widget>[
               const SizedBox(height: AppSpacing.s4),
               _sectionCard('Skills & matching', <Widget>[
                 MatchSkillPicker(

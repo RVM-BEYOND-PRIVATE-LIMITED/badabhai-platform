@@ -229,6 +229,22 @@ export const jobPostings = pgTable(
     // NULL-tolerant CHECK below, spelled out as a literal list because a migration is a
     // frozen record. PII-free: a closed enum of occupation slugs.
     roleKind: text("role_kind").$type<TradeFormKindName>(),
+    // ── The trade-specific posting form (migration 0141, 16 live trades) ──
+    // `trade_level` is ONE display-only rung from the role's CEO launch-pack ladder. It is
+    // NEVER a match or rank input (the `trade-levels.ts` contract): a "Setter" posting must
+    // still reach every worker the match skills reach.
+    //
+    // `trade_answers` is the poster's selected chips, keyed by the role pack's question_key
+    // and valued by option_key: `{ "controller_brand": ["fanuc"], … }`. The API validates
+    // every key and option against the checked-in pack and derives `match_skill_ids` from
+    // the match-affecting chips; this column keeps the full answer set so the employer's
+    // candidate list can use facet chips without a second write path.
+    //
+    // NULLABLE WITH NO DEFAULT. NULL means "the poster stated none" — every pre-0141 row
+    // and every client that has not adopted the trade form. An empty object would claim
+    // they saw and skipped the questions.
+    tradeLevel: text("trade_level"),
+    tradeAnswers: jsonb("trade_answers").$type<Record<string, string[]>>(),
     // When the posting became worker-visible. The feed orders by this, NOT by
     // created_at, so a draft that sat for a week does not surface as a week-old job.
     // NULL = never published. D3 backfills it to created_at for non-draft rows.
@@ -412,6 +428,13 @@ export const jobPostings = pgTable(
     check(
       "job_postings_twin_owner_chk",
       sql`${t.syncSource} IS NULL OR (${t.sourceJobId} IS NOT NULL AND ${t.payerId} IS NULL)`,
+    ),
+    // Migration 0141 — the answer map is a MAP, never an array or a scalar. Values are
+    // validated app-level against the role's checked-in pack (the trade-levels precedent:
+    // promoting a rung or editing a pack must not need a migration).
+    check(
+      "job_postings_trade_answers_object_chk",
+      sql`${t.tradeAnswers} IS NULL OR jsonb_typeof(${t.tradeAnswers}) = 'object'`,
     ),
   ],
 ).enableRLS(); // RLS tracked in the model; carried by the migration (BL-26 parity fix)
@@ -598,6 +621,13 @@ export const jobs = pgTable(
     // rank input and never inferred from `trade_key` / `TRADE_TO_MATCH_SKILL`: it feeds only
     // the agency twin's `job_postings.match_skill_ids`. PII-free: closed-set ids.
     matchSkillIds: jsonb("match_skill_ids").$type<string[]>().notNull().default(jsonArray),
+    // ── The trade-specific agency posting form (migration 0141) ──
+    // The same two facts a company posting states: a display-only rung and the poster's
+    // pack-answer map. `trade_key` stays the agency job's classifier; these describe the
+    // vacancy's trade requirements and are copied to its V1 twin. Both nullable — NULL is
+    // "not stated", never a guessed rung or an empty set of answers.
+    tradeLevel: text("trade_level"),
+    tradeAnswers: jsonb("trade_answers").$type<Record<string, string[]>>(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -650,6 +680,11 @@ export const jobs = pgTable(
     // Migration 0133 (ADR-0050 §4.1) — the column is always a JSON array (`[]` or ids), never
     // a scalar or object a careless write could store.
     check("jobs_match_skill_ids_array_chk", sql`jsonb_typeof(${t.matchSkillIds}) = 'array'`),
+    // Migration 0141 — the answer map is a MAP, never an array or a scalar.
+    check(
+      "jobs_trade_answers_object_chk",
+      sql`${t.tradeAnswers} IS NULL OR jsonb_typeof(${t.tradeAnswers}) = 'object'`,
+    ),
   ],
 ).enableRLS(); // RLS tracked in the model; carried by the migration (BL-26 parity fix)
 
@@ -728,7 +763,9 @@ export const applications = pgTable(
     // Ops read: applicants per job.
     index("applications_job_id_idx").on(t.jobId),
     // Partial index for feed exclusion (TD73): quickly find applied jobs per worker
-    index("applications_applied_idx").on(t.workerId, t.jobId).where(sql`${t.action} = 'applied'`),
+    index("applications_applied_idx")
+      .on(t.workerId, t.jobId)
+      .where(sql`${t.action} = 'applied'`),
     // `reason` is only valid on a skip (NULL otherwise).
     check("applications_reason_chk", sql`${t.reason} IS NULL OR ${t.action} = 'skipped'`),
     // ── Matching V1 (0056) ────────────────────────────────────────────────────
@@ -771,10 +808,7 @@ export const applications = pgTable(
     ),
     // The snapshot tier shares the closed domain of job_reach.match_tier. NULL-tolerant:
     // every legacy row, and any V1 row written before a tier was resolvable, is NULL.
-    check(
-      "applications_match_tier_chk",
-      sql`${t.matchTier} IS NULL OR ${t.matchTier} IN (1, 2)`,
-    ),
+    check("applications_match_tier_chk", sql`${t.matchTier} IS NULL OR ${t.matchTier} IN (1, 2)`),
     // Month counts are durations; a negative one is always a bug, never data.
     check(
       "applications_snapshot_months_nonneg_chk",
@@ -782,4 +816,3 @@ export const applications = pgTable(
     ),
   ],
 ).enableRLS(); // RLS tracked in the model; carried by the migration (BL-26 parity fix)
-

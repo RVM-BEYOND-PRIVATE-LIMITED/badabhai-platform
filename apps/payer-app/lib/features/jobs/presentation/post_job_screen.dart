@@ -20,6 +20,7 @@ import '../../../core/widgets/bb_toast.dart';
 import '../domain/worker_card_fields.dart';
 import 'widgets/job_content_input.dart';
 import 'widgets/match_skill_picker.dart';
+import 'widgets/trade_posting_fields.dart';
 
 /// Availability of the Matching-V1 demand-skill picker, resolved once at load.
 ///
@@ -108,6 +109,9 @@ class _PostJobScreenState extends State<PostJobScreen> {
   final List<String> _benefits = <String>[];
   final List<String> _requirements = <String>[];
 
+  /// LEGACY fallback only: when an older server has no `/payer/posting-trades`
+  /// catalogue, the company form keeps its old optional trade dropdown and the
+  /// flat match picker. The 16-trade path above is the current one.
   static const List<String> _trades = <String>[
     'CNC Setter',
     'VMC Setter',
@@ -118,17 +122,21 @@ class _PostJobScreenState extends State<PostJobScreen> {
   ];
 
   /// The server's `vacancy_band` enum — exact values the route accepts.
-  static const List<String> _bands = <String>['1', '2-5', '6-10', '11-25', '25+'];
+  static const List<String> _bands = <String>[
+    '1',
+    '2-5',
+    '6-10',
+    '11-25',
+    '25+'
+  ];
 
   /// Server bound on skill phrases (`skillsInput`: <=10 phrases, 1..80 chars).
   /// Mirrored here so the chip row cannot outgrow what the contract allows.
   static const int _maxSkills = 10;
   static const int _maxSkillChars = 80;
 
-
-  /// Company trade — null until the payer picks one (#357: a default of
-  /// 'CNC Setter' would put a trade the payer never chose into `description`).
   String? _trade;
+
   /// The declared role kind (`role_kind`) — DISPLAY ONLY, but it is what picks
   /// the role illustration on the worker's job card. Null = no role stated, so
   /// the card draws the generic art rather than guessing one.
@@ -171,6 +179,12 @@ class _PostJobScreenState extends State<PostJobScreen> {
   int _reachSeq = 0;
   Timer? _reachDebounce;
 
+  // --- Migration 0141 — the role-specific trade form -------------------------
+  List<PostingTradeForm> _postingTrades = const <PostingTradeForm>[];
+  bool _postingTradesLoading = true;
+  String _tradeLevel = '';
+  Map<String, List<String>> _tradeAnswers = const <String, List<String>>{};
+
   /// Coarse structured demand attributes. Null = "not set", so we never
   /// fabricate a shift/timing the payer did not choose (#357).
   String? _shift;
@@ -182,8 +196,7 @@ class _PostJobScreenState extends State<PostJobScreen> {
   /// shows the band with no pay-type pill.
   String? _payType;
 
-  bool get _isAgency =>
-      locator<AppSessionCubit>().state?.isAgency ?? false;
+  bool get _isAgency => locator<AppSessionCubit>().state?.isAgency ?? false;
 
   @override
   void initState() {
@@ -207,6 +220,8 @@ class _PostJobScreenState extends State<PostJobScreen> {
     // the section (its skills can only ride `match_skill_ids`; #1960/#1957).
     // ignore: discarded_futures — fire-and-forget load; state updates on done.
     _loadMatchSkills();
+    // ignore: discarded_futures — the 16-trade form catalogue.
+    _loadPostingTrades();
   }
 
   @override
@@ -237,13 +252,161 @@ class _PostJobScreenState extends State<PostJobScreen> {
       if (!mounted) return;
       setState(() {
         _matchSkills = skills;
-        _matchV1 =
-            skills.isEmpty ? _MatchV1.unavailable : _MatchV1.available;
+        _matchV1 = skills.isEmpty ? _MatchV1.unavailable : _MatchV1.available;
       });
     } catch (_) {
       if (!mounted) return;
       setState(() => _matchV1 = _MatchV1.unavailable);
     }
+  }
+
+  /// Load the 16-trade posting catalogue. A failure degrades to the legacy
+  /// match picker (the section simply hides the trade fields), never a crash.
+  Future<void> _loadPostingTrades() async {
+    try {
+      final List<PostingTradeForm> trades =
+          await locator<PayerApiClient>().fetchPostingTrades();
+      if (!mounted) return;
+      setState(() {
+        _postingTrades = trades;
+        _postingTradesLoading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _postingTradesLoading = false);
+    }
+  }
+
+  PostingTradeForm? _formForKind(String? kind) {
+    if (kind == null) return null;
+    for (final PostingTradeForm trade in _postingTrades) {
+      if (trade.roleKind == kind) return trade;
+    }
+    return null;
+  }
+
+  PostingTradeForm? get _tradeForm => _formForKind(_roleKind);
+
+  /// The role picker is the single entry point to every trade field. Selecting a
+  /// role resets the previous role's answers and seeds the base match skill.
+  Widget _roleField() {
+    if (_postingTradesLoading) {
+      return Text(
+        'Loading roles…',
+        style: AppTypography.body(
+          size: AppTypography.sizeSm,
+          color: AppColors.textMuted,
+        ),
+      );
+    }
+    if (_postingTrades.isEmpty) {
+      return Text(
+        'Trade fields are unavailable right now. Reload the screen before '
+        'posting.',
+        style: AppTypography.body(
+          size: AppTypography.sizeSm,
+          color: AppColors.warning,
+          height: 1.4,
+        ),
+      );
+    }
+    return BbSelect<String?>(
+      label: 'Role',
+      value: _roleKind,
+      items: <String?>[
+        null,
+        ..._postingTrades.map((PostingTradeForm t) => t.roleKind)
+      ],
+      labelOf: (String? kind) =>
+          _formForKind(kind)?.roleLabel ?? '— pick the role —',
+      onChanged: (String? kind) {
+        final PostingTradeForm? form = _formForKind(kind);
+        setState(() {
+          _roleKind = kind;
+          _tradeLevel = '';
+          _tradeAnswers = const <String, List<String>>{};
+          _pickedSkillIds
+            ..clear()
+            ..addAll(form?.matchSkillIdsFor(const <String, List<String>>{}) ??
+                const <String>[]);
+        });
+        if (_pickedSkillIds.isEmpty) {
+          _reachDebounce?.cancel();
+          setState(() => _reach = null);
+        } else {
+          _scheduleReach();
+        }
+      },
+    );
+  }
+
+  Widget _tradeSection() {
+    final PostingTradeForm? form = _tradeForm;
+    if (form == null) {
+      return Text(
+        'Pick a role above and the facts that role is hired on appear here.',
+        style: AppTypography.body(
+          size: AppTypography.sizeSm,
+          color: AppColors.textMuted,
+          height: 1.45,
+        ),
+      );
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        TradePostingFields(
+          trade: form,
+          tradeLevel: _tradeLevel,
+          answers: _tradeAnswers,
+          onChanged: (String level, Map<String, List<String>> answers) {
+            final List<String> nextMatch = form.matchSkillIdsFor(answers);
+            // The server posts at most `match_config.max_skills_per_posting` skills (base
+            // + match chips). Refuse the tap here with the reason rather than failing the
+            // publish later; the live cap arrives with the first reach preview.
+            if (nextMatch.length > _maxSkillsPerPosting) {
+              showBbToast(
+                context,
+                title: 'Too many match skills',
+                message:
+                    'Pick up to $_maxSkillsPerPosting match skills — the rest are '
+                    'requirements and do not change reach.',
+                icon: Icons.info_outline,
+              );
+              return;
+            }
+            setState(() {
+              _tradeLevel = level;
+              _tradeAnswers = answers;
+              _pickedSkillIds
+                ..clear()
+                ..addAll(nextMatch);
+            });
+            if (_pickedSkillIds.isEmpty) {
+              _reachDebounce?.cancel();
+              setState(() => _reach = null);
+            } else {
+              _scheduleReach();
+            }
+          },
+        ),
+        if (_reach != null) ...<Widget>[
+          const SizedBox(height: AppSpacing.s3),
+          Text(
+            _reach!.zeroReach
+                ? 'No worker matches these yet — you can still post.'
+                : 'Reaches ${_reach!.reachTotal} '
+                    '${_reach!.reachTotal == 1 ? "worker" : "workers"}',
+            style: AppTypography.body(
+              size: AppTypography.sizeSm,
+              color: _reach!.zeroReach
+                  ? AppColors.warning
+                  : AppColors.textSecondary,
+            ),
+          ),
+        ],
+      ],
+    );
   }
 
   /// Toggle a demand skill. Adding is capped at [_maxSkillsPerPosting]; emptying
@@ -278,8 +441,7 @@ class _PostJobScreenState extends State<PostJobScreen> {
   /// Debounce reach previews so a burst of taps makes ONE call (~350ms idle).
   void _scheduleReach() {
     _reachDebounce?.cancel();
-    _reachDebounce =
-        Timer(const Duration(milliseconds: 350), _loadReach);
+    _reachDebounce = Timer(const Duration(milliseconds: 350), _loadReach);
   }
 
   /// Fetch the deterministic reach preview for the current pick. A [_reachSeq]
@@ -303,8 +465,7 @@ class _PostJobScreenState extends State<PostJobScreen> {
       _reachFailed = false;
     });
     try {
-      final ReachPreview preview =
-          await locator<PayerApiClient>().reachPreview(
+      final ReachPreview preview = await locator<PayerApiClient>().reachPreview(
         matchSkillIds: ids,
         untickedRelatedIds: _untickedRelatedIds.toList(growable: false),
       );
@@ -439,6 +600,16 @@ class _PostJobScreenState extends State<PostJobScreen> {
       );
       return;
     }
+    if (_postingTrades.isNotEmpty && _roleKind == null) {
+      showBbToast(
+        context,
+        title: 'Pick the role',
+        message:
+            'Choose the role this posting is for — its trade fields follow.',
+        icon: Icons.info_outline,
+      );
+      return;
+    }
 
     final String? bandError = _bandOrderError(
       _intOrNull(_payMin.text),
@@ -531,12 +702,10 @@ class _PostJobScreenState extends State<PostJobScreen> {
       // still be editing the form while the create is in flight.
       final List<String> benefits = List<String>.of(_benefits);
       final List<String> requirements = List<String>.of(_requirements);
-      final List<String> matchSkillIds = v1
-          ? _pickedSkillIds.toList(growable: false)
-          : const <String>[];
-      final List<String> untickedRelatedIds = v1
-          ? _untickedRelatedIds.toList(growable: false)
-          : const <String>[];
+      final List<String> matchSkillIds =
+          v1 ? _pickedSkillIds.toList(growable: false) : const <String>[];
+      final List<String> untickedRelatedIds =
+          v1 ? _untickedRelatedIds.toList(growable: false) : const <String>[];
 
       final JobPosting draft = await locator<PayerApiClient>().createCompanyJob(
         orgLabel: org,
@@ -567,6 +736,13 @@ class _PostJobScreenState extends State<PostJobScreen> {
         // Untouched lists send NOTHING (there is nothing stored to clear).
         benefits: benefits.isEmpty ? null : benefits,
         requirements: requirements.isEmpty ? null : requirements,
+        // Migration 0141 — the trade-specific form. The server re-validates the
+        // answers and derives match_skill_ids from them. On the legacy fallback
+        // path these stay null, so the client omits them.
+        tradeLevel: _postingTrades.isNotEmpty && _tradeLevel.isNotEmpty
+            ? _tradeLevel
+            : null,
+        tradeAnswers: _postingTrades.isNotEmpty ? _tradeAnswers : null,
       );
 
       // …and land whatever the create route dropped (see [_landDisplayFields]).
@@ -586,6 +762,8 @@ class _PostJobScreenState extends State<PostJobScreen> {
         requirements: requirements,
         matchSkillIds: matchSkillIds,
         untickedRelatedIds: untickedRelatedIds,
+        tradeLevel: _tradeLevel.isEmpty ? null : _tradeLevel,
+        tradeAnswers: _tradeAnswers,
       );
       if (!mounted) return;
       showBbToast(
@@ -649,6 +827,8 @@ class _PostJobScreenState extends State<PostJobScreen> {
     required List<String> requirements,
     required List<String> matchSkillIds,
     required List<String> untickedRelatedIds,
+    required String? tradeLevel,
+    required Map<String, List<String>> tradeAnswers,
   }) async {
     final bool missingCity = city != null && draft.city == null;
     final bool missingArea = area != null && draft.area == null;
@@ -671,6 +851,10 @@ class _PostJobScreenState extends State<PostJobScreen> {
         requirements.isNotEmpty && (draft.requirements?.isEmpty ?? true);
     final bool missingSkills =
         matchSkillIds.isNotEmpty && draft.matchSkillIds.isEmpty;
+    final bool missingTradeLevel =
+        tradeLevel != null && draft.tradeLevel == null;
+    final bool missingTradeAnswers =
+        tradeAnswers.isNotEmpty && draft.tradeAnswers == null;
     final bool missingAnything = missingCity ||
         missingArea ||
         missingPayMin ||
@@ -683,7 +867,9 @@ class _PostJobScreenState extends State<PostJobScreen> {
         missingRoleKind ||
         missingBenefits ||
         missingRequirements ||
-        missingSkills;
+        missingSkills ||
+        missingTradeLevel ||
+        missingTradeAnswers;
     if (!missingAnything) return true;
 
     // No id on the create response → there is nothing to PATCH against, and we
@@ -717,6 +903,8 @@ class _PostJobScreenState extends State<PostJobScreen> {
         untickedRelatedIds: missingSkills && untickedRelatedIds.isNotEmpty
             ? untickedRelatedIds
             : null,
+        tradeLevel: missingTradeLevel ? tradeLevel : null,
+        tradeAnswers: missingTradeAnswers ? tradeAnswers : null,
       );
       return true;
     } catch (_) {
@@ -752,11 +940,14 @@ class _PostJobScreenState extends State<PostJobScreen> {
     final String title = _title.text.trim();
     final String city = _city.text.trim();
     final String? tradeKey = _tradeKey;
-    if (tradeKey == null || title.isEmpty) {
+    if (tradeKey == null ||
+        title.isEmpty ||
+        (_postingTrades.isNotEmpty && _roleKind == null)) {
       showBbToast(
         context,
         title: 'Add the basics',
-        message: 'Trade and job title are needed — both are printed on the '
+        message:
+            'Trade, role and job title are needed — all are printed on the '
             'worker\'s card.',
         icon: Icons.info_outline,
       );
@@ -768,8 +959,7 @@ class _PostJobScreenState extends State<PostJobScreen> {
     final int? expMin = _intOrNull(_expMin.text);
     final int? expMax = _intOrNull(_expMax.text);
     // Client-side ordering check for an honest message (the server also 400s).
-    final String? bandError =
-        _bandOrderError(payMin, payMax, expMin, expMax);
+    final String? bandError = _bandOrderError(payMin, payMax, expMin, expMax);
     if (bandError != null) {
       showBbToast(
         context,
@@ -834,9 +1024,14 @@ class _PostJobScreenState extends State<PostJobScreen> {
         // ADR-0050 — optional demand skills. Sent only once the picker is live
         // and the agent picked something; the route strips it until the API field
         // lands (#1960/#1957), so this is forward-compatible, never a 400.
-        matchSkillIds: _matchV1 == _MatchV1.available && _pickedSkillIds.isNotEmpty
-            ? _pickedSkillIds.toList(growable: false)
+        matchSkillIds:
+            _matchV1 == _MatchV1.available && _pickedSkillIds.isNotEmpty
+                ? _pickedSkillIds.toList(growable: false)
+                : null,
+        tradeLevel: _postingTrades.isNotEmpty && _tradeLevel.isNotEmpty
+            ? _tradeLevel
             : null,
+        tradeAnswers: _postingTrades.isNotEmpty ? _tradeAnswers : null,
       );
       if (!mounted) return;
       showBbToast(
@@ -1072,29 +1267,34 @@ class _PostJobScreenState extends State<PostJobScreen> {
             hint: 'e.g. CNC Setter',
           ),
           const SizedBox(height: AppSpacing.s4),
-          // Null until picked — a preselected trade would land in `description`
-          // without the payer ever choosing it (#357). A dropdown (not a chip
-          // grid) so the unpicked trade names are not surfaced on the form.
-          BbSelect<String?>(
-            label: 'Trade (optional)',
-            value: _trade,
-            items: <String?>[null, ..._trades],
-            labelOf: (String? t) => t ?? 'Not specified',
-            onChanged: (String? v) => setState(() => _trade = v),
-          ),
+          // Migration 0141 — the ROLE is mandatory and it selects the trade form.
+          // On an older server without the catalogue, the legacy trade dropdown
+          // remains so posting still works.
+          if (_postingTrades.isNotEmpty)
+            _roleField()
+          else
+            BbSelect<String?>(
+              label: 'Trade (optional)',
+              value: _trade,
+              items: <String?>[null, ..._trades],
+              labelOf: (String? t) => t ?? 'Not specified',
+              onChanged: (String? v) => setState(() => _trade = v),
+            ),
           const SizedBox(height: AppSpacing.s4),
           // The worker card's role illustration is picked by `role_kind`, not by
-          // the free-text trade above. Ask for it so a posted job reaches the
-          // feed with the right art instead of the generic scene.
-          BbSelect<String?>(
-            label: 'Role (card illustration)',
-            value: _roleKind,
-            items: <String?>[null, ...kJobRoleKinds],
-            labelOf: (String? v) =>
-                v == null ? 'Not specified' : (jobRoleLabel(v) ?? v),
-            onChanged: (String? v) => setState(() => _roleKind = v),
-          ),
-          const SizedBox(height: AppSpacing.s4),
+          // the free-text trade above. When the 16-trade catalogue drives the
+          // form, its own role picker above already sets it.
+          if (_postingTrades.isEmpty) ...<Widget>[
+            BbSelect<String?>(
+              label: 'Role (card illustration)',
+              value: _roleKind,
+              items: <String?>[null, ...kJobRoleKinds],
+              labelOf: (String? v) =>
+                  v == null ? 'Not specified' : (jobRoleLabel(v) ?? v),
+              onChanged: (String? v) => setState(() => _roleKind = v),
+            ),
+            const SizedBox(height: AppSpacing.s4),
+          ],
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
@@ -1325,6 +1525,10 @@ class _PostJobScreenState extends State<PostJobScreen> {
   ///  - [_MatchV1.unavailable] — the pre-existing free-text "Key skills" flow,
   ///    so posting still works when the route is off (`MATCH_V1_ENABLED` false).
   List<Widget> _companySkillsSection() {
+    // Migration 0141 — when the trade catalogue is available, the role's own
+    // chips replace the flat vocabulary picker. The legacy picker remains the
+    // fallback for a server that has not shipped the catalogue.
+    if (_postingTrades.isNotEmpty) return <Widget>[_tradeSection()];
     switch (_matchV1) {
       case _MatchV1.loading:
         return <Widget>[_skillsLoading()];
@@ -1353,6 +1557,7 @@ class _PostJobScreenState extends State<PostJobScreen> {
   /// `match_skill_ids` field, so when the vocabulary is unavailable the section is
   /// simply absent — never a free-text box whose value could not be sent.
   List<Widget> _agencySkillsSection() {
+    if (_postingTrades.isNotEmpty) return <Widget>[_tradeSection()];
     switch (_matchV1) {
       case _MatchV1.loading:
         return <Widget>[_skillsLoading()];
@@ -1482,20 +1687,27 @@ class _PostJobScreenState extends State<PostJobScreen> {
             onSelected: (String v) => setState(() => _tradeKey = v),
           ),
           const SizedBox(height: AppSpacing.s4),
+          // Migration 0141 — the display role selects the trade-specific fields.
+          // An older server without the catalogue keeps the legacy trade-only form.
+          if (_postingTrades.isNotEmpty) ...<Widget>[
+            _roleField(),
+            const SizedBox(height: AppSpacing.s4),
+          ],
           BbField(label: 'Job title', controller: _title),
           const SizedBox(height: AppSpacing.s4),
-          // The worker card's role illustration (`role_kind`). Optional, but
-          // asking for it is the difference between the right art and the
-          // generic scene on every card this agency posts.
-          BbSelect<String?>(
-            label: 'Role (card illustration)',
-            value: _roleKind,
-            items: <String?>[null, ...kJobRoleKinds],
-            labelOf: (String? v) =>
-                v == null ? 'Not specified' : (jobRoleLabel(v) ?? v),
-            onChanged: (String? v) => setState(() => _roleKind = v),
-          ),
-          const SizedBox(height: AppSpacing.s4),
+          // The worker card's role illustration (`role_kind`). The trade
+          // catalogue's own role picker above already sets it when present.
+          if (_postingTrades.isEmpty) ...<Widget>[
+            BbSelect<String?>(
+              label: 'Role (card illustration)',
+              value: _roleKind,
+              items: <String?>[null, ...kJobRoleKinds],
+              labelOf: (String? v) =>
+                  v == null ? 'Not specified' : (jobRoleLabel(v) ?? v),
+              onChanged: (String? v) => setState(() => _roleKind = v),
+            ),
+            const SizedBox(height: AppSpacing.s4),
+          ],
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
@@ -1643,7 +1855,8 @@ class _PostJobScreenState extends State<PostJobScreen> {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
-              const Icon(Icons.info_outline, size: 22, color: AppColors.bluePressed),
+              const Icon(Icons.info_outline,
+                  size: 22, color: AppColors.bluePressed),
               const SizedBox(width: AppSpacing.s2),
               Expanded(
                 child: Text(

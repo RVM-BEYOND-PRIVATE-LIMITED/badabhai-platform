@@ -27,7 +27,8 @@ class HttpPayerApiClient implements PayerApiClient {
 
   @override
   Future<int> fetchCredits() async {
-    final PayerResponse res = await _http.send(PayerMethod.get, '/payer/credits');
+    final PayerResponse res =
+        await _http.send(PayerMethod.get, '/payer/credits');
     // A non-2xx must NOT decode to a fabricated 0 balance rendered as a real
     // "0 credits" — surface the failure so the UI shows an honest error/retry.
     if (!res.isSuccess) throw PayerApiException(res.statusCode);
@@ -36,7 +37,8 @@ class HttpPayerApiClient implements PayerApiClient {
 
   @override
   Future<List<LedgerEntry>> fetchLedger() async {
-    final PayerResponse res = await _http.send(PayerMethod.get, '/payer/unlocks');
+    final PayerResponse res =
+        await _http.send(PayerMethod.get, '/payer/unlocks');
     // A non-2xx must not decode to a fabricated empty ledger shown as success.
     if (!res.isSuccess) throw PayerApiException(res.statusCode);
     final List<dynamic> rows =
@@ -92,6 +94,8 @@ class HttpPayerApiClient implements PayerApiClient {
     String? roleKind,
     List<String>? benefits,
     List<String>? requirements,
+    String? tradeLevel,
+    Map<String, List<String>>? tradeAnswers,
   }) async {
     // EXACTLY ONE of vacancy_band | vacancies (server rejects both/neither).
     if ((vacancyBand == null) == (vacancies == null)) {
@@ -121,8 +125,10 @@ class HttpPayerApiClient implements PayerApiClient {
       if (payMin != null) 'pay_min': payMin,
       if (payMax != null) 'pay_max': payMax,
       if (payType != null) 'pay_type': payType,
-      if (minExperienceYears != null) 'min_experience_years': minExperienceYears,
-      if (maxExperienceYears != null) 'max_experience_years': maxExperienceYears,
+      if (minExperienceYears != null)
+        'min_experience_years': minExperienceYears,
+      if (maxExperienceYears != null)
+        'max_experience_years': maxExperienceYears,
       if (shift != null) 'shift': shift,
       if (neededBy != null) 'needed_by': neededBy,
       // Migration 0131 — the display role that picks the worker card's art.
@@ -130,6 +136,10 @@ class HttpPayerApiClient implements PayerApiClient {
       if (benefits != null && benefits.isNotEmpty) 'benefits': benefits,
       if (requirements != null && requirements.isNotEmpty)
         'requirements': requirements,
+      if (roleKind != null && roleKind.isNotEmpty) 'role_kind': roleKind,
+      if (tradeLevel != null && tradeLevel.isNotEmpty)
+        'trade_level': tradeLevel,
+      if (tradeAnswers != null) 'trade_answers': tradeAnswers,
     };
     final PayerResponse res =
         await _http.send(PayerMethod.post, '/payer/job-postings', body: body);
@@ -171,6 +181,8 @@ class HttpPayerApiClient implements PayerApiClient {
     String? roleKind,
     List<String>? benefits,
     List<String>? requirements,
+    String? tradeLevel,
+    Map<String, List<String>>? tradeAnswers,
     List<JobPostingClearField>? clear,
   }) async {
     final Map<String, dynamic> body = <String, dynamic>{
@@ -190,8 +202,10 @@ class HttpPayerApiClient implements PayerApiClient {
       if (payMin != null) 'pay_min': payMin,
       if (payMax != null) 'pay_max': payMax,
       if (payType != null) 'pay_type': payType,
-      if (minExperienceYears != null) 'min_experience_years': minExperienceYears,
-      if (maxExperienceYears != null) 'max_experience_years': maxExperienceYears,
+      if (minExperienceYears != null)
+        'min_experience_years': minExperienceYears,
+      if (maxExperienceYears != null)
+        'max_experience_years': maxExperienceYears,
       if (shift != null) 'shift': shift,
       if (neededBy != null) 'needed_by': neededBy,
       if (roleKind != null) 'role_kind': roleKind,
@@ -200,6 +214,9 @@ class HttpPayerApiClient implements PayerApiClient {
       // get CLEARED server-side; only a null list is omitted.
       if (benefits != null) 'benefits': benefits,
       if (requirements != null) 'requirements': requirements,
+      if (roleKind != null) 'role_kind': roleKind,
+      if (tradeLevel != null) 'trade_level': tradeLevel,
+      if (tradeAnswers != null) 'trade_answers': tradeAnswers,
     };
     // #1652 — the fields to UNSET, after the values so a contradiction is caught.
     _addClear(body, clear?.map((JobPostingClearField f) => f.wire));
@@ -277,7 +294,8 @@ class HttpPayerApiClient implements PayerApiClient {
         return (code: null, validationMessage: fieldMessage);
       }
     }
-    final Object? message = error is Map ? error['message'] : res.body['message'];
+    final Object? message =
+        error is Map ? error['message'] : res.body['message'];
     if (message is String) {
       if (message == 'no effective changes to apply') {
         return (code: kJobEditNoChangesCode, validationMessage: null);
@@ -318,8 +336,7 @@ class HttpPayerApiClient implements PayerApiClient {
   static String _sentence(String text) {
     final String trimmed = text.trim();
     if (trimmed.isEmpty) return trimmed;
-    final String capitalised =
-        trimmed[0].toUpperCase() + trimmed.substring(1);
+    final String capitalised = trimmed[0].toUpperCase() + trimmed.substring(1);
     return capitalised.endsWith('.') ? capitalised : '$capitalised.';
   }
 
@@ -363,9 +380,11 @@ class HttpPayerApiClient implements PayerApiClient {
         text = text.substring(subject.length + 1).trim();
       }
       if (text.startsWith('Too big: expected number to be <=')) {
-        text = 'must be ${text.substring('Too big: expected number to be <='.length).trim()} or less';
+        text =
+            'must be ${text.substring('Too big: expected number to be <='.length).trim()} or less';
       } else if (text.startsWith('Too small: expected number to be >=')) {
-        text = 'must be ${text.substring('Too small: expected number to be >='.length).trim()} or more';
+        text =
+            'must be ${text.substring('Too small: expected number to be >='.length).trim()} or more';
       }
       if (text.isEmpty) continue;
       text = text[0].toUpperCase() + text.substring(1);
@@ -428,9 +447,11 @@ class HttpPayerApiClient implements PayerApiClient {
     // 409 when an active boost already exists.
     if (!res.isSuccess) throw PayerApiException(res.statusCode);
     final Map<String, dynamic> boost =
-        (res.body['boost'] as Map<String, dynamic>?) ?? const <String, dynamic>{};
+        (res.body['boost'] as Map<String, dynamic>?) ??
+            const <String, dynamic>{};
     final Map<String, dynamic> quote =
-        (res.body['quote'] as Map<String, dynamic>?) ?? const <String, dynamic>{};
+        (res.body['quote'] as Map<String, dynamic>?) ??
+            const <String, dynamic>{};
     return BoostPurchase(
       status: boost['status'] as String?,
       finalInr: (quote['finalInr'] as num?)?.toInt(),
@@ -469,6 +490,20 @@ class HttpPayerApiClient implements PayerApiClient {
     return rows
         .whereType<Map<String, dynamic>>()
         .map(MatchSkill.fromJson)
+        .toList(growable: false);
+  }
+
+  @override
+  Future<List<PostingTradeForm>> fetchPostingTrades() async {
+    final PayerResponse res =
+        await _http.send(PayerMethod.get, '/payer/posting-trades');
+    if (!res.isSuccess) throw PayerApiException(res.statusCode);
+    final List<dynamic> rows = res.body['trades'] is List<dynamic>
+        ? res.body['trades'] as List<dynamic>
+        : const <dynamic>[];
+    return rows
+        .whereType<Map<String, dynamic>>()
+        .map(PostingTradeForm.fromJson)
         .toList(growable: false);
   }
 
@@ -545,8 +580,9 @@ class HttpPayerApiClient implements PayerApiClient {
         .toList();
     // Newest activity first — the same ordering the web client applies, so both
     // devices offer the same conversation back.
-    rows.sort((JobPostingChatSessionSummary a, JobPostingChatSessionSummary b) =>
-        b.activityKey.compareTo(a.activityKey));
+    rows.sort(
+        (JobPostingChatSessionSummary a, JobPostingChatSessionSummary b) =>
+            b.activityKey.compareTo(a.activityKey));
     return List<JobPostingChatSessionSummary>.unmodifiable(rows);
   }
 
@@ -592,21 +628,19 @@ class HttpPayerApiClient implements PayerApiClient {
     if (id is! String || id.isEmpty) throw PayerApiException(res.statusCode);
     // Fields the server could not fold onto the structured posting (additive,
     // default []). Accepts snake_case + camelCase; ignores non-string entries.
-    final List<String> unmapped =
-        ((res.body['unmapped_fields'] ?? res.body['unmappedFields'])
-                    as List<dynamic>? ??
-                const <dynamic>[])
-            .whereType<String>()
-            .toList(growable: false);
+    final List<String> unmapped = ((res.body['unmapped_fields'] ??
+                res.body['unmappedFields']) as List<dynamic>? ??
+            const <dynamic>[])
+        .whereType<String>()
+        .toList(growable: false);
     // #1727 — the worker-card columns the created posting holds NULL. Parsed on
     // the same tolerant terms: a key this build does not know about must never
     // throw here, because the posting has ALREADY been created server-side.
-    final List<String> unsetCard =
-        ((res.body['unset_card_fields'] ?? res.body['unsetCardFields'])
-                    as List<dynamic>? ??
-                const <dynamic>[])
-            .whereType<String>()
-            .toList(growable: false);
+    final List<String> unsetCard = ((res.body['unset_card_fields'] ??
+                res.body['unsetCardFields']) as List<dynamic>? ??
+            const <dynamic>[])
+        .whereType<String>()
+        .toList(growable: false);
     return PublishJobResult(
       jobPostingId: id,
       unmappedFields: unmapped,
@@ -647,8 +681,8 @@ class HttpPayerApiClient implements PayerApiClient {
 
   @override
   Future<List<LedgerEntry>> fetchCreditLedger({int limit = 20}) async {
-    final PayerResponse res = await _http
-        .send(PayerMethod.get, '/payer/credits/ledger?limit=$limit');
+    final PayerResponse res =
+        await _http.send(PayerMethod.get, '/payer/credits/ledger?limit=$limit');
     // A non-2xx must not decode to a fabricated empty ledger shown as success.
     if (!res.isSuccess) throw PayerApiException(res.statusCode);
     final List<dynamic> rows =
@@ -875,6 +909,8 @@ class HttpPayerApiClient implements PayerApiClient {
     String? shift,
     List<String>? benefits,
     List<String>? requirements,
+    String? tradeLevel,
+    Map<String, List<String>>? tradeAnswers,
     List<String>? matchSkillIds,
   }) async {
     // snake_case body — trade_key/pay_min/etc. NEVER a body payer_id (the server
@@ -893,8 +929,10 @@ class HttpPayerApiClient implements PayerApiClient {
       if (payMax != null) 'pay_max': payMax,
       // #1648 — what the band MEANS. Never defaulted: omitted stores NULL.
       if (payType != null) 'pay_type': payType,
-      if (minExperienceYears != null) 'min_experience_years': minExperienceYears,
-      if (maxExperienceYears != null) 'max_experience_years': maxExperienceYears,
+      if (minExperienceYears != null)
+        'min_experience_years': minExperienceYears,
+      if (maxExperienceYears != null)
+        'max_experience_years': maxExperienceYears,
       if (neededBy != null) 'needed_by': neededBy,
       if (roleKind != null) 'role_kind': roleKind,
       if (description != null && description.trim().isNotEmpty)
@@ -903,7 +941,13 @@ class HttpPayerApiClient implements PayerApiClient {
       if (benefits != null && benefits.isNotEmpty) 'benefits': benefits,
       if (requirements != null && requirements.isNotEmpty)
         'requirements': requirements,
-      // ADR-0050 — demand skills. On CREATE an empty pick carries no information
+      if (roleKind != null && roleKind.isNotEmpty) 'role_kind': roleKind,
+      // Migration 0141 — the trade-specific form. Empty answers still carry the
+      // role's base match skill, so an empty map is sent when the form used it.
+      if (tradeLevel != null && tradeLevel.isNotEmpty)
+        'trade_level': tradeLevel,
+      if (tradeAnswers != null) 'trade_answers': tradeAnswers,
+      // ADR-0050 - demand skills. On CREATE an empty pick carries no information
       // the absent key does not (there is nothing stored to clear), so it is
       // omitted. The route strips it until the API field lands (#1960/#1957).
       if (matchSkillIds != null && matchSkillIds.isNotEmpty)
@@ -961,6 +1005,8 @@ class HttpPayerApiClient implements PayerApiClient {
     String? shift,
     List<String>? benefits,
     List<String>? requirements,
+    String? tradeLevel,
+    Map<String, List<String>>? tradeAnswers,
     List<String>? matchSkillIds,
     List<AgencyJobClearField>? clear,
   }) async {
@@ -972,8 +1018,10 @@ class HttpPayerApiClient implements PayerApiClient {
       if (payMin != null) 'pay_min': payMin,
       if (payMax != null) 'pay_max': payMax,
       if (payType != null) 'pay_type': payType,
-      if (minExperienceYears != null) 'min_experience_years': minExperienceYears,
-      if (maxExperienceYears != null) 'max_experience_years': maxExperienceYears,
+      if (minExperienceYears != null)
+        'min_experience_years': minExperienceYears,
+      if (maxExperienceYears != null)
+        'max_experience_years': maxExperienceYears,
       if (neededBy != null) 'needed_by': neededBy,
       if (roleKind != null) 'role_kind': roleKind,
       if (description != null && description.trim().isNotEmpty)
@@ -984,7 +1032,10 @@ class HttpPayerApiClient implements PayerApiClient {
       // CLEARED server-side; only a null list is omitted.
       if (benefits != null) 'benefits': benefits,
       if (requirements != null) 'requirements': requirements,
-      // ADR-0050 — same list semantics: a passed `match_skill_ids` (even `[]`)
+      if (roleKind != null) 'role_kind': roleKind,
+      if (tradeLevel != null) 'trade_level': tradeLevel,
+      if (tradeAnswers != null) 'trade_answers': tradeAnswers,
+      // ADR-0050 - same list semantics: a passed `match_skill_ids` (even `[]`)
       // is sent to clear; a null is omitted. Stripped by the route until the API
       // field lands (#1960/#1957).
       if (matchSkillIds != null) 'match_skill_ids': matchSkillIds,
@@ -994,8 +1045,8 @@ class HttpPayerApiClient implements PayerApiClient {
     if (body.isEmpty) {
       throw ArgumentError('updateAgencyJob needs at least one field');
     }
-    final PayerResponse res =
-        await _http.send(PayerMethod.patch, '/payer/agency/jobs/$id', body: body);
+    final PayerResponse res = await _http
+        .send(PayerMethod.patch, '/payer/agency/jobs/$id', body: body);
     if (!res.isSuccess) {
       final ({String? code, String? validationMessage}) rejection =
           _jobEditRejection(res);
@@ -1009,10 +1060,12 @@ class HttpPayerApiClient implements PayerApiClient {
   }
 
   @override
-  Future<AgencyJobView> closeAgencyJob(String id) => _agencyLifecycle(id, 'close');
+  Future<AgencyJobView> closeAgencyJob(String id) =>
+      _agencyLifecycle(id, 'close');
 
   @override
-  Future<AgencyJobView> pauseAgencyJob(String id) => _agencyLifecycle(id, 'pause');
+  Future<AgencyJobView> pauseAgencyJob(String id) =>
+      _agencyLifecycle(id, 'pause');
 
   @override
   Future<AgencyJobView> resumeAgencyJob(String id) =>
@@ -1198,12 +1251,11 @@ class HttpPayerApiClient implements PayerApiClient {
   static String? _inviteRefusalCode(PayerResponse res) {
     if (res.statusCode != 409) return null;
     final Object? error = res.body['error'];
-    final Object? message = error is Map ? error['message'] : res.body['message'];
+    final Object? message =
+        error is Map ? error['message'] : res.body['message'];
     if (message is! String) return null;
-    final String flat = message
-        .toLowerCase()
-        .replaceAll(RegExp(r'[^a-z0-9]+'), ' ')
-        .trim();
+    final String flat =
+        message.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), ' ').trim();
     return flat.contains('accepted with this account')
         ? kOrgInviteNotAcceptableCode
         : null;
@@ -1254,7 +1306,8 @@ class HttpPayerApiClient implements PayerApiClient {
     return JobPosting(
       id: row['id'] as String?,
       title: row['roleTitle'] as String? ?? row['role_title'] as String? ?? '',
-      band: row['vacancyBand'] as String? ?? row['vacancy_band'] as String? ?? '',
+      band:
+          row['vacancyBand'] as String? ?? row['vacancy_band'] as String? ?? '',
       locationLabel:
           row['locationLabel'] as String? ?? row['location_label'] as String?,
       createdAt: row['createdAt'] as String? ?? row['created_at'] as String?,
@@ -1283,10 +1336,10 @@ class HttpPayerApiClient implements PayerApiClient {
       description: row['description'] as String?,
       city: row['city'] as String?,
       area: row['area'] as String?,
-      payMin: (row['pay_min'] as num?)?.toInt() ??
-          (row['payMin'] as num?)?.toInt(),
-      payMax: (row['pay_max'] as num?)?.toInt() ??
-          (row['payMax'] as num?)?.toInt(),
+      payMin:
+          (row['pay_min'] as num?)?.toInt() ?? (row['payMin'] as num?)?.toInt(),
+      payMax:
+          (row['pay_max'] as num?)?.toInt() ?? (row['payMax'] as num?)?.toInt(),
       payType: row['pay_type'] as String? ?? row['payType'] as String?,
       minExperienceYears: (row['min_experience_years'] as num?)?.toInt() ??
           (row['minExperienceYears'] as num?)?.toInt(),
@@ -1301,6 +1354,10 @@ class HttpPayerApiClient implements PayerApiClient {
       neededBy: row['needed_by'] as String? ?? row['neededBy'] as String?,
       roleKind: row['role_kind'] as String? ?? row['roleKind'] as String?,
       matchSkillIds: _stringList(row['match_skill_ids']),
+      tradeLevel: row['trade_level'] as String? ?? row['tradeLevel'] as String?,
+      tradeAnswers: _optionalStringMapList(
+        row['trade_answers'] ?? row['tradeAnswers'],
+      ),
       // Still NO per-posting source (applications + unlocks attach to `jobs`, not
       // `job_postings`) — kept at the model defaults rather than faked.
       applicants: 0,
@@ -1451,4 +1508,16 @@ class HttpPayerApiClient implements PayerApiClient {
   static List<String>? _optionalStringList(Object? v) => v is List<dynamic>
       ? List<String>.unmodifiable(v.whereType<String>())
       : null;
+
+  static Map<String, List<String>>? _optionalStringMapList(Object? v) {
+    if (v is! Map) return null;
+    final out = <String, List<String>>{};
+    for (final entry in v.entries) {
+      if (entry.key is String && entry.value is List) {
+        out[entry.key as String] = List<String>.unmodifiable(
+            (entry.value as List).whereType<String>());
+      }
+    }
+    return Map<String, List<String>>.unmodifiable(out);
+  }
 }

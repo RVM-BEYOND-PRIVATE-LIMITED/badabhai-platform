@@ -9,6 +9,7 @@ import {
   PAY_TYPES,
   SHIFTS,
   type MatchSkillWire,
+  type PostingTradeFormWire,
   type ReachPreview,
 } from "../../../../lib/contracts";
 import { roleOptionGroups } from "../../../../lib/job-roles";
@@ -43,6 +44,7 @@ import { createPostingAction } from "./actions";
 import { withPublishedReach } from "../../../../lib/published-reach";
 import { usePortalNavigation } from "../../../../components/portal-navigation";
 import { MatchSkillPicker, type MatchSelection } from "./match-skill-picker";
+import { TradePostingFields, derivedMatchSkills, type TradeFormValue } from "../trade-fields";
 
 /**
  * New posting (EMPLOYER self-serve) — the posting form is the TRACEABLE SOURCE of every Job Card
@@ -57,6 +59,7 @@ import { MatchSkillPicker, type MatchSelection } from "./match-skill-picker";
 
 const ROLE_GROUPS = roleOptionGroups();
 const FORM_ID = "posting-form";
+const BLANK_TRADE: TradeFormValue = { tradeLevel: "", answers: {} };
 
 interface FormFields {
   roleKind: string;
@@ -112,7 +115,6 @@ const BLANK: FormFields = {
   description: "",
 };
 
-
 /** The openings box as a whole number ≥ 1, or null. */
 function openingsOf(raw: string): number | null {
   const n = parseWholeNumber(raw);
@@ -137,12 +139,15 @@ function validate(fields: FormFields): FieldErrors {
 export function PostingForm({
   quotaStep = null,
   matchSkills = [],
+  postingTrades = [],
   lead,
   free = true,
   payerRef = "—",
 }: {
   quotaStep?: number | null;
   matchSkills?: MatchSkillWire[];
+  /** The 16-trade posting catalogue (migration 0141). Empty ⇒ the legacy fields still work. */
+  postingTrades?: PostingTradeFormWire[];
   /** The page head + notices, drawn at the top of the form column (the rail starts beside it). */
   lead?: ReactNode;
   /** The "free through launch" notice (sourced from the page's config flag). */
@@ -170,6 +175,11 @@ export function PostingForm({
   const [revealed, setRevealed] = useState<RevealedNumbers>({});
   // APPENDED — keeps every earlier positional useState index intact (posting-form.test.tsx).
   const [step, setStep] = useState(1);
+  // Appended after the seeded prefix: the trade-specific form's rung + answers.
+  const [trade, setTrade] = useState<TradeFormValue & { matchSkillIds: string[] }>({
+    ...BLANK_TRADE,
+    matchSkillIds: [],
+  });
   const [pending, startTransition] = useTransition();
   // The publish lands on the new posting's Applicants with the shell's "Opening Applicants…" cue
   // (the button stays "Publishing…" — `navigating` — until the page is gone).
@@ -181,13 +191,27 @@ export function PostingForm({
     { requirements, benefits, reqDraft, benDraft },
   );
   const hasCardIssue = Object.keys(read.issues).length > 0;
+  const tradeMode = postingTrades.length > 0;
+  const activeMatchSkillIds = tradeMode ? trade.matchSkillIds : selection.matchSkillIds;
   const isValid =
     Object.keys(validate(fields)).length === 0 &&
     !hasCardIssue &&
-    selection.matchSkillIds.length > 0;
+    (!tradeMode || fields.roleKind !== "") &&
+    activeMatchSkillIds.length > 0;
 
   function set<K extends keyof FormFields>(key: K, value: string) {
     setFields((prev) => ({ ...prev, [key]: value }));
+    // The trade fields belong to a role. A role change must never keep the previous
+    // role's chips (a turner's controller is not a welder's process).
+    if (key === "roleKind") {
+      const form = postingTrades.find((tradeForm) => tradeForm.role_kind === value);
+      setTrade({
+        ...BLANK_TRADE,
+        matchSkillIds: form ? derivedMatchSkills(form, {}) : [],
+      });
+      setSelection({ matchSkillIds: [], untickedRelatedIds: [] });
+      setPreview(null);
+    }
     const pair = numberPairOf(key);
     if (pair !== null) setRevealed((prev) => revealNumberPair(prev, pair, false));
     if (key in fieldErrors) setFieldErrors((p) => ({ ...p, [key]: undefined }));
@@ -341,8 +365,14 @@ export function PostingForm({
         neededBy: v.neededBy,
         requirements: v.requirements,
         benefits: v.benefits,
-        matchSkillIds: selection.matchSkillIds,
-        untickedRelatedIds: selection.untickedRelatedIds,
+        ...(tradeMode
+          ? {
+              tradeLevel: trade.tradeLevel || undefined,
+              tradeAnswers: trade.answers,
+            }
+          : {}),
+        matchSkillIds: activeMatchSkillIds,
+        untickedRelatedIds: tradeMode ? [] : selection.untickedRelatedIds,
       });
       if (res.ok) {
         setNavigating(true);
@@ -363,7 +393,8 @@ export function PostingForm({
 
   const openings = openingsOf(fields.vacancies);
   const derivedBand = openings !== null ? bandForVacancies(openings) : null;
-  const derivedQuota = derivedBand !== null ? baseApplicantQuotaForBand(derivedBand, quotaStep) : null;
+  const derivedQuota =
+    derivedBand !== null ? baseApplicantQuotaForBand(derivedBand, quotaStep) : null;
 
   const busy = pending || navigating;
   const primary = (
@@ -375,11 +406,7 @@ export function PostingForm({
       disabled={submitDisabled}
       loading={busy}
     >
-      {busy
-        ? "Publishing…"
-        : preview?.zero_reach
-          ? zeroReachLabel
-          : "Publish posting"}
+      {busy ? "Publishing…" : preview?.zero_reach ? zeroReachLabel : "Publish posting"}
     </Button>
   );
   // ONE status: the rail footer shows it on desktop, the dock below 1024px (the form's own end
@@ -397,11 +424,15 @@ export function PostingForm({
   ) : null;
 
   const STEP_TITLES = ["Role & Worksite", "Pay & Openings", "Skills & Perks"];
+  const roleGroups =
+    postingTrades.length > 0
+      ? roleOptionGroups(postingTrades.map((tradeForm) => tradeForm.role_kind))
+      : ROLE_GROUPS;
   const roleLabel =
-    ROLE_GROUPS.flatMap((g) => g.options).find((o) => o.value === fields.roleKind)?.label ??
+    roleGroups.flatMap((g) => g.options).find((o) => o.value === fields.roleKind)?.label ??
     (fields.roleTitle.trim() !== "" ? fields.roleTitle : "Your role title");
   const selectedSkillLabels = matchSkills
-    .filter((s) => selection.matchSkillIds.includes(s.skill_id))
+    .filter((s) => activeMatchSkillIds.includes(s.skill_id))
     .map((s) => s.label)
     .slice(0, 4);
   const locationText = [fields.area.trim(), fields.city.trim()].filter(Boolean).join(", ");
@@ -417,7 +448,10 @@ export function PostingForm({
     roleKind: read.values.roleKind ?? null,
     openings: fields.vacancies,
     locationNote: fields.locationLabel,
-    matchSkills: { ids: selection.matchSkillIds, vocabulary: matchSkills },
+    tradeLevel: tradeMode ? trade.tradeLevel || null : null,
+    tradeAnswers: tradeMode ? trade.answers : null,
+    postingTrades: tradeMode ? postingTrades : [],
+    matchSkills: { ids: activeMatchSkillIds, vocabulary: matchSkills },
     description: fields.description,
   });
 
@@ -468,7 +502,7 @@ export function PostingForm({
                 onChange={(e) => set("roleKind", e.target.value)}
               >
                 <option value="">— pick the role category —</option>
-                {ROLE_GROUPS.map((group) => (
+                {roleGroups.map((group) => (
                   <optgroup key={group.family} label={group.label}>
                     {group.options.map((o) => (
                       <option key={o.value} value={o.value}>
@@ -528,11 +562,7 @@ export function PostingForm({
               <button type="button" className="bb-btn bb-btn--secondary bb-btn--sm">
                 Save Draft
               </button>
-              <button
-                type="button"
-                className="bb-btn bb-btn--primary bb-btn--sm"
-                onClick={goNext}
-              >
+              <button type="button" className="bb-btn bb-btn--primary bb-btn--sm" onClick={goNext}>
                 Next: Pay &amp; Openings <Icon name="arrow-right" />
               </button>
             </div>
@@ -687,11 +717,7 @@ export function PostingForm({
               >
                 Back
               </button>
-              <button
-                type="button"
-                className="bb-btn bb-btn--primary bb-btn--sm"
-                onClick={goNext}
-              >
+              <button type="button" className="bb-btn bb-btn--primary bb-btn--sm" onClick={goNext}>
                 Next: Skills &amp; Perks <Icon name="arrow-right" />
               </button>
             </div>
@@ -732,7 +758,23 @@ export function PostingForm({
                 />
               </div>
 
-              {matchSkills.length > 0 ? (
+              {tradeMode ? (
+                <TradePostingFields
+                  trades={postingTrades}
+                  roleKind={fields.roleKind}
+                  value={{ tradeLevel: trade.tradeLevel, answers: trade.answers }}
+                  onChange={(next) => {
+                    const form = postingTrades.find((t) => t.role_kind === fields.roleKind);
+                    setTrade({
+                      ...next,
+                      matchSkillIds: form ? derivedMatchSkills(form, next.answers) : [],
+                    });
+                  }}
+                  onMatchSkillIdsChange={() => undefined}
+                  onPreviewChange={setPreview}
+                  vocabulary={matchSkills}
+                />
+              ) : matchSkills.length > 0 ? (
                 <MatchSkillPicker
                   vocabulary={matchSkills}
                   selection={selection}
@@ -788,9 +830,7 @@ export function PostingForm({
               <Icon name="rocket-launch" />
             </span>
             <div className="mw-mini__body">
-              <p className="mw-mini__title">
-                {free ? "100% Free Through Launch" : "Paid posting"}
-              </p>
+              <p className="mw-mini__title">{free ? "100% Free Through Launch" : "Paid posting"}</p>
               <p className="mw-mini__meta">{free ? "₹0 cost" : "See billing"}</p>
               <p className="mw-mini__sub">
                 {free
@@ -891,7 +931,9 @@ export function PostingForm({
               <dd>{fields.neededBy !== "" ? neededByLabel(fields.neededBy) : "—"}</dd>
             </div>
           </dl>
-          <p className="mw-audit__note">Workers read detailed technical specs inside full job view.</p>
+          <p className="mw-audit__note">
+            Workers read detailed technical specs inside full job view.
+          </p>
         </div>
 
         <div className="mw-rail__actions">
@@ -906,7 +948,6 @@ export function PostingForm({
             <Icon name="check-circle" /> 0 credits billed today
           </span>
         </p>
-
       </aside>
 
       {/* The shared rail keeps the live-slot/dock behaviour the form has always had, in the

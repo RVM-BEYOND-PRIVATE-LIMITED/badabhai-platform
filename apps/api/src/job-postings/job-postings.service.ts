@@ -17,7 +17,9 @@ import { AiCostRecorder } from "../ai/ai-cost-recorder.service";
 import { AiTraceRecorder } from "../ai/ai-trace-recorder.service";
 import { PublishReachService } from "../match/publish-reach.service";
 import { MatchSkillsService } from "../match/match-skills.service";
+import { PostingTradesService } from "../posting-trades/posting-trades.service";
 import { clearedSet } from "../common/clearable-fields";
+import { sameTradeAnswers } from "../common/trade-fields";
 import { assertNotAgencyTwin } from "../common/agency-twin-fence";
 import { PayerTenantScopeService } from "../payers/payer-tenant-scope.service";
 import type { PayerTenantScope } from "../payers/payer-tenant-scope";
@@ -118,6 +120,9 @@ export class JobPostingsService {
     // #1645 — closed-set + cap validation for `match_skill_ids` AT CREATE, so a bad id is
     // a 400 on the form rather than at publish. Same @Global module, no new import edge.
     private readonly matchSkills: MatchSkillsService,
+    // Migration 0141 — validates the trade-specific form against the role's checked-in
+    // question pack and derives the match skills from the chips the poster selected.
+    private readonly postingTrades: PostingTradesService,
     // ADR-0053 — the payer tenant resolver (PayersModule). The ONLY source of the tenant key
     // every payer-path predicate and stamp below uses.
     private readonly tenancy: PayerTenantScopeService,
@@ -274,7 +279,7 @@ export class JobPostingsService {
     const current = await this.getOne(id);
     // ADR-0050 §4.3 — a twin is written by its sync alone; every edit goes through the agency job.
     assertNotAgencyTwin(current.sync_source);
-    const prepared = this.prepareUpdate(current, dto);
+    const prepared = this.prepareUpdate(current, await this.prepareTradeUpdate(current, dto));
     if (prepared.changedFields.includes("skills")) {
       // The posting's OWN canonical domain when it has one (null for every row today —
       // the column is unbackfilled), else the transitional legacy anchor.
@@ -439,7 +444,7 @@ export class JobPostingsService {
   ): Promise<JobPostingApi> {
     const scope = await this.tenancy.resolve(actorPayerId);
     const current = await this.getOneInScope(id, scope); // no-oracle 404
-    const prepared = this.prepareUpdate(current, dto);
+    const prepared = this.prepareUpdate(current, await this.prepareTradeUpdate(current, dto));
     if (prepared.changedFields.includes("skills")) {
       // Owner-scoped read, so the domain is the CALLER'S OWN posting's — never a
       // body-supplied id. Null for every row today; see the ops update above.
@@ -681,12 +686,27 @@ export class JobPostingsService {
   private async resolveCreateContent(
     dto: CreateJobPostingDto | PayerCreateJobPostingDto,
   ): Promise<CreateContent> {
-    if (dto.match_skill_ids !== undefined) {
+    // Migration 0141 — the trade form's chips are the match input. When the poster used
+    // the trade form (even with no chips selected, which still names the role's base
+    // skill), the server derives the set; a client cannot widen it by sending extra ids.
+    // A client that has not adopted the trade form keeps the pre-0141 behaviour.
+    const tradeSelection =
+      dto.trade_level !== undefined || dto.trade_answers !== undefined
+        ? await this.postingTrades.normalizeSelection(
+            dto.role_kind ?? null,
+            dto.trade_level ?? null,
+            dto.trade_answers ?? null,
+          )
+        : null;
+    const matchSkillIds =
+      tradeSelection !== null ? tradeSelection.matchSkillIds : (dto.match_skill_ids ?? []);
+
+    if (matchSkillIds.length > 0) {
       // Closed-set + cap check. Throws a 400 naming the offending ids (public closed-set
       // values — no PII can appear, the DTO regex-constrains them). The resolved reach is
       // DISCARDED: a draft has none, and re-resolving at publish is what keeps the set
       // honest if the curated relations moved in between.
-      await this.matchSkills.resolveForPublish(dto.match_skill_ids, dto.unticked_related_ids ?? []);
+      await this.matchSkills.resolveForPublish(matchSkillIds, dto.unticked_related_ids ?? []);
     }
     return {
       city: dto.city ?? null,
@@ -705,7 +725,11 @@ export class JobPostingsService {
       // Migration 0131 — the payer's role pick, or NULL. DISPLAY ONLY: it is not handed to
       // `matchSkills` above and nothing derives a skill or a domain from it.
       roleKind: dto.role_kind ?? null,
-      matchSkillIds: dto.match_skill_ids ? [...dto.match_skill_ids] : [],
+      // Migration 0141 — the poster's ladder rung and chip answers. NULL means "not
+      // stated"; the derived match set above is separate from this reviewable answer set.
+      tradeLevel: tradeSelection?.tradeLevel ?? dto.trade_level ?? null,
+      tradeAnswers: tradeSelection?.tradeAnswers ?? dto.trade_answers ?? null,
+      matchSkillIds: [...matchSkillIds],
       untickedRelatedIds: dto.unticked_related_ids ? [...dto.unticked_related_ids] : [],
     };
   }
@@ -772,6 +796,47 @@ export class JobPostingsService {
   }
 
   /**
+   * Migration 0141 — validate/normalize the trade-specific form before the generic
+   * patch builder sees it.
+   *
+   * When the request carries trade fields, this validates them against the role's pack and
+   * DERIVES `match_skill_ids` from the chips (a client cannot add an id through this path).
+   * Every 0141 client resends the form whenever the role changes, so a stale ladder or
+   * machine answer can never sit under a new role.
+   *
+   * A request that carries no trade fields is untouched and keeps the pre-0141 behaviour:
+   * the client that sends it cannot have authored trade answers (the columns are new).
+   */
+  private async prepareTradeUpdate(
+    current: JobPostingApi,
+    dto: UpdateJobPostingDto,
+  ): Promise<UpdateJobPostingDto> {
+    // 0141 clients always resend the form when the role changes, so the only case this
+    // has to normalize is an explicit trade-form edit. A legacy client that sends just
+    // `role_kind` keeps the pre-0141 behaviour: it could not have set trade answers.
+    if (dto.trade_level === undefined && dto.trade_answers === undefined) return dto;
+
+    const cleared = clearedSet(dto.clear);
+    const nextRole = dto.role_kind !== undefined ? dto.role_kind : current.role_kind;
+    const selection = await this.postingTrades.normalizeSelection(
+      nextRole,
+      dto.trade_level ?? (cleared.has("trade_level") ? null : current.trade_level),
+      dto.trade_answers ?? (cleared.has("trade_answers") ? null : current.trade_answers),
+    );
+    // `match_skill_ids` present is what makes `materializeIfNeeded` rebuild the reach set.
+    // A rung-only or facet-only edit derives the SAME set the posting already carries, so
+    // sending it would rebuild thousands of reach rows for a display change. Send it only
+    // when the derived set actually moved (which still covers a base-skill clear/import).
+    const skillsUnchanged = sameStringList(selection.matchSkillIds, current.match_skill_ids);
+    return {
+      ...dto,
+      ...(selection.tradeLevel !== null ? { trade_level: selection.tradeLevel } : {}),
+      ...(selection.tradeAnswers !== null ? { trade_answers: selection.tradeAnswers } : {}),
+      ...(skillsUnchanged ? {} : { match_skill_ids: selection.matchSkillIds }),
+    };
+  }
+
+  /**
    * Validate an edit against the current row and build the column patch + the
    * changed-field KEY list in lockstep (KEYS only, never the values — no free text
    * leaves this method). Throws the lifecycle/no-op errors. Shared by both surfaces.
@@ -824,8 +889,20 @@ export class JobPostingsService {
       patch.roleTitle = dto.role_title;
       changedFields.push("role_title");
     }
-    applyNullable("location_label", "locationLabel", dto.location_label, current.location_label, "location_label");
-    applyNullable("description", "description", dto.description, current.description, "description");
+    applyNullable(
+      "location_label",
+      "locationLabel",
+      dto.location_label,
+      current.location_label,
+      "location_label",
+    );
+    applyNullable(
+      "description",
+      "description",
+      dto.description,
+      current.description,
+      "description",
+    );
 
     // Resolve the requested band from EITHER the raw `vacancies` count (intake only —
     // derived then discarded, never stored/evented) OR the pre-chosen band.
@@ -878,11 +955,47 @@ export class JobPostingsService {
     // ONE key for the whole window, mirroring `pay_band`: the window is a single editorial
     // act and splitting it would tell a reader which END moved. Each end still routes
     // independently, so half the window can be cleared.
-    applyNullable("min_experience_years", "minExperienceYears", dto.min_experience_years, current.min_experience_years, "experience");
-    applyNullable("max_experience_years", "maxExperienceYears", dto.max_experience_years, current.max_experience_years, "experience");
+    applyNullable(
+      "min_experience_years",
+      "minExperienceYears",
+      dto.min_experience_years,
+      current.min_experience_years,
+      "experience",
+    );
+    applyNullable(
+      "max_experience_years",
+      "maxExperienceYears",
+      dto.max_experience_years,
+      current.max_experience_years,
+      "experience",
+    );
     // Migration 0131 — the display role. Its own key, never folded into `match_skills`: a role
     // change moves no reach input, and a reader must be able to tell the two apart.
     applyNullable("role_kind", "roleKind", dto.role_kind, current.role_kind, "role_kind");
+
+    // Migration 0141 — the trade-specific form. ONE key (`trade_fields`) for the rung and
+    // the answer map: they are one editorial act, and splitting them would let a reader
+    // infer which chip set moved. The DERIVED `match_skill_ids` still reports as
+    // `match_skills` below, because that is the set that actually moves reach.
+    applyNullable(
+      "trade_level",
+      "tradeLevel",
+      dto.trade_level,
+      current.trade_level,
+      "trade_fields",
+    );
+    if (cleared.has("trade_answers")) {
+      if (current.trade_answers !== null) {
+        patch.tradeAnswers = null;
+        changedFields.push("trade_fields");
+      }
+    } else if (
+      dto.trade_answers !== undefined &&
+      !sameTradeAnswers(dto.trade_answers, current.trade_answers)
+    ) {
+      patch.tradeAnswers = { ...dto.trade_answers };
+      if (!changedFields.includes("trade_fields")) changedFields.push("trade_fields");
+    }
 
     // The two jsonb lists are compared as LISTS, not by identity, so they cannot use the
     // scalar helper. #1652: clearing one stores NULL ("never stated"), which is a DIFFERENT

@@ -214,7 +214,9 @@ function placeFieldSchema(label: string, max: number) {
     .trim()
     .min(1)
     .max(max)
-    .refine((s) => !placeLooksLikeContact(s), { message: `Remove contact details from the ${label}.` })
+    .refine((s) => !placeLooksLikeContact(s), {
+      message: `Remove contact details from the ${label}.`,
+    })
     .refine((s) => !looksLikeOrgName(s), { message: `Don't put a company name in the ${label}.` })
     .refine((s) => !looksLikeUrl(s), { message: `Don't put links in the ${label}.` });
 }
@@ -293,6 +295,19 @@ export const createPostingInputSchema = z
     // The WORKER-VISIBLE card fields the backend `PayerCreateJobPostingSchema` accepts (it spreads
     // `postingContentFields`, #1645/#1646/#1648). The posting form is the traceable SOURCE of
     // every card field, so create carries them all. Coarse + PII-free; chips are screened above.
+    // Migration 0141 — the trade-specific form. Shape only; the API validates the keys
+    // and options against the role's checked-in question pack and derives match skills.
+    tradeLevel: z
+      .string()
+      .regex(/^[a-z][a-z0-9_]*$/)
+      .max(40)
+      .optional(),
+    tradeAnswers: z
+      .record(
+        z.string().regex(/^[a-z][a-z0-9_]*$/),
+        z.array(z.string().regex(/^[a-z][a-z0-9_]*$/)).max(20),
+      )
+      .optional(),
     city: placeFieldSchema("city", 80).optional(),
     area: placeFieldSchema("area", 120).optional(),
     payMin: z.number().int().nonnegative().max(PAY_MAX_INR).optional(),
@@ -385,6 +400,18 @@ export const updatePostingInputSchema = z
     neededBy: neededBySchema.optional(),
     requirements: requirementsInputSchema.optional(),
     benefits: benefitsInputSchema.optional(),
+    // Migration 0141 — the SAME trade form fields as create.
+    tradeLevel: z
+      .string()
+      .regex(/^[a-z][a-z0-9_]*$/)
+      .max(40)
+      .optional(),
+    tradeAnswers: z
+      .record(
+        z.string().regex(/^[a-z][a-z0-9_]*$/),
+        z.array(z.string().regex(/^[a-z][a-z0-9_]*$/)).max(20),
+      )
+      .optional(),
   })
   .refine((o) => o.payMin === undefined || o.payMax === undefined || o.payMax >= o.payMin, {
     message: "Max pay must be greater than or equal to min pay.",
@@ -421,6 +448,53 @@ export const matchSkillWireSchema = z.object({
 });
 export const matchSkillListWireSchema = z.object({ skills: z.array(matchSkillWireSchema) });
 export type MatchSkillWire = z.infer<typeof matchSkillWireSchema>;
+
+/* ── Migration 0141 — the 16-trade posting form ─────────────────────────────── */
+
+/**
+ * `GET /payer/posting-trades` — the closed 16-trade catalogue, each trade's display-only
+ * ladder and the chip questions the vacancy form may ask. `match` distinguishes a chip that
+ * moves reach from a facet chip (same candidate set, matching candidates lead).
+ */
+export const postingTradeOptionWireSchema = z.object({
+  option_key: z.string(),
+  value: z.string(),
+  label: z.string(),
+  match: z.boolean(),
+  match_skill_ids: z.array(matchSkillIdSchema),
+});
+export type PostingTradeOptionWire = z.infer<typeof postingTradeOptionWireSchema>;
+
+export const postingTradeQuestionWireSchema = z.object({
+  question_key: z.string(),
+  prompt: z.string(),
+  answer_type: z.enum(["single_select", "multi_select"]),
+  options: z.array(postingTradeOptionWireSchema),
+});
+export type PostingTradeQuestionWire = z.infer<typeof postingTradeQuestionWireSchema>;
+
+export const postingTradeLadderRungWireSchema = z.object({
+  rung: z.string(),
+  monthsFloor: z.string(),
+  evidence: z.string(),
+  confirmed: z.boolean(),
+  priceTier: z.enum(["lower", "higher"]),
+});
+export type PostingTradeLadderRungWire = z.infer<typeof postingTradeLadderRungWireSchema>;
+
+export const postingTradeFormWireSchema = z.object({
+  role_kind: z.string(),
+  role_label: z.string(),
+  pack_id: z.string(),
+  match_skill_id: matchSkillIdSchema,
+  ladder: z.array(postingTradeLadderRungWireSchema),
+  questions: z.array(postingTradeQuestionWireSchema),
+});
+export type PostingTradeFormWire = z.infer<typeof postingTradeFormWireSchema>;
+
+export const postingTradeListWireSchema = z.object({
+  trades: z.array(postingTradeFormWireSchema),
+});
 
 /**
  * `POST /payer/match/reach-preview` — the live "reaches N workers" the payer decides on.
@@ -1203,6 +1277,9 @@ export const jobPostingWireSchema = z.object({
   requirements: z.array(z.string()).nullable().optional(),
   benefits: z.array(z.string()).nullable().optional(),
   role_kind: z.string().nullable().optional(),
+  // Migration 0141 — the display-only rung + the poster's chip answers.
+  trade_level: z.string().nullable().optional(),
+  trade_answers: z.record(z.string(), z.array(z.string())).nullable().optional(),
   // The MATCHABLE half echoed back on the row, so the edit form can prefill the skill picker.
   // Never rendered on the card (role_kind is display; these are the match inputs).
   match_skill_ids: z.array(z.string()).nullable().optional(),
@@ -1268,6 +1345,9 @@ export const agencyJobWireSchema = z.object({
    * server decides which ids are live.
    */
   matchSkillIds: z.array(z.string()).nullable().optional(),
+  /** Migration 0141 — the display-only rung + the poster's chip answers. */
+  tradeLevel: z.string().nullable().optional(),
+  tradeAnswers: z.record(z.string(), z.array(z.string())).nullable().optional(),
   applicantsReceived: z.number().int().nonnegative(),
   createdAt: z.string(),
   updatedAt: z.string(),
@@ -1305,13 +1385,27 @@ export const agencyJobInputSchema = z
       .refine((s) => !looksLikePii(s), {
         message: "Remove contact details (phone/email) from the description.",
       })
-      .refine((s) => !looksLikeOrgName(s), { message: "Don't put a company name in the description." })
+      .refine((s) => !looksLikeOrgName(s), {
+        message: "Don't put a company name in the description.",
+      })
       .refine((s) => !looksLikeUrl(s), { message: "Don't put links in the description." })
       .optional(),
     requirements: requirementsInputSchema.optional(),
     benefits: benefitsInputSchema.optional(),
+    /** Migration 0141 — the trade-specific form, same shape as the company posting. */
+    tradeLevel: z
+      .string()
+      .regex(/^[a-z][a-z0-9_]*$/)
+      .max(40)
+      .optional(),
+    tradeAnswers: z
+      .record(
+        z.string().regex(/^[a-z][a-z0-9_]*$/),
+        z.array(z.string().regex(/^[a-z][a-z0-9_]*$/)).max(20),
+      )
+      .optional(),
     /**
-     * ADR-0050 §6.1 step 2 — the match pick, mirroring the backend `matchSkillIds` field
+     * ADR-0050 §6.1 step 2 - the match pick, mirroring the backend `matchSkillIds` field
      * (agency.dto.ts) exactly: `.min(1)` and OPTIONAL, because an empty pick is expressed by
      * OMITTING the key (create stores `[]`; edit leaves the stored pick UNCHANGED) and never by
      * sending `[]`, so a form that serialized an untouched picker cannot erase a stored pick.
@@ -1427,7 +1521,13 @@ export type AgencyWorker = z.infer<typeof agencyWorkerWireSchema>;
  */
 
 /** Agency KYC state — mirrors the backend `status` enum (never a raw document). */
-export const AGENCY_KYC_STATUSES = ["not_submitted", "pending", "verified", "rejected", "forbidden"] as const;
+export const AGENCY_KYC_STATUSES = [
+  "not_submitted",
+  "pending",
+  "verified",
+  "rejected",
+  "forbidden",
+] as const;
 export const agencyKycStatusSchema = z.enum(AGENCY_KYC_STATUSES);
 export type AgencyKycStatusValue = z.infer<typeof agencyKycStatusSchema>;
 
@@ -1467,11 +1567,7 @@ export const agencyKycInputSchema = z.object({
     .string()
     .trim()
     .regex(BANK_ACCOUNT_RE, "Enter a valid bank account number (9–18 digits)."),
-  ifsc: z
-    .string()
-    .trim()
-    .toUpperCase()
-    .regex(IFSC_RE, "Enter a valid IFSC — e.g. HDFC0001234."),
+  ifsc: z.string().trim().toUpperCase().regex(IFSC_RE, "Enter a valid IFSC — e.g. HDFC0001234."),
   accountHolderName: z
     .string()
     .trim()
@@ -1895,7 +1991,8 @@ export const jobPostingChatMessageInputSchema = z.object({
     .min(1, "Type an answer first.")
     .max(2000, "That message is too long — keep it under 2000 characters.")
     .refine((t) => !looksLikePii(t), {
-      message: "Remove contact details (phone/email) — share those only after you unlock an applicant.",
+      message:
+        "Remove contact details (phone/email) — share those only after you unlock an applicant.",
     }),
 });
 export type JobPostingChatMessageInput = z.infer<typeof jobPostingChatMessageInputSchema>;

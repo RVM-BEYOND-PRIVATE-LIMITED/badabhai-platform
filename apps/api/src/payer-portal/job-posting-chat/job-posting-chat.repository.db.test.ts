@@ -345,6 +345,7 @@ describe.skipIf(!RUN)(
         {} as never, // AiTraceRecorder — likewise
         {} as never, // PublishReachService — a create never materializes reach
         {} as never, // MatchSkillsService — a chat publish sends no match_skill_ids
+        {} as never, // PostingTradesService
         tenancy,
       );
       publisher = new JobPostingChatService(

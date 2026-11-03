@@ -66,8 +66,19 @@ class Candidate extends Equatable {
       );
 
   @override
-  List<Object?> get props =>
-      <Object?>[id, name, trade, skill, exp, loc, avail, hot, fit, phone, unlocked];
+  List<Object?> get props => <Object?>[
+        id,
+        name,
+        trade,
+        skill,
+        exp,
+        loc,
+        avail,
+        hot,
+        fit,
+        phone,
+        unlocked
+      ];
 }
 
 /// Lifecycle of a job posting — drives the status pill + row dimming.
@@ -111,6 +122,8 @@ class JobPosting extends Equatable {
     this.neededBy,
     this.roleKind,
     this.matchSkillIds = const <String>[],
+    this.tradeLevel,
+    this.tradeAnswers,
   });
 
   final String title;
@@ -206,6 +219,13 @@ class JobPosting extends Equatable {
   /// EMPTY means the posting materialises no reach — it can match no worker.
   final List<String> matchSkillIds;
 
+  /// Migration 0141 — the display-only ladder rung, or null.
+  final String? tradeLevel;
+
+  /// Migration 0141 — the poster's chip answers, or null. Keys/values are the
+  /// role pack's closed slugs; the API validates them before storing.
+  final Map<String, List<String>>? tradeAnswers;
+
   double get progress => quota == 0 ? 0 : filled / quota;
   int get pct => (progress * 100).round();
 
@@ -239,6 +259,8 @@ class JobPosting extends Equatable {
         neededBy,
         roleKind,
         matchSkillIds,
+        tradeLevel,
+        tradeAnswers,
       ];
 }
 
@@ -270,7 +292,11 @@ enum JobPostingClearField {
   /// Migration 0131 (#1840) — `job_postings.role_kind` is nullable, so "no role
   /// picked" is clearable. The app does not surface the role yet; the name is
   /// here so this set stays equal to the server's.
-  roleKind('role_kind');
+  roleKind('role_kind'),
+
+  /// Migration 0141 - both nullable.
+  tradeLevel('trade_level'),
+  tradeAnswers('trade_answers');
 
   const JobPostingClearField(this.wire);
 
@@ -682,8 +708,7 @@ const String kJobEditNoChangesMessage =
     'Nothing to save — change a field first.';
 
 /// What the payer is told on [kJobEditClosedCode]: closed is terminal.
-const String kJobEditClosedMessage =
-    'This job is closed and cannot be edited.';
+const String kJobEditClosedMessage = 'This job is closed and cannot be edited.';
 
 /// Result of buying/topping-up a job posting's applicant-visibility PLAN
 /// (`POST /payer/job-postings/:id/plan` and `.../quota-topup`). Flattens the
@@ -905,6 +930,8 @@ class AgencyJobView extends Equatable {
     this.requirements,
     this.roleKind,
     this.matchSkillIds = const <String>[],
+    this.tradeLevel,
+    this.tradeAnswers,
     this.createdAt,
     this.updatedAt,
   });
@@ -936,7 +963,10 @@ class AgencyJobView extends Equatable {
         requirements: _optionalStringList(row['requirements']),
         // ADR-0050 — the closed-set demand skills (`match_skill_ids`), returned
         // as an array once the API serves it; absent stays `[]` (no skills).
-        matchSkillIds: _optionalStringList(row['match_skill_ids']) ?? const <String>[],
+        matchSkillIds:
+            _optionalStringList(row['match_skill_ids']) ?? const <String>[],
+        tradeLevel: row['tradeLevel'] as String?,
+        tradeAnswers: _optionalStringMapList(row['tradeAnswers']),
         applicantsReceived: (row['applicantsReceived'] as num?)?.toInt() ?? 0,
         createdAt: row['createdAt'] as String?,
         updatedAt: row['updatedAt'] as String?,
@@ -980,6 +1010,10 @@ class AgencyJobView extends Equatable {
   /// The closed-set demand skills this agency job asks for (`match_skill_ids`,
   /// ADR-0050). Empty when none picked / the API does not serve it yet.
   final List<String> matchSkillIds;
+
+  /// Migration 0141 — the display-only rung and the poster's chip answers.
+  final String? tradeLevel;
+  final Map<String, List<String>>? tradeAnswers;
   final int applicantsReceived;
   final String? createdAt;
   final String? updatedAt;
@@ -1035,6 +1069,8 @@ class AgencyJobView extends Equatable {
         requirements,
         roleKind,
         matchSkillIds,
+        tradeLevel,
+        tradeAnswers,
         applicantsReceived,
         createdAt,
         updatedAt,
@@ -1064,7 +1100,11 @@ enum AgencyJobClearField {
 
   /// Migration 0131 (#1840) — `jobs.role_kind` is nullable, so it is clearable
   /// (unlike `trade_key`). Not surfaced by the app yet.
-  roleKind('role_kind');
+  roleKind('role_kind'),
+
+  /// Migration 0141 - both nullable.
+  tradeLevel('trade_level'),
+  tradeAnswers('trade_answers');
 
   const AgencyJobClearField(this.wire);
 
@@ -1078,6 +1118,19 @@ enum AgencyJobClearField {
 List<String>? _optionalStringList(Object? value) => value is List<dynamic>
     ? List<String>.unmodifiable(value.whereType<String>())
     : null;
+
+/// A closed-slug answer map (`{question_key: [option_key, …]}`), or null.
+Map<String, List<String>>? _optionalStringMapList(Object? value) {
+  if (value is! Map) return null;
+  final out = <String, List<String>>{};
+  for (final entry in value.entries) {
+    final key = entry.key;
+    final list = entry.value;
+    if (key is! String || list is! List) continue;
+    out[key] = List<String>.unmodifiable(list.whereType<String>());
+  }
+  return Map<String, List<String>>.unmodifiable(out);
+}
 
 /// The agency referral FUNNEL summary (`GET /payer/agency/referrals/summary`).
 /// AGGREGATE counts only — there are NO per-worker rows on this seam (faceless).
@@ -1525,6 +1578,159 @@ class MatchSkill extends Equatable {
       <Object?>[skillId, label, industryId, relatedSkillIds];
 }
 
+/// Migration 0141 — one chip on the role-specific posting form.
+class PostingTradeOption extends Equatable {
+  const PostingTradeOption({
+    required this.optionKey,
+    required this.value,
+    required this.label,
+    required this.match,
+    this.matchSkillIds = const <String>[],
+  });
+
+  factory PostingTradeOption.fromJson(Map<String, dynamic> row) =>
+      PostingTradeOption(
+        optionKey: row['option_key'] as String? ?? '',
+        value: row['value'] as String? ?? row['option_key'] as String? ?? '',
+        label: row['label'] as String? ?? '',
+        match: row['match'] as bool? ?? false,
+        matchSkillIds:
+            (row['match_skill_ids'] as List<dynamic>? ?? const <dynamic>[])
+                .whereType<String>()
+                .toList(growable: false),
+      );
+
+  final String optionKey;
+  final String value;
+  final String label;
+
+  /// True when tapping this chip adds a match skill and changes reach.
+  final bool match;
+  final List<String> matchSkillIds;
+
+  @override
+  List<Object?> get props =>
+      <Object?>[optionKey, value, label, match, matchSkillIds];
+}
+
+/// One question/chip group on the role-specific posting form.
+class PostingTradeQuestion extends Equatable {
+  const PostingTradeQuestion({
+    required this.questionKey,
+    required this.prompt,
+    required this.answerType,
+    this.options = const <PostingTradeOption>[],
+  });
+
+  factory PostingTradeQuestion.fromJson(Map<String, dynamic> row) =>
+      PostingTradeQuestion(
+        questionKey: row['question_key'] as String? ?? '',
+        prompt: row['prompt'] as String? ?? '',
+        answerType: row['answer_type'] as String? ?? 'multi_select',
+        options: (row['options'] as List<dynamic>? ?? const <dynamic>[])
+            .whereType<Map<String, dynamic>>()
+            .map(PostingTradeOption.fromJson)
+            .toList(growable: false),
+      );
+
+  final String questionKey;
+  final String prompt;
+
+  /// `single_select` or `multi_select`.
+  final String answerType;
+  final List<PostingTradeOption> options;
+
+  bool get singleSelect => answerType == 'single_select';
+
+  @override
+  List<Object?> get props =>
+      <Object?>[questionKey, prompt, answerType, options];
+}
+
+/// One rung of the trade's display-only ladder.
+class PostingTradeRung extends Equatable {
+  const PostingTradeRung({
+    required this.rung,
+    required this.monthsFloor,
+    required this.evidence,
+    required this.confirmed,
+    required this.priceTier,
+  });
+
+  factory PostingTradeRung.fromJson(Map<String, dynamic> row) =>
+      PostingTradeRung(
+        rung: row['rung'] as String? ?? '',
+        monthsFloor: row['monthsFloor'] as String? ?? '',
+        evidence: row['evidence'] as String? ?? '',
+        confirmed: row['confirmed'] as bool? ?? false,
+        priceTier: row['priceTier'] as String? ?? 'lower',
+      );
+
+  final String rung;
+  final String monthsFloor;
+  final String evidence;
+  final bool confirmed;
+  final String priceTier;
+
+  @override
+  List<Object?> get props =>
+      <Object?>[rung, monthsFloor, evidence, confirmed, priceTier];
+}
+
+/// The whole posting-side definition of one trade (`GET /payer/posting-trades`).
+class PostingTradeForm extends Equatable {
+  const PostingTradeForm({
+    required this.roleKind,
+    required this.roleLabel,
+    required this.packId,
+    required this.matchSkillId,
+    this.ladder = const <PostingTradeRung>[],
+    this.questions = const <PostingTradeQuestion>[],
+  });
+
+  factory PostingTradeForm.fromJson(Map<String, dynamic> row) =>
+      PostingTradeForm(
+        roleKind: row['role_kind'] as String? ?? '',
+        roleLabel:
+            row['role_label'] as String? ?? row['role_kind'] as String? ?? '',
+        packId: row['pack_id'] as String? ?? '',
+        matchSkillId: row['match_skill_id'] as String? ?? '',
+        ladder: (row['ladder'] as List<dynamic>? ?? const <dynamic>[])
+            .whereType<Map<String, dynamic>>()
+            .map(PostingTradeRung.fromJson)
+            .toList(growable: false),
+        questions: (row['questions'] as List<dynamic>? ?? const <dynamic>[])
+            .whereType<Map<String, dynamic>>()
+            .map(PostingTradeQuestion.fromJson)
+            .toList(growable: false),
+      );
+
+  final String roleKind;
+  final String roleLabel;
+  final String packId;
+  final String matchSkillId;
+  final List<PostingTradeRung> ladder;
+  final List<PostingTradeQuestion> questions;
+
+  /// The base match skill plus every selected match chip, de-duplicated.
+  List<String> matchSkillIdsFor(Map<String, List<String>> answers) {
+    final out = <String>{matchSkillId};
+    for (final question in questions) {
+      final selected = answers[question.questionKey] ?? const <String>[];
+      for (final option in question.options) {
+        if (selected.contains(option.optionKey)) {
+          out.addAll(option.matchSkillIds);
+        }
+      }
+    }
+    return out.toList(growable: false);
+  }
+
+  @override
+  List<Object?> get props =>
+      <Object?>[roleKind, roleLabel, packId, matchSkillId, ladder, questions];
+}
+
 /// A related-skill preview under a picked [ReachSkill] (`related[]` rows of the
 /// reach-preview response). [ticked] is the server's default include/exclude
 /// state; the UI may untick it (sending the id in `unticked_related_ids`), which
@@ -1607,11 +1813,11 @@ class ReachPreview extends Equatable {
             .whereType<Map<String, dynamic>>()
             .map(ReachSkill.fromJson)
             .toList(growable: false),
-        reachSkillIds:
-            ((body['reach_skill_ids'] ?? body['reachSkillIds']) as List<dynamic>? ??
-                    const <dynamic>[])
-                .whereType<String>()
-                .toList(growable: false),
+        reachSkillIds: ((body['reach_skill_ids'] ?? body['reachSkillIds'])
+                    as List<dynamic>? ??
+                const <dynamic>[])
+            .whereType<String>()
+            .toList(growable: false),
         reachTotal:
             ((body['reach_total'] ?? body['reachTotal']) as num?)?.toInt() ?? 0,
         reachTier1:
@@ -1691,11 +1897,10 @@ class AgencyWorker extends Equatable {
         appliedCount:
             ((row['appliedCount'] ?? row['applied_count']) as num?)?.toInt() ??
                 0,
-        unlockedCount:
-            ((row['unlockedCount'] ?? row['unlocked_count']) as num?)?.toInt() ??
-                0,
-        lastActiveOn:
-            (row['lastActiveOn'] ?? row['last_active_on']) as String?,
+        unlockedCount: ((row['unlockedCount'] ?? row['unlocked_count']) as num?)
+                ?.toInt() ??
+            0,
+        lastActiveOn: (row['lastActiveOn'] ?? row['last_active_on']) as String?,
       );
 
   /// Opaque worker referral handle — never a name/phone.
@@ -1706,8 +1911,13 @@ class AgencyWorker extends Equatable {
   final String? lastActiveOn;
 
   @override
-  List<Object?> get props =>
-      <Object?>[ref, profileComplete, appliedCount, unlockedCount, lastActiveOn];
+  List<Object?> get props => <Object?>[
+        ref,
+        profileComplete,
+        appliedCount,
+        unlockedCount,
+        lastActiveOn
+      ];
 }
 
 /// One freshly minted agency invite (`POST /payer/agency/invites/batch` rows).

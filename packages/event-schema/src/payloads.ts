@@ -1522,6 +1522,10 @@ const JOB_POSTING_CHANGED_FIELDS = [
   // (ADR-0036 addendum 2026-09-29), so a reader must not treat it as a match change —
   // `match_skills` above is the only key that says the reach inputs moved.
   "role_kind",
+  // Migration 0141 (ADDITIVE enum member, same precedent). The trade-specific posting form
+  // moved: the display-only rung and/or the poster's chip answers. KEYS ONLY — the answer
+  // map never enters the payload; the derived `match_skills` key still reports reach.
+  "trade_fields",
 ] as const;
 
 /**
@@ -2482,6 +2486,9 @@ export const JOB_CHANGED_FIELDS = [
   // version bump): the four worker-visible content columns joined `jobs`. KEYS
   // only — the screened free text (description / benefits / requirements items)
   // NEVER enters a payload.
+  // Migration 0141 — the trade-specific posting form moved (rung and/or chip answers).
+  // Same KEYS-ONLY rule: the answer map never enters a payload.
+  "trade_fields",
   "description",
   "shift",
   "benefits",
@@ -5048,9 +5055,7 @@ export const ChatCompanionEditRolledBackPayload = z
     reason: z.enum(["apply_failed"]),
   })
   .strict();
-export type ChatCompanionEditRolledBackPayload = z.infer<
-  typeof ChatCompanionEditRolledBackPayload
->;
+export type ChatCompanionEditRolledBackPayload = z.infer<typeof ChatCompanionEditRolledBackPayload>;
 
 /**
  * A FALTU STRIKE WAS COUNTED, v2 (TD150) — v1's count and boolean, plus the idempotency key the
@@ -5153,7 +5158,7 @@ export const ChatCompanionTurnServedV4Payload = z
   .refine((v) => v.refusal_topic === null || v.outcome === "refused", {
     message: "refusal_topic is set only on a 'refused' turn",
   })
-  .refine((v) => (v.news_source_count > 0) === (v.news_outcome === "answered"), {
+  .refine((v) => v.news_source_count > 0 === (v.news_outcome === "answered"), {
     message: "tiles are served exactly when the news request was 'answered'",
   })
   .refine((v) => v.news_outcome === null || v.reply_language !== null, {
@@ -5575,7 +5580,7 @@ export const ChatFreeChatNewsServedPayload = z
   .refine((v) => (v.kind !== null) === (v.outcome === "answered"), {
     message: "kind is set exactly when outcome is 'answered'",
   })
-  .refine((v) => (v.source_count > 0) === (v.outcome === "answered"), {
+  .refine((v) => v.source_count > 0 === (v.outcome === "answered"), {
     message: "tiles are served exactly when outcome is 'answered'",
   })
   .refine((v) => v.outcome !== "capped" || v.search_count === null, {

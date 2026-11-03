@@ -55,6 +55,8 @@ class _ScriptedAgencyApi extends MockPayerApiClient {
     String? shift,
     List<String>? benefits,
     List<String>? requirements,
+    String? tradeLevel,
+    Map<String, List<String>>? tradeAnswers,
     List<String>? matchSkillIds,
     List<AgencyJobClearField>? clear,
   }) async {
@@ -113,7 +115,8 @@ void main() {
       await cubit.load();
 
       expect(cubit.state.status, AgencyJobsStatus.ready);
-      expect(cubit.state.jobs.map((AgencyJobView j) => j.id), <String>['j1', 'j2']);
+      expect(cubit.state.jobs.map((AgencyJobView j) => j.id),
+          <String>['j1', 'j2']);
     });
 
     test('an empty list is a legitimate ready state, not an error', () async {
@@ -249,8 +252,7 @@ void main() {
       expect(api.lastClear, <AgencyJobClearField>[AgencyJobClearField.area]);
     });
 
-    test('a set-and-cleared 400 is NOT reported as "already closed"',
-        () async {
+    test('a set-and-cleared 400 is NOT reported as "already closed"', () async {
       api.throwOnUpdate =
           const PayerApiException(400, code: kJobEditSetAndClearedCode);
 
@@ -265,7 +267,8 @@ void main() {
       api.throwOnUpdate =
           const PayerApiException(400, code: kJobEditNoChangesCode);
 
-      final JobActionResult result = await cubit.editJob('j1', title: 'Old title');
+      final JobActionResult result =
+          await cubit.editJob('j1', title: 'Old title');
 
       expect(result.success, isFalse);
       expect(result.message, kJobEditNoChangesMessage);

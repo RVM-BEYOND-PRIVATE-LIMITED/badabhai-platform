@@ -30,7 +30,9 @@ class JobsCubit extends Cubit<JobsState> {
     emit(state.copyWith(status: JobsStatus.loading));
     try {
       final List<JobPosting> jobs = await _api.fetchJobs();
-      if (isClosed) return; // screen popped mid-load — emit would throw StateError
+      if (isClosed) {
+        return; // screen popped mid-load — emit would throw StateError
+      }
       emit(JobsState(status: JobsStatus.ready, jobs: jobs));
     } catch (e) {
       if (isClosed) return;
@@ -100,6 +102,11 @@ class JobsCubit extends Cubit<JobsState> {
     String? description,
     List<String>? benefits,
     List<String>? requirements,
+
+    /// Migration 0141 — the trade-specific form. The server re-validates the
+    /// rung/answers and derives `match_skill_ids` from the chips.
+    String? tradeLevel,
+    Map<String, List<String>>? tradeAnswers,
     List<JobPostingClearField>? clear,
   }) =>
       _lifecycle(
@@ -121,6 +128,8 @@ class JobsCubit extends Cubit<JobsState> {
           description: description,
           benefits: benefits,
           requirements: requirements,
+          tradeLevel: tradeLevel,
+          tradeAnswers: tradeAnswers,
           clear: clear,
         ),
         okMessage: 'Job updated.',

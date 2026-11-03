@@ -57,6 +57,9 @@ export interface UpdatePostingActionInput {
   neededBy?: string;
   requirements?: string[];
   benefits?: string[];
+  /** Migration 0141 — sent only when the payer edited the trade form. */
+  tradeLevel?: string;
+  tradeAnswers?: Record<string, string[]>;
   /** The prior values, for the `clear` diff (a field that HAD a value and is now blank). */
   initial: PostingEditInitial;
   /** Present only on the DRAFT "Publish" path — the matchable half + the gap block. */
@@ -80,15 +83,26 @@ export async function updatePostingAction(
     ...(input.payMin !== undefined ? { payMin: input.payMin } : {}),
     ...(input.payMax !== undefined ? { payMax: input.payMax } : {}),
     ...(input.payType ? { payType: input.payType } : {}),
-    ...(input.minExperienceYears !== undefined ? { minExperienceYears: input.minExperienceYears } : {}),
-    ...(input.maxExperienceYears !== undefined ? { maxExperienceYears: input.maxExperienceYears } : {}),
+    ...(input.minExperienceYears !== undefined
+      ? { minExperienceYears: input.minExperienceYears }
+      : {}),
+    ...(input.maxExperienceYears !== undefined
+      ? { maxExperienceYears: input.maxExperienceYears }
+      : {}),
     ...(input.shift ? { shift: input.shift } : {}),
     ...(input.neededBy ? { neededBy: input.neededBy } : {}),
-    ...(input.requirements && input.requirements.length > 0 ? { requirements: input.requirements } : {}),
+    ...(input.requirements && input.requirements.length > 0
+      ? { requirements: input.requirements }
+      : {}),
     ...(input.benefits && input.benefits.length > 0 ? { benefits: input.benefits } : {}),
+    ...(input.tradeLevel ? { tradeLevel: input.tradeLevel } : {}),
+    ...(input.tradeAnswers !== undefined ? { tradeAnswers: input.tradeAnswers } : {}),
   });
   if (!parsed.success) {
-    return { ok: false, error: parsed.error.issues[0]?.message ?? "Please check the form and retry." };
+    return {
+      ok: false,
+      error: parsed.error.issues[0]?.message ?? "Please check the form and retry.",
+    };
   }
 
   let publish: { matchSkillIds: string[]; untickedRelatedIds: string[] } | undefined;

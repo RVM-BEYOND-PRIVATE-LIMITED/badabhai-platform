@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:get_it/get_it.dart';
 import 'package:payer_app/core/data/mock_payer_api_client.dart';
 import 'package:payer_app/core/data/models.dart';
+import 'package:payer_app/core/di/locator.dart';
+import 'package:payer_app/core/auth/payer_token_store.dart';
 import 'package:payer_app/features/jobs/presentation/cubit/jobs_cubit.dart';
 import 'package:payer_app/features/jobs/presentation/edit_company_job_screen.dart';
 
@@ -32,6 +35,9 @@ class _ScriptedApi extends MockPayerApiClient {
   String? lastNeededBy;
   String? lastDescription;
   List<JobPostingClearField>? lastClear;
+  String? lastRoleKind;
+  String? lastTradeLevel;
+  Map<String, List<String>>? lastTradeAnswers;
 
   /// Every clearable field the last PATCH carried a VALUE for — so a test can
   /// assert no field ever rode both the body and `clear` (a server 400).
@@ -63,6 +69,8 @@ class _ScriptedApi extends MockPayerApiClient {
     List<String>? requirements,
     String? neededBy,
     String? roleKind,
+    String? tradeLevel,
+    Map<String, List<String>>? tradeAnswers,
     List<String>? matchSkillIds,
     List<String>? untickedRelatedIds,
     List<JobPostingClearField>? clear,
@@ -79,6 +87,9 @@ class _ScriptedApi extends MockPayerApiClient {
     lastNeededBy = neededBy;
     lastDescription = description;
     lastClear = clear;
+    lastRoleKind = roleKind;
+    lastTradeLevel = tradeLevel;
+    lastTradeAnswers = tradeAnswers;
     lastValued = <JobPostingClearField, Object?>{
       JobPostingClearField.locationLabel: locationLabel,
       JobPostingClearField.description: description,
@@ -93,7 +104,8 @@ class _ScriptedApi extends MockPayerApiClient {
       JobPostingClearField.neededBy: neededBy,
       JobPostingClearField.benefits: benefits,
       JobPostingClearField.requirements: requirements,
-    }.entries
+    }
+        .entries
         .where((MapEntry<JobPostingClearField, Object?> e) => e.value != null)
         .map((MapEntry<JobPostingClearField, Object?> e) => e.key)
         .toSet();
@@ -161,18 +173,61 @@ const JobPosting _jobNoOptional = JobPosting(
   wireStatus: 'open',
 );
 
+/// [_job] with the migration-0139 trade form already stored — the panel must be
+/// visible and its edits must ride the PATCH.
+const JobPosting _jobTrade = JobPosting(
+  id: 'j1',
+  title: 'CNC Setter',
+  band: '2-5',
+  locationLabel: 'Pimpri, Pune',
+  city: 'Pune',
+  area: 'Chakan',
+  payMin: 22000,
+  payMax: 28000,
+  payType: 'in_hand',
+  minExperienceYears: 1,
+  maxExperienceYears: 4,
+  neededBy: 'soon',
+  benefits: <String>['PF + ESI'],
+  requirements: <String>['Fanuc control'],
+  shift: 'day',
+  description: 'Turning job work on Fanuc controls.',
+  filled: 0,
+  quota: 0,
+  applicants: 0,
+  unlocks: 0,
+  status: JobStatus.live,
+  verified: false,
+  boosted: false,
+  wireStatus: 'open',
+  roleKind: 'cnc_turner',
+  tradeLevel: 'setter',
+  tradeAnswers: <String, List<String>>{
+    'controller_brand': <String>['fanuc'],
+  },
+);
+
 void main() {
   late _ScriptedApi api;
   late JobsCubit cubit;
 
   /// Mount the screen on a tall viewport: the form is taller than the default
   /// 600px test surface, and a built field keeps every tap a real hit.
-  Future<void> open(WidgetTester tester, {JobPosting job = _job}) async {
+  Future<void> open(
+    WidgetTester tester, {
+    JobPosting job = _job,
+    double height = 4000,
+  }) async {
     api = _ScriptedApi();
     cubit = JobsCubit(api);
     addTearDown(cubit.close);
 
-    tester.view.physicalSize = const Size(1000, 4000);
+    // The trade catalogue is read through the locator (migration 0141), so the
+    // graph must be wired for the role/trade panel to render.
+    await GetIt.instance.reset();
+    setupLocator(apiClient: api, secureStore: InMemoryKeyValueStore());
+
+    tester.view.physicalSize = Size(1000, height);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
 
@@ -460,5 +515,33 @@ void main() {
 
     expect(api.updated, isEmpty);
     expect(find.text('Check the description'), findsOneWidget);
+  });
+
+  // Migration 0141 — the role + trade form must be visible on the edit screen
+  // too, and a rung change must ride the PATCH (it is display-only, never a
+  // match input, but it is still stored).
+  testWidgets('a stored trade form is prefilled, and a rung edit rides PATCH', (
+    WidgetTester tester,
+  ) async {
+    await open(tester, job: _jobTrade, height: 5000);
+
+    // The catalogue loaded from the mock; the stored role is selected and the
+    // panel is visible because the posting already uses the trade form.
+    expect(find.text('Role'), findsOneWidget);
+    expect(find.text('CNC Turner'), findsOneWidget);
+    expect(find.text('Trade requirements'), findsOneWidget);
+    expect(find.text('Rung'), findsOneWidget);
+    expect(find.text('Setter'), findsOneWidget);
+
+    await tester.tap(find.text('Programmer'));
+    await tester.pumpAndSettle();
+    await save(tester);
+
+    expect(api.updated, <String>['j1']);
+    expect(api.lastRoleKind, 'cnc_turner');
+    expect(api.lastTradeLevel, 'programmer');
+    expect(api.lastTradeAnswers, <String, List<String>>{
+      'controller_brand': <String>['fanuc'],
+    });
   });
 }

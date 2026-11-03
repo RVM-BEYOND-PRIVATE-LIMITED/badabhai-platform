@@ -28,23 +28,27 @@ import 'edit_agency_job_screen.dart';
 /// row (should the model carry one) renders a READ-ONLY pill and still offers
 /// Close only — never a Pause or Resume control.
 class AgencyJobsView extends StatelessWidget {
-  const AgencyJobsView({super.key, required this.onPost});
+  const AgencyJobsView({super.key, required this.onPost, this.onApplicants});
 
   final VoidCallback onPost;
+
+  /// Opens the candidate/applicant feed (the Find tab), shared with company.
+  final VoidCallback? onApplicants;
 
   @override
   Widget build(BuildContext context) {
     return BlocProvider<AgencyJobsCubit>(
       create: (_) => locator<AgencyJobsCubit>()..load(),
-      child: _AgencyJobsBody(onPost: onPost),
+      child: _AgencyJobsBody(onPost: onPost, onApplicants: onApplicants),
     );
   }
 }
 
 class _AgencyJobsBody extends StatelessWidget {
-  const _AgencyJobsBody({required this.onPost});
+  const _AgencyJobsBody({required this.onPost, this.onApplicants});
 
   final VoidCallback onPost;
+  final VoidCallback? onApplicants;
 
   @override
   Widget build(BuildContext context) {
@@ -80,45 +84,46 @@ class _AgencyJobsBody extends StatelessWidget {
               final AgencyJobView job = state.jobs[index - 1];
               return Padding(
                 padding: const EdgeInsets.only(bottom: AppSpacing.s3),
-                child: _AgencyJobCard(job: job),
+                child: _AgencyJobCard(job: job, onApplicants: onApplicants),
               );
             }
             return Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: <Widget>[
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      Text(
-                        'AGENCY JOB POSTINGS',
-                        style: AppTypography.eyebrow(color: AppColors.textMuted),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: <Widget>[
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: <Widget>[
+                          Text(
+                            'AGENCY JOB POSTINGS',
+                            style: AppTypography.eyebrow(
+                                color: AppColors.textMuted),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            '${state.jobs.length} jobs',
+                            style: AppTypography.header(
+                              size: AppTypography.sizeXl,
+                              weight: FontWeight.w800,
+                            ),
+                          ),
+                        ],
                       ),
-                      const SizedBox(height: 2),
-                      Text(
-                        '${state.jobs.length} jobs',
-                        style: AppTypography.header(
-                          size: AppTypography.sizeXl,
-                          weight: FontWeight.w800,
-                        ),
-                      ),
-                    ],
-                  ),
+                    ),
+                    BbButton(
+                      label: 'Post',
+                      // md (44px) not sm — a loud primary CTA clears the 48px tap
+                      // floor (#1082).
+                      size: BbButtonSize.md,
+                      iconLeft: Icons.add,
+                      onPressed: onPost,
+                    ),
+                  ],
                 ),
-                BbButton(
-                  label: 'Post',
-                  // md (44px) not sm — a loud primary CTA clears the 48px tap
-                  // floor (#1082).
-                  size: BbButtonSize.md,
-                  iconLeft: Icons.add,
-                  onPressed: onPost,
-                ),
-              ],
-            ),
-            const SizedBox(height: AppSpacing.s3),
+                const SizedBox(height: AppSpacing.s3),
               ],
             );
           },
@@ -129,9 +134,10 @@ class _AgencyJobsBody extends StatelessWidget {
 }
 
 class _AgencyJobCard extends StatelessWidget {
-  const _AgencyJobCard({required this.job});
+  const _AgencyJobCard({required this.job, this.onApplicants});
 
   final AgencyJobView job;
+  final VoidCallback? onApplicants;
 
   // Green is reserved for VERIFIED only (kit law); an open posting is an
   // active/info state, not success green. Paused mirrors the company card's
@@ -219,6 +225,19 @@ class _AgencyJobCard extends StatelessWidget {
           ),
           const SizedBox(height: AppSpacing.s3),
           ..._actions(context),
+          // The FIND tab is the candidate/applicant feed for BOTH session
+          // kinds; this opens it from the agency job the agent is looking at.
+          if (!job.isClosed) ...<Widget>[
+            const SizedBox(height: AppSpacing.s2),
+            BbButton(
+              label: 'Applicants',
+              variant: BbButtonVariant.secondary,
+              size: BbButtonSize.sm,
+              iconLeft: Icons.groups_outlined,
+              block: true,
+              onPressed: onApplicants,
+            ),
+          ],
           // Edit the posting — open OR paused (a closed job is terminal, and the
           // server rejects a PATCH on a closed row).
           if (!job.isClosed) ...<Widget>[

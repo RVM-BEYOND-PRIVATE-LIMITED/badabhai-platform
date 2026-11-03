@@ -46,6 +46,9 @@ export type AgencyJobUpdate = Partial<
     // ADR-0050 C4 — the explicit `mskill_*` pick, already validated against
     // the closed vocabulary and the cap by the service. `[]` = "not chosen yet".
     | "matchSkillIds"
+    // Migration 0141 — the trade-specific form (display rung + validated chip answers).
+    | "tradeLevel"
+    | "tradeAnswers"
     | "status"
   >
 > & { updatedAt: Date };
@@ -78,6 +81,10 @@ export interface CreateAgencyJobInput {
   roleKind: TradeFormKindName | null;
   /** ADR-0050 C4 — validated `mskill_*` ids, or `[]` ("not chosen yet"). */
   matchSkillIds: string[];
+  /** Migration 0141 — display-only rung, or NULL ("not stated"). */
+  tradeLevel: string | null;
+  /** Migration 0141 — the poster's selected chips, or NULL ("not stated"). */
+  tradeAnswers: Record<string, string[]> | null;
 }
 
 /**
@@ -114,6 +121,8 @@ export class AgencyJobsRepository {
         payType: input.payType,
         roleKind: input.roleKind,
         matchSkillIds: input.matchSkillIds,
+        tradeLevel: input.tradeLevel,
+        tradeAnswers: input.tradeAnswers,
         status,
       })
       .returning();

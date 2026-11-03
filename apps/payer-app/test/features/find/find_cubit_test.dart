@@ -15,6 +15,7 @@ import 'package:payer_app/features/find/presentation/cubit/find_cubit.dart';
 /// `UnlockResult.unavailable()` (the bug #346 fixed one layer down).
 class _ScriptedApi extends MockPayerApiClient {
   List<JobPosting> jobs = const <JobPosting>[];
+  List<AgencyJobView> agencyJobs = const <AgencyJobView>[];
   Map<String, List<Applicant>> applicantsByJob = <String, List<Applicant>>{};
   UnlockResult unlockResult = const UnlockResult.unavailable();
 
@@ -34,6 +35,12 @@ class _ScriptedApi extends MockPayerApiClient {
     lastJobStatusFilter = status;
     if (throwOnJobs != null) throw throwOnJobs!;
     return jobs;
+  }
+
+  @override
+  Future<List<AgencyJobView>> fetchAgencyJobs() async {
+    if (throwOnJobs != null) throw throwOnJobs!;
+    return agencyJobs;
   }
 
   @override
@@ -136,6 +143,48 @@ void main() {
       expect(cubit.state.applicants, isEmpty);
       expect(api.applicantFetches, isEmpty,
           reason: 'nothing is owned — there is no job id to query');
+    });
+
+    test('an AGENCY session reads its own open jobs, not company postings',
+        () async {
+      // The agency's candidates live on `jobs` rows; the shared applicant route
+      // then resolves them exactly like a company posting.
+      api.agencyJobs = const <AgencyJobView>[
+        AgencyJobView(
+          id: _jobA,
+          status: 'open',
+          tradeKey: 'fitter',
+          title: 'Fitter',
+          city: 'Pune',
+          applicantsReceived: 4,
+        ),
+        AgencyJobView(
+          id: _jobB,
+          status: 'closed',
+          tradeKey: 'fitter',
+          title: 'Old fitter job',
+          city: 'Pune',
+          applicantsReceived: 0,
+        ),
+      ];
+      api.applicantsByJob = <String, List<Applicant>>{
+        _jobA: <Applicant>[_applicant(_workerA)],
+      };
+      final FindCubit agency =
+          FindCubit(api, useRealFeed: true, isAgency: true);
+      addTearDown(agency.close);
+
+      await agency.load();
+
+      expect(agency.state.jobs.map((JobPosting j) => j.id), <String>[_jobA]);
+      expect(agency.state.selectedJob?.title, 'Fitter');
+      expect(
+        agency.state.applicants.map((Applicant a) => a.workerId),
+        <String>[_workerA],
+      );
+      // The company route was never read for an agency session.
+      expect(api.jobFetches, 0);
+      expect(api.applicantFetches, <String>[_jobA]);
     });
 
     test('a posting with no usable id is not treated as ownable', () async {
@@ -322,7 +371,8 @@ void main() {
       expect(returned, isNull,
           reason: 'conflating an outage with UnlockResult.unavailable() is the '
               'exact bug #346 fixed one layer down');
-      expect(cubit.state.applicants.every((Applicant a) => !a.unlocked), isTrue);
+      expect(
+          cubit.state.applicants.every((Applicant a) => !a.unlocked), isTrue);
     });
   });
 

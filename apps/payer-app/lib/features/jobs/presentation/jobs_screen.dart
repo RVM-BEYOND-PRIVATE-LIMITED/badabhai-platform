@@ -78,9 +78,18 @@ const String kResumeChatTitle = 'Continue your job posting';
 /// published from the chat would not appear in it — offering the entry point
 /// there would promise a posting the agent could never find.
 class JobsScreen extends StatelessWidget {
-  const JobsScreen({super.key, required this.onPost, this.onAiPost});
+  const JobsScreen({
+    super.key,
+    required this.onPost,
+    this.onAiPost,
+    this.onApplicants,
+  });
 
   final VoidCallback onPost;
+
+  /// Opens the candidate/applicant feed (the Find tab). Optional so existing
+  /// mounts and tests keep working; the shell wires it for both sessions.
+  final VoidCallback? onApplicants;
 
   /// Opens the AI-assisted chat. A non-null argument RESUMES that session
   /// (cross-device pickup); null starts a fresh one. Optional so existing
@@ -92,7 +101,9 @@ class JobsScreen extends StatelessWidget {
     // The session role is locked at login — branch the whole surface on it so a
     // company never touches the agent-gated routes and vice-versa.
     final bool isAgency = locator<AppSessionCubit>().state?.isAgency ?? false;
-    if (isAgency) return AgencyJobsView(onPost: onPost);
+    if (isAgency) {
+      return AgencyJobsView(onPost: onPost, onApplicants: onApplicants);
+    }
     return BlocProvider<JobsCubit>(
       create: (_) => locator<JobsCubit>()..load(),
       // The cross-device pickup read, nested so both cubits are in scope for the
@@ -100,17 +111,22 @@ class JobsScreen extends StatelessWidget {
       // is already on screen when the tab opens.
       child: BlocProvider<ChatSessionsCubit>(
         create: (_) => locator<ChatSessionsCubit>()..load(),
-        child: _JobsView(onPost: onPost, onAiPost: onAiPost),
+        child: _JobsView(
+          onPost: onPost,
+          onAiPost: onAiPost,
+          onApplicants: onApplicants,
+        ),
       ),
     );
   }
 }
 
 class _JobsView extends StatelessWidget {
-  const _JobsView({required this.onPost, this.onAiPost});
+  const _JobsView({required this.onPost, this.onAiPost, this.onApplicants});
 
   final VoidCallback onPost;
   final void Function(String? resumeSessionId)? onAiPost;
+  final VoidCallback? onApplicants;
 
   @override
   Widget build(BuildContext context) {
@@ -150,60 +166,61 @@ class _JobsView extends StatelessWidget {
               return Padding(
                 padding: const EdgeInsets.only(bottom: AppSpacing.s3),
                 child: job.id == null
-                    ? _JobCard(job: job)
-                    : _RealJobCard(job: job),
+                    ? _JobCard(job: job, onApplicants: onApplicants)
+                    : _RealJobCard(job: job, onApplicants: onApplicants),
               );
             }
             return Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: <Widget>[
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      Text(
-                        'MY JOB POSTINGS',
-                        style: AppTypography.eyebrow(color: AppColors.textMuted),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: <Widget>[
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: <Widget>[
+                          Text(
+                            'MY JOB POSTINGS',
+                            style: AppTypography.eyebrow(
+                                color: AppColors.textMuted),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            '${state.jobs.length} jobs',
+                            style: AppTypography.header(
+                              size: AppTypography.sizeXl,
+                              weight: FontWeight.w800,
+                            ),
+                          ),
+                        ],
                       ),
-                      const SizedBox(height: 2),
-                      Text(
-                        '${state.jobs.length} jobs',
-                        style: AppTypography.header(
-                          size: AppTypography.sizeXl,
-                          weight: FontWeight.w800,
-                        ),
-                      ),
-                    ],
+                    ),
+                    BbButton(
+                      label: 'Post',
+                      // md (44px) not sm — a loud primary CTA clears the 48px tap
+                      // floor (#1082).
+                      size: BbButtonSize.md,
+                      iconLeft: Icons.add,
+                      onPressed: onPost,
+                    ),
+                  ],
+                ),
+                if (onAiPost != null) ...<Widget>[
+                  const SizedBox(height: AppSpacing.s3),
+                  // ADDITIVE second create path (ADR-0035). The manual form above is
+                  // untouched and stays the default for a payer who knows the fields.
+                  BbButton(
+                    label: kAiPostLabel,
+                    variant: BbButtonVariant.tonal,
+                    size: BbButtonSize.sm,
+                    iconLeft: Icons.auto_awesome,
+                    block: true,
+                    onPressed: () => onAiPost!(null),
                   ),
-                ),
-                BbButton(
-                  label: 'Post',
-                  // md (44px) not sm — a loud primary CTA clears the 48px tap
-                  // floor (#1082).
-                  size: BbButtonSize.md,
-                  iconLeft: Icons.add,
-                  onPressed: onPost,
-                ),
-              ],
-            ),
-            if (onAiPost != null) ...<Widget>[
-              const SizedBox(height: AppSpacing.s3),
-              // ADDITIVE second create path (ADR-0035). The manual form above is
-              // untouched and stays the default for a payer who knows the fields.
-              BbButton(
-                label: kAiPostLabel,
-                variant: BbButtonVariant.tonal,
-                size: BbButtonSize.sm,
-                iconLeft: Icons.auto_awesome,
-                block: true,
-                onPressed: () => onAiPost!(null),
-              ),
-              _ResumeChatCard(onResume: onAiPost!),
-            ],
-            const SizedBox(height: AppSpacing.s3),
+                  _ResumeChatCard(onResume: onAiPost!),
+                ],
+                const SizedBox(height: AppSpacing.s3),
               ],
             );
           },
@@ -287,9 +304,10 @@ class _ResumeChatCard extends StatelessWidget {
 // ---------------------------------------------------------------------------
 
 class _RealJobCard extends StatelessWidget {
-  const _RealJobCard({required this.job});
+  const _RealJobCard({required this.job, this.onApplicants});
 
   final JobPosting job;
+  final VoidCallback? onApplicants;
 
   String get _wire => job.wireStatus ?? 'draft';
 
@@ -591,9 +609,10 @@ class _RealJobCard extends StatelessWidget {
 // ---------------------------------------------------------------------------
 
 class _JobCard extends StatelessWidget {
-  const _JobCard({required this.job});
+  const _JobCard({required this.job, this.onApplicants});
 
   final JobPosting job;
+  final VoidCallback? onApplicants;
 
   @override
   Widget build(BuildContext context) {
@@ -672,7 +691,7 @@ class _JobCard extends StatelessWidget {
             size: BbButtonSize.sm,
             iconLeft: Icons.groups_outlined,
             block: true,
-            onPressed: () {},
+            onPressed: onApplicants,
           ),
         ],
       ),

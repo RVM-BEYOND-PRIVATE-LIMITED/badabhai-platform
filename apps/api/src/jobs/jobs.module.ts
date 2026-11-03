@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 import { AuthModule } from "../auth/auth.module";
 import { EventsModule } from "../events/events.module";
+import { PostingTradesModule } from "../posting-trades/posting-trades.module";
 import { JobsController } from "./jobs.controller";
 import { JobsService } from "./jobs.service";
 import { JobsRepository } from "./jobs.repository";
@@ -25,7 +26,7 @@ import { JobsRepository } from "./jobs.repository";
  * applies to it and not to the read beside it.
  */
 @Module({
-  imports: [AuthModule, EventsModule],
+  imports: [AuthModule, EventsModule, PostingTradesModule],
   controllers: [JobsController],
   providers: [JobsService, JobsRepository],
   // ADR-0044 — the post-completion chat companion counts "new jobs for your profile" with the SAME

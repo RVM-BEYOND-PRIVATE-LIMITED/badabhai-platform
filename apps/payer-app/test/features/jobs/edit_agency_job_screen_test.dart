@@ -34,6 +34,11 @@ class _ScriptedApi extends MockPayerApiClient {
   /// #1960 — the demand-skill pick of the last PATCH.
   List<String>? lastMatchSkillIds;
 
+  /// Migration 0141 — the role and trade form of the last PATCH.
+  String? lastRoleKind;
+  String? lastTradeLevel;
+  Map<String, List<String>>? lastTradeAnswers;
+
   // The demand-skill vocabulary, so the picker section renders in the edit form.
   @override
   Future<List<MatchSkill>> fetchMatchSkills() async => const <MatchSkill>[
@@ -67,6 +72,8 @@ class _ScriptedApi extends MockPayerApiClient {
     String? shift,
     List<String>? benefits,
     List<String>? requirements,
+    String? tradeLevel,
+    Map<String, List<String>>? tradeAnswers,
     List<String>? matchSkillIds,
     List<AgencyJobClearField>? clear,
   }) async {
@@ -79,6 +86,9 @@ class _ScriptedApi extends MockPayerApiClient {
     lastArea = area;
     lastMatchSkillIds = matchSkillIds;
     lastClear = clear;
+    lastRoleKind = roleKind;
+    lastTradeLevel = tradeLevel;
+    lastTradeAnswers = tradeAnswers;
     return AgencyJobView(
       id: id,
       status: 'open',
@@ -90,7 +100,8 @@ class _ScriptedApi extends MockPayerApiClient {
   }
 
   @override
-  Future<List<AgencyJobView>> fetchAgencyJobs() async => const <AgencyJobView>[];
+  Future<List<AgencyJobView>> fetchAgencyJobs() async =>
+      const <AgencyJobView>[];
 }
 
 /// A row the worker card can be drawn from in full — the form refuses a save
@@ -115,6 +126,33 @@ const AgencyJobView _job = AgencyJobView(
   applicantsReceived: 4,
 );
 
+/// [_job] with the migration-0139 trade form already stored — the panel must be
+/// visible and its edits must ride the PATCH.
+const AgencyJobView _jobTrade = AgencyJobView(
+  id: 'a1',
+  status: 'open',
+  tradeKey: 'fitter',
+  title: 'Fitter',
+  city: 'Pune',
+  area: 'Chakan',
+  payMin: 18000,
+  payMax: 24000,
+  payType: 'in_hand',
+  minExperienceYears: 1,
+  maxExperienceYears: 4,
+  neededBy: 'soon',
+  shift: 'day',
+  description: 'Fitting and assembly on site.',
+  benefits: <String>['PF + ESI'],
+  requirements: <String>['Fanuc control'],
+  applicantsReceived: 4,
+  roleKind: 'cnc_turner',
+  tradeLevel: 'setter',
+  tradeAnswers: <String, List<String>>{
+    'controller_brand': <String>['fanuc'],
+  },
+);
+
 void main() {
   /// Push the edit screen under a route that can be popped back to, so the
   /// pop-on-success does not empty the navigator.
@@ -127,6 +165,7 @@ void main() {
     AgencyJobsCubit cubit, {
     AgencyJobView job = _job,
     _ScriptedApi? api,
+    double height = 4000,
   }) async {
     // The edit screen reads the demand-skill vocabulary through the locator
     // (#1960), so the graph must be wired for the picker to render.
@@ -134,7 +173,7 @@ void main() {
       await GetIt.instance.reset();
       setupLocator(apiClient: api, secureStore: InMemoryKeyValueStore());
     }
-    tester.view.physicalSize = const Size(1000, 4000);
+    tester.view.physicalSize = Size(1000, height);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
 
@@ -146,8 +185,7 @@ void main() {
               child: ElevatedButton(
                 onPressed: () => Navigator.of(context).push(
                   MaterialPageRoute<void>(
-                    builder: (_) =>
-                        EditAgencyJobScreen(job: job, cubit: cubit),
+                    builder: (_) => EditAgencyJobScreen(job: job, cubit: cubit),
                   ),
                 ),
                 child: const Text('open'),
@@ -237,7 +275,9 @@ void main() {
     // The picker loads its closed vocabulary asynchronously (the route read),
     // then the section renders it. A bounded wait, not pumpAndSettle, so a
     // picker that never appears fails on the assertion rather than timing out.
-    for (int i = 0; i < 20 && find.text('Skills this role needs').evaluate().isEmpty; i++) {
+    for (int i = 0;
+        i < 20 && find.text('Skills this role needs').evaluate().isEmpty;
+        i++) {
       await tester.pump(const Duration(milliseconds: 50));
     }
     expect(find.text('Skills this role needs'), findsOneWidget);
@@ -354,7 +394,9 @@ void main() {
     await open(tester, cubit);
 
     final Finder city = find.descendant(
-      of: find.ancestor(of: find.text('City'), matching: find.byType(Column)).first,
+      of: find
+          .ancestor(of: find.text('City'), matching: find.byType(Column))
+          .first,
       matching: find.byType(TextField),
     );
     await tester.enterText(city, '');
@@ -442,6 +484,35 @@ void main() {
     expect(api.updated, <String>['a1']);
     expect(api.lastClear, isNull);
     expect(api.lastArea, isNull);
+  });
+
+  // Migration 0141 — the role + trade form is visible on the agency edit
+  // screen too, and a rung edit rides the PATCH.
+  testWidgets('a stored trade form is prefilled, and a rung edit rides PATCH', (
+    WidgetTester tester,
+  ) async {
+    final _ScriptedApi api = _ScriptedApi();
+    final AgencyJobsCubit cubit = AgencyJobsCubit(api);
+    addTearDown(cubit.close);
+
+    await open(tester, cubit, job: _jobTrade, api: api, height: 5000);
+
+    expect(find.text('Role'), findsOneWidget);
+    expect(find.text('CNC Turner'), findsOneWidget);
+    expect(find.text('Trade requirements'), findsOneWidget);
+    expect(find.text('Rung'), findsOneWidget);
+    expect(find.text('Setter'), findsOneWidget);
+
+    await tester.tap(find.text('Programmer'));
+    await tester.pumpAndSettle();
+    await save(tester);
+
+    expect(api.updated, <String>['a1']);
+    expect(api.lastRoleKind, 'cnc_turner');
+    expect(api.lastTradeLevel, 'programmer');
+    expect(api.lastTradeAnswers, <String, List<String>>{
+      'controller_brand': <String>['fanuc'],
+    });
   });
 }
 

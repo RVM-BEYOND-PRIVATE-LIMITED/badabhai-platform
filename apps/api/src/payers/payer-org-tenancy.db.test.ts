@@ -164,6 +164,7 @@ describe.skipIf(!RUN)(
         {} as never, // AiTraceRecorder — likewise
         {} as never, // PublishReachService — a draft never materializes reach
         {} as never, // MatchSkillsService — no match_skill_ids on this create
+        {} as never, // PostingTradesService
         tenancy,
       );
       const unlocksRepo = new UnlocksRepository(client.db);
@@ -676,6 +677,7 @@ describe.skipIf(!RUN)(
         {} as never, // AiTraceRecorder — likewise
         { materialize: async () => undefined } as never, // a publish materializes nothing here
         {} as never, // MatchSkillsService — no match_skill_ids
+        {} as never, // PostingTradesService
         tenancy,
       );
       const agency = new AgencyService(
@@ -684,6 +686,7 @@ describe.skipIf(!RUN)(
         new ConsentRepository(client.db),
         events,
         {} as never, // MatchSkillsService — no match_skill_ids
+        {} as never, // PostingTradesService
         tenancy,
       );
       const reach = new ReachService(new ReachRepository(client.db), events, {} as never);
@@ -1197,6 +1200,7 @@ describe.skipIf(!RUN)(
         {} as never, // AiTraceRecorder — likewise
         { materialize: async () => undefined } as never, // a draft never materializes reach
         {} as never, // MatchSkillsService — no match_skill_ids
+        {} as never, // PostingTradesService
         tenancy,
       );
       const plans = new PostingPlansService(
@@ -1563,6 +1567,7 @@ describe.skipIf(!RUN)(
         new ConsentRepository(client.db),
         events,
         {} as never, // MatchSkillsService — no agency job is created here
+        {} as never, // PostingTradesService
         tenancy,
       );
       const kyc = new AgencyKycService(
@@ -2029,6 +2034,7 @@ describe.skipIf(!RUN)(
         {} as never, // AiTraceRecorder — likewise
         {} as never, // PublishReachService — a draft never materializes reach
         {} as never, // MatchSkillsService — no match_skill_ids on this create
+        {} as never, // PostingTradesService
         tenancy,
       );
       return { unlocks, tenancy, disclosures, relay, postings };

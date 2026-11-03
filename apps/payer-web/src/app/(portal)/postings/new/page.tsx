@@ -5,13 +5,10 @@ import { PageHeader } from "../../../../components/page-header";
 import { HIRING_CAPACITY_HREF } from "../../../../lib/billing-routes";
 import { PortalLink } from "../../../../components/portal-link";
 import { getLiveCatalog } from "../../../../lib/live-catalog";
-import {
-  applicantQuotaStep,
-  postingIsFreeThroughLaunch,
-} from "../../../../lib/pricing-config";
-import { getCapacity, listMatchSkills } from "../../../../lib/payer-api";
+import { applicantQuotaStep, postingIsFreeThroughLaunch } from "../../../../lib/pricing-config";
+import { getCapacity, listMatchSkills, listPostingTrades } from "../../../../lib/payer-api";
 import { CachedPricingNote } from "../../../../components/cached-pricing-note";
-import type { MatchSkillWire } from "../../../../lib/contracts";
+import type { MatchSkillWire, PostingTradeFormWire } from "../../../../lib/contracts";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 import { PostingForm } from "./posting-form";
 
@@ -61,6 +58,15 @@ export default async function NewPostingPage() {
     matchSkills = await listMatchSkills();
   } catch {
     matchSkills = [];
+  }
+
+  // Migration 0141 — the 16-trade form catalogue. A fetch failure falls back to the legacy
+  // picker; the form then refuses to publish rather than inventing trade fields.
+  let postingTrades: PostingTradeFormWire[] = [];
+  try {
+    postingTrades = await listPostingTrades();
+  } catch {
+    postingTrades = [];
   }
 
   // The page head + notices lead the FORM column, so the card-preview rail beside it starts at
@@ -120,11 +126,14 @@ export default async function NewPostingPage() {
     </>
   );
 
-  return <PostingForm
+  return (
+    <PostingForm
       quotaStep={quotaStep}
       matchSkills={matchSkills}
+      postingTrades={postingTrades}
       lead={lead}
       free={free}
       payerRef={session.payerId.slice(0, 8)}
-    />;
+    />
+  );
 }

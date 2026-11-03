@@ -24,11 +24,25 @@ import 'package:payer_app/features/jobs/presentation/post_job_screen.dart';
 /// Captures every create call so the test can assert what actually rides the
 /// wire (the mock base returns a canned draft posting).
 class _SpyApi extends MockPayerApiClient {
-  final List<({String org, String title, String? location, String? description, String? band})>
-      created = <({String org, String title, String? location, String? description, String? band})>[];
+  final List<
+      ({
+        String org,
+        String title,
+        String? location,
+        String? description,
+        String? band
+      })> created = <({
+    String org,
+    String title,
+    String? location,
+    String? description,
+    String? band
+  })>[];
 
-  final List<({String title, String city, String? area, int? payMin, int? payMax})>
-      createdAgency = <({String title, String city, String? area, int? payMin, int? payMax})>[];
+  final List<
+          ({String title, String city, String? area, int? payMin, int? payMax})>
+      createdAgency =
+      <({String title, String city, String? area, int? payMin, int? payMax})>[];
 
   /// The worker-visible content of the last agency create — the four fields the
   /// job card renders verbatim and the form used to have no input for.
@@ -72,10 +86,15 @@ class _SpyApi extends MockPayerApiClient {
   Object? throwOnUpdate;
 
   // These #357 tests assert the LEGACY free-text skills flow, so present
-  // Matching V1 as unavailable (route off) — the screen degrades to the
-  // free-text path. The picker itself is exercised against a real backend.
+  // Matching V1 and the trade catalogue as unavailable (routes off) — the
+  // screen degrades to the free-text path. The 16-trade form is exercised
+  // against a real backend.
   @override
   Future<List<MatchSkill>> fetchMatchSkills() async => const <MatchSkill>[];
+
+  @override
+  Future<List<PostingTradeForm>> fetchPostingTrades() async =>
+      const <PostingTradeForm>[];
 
   @override
   Future<JobPosting> createCompanyJob({
@@ -97,6 +116,8 @@ class _SpyApi extends MockPayerApiClient {
     String? roleKind,
     List<String>? benefits,
     List<String>? requirements,
+    String? tradeLevel,
+    Map<String, List<String>>? tradeAnswers,
     List<String>? matchSkillIds,
     List<String>? untickedRelatedIds,
   }) {
@@ -131,6 +152,8 @@ class _SpyApi extends MockPayerApiClient {
       roleKind: roleKind,
       benefits: benefits,
       requirements: requirements,
+      tradeLevel: tradeLevel,
+      tradeAnswers: tradeAnswers,
       matchSkillIds: matchSkillIds,
       untickedRelatedIds: untickedRelatedIds,
     );
@@ -153,6 +176,8 @@ class _SpyApi extends MockPayerApiClient {
     String? shift,
     List<String>? benefits,
     List<String>? requirements,
+    String? tradeLevel,
+    Map<String, List<String>>? tradeAnswers,
     List<String>? matchSkillIds,
   }) {
     createdAgency.add((
@@ -183,6 +208,8 @@ class _SpyApi extends MockPayerApiClient {
       shift: shift,
       benefits: benefits,
       requirements: requirements,
+      tradeLevel: tradeLevel,
+      tradeAnswers: tradeAnswers,
       matchSkillIds: matchSkillIds,
     );
   }
@@ -209,6 +236,8 @@ class _SpyApi extends MockPayerApiClient {
     String? roleKind,
     List<String>? benefits,
     List<String>? requirements,
+    String? tradeLevel,
+    Map<String, List<String>>? tradeAnswers,
     List<String>? matchSkillIds,
     List<String>? untickedRelatedIds,
     List<JobPostingClearField>? clear,
@@ -243,6 +272,8 @@ class _SpyApi extends MockPayerApiClient {
       neededBy: neededBy,
       benefits: benefits,
       requirements: requirements,
+      tradeLevel: tradeLevel,
+      tradeAnswers: tradeAnswers,
       matchSkillIds: matchSkillIds,
       untickedRelatedIds: untickedRelatedIds,
     );
@@ -299,6 +330,8 @@ class _OldRouteSpyApi extends _V1SpyApi {
     String? roleKind,
     List<String>? benefits,
     List<String>? requirements,
+    String? tradeLevel,
+    Map<String, List<String>>? tradeAnswers,
     List<String>? matchSkillIds,
     List<String>? untickedRelatedIds,
   }) async {
@@ -772,7 +805,8 @@ void main() {
       expect(api.created.single.location, 'Plot 42, MIDC Chakan');
     });
 
-    testWidgets('against the FIXED route the create carries them and no PATCH '
+    testWidgets(
+        'against the FIXED route the create carries them and no PATCH '
         'is made', (WidgetTester tester) async {
       // The mock client is faithful to the published route since #1653: the
       // create persists the content + match blocks and echoes them on the 201.

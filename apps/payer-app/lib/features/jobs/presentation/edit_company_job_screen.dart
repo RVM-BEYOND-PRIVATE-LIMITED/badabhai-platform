@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/data/models.dart';
+import '../../../core/data/payer_api_client.dart';
+import '../../../core/di/locator.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
@@ -13,6 +15,7 @@ import '../../../core/widgets/bb_toast.dart';
 import 'cubit/jobs_cubit.dart';
 import '../domain/worker_card_fields.dart';
 import 'widgets/job_content_input.dart';
+import 'widgets/trade_posting_fields.dart';
 
 /// Edit an existing COMPANY posting (`PATCH /payer/job-postings/:id`).
 ///
@@ -53,7 +56,13 @@ class EditCompanyJobScreen extends StatefulWidget {
 
 class _EditCompanyJobScreenState extends State<EditCompanyJobScreen> {
   /// The server's `vacancy_band` enum — exact values the route accepts.
-  static const List<String> _bands = <String>['1', '2-5', '6-10', '11-25', '25+'];
+  static const List<String> _bands = <String>[
+    '1',
+    '2-5',
+    '6-10',
+    '11-25',
+    '25+'
+  ];
 
   /// The two coarse enums the PATCH accepts (`shift` / `needed_by`).
   static const List<String> _shifts = <String>['day', 'night', 'rotational'];
@@ -106,16 +115,73 @@ class _EditCompanyJobScreenState extends State<EditCompanyJobScreen> {
       _neededBys.contains(widget.job.neededBy) ? widget.job.neededBy : null;
   late String? _payType =
       kJobPayTypes.contains(widget.job.payType) ? widget.job.payType : null;
-  late String? _roleKind = kJobRoleKinds.contains(widget.job.roleKind)
-      ? widget.job.roleKind
-      : null;
+  late String? _roleKind =
+      kJobRoleKinds.contains(widget.job.roleKind) ? widget.job.roleKind : null;
 
   // NO 'Not set' / 'Not stated' OPTION. Shift, needed-by and pay type are all
   // printed on the worker's card, so "leave it unstated" is not a choice the
   // form can offer — a row that stores none shows NO selected chip and the save
   // is refused until the payer picks one.
 
+  // --- Migration 0141 — the role and its trade-specific form -----------------
+  List<PostingTradeForm> _postingTrades = const <PostingTradeForm>[];
+  late String _tradeLevel = widget.job.tradeLevel ?? '';
+  late Map<String, List<String>> _tradeAnswers =
+      widget.job.tradeAnswers ?? const <String, List<String>>{};
+  late bool _tradeDirty = false;
+
+  bool get _storedTradeFields =>
+      widget.job.tradeLevel != null || widget.job.tradeAnswers != null;
+
+  /// A pre-0141 OPEN posting may hold a hand-picked match set; showing the
+  /// trade panel there would let a display-only rung rewrite it. Mirror the web
+  /// gate: drafts and trade-form postings show it, and an explicit role change
+  /// reveals it (that is a replacement of the old trade).
+  bool get _showTradeForm =>
+      _postingTrades.isNotEmpty &&
+      (widget.job.wireStatus == 'draft' || _storedTradeFields || _tradeDirty);
+
+  PostingTradeForm? _formForKind(String? kind) {
+    if (kind == null) return null;
+    for (final PostingTradeForm trade in _postingTrades) {
+      if (trade.roleKind == kind) return trade;
+    }
+    return null;
+  }
+
   bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // ignore: discarded_futures — fire-and-forget; state updates on done.
+    _loadPostingTrades();
+  }
+
+  Future<void> _loadPostingTrades() async {
+    try {
+      final List<PostingTradeForm> trades =
+          await locator<PayerApiClient>().fetchPostingTrades();
+      if (!mounted) return;
+      setState(() {
+        _postingTrades = trades;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _postingTrades = const <PostingTradeForm>[];
+      });
+    }
+  }
+
+  void _selectRole(String kind) {
+    setState(() {
+      _roleKind = kind;
+      _tradeLevel = '';
+      _tradeAnswers = const <String, List<String>>{};
+      _tradeDirty = true;
+    });
+  }
 
   @override
   void dispose() {
@@ -176,6 +242,23 @@ class _EditCompanyJobScreenState extends State<EditCompanyJobScreen> {
       if (same) return null;
     }
     return List<String>.of(now);
+  }
+
+  /// Order-insensitive compare for the trade answer map (question keys and each
+  /// selected option list), so a re-tap in another order is not a change.
+  static bool _sameTradeAnswers(
+    Map<String, List<String>> a,
+    Map<String, List<String>>? b,
+  ) {
+    final Map<String, List<String>> other = b ?? const <String, List<String>>{};
+    if (a.length != other.length) return false;
+    for (final MapEntry<String, List<String>> entry in a.entries) {
+      final List<String>? theirs = other[entry.key];
+      if (theirs == null || theirs.length != entry.value.length) return false;
+      final Set<String> set = theirs.toSet();
+      if (!entry.value.every(set.contains)) return false;
+    }
+    return true;
   }
 
   Future<void> _save() async {
@@ -266,23 +349,26 @@ class _EditCompanyJobScreenState extends State<EditCompanyJobScreen> {
     final String? roleTitle = title == widget.job.title ? null : title;
     final String? band = _band == widget.job.band ? null : _band;
     final String? shift = _shift == widget.job.shift ? null : _shift;
-    final String? neededBy = _neededBy == widget.job.neededBy ? null : _neededBy;
+    final String? neededBy =
+        _neededBy == widget.job.neededBy ? null : _neededBy;
     final String? payType = _payType == widget.job.payType ? null : _payType;
     final bool roleKindEmptied =
         _roleKind == null && widget.job.roleKind != null;
-    final String? roleKind = roleKindEmptied || _roleKind == widget.job.roleKind
-        ? null
-        : _roleKind;
+    final String? roleKind =
+        roleKindEmptied || _roleKind == widget.job.roleKind ? null : _roleKind;
     final int? patchPayMin = _changedInt(payMin, widget.job.payMin);
     final int? patchPayMax = _changedInt(payMax, widget.job.payMax);
-    final int? patchExpMin =
-        _changedInt(expMin, widget.job.minExperienceYears);
-    final int? patchExpMax =
-        _changedInt(expMax, widget.job.maxExperienceYears);
-    final List<String>? benefits =
-        _changedList(_benefits, widget.job.benefits);
+    final int? patchExpMin = _changedInt(expMin, widget.job.minExperienceYears);
+    final int? patchExpMax = _changedInt(expMax, widget.job.maxExperienceYears);
+    final List<String>? benefits = _changedList(_benefits, widget.job.benefits);
     final List<String>? requirements =
         _changedList(_requirements, widget.job.requirements);
+    // Migration 0141 — the role/rung/answer map is one editorial act. Send it
+    // only when it actually moved; an untouched edit leaves the stored form
+    // (and the match set derived from it) alone.
+    final bool tradeChanged = _roleKind != widget.job.roleKind ||
+        _tradeLevel != (widget.job.tradeLevel ?? '') ||
+        !_sameTradeAnswers(_tradeAnswers, widget.job.tradeAnswers);
     // #1652 — the OPTIONAL boxes the payer emptied: removed via `clear`. Every
     // other field is required above, so it can never reach here empty. Each is
     // null in the body ([_changedText] of an empty box), never in both lists.
@@ -291,6 +377,12 @@ class _EditCompanyJobScreenState extends State<EditCompanyJobScreen> {
       if (_emptied(_location.text, widget.job.locationLabel))
         JobPostingClearField.locationLabel,
       if (roleKindEmptied) JobPostingClearField.roleKind,
+      // Clearing the display role unsets its trade form too; a rung/answer map
+      // under no role would be stale data.
+      if (roleKindEmptied && widget.job.tradeLevel != null)
+        JobPostingClearField.tradeLevel,
+      if (roleKindEmptied && widget.job.tradeAnswers != null)
+        JobPostingClearField.tradeAnswers,
     ];
 
     final bool nothingChanged = roleTitle == null &&
@@ -309,6 +401,7 @@ class _EditCompanyJobScreenState extends State<EditCompanyJobScreen> {
         patchExpMax == null &&
         benefits == null &&
         requirements == null &&
+        !tradeChanged &&
         clear.isEmpty;
     if (nothingChanged) {
       // Name the real reason: the server would answer "no effective changes" and
@@ -339,12 +432,17 @@ class _EditCompanyJobScreenState extends State<EditCompanyJobScreen> {
       maxExperienceYears: patchExpMax,
       shift: shift,
       neededBy: neededBy,
-      roleKind: roleKind,
+      roleKind:
+          roleKind ?? (tradeChanged && !roleKindEmptied ? _roleKind : null),
       description: description,
       // Only when they CHANGED — and an emptied list rides as `[]`, which is
       // how this contract clears the chips.
       benefits: benefits,
       requirements: requirements,
+      tradeLevel: tradeChanged && !roleKindEmptied && _tradeLevel.isNotEmpty
+          ? _tradeLevel
+          : null,
+      tradeAnswers: tradeChanged && !roleKindEmptied ? _tradeAnswers : null,
       clear: clear.isEmpty ? null : clear,
     );
     if (!mounted) return;
@@ -516,15 +614,29 @@ class _EditCompanyJobScreenState extends State<EditCompanyJobScreen> {
             _sectionCard('Job details', <Widget>[
               BbField(label: 'Job title', controller: _title),
               const SizedBox(height: AppSpacing.s4),
-              BbSelect<String?>(
-                label: 'Role (card illustration)',
-                value: _roleKind,
-                items: <String?>[null, ...kJobRoleKinds],
-                labelOf: (String? v) =>
-                    v == null ? 'Not specified' : (jobRoleLabel(v) ?? v),
-                onChanged: (String? v) => setState(() => _roleKind = v),
-              ),
-              const SizedBox(height: AppSpacing.s4),
+              if (_postingTrades.isNotEmpty) ...<Widget>[
+                _chipField<String>(
+                  label: 'Role',
+                  value: _roleKind,
+                  options: _postingTrades
+                      .map((PostingTradeForm t) => t.roleKind)
+                      .toList(growable: false),
+                  labelOf: (String kind) =>
+                      _formForKind(kind)?.roleLabel ?? kind,
+                  onSelected: _selectRole,
+                ),
+                const SizedBox(height: AppSpacing.s4),
+              ] else ...<Widget>[
+                BbSelect<String?>(
+                  label: 'Role (card illustration)',
+                  value: _roleKind,
+                  items: <String?>[null, ...kJobRoleKinds],
+                  labelOf: (String? v) =>
+                      v == null ? 'Not specified' : (jobRoleLabel(v) ?? v),
+                  onChanged: (String? v) => setState(() => _roleKind = v),
+                ),
+                const SizedBox(height: AppSpacing.s4),
+              ],
               BbField(
                 label: 'Location',
                 controller: _location,
@@ -562,6 +674,37 @@ class _EditCompanyJobScreenState extends State<EditCompanyJobScreen> {
                 onSelected: (String v) => setState(() => _band = v),
               ),
             ]),
+            if (_showTradeForm) ...<Widget>[
+              const SizedBox(height: AppSpacing.s4),
+              _sectionCard('Trade requirements', <Widget>[
+                if (_formForKind(_roleKind) case final PostingTradeForm form)
+                  TradePostingFields(
+                    trade: form,
+                    tradeLevel: _tradeLevel,
+                    answers: _tradeAnswers,
+                    onChanged: (
+                      String level,
+                      Map<String, List<String>> answers,
+                    ) {
+                      setState(() {
+                        _tradeLevel = level;
+                        _tradeAnswers = answers;
+                        _tradeDirty = true;
+                      });
+                    },
+                  )
+                else
+                  Text(
+                    'Pick a role above and the facts that role is hired on '
+                    'appear here.',
+                    style: AppTypography.body(
+                      size: AppTypography.sizeSm,
+                      color: AppColors.textMuted,
+                      height: 1.45,
+                    ),
+                  ),
+              ]),
+            ],
             const SizedBox(height: AppSpacing.s4),
             _sectionCard('Pay & timing', <Widget>[
               Row(
@@ -643,7 +786,8 @@ class _EditCompanyJobScreenState extends State<EditCompanyJobScreen> {
             ]),
             const SizedBox(height: AppSpacing.s4),
             _sectionCard('What workers see', <Widget>[
-              JobDescriptionField(controller: _description, label: 'Description'),
+              JobDescriptionField(
+                  controller: _description, label: 'Description'),
               const SizedBox(height: AppSpacing.s4),
               JobChipListField(
                 label: 'Benefits',
@@ -668,8 +812,8 @@ class _EditCompanyJobScreenState extends State<EditCompanyJobScreen> {
             const SizedBox(height: AppSpacing.s4),
             Text(
               'Emptying Area or Location removes it from the job. The other '
-              'details can be changed but not left blank. The trade and any '
-              'key skills stay part of the description.',
+              'details can be changed but not left blank. The role and its '
+              'trade requirements stay on the worker’s job detail.',
               style: AppTypography.body(
                 size: AppTypography.sizeSm,
                 color: AppColors.textMuted,

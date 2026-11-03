@@ -172,6 +172,8 @@ class _AppShellState extends State<AppShell> {
           key: ValueKey<int>(_jobsEpoch),
           onPost: () => _openSub('post'),
           onAiPost: _openAiPost,
+          // Both session kinds see their candidates on the shared Find tab.
+          onApplicants: () => _selectTab('find'),
         ),
       'credits' => CreditsScreen(onBack: () => _selectTab('home')),
       'account' => AccountScreen(

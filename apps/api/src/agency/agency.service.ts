@@ -31,8 +31,10 @@ import type {
   UpdateAgencyJobDto,
 } from "./agency.dto";
 import { clearedSet } from "../common/clearable-fields";
+import { sameTradeAnswers } from "../common/trade-fields";
 import { isUniqueViolation } from "../common/db-error";
 import { MatchSkillsService } from "../match/match-skills.service";
+import { PostingTradesService } from "../posting-trades/posting-trades.service";
 
 /** Faceless projection of an owned job — ids / status / counts / coarse bands ONLY. */
 export interface AgencyJobView {
@@ -74,6 +76,10 @@ export interface AgencyJobView {
    * Owner view only, so the agency's edit screen can show what it picked. Never inferred.
    */
   matchSkillIds: string[];
+  /** Migration 0141 — display-only trade rung, or null. Never a match input. */
+  tradeLevel: string | null;
+  /** Migration 0141 — the poster's chip answers, or null. */
+  tradeAnswers: Record<string, string[]> | null;
   applicantsReceived: number;
   createdAt: Date;
   updatedAt: Date;
@@ -220,6 +226,8 @@ export class AgencyService {
     // ADR-0050 C4 (#1983) — the posting form's closed-vocabulary + cap check, reused so the
     // agency job form can never accept a pick the posting form would refuse. @Global.
     private readonly matchSkills: MatchSkillsService,
+    // Migration 0141 — the SAME 16-trade form/validator a company posting uses.
+    private readonly postingTrades: PostingTradesService,
     // ADR-0053 — the payer tenant resolver (PayersModule, already imported for the guards).
     private readonly tenancy: PayerTenantScopeService,
   ) {}
@@ -233,11 +241,23 @@ export class AgencyService {
     ctx: RequestContext,
   ): Promise<AgencyJobView> {
     const scope = await this.tenancy.resolve(actorPayerId);
+    // Migration 0141 — when the poster used the trade form, its chips are the match input
+    // and the server derives the set; a client cannot widen it through this path.
+    const tradeSelection =
+      dto.trade_level !== undefined || dto.trade_answers !== undefined
+        ? await this.postingTrades.normalizeSelection(
+            dto.role_kind ?? null,
+            dto.trade_level ?? null,
+            dto.trade_answers ?? null,
+          )
+        : null;
     // ADR-0050 C4 — validated BEFORE the insert, so a bad id is a 400 and never a stored row.
     // Omitted means `[]` ("not chosen yet"), so a shipped client that never sends it is unchanged.
+    const requestedMatchSkills =
+      tradeSelection !== null ? tradeSelection.matchSkillIds : dto.match_skill_ids;
     const matchSkillIds =
-      dto.match_skill_ids !== undefined
-        ? await this.matchSkills.validateSelection(dto.match_skill_ids)
+      requestedMatchSkills !== undefined
+        ? await this.matchSkills.validateSelection(requestedMatchSkills)
         : [];
     const row = await this.jobsRepo.create(
       {
@@ -264,6 +284,9 @@ export class AgencyService {
         // ADR-0050 C4 — the explicit match pick (validated above), never derived from
         // `trade_key`. `job.created` v1 does not carry it (no schema change, ADR-0050 §9).
         matchSkillIds,
+        // Migration 0141 — the trade-specific form. Display rung + reviewable answers.
+        tradeLevel: tradeSelection?.tradeLevel ?? dto.trade_level ?? null,
+        tradeAnswers: tradeSelection?.tradeAnswers ?? dto.trade_answers ?? null,
       },
       "open",
     );
@@ -312,6 +335,35 @@ export class AgencyService {
     return AgencyService.toJobView(row);
   }
 
+  /**
+   * Migration 0141 — validate/normalize the trade form on an agency edit, mirroring the
+   * company posting's rule. A request that carries trade fields is validated against the
+   * role's pack and its `match_skill_ids` are DERIVED; a request without them keeps the
+   * pre-0141 behaviour. Every 0141 client resends the form when the role changes.
+   */
+  private async prepareTradeUpdate(
+    current: Job,
+    dto: UpdateAgencyJobDto,
+  ): Promise<UpdateAgencyJobDto> {
+    // See the company posting's copy: a legacy client that sends only `role_kind` keeps
+    // the pre-0141 behaviour, because it could not have set trade answers.
+    if (dto.trade_level === undefined && dto.trade_answers === undefined) return dto;
+
+    const cleared = clearedSet(dto.clear);
+    const nextRole = dto.role_kind !== undefined ? dto.role_kind : current.roleKind;
+    const selection = await this.postingTrades.normalizeSelection(
+      nextRole,
+      dto.trade_level ?? (cleared.has("trade_level") ? null : current.tradeLevel),
+      dto.trade_answers ?? (cleared.has("trade_answers") ? null : current.tradeAnswers),
+    );
+    return {
+      ...dto,
+      ...(selection.tradeLevel !== null ? { trade_level: selection.tradeLevel } : {}),
+      ...(selection.tradeAnswers !== null ? { trade_answers: selection.tradeAnswers } : {}),
+      match_skill_ids: selection.matchSkillIds,
+    };
+  }
+
   /** Edit an owned job. Neutral 404 if unknown-or-not-owned. Emits job.updated. */
   async updateJob(
     actorPayerId: string,
@@ -326,6 +378,10 @@ export class AgencyService {
       // closed is terminal — no edits. (A neutral conflict, not a leak.)
       throw new BadRequestException("Job is closed and cannot be edited");
     }
+    // Migration 0141 — validate/normalize the trade form BEFORE the generic patch builder.
+    // It may derive `match_skill_ids` from the chips, or clear a stale role's answers when
+    // the role moved without the form being resent.
+    dto = await this.prepareTradeUpdate(current, dto);
 
     const patch: AgencyJobUpdate = { updatedAt: new Date() };
     const changedFields: PayloadInputOf<"job.updated">["changed_fields"] = [];
@@ -395,6 +451,22 @@ export class AgencyService {
     applyNullable("shift", "shift", dto.shift, current.shift, "shift");
     // Migration 0131 — the display role. Its own key: a role change is not a `trade_key` change.
     applyNullable("role_kind", "roleKind", dto.role_kind, current.roleKind, "role_kind");
+
+    // Migration 0141 — the trade-specific form. One event key for the rung + answers; the
+    // DERIVED match set still reports through `match_skills` below.
+    applyNullable("trade_level", "tradeLevel", dto.trade_level, current.tradeLevel, "trade_fields");
+    if (cleared.has("trade_answers")) {
+      if (current.tradeAnswers !== null) {
+        patch.tradeAnswers = null;
+        changedFields.push("trade_fields");
+      }
+    } else if (
+      dto.trade_answers !== undefined &&
+      !sameTradeAnswers(dto.trade_answers, current.tradeAnswers)
+    ) {
+      patch.tradeAnswers = { ...dto.trade_answers };
+      if (!changedFields.includes("trade_fields")) changedFields.push("trade_fields");
+    }
 
     // The two jsonb lists compare as LISTS, so they cannot use the scalar helper. Clearing
     // one stores NULL ("never stated"), a DIFFERENT value from the `[]` the payer app
@@ -1123,8 +1195,11 @@ export class AgencyService {
       payType: row.payType,
       // Migration 0131 — the display role; NULL stays NULL (never inferred from trade_key).
       roleKind: row.roleKind,
-      // ADR-0050 C4 — the explicit match pick; `[]` stays `[]` (never inferred).
+      // ADR-0050 C4 - the explicit match pick; `[]` stays `[]` (never inferred).
       matchSkillIds: row.matchSkillIds,
+      // Migration 0141 — the trade-specific form; nulls preserved ("not stated").
+      tradeLevel: row.tradeLevel,
+      tradeAnswers: row.tradeAnswers,
       applicantsReceived: row.applicantsReceived,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,

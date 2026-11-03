@@ -38,8 +38,11 @@ export interface WorkerVisibleJobRow {
   description: string | null;
   benefits: string[] | null;
   requirements: string[] | null;
-  /** Display role (migration 0131), RAW — the service gates it to the closed set or null. */
+  /** Display role (migration 0131), RAW - the service gates it to the closed set or null. */
   roleKind: string | null;
+  /** Migration 0141 - the display rung and the poster's chip answers. */
+  tradeLevel: string | null;
+  tradeAnswers: Record<string, string[]> | null;
 }
 
 /**
@@ -108,7 +111,10 @@ function searchTsQuery(q: string): string | null {
     .filter((token) => token.length > 0);
   if (tokens.length === 0) return null;
   const last = tokens.length - 1;
-  return `${tokens.slice(0, last).map((token) => `${token} & `).join("")}${tokens[last]}:*`;
+  return `${tokens
+    .slice(0, last)
+    .map((token) => `${token} & `)
+    .join("")}${tokens[last]}:*`;
 }
 
 @Injectable()
@@ -148,6 +154,8 @@ export class JobsRepository {
         // Card art (owner ruling 2026-10-05, ADR-0024 addendum) — the detail screen opened
         // from a feed card draws the same illustration.
         roleKind: jobs.roleKind,
+        tradeLevel: jobs.tradeLevel,
+        tradeAnswers: jobs.tradeAnswers,
       })
       .from(jobs)
       .where(and(eq(jobs.id, jobId), eq(jobs.status, "open")))
@@ -188,6 +196,8 @@ export class JobsRepository {
         benefits: jobPostings.benefits,
         requirements: jobPostings.requirements,
         roleKind: jobPostings.roleKind,
+        tradeLevel: jobPostings.tradeLevel,
+        tradeAnswers: jobPostings.tradeAnswers,
       })
       .from(jobPostings)
       .where(and(eq(jobPostings.id, jobId), eq(jobPostings.status, "open")))

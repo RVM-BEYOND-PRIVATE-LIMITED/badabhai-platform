@@ -43,6 +43,7 @@ import { EmailNotificationModule } from "./notifications/email-notification.modu
 import { RateLimitModule } from "./common/rate-limit/rate-limit.module";
 import { PdfModule } from "./common/pdf/pdf.module";
 import { MatchModule } from "./match/match.module";
+import { PostingTradesModule } from "./posting-trades/posting-trades.module";
 import { LearnModule } from "./learn/learn.module";
 import { RequestIdMiddleware } from "./common/middleware/request-id.middleware";
 
@@ -100,6 +101,9 @@ import { RequestIdMiddleware } from "./common/middleware/request-id.middleware";
     // JobsModule whose exports it reads. INERT until CHAT_COMPANION_ENABLED is on.
     ChatCompanionModule,
     JobPostingsModule,
+    // The 16-trade posting form catalogue: the payer route (`GET /payer/posting-trades`)
+    // and the shared validator both posting producers use (2026-11-03).
+    PostingTradesModule,
     PricingModule,
     PostingPlansModule,
     ReachModule,

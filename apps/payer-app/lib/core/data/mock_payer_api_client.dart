@@ -242,6 +242,8 @@ class MockPayerApiClient implements PayerApiClient {
     String? roleKind,
     List<String>? benefits,
     List<String>? requirements,
+    String? tradeLevel,
+    Map<String, List<String>>? tradeAnswers,
   }) async {
     if ((vacancyBand == null) == (vacancies == null)) {
       throw ArgumentError(
@@ -279,6 +281,8 @@ class MockPayerApiClient implements PayerApiClient {
       neededBy: neededBy,
       roleKind: roleKind,
       matchSkillIds: matchSkillIds ?? const <String>[],
+      tradeLevel: tradeLevel,
+      tradeAnswers: tradeAnswers,
       createdAt: '2026-07-08T00:00:00Z',
       status: JobStatus.review,
       filled: 0,
@@ -319,6 +323,8 @@ class MockPayerApiClient implements PayerApiClient {
     String? roleKind,
     List<String>? benefits,
     List<String>? requirements,
+    String? tradeLevel,
+    Map<String, List<String>>? tradeAnswers,
     List<JobPostingClearField>? clear,
   }) async {
     // The real PATCH accepts every key above and returns the UPDATED row, so the
@@ -373,6 +379,16 @@ class MockPayerApiClient implements PayerApiClient {
       roleKind:
           patched(JobPostingClearField.roleKind, roleKind, current.roleKind),
       matchSkillIds: matchSkillIds ?? current.matchSkillIds,
+      tradeLevel: patched(
+        JobPostingClearField.tradeLevel,
+        tradeLevel,
+        current.tradeLevel,
+      ),
+      tradeAnswers: patched(
+        JobPostingClearField.tradeAnswers,
+        tradeAnswers,
+        current.tradeAnswers,
+      ),
       createdAt: current.createdAt,
       status: current.status,
       filled: current.filled,
@@ -473,8 +489,159 @@ class MockPayerApiClient implements PayerApiClient {
     ),
   ];
 
+  /// A SMALL mock of the 16-trade posting catalogue. Two trades are enough for the
+  /// demo, and they exercise both a match chip and a facet chip. The live client
+  /// returns the server's full catalogue.
+  static const List<PostingTradeForm> _postingTrades = <PostingTradeForm>[
+    PostingTradeForm(
+      roleKind: 'cnc_turner',
+      roleLabel: 'CNC Turner',
+      packId: 'qp_cnc_turning',
+      matchSkillId: 'cnc_operation',
+      ladder: <PostingTradeRung>[
+        PostingTradeRung(
+          rung: 'helper',
+          monthsFloor: '0-1',
+          evidence: 'load/unload, deburr',
+          confirmed: false,
+          priceTier: 'lower',
+        ),
+        PostingTradeRung(
+          rung: 'operator',
+          monthsFloor: '1+',
+          evidence: 'proven program, wear offset',
+          confirmed: false,
+          priceTier: 'lower',
+        ),
+        PostingTradeRung(
+          rung: 'setter',
+          monthsFloor: '2+',
+          evidence: 'work/tool offsets, first piece',
+          confirmed: true,
+          priceTier: 'higher',
+        ),
+        PostingTradeRung(
+          rung: 'programmer',
+          monthsFloor: '3-5+',
+          evidence: 'new program from drawing',
+          confirmed: true,
+          priceTier: 'higher',
+        ),
+      ],
+      questions: <PostingTradeQuestion>[
+        PostingTradeQuestion(
+          questionKey: 'turning_machine',
+          prompt: 'Aap kaunsi turning machine chalate hain?',
+          answerType: 'multi_select',
+          options: <PostingTradeOption>[
+            PostingTradeOption(
+              optionKey: 'cnc_lathe',
+              value: 'cnc_lathe',
+              label: 'CNC lathe ya turning centre',
+              match: true,
+              matchSkillIds: <String>['cnc_operation'],
+            ),
+            PostingTradeOption(
+              optionKey: 'conventional_lathe',
+              value: 'conventional_lathe',
+              label: 'Khraad ya conventional lathe',
+              match: false,
+            ),
+          ],
+        ),
+        PostingTradeQuestion(
+          questionKey: 'controller_brand',
+          prompt: 'Machine par kaunsa controller lagaa hai?',
+          answerType: 'multi_select',
+          options: <PostingTradeOption>[
+            PostingTradeOption(
+              optionKey: 'fanuc',
+              value: 'fanuc',
+              label: 'Fanuc',
+              match: false,
+            ),
+            PostingTradeOption(
+              optionKey: 'siemens',
+              value: 'siemens',
+              label: 'Siemens',
+              match: false,
+            ),
+          ],
+        ),
+        PostingTradeQuestion(
+          questionKey: 'programming_level',
+          prompt: 'Programme ke saath aap kitna kaam karte hain?',
+          answerType: 'single_select',
+          options: <PostingTradeOption>[
+            PostingTradeOption(
+              optionKey: 'edit_program',
+              value: 'edit_program',
+              label: 'Programme edit kar leta hoon',
+              match: false,
+            ),
+            PostingTradeOption(
+              optionKey: 'write_program',
+              value: 'write_program',
+              label: 'Naya programme likh leta hoon',
+              match: true,
+              matchSkillIds: <String>['cnc_programming'],
+            ),
+          ],
+        ),
+      ],
+    ),
+    PostingTradeForm(
+      roleKind: 'welder',
+      roleLabel: 'Welder',
+      packId: 'qp_welding_trade',
+      matchSkillId: 'welding',
+      ladder: <PostingTradeRung>[
+        PostingTradeRung(
+          rung: 'helper',
+          monthsFloor: '0-1',
+          evidence: 'tack, grind, assist',
+          confirmed: false,
+          priceTier: 'lower',
+        ),
+        PostingTradeRung(
+          rung: 'skilled',
+          monthsFloor: '2-3+',
+          evidence: 'multi-process + symbols',
+          confirmed: true,
+          priceTier: 'higher',
+        ),
+      ],
+      questions: <PostingTradeQuestion>[
+        PostingTradeQuestion(
+          questionKey: 'welding_process',
+          prompt: 'Aap kaunsi welding karte hain?',
+          answerType: 'multi_select',
+          options: <PostingTradeOption>[
+            PostingTradeOption(
+              optionKey: 'mig_mag',
+              value: 'mig_mag',
+              label: 'MIG / MAG',
+              match: true,
+              matchSkillIds: <String>['welding'],
+            ),
+            PostingTradeOption(
+              optionKey: 'tig',
+              value: 'tig',
+              label: 'TIG',
+              match: true,
+              matchSkillIds: <String>['welding'],
+            ),
+          ],
+        ),
+      ],
+    ),
+  ];
+
   @override
   Future<List<MatchSkill>> fetchMatchSkills() async => _matchSkills;
+
+  @override
+  Future<List<PostingTradeForm>> fetchPostingTrades() async => _postingTrades;
 
   @override
   Future<ReachPreview> reachPreview({
@@ -542,8 +709,7 @@ class MockPayerApiClient implements PayerApiClient {
   static String _matchSkillLabel(String id) => _matchSkills
       .where((MatchSkill s) => s.skillId == id)
       .map((MatchSkill s) => s.label)
-      .followedBy(<String>[id])
-      .first;
+      .followedBy(<String>[id]).first;
 
   // --- Agency — referred workers + batch invites (canned) --------------------
 
@@ -610,7 +776,8 @@ class MockPayerApiClient implements PayerApiClient {
   // can never learn to expect a raw integer here.
 
   int _chatSeq = 0;
-  final Map<String, _MockChatSession> _chatSessions = <String, _MockChatSession>{};
+  final Map<String, _MockChatSession> _chatSessions =
+      <String, _MockChatSession>{};
 
   @override
   Future<JobPostingChatTurn> startJobPostingChatSession() async {
@@ -647,12 +814,11 @@ class MockPayerApiClient implements PayerApiClient {
 
   @override
   Future<List<JobPostingChatSessionSummary>>
-      fetchJobPostingChatSessions() async =>
-          _chatSessions.values
-              .map((_MockChatSession s) => s.summary)
-              .toList(growable: false)
-              .reversed
-              .toList(growable: false);
+      fetchJobPostingChatSessions() async => _chatSessions.values
+          .map((_MockChatSession s) => s.summary)
+          .toList(growable: false)
+          .reversed
+          .toList(growable: false);
 
   @override
   Future<JobPostingChatTranscript?> fetchJobPostingChatTranscript(
@@ -766,6 +932,8 @@ class MockPayerApiClient implements PayerApiClient {
     String? shift,
     List<String>? benefits,
     List<String>? requirements,
+    String? tradeLevel,
+    Map<String, List<String>>? tradeAnswers,
     List<String>? matchSkillIds,
   }) async {
     _agencySeq += 1;
@@ -797,6 +965,8 @@ class MockPayerApiClient implements PayerApiClient {
           requirements != null && requirements.isNotEmpty ? requirements : null,
       // ADR-0050 — stored as an array (empty = none picked).
       matchSkillIds: matchSkillIds ?? const <String>[],
+      tradeLevel: tradeLevel,
+      tradeAnswers: tradeAnswers,
       applicantsReceived: 0,
       createdAt: '2026-07-08T00:00:00Z',
       updatedAt: '2026-07-08T00:00:00Z',
@@ -835,6 +1005,8 @@ class MockPayerApiClient implements PayerApiClient {
     String? shift,
     List<String>? benefits,
     List<String>? requirements,
+    String? tradeLevel,
+    Map<String, List<String>>? tradeAnswers,
     List<String>? matchSkillIds,
     List<AgencyJobClearField>? clear,
   }) async {
@@ -855,6 +1027,9 @@ class MockPayerApiClient implements PayerApiClient {
         shift == null &&
         benefits == null &&
         requirements == null &&
+        roleKind == null &&
+        tradeLevel == null &&
+        tradeAnswers == null &&
         matchSkillIds == null &&
         cleared.isEmpty) {
       throw ArgumentError('updateAgencyJob needs at least one field');
@@ -902,6 +1077,16 @@ class MockPayerApiClient implements PayerApiClient {
         ),
         // ADR-0050 — a supplied list (even `[]`) replaces; a null leaves it.
         matchSkillIds: matchSkillIds ?? j.matchSkillIds,
+        tradeLevel: patched(
+          AgencyJobClearField.tradeLevel,
+          tradeLevel,
+          j.tradeLevel,
+        ),
+        tradeAnswers: patched(
+          AgencyJobClearField.tradeAnswers,
+          tradeAnswers,
+          j.tradeAnswers,
+        ),
         applicantsReceived: j.applicantsReceived,
         createdAt: j.createdAt,
         updatedAt: '2026-07-08T00:00:00Z',
@@ -910,15 +1095,18 @@ class MockPayerApiClient implements PayerApiClient {
   }
 
   @override
-  Future<AgencyJobView> closeAgencyJob(String id) => _setAgencyStatus(id, 'closed');
+  Future<AgencyJobView> closeAgencyJob(String id) =>
+      _setAgencyStatus(id, 'closed');
 
   @override
   // A pause is reversible (#1202) — the row comes back `paused`, resumable.
-  Future<AgencyJobView> pauseAgencyJob(String id) => _setAgencyStatus(id, 'paused');
+  Future<AgencyJobView> pauseAgencyJob(String id) =>
+      _setAgencyStatus(id, 'paused');
 
   @override
   // Resume flips a `paused` row back to `open` (#1202).
-  Future<AgencyJobView> resumeAgencyJob(String id) => _setAgencyStatus(id, 'open');
+  Future<AgencyJobView> resumeAgencyJob(String id) =>
+      _setAgencyStatus(id, 'open');
 
   Future<AgencyJobView> _setAgencyStatus(String id, String status) => _mutate(
         id,
@@ -1011,7 +1199,8 @@ class MockPayerApiClient implements PayerApiClient {
   }
 
   @override
-  Future<RevealResult> reveal(String unlockId) async => const RevealResult.relay(
+  Future<RevealResult> reveal(String unlockId) async =>
+      const RevealResult.relay(
         relayHandle: 'relay-7Q2X',
         channel: 'in_app_relay',
         expiresAt: '2026-12-31T00:00:00Z',
@@ -1107,7 +1296,9 @@ class MockPayerApiClient implements PayerApiClient {
     final int i =
         _orgMembers.indexWhere((OrgMemberView m) => m.memberId == memberId);
     if (i < 0) throw const PayerApiException(404); // neutral unknown/not-owned
-    if (_orgMembers[i].isOwner) throw const PayerApiException(409); // can't remove owner
+    if (_orgMembers[i].isOwner) {
+      throw const PayerApiException(409); // can't remove owner
+    }
     _orgMembers.removeAt(i);
   }
 
@@ -1236,10 +1427,12 @@ class MockPayerApiClient implements PayerApiClient {
     // Mirror the server gate: KYC verified AND ≥ threshold. A refusal changes
     // nothing (HTTP 200 with ok:false server-side).
     if (!_kyc.isVerified) {
-      return const PayoutRequestResult(ok: false, blockedReason: 'kyc_not_verified');
+      return const PayoutRequestResult(
+          ok: false, blockedReason: 'kyc_not_verified');
     }
     if (_requestableInr < _kPayoutThresholdInr) {
-      return const PayoutRequestResult(ok: false, blockedReason: 'below_threshold');
+      return const PayoutRequestResult(
+          ok: false, blockedReason: 'below_threshold');
     }
     final int amount = _requestableInr;
     final int count = amount ~/ _accrualAmountInr;
@@ -1446,6 +1639,7 @@ class _MockChatSession {
   final List<JobPostingChatMessageRow> messages = <JobPostingChatMessageRow>[];
   JobPostingDraft draft = const JobPostingDraft();
   bool published = false;
+
   /// #2490 — the role picked on the publish step (display only), or null.
   String? publishedRoleKind;
 
@@ -1455,9 +1649,8 @@ class _MockChatSession {
 
   bool get draftReady => _asked >= _kMockChatTopics.length;
 
-  String get status => published
-      ? 'published'
-      : (draftReady ? 'draft_ready' : 'active');
+  String get status =>
+      published ? 'published' : (draftReady ? 'draft_ready' : 'active');
 
   /// Chips for the question currently on screen (empty once the bank is done).
   List<String> get currentChips => _asked < _kMockChatTopics.length
@@ -1522,4 +1715,3 @@ class _MockChatSession {
     );
   }
 }
-

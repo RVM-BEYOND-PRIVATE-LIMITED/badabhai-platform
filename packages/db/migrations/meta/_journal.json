@@ -989,6 +989,13 @@
       "when": 1793616190501,
       "tag": "0140_wri_role_kind_3d",
       "breakpoints": true
+    },
+    {
+      "idx": 141,
+      "version": "7",
+      "when": 1793695965412,
+      "tag": "0141_trade_posting_fields",
+      "breakpoints": true
     }
   ]
 }

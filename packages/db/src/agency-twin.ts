@@ -91,7 +91,9 @@ export type AgencyTwinChangedField =
   | "pay_type"
   | "benefits"
   | "requirements"
-  | "role_kind";
+  | "role_kind"
+  // Migration 0141 — the display rung and the poster's chip answers are one editorial act.
+  | "trade_fields";
 
 /** The agency `jobs` row the twin is derived from (only the columns the twin reads). */
 export interface AgencyTwinSource {
@@ -112,6 +114,10 @@ export interface AgencyTwinSource {
   requirements: string[] | null;
   roleKind: string | null;
   matchSkillIds: string[];
+  /** Migration 0141 — display-only rung, or NULL. */
+  tradeLevel: string | null;
+  /** Migration 0141 — the poster's chip answers, or NULL. */
+  tradeAnswers: Record<string, string[]> | null;
   createdAt: Date;
 }
 
@@ -145,6 +151,8 @@ export interface AgencyTwinValues {
   requirements: string[] | null;
   roleKind: string | null;
   matchSkillIds: string[];
+  tradeLevel: string | null;
+  tradeAnswers: Record<string, string[]> | null;
   reachSkillIds: string[];
   industryId: string | null;
   vacancyBand: typeof AGENCY_TWIN_VACANCY_BAND;
@@ -245,6 +253,9 @@ export function planAgencyTwin(source: AgencyTwinSource, ctx: AgencyTwinContext)
       requirements: source.requirements,
       roleKind: source.roleKind,
       matchSkillIds,
+      // Migration 0141 — copied verbatim; the twin states the same trade facts as its source.
+      tradeLevel: source.tradeLevel,
+      tradeAnswers: source.tradeAnswers,
       reachSkillIds,
       industryId: firstSkill === undefined ? null : (matchSkillIndustry(firstSkill) ?? null),
       vacancyBand: AGENCY_TWIN_VACANCY_BAND,
@@ -258,6 +269,21 @@ export function planAgencyTwin(source: AgencyTwinSource, ctx: AgencyTwinContext)
 
 const sameList = (a: readonly string[] | null, b: readonly string[] | null): boolean =>
   a === null || b === null ? a === b : a.length === b.length && a.every((v, i) => v === b[i]);
+
+/** Order-insensitive compare for the trade answer map (question keys and each option list). */
+function sameTradeAnswers(
+  a: Record<string, string[]> | null,
+  b: Record<string, string[]> | null,
+): boolean {
+  if (a === null || b === null) return a === b;
+  const aKeys = Object.keys(a).sort();
+  const bKeys = Object.keys(b).sort();
+  if (aKeys.length !== bKeys.length || aKeys.some((key, i) => key !== bKeys[i])) return false;
+  return aKeys.every(
+    (key) =>
+      JSON.stringify([...(a[key] ?? [])].sort()) === JSON.stringify([...(b[key] ?? [])].sort()),
+  );
+}
 
 const sameTime = (a: Date | null, b: Date | null): boolean =>
   a === null || b === null ? a === b : a.getTime() === b.getTime();
@@ -293,6 +319,11 @@ export function diffAgencyTwin(
   push("benefits", !sameList(current.benefits, next.benefits));
   push("requirements", !sameList(current.requirements, next.requirements));
   push("role_kind", current.roleKind !== next.roleKind);
+  push(
+    "trade_fields",
+    current.tradeLevel !== next.tradeLevel ||
+      !sameTradeAnswers(current.tradeAnswers, next.tradeAnswers),
+  );
   push(
     "match_skills",
     !sameList(current.matchSkillIds, next.matchSkillIds) ||
@@ -358,6 +389,8 @@ function storedValues(row: typeof jobPostings.$inferSelect): AgencyTwinValues {
     requirements: row.requirements === null ? null : strings(row.requirements),
     roleKind: row.roleKind,
     matchSkillIds: strings(row.matchSkillIds),
+    tradeLevel: row.tradeLevel,
+    tradeAnswers: row.tradeAnswers,
     reachSkillIds: strings(row.reachSkillIds),
     industryId: row.industryId,
     vacancyBand: row.vacancyBand as typeof AGENCY_TWIN_VACANCY_BAND,
@@ -384,6 +417,8 @@ const EMPTY_VALUES: AgencyTwinValues = {
   requirements: null,
   roleKind: null,
   matchSkillIds: [],
+  tradeLevel: null,
+  tradeAnswers: null,
   reachSkillIds: [],
   industryId: null,
   vacancyBand: AGENCY_TWIN_VACANCY_BAND,
@@ -410,6 +445,8 @@ function columnsOf(v: AgencyTwinValues) {
     requirements: v.requirements,
     roleKind: v.roleKind as (typeof jobPostings.$inferInsert)["roleKind"],
     matchSkillIds: v.matchSkillIds,
+    tradeLevel: v.tradeLevel,
+    tradeAnswers: v.tradeAnswers,
     reachSkillIds: v.reachSkillIds,
     industryId: v.industryId,
     vacancyBand: v.vacancyBand,
@@ -493,6 +530,8 @@ function agencySourceQuery(executor: Database, jobId: string) {
       requirements: jobs.requirements,
       roleKind: jobs.roleKind,
       matchSkillIds: jobs.matchSkillIds,
+      tradeLevel: jobs.tradeLevel,
+      tradeAnswers: jobs.tradeAnswers,
       createdAt: jobs.createdAt,
     })
     .from(jobs)
@@ -511,6 +550,8 @@ function toSource(row: Awaited<ReturnType<typeof agencySourceQuery>>[number]): A
     matchSkillIds: Array.isArray(row.matchSkillIds)
       ? row.matchSkillIds.filter((x): x is string => typeof x === "string")
       : [],
+    tradeLevel: row.tradeLevel,
+    tradeAnswers: row.tradeAnswers,
   };
 }
 

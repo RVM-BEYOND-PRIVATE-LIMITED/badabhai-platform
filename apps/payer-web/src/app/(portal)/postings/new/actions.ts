@@ -54,6 +54,9 @@ export async function createPostingAction(input: {
   neededBy?: string;
   requirements: string[];
   benefits: string[];
+  /** Migration 0141 — the display-only rung and the selected chip answers. */
+  tradeLevel?: string;
+  tradeAnswers?: Record<string, string[]>;
   matchSkillIds: string[];
   untickedRelatedIds: string[];
 }): Promise<CreatePostingResult> {
@@ -74,6 +77,8 @@ export async function createPostingAction(input: {
     neededBy: input.neededBy,
     requirements: input.requirements.length > 0 ? input.requirements : undefined,
     benefits: input.benefits.length > 0 ? input.benefits : undefined,
+    tradeLevel: input.tradeLevel,
+    tradeAnswers: input.tradeAnswers,
   });
   if (!parsed.success) {
     return { ok: false, error: parsed.error.issues.map((i) => i.message).join("; ") };

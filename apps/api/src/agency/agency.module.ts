@@ -4,6 +4,7 @@ import { RESUME_RENDER_QUEUE } from "../queue/queue.constants";
 import { PayersModule } from "../payers/payers.module";
 import { AdminModule } from "../admin/admin.module";
 import { ConsentModule } from "../consent/consent.module";
+import { PostingTradesModule } from "../posting-trades/posting-trades.module";
 import { PayerDisclosureRateLimit } from "../payers/payer-disclosure-rate-limit.service";
 import { AgencyService } from "./agency.service";
 import { AgencyJobsRepository } from "./agency-jobs.repository";
@@ -48,6 +49,9 @@ import { AgencyWorkersService } from "./agency-workers.service";
   imports: [
     PayersModule,
     ConsentModule,
+    // The 16-trade posting form catalogue/validator. The agency job form renders the SAME
+    // fields as a company posting and stores the same answer set (2026-11-03).
+    PostingTradesModule,
     // ADR-0050 (#1983) — ONLY so `AgencyJobsOpsController` can mount `AdminAuthGuard` (the
     // module exports the guard + `AdminSessionService`), the JobPostingsModule precedent.
     // One-directional: AdminModule does not import AgencyModule, so no `forwardRef`.

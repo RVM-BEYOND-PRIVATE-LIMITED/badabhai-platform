@@ -1,9 +1,9 @@
 import { notFound, redirect } from "next/navigation";
 import { z } from "zod";
-import { getAgencyJob, listMatchSkills } from "../../../../../../lib/payer-api";
+import { getAgencyJob, listMatchSkills, listPostingTrades } from "../../../../../../lib/payer-api";
 import { requireAgent } from "../../../../../../lib/auth/roles";
 import { agencyFlags } from "../../../../../../lib/config";
-import type { MatchSkillWire } from "../../../../../../lib/contracts";
+import type { MatchSkillWire, PostingTradeFormWire } from "../../../../../../lib/contracts";
 import { isEditableJob } from "../../../../../../lib/agency-view";
 import { PageHeader } from "../../../../../../components/page-header";
 import { EditAgencyPosting } from "./edit-agency-posting";
@@ -53,6 +53,13 @@ export default async function EditAgencyPostingPage({
   } catch {
     matchSkills = [];
   }
+  // Migration 0141 — the same 16-trade form a company posting uses.
+  let postingTrades: PostingTradeFormWire[] = [];
+  try {
+    postingTrades = await listPostingTrades();
+  } catch {
+    postingTrades = [];
+  }
 
   // The page head leads the FORM column, so the card-preview rail starts beside it at the top.
   // Back to the posting by its own name — its details page's H1, and the applicants page's back
@@ -69,6 +76,12 @@ export default async function EditAgencyPostingPage({
     // KEYED ON THE SAVED REVISION: a form seeded from an older copy of this posting (a cached page
     // restored by Back after a save, a refresh after a concurrent edit) remounts from the current
     // one instead of keeping stale values — and a stale `initial` for the clear diff.
-    <EditAgencyPosting key={job.updatedAt} job={job} matchSkills={matchSkills} lead={lead} />
+    <EditAgencyPosting
+      key={job.updatedAt}
+      job={job}
+      matchSkills={matchSkills}
+      postingTrades={postingTrades}
+      lead={lead}
+    />
   );
 }

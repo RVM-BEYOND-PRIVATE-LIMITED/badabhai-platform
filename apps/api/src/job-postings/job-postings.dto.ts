@@ -2,6 +2,7 @@ import { z } from "zod";
 import { uuidSchema } from "@badabhai/validators";
 import { VACANCY_BANDS } from "@badabhai/types";
 import { clearFieldSchema, contradictoryClears } from "../common/clearable-fields";
+import { tradeAnswersSchema, tradeLevelSchema } from "../common/trade-fields.schemas";
 import {
   areaSchema,
   benefitsSchema,
@@ -153,6 +154,13 @@ const postingContentFields = {
   // stores NULL. The chat interview does not ask for it, so the draft never carries one —
   // the chat PUBLISH body may (#2490).
   role_kind: roleKindSchema.optional(),
+  // ── The trade-specific posting form (migration 0141, 16 live trades) ──
+  // `trade_level` is ONE display-only rung. `trade_answers` is the poster's selected
+  // chips, keyed by the role pack's question_key. Both are optional and PII-free (closed
+  // slugs). The SERVICE validates them against the role's pack and derives
+  // `match_skill_ids` from the match-affecting chips; their presence here is shape only.
+  trade_level: tradeLevelSchema.optional(),
+  trade_answers: tradeAnswersSchema.optional(),
 } as const;
 
 /**
@@ -209,6 +217,11 @@ const CLEARABLE_POSTING_FIELDS = [
   "requirements",
   // Migration 0131 — nullable, so clearable: "no role picked" is a legitimate state.
   "role_kind",
+  // Migration 0141 — the trade form is nullable; "the poster stated no trade fields" is a
+  // legitimate state, and an edit that switches to a non-postable role must be able to
+  // unset them.
+  "trade_level",
+  "trade_answers",
 ] as const;
 export type ClearablePostingField = (typeof CLEARABLE_POSTING_FIELDS)[number];
 export { CLEARABLE_POSTING_FIELDS };

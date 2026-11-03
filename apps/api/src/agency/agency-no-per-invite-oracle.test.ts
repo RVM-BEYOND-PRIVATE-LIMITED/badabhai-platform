@@ -74,7 +74,10 @@ describe("AgencyInvitesController exposes NO per-invite readback (C10)", () => {
     const invitesRepo = {
       create: vi.fn().mockImplementation((i: { code: string }) => {
         n += 1;
-        return Promise.resolve({ id: `aaaaaaaa-0000-4000-8000-${String(n).padStart(12, "0")}`, code: i.code });
+        return Promise.resolve({
+          id: `aaaaaaaa-0000-4000-8000-${String(n).padStart(12, "0")}`,
+          code: i.code,
+        });
       }),
     };
     const svc = new AgencyService(
@@ -83,6 +86,7 @@ describe("AgencyInvitesController exposes NO per-invite readback (C10)", () => {
       {} as never,
       { emit } as never,
       {} as never,
+      {} as never, // PostingTradesService
       defaultModeResolver(),
     );
     const res = await svc.createInviteBatch(PAYER_A, 3, {}, {
@@ -116,6 +120,7 @@ describe("referralsSummary stays AGGREGATE-ONLY with the k-anon floor (C10)", ()
       {} as never,
       { emit: vi.fn() } as never,
       {} as never,
+      {} as never, // PostingTradesService
       defaultModeResolver(),
     );
     const summary = await svc.referralsSummary(PAYER_A);
@@ -151,7 +156,14 @@ describe("GET /payer/agency/workers gains NO referral-linkage field (C10)", () =
     expect(Object.keys(workers[0]!).sort()).toEqual(EXPECTED_KEYS);
     // No invite_code / campaign / invite_id / referral linkage may ever appear here: it
     // would let the agency join its private link→person map onto platform state.
-    for (const forbidden of ["invite_code", "inviteCode", "campaign", "invite_id", "inviteId", "code"]) {
+    for (const forbidden of [
+      "invite_code",
+      "inviteCode",
+      "campaign",
+      "invite_id",
+      "inviteId",
+      "code",
+    ]) {
       expect(workers[0]).not.toHaveProperty(forbidden);
     }
   });

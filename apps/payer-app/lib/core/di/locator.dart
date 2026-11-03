@@ -151,8 +151,12 @@ void setupLocator({
     // In the mock seam (a test injected the client) force the global MOCK feed
     // so the faceless candidate list renders without a per-job context; in
     // production the feed follows kUseMocks (REAL = per-job applicants).
-    () => FindCubit(locator<PayerApiClient>(),
-        useRealFeed: mockSeam ? false : null),
+    () => FindCubit(
+      locator<PayerApiClient>(),
+      useRealFeed: mockSeam ? false : null,
+      // Agency sessions own `jobs`, company sessions own `job_postings`.
+      isAgency: locator<AppSessionCubit>().state?.isAgency ?? false,
+    ),
   );
   locator.registerFactory<RevealCubit>(
     () => RevealCubit(locator<PayerApiClient>()),

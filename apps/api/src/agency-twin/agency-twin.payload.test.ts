@@ -43,6 +43,8 @@ const source = (o: Partial<AgencyTwinSource> = {}): AgencyTwinSource => ({
   requirements: null,
   roleKind: null,
   matchSkillIds: ["mskill_vmc_operator"],
+  tradeLevel: null,
+  tradeAnswers: null,
   createdAt: new Date("2026-09-01T00:00:00.000Z"),
   ...o,
 });

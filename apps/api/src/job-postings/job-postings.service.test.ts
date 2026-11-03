@@ -54,6 +54,9 @@ type Row = {
   untickedRelatedIds: string[];
   /** Migration 0131 — the display role. NULL for every posting nobody picked one for. */
   roleKind: string | null;
+  /** Migration 0141 — the display-only trade rung and the poster's chip answers. */
+  tradeLevel: string | null;
+  tradeAnswers: Record<string, string[]> | null;
   /** ADR-0050 — 'agency_job' on a system-owned agency twin, NULL on every other posting. */
   syncSource: string | null;
   createdAt: Date;
@@ -77,6 +80,8 @@ function row(overrides: Partial<Row> = {}): Row {
     jobDomainId: null,
     untickedRelatedIds: [],
     roleKind: null,
+    tradeLevel: null,
+    tradeAnswers: null,
     syncSource: null,
     createdAt: new Date(),
     updatedAt: new Date(),
@@ -122,6 +127,9 @@ function toApi(r: Row) {
     pay_min: null,
     pay_max: null,
     pay_type: null,
+    // Migration 0141 — the trade form, NULL on every pre-0141 row.
+    trade_level: r.tradeLevel,
+    trade_answers: r.tradeAnswers,
     shift: null,
     needed_by: null,
     // Migration 0131 — mapped off the row like the real `toJobPostingApi`, so a create that
@@ -144,6 +152,8 @@ function make(
     events?: unknown;
     /** ADR-0053 — the REAL resolver; the default mode (`off`) unless a case builds another. */
     tenancy?: PayerTenantScopeService;
+    /** Migration 0141 — override the trade-form validator (default: a no-op stub). */
+    postingTrades?: unknown;
   } = {},
 ) {
   const emit = vi.fn().mockResolvedValue(undefined);
@@ -282,6 +292,9 @@ function make(
     // default so the lifecycle cases stay about the lifecycle; the create-path cases
     // override it to assert that an unknown id 400s on the form rather than at publish.
     { resolveForPublish: resolveForPublish } as never,
+    // Migration 0141 — the trade form validator. Not exercised by the lifecycle cases;
+    // the migration's own cases below pass a stub with a known selection.
+    (opts.postingTrades ?? { normalizeSelection: vi.fn() }) as never,
     opts.tenancy ?? defaultModeResolver(),
   );
   return {
@@ -1507,7 +1520,6 @@ describe("#1646/#1648 — the update path reports the new fields as changed KEYS
   });
 });
 
-
 // ---------------------------------------------------------------------------
 // #1652 — a PATCH could SET a field but never UNSET one. Every key was
 // `<type>.optional()` and the service applied a key only when `!== undefined`, so a payer
@@ -1639,7 +1651,9 @@ describe("#1652 — the clear CONTRACT", () => {
   });
 
   it("allows setting one field while clearing a DIFFERENT one", () => {
-    expect(UpdateJobPostingSchema.safeParse({ pay_min: 5000, clear: ["shift"] }).success).toBe(true);
+    expect(UpdateJobPostingSchema.safeParse({ pay_min: 5000, clear: ["shift"] }).success).toBe(
+      true,
+    );
   });
 
   it("rejects a name that is not a clearable column", () => {
@@ -1827,7 +1841,11 @@ describe("ADR-0050 §4.3 — the ops write fences refuse an agency TWIN with one
   const twin = () => make(row({ status: "open", syncSource: "agency_job" }));
 
   it.each([
-    ["update", (d: ReturnType<typeof make>) => d.svc.update(POSTING_ID, { role_title: "X" } as never, CTX as never)],
+    [
+      "update",
+      (d: ReturnType<typeof make>) =>
+        d.svc.update(POSTING_ID, { role_title: "X" } as never, CTX as never),
+    ],
     ["close", (d: ReturnType<typeof make>) => d.svc.close(POSTING_ID, CTX as never)],
     ["verify", (d: ReturnType<typeof make>) => d.svc.verify(POSTING_ID, CTX as never)],
     ["reject", (d: ReturnType<typeof make>) => d.svc.reject(POSTING_ID, CTX as never)],
@@ -2011,9 +2029,77 @@ describe("ADR-0053 P2a — JobPostingsService's payer path follows the TENANT", 
     await d.svc.listInScope(scope, {});
     expect(d.listByPayer).toHaveBeenCalledWith(MEMBER, undefined);
     // The anchor's posting is a 404 for the teammate, as it is on main today.
-    await expect(d.svc.getOneInScope(POSTING_ID, scope)).rejects.toBeInstanceOf(
-      NotFoundException,
-    );
+    await expect(d.svc.getOneInScope(POSTING_ID, scope)).rejects.toBeInstanceOf(NotFoundException);
     expect(d.findByIdAndPayer).toHaveBeenCalledWith(POSTING_ID, MEMBER);
+  });
+});
+
+describe("migration 0141 — the trade form is the server-derived match input", () => {
+  const DTO = { org_label: ORG, role_title: ROLE, vacancy_band: "2-5" as const };
+  const SELECTION = {
+    tradeLevel: "setter",
+    tradeAnswers: { controller_brand: ["fanuc"] },
+    matchSkillIds: ["mskill_cnc_turner"],
+  };
+
+  it("a create stores the derived set, never the wider ids the client also sent", async () => {
+    const normalizeSelection = vi.fn().mockResolvedValue(SELECTION);
+    const d = make(undefined, { postingTrades: { normalizeSelection } });
+
+    await d.svc.createForPayer(
+      PAYER_ID,
+      {
+        ...DTO,
+        role_kind: "cnc_turner",
+        trade_level: "setter",
+        trade_answers: { controller_brand: ["fanuc"] },
+        // A client that tries to widen reach through the same body. The server must ignore it.
+        match_skill_ids: ["mskill_vmc_operator", "mskill_cnc_turner"],
+      } as never,
+      CTX as never,
+    );
+
+    expect(normalizeSelection).toHaveBeenCalledWith("cnc_turner", "setter", {
+      controller_brand: ["fanuc"],
+    });
+    // The closed-set check and the row both see the DERIVED set, not the body's list.
+    expect(d.resolveForPublish).toHaveBeenCalledWith(["mskill_cnc_turner"], []);
+    expect(d.create.mock.calls[0]![0]).toMatchObject({
+      tradeLevel: "setter",
+      tradeAnswers: { controller_brand: ["fanuc"] },
+      matchSkillIds: ["mskill_cnc_turner"],
+    });
+  });
+
+  it("a rung-only edit derives the same set and does not request a reach rebuild", async () => {
+    const normalizeSelection = vi.fn().mockResolvedValue(SELECTION);
+    const existing = row({
+      status: "open",
+      roleKind: "cnc_turner",
+      tradeLevel: "operator",
+      tradeAnswers: { controller_brand: ["fanuc"] },
+    });
+    const d = make(existing, { postingTrades: { normalizeSelection } });
+    d.findByIdAndPayer.mockResolvedValue({
+      ...toApi(existing),
+      payer_id: PAYER_ID,
+      match_skill_ids: ["mskill_cnc_turner"],
+    });
+
+    await d.svc.updateForPayer(
+      POSTING_ID,
+      PAYER_ID,
+      { trade_level: "setter", trade_answers: { controller_brand: ["fanuc"] } } as never,
+      CTX as never,
+    );
+
+    const patch = d.updateOwned.mock.calls[0]![2] as Record<string, unknown>;
+    // Only the rung moved; the answer map is unchanged, so it is not re-written.
+    expect(patch).toMatchObject({ tradeLevel: "setter" });
+    expect(patch).not.toHaveProperty("tradeAnswers");
+    // `match_skill_ids` present is the materializer's trigger. The derived set did not move,
+    // so the rung must not rebuild every reach row for a display-only change.
+    expect(patch.matchSkillIds).toBeUndefined();
+    expect(d.materializeReach).not.toHaveBeenCalled();
   });
 });

@@ -9,7 +9,7 @@ import { IconButtonBase } from "@badabhai/icons/button";
  * undefined, `initial` threaded to the action (the clear diff), success → the detail (through the
  * shared navigation helper, naming the posting for the shell's "Opening …" cue),
  * client validate() blocks. Env is node; state injected via mocked useState (source order: fields,
- * requirements, benefits, reqDraft, benDraft, error, selection, preview, revealed); useTransition
+ * requirements, benefits, reqDraft, benDraft, error, trade, preview, revealed); useTransition
  * runs inline. The card fields reach the action through the shared `readCardForm` — the same read
  * the preview draws — so the liveness fixes are pinned here at the submit end.
  */
@@ -24,7 +24,9 @@ vi.mock("../../../../../components/portal-navigation", () => ({
   usePortalNavigation: () => ({ pending: false, navigate }),
 }));
 // The interactive picker is only rendered on the draft path; stub it hookless.
-vi.mock("../../new/match-skill-picker", () => ({ MatchSkillPicker: () => ({ type: "div", props: {} }) }));
+vi.mock("../../new/match-skill-picker", () => ({
+  MatchSkillPicker: () => ({ type: "div", props: {} }),
+}));
 
 let stateQueue: unknown[] = [];
 let stateCursor = 0;
@@ -107,7 +109,12 @@ function findForm(node: ReactNode): ReactElement<{ onSubmit: (e: unknown) => voi
 function render(
   overrides: Partial<typeof BLANK_FIELDS>,
   status = "open",
-  chips: { requirements?: string[]; benefits?: string[]; reqDraft?: string; benDraft?: string } = {},
+  chips: {
+    requirements?: string[];
+    benefits?: string[];
+    reqDraft?: string;
+    benDraft?: string;
+  } = {},
   selection = { matchSkillIds: [] as string[], untickedRelatedIds: [] as string[] },
   appended: {
     navigating?: boolean;
@@ -255,7 +262,9 @@ describe("EditPostingForm — what is saved is what the preview showed (readCard
   });
 
   it("a requirement typed but not added is SAVED (and shown as added)", async () => {
-    await submit(render({}, "open", { requirements: ["Fanuc control"], reqDraft: " MIG welding " }));
+    await submit(
+      render({}, "open", { requirements: ["Fanuc control"], reqDraft: " MIG welding " }),
+    );
     const input = updatePostingAction.mock.calls[0]![0] as Record<string, unknown>;
     expect(input.requirements).toEqual(["Fanuc control", "MIG welding"]);
     expect(setters[1]).toHaveBeenCalledWith(["Fanuc control", "MIG welding"]);
@@ -299,10 +308,14 @@ function hosts(node: ReactNode, out: Array<ReactElement<Record<string, unknown>>
   // The shared icon-only control (a chip's remove button) is the one HOOKED primitive: record it
   // as the native button it renders, named by its label, instead of calling it outside React.
   if (el.type === IconButtonBase) {
-    out.push({ type: "button", props: { "aria-label": el.props.label, onClick: el.props.onClick } } as never);
+    out.push({
+      type: "button",
+      props: { "aria-label": el.props.label, onClick: el.props.onClick },
+    } as never);
     return out;
   }
-  if (typeof el.type === "function") return hosts((el.type as (p: unknown) => ReactNode)(el.props), out);
+  if (typeof el.type === "function")
+    return hosts((el.type as (p: unknown) => ReactNode)(el.props), out);
   out.push(el);
   if ("children" in el.props) hosts(el.props.children, out);
   return out;
@@ -314,7 +327,8 @@ const textOf = (els: Array<ReactElement<Record<string, unknown>>>) =>
 function railOf(tree: ReactElement) {
   const layout = tree as ReactElement<{ children: ReactNode[] }>;
   const rail = (layout.props.children as ReactElement[]).find(
-    (c) => typeof c?.type === "function" && (c.type as { name?: string }).name === "PostingPreviewRail",
+    (c) =>
+      typeof c?.type === "function" && (c.type as { name?: string }).name === "PostingPreviewRail",
   ) as ReactElement<{ primary: ReactElement<{ onClick?: () => void; disabled?: boolean }> }>;
   expect(rail).toBeDefined();
   return rail;
@@ -338,7 +352,9 @@ describe("EditPostingForm — a refused save says why AT the field focus moves t
     expect(title.props["aria-invalid"]).toBe(true);
     expect(els.some((e) => e.props.className === "bb-field__error")).toBe(true);
     // Only that control is marked.
-    expect(els.filter((e) => e.props["aria-invalid"] === true).map((e) => e.props.id)).toEqual(["roleTitle"]);
+    expect(els.filter((e) => e.props["aria-invalid"] === true).map((e) => e.props.id)).toEqual([
+      "roleTitle",
+    ]);
   });
 
   it("PUBLISH refused by the gap rule never calls the action and points at the missing control", async () => {
@@ -346,7 +362,10 @@ describe("EditPostingForm — a refused save says why AT the field focus moves t
     railOf(tree).props.primary.props.onClick!();
     await Promise.resolve();
     expect(updatePostingAction).not.toHaveBeenCalled();
-    expect(setters[10]).toHaveBeenCalledWith({ control: "roleKind", message: expect.stringContaining("Pick the role") });
+    expect(setters[10]).toHaveBeenCalledWith({
+      control: "roleKind",
+      message: expect.stringContaining("Pick the role"),
+    });
     expect(setters[5]).toHaveBeenCalledWith(expect.stringContaining("Pick the role:"));
   });
 });
@@ -357,7 +376,8 @@ function deepText(node: ReactNode): string {
   if (typeof node === "string" || typeof node === "number") return String(node);
   if (Array.isArray(node)) return node.map(deepText).join("");
   const el = node as ReactElement<Record<string, unknown> & { children?: ReactNode }>;
-  if (typeof el.type === "function") return deepText((el.type as (p: unknown) => ReactNode)(el.props));
+  if (typeof el.type === "function")
+    return deepText((el.type as (p: unknown) => ReactNode)(el.props));
   return "children" in el.props ? deepText(el.props.children) : "";
 }
 
@@ -382,7 +402,9 @@ describe("EditPostingForm — M3: a refused save's reason is announced ONCE", ()
       problem: { control: "roleTitle", message: REASON },
     });
     const els = hosts(tree);
-    expect(els.find((e) => e.props.id === "roleTitle")!.props["aria-describedby"]).toBe("roleTitle-msg");
+    expect(els.find((e) => e.props.id === "roleTitle")!.props["aria-describedby"]).toBe(
+      "roleTitle-msg",
+    );
     expect(deepText(els.find((e) => e.props.id === "roleTitle-msg"))).toBe(REASON);
     // Still drawn by the button, twice (rail footer + dock), as well as at the field…
     expect(deepText(tree).split("Your changes were not saved. " + REASON)).toHaveLength(3);
@@ -434,9 +456,18 @@ describe("EditPostingForm — a refusal ENDS when the payer fixes its field (nev
   });
 
   it("adding a chip to the flagged chip list ends that refusal the same way", () => {
-    const tree = render(FULL, "open", { requirements: [], benefits: ["PF"], reqDraft: "Fanuc" }, undefined, refused("requirements"));
+    const tree = render(
+      FULL,
+      "open",
+      { requirements: [], benefits: ["PF"], reqDraft: "Fanuc" },
+      undefined,
+      refused("requirements"),
+    );
     const editor = hosts(tree).find((e) => e.props.id === "requirements")!;
-    (editor.props.onKeyDown as (e: unknown) => void)({ key: "Enter", preventDefault: () => undefined });
+    (editor.props.onKeyDown as (e: unknown) => void)({
+      key: "Enter",
+      preventDefault: () => undefined,
+    });
     expect(setters[10]).toHaveBeenCalledWith(null);
     expect(setters[5]).toHaveBeenCalledWith(null);
   });
@@ -460,10 +491,12 @@ describe("EditPostingForm — owner naming ruling: Publish posting / Publishing�
   });
 
   it("while ITS request is in flight it reads 'Publishing…' — a draft save in flight does not", () => {
-    expect(publishText(render({}, "draft", {}, SEL, { navigating: true, submitting: "publish" }))).toContain(
-      "Publishing…",
+    expect(
+      publishText(render({}, "draft", {}, SEL, { navigating: true, submitting: "publish" })),
+    ).toContain("Publishing…");
+    const saving = publishText(
+      render({}, "draft", {}, SEL, { navigating: true, submitting: "save" }),
     );
-    const saving = publishText(render({}, "draft", {}, SEL, { navigating: true, submitting: "save" }));
     expect(saving).toContain("Publish posting");
     expect(saving).not.toContain("Publishing…");
   });
@@ -500,9 +533,17 @@ describe("EditPostingForm — the navigating latch (I2: no double save during th
   });
 
   it("while navigating, every save/publish button is disabled", () => {
-    const tree = render({}, "draft", {}, { matchSkillIds: ["mskill_x"], untickedRelatedIds: [] }, { navigating: true });
+    const tree = render(
+      {},
+      "draft",
+      {},
+      { matchSkillIds: ["mskill_x"], untickedRelatedIds: [] },
+      { navigating: true },
+    );
     const buttons = hosts(tree).filter((e) => e.type === "button");
-    const actionButtons = buttons.filter((b) => /Save|Publish/.test(textOf(hosts(b.props.children as ReactNode))));
+    const actionButtons = buttons.filter((b) =>
+      /Save|Publish/.test(textOf(hosts(b.props.children as ReactNode))),
+    );
     expect(actionButtons.length).toBeGreaterThan(0);
     expect(actionButtons.every((b) => b.props.disabled === true)).toBe(true);
   });

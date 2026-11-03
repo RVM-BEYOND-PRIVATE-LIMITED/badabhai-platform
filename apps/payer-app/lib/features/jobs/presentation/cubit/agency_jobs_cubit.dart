@@ -66,6 +66,12 @@ class AgencyJobsCubit extends Cubit<AgencyJobsState> {
     String? shift,
     List<String>? benefits,
     List<String>? requirements,
+
+    /// Migration 0141 — the trade-specific form. The server re-validates the
+    /// rung/answers and derives `match_skill_ids` from the chips.
+    String? tradeLevel,
+    Map<String, List<String>>? tradeAnswers,
+
     /// ADR-0050 — the demand-skill pick (`match_skill_ids`). Null omits it (the
     /// stored set survives); a passed list (including `[]`) replaces it.
     List<String>? matchSkillIds,
@@ -89,11 +95,14 @@ class AgencyJobsCubit extends Cubit<AgencyJobsState> {
           shift: shift,
           benefits: benefits,
           requirements: requirements,
+          tradeLevel: tradeLevel,
+          tradeAnswers: tradeAnswers,
           matchSkillIds: matchSkillIds,
           clear: clear,
         ),
         okMessage: 'Job updated.',
-        badRequestMessage: 'Could not save changes. Check the details and try again.',
+        badRequestMessage:
+            'Could not save changes. Check the details and try again.',
       );
 
   Future<JobActionResult> _lifecycle(

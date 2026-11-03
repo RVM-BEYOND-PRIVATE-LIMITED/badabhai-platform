@@ -1,4 +1,4 @@
-import type { MatchSkillWire } from "./contracts";
+import type { MatchSkillWire, PostingTradeFormWire } from "./contracts";
 import { tradeLabel } from "./agency-view";
 import { parseWholeNumber } from "./job-card-form";
 import { jobRoleLabel } from "./job-roles";
@@ -45,6 +45,10 @@ export function companyPostingFacts(input: {
   roleKind: string | null;
   openings: string;
   locationNote: string;
+  /** Migration 0141 — display-only rung and the selected chip answers. */
+  tradeLevel?: string | null;
+  tradeAnswers?: Record<string, string[]> | null;
+  postingTrades?: readonly PostingTradeFormWire[];
   matchSkills: { ids: readonly string[]; vocabulary: readonly MatchSkillWire[] } | null;
   description: string;
 }): PostingFact[] {
@@ -52,6 +56,17 @@ export function companyPostingFacts(input: {
     { label: "Role", value: jobRoleLabel(input.roleKind) },
     { label: "Openings", value: openingsLabel(input.openings) },
   ];
+  const trade = input.postingTrades?.find((t) => t.role_kind === input.roleKind);
+  if (trade) {
+    facts.push({
+      label: "Rung (display only)",
+      value: input.tradeLevel ? humaniseRung(input.tradeLevel) : null,
+    });
+    facts.push({
+      label: "Trade requirements",
+      value: tradeAnswerLabels(trade, input.tradeAnswers ?? null),
+    });
+  }
   if (input.matchSkills !== null) {
     facts.push({
       label: "Skills",
@@ -65,15 +80,54 @@ export function companyPostingFacts(input: {
   return facts;
 }
 
+/** `setter_programmer` → `Setter Programmer`; the key is a closed slug, never prose. */
+function humaniseRung(rung: string): string {
+  return rung
+    .split("_")
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
+/** The selected chip labels, question by question, in pack order. */
+function tradeAnswerLabels(
+  trade: PostingTradeFormWire,
+  answers: Record<string, string[]> | null,
+): string | null {
+  if (answers === null) return null;
+  const labels: string[] = [];
+  for (const question of trade.questions) {
+    const selected = answers[question.question_key] ?? [];
+    for (const option of question.options) {
+      if (selected.includes(option.option_key)) labels.push(option.label);
+    }
+  }
+  return labels.length > 0 ? labels.join(" · ") : null;
+}
+
 /** Agency posting (create + edit): the trade is the agency's matching key. */
 export function agencyPostingFacts(input: {
   roleKind: string | null;
   tradeKey: string;
+  tradeLevel?: string | null;
+  tradeAnswers?: Record<string, string[]> | null;
+  postingTrades?: readonly PostingTradeFormWire[];
   description: string;
 }): PostingFact[] {
-  return [
+  const facts: PostingFact[] = [
     { label: "Role", value: jobRoleLabel(input.roleKind) },
     { label: "Trade (matching)", value: orNull(tradeLabel(input.tradeKey)) },
-    { label: "Description", value: orNull(input.description), note: DESCRIPTION_NOTE },
   ];
+  const trade = input.postingTrades?.find((t) => t.role_kind === input.roleKind);
+  if (trade) {
+    facts.push({
+      label: "Rung (display only)",
+      value: input.tradeLevel ? humaniseRung(input.tradeLevel) : null,
+    });
+    facts.push({
+      label: "Trade requirements",
+      value: tradeAnswerLabels(trade, input.tradeAnswers ?? null),
+    });
+  }
+  facts.push({ label: "Description", value: orNull(input.description), note: DESCRIPTION_NOTE });
+  return facts;
 }

@@ -53,12 +53,13 @@ export interface RoleOptionGroup {
  * under its own family, and the family order matches {@link JOB_ROLE_FAMILIES}. A family with no
  * kinds is omitted (there is none today, but the filter keeps a stray heading off the list).
  */
-export function roleOptionGroups(): RoleOptionGroup[] {
+export function roleOptionGroups(only?: readonly string[]): RoleOptionGroup[] {
+  const allowed = only === undefined ? null : new Set(only);
   return JOB_ROLE_FAMILIES.map((family) => ({
     family,
     label: JOB_ROLE_FAMILY_LABELS[family],
-    options: TRADE_FORM_KINDS_ALL.filter((kind) => JOB_ROLE_LABELS[kind].family === family).map(
-      (kind) => ({ value: kind, label: JOB_ROLE_LABELS[kind].label }),
-    ),
+    options: TRADE_FORM_KINDS_ALL.filter(
+      (kind) => JOB_ROLE_LABELS[kind].family === family && (allowed === null || allowed.has(kind)),
+    ).map((kind) => ({ value: kind, label: JOB_ROLE_LABELS[kind].label })),
   })).filter((group) => group.options.length > 0);
 }

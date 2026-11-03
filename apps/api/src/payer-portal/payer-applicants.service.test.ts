@@ -168,6 +168,7 @@ function make(
     {} as never,
     {} as never,
     {} as never,
+    {} as never, // PostingTradesService
     tenancy,
   );
   const getOneInScope = vi.spyOn(jobPostings, "getOneInScope");

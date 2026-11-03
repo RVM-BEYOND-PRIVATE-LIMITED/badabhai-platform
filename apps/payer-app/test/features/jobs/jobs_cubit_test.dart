@@ -48,6 +48,8 @@ class _ScriptedJobsApi extends MockPayerApiClient {
     List<String>? requirements,
     String? neededBy,
     String? roleKind,
+    String? tradeLevel,
+    Map<String, List<String>>? tradeAnswers,
     List<String>? matchSkillIds,
     List<String>? untickedRelatedIds,
     List<JobPostingClearField>? clear,
@@ -63,8 +65,9 @@ class _ScriptedJobsApi extends MockPayerApiClient {
       wire: row.wireStatus ?? 'open',
       title: roleTitle ?? row.title,
     );
-    jobs =
-        jobs.map((JobPosting j) => j.id == id ? next : j).toList(growable: false);
+    jobs = jobs
+        .map((JobPosting j) => j.id == id ? next : j)
+        .toList(growable: false);
     return next;
   }
 }

@@ -18,12 +18,19 @@ import '../../../../core/error/payer_failure.dart';
 /// `POST /payer/unlocks` with the real worker UUID and returns a typed
 /// [UnlockResult] (the neutral DENY is never treated as success).
 class FindCubit extends Cubit<FindState> {
-  FindCubit(this._api, {bool? useRealFeed})
+  FindCubit(this._api, {bool? useRealFeed, bool? isAgency})
       : _useRealFeed = useRealFeed ?? !kUseMocks,
+        _isAgency = isAgency ?? false,
         super(const FindState());
 
   final PayerApiClient _api;
   final bool _useRealFeed;
+
+  /// Agency sessions own `jobs` rows, not `job_postings`; the per-job applicant
+  /// route is shared, so only the job-source read differs. Without this branch an
+  /// agency account's Find tab looked at company postings it does not own (or,
+  /// with none, claimed it had no applicants at all).
+  final bool _isAgency;
 
   Future<void> load() async {
     emit(state.copyWith(status: FindStatus.loading));
@@ -36,7 +43,9 @@ class FindCubit extends Cubit<FindState> {
         emit(FindState(status: FindStatus.ready, candidates: candidates));
       }
     } catch (e) {
-      if (isClosed) return; // screen popped mid-load — emit would throw StateError
+      if (isClosed) {
+        return; // screen popped mid-load — emit would throw StateError
+      }
       emit(state.copyWith(
         status: FindStatus.error,
         failure: PayerFailure.from(e),
@@ -45,7 +54,7 @@ class FindCubit extends Cubit<FindState> {
   }
 
   Future<void> _loadRealFeed() async {
-    final List<JobPosting> jobs = await _api.fetchJobs(status: 'open');
+    final List<JobPosting> jobs = await _ownedOpenJobs();
     if (isClosed) return;
     final List<JobPosting> owned = jobs
         .where((JobPosting j) => (j.id ?? '').isNotEmpty)
@@ -55,6 +64,33 @@ class FindCubit extends Cubit<FindState> {
       return;
     }
     await _loadApplicants(owned.first, owned);
+  }
+
+  /// The session's OWN open jobs: company postings or agency `jobs` rows.
+  /// Both are resolved by the one applicant route (`/payer/reach/jobs/:id/
+  /// applicants`), so the feed below is identical once a job is picked.
+  Future<List<JobPosting>> _ownedOpenJobs() async {
+    if (!_isAgency) return _api.fetchJobs(status: 'open');
+    final List<AgencyJobView> rows = await _api.fetchAgencyJobs();
+    return rows
+        .where((AgencyJobView j) => j.status == 'open' && j.id.isNotEmpty)
+        .map(
+          (AgencyJobView j) => JobPosting(
+            id: j.id,
+            title: j.title,
+            band: '',
+            city: j.city,
+            filled: 0,
+            quota: 0,
+            applicants: j.applicantsReceived,
+            unlocks: 0,
+            status: JobStatus.live,
+            verified: false,
+            boosted: false,
+            wireStatus: j.status,
+          ),
+        )
+        .toList(growable: false);
   }
 
   /// Switch the REAL feed to another owned open job (job selector).

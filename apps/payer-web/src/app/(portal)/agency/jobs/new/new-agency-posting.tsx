@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import type { MatchSkillWire } from "../../../../../lib/contracts";
+import type { MatchSkillWire, PostingTradeFormWire } from "../../../../../lib/contracts";
 import { AgencyJobForm } from "../../dashboard/agency-job-form";
 import { usePortalNavigation } from "../../../../../components/portal-navigation";
 import { createAgencyJobAction } from "../../dashboard/jobs-actions";
@@ -21,10 +21,12 @@ import { createAgencyJobAction } from "../../dashboard/jobs-actions";
  */
 export function NewAgencyPosting({
   matchSkills,
+  postingTrades,
   lead,
   payerRef,
 }: {
   matchSkills: MatchSkillWire[];
+  postingTrades?: PostingTradeFormWire[];
   lead: ReactNode;
   payerRef?: string;
 }) {
@@ -33,6 +35,7 @@ export function NewAgencyPosting({
     <AgencyJobForm
       mode="create"
       matchSkills={matchSkills}
+      postingTrades={postingTrades}
       lead={lead}
       payerRef={payerRef}
       submitLabel="Publish posting"

@@ -77,6 +77,7 @@ function setup(opts: { cap?: number; redisDown?: boolean } = {}) {
     {} as never,
     { emit } as never,
     {} as never,
+    {} as never, // PostingTradesService
     defaultModeResolver(),
   );
   const controller = new AgencyInvitesController(svc, rateLimit, config);
@@ -89,7 +90,11 @@ function setup(opts: { cap?: number; redisDown?: boolean } = {}) {
       CTX as never,
     );
   const single = (body: unknown = {}) =>
-    controller.createInvite(CreateAgencyInviteSchema.parse(body) as never, payer as never, CTX as never);
+    controller.createInvite(
+      CreateAgencyInviteSchema.parse(body) as never,
+      payer as never,
+      CTX as never,
+    );
 
   return { batch, single, store, incr, incrby, emit, invitesRepo, rows: () => created };
 }
@@ -162,7 +167,9 @@ describe("Batch cap accounting — a batch of N consumes N units (C1)", () => {
     expect(t.store.get(capKey())).toBe(60);
 
     await expect(t.single()).rejects.toMatchObject({ status: HttpStatus.TOO_MANY_REQUESTS });
-    await expect(t.batch({ count: 1 })).rejects.toMatchObject({ status: HttpStatus.TOO_MANY_REQUESTS });
+    await expect(t.batch({ count: 1 })).rejects.toMatchObject({
+      status: HttpStatus.TOO_MANY_REQUESTS,
+    });
   });
 });
 

@@ -1133,6 +1133,7 @@ describe("JobPostingChatService — a publish whose job_posting.created emit fai
       // A create never materializes reach and a chat publish sends no match_skill_ids.
       {} as never,
       {} as never,
+      {} as never, // PostingTradesService
       tenancy,
     );
 
