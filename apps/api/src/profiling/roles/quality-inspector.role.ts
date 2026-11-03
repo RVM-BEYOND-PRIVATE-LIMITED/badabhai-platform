@@ -69,7 +69,7 @@ export const QUALITY_INSPECTOR = {
   formEnabled: true,
   displayName: "Quality Inspector / QC",
   offerName: "quality inspector",
-  levelLadder: ["Inspector", "QC Engineer"],
+  levelLadder: ["Trainee", "Inspector", "Senior Inspector", "QC Engineer", "Supervisor"],
   tenureQuestionKey: "inspection_experience",
   fresher: {
     // KEYED BY STORED `value_text`, read off `iti_workshop_machines` in qp_quality_inspection@1.
@@ -133,7 +133,10 @@ export const QUALITY_INSPECTOR = {
       "layout inspection",
       "control plan",
     ],
-    levelTerms: ["inspector", "qc engineer", "इंस्पेक्टर"],
+    // Track B #7 (@2): the sheet-12 rung words. A rung corroborates; it never routes.
+  // "senior inspector" is the sheet's rung; "first piece approval" is the
+  // senior's separating signal from the same sheet.
+  levelTerms: ["inspector", "qc engineer", "senior inspector", "qc head", "first piece approval", "इंस्पेक्टर"],
     /**
      * THE QC LINES THIS FORM DOES NOT SERVE — the field's second kind of extra conflict, a
      * competing trade we do not model. Bare "qc" is ratified onto the machine-shop code and is

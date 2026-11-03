@@ -251,6 +251,7 @@ const EASY_REQUIRED_UNIVERSAL_KEYS: Readonly<Record<string, readonly string[]>> 
   qp_conventional_machining: ["primary_trade", "current_city", "availability"],
   qp_sheet_metal_fab: ["primary_trade", "current_city", "availability"],
   qp_assembly_line: ["primary_trade", "current_city", "availability"],
+  qp_quality_inspection: ["primary_trade", "current_city", "availability"],
 };
 
 const TRADE_REQUIRED_KEYS: Readonly<Record<string, readonly string[]>> = {
@@ -258,8 +259,8 @@ const TRADE_REQUIRED_KEYS: Readonly<Record<string, readonly string[]>> = {
   // VMC Easy Q2–Q3 (Track A #2), CAM Easy Q2–Q3 (Track A #3), 3D Easy Q2–Q3
   // (Track A #4), 2D Easy Q2–Q3 (Track A #5), Fitter Easy Q2–Q3 (Track B #1),
   // Electrician Easy Q2–Q3 (Track B #2), Conventional Easy Q2–Q3 (Track B #4),
-  // Sheet-metal Easy Q2–Q3 (Track B #5), Assembly Easy Q2–Q3 (Track B #6).
-  // Machine/software/controller moved to Medium (Q6–Q7) — asked, never required. Medium (Q6–Q7) — asked, never required. Medium (Q6–Q7) — asked, never required.
+  // Sheet-metal Easy Q2–Q3 (Track B #5), Assembly Easy Q2–Q3 (Track B #6),
+  // QC Easy Q2–Q3 (Track B #7). Machine/software/controller moved to Medium (Q6–Q7) — asked, never required.
   // The two process trades keep their required Medium chip: grinding's
   // controller, the welder's process (sheet 8, Rules Q14).
   qp_cnc_turning: ["turning_experience", "turning_level"],
@@ -274,6 +275,7 @@ const TRADE_REQUIRED_KEYS: Readonly<Record<string, readonly string[]>> = {
   qp_conventional_machining: ["machining_experience", "machining_level"],
   qp_sheet_metal_fab: ["sheet_metal_experience", "sheet_metal_level"],
   qp_assembly_line: ["assembly_experience", "assembly_level"],
+  qp_quality_inspection: ["inspection_experience", "inspection_level"],
   qp_cnc_grinding: [
     "grinding_machine",
     "grinding_experience",

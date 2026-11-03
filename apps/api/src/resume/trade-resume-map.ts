@@ -3328,11 +3328,19 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
         maxValues: 4,
         label: "Instruments",
         kind: "chips",
+        // Track B #7 (@2): sheet-12 instrument set; the kept history chips
+        // follow in dictionary order.
         values: {
           cmm: "CMM",
           profile_projector: "Profile projector",
           height_gauge: "Height gauge",
+          vernier: "Vernier",
+          micrometer: "Micrometer",
+          bore_gauge: "Bore gauge",
+          thread_gauge: "Thread / plug / ring gauge",
           roughness_tester: "Surface roughness tester",
+          hardness_tester: "Hardness tester",
+          multimeter_hipot: "Multimeter / hipot",
           vernier_micrometer: "Vernier & micrometer",
         },
       },
@@ -3357,10 +3365,14 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
         label: "Materials inspected",
         kind: "chips",
         values: {
-          machined_steel: "Machined steel",
+          machined_steel: "Machined parts",
+          sheetmetal_welding: "Sheet metal / welding",
+          plastics: "Plastics",
+          castings_forgings: "Castings / forgings",
+          elec_electronics: "Electrical / electronics",
+          assembly_product: "Assembly",
           die_cast: "Aluminium die-cast",
           pressings: "Sheet-metal pressings",
-          castings_forgings: "Castings & forgings",
           welded_fabrication: "Welded fabrications",
         },
       },
@@ -3375,8 +3387,12 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
         kind: "ticks",
         values: {
           incoming: "Incoming inspection",
-          in_process_patrol: "In-process patrol",
+          in_process_patrol: "In-process",
+          line_patrol: "Line / patrol",
           final_inspection: "Final inspection",
+          lab_testing: "Lab / testing",
+          welding_inspection: "Welding inspection",
+          electrical_testing: "Electrical testing",
           layout_inspection: "Layout inspection",
           gauge_rr: "Gauge R&R support",
         },
@@ -3394,6 +3410,9 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           inspection_report: "Inspection report",
           eight_d_capa: "8D / CAPA",
           spc_chart: "SPC charts",
+          // Track B #7 (@2): the sheet-12 systems the v1 rows did not name.
+          fmea: "FMEA",
+          msa: "MSA",
           calibration_register: "Calibration register",
         },
       },
@@ -3409,6 +3428,8 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
         values: {
           basic_drawing: "Reads 2D drawings",
           gdt: "Reads 2D drawings and GD&T · datum and true position",
+          // Track B #7 (@2): sheet-12 tolerance-stack chip.
+          tolerance_stack: "Reads tolerance stacks",
         },
       },
       {

@@ -868,6 +868,13 @@ const QUESTION_TTS_TEXT: Readonly<Record<string, string>> = {
   "CMM par kaunsa kaam khud karte hain?": "सीएमएम पर कौनसा काम खुद करते हैं?",
   "Rejection aane par kaunsa kaam khud karte hain?": "रिजेक्शन आने पर कौनसा काम खुद करते हैं?",
   "Audit ya customer ka kaunsa kaam sambhalte hain?": "ऑडिट या कस्टमर का कौनसा काम संभालते हैं?",
+  // --- qp_quality_inspection@2 (Track B #7) — level + separating confirms.
+  // The level prompt/why reuse the twins above verbatim (lines 250/1131).
+  "Trainee, inspector, senior, QC engineer ya head hain?":
+    "ट्रेनी, इंस्पेक्टर, सीनियर, QC इंजीनियर या हेड हैं?",
+  "GD&T padh ke CMM ya height gauge pe inspection khud karte ho?":
+    "GD&T पढ़ के CMM या हाइट गेज पे इंस्पेक्शन खुद करते हो?",
+  "PPAP, control plan, 8D — aap banate ho?": "PPAP, कंट्रोल प्लान, 8D — आप बनाते हो?",
   // qp_maintenance_tech@1 — Batch 2 part two's last. Five prompts reuse a twin above verbatim and
   // are not repeated: the three fresher ones and "Kya aap drawing padh lete hain?" (the welder's),
   // "Machine ki kaunsi dikkat aap sudhaar lete hain?" (the turner's) and "Kis machine ka poora
@@ -1391,6 +1398,13 @@ const WHY_TTS_TEXT: Readonly<Record<string, string>> = {
     "टेस्टिंग और चेंजओवर करने वाले को टेक्नीशियन का काम मिलता है।",
   "Company ke hisaab se sahi naukri milti hai.":
     "कंपनी के हिसाब से सही नौकरी मिलती है।",
+  // --- qp_quality_inspection@2 (Track B #7) — the separating-confirm whys.
+  // Filed HERE, not in the question table: `composeClarify` scans only this
+  // table for the clarify prefix (R10 §2.6).
+  "Khud GD&T padh ke inspection karne wale senior ko alag kaam milta hai.":
+    "खुद GD&T पढ़ के इंस्पेक्शन करने वाले सीनियर को अलग काम मिलता है।",
+  "Khud PPAP aur 8D banane wale QC engineer ko alag zimmedari milti hai.":
+    "खुद PPAP और 8D बनाने वाले QC इंजीनियर को अलग ज़िम्मेदारी मिलती है।",
   // qp_fitter@1 — why-texts. Twelve more are shared verbatim with packs twinned above: the
   // tenure, drawing, sector and three fresher ones (the welder's), "Fitting ke kai tarah hote
   // hain." (qp_fitting's), the level and equipment ones (the painter's), the tolerance one (the

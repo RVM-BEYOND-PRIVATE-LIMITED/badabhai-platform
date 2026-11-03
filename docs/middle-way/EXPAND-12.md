@@ -189,7 +189,27 @@ senior_programmer`; P5 crosswalk already handles). Role `levelTerms` += rung
 > Union extension: none. Aliases: `laser operator` + `bending operator`
 > (+Hi) -> 7213.0101. Deviations in the @2 review_note.
 >
-> TRACK B #6 — ASSEMBLY RETAG (in progress, `feat/mw-assembly-retag`).
+> TRACK B #6 — ASSEMBLY RETAG ✅ CODE DONE (`feat/mw-assembly-retag`, PR #2524, merged).
+> `qp_assembly_line@2` live on production (seeded + verified post-merge):
+> Easy/Medium/Advanced tiers; 6-band experience; sheet-11 level ladder
+> (Trainee/Line Operator/Assembly Technician/Line Leader/Supervisor,
+> mandatory) + 2 separating confirms; stage + tools retagged Medium; NEW
+> product row (Medium) + skills/company rows (Advanced); instrument/drawing
+> rows retagged Advanced; hard rows gated years OR rung. No union extension.
+> Alias: `assembly technician` (+Hi) -> 8219.0100. Display name now
+> "Assembly Technician". Deviations in the @2 review_note.
+>
+> TRACK B #7 — QC RETAG (in progress, `feat/mw-qc-retag`).
+> `qp_quality_inspection@2`: sheet-12 ladder (Trainee/Inspector/Senior/QC
+> Engineer/Supervisor, mandatory; stored `senior` IS the sheet's senior rung)
+> + 2 separating confirms (senior + QC-engineer self/other; supervisor by
+> rule); 6-band experience; instruments extended (+vernier/micrometer split,
+> bore/thread/hardness/multimeter) + retagged Medium; stage extended; product
+> extended to sheet Q11 set + hard; drawing + Q9 tolerance-stack, hard;
+> standard retagged hard; documentation +FMEA/MSA; hard rows gated years OR
+> rung. No union extension (`senior`/`senior_inspector`/`qc_engineer` already
+> confirm; trainee/inspector already Lower). No new aliases. Deviations in
+> the @2 review_note.
 > `qp_assembly_line@2`: sheet-11 ladder (Trainee/Line Operator/Assembly
 > Technician/Line Leader/Supervisor, mandatory) + 2 separating confirms
 > (skilled self/other, senior team count; supervisor by rule); 6-band

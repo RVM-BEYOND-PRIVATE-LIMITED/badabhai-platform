@@ -274,6 +274,9 @@ const Map<String, (String, String)> _kTopics = <String, (String, String)>{
   'assembly_defect': _trouble,
   // Quality inspection (qp_quality_inspection)
   'inspection_experience': _experience, 'inspection_level': _level,
+  // Track B #7 (@2) — the separating confirms are level follow-ups, not
+  // craft: Experience, left out of Technical Skills.
+  'inspection_senior_confirm': _level, 'inspection_engineer_confirm': _level,
   'inspection_stage': ('Quality & inspection', 'Inspection stages'),
   'inspection_least_count': ('Quality & inspection', 'Least count'),
   'inspection_standard': ('Quality & inspection', 'Quality standards'),
