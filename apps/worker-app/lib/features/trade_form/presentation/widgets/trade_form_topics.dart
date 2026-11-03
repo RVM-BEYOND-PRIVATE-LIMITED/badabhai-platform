@@ -170,6 +170,10 @@ const Map<String, (String, String)> _kTopics = <String, (String, String)>{
   'welding_position': ('Welding', 'Joints & positions'),
   'electrode_type': ('Welding', 'Consumables'),
   'plate_thickness': ('Welding', 'Plate thickness'),
+  // Track B #3 (@2) — a credential, but the résumé prints it in the trade's
+  // CAPABILITY block ('Certificate', trade-resume-map.ts), so it stays a skill
+  // here (electrical_licence precedent).
+  'welder_certificate': ('Welding', 'Welder certificate'),
   // Troubleshooting
   'troubleshooting': _trouble, 'die_troubleshooting': _trouble,
   'weld_defect': _trouble, 'coating_defects': _trouble,
