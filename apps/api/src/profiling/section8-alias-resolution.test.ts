@@ -432,6 +432,25 @@ describe("§8 rung words resolve to the rung; signal phrases corroborate the tra
     expect(rungFor(welderLevel2, text as string)).toEqual([expected]);
   });
 
+  // TRACK B #4 (@2) — the sheet-9 ladder. Old helper/operator/skilled keys
+  // live on in frozen @1 (no rung block existed then); @2 asks helper/
+  // operator/skilled/senior/supervisor, and the chips capture the same way.
+  const machiningLevel2 = loadItem("qp_conventional_machining@2.json", "machining_level");
+  it.each([
+    ["Helper", "helper"],
+    ["helper hoon", "helper"],
+    ["Operator", "operator"],
+    ["operator hoon", "operator"],
+    ["Skilled Machinist", "skilled"],
+    ["skilled hoon", "skilled"],
+    ["Senior", "senior"],
+    ["senior hoon", "senior"],
+    ["Supervisor", "supervisor"],
+    ["supervisor hoon", "supervisor"],
+  ])("machining_level@2: %s → %s", (text, expected) => {
+    expect(rungFor(machiningLevel2, text as string)).toEqual([expected]);
+  });
+
   // The P4 contract, owner-approved: §8 signal phrases corroborate the family pin
   // (asserted in the routing tables above) and NEVER write a rung by themselves.
   // The rung lands when the worker taps a chip or names it. Each null below is the
@@ -869,6 +888,50 @@ describe("§8 machine/controller rows resolve at capture; unlisted spellings re-
     ["qp_welding_trade@2.json", "welder_skilled_confirm", "Nahi, nahi kiya", "other"],
     ["qp_welding_trade@2.json", "welder_senior_confirm", "Haan, main karta hoon", "self"],
     ["qp_welding_trade@2.json", "welder_senior_confirm", "Nahi, senior karte hain", "other"],
+  ] as ReadonlyArray<readonly [string, string, string, string | null]>)(
+    "%s %s: %s → %s",
+    (packFile, questionKey, text, expected) => {
+      expect(capturedOption(packFile, questionKey, text)).toEqual(
+        expected === null ? [] : [expected],
+      );
+    },
+  );
+
+  // TRACK B #4 (@2) — the sheet-9 machine/operation/material sets, the CNC
+  // crossover, the work-type row and the separating confirms resolve at
+  // capture. The grinder/hacksaw machine chips, the taper/keyway/gear/grinding
+  // operation chips, the alloy/titanium/plastic material chips and the 0.005
+  // tolerance chip are new; the kept history chips capture the same way.
+  it.each([
+    ["qp_conventional_machining@2.json", "machining_machine", "Lathe (manual)", "centre_lathe"],
+    ["qp_conventional_machining@2.json", "machining_machine", "Milling (manual)", "vertical_milling"],
+    ["qp_conventional_machining@2.json", "machining_machine", "Drilling / radial drill", "radial_drill"],
+    ["qp_conventional_machining@2.json", "machining_machine", "Surface grinder", "surface_grinder"],
+    ["qp_conventional_machining@2.json", "machining_machine", "Cylindrical grinder", "cylindrical_grinder"],
+    ["qp_conventional_machining@2.json", "machining_machine", "Hacksaw / bandsaw", "hacksaw_bandsaw"],
+    ["qp_conventional_machining@2.json", "machining_machine", "Boring", "boring_machine"],
+    ["qp_conventional_machining@2.json", "machining_cnc", "Haan", "yes"],
+    ["qp_conventional_machining@2.json", "machining_cnc", "Thoda (operator)", "some"],
+    ["qp_conventional_machining@2.json", "machining_operation", "Turning", "turning_facing"],
+    ["qp_conventional_machining@2.json", "machining_operation", "Facing", "facing_op"],
+    ["qp_conventional_machining@2.json", "machining_operation", "Threading", "screw_cutting"],
+    ["qp_conventional_machining@2.json", "machining_operation", "Taper", "taper_op"],
+    ["qp_conventional_machining@2.json", "machining_operation", "Keyway", "keyway"],
+    ["qp_conventional_machining@2.json", "machining_operation", "Gear cutting", "gear_cutting"],
+    ["qp_conventional_machining@2.json", "machining_operation", "Slotting", "milling_slotting"],
+    ["qp_conventional_machining@2.json", "machining_operation", "Grinding", "grinding_op"],
+    ["qp_conventional_machining@2.json", "material_worked", "EN8, EN31 alloy steel", "alloy_steel"],
+    ["qp_conventional_machining@2.json", "material_worked", "Titanium / Inconel", "titanium"],
+    ["qp_conventional_machining@2.json", "material_worked", "Plastics", "plastic"],
+    ["qp_conventional_machining@2.json", "machining_work_type", "Production batch", "batch_production"],
+    ["qp_conventional_machining@2.json", "machining_work_type", "Job work", "job_work"],
+    ["qp_conventional_machining@2.json", "machining_work_type", "Tool room", "tool_room"],
+    ["qp_conventional_machining@2.json", "machining_work_type", "Repair / maintenance", "repair_maintenance"],
+    ["qp_conventional_machining@2.json", "machining_work_type", "Forging / casting finishing", "forge_cast_finish"],
+    ["qp_conventional_machining@2.json", "machining_skilled_confirm", "Haan, khud nikaal leta hoon", "self"],
+    ["qp_conventional_machining@2.json", "machining_skilled_confirm", "Nahi, senior karte hain", "other"],
+    ["qp_conventional_machining@2.json", "machining_senior_confirm", "Haan, main karta hoon", "self"],
+    ["qp_conventional_machining@2.json", "machining_senior_confirm", "Nahi, senior karte hain", "other"],
   ] as ReadonlyArray<readonly [string, string, string, string | null]>)(
     "%s %s: %s → %s",
     (packFile, questionKey, text, expected) => {

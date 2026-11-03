@@ -83,6 +83,9 @@ const Map<String, (String, String)> _kTopics = <String, (String, String)>{
   'coating_experience': _experience, 'programming_experience': _experience,
   'drafting_experience': _experience,
   'machining_level': _level, 'toolroom_level': _level, 'welder_level': _level,
+  // Track B #4 (qp_conventional_machining@2) — the separating confirms are
+  // level follow-ups, not craft: Experience, left out of Technical Skills.
+  'machining_skilled_confirm': _level, 'machining_senior_confirm': _level,
   'coating_level': _level,
   // Track B #3 (qp_welding_trade@2) — the separating confirms are level
   // follow-ups, not craft: Experience, left out of Technical Skills.
@@ -122,6 +125,10 @@ const Map<String, (String, String)> _kTopics = <String, (String, String)>{
   'controller_brand': ('Machines', 'Controller & control system'),
   'axis_capability': _capability, 'advanced_capability': _capability,
   'turning_capacity': _capability, 'press_tonnage': _capability,
+  // Track B #4 (@2): the CNC crossover and the work-type row walk with their
+  // true categories (machines / operations), like every tier-tagged key must.
+  'machining_cnc': _machines,
+  'machining_work_type': _operations,
   // Operations
   'turning_operation': ('Turning operations', 'Operations & capability'),
   'milling_operation': ('Milling operations', 'Operations & capability'),

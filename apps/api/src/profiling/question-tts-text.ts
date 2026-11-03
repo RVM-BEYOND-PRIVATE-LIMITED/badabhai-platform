@@ -549,7 +549,12 @@ const QUESTION_TTS_TEXT: Readonly<Record<string, string>> = {
   "Khraad, milling ya drill, kaunsi machine chalate hain?": "खराद, मिलिंग या ड्रिल, कौनसी मशीन चलाते हैं?",
   "Helper, operator ya skilled machinist, kaunsa kaam karte hain?": "हेल्पर, ऑपरेटर या स्किल्ड मशीनिस्ट, कौनसा काम करते हैं?",
   "Turning, milling, drilling ya boring, kya kya karte hain?": "टर्निंग, मिलिंग, ड्रिलिंग या बोरिंग, क्या क्या करते हैं?",
+  // Track B #4 (@2): the operations retry lists the sheet-9 chips.
+  "Turning, threading, gear cutting ya grinding, kya kya karte hain?":
+    "टर्निंग, थ्रेडिंग, गियर कटिंग या ग्राइंडिंग, क्या क्या करते हैं?",
   "MS, EN8 ya cast iron, kis par kaam kiya hai?": "MS, EN8 या कास्ट आयरन, किस पर काम किया है?",
+  // Track B #4 (@2): the materials retry lists the Turner set.
+  "MS, alloy ya cast iron, kis par kaam kiya hai?": "MS, अलॉय या कास्ट आयरन, किस पर काम किया है?",
   "Vernier, micrometer ya dial gauge, kya istemaal karte hain?": "वर्नियर, माइक्रोमीटर या डायल गेज, क्या इस्तेमाल करते हैं?",
   "Drawing dekh kar job bana lete hain?": "ड्राइंग देख कर जॉब बना लेते हैं?",
   "Job shop, auto parts ya pump valve, kis line me kaam kiya?": "जॉब शॉप, ऑटो पार्ट्स या पंप वाल्व, किस लाइन में काम किया?",
@@ -563,6 +568,17 @@ const QUESTION_TTS_TEXT: Readonly<Record<string, string>> = {
   "Workshop me khraad ya milling par kaam kiya tha?": "वर्कशॉप में खराद या मिलिंग पर काम किया था?",
   "ITI ka trade test pass kiya hai ya nahi?": "आईटीआई का ट्रेड टेस्ट पास किया है या नहीं?",
   "ITI me banaya hua koi job yaad hai?": "आईटीआई में बनाया हुआ कोई जॉब याद है?",
+  // --- qp_conventional_machining@2 (Track B #4) — level + separating confirms
+  // + CNC crossover + work type. The level prompt/why reuse the twins above
+  // verbatim (lines 250/1131).
+  "Helper, operator, skilled, senior ya supervisor hain?":
+    "हेल्पर, ऑपरेटर, स्किल्ड, सीनियर या सुपरवाइज़र हैं?",
+  "Drawing dekh ke job khud set karke tolerance mein nikaal lete ho?":
+    "ड्राइंग देख के जॉब खुद सेट करके टॉलरेंस में निकाल लेते हो?",
+  "Tool-room ka kaam, repair job, doosron ko sikhana — aap karte ho?":
+    "टूल-रूम का काम, रिपेयर जॉब, दूसरों को सिखाना — आप करते हो?",
+  "CNC bhi chalate ho?": "CNC भी चलाते हो?",
+  "Kis tarah ka kaam zyada karte ho?": "किस तरह का काम ज़्यादा करते हो?",
 
   // --- qp_tool_die_making@1 (the tool room) — Batch 2 -----------------------------------------
   "Tool room ka kitna tajurba hai?": "टूल रूम का कितना तजुर्बा है?",
@@ -1204,6 +1220,17 @@ const WHY_TTS_TEXT: Readonly<Record<string, string>> = {
   "Badi machine chalane wale ko bade job ka kaam milta hai.": "बड़ी मशीन चलाने वाले को बड़े जॉब का काम मिलता है।",
   "Apna tool khud grind karna purana aur bada hunar hai.": "अपना टूल खुद ग्राइंड करना पुराना और बड़ा हुनर है।",
   "Mushkil kaam karne wale machinist ki alag pehchaan hoti hai.": "मुश्किल काम करने वाले मशीनिस्ट की अलग पहचान होती है।",
+  // --- qp_conventional_machining@2 (Track B #4) — the separating-confirm,
+  // CNC-crossover and work-type whys. Filed HERE, not in the question table:
+  // `composeClarify` scans only this table for the clarify prefix (R10 §2.6).
+  "Khud setting karke tolerance mein nikalne wale ko alag kaam milta hai.":
+    "खुद सेटिंग करके टॉलरेंस में निकालने वाले को अलग काम मिलता है।",
+  "Tool-room aur repair ka kaam karne wale senior ko alag zimmedari milti hai.":
+    "टूल-रूम और रिपेयर का काम करने वाले सीनियर को अलग ज़िम्मेदारी मिलती है।",
+  "CNC aane wale ko dono taraf ka kaam milta hai.":
+    "CNC आने वाले को दोनों तरफ का काम मिलता है।",
+  "Kaam ki tarah se sahi shop milti hai.":
+    "काम की तरह से सही शॉप मिलती है।",
 
   // --- qp_tool_die_making@1 (the tool room) — Batch 2 -----------------------------------------
   "Post se employer ko aapka darja pehli line me samajh aata hai.": "पोस्ट से एम्प्लॉयर को आपका दर्जा पहली लाइन में समझ आता है।",

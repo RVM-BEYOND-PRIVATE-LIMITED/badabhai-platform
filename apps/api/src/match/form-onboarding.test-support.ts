@@ -51,7 +51,9 @@ export const TRADE_FORM_CASES: readonly TradeFormCase[] = [
   },
   {
     kind: "conventional_machinist",
-    answers: { machining_experience: ["over_seven"], machining_machine: ["centre_lathe"] },
+    // Track B #4 (@2): the 6-band scale replaced over_seven (10) with
+    // five_to_ten (7) and above_ten (12) — the fixture keeps the top band.
+    answers: { machining_experience: ["above_ten"], machining_machine: ["centre_lathe"] },
     // #2022: a manual lathe reaches CNC Turner (point 1) and the manual machinist's own skill.
     expected: ["mskill_cnc_turner", "mskill_conventional_machinist"],
   },

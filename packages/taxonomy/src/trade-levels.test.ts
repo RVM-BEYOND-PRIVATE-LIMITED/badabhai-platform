@@ -19,7 +19,7 @@ import {
  * alias spelling lands on the canonical key, and null prices Lower.
  */
 describe("trade-level crosswalk", () => {
-  it("covers the four v1 trades plus the CAD trades, the fitter, the electrician and the welder, each with its skill and level key", () => {
+  it("covers the four v1 trades plus the CAD trades, the fitter, the electrician, the welder and the conventional machinist, each with its skill and level key", () => {
     expect(TRADE_LEVEL_PACKS).toEqual({
       qp_cnc_turning: { skillId: "mskill_cnc_turner", levelKey: "turning_level" },
       qp_vmc_milling: { skillId: "mskill_vmc_operator", levelKey: "milling_level" },
@@ -40,6 +40,7 @@ describe("trade-level crosswalk", () => {
       qp_fitter: { skillId: "mskill_fitter", levelKey: "fitter_level" },
       qp_industrial_electrician: { skillId: "mskill_industrial_electrician", levelKey: "electrician_level" },
       qp_welding_trade: { skillId: "mskill_welder", levelKey: "welder_level" },
+      qp_conventional_machining: { skillId: "mskill_conventional_machinist", levelKey: "machining_level" },
     });
   });
 
@@ -210,6 +211,13 @@ describe("trade-level crosswalk", () => {
     expect(tradeLevelLabelFor("qp_welding_trade", "senior")).toBe("Senior");
     expect(tradeLevelLabelFor("qp_welding_trade", "supervisor")).toBe("Supervisor");
     expect(tradeLevelLabelFor("qp_welding_trade", "boss")).toBeNull();
+    // Track B #4 — the conventional rungs print the trade's words anywhere.
+    expect(tradeLevelLabelFor("qp_conventional_machining", "helper")).toBe("Helper");
+    expect(tradeLevelLabelFor("qp_conventional_machining", "operator")).toBe("Operator");
+    expect(tradeLevelLabelFor("qp_conventional_machining", "skilled")).toBe("Skilled");
+    expect(tradeLevelLabelFor("qp_conventional_machining", "senior")).toBe("Senior");
+    expect(tradeLevelLabelFor("qp_conventional_machining", "supervisor")).toBe("Supervisor");
+    expect(tradeLevelLabelFor("qp_conventional_machining", "boss")).toBeNull();
   });
 
   it("emits the authored skill row for a pack's level answer, and nothing else", () => {
@@ -597,6 +605,57 @@ describe("trade-level crosswalk", () => {
     // Supervisor: no confirm item, rung rule (confirmed).
     expect(welding("supervisor", null)).toEqual([
       { skillId: "mskill_welder", tradeLevel: "supervisor", levelConfirmed: true },
+    ]);
+  });
+
+  it("wires the conventional confirms the same way (CEO Launch Plan Pack v1, Track B #4)", () => {
+    const manual = (
+      level: string,
+      confirm: { attributeKey: string; value: unknown } | null,
+    ) =>
+      tradeLevelEntriesForPackAnswers(
+        "qp_conventional_machining",
+        confirm === null
+          ? [{ attributeKey: "machining_level", value: level }]
+          : [{ attributeKey: "machining_level", value: level }, confirm],
+      );
+    // No confirm answer: the rung rule stands (skilled+ confirmed, below not).
+    expect(manual("skilled", null)).toEqual([
+      { skillId: "mskill_conventional_machinist", tradeLevel: "skilled", levelConfirmed: true },
+    ]);
+    expect(manual("senior", null)).toEqual([
+      { skillId: "mskill_conventional_machinist", tradeLevel: "senior", levelConfirmed: true },
+    ]);
+    expect(manual("operator", null)).toEqual([
+      { skillId: "mskill_conventional_machinist", tradeLevel: "operator", levelConfirmed: false },
+    ]);
+    expect(manual("helper", null)).toEqual([
+      { skillId: "mskill_conventional_machinist", tradeLevel: "helper", levelConfirmed: false },
+    ]);
+    // Self confirms, other disconfirms — per rung.
+    expect(
+      manual("skilled", { attributeKey: "machining_skilled_confirm", value: "self" }),
+    ).toEqual([
+      { skillId: "mskill_conventional_machinist", tradeLevel: "skilled", levelConfirmed: true },
+    ]);
+    expect(
+      manual("skilled", { attributeKey: "machining_skilled_confirm", value: "other" }),
+    ).toEqual([
+      { skillId: "mskill_conventional_machinist", tradeLevel: "skilled", levelConfirmed: false },
+    ]);
+    expect(
+      manual("senior", { attributeKey: "machining_senior_confirm", value: "self" }),
+    ).toEqual([
+      { skillId: "mskill_conventional_machinist", tradeLevel: "senior", levelConfirmed: true },
+    ]);
+    expect(
+      manual("senior", { attributeKey: "machining_senior_confirm", value: "other" }),
+    ).toEqual([
+      { skillId: "mskill_conventional_machinist", tradeLevel: "senior", levelConfirmed: false },
+    ]);
+    // Supervisor: no confirm item, rung rule (confirmed).
+    expect(manual("supervisor", null)).toEqual([
+      { skillId: "mskill_conventional_machinist", tradeLevel: "supervisor", levelConfirmed: true },
     ]);
   });
 

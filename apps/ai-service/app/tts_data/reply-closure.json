@@ -1,12 +1,12 @@
 {
   "schema_version": 1,
-  "clip_count": 1354,
+  "clip_count": 1372,
   "producers": {
-    "retry": 110,
-    "clarify": 491,
-    "prompt": 354,
+    "retry": 113,
+    "clarify": 498,
+    "prompt": 358,
     "constant": 97,
-    "why": 302
+    "why": 306
   },
   "clips": [
     {
@@ -900,6 +900,11 @@
       "producer": "clarify"
     },
     {
+      "id": "206c56f3ba4f572f",
+      "text": "Kis tarah ka kaam zyada karte ho?",
+      "producer": "prompt"
+    },
+    {
       "id": "208bab55d5b7eeef",
       "text": "Module se pata chalta hai aap kis tarah ki drawing banate hain. Software ke kaunse module par kaam kiya hai?",
       "producer": "clarify"
@@ -1273,6 +1278,11 @@
       "id": "2d9ac1bce988ecf0",
       "text": "Zyada axis wali machine chalane wale kam milte hain.",
       "producer": "why"
+    },
+    {
+      "id": "2dc757b9a08a445e",
+      "text": "Kaam ke naam se employer samajhta hai aap kya kar sakte hain. Turning, threading, gear cutting ya grinding, kya kya karte hain?",
+      "producer": "clarify"
     },
     {
       "id": "2e2a56d3893fcada",
@@ -1855,6 +1865,11 @@
       "producer": "prompt"
     },
     {
+      "id": "4543c8201cfce276",
+      "text": "Tool-room aur repair ka kaam karne wale senior ko alag zimmedari milti hai.",
+      "producer": "why"
+    },
+    {
       "id": "45492d64966fde2a",
       "text": "Kya aap koi hunar seekh rahe hain?",
       "producer": "prompt"
@@ -1968,6 +1983,11 @@
       "id": "49a2e9413f3c41a7",
       "text": "Output dekhkar employer samajhta hai aap kya kaam de sakte hain.",
       "producer": "why"
+    },
+    {
+      "id": "49cc5dba679022cd",
+      "text": "Khud setting karke tolerance mein nikalne wale ko alag kaam milta hai. Drawing dekh ke job khud set karke tolerance mein nikaal lete ho?",
+      "producer": "clarify"
     },
     {
       "id": "4a29dcf10ab8db36",
@@ -2945,6 +2965,11 @@
       "producer": "clarify"
     },
     {
+      "id": "6c40bb41cfb8f604",
+      "text": "Khud setting karke tolerance mein nikalne wale ko alag kaam milta hai.",
+      "producer": "why"
+    },
+    {
       "id": "6c4c4e2dff99d5a9",
       "text": "Panel aur motor ka kaunsa kaam khud karte hain?",
       "producer": "prompt"
@@ -3058,6 +3083,11 @@
       "id": "6f3e263cbe93a6f5",
       "text": "Material ka tajurba employer ke liye alag mayne rakhta hai. MS, EN8 ya cast iron, kis par kaam kiya hai?",
       "producer": "clarify"
+    },
+    {
+      "id": "6f61fed1f0373251",
+      "text": "Drawing dekh ke job khud set karke tolerance mein nikaal lete ho?",
+      "producer": "prompt"
     },
     {
       "id": "6fa6bc5eb1ac3301",
@@ -3178,6 +3208,11 @@
       "id": "73f665b8a45aab30",
       "text": "Kya aap hathiyar wali duty kar sakte hain?",
       "producer": "prompt"
+    },
+    {
+      "id": "74026fb186270a7b",
+      "text": "CNC aane wale ko dono taraf ka kaam milta hai. CNC bhi chalate ho?",
+      "producer": "clarify"
     },
     {
       "id": "7410955ab23cdc8b",
@@ -3595,6 +3630,11 @@
       "producer": "prompt"
     },
     {
+      "id": "8411363fe7ead8c9",
+      "text": "Helper, operator, skilled, senior ya supervisor hain?",
+      "producer": "retry"
+    },
+    {
       "id": "842fac6c7b915b53",
       "text": "Kya aap billing machine chala lete hain?",
       "producer": "prompt"
@@ -3825,6 +3865,11 @@
       "producer": "clarify"
     },
     {
+      "id": "8c2cea331bc9b345",
+      "text": "Kaam ki tarah se sahi shop milti hai.",
+      "producer": "why"
+    },
+    {
       "id": "8c3dc042deff8835",
       "text": "Kya aapne safai ki training li hai?",
       "producer": "prompt"
@@ -3908,6 +3953,11 @@
       "id": "8f042b0e8c412b91",
       "text": "Simulation se machine aur job ka nuksaan bachta hai. Program release se pehle simulation kaise karte hain?",
       "producer": "clarify"
+    },
+    {
+      "id": "8f385775b1a00d6b",
+      "text": "CNC aane wale ko dono taraf ka kaam milta hai.",
+      "producer": "why"
     },
     {
       "id": "8f9464e4f76933e2",
@@ -4248,6 +4298,11 @@
       "id": "9e21d3becf1b1333",
       "text": "Lagbhag kitne saal milling ka kaam kiya hai?",
       "producer": "retry"
+    },
+    {
+      "id": "9e63e435cf021821",
+      "text": "Level ke hisaab se sahi sawaal poochhe jaate hain. Helper, operator, skilled, senior ya supervisor hain?",
+      "producer": "clarify"
     },
     {
       "id": "9e7d29a1c2fb9a31",
@@ -4718,6 +4773,11 @@
       "id": "aeef01f9de439e24",
       "text": "Fixture aur zero khud lagane wale setter ko alag kaam milta hai. Naya job aaye to fixture aur zero aap set karte ho?",
       "producer": "clarify"
+    },
+    {
+      "id": "af23c37c5185c411",
+      "text": "Turning, threading, gear cutting ya grinding, kya kya karte hain?",
+      "producer": "retry"
     },
     {
       "id": "af455221eda218e6",
@@ -5785,6 +5845,11 @@
       "producer": "clarify"
     },
     {
+      "id": "d73c725be69c93ee",
+      "text": "Kaam ki tarah se sahi shop milti hai. Kis tarah ka kaam zyada karte ho?",
+      "producer": "clarify"
+    },
+    {
       "id": "d7c389f3f7b0e909",
       "text": "Aapki salary mahine, din ya saal ke hisaab se hai?",
       "producer": "prompt"
@@ -6018,6 +6083,11 @@
       "id": "e10e5d9c7c8eabca",
       "text": "Team sambhalne wale senior fitter ko alag zimmedari milti hai.",
       "producer": "why"
+    },
+    {
+      "id": "e13336a748b8d0ca",
+      "text": "Tool-room ka kaam, repair job, doosron ko sikhana — aap karte ho?",
+      "producer": "prompt"
     },
     {
       "id": "e13fa9e1034d67b6",
@@ -6335,6 +6405,11 @@
       "producer": "clarify"
     },
     {
+      "id": "ee20d851d56cd0df",
+      "text": "CNC bhi chalate ho?",
+      "producer": "prompt"
+    },
+    {
       "id": "ee38cc9f6269cfcd",
       "text": "Har welding alag hoti hai, isse sahi naukri milti hai. MIG, TIG, arc ya spot mein se kaunsi?",
       "producer": "clarify"
@@ -6580,6 +6655,11 @@
       "producer": "clarify"
     },
     {
+      "id": "f8b31ee16a6ec3e1",
+      "text": "MS, alloy ya cast iron, kis par kaam kiya hai?",
+      "producer": "retry"
+    },
+    {
       "id": "f8f95791c1a5cc40",
       "text": "Tolerance se aapke kaam ki fine quality pata chalti hai. Coupling alignment kitni accuracy tak kar lete hain?",
       "producer": "clarify"
@@ -6730,6 +6810,11 @@
       "producer": "clarify"
     },
     {
+      "id": "fe4a2231bc8b1d5b",
+      "text": "Material ka tajurba employer ke liye alag mayne rakhta hai. MS, alloy ya cast iron, kis par kaam kiya hai?",
+      "producer": "clarify"
+    },
+    {
       "id": "fe55b72cee75db9d",
       "text": "Moti sheet ka kaam alag rate par hota hai.",
       "producer": "why"
@@ -6743,6 +6828,11 @@
       "id": "fea85d6f9e4ffc75",
       "text": "Chalo, ab iske baare mein bataiye.",
       "producer": "constant"
+    },
+    {
+      "id": "feb729cf5484c62d",
+      "text": "Tool-room aur repair ka kaam karne wale senior ko alag zimmedari milti hai. Tool-room ka kaam, repair job, doosron ko sikhana — aap karte ho?",
+      "producer": "clarify"
     },
     {
       "id": "fedaf70383b14e82",

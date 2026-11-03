@@ -1649,12 +1649,16 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
         label: "Machines",
         kind: "chips",
         values: {
-          centre_lathe: "Centre lathe",
-          vertical_milling: "Vertical milling",
-          radial_drill: "Radial drill",
-          boring_machine: "Boring machine",
+          centre_lathe: "Lathe (manual)",
+          vertical_milling: "Milling (manual)",
+          radial_drill: "Drilling / radial drill",
+          // Track B #4 (@2): sheet-9 machine set.
+          surface_grinder: "Surface grinder",
+          cylindrical_grinder: "Cylindrical grinder",
+          boring_machine: "Boring",
           shaper_planer: "Shaper / planer",
           slotter: "Slotter",
+          hacksaw_bandsaw: "Hacksaw / bandsaw",
         },
       },
       {
@@ -1663,16 +1667,18 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
         maxValues: 4,
         label: "Materials",
         kind: "chips",
-        // DICTIONARY ORDER IS THE SHEET'S ORDER, as on the milling and grinding maps: values
-        // render in the order this object lists them, and the page leads "MS EN8 Cast iron
-        // Aluminium" — the four the cap keeps.
+        // DICTIONARY ORDER IS THE TURNER SET, as on the milling map (Track A #2
+        // unified materials to Turner; EN8/EN31 split retired — old `en_eight`
+        // answers drop, recorded cost). Values render in the order listed here.
         values: {
           mild_steel: "MS",
-          en_eight: "EN8",
-          cast_iron: "Cast iron",
-          aluminium: "Aluminium",
+          alloy_steel: "EN8, EN31 alloy steel",
           stainless: "Stainless steel",
+          aluminium: "Aluminium",
           brass: "Brass",
+          cast_iron: "Cast iron",
+          titanium: "Titanium / Inconel",
+          plastic: "Plastics",
         },
       },
       {
@@ -1685,13 +1691,22 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
         // seven-chip question cannot reproduce a row the sheet prints eight ticks in, and the
         // ampersand pairs ("Turning & facing", "Drilling & reaming") are the page's own
         // groupings, not ours to re-split.
+        // Track B #4 (@2): sheet-9 operation words. The CEO sheet splits the
+        // page's ampersand pairs (Turning/Facing) into their own chips, so the
+        // map mirrors the pack — the page's grouping comment below is
+        // superseded for this trade, recorded here rather than deleted.
         values: {
-          turning_facing: "Turning & facing",
-          screw_cutting: "Screw cutting",
-          knurling: "Knurling",
-          milling_slotting: "Milling & slotting",
-          drilling_reaming: "Drilling & reaming",
+          turning_facing: "Turning",
+          facing_op: "Facing",
+          screw_cutting: "Threading",
+          taper_op: "Taper",
           boring: "Boring",
+          keyway: "Keyway",
+          gear_cutting: "Gear cutting",
+          milling_slotting: "Slotting",
+          grinding_op: "Grinding",
+          knurling: "Knurling",
+          drilling_reaming: "Drilling & reaming",
           tapping: "Tapping",
           marking_scribing: "Marking & scribing",
         },
@@ -1752,6 +1767,8 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           "0.05": "±0.05 mm",
           "0.02": "±0.02 mm",
           "0.01": "±0.01 mm or finer",
+          // Track B #4 (@2): sheet-9 tolerance chips (as Turner).
+          "0.005": "±0.005 mm / H7",
         },
       },
       {
@@ -1773,6 +1790,21 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           pump_valve: "Pumps and valves",
           agri: "Agricultural equipment",
           textile_mill: "Textile mill spares",
+        },
+      },
+      {
+        from: "machining_work_type",
+        // What KIND of shop work, distinct from the industry rows above.
+        // Track B #4 (@2): sheet-9 Q11.
+        rank: 64,
+        label: "Work type",
+        kind: "fact",
+        values: {
+          batch_production: "Production batch",
+          job_work: "Job work",
+          tool_room: "Tool room",
+          repair_maintenance: "Repair / maintenance",
+          forge_cast_finish: "Forging / casting finishing",
         },
       },
     ],
