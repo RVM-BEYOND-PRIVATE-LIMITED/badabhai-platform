@@ -199,7 +199,7 @@ senior_programmer`; P5 crosswalk already handles). Role `levelTerms` += rung
 > Alias: `assembly technician` (+Hi) -> 8219.0100. Display name now
 > "Assembly Technician". Deviations in the @2 review_note.
 >
-> TRACK B #7 — QC RETAG (in progress, `feat/mw-qc-retag`).
+> TRACK B #7 — QC RETAG ✅ CODE DONE (`feat/mw-qc-retag`, PR #2526, merged).
 > `qp_quality_inspection@2`: sheet-12 ladder (Trainee/Inspector/Senior/QC
 > Engineer/Supervisor, mandatory; stored `senior` IS the sheet's senior rung)
 > + 2 separating confirms (senior + QC-engineer self/other; supervisor by
@@ -210,25 +210,18 @@ senior_programmer`; P5 crosswalk already handles). Role `levelTerms` += rung
 > rung. No union extension (`senior`/`senior_inspector`/`qc_engineer` already
 > confirm; trainee/inspector already Lower). No new aliases. Deviations in
 > the @2 review_note.
-> `qp_assembly_line@2`: sheet-11 ladder (Trainee/Line Operator/Assembly
-> Technician/Line Leader/Supervisor, mandatory) + 2 separating confirms
-> (skilled self/other, senior team count; supervisor by rule); 6-band
-> experience; stage + tools retagged Medium (+hand/press-jig/soldering/test-
-> bench); NEW product row (Medium) + skills/company rows (Advanced);
-> instrument/drawing rows retagged Advanced; hard rows gated years OR rung.
-> No union extension. Alias: `assembly technician` (+Hi) -> 8219.0100.
-> Display name now "Assembly Technician". Deviations in the @2 review_note.
-> `qp_sheet_metal_fab@2`: sheet-10 ladder (Helper/Operator/Skilled/Senior/
-> Supervisor, mandatory; the `Senior / Programmer` chip is the sheet's) + 2
+>
+> PHASE 2 #1 — TOOL & DIE RETAG (in progress, `feat/mw-tooldie-retag`).
+> `qp_tool_die_making@2`: sheet-13 ladder (Trainee/Operator/Skilled/Senior/
+> Supervisor, mandatory; stored `tool_maker` aliases to skilled) + 2
 > separating confirms (skilled + senior self/other; supervisor by rule);
-> 6-band experience; machine retagged Medium (+CO2 laser, manual brake,
-> hand-fab); NEW product row (Medium); materials short-labels + hard;
-> thickness re-banded to sheet (<1/1-3/3-6/>6mm — old bands drop, recorded
-> cost); instrument/drawing rows retagged Advanced; nesting expanded to sheet
-> Q10 set + hard; NEW extra-work row (Advanced); hard rows gated years OR
-> rung. No union extension (`skilled`/`senior` already confirm). Aliases:
-> `laser operator` + `bending operator` (+Hi) -> 7213.0101. Deviations in
-> the @2 review_note.
+> 6-band experience; tooling retagged Medium (+plastic-injection/die-casting/
+> forging/rubber); machines retagged Medium (+VMC/EDM/jig-boring/polishing);
+> steels +H13/P20, hard; work rows retagged Advanced (+spotting/maintenance/
+> polishing); NEW training-institute row (Advanced); hard rows gated years OR
+> rung. Union extension: none (alias `tool_maker` -> skilled); new aliases
+> `toolroom` + `mould maker` (+Hi) -> 7222.0200. Deviations in the @2
+> review_note.
 
 | #   | Trade (kind)                                      | Pack                           | Level Q today                       | Notes                                                                                                                                                                     |
 | --- | ------------------------------------------------- | ------------------------------ | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

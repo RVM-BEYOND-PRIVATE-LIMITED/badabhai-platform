@@ -446,6 +446,12 @@
 {"kind":"alias","job_domain_id":"jd_nco_7222_0200","text":"टूल मेकर","lang":"hi"}
 {"kind":"alias","job_domain_id":"jd_nco_7222_0200","text":"tool room","lang":"en"}
 {"kind":"alias","job_domain_id":"jd_nco_7222_0200","text":"टूल रूम","lang":"hi"}
+# PHASE 2 #1 (CEO Launch Plan Pack v1, sheet 13): the trade's own compounds,
+# named by workers who run one. "toolroom" is the unspaced spelling the
+# particle stripper never produces.
+{"kind":"alias","job_domain_id":"jd_nco_7222_0200","text":"toolroom","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7222_0200","text":"mould maker","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7222_0200","text":"मोल्ड मेकर","lang":"hi"}
 {"kind":"alias","job_domain_id":"jd_nco_7222_0200","text":"die maker","lang":"en"}
 {"kind":"alias","job_domain_id":"jd_nco_7222_0200","text":"डाई मेकर","lang":"hi"}
 {"kind":"alias","job_domain_id":"jd_nco_7222_0300","text":"jig fixture","lang":"en"}

@@ -9,7 +9,7 @@
   "version": 1,
   "family_id": "fam_tool_die_making",
   "locale": "hi-IN",
-  "status": "active",
+  "status": "deprecated",
   "review_note": "Drafted for owner review (Prakash). Shop-floor vocabulary NOT yet corrected by a practising tool and die maker -- see docs/registers/trade-content-ratification.md.",
   "_fresher": "Guideline section 11 #1: a fresher's Zone 4 is training, trade test, machines used in the ITI workshop and project work, and the History heading never renders empty. These three items are the ask half; resume-fresher-rows.ts, fed by this role's descriptor, is the render half, and it reads iti_workshop_machines and trade_test_status LITERALLY -- neither may be renamed. The workshop machine list is the TOOL ROOM's ITI bench, so it leads with fitting-bench work rather than with a lathe.",
   "items": [

@@ -59,8 +59,10 @@ export const TRADE_FORM_CASES: readonly TradeFormCase[] = [
   },
   {
     kind: "tool_die_maker",
+    // Phase 2 #1 (@2): the 6-band scale replaced three_to_seven (5) with
+    // three_to_five (4) and five_to_ten (7) — the fixture keeps a senior band.
     answers: {
-      toolroom_experience: ["three_to_seven"],
+      toolroom_experience: ["five_to_ten"],
       tooling_made: ["press_tool", "progressive_die"],
       toolroom_machine: ["surface_grinder", "milling", "lathe"],
     },

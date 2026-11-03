@@ -904,6 +904,23 @@ describe("Middle-Way required close (P3a) — the settled slots end the intervie
     expect(decision.completionReason).toBe("required_complete");
   });
 
+  it("Tool-room closes on its Easy 5 too (Phase 2 #1) — tooling/machines optional", () => {
+    const toolroom: EnginePacks = {
+      occupation: pack("qp_tool_die_making", []),
+      universal: pack("pk_universal", []),
+    };
+    const easy5 = settledAnswers([
+      "primary_trade",
+      "toolroom_experience",
+      "toolroom_level",
+      "current_city",
+      "availability",
+    ]);
+    const decision = nextQuestion(state({ answers: easy5 }), toolroom);
+    expect(decision.kind).toBe("close");
+    expect(decision.completionReason).toBe("required_complete");
+  });
+
   it("other packs still need all 8 — grinding still gates on machine + salary", () => {
     const grinding: EnginePacks = {
       occupation: pack("qp_cnc_grinding", []),

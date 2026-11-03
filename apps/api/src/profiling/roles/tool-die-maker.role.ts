@@ -42,7 +42,7 @@ export const TOOL_DIE_MAKER = {
   formEnabled: true,
   displayName: "Tool & Die Maker",
   offerName: "tool and die maker",
-  levelLadder: ["Trainee", "Tool Maker", "Senior"],
+  levelLadder: ["Trainee", "Operator", "Skilled", "Senior", "Supervisor"],
   tenureQuestionKey: "toolroom_experience",
   detection: {
     occupationTerms: [
@@ -65,7 +65,9 @@ export const TOOL_DIE_MAKER = {
       "sinker edm",
       "check gauge",
     ],
-    levelTerms: ["trainee", "tool maker", "senior", "सीनियर"],
+    // Phase 2 #1 (@2): the sheet-13 rung words. A rung corroborates; it never
+    // it never routes. `tool maker` stays: the pack keeps it as a history chip.
+    levelTerms: ["trainee", "operator", "skilled", "tool maker", "senior", "सीनियर"],
     /**
      * The plastics mould room, which sits in `polymer` and therefore supplies no derived veto.
      * Declared here and mirrored on `mould-die-maker.role.ts`: a cross-cluster conflict is authored

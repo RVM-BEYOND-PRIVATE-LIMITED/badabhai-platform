@@ -597,6 +597,13 @@ const QUESTION_TTS_TEXT: Readonly<Record<string, string>> = {
   "Trainee, tool maker ya senior, kaunsi post hai?": "ट्रेनी, टूल मेकर या सीनियर, कौनसी पोस्ट है?",
   "Press tool, die ya fixture, kya banate hain?": "प्रेस टूल, डाई या फिक्सचर, क्या बनाते हैं?",
   "Grinder, EDM ya milling, kaunsi machine chalate hain?": "ग्राइंडर, EDM या मिलिंग, कौनसी मशीन चलाते हैं?",
+  // Phase 2 #1 (@2): the retagged machine/tooling retries + the new level retry.
+  "Grinder, VMC, EDM ya milling, kaunsi machine chalate hain?":
+    "ग्राइंडर, VMC, EDM या मिलिंग, कौनसी मशीन चलाते हैं?",
+  "Press tool, mould, jig ya gauge, kya banate hain?":
+    "प्रेस टूल, मोल्ड, जिग या गेज, क्या बनाते हैं?",
+  "Trainee, operator, skilled, senior ya supervisor hain?":
+    "ट्रेनी, ऑपरेटर, स्किल्ड, सीनियर या सुपरवाइज़र हैं?",
   "OHNS, HCHCr ya EN31, kaunsa steel istemaal kiya hai?": "OHNS, HCHCr या EN31, कौनसा स्टील इस्तेमाल किया है?",
   "Assembly, tryout ya benchwork, kaunsa kaam karte hain?": "असेंबली, ट्रायआउट या बेंचवर्क, कौनसा काम करते हैं?",
   "Slip gauge, micrometer ya sine bar, kya chalate hain?": "स्लिप गेज, माइक्रोमीटर या साइन बार, क्या चलाते हैं?",
@@ -611,6 +618,15 @@ const QUESTION_TTS_TEXT: Readonly<Record<string, string>> = {
   "Workshop me kaunsi machine par haath aazmaya hai?": "वर्कशॉप में कौनसी मशीन पर हाथ आज़माया है?",
   "Trade test ka result aa gaya hai?": "ट्रेड टेस्ट का रिज़ल्ट आ गया है?",
   "Kaunsa job ya model banaya tha ITI me?": "कौनसा जॉब या मॉडल बनाया था आईटीआई में?",
+  // --- qp_tool_die_making@2 (Phase 2 #1) — separating confirms + institute.
+  // The level prompt/why/retry reuse the twins above verbatim (the retry is
+  // the conventional one word-for-word, so no second entry — TS forbids it).
+  "Die ya mould poora drawing se khud assemble karke tryout karte ho?":
+    "डाई या मोल्ड पूरा ड्राइंग से खुद असेंबल करके ट्रायआउट करते हो?",
+  "Tool design mein input dete ho, tryout aap lead karte ho?":
+    "टूल डिज़ाइन में इनपुट देते हो, ट्रायआउट आप लीड करते हो?",
+  "Tool room ka course ya training kahan se kiya?":
+    "टूल रूम का कोर्स या ट्रेनिंग कहाँ से किया?",
 
   // --- qp_welding_trade@1 (arc, MIG, TIG and gas welding) — Batch 2 ---------------------------
   "Welding ka kitna tajurba hai?": "वेल्डिंग का कितना तजुर्बा है?",
@@ -1273,6 +1289,15 @@ const WHY_TTS_TEXT: Readonly<Record<string, string>> = {
   "Dikkat sudhaarne wale tool maker ki shop par zaroorat rehti hai.": "दिक्कत सुधारने वाले टूल मेकर की शॉप पर ज़रूरत रहती है।",
   "Hardness sahi na ho to die jaldi toot jaati hai.": "हार्डनेस सही न हो तो डाई जल्दी टूट जाती है।",
   "Press ka size batata hai ki kitni badi tooling banayi hai.": "प्रेस का साइज़ बताता है कि कितनी बड़ी टूलिंग बनाई है।",
+  // --- qp_tool_die_making@2 (Phase 2 #1) — the separating-confirm + institute
+  // whys. Filed HERE, not in the question table: `composeClarify` scans only
+  // this table for the clarify prefix (R10 §2.6).
+  "Khud assemble karke tryout karne wale ko alag kaam milta hai.":
+    "खुद असेंबल करके ट्रायआउट करने वाले को अलग काम मिलता है।",
+  "Tryout lead karne wale senior ko alag zimmedari milti hai.":
+    "ट्रायआउट लीड करने वाले सीनियर को अलग ज़िम्मेदारी मिलती है।",
+  "Achhe institute ka certificate badi tool room me kaam dilata hai.":
+    "अच्छे इंस्टिट्यूट का सर्टिफिकेट बड़ी टूल रूम में काम दिलाता है।",
 
   // --- qp_welding_trade@1 (arc, MIG, TIG and gas welding) — Batch 2 ---------------------------
   "Helper aur certified welder ka kaam aur vetan alag hota hai.": "हेल्पर और सर्टिफाइड वेल्डर का काम और वेतन अलग होता है।",
