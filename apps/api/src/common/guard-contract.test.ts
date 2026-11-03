@@ -43,6 +43,7 @@ import { PayerCapacityController } from "../payer-portal/payer-capacity.controll
 import { PayerPricingController } from "../payer-portal/payer-pricing.controller";
 import { PayerReachController } from "../payer-portal/payer-reach.controller";
 import { MatchSkillsController } from "../match/match-skills.controller";
+import { CandidateSearchController } from "../candidates/candidate-search.controller";
 import { WorkerMatchSkillsController } from "../match/worker-match-skills.controller";
 import { AgencyJobsController } from "../agency/agency-jobs.controller";
 import { AgencyInvitesController } from "../agency/agency-invites.controller";
@@ -400,6 +401,16 @@ const CONTRACT: ControllerContract[] = [
     name: "MatchSkills",
     ctor: MatchSkillsController,
     routes: { listSkills: [P], reachPreview: [P] },
+  },
+  // ADR-0040 / E2 (owner rulings 2026-11-03) — the payer ALL-CANDIDATES search. PayerAuthGuard on
+  // both, company and agency alike, no role guard (the reach routes' posture): the pool is the
+  // platform's, not a posting's, so there is no tenancy surface, and the body/query carry no
+  // payer id. Listed on arrival, and swept exists → listed below so a third route cannot join
+  // unpinned.
+  {
+    name: "CandidateSearch",
+    ctor: CandidateSearchController,
+    routes: { search: [P], filters: [P] },
   },
   // E4 — the WORKER's own exit from matching. A separate controller from the payer form
   // above so the two guard sets can never be confused; every route is the worker-self pair
@@ -874,6 +885,9 @@ describe("API authz contract — guards on every controller route", () => {
       // E4 — serves the worker's own match skills back to him and takes his visibility
       // writes; a fourth route must not join this class unpinned.
       WorkerMatchSkillsController,
+      // ADR-0040 / E2 — pages the whole consented pool to any payer; a third route must not
+      // join this class unpinned.
+      CandidateSearchController,
     ] as Ctor[]) {
       it(`${ctor.name} lists every route it serves`, () => {
         const proto = ctor.prototype as Record<string, unknown>;

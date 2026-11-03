@@ -1182,6 +1182,14 @@ export const serverEnvSchema = z.object({
   // Fail-closed (a Redis outage rejects). Higher than the disclosure cap — reach is an
   // information-only refreshable read, not a billable disclosure.
   PAYER_REACH_MAX_PER_HOUR: z.coerce.number().int().positive().default(60),
+  // Per-PAYER hourly cap on the ALL-CANDIDATES search (`POST /payer/candidates/search`,
+  // ADR-0040 / E2) — the scrape bound on a read that pages the WHOLE consented pool rather
+  // than one owned posting's applicants. Its own bucket (scope "payer_candidate_search") on
+  // the same PayerDisclosureRateLimit, so browsing candidates and reviewing a posting's
+  // applicants never starve each other. One unit per page (a filter change or "Next page");
+  // each page is at most 50 masked rows, so the default bounds a login to 6,000 masked rows an
+  // hour — identity still costs a credit per worker. Fail-closed (a Redis outage rejects).
+  PAYER_CANDIDATE_SEARCH_MAX_PER_HOUR: z.coerce.number().int().positive().default(120),
   // Per-PAYER hourly cap on the Agency Supply Portal INVITE-MINT endpoint (ADR-0022
   // security condition — the invite analogue of XB-G). Minting an invite creates an
   // opaque attribution code; an uncapped account could mint unboundedly to spam/seed

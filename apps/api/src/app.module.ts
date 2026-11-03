@@ -35,6 +35,7 @@ import { MessagingModule } from "./messaging/messaging.module";
 import { ResumeDisclosureModule } from "./disclosures/resume-disclosure.module";
 import { PayersModule } from "./payers/payers.module";
 import { PayerPortalModule } from "./payer-portal/payer-portal.module";
+import { CandidatesModule } from "./candidates/candidates.module";
 import { AgencyModule } from "./agency/agency.module";
 import { AgencyTwinModule } from "./agency-twin/agency-twin.module";
 import { ReferralAttributionModule } from "./referrals/referral-attribution.module";
@@ -123,6 +124,9 @@ import { RequestIdMiddleware } from "./common/middleware/request-id.middleware";
     // ADR-0038 — @Global: the ONE outbound-email pipeline every principal shares.
     EmailNotificationModule,
     PayerPortalModule,
+    // ADR-0040 / E2 (owner rulings 2026-11-03) — the payer ALL-CANDIDATES search:
+    // `POST /payer/candidates/search` + `GET /payer/candidates/filters`. A leaf module.
+    CandidatesModule,
     // Agency Supply Portal demand slice (ADR-0022): agent-only `/payer/agency/*` routes
     // (jobs CRUD + invites + referrals summary) + the consent-gated attribution seam.
     AgencyModule,
