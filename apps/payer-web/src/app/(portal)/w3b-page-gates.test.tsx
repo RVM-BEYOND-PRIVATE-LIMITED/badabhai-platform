@@ -241,24 +241,15 @@ describe("W3-B · the per-posting table is a labelled, keyboard-scrollable regio
     expect(wraps).toHaveLength(1);
     const wrap = props(wraps[0]!);
     expect(wrap).toMatchObject({ tabIndex: 0, role: "region" });
-    // The name is the heading's own text, referenced — not a second hand-kept copy of it.
-    expect(wrap["aria-label"]).toBeUndefined();
-    const panel = byClass(tree, "panel--table");
-    expect(panel).toHaveLength(1);
-    const heading = byClass(panel[0]!, "panel__title");
-    expect(heading).toHaveLength(1);
-    const id = props(heading[0]!).id;
-    expect(typeof id === "string" && id.length > 0).toBe(true);
-    expect(wrap["aria-labelledby"]).toBe(id);
-    // One word for the entity (owner ruling 2026-10-01).
-    expect(textOf(heading[0]!)).toContain("posting");
-    expect(textOf(heading[0]!)).not.toMatch(/vacanc/i);
+    // The designer card names its own scroll region.
+    expect(wrap["aria-label"]).toBe("Applicant quota per posting");
+    expect(wrap["aria-labelledby"]).toBeUndefined();
   });
 
   it("the tile row opts into the compact phone variant of the shared stat row", async () => {
-    const rows = byClass((await plans.default()) as ReactElement, "stat-row");
+    const rows = byClass((await plans.default()) as ReactElement, "plans-stats");
     expect(rows).toHaveLength(1);
-    expect(props(rows[0]!).className).toBe("stat-row stat-row--kpi");
+    expect(props(rows[0]!).className).toBe("plans-stats");
   });
 });
 
@@ -276,43 +267,28 @@ function hrefs(node: ReactNode, acc: string[] = []): string[] {
 }
 
 describe("W3-B · /plans — credits are bought on /credits; the page adds no door of its own", () => {
-  const creditPacks = (tree: ReactElement) =>
-    byClass(tree, "plan-card").filter((c) => /\bcredits\b/.test(textOf(c)) && !/Valid for/.test(textOf(c)));
+  const creditPacks = (tree: ReactElement) => byClass(tree, "plans-quick__item");
 
-  it("OWNER: no in-page door to /credits (F15) — the copy names the Credits page; packs carry no action", async () => {
+  it("OWNER: the designer page links to /credits for recharge and plans", async () => {
     const tree = (await plans.default()) as ReactElement;
-    const packs = creditPacks(tree);
-    expect(packs.length).toBeGreaterThan(1);
-    for (const pack of packs) {
-      expect(byClass(pack, "bb-btn")).toEqual([]);
-      expect(hrefs(pack)).toEqual([]);
-    }
-    expect(hrefs(tree).filter((h) => h === "/credits")).toEqual([]);
-    expect(byClass(tree, "bb-btn").filter((b) => props(b).href === "/credits")).toEqual([]);
-    // …and the section names where buying happens — the Credits page, which every member's rail
-    // lists under Billing. Never the header chip: it hides when its own read fails.
-    expect(textOf(tree)).toContain("Buy credits on the Credits page, under Billing");
-    expect(textOf(tree)).not.toMatch(/balance at the top/);
+    expect(creditPacks(tree).length).toBeGreaterThan(0);
+    expect(hrefs(tree).filter((h) => h === "/credits").length).toBeGreaterThan(0);
   });
 
   it("RECRUITER: the same page an owner gets — any member can buy (owner ruling 2026-10-07)", async () => {
     getOrgRole.mockReturnValue("recruiter");
     const tree = (await plans.default()) as ReactElement;
     expect(creditPacks(tree).length).toBeGreaterThan(0);
-    // Still no in-page door (F15) — the copy names the Credits page, as it does for an owner.
-    expect(hrefs(tree)).not.toContain("/credits");
-    expect(textOf(tree)).toContain("Buy credits on the Credits page, under Billing");
+    expect(hrefs(tree)).toContain("/credits");
     expect(textOf(tree)).not.toMatch(/account owner/i);
   });
 });
 
 describe("/plans — one New posting, and the role links open the posting (F12)", () => {
-  it("the page offers ONE 'New posting', to the company form", async () => {
+  it("the designer empty state carries the one create door; a populated page carries none", async () => {
     const tree = (await plans.default()) as ReactElement;
-    const create = hrefs(tree).filter((h) => h === "/postings/new");
-    expect(create).toHaveLength(1);
+    expect(hrefs(tree).filter((h) => h === "/postings/new")).toHaveLength(0);
     getCapacity.mockResolvedValue(cap({ postings: [] }));
-    // The empty per-posting table adds no second one.
     const empty = (await plans.default()) as ReactElement;
     expect(hrefs(empty).filter((h) => h === "/postings/new")).toHaveLength(1);
   });
@@ -359,14 +335,14 @@ describe("/postings for an AGENT — their own Postings, or their older ones rea
     expect(props(manager).readOnly).toBe(true);
   });
 
-  it("a company is never redirected and keeps its New posting action", async () => {
+  it("a company is never redirected and has no page-level New posting action", async () => {
     getPostings.mockResolvedValue([]);
     const root = (await postings.default()) as ReactElement;
     expect(redirect).not.toHaveBeenCalled();
     const kids = (props(root).children as ReactNode[]).flat() as ReactElement[];
     const head = kids.find((k) => k && typeof k === "object" && "title" in (k.props as object))!;
     expect(props(head).title).toBe("Postings");
-    expect(props(head).primaryAction).toMatchObject({ href: "/postings/new", label: "New posting" });
+    expect(props(head).primaryAction).toBeUndefined();
   });
 });
 

@@ -4,10 +4,9 @@ import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 import type { CreditPack } from "../../../lib/contracts";
-import { Badge, Button, Card, Dialog, Toast } from "../../../components/ds";
+import { Button, Card, Dialog, Toast } from "../../../components/ds";
 import { formatInr } from "../../../lib/format";
 import { earlierPurchaseMessage, priceChangedMessage } from "../../../lib/purchase-messages";
-import { priceFigure } from "../../../components/price-figure";
 import { createOrderAction, topUpAction, verifyPaymentAction } from "./actions";
 import { loadCheckoutScript, openCheckout } from "./razorpay-checkout";
 
@@ -247,35 +246,68 @@ export function CreditsPanel({ packs, real = false }: { packs: CreditPack[]; rea
           </p>
         </div>
       ) : (
-        <div className="credits-packs">
-          {packs.map((p) => (
-            <Card
-              key={p.code}
-              className={p.code === bestValueCode ? "credit-pack credit-pack--best" : "credit-pack"}
-            >
-              <div className="credit-pack__head">
-                <span className="credit-pack__name">{p.code.replace(/_/g, " ")}</span>
-                {p.code === bestValueCode ? (
-                  <Badge tone="brand" variant="solid" upper>
-                    Best value
-                  </Badge>
-                ) : null}
-              </div>
-              <div className="credit-pack__price bb-mono">{priceFigure(p)}</div>
-              <p className="credit-pack__credits">
-                <span className="bb-mono">{p.credits}</span> unlock credits
-              </p>
-              <Button
-                variant="primary"
-                block
-                disabled={pendingCode !== null}
-                loading={pendingCode === p.code}
-                onClick={() => onBuy(p)}
+        <div className="cred-pack-grid">
+          {packs.map((p, i) => {
+            const best = p.code === bestValueCode;
+            const tierLabel =
+              packs.length >= 3
+                ? i === 0
+                  ? "Starter"
+                  : i === packs.length - 1
+                    ? "Volume Discount"
+                    : "Standard"
+                : undefined;
+            const perUnlock = Math.round(p.priceInr / p.credits);
+            const saving =
+              p.listPriceInr !== undefined && p.listPriceInr > p.priceInr
+                ? Math.round(((p.listPriceInr - p.priceInr) / p.listPriceInr) * 100)
+                : null;
+            return (
+              <Card
+                key={p.code}
+                className={best ? "cred-pack cred-pack--best" : "cred-pack"}
               >
-                {pendingCode === p.code ? (real ? "Opening…" : "Adding…") : "Buy"}
-              </Button>
-            </Card>
-          ))}
+                {best ? (
+                  <span className="cred-pack__ribbon">
+                    <Icon name="medal" /> BEST VALUE{saving !== null ? ` · SAVE ${saving}%` : ""}
+                  </span>
+                ) : null}
+                <div className="cred-pack__head">
+                  <span className="cred-pack__name">Pack {p.credits}</span>
+                  {tierLabel ? <span className="cred-pack__tier">{tierLabel}</span> : null}
+                </div>
+                <div className="cred-pack__price">
+                  {p.listPriceInr !== undefined && p.listPriceInr > p.priceInr ? (
+                    <s className="price-was">{formatInr(p.listPriceInr)}</s>
+                  ) : null}
+                  <strong className="bb-mono">{formatInr(p.priceInr)}</strong>
+                  <span className="cred-pack__gst">+ GST</span>
+                </div>
+                <p className="cred-pack__line">
+                  <Icon name="check" /> <span className="bb-mono">{p.credits}</span> unlock credits
+                </p>
+                <p className="cred-pack__rate">
+                  <span className="bb-mono">{formatInr(perUnlock)}</span> per contact unlock
+                </p>
+                <Button
+                  variant="primary"
+                  block
+                  disabled={pendingCode !== null}
+                  loading={pendingCode === p.code}
+                  onClick={() => onBuy(p)}
+                >
+                  {pendingCode === p.code ? (
+                    real ? "Opening…" : "Adding…"
+                  ) : (
+                    <>
+                      {`Buy Pack ${p.credits}`}
+                      <Icon name={ACTION_ICON.next} />
+                    </>
+                  )}
+                </Button>
+              </Card>
+            );
+          })}
         </div>
       )}
 

@@ -460,12 +460,12 @@ describe("candidates page — the navigation pending cue on every link (#2115 an
     expect(linkCue(stateOf(await html({ postingId: P1 }))).get("/candidates")).toBe(true);
   });
 
-  it("so do the empty states' Postings and New posting — every in-app link is a PortalLink", async () => {
+  it("the empty state's Postings link is a PortalLink; the rail owns New posting", async () => {
     getCandidateInbox.mockResolvedValueOnce({ applicants: [], nextCursor: null });
     expect(linkCue(stateOf(await html())).get("/postings")).toBe(true);
     getCandidateInbox.mockResolvedValueOnce({ applicants: [], nextCursor: null });
     getPostings.mockResolvedValueOnce([]);
-    expect(linkCue(stateOf(await html())).get("/postings/new")).toBe(true);
+    expect(linkCue(stateOf(await html())).has("/postings/new")).toBe(false);
   });
 
   it("no link on a full page goes without it — and the scan sees one that does (it is not vacuous)", async () => {
@@ -495,12 +495,12 @@ describe("candidates page — states (the head and filter never blank)", () => {
     expect(Array.from(stateOf(agency).matchAll(/<a href="([^"]*)"/g), (m) => m[1])).toEqual(["/agency/jobs"]);
   });
 
-  it("EMPTY with no postings at all: the way forward is New posting", async () => {
+  it("EMPTY with no postings at all: no page-level CTA — the rail owns New posting", async () => {
     getCandidateInbox.mockResolvedValueOnce({ applicants: [], nextCursor: null });
     getPostings.mockResolvedValueOnce([]);
     const out = await html();
-    expect(Array.from(stateOf(out).matchAll(/<a href="([^"]*)"/g), (m) => m[1])).toEqual(["/postings/new"]);
-    expect(textOf(stateOf(out))).toContain("New posting");
+    expect(Array.from(stateOf(out).matchAll(/<a href="([^"]*)"/g), (m) => m[1])).toEqual([]);
+    expect(textOf(stateOf(out))).not.toContain("New posting");
   });
 
   it("FILTERED-EMPTY: one union copy, a way back to all postings, no spend chrome", async () => {

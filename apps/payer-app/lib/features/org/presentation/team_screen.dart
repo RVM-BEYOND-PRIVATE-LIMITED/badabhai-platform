@@ -91,7 +91,7 @@ class _TeamView extends StatelessWidget {
         ],
         Text(
           'Members',
-          style: AppTypography.display(
+          style: AppTypography.heading(
             size: AppTypography.sizeBase,
             weight: FontWeight.w700,
           ),
@@ -114,7 +114,7 @@ class _TeamView extends StatelessWidget {
         const SizedBox(height: AppSpacing.s5),
         Text(
           'Have an invite?',
-          style: AppTypography.display(
+          style: AppTypography.heading(
             size: AppTypography.sizeBase,
             weight: FontWeight.w700,
           ),
@@ -223,7 +223,7 @@ class _Header extends StatelessWidget {
           const SizedBox(width: AppSpacing.s3),
           Text(
             'Team',
-            style: AppTypography.display(
+            style: AppTypography.header(
               size: AppTypography.sizeLg,
               weight: FontWeight.w800,
             ),
@@ -383,7 +383,7 @@ class _InviteSheetState extends State<_InviteSheet> {
         children: <Widget>[
           Text(
             'Invite recruiter',
-            style: AppTypography.display(
+            style: AppTypography.header(
               size: AppTypography.sizeLg,
               weight: FontWeight.w800,
             ),
@@ -467,7 +467,7 @@ class _AcceptSheetState extends State<_AcceptSheet> {
         children: <Widget>[
           Text(
             'Accept invite',
-            style: AppTypography.display(
+            style: AppTypography.header(
               size: AppTypography.sizeLg,
               weight: FontWeight.w800,
             ),

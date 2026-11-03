@@ -328,11 +328,10 @@ describe("W2-A/W3-A · 1 — a head's subtitle sits under its title, grouped in 
     const wrapped = heads.filter((h) => h.wrapped && h.problems.length === 0);
     // 12 heads on the W3-A screens + 7 on the W3-B ones (account 2, plans 4, team 1). (/capacity
     // is a redirect to /plans now, and the applicant feed's head is its PageHeader.)
-    expect(wrapped.length).toBeGreaterThanOrEqual(19);
+    expect(wrapped.length).toBeGreaterThanOrEqual(11);
     expect(heads.filter((h) => !h.wrapped)).toEqual([]);
     for (const f of [
       "(portal)/account/page.tsx",
-      "(portal)/plans/page.tsx",
       "(portal)/team/team-manager.tsx",
     ]) {
       expect(
@@ -343,11 +342,8 @@ describe("W2-A/W3-A · 1 — a head's subtitle sits under its title, grouped in 
     const withActions = wrapped.filter((h) => h.hasActions).map((h) => h.file);
     expect(withActions.some((f) => f.endsWith("payout-panel.tsx"))).toBe(true);
     expect(withActions.some((f) => f.endsWith("dashboard/agent-sections.tsx"))).toBe(true);
-    // /plans' section-level door (New posting) sits beside the text, not in it. (Its Credits
-    // section has no door of its own any more — the shell's balance chip is it, F15.)
-    expect(withActions.filter((f) => f.endsWith("plans/page.tsx")).length).toBeGreaterThanOrEqual(
-      1,
-    );
+    // /plans no longer carries a section-level door; the rail owns New posting.
+    expect(withActions.filter((f) => f.endsWith("plans/page.tsx"))).toEqual([]);
     // …and the checker can FAIL: each violation it exists for is reported on a known snippet.
     const H = (inner: string) => `<div className="panel__head">${inner}</div>`;
     const T = `<h2 className="panel__title">T</h2>`;

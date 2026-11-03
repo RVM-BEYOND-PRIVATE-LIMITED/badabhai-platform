@@ -219,7 +219,7 @@ class _RealReveal extends StatelessWidget {
         const SizedBox(width: AppSpacing.s3),
         Text(
           'Candidate',
-          style: AppTypography.display(
+          style: AppTypography.header(
             size: AppTypography.sizeLg,
             weight: FontWeight.w800,
           ),
@@ -468,7 +468,7 @@ class _MockReveal extends StatelessWidget {
             const SizedBox(width: AppSpacing.s3),
             Text(
               'Candidate',
-              style: AppTypography.display(
+              style: AppTypography.header(
                 size: AppTypography.sizeLg,
                 weight: FontWeight.w800,
               ),
@@ -496,7 +496,7 @@ class _MockReveal extends StatelessWidget {
               Text(
                 candidate.name,
                 textAlign: TextAlign.center,
-                style: AppTypography.display(
+                style: AppTypography.header(
                   size: AppTypography.sizeXl,
                   weight: FontWeight.w800,
                 ),

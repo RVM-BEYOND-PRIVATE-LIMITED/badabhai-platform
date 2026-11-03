@@ -68,7 +68,7 @@ class _AccountView extends StatelessWidget {
               children: <Widget>[
                 Text(
                   'Account',
-                  style: AppTypography.display(
+                  style: AppTypography.header(
                     size: AppTypography.sizeXl,
                     weight: FontWeight.w800,
                   ),
@@ -313,7 +313,7 @@ class _EditSheetState extends State<_EditSheet> {
           children: <Widget>[
             Text(
             'Edit account',
-            style: AppTypography.display(
+            style: AppTypography.header(
               size: AppTypography.sizeLg,
               weight: FontWeight.w800,
             ),
@@ -410,7 +410,7 @@ class _IdentityCard extends StatelessWidget {
               children: <Widget>[
                 Text(
                   orgName,
-                  style: AppTypography.display(
+                  style: AppTypography.heading(
                     size: AppTypography.sizeMd,
                     weight: FontWeight.w700,
                   ),

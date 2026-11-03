@@ -89,6 +89,7 @@ class HttpPayerApiClient implements PayerApiClient {
     int? maxExperienceYears,
     String? shift,
     String? neededBy,
+    String? roleKind,
     List<String>? benefits,
     List<String>? requirements,
   }) async {
@@ -124,6 +125,8 @@ class HttpPayerApiClient implements PayerApiClient {
       if (maxExperienceYears != null) 'max_experience_years': maxExperienceYears,
       if (shift != null) 'shift': shift,
       if (neededBy != null) 'needed_by': neededBy,
+      // Migration 0131 — the display role that picks the worker card's art.
+      if (roleKind != null) 'role_kind': roleKind,
       if (benefits != null && benefits.isNotEmpty) 'benefits': benefits,
       if (requirements != null && requirements.isNotEmpty)
         'requirements': requirements,
@@ -165,6 +168,7 @@ class HttpPayerApiClient implements PayerApiClient {
     int? maxExperienceYears,
     String? shift,
     String? neededBy,
+    String? roleKind,
     List<String>? benefits,
     List<String>? requirements,
     List<JobPostingClearField>? clear,
@@ -190,6 +194,7 @@ class HttpPayerApiClient implements PayerApiClient {
       if (maxExperienceYears != null) 'max_experience_years': maxExperienceYears,
       if (shift != null) 'shift': shift,
       if (neededBy != null) 'needed_by': neededBy,
+      if (roleKind != null) 'role_kind': roleKind,
       // LIST SEMANTICS (deliberate asymmetry with the create): a list the caller
       // PASSES rides the PATCH even when EMPTY, because `[]` is how the chips
       // get CLEARED server-side; only a null list is omitted.
@@ -443,14 +448,21 @@ class HttpPayerApiClient implements PayerApiClient {
 
   @override
   Future<PublishJobResult> publishJobPostingChatSession(
-    String sessionId,
-  ) async {
-    // EMPTY body: the draft already lives server-side on the session row, the
-    // payer IS the session (XB-A), and the org name is auto-filled there.
+    String sessionId, {
+    String? roleKind,
+    String? area,
+  }) async {
+    // The draft already lives server-side on the session row, the payer IS the
+    // session (XB-A), and the org name is auto-filled there. The only body keys
+    // are the optional publish-step picks (#2490 role, #2493 area) — omitted
+    // when unpicked.
     final PayerResponse res = await _http.send(
       PayerMethod.post,
       '/payer/job-posting-chat/sessions/$sessionId/publish',
-      body: <String, dynamic>{},
+      body: <String, dynamic>{
+        if (roleKind != null && roleKind.isNotEmpty) 'role_kind': roleKind,
+        if (area != null && area.isNotEmpty) 'area': area,
+      },
     );
     // 400 draft incomplete · 409 already published / not ready · 404 unknown.
     if (!res.isSuccess) throw PayerApiException(res.statusCode);
@@ -738,6 +750,7 @@ class HttpPayerApiClient implements PayerApiClient {
     int? minExperienceYears,
     int? maxExperienceYears,
     String? neededBy,
+    String? roleKind,
     String? description,
     String? shift,
     List<String>? benefits,
@@ -763,6 +776,7 @@ class HttpPayerApiClient implements PayerApiClient {
       if (minExperienceYears != null) 'min_experience_years': minExperienceYears,
       if (maxExperienceYears != null) 'max_experience_years': maxExperienceYears,
       if (neededBy != null) 'needed_by': neededBy,
+      if (roleKind != null) 'role_kind': roleKind,
       if (description != null && description.trim().isNotEmpty)
         'description': description.trim(),
       if (shift != null) 'shift': shift,
@@ -822,6 +836,7 @@ class HttpPayerApiClient implements PayerApiClient {
     int? minExperienceYears,
     int? maxExperienceYears,
     String? neededBy,
+    String? roleKind,
     String? description,
     String? shift,
     List<String>? benefits,
@@ -840,6 +855,7 @@ class HttpPayerApiClient implements PayerApiClient {
       if (minExperienceYears != null) 'min_experience_years': minExperienceYears,
       if (maxExperienceYears != null) 'max_experience_years': maxExperienceYears,
       if (neededBy != null) 'needed_by': neededBy,
+      if (roleKind != null) 'role_kind': roleKind,
       if (description != null && description.trim().isNotEmpty)
         'description': description.trim(),
       if (shift != null) 'shift': shift,
@@ -1157,6 +1173,7 @@ class HttpPayerApiClient implements PayerApiClient {
       requirements: _optionalStringList(row['requirements']),
       shift: row['shift'] as String?,
       neededBy: row['needed_by'] as String? ?? row['neededBy'] as String?,
+      roleKind: row['role_kind'] as String? ?? row['roleKind'] as String?,
       matchSkillIds: _stringList(row['match_skill_ids']),
       // Still NO per-posting source (applications + unlocks attach to `jobs`, not
       // `job_postings`) — kept at the model defaults rather than faked.

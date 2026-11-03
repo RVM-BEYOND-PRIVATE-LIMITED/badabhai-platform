@@ -282,6 +282,31 @@ describe("publishJobPostingChatSession — POST …/sessions/:id/publish", () =>
     const { publishJobPostingChatSession } = await import("./payer-api");
     await expect(publishJobPostingChatSession(SESSION_ID)).resolves.toBeNull();
   });
+
+  it("carries the optional publish-step role pick as role_kind (#2490)", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({ session_id: SESSION_ID, status: "published", job_posting_id: POSTING_ID }),
+    );
+    const { publishJobPostingChatSession } = await import("./payer-api");
+    await publishJobPostingChatSession(SESSION_ID, "cnc_turner");
+
+    const { init } = lastCall();
+    // Display-only, never a match input; the closed set is re-validated server-side.
+    expect(bodyOf(init)).toEqual({ role_kind: "cnc_turner" });
+    expect(init.body as string).not.toMatch(/payer_id|org_label/);
+  });
+
+  it("carries the optional area/locality beside role_kind (#2493)", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({ session_id: SESSION_ID, status: "published", job_posting_id: POSTING_ID }),
+    );
+    const { publishJobPostingChatSession } = await import("./payer-api");
+    await publishJobPostingChatSession(SESSION_ID, "cnc_turner", "Chakan");
+
+    const { init } = lastCall();
+    expect(bodyOf(init)).toEqual({ role_kind: "cnc_turner", area: "Chakan" });
+    expect(init.body as string).not.toMatch(/payer_id|org_label/);
+  });
 });
 
 /* ── 2. The draft contract — the two design rules, enforced by the schema ───────── */

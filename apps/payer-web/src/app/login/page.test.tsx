@@ -112,36 +112,35 @@ describe("login page — auth shell", () => {
   });
 });
 
-describe("login page — one column, no marketing panel", () => {
-  it("renders NO second column beside the form", async () => {
-    // The screen was a two-pane split above 1024px: a brand/value panel + the card. It is one
-    // centred card at every width now. Asserted by class AND by element type, so re-adding the
-    // panel under a different class name still trips this.
+describe("login page — designr5 split auth desk", () => {
+  it("renders the split shell: the form card beside the hiring-proof aside", async () => {
     currentSession.mockResolvedValue(null);
     const tree = (await LoginPage()) as ReactElement;
-    expect(findByClass(tree, "login-aside")).toHaveLength(0);
-    expect(findByClass(tree, "login-shell")).toHaveLength(0);
-    expect(findAll(tree, "aside")).toHaveLength(0);
+    expect(findByClass(tree, "login-shell")).toHaveLength(1);
+    expect(findByClass(tree, "login-split")).toHaveLength(1);
+    const cards = findByClass(tree, "login-card");
+    const asides = findByClass(tree, "login-aside");
+    expect(cards).toHaveLength(1);
+    expect(asides).toHaveLength(1);
+    expect(findAll(cards[0], MockedLoginForm)).toHaveLength(1);
+    expect(findByClass(asides[0], "login-aside__title")).toHaveLength(1);
   });
 
-  it("carries no value-prop / testimonial copy at all", async () => {
+  it("carries the designr5 proof copy (static marketing, no live read)", async () => {
     currentSession.mockResolvedValue(null);
     const txt = textOf((await LoginPage()) as ReactElement);
-    // The panel's own copy is gone with it.
-    expect(txt).not.toMatch(/Verified CNC\/VMC talent|Masked until you unlock|self-serve/);
-    // And the guard the panel used to carry now covers the WHOLE page: no testimonials, no
-    // logo-wall claims, no invented metrics anywhere on the sign-in screen.
-    expect(txt).not.toMatch(/testimonial|trusted by|loved by|rated \d|\d+ ?stars?/i);
+    expect(txt).toContain("Hire workers directly. No middleman delays.");
+    expect(txt).toContain("180,000+ Verified Workers");
+    expect(txt).toContain("Instant WhatsApp Connect");
+    expect(txt).toContain("50 Free Hiring Credits");
+    expect(txt).toContain("Rahul Kumar");
   });
 
-  it("keeps a single <h1> and no heading above it", () => {
-    // The panel's tagline used to render BEFORE the card; as an <h2> it put a heading ahead of
-    // the page's only <h1>. With the panel gone the card's <h1> is the first heading — locked
-    // at the source level so a future addition above it is caught.
+  it("keeps one <h1> before the aside's <h2>, and the auth form is the first control", () => {
     const source = readFileSync(fileURLToPath(new URL("./page.tsx", import.meta.url)), "utf8");
-    expect(source).not.toMatch(/login-aside/);
     expect(source.match(/<h1\b/g) ?? []).toHaveLength(1);
-    expect(source).not.toMatch(/<h2\b/);
+    expect(source.match(/<h2\b/g) ?? []).toHaveLength(1);
+    expect(source.indexOf("<h1")).toBeLessThan(source.indexOf("<h2"));
   });
 
   it("exposes no PII anywhere on the page (it is static copy + the form)", async () => {
@@ -152,27 +151,27 @@ describe("login page — one column, no marketing panel", () => {
   });
 });
 
-describe("login page — PR-D2 brand band", () => {
-  it("renders the lockup ONCE, inside the card's brand band, as the on-ink variant", async () => {
-    // The band is Shift Blue in BOTH themes (--surface-ink does not flip), so the paper lockup
-    // (navy logotype) would sit navy-on-navy there. The on-ink variant is the only legible one.
+describe("login page — designr5 brand bar", () => {
+  it("renders the lockup ONCE in the top bar, not inside the auth card", async () => {
     currentSession.mockResolvedValue(null);
     const tree = (await LoginPage()) as ReactElement;
-    const cards = findByClass(tree, "login-card");
-    expect(cards).toHaveLength(1);
-    const bands = findByClass(cards[0], "login-card__brand");
-    expect(bands).toHaveLength(1);
+    const topbars = findByClass(tree, "login-topbar");
+    expect(topbars).toHaveLength(1);
     const logos = findAll(tree, BadaBhaiLogoMock);
     expect(logos).toHaveLength(1);
-    expect(findAll(bands[0], BadaBhaiLogoMock)).toHaveLength(1);
-    expect((logos[0]!.props as { theme?: string }).theme).toBe("ink");
+    expect(findAll(topbars[0], BadaBhaiLogoMock)).toHaveLength(1);
+    const cards = findByClass(tree, "login-card");
+    expect(cards).toHaveLength(1);
+    expect(findAll(cards[0], BadaBhaiLogoMock)).toHaveLength(0);
   });
 
-  it("the band carries no heading or copy of its own — the card's <h1> stays the only title", async () => {
+  it("the top bar carries the network status and assistance links, no heading", async () => {
     currentSession.mockResolvedValue(null);
     const tree = (await LoginPage()) as ReactElement;
-    const band = findByClass(tree, "login-card__brand")[0]!;
-    expect(textOf(band).trim()).toBe("");
-    expect(findAll(band, "h1")).toHaveLength(0);
+    const topbar = findByClass(tree, "login-topbar")[0]!;
+    expect(textOf(topbar)).toContain("Direct verified applicant network");
+    expect(textOf(topbar)).toContain("Need assistance?");
+    expect(findAll(topbar, "h1")).toHaveLength(0);
+    expect(findAll(topbar, "h2")).toHaveLength(0);
   });
 });

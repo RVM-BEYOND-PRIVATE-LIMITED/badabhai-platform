@@ -12,7 +12,7 @@ import 'bb_button.dart';
 ///
 /// JUL31 "Josh" chrome: a white [AppColors.surfaceCard] card, [AppRadii.lg]
 /// corners, elevation 0 (separation is the scrim + fill, never a shadow — design
-/// law §4), an Anek [title], a legible Roboto [message], and one full-width
+/// law §4), a normal-face [title], a legible Roboto [message], and one full-width
 /// primary [BbButton]. Returns when the payer taps OK.
 Future<void> showBbAlert(
   BuildContext context, {
@@ -47,7 +47,7 @@ Future<void> showBbAlert(
         title: Text(
           title,
           textAlign: TextAlign.center,
-          style: AppTypography.display(size: AppTypography.sizeMd),
+          style: AppTypography.heading(size: AppTypography.sizeMd),
         ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
@@ -85,7 +85,7 @@ Future<void> showBbAlert(
 /// Shows the BadaBhai centred CONFIRM — a two-button modal for a reversible-but-
 /// consequential choice (e.g. Sign out). Same JUL31 "Josh" chrome as [showBbAlert]
 /// (white [AppColors.surfaceCard] card, [AppRadii.lg] corners, elevation 0 —
-/// separation is the scrim + fill, never a shadow, design law §4 — Anek [title],
+/// separation is the scrim + fill, never a shadow, design law §4 — normal-face [title],
 /// Roboto [message]) but with a quiet [cancelLabel] ([BbButtonVariant.secondary])
 /// beside the [confirmLabel] action.
 ///
@@ -126,7 +126,7 @@ Future<bool> showBbConfirm(
         title: Text(
           title,
           textAlign: TextAlign.center,
-          style: AppTypography.display(size: AppTypography.sizeMd),
+          style: AppTypography.heading(size: AppTypography.sizeMd),
         ),
         content: Column(
           mainAxisSize: MainAxisSize.min,

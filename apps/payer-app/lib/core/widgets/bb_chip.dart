@@ -8,7 +8,7 @@ import '../theme/app_typography.dart';
 /// 46–47). Used for skills/tags and single-select filters in the worker app.
 ///
 /// Default sits quiet on a card (paper + hairline border); [selected] flips to a
-/// SOLID haldi fill with a deep-blue Anek label — the kit's `BBFilterChip`. A
+/// SOLID haldi fill with a deep-blue normal-face label — the kit's `BBFilterChip`. A
 /// soft 14px pill (JUL31 `rChip`). Optional leading [icon] follows the text colour.
 class BbChip extends StatelessWidget {
   const BbChip({
@@ -35,9 +35,9 @@ class BbChip extends StatelessWidget {
     final Color foreground =
         selected ? AppColors.onHaldi : AppColors.textPrimary;
 
-    // Selected chips speak in Anek (the kit's `bbDisplay`); unselected stay Roboto.
+    // Selected and unselected chips both speak in the normal UI face (Roboto).
     final TextStyle labelStyle = selected
-        ? AppTypography.display(
+        ? AppTypography.heading(
             size: AppTypography.sizeSm,
             weight: FontWeight.w700,
             color: foreground,

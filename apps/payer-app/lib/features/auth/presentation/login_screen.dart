@@ -227,7 +227,7 @@ class _LoginScreenState extends State<LoginScreen> {
   List<Widget> _loginStep() => <Widget>[
         Text(
           'Welcome back',
-          style: AppTypography.display(
+          style: AppTypography.heading(
             size: AppTypography.sizeLg,
             weight: FontWeight.w700,
           ),
@@ -295,7 +295,7 @@ class _LoginScreenState extends State<LoginScreen> {
   List<Widget> _otpContactStep() => <Widget>[
         Text(
           'Login with OTP',
-          style: AppTypography.display(
+          style: AppTypography.heading(
             size: AppTypography.sizeLg,
             weight: FontWeight.w700,
           ),
@@ -339,7 +339,7 @@ class _LoginScreenState extends State<LoginScreen> {
   List<Widget> _otpCodeStep() => <Widget>[
         Text(
           'Enter the code',
-          style: AppTypography.display(
+          style: AppTypography.heading(
             size: AppTypography.sizeLg,
             weight: FontWeight.w700,
           ),
@@ -421,7 +421,7 @@ class _BrandHeader extends StatelessWidget {
               Expanded(
                 child: Text(
                   'Hire faster,\nbada bhai ke saath.',
-                  style: AppTypography.display(
+                  style: AppTypography.header(
                     size: AppTypography.sizeXl,
                     weight: FontWeight.w800,
                     color: AppColors.onBlue,

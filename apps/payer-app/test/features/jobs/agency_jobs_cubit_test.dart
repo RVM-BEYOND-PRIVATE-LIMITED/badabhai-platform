@@ -50,6 +50,7 @@ class _ScriptedAgencyApi extends MockPayerApiClient {
     int? minExperienceYears,
     int? maxExperienceYears,
     String? neededBy,
+    String? roleKind,
     String? description,
     String? shift,
     List<String>? benefits,

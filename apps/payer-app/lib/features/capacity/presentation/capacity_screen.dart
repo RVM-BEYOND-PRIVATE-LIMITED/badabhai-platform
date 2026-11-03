@@ -115,7 +115,7 @@ class _Header extends StatelessWidget {
           const SizedBox(width: AppSpacing.s3),
           Text(
             'Hiring capacity',
-            style: AppTypography.display(
+            style: AppTypography.header(
               size: AppTypography.sizeLg,
               weight: FontWeight.w800,
             ),

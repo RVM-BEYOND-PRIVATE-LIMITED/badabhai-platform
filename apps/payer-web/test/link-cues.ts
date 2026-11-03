@@ -30,6 +30,8 @@ export function linkCues(tree: ReactNode): Map<string, string[]> {
       const labels = typeof pendingLabel === "string" ? [pendingLabel] : [];
       out.set(href, [...(out.get(href) ?? []), ...labels]);
     }
+    // Card / StatTile's `foot` slot can carry a contextual link.
+    walk((el.props as { foot?: ReactNode }).foot);
     walk(el.props.children);
   };
 

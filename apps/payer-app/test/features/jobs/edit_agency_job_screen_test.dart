@@ -62,6 +62,7 @@ class _ScriptedApi extends MockPayerApiClient {
     int? minExperienceYears,
     int? maxExperienceYears,
     String? neededBy,
+    String? roleKind,
     String? description,
     String? shift,
     List<String>? benefits,
@@ -133,7 +134,7 @@ void main() {
       await GetIt.instance.reset();
       setupLocator(apiClient: api, secureStore: InMemoryKeyValueStore());
     }
-    tester.view.physicalSize = const Size(1000, 3000);
+    tester.view.physicalSize = const Size(1000, 4000);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
 
@@ -240,6 +241,10 @@ void main() {
       await tester.pump(const Duration(milliseconds: 50));
     }
     expect(find.text('Skills this role needs'), findsOneWidget);
+    // The form is taller now that Role (card illustration) is asked; bring the
+    // chip above the sticky Save bar before tapping it.
+    await tester.ensureVisible(find.text('CNC operating'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('CNC operating'));
     await tester.pumpAndSettle();
     await save(tester);

@@ -103,7 +103,7 @@ class BbStatusView extends StatelessWidget {
             Text(
               title!,
               textAlign: TextAlign.center,
-              style: AppTypography.display(size: AppTypography.sizeMd),
+              style: AppTypography.heading(size: AppTypography.sizeMd),
             ),
             if (subtitle != null) ...<Widget>[
               const SizedBox(height: AppSpacing.s2),

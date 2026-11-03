@@ -49,8 +49,22 @@ class JobPostingChatRetryRequested extends JobPostingChatEvent {
 }
 
 /// Publish the draft through the existing job-posting create path.
+///
+/// [roleKind] is the publish-step role pick (#2490) — one of the 21 declared
+/// kinds, DISPLAY ONLY (it keys the worker card's role illustration, never a
+/// match input). Null/absent keeps the posting's `role_kind` NULL, so the card
+/// draws the generic art, exactly as before.
+///
+/// [area] is the publish-step locality (#2493), prefilled from the draft and
+/// editable. Null/absent keeps `area` NULL (city-only card).
 class JobPostingChatPublishRequested extends JobPostingChatEvent {
-  const JobPostingChatPublishRequested();
+  const JobPostingChatPublishRequested({this.roleKind, this.area});
+
+  final String? roleKind;
+  final String? area;
+
+  @override
+  List<Object?> get props => <Object?>[roleKind, area];
 }
 
 // ---------------- State ----------------
@@ -487,7 +501,8 @@ class JobPostingChatBloc
       publishOutcome: PublishOutcome.none,
     ));
     try {
-      final PublishJobResult result = await _repo.publish();
+      final PublishJobResult result =
+          await _repo.publish(roleKind: event.roleKind, area: event.area);
       emit(state.copyWith(
         publishing: false,
         publishOutcome: PublishOutcome.success,

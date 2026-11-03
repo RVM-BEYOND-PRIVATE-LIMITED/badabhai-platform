@@ -2,7 +2,8 @@
 
 import { useRef, useState, useTransition } from "react";
 import { QRCodeCanvas, QRCodeSVG } from "qrcode.react";
-import { Badge, Button, Card } from "../../../../components/ds";
+import { Icon } from "@badabhai/icons";
+import { Button, Card, Input } from "../../../../components/ds";
 import {
   browsingOrigin,
   inviteShareMessage,
@@ -14,58 +15,68 @@ import {
 import { createInviteAction } from "../dashboard/invite-actions";
 
 /**
- * PRINTABLE QR INVITE (ADR-0022) — one opaque invite link, rendered as a sheet an agency
- * can print and stick on a workshop wall.
+ * PRINTABLE QR INVITE (ADR-0022) — designr6's generator: campaign settings on the left,
+ * a live poster preview on the right.
  *
  * WHAT IS ENCODED, EXACTLY: the invite URL string and NOTHING else. No payer id, no agency
- * name, no session token, no campaign, no per-code caption. A QR is a lossless encoding of a
- * URL the agency is already sharing openly, so it adds no exposure — provided nothing else
- * rides along inside it.
+ * name, no session token, no campaign, no per-code caption. The campaign settings below are
+ * LOCAL poster copy only — they never reach the mint, the API, or the encoded value. A QR is a
+ * lossless encoding of a URL the agency is already sharing openly, so it adds no exposure
+ * provided nothing else rides along inside it.
  *
  * RENDERED CLIENT-SIDE. `qrcode.react` draws the matrix locally; no third-party QR image
- * service is ever fetched. Sending the code to api.qrserver.com (or any external renderer)
- * would hand a live bearer token to an outside party for no benefit — hence the vendored
- * library. SVG, not canvas: it prints sharply at any size.
+ * service is ever fetched. SVG, not canvas, for the paper sheet: it prints sharply at any size.
  *
- * FACELESS: an invite code identifies nobody. The sheet carries no worker reference, no
- * counts, and not even the agency's own name — a wall poster is public, and the printed
- * sheet must stay meaningless to anyone who photographs it. If an agency wants to note who a
- * particular sheet is for, that note belongs on their own paper, never on the platform.
- *
- * NEUTRAL FAILURE: a cap-reached mint and a transient error surface as the SAME message from
- * `createInviteAction` — no fake code is ever rendered.
+ * FACELESS. The sheet carries no worker reference, no counts, no agency name, and no editable
+ * label. Campaign fields are screened for PII before they are used as poster copy, and the
+ * form only ever mints an EMPTY body.
  */
 
 const NEUTRAL_FAILURE = "Could not create a QR invite right now. Please try again shortly.";
+const DEFAULT_HEADLINE = "अपना काम पाइये — सीधे मालिक से";
+const LOCATIONS = ["Factory Gate", "Canteen & Chai Stall", "Transit Hub / Stand"];
 
 export function AgencyQrInvite() {
   const [sheet, setSheet] = useState<{ code: string; url: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
-  // The OFF-SCREEN canvas twin of the printed SVG. `QRCodeSVG` prints sharply at any size
-  // but cannot be rasterised, and a downloadable image is what an agency needs to put the
-  // code into a WhatsApp broadcast or a flyer someone else lays out. Both encode the same
-  // `sheet.url`, so the file and the paper can never disagree.
+  // Appended after the sheet/error pair the unit test seeds by source order.
+  const [campaign, setCampaign] = useState("General Worker Onboarding (NCR Hub)");
+  const [location, setLocation] = useState(LOCATIONS[0]!);
+  const [headline, setHeadline] = useState(DEFAULT_HEADLINE);
+  const [settingsError, setSettingsError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  // The OFF-SCREEN canvas twin of the printed SVG, for the downloadable PNG.
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  const PII_SHAPE = /@|\+?\d{7,}/;
+  const posterHeadline = headline.trim() !== "" ? headline : DEFAULT_HEADLINE;
 
   function handleCreate(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    setCopied(false);
+    // Local poster copy must never become a PII sink: a name/phone/email typed here would be
+    // printed on a public wall. Refuse it before anything is minted or shown.
+    if (PII_SHAPE.test(campaign) || PII_SHAPE.test(headline) || PII_SHAPE.test(location)) {
+      setSettingsError(
+        "Campaign settings must be non-PII labels — never a person's phone or email.",
+      );
+      return;
+    }
+    setSettingsError(null);
     startTransition(async () => {
-      // No campaign tag on this path: a printed sheet is the one place a "who is this for?"
-      // label gets typed, and such a label must never be stored (it would turn a cardinality
-      // into an assertion about a person).
+      // No campaign tag on this path: a printed sheet is public, and a stored "who is this
+      // for?" label would turn a cardinality into an assertion about a person.
       const res = await createInviteAction({});
       if (!res.ok) {
         setSheet(null);
         setError(res.error);
         return;
       }
-      // `process.env.NEXT_PUBLIC_SITE_URL` is referenced literally so Next inlines it into
-      // the client bundle; it is a PUBLIC value and never a secret.
+      // `process.env.NEXT_PUBLIC_SITE_URL` is a PUBLIC value, never a secret.
       const origin = shareableInviteOrigin(process.env.NEXT_PUBLIC_SITE_URL, browsingOrigin());
       if (!origin) {
-        // Never render a QR encoding a relative path — it would print an unscannable sheet.
         setSheet(null);
         setError(NEUTRAL_FAILURE);
         return;
@@ -78,14 +89,6 @@ export function AgencyQrInvite() {
     if (typeof window !== "undefined") window.print();
   }
 
-  /**
-   * Save the QR as a PNG. Rasterised from the off-screen canvas IN THE BROWSER — the image
-   * never leaves the machine, which is the same reason the QR itself is not fetched from a
-   * third-party renderer: doing either would hand a live bearer code to an outside party.
-   *
-   * `toBlob` is async; the object URL is revoked once the click has been dispatched, so a
-   * long-lived blob is not left pinned in memory.
-   */
   function downloadPng() {
     const canvas = canvasRef.current;
     if (!canvas || !sheet) return;
@@ -100,113 +103,241 @@ export function AgencyQrInvite() {
     }, "image/png");
   }
 
+  async function copy(text: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+    } catch {
+      setCopied(false);
+    }
+  }
+
   return (
-    <section className="agency-section agency-qr">
-      <Card variant="flat" className="agency-invite__note">
-        <strong>One poster, many workers.</strong> Anyone who scans this code lands on the BadaBhai
-        install page and joins themselves. The code names nobody — print it, stick it up, and hand
-        out copies freely.
+    <section className="agency-qr">
+      <Card variant="flat" className="agency-invite__note agency-qr__note">
+        <Icon name="info" />
+        <p>
+          <strong>One poster, many workers.</strong> Anyone who scans this code lands on the
+          BadaBhai install page and joins themselves. The code names nobody — print it, stick it
+          up, and hand out copies freely.
+        </p>
       </Card>
 
-      <form className="agency-invite__form" onSubmit={handleCreate}>
-        <div className="agency-invite__actions">
-          <Button type="submit" disabled={pending} loading={pending}>
-            {pending ? "Creating…" : sheet ? "Create another QR invite" : "Create a QR invite"}
-          </Button>
-          <Badge tone="success" upper>
-            Live
-          </Badge>
-        </div>
-        {/*
-          THE ONE ANNOUNCED REGION — outcomes, not just failures. The whole sheet (QR, caption,
-          printed url) and the print button render OUTSIDE the form and focus never moves, so a
-          success that is not announced here is silent to a screen reader. The announcement
-          repeats the encoded url, which is also the host check: it is spoken and shown BEFORE
-          anything reaches paper.
-        */}
-        <div aria-live="polite" className="agency-invite__status">
-          {error ? <p className="agency-invite__error">{error}</p> : null}
-          {!error && sheet ? (
-            <p className="agency-section__sub">
-              QR invite created. It encodes <span className="bb-mono">{sheet.url}</span> — check
-              that address is right, then use the &ldquo;Print this sheet&rdquo; button below.
-            </p>
-          ) : null}
-        </div>
-      </form>
+      <div className="agency-qr__grid">
+        <div className="agency-qr__main">
+          <form className="panel agency-qr__settings" onSubmit={handleCreate}>
+            <div className="panel__head">
+              <h2 className="panel__title">Campaign Settings</h2>
+              <span className="agency-protected">Live + Ready</span>
+            </div>
+            <div className="panel__body">
+              <Input
+                label="Campaign tag / title"
+                value={campaign}
+                maxLength={120}
+                onChange={(e) => {
+                  setCampaign(e.target.value);
+                  if (settingsError) setSettingsError(null);
+                }}
+              />
 
-      {sheet ? (
-        <>
-          {/*
-            THE PRINTABLE SHEET. Everything inside is meant for paper: the QR, one line of
-            instruction, and the same link in type so a worker whose camera fails can enter
-            it by hand. Nothing identifying — no agency name, no counts, no worker reference.
-          */}
+              <div className="agency-qr__field">
+                <span className="agency-qr__label">Primary target location</span>
+                <div className="agency-qr__segments">
+                  {LOCATIONS.map((loc) => (
+                    <button
+                      key={loc}
+                      type="button"
+                      className={
+                        location === loc
+                          ? "agency-qr__segment agency-qr__segment--active"
+                          : "agency-qr__segment"
+                      }
+                      aria-pressed={location === loc}
+                      onClick={() => setLocation(loc)}
+                    >
+                      {loc}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <Input
+                label="On-poster headline (bilingual)"
+                value={headline}
+                maxLength={160}
+                hint="A short line printed on the poster. Never a person's name, phone, or email."
+                onChange={(e) => {
+                  setHeadline(e.target.value);
+                  if (settingsError) setSettingsError(null);
+                }}
+              />
+              {settingsError ? (
+                <p className="bb-field__error" role="alert">
+                  {settingsError}
+                </p>
+              ) : null}
+            </div>
+          </form>
+
+          <section className="panel agency-qr__urlcard">
+            <div className="panel__head">
+              <h2 className="panel__title">Unique Encoded URL</h2>
+              {sheet ? <span className="agency-protected">Verified SSL Link</span> : null}
+            </div>
+            <div className="panel__body">
+              <div className="agency-qr__urlrow">
+                <code className="bb-mono">
+                  {sheet ? sheet.url : "Create an invite to generate your unique link"}
+                </code>
+                {sheet ? (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    iconLeft="copy"
+                    onClick={() => copy(sheet.url)}
+                  >
+                    {copied ? "Copied" : "Copy"}
+                  </Button>
+                ) : null}
+              </div>
+            </div>
+          </section>
+
+          <div className="agency-qr__generate">
+            <Button
+              type="button"
+              variant="primary"
+              block
+              disabled={pending}
+              loading={pending}
+              iconLeft="qr-code"
+              onClick={handleCreate}
+            >
+              {pending ? "Creating…" : sheet ? "Generate Another QR Invite" : "Generate QR Invite"}
+            </Button>
+            <p className="agency-qr__subnote">
+              Generating a new code creates a separate tracking code in your candidate hub.
+            </p>
+          </div>
+
+          <div aria-live="polite" className="agency-invite__status">
+            {error ? <p className="agency-invite__error">{error}</p> : null}
+            {!error && sheet ? (
+              <p className="agency-section__sub">
+                QR invite created. It encodes <span className="bb-mono">{sheet.url}</span> — check
+                that address is right, then use the &ldquo;Print this sheet&rdquo; button below.
+              </p>
+            ) : null}
+          </div>
+        </div>
+
+        <aside className="agency-qr__rail">
+          <div className="agency-qr__railhead">
+            <span>Live Poster Preview</span>
+            <span className="agency-qr__livedot">
+              <span aria-hidden="true" /> Live
+            </span>
+          </div>
+
           <div className="agency-qr__sheet">
             <div className="agency-qr__layout">
+              <div className="agency-qr__postertop">Badabhai Verified Desk</div>
+              <p className="agency-qr__headline">{posterHeadline}</p>
               <div className="agency-qr__frame">
-                <QRCodeSVG
-                  className="agency-qr__code"
-                  // EXACTLY the invite url — nothing appended, nothing encoded alongside.
-                  value={sheet.url}
-                  size={320}
-                  // Level Q (25% recovery): printed paper gets creased, greasy and dusty on a
-                  // shop floor, and a wall poster is scanned at an angle. M is the floor; Q is
-                  // the margin that keeps it readable after a month on the wall.
-                  level="Q"
-                  // Four modules of quiet zone — the spec minimum. Without it, scanners fail
-                  // against a dark wall or a printed border.
-                  marginSize={4}
-                  title="Scan to install BadaBhai and join"
-                />
+                {sheet ? (
+                  <QRCodeSVG
+                    className="agency-qr__code"
+                    value={sheet.url}
+                    size={240}
+                    level="Q"
+                    marginSize={4}
+                    title="Scan to install BadaBhai and join"
+                  />
+                ) : (
+                  <div className="agency-qr__placeholder" aria-hidden="true">
+                    <Icon name="qr-code" />
+                  </div>
+                )}
               </div>
               <p className="agency-qr__caption">
                 Scan to install BadaBhai — apna profile banaiye, bilkul free
               </p>
-              <p className="agency-qr__link bb-mono">{sheet.url}</p>
+              <p className="agency-qr__link bb-mono">
+                {sheet ? sheet.url : "Your unique link appears here"}
+              </p>
+              <div className="agency-qr__benefits">
+                <div>
+                  <strong>1. कमाई</strong>
+                  <span>Direct Work</span>
+                </div>
+                <div>
+                  <strong>2. सुरक्षा</strong>
+                  <span>Verified Employer</span>
+                </div>
+                <div>
+                  <strong>3. सम्मान</strong>
+                  <span>Skill Recognition</span>
+                </div>
+              </div>
+              <p className="agency-qr__authorized">
+                Authorized by: BadaBhai Verified Network
+              </p>
             </div>
           </div>
 
-          {/*
-            THE OFF-SCREEN TWIN. Same `value` as the printed SVG, rendered large so the
-            saved PNG stays sharp in a flyer someone else lays out. `display:none` keeps it
-            off both the screen and the paper; a canvas still rasterises while hidden, which
-            is what `toBlob` reads.
-          */}
-          <QRCodeCanvas
-            ref={canvasRef}
-            value={sheet.url}
-            size={1024}
-            level="Q"
-            marginSize={4}
-            style={{ display: "none" }}
-            aria-hidden="true"
-          />
-
           <div className="agency-qr__actions">
-            <Button variant="secondary" onClick={print}>
-              Print this sheet
+            <Button
+              type="button"
+              variant="secondary"
+              iconLeft="printer"
+              onClick={print}
+              disabled={!sheet}
+            >
+              Print Poster (A4/A5)
             </Button>
-            <Button variant="secondary" onClick={downloadPng}>
+            <Button
+              type="button"
+              variant="secondary"
+              iconLeft="download-simple"
+              onClick={downloadPng}
+              disabled={!sheet}
+            >
               Download PNG
             </Button>
-            {/*
-              A real WhatsApp hand-off, not the OS share sheet: `wa.me` opens the contact
-              picker with the message already written. A plain anchor because this is a
-              navigation, not an action — it keeps middle-click / "copy link address" /
-              keyboard activation working for free. `rel="noopener noreferrer"` because
-              `target="_blank"` otherwise hands wa.me a live `window.opener` handle.
-            */}
-            <a
-              className="bb-btn bb-btn--secondary"
-              href={whatsAppShareUrl(inviteShareMessage(sheet.url))}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Send on WhatsApp
-            </a>
+            {sheet ? (
+              <a
+                className="bb-btn bb-btn--secondary"
+                href={whatsAppShareUrl(inviteShareMessage(sheet.url))}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <Icon name="whatsapp-logo" />
+                <span>WhatsApp</span>
+              </a>
+            ) : null}
           </div>
-        </>
+          <p className="agency-qr__consent">
+            <Icon name="lock-key" /> Worker self-onboarding with OTP consent
+          </p>
+          <p className="agency-qr__pvc">Order PVC Placards (Bulk)</p>
+        </aside>
+      </div>
+
+      {/*
+        THE OFF-SCREEN TWIN. Same `value` as the printed SVG, rendered large so the saved PNG
+        stays sharp in a flyer. `display:none` keeps it off both the screen and the paper.
+      */}
+      {sheet ? (
+        <QRCodeCanvas
+          ref={canvasRef}
+          value={sheet.url}
+          size={1024}
+          level="Q"
+          marginSize={4}
+          style={{ display: "none" }}
+          aria-hidden="true"
+        />
       ) : null}
     </section>
   );

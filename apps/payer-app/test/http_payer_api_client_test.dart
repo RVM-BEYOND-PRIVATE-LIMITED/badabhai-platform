@@ -387,6 +387,107 @@ void main() {
     });
   });
 
+  // Migration 0131 — `role_kind` is DISPLAY ONLY, but it is what picks the
+  // role illustration on the worker's job card. The payer app must ask for it
+  // and send it on BOTH demand routes, like payer-web already does.
+  group('HttpPayerApiClient — role_kind on both demand routes', () {
+    test('createCompanyJob sends role_kind when picked', () async {
+      final h = _harness(<String, http.Response>{
+        'POST /payer/job-postings': _json(<String, dynamic>{
+          'id': 'job-1',
+          'roleTitle': 'CNC Turner',
+          'vacancyBand': '1',
+        }),
+      });
+      await h.api.createCompanyJob(
+        orgLabel: 'Acme',
+        roleTitle: 'CNC Turner',
+        vacancyBand: '1',
+        roleKind: 'cnc_turner',
+      );
+      final Map<String, dynamic> body =
+          jsonDecode(h.router.seen.single.body) as Map<String, dynamic>;
+      expect(body['role_kind'], 'cnc_turner');
+    });
+
+    test('updateJob sends role_kind when changed', () async {
+      final h = _harness(<String, http.Response>{
+        'PATCH /payer/job-postings/job-1': _json(<String, dynamic>{
+          'id': 'job-1',
+          'roleTitle': 'CNC Turner',
+          'vacancyBand': '1',
+        }),
+      });
+      await h.api.updateJob('job-1', roleKind: 'welder');
+      final Map<String, dynamic> body =
+          jsonDecode(h.router.seen.single.body) as Map<String, dynamic>;
+      expect(body['role_kind'], 'welder');
+    });
+
+    test('createAgencyJob sends role_kind when picked', () async {
+      final h = _harness(<String, http.Response>{
+        'POST /payer/agency/jobs': _json(<String, dynamic>{
+          'id': 'job-1',
+          'status': 'open',
+          'tradeKey': 'cnc_operator',
+          'title': 'CNC Operator',
+          'city': 'Pune',
+          'applicantsReceived': 0,
+        }),
+      });
+      await h.api.createAgencyJob(
+        tradeKey: 'cnc_operator',
+        title: 'CNC Operator',
+        city: 'Pune',
+        roleKind: 'fitter',
+      );
+      final Map<String, dynamic> body =
+          jsonDecode(h.router.seen.single.body) as Map<String, dynamic>;
+      expect(body['role_kind'], 'fitter');
+    });
+
+    test('updateAgencyJob sends role_kind when changed', () async {
+      final h = _harness(<String, http.Response>{
+        'PATCH /payer/agency/jobs/job-1': _json(<String, dynamic>{
+          'id': 'job-1',
+          'status': 'open',
+          'tradeKey': 'cnc_operator',
+          'title': 'CNC Operator',
+          'city': 'Pune',
+          'applicantsReceived': 0,
+        }),
+      });
+      await h.api.updateAgencyJob('job-1', roleKind: 'fitter');
+      final Map<String, dynamic> body =
+          jsonDecode(h.router.seen.single.body) as Map<String, dynamic>;
+      expect(body['role_kind'], 'fitter');
+    });
+
+    test('parses role_kind back from both wire shapes', () async {
+      final h = _harness(<String, http.Response>{
+        'GET /payer/job-postings/job-1': _json(<String, dynamic>{
+          'id': 'job-1',
+          'roleTitle': 'CNC Turner',
+          'vacancyBand': '1',
+          'role_kind': 'cnc_turner',
+        }),
+      });
+      final JobPosting posting = (await h.api.getJob('job-1'))!;
+      expect(posting.roleKind, 'cnc_turner');
+
+      final AgencyJobView agency = AgencyJobView.fromJson(<String, dynamic>{
+        'id': 'job-2',
+        'status': 'open',
+        'tradeKey': 'cnc_operator',
+        'title': 'CNC Operator',
+        'city': 'Pune',
+        'roleKind': 'fitter',
+        'applicantsReceived': 0,
+      });
+      expect(agency.roleKind, 'fitter');
+    });
+  });
+
   // The real client used to COMPOSE a MockPayerApiClient and delegate ~10
   // methods to it with no kUseMocks gate, so a release build served invented
   // home metrics / activity / payouts / KYC / referred rows / credit packs

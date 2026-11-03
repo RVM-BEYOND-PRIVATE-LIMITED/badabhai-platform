@@ -1,8 +1,7 @@
 import { redirect } from "next/navigation";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 import { requirePayer } from "../../../lib/auth";
-import { getCapacity } from "../../../lib/payer-api";
-import { COMPANY_POSTING_ROUTES } from "../../../lib/posting-routes";
+import { getCapacity, getCredits } from "../../../lib/payer-api";
 import { HIRING_CAPACITY_ANCHOR } from "../../../lib/billing-routes";
 import { getLiveCatalog } from "../../../lib/live-catalog";
 import {
@@ -11,18 +10,15 @@ import {
   postingPaidTiers,
 } from "../../../lib/pricing-config";
 import type { Capacity } from "../../../lib/contracts";
-import { Badge, Card, StatTile } from "../../../components/ds";
+import { Badge, Card } from "../../../components/ds";
 import { CachedPricingNote } from "../../../components/cached-pricing-note";
-import { priceFigure } from "../../../components/price-figure";
+import { formatInr } from "../../../lib/format";
 import { PageHeader } from "../../../components/page-header";
 import { PortalLink } from "../../../components/portal-link";
 import { RetryButton } from "../../../components/retry-button";
 import { CapacityPanel } from "../capacity/capacity-panel";
 
 export const dynamic = "force-dynamic";
-
-/** The per-posting table's heading — also the NAME of its scroll region (aria-labelledby). */
-const QUOTA_TABLE_HEADING_ID = "plans-quota-table-title";
 
 /**
  * Plans & capacity — a COMPANY's billing area: usage, the Hiring capacity tiers, each posting's
@@ -70,296 +66,324 @@ export default async function PlansPage() {
   const atCapacity =
     capacity !== null && capacity.activeVacancies >= capacity.activeVacancyAllowance;
 
+  let credits: number | null = null;
+  try {
+    credits = (await getCredits()).balance;
+  } catch {
+    credits = null;
+  }
+
   // `.plans-page` only NAMESPACES this screen's layout rules (the "W3-B" block in
   // globals.css) — it carries no styling of its own.
+  const allowancePct =
+    capacity !== null && capacity.activeVacancyAllowance > 0
+      ? Math.min(
+          100,
+          Math.round(
+            (capacity.activeVacancies / capacity.activeVacancyAllowance) * 100,
+          ),
+        )
+      : 0;
+
   return (
     <div className="plans-page">
       <PageHeader
         title="Plans & capacity"
         description="Your current usage, available plans, and add-ons — all in one place."
+        badge={<span className="plans-live">LIVE TIER</span>}
+        actionsSlot={
+          <span className="plans-enforced">
+            <Icon name="shield-check" /> Backend enforcement live
+          </span>
+        }
       />
 
       {!live ? <CachedPricingNote /> : null}
 
-      {/* ── Capacity overview ── */}
-      <section className="section">
-        <div className="section__head">
-          <h2 className="section__title">Your current capacity</h2>
-        </div>
-        {capacityError ? (
-          <Card>
-            <div className="state state--error">
-              <span className="state__icon">
-                <Icon name="warning-circle" />
-              </span>
-              <h3 className="state__title">Service unavailable</h3>
-              <p className="state__body">
-                We couldn&rsquo;t load your capacity right now. Nothing has changed — please
-                retry.
-              </p>
-              <div className="state__actions">
-                <RetryButton />
-              </div>
-            </div>
-          </Card>
-        ) : capacity ? (
-          <>
-            <div className="stat-row stat-row--kpi">
-              <StatTile
-                label="Active postings"
-                value={
-                  <span className="bb-mono">
-                    {capacity.activeVacancies} / {capacity.activeVacancyAllowance}
-                  </span>
-                }
-                icon="stack"
-                caption="Concurrent allowance (from the pricing config)."
-              />
-              <StatTile
-                label="Applicant quota used"
-                value={
-                  <span className="bb-mono">
-                    {capacity.applicantQuotaUsed} / {capacity.applicantQuotaTotal}
-                  </span>
-                }
-                icon={ACTION_ICON.users}
-                caption={
-                  // Slots are added per posting, on the Postings page.
-                  <PortalLink href="/postings" pendingLabel="Postings">
-                    Add applicant slots in Postings <Icon name={ACTION_ICON.next} />
-                  </PortalLink>
-                }
-              />
-            </div>
-
-            {atCapacity ? (
-              <div className="alert alert--warning">
-                <Icon name="warning" className="alert__icon" />
-                <div className="alert__text">
-                  <p className="alert__title">At capacity</p>
-                  <p className="alert__body">
-                    You are at capacity — new postings will be paused until you add capacity.
-                  </p>
-                </div>
-              </div>
-            ) : null}
-          </>
-        ) : null}
-      </section>
-
-      {/* ── Capacity tiers ── (the target of /capacity → /plans#hiring-capacity) */}
-      <section className="section anchor-target" id={HIRING_CAPACITY_ANCHOR}>
-        <div className="section__head">
-          <div className="section__text">
-            <h2 className="section__title">Hiring capacity</h2>
-            <p className="section__sub">
-              Increase how many concurrent postings you can run at once. Your active count above
-              is <strong>live from the enforcement engine</strong>.
-            </p>
-          </div>
-        </div>
-        {tiers.length === 0 ? (
-          <div className="state">
+      {capacityError ? (
+        <Card>
+          <div className="state state--error">
             <span className="state__icon">
-              <Icon name="stack" />
+              <Icon name="warning-circle" />
             </span>
-            <h3 className="state__title">No capacity tiers on offer</h3>
+            <h3 className="state__title">Service unavailable</h3>
             <p className="state__body">
-              There is nothing to buy right now — this usually means the price list is being
-              updated. Your current allowance is unaffected; check back shortly.
+              We couldn&rsquo;t load your capacity right now. Nothing has changed — please retry.
             </p>
-          </div>
-        ) : (
-          // The allowance this page already read: a tier at or below it would grant nothing
-          // (the larger allowance is kept), so the panel shows it as included. A failed read
-          // hands down null — nothing is ruled out.
-          <CapacityPanel
-            tiers={tiers}
-            currentAllowance={capacity?.activeVacancyAllowance ?? null}
-          />
-        )}
-        <div className="alert alert--info">
-          <Icon name="info" className="alert__icon" />
-          <div className="alert__text">
-            <p className="alert__title">Recorded only — nothing is blocked yet.</p>
-            <p className="alert__body">
-              Buying capacity is stored against your account; the concurrent-posting cap is not
-              yet enforced, so it does not pause or block any posting today.
-            </p>
-          </div>
-        </div>
-      </section>
-
-      {/* ── Per-posting applicant quota table ── */}
-      {capacity ? (
-        <section className="panel panel--table">
-          <div className="panel__head">
-            <div className="panel__text">
-              <h2 className="panel__title" id={QUOTA_TABLE_HEADING_ID}>
-                Applicant quota per posting
-              </h2>
-              <p className="panel__sub">
-                Your concurrent allowance and active count above are <strong>live</strong> from
-                the backend enforcement engine. The per-posting rows reflect backend-seeded
-                plans only.
-              </p>
+            <div className="state__actions">
+              <RetryButton />
             </div>
           </div>
-          <div className="panel__body">
-            {capacity.postings.length > 0 ? (
-              <div
-                className="tablewrap"
-                tabIndex={0}
-                role="region"
-                aria-labelledby={QUOTA_TABLE_HEADING_ID}
+        </Card>
+      ) : capacity ? (
+        <div className="plans-stats">
+          <section className="plans-stat">
+            <div className="plans-stat__head">
+              <span>ACTIVE POSTINGS</span>
+              <span className="plans-stat__ico">
+                <Icon name="stack" />
+              </span>
+            </div>
+            <p className="plans-stat__value bb-mono">
+              {capacity.activeVacancies} / {capacity.activeVacancyAllowance}
+            </p>
+            <p className="plans-stat__cap">allowance</p>
+            <div className="plans-stat__bar" aria-hidden="true">
+              <span style={{ width: `${allowancePct}%` }} />
+            </div>
+            <p className="plans-stat__foot">
+              Concurrent count from config <span>{allowancePct}% used</span>
+            </p>
+          </section>
+
+          <section className="plans-stat">
+            <div className="plans-stat__head">
+              <span>APPLICANT QUOTA USED</span>
+              <span className="plans-stat__ico plans-stat__ico--green">
+                <Icon name="users-three" />
+              </span>
+            </div>
+            <p className="plans-stat__value bb-mono">
+              {capacity.applicantQuotaUsed} / {capacity.applicantQuotaTotal}
+            </p>
+            <p className="plans-stat__cap">slots</p>
+            <p className="plans-stat__foot">
+              <PortalLink className="plans-stat__link" href="/postings" pendingLabel="Postings">
+                Add applicant slots in Postings <Icon name={ACTION_ICON.next} />
+              </PortalLink>
+            </p>
+          </section>
+
+          <section className="plans-stat">
+            <div className="plans-stat__head">
+              <span>AVAILABLE CREDITS</span>
+              <span className="plans-stat__ico plans-stat__ico--amber">
+                <Icon name={ACTION_ICON.credits} />
+              </span>
+            </div>
+            <p className="plans-stat__value bb-mono">{credits ?? "—"}</p>
+            <p className="plans-stat__cap">Contact credits</p>
+            <p className="plans-stat__foot">
+              1 credit = 1 contact unlock
+              <PortalLink
+                className="plans-stat__link"
+                href="/credits"
+                pendingLabel="Credits"
               >
-                <table className="table">
-                  <thead>
-                    <tr>
-                      <th>Role</th>
-                      <th>Status</th>
-                      <th>Openings</th>
-                      <th className="num">Applicants seen</th>
-                      <th className="num">Applicant quota</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {capacity.postings.map((p) => (
-                      <tr key={p.postingId}>
-                        <td>
-                          <PortalLink
-                            className="capacity-link"
-                            href={`/postings/${p.postingId}`}
-                            pendingLabel={p.roleTitle}
-                          >
-                            {p.roleTitle}
-                          </PortalLink>
-                        </td>
-                        <td>
-                          <Badge
-                            tone={
-                              p.status === "open"
-                                ? "success"
-                                : p.status === "paused"
-                                  ? "warning"
-                                  : "neutral"
-                            }
-                            upper
-                          >
-                            {p.status}
-                          </Badge>
-                        </td>
-                        <td>{p.vacancyBand}</td>
-                        <td className="num">{p.applicantsUsed}</td>
-                        <td className="num">{p.applicantQuota}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <div className="state">
-                <span className="state__icon">
-                  <Icon name={ACTION_ICON.posting} />
-                </span>
-                <h3 className="state__title">No postings yet</h3>
-                {/* The page's one "New posting" is in Posting plans below. */}
-                <p className="state__body">
-                  You haven&rsquo;t published a posting yet. Once you do, its applicant quota
-                  shows here.
-                </p>
-              </div>
-            )}
-          </div>
-        </section>
+                Recharge <Icon name={ACTION_ICON.next} />
+              </PortalLink>
+            </p>
+          </section>
+        </div>
       ) : null}
 
-      {/* ── Credit packs ── */}
-      <section className="section">
-        <div className="section__head">
-          <div className="section__text">
-            <h2 className="section__title">Credits</h2>
-            {/* No door here (F15): every member reaches Credits from the rail (Billing) and the
-                header chip, so the copy names the PAGE — never the chip, which hides when its own
-                read fails. */}
-            <p className="section__sub">
-              Buy credits on the Credits page, under Billing, to unlock worker contact details. 1
-              credit = 1 contact unlock.
-            </p>
-          </div>
-        </div>
-        {packs.length === 0 ? (
-          <div className="state">
-            <span className="state__icon">
-              <Icon name={ACTION_ICON.credits} />
-            </span>
-            <h3 className="state__title">No credit packs on offer</h3>
-            <p className="state__body">
-              There is nothing to buy right now — this usually means the price list is being
-              updated. Your existing balance is unaffected; check back shortly.
-            </p>
-          </div>
-        ) : (
-          <div className="plans-grid">
-            {packs.map((p) => (
-              <Card key={p.code} className="plan-card">
-                <div className="plan-card__head">
-                  <span className="plan-card__name">{p.code.replace(/_/g, " ")}</span>
-                </div>
-                <div className="plan-card__price bb-mono">{priceFigure(p)}</div>
-                <p className="plan-card__detail">
-                  <span className="bb-mono">{p.credits}</span> credits
+      <div className="plans-columns">
+        <div className="plans-col">
+          <section className="plans-card anchor-target" id={HIRING_CAPACITY_ANCHOR}>
+            <div className="plans-card__head">
+              <div>
+                <h2 className="plans-card__title">Hiring Capacity Upgrades</h2>
+                <p className="plans-card__sub">
+                  Increase how many concurrent postings you can run at once.
                 </p>
-              </Card>
-            ))}
-          </div>
-        )}
-      </section>
-
-      {/* ── Posting plans ── */}
-      <section className="section">
-        <div className="section__head">
-          <div className="section__text">
-            <h2 className="section__title">Posting plans</h2>
-            <p className="section__sub">Postings are free through launch.</p>
-          </div>
-          {/* The page's ONE "New posting" (the plan cards used to carry one each). */}
-          <div className="section__actions">
-            <PortalLink
-              className="bb-btn bb-btn--secondary"
-              href={COMPANY_POSTING_ROUTES.create}
-              pendingLabel="New posting"
-            >
-              <Icon name={ACTION_ICON.create} />
-              <span>New posting</span>
-            </PortalLink>
-          </div>
-        </div>
-        {postingTiers.length === 0 ? (
-          <div className="state">
-            <span className="state__icon">
-              <Icon name={ACTION_ICON.posting} />
-            </span>
-            <h3 className="state__title">No posting plans on offer</h3>
-            <p className="state__body">
-              No plan is listed right now — this usually means the price list is being updated.
-              Any posting you have already published stays live; check back shortly.
-            </p>
-          </div>
-        ) : (
-          <div className="plans-grid">
-            {postingTiers.map((t) => (
-              <Card key={t.code} className="plan-card">
-                <div className="plan-card__head">
-                  <span className="plan-card__name">{t.code.replace(/_/g, " ")}</span>
+              </div>
+              <span className="plans-pill plans-pill--green">Realtime Auto-scaling</span>
+            </div>
+            <div className="plans-card__body">
+              {tiers.length === 0 ? (
+                <div className="state">
+                  <span className="state__icon">
+                    <Icon name="stack" />
+                  </span>
+                  <h3 className="state__title">No capacity tiers on offer</h3>
+                  <p className="state__body">
+                    There is nothing to buy right now — your current allowance is unaffected.
+                  </p>
                 </div>
-                <div className="plan-card__price bb-mono">Free</div>
-                <p className="plan-card__detail">Valid for {t.validityDays} days</p>
-              </Card>
-            ))}
-          </div>
-        )}
-      </section>
+              ) : (
+                <CapacityPanel
+                  tiers={tiers}
+                  currentAllowance={capacity?.activeVacancyAllowance ?? null}
+                />
+              )}
+              {atCapacity ? (
+                <div className="alert alert--warning">
+                  <Icon name="warning" className="alert__icon" />
+                  <div className="alert__text">
+                    <p className="alert__title">At capacity</p>
+                    <p className="alert__body">
+                      You are at capacity — new postings will be paused until you add capacity.
+                    </p>
+                  </div>
+                </div>
+              ) : null}
+              <div className="plans-note">
+                <Icon name="info" />
+                <p>
+                  <strong>Recorded only — nothing is blocked yet.</strong> Buying capacity is
+                  stored against your account; the concurrent-posting cap is not yet enforced, so
+                  it does not pause or block any posting today.
+                </p>
+              </div>
+            </div>
+          </section>
+
+          <section className="plans-card">
+            <div className="plans-card__head">
+              <h2 className="plans-card__title">QUICK CREDIT PACKS</h2>
+              <PortalLink className="plans-card__link" href="/credits" pendingLabel="Credits">
+                View Credit Plans <Icon name={ACTION_ICON.next} />
+              </PortalLink>
+            </div>
+            <div className="plans-card__body">
+              {packs.length === 0 ? (
+                <div className="state">
+                  <span className="state__icon">
+                    <Icon name={ACTION_ICON.credits} />
+                  </span>
+                  <h3 className="state__title">No credit packs on offer</h3>
+                  <p className="state__body">
+                    There is nothing to buy right now — your existing balance is unaffected.
+                  </p>
+                </div>
+              ) : (
+                <div className="plans-quick">
+                  {packs.map((p) => (
+                    <div className="plans-quick__item" key={p.code}>
+                      <span className="plans-quick__label">PACK {p.credits}</span>
+                      <span className="plans-quick__price bb-mono">
+                        {p.listPriceInr !== undefined && p.listPriceInr > p.priceInr ? (
+                          <s className="price-was">{formatInr(p.listPriceInr)}</s>
+                        ) : null}
+                        {formatInr(p.priceInr)}
+                      </span>
+                      {p.offerEndsAt ? (
+                        <span className="price-offer">offer ends {p.offerEndsAt.slice(0, 10)}</span>
+                      ) : null}
+                      <span className="plans-quick__credits bb-mono">{p.credits} cr</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </section>
+        </div>
+
+        <aside className="plans-col plans-col--side">
+          <section className="plans-card">
+            <div className="plans-card__head">
+              <h2 className="plans-card__title">Posting Plans</h2>
+              <span className="plans-pill plans-pill--green">ACTIVE PROMO</span>
+            </div>
+            <div className="plans-card__body">
+              {postingTiers.length === 0 ? (
+                <div className="state">
+                  <span className="state__icon">
+                    <Icon name={ACTION_ICON.posting} />
+                  </span>
+                  <h3 className="state__title">No posting plans on offer</h3>
+                  <p className="state__body">
+                    No plan is listed right now — any posting you have already published stays
+                    live.
+                  </p>
+                </div>
+              ) : (
+                <div className="plans-planlist">
+                  {postingTiers.map((t) => (
+                    <div className="plans-plan" key={t.code}>
+                      <p className="plans-plan__name">{t.code.replace(/_/g, " ")}</p>
+                      <p className="plans-plan__price">Free</p>
+                      <p className="plans-plan__meta">Valid for {t.validityDays} days</p>
+                      <p className="plans-plan__enabled">
+                        <Icon name="check-circle" /> Enabled
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </section>
+
+          <section className="plans-card">
+            <div className="plans-card__head">
+              <h2 className="plans-card__title">APPLICANT QUOTA PER POSTING</h2>
+            </div>
+            <div className="plans-card__body">
+              {capacity && capacity.postings.length > 0 ? (
+                <div className="tablewrap" tabIndex={0} role="region" aria-label="Applicant quota per posting">
+                  <table className="table">
+                    <thead>
+                      <tr>
+                        <th>Role</th>
+                        <th>Status</th>
+                        <th>Openings</th>
+                        <th className="num">Applicants seen</th>
+                        <th className="num">Applicant quota</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {capacity.postings.map((p) => (
+                        <tr key={p.postingId}>
+                          <td>
+                            <PortalLink
+                              className="capacity-link"
+                              href={`/postings/${p.postingId}`}
+                              pendingLabel={p.roleTitle}
+                            >
+                              {p.roleTitle}
+                            </PortalLink>
+                          </td>
+                          <td>
+                            <Badge
+                              tone={
+                                p.status === "open"
+                                  ? "success"
+                                  : p.status === "paused"
+                                    ? "warning"
+                                    : "neutral"
+                              }
+                              upper
+                            >
+                              {p.status}
+                            </Badge>
+                          </td>
+                          <td>{p.vacancyBand}</td>
+                          <td className="num">{p.applicantsUsed}</td>
+                          <td className="num">{p.applicantQuota}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="plans-empty">
+                  <span className="plans-empty__icon">
+                    <Icon name={ACTION_ICON.posting} />
+                  </span>
+                  <h3 className="plans-empty__title">No active postings yet</h3>
+                  <p className="plans-empty__body">
+                    You haven&rsquo;t published a posting yet. Once you do, applicant quotas will
+                    appear here.
+                  </p>
+                  <PortalLink className="plans-empty__link" href="/postings/new" pendingLabel="New posting">
+                    Create your first job post <Icon name={ACTION_ICON.next} />
+                  </PortalLink>
+                </div>
+              )}
+            </div>
+          </section>
+        </aside>
+      </div>
+
+      <footer className="plans-foot">
+        <span>© 2026 BadaBhai for Business. All rights reserved.</span>
+        <span className="plans-foot__links">
+          <span>Billing Documentation</span>
+          <span>Usage Policies</span>
+          <span>Contact Support</span>
+        </span>
+      </footer>
     </div>
   );
+
 }

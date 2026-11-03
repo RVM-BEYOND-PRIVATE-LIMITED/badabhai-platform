@@ -81,6 +81,7 @@ abstract class PayerApiClient {
     int? maxExperienceYears,
     String? shift,
     String? neededBy,
+    String? roleKind,
     List<String>? benefits,
     List<String>? requirements,
   });
@@ -128,6 +129,7 @@ abstract class PayerApiClient {
     int? maxExperienceYears,
     String? shift,
     String? neededBy,
+    String? roleKind,
     List<String>? benefits,
     List<String>? requirements,
     List<JobPostingClearField>? clear,
@@ -234,15 +236,27 @@ abstract class PayerApiClient {
   );
 
   /// Publish the session's draft as a real posting
-  /// (`POST /payer/job-posting-chat/sessions/:id/publish`, EMPTY body — the
-  /// draft already lives server-side and the org name is auto-filled there).
+  /// (`POST /payer/job-posting-chat/sessions/:id/publish` — the draft already
+  /// lives server-side and the org name is auto-filled there).
   /// The server validates the stored draft against the SAME
   /// `PayerCreateJobPostingSchema` the manual form uses and calls the SAME
   /// `createForPayer`. Returns a [PublishJobResult] carrying the created
   /// posting's id plus any `unmapped_fields` the draft could not fold onto the
   /// structured posting. A 400 (draft still incomplete) / 409 (already
   /// published) surfaces as [PayerApiException].
-  Future<PublishJobResult> publishJobPostingChatSession(String sessionId);
+  ///
+  /// [roleKind] (#2490) is the optional publish-step role pick — the same
+  /// closed 21-value set the manual form sends, display only (it keys the worker
+  /// card's role illustration, never a match input). Absent stores NULL.
+  ///
+  /// [area] (#2493) is the optional publish-step locality. The interview usually
+  /// fills the draft, but this body value wins over it. Absent stores NULL, so
+  /// the worker card shows the city alone.
+  Future<PublishJobResult> publishJobPostingChatSession(
+    String sessionId, {
+    String? roleKind,
+    String? area,
+  });
 
   /// The unlock ledger (most-recent first).
   Future<List<LedgerEntry>> fetchLedger();
@@ -322,6 +336,7 @@ abstract class PayerApiClient {
     int? minExperienceYears,
     int? maxExperienceYears,
     String? neededBy,
+    String? roleKind,
     String? description,
     String? shift,
     List<String>? benefits,
@@ -367,6 +382,7 @@ abstract class PayerApiClient {
     int? minExperienceYears,
     int? maxExperienceYears,
     String? neededBy,
+    String? roleKind,
     String? description,
     String? shift,
     List<String>? benefits,

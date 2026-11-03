@@ -58,7 +58,7 @@ class _UnlockDialog extends StatelessWidget {
             children: <Widget>[
               Text(
                 'Unlock this candidate?',
-                style: AppTypography.display(size: AppTypography.sizeLg),
+                style: AppTypography.heading(size: AppTypography.sizeLg),
               ),
               const SizedBox(height: AppSpacing.s3),
               RichText(

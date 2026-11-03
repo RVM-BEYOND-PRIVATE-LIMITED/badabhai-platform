@@ -5,12 +5,12 @@ import 'app_colors.dart';
 
 /// BadaBhai typography — JUL31 "JOSH" system (LOCKED 2026-07-27).
 ///
-///  - **Kilimanjaro Sans** (#1999) — display & brand voice, the brand-kit
-///    heading face. Headlines, buttons, salaries, big moments. Bundled in
-///    `assets/fonts/`; falls back to the bundled Baloo 2 / Mukta for the ₹ and
-///    Devanagari glyphs it does not carry.
-///  - **Roboto** (+ system Noto Sans Devanagari fallback) — body & all UI.
-///    Neutral, free, renders perfectly on budget handsets and multilingual copy.
+///  - **Kilimanjaro Sans** (#1999) — the brand voice for the app header and the
+///    upper part of a screen ONLY. [header] is the one entry point; every
+///    heading below the header uses the normal UI face again.
+///  - **Roboto** (+ system Noto Sans Devanagari fallback) — body, UI and every
+///    heading below the screen header ([body] / [heading] / [eyebrow]). Neutral,
+///    free, renders perfectly on budget handsets and multilingual copy.
 ///  - **Roboto Mono** — data: wages, IDs, OTP, counts. Tabular numerals.
 ///    Self-hosted (see pubspec) so figures render identically offline.
 ///
@@ -26,43 +26,45 @@ class AppTypography {
   /// Self-hosted data font family (declared in pubspec under `fonts:`).
   static const String monoFamily = 'Roboto Mono';
 
-  /// Display family — the brand-kit heading face, **Kilimanjaro Sans** (#1999),
+  /// Header family — the brand-kit heading face, **Kilimanjaro Sans** (#1999),
   /// bundled in `assets/fonts/` and declared in pubspec. This is the exact
   /// pubspec `fonts:` family name, so it resolves off the asset with no
   /// google_fonts call.
-  static const String displayFamily = 'Kilimanjaro Sans';
+  static const String headerFamily = 'Kilimanjaro Sans';
 
-  /// Display fallbacks: the bundled Baloo 2 (which carries Devanagari), the
+  /// Header fallbacks: the bundled Baloo 2 (which carries Devanagari), the
   /// bundled Mukta, then the system Noto Sans Devanagari. Kilimanjaro Sans is
   /// Latin-display only — no ₹, no Devanagari — so those glyphs fall through to
   /// a face that carries them rather than rendering tofu.
-  static const List<String> displayFallback = <String>[
+  static const List<String> headerFallback = <String>[
     'Baloo 2',
     'Mukta',
     'Noto Sans Devanagari',
   ];
 
-  /// Body/UI family — **Kilimanjaro Sans** (#1999), the brand-kit heading face,
-  /// now also used for body copy so the font is consistent across the app
-  /// (headings + body all render from the same bundled asset). Latin-display only:
-  /// the fallback chain carries the ₹ and Devanagari glyphs the display cut lacks.
-  static const String bodyFamily = 'Kilimanjaro Sans';
+  /// Body/UI family — **Roboto** (system font on Android; Noto Sans Devanagari
+  /// fallback for regional copy). The old normal face, used below the header.
+  static const String bodyFamily = 'Roboto';
 
   /// Devanagari fallback for body copy — mirrors the JUL31 kit's `BBType`.
-  /// Kilimanjaro Sans lacks Devanagari glyphs, so Noto Sans Devanagari carries
-  /// them rather than rendering tofu.
-  static const List<String> _devanagariFallback = <String>['Noto Sans Devanagari'];
+  static const List<String> _devanagariFallback = <String>[
+    'Noto Sans Devanagari'
+  ];
 
-  /// #350 — brand binaries are bundled, so slam the network door: google_fonts
-  /// must never quietly fetch a font over HTTP at runtime.
+  /// #350 — whether the BODY binaries ship inside the APK.
   ///
-  /// #1999: [display] and [body] now both resolve off the bundled
-  /// `KilimanjaroSans` asset family name, so this flag is always `true` —
-  /// no runtime fetch, no crash on flaky links for our low-connectivity audience.
+  /// `false` (shipped): [body]/[heading]/[eyebrow] route through
+  /// `GoogleFonts.roboto`, so the real Roboto face is fetched at runtime on
+  /// first use. [header] is ALWAYS the bundled Kilimanjaro Sans and does not
+  /// consult this flag.
+  ///
+  /// `true` is the "body binaries bundled" behaviour. The pubspec bundles Baloo
+  /// 2 + Mukta + Kilimanjaro Sans, NOT Roboto — so flipping this TRUE makes
+  /// body ask for a family `'Roboto'` that is only a platform font.
   ///
   /// Mutable (not `const`) so a test can drive both sides of the seam; restore
   /// it in `tearDown`.
-  static bool bundledBrandFonts = true;
+  static bool bundledBrandFonts = false;
 
   /// #350 — the binaries are bundled, so slam the network door: google_fonts
   /// must never quietly fetch a family we already ship.
@@ -89,11 +91,14 @@ class AppTypography {
   static const double size3xl = 38;
   static const double size4xl = 48;
 
-  /// Display / headline / button style — **Kilimanjaro Sans** (#1999), the
-  /// brand-kit heading face, bundled in `assets/fonts/`. NO google_fonts call:
-  /// the face is in the APK, so this never touches the network. The fallback
-  /// chain carries the ₹ and Devanagari glyphs the display cut lacks.
-  static TextStyle display({
+  /// Header / upper-part style — **Kilimanjaro Sans** (#1999), the brand-kit
+  /// heading face, bundled in `assets/fonts/`. NO google_fonts call: the face is
+  /// in the APK, so this never touches the network. The fallback chain carries
+  /// the ₹ and Devanagari glyphs the display cut lacks.
+  ///
+  /// Use this ONLY for the app header and the upper part of a screen. Every
+  /// heading below that uses [heading] (the old normal face).
+  static TextStyle header({
     double size = sizeXl,
     FontWeight weight = FontWeight.w700,
     Color color = AppColors.textPrimary,
@@ -104,10 +109,28 @@ class AppTypography {
     // network door (a no-op on the fetch branch, where body()/eyebrow() need it).
     _hardenFontLoading();
     return TextStyle(
-      fontFamily: displayFamily,
-      fontFamilyFallback: displayFallback,
+      fontFamily: headerFamily,
+      fontFamilyFallback: headerFallback,
       fontSize: size,
       fontWeight: weight,
+      color: color,
+      height: height,
+      letterSpacing: letterSpacing,
+    );
+  }
+
+  /// Section / card heading below the screen header — the OLD normal face
+  /// (Roboto), with the display metrics so the hierarchy stays the same.
+  static TextStyle heading({
+    double size = sizeXl,
+    FontWeight weight = FontWeight.w700,
+    Color color = AppColors.textPrimary,
+    double height = 1.1,
+    double letterSpacing = -0.3,
+  }) {
+    return _ui(
+      size: size,
+      weight: weight,
       color: color,
       height: height,
       letterSpacing: letterSpacing,
@@ -122,7 +145,7 @@ class AppTypography {
     double height = 1.5,
     double letterSpacing = 0,
   }) {
-    return _mukta(
+    return _ui(
       size: size,
       weight: weight,
       color: color,
@@ -131,9 +154,9 @@ class AppTypography {
     );
   }
 
-  /// Tiny uppercase eyebrow / status-chip label — Mukta bold, wide tracking.
+  /// Tiny uppercase eyebrow / status-chip label — Roboto bold, wide tracking.
   static TextStyle eyebrow({Color color = AppColors.textBrand}) {
-    return _mukta(
+    return _ui(
       size: sizeXs,
       weight: FontWeight.w700,
       color: color,
@@ -142,10 +165,10 @@ class AppTypography {
     );
   }
 
-  /// The one Roboto resolver behind [body] + [eyebrow], so the #350 delivery
-  /// branch lives in exactly one place per family. Carries the Devanagari
-  /// fallback so regional copy renders on budget handsets.
-  static TextStyle _mukta({
+  /// The one Roboto resolver behind [body] + [heading] + [eyebrow], so the
+  /// #350 delivery branch lives in exactly one place per family. Carries the
+  /// Devanagari fallback so regional copy renders on budget handsets.
+  static TextStyle _ui({
     required double size,
     required FontWeight weight,
     required Color color,
@@ -190,18 +213,19 @@ class AppTypography {
     );
   }
 
-  /// The full Material [TextTheme] used by [ThemeData]. Display/title slots are
-  /// Anek; body/label slots are Roboto. Widgets can still override per-call.
+  /// The full Material [TextTheme] used by [ThemeData]. Display/headline and
+  /// the app-bar title are the brand header face; every slot below that uses
+  /// the old normal face. Widgets can still override per-call.
   static TextTheme textTheme() {
     return TextTheme(
-      displayLarge: display(size: size3xl, weight: FontWeight.w800),
-      displayMedium: display(size: size2xl, weight: FontWeight.w800),
-      displaySmall: display(size: sizeXl, weight: FontWeight.w700),
-      headlineLarge: display(size: size2xl, weight: FontWeight.w700),
-      headlineMedium: display(size: sizeXl, weight: FontWeight.w700),
-      headlineSmall: display(size: sizeLg, weight: FontWeight.w700),
-      titleLarge: display(size: sizeLg, weight: FontWeight.w600),
-      titleMedium: display(size: sizeMd, weight: FontWeight.w600),
+      displayLarge: header(size: size3xl, weight: FontWeight.w800),
+      displayMedium: header(size: size2xl, weight: FontWeight.w800),
+      displaySmall: header(size: sizeXl, weight: FontWeight.w700),
+      headlineLarge: header(size: size2xl, weight: FontWeight.w700),
+      headlineMedium: header(size: sizeXl, weight: FontWeight.w700),
+      headlineSmall: header(size: sizeLg, weight: FontWeight.w700),
+      titleLarge: header(size: sizeLg, weight: FontWeight.w600),
+      titleMedium: heading(size: sizeMd, weight: FontWeight.w600),
       titleSmall: body(size: sizeBase, weight: FontWeight.w600),
       bodyLarge: body(size: sizeMd),
       bodyMedium: body(size: sizeBase),

@@ -485,9 +485,9 @@ function formOf(node: ReactNode): ReactElement<{ onSubmit: (e: unknown) => void 
 }
 
 describe("AgencyJobForm — the preview rail + the shared read", () => {
-  it("is a plain form (no nested card) beside the worker card and 'Also in your posting'", () => {
+  it("is the company wizard's form beside the worker card and 'Also in your posting'", () => {
     const tree = renderWith(FULL_AGENCY);
-    expect(formOf(tree)!.props).toMatchObject({ id: "agency-job-form-new", className: "agency-job-form" });
+    expect(formOf(tree)!.props).toMatchObject({ id: "agency-job-form-new", className: "form mw-form" });
     const text = collect(tree).texts.join(" ").replace(/\s+/g, " ");
     expect(text).toContain("Chakan MIDC, Pune");
     expect(text).toContain("Trade (matching)");
@@ -578,7 +578,7 @@ describe("AgencyJobForm — the editor's lead, the refused create's reason, and 
       className: string;
       children: ReactNode[];
     }>;
-    expect(main.props.className).toBe("posting-layout__main");
+    expect(main.props.className).toBe("mw-main");
     const [lead, form] = main.props.children as ReactElement[];
     expect((lead as ReactElement<{ className: string }>).props.className).toBe("lead-probe");
     expect(form!.type).toBe("form");

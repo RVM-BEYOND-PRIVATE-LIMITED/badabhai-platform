@@ -47,6 +47,7 @@ class _ScriptedJobsApi extends MockPayerApiClient {
     List<String>? benefits,
     List<String>? requirements,
     String? neededBy,
+    String? roleKind,
     List<String>? matchSkillIds,
     List<String>? untickedRelatedIds,
     List<JobPostingClearField>? clear,

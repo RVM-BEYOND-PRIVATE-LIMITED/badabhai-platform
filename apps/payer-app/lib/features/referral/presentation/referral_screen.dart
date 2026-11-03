@@ -105,7 +105,7 @@ class _ReferralView extends StatelessWidget {
             const SizedBox(height: AppSpacing.s5),
             Text(
               'Your funnel',
-              style: AppTypography.display(
+              style: AppTypography.heading(
                 size: AppTypography.sizeBase,
                 weight: FontWeight.w700,
               ),
@@ -115,7 +115,7 @@ class _ReferralView extends StatelessWidget {
             const SizedBox(height: AppSpacing.s5),
             Text(
               'Go deeper',
-              style: AppTypography.display(
+              style: AppTypography.heading(
                 size: AppTypography.sizeBase,
                 weight: FontWeight.w700,
               ),
@@ -204,7 +204,7 @@ class _NavCard extends StatelessWidget {
               children: <Widget>[
                 Text(
                   title,
-                  style: AppTypography.display(
+                  style: AppTypography.heading(
                     size: AppTypography.sizeBase,
                     weight: FontWeight.w700,
                   ),
@@ -253,7 +253,7 @@ class _Header extends StatelessWidget {
           const SizedBox(width: AppSpacing.s3),
           Text(
             'Refer & earn',
-            style: AppTypography.display(
+            style: AppTypography.header(
               size: AppTypography.sizeLg,
               weight: FontWeight.w800,
             ),
@@ -419,7 +419,7 @@ class _Stat extends StatelessWidget {
         children: <Widget>[
           Text(
             '$value',
-            style: AppTypography.display(
+            style: AppTypography.heading(
               size: AppTypography.sizeXl,
               weight: FontWeight.w800,
             ),
