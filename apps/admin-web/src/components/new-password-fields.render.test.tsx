@@ -42,7 +42,7 @@ describe("NewPasswordFields", () => {
   it("a mismatched confirmation says so on the confirmation field", () => {
     const html = render("MyOwnPass9", "MyOwnPass8");
     // React escapes the apostrophe in text.
-    expect(html).toContain(CONFIRM_MISMATCH.replace("'", "&#x27;"));
+    expect(html).toContain(CONFIRM_MISMATCH.replaceAll("'", "&#x27;"));
     expect(inputs(html)[1]).toContain('aria-invalid="true"');
     expect(inputs(html)[0]).not.toContain('aria-invalid="true"');
   });
