@@ -610,12 +610,22 @@ class PayerDisclosure extends Equatable {
 /// message with PII. Money DENY (HTTP 200 `{status:"unavailable"}`) is NOT this
 /// — that is a typed unavailable result, not an exception.
 class PayerApiException implements Exception {
-  const PayerApiException(this.statusCode, {this.code});
+  const PayerApiException(
+    this.statusCode, {
+    this.code,
+    this.validationMessage,
+  });
 
   final int statusCode;
 
   /// Optional opaque server error code (never PII).
   final String? code;
+
+  /// The server's first FIELD-level validation message, already made
+  /// human-readable (e.g. `Job title: Must not contain a company name.`).
+  /// Null when the failure is not a per-field validation issue. The server
+  /// names the field, never the offending value, so this is safe to render.
+  final String? validationMessage;
 
   bool get isConflict => statusCode == 409;
   bool get isBadRequest => statusCode == 400;

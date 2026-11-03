@@ -289,12 +289,97 @@ void main() {
       );
     });
 
-    test('any other 400 carries no code', () async {
+    test('a validation 400 names the field and the reason', () async {
       final h = _harness();
       h.router.respond = (http.Request _) => _json(
             <String, dynamic>{
               'statusCode': 400,
-              'error': <String, dynamic>{'message': 'some other failure'},
+              'error': <String, dynamic>{
+                'message': 'Validation failed',
+                'issues': <Map<String, dynamic>>[
+                  <String, dynamic>{
+                    'path': 'title',
+                    'message': 'title must not contain a company name',
+                  },
+                ],
+              },
+            },
+            400,
+          );
+
+      await expectLater(
+        h.api.updateJob(_jobId, roleTitle: 'x'),
+        throwsA(
+          isA<PayerApiException>().having(
+            (PayerApiException e) => e.validationMessage,
+            'validationMessage',
+            'Job title: Must not contain a company name.',
+          ),
+        ),
+      );
+    });
+
+    test('a numeric ceiling 400 gets a plain field-named phrase', () async {
+      final h = _harness();
+      h.router.respond = (http.Request _) => _json(
+            <String, dynamic>{
+              'statusCode': 400,
+              'error': <String, dynamic>{
+                'message': 'Validation failed',
+                'issues': <Map<String, dynamic>>[
+                  <String, dynamic>{
+                    'path': 'pay_max',
+                    'message': 'Too big: expected number to be <=10000000',
+                  },
+                ],
+              },
+            },
+            400,
+          );
+
+      await expectLater(
+        h.api.updateJob(_jobId, roleTitle: 'x'),
+        throwsA(
+          isA<PayerApiException>().having(
+            (PayerApiException e) => e.validationMessage,
+            'validationMessage',
+            'Maximum pay: Must be 10000000 or less.',
+          ),
+        ),
+      );
+    });
+
+    test('a service 400 names its field from the message prefix', () async {
+      final h = _harness();
+      h.router.respond = (http.Request _) => _json(
+            <String, dynamic>{
+              'statusCode': 400,
+              'error': <String, dynamic>{
+                'message': 'pay_max must be >= pay_min',
+              },
+            },
+            400,
+          );
+
+      await expectLater(
+        h.api.updateJob(_jobId, roleTitle: 'x'),
+        throwsA(
+          isA<PayerApiException>().having(
+            (PayerApiException e) => e.validationMessage,
+            'validationMessage',
+            'Maximum pay: Must be >= pay_min.',
+          ),
+        ),
+      );
+    });
+
+    test('a bare validation envelope carries no code or field message',
+        () async {
+      final h = _harness();
+      h.router.respond = (http.Request _) => _json(
+            <String, dynamic>{
+              'statusCode': 400,
+              'error': <String, dynamic>{'message': 'Validation failed'},
             },
             400,
           );
@@ -304,7 +389,9 @@ void main() {
         throwsA(
           isA<PayerApiException>()
               .having((PayerApiException e) => e.isBadRequest, '400', isTrue)
-              .having((PayerApiException e) => e.code, 'code', isNull),
+              .having((PayerApiException e) => e.code, 'code', isNull)
+              .having((PayerApiException e) => e.validationMessage,
+                  'validationMessage', isNull),
         ),
       );
     });

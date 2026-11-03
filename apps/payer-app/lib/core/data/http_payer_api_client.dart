@@ -210,7 +210,13 @@ class HttpPayerApiClient implements PayerApiClient {
         .send(PayerMethod.patch, '/payer/job-postings/$id', body: body);
     // 400 no-op / 409 closed or illegal transition surface as a typed error.
     if (!res.isSuccess) {
-      throw PayerApiException(res.statusCode, code: _jobEditRejectionCode(res));
+      final ({String? code, String? validationMessage}) rejection =
+          _jobEditRejection(res);
+      throw PayerApiException(
+        res.statusCode,
+        code: rejection.code,
+        validationMessage: rejection.validationMessage,
+      );
     }
     return _jobFromRow(res.body);
   }
@@ -233,7 +239,7 @@ class HttpPayerApiClient implements PayerApiClient {
     body['clear'] = clear;
   }
 
-  /// The typed code for a failed job-edit PATCH, or null.
+  /// The typed code + field-level message for a failed job-edit PATCH.
   ///
   /// [kJobEditSetAndClearedCode] when the 400 is the server's `clear` rejection
   /// — a validation issue on the `clear` path, inside the global
@@ -248,25 +254,123 @@ class HttpPayerApiClient implements PayerApiClient {
   ///  - [kJobEditNoChangesCode] — `no effective changes to apply` (the save was a
   ///    no-op; the old client-reported "already closed" was wrong),
   ///  - [kJobEditClosedCode] — `Job is closed and cannot be edited` (terminal).
-  static String? _jobEditRejectionCode(PayerResponse res) {
-    if (res.statusCode != 400) return null;
+  ///
+  /// EVERY OTHER validation 400 carries its first issue as a human-readable
+  /// [PayerApiException.validationMessage] naming the field, so the edit screen
+  /// can say WHICH box is wrong instead of "check the details".
+  static ({String? code, String? validationMessage}) _jobEditRejection(
+    PayerResponse res,
+  ) {
+    if (res.statusCode != 400) {
+      return (code: null, validationMessage: null);
+    }
     final Object? error = res.body['error'];
     final Object? issues = error is Map ? error['issues'] : null;
     if (issues is List) {
       for (final Object? issue in issues) {
         if (issue is Map && issue['path'] == 'clear') {
-          return kJobEditSetAndClearedCode;
+          return (code: kJobEditSetAndClearedCode, validationMessage: null);
         }
+      }
+      final String? fieldMessage = _firstValidationMessage(issues);
+      if (fieldMessage != null) {
+        return (code: null, validationMessage: fieldMessage);
       }
     }
     final Object? message = error is Map ? error['message'] : res.body['message'];
     if (message is String) {
       if (message == 'no effective changes to apply') {
-        return kJobEditNoChangesCode;
+        return (code: kJobEditNoChangesCode, validationMessage: null);
       }
       if (message == 'Job is closed and cannot be edited') {
-        return kJobEditClosedCode;
+        return (code: kJobEditClosedCode, validationMessage: null);
       }
+      final String? fromMessage = _messageToFieldText(message);
+      if (fromMessage != null) {
+        return (code: null, validationMessage: fromMessage);
+      }
+    }
+    return (code: null, validationMessage: null);
+  }
+
+  /// A service-thrown 400 (cross-field order, skill cap, skill vocabulary, …) has
+  /// no `issues` list — only a message. Name its field when the message starts
+  /// with one, and otherwise show the sentence itself. Null for the two shapes we
+  /// already handle above and for the bare validation envelope.
+  static String? _messageToFieldText(String message) {
+    final String text = message.trim();
+    if (text.isEmpty || text == 'Validation failed' || text == 'Bad Request') {
+      return null;
+    }
+    final String lower = text.toLowerCase();
+    for (final MapEntry<String, String> field in _fieldLabels.entries) {
+      if (lower.startsWith('${field.key} ')) {
+        final String rest = text.substring(field.key.length + 1).trim();
+        if (rest.isEmpty) continue;
+        return '${field.value}: ${_sentence(rest)}';
+      }
+    }
+    return _sentence(text);
+  }
+
+  /// Upper-case the first letter and close the sentence, without touching an
+  /// already-finished one.
+  static String _sentence(String text) {
+    final String trimmed = text.trim();
+    if (trimmed.isEmpty) return trimmed;
+    final String capitalised =
+        trimmed[0].toUpperCase() + trimmed.substring(1);
+    return capitalised.endsWith('.') ? capitalised : '$capitalised.';
+  }
+
+  /// The friendly label for each editable job wire field, so a server issue on
+  /// `pay_max` reads as `Maximum pay: ...` rather than a bare field name.
+  static const Map<String, String> _fieldLabels = <String, String>{
+    'trade_key': 'Trade',
+    'title': 'Job title',
+    'city': 'City',
+    'area': 'Area',
+    'pay_min': 'Minimum pay',
+    'pay_max': 'Maximum pay',
+    'min_experience_years': 'Minimum experience',
+    'max_experience_years': 'Maximum experience',
+    'needed_by': 'Needed by',
+    'pay_type': 'Pay type',
+    'role_kind': 'Role',
+    'description': 'Description',
+    'shift': 'Shift',
+    'benefits': 'Benefits',
+    'requirements': 'Requirements',
+    'match_skill_ids': 'Skills',
+  };
+
+  /// Turn the server's first validation issue into a field-named sentence. The
+  /// server NEVER echoes the value, only the field and a safe reason, so this is
+  /// safe to render. Returns null when there is no usable issue.
+  static String? _firstValidationMessage(List<dynamic> issues) {
+    for (final Object? issue in issues) {
+      if (issue is! Map) continue;
+      final Object? rawMessage = issue['message'];
+      if (rawMessage is! String || rawMessage.trim().isEmpty) continue;
+      final Object? rawPath = issue['path'];
+      final String path = rawPath is String ? rawPath : '';
+      final String subject = path.split('.').last;
+      String text = rawMessage.trim();
+      // The server's field-screen messages start with the field's own subject
+      // ("title must not contain a company name"); strip it so the label is not
+      // duplicated. Numeric Zod ceilings get a plain phrase instead of raw Zod.
+      if (subject.isNotEmpty && text.toLowerCase().startsWith('$subject ')) {
+        text = text.substring(subject.length + 1).trim();
+      }
+      if (text.startsWith('Too big: expected number to be <=')) {
+        text = 'must be ${text.substring('Too big: expected number to be <='.length).trim()} or less';
+      } else if (text.startsWith('Too small: expected number to be >=')) {
+        text = 'must be ${text.substring('Too small: expected number to be >='.length).trim()} or more';
+      }
+      if (text.isEmpty) continue;
+      text = text[0].toUpperCase() + text.substring(1);
+      final String? label = _fieldLabels[path];
+      return label == null ? text : '$label: $text.';
     }
     return null;
   }
@@ -893,7 +997,13 @@ class HttpPayerApiClient implements PayerApiClient {
     final PayerResponse res =
         await _http.send(PayerMethod.patch, '/payer/agency/jobs/$id', body: body);
     if (!res.isSuccess) {
-      throw PayerApiException(res.statusCode, code: _jobEditRejectionCode(res));
+      final ({String? code, String? validationMessage}) rejection =
+          _jobEditRejection(res);
+      throw PayerApiException(
+        res.statusCode,
+        code: rejection.code,
+        validationMessage: rejection.validationMessage,
+      );
     }
     return AgencyJobView.fromJson(res.body);
   }
