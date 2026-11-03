@@ -115,6 +115,10 @@ export const TRADE_LEVEL_PACKS: Readonly<Record<string, TradeLevelPack>> = {
   // Track B #3 — the welder (CEO Launch Plan Pack v1, sheet 8). Shared labels
   // already print the trade's words (Welder / Skilled / Senior / Supervisor).
   qp_welding_trade: { skillId: "mskill_welder", levelKey: "welder_level" },
+  // Track B #4 — the conventional machinist (CEO Launch Plan Pack v1,
+  // sheet 9). No union extension: `skilled`/`senior` already confirm,
+  // helper/operator already Lower. Supervisor by rule (no confirm item).
+  qp_conventional_machining: { skillId: "mskill_conventional_machinist", levelKey: "machining_level" },
 };
 
 /** Legacy/alias spellings that name a `TradeLevel` without being one. */
@@ -371,6 +375,12 @@ export const TRADE_LEVEL_CONFIRM_ITEMS: Readonly<
   qp_welding_trade: {
     skilled: "welder_skilled_confirm",
     senior: "welder_senior_confirm",
+  },
+  // Track B #4 — the conventional confirms (CEO Launch Plan Pack v1, sheet 9).
+  // Confirmed from `skilled`: skilled, senior; supervisor by rule.
+  qp_conventional_machining: {
+    skilled: "machining_skilled_confirm",
+    senior: "machining_senior_confirm",
   },
 };
 

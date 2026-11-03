@@ -122,7 +122,27 @@ senior_programmer`; P5 crosswalk already handles). Role `levelTerms` += rung
 > Union extension: `electrician` (Lower). Alias: `panel wireman` -> 7412.0200.
 > Deviations in the @2 review_note.
 >
-> TRACK B #3 — WELDER RETAG (in progress, `feat/mw-welder-retag`).
+> TRACK B #3 — WELDER RETAG ✅ CODE DONE (`feat/mw-welder-retag`, PR #2520, merged).
+> `qp_welding_trade@2` live on production (seeded + verified post-merge):
+> Easy/Medium/Advanced tiers; 6-band experience; sheet-8 level ladder
+> (Helper/Welder/Skilled/Senior/Supervisor, mandatory; stored
+> `certified_welder` aliases to skilled) + 2 separating confirms; process is
+> a REQUIRED Medium chip (+robotic/gas-brazing/submerged); position retagged
+> Advanced (+pipe 6G); NEW certificate row; union extension `welder` (Lower)
+> only. Deviations in the @2 review_note.
+>
+> TRACK B #4 — CONVENTIONAL MACHINIST RETAG (in progress,
+> `feat/mw-conventional-retag`). `qp_conventional_machining@2`: sheet-9 ladder
+> (Helper/Operator/Skilled/Senior/Supervisor, mandatory) + 2 separating
+> confirms (skilled + senior self/other; supervisor by rule); 6-band
+> experience; machine retagged Medium (+surface/cylindrical grinders,
+> hacksaw/bandsaw); NEW CNC-crossover row (Medium, stored only — no new
+> static pairs per #2022); operations retagged Advanced (+taper/keyway/gear/
+> grinding; threading relabel); materials unified to Turner set (EN8/EN31
+> split retired, hard); instrument/drawing rows retagged Advanced; tolerance
+> +0.005/H7 chip; NEW work-type row (Advanced); hard rows gated years OR
+> rung. No union extension (`skilled`/`senior` already confirm). Deviations
+> in the @2 review_note.
 > `qp_welding_trade@2`: sheet-8 ladder (Helper/Welder/Skilled/Senior/
 > Supervisor, mandatory; stored `certified_welder` aliases to skilled) + 2
 > separating confirms (skilled + senior self/other; supervisor by rule);

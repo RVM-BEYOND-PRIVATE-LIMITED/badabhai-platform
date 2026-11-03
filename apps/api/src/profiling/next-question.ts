@@ -248,13 +248,15 @@ const EASY_REQUIRED_UNIVERSAL_KEYS: Readonly<Record<string, readonly string[]>> 
   qp_fitter: ["primary_trade", "current_city", "availability"],
   qp_industrial_electrician: ["primary_trade", "current_city", "availability"],
   qp_welding_trade: ["primary_trade", "current_city", "availability"],
+  qp_conventional_machining: ["primary_trade", "current_city", "availability"],
 };
 
 const TRADE_REQUIRED_KEYS: Readonly<Record<string, readonly string[]>> = {
   // CEO Launch Pack v1 (RULED 2026-11-02): Turner Easy Q2–Q3 (Track A #1),
   // VMC Easy Q2–Q3 (Track A #2), CAM Easy Q2–Q3 (Track A #3), 3D Easy Q2–Q3
   // (Track A #4), 2D Easy Q2–Q3 (Track A #5), Fitter Easy Q2–Q3 (Track B #1),
-  // Electrician Easy Q2–Q3 (Track B #2). Machine/software/controller moved to Medium (Q6–Q7) — asked, never required.
+  // Electrician Easy Q2–Q3 (Track B #2), Conventional Easy Q2–Q3 (Track B #4).
+  // Machine/software/controller moved to Medium (Q6–Q7) — asked, never required.
   // The two process trades keep their required Medium chip: grinding's
   // controller, the welder's process (sheet 8, Rules Q14).
   qp_cnc_turning: ["turning_experience", "turning_level"],
@@ -266,6 +268,7 @@ const TRADE_REQUIRED_KEYS: Readonly<Record<string, readonly string[]>> = {
   qp_industrial_electrician: ["electrical_experience", "electrician_level"],
   // Track B #3 — welding_process is REQUIRED in Medium.
   qp_welding_trade: ["welding_experience", "welder_level", "welding_process"],
+  qp_conventional_machining: ["machining_experience", "machining_level"],
   qp_cnc_grinding: [
     "grinding_machine",
     "grinding_experience",
