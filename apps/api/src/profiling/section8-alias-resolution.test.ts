@@ -1241,3 +1241,75 @@ describe("§8 machine/controller rows resolve at capture; unlisted spellings re-
     },
   );
 });
+
+describe("Phase 2 #3 Press-shop — routing, rungs and capture (CEO Launch Plan Pack v1, sheet 18)", () => {
+  const cases: ReadonlyArray<
+    readonly [string | null, string | null, string | null, TradeFormKind | null]
+  > = [
+    // Occupation-tier: the trade named whole routes alone.
+    ["Manufacturing", "press operator", null, "press_operator"],
+    ["Manufacturing", "press setter", null, "press_operator"],
+    ["Manufacturing", "power press operator", null, "press_operator"],
+    // Machine-tier (new servo/transfer terms) corroborates the pin.
+    ["Manufacturing", "servo press", "fam_press_operation", "press_operator"],
+    ["Manufacturing", "transfer press", "fam_press_operation", "press_operator"],
+    // Rung words corroborate the pin, never route alone.
+    ["Manufacturing", "trainee hoon", "fam_press_operation", "press_operator"],
+    ["Manufacturing", "senior hoon", "fam_press_operation", "press_operator"],
+    ["Manufacturing", "trainee hoon", null, null],
+    // The printing press stays vetoed (2026-09-25 ruling), pin or not.
+    ["Manufacturing", "printing press operator", null, null],
+  ];
+  for (const [domain, role, family, expected] of cases) {
+    it(`${JSON.stringify(role)}${family ? ` + pin` : ""} → ${expected ?? "nothing"}`, () => {
+      expect(route(domain, role, family)).toBe(expected);
+    });
+  }
+
+  // The sheet-18 ladder. The first chip reads "Helper/Trainee" and stores
+  // `trainee`; @1's `helper` lives on frozen.
+  const pressLevel2 = loadItem("qp_press_operation@2.json", "press_level");
+  it.each([
+    ["Helper/Trainee", "trainee"],
+    ["Helper", "trainee"],
+    ["trainee hoon", "trainee"],
+    ["Operator", "operator"],
+    ["Setter", "setter"],
+    ["setter hoon", "setter"],
+    ["Senior / line leader", "senior"],
+    ["senior hoon", "senior"],
+    ["line leader", "senior"],
+    ["Supervisor", "supervisor"],
+  ])("press_level@2: %s → %s", (text, expected) => {
+    expect(matchOptions(pressLevel2 as never, text as string)).toEqual([expected]);
+  });
+
+  // The new press-type/tonnage/die/safety/setting chips and the confirm
+  // resolve at capture; the relabelled mechanical chip takes both words.
+  it.each([
+    ["qp_press_operation@2.json", "press_machine", "Mechanical / power press", "mechanical_power_press"],
+    ["qp_press_operation@2.json", "press_machine", "power press", "mechanical_power_press"],
+    ["qp_press_operation@2.json", "press_machine", "Servo press", "servo_press"],
+    ["qp_press_operation@2.json", "press_machine", "Progressive line / coil feeder", "progressive_line"],
+    ["qp_press_operation@2.json", "press_machine", "coil feeder", "progressive_line"],
+    ["qp_press_operation@2.json", "press_machine", "Transfer press", "transfer_press"],
+    ["qp_press_operation@2.json", "press_machine", "Tandem line", "tandem_line"],
+    ["qp_press_operation@2.json", "press_tonnage", "100 ton tak", "upto_hundred"],
+    ["qp_press_operation@2.json", "press_tonnage", "100 se 250 ton", "hundred_to_twofifty"],
+    ["qp_press_operation@2.json", "press_tonnage", "250 se 630 ton", "twofifty_to_sixthirty"],
+    ["qp_press_operation@2.json", "press_tonnage", "630 ton se zyada", "over_sixthirty"],
+    ["qp_press_operation@2.json", "press_die_type", "Fine blanking", "fine_blanking"],
+    ["qp_press_operation@2.json", "press_safety", "PPE, gloves aur safety shoes", "ppe"],
+    ["qp_press_operation@2.json", "press_setting", "Coil handling / decoiler", "coil_handling"],
+    ["qp_press_operation@2.json", "press_setting", "decoiler", "coil_handling"],
+    ["qp_press_operation@2.json", "press_setting_confirm", "Haan, khud karta hoon", "self"],
+    ["qp_press_operation@2.json", "press_setting_confirm", "Nahi, koi aur karta hai", "other"],
+  ] as ReadonlyArray<readonly [string, string, string, string | null]>)(
+    "%s %s: %s → %s",
+    (packFile, questionKey, text, expected) => {
+      expect(capturedOption(packFile, questionKey, text)).toEqual(
+        expected === null ? [] : [expected],
+      );
+    },
+  );
+});

@@ -19,7 +19,7 @@ import {
  * alias spelling lands on the canonical key, and null prices Lower.
  */
 describe("trade-level crosswalk", () => {
-  it("covers the four v1 trades plus the CAD trades, the fitter, the electrician, the welder, the conventional machinist, the sheet-metal operator, the assembly technician, the QC inspector and the tool & die maker, each with its skill and level key", () => {
+  it("covers the four v1 trades plus the CAD trades, the fitter, the electrician, the welder, the conventional machinist, the sheet-metal operator, the assembly technician, the QC inspector, the tool & die maker and the press-shop operator, each with its skill and level key", () => {
     expect(TRADE_LEVEL_PACKS).toEqual({
       qp_cnc_turning: { skillId: "mskill_cnc_turner", levelKey: "turning_level" },
       qp_vmc_milling: { skillId: "mskill_vmc_operator", levelKey: "milling_level" },
@@ -45,6 +45,7 @@ describe("trade-level crosswalk", () => {
       qp_assembly_line: { skillId: "mskill_assembly_line_worker", levelKey: "assembly_level" },
       qp_quality_inspection: { skillId: "mskill_quality_inspector", levelKey: "inspection_level" },
       qp_tool_die_making: { skillId: "mskill_tool_die_maker", levelKey: "toolroom_level" },
+      qp_press_operation: { skillId: "mskill_press_operator", levelKey: "press_level" },
     });
   });
 
@@ -946,6 +947,37 @@ describe("trade-level crosswalk", () => {
     expect(grinding("supervisor", asked("other"))).toEqual([
       { skillId: "mskill_cnc_grinding_operator", tradeLevel: "supervisor", levelConfirmed: true },
     ]);
+  });
+
+  it("asks the one press confirm of setter and senior (CEO Launch Plan Pack v1, Phase 2 #3)", () => {
+    const press = (level: string, confirm: { attributeKey: string; value: unknown } | null) =>
+      tradeLevelEntriesForPackAnswers(
+        "qp_press_operation@2",
+        confirm === null
+          ? [{ attributeKey: "press_level", value: level }]
+          : [{ attributeKey: "press_level", value: level }, confirm],
+      );
+    const asked = (value: string) => ({ attributeKey: "press_setting_confirm", value });
+    const row = (tradeLevel: string, levelConfirmed: boolean) => [
+      { skillId: "mskill_press_operator", tradeLevel, levelConfirmed },
+    ];
+    // The pack is new to the crosswalk: @1 answers (helper/operator/setter)
+    // now earn a row, by the rung rule — setter+ confirmed, below not.
+    expect(press("helper", null)).toEqual(row("helper", false));
+    expect(press("trainee", null)).toEqual(row("trainee", false));
+    expect(press("operator", null)).toEqual(row("operator", false));
+    expect(press("setter", null)).toEqual(row("setter", true));
+    expect(press("senior", null)).toEqual(row("senior", true));
+    // The one question settles both rungs: self confirms, other disconfirms.
+    expect(press("setter", asked("self"))).toEqual(row("setter", true));
+    expect(press("setter", asked("other"))).toEqual(row("setter", false));
+    expect(press("senior", asked("self"))).toEqual(row("senior", true));
+    expect(press("senior", asked("other"))).toEqual(row("senior", false));
+    // Supervisor: no confirm item, rung rule (confirmed).
+    expect(press("supervisor", asked("other"))).toEqual(row("supervisor", true));
+    // The shared crosswalk labels print the sheet's words.
+    expect(tradeLevelLabelFor("qp_press_operation", "senior")).toBe("Senior");
+    expect(tradeLevelLabelFor("qp_press_operation", "trainee")).toBe("Trainee");
   });
 
   it("prints the 2D trade's own rung words (CEO Launch Plan Pack v1, Track A #5)", () => {

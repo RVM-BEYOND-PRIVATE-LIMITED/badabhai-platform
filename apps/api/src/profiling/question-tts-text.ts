@@ -793,6 +793,12 @@ const QUESTION_TTS_TEXT: Readonly<Record<string, string>> = {
   "Press part ki kaunsi kharabi aap sudhaar lete hain?":
     "प्रेस पार्ट की कौनसी खराबी आप सुधार लेते हैं?",
   "Press ki kaunsi dekhbhaal khud karte hain?": "प्रेस की कौनसी देखभाल खुद करते हैं?",
+  // qp_press_operation@2 (Phase 2 #3) — the new level retry and the one
+  // separating confirm (asked of setter and senior). Every other @2 prompt
+  // and retry is @1's verbatim, so its twin is above.
+  "Helper, operator, setter, senior ya supervisor hain?":
+    "हेल्पर, ऑपरेटर, सेटर, सीनियर या सुपरवाइज़र हैं?",
+  "Die setting aur shut height aap karte ho?": "डाई सेटिंग और शट हाइट आप करते हो?",
   // qp_assembly_line@1 — Batch 2 part two. The drawing prompt and the three fresher items'
   // prompts and retries are the welder's verbatim and reuse its twins above, so they are not
   // repeated here.
@@ -1403,6 +1409,10 @@ const WHY_TTS_TEXT: Readonly<Record<string, string>> = {
     "हर डाई का काम अलग होता है, इससे सही नौकरी मिलती है।",
   "Kharabi sudhaarne wale setter ki shop par zaroorat rehti hai.":
     "खराबी सुधारने वाले सेटर की शॉप पर ज़रूरत रहती है।",
+  // qp_press_operation@2 (Phase 2 #3) — the separating confirm's why. Filed
+  // HERE, not in the question table: `composeClarify` scans only this table.
+  "Die setting khud karne wale setter ko alag kaam milta hai.":
+    "डाई सेटिंग खुद करने वाले सेटर को अलग काम मिलता है।",
   // qp_assembly_line@1 — why-texts. Eight more (tenure, level, drawing, sector, joining and the
   // three fresher ones) are shared verbatim with the welder's and sheet metal packs and already
   // twinned above.

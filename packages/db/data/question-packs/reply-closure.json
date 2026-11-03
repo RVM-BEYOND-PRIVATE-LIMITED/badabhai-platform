@@ -1,12 +1,12 @@
 {
   "schema_version": 1,
-  "clip_count": 1428,
+  "clip_count": 1433,
   "producers": {
-    "retry": 119,
-    "clarify": 519,
-    "prompt": 373,
+    "retry": 120,
+    "clarify": 521,
+    "prompt": 374,
     "constant": 97,
-    "why": 320
+    "why": 321
   },
   "clips": [
     {
@@ -28,6 +28,11 @@
       "id": "0041ab33ca94f38c",
       "text": "Theek hai, hata diya.",
       "producer": "constant"
+    },
+    {
+      "id": "0087bdc1c5fff79d",
+      "text": "Die setting khud karne wale setter ko alag kaam milta hai. Die setting aur shut height aap karte ho?",
+      "producer": "clarify"
     },
     {
       "id": "00e3bf3111a7ee05",
@@ -2245,6 +2250,11 @@
       "producer": "clarify"
     },
     {
+      "id": "508f1b37b705c3d3",
+      "text": "Die setting khud karne wale setter ko alag kaam milta hai.",
+      "producer": "why"
+    },
+    {
       "id": "50acfc50ab1be732",
       "text": "Aap mechanical, civil ya electrical, kis line me kaam karte hain?",
       "producer": "prompt"
@@ -2728,6 +2738,11 @@
       "id": "5ee0f540f048656b",
       "text": "Lagbhag kitne saal assembly line par kaam kiya hai?",
       "producer": "retry"
+    },
+    {
+      "id": "5f12216c259639a4",
+      "text": "Level se employer ko aapka darja saaf pata chalta hai. Helper, operator, setter, senior ya supervisor hain?",
+      "producer": "clarify"
     },
     {
       "id": "5f981c4c7c18d2ea",
@@ -3633,6 +3648,11 @@
       "id": "802f2335fd265242",
       "text": "Kaam ke naam se employer samajhta hai aap kya kar sakte hain.",
       "producer": "why"
+    },
+    {
+      "id": "803587ee29c114eb",
+      "text": "Die setting aur shut height aap karte ho?",
+      "producer": "prompt"
     },
     {
       "id": "806222d410a52abc",
@@ -4883,6 +4903,11 @@
       "id": "ac7f50f923750307",
       "text": "Training me chalayi hui machine bhi tajurba hai, employer ise dekhte hain. Workshop me kaunsi machine par haath aazmaya hai?",
       "producer": "clarify"
+    },
+    {
+      "id": "acab2f818480ede2",
+      "text": "Helper, operator, setter, senior ya supervisor hain?",
+      "producer": "retry"
     },
     {
       "id": "acc8d4fb4e1fd4be",

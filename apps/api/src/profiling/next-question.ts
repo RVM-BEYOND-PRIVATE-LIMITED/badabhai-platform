@@ -238,7 +238,8 @@ const TRADE_REQUIRED_KEYS: Readonly<Record<string, readonly string[]>> = {
   // Electrician Easy Q2–Q3 (Track B #2), Conventional Easy Q2–Q3 (Track B #4),
   // Sheet-metal Easy Q2–Q3 (Track B #5), Assembly Easy Q2–Q3 (Track B #6),
   // QC Easy Q2–Q3 (Track B #7), Tool-room Easy Q2–Q3 (Phase 2 #1), Grinding
-  // Easy Q2–Q3 (Phase 2 #2). Machine/software/controller moved to Medium
+  // Easy Q2–Q3 (Phase 2 #2), Press-shop Easy Q2–Q3 (Phase 2 #3; the first time
+  // this pack is a Middle-Way pack at all). Machine/software/controller moved to Medium
   // (Q6–Q7) — asked, never required. The one exception is the welder's
   // process, a required Medium chip by ruling (sheet 8, Rules Q14).
   qp_cnc_turning: ["turning_experience", "turning_level"],
@@ -256,6 +257,7 @@ const TRADE_REQUIRED_KEYS: Readonly<Record<string, readonly string[]>> = {
   qp_quality_inspection: ["inspection_experience", "inspection_level"],
   qp_tool_die_making: ["toolroom_experience", "toolroom_level"],
   qp_cnc_grinding: ["grinding_experience", "grinding_level"],
+  qp_press_operation: ["press_experience", "press_level"],
 };
 
 /** True when every required slot for this occupation pack is settled. */

@@ -927,6 +927,21 @@
 # to no role. "press operator" (21) is the retirement case above.
 {"kind":"alias","job_domain_id":"jd_nco_7223_2300","text":"power press","lang":"en"}
 {"kind":"alias","job_domain_id":"jd_nco_7223_3000","text":"stamping","lang":"en"}
+# PHASE 2 #3 (CEO Launch Plan Pack v1, sheet 18 "Words"): the press names a
+# press-shop worker uses for the trade itself. "servo press" and "mechanical
+# press" sit beside "power press" (each is no shorter, so that code's chip
+# label stays "power press"); "press setter" (already a role occupation term,
+# so it routes if it ever becomes a chip) on the Tool Setter, Press code.
+# NOT authored: "press shop" — the shortest Latin alias becomes a code's chip
+# label (pickChipLabel), so on 7211.0101 it displaced "press operator" and,
+# being a place rather than an occupation term, stopped that code routing to
+# the Press form (family-chip-labels.test.ts); "hydraulic press" (a rubber
+# compression-moulding press too — R4-a sends moulding elsewhere); "die
+# setter" (the role vetoes "die setting" as tool-room vocabulary); "press ka
+# kaam" (struck: ironing); bare "piercing".
+{"kind":"alias","job_domain_id":"jd_nco_7223_2300","text":"servo press","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2300","text":"mechanical press","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_0200","text":"press setter","lang":"en"}
 #
 # ── Assembly line — NCO 8219.0100 — item 25 ─────────────────────────────────
 # The code that already owns "assembly line" and "असेंबली". Stem of "assembly ka kaam".
