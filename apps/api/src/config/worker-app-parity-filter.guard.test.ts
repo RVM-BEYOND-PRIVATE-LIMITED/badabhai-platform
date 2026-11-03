@@ -15,12 +15,10 @@
  *      a new parity test that forgets the filter fails here, in the `node` job, which has no
  *      path filter of its own;
  *   2. that filter actually triggers the `worker-app` gate;
- *   3. `worker-app-apk` still requires the app's OWN filter, so a server-only change gates
- *      the tests without publishing a byte-identical APK Release;
- *   4. a `<dir>/**` entry — a shared DATA directory rather than one server file (the question
+ *   3. a `<dir>/**` entry — a shared DATA directory rather than one server file (the question
  *      packs, read by `trade_form_topics_coverage_test`) — names a directory that exists AND
  *      that a worker-app test actually reads, so the filter cannot collect dead globs;
- *   5. the other direction: every shared path a worker-app test reads (`'../../…'`) is
+ *   4. the other direction: every shared path a worker-app test reads (`'../../…'`) is
  *      covered by the filter or written down in `KNOWN_UNFILTERED_READS` — so dropping the
  *      question-packs entry, or a new test reading shared data unlisted, fails here.
  */
@@ -214,12 +212,5 @@ describe("TD144 — the worker-app parity filter", () => {
     expect(jobIf(CI, "worker-app")).toBe(
       "needs.changes.outputs.worker-app == 'true' || needs.changes.outputs.worker-app-parity == 'true'",
     );
-  });
-
-  it("does not publish an APK on its own: worker-app-apk still requires the app's filter", () => {
-    const apk = jobIf(CI, "worker-app-apk");
-    expect(apk).toContain("needs.worker-app.result == 'success'");
-    expect(apk).toContain("needs.changes.outputs.worker-app == 'true'");
-    expect(apk).not.toContain("worker-app-parity");
   });
 });

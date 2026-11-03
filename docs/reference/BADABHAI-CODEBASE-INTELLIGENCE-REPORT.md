@@ -279,12 +279,14 @@ services:
 5. E2E tests (real Postgres + Redis)
 6. Flutter worker-app analyze/test
 7. Flutter payer-app analyze/test
-8. Build + publish release APKs
-9. Semgrep SAST scanning
-10. Dependency audit
-11. CI aggregator gate (branch protection)
-12. Docker image build + push to ghcr.io
-13. SSH deploy to AWS Lightsail
+8. Semgrep SAST scanning
+9. Dependency audit
+10. CI aggregator gate (branch protection)
+11. Docker image build + push to ghcr.io
+12. SSH deploy to AWS Lightsail
+
+CI builds no APK. The worker-app and payer-app build + release APK jobs were removed on
+2026-11-03 to cut runner minutes; test builds come from the mobile owner.
 
 ---
 
