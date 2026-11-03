@@ -712,6 +712,15 @@ const QUESTION_TTS_TEXT: Readonly<Record<string, string>> = {
   "Press brake ki kaunsi setting khud karte hain?": "प्रेस ब्रेक की कौनसी सेटिंग खुद करते हैं?",
   "Flat pattern ka hisaab kaise nikaalte hain?": "फ्लैट पैटर्न का हिसाब कैसे निकालते हैं?",
   "Cutting aur bending ke alawa kaunsa kaam karte hain?": "कटिंग और बेंडिंग के अलावा कौनसा काम करते हैं?",
+  // --- qp_sheet_metal_fab@2 (Track B #5) — separating confirms + product +
+  // extra work. The level prompt/why/retry reuse the twins above verbatim
+  // (lines 250/1131 and the conventional retry — identical ladder words).
+  "Drawing se bend sequence / nesting khud set karte ho, ya set kiya hua chalate ho?":
+    "ड्राइंग से बेंड सीक्वेंस / नेस्टिंग खुद सेट करते हो, या सेट किया हुआ चलाते हो?",
+  "Nesting / press-brake program khud banate ho?":
+    "नेस्टिंग / प्रेस-ब्रेक प्रोग्राम खुद बनाते हो?",
+  "Kaunsa product banate ho?": "कौनसा प्रोडक्ट बनाते हो?",
+  "Cutting-bending ke alawa kaunsa kaam karte ho?": "कटिंग-बेंडिंग के अलावा कौनसा काम करते हो?",
   // qp_industrial_electrician@1 — Batch 2 part two. Four prompts reuse shipped twins and are not
   // repeated here: the work-type, voltage and licence asks are qp_electrical's own wording, and
   // the drawing ask is the welder's; the three fresher prompts are the welder's verbatim.
@@ -1304,6 +1313,17 @@ const WHY_TTS_TEXT: Readonly<Record<string, string>> = {
     "डेवलपमेंट का हिसाब जानने वाले से गलती कम होती है।",
   "Poora kaam jaanne wale ko shop me aage rakha jaata hai.":
     "पूरा काम जानने वाले को शॉप में आगे रखा जाता है।",
+  // --- qp_sheet_metal_fab@2 (Track B #5) — the separating-confirm, product
+  // and extra-work whys. Filed HERE, not in the question table:
+  // `composeClarify` scans only this table for the clarify prefix (R10 §2.6).
+  "Khud nesting set karne wale skilled operator ko alag kaam milta hai.":
+    "खुद नेस्टिंग सेट करने वाले स्किल्ड ऑपरेटर को अलग काम मिलता है।",
+  "Khud program banane wale senior ko alag zimmedari milti hai.":
+    "खुद प्रोग्राम बनाने वाले सीनियर को अलग ज़िम्मेदारी मिलती है।",
+  "Product ke hisaab se sahi company milti hai.":
+    "प्रोडक्ट के हिसाब से सही कंपनी मिलती है।",
+  "Aas-paas ke kaam jaanne wale ko poori line ka kaam milta hai.":
+    "आस-पास के काम जानने वाले को पूरी लाइन का काम मिलता है।",
   // qp_industrial_electrician@1 — why-texts. Nine more are shared verbatim and already twinned
   // above: tenure, work type, equipment, level and sector (welder / sheet metal), drawing
   // (welder), voltage, licence and safety (qp_electrical / qp_lineman), and the fresher three.

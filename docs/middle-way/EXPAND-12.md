@@ -131,8 +131,7 @@ senior_programmer`; P5 crosswalk already handles). Role `levelTerms` += rung
 > Advanced (+pipe 6G); NEW certificate row; union extension `welder` (Lower)
 > only. Deviations in the @2 review_note.
 >
-> TRACK B #4 — CONVENTIONAL MACHINIST RETAG (in progress,
-> `feat/mw-conventional-retag`). `qp_conventional_machining@2`: sheet-9 ladder
+> TRACK B #4 — CONVENTIONAL MACHINIST RETAG ✅ CODE DONE (`feat/mw-conventional-retag`, PR #2521, merged). `qp_conventional_machining@2`: sheet-9 ladder
 > (Helper/Operator/Skilled/Senior/Supervisor, mandatory) + 2 separating
 > confirms (skilled + senior self/other; supervisor by rule); 6-band
 > experience; machine retagged Medium (+surface/cylindrical grinders,
@@ -178,6 +177,19 @@ senior_programmer`; P5 crosswalk already handles). Role `levelTerms` += rung
 > drawing rows retagged Advanced (+height gauge); hard rows gated years OR
 > rung. Union extension: `fitter` (Lower) + `senior_fitter` (Higher,
 > confirmed). Deviations in the @2 review_note.
+>
+> TRACK B #5 — SHEET-METAL RETAG (in progress, `feat/mw-sheetmetal-retag`).
+> `qp_sheet_metal_fab@2`: sheet-10 ladder (Helper/Operator/Skilled/Senior/
+> Supervisor, mandatory; the `Senior / Programmer` chip is the sheet's) + 2
+> separating confirms (skilled + senior self/other; supervisor by rule);
+> 6-band experience; machine retagged Medium (+CO2 laser, manual brake,
+> hand-fab); NEW product row (Medium); materials short-labels + hard;
+> thickness re-banded to sheet (<1/1-3/3-6/>6mm — old bands drop, recorded
+> cost); instrument/drawing rows retagged Advanced; nesting expanded to sheet
+> Q10 set + hard; NEW extra-work row (Advanced); hard rows gated years OR
+> rung. No union extension (`skilled`/`senior` already confirm). Aliases:
+> `laser operator` + `bending operator` (+Hi) -> 7213.0101. Deviations in
+> the @2 review_note.
 
 | #   | Trade (kind)                                      | Pack                           | Level Q today                       | Notes                                                                                                                                                                     |
 | --- | ------------------------------------------------- | ------------------------------ | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

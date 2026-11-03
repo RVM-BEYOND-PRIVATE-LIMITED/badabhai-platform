@@ -2445,12 +2445,17 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
         maxValues: 4,
         label: "Machines",
         kind: "chips",
+        // Track B #5 (@2): sheet-10 machine words; the page's longer labels
+        // give way to the sheet's chips.
         values: {
-          fibre_laser: "Fibre laser cutting",
-          cnc_press_brake: "CNC press brake",
-          turret_punch: "Turret punch",
-          shearing: "Shearing machine",
-          plasma_cutting: "Plasma cutting",
+          fibre_laser: "Fibre laser",
+          co_two_laser: "CO2 laser",
+          cnc_press_brake: "Press brake (CNC)",
+          manual_press_brake: "Press brake (manual)",
+          turret_punch: "Turret punch / CNC punch",
+          shearing: "Shearing",
+          plasma_cutting: "Plasma / waterjet",
+          hand_fab: "Hand fabrication only",
         },
       },
       {
@@ -2460,11 +2465,12 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
         maxValues: 4,
         label: "Materials",
         kind: "chips",
+        // Track B #5 (@2): sheet-10 short material words.
         values: {
-          ms_sheet: "MS sheet",
-          stainless: "Stainless steel",
-          gi_sheet: "GI sheet",
-          aluminium: "Aluminium sheet",
+          ms_sheet: "MS",
+          stainless: "SS",
+          gi_sheet: "GI",
+          aluminium: "Aluminium",
         },
       },
       {
@@ -2506,10 +2512,12 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
         kind: "fact",
         // BANDED, on the welder's plate ruling: a band prints as the page prints it. The page's
         // "· 3200 mm brake" is a machine capacity with no question behind it — a capture gap.
+        // Track B #5 (@2): re-banded to the sheet-10 bands; old bands drop, recorded cost.
         values: {
-          upto_two: "Up to 2 mm sheet",
-          upto_eight: "0.8 mm - 8 mm sheet",
-          over_eight: "8 mm sheet and above",
+          below_one: "Up to 1 mm sheet",
+          one_to_three: "1 - 3 mm sheet",
+          three_to_six: "3 - 6 mm sheet",
+          above_six: "6 mm sheet and above",
         },
       },
       {
@@ -2532,11 +2540,16 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
         kind: "fact",
         // A RECORDED DIVERGENCE: the page reads "Basic nesting on machine software · imports DXF",
         // with a down-cased second clause no closed dictionary may produce (§8); this row reads
-        // "Basic nesting on machine software · Imports DXF".
+        // "Program load & run · Imports DXF".
+        // Track B #5 (@2): expanded to the sheet-10 depth set.
         values: {
-          basic_nesting: "Basic nesting on machine software",
+          nesting_brand: "SigmaNEST / Lantek / Cypcut",
+          basic_nesting: "Program load & run",
           dxf_import: "Imports DXF",
-          bend_program: "Press brake bend programs",
+          param_setting: "Parameter setting",
+          tooling_change: "Tooling change",
+          bend_program: "Bend sequence",
+          blank_development: "Blank development",
         },
       },
       {
@@ -2554,6 +2567,36 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           hvac_ducting: "HVAC ducting",
           automotive: "Automotive parts",
           kitchen_equipment: "Kitchen equipment & furniture",
+        },
+      },
+      {
+        from: "sheet_metal_product",
+        rank: 80,
+        label: "Product",
+        kind: "fact",
+        // Track B #5 (@2): sheet-10 Q7. What the product IS, distinct from
+        // the industry rows, which name where the worker learned or worked.
+        values: {
+          panels_enclosures: "Panels / enclosures",
+          auto_parts: "Auto parts",
+          ducting_hvac: "Ducting / HVAC",
+          furniture: "Furniture",
+          structural_brackets: "Structural / brackets",
+          kitchen_ss: "Kitchen / SS products",
+        },
+      },
+      {
+        from: "sheet_metal_extra",
+        rank: 64,
+        label: "Extra work",
+        kind: "fact",
+        // Track B #5 (@2): sheet-10 Q11. Drawing reading is covered by its
+        // own row, so it is not repeated here.
+        values: {
+          welding: "Welding",
+          grinding_finish: "Grinding / finishing",
+          assembly: "Assembly",
+          powdercoat_prep: "Powder-coat prep",
         },
       },
     ],

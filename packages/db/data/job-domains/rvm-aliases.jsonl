@@ -855,6 +855,14 @@
 {"kind":"alias","job_domain_id":"jd_nco_7213_0101","text":"press brake","lang":"en"}
 # 2-token row: beats the 1-token "cutting" span that sends gas cutters to welding.
 {"kind":"alias","job_domain_id":"jd_nco_7213_0101","text":"laser cutting","lang":"en"}
+# TRACK B #5 (CEO Launch Plan Pack v1, sheet 10): the machine operators name
+# themselves after their machine, and these resolved nowhere. Pinned to the
+# role-pack code beside "laser cutting" — "nesting" stays routing-quiet (a
+# 2D-draughtsman signal too) and brand names stay out (E2 controller ruling).
+{"kind":"alias","job_domain_id":"jd_nco_7213_0101","text":"laser operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7213_0101","text":"लेजर ऑपरेटर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7213_0101","text":"bending operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7213_0101","text":"बेंडिंग ऑपरेटर","lang":"hi"}
 {"kind":"alias","job_domain_id":"jd_nco_7213_0101","text":"chadar","lang":"en"}
 {"kind":"alias","job_domain_id":"jd_nco_7213_0101","text":"fabricator","lang":"en"}
 {"kind":"alias","job_domain_id":"jd_nco_7213_0101","text":"fabrication","lang":"en"}
