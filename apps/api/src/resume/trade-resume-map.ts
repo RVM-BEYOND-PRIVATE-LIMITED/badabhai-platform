@@ -1966,15 +1966,15 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
         // the turner's controllers do — it is the hardware behind the advertised word.
         rank: 21,
         // THE HEADLINE IS THE PROCESS LIST. `toolsPhrase` caps the Verdict Line at three, so a
-        // welder who runs MIG, arc and TIG reads "Welder — Certified Welder · 8 yrs · MIG / MAG
-        // (GMAW), Arc / rod (SMAW), TIG (GTAW)". Putting the flag on `welding_equipment` instead
+        // welder who runs MIG, TIG and arc reads "Welder — Skilled · 8 yrs · MIG / CO2, TIG / Argon,
+        // Arc / stick". Putting the flag on `welding_equipment` instead
         // would lead the sheet with an inverter set, which no advertisement is written in, and
         // would go empty for a site welder who answered "Inme se koi nahi" to the equipment
         // chip — pinning the sheet's highest-ranked scan element to a row he can legitimately
         // not answer is what `headlineToolsOrFallback` then has to paper over.
         inHeadline: true,
         // §4.3's "machines max 4" applied to this trade's machine-equivalent row. The pack
-        // offers five processes; a man who genuinely runs all five prints the first four in
+        // offers eight processes; a man who genuinely runs all eight prints the first four in
         // DICTIONARY order and the headline still shows three.
         maxValues: 4,
         label: "Processes",
@@ -1983,12 +1983,17 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
         // rows here by construction, and that is a convenience, not a licence: `drawing_reading`
         // and `plate_thickness` below are keyed by values that differ from their keys, and a row
         // keyed the wrong way renders NOTHING, silently, for every worker who answered it.
+        // Track B #3 (@2): sheet-8 process set — the kept chips relabeled to the
+        // sheet's words, robotic/gas-brazing/submerged added as their own claims.
         values: {
-          mig_mag: "MIG / MAG (GMAW)",
-          arc: "Arc / rod (SMAW)",
-          tig: "TIG (GTAW)",
-          gas_cutting: "Gas cutting",
+          mig_mag: "MIG / CO2",
+          tig: "TIG / Argon",
+          arc: "Arc / stick",
           spot: "Spot welding",
+          robotic: "Robotic welding",
+          gas_cutting: "Gas cutting",
+          gas_brazing: "Gas / brazing",
+          submerged_arc: "Submerged arc",
         },
       },
       {
@@ -2049,9 +2054,12 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
         // fabrication is made of, and the exotic stock follows.
         values: {
           mild_steel: "MS",
-          stainless: "Stainless steel",
+          stainless: "SS",
           aluminium: "Aluminium",
+          // Track B #3 (@2): sheet-8 material set.
+          alloy_steel: "Alloy steel",
           cast_iron: "Cast iron",
+          copper_brass: "Copper / brass",
         },
       },
       {
@@ -2075,6 +2083,8 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           horizontal: "2G — horizontal",
           vertical: "3G — vertical",
           overhead: "4G — overhead",
+          // Track B #3 (@2): sheet-8 pipe position.
+          pipe_six_g: "6G — pipe",
         },
       },
       {
@@ -2124,6 +2134,20 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
         },
       },
       {
+        from: "welder_certificate",
+        rank: 63,
+        label: "Certificate",
+        kind: "fact",
+        // `none` ("Nahi hai") HAS NO ENTRY ON PURPOSE — the drawing row's
+        // ruling: a negative claim belongs in matching data, not on the sheet.
+        // Track B #3 (@2): sheet-8 Q11.
+        values: {
+          cert_ibr: "IBR / ASME / third-party certificate",
+          iti_welder: "ITI Welder",
+          company_test: "Company test passed",
+        },
+      },
+      {
         from: "sector_worked",
         // 8x — §4.3 `sector_tag`: "display only. Never a matching input — locked". It drops
         // first when the page runs out, which is the same rank the turner's and miller's maps
@@ -2145,8 +2169,8 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           sheet_fab: "Sheet metal fabrication",
         },
       },
-      // NINE ROWS, AND THE PACK ASKS FIFTEEN NON-FRESHER QUESTIONS. `welder_level` prints in the
-      // HEADLINE ("Welder — Certified Welder"), not in this section, so it has no row here by
+      // TEN ROWS, AND THE PACK ASKS EIGHTEEN NON-FRESHER QUESTIONS. `welder_level` prints in the
+      // HEADLINE ("Welder — Skilled"), not in this section, so it has no row here by
       // design. `joint_type`, `machine_setting`, `weld_defect` and `fabrication_work` have no row
       // because NO RATIFIED WELDER PAGE PRINTS ONE — they are matching data in
       // `worker_attributes`, and inventing a tenth and eleventh row for them would be this file
