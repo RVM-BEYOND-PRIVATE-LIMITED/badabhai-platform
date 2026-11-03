@@ -470,6 +470,27 @@ describe("§8 rung words resolve to the rung; signal phrases corroborate the tra
     expect(rungFor(sheetLevel2, text as string)).toEqual([expected]);
   });
 
+  // TRACK B #6 (@2) — the sheet-11 ladder. Old helper/operator/skilled keys
+  // live on in frozen @1 (no rung block existed then); @2 asks trainee/line
+  // operator/assembly-technician/line-leader/supervisor, and the chips capture
+  // the same way. Full chip phrases resolve; the bare rung words land through
+  // the chips (the Turner-through-Sheet-metal convention).
+  const assemblyLevel2 = loadItem("qp_assembly_line@2.json", "assembly_level");
+  it.each([
+    ["Trainee", "helper"],
+    ["trainee hoon", "helper"],
+    ["Line Operator", "operator"],
+    ["line operator hoon", "operator"],
+    ["Assembly Technician", "skilled"],
+    ["assembly technician hoon", "skilled"],
+    ["Line Leader", "senior"],
+    ["line leader hoon", "senior"],
+    ["Supervisor", "supervisor"],
+    ["supervisor hoon", "supervisor"],
+  ])("assembly_level@2: %s → %s", (text, expected) => {
+    expect(rungFor(assemblyLevel2, text as string)).toEqual([expected]);
+  });
+
   // The P4 contract, owner-approved: §8 signal phrases corroborate the family pin
   // (asserted in the routing tables above) and NEVER write a rung by themselves.
   // The rung lands when the worker taps a chip or names it. Each null below is the

@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "pack_count": 189,
+  "pack_count": 190,
   "packs": {
     "qp_ac_refrigeration@1": {
       "served_text_sha256": "d06b4ae6ca7502d3f991cdb96b4b53c04208085afa9450799c453967ac6f6b7e",
@@ -25,6 +25,10 @@
     "qp_assembly_line@1": {
       "served_text_sha256": "c46be08bccf14acc7275cada256da23b5866f520ce3803d803b1a940aa2a30eb",
       "served_text_count": 62
+    },
+    "qp_assembly_line@2": {
+      "served_text_sha256": "e6fcb96de128eb969dcc1aa5a0c3b3101543fe273e9513c02b4233e97a01c4f4",
+      "served_text_count": 76
     },
     "qp_auto_mechanic@1": {
       "served_text_sha256": "311f55097eb662e2e063e5026acb4e846b3c9d7a6f8d07c3ca5c24e71d351f48",

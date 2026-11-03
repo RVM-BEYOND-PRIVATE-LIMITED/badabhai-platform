@@ -1230,7 +1230,9 @@ export const JOB_ROLE_LABELS: Readonly<Record<TradeFormKindName, JobRoleLabel>> 
   fitter: { label: "Fitter", family: "maintenance" },
   maintenance_technician: { label: "Maintenance Technician", family: "maintenance" },
   industrial_electrician: { label: "Industrial Electrician", family: "maintenance" },
-  assembly_line_worker: { label: "Assembly Line Worker", family: "production" },
+  // Track B #6 (CEO Launch Plan Pack v1, sheet 11): display name is
+  // "Assembly Technician"; the key does not change.
+  assembly_line_worker: { label: "Assembly Technician", family: "production" },
   quality_inspector: { label: "Quality Inspector / QC", family: "production" },
   injection_moulding_operator: { label: "Injection Moulding Operator", family: "polymer" },
   mould_die_maker: { label: "Mould / Die Maker (Plastics)", family: "polymer" },

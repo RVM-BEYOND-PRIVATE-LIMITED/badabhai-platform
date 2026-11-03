@@ -256,8 +256,15 @@ const Map<String, (String, String)> _kTopics = <String, (String, String)>{
   'electrical_safety': _safety, 'motor_fault': _trouble,
   // Assembly line (qp_assembly_line)
   'assembly_experience': _experience, 'assembly_level': _level,
+  // Track B #6 (@2) — the separating confirms are level follow-ups, not
+  // craft: Experience, left out of Technical Skills.
+  'assembly_skilled_confirm': _level, 'assembly_team_confirm': _level,
   'assembly_stage': ('Assembly operations', 'Line stages'),
   'assembly_line_product': ('Assembly operations', 'Assemblies worked on'),
+  // Track B #6 (@2): the new skill/company rows walk with their true
+  // categories, like every tier-tagged key must.
+  'assembly_skill': _operations,
+  'company_type': ('Assembly operations', 'Company type'),
   'assembly_joining': ('Assembly operations', 'Joining work'),
   'assembly_takt_time': ('Assembly operations', 'Takt time'),
   'assembly_station_count': ('Assembly operations', 'Stations handled'),

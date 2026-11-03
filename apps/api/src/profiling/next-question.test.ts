@@ -870,6 +870,23 @@ describe("Middle-Way required close (P3a) — the settled slots end the intervie
     expect(decision.completionReason).toBe("required_complete");
   });
 
+  it("Assembly closes on its Easy 5 too (Track B #6) — product/tools optional", () => {
+    const lining: EnginePacks = {
+      occupation: pack("qp_assembly_line", []),
+      universal: pack("pk_universal", []),
+    };
+    const easy5 = settledAnswers([
+      "primary_trade",
+      "assembly_experience",
+      "assembly_level",
+      "current_city",
+      "availability",
+    ]);
+    const decision = nextQuestion(state({ answers: easy5 }), lining);
+    expect(decision.kind).toBe("close");
+    expect(decision.completionReason).toBe("required_complete");
+  });
+
   it("other packs still need all 8 — grinding still gates on machine + salary", () => {
     const grinding: EnginePacks = {
       occupation: pack("qp_cnc_grinding", []),

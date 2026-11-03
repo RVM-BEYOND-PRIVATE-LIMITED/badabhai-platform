@@ -2986,8 +2986,17 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
         label: "Products assembled",
         kind: "chips",
         // The page's four, in its order; the pack's fifth chip (door, dashboard and trim) prints
-        // after them.
+        // after them. Track B #6 (@2): sheet-11 segment chips lead, the v1
+        // vehicle-detail chips follow as history.
         values: {
+          auto_two_wheeler: "Auto / 2-wheeler",
+          engine_gearbox_axle: "Engine / gearbox / axle",
+          elec_switchgear: "Electrical / switchgear",
+          appliances: "Appliances",
+          electronics_ems: "Electronics / EMS",
+          machines_spm: "Machines / SPM",
+          pumps_motors: "Pumps / motors",
+          ev_battery: "EV / battery pack",
           engine_sub_assembly: "Engine sub-assembly",
           transmission: "Transmission assembly",
           seat_assembly: "Seat assembly",
@@ -3002,10 +3011,15 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
         // the ratified sheet shows — the welder's `Equipment` defect, avoided rather than repeated.
         label: "Tools used",
         kind: "chips",
+        // Track B #6 (@2): sheet-11 tool words; the kept history chips follow.
         values: {
           dc_nut_runner: "DC nut runner",
           torque_wrench: "Torque wrench",
-          pneumatic_gun: "Pneumatic gun",
+          pneumatic_gun: "Pneumatic tools",
+          hand_tools: "Hand tools",
+          press_jig: "Press / jig fixtures",
+          soldering_crimping: "Soldering / crimping",
+          test_bench: "Test bench",
           poka_yoke: "Poka-yoke fixture",
           leak_test_rig: "Leak test rig",
           go_no_go_gauge: "Go / no-go gauge",
@@ -3053,6 +3067,36 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
         values: {
           work_instruction: "Reads work instructions",
           assembly_drawing: "Reads assembly drawings and work instructions",
+        },
+      },
+      {
+        from: "assembly_skill",
+        rank: 42,
+        label: "Assembly skills",
+        kind: "ticks",
+        // Track B #6 (@2): sheet-11 Q9. Drawing reading is covered by its own
+        // row, so it is not repeated here.
+        values: {
+          testing_inspection: "Testing & inspection",
+          troubleshoot_rework: "Troubleshooting / rework",
+          line_changeover: "Line changeover",
+          kaizen_five_s: "Kaizen / 5S",
+          training_others: "Training others",
+        },
+      },
+      {
+        from: "company_type",
+        rank: 82,
+        label: "Company type",
+        kind: "fact",
+        // Track B #6 (@2): sheet-11 Q10. Whose line it is, distinct from the
+        // product rows, which name what the line makes.
+        values: {
+          oem: "OEM",
+          tier_one: "Tier-1",
+          tier_two_three: "Tier-2 / 3",
+          contract: "Contract (thekedar)",
+          own_workshop: "Own workshop",
         },
       },
       {
