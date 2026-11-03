@@ -2341,6 +2341,13 @@ describe.skipIf(!RUN)(
 
     it("disclosures: a teammate's row is stamped with the ORG; the org lists it, the outsider and `off` do not", async () => {
       const w = await worker(["profiling"]); // no employer_sharing → the deny row path (no render)
+      // 2026-11-03 — the payer route now discloses only a worker the TENANT holds a live unlock of
+      // (the all-candidates search hands out every consented worker id). The org (anchor A) holds
+      // one, granted before the worker withdrew employer_sharing — the realistic way a live grant
+      // meets a missing consent — so the request reaches the consent gate and its deny row.
+      await client.sql`
+        INSERT INTO unlocks (payer_id, worker_id, status, granted_at, expires_at)
+        VALUES (${A}::uuid, ${w}::uuid, 'granted', now(), now() + interval '14 days')`;
       expect(
         await on.disclosures.requestDisclosure(
           { payerId: B, workerId: w, jobPostingId: null },

@@ -125,6 +125,29 @@ export class ResumeDisclosureRepository {
     return findOwnedJobRef(this.db, refId, tenant);
   }
 
+  /**
+   * 2026-11-03 — does the TENANT hold a LIVE unlock of this worker? The unlock chokepoint's own
+   * definition of "live" (its idempotent-reuse branch): status `granted` or `revealed`, and an
+   * `expires_at` still in the future (a null expiry is not live). A NON-tx global-pool read by the
+   * unlock's (payer, worker) key, called BEFORE the advisory-locked transaction (deadlock rule),
+   * projecting the id only.
+   */
+  async hasLiveUnlock(tenant: TenantKey, workerId: string): Promise<boolean> {
+    const rows = await this.db
+      .select({ id: unlocks.id })
+      .from(unlocks)
+      .where(
+        and(
+          eq(unlocks.payerId, tenant),
+          eq(unlocks.workerId, workerId),
+          inArray(unlocks.status, ["granted", "revealed"]),
+          sql`${unlocks.expiresAt} > now()`,
+        ),
+      )
+      .limit(1);
+    return rows.length > 0;
+  }
+
   /** The existing disclosure row for (tenant, worker, posting), or undefined. Tx-scoped. */
   async findByPayerWorkerPosting(
     tx: Tx,
@@ -180,18 +203,24 @@ export class ResumeDisclosureRepository {
    * (owner ruling O-3, ADR-0053 §6). The SQL is unchanged.
    */
   async countDistinctPayersSince(tx: Tx, workerId: string, since: Date): Promise<number> {
+    // 2026-11-03 — the instant is bound as ISO TEXT with an explicit cast. In a RAW `sql`
+    // template no column encoder runs, and this client's driver refuses a JS `Date` parameter
+    // ("The 'string' argument must be of type string … Received an instance of Date"), so every
+    // résumé request that got past consent 500'd here. It never surfaced because no worker
+    // reaching this line existed until the all-candidates search let payers unlock seeded ones.
+    const sinceIso = since.toISOString();
     const rows = await tx.execute(sql`
       select count(distinct payer_id)::int as count from (
         select ${unlocks.payerId} as payer_id
           from ${unlocks}
           where ${unlocks.workerId} = ${workerId}
-            and ${unlocks.grantedAt} >= ${since}
+            and ${unlocks.grantedAt} >= ${sinceIso}::timestamptz
             and ${unlocks.status} in ('granted','revealed')
         union
         select ${resumeDisclosures.payerId} as payer_id
           from ${resumeDisclosures}
           where ${resumeDisclosures.workerId} = ${workerId}
-            and ${resumeDisclosures.disclosedAt} >= ${since}
+            and ${resumeDisclosures.disclosedAt} >= ${sinceIso}::timestamptz
             and ${resumeDisclosures.status} = 'disclosed'
       ) p
     `);
