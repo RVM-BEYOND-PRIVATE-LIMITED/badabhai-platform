@@ -52,9 +52,10 @@ SignedUrlLauncher revealSignedUrlLauncher = defaultSignedUrlLauncher;
 ///
 ///  - MOCK — the kit's rich reveal: real name + phone (mono pill), skills, and a
 ///    resume download row. Only reachable after a paid mock unlock.
-///  - REAL — the faceless applicant + the in-app RELAY handle from
-///    `POST /payer/unlocks/:id/reveal` and a MASKED résumé disclosure. The
-///    backend returns NO name/phone, so none is ever fabricated here.
+///  - REAL — the faceless per-job applicant OR all-candidates row + the in-app
+///    RELAY handle from `POST /payer/unlocks/:id/reveal` and a MASKED résumé
+///    disclosure. The backend returns NO name/phone, so none is ever
+///    fabricated here.
 class RevealScreen extends StatelessWidget {
   const RevealScreen({
     super.key,
@@ -99,8 +100,10 @@ class _RealReveal extends StatelessWidget {
 
   Future<void> _downloadResume(BuildContext context) async {
     final RevealCubit cubit = context.read<RevealCubit>();
+    // A search-row reveal carries no job: the masked résumé goes out with no
+    // posting id (`job_posting_id` omitted — the route accepts that).
     final DisclosureResult result = await cubit.discloseResume(
-      workerId: args.applicant!.workerId,
+      workerId: args.workerId,
       jobPostingId: args.jobId,
     );
     if (!context.mounted) return;
@@ -172,7 +175,6 @@ class _RealReveal extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final Applicant applicant = args.applicant!;
     return BlocBuilder<RevealCubit, RevealState>(
       builder: (BuildContext context, RevealState state) {
         return Stack(
@@ -187,7 +189,7 @@ class _RealReveal extends StatelessWidget {
               children: <Widget>[
                 _header(),
                 const SizedBox(height: AppSpacing.s4),
-                _identityCard(applicant),
+                _identityCard(),
                 const SizedBox(height: AppSpacing.s4),
                 _relayCard(context, state),
                 const SizedBox(height: AppSpacing.s4),
@@ -230,12 +232,10 @@ class _RealReveal extends StatelessWidget {
     );
   }
 
-  Widget _identityCard(Applicant applicant) {
-    final List<String> facets = <String>[
-      if ((applicant.tradeLabel ?? '').isNotEmpty) applicant.tradeLabel!,
-      if ((applicant.experienceBand ?? '').isNotEmpty) applicant.experienceBand!,
-      if ((applicant.cityLabel ?? '').isNotEmpty) applicant.cityLabel!,
-    ];
+  /// The masked identity block. Both real feeds fill it through [RevealArgs]:
+  /// a masked handle + coarse facets, never a name or phone.
+  Widget _identityCard() {
+    final List<String> facets = args.facets;
     return BbCard(
       festive: true,
       padding: const EdgeInsets.all(AppSpacing.s6),
@@ -249,7 +249,7 @@ class _RealReveal extends StatelessWidget {
           ),
           const SizedBox(height: AppSpacing.s3),
           Text(
-            applicant.maskedLabel,
+            args.title,
             textAlign: TextAlign.center,
             style: AppTypography.mono(
               size: AppTypography.sizeXl,

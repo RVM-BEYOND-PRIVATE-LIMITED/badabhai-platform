@@ -12,6 +12,7 @@ import '../session/credits_cubit.dart';
 
 import '../../features/account/presentation/cubit/account_cubit.dart';
 
+import '../../features/find/presentation/cubit/candidate_search_cubit.dart';
 import '../../features/find/presentation/cubit/find_cubit.dart';
 import '../../features/find/presentation/cubit/reveal_cubit.dart';
 import '../../features/jobs/presentation/cubit/jobs_cubit.dart';
@@ -157,6 +158,11 @@ void setupLocator({
       // Agency sessions own `jobs`, company sessions own `job_postings`.
       isAgency: locator<AppSessionCubit>().state?.isAgency ?? false,
     ),
+  );
+  // Find's All-candidates view (ADR-0040 E2). The same cubit for company and
+  // agency sessions: the pool is the platform's, not a posting's.
+  locator.registerFactory<CandidateSearchCubit>(
+    () => CandidateSearchCubit(locator<PayerApiClient>()),
   );
   locator.registerFactory<RevealCubit>(
     () => RevealCubit(locator<PayerApiClient>()),

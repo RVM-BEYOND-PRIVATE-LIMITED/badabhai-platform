@@ -1,3 +1,4 @@
+import 'candidate_search_models.dart';
 import 'job_posting_chat_models.dart';
 import 'models.dart';
 
@@ -26,6 +27,28 @@ abstract class PayerApiClient {
   /// owned [jobId] (`GET /payer/reach/jobs/:jobId/applicants`). PII-free:
   /// [Applicant] carries an opaque worker UUID + coarse facets, never a name.
   Future<List<Applicant>> fetchApplicants(String jobId);
+
+  // --- All-candidates search (ADR-0040, phase E2; owner rulings 2026-11-03) --
+  // Every worker in the eligible pool (the API decides membership), MASKED and
+  // ordered by the payer's filters. Company and agency sessions alike — it does
+  // not depend on owned postings. Identity still costs 1 credit per worker at
+  // [unlock] (with a null job: a search row has no posting context).
+
+  /// One page of the all-candidates search (`POST /payer/candidates/search`,
+  /// snake_case body). Returns the masked rows AND the counts the badge reads.
+  /// A non-2xx throws [PayerApiException] with its status (429 = the payer's
+  /// hourly cap; 400 = a refused body or cursor); a 2xx that is not the
+  /// contract throws too — never an empty page read as "nobody on the portal".
+  Future<CandidateSearchPage> searchCandidates(CandidateSearchQuery query);
+
+  /// The filter options (`GET /payer/candidates/filters`): roles, industries,
+  /// the experience buckets and the cities the pool records. Same error rules.
+  Future<CandidateFilters> fetchCandidateFilters();
+
+  /// The caller's OWN unlocks (`GET /payer/unlocks` → `{unlocks:[...]}` — the
+  /// route [fetchLedger] already reads, here as typed rows), so an all-
+  /// candidates card the payer already paid for opens on "View". PII-free.
+  Future<List<PayerUnlock>> fetchOwnUnlocks();
 
   /// The signed-in payer's job postings; optional [status] filter
   /// (`?status=open` scopes the REAL feed to live postings).
@@ -487,7 +510,9 @@ abstract class PayerApiClient {
   Future<int> unlockCandidate(int candidateId);
 
   /// REAL unlock — spend a credit to unlock [workerId] (an opaque UUID from the
-  /// per-job feed), optionally scoped to [jobId] (`POST /payer/unlocks`).
+  /// per-job feed or the all-candidates search), optionally scoped to [jobId]
+  /// (`POST /payer/unlocks`). A search row passes no [jobId]: `job_id` is then
+  /// omitted, which the route reads as "no posting context".
   /// Returns a typed [UnlockResult]; the neutral DENY (HTTP 200
   /// `{status:"unavailable"}`) comes back as `unavailable`, never an exception.
   Future<UnlockResult> unlock({required String workerId, String? jobId});

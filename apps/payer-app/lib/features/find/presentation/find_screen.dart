@@ -17,25 +17,100 @@ import '../../../core/widgets/bb_chip.dart';
 import '../../../core/widgets/bb_status_view.dart';
 import '../../../core/widgets/bb_toast.dart';
 import '../../../core/widgets/bb_unlock_dialog.dart';
+import 'candidate_search_view.dart';
+import 'cubit/candidate_search_cubit.dart';
 import 'cubit/find_cubit.dart';
 import 'disclosure_history_screen.dart';
 import 'reveal_args.dart';
+import 'widgets/find_view_switch.dart';
 
-/// Find — the candidate feed. MOCK mode shows the rich global candidate list
-/// (redacted name + "••" avatar). REAL mode shows the FACELESS per-job applicant
-/// feed: a masked label derived from the worker UUID, coarse trade/city/exp
-/// chips, a red "Hot" flag on a minority, up to two SOFT signal chips (never a
-/// number/score), and an Unlock·₹40 button. No demographics in either.
-class FindScreen extends StatelessWidget {
-  const FindScreen({super.key, required this.onReveal});
+export 'widgets/find_view_switch.dart' show FindView;
+
+/// Find — two views behind one segmented control (owner rulings 2026-11-03):
+///
+///  - ALL CANDIDATES (the DEFAULT, company and agency alike) — every worker in
+///    the eligible pool, masked, with the full filter set
+///    ([CandidateSearchView], `POST /payer/candidates/search`).
+///  - APPLICANTS — the per-job feed, UNCHANGED ([_FindView] below). MOCK mode
+///    shows the rich global candidate list (redacted name + "••" avatar). REAL
+///    mode shows the FACELESS per-job applicant feed: a masked label derived
+///    from the worker UUID, coarse trade/city/exp chips, a red "Hot" flag on a
+///    minority, up to two SOFT signal chips (never a number/score), and an
+///    Unlock·₹40 button. No demographics in either.
+///
+/// Both views lead to the same unlock and the same reveal ([onReveal]).
+class FindScreen extends StatefulWidget {
+  const FindScreen({
+    super.key,
+    required this.onReveal,
+    this.initialView = FindView.allCandidates,
+  });
 
   final ValueChanged<RevealArgs> onReveal;
 
+  /// The view the tab opens on. The shell passes [FindView.applicants] when a
+  /// Jobs card's "Applicants" button opened Find.
+  final FindView initialView;
+
+  @override
+  State<FindScreen> createState() => _FindScreenState();
+}
+
+class _FindScreenState extends State<FindScreen> {
+  late FindView _view = widget.initialView;
+
+  /// The views opened so far. A view mounts — and loads — on its FIRST open,
+  /// then stays alive while hidden: a peek at Applicants never costs the
+  /// All-candidates filters, loaded pages or scroll, and a view the payer never
+  /// opens costs no request (the shell's #382 rule, one level down).
+  late final Set<FindView> _opened = <FindView>{widget.initialView};
+
+  void _select(FindView view) {
+    if (view == _view) return;
+    setState(() {
+      _view = view;
+      _opened.add(view);
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
-    return BlocProvider<FindCubit>(
-      create: (_) => locator<FindCubit>()..load(),
-      child: _FindView(onReveal: onReveal),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        Padding(
+          padding: const EdgeInsets.fromLTRB(
+            AppSpacing.gutter,
+            AppSpacing.s2,
+            AppSpacing.gutter,
+            0,
+          ),
+          child: FindViewSwitch(selected: _view, onChanged: _select),
+        ),
+        Expanded(
+          child: IndexedStack(
+            // Children are in [FindView] order.
+            index: _view.index,
+            sizing: StackFit.expand,
+            children: <Widget>[
+              if (_opened.contains(FindView.allCandidates))
+                BlocProvider<CandidateSearchCubit>(
+                  create: (_) => locator<CandidateSearchCubit>()..load(),
+                  child: CandidateSearchView(onReveal: widget.onReveal),
+                )
+              else
+                const SizedBox.shrink(),
+              if (_opened.contains(FindView.applicants))
+                BlocProvider<FindCubit>(
+                  create: (_) => locator<FindCubit>()..load(),
+                  child: _FindView(onReveal: widget.onReveal),
+                )
+              else
+                const SizedBox.shrink(),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }
@@ -47,11 +122,8 @@ class _FindView extends StatelessWidget {
 
   /// The credits-after preview for the unlock dialog. An error-state / unknown
   /// balance is `null` (rendered '—') — NEVER a fabricated 0 (#189 fast-follow).
-  static int? _creditsAfter(CreditsState state) {
-    final int? balance = state.error ? null : state.balance;
-    if (balance == null) return null;
-    return (balance - 1).clamp(0, balance);
-  }
+  /// One derivation for every unlock path ([CreditsState.afterOneUnlock]).
+  static int? _creditsAfter(CreditsState state) => state.afterOneUnlock;
 
   // --- MOCK unlock (int id, in-memory spend) --------------------------------
   Future<void> _unlockCandidate(BuildContext context, Candidate candidate) async {
@@ -274,21 +346,7 @@ class _FindView extends StatelessWidget {
               ),
             ),
             // Entry to the caller's own masked-résumé disclosure history.
-            TextButton.icon(
-              onPressed: () => Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  settings: const RouteSettings(name: 'payer/disclosures'),
-                  builder: (_) => const DisclosureHistoryScreen(),
-                ),
-              ),
-              icon: const Icon(Icons.history, size: 18),
-              label: const Text('History'),
-              style: TextButton.styleFrom(
-                foregroundColor: AppColors.textSecondary,
-                minimumSize: const Size(0, AppSpacing.tap),
-                tapTargetSize: MaterialTapTargetSize.padded,
-              ),
-            ),
+            const DisclosureHistoryButton(),
           ],
         ),
         // #358 — the search field and the "filter" chips that used to sit here

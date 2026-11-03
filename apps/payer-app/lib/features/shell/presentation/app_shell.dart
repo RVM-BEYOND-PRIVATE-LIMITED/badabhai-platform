@@ -65,6 +65,11 @@ class _AppShellState extends State<AppShell> {
   /// surfaces the payer may never open. Grows to at most five entries.
   final Set<String> _visited = <String>{'home'};
 
+  /// The view the next Find mount opens on: All candidates (owner rulings
+  /// 2026-11-03) unless a Jobs card's "Applicants" button opened it. Read only
+  /// when the Find branch is (re)built for a new epoch.
+  FindView _findView = FindView.allCandidates;
+
   @override
   void initState() {
     super.initState();
@@ -105,10 +110,13 @@ class _AppShellState extends State<AppShell> {
     ),
   ];
 
-  void _selectTab(String id) {
+  /// [findView] picks the view a Find visit opens on; every other caller (the
+  /// nav, Home's Browse) gets the default, All candidates.
+  void _selectTab(String id, {FindView findView = FindView.allCandidates}) {
     setState(() {
       _tab = id;
       _sub = null;
+      _findView = findView;
       _visited.add(id);
       // Every visit re-reads the screen's API. The branch keeps its identity
       // while hidden; this key bump is what makes the revisit fetch again.
@@ -177,12 +185,15 @@ class _AppShellState extends State<AppShell> {
             // Home agency section never renders for a company.
             onOpenReferral: widget.session.isAgency ? _openReferral : null,
           ),
-        'find' => FindScreen(onReveal: _openReveal),
+        'find' => FindScreen(onReveal: _openReveal, initialView: _findView),
         'jobs' => JobsScreen(
             onPost: () => _openSub('post'),
             onAiPost: _openAiPost,
-            // Both session kinds see their candidates on the shared Find tab.
-            onApplicants: () => _selectTab('find'),
+            // Both session kinds see their candidates on the shared Find tab —
+            // a job card's "Applicants" button lands on the Applicants view
+            // (the per-job feed, unchanged: it opens on the first open job).
+            onApplicants: () =>
+                _selectTab('find', findView: FindView.applicants),
           ),
         'credits' => CreditsScreen(onBack: () => _selectTab('home')),
         'account' => AccountScreen(

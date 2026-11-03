@@ -105,9 +105,19 @@ ListView _feed(WidgetTester tester) =>
 
 void main() {
   Future<void> pump(WidgetTester tester) async {
-    // FindScreen is a tab body — the shell supplies the Scaffold/Material.
+    // FindScreen is a tab body — the shell supplies the Scaffold/Material. The
+    // per-job feed is the Applicants view (Find opens on All candidates since
+    // the 2026-11-03 rulings), so open it there — the view a Jobs card's
+    // "Applicants" button lands on.
     await tester.pumpWidget(
-      MaterialApp(home: Scaffold(body: FindScreen(onReveal: (_) {}))),
+      MaterialApp(
+        home: Scaffold(
+          body: FindScreen(
+            onReveal: (_) {},
+            initialView: FindView.applicants,
+          ),
+        ),
+      ),
     );
     await tester.pumpAndSettle();
   }
