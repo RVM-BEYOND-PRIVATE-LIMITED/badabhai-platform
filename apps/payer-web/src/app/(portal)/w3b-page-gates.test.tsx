@@ -335,14 +335,17 @@ describe("/postings for an AGENT — their own Postings, or their older ones rea
     expect(props(manager).readOnly).toBe(true);
   });
 
-  it("a company is never redirected and has no page-level New posting action", async () => {
+  it("a company is never redirected; Postings carries the New posting action", async () => {
     getPostings.mockResolvedValue([]);
     const root = (await postings.default()) as ReactElement;
     expect(redirect).not.toHaveBeenCalled();
     const kids = (props(root).children as ReactNode[]).flat() as ReactElement[];
     const head = kids.find((k) => k && typeof k === "object" && "title" in (k.props as object))!;
     expect(props(head).title).toBe("Postings");
-    expect(props(head).primaryAction).toBeUndefined();
+    expect(props(head).primaryAction).toMatchObject({
+      href: "/postings/new",
+      label: "New posting",
+    });
   });
 });
 

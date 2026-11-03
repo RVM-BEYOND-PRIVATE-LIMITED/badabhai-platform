@@ -199,19 +199,14 @@ function depthBelow(item: NavItem, pathname: string): number {
   return Number.POSITIVE_INFINITY;
 }
 
-/** `/postings` owns its subtree except the two routes that carry their own nav entry. */
-const POSTINGS_LIST_MATCH: NavMatch = {
-  prefix: ["/postings"],
-  except: ["/postings/new", "/postings/ai"],
-};
-/** Posting a role and the AI chat that does the same job are ONE destination. */
-const POSTINGS_NEW_MATCH: NavMatch = { exact: ["/postings/new"], prefix: ["/postings/ai"] };
-/** The agency's own postings (`jobs`): the list owns its subtree except the create form. */
-const AGENCY_POSTINGS_MATCH: NavMatch = {
-  prefix: ["/agency/jobs"],
-  except: ["/agency/jobs/new"],
-};
-const AGENCY_NEW_POSTING_MATCH: NavMatch = { exact: ["/agency/jobs/new"] };
+/**
+ * `/postings` OWNS ITS WHOLE SUBTREE — the list, the create form and the AI chat. "New
+ * posting" is no longer a rail entry (owner request): it is a button on the Postings page,
+ * so the create routes light the Postings destination and the header names it.
+ */
+const POSTINGS_LIST_MATCH: NavMatch = { prefix: ["/postings"] };
+/** The agency's own postings (`jobs`) own their whole subtree, create form included. */
+const AGENCY_POSTINGS_MATCH: NavMatch = { prefix: ["/agency/jobs"] };
 /**
  * Plans & capacity. (/capacity is a redirect to its Hiring capacity section, so it never
  * renders a page that could light anything.)
@@ -290,14 +285,6 @@ function companySections({ isOwner }: NavModelInput): NavSection[] {
       title: "Hiring",
       items: [
         {
-          href: "/postings/new",
-          label: "New posting",
-          icon: ACTION_ICON.create,
-          description: "Describe the role and publish it to matched workers.",
-          match: POSTINGS_NEW_MATCH,
-          childrenLinkBack: true,
-        },
-        {
           href: "/postings",
           label: "Postings",
           icon: ACTION_ICON.posting,
@@ -345,13 +332,6 @@ function agencySections({ isOwner, agencyPortalEnabled }: NavModelInput): NavSec
       {
         title: "Demand",
         items: [
-          {
-            href: "/agency/jobs/new",
-            label: "New posting",
-            icon: ACTION_ICON.create,
-            description: "Publish a posting for your agency and reach matched workers.",
-            match: AGENCY_NEW_POSTING_MATCH,
-          },
           {
             href: "/agency/jobs",
             label: "Postings",

@@ -57,9 +57,6 @@ export default async function LoginPage() {
                 Badabhai Employer Portal
               </span>
               <h1 className="login-card__title">Your hiring desk</h1>
-              <p className="login-card__sub">
-                Sign in, or create a Company or Agency account. We email you a one-time code.
-              </p>
             </div>
 
             <LoginForm />

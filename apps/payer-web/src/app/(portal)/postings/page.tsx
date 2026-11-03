@@ -75,6 +75,11 @@ export default async function PostingsPage() {
         <PageHeader
           title="Postings"
           description="Every posting you have opened, its applicant feed, and the controls to pause, resume, add applicant slots or close it."
+          primaryAction={{
+            href: "/postings/new",
+            label: "New posting",
+            icon: ACTION_ICON.create,
+          }}
         />
       )}
 

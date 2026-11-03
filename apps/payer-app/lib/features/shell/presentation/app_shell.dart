@@ -49,10 +49,13 @@ class _AppShellState extends State<AppShell> {
   /// next open does not silently reopen a finished chat.
   String? _resumeChatId;
 
-  /// Bumped every time a posting is created from the chat, so the Jobs tab —
-  /// which the IndexedStack keeps MOUNTED behind the overlay — is rebuilt with
-  /// a fresh JobsCubit instead of showing a list that predates the new posting.
-  int _jobsEpoch = 0;
+  /// Per-tab refresh epochs. Selecting a tab bumps ITS epoch, so only that
+  /// branch is rebuilt with fresh cubits and a fresh load — the data is never
+  /// stale just because IndexedStack kept the screen mounted. Other tabs keep
+  /// their key (and their state) until they are selected again.
+  final Map<String, int> _tabEpochs = <String, int>{};
+
+  int _epochOf(String id) => _tabEpochs[id] ?? 0;
 
   /// #382 — the tabs the payer has actually opened. The branches live in an
   /// [IndexedStack] so leaving a tab HIDES it instead of disposing it, but a
@@ -102,14 +105,19 @@ class _AppShellState extends State<AppShell> {
     ),
   ];
 
-  void _selectTab(String id) => setState(() {
-        _tab = id;
-        _sub = null;
-        // #382 — first visit mounts the branch; from then on it stays in the
-        // tree and keeps its cubit, list and scroll offset.
-        _visited.add(id);
-        CrashReporter.setScreen('payer/$id');
-      });
+  void _selectTab(String id) {
+    setState(() {
+      _tab = id;
+      _sub = null;
+      _visited.add(id);
+      // Every visit re-reads the screen's API. The branch keeps its identity
+      // while hidden; this key bump is what makes the revisit fetch again.
+      _tabEpochs[id] = _epochOf(id) + 1;
+      CrashReporter.setScreen('payer/$id');
+    });
+    // Home/Find/Credits all read the shared balance; refresh it with the tab.
+    locator<CreditsCubit>().load();
+  }
 
   void _openSub(String id) => setState(() {
         _sub = id;
@@ -155,44 +163,44 @@ class _AppShellState extends State<AppShell> {
   /// this returns is exactly what the IndexedStack keeps alive.
   Widget _tabBody(String id) {
     if (!_visited.contains(id)) return const SizedBox.shrink();
-    return switch (id) {
-      'home' => HomeScreen(
-          session: widget.session,
-          onPost: () => _openSub('post'),
-          onBrowse: () => _selectTab('find'),
-          onOpenCredits: () => _selectTab('credits'),
-          // Agency-only: the Home supply hub. Null for a company session, so the
-          // Home agency section never renders for a company.
-          onOpenReferral: widget.session.isAgency ? _openReferral : null,
-        ),
-      'find' => FindScreen(onReveal: _openReveal),
-      'jobs' => JobsScreen(
-          // Keyed on the epoch so a publish from the chat rebuilds this branch
-          // (and its cubits) rather than leaving a stale list mounted.
-          key: ValueKey<int>(_jobsEpoch),
-          onPost: () => _openSub('post'),
-          onAiPost: _openAiPost,
-          // Both session kinds see their candidates on the shared Find tab.
-          onApplicants: () => _selectTab('find'),
-        ),
-      'credits' => CreditsScreen(onBack: () => _selectTab('home')),
-      'account' => AccountScreen(
-          session: widget.session,
-          onSignOut: () => context.read<AppSessionCubit>().signOut(),
-        ),
-      _ => const SizedBox.shrink(),
-    };
+    // A new epoch disposes that branch's cubits and mounts fresh ones, whose
+    // `create` runs the screen's load — the "latest data on every return" rule.
+    return KeyedSubtree(
+      key: ValueKey<String>('$id:${_epochOf(id)}'),
+      child: switch (id) {
+        'home' => HomeScreen(
+            session: widget.session,
+            onPost: () => _openSub('post'),
+            onBrowse: () => _selectTab('find'),
+            onOpenCredits: () => _selectTab('credits'),
+            // Agency-only: the Home supply hub. Null for a company session, so the
+            // Home agency section never renders for a company.
+            onOpenReferral: widget.session.isAgency ? _openReferral : null,
+          ),
+        'find' => FindScreen(onReveal: _openReveal),
+        'jobs' => JobsScreen(
+            onPost: () => _openSub('post'),
+            onAiPost: _openAiPost,
+            // Both session kinds see their candidates on the shared Find tab.
+            onApplicants: () => _selectTab('find'),
+          ),
+        'credits' => CreditsScreen(onBack: () => _selectTab('home')),
+        'account' => AccountScreen(
+            session: widget.session,
+            onSignOut: () => context.read<AppSessionCubit>().signOut(),
+          ),
+        _ => const SizedBox.shrink(),
+      },
+    );
   }
 
   Widget _buildBody() {
-    // #382 — this used to `switch` a whole subtree per tab, so every hop
-    // disposed the outgoing tab's cubit and rebuilt+reloaded the incoming one:
-    // Find refetched postings + applicants, reset the job selection to the
-    // first open job and lost the applicant scroll on every return (and the
-    // same on every Post/Credits/Reveal round-trip). An IndexedStack keeps each
-    // visited branch mounted and merely hides it. The overlay gets ONE extra
-    // slot past the tabs, so opening it hides the tabs instead of tearing them
-    // down.
+    // #382 — the branches live in an IndexedStack, so leaving a tab hides it
+    // instead of tearing it down. Latest-on-switch is a deliberate follow-up:
+    // `_selectTab` bumps THAT tab's epoch (see _tabBody), which rebuilds only
+    // the selected branch with fresh cubits and a fresh API read. Hidden tabs
+    // keep their state; the overlay gets ONE extra slot past the tabs, so
+    // opening it hides the tabs instead of disposing them.
     final String? sub = _sub;
     final int tabIndex = _tabs.indexWhere((BbNavTab t) => t.id == _tab);
     final Widget stack = IndexedStack(
@@ -215,7 +223,9 @@ class _AppShellState extends State<AppShell> {
               key: ValueKey<String>('aiPost:${_resumeChatId ?? 'new'}'),
               onBack: _back,
               resumeSessionId: _resumeChatId,
-              onPublished: () => setState(() => _jobsEpoch++),
+              onPublished: () => setState(() {
+                _tabEpochs['jobs'] = _epochOf('jobs') + 1;
+              }),
             ),
           'credits' => CreditsScreen(onBack: _back),
           'reveal' => RevealScreen(args: _revealed!, onBack: _back),

@@ -156,7 +156,7 @@ void main() {
       expect(find.byType(FindScreen, skipOffstage: false), findsNothing);
     });
 
-    testWidgets('leaving Find and returning does not rebuild/refetch its cubit',
+    testWidgets('returning to a tab refetches its data (latest-on-switch)',
         (WidgetTester tester) async {
       await pumpShell(tester);
 
@@ -164,17 +164,13 @@ void main() {
       expect(api.candidateLoads, 1);
 
       await tapNav(tester, 'Credits');
-      // The branch is hidden (offstage to a finder), not destroyed — that is
-      // what preserves the loaded feed, the selected job and the scroll offset.
-      // It stays offstage to a DEFAULT finder, so a hidden tab never leaks its
-      // text into another tab's assertions.
+      // The branch stays mounted while hidden, but it is rebuilt with a fresh
+      // cubit — and therefore a fresh API read — when its tab is selected again.
       expect(find.byType(FindScreen, skipOffstage: false), findsOneWidget);
       expect(find.byType(FindScreen), findsNothing);
 
       await tapNav(tester, 'Find');
-      // Before the fix this was a second load: fresh FindCubit, spinner,
-      // selection reset to the first open job, scroll lost.
-      expect(api.candidateLoads, 1);
+      expect(api.candidateLoads, 2);
     });
 
     testWidgets('an overlay round-trip does not tear the tabs down',
@@ -192,9 +188,13 @@ void main() {
       expect(find.byType(PostJobScreen), findsOneWidget);
 
       await systemBack(tester);
-      await tapNav(tester, 'Find');
-
+      // The overlay did not tear the hidden Find branch down…
+      expect(find.byType(FindScreen, skipOffstage: false), findsOneWidget);
       expect(api.candidateLoads, 1);
+
+      // …and selecting the tab again performs the refresh.
+      await tapNav(tester, 'Find');
+      expect(api.candidateLoads, 2);
     });
 
     testWidgets('the Post overlay itself opens fresh every time',
@@ -219,7 +219,8 @@ void main() {
       // Deliberate asymmetry with the tabs: a dismissed Post must NOT come back
       // holding the previous draft's 11 controllers of input.
       expect(
-        identical(first, tester.widget<PostJobScreen>(find.byType(PostJobScreen))),
+        identical(
+            first, tester.widget<PostJobScreen>(find.byType(PostJobScreen))),
         isFalse,
       );
     });

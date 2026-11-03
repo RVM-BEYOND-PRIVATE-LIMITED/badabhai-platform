@@ -32,14 +32,14 @@ import { focusControl, revealWholeControl } from "../../../../lib/form-focus";
 import { companyPostingFacts } from "../../../../lib/posting-facts";
 import { workerCardGap, type WorkerCardGap } from "../../../../lib/worker-card-gap";
 import { bandForVacancies, baseApplicantQuotaForBand } from "../../../../lib/pricing-config";
-import { BadaBhaiLogo, Badge, Button, Input, Select, Textarea } from "../../../../components/ds";
+import { Badge, Button, Input, Select, Textarea } from "../../../../components/ds";
+import { JobCardPreview } from "../../../../components/job-card-preview";
 import { ChipEditor } from "../../../../components/chip-editor";
 import {
   PostingActions,
   PostingPreviewRail,
   zeroReachLabel,
 } from "../../../../components/posting-preview-rail";
-import { formatInr } from "../../../../lib/format";
 import { createPostingAction } from "./actions";
 import { withPublishedReach } from "../../../../lib/published-reach";
 import { usePortalNavigation } from "../../../../components/portal-navigation";
@@ -142,7 +142,6 @@ export function PostingForm({
   postingTrades = [],
   lead,
   free = true,
-  payerRef = "—",
 }: {
   quotaStep?: number | null;
   matchSkills?: MatchSkillWire[];
@@ -152,8 +151,6 @@ export function PostingForm({
   lead?: ReactNode;
   /** The "free through launch" notice (sourced from the page's config flag). */
   free?: boolean;
-  /** A short, non-PII payer reference for the designer preview card. */
-  payerRef?: string;
 } = {}) {
   // useState call order (mirrored positionally by posting-form.test.tsx): fields, fieldErrors,
   // error, navigating, selection, preview, requirements, benefits, reqDraft, benDraft, gap,
@@ -193,11 +190,6 @@ export function PostingForm({
   const hasCardIssue = Object.keys(read.issues).length > 0;
   const tradeMode = postingTrades.length > 0;
   const activeMatchSkillIds = tradeMode ? trade.matchSkillIds : selection.matchSkillIds;
-  const isValid =
-    Object.keys(validate(fields)).length === 0 &&
-    !hasCardIssue &&
-    (!tradeMode || fields.roleKind !== "") &&
-    activeMatchSkillIds.length > 0;
 
   function set<K extends keyof FormFields>(key: K, value: string) {
     setFields((prev) => ({ ...prev, [key]: value }));
@@ -346,6 +338,19 @@ export function PostingForm({
       return;
     }
 
+    // A posting with no skill reaches NOBODY (the server refuses it too). The button stays
+    // clickable so this is said out loud and the picker is brought into view — a disabled
+    // button here produced exactly the "clicked Publish and nothing happened" report.
+    if (activeMatchSkillIds.length === 0) {
+      setError("Pick at least one skill — a posting needs one so workers can find it.");
+      if (typeof document !== "undefined") {
+        document
+          .getElementById("match-skills")
+          ?.scrollIntoView?.({ behavior: "smooth", block: "center" });
+      }
+      return;
+    }
+
     const v = read.values;
     startTransition(async () => {
       const res = await createPostingAction({
@@ -389,7 +394,9 @@ export function PostingForm({
     });
   }
 
-  const submitDisabled = pending || navigating || !isValid;
+  // Only a request in flight (or a page with no vocabulary to pick from) disables the CTA.
+  // Validation is surfaced by onSubmit, not by a dead button.
+  const submitDisabled = pending || navigating || matchSkills.length === 0;
 
   const openings = openingsOf(fields.vacancies);
   const derivedBand = openings !== null ? bandForVacancies(openings) : null;
@@ -428,22 +435,7 @@ export function PostingForm({
     postingTrades.length > 0
       ? roleOptionGroups(postingTrades.map((tradeForm) => tradeForm.role_kind))
       : ROLE_GROUPS;
-  const roleLabel =
-    roleGroups.flatMap((g) => g.options).find((o) => o.value === fields.roleKind)?.label ??
-    (fields.roleTitle.trim() !== "" ? fields.roleTitle : "Your role title");
-  const selectedSkillLabels = matchSkills
-    .filter((s) => activeMatchSkillIds.includes(s.skill_id))
-    .map((s) => s.label)
-    .slice(0, 4);
   const locationText = [fields.area.trim(), fields.city.trim()].filter(Boolean).join(", ");
-  const payText =
-    read.values.payMin !== undefined && read.values.payMax !== undefined
-      ? `${formatInr(read.values.payMin)} – ${formatInr(read.values.payMax)}`
-      : "Not set";
-  const expText =
-    read.values.minExperienceYears !== undefined || read.values.maxExperienceYears !== undefined
-      ? `${read.values.minExperienceYears ?? 0} – ${read.values.maxExperienceYears ?? 0} Years`
-      : "Not set";
   const facts = companyPostingFacts({
     roleKind: read.values.roleKind ?? null,
     openings: fields.vacancies,
@@ -758,6 +750,7 @@ export function PostingForm({
                 />
               </div>
 
+              <div id="match-skills">
               {tradeMode ? (
                 <TradePostingFields
                   trades={postingTrades}
@@ -793,6 +786,10 @@ export function PostingForm({
                   </div>
                 </div>
               )}
+              {activeMatchSkillIds.length === 0 && error !== null ? (
+                <p className="match-picker__error">{error}</p>
+              ) : null}
+              </div>
 
               <div className="form__section">
                 <p className="form__legend">Description</p>
@@ -857,55 +854,9 @@ export function PostingForm({
             <span className="mw-preview__hint">Updates live as you type</span>
           </div>
 
-          <div className="mw-worker">
-            <div className="mw-worker__top">
-              <div className="mw-worker__brand">
-                <BadaBhaiLogo theme="ink" size={26} />
-                <span className="mw-worker__verified">VERIFIED</span>
-              </div>
-              <Icon name="buildings" className="mw-worker__ghost" />
-            </div>
-            <p className="mw-worker__payer">Payer ID: {payerRef}</p>
-            <div className="mw-worker__titlerow">
-              <h3 className="mw-worker__title">{roleLabel}</h3>
-              {openings !== null ? (
-                <span className="mw-worker__openings">{openings} Openings</span>
-              ) : null}
-            </div>
-            <p className="mw-worker__place">
-              <Icon name="map-pin" />
-              <span>{locationText !== "" ? locationText : "Area, City"}</span>
-            </p>
-            <div className="mw-worker__stats">
-              <div>
-                <span className="mw-worker__label">MONTHLY TAKE-HOME</span>
-                <strong>{payText}</strong>
-              </div>
-              <div>
-                <span className="mw-worker__label">EXPERIENCE</span>
-                <strong>{expText}</strong>
-              </div>
-            </div>
-            <p className="mw-worker__label">REQUIRED SKILLS</p>
-            <div className="mw-worker__chips">
-              {(selectedSkillLabels.length > 0 ? selectedSkillLabels : ["Pick a skill"]).map(
-                (label) => (
-                  <span className="mw-chip" key={`skill:${label}`}>
-                    {label}
-                  </span>
-                ),
-              )}
-              {requirements.map((label) => (
-                <span className="mw-chip" key={`req:${label}`}>
-                  {label}
-                </span>
-              ))}
-            </div>
-            <div className="mw-worker__foot">
-              <span>{fields.shift !== "" ? shiftLabel(fields.shift) : "Shift"}</span>
-              <span>{benefits.length > 0 ? benefits.join(" + ") : "Benefits"}</span>
-            </div>
-          </div>
+          {/* The one worker card, exactly as the phone draws it (JobCardPreview). The heading
+              above already gives it context, so the preview caption is hidden here. */}
+          <JobCardPreview fields={read.card} draft={read.draft} showCaption={false} expand />
         </div>
 
         <div className="mw-audit">
@@ -937,7 +888,11 @@ export function PostingForm({
         </div>
 
         <div className="mw-rail__actions">
-          <PostingActions>{primary}</PostingActions>
+          {/* The DESKTOP rail is where the payer reads the outcome, so it carries the same
+              status/outcome slots as the phone dock (the shared hidden rail keeps the dock). */}
+          <PostingActions status={statusLine} outcome={outcomeLine}>
+            {primary}
+          </PostingActions>
         </div>
 
         <p className="mw-rail__foot">
