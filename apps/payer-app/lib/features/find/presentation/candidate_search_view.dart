@@ -371,7 +371,9 @@ class CandidateCountBadge extends StatelessWidget {
             const TextSpan(text: ' of '),
             TextSpan(text: '${state.total}', style: strong),
             const TextSpan(text: ' match'),
-            if (state.unrecorded > 0) ...<InlineSpan>[
+            // The third number whenever a filter CAN meet an unrecorded value (city,
+            // years in role, years in industry) — even at 0 (ADR-0040 §4).
+            if (state.unrecorded > 0 || state.unrecordableFilter) ...<InlineSpan>[
               const TextSpan(text: ' · '),
               TextSpan(text: '${state.unrecorded}', style: strong),
               const TextSpan(text: ' not recorded'),

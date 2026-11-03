@@ -1591,8 +1591,10 @@ class MockPayerApiClient implements PayerApiClient {
 // MOCK all-candidates pool (ADR-0040 E2)
 // ===========================================================================
 
-/// The expiry every canned grant carries.
-const String _kMockGrantExpiry = '2026-12-31T00:00:00Z';
+/// The expiry every canned grant carries: a fresh 14-day window from now (the
+/// real unlock window), so a demo build never re-locks on a calendar date.
+String get _kMockGrantExpiry =>
+    DateTime.now().toUtc().add(const Duration(days: 14)).toIso8601String();
 
 /// Small on purpose, so a demo build shows "Load more" over a 10-worker pool.
 const int _kMockSearchPageSize = 5;

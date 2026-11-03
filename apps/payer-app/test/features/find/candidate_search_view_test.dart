@@ -293,6 +293,24 @@ void main() {
       expect(badgeText(tester), '14 of 62 match');
     });
 
+    testWidgets(
+        'a filter that CAN meet an unrecorded value says the third number even at 0',
+        (WidgetTester tester) async {
+      api.onSearch = (CandidateSearchQuery q) async => _page(
+            <CandidateSearchRow>[_turner],
+            matched: 14,
+            filtered: q.hasFilters,
+          );
+      await pumpFind(tester);
+
+      await runQuery(
+          tester,
+          const CandidateSearchQuery(
+              skillIds: <String>['mskill_cnc_turner'], city: 'Pune'));
+
+      expect(badgeText(tester), '14 of 62 match · 0 not recorded');
+    });
+
     testWidgets('strict says only the matches are shown — plus the unrecorded',
         (WidgetTester tester) async {
       api.onSearch = (CandidateSearchQuery q) async => _page(
@@ -368,7 +386,8 @@ void main() {
       await runQuery(tester, strict);
 
       expect(find.text('No candidates match every filter'), findsOneWidget);
-      expect(badgeText(tester), '0 of 62 match');
+      // A city filter can meet an unrecorded value, so the third number is said even at 0.
+      expect(badgeText(tester), '0 of 62 match · 0 not recorded');
 
       await tester.tap(find.byKey(const Key('candidate_drop_strict')));
       await tester.pumpAndSettle();

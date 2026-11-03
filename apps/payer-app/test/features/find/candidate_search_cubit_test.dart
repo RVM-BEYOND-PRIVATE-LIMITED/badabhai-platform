@@ -200,11 +200,16 @@ void main() {
 
       await cubit.load();
 
-      expect(cubit.state.unlockIdFor(_workerA), 'live');
-      expect(cubit.state.unlockIdFor(_workerB), isNull,
+      expect(cubit.state.unlockIdFor(_workerA, _now), 'live');
+      expect(cubit.state.unlockIdFor(_workerB, _now), isNull,
           reason: 'an expired grant must cost a fresh unlock');
-      expect(cubit.state.unlockIdFor(_workerC), isNull,
+      expect(cubit.state.unlockIdFor(_workerC, _now), isNull,
           reason: 'a live status past its window is not live');
+      // The same grant reads LOCKED once its window closes while the view stays
+      // open — the card offers Unlock again instead of a View that reveals nothing.
+      expect(
+          cubit.state.unlockIdFor(_workerA, DateTime.utc(2026, 11, 10, 0, 0, 1)),
+          isNull);
     });
 
     test('a failed unlock-history read is silent — rows simply start locked',

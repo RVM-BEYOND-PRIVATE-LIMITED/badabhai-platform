@@ -145,11 +145,17 @@ class CandidateSearchCubit extends Cubit<CandidateSearchState> {
           await _api.unlock(workerId: workerId, jobId: null);
       if (!isClosed) {
         final String? unlockId = result.granted ? result.unlockId : null;
+        final DateTime? until = unlockId == null || result.expiresAt == null
+            ? null
+            : DateTime.tryParse(result.expiresAt!);
         emit(state.copyWith(
           unlocking: state.unlocking.difference(<String>{workerId}),
           unlocks: unlockId == null
               ? null
               : <String, String>{...state.unlocks, workerId: unlockId},
+          unlockExpiries: until == null
+              ? null
+              : <String, DateTime>{...state.unlockExpiries, workerId: until},
         ));
       }
       return result;
@@ -224,9 +230,18 @@ class CandidateSearchCubit extends Cubit<CandidateSearchState> {
           if (u.workerId != null && u.isLiveAt(now)) u.workerId!: u.unlockId,
       };
       if (live.isEmpty) return;
+      final Map<String, DateTime> windows = <String, DateTime>{
+        for (final PayerUnlock u in history)
+          if (u.workerId != null &&
+              live.containsKey(u.workerId) &&
+              u.expiresAt != null &&
+              DateTime.tryParse(u.expiresAt!) != null)
+            u.workerId!: DateTime.parse(u.expiresAt!),
+      };
       // An in-session grant is newer than anything this read saw: it wins.
       emit(state.copyWith(
         unlocks: <String, String>{...live, ...state.unlocks},
+        unlockExpiries: <String, DateTime>{...windows, ...state.unlockExpiries},
       ));
     } catch (_) {
       // Deliberately silent — see the doc comment.
@@ -256,6 +271,7 @@ class CandidateSearchState extends Equatable {
     this.loadMoreFailure,
     this.notice,
     this.unlocks = const <String, String>{},
+    this.unlockExpiries = const <String, DateTime>{},
     this.unlocking = const <String>{},
   });
 
@@ -289,6 +305,11 @@ class CandidateSearchState extends Equatable {
   /// workerId → unlockId for every live grant this payer holds.
   final Map<String, String> unlocks;
 
+  /// workerId → when that grant's window closes, when the server said. A card
+  /// whose window has closed reads as LOCKED again (Unlock, not View) — the
+  /// server re-grants an expired worker with a fresh window.
+  final Map<String, DateTime> unlockExpiries;
+
   /// Workers with an unlock in flight (their button shows progress).
   final Set<String> unlocking;
 
@@ -297,6 +318,13 @@ class CandidateSearchState extends Equatable {
   int get unrecorded => page?.unrecorded ?? 0;
   bool get filtered => page?.filtered ?? false;
   bool get strict => page?.strict ?? false;
+
+  /// A filter on a field that can be UNRECORDED is on (city, years in role,
+  /// years in industry): the badge then always says the "not recorded" number.
+  bool get unrecordableFilter =>
+      query.city != null ||
+      query.experience != null ||
+      query.industryExperience != null;
   String? get nextCursor => page?.nextCursor;
 
   /// The first page hit the payer's hourly search cap.
@@ -318,7 +346,13 @@ class CandidateSearchState extends Equatable {
       ? null
       : filters?.roleLabel(query.skillIds.first);
 
-  String? unlockIdFor(String workerId) => unlocks[workerId];
+  /// The live grant's id, or null — including once its window has closed
+  /// while this view stayed open ([now] defaults to the device clock).
+  String? unlockIdFor(String workerId, [DateTime? now]) {
+    final DateTime? until = unlockExpiries[workerId];
+    if (until != null && !until.isAfter(now ?? DateTime.now())) return null;
+    return unlocks[workerId];
+  }
 
   bool isUnlocking(String workerId) => unlocking.contains(workerId);
 
@@ -337,6 +371,7 @@ class CandidateSearchState extends Equatable {
     Object? loadMoreFailure = _keep,
     Object? notice = _keep,
     Map<String, String>? unlocks,
+    Map<String, DateTime>? unlockExpiries,
     Set<String>? unlocking,
   }) {
     return CandidateSearchState(
@@ -355,6 +390,7 @@ class CandidateSearchState extends Equatable {
           ? this.notice
           : notice as CandidateSearchNotice?,
       unlocks: unlocks ?? this.unlocks,
+      unlockExpiries: unlockExpiries ?? this.unlockExpiries,
       unlocking: unlocking ?? this.unlocking,
     );
   }
@@ -372,6 +408,7 @@ class CandidateSearchState extends Equatable {
         loadMoreFailure,
         notice,
         unlocks,
+        unlockExpiries,
         unlocking,
       ];
 }
