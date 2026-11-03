@@ -19,6 +19,8 @@ const CandidateSearchBodySchema = z.preprocess((v) => v ?? {}, CandidateSearchSc
 
 /** The hourly bucket the search pages count against (see `PAYER_CANDIDATE_SEARCH_MAX_PER_HOUR`). */
 export const CANDIDATE_SEARCH_RATE_SCOPE = "payer_candidate_search";
+/** The filters route's own bucket — same cap, never shared with the search pages. */
+export const CANDIDATE_FILTERS_RATE_SCOPE = "payer_candidate_filters";
 
 /**
  * The payer's ALL-CANDIDATES search (ADR-0040, phase E2; owner rulings 2026-11-03). Company and
@@ -33,8 +35,10 @@ export const CANDIDATE_SEARCH_RATE_SCOPE = "payer_candidate_search";
  *  - SCRAPE BOUND: one unit of the payer's own hourly bucket per page, charged BEFORE any read,
  *    so a capped payer touches no data. Fails closed (429) when Redis is down. Each page is at
  *    most 50 masked rows; identity is only ever released per worker by `POST /payer/unlocks`.
- *  - `GET /payer/candidates/filters` is the option lists only (closed vocabulary + the cities the
- *    pool records); it reads no candidate, so it carries no cap.
+ *  - `GET /payer/candidates/filters` is the option lists (closed vocabulary + the cities the pool
+ *    records). The city list is a scan of the pool, cached per process for a minute in the
+ *    service, and the route has its own fail-closed bucket (same cap) so a loop of it can neither
+ *    hold the database nor eat the search budget.
  */
 @Controller("payer/candidates")
 @UseGuards(PayerAuthGuard)
@@ -60,7 +64,11 @@ export class CandidateSearchController {
   }
 
   @Get("filters")
-  async filters(): Promise<CandidateFiltersDto> {
+  async filters(@CurrentPayer() payer: AuthenticatedPayer): Promise<CandidateFiltersDto> {
+    await this.rateLimit.assertWithinHourlyCap(payer.id, {
+      scope: CANDIDATE_FILTERS_RATE_SCOPE,
+      cap: this.config.PAYER_CANDIDATE_SEARCH_MAX_PER_HOUR,
+    });
     return this.candidates.filters();
   }
 }

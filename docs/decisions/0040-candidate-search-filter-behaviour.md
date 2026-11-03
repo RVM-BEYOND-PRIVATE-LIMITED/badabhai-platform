@@ -245,8 +245,10 @@ moved to "Applied") and the payer app's Find tab. How each decision landed:
   `active` (an allowlist); at least one `wants = true` skill. `candidate-search.db.test.ts` executes the
   invariant and each predicate's deletion turns it red.
 - **§1/§2/§4** — `filter_match` is TRUE only on recorded matches; strict drops only the definite
-  "no"s, so an unrecorded city or industry tenure is kept by both modes and counted in `unrecorded`,
-  never in `matched`. Role, role months and industry are NOT NULL on `worker_skill`, so always recorded.
+  "no"s, so an unrecorded value is kept by both modes and counted in `unrecorded`, never in
+  `matched`. Unrecorded = a NULL or gazetteer-unrecognised city, 0 role months and a missing or
+  0-month industry tenure — the derivation writes 0 for "we do not know" (`bucketMonths(null)`), so
+  a 0 can be neither a fresher match nor an experienced "no". Role and industry are always recorded.
 - **§3** — every response, empty or not, carries `total`, `matched` and `unrecorded` from the same
   statement as its rows.
 - **§5, with no posting** — the ADR-0036 §2 key with the payer's role filter standing in for the

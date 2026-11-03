@@ -101,7 +101,7 @@ describe("CandidateSearchService.search", () => {
     expect(q.experience).toEqual({ min: 36, max: 60 });
     expect(q.industryExperience).toEqual({ min: 12, max: 36 });
     expect(q.industryId).toBe("ind_industrial_manufacturing");
-    expect(q.cityKeys).toBeNull();
+    expect(q.city).toBeNull();
     expect(q.tierFloorMonths).toBe(36);
     expect(q.strict).toBe(true);
     expect(q.after).toBeNull();
@@ -167,12 +167,38 @@ describe("CandidateSearchService.search", () => {
     expect(h.workerSkills.listStatedTradeLevels).toHaveBeenCalledWith([]);
   });
 
-  it("resolves a city to every pooled spelling that canonicalises to it", async () => {
-    const h = setup({ cities: ["Pune", "pune ", "PUNE", "Chennai"] });
+  it("resolves a city to every pooled spelling of it, and the unrecognised ones as unrecorded", async () => {
+    const h = setup({ cities: ["Pune", "pune ", "PUNE", "Chennai", "near the bus stand"] });
     await search(h, { city: "pune" });
-    const keys = (h.repo.searchPool.mock.calls[0]![0] as CandidatePoolQuery).cityKeys ?? [];
-    expect([...keys].sort()).toEqual(["pune", "pune "].sort());
-    expect(keys).not.toContain("chennai");
+    const city = (h.repo.searchPool.mock.calls[0]![0] as CandidatePoolQuery).city!;
+    expect([...city.matchKeys].sort()).toEqual(["pune", "pune "].sort());
+    expect(city.matchKeys).not.toContain("chennai");
+    expect(city.unrecognisedKeys).toEqual(["near the bus stand"]);
+  });
+
+  it("refuses a city the gazetteer does not recognise — before any read (no free-text probe)", async () => {
+    const h = setup({ cities: ["near the bus stand"] });
+    await expect(search(h, { city: "near the bus stand" })).rejects.toMatchObject({ status: 400 });
+    expect(h.repo.searchPool).not.toHaveBeenCalled();
+    expect(h.repo.listPoolCities).not.toHaveBeenCalled();
+    expect(h.emitted).toHaveLength(0);
+  });
+
+  it("the facet reads the pool's cities once per window; the FILTER always reads fresh; no failure is cached", async () => {
+    const h = setup({ cities: ["Pune"] });
+    await h.service.filters();
+    await h.service.filters();
+    expect(h.repo.listPoolCities).toHaveBeenCalledTimes(1);
+    // A city-filtered page never trusts the facet's cache (a newly recorded spelling would be a "no").
+    await search(h, { city: "Pune" });
+    await search(h, { city: "Pune" });
+    expect(h.repo.listPoolCities).toHaveBeenCalledTimes(3);
+
+    const failing = setup({ cities: ["Pune"] });
+    failing.repo.listPoolCities.mockRejectedValueOnce(new Error("pool read failed"));
+    await expect(failing.service.filters()).rejects.toThrow("pool read failed");
+    await expect(failing.service.filters()).resolves.toMatchObject({ cities: ["Pune"] });
+    expect(failing.repo.listPoolCities).toHaveBeenCalledTimes(2);
   });
 
   it("emits ONE event with the search's shape and counts — never a worker id or the city", async () => {
@@ -274,6 +300,18 @@ describe("the masked row (toCandidateRow — the only builder)", () => {
     expect(toCandidateRow(poolRow(W1, { currentCity: "pune" }), false, [], []).city).toBe("Pune");
     expect(toCandidateRow(poolRow(W1, { currentCity: "near the bus stand" }), false, [], []).city).toBeNull();
     expect(toCandidateRow(poolRow(W1, { currentCity: null }), false, [], []).city).toBeNull();
+  });
+
+  it("carries ONLY the lead role's rung — never one on a switched-off or other trade", () => {
+    const row = toCandidateRow(poolRow(W1, { skillId: "mskill_cnc_turner" }), false, [], [
+      { workerId: W1, skillId: "mskill_cnc_turner", tradeLevel: "setter", levelConfirmed: true },
+      { workerId: W1, skillId: "mskill_vmc_operator", tradeLevel: "operator", levelConfirmed: false },
+    ]);
+    expect(row.tradeLevels.map((l) => l.skillId)).toEqual(["mskill_cnc_turner"]);
+    const none = toCandidateRow(poolRow(W1, { skillId: "mskill_tig_welder" }), false, [], [
+      { workerId: W1, skillId: "mskill_cnc_turner", tradeLevel: "setter", levelConfirmed: true },
+    ]);
+    expect(none.tradeLevels).toEqual([]);
   });
 
   it("names at most four other roles and never repeats the lead role", () => {

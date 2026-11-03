@@ -682,11 +682,11 @@ Owner rulings 2026-11-03: payer-web's **Candidates** opens on **All candidates**
   - `experience` — years on the lead role: `under_1` | `1_3` | `3_5` | `5_10` | `10_plus` (`[min, max)` months, bucketed to 6).
   - `industry_id` — `ind_industrial_manufacturing` | `ind_quick_commerce`.
   - `industry_experience` — the same buckets, over calendar months in the lead role's industry.
-  - `city` — matched case-insensitively against the worker's own `workers.current_city` (offer the `cities` from the filters route).
+  - `city` — a city the gazetteer recognises (any other text is a `400`, so the filter can never probe a free-text location the card hides), matched against every spelling of it the pool records (offer the `cities` from the filters route).
   - `strict` — default `false`. Opt-in, never remembered (ADR-0040 Decision 2).
   - `limit` `1..50` (default 20); `cursor` — the previous `nextCursor`, untouched.
 - **Who is in the pool (membership, never a filter, both modes):** the worker's LATEST consent row is unrevoked and lists `employer_sharing` (a tie on `accepted_at` must pass on every tied row); `deletion_scheduled_at IS NULL`; `status` `pending` or `active`; at least one `worker_skill` with `wants = true`. Nobody else is served or counted. Skills a worker switched off are invisible (never matched, never on the card).
-- **Filters reorder by default (ADR-0040 Decision 1):** candidates whose RECORDED values match every filter lead; everyone else follows by the rank key; nobody is removed. `strict: true` drops only the definite non-matches. An **unrecorded** city or industry tenure is neither a match nor a "no": strict keeps it, and it is counted in `unrecorded`, never in `matched` (Decision 4). The counts arrive with every page, empty or not (Decision 3).
+- **Filters reorder by default (ADR-0040 Decision 1):** candidates whose RECORDED values match every filter lead; everyone else follows by the rank key; nobody is removed. `strict: true` drops only the definite non-matches. An **unrecorded** value is neither a match nor a "no": strict keeps it, and it is counted in `unrecorded`, never in `matched` (Decision 4). Unrecorded means: a NULL city or one the gazetteer does not recognise; 0 role months; and no industry-tenure row or a 0-month one (the derivation writes 0 for "we do not know"). The counts arrive with every page, empty or not (Decision 3).
 - **Order:** `filter_match DESC`, then the ADR-0036 §2 key with the role filter standing in for the posting's skills: effective tier (asked role 1, related role 2 — promoted to 1 at the live `tier_floor_months` — neither 3) ASC, role months DESC, industry months DESC (unrecorded last), last-active day DESC, worker id ASC. No score, no weight; nothing a payer buys enters it.
 - **Response:**
 
@@ -708,7 +708,7 @@ Owner rulings 2026-11-03: payer-web's **Candidates** opens on **All candidates**
 
 #### `GET /payer/candidates/filters`
 
-- **Auth:** `PayerAuthGuard` (Bearer), either role. No bucket — it reads no candidate.
+- **Auth:** `PayerAuthGuard` (Bearer), either role. Its own per-payer bucket (`payer_candidate_filters`, the same `PAYER_CANDIDATE_SEARCH_MAX_PER_HOUR` cap), never the search's. The city list is cached per process for a minute.
 - **Response:** `{ roles: [{id,label,industryId}], industries: [{id,label}], experienceBuckets: [{id,label}], cities: string[], maxRoles: 5 }`. `roles` is one option per label; `cities` are the gazetteer-canonical cities the eligible pool actually records (A→Z).
 
 ## 5. Role Model

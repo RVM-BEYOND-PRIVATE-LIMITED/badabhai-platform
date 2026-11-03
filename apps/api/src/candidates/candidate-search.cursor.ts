@@ -17,8 +17,9 @@ import { BASE64URL_PATTERN, LOWERCASE_UUID_SCHEMA } from "../applications/feed-c
  * WHO was last served; the server re-reads that worker's CURRENT keys and pages strictly after
  * them. If he has since left the population (opted out, turned his skills off), the page resumes
  * at position `o` of the current order instead — exact when he is the one who left (everyone
- * after him moved up one place); a row can repeat or be skipped only when OTHERS ahead of him
- * also changed between the two pages.
+ * after him moved up one place). Like any keyset over live data, a row can repeat or be skipped
+ * when the population or the anchor's own keys change between two pages (he gains months, or
+ * someone joins ahead of him); a page never repeats a row within itself.
  *
  * BOUND TO ITS SEARCH. A cursor minted under one set of filters is refused (a 400) under another:
  * a position in one order is meaningless in a different one. The fingerprint is checked by the

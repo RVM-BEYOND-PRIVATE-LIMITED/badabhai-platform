@@ -7,6 +7,7 @@ import type { AuthenticatedPayer } from "../payers/payer-auth.guard";
 import type { PayerDisclosureRateLimit } from "../payers/payer-disclosure-rate-limit.service";
 import { CandidateSearchSchema } from "./candidate-search.dto";
 import {
+  CANDIDATE_FILTERS_RATE_SCOPE,
   CANDIDATE_SEARCH_RATE_SCOPE,
   CandidateSearchController,
 } from "./candidate-search.controller";
@@ -22,7 +23,10 @@ function setup() {
       order.push("search");
       return { total: 0, matched: 0, unrecorded: 0, filtered: false, strict: false, candidates: [], nextCursor: null };
     }),
-    filters: vi.fn(async () => ({ roles: [], industries: [], experienceBuckets: [], cities: [], maxRoles: 5 })),
+    filters: vi.fn(async () => {
+      order.push("filters");
+      return { roles: [], industries: [], experienceBuckets: [], cities: [], maxRoles: 5 };
+    }),
   };
   const rateLimit = {
     assertWithinHourlyCap: vi.fn(async () => void order.push("cap")),
@@ -65,11 +69,24 @@ describe("CandidateSearchController", () => {
     expect(t.service.search).toHaveBeenCalledWith(PAYER.id, dto, CTX);
   });
 
-  it("serves the filter options without charging the bucket", async () => {
+  it("charges the filters route its OWN bucket before the read (never the search budget)", async () => {
     const t = setup();
-    await t.controller.filters();
-    expect(t.service.filters).toHaveBeenCalledOnce();
-    expect(t.rateLimit.assertWithinHourlyCap).not.toHaveBeenCalled();
+    await t.controller.filters(PAYER);
+    expect(t.rateLimit.assertWithinHourlyCap).toHaveBeenCalledWith(PAYER.id, {
+      scope: CANDIDATE_FILTERS_RATE_SCOPE,
+      cap: 120,
+    });
+    expect(CANDIDATE_FILTERS_RATE_SCOPE).not.toBe(CANDIDATE_SEARCH_RATE_SCOPE);
+    expect(t.order).toEqual(["cap", "filters"]);
+  });
+
+  it("a capped payer gets no filter read either", async () => {
+    const t = setup();
+    t.rateLimit.assertWithinHourlyCap.mockRejectedValueOnce(
+      new HttpException("Too many requests", HttpStatus.TOO_MANY_REQUESTS),
+    );
+    await expect(t.controller.filters(PAYER)).rejects.toMatchObject({ status: 429 });
+    expect(t.service.filters).not.toHaveBeenCalled();
   });
 
   it("is mounted at payer/candidates with POST search (200) and GET filters", () => {

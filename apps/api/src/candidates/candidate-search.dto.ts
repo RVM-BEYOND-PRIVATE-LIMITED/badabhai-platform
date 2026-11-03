@@ -82,7 +82,8 @@ export const CandidateSearchSchema = z
     /** Years in the industry of the lead role (chosen from the filtered industry when he holds one). */
     industry_experience: z.enum(EXPERIENCE_BUCKET_IDS).nullable().default(null),
     /**
-     * A city, matched case-insensitively against the worker's own `workers.current_city`.
+     * A city the gazetteer recognises (any other text is a 400, so the filter can never probe a
+     * free-text location the card hides), matched against every spelling of it the pool records.
      * `GET /payer/candidates/filters` offers the cities the pool actually records.
      */
     city: z
@@ -100,9 +101,10 @@ export const CandidateSearchSchema = z
       .max(CANDIDATE_SEARCH_MAX_LIMIT)
       .default(CANDIDATE_SEARCH_DEFAULT_LIMIT),
     /**
-     * The previous page's `nextCursor`, untouched. A value the server did not mint is a 400 and
-     * never reaches a query. A cursor is a POSITION in the order of the filters that minted it:
-     * change a filter, start again from the first page.
+     * The previous page's `nextCursor`, untouched. A value that is not a well-formed cursor is a
+     * 400 and never reaches a query; a cursor minted under other filters is a 400 too (the service
+     * checks its fingerprint). A well-formed cursor is not signed: hand-built, it can only move the
+     * position within the same consented pool every payer may page through.
      */
     cursor: z
       .string()

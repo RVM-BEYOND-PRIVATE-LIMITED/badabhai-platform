@@ -8,7 +8,10 @@ import { EventsRepository } from "../events/events.repository";
 import { EventsService } from "../events/events.service";
 import type { MatchConfigService } from "../match/match-config.service";
 import { WorkerSkillsRepository } from "../match/worker-skills.repository";
+import { seedStatedRungs } from "../match/stated-rung.test-support";
 import { decodeCandidateCursor } from "./candidate-search.cursor";
+import { ResumeDisclosureRepository } from "../disclosures/resume-disclosure.repository";
+import type { TenantKey } from "../payers/payer-tenant-scope";
 import { CandidateSearchRepository } from "./candidate-search.repository";
 import { CandidateSearchService } from "./candidate-search.service";
 import { CandidateSearchSchema, type CandidateSearchInput } from "./candidate-search.dto";
@@ -58,6 +61,8 @@ interface Fixture {
   consents: Consent[];
   skills: { id: string; months: number; wants?: boolean }[];
   tenure?: { industry: string; months: number }[];
+  /** Stated trade rungs (worker_profile_skill), for the card's badge. */
+  rungs?: { skill: string; level: string }[];
 }
 
 const SHARING = ["profiling", "resume_generation", "employer_sharing"];
@@ -71,7 +76,7 @@ const RIDER = "mskill_delivery_rider";
 const INELIGIBLE_CITY = "Nagpur";
 
 const FIXTURES = {
-  // ── ELIGIBLE (8) ──────────────────────────────────────────────────────────────────────────
+  // ── ELIGIBLE (9) ──────────────────────────────────────────────────────────────────────────
   turner: {
     city: "Pune",
     consents: [{ purposes: SHARING, ageDays: 1 }],
@@ -93,6 +98,7 @@ const FIXTURES = {
       { id: VMC, months: 30 },
     ],
     tenure: [{ industry: MFG, months: 36 }],
+    rungs: [{ skill: VMC, level: "operator" }], // on VMC only: shown when VMC leads, not TURNER
   },
   vmcVeteran: {
     city: "pune ", // a raw spelling the city filter must still resolve to Pune
@@ -111,6 +117,7 @@ const FIXTURES = {
     consents: [{ purposes: SHARING, ageDays: 1 }],
     skills: [{ id: TIG, months: 60 }],
     tenure: [{ industry: MFG, months: 66 }],
+    rungs: [{ skill: TIG, level: "operator" }],
   },
   unwantedTurner: {
     city: "Delhi",
@@ -120,12 +127,21 @@ const FIXTURES = {
       { id: TIG, months: 30 },
     ],
     tenure: [{ industry: MFG, months: 24 }],
+    rungs: [{ skill: TURNER, level: "setter" }], // a rung on the switched-off trade: never shown
   },
   rider: {
     city: "Pune",
     consents: [{ purposes: SHARING, ageDays: 1 }],
     skills: [{ id: RIDER, months: 24 }],
     tenure: [{ industry: QC, months: 24 }],
+  },
+  unknownYears: {
+    // The derivation's "we do not know": 0 months on the role and a 0-month tenure row (a
+    // form-only worker with no total years) — and a city the gazetteer does not recognise.
+    city: "Chakan",
+    consents: [{ purposes: SHARING, ageDays: 1 }],
+    skills: [{ id: TIG, months: 0 }],
+    tenure: [{ industry: MFG, months: 0 }],
   },
   // ── INELIGIBLE (8) — each one a separate way to be outside the pool ─────────────────────
   noConsent: { city: INELIGIBLE_CITY, consents: [], skills: [{ id: TURNER, months: 120 }] },
@@ -171,7 +187,7 @@ const FIXTURES = {
 type Key = keyof typeof FIXTURES;
 const ID = Object.fromEntries(Object.keys(FIXTURES).map((k) => [k, randomUUID()])) as Record<Key, string>;
 const KEY_OF = new Map(Object.entries(ID).map(([k, v]) => [v, k as Key]));
-const ELIGIBLE: Key[] = ["turner", "turnerOld", "twoRoles", "vmcVeteran", "vmc", "welder", "unwantedTurner", "rider"];
+const ELIGIBLE: Key[] = ["turner", "turnerOld", "twoRoles", "vmcVeteran", "vmc", "welder", "unwantedTurner", "rider", "unknownYears"];
 const INELIGIBLE: Key[] = ["noConsent", "profilingOnly", "revoked", "optedOut", "wantsOff", "leaving", "suspended", "noSkills"];
 
 describe.skipIf(!RUN)("POST /payer/candidates/search — against Postgres", () => {
@@ -186,6 +202,7 @@ describe.skipIf(!RUN)("POST /payer/candidates/search — against Postgres", () =
     turner: { skill_ids: [TURNER] },
     pune: { city: "Pune" },
     exp3to5: { experience: "3_5" },
+    under1: { experience: "under_1" },
     indexp1to3: { industry_experience: "1_3" },
     qc: { industry_id: QC, industry_experience: "1_3" },
   };
@@ -229,7 +246,15 @@ describe.skipIf(!RUN)("POST /payer/candidates/search — against Postgres", () =
       const r = await page({ ...body, limit: 1 });
       before.set(name, { total: r.total, matched: r.matched, unrecorded: r.unrecorded });
     }
-    citiesBefore = (await service.filters()).cities;
+    // A separate instance, so the service under test starts with a cold city-facet cache.
+    citiesBefore = (
+      await new CandidateSearchService(
+        repo,
+        new WorkerSkillsRepository(client.db),
+        { get: async () => DEFAULT_MATCH_CONFIG } as unknown as MatchConfigService,
+        events,
+      ).filters()
+    ).cities;
     await seed(client);
   });
 
@@ -242,7 +267,7 @@ describe.skipIf(!RUN)("POST /payer/candidates/search — against Postgres", () =
     }
   });
 
-  it("THE INVARIANT: every eligible fixture is served, no ineligible one ever is, and total counts exactly the eight", async () => {
+  it("THE INVARIANT: every eligible fixture is served, no ineligible one ever is, and total counts exactly the nine", async () => {
     const { seen, mine, last } = await walk({});
     expect(new Set(mine)).toEqual(new Set(ELIGIBLE));
     for (const k of INELIGIBLE) expect(seen).not.toContain(ID[k]);
@@ -261,7 +286,18 @@ describe.skipIf(!RUN)("POST /payer/candidates/search — against Postgres", () =
 
   it("unfiltered order: the rank key alone (role months, industry months, then id)", async () => {
     const { mine } = await walk({});
-    expect(mine).toEqual(["welder", "turner", "vmcVeteran", "twoRoles", "unwantedTurner", "rider", "vmc", "turnerOld"]);
+    // unknownYears last: 0 months and an unrecorded tenure sort below every recorded value.
+    expect(mine).toEqual([
+      "welder",
+      "turner",
+      "vmcVeteran",
+      "twoRoles",
+      "unwantedTurner",
+      "rider",
+      "vmc",
+      "turnerOld",
+      "unknownYears",
+    ]);
   });
 
   it("the same total order at every page size — no gap, no repeat", async () => {
@@ -283,6 +319,7 @@ describe.skipIf(!RUN)("POST /payer/candidates/search — against Postgres", () =
       "welder", // neither → tier 3, by months
       "unwantedTurner", // his turner skill is OFF, so he is a welder here
       "rider",
+      "unknownYears",
     ]);
     expect(delta("all", last).total).toBe(ELIGIBLE.length);
     expect(delta("turner", last)).toMatchObject({ matched: 3, unrecorded: 0 });
@@ -310,9 +347,17 @@ describe.skipIf(!RUN)("POST /payer/candidates/search — against Postgres", () =
     });
     expect(byKey.get("vmcVeteran")).toMatchObject({ matchesFilters: false, matchTier: 2, city: "Pune" });
     expect(byKey.get("welder")).toMatchObject({ matchesFilters: false, matchTier: null });
+    // The rung on his lead role is shown...
+    expect(byKey.get("welder")!.tradeLevels).toMatchObject([{ skillId: TIG, tradeLevel: "operator" }]);
+    // ...a rung on another trade is not (twoRoles leads with TURNER here; his rung is on VMC)...
+    expect(byKey.get("twoRoles")!.tradeLevels).toEqual([]);
+    // ...and a switched-off trade, with its rung, never reaches the card at all.
     const unwanted = byKey.get("unwantedTurner")!;
     expect(unwanted.role.id).toBe(TIG);
+    expect(unwanted.tradeLevels).toEqual([]);
     expect(JSON.stringify(unwanted)).not.toContain(TURNER);
+    // An unrecognised city is shown as no city, and a 0-month tenure as not recorded.
+    expect(byKey.get("unknownYears")).toMatchObject({ city: null, industryMonths: null, skillMonths: 0 });
   });
 
   it("strict role filter: only the matches, total still the whole pool", async () => {
@@ -323,9 +368,10 @@ describe.skipIf(!RUN)("POST /payer/candidates/search — against Postgres", () =
 
   it("city: case/spacing-insensitive; an unrecorded city is kept even by strict, counted apart, never a match (ADR-0040 §4)", async () => {
     const strict = await walk({ city: "pune", strict: true });
-    // The four recorded matches lead; the unrecorded one follows them (filter_match is definite).
-    expect(strict.mine).toEqual(["welder", "turner", "vmcVeteran", "rider", "vmc"]);
-    expect(delta("pune", strict.last)).toMatchObject({ matched: 4, unrecorded: 1 });
+    // The four recorded matches lead; the two unrecorded follow (filter_match is definite): a NULL
+    // city, and a recorded city the gazetteer does not recognise (the card shows it as no city).
+    expect(strict.mine).toEqual(["welder", "turner", "vmcVeteran", "rider", "vmc", "unknownYears"]);
+    expect(delta("pune", strict.last)).toMatchObject({ matched: 4, unrecorded: 2 });
     // Non-strict keeps everyone: the matches first, then everyone else by the rank key.
     const all = await walk({ city: "Pune" });
     expect(all.mine).toEqual([
@@ -337,19 +383,32 @@ describe.skipIf(!RUN)("POST /payer/candidates/search — against Postgres", () =
       "unwantedTurner",
       "vmc",
       "turnerOld",
+      "unknownYears",
     ]);
+  });
+
+  it("a city the gazetteer does not recognise is refused, never matched as free text", async () => {
+    await expect(page({ city: "Chakan", strict: true })).rejects.toMatchObject({ status: 400 });
   });
 
   it("years in role: the lead role's bucketed months, [min, max)", async () => {
     const { mine, last } = await walk({ experience: "3_5", strict: true });
-    expect(mine).toEqual(["turner", "vmcVeteran"]); // 48 and 48; the welder's 60 is the next bucket
-    expect(delta("exp3to5", last)).toMatchObject({ matched: 2, unrecorded: 0 });
+    // 48 and 48 match; the welder's 60 is the next bucket; 0 months is unrecorded, kept by strict.
+    expect(mine).toEqual(["turner", "vmcVeteran", "unknownYears"]);
+    expect(delta("exp3to5", last)).toMatchObject({ matched: 2, unrecorded: 1 });
+  });
+
+  it("Under 1 year never counts the derivation's unknown (0 months) as a fresher match", async () => {
+    const { mine, last } = await walk({ experience: "under_1", strict: true });
+    expect(mine).toEqual(["unknownYears"]);
+    expect(delta("under1", last)).toMatchObject({ matched: 0, unrecorded: 1 });
   });
 
   it("years in industry: an unrecorded tenure is kept by strict, counted as unrecorded, never as a match", async () => {
     const { mine, last } = await walk({ industry_experience: "1_3", strict: true });
-    expect(mine).toEqual(["unwantedTurner", "rider", "turnerOld", "vmc"]);
-    expect(delta("indexp1to3", last)).toMatchObject({ matched: 3, unrecorded: 1 });
+    // No tenure row (vmc) and a 0-month row (unknownYears) are both unrecorded.
+    expect(mine).toEqual(["unwantedTurner", "rider", "turnerOld", "vmc", "unknownYears"]);
+    expect(delta("indexp1to3", last)).toMatchObject({ matched: 3, unrecorded: 2 });
   });
 
   it("industry: the lead role's industry (and its tenure) — the rider is the one quick-commerce match", async () => {
@@ -404,6 +463,7 @@ describe.skipIf(!RUN)("POST /payer/candidates/search — against Postgres", () =
   it("the city facet offers the pool's canonical cities and never an ineligible worker's", async () => {
     const { cities } = await service.filters();
     for (const c of ["Pune", "Chennai", "Mumbai", "Delhi"]) expect(cities).toContain(c);
+    expect(cities).not.toContain("Chakan"); // recorded, but not a city the gazetteer knows
     if (!citiesBefore.includes(INELIGIBLE_CITY)) expect(cities).not.toContain(INELIGIBLE_CITY);
   });
 
@@ -416,6 +476,155 @@ describe.skipIf(!RUN)("POST /payer/candidates/search — against Postgres", () =
     const text = JSON.stringify(rows.map((r) => r.payload));
     for (const id of Object.values(ID)) expect(text).not.toContain(id);
     expect(text).not.toContain("Pune");
+  });
+});
+
+/**
+ * The consent rule's edges, in their own block (their own fixtures, written after the block above
+ * has cleaned up, so neither block's deltas see the other's rows). The LATEST row decides, and a tie
+ * on `accepted_at` passes only when EVERY tied row passes — the search can never be wider than the
+ * unlock gate, whichever tied row that gate's `ORDER BY accepted_at DESC LIMIT 1` happens to read.
+ */
+describe.skipIf(!RUN)("candidate search membership — consent edge cases", () => {
+  const CTX2: RequestContext = { correlationId: randomUUID(), requestId: `cand-db-consent-${TAG}` };
+  const W = {
+    tieMixed: randomUUID(),
+    tieBoth: randomUUID(),
+    olderRevokedNewerOk: randomUUID(),
+    newerRevoked: randomUUID(),
+  };
+  let client!: DbClient;
+  let service!: CandidateSearchService;
+  let before = 0;
+  const page = (body: CandidateSearchInput) =>
+    service.search(PAYER, CandidateSearchSchema.parse(body), CTX2);
+
+  async function servedIds(): Promise<string[]> {
+    const ids: string[] = [];
+    let cursor: string | null = null;
+    do {
+      const r = await page({ limit: 50, cursor });
+      ids.push(...r.candidates.map((c) => c.workerId));
+      cursor = r.nextCursor;
+    } while (cursor);
+    return ids;
+  }
+
+  beforeAll(async () => {
+    assertLocalDatabase(DATABASE_URL);
+    client = createDbClient(DATABASE_URL, { max: 2 });
+    service = new CandidateSearchService(
+      new CandidateSearchRepository(client.db),
+      new WorkerSkillsRepository(client.db),
+      { get: async () => DEFAULT_MATCH_CONFIG } as unknown as MatchConfigService,
+      new EventsService(new EventsRepository(client.db), { NODE_ENV: "test" } as never),
+    );
+    await ensureSkills(client);
+    before = (await page({ limit: 1 })).total;
+    const { sql } = client;
+    const tie = new Date(Date.now() - 86_400_000).toISOString();
+    const rows: [string, string[], string, boolean][] = [
+      // [worker, purposes, accepted_at, revoked]
+      [W.tieMixed, SHARING, tie, false],
+      [W.tieMixed, ["profiling"], tie, false],
+      [W.tieBoth, SHARING, tie, false],
+      [W.tieBoth, SHARING, tie, false],
+      [W.olderRevokedNewerOk, SHARING, new Date(Date.now() - 10 * 86_400_000).toISOString(), true],
+      [W.olderRevokedNewerOk, SHARING, tie, false],
+      [W.newerRevoked, SHARING, new Date(Date.now() - 10 * 86_400_000).toISOString(), false],
+      [W.newerRevoked, SHARING, tie, true],
+    ];
+    for (const [key, id] of Object.entries(W)) {
+      await sql`
+        INSERT INTO workers (id, phone_e164, phone_hash, status)
+        VALUES (${id}::uuid, ${`enc:cand-c-${TAG}-${key}`}, ${`hash:cand-c-${TAG}-${key}`}, 'active')`;
+      await sql`
+        INSERT INTO worker_skill (worker_id, skill_id, industry_id, months_bucketed, wants, source)
+        VALUES (${id}::uuid, ${TURNER}, ${MFG}, 24, true, 'ops')`;
+    }
+    for (const [id, purposes, at, revoked] of rows) {
+      await sql`
+        INSERT INTO worker_consents (worker_id, consent_version, purposes, accepted_at, revoked_at)
+        VALUES (${id}::uuid, 'test', ${JSON.stringify(purposes)}::jsonb, ${at}::timestamptz,
+                ${revoked ? sql`now()` : null})`;
+    }
+  });
+
+  afterAll(async () => {
+    if (!client) return;
+    try {
+      await client.sql`DELETE FROM events WHERE correlation_id = ${CTX2.correlationId}::uuid`;
+      await client.sql`DELETE FROM workers WHERE id = ANY(${Object.values(W)}::uuid[])`;
+    } finally {
+      await client.sql.end({ timeout: 5 });
+    }
+  });
+
+  it("the latest row decides, and a tie passes only when every tied row passes", async () => {
+    const ids = await servedIds();
+    expect(ids).toContain(W.tieBoth); // tied, both grant sharing
+    expect(ids).toContain(W.olderRevokedNewerOk); // an old revoked row is history; the latest grants
+    expect(ids).not.toContain(W.tieMixed); // tied, one withholds sharing → fails closed
+    expect(ids).not.toContain(W.newerRevoked); // the latest row is revoked
+    expect((await page({ limit: 1 })).total - before).toBe(2);
+  });
+});
+
+/**
+ * The résumé gate's SQL (`ResumeDisclosureRepository.hasLiveUnlock`) against Postgres — the unit
+ * tests mock it, so only this can fail if its tenant, status or expiry predicate is lost. The gate is
+ * what keeps the employer résumé a post-unlock artifact once the search hands out worker ids.
+ */
+describe.skipIf(!RUN)("the résumé gate's live-unlock read — against Postgres", () => {
+  const T1 = randomUUID();
+  const T2 = randomUUID();
+  const W = {
+    live: randomUUID(),
+    revealed: randomUUID(),
+    expired: randomUUID(),
+    denied: randomUUID(),
+    noExpiry: randomUUID(),
+  };
+  let client!: DbClient;
+  let repo!: ResumeDisclosureRepository;
+  const tenant = (id: string) => id as unknown as TenantKey;
+
+  beforeAll(async () => {
+    assertLocalDatabase(DATABASE_URL);
+    client = createDbClient(DATABASE_URL, { max: 2 });
+    repo = new ResumeDisclosureRepository(client.db);
+    const { sql } = client;
+    for (const [key, id] of Object.entries(W)) {
+      await sql`
+        INSERT INTO workers (id, phone_e164, phone_hash, status)
+        VALUES (${id}::uuid, ${`enc:cand-u-${TAG}-${key}`}, ${`hash:cand-u-${TAG}-${key}`}, 'active')`;
+    }
+    await sql`
+      INSERT INTO unlocks (payer_id, worker_id, status, granted_at, expires_at) VALUES
+        (${T1}::uuid, ${W.live}::uuid,     'granted',  now(),                      now() + interval '14 days'),
+        (${T1}::uuid, ${W.revealed}::uuid, 'revealed', now(),                      now() + interval '14 days'),
+        (${T1}::uuid, ${W.expired}::uuid,  'granted',  now() - interval '15 days', now() - interval '1 day'),
+        (${T1}::uuid, ${W.denied}::uuid,   'denied',   NULL,                       now() + interval '14 days'),
+        (${T1}::uuid, ${W.noExpiry}::uuid, 'granted',  now(),                      NULL)`;
+  });
+
+  afterAll(async () => {
+    if (!client) return;
+    try {
+      await client.sql`DELETE FROM unlocks WHERE payer_id = ANY(${[T1, T2]}::uuid[])`;
+      await client.sql`DELETE FROM workers WHERE id = ANY(${Object.values(W)}::uuid[])`;
+    } finally {
+      await client.sql.end({ timeout: 5 });
+    }
+  });
+
+  it("true only for THIS tenant's granted/revealed grant that has not expired", async () => {
+    expect(await repo.hasLiveUnlock(tenant(T1), W.live)).toBe(true);
+    expect(await repo.hasLiveUnlock(tenant(T1), W.revealed)).toBe(true);
+    expect(await repo.hasLiveUnlock(tenant(T2), W.live)).toBe(false); // another tenant's grant
+    expect(await repo.hasLiveUnlock(tenant(T1), W.expired)).toBe(false);
+    expect(await repo.hasLiveUnlock(tenant(T1), W.denied)).toBe(false);
+    expect(await repo.hasLiveUnlock(tenant(T1), W.noExpiry)).toBe(false);
   });
 });
 
@@ -462,6 +671,7 @@ async function seed(client: DbClient): Promise<void> {
         INSERT INTO worker_industry_tenure (worker_id, industry_id, calendar_months)
         VALUES (${id}::uuid, ${t.industry}, ${t.months})`;
     }
+    await seedStatedRungs(client, id, f.rungs ?? []);
   }
 }
 
@@ -469,6 +679,6 @@ async function cleanup(client: DbClient): Promise<void> {
   const { sql } = client;
   const ids = Object.values(ID);
   await sql`DELETE FROM events WHERE correlation_id = ${CTX.correlationId}::uuid`;
-  // worker_skill / worker_industry_tenure / worker_consents CASCADE from workers.
+  // Skills, tenure, consents and the stated-rung profile rows all CASCADE from workers.
   await sql`DELETE FROM workers WHERE id = ANY(${ids}::uuid[])`;
 }

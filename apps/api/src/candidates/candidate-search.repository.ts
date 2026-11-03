@@ -27,11 +27,16 @@ import { DATABASE } from "../database/database.module";
  * a worker who never consented has already disclosed him.
  *
  * ── FILTERS: MATCH, UNRECORDED, NO (ADR-0040 §1, §2, §4) ────────────────────────────────────
- *   `filter_match` is TRUE when every supplied filter matched on a RECORDED value. City and
- *   industry tenure can be unrecorded; a filter over an unrecorded value is neither a match nor a
- *   "no" — the row is counted in `unrecorded`, never in `matched`, and NEITHER mode excludes it.
- *   Strict mode drops only the definite "no"s. Role, role months and industry are NOT NULL on
- *   every `worker_skill` row, so they are always recorded (0 months is 0 months).
+ *   `filter_match` is TRUE when every supplied filter matched on a RECORDED value. A filter over
+ *   an unrecorded value is neither a match nor a "no" — the row is counted in `unrecorded`, never
+ *   in `matched`, and NEITHER mode excludes it. Strict mode drops only the definite "no"s.
+ *   What counts as unrecorded:
+ *     - role months of 0 and industry tenure of 0 (or no tenure row). The derivation writes 0 for
+ *       "we do not know" (`bucketMonths(null)` → 0; a form-only worker has no total years), so a 0
+ *       can never be read as a fresher match or an experienced "no";
+ *     - a city that is NULL, or recorded but not one the gazetteer recognises (the card shows no
+ *       city for it, so the count must not call it a "no" either).
+ *   Role and industry are NOT NULL on every `worker_skill` row, so they are always recorded.
  *
  * ── THE ORDER (ADR-0040 §5) ────────────────────────────────────────────────────────────────
  *   filter_match DESC, then the ADR-0036 §2 rank key with the payer's role filter standing in
@@ -73,8 +78,12 @@ export interface CandidatePoolQuery {
   industryId: string | null;
   /** `[min, max)` calendar months in the lead role's industry; null = no filter. */
   industryExperience: { min: number; max: number | null } | null;
-  /** Lower-cased raw spellings that count as the asked city; null = no city filter. */
-  cityKeys: readonly string[] | null;
+  /**
+   * The city filter, resolved against the pool's recorded spellings (lower-cased): `matchKeys`
+   * canonicalise to the asked city; `unrecognisedKeys` canonicalise to nothing (unrecorded).
+   * null = no city filter.
+   */
+  city: { matchKeys: readonly string[]; unrecognisedKeys: readonly string[] } | null;
   tierFloorMonths: number;
   strict: boolean;
   /** Resume after this worker (rows served so far as the fallback); null = from the top. */
@@ -93,7 +102,7 @@ export interface CandidatePoolRow {
   skillId: string;
   industryId: string;
   skillMonths: number;
-  /** Floored to 6; null = no tenure row for that industry. */
+  /** Floored to 6; null = not recorded (no tenure row, or the derivation's 0). */
   industryMonths: number | null;
   /** Trimmed raw `workers.current_city`; null = not recorded. */
   currentCity: string | null;
@@ -175,19 +184,26 @@ export function candidateSearchStatement(q: CandidatePoolQuery): SQL {
 
   // Recorded-always filters: TRUE / FALSE.
   const fRole = roleFiltered ? dsql`(p.match_class = 1)` : dsql`TRUE`;
-  const fExp = q.experience === null ? dsql`TRUE` : inRange(dsql`p.skill_months`, q.experience);
+  // 0 role months is the derivation's "we do not know" — unrecorded, never a recorded value.
+  const fExp = nullableFilter(
+    dsql`NULLIF(p.skill_months, 0)`,
+    q.experience === null ? null : inRange(dsql`p.skill_months`, q.experience),
+  );
   const fIndustry = industry === null ? dsql`TRUE` : dsql`(p.industry_id = ${industry}::text)`;
   // Nullable filters: TRUE / FALSE / NULL.
   const fIndExp = nullableFilter(
     dsql`p.industry_months`,
     q.industryExperience === null ? null : inRange(dsql`p.industry_months`, q.industryExperience),
   );
-  const fCity = nullableFilter(
-    dsql`p.current_city`,
-    q.cityKeys === null
-      ? null
-      : dsql`(lower(p.current_city) = ANY(${dsql.param([...q.cityKeys])}::text[]))`,
-  );
+  const fCity =
+    q.city === null
+      ? dsql`TRUE`
+      : dsql`(CASE
+          WHEN p.current_city IS NULL
+            OR lower(p.current_city) = ANY(${dsql.param([...q.city.unrecognisedKeys])}::text[])
+            THEN NULL
+          ELSE lower(p.current_city) = ANY(${dsql.param([...q.city.matchKeys])}::text[])
+        END)`;
 
   const strictOnly = q.strict ? dsql`WHERE k.verdict IS DISTINCT FROM FALSE` : dsql``;
   const after =
@@ -224,7 +240,9 @@ export function candidateSearchStatement(q: CandidatePoolQuery): SQL {
              l.match_class,
              CASE WHEN l.match_class = 2 AND l.months_bucketed >= ${q.tierFloorMonths}::int
                   THEN 1 ELSE l.match_class END AS eff_tier,
-             (t.calendar_months / 6) * 6 AS industry_months,
+             -- 0 calendar months is the derivation's "we do not know" (unrecorded, like no row).
+             CASE WHEN t.calendar_months IS NULL OR t.calendar_months = 0 THEN NULL
+                  ELSE (t.calendar_months / 6) * 6 END AS industry_months,
              cw.current_city,
              GREATEST(cw.updated_at, d.last_seen_at) AS last_active_at
       FROM lead l

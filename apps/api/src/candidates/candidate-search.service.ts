@@ -33,6 +33,14 @@ import {
 /** How many of his other roles a card names. */
 const OTHER_ROLES_ON_CARD = 4;
 
+/**
+ * How long the city FACET (`GET /payer/candidates/filters`) reuses one read of the pool's recorded
+ * city spellings — a scan of the eligible pool, so a page view never pays for it twice a minute.
+ * The city FILTER never uses this cache: a spelling recorded since the last read would otherwise be
+ * a wrong "no" for up to a minute. It reads fresh, on a route the per-payer cap already bounds.
+ */
+export const POOL_CITIES_TTL_MS = 60_000;
+
 /** One stated rung of one worker (the match repository's batched read). */
 export interface CandidateTradeLevelRow {
   workerId: string;
@@ -69,6 +77,8 @@ export interface CandidateTradeLevelRow {
 export class CandidateSearchService {
   private readonly logger = new Logger(CandidateSearchService.name);
 
+  private poolCities: { readAt: number; spellings: Promise<string[]> } | null = null;
+
   constructor(
     private readonly repo: CandidateSearchRepository,
     private readonly workerSkills: WorkerSkillsRepository,
@@ -84,7 +94,12 @@ export class CandidateSearchService {
     const cfg = await this.matchConfig.get();
     const skillIds = expandSameLabelRoles(dto.skill_ids);
     const relatedSkillIds = relatedSkillsOf(skillIds);
-    const city = dto.city === null ? null : (canonicalCity(dto.city)?.value ?? dto.city);
+    // Only a city the gazetteer recognises is a filter. Free text is refused: matching it against
+    // the raw recorded value would let a caller probe spellings the card deliberately hides.
+    const city = dto.city === null ? null : (canonicalCity(dto.city)?.value ?? null);
+    if (dto.city !== null && city === null) {
+      throw new BadRequestException("city is not a recognised city");
+    }
     const fingerprint = searchFingerprint({
       skillIds,
       relatedSkillIds,
@@ -99,7 +114,7 @@ export class CandidateSearchService {
     if (dto.cursor !== null && dto.cursor.fingerprint !== fingerprint) {
       throw new BadRequestException("cursor does not belong to this search");
     }
-    const cityKeys = city === null ? null : await this.cityKeysFor(dto.city ?? city, city);
+    const cityFilter = city === null ? null : await this.cityFilterFor(city);
 
     const { counts, rows } = await this.repo.searchPool({
       skillIds,
@@ -108,7 +123,7 @@ export class CandidateSearchService {
       industryId: dto.industry_id,
       industryExperience:
         dto.industry_experience === null ? null : experienceRange(dto.industry_experience),
-      cityKeys,
+      city: cityFilter,
       tierFloorMonths: cfg.tierFloorMonths,
       strict: dto.strict,
       after:
@@ -193,9 +208,7 @@ export class CandidateSearchService {
     const roles = rolesForPicker();
     const industryIds = new Set(roles.map((r) => r.industryId));
     const cities = [
-      ...new Set(
-        (await this.repo.listPoolCities()).map((raw) => canonicalCity(raw)?.value ?? null),
-      ),
+      ...new Set((await this.poolCitySpellings()).map((raw) => canonicalCity(raw)?.value ?? null)),
     ]
       .filter((c): c is string => c !== null)
       .sort((a, b) => a.localeCompare(b, "en"));
@@ -212,19 +225,40 @@ export class CandidateSearchService {
   }
 
   /**
-   * The lower-cased RAW spellings in the pool that count as the asked city: the asked value
-   * itself, its canonical form, and every recorded spelling that canonicalises to the same city
-   * ("pune ", "PUNE"). Written values are canonicalised on write (`WorkersService.setLocation`),
-   * so this mostly returns one key; it exists so the filter and the offered city list can never
-   * disagree.
+   * The asked (canonical) city resolved against the spellings the pool records, lower-cased:
+   * `matchKeys` — the canonical value and every recorded spelling that canonicalises to it
+   * ("pune ", "PUNE"); `unrecognisedKeys` — recorded spellings the gazetteer does not know, which
+   * the card shows as no city and the filter therefore treats as unrecorded, never as a "no".
+   * Written values are canonicalised on write (`WorkersService.setLocation`), so both lists are
+   * short; they exist so the filter, the offered city list and the card can never disagree.
    */
-  private async cityKeysFor(asked: string, canonical: string): Promise<string[]> {
+  private async cityFilterFor(
+    canonical: string,
+  ): Promise<{ matchKeys: string[]; unrecognisedKeys: string[] }> {
     const target = canonical.toLowerCase();
-    const keys = new Set<string>([asked.toLowerCase(), target]);
+    const matchKeys = new Set<string>([target]);
+    const unrecognisedKeys = new Set<string>();
     for (const raw of await this.repo.listPoolCities()) {
-      if ((canonicalCity(raw)?.value ?? raw).toLowerCase() === target) keys.add(raw.toLowerCase());
+      const known = canonicalCity(raw)?.value;
+      if (known === undefined) unrecognisedKeys.add(raw.toLowerCase());
+      else if (known.toLowerCase() === target) matchKeys.add(raw.toLowerCase());
     }
-    return [...keys];
+    return { matchKeys: [...matchKeys], unrecognisedKeys: [...unrecognisedKeys] };
+  }
+
+  /** The facet's city spellings, read at most once per {@link POOL_CITIES_TTL_MS}. */
+  private poolCitySpellings(): Promise<string[]> {
+    const now = Date.now();
+    if (this.poolCities && now - this.poolCities.readAt < POOL_CITIES_TTL_MS) {
+      return this.poolCities.spellings;
+    }
+    const spellings = this.repo.listPoolCities();
+    this.poolCities = { readAt: now, spellings };
+    // A failed read must not be served from the cache for the rest of the window.
+    spellings.catch(() => {
+      if (this.poolCities?.spellings === spellings) this.poolCities = null;
+    });
+    return spellings;
   }
 }
 
@@ -322,6 +356,9 @@ export function toCandidateRow(
     industry: industryLabelled(row.industryId),
     industryMonths: row.industryMonths,
     city: row.currentCity === null ? null : (canonicalCity(row.currentCity)?.value ?? null),
-    tradeLevels: tradeLevels.map(toTradeLevelBadge),
+    // Only the rung on the role the card leads with — a wanted skill by construction. A rung on a
+    // trade he switched off, or on any other trade, never reaches the card (the clients print the
+    // card's one rung beside `role`).
+    tradeLevels: tradeLevels.filter((l) => l.skillId === row.skillId).map(toTradeLevelBadge),
   };
 }
