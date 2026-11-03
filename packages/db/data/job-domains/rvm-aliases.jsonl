@@ -914,6 +914,11 @@
 # ── Assembly line — NCO 8219.0100 — item 25 ─────────────────────────────────
 # The code that already owns "assembly line" and "असेंबली". Stem of "assembly ka kaam".
 {"kind":"alias","job_domain_id":"jd_nco_8219_0100","text":"assembly","lang":"en"}
+# TRACK B #6 (CEO Launch Plan Pack v1, sheet 11): "assembly technician" names
+# the trade itself and resolved nowhere — no NCO code carries the title.
+# Pinned to the role-pack code beside "assembler".
+{"kind":"alias","job_domain_id":"jd_nco_8219_0100","text":"assembly technician","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8219_0100","text":"असेंबली टेक्नीशियन","lang":"hi"}
 #
 # ── Fitter — NCO 7233.0200 (Fitter, Bench) — one guard; item 28 WITHDRAWN ────
 # ITEM 28 ("fitting", the stem of "fitting ka kaam") IS NOT AUTHORED, and was in the first

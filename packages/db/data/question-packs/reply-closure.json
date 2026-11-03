@@ -1,12 +1,12 @@
 {
   "schema_version": 1,
-  "clip_count": 1384,
+  "clip_count": 1402,
   "producers": {
-    "retry": 113,
-    "clarify": 502,
-    "prompt": 362,
+    "retry": 115,
+    "clarify": 509,
+    "prompt": 367,
     "constant": 97,
-    "why": 310
+    "why": 314
   },
   "clips": [
     {
@@ -455,6 +455,11 @@
       "producer": "constant"
     },
     {
+      "id": "0eb7dad1b350bb17",
+      "text": "Product ka tajurba usi line ke employer dhoondhte hain. Kis cheez ki assembly karte ho?",
+      "producer": "clarify"
+    },
+    {
       "id": "0ede99ff905f3502",
       "text": "Job ki tolerance lagbhag kitni rakhte hain?",
       "producer": "retry"
@@ -855,6 +860,11 @@
       "producer": "clarify"
     },
     {
+      "id": "1eea8ff54a344b1c",
+      "text": "Khud sub-assembly aur testing karne wale technician ko alag kaam milta hai. Poori sub-assembly drawing se khud kar lete ho aur testing bhi?",
+      "producer": "clarify"
+    },
+    {
       "id": "1f00d63f98655d03",
       "text": "Tolerance se aapke kaam ki fine quality pata chalti hai. Die clearance kitni tolerance tak rakh lete hain?",
       "producer": "clarify"
@@ -888,6 +898,11 @@
       "id": "1fa9e751eb463af3",
       "text": "Software ki pakad se level pata chalta hai. Software me kya kya banate hain?",
       "producer": "clarify"
+    },
+    {
+      "id": "1fd414546c913ccf",
+      "text": "Engine, electrical, appliances ya EV, kaunsi assembly hai?",
+      "producer": "retry"
     },
     {
       "id": "1fd66ae9f93c86e6",
@@ -1290,6 +1305,11 @@
       "producer": "clarify"
     },
     {
+      "id": "2de6a14d74810882",
+      "text": "Company ke hisaab se sahi naukri milti hai.",
+      "producer": "why"
+    },
+    {
       "id": "2e2a56d3893fcada",
       "text": "Licence wale ko badi jagah kaam milta hai. Kya aapke paas bijli ka licence hai?",
       "producer": "clarify"
@@ -1440,6 +1460,11 @@
       "producer": "clarify"
     },
     {
+      "id": "33da497542cc2796",
+      "text": "Company ke hisaab se sahi naukri milti hai. Kis type ki company me kaam kiya hai?",
+      "producer": "clarify"
+    },
+    {
       "id": "346f334612985ee9",
       "text": "Burr, punch tootna ya strip jam, kya theek karte hain?",
       "producer": "retry"
@@ -1473,6 +1498,11 @@
       "id": "35de1975b5076b81",
       "text": "CCTV wale ko control room milta hai.",
       "producer": "why"
+    },
+    {
+      "id": "360434f26033cf05",
+      "text": "Trainee, line operator, technician, leader ya supervisor hain?",
+      "producer": "retry"
     },
     {
       "id": "3639ff4493beb3ec",
@@ -1593,6 +1623,11 @@
       "id": "3b1f3fff0c843d4c",
       "text": "Jaldi breakdown sambhaalne wale technician ki plant par zaroorat rehti hai. Breakdown aane par kitni der me machine tak pahunchna hota tha?",
       "producer": "clarify"
+    },
+    {
+      "id": "3b36eb949c5e52e7",
+      "text": "Line sambhalne wale leader ko alag zimmedari milti hai.",
+      "producer": "why"
     },
     {
       "id": "3bd1fcb0858d5a37",
@@ -2170,6 +2205,11 @@
       "producer": "retry"
     },
     {
+      "id": "50377ec04e618066",
+      "text": "Product ka tajurba usi line ke employer dhoondhte hain. Engine, electrical, appliances ya EV, kaunsi assembly hai?",
+      "producer": "clarify"
+    },
+    {
       "id": "5049e4ba5f004c1e",
       "text": "Gun setting se coating barabar lagti hai aur powder bachta hai. kV, powder flow ya gun distance, kya set karte hain?",
       "producer": "clarify"
@@ -2197,6 +2237,11 @@
     {
       "id": "515799198fc3b054",
       "text": "Level ke hisaab se sahi sawaal poochhe jaate hain. Trainee, programmer, senior, lead ya supervisor hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "5181397bcb3e38fb",
+      "text": "Testing aur changeover karne wale ko technician ka kaam milta hai. Assembly ka kaunsa uncha kaam kar lete ho?",
       "producer": "clarify"
     },
     {
@@ -2435,6 +2480,11 @@
       "producer": "why"
     },
     {
+      "id": "58cf0f897b094703",
+      "text": "Testing aur changeover karne wale ko technician ka kaam milta hai.",
+      "producer": "why"
+    },
+    {
       "id": "5915f0ed8480d9d1",
       "text": "Kitni moti sheet par kaam karte hain?",
       "producer": "prompt"
@@ -2560,6 +2610,11 @@
       "producer": "clarify"
     },
     {
+      "id": "5c60e4ba6755eb99",
+      "text": "Poori sub-assembly drawing se khud kar lete ho aur testing bhi?",
+      "producer": "prompt"
+    },
+    {
       "id": "5c64bd6bb2b5a234",
       "text": "Safedi aur scaffolding alag hai. Aap kaunsa kaam karte hain?",
       "producer": "clarify"
@@ -2567,6 +2622,11 @@
     {
       "id": "5cb805d51ceea9c4",
       "text": "CMM par kaunsa kaam khud karte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "5d00d47faab3a85a",
+      "text": "Line ya section aap chalate ho — kitne log?",
       "producer": "prompt"
     },
     {
@@ -3208,6 +3268,11 @@
       "id": "73b4dc0938729c8d",
       "text": "Calculation aur review karne wale lead ko alag zimmedari milti hai.",
       "producer": "why"
+    },
+    {
+      "id": "73bd9cf9aa247b78",
+      "text": "Kis type ki company me kaam kiya hai?",
+      "producer": "prompt"
     },
     {
       "id": "73ebecdde72f55fa",
@@ -4650,6 +4715,11 @@
       "producer": "clarify"
     },
     {
+      "id": "a9234d73a888d0d9",
+      "text": "Assembly ka kaunsa uncha kaam kar lete ho?",
+      "producer": "prompt"
+    },
+    {
       "id": "a97336470110fe70",
       "text": "Kya aage ki saari baat Hindi mein karein?",
       "producer": "constant"
@@ -5045,6 +5115,11 @@
       "producer": "why"
     },
     {
+      "id": "b9db92d5054e8f78",
+      "text": "Kis cheez ki assembly karte ho?",
+      "producer": "prompt"
+    },
+    {
       "id": "b9e1a2f562ef46d4",
       "text": "Machine problem mein aap kya theek karte hain?",
       "producer": "prompt"
@@ -5248,6 +5323,11 @@
       "id": "bfe0d7797613f17a",
       "text": "Setting karne wale ko operator se zyada paisa milta hai. Machine setting ka kaunsa kaam karte hain?",
       "producer": "clarify"
+    },
+    {
+      "id": "c0368fb9d7c227bc",
+      "text": "Khud sub-assembly aur testing karne wale technician ko alag kaam milta hai.",
+      "producer": "why"
     },
     {
       "id": "c0659ac6969fdbc6",
@@ -5648,6 +5728,11 @@
       "id": "ce11c36b3e77dcc8",
       "text": "Drawing ka kaunsa kaam khud karte hain?",
       "producer": "prompt"
+    },
+    {
+      "id": "ce1815129584fdf5",
+      "text": "Level ke hisaab se sahi sawaal poochhe jaate hain. Trainee, line operator, technician, leader ya supervisor hain?",
+      "producer": "clarify"
     },
     {
       "id": "ce2bc2c7fc635e2b",
@@ -6422,6 +6507,11 @@
     {
       "id": "ed0ab72d39311498",
       "text": "Aas-paas ki naukri dikhane ke liye doori pata honi chahiye. Ghar se kitne km door tak kaam kar sakte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "ed2cfecaf7924797",
+      "text": "Line sambhalne wale leader ko alag zimmedari milti hai. Line ya section aap chalate ho — kitne log?",
       "producer": "clarify"
     },
     {

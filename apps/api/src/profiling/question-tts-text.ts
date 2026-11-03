@@ -786,6 +786,9 @@ const QUESTION_TTS_TEXT: Readonly<Record<string, string>> = {
   "Kaunsi assembly par kaam kiya hai?": "कौनसी असेंबली पर काम किया है?",
   "Engine, gearbox, seat ya wiring, kaunsa kaam kiya hai?":
     "इंजन, गियरबॉक्स, सीट या वायरिंग, कौनसा काम किया है?",
+  // Track B #6 (@2): the sheet-11 segment retry.
+  "Engine, electrical, appliances ya EV, kaunsi assembly hai?":
+    "इंजन, इलेक्ट्रिकल, अप्लायंसेज़ या EV, कौनसी असेंबली है?",
   "Line par kaunse tool chalate hain?": "लाइन पर कौनसे टूल चलाते हैं?",
   "Nut runner, torque wrench ya pneumatic gun, kaunsa chalaya hai?":
     "नट रनर, टॉर्क रिंच या न्यूमैटिक गन, कौनसा चलाया है?",
@@ -797,6 +800,18 @@ const QUESTION_TTS_TEXT: Readonly<Record<string, string>> = {
   "Line par aur kaunsi zimmedaari sambhalte hain?": "लाइन पर और कौनसी ज़िम्मेदारी संभालते हैं?",
   "Assembly ki kaunsi kharabi pakad kar sudhaar lete hain?":
     "असेंबली की कौनसी खराबी पकड़ कर सुधार लेते हैं?",
+  // --- qp_assembly_line@2 (Track B #6) — level + separating confirms +
+  // product + skills + company type. The level prompt/why reuse the twins
+  // above verbatim (lines 250/1131).
+  "Trainee, line operator, technician, leader ya supervisor hain?":
+    "ट्रेनी, लाइन ऑपरेटर, टेक्नीशियन, लीडर या सुपरवाइज़र हैं?",
+  "Poori sub-assembly drawing se khud kar lete ho aur testing bhi?":
+    "पूरी सब-असेंबली ड्राइंग से खुद कर लेते हो और टेस्टिंग भी?",
+  "Line ya section aap chalate ho — kitne log?":
+    "लाइन या सेक्शन आप चलाते हो — कितने लोग?",
+  "Kis cheez ki assembly karte ho?": "किस चीज़ की असेंबली करते हो?",
+  "Assembly ka kaunsa uncha kaam kar lete ho?": "असेंबली का कौनसा ऊँचा काम कर लेते हो?",
+  "Kis type ki company me kaam kiya hai?": "किस टाइप की कंपनी में काम किया है?",
   // qp_fitter@1 — Batch 2 part two. Six prompts reuse a twin above verbatim and are not
   // repeated: the three fresher ones and "Kya aap drawing padh lete hain?" (the welder's),
   // "Aap kis tarah ka fitting kaam karte hain?" (qp_fitting's) and "Machine ki kaunsi dikkat aap
@@ -1364,6 +1379,18 @@ const WHY_TTS_TEXT: Readonly<Record<string, string>> = {
     "ज़िम्मेदारी संभालने वाले को ज़्यादा वेतन मिलता है।",
   "Kharabi pakadne wale ki line par zaroorat rehti hai.":
     "खराबी पकड़ने वाले की लाइन पर ज़रूरत रहती है।",
+  // --- qp_assembly_line@2 (Track B #6) — the separating-confirm, skills and
+  // company whys. Filed HERE, not in the question table: `composeClarify`
+  // scans only this table for the clarify prefix (R10 §2.6). The product why
+  // is shared verbatim (twinned above).
+  "Khud sub-assembly aur testing karne wale technician ko alag kaam milta hai.":
+    "खुद सब-असेंबली और टेस्टिंग करने वाले टेक्नीशियन को अलग काम मिलता है।",
+  "Line sambhalne wale leader ko alag zimmedari milti hai.":
+    "लाइन सँभालने वाले लीडर को अलग ज़िम्मेदारी मिलती है।",
+  "Testing aur changeover karne wale ko technician ka kaam milta hai.":
+    "टेस्टिंग और चेंजओवर करने वाले को टेक्नीशियन का काम मिलता है।",
+  "Company ke hisaab se sahi naukri milti hai.":
+    "कंपनी के हिसाब से सही नौकरी मिलती है।",
   // qp_fitter@1 — why-texts. Twelve more are shared verbatim with packs twinned above: the
   // tenure, drawing, sector and three fresher ones (the welder's), "Fitting ke kai tarah hote
   // hain." (qp_fitting's), the level and equipment ones (the painter's), the tolerance one (the

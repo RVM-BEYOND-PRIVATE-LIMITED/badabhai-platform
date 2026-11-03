@@ -178,7 +178,26 @@ senior_programmer`; P5 crosswalk already handles). Role `levelTerms` += rung
 > rung. Union extension: `fitter` (Lower) + `senior_fitter` (Higher,
 > confirmed). Deviations in the @2 review_note.
 >
-> TRACK B #5 — SHEET-METAL RETAG (in progress, `feat/mw-sheetmetal-retag`).
+> TRACK B #5 — SHEET-METAL RETAG ✅ CODE DONE (`feat/mw-sheetmetal-retag`, PR #2522, merged).
+> `qp_sheet_metal_fab@2` live on production (seeded + verified post-merge):
+> Easy/Medium/Advanced tiers; 6-band experience; sheet-10 level ladder
+> (Helper/Operator/Skilled/Senior/Supervisor, mandatory) + 2 separating
+> confirms; machine retagged Medium (+CO2 laser, manual brake, hand-fab);
+> NEW product row (Medium); materials short-labels + hard; thickness
+> re-banded to sheet (<1/1-3/3-6/>6mm — old bands drop, recorded cost);
+> nesting expanded to sheet Q10 set + hard; NEW extra-work row (Advanced).
+> Union extension: none. Aliases: `laser operator` + `bending operator`
+> (+Hi) -> 7213.0101. Deviations in the @2 review_note.
+>
+> TRACK B #6 — ASSEMBLY RETAG (in progress, `feat/mw-assembly-retag`).
+> `qp_assembly_line@2`: sheet-11 ladder (Trainee/Line Operator/Assembly
+> Technician/Line Leader/Supervisor, mandatory) + 2 separating confirms
+> (skilled self/other, senior team count; supervisor by rule); 6-band
+> experience; stage + tools retagged Medium (+hand/press-jig/soldering/test-
+> bench); NEW product row (Medium) + skills/company rows (Advanced);
+> instrument/drawing rows retagged Advanced; hard rows gated years OR rung.
+> No union extension. Alias: `assembly technician` (+Hi) -> 8219.0100.
+> Display name now "Assembly Technician". Deviations in the @2 review_note.
 > `qp_sheet_metal_fab@2`: sheet-10 ladder (Helper/Operator/Skilled/Senior/
 > Supervisor, mandatory; the `Senior / Programmer` chip is the sheet's) + 2
 > separating confirms (skilled + senior self/other; supervisor by rule);

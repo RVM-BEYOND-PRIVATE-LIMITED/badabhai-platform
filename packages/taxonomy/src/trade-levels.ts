@@ -122,6 +122,11 @@ export const TRADE_LEVEL_PACKS: Readonly<Record<string, TradeLevelPack>> = {
   // Track B #5 — the sheet-metal operator (CEO Launch Plan Pack v1,
   // sheet 10). No union extension either. Supervisor by rule.
   qp_sheet_metal_fab: { skillId: "mskill_sheet_metal_worker", levelKey: "sheet_metal_level" },
+  // Track B #6 — the assembly technician (CEO Launch Plan Pack v1,
+  // sheet 11). Display name "Assembly Technician"; key unchanged. No union
+  // extension: `skilled`/`senior` already confirm, helper/operator already
+  // Lower. Supervisor by rule.
+  qp_assembly_line: { skillId: "mskill_assembly_line_worker", levelKey: "assembly_level" },
 };
 
 /** Legacy/alias spellings that name a `TradeLevel` without being one. */
@@ -390,6 +395,12 @@ export const TRADE_LEVEL_CONFIRM_ITEMS: Readonly<
   qp_sheet_metal_fab: {
     skilled: "sheet_skilled_confirm",
     senior: "sheet_senior_confirm",
+  },
+  // Track B #6 — the assembly confirms (CEO Launch Plan Pack v1, sheet 11).
+  // Confirmed from `skilled`: skilled, senior (team count); supervisor by rule.
+  qp_assembly_line: {
+    skilled: "assembly_skilled_confirm",
+    senior: "assembly_team_confirm",
   },
 };
 

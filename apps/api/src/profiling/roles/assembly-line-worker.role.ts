@@ -42,9 +42,9 @@ export const ASSEMBLY_LINE_WORKER = {
   familyId: "fam_assembly_line",
   cluster: "production",
   formEnabled: true,
-  displayName: "Assembly Line Worker",
-  offerName: "assembly line worker",
-  levelLadder: ["Helper", "Operator", "Skilled"],
+  displayName: "Assembly Technician",
+  offerName: "assembly technician",
+  levelLadder: ["Trainee", "Line Operator", "Assembly Technician", "Line Leader", "Supervisor"],
   tenureQuestionKey: "assembly_experience",
   fresher: {
     // KEYED BY STORED `value_text`, read off `iti_workshop_machines` in qp_assembly_line@1. Line
@@ -86,6 +86,10 @@ export const ASSEMBLY_LINE_WORKER = {
       "assembly operator",
       "final assembly",
       "sub assembly",
+      // Track B #6 (@2): the trade's own name. Routed by alias to the
+      // role-pack code too, so the form hands over exactly as for
+      // "assembly line".
+      "assembly technician",
       "असेंबली",
     ],
     machineTerms: [
@@ -98,7 +102,8 @@ export const ASSEMBLY_LINE_WORKER = {
       "takt",
       "kanban",
     ],
-    levelTerms: ["helper", "operator", "skilled", "ऑपरेटर"],
+    // Track B #6 (@2): the sheet-11 rung words. A rung corroborates; it never routes.
+    levelTerms: ["helper", "operator", "skilled", "line leader", "line operator", "ऑपरेटर"],
     /** Assembly FITTING, which is the fitter's trade and sits in `maintenance`. Mirrored there. */
     extraConflictTerms: ["fitter", "fitting", "फिटर", "erection", "commissioning"],
   },
