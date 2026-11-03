@@ -260,5 +260,39 @@ void main() {
       expect(result.message, kJobEditSetAndClearedMessage);
       expect(api.fetches, 0);
     });
+
+    test('a no-op 400 says nothing changed, not "already closed"', () async {
+      api.throwOnUpdate =
+          const PayerApiException(400, code: kJobEditNoChangesCode);
+
+      final JobActionResult result = await cubit.editJob('j1', title: 'Old title');
+
+      expect(result.success, isFalse);
+      expect(result.message, kJobEditNoChangesMessage);
+      expect(api.fetches, 0);
+    });
+
+    test('a genuinely closed 400 names the terminal closed state', () async {
+      api.throwOnUpdate =
+          const PayerApiException(400, code: kJobEditClosedCode);
+
+      final JobActionResult result = await cubit.editJob('j1', title: 'x');
+
+      expect(result.success, isFalse);
+      expect(result.message, kJobEditClosedMessage);
+      expect(api.fetches, 0);
+    });
+
+    test('any other 400 is a neutral save failure, never "already closed"',
+        () async {
+      api.throwOnUpdate = const PayerApiException(400);
+
+      final JobActionResult result = await cubit.editJob('j1', title: 'x');
+
+      expect(result.success, isFalse);
+      expect(result.message,
+          'Could not save changes. Check the details and try again.');
+      expect(api.fetches, 0);
+    });
   });
 }
