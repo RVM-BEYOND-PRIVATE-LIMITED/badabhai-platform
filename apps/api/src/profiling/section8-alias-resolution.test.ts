@@ -1313,3 +1313,67 @@ describe("Phase 2 #3 Press-shop — routing, rungs and capture (CEO Launch Plan 
     },
   );
 });
+
+describe("Phase 2 #4 Painter / coating / plating — routing, rungs and capture (CEO Launch Plan Pack v1, sheet 20)", () => {
+  const cases: ReadonlyArray<
+    readonly [string | null, string | null, string | null, TradeFormKind | null]
+  > = [
+    // Occupation-tier: the trade named whole routes alone — the plating words included.
+    ["Manufacturing", "powder coating", null, "painter_coating"],
+    ["Manufacturing", "powder coating operator", null, "painter_coating"],
+    ["Manufacturing", "electroplating", null, "painter_coating"],
+    ["Manufacturing", "zinc plating", null, "painter_coating"],
+    ["Manufacturing", "chrome plating", null, "painter_coating"],
+    // Machine-tier (new process words) corroborates the pin, never routes alone.
+    ["Manufacturing", "anodising", "fam_powder_coating", "painter_coating"],
+    ["Manufacturing", "anodising", null, null],
+    // Rung words corroborate the pin.
+    ["Manufacturing", "senior hoon", "fam_powder_coating", "painter_coating"],
+    // House painting keeps its veto.
+    ["Manufacturing", "house painting", "fam_powder_coating", null],
+  ];
+  for (const [domain, role, family, expected] of cases) {
+    it(`${JSON.stringify(role)}${family ? ` + pin` : ""} → ${expected ?? "nothing"}`, () => {
+      expect(route(domain, role, family)).toBe(expected);
+    });
+  }
+
+  // The sheet-20 ladder. The first chip reads "Helper/Trainee" and stores
+  // `trainee`; @1's `helper` lives on frozen.
+  const coatingLevel2 = loadItem("qp_powder_coating@2.json", "coating_level");
+  it.each([
+    ["Helper/Trainee", "trainee"],
+    ["Helper", "trainee"],
+    ["Operator", "operator"],
+    ["Skilled", "skilled"],
+    ["skilled hoon", "skilled"],
+    ["Senior / line leader", "senior"],
+    ["senior hoon", "senior"],
+    ["Supervisor", "supervisor"],
+  ])("coating_level@2: %s → %s", (text, expected) => {
+    expect(matchOptions(coatingLevel2 as never, text as string)).toEqual([expected]);
+  });
+
+  it.each([
+    ["qp_powder_coating@2.json", "coating_process", "CED / E-coat", "ced_ecoat"],
+    ["qp_powder_coating@2.json", "coating_process", "Electroplating / plating", "electroplating"],
+    ["qp_powder_coating@2.json", "coating_process", "zinc plating", "electroplating"],
+    ["qp_powder_coating@2.json", "coating_process", "Anodising", "anodising"],
+    ["qp_powder_coating@2.json", "coating_process", "Phosphating / pre-treatment", "phosphating_pt"],
+    ["qp_powder_coating@2.json", "coating_process", "Sandblasting / shot blasting", "sandblasting"],
+    ["qp_powder_coating@2.json", "coating_process", "Liquid / spray painting, HVLP", "liquid_hvlp"],
+    ["qp_powder_coating@2.json", "booth_type", "Robotic line", "robotic_line"],
+    ["qp_powder_coating@2.json", "booth_type", "Manual / batch booth", "batch_booth"],
+    ["qp_powder_coating@2.json", "coating_bath_work", "Anodising bath", "anodising_bath"],
+    ["qp_powder_coating@2.json", "coating_bath_work", "Paint mixing aur viscosity", "paint_mixing"],
+    ["qp_powder_coating@2.json", "coating_skilled_confirm", "Haan, khud karta hoon", "self"],
+    ["qp_powder_coating@2.json", "coating_skilled_confirm", "Nahi, koi aur karta hai", "other"],
+  ] as ReadonlyArray<readonly [string, string, string, string | null]>)(
+    "%s %s: %s → %s",
+    (packFile, questionKey, text, expected) => {
+      expect(capturedOption(packFile, questionKey, text)).toEqual(
+        expected === null ? [] : [expected],
+      );
+    },
+  );
+});

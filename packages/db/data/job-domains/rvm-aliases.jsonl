@@ -295,6 +295,29 @@
 {"kind":"alias","job_domain_id":"jd_nco_7131_0300","text":"industrial painter","lang":"en"}
 {"kind":"alias","job_domain_id":"jd_nco_7131_0500","text":"spray painter","lang":"en"}
 {"kind":"alias","job_domain_id":"jd_nco_7131_0500","text":"स्प्रे पेंटिंग","lang":"hi"}
+# PHASE 2 #4 (CEO Launch Plan Pack v1, sheet 20 "Words"). THE TRADE'S OWN NAME
+# REACHED THE WRONG FAMILY: offline, "powder coating", "coating operator" and
+# "powder coating operator" all resolved to 7212.0400 Gas Cutter (welding), so a
+# powder coater could be interviewed from the welding pack. Pinned to 7132.0201
+# (Painter, Spray), whose chip label stays "Painter Spray" — every row below is
+# longer, and pickChipLabel takes the shortest.
+{"kind":"alias","job_domain_id":"jd_nco_7132_0201","text":"powder coating","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7132_0201","text":"पाउडर कोटिंग","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7132_0201","text":"coating operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7132_0201","text":"powder coating operator","lang":"en"}
+# PLATING (sheet 20: "retag, add plating"; owner ruling 2026-11-03 binds
+# 8122.0100 Electroplater to fam_powder_coating). Every plating word resolved
+# NOWHERE before this block. Each row is also a painter-coating.role.ts
+# occupation term, so whichever becomes this code's chip label ("zinc
+# plating", the shortest) still routes to the form. NOT authored: bare
+# "plating" (skeleton of "pleating" and "plaiting"); "anodising" and the CED /
+# E-coat words (at 9 / 6 characters they would become the Electroplater chip —
+# they stay capture chips and machine terms; a known reach gap).
+{"kind":"alias","job_domain_id":"jd_nco_8122_0100","text":"electroplating","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8122_0100","text":"इलेक्ट्रोप्लेटिंग","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_8122_0100","text":"zinc plating","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8122_0100","text":"nickel plating","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8122_0100","text":"chrome plating","lang":"en"}
 {"kind":"alias","job_domain_id":"jd_nco_9313_0701","text":"painter helper","lang":"en"}
 
 # ── Carpentry — ISCO 7115 ───────────────────────────────────────────────────
