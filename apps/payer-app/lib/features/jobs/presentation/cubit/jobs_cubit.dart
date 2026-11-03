@@ -142,6 +142,17 @@ class JobsCubit extends Cubit<JobsState> {
       if (e.isSetAndCleared) {
         return const JobActionResult.fail(kJobEditSetAndClearedMessage);
       }
+      if (e.code == kJobEditNoChangesCode) {
+        return const JobActionResult.fail(kJobEditNoChangesMessage);
+      }
+      if (e.code == kJobEditClosedCode) {
+        return const JobActionResult.fail(kJobEditClosedMessage);
+      }
+      // A field-level validation 400 names the box to fix, e.g.
+      // "Job title: Must not contain a company name."
+      if (e.validationMessage != null && e.validationMessage!.isNotEmpty) {
+        return JobActionResult.fail(e.validationMessage!);
+      }
       return JobActionResult.fail(
         e.isConflict ? conflictMessage : 'Could not update. Please try again.',
       );

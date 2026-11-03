@@ -294,5 +294,18 @@ void main() {
           'Could not save changes. Check the details and try again.');
       expect(api.fetches, 0);
     });
+
+    test('a validation 400 shows the field and reason', () async {
+      api.throwOnUpdate = const PayerApiException(
+        400,
+        validationMessage: 'Job title: Must not contain a company name.',
+      );
+
+      final JobActionResult result = await cubit.editJob('j1', title: 'x');
+
+      expect(result.success, isFalse);
+      expect(result.message, 'Job title: Must not contain a company name.');
+      expect(api.fetches, 0);
+    });
   });
 }

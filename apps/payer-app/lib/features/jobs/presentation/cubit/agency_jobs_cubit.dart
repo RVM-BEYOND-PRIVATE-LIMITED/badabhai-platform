@@ -120,6 +120,12 @@ class AgencyJobsCubit extends Cubit<AgencyJobsState> {
       if (e.code == kJobEditClosedCode) {
         return const JobActionResult.fail(kJobEditClosedMessage);
       }
+      // Any other validation 400 names the field the server refused (e.g.
+      // "Job title: Must not contain a company name."), instead of the old
+      // "check the details" that left the agent guessing.
+      if (e.validationMessage != null && e.validationMessage!.isNotEmpty) {
+        return JobActionResult.fail(e.validationMessage!);
+      }
       return JobActionResult.fail(
         e.isNotFound
             ? "This job isn't available."
