@@ -242,14 +242,30 @@ class HttpPayerApiClient implements PayerApiClient {
   /// [JobPostingClearField]/[AgencyJobClearField] names, the non-empty rule and
   /// the pre-send check in [_addClear] leave "set and cleared" as the only
   /// `clear` refusal it can meet.
+  ///
+  /// The two other 400s a job edit can legitimately return are stamped too, so a
+  /// caller never has to guess from the bare status:
+  ///  - [kJobEditNoChangesCode] — `no effective changes to apply` (the save was a
+  ///    no-op; the old client-reported "already closed" was wrong),
+  ///  - [kJobEditClosedCode] — `Job is closed and cannot be edited` (terminal).
   static String? _jobEditRejectionCode(PayerResponse res) {
     if (res.statusCode != 400) return null;
     final Object? error = res.body['error'];
     final Object? issues = error is Map ? error['issues'] : null;
-    if (issues is! List) return null;
-    for (final Object? issue in issues) {
-      if (issue is Map && issue['path'] == 'clear') {
-        return kJobEditSetAndClearedCode;
+    if (issues is List) {
+      for (final Object? issue in issues) {
+        if (issue is Map && issue['path'] == 'clear') {
+          return kJobEditSetAndClearedCode;
+        }
+      }
+    }
+    final Object? message = error is Map ? error['message'] : res.body['message'];
+    if (message is String) {
+      if (message == 'no effective changes to apply') {
+        return kJobEditNoChangesCode;
+      }
+      if (message == 'Job is closed and cannot be edited') {
+        return kJobEditClosedCode;
       }
     }
     return null;

@@ -32,6 +32,9 @@ class AgencyJobsCubit extends Cubit<AgencyJobsState> {
   Future<JobActionResult> closePosting(String id) => _lifecycle(
         () => _api.closeAgencyJob(id),
         okMessage: 'Closed — no longer taking applicants.',
+        // A close 400 means the row is already closed (the only 400 this
+        // terminal transition has).
+        badRequestMessage: 'This job is already closed.',
       );
 
   /// Edit an agency posting (`PATCH /payer/agency/jobs/:id`). Every field the
@@ -90,11 +93,13 @@ class AgencyJobsCubit extends Cubit<AgencyJobsState> {
           clear: clear,
         ),
         okMessage: 'Job updated.',
+        badRequestMessage: 'Could not save changes. Check the details and try again.',
       );
 
   Future<JobActionResult> _lifecycle(
     Future<AgencyJobView> Function() op, {
     required String okMessage,
+    required String badRequestMessage,
   }) async {
     try {
       await op();
@@ -102,15 +107,24 @@ class AgencyJobsCubit extends Cubit<AgencyJobsState> {
       return JobActionResult.ok(okMessage);
     } on PayerApiException catch (e) {
       // #1652 — checked BEFORE the blanket 400 below: a set-and-cleared edit
-      // is a 400 too, and "already closed" would name the wrong reason.
+      // is a 400 too, and the wrong reason would be named.
       if (e.isSetAndCleared) {
         return const JobActionResult.fail(kJobEditSetAndClearedMessage);
+      }
+      // A save with nothing changed is NOT a closed job. The old blanket
+      // `isBadRequest -> "already closed"` told a payer their freshly added,
+      // still-open job was closed whenever they tapped Save without editing.
+      if (e.code == kJobEditNoChangesCode) {
+        return const JobActionResult.fail(kJobEditNoChangesMessage);
+      }
+      if (e.code == kJobEditClosedCode) {
+        return const JobActionResult.fail(kJobEditClosedMessage);
       }
       return JobActionResult.fail(
         e.isNotFound
             ? "This job isn't available."
             : e.isBadRequest
-                ? 'This job is already closed.'
+                ? badRequestMessage
                 : 'Could not update. Please try again.',
       );
     } catch (_) {

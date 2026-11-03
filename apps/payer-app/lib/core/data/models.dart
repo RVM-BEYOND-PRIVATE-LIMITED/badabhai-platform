@@ -656,6 +656,25 @@ const String kJobEditSetAndClearedMessage =
     'Nothing was saved — one detail was both changed and removed in the same '
     'save. Open the job again and retry.';
 
+/// The [PayerApiException.code] for a job-edit PATCH the server refused because
+/// nothing supplied differed from the stored row (`400 no effective changes to
+/// apply`). Not a closed job and not a validation failure — the save was a
+/// no-op. The HTTP client stamps this from the server's message so the UI can
+/// say "nothing changed" instead of the old blanket "already closed" claim.
+const String kJobEditNoChangesCode = 'JOB_EDIT_NO_CHANGES';
+
+/// The [PayerApiException.code] for a job-edit PATCH rejected because the row
+/// is `closed` (`400 Job is closed and cannot be edited`) — closed is terminal.
+const String kJobEditClosedCode = 'JOB_EDIT_CLOSED';
+
+/// What the payer is told on [kJobEditNoChangesCode]: the save was a no-op.
+const String kJobEditNoChangesMessage =
+    'Nothing to save — change a field first.';
+
+/// What the payer is told on [kJobEditClosedCode]: closed is terminal.
+const String kJobEditClosedMessage =
+    'This job is closed and cannot be edited.';
+
 /// Result of buying/topping-up a job posting's applicant-visibility PLAN
 /// (`POST /payer/job-postings/:id/plan` and `.../quota-topup`). Flattens the
 /// `{plan{applicantVisibilityQuota,status}, quote{finalInr}, paused, wouldPause}`
