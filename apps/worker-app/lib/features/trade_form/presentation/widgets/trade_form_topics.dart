@@ -95,6 +95,9 @@ const Map<String, (String, String)> _kTopics = <String, (String, String)>{
   // level follow-ups, not craft: Experience, left out of Technical Skills.
   'machining_skilled_confirm': _level, 'machining_senior_confirm': _level,
   'coating_level': _level,
+  // Phase 2 #4 (qp_powder_coating@2) — the one separating confirm (asked of
+  // skilled and senior) is a level follow-up, not craft.
+  'coating_skilled_confirm': _level,
   // Track B #3 (qp_welding_trade@2) — the separating confirms are level
   // follow-ups, not craft: Experience, left out of Technical Skills.
   'welder_skilled_confirm': _level, 'welder_senior_confirm': _level,
@@ -181,6 +184,9 @@ const Map<String, (String, String)> _kTopics = <String, (String, String)>{
   // Welding / coating process
   'welding_process': _process, 'coating_process': _process,
   'surface_prep': _process, 'oven_schedule': _process,
+  // Phase 2 #4 (qp_powder_coating@2) — the new bath / chemical row is process
+  // craft, beside surface prep and the oven schedule.
+  'coating_bath_work': _process,
   'joint_type': ('Welding', 'Joints & positions'),
   'welding_position': ('Welding', 'Joints & positions'),
   'electrode_type': ('Welding', 'Consumables'),

@@ -1228,7 +1228,9 @@ export const JOB_ROLE_LABELS: Readonly<Record<TradeFormKindName, JobRoleLabel>> 
   // Phase 2 #3 (CEO Launch Plan Pack v1, sheet 18): display name is
   // "Press-shop Operator"; the key does not change.
   press_operator: { label: "Press-shop Operator", family: "fabrication" },
-  painter_coating: { label: "Painter / Powder Coating", family: "fabrication" },
+  // Phase 2 #4 (CEO Launch Plan Pack v1, sheet 20): plating joins the trade's
+  // name; the key does not change.
+  painter_coating: { label: "Painter / Powder Coating / Plating", family: "fabrication" },
   fitter: { label: "Fitter", family: "maintenance" },
   maintenance_technician: { label: "Maintenance Technician", family: "maintenance" },
   industrial_electrician: { label: "Industrial Electrician", family: "maintenance" },

@@ -140,6 +140,10 @@ export const TRADE_LEVEL_PACKS: Readonly<Record<string, TradeLevelPack>> = {
   // No union extension: every sheet-18 rung is already a member, and @1's
   // stored `helper` renders as it always did. Supervisor by rule.
   qp_press_operation: { skillId: "mskill_press_operator", levelKey: "press_level" },
+  // Phase 2 #4 — the painter / powder-coating / plating operator (CEO Launch
+  // Plan Pack v1, sheet 20). No union extension: every sheet-20 rung is already
+  // a member, and @1's stored `helper`/`skilled` render as they always did.
+  qp_powder_coating: { skillId: "mskill_painter_coater", levelKey: "coating_level" },
 };
 
 /** Legacy/alias spellings that name a `TradeLevel` without being one. */
@@ -448,6 +452,13 @@ export const TRADE_LEVEL_CONFIRM_ITEMS: Readonly<
   qp_press_operation: {
     setter: "press_setting_confirm",
     senior: "press_setting_confirm",
+  },
+  // Phase 2 #4 — the coating confirm (CEO Launch Plan Pack v1, sheet 20).
+  // Confirmed from `skilled`; the sheet's one question is asked of skilled and
+  // senior (standing owner rule, 2026-11-03). Supervisor by rule.
+  qp_powder_coating: {
+    skilled: "coating_skilled_confirm",
+    senior: "coating_skilled_confirm",
   },
 };
 

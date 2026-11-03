@@ -2303,6 +2303,12 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           liquid_hvlp: "Liquid spray — HVLP",
           electrostatic: "Electrostatic spray",
           touch_up: "Touch-up",
+          // Phase 2 #4 (@2): the sheet-20 processes, plating included.
+          ced_ecoat: "CED / E-coat",
+          electroplating: "Electroplating",
+          anodising: "Anodising",
+          phosphating_pt: "Phosphating / pre-treatment",
+          sandblasting: "Sandblasting / shot blasting",
         },
       },
       {
@@ -2419,6 +2425,8 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           batch_booth: "Batch powder booth",
           conveyorised: "Conveyorised line",
           both_booth: "Batch powder booth and conveyorised line",
+          // Phase 2 #4 (@2) — Medium Q7 per sheet 20.
+          robotic_line: "Robotic line",
         },
       },
       {

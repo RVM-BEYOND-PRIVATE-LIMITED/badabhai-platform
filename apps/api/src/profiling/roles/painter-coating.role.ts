@@ -31,9 +31,10 @@ export const PAINTER_COATING = {
   familyId: "fam_powder_coating",
   cluster: "fabrication",
   formEnabled: true,
-  displayName: "Painter / Powder Coating",
+  // Phase 2 #4 (CEO Launch Plan Pack v1, sheet 20): plating joins the trade.
+  displayName: "Painter / Powder Coating / Plating",
   offerName: "powder coating operator",
-  levelLadder: ["Helper", "Operator", "Skilled"],
+  levelLadder: ["Trainee", "Operator", "Skilled", "Senior", "Supervisor"],
   tenureQuestionKey: "coating_experience",
   detection: {
     occupationTerms: [
@@ -43,6 +44,15 @@ export const PAINTER_COATING = {
       "spray painter",
       "industrial painting",
       "पाउडर कोटिंग",
+      // Phase 2 #4 (sheet 20, "add plating"): the plater names his trade by its
+      // process. These are also the plating code's alias rows, so whichever
+      // becomes that code's chip label still routes here. Bare "plating" is
+      // NOT a term: its skeleton is "pleating" (garments) and "plaiting" (hair).
+      "electroplating",
+      "zinc plating",
+      "nickel plating",
+      "chrome plating",
+      "powder coating operator",
     ],
     machineTerms: [
       "powder booth",
@@ -53,9 +63,14 @@ export const PAINTER_COATING = {
       "electrostatic spray",
       "dft gauge",
       "phosphating",
+      // Phase 2 #4 (sheet 20): the new process chips. Corroborate a pin.
+      "anodising",
+      "anodizing",
+      "e coat",
     ],
     // "painter" lives HERE and not above — see the header. A rung corroborates; it never routes.
-    levelTerms: ["helper", "operator", "skilled", "painter", "पेंटर"],
+    // Phase 2 #4 (sheet 20): + the trainee and senior rung words.
+    levelTerms: ["helper", "trainee", "operator", "skilled", "senior", "painter", "पेंटर"],
     /**
      * Building painting, which is a different trade with a live family of its own. A worker who
      * says "painter" and "putty" in one breath belongs in `fam_painting`'s interview, not this

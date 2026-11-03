@@ -662,6 +662,13 @@ const QUESTION_TTS_TEXT: Readonly<Record<string, string>> = {
   // --- qp_powder_coating@1 (powder coating and industrial spray) — Batch 2 --------------------
   "Powder coating ya paint ka kitna tajurba hai?": "पाउडर कोटिंग या पेंट का कितना तजुर्बा है?",
   "Paint shop me aap kis level par kaam karte hain?": "पेंट शॉप में आप किस लेवल पर काम करते हैं?",
+  // qp_powder_coating@2 (Phase 2 #4) — the separating confirm (asked of skilled
+  // and senior; the sheet's slashes read as "या") and the new bath row. The
+  // level retry is an earlier pack's verbatim and already twinned.
+  "Pre-treatment / bath / oven ki setting aap khud karte ho, defects khud theek karte ho?":
+    "प्री-ट्रीटमेंट या बाथ या ओवन की सेटिंग आप खुद करते हो, डिफेक्ट खुद ठीक करते हो?",
+  "Kaunse bath ya chemical ka kaam khud sambhalte hain?":
+    "कौनसे बाथ या केमिकल का काम खुद संभालते हैं?",
   "Aap kaunsa coating ka kaam karte hain?": "आप कौन सा कोटिंग का काम करते हैं?",
   "Kaunse booth aur oven par kaam kiya hai?": "कौन से बूथ और ओवन पर काम किया है?",
   "Kaunsa powder ya paint lagaya hai?": "कौन सा पाउडर या पेंट लगाया है?",
@@ -1343,6 +1350,12 @@ const WHY_TTS_TEXT: Readonly<Record<string, string>> = {
   "Thickness se coating ki quality aur cost tay hoti hai.": "थिकनेस से कोटिंग की क्वालिटी और कॉस्ट तय होती है।",
   "Dhaat ke hisaab se coating ka tarika badal jaata hai.": "धातु के हिसाब से कोटिंग का तरीका बदल जाता है।",
   "Gun setting se coating barabar lagti hai aur powder bachta hai.": "गन सेटिंग से कोटिंग बराबर लगती है और पाउडर बचता है।",
+  // qp_powder_coating@2 (Phase 2 #4) — the confirm's and the bath row's whys.
+  // Filed HERE: `composeClarify` scans only this table.
+  "Setting aur defect khud sambhalne wale ko alag kaam milta hai.":
+    "सेटिंग और डिफेक्ट खुद संभालने वाले को अलग काम मिलता है।",
+  "Bath aur chemical sambhalne wale ko line ki zimmedari milti hai.":
+    "बाथ और केमिकल संभालने वाले को लाइन की ज़िम्मेदारी मिलती है।",
   "Oven ka temperature aur time coating ki jaan hai.": "ओवन का टेम्परेचर और टाइम कोटिंग की जान है।",
   "Colour change jaldi karne se line ka time bachta hai.": "कलर चेंज जल्दी करने से लाइन का टाइम बचता है।",
   // Layer A elicitation (qp_universal@4) — why-texts.

@@ -900,6 +900,23 @@ describe("Batch 2 part one — the four roles whose words already reached a bind
     expect(familyFor("flame cutter")).toBe("fam_welding_trade");
   });
 
+  it("PHASE 2 #4 — the coating trade's own name and the plating words reach its family", () => {
+    // CEO Launch Plan Pack v1, sheet 20. Before this tranche the trade's own name went to the
+    // welder (7212.0400 Gas Cutter) and every plating word reached nothing.
+    for (const p of [
+      "powder coating", "पाउडर कोटिंग", "coating operator", "powder coating operator",
+      "electroplating", "इलेक्ट्रोप्लेटिंग", "zinc plating", "nickel plating", "chrome plating",
+    ]) {
+      expect(familyFor(p), p).toBe("fam_powder_coating");
+    }
+    // House painting is untouched, and the welder keeps its own cutting words.
+    expect(familyFor("painter")).toBe("fam_painting");
+    expect(familyFor("gas cutting")).toBe("fam_welding_trade");
+    // Held out on purpose (see the rvm-aliases block): bare "plating" folds onto pleating and
+    // plaiting, so it is not a row and must not reach this family.
+    expect(familyFor("pleating")).not.toBe("fam_powder_coating");
+  });
+
   it("no phrase of the four new trades falls through to the universal pack", () => {
     for (const phrase of ["machinist", "tool room", "welder", "spray painter"]) {
       expect(familyFor(phrase), `"${phrase}" falls through`).not.toBe("fam_universal");

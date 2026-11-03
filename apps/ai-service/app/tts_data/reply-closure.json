@@ -1,12 +1,12 @@
 {
   "schema_version": 1,
-  "clip_count": 1433,
+  "clip_count": 1440,
   "producers": {
     "retry": 120,
-    "clarify": 521,
-    "prompt": 374,
+    "clarify": 524,
+    "prompt": 376,
     "constant": 97,
-    "why": 321
+    "why": 323
   },
   "clips": [
     {
@@ -650,6 +650,11 @@
       "producer": "clarify"
     },
     {
+      "id": "165d14b7acd7a12d",
+      "text": "Kaunse bath ya chemical ka kaam khud sambhalte hain?",
+      "producer": "prompt"
+    },
+    {
       "id": "16a84549a042a582",
       "text": "Zyada kaam jaanne wale programmer ki alag maang hai. Program ke alawa aur kya karte hain?",
       "producer": "clarify"
@@ -1143,6 +1148,11 @@
       "id": "28037ef196fd567a",
       "text": "Lagbhag kitne saal programming ka kaam kiya hai?",
       "producer": "retry"
+    },
+    {
+      "id": "2838ecb98709947f",
+      "text": "Bath aur chemical sambhalne wale ko line ki zimmedari milti hai.",
+      "producer": "why"
     },
     {
       "id": "2894fdfe58f70d8f",
@@ -3475,6 +3485,11 @@
       "producer": "prompt"
     },
     {
+      "id": "78e6c5c50a313bf2",
+      "text": "Pre-treatment / bath / oven ki setting aap khud karte ho, defects khud theek karte ho?",
+      "producer": "prompt"
+    },
+    {
       "id": "78fd6cfb106d4661",
       "text": "Aap kaunsi welding karte hain?",
       "producer": "prompt"
@@ -3728,6 +3743,11 @@
       "id": "82d9cc42c8454740",
       "text": "Har jagah ka kaam alag hota hai. Aap kahaan loading karte hain?",
       "producer": "clarify"
+    },
+    {
+      "id": "82e609b9a1e4e305",
+      "text": "Setting aur defect khud sambhalne wale ko alag kaam milta hai.",
+      "producer": "why"
     },
     {
       "id": "82f09e1609414cfc",
@@ -5120,6 +5140,11 @@
       "producer": "prompt"
     },
     {
+      "id": "b434b073d78fc912",
+      "text": "Bath aur chemical sambhalne wale ko line ki zimmedari milti hai. Kaunse bath ya chemical ka kaam khud sambhalte hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "b48fd7fe119bf353",
       "text": "Industry ke hisaab se milti julti company milti hai.",
       "producer": "why"
@@ -5975,6 +6000,11 @@
       "producer": "why"
     },
     {
+      "id": "d1e0296b5b796cc0",
+      "text": "Setting aur defect khud sambhalne wale ko alag kaam milta hai. Pre-treatment / bath / oven ki setting aap khud karte ho, defects khud theek karte ho?",
+      "producer": "clarify"
+    },
+    {
       "id": "d20d756f234b9878",
       "text": "Banaya hua job dikhata hai ki aap kya kar sakte hain. Kaunsa job ya model banaya tha ITI me?",
       "producer": "clarify"
@@ -6563,6 +6593,11 @@
       "id": "e918aa44af7420cc",
       "text": "Grahak se baat karne wale alag rakhe jaate hain.",
       "producer": "why"
+    },
+    {
+      "id": "e921c162886b61e3",
+      "text": "Level se employer ko aapka darja saaf pata chalta hai. Helper, operator, skilled, senior ya supervisor hain?",
+      "producer": "clarify"
     },
     {
       "id": "e953c4108ba089fe",
