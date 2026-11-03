@@ -780,6 +780,14 @@ const QUESTION_TTS_TEXT: Readonly<Record<string, string>> = {
   "Hydraulic ka kaunsa kaam khud karte hain?": "हाइड्रॉलिक का कौनसा काम खुद करते हैं?",
   "Kis machine ka poora overhaul khud kar lete hain?": "किस मशीन का पूरा ओवरहॉल खुद कर लेते हैं?",
   "Erection me kaunsa kaam khud sambhalte hain?": "इरेक्शन में कौनसा काम खुद संभालते हैं?",
+  // --- qp_fitter@2 (Track B #1) — the level question and separating confirms.
+  // The level prompt/why reuse the twins above verbatim (line 250, 1131); only
+  // the retry, the skilled confirm and the team-count confirm need twins.
+  "Helper, fitter, skilled, senior ya supervisor hain?":
+    "हेल्पर, फिटर, स्किल्ड, सीनियर या सुपरवाइज़र हैं?",
+  "Drawing dekh ke poori assembly khud kar lete ho, ya senior ke saath?":
+    "ड्राइंग देख के पूरी असेंबली खुद कर लेते हो, या सीनियर के साथ?",
+  "Kitne fitter aapke under kaam karte hain?": "कितने फिटर आपके अंडर काम करते हैं?",
   // qp_quality_inspection@1 — Batch 2 part two. The instrument and drawing prompts are the CAD and
   // welder strings verbatim, and the three fresher prompts the welder's, so they reuse the twins
   // above and are not repeated here.
@@ -1076,6 +1084,13 @@ const WHY_TTS_TEXT: Readonly<Record<string, string>> = {
     "GD&T जानने वाले डिज़ाइनर की अलग माँग है।",
   "Industry ke hisaab se milti julti company milti hai.":
     "इंडस्ट्री के हिसाब से मिलती जुलती कंपनी मिलती है।",
+  // --- qp_fitter@2 (Track B #1) — the separating-confirm whys ---------------
+  // Filed HERE, not in the question table: `composeClarify` scans only this
+  // table for the clarify prefix (R10 §2.6).
+  "Khud assembly karne wale skilled fitter ko alag kaam milta hai.":
+    "खुद असेंबली करने वाले स्किल्ड फिटर को अलग काम मिलता है।",
+  "Team sambhalne wale senior fitter ko alag zimmedari milti hai.":
+    "टीम सँभालने वाले सीनियर फिटर को अलग ज़िम्मेदारी मिलती है।",
   // --- qp_vmc_milling@1 (role pack, VMC milling) — R14 §3.1 ---------------------------
   //
   // NINE WHY-TEXTS. The tenth — "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain." — is

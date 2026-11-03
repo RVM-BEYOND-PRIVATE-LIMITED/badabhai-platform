@@ -36,7 +36,12 @@ export type TradeLevel =
   | "senior_inspector"
   | "qc_engineer"
   | "designer"
-  | "lead";
+  | "lead"
+  // Track B #1 (CEO Launch Plan Pack v1, sheet 6) — the fitter rungs. `fitter`
+  // is Lower (operator rung), `senior_fitter` Higher; both stored by
+  // qp_fitter@1 already, rendered null until this extension.
+  | "fitter"
+  | "senior_fitter";
 
 /**
  * C6 CROSSWALK — pack level answers → trade skill + `trade_level` (Middle Way P5).
@@ -93,6 +98,9 @@ export const TRADE_LEVEL_PACKS: Readonly<Record<string, TradeLevelPack>> = {
       supervisor: "Head",
     },
   },
+  // Track B #1 — the fitter (CEO Launch Plan Pack v1, sheet 6). Shared labels
+  // already print the trade's words (Fitter / Skilled / Senior Fitter).
+  qp_fitter: { skillId: "mskill_fitter", levelKey: "fitter_level" },
 };
 
 /** Legacy/alias spellings that name a `TradeLevel` without being one. */
@@ -151,6 +159,9 @@ export const TRADE_LEVEL_LABELS: Readonly<Record<TradeLevel, string>> = {
   qc_engineer: "QC Engineer",
   designer: "Designer",
   lead: "Lead",
+  // Track B #1 — the fitter rungs (CEO Launch Plan Pack v1, sheet 6).
+  fitter: "Fitter",
+  senior_fitter: "Senior Fitter",
 };
 
 /**
@@ -182,6 +193,8 @@ const CONFIRMED_RUNGS: ReadonlySet<string> = new Set([
   "senior_inspector",
   "qc_engineer",
   "lead",
+  // Track B #1 — the fitter senior rung confirms (sheet 6: Senior Fitter Higher).
+  "senior_fitter",
 ]);
 
 /** True once the separating question was answered (Setter and above only). */
@@ -214,6 +227,7 @@ export function priceTierForLevels(levels: readonly (TradeLevel | null)[]): "hig
 function levelTier(level: TradeLevel): "higher" | "lower" {
   // CEO Launch Pack v1 (RULED 2026-11-02, reconciled) — per-sheet tiers. Lower: the
   // trainee/operator/designer rungs. Everything else Higher.
+  // Track B #1 — the fitter operator rung is Lower (sheet 6).
   switch (level) {
     case "helper":
     case "trainee":
@@ -225,6 +239,7 @@ function levelTier(level: TradeLevel): "higher" | "lower" {
     case "technician":
     case "inspector":
     case "designer":
+    case "fitter":
       return "lower";
     default:
       return "higher";
@@ -312,6 +327,12 @@ export const TRADE_LEVEL_CONFIRM_ITEMS: Readonly<
     senior_designer: "cad_senior_confirm",
     lead: "cad_lead_confirm",
     supervisor: "cad_team_confirm",
+  },
+  // Track B #1 — the fitter confirms (CEO Launch Plan Pack v1, sheet 6).
+  // Confirmed from `skilled`: skilled, senior_fitter; supervisor by rule.
+  qp_fitter: {
+    skilled: "fitter_skilled_confirm",
+    senior_fitter: "fitter_team_confirm",
   },
 };
 

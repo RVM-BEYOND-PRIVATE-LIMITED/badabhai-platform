@@ -914,6 +914,11 @@
 # through "fitter"; a 2-token row keeps it there on longest-first. Preserves a ruling — it is
 # not new vocabulary.
 {"kind":"alias","job_domain_id":"jd_nco_7233_0200","text":"assembly fitter","lang":"en"}
+# TRACK B #1 (CEO Launch Plan Pack v1, sheet 6): "structural fitter" names the
+# fitter trade (structural / erection work row) and resolved nowhere — no NCO
+# code carries the title. Pinned to the role-pack code beside "assembly fitter".
+{"kind":"alias","job_domain_id":"jd_nco_7233_0200","text":"structural fitter","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7233_0200","text":"स्ट्रक्चरल फिटर","lang":"hi"}
 #
 # ── GUARD ROWS for two neighbours this tranche would otherwise have captured ──
 # Both measured, both ruled 2026-09-24. Each is a 2-token exact row, so it wins on

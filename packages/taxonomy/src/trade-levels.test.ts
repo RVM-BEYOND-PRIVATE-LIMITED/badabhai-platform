@@ -19,7 +19,7 @@ import {
  * alias spelling lands on the canonical key, and null prices Lower.
  */
 describe("trade-level crosswalk", () => {
-  it("covers the four v1 trades plus the two CAD trades, each with its skill and level key", () => {
+  it("covers the four v1 trades plus the CAD trades and the fitter, each with its skill and level key", () => {
     expect(TRADE_LEVEL_PACKS).toEqual({
       qp_cnc_turning: { skillId: "mskill_cnc_turner", levelKey: "turning_level" },
       qp_vmc_milling: { skillId: "mskill_vmc_operator", levelKey: "milling_level" },
@@ -37,6 +37,7 @@ describe("trade-level crosswalk", () => {
           supervisor: "Head",
         },
       },
+      qp_fitter: { skillId: "mskill_fitter", levelKey: "fitter_level" },
     });
   });
 
@@ -76,6 +77,8 @@ describe("trade-level crosswalk", () => {
       "technician",
       "inspector",
       "designer",
+      // Track B #1 — the fitter operator rung does not confirm.
+      "fitter",
     ] as const) {
       expect(isLevelConfirmed(rung), rung).toBe(false);
     }
@@ -99,6 +102,8 @@ describe("trade-level crosswalk", () => {
       "senior_inspector",
       "qc_engineer",
       "lead",
+      // Track B #1 — the fitter senior rung confirms.
+      "senior_fitter",
     ] as const) {
       expect(isLevelConfirmed(rung), rung).toBe(true);
     }
@@ -118,6 +123,8 @@ describe("trade-level crosswalk", () => {
       "technician",
       "inspector",
       "designer",
+      // Track B #1 — the fitter operator rung prices Lower.
+      "fitter",
     ] as const) {
       expect(priceTierForTradeLevel(rung), rung).toBe("lower");
     }
@@ -132,6 +139,8 @@ describe("trade-level crosswalk", () => {
       "senior_inspector",
       "qc_engineer",
       "lead",
+      // Track B #1 — the fitter senior rung prices Higher.
+      "senior_fitter",
     ] as const) {
       expect(priceTierForTradeLevel(rung), rung).toBe("higher");
     }
@@ -166,6 +175,13 @@ describe("trade-level crosswalk", () => {
     expect(tradeLevelLabelFor("qp_cnc_turning", "qc_engineer")).toBe("QC Engineer");
     expect(tradeLevelLabelFor("qp_cnc_turning", "designer")).toBe("Designer");
     expect(tradeLevelLabelFor("qp_cnc_turning", "lead")).toBe("Lead");
+    // Track B #1 — the fitter rungs print the trade's words anywhere.
+    expect(tradeLevelLabelFor("qp_fitter", "helper")).toBe("Helper");
+    expect(tradeLevelLabelFor("qp_fitter", "fitter")).toBe("Fitter");
+    expect(tradeLevelLabelFor("qp_fitter", "skilled")).toBe("Skilled");
+    expect(tradeLevelLabelFor("qp_fitter", "senior_fitter")).toBe("Senior Fitter");
+    expect(tradeLevelLabelFor("qp_fitter", "supervisor")).toBe("Supervisor");
+    expect(tradeLevelLabelFor("qp_fitter", "boss")).toBeNull();
   });
 
   it("emits the authored skill row for a pack's level answer, and nothing else", () => {
@@ -426,6 +442,49 @@ describe("trade-level crosswalk", () => {
     expect(
       drafting("supervisor", { attributeKey: "cad_team_confirm", value: "3 designer" }),
     ).toEqual([{ skillId: "mskill_designer", tradeLevel: "supervisor", levelConfirmed: true }]);
+  });
+
+  it("wires the fitter confirms the same way (CEO Launch Plan Pack v1, Track B #1)", () => {
+    const fitting = (
+      level: string,
+      confirm: { attributeKey: string; value: unknown } | null,
+    ) =>
+      tradeLevelEntriesForPackAnswers(
+        "qp_fitter",
+        confirm === null
+          ? [{ attributeKey: "fitter_level", value: level }]
+          : [{ attributeKey: "fitter_level", value: level }, confirm],
+      );
+    // No confirm answer: the rung rule stands (skilled+ confirmed, below not).
+    expect(fitting("skilled", null)).toEqual([
+      { skillId: "mskill_fitter", tradeLevel: "skilled", levelConfirmed: true },
+    ]);
+    expect(fitting("senior_fitter", null)).toEqual([
+      { skillId: "mskill_fitter", tradeLevel: "senior_fitter", levelConfirmed: true },
+    ]);
+    expect(fitting("fitter", null)).toEqual([
+      { skillId: "mskill_fitter", tradeLevel: "fitter", levelConfirmed: false },
+    ]);
+    expect(fitting("helper", null)).toEqual([
+      { skillId: "mskill_fitter", tradeLevel: "helper", levelConfirmed: false },
+    ]);
+    // Self confirms, other disconfirms — per rung.
+    expect(
+      fitting("skilled", { attributeKey: "fitter_skilled_confirm", value: "self" }),
+    ).toEqual([{ skillId: "mskill_fitter", tradeLevel: "skilled", levelConfirmed: true }]);
+    expect(
+      fitting("skilled", { attributeKey: "fitter_skilled_confirm", value: "other" }),
+    ).toEqual([{ skillId: "mskill_fitter", tradeLevel: "skilled", levelConfirmed: false }]);
+    // The senior's team count is a text engagement, not a chip — confirmed.
+    expect(
+      fitting("senior_fitter", { attributeKey: "fitter_team_confirm", value: "5 fitter" }),
+    ).toEqual([
+      { skillId: "mskill_fitter", tradeLevel: "senior_fitter", levelConfirmed: true },
+    ]);
+    // Supervisor: no confirm item, rung rule (confirmed).
+    expect(fitting("supervisor", null)).toEqual([
+      { skillId: "mskill_fitter", tradeLevel: "supervisor", levelConfirmed: true },
+    ]);
   });
 
   it("prints the 2D trade's own rung words (CEO Launch Plan Pack v1, Track A #5)", () => {

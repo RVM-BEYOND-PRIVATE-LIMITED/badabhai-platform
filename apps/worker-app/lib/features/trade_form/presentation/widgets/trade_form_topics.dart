@@ -199,6 +199,9 @@ const Map<String, (String, String)> _kTopics = <String, (String, String)>{
   'press_maintenance': ('Maintenance', 'Machine upkeep'),
   // Fitter (qp_fitter)
   'fitting_experience': _experience, 'fitter_level': _level,
+  // Track B #1 (@2) — the separating confirms are level follow-ups, same
+  // mechanism as the Turner/CAM confirms: Experience, left out of Technical Skills.
+  'fitter_skilled_confirm': _level, 'fitter_team_confirm': _level,
   'fitter_equipment': _equipment,
   'fitter_work_type': ('Fitting operations', 'Type of fitting work'),
   'fitting_work': ('Fitting operations', 'Bench & assembly work'),
