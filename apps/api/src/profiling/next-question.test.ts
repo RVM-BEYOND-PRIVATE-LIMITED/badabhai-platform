@@ -1018,6 +1018,23 @@ describe("Middle-Way required close (P3a) — the settled slots end the intervie
     expect(decision.completionReason).toBe("required_complete");
   });
 
+  it("EDM closes on its Easy 5 too (Phase 2 #7) — machine/brand/salary optional", () => {
+    const edm: EnginePacks = {
+      occupation: pack("qp_edm_wirecut", []),
+      universal: pack("pk_universal", []),
+    };
+    const easy5 = settledAnswers([
+      "primary_trade",
+      "edm_experience",
+      "edm_level",
+      "current_city",
+      "availability",
+    ]);
+    const decision = nextQuestion(state({ answers: easy5 }), edm);
+    expect(decision.kind).toBe("close");
+    expect(decision.completionReason).toBe("required_complete");
+  });
+
   it("a declined slot counts as settled — 'nahi pata' closes, never re-asks", () => {
     const answers = settledAnswers(
       TURNER_8.filter((k) => k !== "salary_expected"),
@@ -1144,6 +1161,8 @@ describe("Middle-Way stop rule (P3b) — 14-turn focus, 20-turn stop, optional o
     expect(isMiddleWayPack("qp_maintenance_tech")).toBe(true);
     // Phase 2 #6: the new PLC pack is Middle-Way from v1.
     expect(isMiddleWayPack("qp_plc_automation")).toBe(true);
+    // Phase 2 #7: the new EDM pack is Middle-Way from v1.
+    expect(isMiddleWayPack("qp_edm_wirecut")).toBe(true);
     expect(isMiddleWayPack(null)).toBe(false);
   });
 

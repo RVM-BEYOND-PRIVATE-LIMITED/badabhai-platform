@@ -1026,6 +1026,7 @@ export const FORM_KIND_PACK: Readonly<Record<TradeFormKindName, string>> = {
   plastic_process_technician: "qp_plastic_process",
   cad_designer_3d: "qp_cad_design_3d",
   plc_automation_technician: "qp_plc_automation",
+  edm_wirecut_operator: "qp_edm_wirecut",
 };
 
 /**

@@ -299,7 +299,10 @@ senior_programmer`; P5 crosswalk already handles). Role `levelTerms` += rung
 > `cnc maintenance` -> 7233.1200 (it reached the CNC operator code before; no
 > chip label moves). Deviations in the @2 review_note.
 >
-> PHASE 2 #6 — PLC / AUTOMATION TECHNICIAN (NEW BUILD) ✅ CODE DONE (`feat/mw-plc-automation`).
+> PHASE 2 #6 — PLC / AUTOMATION TECHNICIAN (NEW BUILD) ✅ CODE DONE (`feat/mw-plc-automation`, PR #2536, merged).
+> LIVE on production 2026-11-03: migrations 0142 + 0143 applied by the owner before merge;
+> seed:domains → normalize → seed:packs → seed:match:vocabulary; verify:packs,
+> verify:domains (curated 572/572) and verify:match-v1 all PASS.
 > New 23rd declared kind `plc_automation_technician` (formless, chat-only, like 3D)
 > with migrations 0142 (job_postings/jobs role_kind) + 0143 (wri role kinds) —
 > APPLY BOTH BEFORE MERGE. New `mskill_plc_automation_tech` (unpaired: #2022 kept
@@ -313,8 +316,19 @@ senior_programmer`; P5 crosswalk already handles). Role `levelTerms` += rung
 > technician/engineer (+Hi) -> 7412.0101 (bare `plc` held out: police/place
 > skeleton, and "PLC panel wiring" is the electrician's). Role art + generated
 > artifacts. Deviation: the sheet prices technician Higher, the shared key stays
-> Lower (per-pack tier override is a follow-up; the hook only logs). Seeds after
-> migrations + merge.
+> Lower (per-pack tier override is a follow-up; the hook only logs).
+>
+> PHASE 2 #7 — EDM / WIRE-CUT OPERATOR (NEW BUILD) ✅ CODE DONE (`feat/mw-edm-wirecut`).
+> New 24th declared kind `edm_wirecut_operator` (formless, like PLC) with migrations
+> 0145 + 0146 (renumbered: #2538 took 0144) — APPLIED BEFORE MERGE. New `mskill_edm_wirecut_operator` (unpaired,
+> like PLC), `fam_edm_wirecut` bound to NCO 7223.2800 (left fam_machining), new
+> `qp_edm_wirecut@1`: sheet-16 ladder (Trainee/Operator/Setter/Setter-cum-Programmer/
+> Supervisor, mandatory) + 2 separating confirms (setter; setter-cum-programmer — both
+> the sheet's questions verbatim); supervisor by rule; Medium machine + brand; Advanced
+> program source, tolerance, work. Aliases: wire cut / wirecut / wire edm / edm operator /
+> wire cut operator / spark erosion (+Hi) -> 7223.2800. Role vocabulary names the JOB, not
+> the machine, so a tool maker who mentions his wire-cut keeps the Tool & Die form. Seeds
+> after migrations + merge (+ seed:match:vocabulary).
 
 | #   | Trade (kind)                                      | Pack                           | Level Q today                       | Notes                                                                                                                                                                     |
 | --- | ------------------------------------------------- | ------------------------------ | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

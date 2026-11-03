@@ -544,6 +544,26 @@ export const DEMO_TRADES: readonly DemoTrade[] = [
     ],
     shiftWeights: [4, 5, 1],
   },
+  // Phase 2 #7 — the new EDM / wire-cut trade posts under its own permanent ID. Weight 3 is
+  // what keeps the demo profile non-vacuous (measured on a throwaway DB: 1 and 2 left no
+  // persona whose top 10 the company interleave changes; 3, 4 and 5 all hold).
+  {
+    roleKind: "edm_wirecut_operator",
+    skillId: "mskill_edm_wirecut_operator",
+
+    weight: 3,
+    titles: ["Wire-cut Operator", "EDM Operator", "Wire EDM Setter"],
+    pay: [18000, 35000],
+    minExp: [1, 5],
+    unit: PLANT,
+    requirements: [
+      "Wire-cut or sinker EDM",
+      "Job alignment and setting",
+      "Wire threading",
+      "Taper cutting",
+    ],
+    shiftWeights: [6, 3, 1],
+  },
   // Phase 2 #6 — the new PLC / automation trade posts under its own permanent ID. Weight 1: a
   // niche trade, and the weight the demo profile needs to stay non-vacuous (measured on a
   // throwaway DB: weight 2 or 3 left no persona whose top 10 the interleave changes).

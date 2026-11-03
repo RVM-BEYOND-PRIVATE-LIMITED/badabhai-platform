@@ -974,6 +974,17 @@
 {"kind":"alias","job_domain_id":"jd_nco_7412_0101","text":"automation technician","lang":"en"}
 {"kind":"alias","job_domain_id":"jd_nco_7412_0101","text":"automation engineer","lang":"en"}
 {"kind":"alias","job_domain_id":"jd_nco_7412_0101","text":"पीएलसी प्रोग्रामिंग","lang":"hi"}
+# PHASE 2 #7 (CEO Launch Plan Pack v1, sheet 16 "Words"): the EDM / wire-cut trade, a new
+# family bound to 7223.2800 "Die Sinking Electric Discharge Machine Operator". The rows name the
+# trade itself. Bare "edm" (3 letters) and "spark" are NOT rows; brands and "electrode" are
+# capture chips and role machine terms, never routes.
+{"kind":"alias","job_domain_id":"jd_nco_7223_2800","text":"wire cut","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2800","text":"wirecut","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2800","text":"wire edm","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2800","text":"edm operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2800","text":"wire cut operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2800","text":"spark erosion","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2800","text":"वायर कट","lang":"hi"}
 #
 # ── Press — NCO 7223.2300 (Power Press Operator, Metal) / 7223.3000 (Metal Stamper) — 20, 22 ─
 # "press ka kaam" (23) is struck — it is ironing clothes — and "machine operator" (24) routes

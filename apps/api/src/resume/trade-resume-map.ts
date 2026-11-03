@@ -3781,6 +3781,85 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
       },
     ],
   },
+  // ══ PHASE 2 #7 — EDM / WIRE-CUT OPERATOR (CEO Launch Plan Pack v1, sheet 16) ══
+  //
+  // A NEW TRADE WITH NO RATIFIED PAGE: sheet 16's headline ("Wire-cut/EDM Operator ·
+  // Setter-Programmer · 6 years · Sodick + Electronica · Taper & 4-axis · Faridabad · 15 days")
+  // is the parity reference. Machines and brands lead (the hire is for the machine), then the
+  // work, the program source and the tolerance held. Every `values` key is the STORED value.
+  {
+    pack_id: "qp_edm_wirecut",
+    section_title: "EDM, machines & capability",
+    tier_section_titles: { easy: "Machines" },
+    capability: [
+      {
+        from: "edm_machine",
+        rank: 21,
+        inHeadline: true,
+        maxValues: 4,
+        label: "Machines",
+        kind: "chips",
+        values: {
+          wire_cut: "Wire-cut EDM",
+          sinker_edm: "Sinker EDM",
+          hole_drill: "Hole drill EDM",
+          small_hole: "Small-hole EDM",
+        },
+      },
+      {
+        from: "edm_brand",
+        rank: 22,
+        inHeadline: true,
+        maxValues: 4,
+        label: "Brands",
+        kind: "chips",
+        values: {
+          electronica: "Electronica",
+          sodick: "Sodick",
+          mitsubishi: "Mitsubishi",
+          makino: "Makino",
+          agie_charmilles: "Agie / Charmilles",
+          fanuc_robocut: "Fanuc Robocut",
+        },
+      },
+      {
+        from: "edm_work_type",
+        rank: 41,
+        label: "Work",
+        kind: "chips",
+        values: {
+          taper_cutting: "Taper cutting",
+          four_axis: "4-axis cutting",
+          electrode_making: "Electrode making",
+          carbide: "Carbide cutting",
+          wire_threading: "Wire threading & setting",
+        },
+      },
+      {
+        from: "edm_program_source",
+        rank: 42,
+        label: "Programs",
+        kind: "fact",
+        values: {
+          on_machine: "Programs on the machine",
+          from_cam: "Programs from CAM",
+          from_drawing: "Runs programs made from drawings",
+        },
+      },
+      {
+        from: "edm_tolerance",
+        rank: 62,
+        label: "Tolerance held",
+        kind: "fact",
+        values: {
+          "0.02": "±0.02 mm",
+          "0.01": "±0.01 mm",
+          "0.005": "±0.005 mm",
+          "0.002": "±0.002 mm (micron) or finer",
+        },
+      },
+    ],
+  },
 ];
 
 export function tradeResumeMapFor(packId: string | null | undefined): TradeResumeMap | undefined {

@@ -1017,6 +1017,20 @@
       "when": 1793715747298,
       "tag": "0144_admin_password_auth",
       "breakpoints": true
+    },
+    {
+      "idx": 145,
+      "version": "7",
+      "when": 1793766472554,
+      "tag": "0145_job_role_kind_edm",
+      "breakpoints": true
+    },
+    {
+      "idx": 146,
+      "version": "7",
+      "when": 1793766479922,
+      "tag": "0146_wri_role_kind_edm",
+      "breakpoints": true
     }
   ]
 }

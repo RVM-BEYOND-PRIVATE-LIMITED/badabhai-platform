@@ -264,6 +264,8 @@ const TRADE_REQUIRED_KEYS: Readonly<Record<string, readonly string[]>> = {
   qp_maintenance_tech: ["maintenance_experience", "maintenance_level"],
   // Phase 2 #6 — PLC Easy Q2–Q3; a new trade.
   qp_plc_automation: ["plc_experience", "plc_level"],
+  // Phase 2 #7 — EDM Easy Q2–Q3; a new trade.
+  qp_edm_wirecut: ["edm_experience", "edm_level"],
 };
 
 /** True when every required slot for this occupation pack is settled. */

@@ -1949,3 +1949,48 @@ describe("Phase 2 #6 — PLC / automation, a new family on 7412.0101 (CEO Launch
     expect(familyFor("police")).not.toBe("fam_plc_automation");
   });
 });
+
+describe("Phase 2 #7 — EDM / wire-cut, a new family on 7223.2800 (CEO Launch Plan Pack v1)", () => {
+  const offline = resolveJobDomainCorpus();
+  const parents = new Set(
+    offline.filter((d) => d.selectable && d.parentJobDomainId).map((d) => d.parentJobDomainId),
+  );
+  const live = offline.filter(
+    (d) => d.selectable && !(d.source === "isco08" && parents.has(d.jobDomainId)),
+  );
+  const liveClaimants = (phrase: string) => {
+    const norm = normalizeOccupationText(phrase);
+    return live
+      .filter((d) => d.aliases.some((a) => normalizeOccupationText(a.text) === norm))
+      .map((d) => d.jobDomainId)
+      .sort();
+  };
+
+  it("binds exactly the one code", () => {
+    const codes = corpus.bindings
+      .filter((b) => b.family_id === "fam_edm_wirecut")
+      .map((b) => b.job_domain_id);
+    expect(codes).toEqual(["jd_nco_7223_2800"]);
+  });
+
+  it("reaches the family on the trade's own words, each the ONLY claimant in production", () => {
+    for (const phrase of [
+      "wire cut",
+      "wirecut",
+      "wire edm",
+      "edm operator",
+      "wire cut operator",
+      "spark erosion",
+      "वायर कट",
+    ]) {
+      expect(familyFor(phrase), phrase).toBe("fam_edm_wirecut");
+      expect(liveClaimants(phrase), phrase).toEqual(["jd_nco_7223_2800"]);
+    }
+  });
+
+  it("leaves the tool room's own words with the tool room", () => {
+    for (const phrase of ["tool maker", "tool room", "die maker"]) {
+      expect(familyFor(phrase), phrase).not.toBe("fam_edm_wirecut");
+    }
+  });
+});

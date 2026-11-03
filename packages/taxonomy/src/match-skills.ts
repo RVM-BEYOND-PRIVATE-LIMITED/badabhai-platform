@@ -412,6 +412,19 @@ export const MATCH_SKILLS = [
     source: "rvm",
     status: "active",
   },
+  {
+    // CEO Launch Plan Pack v1, Phase 2 #7 (sheet 16): the EDM / Wire-cut Operator — wire-cut,
+    // sinker and hole-drill EDM, from wire threading to programming. APPENDED, never inserted.
+    // UNPAIRED for now, like PLC: the sheet relates it to Tool & Die, VMC and CAM, and a new
+    // relation pair changes who sees whom — an owner call, not a build default.
+    skillId: "mskill_edm_wirecut_operator",
+    labelEn: "EDM / Wire-cut Operator",
+    labelHi: null,
+    industryId: "ind_industrial_manufacturing",
+    domainId: "cnc-programming",
+    source: "rvm",
+    status: "active",
+  },
 ] as const satisfies readonly MatchSkillSeed[];
 
 export type MatchSkillId = (typeof MATCH_SKILLS)[number]["skillId"];

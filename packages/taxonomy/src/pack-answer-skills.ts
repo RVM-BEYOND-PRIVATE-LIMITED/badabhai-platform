@@ -98,6 +98,7 @@ const PRESS_OPERATOR = ["mskill_press_operator"] as const;
 const PAINTER_COATER = ["mskill_painter_coater"] as const;
 const MAINTENANCE_TECHNICIAN = ["mskill_maintenance_technician"] as const;
 const PLC_AUTOMATION_TECH = ["mskill_plc_automation_tech"] as const;
+const EDM_WIRECUT_OPERATOR = ["mskill_edm_wirecut_operator"] as const;
 const INDUSTRIAL_ELECTRICIAN = ["mskill_industrial_electrician"] as const;
 const ASSEMBLY_LINE_WORKER = ["mskill_assembly_line_worker"] as const;
 
@@ -347,6 +348,18 @@ export const PACK_ANSWER_SKILLS: Readonly<Record<string, PackMap>> = {
   // INDUSTRIAL Electrician, and those chips do not claim the plant. "Kaunse electrical equipment
   // par kaam karte hain?" — MCC/PCC panels, VFDs, starters and induction motors are plant
   // equipment. `dg_set` is left out: a DG set is run by an operator as often as by an electrician.
+  // ══ EDM / WIRE-CUT (Phase 2 #7) ════════════════════════════════════════════════════════
+  // "Kaunsi EDM machine chalate hain?" — every named EDM machine is the trade's claim. The
+  // tool room's own EDM chips (qp_tool_die_making edm_work) stay the tool maker's.
+  qp_edm_wirecut: {
+    edm_machine: {
+      wire_cut: EDM_WIRECUT_OPERATOR,
+      sinker_edm: EDM_WIRECUT_OPERATOR,
+      hole_drill: EDM_WIRECUT_OPERATOR,
+      small_hole: EDM_WIRECUT_OPERATOR,
+    },
+  },
+
   // ══ PLC / AUTOMATION (Phase 2 #6) ═══════════════════════════════════════════════════════
   // "Kaunsa PLC chalate hain?" and "Automation me kya kya karte hain?" — a named PLC or a
   // programming / HMI / drive / commissioning task is the trade's claim. Panel wiring and

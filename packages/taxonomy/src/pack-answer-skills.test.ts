@@ -66,6 +66,8 @@ describe("pack-answer bridge — every id rides an existing bridge or is a pack-
     expect(packAnswerIdsEmitted().filter((id) => id.startsWith("mskill_"))).toEqual([
       "mskill_assembly_line_worker",
       "mskill_conventional_machinist",
+      // Phase 2 #7: the new EDM trade's own ID.
+      "mskill_edm_wirecut_operator",
       "mskill_industrial_electrician",
       "mskill_maintenance_technician",
       "mskill_painter_coater",
@@ -149,6 +151,8 @@ describe("the reachable set per pack — pinned exactly", () => {
     qp_maintenance_tech: ["mskill_maintenance_technician"],
     // Phase 2 #6: a named PLC or a programming/HMI/drive task reaches the new trade.
     qp_plc_automation: ["mskill_plc_automation_tech"],
+    // Phase 2 #7: a named EDM machine reaches the new trade.
+    qp_edm_wirecut: ["mskill_edm_wirecut_operator"],
     qp_industrial_electrician: ["mskill_industrial_electrician"],
     qp_assembly_line: ["mskill_assembly_line_worker"],
   };
