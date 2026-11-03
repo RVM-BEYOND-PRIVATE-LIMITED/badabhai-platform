@@ -256,12 +256,22 @@ const SKILL_DERIVE_ROUTE: Readonly<Record<string, SkillDeriveRoute>> = {
   },
 };
 
-/** Match skills `demo-matching-plan.ts` carries that are NOT industrial/mechanical — excluded. */
+/**
+ * Match skills `demo-matching-plan.ts` carries that are NOT industrial/mechanical — excluded.
+ *
+ * `mskill_cad_designer_3d` (#2513) joined DEMO_TRADES after this cohort was run on production
+ * (#2149, 2026-10-08). A design trade like `mskill_designer`, it has no derivation route here, and
+ * until it was listed the module THREW AT IMPORT ("no derivation route declared") — every dry run
+ * and re-sync of this seed was dead. Excluding it keeps the cohort the 20 trades production holds.
+ * `seed-synthetic-workforce.test.ts` now imports this module, so the next trade added to
+ * DEMO_TRADES fails a test instead of the seed.
+ */
 const EXCLUDED_FROM_WORKFORCE = new Set([
   "mskill_designer",
   "mskill_interior_designer",
   "mskill_plumber",
   "mskill_painter_coater",
+  "mskill_cad_designer_3d",
 ]);
 
 export interface WorkforceTrade extends DemoTrade {
