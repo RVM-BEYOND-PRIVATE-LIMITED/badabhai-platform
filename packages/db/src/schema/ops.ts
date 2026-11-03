@@ -349,9 +349,10 @@ export const adminUsers = pgTable(
     // admin still signs in by emailed code, which stays the backward-compatible door.
     // NEVER logged, evented, or returned by any read.
     passwordHash: text("password_hash"),
-    // When the password was last set (set, changed, or reset). ALSO the session + trusted-
-    // device cut-off: AdminSessionService rejects a session whose JWT `iat` predates it, so a
-    // reset logs every session out without enumerating them. NULL = never set.
+    // When the password was last set (set, changed, or reset). ALSO the credential epoch
+    // (ms): every admin JWT and trusted-device record carries it as `pwe`, and one that does
+    // not EQUAL the row is refused — so a reset logs every session out without enumerating
+    // them. NULL = never set (epoch 0).
     passwordSetAt: timestamp("password_set_at", { withTimezone: true }),
     // The pepper version that produced `password_hash` (an unknown version fails closed).
     passwordPepperVersion: integer("password_pepper_version"),

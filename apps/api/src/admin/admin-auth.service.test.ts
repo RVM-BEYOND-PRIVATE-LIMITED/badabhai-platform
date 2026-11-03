@@ -214,7 +214,7 @@ describe("AdminAuthService — MFA at session-mint (must-fix #1, ALL roles)", ()
     );
     expect(d.sessions.create).not.toHaveBeenCalled();
     // The marker is consumed BEFORE the TOTP check, so a valid code does not even get verified.
-    expect(d.mfaStore.consumeOtpPending).toHaveBeenCalledWith(ADMIN_ID);
+    expect(d.mfaStore.consumeOtpPending).toHaveBeenCalledWith(ADMIN_ID, 0);
   });
 
   it("the MFA branch of verifyLogin sets the OTP-pending marker (binds OTP→MFA in one flow)", async () => {
@@ -222,7 +222,7 @@ describe("AdminAuthService — MFA at session-mint (must-fix #1, ALL roles)", ()
       account: { id: ADMIN_ID, role: "support", status: "active", mfaEnrolled: true },
     });
     await d.svc.verifyLogin({ email: EMAIL, code: "123456" }, CTX);
-    expect(d.mfaStore.markOtpPassed).toHaveBeenCalledWith(ADMIN_ID);
+    expect(d.mfaStore.markOtpPassed).toHaveBeenCalledWith(ADMIN_ID, 0);
   });
 
   it("a TOTP step with NO stored secret fails closed (same 401)", async () => {
@@ -450,7 +450,7 @@ describe("AdminAuthService — trusted device at the MFA gate (0144)", () => {
     const res = await d.svc.verifyLogin({ email: EMAIL, code: "123456", device_token: DEVICE }, CTX);
     expect(res).toEqual({ status: "mfa_required", needs_enrollment: false });
     expect(d.sessions.create).not.toHaveBeenCalled();
-    expect(d.mfaStore.markOtpPassed).toHaveBeenCalledWith(ADMIN_ID);
+    expect(d.mfaStore.markOtpPassed).toHaveBeenCalledWith(ADMIN_ID, 0);
   });
 
   it("no device token → the device store is never consulted", async () => {

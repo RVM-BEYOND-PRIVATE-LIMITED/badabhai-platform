@@ -21,7 +21,10 @@
 -- 2026-11-03 (the same five columns, with ADD COLUMN IF NOT EXISTS), then renumbered to 0144
 -- because main gained its own 0142/0143 (PLC role_kind). Production's drizzle ledger does not
 -- record it (nor 0142/0143) — insert the three ledger rows in order before anyone runs
--- `db:migrate` against production, or this plain ADD COLUMN fails "already exists".
+-- `db:migrate` against production, or this plain ADD COLUMN fails "already exists". Each row is
+-- (hash = sha256 of that migration file's bytes, created_at = its journal `when`):
+-- 0142 1793710849274, 0143 1793710858642, 0144 1793715747298. Never stamp created_at with now():
+-- drizzle skips every journal entry at or below MAX(created_at).
 --
 -- APPLY-BEFORE-DEPLOY. Manual apply BEFORE the build that reads these columns deploys (code
 -- auto-deploys on merge; migrations never do). `AdminRepository` reads `admin_users` through bare `select()` /

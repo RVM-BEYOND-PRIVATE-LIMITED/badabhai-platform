@@ -31,9 +31,10 @@ export interface AdminPasswordWrite {
   hash: string;
   pepperVersion: number;
   /**
-   * When it was set. Also the SESSION cut-off (`AdminSessionService` rejects a JWT whose `iat`
-   * predates it), so it is passed in from the caller's clock rather than read from the DB's —
-   * the session the caller mints next is then guaranteed to land on or after it.
+   * When it was set. Also the credential epoch: every admin JWT carries it as `pwe` and
+   * `AdminSessionService` refuses one that does not EQUAL the row, so a write here signs out
+   * every older session. The caller mints its fresh session from the row this write RETURNS,
+   * never from its own clock, so the two always agree to the millisecond.
    */
   setAt: Date;
 }

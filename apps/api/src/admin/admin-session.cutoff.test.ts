@@ -55,7 +55,7 @@ function setup(initialSetAt: Date | null = null) {
   } as unknown as AdminRepository;
   const queue = { client: Promise.resolve(redis) } as unknown as Queue;
   const jwt = new JwtService({ secret: SECRET, signOptions: { algorithm: "HS256" } });
-  return { svc: new AdminSessionService(config, jwt, queue, admins), live, jwt };
+  return { svc: new AdminSessionService(config, jwt, queue, admins), live, jwt, store };
 }
 
 /** Mint the way the app does: on the CURRENT row's epoch. */
@@ -84,6 +84,16 @@ describe("AdminSessionService — the credential-epoch cut-off (B2)", () => {
 
     live.passwordSetAt = new Date("2026-11-03T10:05:00.000Z");
     expect(await svc.validateAndTouch(token)).toBeNull();
+  });
+
+  it("a session killed by a reset has its Redis record DELETED (a rollback cannot revive it)", async () => {
+    const { svc, live, store } = setup();
+    const { token } = await svc.create(ADMIN_ID, "super_admin", epochOf(live));
+    expect(store.size).toBe(1);
+
+    live.passwordSetAt = new Date("2026-11-03T10:05:00.000Z");
+    expect(await svc.validateAndTouch(token)).toBeNull();
+    expect(store.size).toBe(0);
   });
 
   it("a token minted in the SAME second — even the same millisecond — as the reset, before it committed, is rejected", async () => {

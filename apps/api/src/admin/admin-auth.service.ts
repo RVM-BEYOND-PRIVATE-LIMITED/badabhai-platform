@@ -152,7 +152,7 @@ export class AdminAuthService {
     // marker is set by verifyLogin's MFA branch and consumed (single-use) here. Absent/expired
     // → fail closed (same 401), so a leaked TOTP secret alone cannot mint a session without a
     // fresh OTP success. Consume BEFORE the TOTP check so a wrong code still burns the marker.
-    const otpPassed = await this.mfaStore.consumeOtpPending(account.id);
+    const otpPassed = await this.mfaStore.consumeOtpPending(account.id, passwordEpochOf(account.passwordSetAt));
     if (!otpPassed) throw new UnauthorizedException("Incorrect or expired code");
 
     // No stored secret → cannot verify a second factor → fail closed (same 401 as a wrong code),
@@ -296,7 +296,7 @@ export class AdminAuthService {
 
     // Mark OTP-passed for the single-flow OTP→MFA binding (consumed by verifyMfa). Set on BOTH
     // MFA branches so the subsequent TOTP step is reachable only after a fresh OTP success.
-    await this.mfaStore.markOtpPassed(account.id);
+    await this.mfaStore.markOtpPassed(account.id, passwordEpochOf(account.passwordSetAt));
 
     if (!account.mfaEnrolled) {
       // Enrollment step ONLY — provision a fresh TOTP secret (account label = the opaque admin

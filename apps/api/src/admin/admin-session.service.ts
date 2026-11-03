@@ -152,7 +152,13 @@ export class AdminSessionService {
       // is what makes a reset log out EVERY session without enumerating them (sessions are
       // Redis keys by sid, not indexed by admin). Equality, not a time comparison — see
       // `admin-credential-epoch.ts` for the same-second refresh it closes.
-      if (!epochMatches(claims.pwe, row.passwordSetAt)) return null;
+      if (!epochMatches(claims.pwe, row.passwordSetAt)) {
+        // Delete the dead session's record too, so rolling the API back to a build without the
+        // epoch check cannot revive it. Safe: a sid belongs to ONE epoch for life (`create`
+        // always issues a fresh sid). Best-effort — the token is refused either way.
+        await redis.del(key).catch(() => undefined);
+        return null;
+      }
 
       await redis.expire(key, this.ttlSeconds());
       const nowSeconds = Math.floor(Date.now() / 1000);
