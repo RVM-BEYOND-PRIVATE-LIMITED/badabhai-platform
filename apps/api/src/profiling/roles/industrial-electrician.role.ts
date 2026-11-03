@@ -49,7 +49,7 @@ export const INDUSTRIAL_ELECTRICIAN = {
   formEnabled: true,
   displayName: "Industrial Electrician",
   offerName: "industrial electrician",
-  levelLadder: ["Helper", "Electrician", "Senior"],
+  levelLadder: ["Helper", "Electrician", "Senior Electrician", "Supervisor"],
   tenureQuestionKey: "electrical_experience",
   fresher: {
     // KEYED BY STORED `value_text`, read off `iti_workshop_machines` in qp_industrial_electrician@1.
@@ -91,6 +91,9 @@ export const INDUSTRIAL_ELECTRICIAN = {
       "industrial electrician",
       "panel electrician",
       "plant electrician",
+      // Track B #2 (@2): the sheet-7 compound. Routed by alias to the role-pack
+      // code too, so the form hands over exactly as for "panel electrician".
+      "panel wireman",
       "panel wiring",
       "इंडस्ट्रियल इलेक्ट्रीशियन",
     ],
@@ -107,7 +110,9 @@ export const INDUSTRIAL_ELECTRICIAN = {
       "earth pit",
     ],
     // "electrician" lives HERE, not above — see the header. A rung corroborates; it never routes.
-    levelTerms: ["helper", "electrician", "senior", "इलेक्ट्रीशियन", "wireman"],
+    // Track B #2 (@2): the sheet-7 rung words. "electrical in-charge" corroborates the
+    // senior/supervisor rungs the same way "senior electrician" does.
+    levelTerms: ["helper", "electrician", "senior", "senior electrician", "electrical in-charge", "इलेक्ट्रीशियन", "wireman"],
     /**
      * Domestic and construction electrical work, which `fam_electrical` already serves well. A
      * worker who says "ghar ki wiring" belongs in that interview, not in a panel-shop form.

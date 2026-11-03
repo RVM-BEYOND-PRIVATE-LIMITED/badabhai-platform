@@ -394,6 +394,23 @@ describe("§8 rung words resolve to the rung; signal phrases corroborate the tra
     expect(rungFor(fitterLevel2, text as string)).toEqual([expected]);
   });
 
+  // TRACK B #2 (@2) — the sheet-7 ladder. Old helper/electrician/senior keys
+  // live on in frozen @1 (no rung block existed then); @2 asks helper/
+  // electrician/senior/supervisor, and the chips capture the same way.
+  const electricianLevel2 = loadItem("qp_industrial_electrician@2.json", "electrician_level");
+  it.each([
+    ["Helper", "helper"],
+    ["helper hoon", "helper"],
+    ["Electrician", "electrician"],
+    ["electrician hoon", "electrician"],
+    ["Senior Electrician", "senior"],
+    ["senior electrician hoon", "senior"],
+    ["Supervisor", "supervisor"],
+    ["supervisor hoon", "supervisor"],
+  ])("electrician_level@2: %s → %s", (text, expected) => {
+    expect(rungFor(electricianLevel2, text as string)).toEqual([expected]);
+  });
+
   // The P4 contract, owner-approved: §8 signal phrases corroborate the family pin
   // (asserted in the routing tables above) and NEVER write a rung by themselves.
   // The rung lands when the worker taps a chip or names it. Each null below is the
@@ -768,6 +785,35 @@ describe("§8 machine/controller rows resolve at capture; unlisted spellings re-
     ["qp_fitter@2.json", "measuring_tools", "Height gauge", "height_gauge"],
     ["qp_fitter@2.json", "fitter_skilled_confirm", "Khud kar leta hoon", "self"],
     ["qp_fitter@2.json", "fitter_skilled_confirm", "Senior ke saath karta hoon", "other"],
+  ] as ReadonlyArray<readonly [string, string, string, string | null]>)(
+    "%s %s: %s → %s",
+    (packFile, questionKey, text, expected) => {
+      expect(capturedOption(packFile, questionKey, text)).toEqual(
+        expected === null ? [] : [expected],
+      );
+    },
+  );
+
+  // TRACK B #2 (@2) — the sheet-7 work-type/equipment sets and the separating
+  // confirm resolve at capture. The factory/HT-LT/solar/generator work chips
+  // and the contactor/sensor/PLC-panel/transformer/UPS equipment chips are new;
+  // the kept history chips capture the same way.
+  it.each([
+    ["qp_industrial_electrician@2.json", "electrical_work_type", "Factory maintenance", "factory_maintenance"],
+    ["qp_industrial_electrician@2.json", "electrical_work_type", "Panel wiring / control panel", "panel_wiring"],
+    ["qp_industrial_electrician@2.json", "electrical_work_type", "Motor & drive", "motor_drive"],
+    ["qp_industrial_electrician@2.json", "electrical_work_type", "HT / LT substation", "ht_lt_substation"],
+    ["qp_industrial_electrician@2.json", "electrical_work_type", "Solar", "solar"],
+    ["qp_industrial_electrician@2.json", "electrical_work_type", "Generator / DG", "generator_dg"],
+    ["qp_industrial_electrician@2.json", "electrical_work_type", "Building wiring", "lighting_power"],
+    ["qp_industrial_electrician@2.json", "electrical_equipment", "Contactors & relays", "contactor_relay"],
+    ["qp_industrial_electrician@2.json", "electrical_equipment", "Sensors", "sensors"],
+    ["qp_industrial_electrician@2.json", "electrical_equipment", "PLC panel (wiring only)", "plc_panel_wiring"],
+    ["qp_industrial_electrician@2.json", "electrical_equipment", "Transformer", "transformer"],
+    ["qp_industrial_electrician@2.json", "electrical_equipment", "UPS / batteries", "ups_battery"],
+    ["qp_industrial_electrician@2.json", "measuring_tools", "Thermal camera", "thermal_camera"],
+    ["qp_industrial_electrician@2.json", "electrician_senior_confirm", "Khud dhoondh ke theek karta hoon", "self"],
+    ["qp_industrial_electrician@2.json", "electrician_senior_confirm", "Senior ko batata hoon", "other"],
   ] as ReadonlyArray<readonly [string, string, string, string | null]>)(
     "%s %s: %s → %s",
     (packFile, questionKey, text, expected) => {

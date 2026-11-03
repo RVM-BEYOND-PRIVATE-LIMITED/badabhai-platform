@@ -101,7 +101,26 @@ senior_programmer`; P5 crosswalk already handles). Role `levelTerms` += rung
 > row; 3 separating confirms; per-pack Draughtsman labels. Deviations in the
 > @2 review_note.
 >
-> TRACK B #1 — FITTER RETAG (in progress, `feat/mw-fitter-retag`).
+> TRACK B #1 — FITTER RETAG ✅ CODE DONE (`feat/mw-fitter-retag`, PR #2517, merged).
+> `qp_fitter@2` live on production (seeded + verified post-merge):
+> Easy/Medium/Advanced tiers; 6-band experience; sheet-6 level ladder
+> (Helper/Fitter/Skilled/Senior/Supervisor, mandatory); 2 separating confirms;
+> work-type extended (pipe/structural/die-press); equipment retagged Medium;
+> sector retagged Medium (+SPM/fabrication/pumps); depth rows retagged
+> Advanced (+height gauge); hard rows gated years OR rung. Union extension:
+> `fitter` (Lower) + `senior_fitter` (Higher, confirmed). Deviations in the
+> @2 review_note.
+>
+> TRACK B #2 — ELECTRICIAN RETAG (in progress, `feat/mw-electrician-retag`).
+> `qp_industrial_electrician@2`: sheet-7 ladder
+> (Helper/Electrician/Senior/Supervisor, mandatory; stored `senior` IS the
+> sheet's senior_technician rung) + 1 separating confirm (senior self/other;
+> supervisor by rule); 6-band experience; work-type extended
+> (factory/HT-LT/solar/generator); equipment retagged Medium (+5 chips);
+> panel-motor/instrument/drawing/licence rows retagged Advanced (+thermal
+> camera); hard rows gated years OR rung. Union extension: `electrician`
+> (Lower). Alias: `panel wireman` -> 7412.0200. Deviations in the @2
+> review_note.
 > `qp_fitter@2`: sheet-6 ladder (Helper/Fitter/Skilled/Senior/Supervisor,
 > mandatory, confirmed from skilled) + 2 separating confirms (skilled
 > self/other, senior team count; supervisor by rule); 6-band experience;

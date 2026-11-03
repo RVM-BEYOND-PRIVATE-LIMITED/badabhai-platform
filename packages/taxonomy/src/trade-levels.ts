@@ -41,7 +41,11 @@ export type TradeLevel =
   // is Lower (operator rung), `senior_fitter` Higher; both stored by
   // qp_fitter@1 already, rendered null until this extension.
   | "fitter"
-  | "senior_fitter";
+  | "senior_fitter"
+  // Track B #2 (CEO Launch Plan Pack v1, sheet 7) — the electrician operator
+  // rung. Lower; stored by qp_industrial_electrician@1 already, rendered null
+  // until this extension.
+  | "electrician";
 
 /**
  * C6 CROSSWALK — pack level answers → trade skill + `trade_level` (Middle Way P5).
@@ -101,6 +105,10 @@ export const TRADE_LEVEL_PACKS: Readonly<Record<string, TradeLevelPack>> = {
   // Track B #1 — the fitter (CEO Launch Plan Pack v1, sheet 6). Shared labels
   // already print the trade's words (Fitter / Skilled / Senior Fitter).
   qp_fitter: { skillId: "mskill_fitter", levelKey: "fitter_level" },
+  // Track B #2 — the electrician (CEO Launch Plan Pack v1, sheet 7). The
+  // stored `senior` key IS the sheet's senior_technician rung (Higher,
+  // confirmed); shared labels print it. Supervisor by rule (no confirm item).
+  qp_industrial_electrician: { skillId: "mskill_industrial_electrician", levelKey: "electrician_level" },
 };
 
 /** Legacy/alias spellings that name a `TradeLevel` without being one. */
@@ -162,6 +170,8 @@ export const TRADE_LEVEL_LABELS: Readonly<Record<TradeLevel, string>> = {
   // Track B #1 — the fitter rungs (CEO Launch Plan Pack v1, sheet 6).
   fitter: "Fitter",
   senior_fitter: "Senior Fitter",
+  // Track B #2 — the electrician operator rung (sheet 7).
+  electrician: "Electrician",
 };
 
 /**
@@ -228,6 +238,7 @@ function levelTier(level: TradeLevel): "higher" | "lower" {
   // CEO Launch Pack v1 (RULED 2026-11-02, reconciled) — per-sheet tiers. Lower: the
   // trainee/operator/designer rungs. Everything else Higher.
   // Track B #1 — the fitter operator rung is Lower (sheet 6).
+  // Track B #2 — the electrician operator rung is Lower (sheet 7).
   switch (level) {
     case "helper":
     case "trainee":
@@ -240,6 +251,7 @@ function levelTier(level: TradeLevel): "higher" | "lower" {
     case "inspector":
     case "designer":
     case "fitter":
+    case "electrician":
       return "lower";
     default:
       return "higher";
@@ -333,6 +345,12 @@ export const TRADE_LEVEL_CONFIRM_ITEMS: Readonly<
   qp_fitter: {
     skilled: "fitter_skilled_confirm",
     senior_fitter: "fitter_team_confirm",
+  },
+  // Track B #2 — the electrician confirm (CEO Launch Plan Pack v1, sheet 7).
+  // Confirmed from `senior` (the sheet's senior_technician rung): senior only;
+  // supervisor by rule.
+  qp_industrial_electrician: {
+    senior: "electrician_senior_confirm",
   },
 };
 

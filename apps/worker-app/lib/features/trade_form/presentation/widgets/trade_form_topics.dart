@@ -220,6 +220,10 @@ const Map<String, (String, String)> _kTopics = <String, (String, String)>{
   'maintenance_fault_finding': _trouble,
   // Industrial electrician (qp_industrial_electrician)
   'electrical_experience': _experience, 'electrician_level': _level,
+  // Track B #2 (@2) — the separating confirm is a level follow-up, same
+  // mechanism as the Turner/CAM/fitter confirms: Experience, left out of
+  // Technical Skills.
+  'electrician_senior_confirm': _level,
   'electrical_equipment': _equipment,
   'electrical_work_type': ('Electrical work', 'Type of electrical work'),
   'panel_motor_work': ('Electrical work', 'Panels & motors'),

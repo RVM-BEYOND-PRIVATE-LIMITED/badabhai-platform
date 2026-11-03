@@ -19,7 +19,7 @@ import {
  * alias spelling lands on the canonical key, and null prices Lower.
  */
 describe("trade-level crosswalk", () => {
-  it("covers the four v1 trades plus the CAD trades and the fitter, each with its skill and level key", () => {
+  it("covers the four v1 trades plus the CAD trades, the fitter and the electrician, each with its skill and level key", () => {
     expect(TRADE_LEVEL_PACKS).toEqual({
       qp_cnc_turning: { skillId: "mskill_cnc_turner", levelKey: "turning_level" },
       qp_vmc_milling: { skillId: "mskill_vmc_operator", levelKey: "milling_level" },
@@ -38,6 +38,7 @@ describe("trade-level crosswalk", () => {
         },
       },
       qp_fitter: { skillId: "mskill_fitter", levelKey: "fitter_level" },
+      qp_industrial_electrician: { skillId: "mskill_industrial_electrician", levelKey: "electrician_level" },
     });
   });
 
@@ -79,6 +80,8 @@ describe("trade-level crosswalk", () => {
       "designer",
       // Track B #1 — the fitter operator rung does not confirm.
       "fitter",
+      // Track B #2 — the electrician operator rung does not confirm.
+      "electrician",
     ] as const) {
       expect(isLevelConfirmed(rung), rung).toBe(false);
     }
@@ -125,6 +128,8 @@ describe("trade-level crosswalk", () => {
       "designer",
       // Track B #1 — the fitter operator rung prices Lower.
       "fitter",
+      // Track B #2 — the electrician operator rung prices Lower.
+      "electrician",
     ] as const) {
       expect(priceTierForTradeLevel(rung), rung).toBe("lower");
     }
@@ -182,6 +187,12 @@ describe("trade-level crosswalk", () => {
     expect(tradeLevelLabelFor("qp_fitter", "senior_fitter")).toBe("Senior Fitter");
     expect(tradeLevelLabelFor("qp_fitter", "supervisor")).toBe("Supervisor");
     expect(tradeLevelLabelFor("qp_fitter", "boss")).toBeNull();
+    // Track B #2 — the electrician rungs print the trade's words anywhere.
+    expect(tradeLevelLabelFor("qp_industrial_electrician", "helper")).toBe("Helper");
+    expect(tradeLevelLabelFor("qp_industrial_electrician", "electrician")).toBe("Electrician");
+    expect(tradeLevelLabelFor("qp_industrial_electrician", "senior")).toBe("Senior");
+    expect(tradeLevelLabelFor("qp_industrial_electrician", "supervisor")).toBe("Supervisor");
+    expect(tradeLevelLabelFor("qp_industrial_electrician", "boss")).toBeNull();
   });
 
   it("emits the authored skill row for a pack's level answer, and nothing else", () => {
@@ -484,6 +495,44 @@ describe("trade-level crosswalk", () => {
     // Supervisor: no confirm item, rung rule (confirmed).
     expect(fitting("supervisor", null)).toEqual([
       { skillId: "mskill_fitter", tradeLevel: "supervisor", levelConfirmed: true },
+    ]);
+  });
+
+  it("wires the electrician confirm the same way (CEO Launch Plan Pack v1, Track B #2)", () => {
+    const sparking = (
+      level: string,
+      confirm: { attributeKey: string; value: unknown } | null,
+    ) =>
+      tradeLevelEntriesForPackAnswers(
+        "qp_industrial_electrician",
+        confirm === null
+          ? [{ attributeKey: "electrician_level", value: level }]
+          : [{ attributeKey: "electrician_level", value: level }, confirm],
+      );
+    // No confirm answer: the rung rule stands (senior+ confirmed, below not).
+    expect(sparking("senior", null)).toEqual([
+      { skillId: "mskill_industrial_electrician", tradeLevel: "senior", levelConfirmed: true },
+    ]);
+    expect(sparking("electrician", null)).toEqual([
+      { skillId: "mskill_industrial_electrician", tradeLevel: "electrician", levelConfirmed: false },
+    ]);
+    expect(sparking("helper", null)).toEqual([
+      { skillId: "mskill_industrial_electrician", tradeLevel: "helper", levelConfirmed: false },
+    ]);
+    // Self confirms, other disconfirms.
+    expect(
+      sparking("senior", { attributeKey: "electrician_senior_confirm", value: "self" }),
+    ).toEqual([
+      { skillId: "mskill_industrial_electrician", tradeLevel: "senior", levelConfirmed: true },
+    ]);
+    expect(
+      sparking("senior", { attributeKey: "electrician_senior_confirm", value: "other" }),
+    ).toEqual([
+      { skillId: "mskill_industrial_electrician", tradeLevel: "senior", levelConfirmed: false },
+    ]);
+    // Supervisor: no confirm item, rung rule (confirmed).
+    expect(sparking("supervisor", null)).toEqual([
+      { skillId: "mskill_industrial_electrician", tradeLevel: "supervisor", levelConfirmed: true },
     ]);
   });
 

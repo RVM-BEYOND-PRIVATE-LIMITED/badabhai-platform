@@ -2541,11 +2541,16 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
         label: "Work type",
         kind: "chips",
         values: {
-          panel_wiring: "Panel wiring",
+          panel_wiring: "Panel wiring / control panel",
           motor_drive: "Motor & drive work",
+          // Track B #2 (@2): sheet-7 work set.
+          factory_maintenance: "Factory maintenance",
+          ht_lt_substation: "HT / LT substation",
+          solar: "Solar",
+          generator_dg: "Generator / DG",
           cable_laying: "Cable laying",
           earthing: "Earthing",
-          lighting_power: "Lighting & power wiring",
+          lighting_power: "Building wiring",
         },
       },
       {
@@ -2567,6 +2572,12 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           starter: "DOL & star-delta starters",
           induction_motor: "Induction motors",
           dg_set: "DG sets",
+          // Track B #2 (@2): sheet-7 equipment set.
+          contactor_relay: "Contactors & relays",
+          sensors: "Sensors",
+          plc_panel_wiring: "PLC panel (wiring only)",
+          transformer: "Transformers",
+          ups_battery: "UPS / batteries",
         },
       },
       {
@@ -2599,6 +2610,8 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           megger: "Megger",
           tong_tester: "Tong tester",
           phase_sequence: "Phase sequence meter",
+          // Track B #2 (@2): sheet-7 fault-finding set.
+          thermal_camera: "Thermal camera",
         },
       },
       {

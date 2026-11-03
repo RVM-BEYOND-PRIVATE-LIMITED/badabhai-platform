@@ -121,8 +121,10 @@ export const TRADE_FORM_CASES: readonly TradeFormCase[] = [
   },
   {
     kind: "industrial_electrician",
+    // Track B #2 (@2): the 6-band scale replaced three_to_seven (5) with
+    // three_to_five (4) and five_to_ten (7) — the fixture keeps a senior band.
     answers: {
-      electrical_experience: ["three_to_seven"],
+      electrical_experience: ["five_to_ten"],
       electrical_work_type: ["panel_wiring", "motor_drive"],
     },
     // His own skill — never the fitter proxy.

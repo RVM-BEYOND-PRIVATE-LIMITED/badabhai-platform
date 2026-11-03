@@ -792,6 +792,23 @@ describe("Middle-Way required close (P3a) — the settled slots end the intervie
     expect(decision.completionReason).toBe("required_complete");
   });
 
+  it("Electrician closes on its Easy 5 too (Track B #2) — work-type/equipment optional", () => {
+    const sparking: EnginePacks = {
+      occupation: pack("qp_industrial_electrician", []),
+      universal: pack("pk_universal", []),
+    };
+    const easy5 = settledAnswers([
+      "primary_trade",
+      "electrical_experience",
+      "electrician_level",
+      "current_city",
+      "availability",
+    ]);
+    const decision = nextQuestion(state({ answers: easy5 }), sparking);
+    expect(decision.kind).toBe("close");
+    expect(decision.completionReason).toBe("required_complete");
+  });
+
   it("other packs still need all 8 — grinding still gates on machine + salary", () => {
     const grinding: EnginePacks = {
       occupation: pack("qp_cnc_grinding", []),

@@ -891,6 +891,11 @@
 {"kind":"alias","job_domain_id":"jd_nco_7412_0200","text":"इंडस्ट्रियल इलेक्ट्रीशियन","lang":"hi"}
 {"kind":"alias","job_domain_id":"jd_nco_7412_0200","text":"panel electrician","lang":"en"}
 {"kind":"alias","job_domain_id":"jd_nco_7412_0200","text":"plant electrician","lang":"en"}
+# TRACK B #2 (CEO Launch Plan Pack v1, sheet 7): "panel wireman" names the
+# industrial electrician (control-panel work row) and resolved nowhere — no NCO
+# code carries the title. Pinned to the role-pack code beside "panel electrician".
+{"kind":"alias","job_domain_id":"jd_nco_7412_0200","text":"panel wireman","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7412_0200","text":"पैनल वायरमैन","lang":"hi"}
 #
 # ── Press — NCO 7223.2300 (Power Press Operator, Metal) / 7223.3000 (Metal Stamper) — 20, 22 ─
 # "press ka kaam" (23) is struck — it is ironing clothes — and "machine operator" (24) routes
