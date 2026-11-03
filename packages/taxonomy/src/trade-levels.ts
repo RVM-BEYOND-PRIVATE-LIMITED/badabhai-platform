@@ -127,6 +127,10 @@ export const TRADE_LEVEL_PACKS: Readonly<Record<string, TradeLevelPack>> = {
   // extension: `skilled`/`senior` already confirm, helper/operator already
   // Lower. Supervisor by rule.
   qp_assembly_line: { skillId: "mskill_assembly_line_worker", levelKey: "assembly_level" },
+  // Track B #7 — the QC inspector (CEO Launch Plan Pack v1, sheet 12).
+  // No union extension: `senior`/`senior_inspector`/`qc_engineer` already
+  // confirm, trainee/inspector already Lower. Supervisor by rule.
+  qp_quality_inspection: { skillId: "mskill_quality_inspector", levelKey: "inspection_level" },
 };
 
 /** Legacy/alias spellings that name a `TradeLevel` without being one. */
@@ -401,6 +405,13 @@ export const TRADE_LEVEL_CONFIRM_ITEMS: Readonly<
   qp_assembly_line: {
     skilled: "assembly_skilled_confirm",
     senior: "assembly_team_confirm",
+  },
+  // Track B #7 — the QC confirms (CEO Launch Plan Pack v1, sheet 12).
+  // Confirmed from `senior_inspector`: senior_inspector, qc_engineer;
+  // supervisor by rule.
+  qp_quality_inspection: {
+    senior_inspector: "inspection_senior_confirm",
+    qc_engineer: "inspection_engineer_confirm",
   },
 };
 

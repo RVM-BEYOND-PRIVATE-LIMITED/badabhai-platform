@@ -1,12 +1,12 @@
 {
   "schema_version": 1,
-  "clip_count": 1402,
+  "clip_count": 1410,
   "producers": {
-    "retry": 115,
-    "clarify": 509,
-    "prompt": 367,
+    "retry": 116,
+    "clarify": 512,
+    "prompt": 369,
     "constant": 97,
-    "why": 314
+    "why": 316
   },
   "clips": [
     {
@@ -350,6 +350,11 @@
       "producer": "prompt"
     },
     {
+      "id": "0c5f29ae8c62a9a6",
+      "text": "PPAP, control plan, 8D — aap banate ho?",
+      "producer": "prompt"
+    },
+    {
       "id": "0c68d10eefc2cfd2",
       "text": "Quality ka kaunsa kaam aap karte hain?",
       "producer": "prompt"
@@ -683,6 +688,11 @@
       "id": "17f6e39c6d40b559",
       "text": "Kaam ke hisaab se jagah dhoondhte hain.",
       "producer": "why"
+    },
+    {
+      "id": "187705438d2fc3ec",
+      "text": "Khud GD&T padh ke inspection karne wale senior ko alag kaam milta hai. GD&T padh ke CMM ya height gauge pe inspection khud karte ho?",
+      "producer": "clarify"
     },
     {
       "id": "187713d8ac9a7ca6",
@@ -4400,6 +4410,11 @@
       "producer": "clarify"
     },
     {
+      "id": "9e868b93a8eddea5",
+      "text": "Trainee, inspector, senior, QC engineer ya head hain?",
+      "producer": "retry"
+    },
+    {
       "id": "9eac5f9412729b5f",
       "text": "Kitne tonnage ki press par tryout kiya hai?",
       "producer": "prompt"
@@ -4677,6 +4692,11 @@
     {
       "id": "a80ec40f7c025a63",
       "text": "Machine ke hisaab se sahi kaam dikhaya jaata hai. Kaunsi welding machine par kaam karte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "a81d42ecc3d7c9ae",
+      "text": "Khud PPAP aur 8D banane wale QC engineer ko alag zimmedari milti hai. PPAP, control plan, 8D — aap banate ho?",
       "producer": "clarify"
     },
     {
@@ -6120,6 +6140,11 @@
       "producer": "retry"
     },
     {
+      "id": "dd25b5ed92a81d7c",
+      "text": "Khud PPAP aur 8D banane wale QC engineer ko alag zimmedari milti hai.",
+      "producer": "why"
+    },
+    {
       "id": "dd4b966dca039566",
       "text": "Fine kaam wale ka rate zyada hota hai. Kya aap fine tolerance ka kaam karte hain?",
       "producer": "clarify"
@@ -6133,6 +6158,11 @@
       "id": "ddc203639933d3bb",
       "text": "Doosre sheher mein bhi achhi naukri mil sakti hai. Kya aap doosre sheher jaa sakte hain?",
       "producer": "clarify"
+    },
+    {
+      "id": "ddc65c6c798c6b08",
+      "text": "Khud GD&T padh ke inspection karne wale senior ko alag kaam milta hai.",
+      "producer": "why"
     },
     {
       "id": "de19c1ed4cb5e54e",
@@ -6182,6 +6212,11 @@
     {
       "id": "e042821ac7eaba2c",
       "text": "Level se employer ko aapke kaam ka darja pata chalta hai. Shop par aap kis level ka kaam karte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "e05d6487bad39aff",
+      "text": "Level ke hisaab se sahi sawaal poochhe jaate hain. Trainee, inspector, senior, QC engineer ya head hain?",
       "producer": "clarify"
     },
     {
@@ -6408,6 +6443,11 @@
       "id": "e8c4fee8580128f2",
       "text": "Requirement se design karne wale senior designer ko alag kaam milta hai.",
       "producer": "why"
+    },
+    {
+      "id": "e900c53e15a4b826",
+      "text": "GD&T padh ke CMM ya height gauge pe inspection khud karte ho?",
+      "producer": "prompt"
     },
     {
       "id": "e918aa44af7420cc",

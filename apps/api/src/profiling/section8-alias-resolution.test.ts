@@ -491,6 +491,26 @@ describe("§8 rung words resolve to the rung; signal phrases corroborate the tra
     expect(rungFor(assemblyLevel2, text as string)).toEqual([expected]);
   });
 
+  // TRACK B #7 (@2) — the sheet-12 ladder. Old inspector/qc_engineer keys
+  // live on in frozen @1 (no rung block existed then); @2 asks trainee/
+  // inspector/senior-inspector/qc-engineer/supervisor, and the chips capture
+  // the same way. Full chip phrases resolve (the all-tracks convention).
+  const qcLevel2 = loadItem("qp_quality_inspection@2.json", "inspection_level");
+  it.each([
+    ["Trainee", "trainee"],
+    ["trainee hoon", "trainee"],
+    ["Inspector", "inspector"],
+    ["inspector hoon", "inspector"],
+    ["Senior Inspector", "senior_inspector"],
+    ["senior inspector hoon", "senior_inspector"],
+    ["QC Engineer", "qc_engineer"],
+    ["qc engineer hoon", "qc_engineer"],
+    ["QC Head", "supervisor"],
+    ["qc head hoon", "supervisor"],
+  ])("inspection_level@2: %s → %s", (text, expected) => {
+    expect(rungFor(qcLevel2, text as string)).toEqual([expected]);
+  });
+
   // The P4 contract, owner-approved: §8 signal phrases corroborate the family pin
   // (asserted in the routing tables above) and NEVER write a rung by themselves.
   // The rung lands when the worker taps a chip or names it. Each null below is the
@@ -1015,6 +1035,76 @@ describe("§8 machine/controller rows resolve at capture; unlisted spellings re-
     ["qp_sheet_metal_fab@2.json", "sheet_skilled_confirm", "Set kiya hua chalata hoon", "other"],
     ["qp_sheet_metal_fab@2.json", "sheet_senior_confirm", "Haan, khud banata hoon", "self"],
     ["qp_sheet_metal_fab@2.json", "sheet_senior_confirm", "Nahi, bana-banaya chalata hoon", "other"],
+  ] as ReadonlyArray<readonly [string, string, string, string | null]>)(
+    "%s %s: %s → %s",
+    (packFile, questionKey, text, expected) => {
+      expect(capturedOption(packFile, questionKey, text)).toEqual(
+        expected === null ? [] : [expected],
+      );
+    },
+  );
+
+  // TRACK B #6 (@2) \u2014 the sheet-11 product/tools/skills/company rows and the
+  // separating confirms resolve at capture. The segment product chips, the
+  // hand/press-jig/soldering/test-bench tool chips, the skills/company rows
+  // and the confirms are new; the kept history chips capture the same way.
+  it.each([
+    ["qp_assembly_line@2.json", "assembly_line_product", "Auto / 2-wheeler", "auto_two_wheeler"],
+    ["qp_assembly_line@2.json", "assembly_line_product", "Engine / gearbox / axle", "engine_gearbox_axle"],
+    ["qp_assembly_line@2.json", "assembly_line_product", "Electrical / switchgear", "elec_switchgear"],
+    ["qp_assembly_line@2.json", "assembly_line_product", "Appliances", "appliances"],
+    ["qp_assembly_line@2.json", "assembly_line_product", "Electronics / EMS", "electronics_ems"],
+    ["qp_assembly_line@2.json", "assembly_line_product", "Machines / SPM", "machines_spm"],
+    ["qp_assembly_line@2.json", "assembly_line_product", "Pumps / motors", "pumps_motors"],
+    ["qp_assembly_line@2.json", "assembly_line_product", "EV / battery pack", "ev_battery"],
+    ["qp_assembly_line@2.json", "assembly_tool", "Hand tools", "hand_tools"],
+    ["qp_assembly_line@2.json", "assembly_tool", "Press / jig fixtures", "press_jig"],
+    ["qp_assembly_line@2.json", "assembly_tool", "Soldering / crimping", "soldering_crimping"],
+    ["qp_assembly_line@2.json", "assembly_tool", "Test bench", "test_bench"],
+    ["qp_assembly_line@2.json", "assembly_skill", "Testing & inspection", "testing_inspection"],
+    ["qp_assembly_line@2.json", "assembly_skill", "Troubleshooting / rework", "troubleshoot_rework"],
+    ["qp_assembly_line@2.json", "assembly_skill", "Line changeover", "line_changeover"],
+    ["qp_assembly_line@2.json", "assembly_skill", "Kaizen / 5S", "kaizen_five_s"],
+    ["qp_assembly_line@2.json", "assembly_skill", "Training others", "training_others"],
+    ["qp_assembly_line@2.json", "company_type", "OEM", "oem"],
+    ["qp_assembly_line@2.json", "company_type", "Tier-1", "tier_one"],
+    ["qp_assembly_line@2.json", "company_type", "Contract (thekedar)", "contract"],
+    ["qp_assembly_line@2.json", "assembly_skilled_confirm", "Haan, khud kar leta hoon", "self"],
+    ["qp_assembly_line@2.json", "assembly_skilled_confirm", "Nahi, senior karte hain", "other"],
+  ] as ReadonlyArray<readonly [string, string, string, string | null]>)(
+    "%s %s: %s → %s",
+    (packFile, questionKey, text, expected) => {
+      expect(capturedOption(packFile, questionKey, text)).toEqual(
+        expected === null ? [] : [expected],
+      );
+    },
+  );
+
+  // TRACK B #7 (@2) \u2014 the sheet-12 instrument/inspection/material/drawing
+  // rows, the systems chips and the separating confirms resolve at capture.
+  // The split vernier/micrometer, the bore/thread/hardness/multimeter
+  // instruments, the segment materials, the tolerance-stack drawing chip, the
+  // FMEA/MSA documentation chips and the confirms are new; the kept history
+  // chips capture the same way.
+  it.each([
+    ["qp_quality_inspection@2.json", "measuring_tools", "Vernier", "vernier"],
+    ["qp_quality_inspection@2.json", "measuring_tools", "Micrometer", "micrometer"],
+    ["qp_quality_inspection@2.json", "measuring_tools", "Bore gauge", "bore_gauge"],
+    ["qp_quality_inspection@2.json", "measuring_tools", "Thread / plug / ring gauge", "thread_gauge"],
+    ["qp_quality_inspection@2.json", "measuring_tools", "Hardness tester", "hardness_tester"],
+    ["qp_quality_inspection@2.json", "measuring_tools", "Multimeter / hipot", "multimeter_hipot"],
+    ["qp_quality_inspection@2.json", "material_worked", "Machined parts", "machined_steel"],
+    ["qp_quality_inspection@2.json", "material_worked", "Sheet metal / welding", "sheetmetal_welding"],
+    ["qp_quality_inspection@2.json", "material_worked", "Plastics", "plastics"],
+    ["qp_quality_inspection@2.json", "material_worked", "Electrical / electronics", "elec_electronics"],
+    ["qp_quality_inspection@2.json", "material_worked", "Assembly", "assembly_product"],
+    ["qp_quality_inspection@2.json", "drawing_reading", "Tolerance stack", "tolerance_stack"],
+    ["qp_quality_inspection@2.json", "inspection_documentation", "FMEA", "fmea"],
+    ["qp_quality_inspection@2.json", "inspection_documentation", "MSA", "msa"],
+    ["qp_quality_inspection@2.json", "inspection_senior_confirm", "Haan, khud karta hoon", "self"],
+    ["qp_quality_inspection@2.json", "inspection_senior_confirm", "Nahi, senior karte hain", "other"],
+    ["qp_quality_inspection@2.json", "inspection_engineer_confirm", "Haan, main banata hoon", "self"],
+    ["qp_quality_inspection@2.json", "inspection_engineer_confirm", "Nahi, doosre banate hain", "other"],
   ] as ReadonlyArray<readonly [string, string, string, string | null]>)(
     "%s %s: %s → %s",
     (packFile, questionKey, text, expected) => {
