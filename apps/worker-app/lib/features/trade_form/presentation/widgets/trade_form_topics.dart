@@ -198,7 +198,14 @@ const Map<String, (String, String)> _kTopics = <String, (String, String)>{
   //
   // Sheet metal fabrication (qp_sheet_metal_fab)
   'sheet_metal_experience': _experience, 'sheet_metal_level': _level,
+  // Track B #5 (@2) — the separating confirms are level follow-ups, same
+  // mechanism as the earlier confirms: Experience, left out of Technical Skills.
+  'sheet_skilled_confirm': _level, 'sheet_senior_confirm': _level,
   'sheet_metal_machine': _machines,
+  // Track B #5 (@2): the new product + extra-work rows walk with their true
+  // categories (sector / operations), like every tier-tagged key must.
+  'sheet_metal_product': _sector,
+  'sheet_metal_extra': _operations,
   'sheet_operation': ('Sheet metal operations', 'Operations & capability'),
   'sheet_thickness': ('Sheet metal operations', 'Sheet thickness'),
   'assembly_finishing': ('Sheet metal operations', 'Assembly & finishing'),

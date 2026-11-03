@@ -853,6 +853,23 @@ describe("Middle-Way required close (P3a) — the settled slots end the intervie
     expect(decision.completionReason).toBe("required_complete");
   });
 
+  it("Sheet-metal closes on its Easy 5 too (Track B #5) — machine/product optional", () => {
+    const sheeting: EnginePacks = {
+      occupation: pack("qp_sheet_metal_fab", []),
+      universal: pack("pk_universal", []),
+    };
+    const easy5 = settledAnswers([
+      "primary_trade",
+      "sheet_metal_experience",
+      "sheet_metal_level",
+      "current_city",
+      "availability",
+    ]);
+    const decision = nextQuestion(state({ answers: easy5 }), sheeting);
+    expect(decision.kind).toBe("close");
+    expect(decision.completionReason).toBe("required_complete");
+  });
+
   it("other packs still need all 8 — grinding still gates on machine + salary", () => {
     const grinding: EnginePacks = {
       occupation: pack("qp_cnc_grinding", []),

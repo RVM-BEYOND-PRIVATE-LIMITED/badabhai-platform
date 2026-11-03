@@ -1,12 +1,12 @@
 {
   "schema_version": 1,
-  "clip_count": 1372,
+  "clip_count": 1384,
   "producers": {
     "retry": 113,
-    "clarify": 498,
-    "prompt": 358,
+    "clarify": 502,
+    "prompt": 362,
     "constant": 97,
-    "why": 306
+    "why": 310
   },
   "clips": [
     {
@@ -587,6 +587,11 @@
     {
       "id": "14d9343338724c80",
       "text": "Sahi tareeke se vetan dikhane ke liye period pata hona chahiye. Aapki salary mahine, din ya saal ke hisaab se hai?",
+      "producer": "clarify"
+    },
+    {
+      "id": "15b200cdd64a85a0",
+      "text": "Product ke hisaab se sahi company milti hai. Kaunsa product banate ho?",
       "producer": "clarify"
     },
     {
@@ -2650,6 +2655,11 @@
       "producer": "prompt"
     },
     {
+      "id": "6179860302205d99",
+      "text": "Khud program banane wale senior ko alag zimmedari milti hai. Nesting / press-brake program khud banate ho?",
+      "producer": "clarify"
+    },
+    {
       "id": "617f30ee9475e7c7",
       "text": "Design ka kaam jaanne wale ko design engineer banaya jaata hai.",
       "producer": "why"
@@ -3530,6 +3540,11 @@
       "producer": "why"
     },
     {
+      "id": "8118caab2e129c13",
+      "text": "Khud nesting set karne wale skilled operator ko alag kaam milta hai. Drawing se bend sequence / nesting khud set karte ho, ya set kiya hua chalate ho?",
+      "producer": "clarify"
+    },
+    {
       "id": "814af022723c4764",
       "text": "Aap kahaan kaam karna chahte hain?",
       "producer": "prompt"
@@ -3747,6 +3762,11 @@
     {
       "id": "87f7be19114943cd",
       "text": "Kya aap season ke hisaab se kaam karte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "87fce072da0554d2",
+      "text": "Kaunsa product banate ho?",
       "producer": "prompt"
     },
     {
@@ -4215,6 +4235,11 @@
       "producer": "why"
     },
     {
+      "id": "9acedbe21354b26a",
+      "text": "Aas-paas ke kaam jaanne wale ko poori line ka kaam milta hai. Cutting-bending ke alawa kaunsa kaam karte ho?",
+      "producer": "clarify"
+    },
+    {
       "id": "9afd4c6a97751a1b",
       "text": "Aap kaunsa output banakar dete hain?",
       "producer": "prompt"
@@ -4610,6 +4635,11 @@
       "producer": "prompt"
     },
     {
+      "id": "a8bdb51446e6d084",
+      "text": "Aas-paas ke kaam jaanne wale ko poori line ka kaam milta hai.",
+      "producer": "why"
+    },
+    {
       "id": "a8d8bd10f522b475",
       "text": "Preventive aur breakdown dono jaanne wale ki maang zyada hai. Maintenance me kaunse kaam aap khud karte hain?",
       "producer": "clarify"
@@ -4825,6 +4855,11 @@
       "producer": "clarify"
     },
     {
+      "id": "b102d8569499847b",
+      "text": "Product ke hisaab se sahi company milti hai.",
+      "producer": "why"
+    },
+    {
       "id": "b160f8e4d6941906",
       "text": "Thoda sa aur. Bas 12 sawaal bache hain.",
       "producer": "constant"
@@ -4968,6 +5003,11 @@
       "id": "b6f58de465dd03ee",
       "text": "Kis industry ke plant me fitting ka kaam kiya hai?",
       "producer": "prompt"
+    },
+    {
+      "id": "b6f693946a9542c1",
+      "text": "Khud program banane wale senior ko alag zimmedari milti hai.",
+      "producer": "why"
     },
     {
       "id": "b7c5baacc2c9c6b4",
@@ -5183,6 +5223,11 @@
       "id": "bf248023554caaed",
       "text": "Machine wale ka kaam tez hota hai. Kya aap lakdi ki machine chalate hain?",
       "producer": "clarify"
+    },
+    {
+      "id": "bf68296aca3fa7ad",
+      "text": "Cutting-bending ke alawa kaunsa kaam karte ho?",
+      "producer": "prompt"
     },
     {
       "id": "bf73202fd109c623",
@@ -6105,6 +6150,11 @@
       "producer": "prompt"
     },
     {
+      "id": "e188d9a52babf64c",
+      "text": "Nesting / press-brake program khud banate ho?",
+      "producer": "prompt"
+    },
+    {
       "id": "e1a04ee5bebf595d",
       "text": "Aaj ki khabrein ho gayin. Kal phir poochhiye. Tab tak resume bana lete hain?",
       "producer": "constant"
@@ -6258,6 +6308,11 @@
       "id": "e7ad629a41e33637",
       "text": "Licence wale ko badi jagah kaam milta hai.",
       "producer": "why"
+    },
+    {
+      "id": "e84ea0b2c3ca1a4e",
+      "text": "Drawing se bend sequence / nesting khud set karte ho, ya set kiya hua chalate ho?",
+      "producer": "prompt"
     },
     {
       "id": "e854e4ace4294c09",
@@ -6757,6 +6812,11 @@
     {
       "id": "fc2ef5e5551ae835",
       "text": "Har welding alag hoti hai, isse sahi naukri milti hai.",
+      "producer": "why"
+    },
+    {
+      "id": "fc46f45c7efb0911",
+      "text": "Khud nesting set karne wale skilled operator ko alag kaam milta hai.",
       "producer": "why"
     },
     {

@@ -451,6 +451,25 @@ describe("§8 rung words resolve to the rung; signal phrases corroborate the tra
     expect(rungFor(machiningLevel2, text as string)).toEqual([expected]);
   });
 
+  // TRACK B #5 (@2) — the sheet-10 ladder. Old helper/operator/skilled keys
+  // live on in frozen @1 (no rung block existed then); @2 asks helper/
+  // operator/skilled/senior/supervisor, and the chips capture the same way.
+  const sheetLevel2 = loadItem("qp_sheet_metal_fab@2.json", "sheet_metal_level");
+  it.each([
+    ["Helper", "helper"],
+    ["helper hoon", "helper"],
+    ["Operator", "operator"],
+    ["operator hoon", "operator"],
+    ["Skilled", "skilled"],
+    ["skilled hoon", "skilled"],
+    ["Senior / Programmer", "senior"],
+    ["senior hoon", "senior"],
+    ["Supervisor", "supervisor"],
+    ["supervisor hoon", "supervisor"],
+  ])("sheet_metal_level@2: %s → %s", (text, expected) => {
+    expect(rungFor(sheetLevel2, text as string)).toEqual([expected]);
+  });
+
   // The P4 contract, owner-approved: §8 signal phrases corroborate the family pin
   // (asserted in the routing tables above) and NEVER write a rung by themselves.
   // The rung lands when the worker taps a chip or names it. Each null below is the
@@ -932,6 +951,49 @@ describe("§8 machine/controller rows resolve at capture; unlisted spellings re-
     ["qp_conventional_machining@2.json", "machining_skilled_confirm", "Nahi, senior karte hain", "other"],
     ["qp_conventional_machining@2.json", "machining_senior_confirm", "Haan, main karta hoon", "self"],
     ["qp_conventional_machining@2.json", "machining_senior_confirm", "Nahi, senior karte hain", "other"],
+  ] as ReadonlyArray<readonly [string, string, string, string | null]>)(
+    "%s %s: %s → %s",
+    (packFile, questionKey, text, expected) => {
+      expect(capturedOption(packFile, questionKey, text)).toEqual(
+        expected === null ? [] : [expected],
+      );
+    },
+  );
+
+  // TRACK B #5 (@2) — the sheet-10 machine/product/operation/material/thickness
+  // sets, the work-type/extra rows and the separating confirms resolve at
+  // capture. The CO2-laser/manual-brake/hand-fab machine chips, the product
+  // chips, the taper/keyway/gear/grinding operation chips, the re-banded
+  // thickness chips and the extra-work chips are new; the kept history chips
+  // capture the same way.
+  it.each([
+    ["qp_sheet_metal_fab@2.json", "sheet_metal_machine", "Fibre laser", "fibre_laser"],
+    ["qp_sheet_metal_fab@2.json", "sheet_metal_machine", "CO2 laser", "co_two_laser"],
+    ["qp_sheet_metal_fab@2.json", "sheet_metal_machine", "Press brake (CNC)", "cnc_press_brake"],
+    ["qp_sheet_metal_fab@2.json", "sheet_metal_machine", "Press brake (manual)", "manual_press_brake"],
+    ["qp_sheet_metal_fab@2.json", "sheet_metal_machine", "Turret punch / CNC punch", "turret_punch"],
+    ["qp_sheet_metal_fab@2.json", "sheet_metal_machine", "Shearing", "shearing"],
+    ["qp_sheet_metal_fab@2.json", "sheet_metal_machine", "Plasma / waterjet", "plasma_cutting"],
+    ["qp_sheet_metal_fab@2.json", "sheet_metal_machine", "Hand fabrication only", "hand_fab"],
+    ["qp_sheet_metal_fab@2.json", "sheet_metal_product", "Panels / enclosures", "panels_enclosures"],
+    ["qp_sheet_metal_fab@2.json", "sheet_metal_product", "Auto parts", "auto_parts"],
+    ["qp_sheet_metal_fab@2.json", "sheet_metal_product", "Ducting / HVAC", "ducting_hvac"],
+    ["qp_sheet_metal_fab@2.json", "sheet_metal_product", "Furniture", "furniture"],
+    ["qp_sheet_metal_fab@2.json", "sheet_metal_product", "Structural / brackets", "structural_brackets"],
+    ["qp_sheet_metal_fab@2.json", "sheet_metal_product", "Kitchen / SS products", "kitchen_ss"],
+    ["qp_sheet_metal_fab@2.json", "sheet_metal_product", "Koi aur", "unknown"],
+    ["qp_sheet_metal_fab@2.json", "material_worked", "MS", "ms_sheet"],
+    ["qp_sheet_metal_fab@2.json", "material_worked", "SS", "stainless"],
+    ["qp_sheet_metal_fab@2.json", "material_worked", "GI", "gi_sheet"],
+    ["qp_sheet_metal_fab@2.json", "sheet_thickness", "1 se 3 mm", "one_to_three"],
+    ["qp_sheet_metal_fab@2.json", "sheet_thickness", "6 mm se zyada", "above_six"],
+    ["qp_sheet_metal_fab@2.json", "sheet_metal_extra", "Welding", "welding"],
+    ["qp_sheet_metal_fab@2.json", "sheet_metal_extra", "Grinding / finishing", "grinding_finish"],
+    ["qp_sheet_metal_fab@2.json", "sheet_metal_extra", "Powder-coat prep", "powdercoat_prep"],
+    ["qp_sheet_metal_fab@2.json", "sheet_skilled_confirm", "Khud set karta hoon", "self"],
+    ["qp_sheet_metal_fab@2.json", "sheet_skilled_confirm", "Set kiya hua chalata hoon", "other"],
+    ["qp_sheet_metal_fab@2.json", "sheet_senior_confirm", "Haan, khud banata hoon", "self"],
+    ["qp_sheet_metal_fab@2.json", "sheet_senior_confirm", "Nahi, bana-banaya chalata hoon", "other"],
   ] as ReadonlyArray<readonly [string, string, string, string | null]>)(
     "%s %s: %s → %s",
     (packFile, questionKey, text, expected) => {

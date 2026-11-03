@@ -9,7 +9,7 @@
   "version": 1,
   "family_id": "fam_sheet_metal_fab",
   "locale": "hi-IN",
-  "status": "active",
+  "status": "deprecated",
   "review_note": "Drafted for owner review. Shop-floor vocabulary NOT yet corrected by a practising sheet metal worker -- see docs/registers/trade-content-ratification.md.",
   "_fresher": "Guideline section 11 #1: a fresher's Zone 4 is training, trade test, machines used in the ITI workshop and project work, and the History heading never renders empty. These three items are the ask half; resume-fresher-rows.ts, fed by this role's descriptor, is the render half. The KEYS are read literally by that file and must not be renamed; only the workshop VOCABULARY is trade-specific. The three prompts are the welder's verbatim, so they reuse its served text and its voice clips.",
   "items": [
