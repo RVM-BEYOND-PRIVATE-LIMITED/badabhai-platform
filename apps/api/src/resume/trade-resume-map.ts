@@ -2857,6 +2857,11 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           pneumatic_press: "Pneumatic press",
           press_brake: "Press brake",
           fly_press: "Fly press / hand press",
+          // Phase 2 #3 (@2): the sheet-18 press types.
+          servo_press: "Servo press",
+          progressive_line: "Progressive line with coil feeder",
+          transfer_press: "Transfer press",
+          tandem_line: "Tandem line",
         },
       },
       {
@@ -2889,6 +2894,8 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           feeder_setting: "Feeder setting",
           strip_layout_check: "Strip layout check",
           first_piece: "First-piece approval",
+          // Phase 2 #3 (@2) — Advanced Q11 per sheet 18.
+          coil_handling: "Coil handling / decoiler",
         },
       },
       {
@@ -2905,6 +2912,8 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           guard_interlock: "Guard interlock",
           emergency_stop: "Emergency stop check",
           lockout_tagout: "Lockout-tagout",
+          // Phase 2 #3 (@2) — Advanced Q10 per sheet 18.
+          ppe: "PPE",
         },
       },
       {
@@ -2919,10 +2928,13 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
         // ruling. Printing "30 T -" would be a number nobody stated (§8), so the persona's row
         // reads "Up to 250 T presses".
         values: {
-          upto_thirty: "Up to 30 T presses",
+          // Phase 2 #3 (@2): re-banded to sheet 18's four bands. @1's 30 T,
+          // 250 T and over-250 T answers drop off the row (recorded cost, the
+          // sheet-metal thickness precedent); "Up to 100 T" keeps its value.
           upto_hundred: "Up to 100 T presses",
-          upto_twofifty: "Up to 250 T presses",
-          over_twofifty: "Over 250 T presses",
+          hundred_to_twofifty: "100–250 T presses",
+          twofifty_to_sixthirty: "250–630 T presses",
+          over_sixthirty: "Over 630 T presses",
         },
       },
       {

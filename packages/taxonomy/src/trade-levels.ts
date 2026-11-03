@@ -136,6 +136,10 @@ export const TRADE_LEVEL_PACKS: Readonly<Record<string, TradeLevelPack>> = {
   // Phase 2 #1 — the tool & die maker (CEO Launch Plan Pack v1, sheet 13).
   // Stored `tool_maker` aliases to `skilled`. Supervisor by rule.
   qp_tool_die_making: { skillId: "mskill_tool_die_maker", levelKey: "toolroom_level" },
+  // Phase 2 #3 — the press-shop operator (CEO Launch Plan Pack v1, sheet 18).
+  // No union extension: every sheet-18 rung is already a member, and @1's
+  // stored `helper` renders as it always did. Supervisor by rule.
+  qp_press_operation: { skillId: "mskill_press_operator", levelKey: "press_level" },
 };
 
 /** Legacy/alias spellings that name a `TradeLevel` without being one. */
@@ -435,6 +439,15 @@ export const TRADE_LEVEL_CONFIRM_ITEMS: Readonly<
   qp_cnc_grinding: {
     setter: "grinding_setting_confirm",
     setter_programmer: "grinding_setting_confirm",
+  },
+  // Phase 2 #3 — the press-shop confirm (CEO Launch Plan Pack v1, sheet 18).
+  // Confirmed from `setter`. The sheet writes one separating question (the
+  // setter's) and none for senior, so — the grinding ruling of 2026-11-03,
+  // applied here by owner decision — that one question is asked of both.
+  // Supervisor by rule.
+  qp_press_operation: {
+    setter: "press_setting_confirm",
+    senior: "press_setting_confirm",
   },
 };
 

@@ -222,6 +222,9 @@ const Map<String, (String, String)> _kTopics = <String, (String, String)>{
   'nesting_software': _software,
   // Press operation (qp_press_operation)
   'press_experience': _experience, 'press_level': _level,
+  // Phase 2 #3 (qp_press_operation@2) — the one separating confirm (asked of
+  // setter and senior) is a level follow-up, not craft.
+  'press_setting_confirm': _level,
   'press_machine': _machines, 'press_stroke_rate': _capability,
   'press_setting': _changeover, 'press_die_type': _tooling,
   'press_safety': _safety, 'press_defect': _trouble,

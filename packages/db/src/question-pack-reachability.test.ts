@@ -1272,6 +1272,16 @@ describe("Batch 2 part two — press / machine operator", () => {
     expect(familyFor("press shop assistant helper")).toBe("fam_retail");
   });
 
+  it("PHASE 2 #3 — the sheet-18 press words reach the press family, and only those", () => {
+    // CEO Launch Plan Pack v1, sheet 18 "Words": three new rows.
+    for (const p of ["servo press", "mechanical press", "press setter"]) {
+      expect(familyFor(p), p).toBe("fam_press_operation");
+    }
+    // Held out on purpose (see the rvm-aliases block): neither moved by this change.
+    expect(familyFor("hydraulic press")).not.toBe("fam_press_operation");
+    expect(familyFor("die setter")).not.toBe("fam_press_operation");
+  });
+
   it("no ratified press phrase falls through to the universal pack", () => {
     for (const p of ["power press", "stamping", "tool setter press", "press shop operator"]) {
       expect(familyFor(p), `"${p}" falls through`).not.toBe("fam_universal");

@@ -225,7 +225,9 @@ senior_programmer`; P5 crosswalk already handles). Role `levelTerms` += rung
 > `toolroom` + `mould maker` (+Hi) -> 7222.0200. Deviations in the @2
 > review_note.
 >
-> PHASE 2 #2 — CNC GRINDING RETAG ✅ CODE DONE (`feat/mw-grinding-retag`).
+> PHASE 2 #2 — CNC GRINDING RETAG ✅ CODE DONE (`feat/mw-grinding-retag`, PR #2528, merged).
+> `qp_cnc_grinding@6` live on production (seeded 2026-11-03, verify:packs +
+> verify:domains all PASS, curated aliases 548/548).
 > `qp_cnc_grinding@6`: sheet-15 ladder (Helper/Trainee/Operator/Setter/
 > Setter-cum-Programmer/Supervisor, mandatory; first chip stores `trainee`,
 > Turner @6 precedent; still no Programmer rung) + 1 separating confirm asked
@@ -238,8 +240,25 @@ senior_programmer`; P5 crosswalk already handles). Role `levelTerms` += rung
 > (0.001) chip; materials/wheels/measuring/drawing retagged Advanced;
 > `grinding_type` stays Medium (only reach-carrying row). Union extension:
 > none. New aliases `bore/thread/gear/bearing/shaft/crank grinding` ->
-> 7223.2200. Deviations in the @6 review_note. Seeds after merge
-> (`db:seed:domains` → normalize → `db:seed:packs` + verify).
+> 7223.2200. Deviations in the @6 review_note.
+>
+> PHASE 2 #3 — PRESS-SHOP RETAG ✅ CODE DONE (`feat/mw-press-retag`).
+> `qp_press_operation@2`: first Middle-Way version of this pack (it was not in
+> the crosswalk or the required-close list before). Sheet-18 ladder
+> (Helper/Trainee/Operator/Setter/Senior-line leader/Supervisor, now
+> mandatory; first chip stores `trainee`) + 1 separating confirm asked of
+> setter AND senior (the grinding ruling, applied by owner decision
+> 2026-11-03); supervisor by rule; 6-band experience; Easy closes on Q1–Q5;
+> press type (+servo/progressive line/transfer/tandem) + tonnage (re-banded
+> ≤100/100–250/250–630/>630 t — old 30 t/250 t/over-250 t answers drop,
+> recorded cost) are Medium; Advanced die work +fine blanking, safety +PPE,
+> setting +coil handling; other depth rows gated years OR rung. Display name
+> now "Press-shop Operator" (role + JOB_ROLE_LABELS; key unchanged; payer-app
+> mirror raised to Rishi). Union extension: none. New aliases `servo press`
+> + `mechanical press` -> 7223.2300, `press setter` -> 7223.0200 (held out:
+> `press shop` — it would become 7211.0101's chip label and stop that code
+> routing to the Press form; `hydraulic press`; `die setter`).
+> Deviations in the @2 review_note. Seeds after merge.
 
 | #   | Trade (kind)                                      | Pack                           | Level Q today                       | Notes                                                                                                                                                                     |
 | --- | ------------------------------------------------- | ------------------------------ | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

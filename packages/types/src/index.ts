@@ -1225,7 +1225,9 @@ export const JOB_ROLE_LABELS: Readonly<Record<TradeFormKindName, JobRoleLabel>> 
   cad_draughtsman: { label: "CAD Designer / Draughtsman", family: "design" },
   welder: { label: "Welder", family: "fabrication" },
   sheet_metal_worker: { label: "Sheet Metal Worker", family: "fabrication" },
-  press_operator: { label: "Press / Machine Operator", family: "fabrication" },
+  // Phase 2 #3 (CEO Launch Plan Pack v1, sheet 18): display name is
+  // "Press-shop Operator"; the key does not change.
+  press_operator: { label: "Press-shop Operator", family: "fabrication" },
   painter_coating: { label: "Painter / Powder Coating", family: "fabrication" },
   fitter: { label: "Fitter", family: "maintenance" },
   maintenance_technician: { label: "Maintenance Technician", family: "maintenance" },
