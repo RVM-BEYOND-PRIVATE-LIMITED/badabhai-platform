@@ -511,6 +511,29 @@ describe("§8 rung words resolve to the rung; signal phrases corroborate the tra
     expect(rungFor(qcLevel2, text as string)).toEqual([expected]);
   });
 
+  // PHASE 2 #1 (@2) — the sheet-13 ladder. Old trainee/tool-maker/senior keys
+  // live on in frozen @1 (no rung block existed then); @2 asks trainee/
+  // operator/skilled/senior/supervisor, the history chip still captures, and
+  // the new rungs capture the same way.
+  const toolLevel2 = loadItem("qp_tool_die_making@2.json", "toolroom_level");
+  it.each([
+    ["Trainee", "trainee"],
+    ["trainee hoon", "trainee"],
+    ["Operator", "operator"],
+    ["operator hoon", "operator"],
+    ["Skilled / Tool maker", "tool_maker"],
+    ["tool maker hoon", "tool_maker"],
+    // No bare `skilled` chip exists — the word lands on the rung's own chip,
+    // which aliases to skilled downstream.
+    ["skilled hoon", "tool_maker"],
+    ["Senior", "senior"],
+    ["senior hoon", "senior"],
+    ["Supervisor", "supervisor"],
+    ["supervisor hoon", "supervisor"],
+  ])("toolroom_level@2: %s → %s", (text, expected) => {
+    expect(rungFor(toolLevel2, text as string)).toEqual([expected]);
+  });
+
   // The P4 contract, owner-approved: §8 signal phrases corroborate the family pin
   // (asserted in the routing tables above) and NEVER write a rung by themselves.
   // The rung lands when the worker taps a chip or names it. Each null below is the
@@ -1105,6 +1128,46 @@ describe("§8 machine/controller rows resolve at capture; unlisted spellings re-
     ["qp_quality_inspection@2.json", "inspection_senior_confirm", "Nahi, senior karte hain", "other"],
     ["qp_quality_inspection@2.json", "inspection_engineer_confirm", "Haan, main banata hoon", "self"],
     ["qp_quality_inspection@2.json", "inspection_engineer_confirm", "Nahi, doosre banate hain", "other"],
+  ] as ReadonlyArray<readonly [string, string, string, string | null]>)(
+    "%s %s: %s → %s",
+    (packFile, questionKey, text, expected) => {
+      expect(capturedOption(packFile, questionKey, text)).toEqual(
+        expected === null ? [] : [expected],
+      );
+    },
+  );
+
+  // PHASE 2 #1 (@2) \u2014 the sheet-13 tooling/machine/steel/work rows, the
+  // institute row and the separating confirms resolve at capture. The
+  // plastic/die-casting/forging/rubber tool chips, the VMC/EDM/jig-boring/
+  // polishing machine chips, the H13/P20 steels, the spotting/maintenance/
+  // polishing work chips and the institute chips are new; the kept history
+  // chips capture the same way.
+  it.each([
+    ["qp_tool_die_making@2.json", "tooling_made", "Press tools / stamping dies", "press_tool"],
+    ["qp_tool_die_making@2.json", "tooling_made", "Press tools / stamping dies", "press_tool"],
+    ["qp_tool_die_making@2.json", "tooling_made", "Plastic injection moulds", "plastic_injection"],
+    ["qp_tool_die_making@2.json", "tooling_made", "Die-casting dies", "die_casting"],
+    ["qp_tool_die_making@2.json", "tooling_made", "Forging dies", "forging_die"],
+    ["qp_tool_die_making@2.json", "tooling_made", "Rubber moulds", "rubber_mould"],
+    ["qp_tool_die_making@2.json", "toolroom_machine", "VMC", "vmc"],
+    ["qp_tool_die_making@2.json", "toolroom_machine", "EDM", "edm"],
+    ["qp_tool_die_making@2.json", "toolroom_machine", "Jig boring", "jig_boring"],
+    ["qp_tool_die_making@2.json", "toolroom_machine", "Polishing / lapping", "polishing_lapping"],
+    ["qp_tool_die_making@2.json", "tool_steel", "H13", "h_thirteen"],
+    ["qp_tool_die_making@2.json", "tool_steel", "P20", "p_twenty"],
+    ["qp_tool_die_making@2.json", "toolroom_work", "Die fitting & assembly", "die_assembly"],
+    ["qp_tool_die_making@2.json", "toolroom_work", "Spotting / blue matching", "spotting"],
+    ["qp_tool_die_making@2.json", "toolroom_work", "Tryout", "tryout_correction"],
+    ["qp_tool_die_making@2.json", "toolroom_work", "Die maintenance / repair", "die_maintenance"],
+    ["qp_tool_die_making@2.json", "toolroom_work", "Sharpening", "regrind"],
+    ["qp_tool_die_making@2.json", "toolroom_work", "Polishing", "polishing"],
+    ["qp_tool_die_making@2.json", "tool_training_institute", "NTTF", "nttf"],
+    ["qp_tool_die_making@2.json", "tool_training_institute", "CIPET", "cipet"],
+    ["qp_tool_die_making@2.json", "toolroom_skilled_confirm", "Haan, khud karta hoon", "self"],
+    ["qp_tool_die_making@2.json", "toolroom_skilled_confirm", "Nahi, senior karte hain", "other"],
+    ["qp_tool_die_making@2.json", "toolroom_senior_confirm", "Haan, main lead karta hoon", "self"],
+    ["qp_tool_die_making@2.json", "toolroom_senior_confirm", "Nahi, doosre karte hain", "other"],
   ] as ReadonlyArray<readonly [string, string, string, string | null]>)(
     "%s %s: %s → %s",
     (packFile, questionKey, text, expected) => {

@@ -1857,14 +1857,17 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
         label: "Tooling made",
         kind: "chips",
         // DICTIONARY ORDER IS THE SHEET's ORDER — values render in the order this object lists
-        // them, and the ratified row reads "Press tools Progressive dies Jigs & fixtures Check
-        // gauges". `metal_mould` is the fifth and is what `maxValues: 4` holds back, which is
-        // also what the page does with it.
+        // them. Phase 2 #1 (@2): sheet-13 tool set leads (the page's five follow in place);
+        // `maxValues: 4` holds back the rest, which is also what the page does.
         values: {
-          press_tool: "Press tools",
-          progressive_die: "Progressive dies",
+          press_tool: "Press tools / stamping dies",
+          plastic_injection: "Plastic injection moulds",
+          die_casting: "Die-casting dies",
           jig_fixture: "Jigs & fixtures",
-          check_gauge: "Check gauges",
+          check_gauge: "Gauges",
+          forging_die: "Forging dies",
+          rubber_mould: "Rubber moulds",
+          progressive_die: "Progressive dies",
           metal_mould: "Moulds (metal)",
         },
       },
@@ -1874,12 +1877,18 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
         maxValues: 4,
         label: "Machines",
         kind: "chips",
+        // Phase 2 #1 (@2): sheet-13 machine words; the new chips follow the
+        // page's five in dictionary order.
         values: {
           surface_grinder: "Surface grinder",
-          wire_cut: "Wire-cut EDM",
+          vmc: "VMC",
+          wire_cut: "Wire-cut",
+          edm: "EDM",
           sinker_edm: "Sinker EDM",
-          milling: "Milling",
           lathe: "Lathe",
+          milling: "Milling",
+          jig_boring: "Jig boring",
+          polishing_lapping: "Polishing / lapping",
         },
       },
       {
@@ -1895,6 +1904,8 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
         values: {
           ohns: "OHNS",
           hchcr_dtwo: "HCHCr / D2",
+          h_thirteen: "H13",
+          p_twenty: "P20",
           en_thirty_one: "EN31",
           ms_die_set: "MS die sets",
           hss: "HSS",
@@ -1906,12 +1917,15 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
         label: "Tool-room work",
         kind: "ticks",
         values: {
-          die_assembly: "Die assembly",
+          die_assembly: "Die fitting & assembly",
+          spotting: "Spotting / blue matching",
+          tryout_correction: "Tryout",
+          die_maintenance: "Die maintenance / repair",
+          regrind: "Sharpening",
+          polishing: "Polishing",
           clearance_setting: "Punch & die clearance setting",
-          tryout_correction: "Tryout & correction",
           benchwork: "Benchwork & scraping",
           shut_height: "Shut-height setting",
-          regrind: "Sharpening & regrind",
         },
       },
       {
@@ -1976,6 +1990,22 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           electrical_parts: "Electrical & electronics",
           white_goods: "White goods",
           general_engg: "General engineering / job shop",
+        },
+      },
+      {
+        from: "tool_training_institute",
+        rank: 63,
+        label: "Training institute",
+        kind: "fact",
+        // Phase 2 #1 (@2): sheet-13 Q12 institutes. A credential row like the
+        // electrician's Licence — `none` ("Kahin nahi") has no entry, same rule.
+        values: {
+          iti_tool_die: "ITI (Tool & Die Maker)",
+          nttf: "NTTF",
+          cttc: "CTTC",
+          igtr: "IGTR",
+          cipet: "CIPET",
+          diploma: "Diploma",
         },
       },
     ],

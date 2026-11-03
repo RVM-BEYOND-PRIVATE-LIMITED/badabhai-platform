@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "pack_count": 191,
+  "pack_count": 192,
   "packs": {
     "qp_ac_refrigeration@1": {
       "served_text_sha256": "d06b4ae6ca7502d3f991cdb96b4b53c04208085afa9450799c453967ac6f6b7e",
@@ -649,6 +649,10 @@
     "qp_tool_die_making@1": {
       "served_text_sha256": "2d13854bf896fc7eebc61b4e2433c66c461cffee3b34d2407bcbc261554efafb",
       "served_text_count": 90
+    },
+    "qp_tool_die_making@2": {
+      "served_text_sha256": "bac29ff9a4c33bf8c82d7aad2dabcafe97df44ff9eb5ac7aeaefbac60e14169e",
+      "served_text_count": 99
     },
     "qp_toolmaking@1": {
       "served_text_sha256": "9db40e5fea20a4389b189180a560373df69c85e2a6747ead288ac4380ae738ca",

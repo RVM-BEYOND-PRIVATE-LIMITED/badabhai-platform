@@ -1,12 +1,12 @@
 {
   "schema_version": 1,
-  "clip_count": 1410,
+  "clip_count": 1425,
   "producers": {
-    "retry": 116,
-    "clarify": 512,
-    "prompt": 369,
+    "retry": 119,
+    "clarify": 518,
+    "prompt": 372,
     "constant": 97,
-    "why": 316
+    "why": 319
   },
   "clips": [
     {
@@ -1450,6 +1450,11 @@
       "producer": "why"
     },
     {
+      "id": "32dd9a256687bcf6",
+      "text": "Machine ke hisaab se sahi kaam dikhaya jaata hai. Grinder, VMC, EDM ya milling, kaunsi machine chalate hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "3334c5068ebd89fc",
       "text": "Doosron ki drawing aap check karte ho?",
       "producer": "prompt"
@@ -1778,6 +1783,11 @@
       "id": "40902f407ca58f58",
       "text": "Spray gun, booth ya oven, kis par kaam kiya hai?",
       "producer": "retry"
+    },
+    {
+      "id": "41082d0677ab4e7b",
+      "text": "Level ke hisaab se sahi sawaal poochhe jaate hain. Trainee, operator, skilled, senior ya supervisor hain?",
+      "producer": "clarify"
     },
     {
       "id": "4110788e0572982c",
@@ -2290,6 +2300,11 @@
       "producer": "clarify"
     },
     {
+      "id": "529bcbfb8feb896f",
+      "text": "Achhe institute ka certificate badi tool room me kaam dilata hai.",
+      "producer": "why"
+    },
+    {
       "id": "52c16683209cf191",
       "text": "Pump par kai tarah ke kaam hote hain.",
       "producer": "why"
@@ -2660,6 +2675,11 @@
       "producer": "retry"
     },
     {
+      "id": "5d826c59ce0aa6b5",
+      "text": "Aap kya banate hain, yahi employer sabse pehle dekhta hai. Press tool, mould, jig ya gauge, kya banate hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "5d88144e36e7933e",
       "text": "Machine se kaam tez hota hai. Kya aap machine se silai karte hain?",
       "producer": "clarify"
@@ -2723,6 +2743,11 @@
       "id": "61040587974d4b99",
       "text": "Kya aap programme feed kar lete hain?",
       "producer": "prompt"
+    },
+    {
+      "id": "616eca8fc50f43d6",
+      "text": "Tryout lead karne wale senior ko alag zimmedari milti hai.",
+      "producer": "why"
     },
     {
       "id": "6179860302205d99",
@@ -2893,6 +2918,11 @@
       "id": "66fcc35d5e5ae196",
       "text": "Namaste, main Bada Bhai hoon. Aapka resume banane mein madad karunga. Shuru karein?",
       "producer": "constant"
+    },
+    {
+      "id": "6718f5599ecb1db0",
+      "text": "Khud assemble karke tryout karne wale ko alag kaam milta hai.",
+      "producer": "why"
     },
     {
       "id": "6728d1873fd8bac6",
@@ -3685,6 +3715,11 @@
       "producer": "clarify"
     },
     {
+      "id": "8310af2d9b25c168",
+      "text": "Tool design mein input dete ho, tryout aap lead karte ho?",
+      "producer": "prompt"
+    },
+    {
       "id": "83271e8d4ef7058f",
       "text": "Machine ke hisaab se sahi kaam dikhaya jaata hai. Kaunsi machines ki maintenance karte hain?",
       "producer": "clarify"
@@ -4205,6 +4240,11 @@
       "producer": "why"
     },
     {
+      "id": "9570ab4a124d1e7a",
+      "text": "Tryout lead karne wale senior ko alag zimmedari milti hai. Tool design mein input dete ho, tryout aap lead karte ho?",
+      "producer": "clarify"
+    },
+    {
       "id": "95e04ac6d49c634d",
       "text": "Setting ka kaunsa kaam khud karte hain?",
       "producer": "prompt"
@@ -4530,6 +4570,11 @@
       "producer": "prompt"
     },
     {
+      "id": "a2b3b086b8091544",
+      "text": "Grinder, VMC, EDM ya milling, kaunsi machine chalate hain?",
+      "producer": "retry"
+    },
+    {
       "id": "a2e6dcfd8b6bb3c3",
       "text": "Theek hai, ab se Kannada mein baat karenge.",
       "producer": "constant"
@@ -4720,6 +4765,11 @@
       "producer": "prompt"
     },
     {
+      "id": "a88cc8e15ac8d8bb",
+      "text": "Tool room ka course ya training kahan se kiya?",
+      "producer": "prompt"
+    },
+    {
       "id": "a8bdb51446e6d084",
       "text": "Aas-paas ke kaam jaanne wale ko poori line ka kaam milta hai.",
       "producer": "why"
@@ -4773,6 +4823,11 @@
       "id": "aa4329aae9b282c3",
       "text": "Software ke hisaab se sahi kaam dikhaya jaata hai.",
       "producer": "why"
+    },
+    {
+      "id": "aac49aceba09e0da",
+      "text": "Press tool, mould, jig ya gauge, kya banate hain?",
+      "producer": "retry"
     },
     {
       "id": "aadd66390ac2ab4d",
@@ -4873,6 +4928,11 @@
       "id": "ae728b2db22b659e",
       "text": "Kharabi pakadne wale electrician ki plant me zaroorat rehti hai.",
       "producer": "why"
+    },
+    {
+      "id": "ae72f265a07c3ab6",
+      "text": "Achhe institute ka certificate badi tool room me kaam dilata hai. Tool room ka course ya training kahan se kiya?",
+      "producer": "clarify"
     },
     {
       "id": "ae8358ed3014f829",
@@ -5013,6 +5073,11 @@
       "id": "b3b1ad2be1deab25",
       "text": "Har kaam alag hunar hai, isse sahi naukri milti hai. Sheet par kaunsa kaam khud karte hain?",
       "producer": "clarify"
+    },
+    {
+      "id": "b3c6e89509459eae",
+      "text": "Die ya mould poora drawing se khud assemble karke tryout karte ho?",
+      "producer": "prompt"
     },
     {
       "id": "b48fd7fe119bf353",
@@ -5528,6 +5593,11 @@
       "id": "c5b148ff6535753c",
       "text": "Kaunsa powder ya paint lagaya hai?",
       "producer": "prompt"
+    },
+    {
+      "id": "c627f09803b93531",
+      "text": "Trainee, operator, skilled, senior ya supervisor hain?",
+      "producer": "retry"
     },
     {
       "id": "c69a72c18ce4fa4c",
@@ -6808,6 +6878,11 @@
       "id": "f7af3e031efc53f4",
       "text": "Thoda sa aur. Bas 18 sawaal bache hain.",
       "producer": "constant"
+    },
+    {
+      "id": "f7c6386c6b9209f9",
+      "text": "Khud assemble karke tryout karne wale ko alag kaam milta hai. Die ya mould poora drawing se khud assemble karke tryout karte ho?",
+      "producer": "clarify"
     },
     {
       "id": "f812ac3f8738ab7a",

@@ -131,6 +131,9 @@ export const TRADE_LEVEL_PACKS: Readonly<Record<string, TradeLevelPack>> = {
   // No union extension: `senior`/`senior_inspector`/`qc_engineer` already
   // confirm, trainee/inspector already Lower. Supervisor by rule.
   qp_quality_inspection: { skillId: "mskill_quality_inspector", levelKey: "inspection_level" },
+  // Phase 2 #1 — the tool & die maker (CEO Launch Plan Pack v1, sheet 13).
+  // Stored `tool_maker` aliases to `skilled`. Supervisor by rule.
+  qp_tool_die_making: { skillId: "mskill_tool_die_maker", levelKey: "toolroom_level" },
 };
 
 /** Legacy/alias spellings that name a `TradeLevel` without being one. */
@@ -142,6 +145,10 @@ const LEVEL_KEY_ALIASES: Readonly<Record<string, TradeLevel>> = {
   // `certified_welder` for the skilled rung; @2 keeps the key as a history
   // chip. The alias lands old answers on `skilled` (confirmed, Higher).
   certified_welder: "skilled",
+  // Phase 2 #1 (CEO Launch Plan Pack v1, sheet 13): qp_tool_die_making@1
+  // stored `tool_maker` for the skilled rung; @2 keeps the key as a history
+  // chip. Same mechanism, same reason.
+  tool_maker: "skilled",
   // CEO Launch Pack v1 (RULED 2026-11-02, reconciled): bare "junior" is a trainee
   // claim now (no ladder carries `junior_programmer` anymore; that key stays for
   // history). Bare "senior" needs no alias: it IS a union member and the union
@@ -412,6 +419,12 @@ export const TRADE_LEVEL_CONFIRM_ITEMS: Readonly<
   qp_quality_inspection: {
     senior_inspector: "inspection_senior_confirm",
     qc_engineer: "inspection_engineer_confirm",
+  },
+  // Phase 2 #1 — the tool-room confirms (CEO Launch Plan Pack v1, sheet 13).
+  // Confirmed from `skilled`: skilled, senior; supervisor by rule.
+  qp_tool_die_making: {
+    skilled: "toolroom_skilled_confirm",
+    senior: "toolroom_senior_confirm",
   },
 };
 
