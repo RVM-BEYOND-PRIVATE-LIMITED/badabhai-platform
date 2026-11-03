@@ -11,6 +11,12 @@ export interface SearchCounts {
   unrecorded: number;
   filtered: boolean;
   strict: boolean;
+  /**
+   * True when a filter on a field that can be UNRECORDED was asked for (city, years in role,
+   * years in industry): the badge then always carries the third number, even at 0 — ADR-0040 §4,
+   * "a badge that shows two numbers where three are needed is a defect".
+   */
+  unrecordable?: boolean;
 }
 
 /** What the count line says, and — in strict mode — what the list leaves out. */
@@ -33,7 +39,8 @@ export function countSummary(c: SearchCounts): CountSummary | null {
   if (!c.filtered) {
     return { line: c.total === 1 ? "1 candidate" : `${c.total} candidates`, strictNote: null };
   }
-  const unrecorded = c.unrecorded > 0 ? ` · ${c.unrecorded} not recorded` : "";
+  const unrecorded =
+    c.unrecorded > 0 || c.unrecordable === true ? ` · ${c.unrecorded} not recorded` : "";
   const line = `${c.matched} of ${c.total} match${unrecorded}`;
   if (!c.strict) return { line, strictNote: null };
   return {

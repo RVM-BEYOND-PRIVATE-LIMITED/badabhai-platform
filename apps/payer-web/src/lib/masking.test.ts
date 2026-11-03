@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bandLabel, maskedInitials, monthsLabel, opaqueId } from "./masking";
+import { bandLabel, maskedInitials, monthsLabel, opaqueId, workerHandle } from "./masking";
 
 describe("maskedInitials — 1–2 uppercase initials, '?' fallback", () => {
   it("takes the first + last word initials for a multi-word label", () => {
@@ -95,5 +95,16 @@ describe("monthsLabel — ADR-0036 bucketed months as a COARSE label", () => {
     expect(monthsLabel(-6)).toBe("");
     expect(monthsLabel(Number.NaN)).toBe("");
     expect(monthsLabel(Number.POSITIVE_INFINITY)).toBe("");
+  });
+});
+
+describe("workerHandle — the search card's handle, the same as the payer app's", () => {
+  it("prints the LAST four hex digits, so one namespace's ids stay distinct", () => {
+    expect(workerHandle("face2000-0000-4000-8000-000000000003")).toBe("Worker ••0003");
+    expect(workerHandle("face2000-0000-4000-8000-0000000000b8")).toBe("Worker ••00b8");
+    // opaqueId's prefix would print the same chip for both — the defect this fixes.
+    expect(opaqueId("face2000-0000-4000-8000-000000000003")).toBe(
+      opaqueId("face2000-0000-4000-8000-0000000000b8"),
+    );
   });
 });

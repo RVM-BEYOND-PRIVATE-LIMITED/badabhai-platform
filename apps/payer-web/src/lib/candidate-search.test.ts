@@ -244,6 +244,10 @@ describe("countSummary — three numbers, never folded (ADR-0040 §1/§4)", () =
   it("filtered: '{matched} of {total} match', plus ' · {unrecorded} not recorded' only when any", () => {
     expect(countSummary(c())).toEqual({ line: "14 of 62 match · 9 not recorded", strictNote: null });
     expect(countSummary(c({ unrecorded: 0 }))?.line).toBe("14 of 62 match");
+    // A filter that can meet an unrecorded value always says the third number, even at 0.
+    expect(countSummary(c({ unrecorded: 0, unrecordable: true }))?.line).toBe(
+      "14 of 62 match · 0 not recorded",
+    );
     expect(countSummary(c({ matched: 0, unrecorded: 0 }))?.line).toBe("0 of 62 match");
   });
 

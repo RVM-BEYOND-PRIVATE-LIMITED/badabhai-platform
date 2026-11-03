@@ -152,7 +152,7 @@ export default async function CandidatesPage({
           // One list per page of results: a new page or filter starts with no session state.
           key={`${searchFiltersKey(query)}|${query.cursor ?? ""}`}
           header={header}
-          counts={{ total, matched, unrecorded, filtered, strict }}
+          counts={{ total, matched, unrecorded, filtered, strict, unrecordable: unrecordable(query) }}
           candidates={rows}
           relatedTo={pickedRoleLabel(query, options)}
           // An affordance only — an unread balance keeps Unlock enabled (the server decides).
@@ -295,7 +295,7 @@ function EndOfListState() {
  * and the way out is to clear the filters.)
  */
 function NoMatchState({ page, query }: { page: CandidateSearchPage; query: CandidateSearchQuery }) {
-  const summary = countSummary(page);
+  const summary = countSummary({ ...page, unrecordable: unrecordable(query) });
   const strict = page.strict;
   const way = strict
     ? {
@@ -329,4 +329,9 @@ function NoMatchState({ page, query }: { page: CandidateSearchPage; query: Candi
       </div>
     </Card>
   );
+}
+
+/** A filter on a field that can be unrecorded was asked for (ADR-0040 §4: the badge says the 3rd number). */
+function unrecordable(query: CandidateSearchQuery): boolean {
+  return query.city !== null || query.experience !== null || query.industryExperience !== null;
 }

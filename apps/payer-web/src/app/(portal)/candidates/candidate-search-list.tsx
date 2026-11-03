@@ -4,7 +4,7 @@ import { useState } from "react";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 import type { CandidateSearchRow } from "../../../lib/contracts";
 import type { GrantedUnlock } from "../../../lib/unlock-history";
-import { bandLabel, monthsLabel, opaqueId } from "../../../lib/masking";
+import { bandLabel, monthsLabel, workerHandle } from "../../../lib/masking";
 import { shownTradeLevel } from "../../../lib/trade-level";
 // The count copy's own dependency-free module — the search's URL reads (zod) stay off the client.
 import { countSummary, type SearchCounts } from "../../../lib/candidate-counts";
@@ -241,7 +241,7 @@ export function CandidateSearchList({
                     opaque id; every fact below is closed-vocabulary or bucketed. */}
                 <Avatar masked size={44} aria-hidden="true" />
                 <div className="applicant__id">
-                  <span className="bb-mono applicant__id-code">{opaqueId(c.workerId)}</span>
+                  <span className="bb-mono applicant__id-code">{workerHandle(c.workerId)}</span>
                   <span className="applicant__trade">{c.role.label}</span>
                   {facts ? <span className="applicant__bands">{facts}</span> : null}
                   <span className="applicant__bands">{industry}</span>

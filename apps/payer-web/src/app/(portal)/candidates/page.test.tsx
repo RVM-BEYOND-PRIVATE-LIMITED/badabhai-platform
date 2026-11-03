@@ -192,18 +192,22 @@ const unlockButtons = (markup: string) =>
     markup.matchAll(/<button([^>]*)>(?:(?!<\/button>)[\s\S])*?Unlock contact \(1 credit\)/g),
     (m) => m[1]!,
   );
+/** Every select in the markup, by its `name`, to its inner markup — one literal pattern. */
+const selectsOf = (markup: string) =>
+  new Map(
+    Array.from(
+      markup.matchAll(/<select[^>]*\sname="([^"]+)"[^>]*>([\s\S]*?)<\/select>/g),
+      (m) => [m[1]!, m[2]!] as const,
+    ),
+  );
 /** A select's options as [value, label], in order. */
 const optionsOf = (markup: string, name: string) =>
   Array.from(
-    (new RegExp(`<select[^>]*name="${name}"[^>]*>([\\s\\S]*?)</select>`).exec(markup)?.[1] ?? "").matchAll(
-      /<option value="([^"]*)"[^>]*>([^<]*)<\/option>/g,
-    ),
+    (selectsOf(markup).get(name) ?? "").matchAll(/<option value="([^"]*)"[^>]*>([^<]*)<\/option>/g),
     (m) => [m[1], m[2]],
   );
 const selectedOf = (markup: string, name: string) =>
-  /<option value="([^"]*)" selected="">/.exec(
-    new RegExp(`<select[^>]*name="${name}"[^>]*>([\\s\\S]*?)</select>`).exec(markup)?.[1] ?? "",
-  )?.[1] ?? null;
+  /<option value="([^"]*)" selected="">/.exec(selectsOf(markup).get(name) ?? "")?.[1] ?? null;
 const count = (markup: string) =>
   /<p class="candidate-search__count">([^<]*)<\/p>/.exec(markup)?.[1]?.replace(/&#x27;/g, "'") ?? null;
 /** The props the page hands the ONE card list (they ride the RSC payload). */
@@ -533,11 +537,17 @@ describe("all candidates — the list and its counts (ADR-0040 Decision 3)", () 
     expect(out).not.toContain("candidate-search__note");
   });
 
-  it("filtered with nothing unrecorded: no 'not recorded' part; a page of matches only: no divider", async () => {
+  it("a role-only filter (never unrecorded) has no 'not recorded' part; a page of matches only: no divider", async () => {
     searchCandidates.mockResolvedValueOnce(page({ filtered: true, matched: 14 }));
-    const out = await html({ city: "Pune" });
+    const out = await html({ role: "mskill_cnc_turner" });
     expect(count(out)).toBe("14 of 62 match");
     expect(out).not.toContain("candidate-search__divider");
+  });
+
+  it("a filter that CAN meet an unrecorded value says the third number even at 0 (ADR-0040 §4)", async () => {
+    searchCandidates.mockResolvedValueOnce(page({ filtered: true, matched: 14 }));
+    const out = await html({ city: "Pune" });
+    expect(count(out)).toBe("14 of 62 match · 0 not recorded");
   });
 
   it("a later page that starts with non-matches opens with the divider", async () => {
@@ -625,7 +635,11 @@ describe("all candidates — the list and its counts (ADR-0040 Decision 3)", () 
     expect(text).not.toMatch(/\+\d{7,}/);
     expect(text).not.toMatch(/@/);
     for (const id of [W1, W2]) expect(text).not.toContain(id);
-    expect(text).toContain("face2000…");
+    // The handle is the id's LAST four digits — distinct per card even where every id shares its
+    // prefix (the synthetic face2000… cohort), and the payer app's own label.
+    expect(text).toContain("Worker ••0001");
+    expect(text).toContain("Worker ••0002");
+    expect(text).not.toContain("face2000…");
   });
 
   it("hands the list the related-to label, the counts only (not the rows twice), and live grants for THIS page", async () => {
@@ -636,7 +650,14 @@ describe("all candidates — the list and its counts (ADR-0040 Decision 3)", () 
     ]);
     const props = await listProps({ role: "mskill_cnc_turner" });
     expect(props.relatedTo).toBe("CNC Turner");
-    expect(props.counts).toEqual({ total: 62, matched: 62, unrecorded: 0, filtered: false, strict: false });
+    expect(props.counts).toEqual({
+      total: 62,
+      matched: 62,
+      unrecorded: 0,
+      filtered: false,
+      strict: false,
+      unrecordable: false, // a role filter can never meet an unrecorded value
+    });
     expect(props.unlocked).toEqual({
       [W1]: { kind: "granted", unlockId: unlock(W1).unlockId, expiresAt: FUTURE },
     });
