@@ -411,6 +411,27 @@ describe("§8 rung words resolve to the rung; signal phrases corroborate the tra
     expect(rungFor(electricianLevel2, text as string)).toEqual([expected]);
   });
 
+  // TRACK B #3 (@2) — the sheet-8 ladder. Old helper/welder/certified_welder
+  // keys live on in frozen @1 (no rung block existed then); @2 asks helper/
+  // welder/skilled/senior/supervisor, the history chip still captures, and the
+  // new rungs capture the same way. Full chip labels resolve singly; a bare
+  // rung word beside the Welder option (e.g. "skilled welder hoon") matches
+  // both and falls to the re-ask path — never a wrong rung.
+  const welderLevel2 = loadItem("qp_welding_trade@2.json", "welder_level");
+  it.each([
+    ["Helper", "helper"],
+    ["helper hoon", "helper"],
+    ["Welder", "welder"],
+    ["welder hoon", "welder"],
+    ["Skilled / TIG / Certified", "certified_welder"],
+    ["Senior Welder", "senior"],
+    ["senior welder hoon", "senior"],
+    ["Supervisor", "supervisor"],
+    ["supervisor hoon", "supervisor"],
+  ])("welder_level@2: %s → %s", (text, expected) => {
+    expect(rungFor(welderLevel2, text as string)).toEqual([expected]);
+  });
+
   // The P4 contract, owner-approved: §8 signal phrases corroborate the family pin
   // (asserted in the routing tables above) and NEVER write a rung by themselves.
   // The rung lands when the worker taps a chip or names it. Each null below is the
@@ -814,6 +835,40 @@ describe("§8 machine/controller rows resolve at capture; unlisted spellings re-
     ["qp_industrial_electrician@2.json", "measuring_tools", "Thermal camera", "thermal_camera"],
     ["qp_industrial_electrician@2.json", "electrician_senior_confirm", "Khud dhoondh ke theek karta hoon", "self"],
     ["qp_industrial_electrician@2.json", "electrician_senior_confirm", "Senior ko batata hoon", "other"],
+  ] as ReadonlyArray<readonly [string, string, string, string | null]>)(
+    "%s %s: %s → %s",
+    (packFile, questionKey, text, expected) => {
+      expect(capturedOption(packFile, questionKey, text)).toEqual(
+        expected === null ? [] : [expected],
+      );
+    },
+  );
+
+  // TRACK B #3 (@2) — the sheet-8 process/material/position sets, the new
+  // certificate row and the separating confirms resolve at capture. The
+  // robotic/gas-brazing/submerged process chips, the alloy/copper materials,
+  // the pipe-6G position and the certificate chips are new; the kept history
+  // chips capture the same way. New process chips derive no match skill
+  // (no robotic/submerged vocabulary — reach unchanged, pinned above).
+  it.each([
+    ["qp_welding_trade@2.json", "welding_process", "MIG / CO2", "mig_mag"],
+    ["qp_welding_trade@2.json", "welding_process", "TIG / Argon", "tig"],
+    ["qp_welding_trade@2.json", "welding_process", "Arc / stick", "arc"],
+    ["qp_welding_trade@2.json", "welding_process", "Robotic welding", "robotic"],
+    ["qp_welding_trade@2.json", "welding_process", "Gas / brazing", "gas_brazing"],
+    ["qp_welding_trade@2.json", "welding_process", "Submerged arc", "submerged_arc"],
+    ["qp_welding_trade@2.json", "welding_process", "Spot welding", "spot"],
+    ["qp_welding_trade@2.json", "material_worked", "Alloy steel", "alloy_steel"],
+    ["qp_welding_trade@2.json", "material_worked", "Copper / brass", "copper_brass"],
+    ["qp_welding_trade@2.json", "welding_position", "Flat (1G)", "flat"],
+    ["qp_welding_trade@2.json", "welding_position", "Pipe (6G)", "pipe_six_g"],
+    ["qp_welding_trade@2.json", "welder_certificate", "Haan, IBR / ASME / third party", "cert_ibr"],
+    ["qp_welding_trade@2.json", "welder_certificate", "ITI Welder", "iti_welder"],
+    ["qp_welding_trade@2.json", "welder_certificate", "Company test pass kiya", "company_test"],
+    ["qp_welding_trade@2.json", "welder_skilled_confirm", "Haan, karta hoon", "self"],
+    ["qp_welding_trade@2.json", "welder_skilled_confirm", "Nahi, nahi kiya", "other"],
+    ["qp_welding_trade@2.json", "welder_senior_confirm", "Haan, main karta hoon", "self"],
+    ["qp_welding_trade@2.json", "welder_senior_confirm", "Nahi, senior karte hain", "other"],
   ] as ReadonlyArray<readonly [string, string, string, string | null]>)(
     "%s %s: %s → %s",
     (packFile, questionKey, text, expected) => {

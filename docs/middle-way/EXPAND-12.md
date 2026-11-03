@@ -111,7 +111,36 @@ senior_programmer`; P5 crosswalk already handles). Role `levelTerms` += rung
 > `fitter` (Lower) + `senior_fitter` (Higher, confirmed). Deviations in the
 > @2 review_note.
 >
-> TRACK B #2 — ELECTRICIAN RETAG (in progress, `feat/mw-electrician-retag`).
+> TRACK B #2 — ELECTRICIAN RETAG ✅ CODE DONE (`feat/mw-electrician-retag`, PR #2518, merged).
+> `qp_industrial_electrician@2` live on production (seeded + verified post-merge):
+> Easy/Medium/Advanced tiers; 6-band experience; sheet-7 level ladder
+> (Helper/Electrician/Senior/Supervisor, mandatory; stored `senior` IS the
+> sheet's senior_technician rung) + 1 separating confirm (senior self/other;
+> supervisor by rule); work-type extended (factory/HT-LT/solar/generator);
+> equipment retagged Medium (+5 chips); panel-motor/instrument/drawing/licence
+> rows retagged Advanced (+thermal camera); hard rows gated years OR rung.
+> Union extension: `electrician` (Lower). Alias: `panel wireman` -> 7412.0200.
+> Deviations in the @2 review_note.
+>
+> TRACK B #3 — WELDER RETAG (in progress, `feat/mw-welder-retag`).
+> `qp_welding_trade@2`: sheet-8 ladder (Helper/Welder/Skilled/Senior/
+> Supervisor, mandatory; stored `certified_welder` aliases to skilled) + 2
+> separating confirms (skilled + senior self/other; supervisor by rule);
+> process is a REQUIRED Medium chip (+robotic/gas-brazing/submerged);
+> equipment retagged Medium; position/instrument/drawing/inspection retagged
+> Advanced (+pipe 6G, +thermal camera); NEW certificate row (Advanced); hard
+> rows gated years OR rung. Union extension: `welder` (Lower) only; no alias
+> (digits forbidden in alias text — bare `6G` stays routing-quiet).
+> Deviations in the @2 review_note.
+> `qp_industrial_electrician@2` pattern repeated: sheet-8 ladder
+> (Helper/Welder/Skilled/Senior/Supervisor, mandatory; stored
+> `certified_welder` aliases to skilled) + 2 separating confirms (skilled +
+> senior self/other; supervisor by rule); process is a REQUIRED Medium chip
+> (+robotic/gas-brazing/submerged); equipment retagged Medium; position/
+> instrument/drawing/inspection retagged Advanced (+pipe 6G, +thermal camera);
+> NEW certificate row (Advanced); hard rows gated years OR rung. Union
+> extension: `welder` (Lower) only. Alias: bare `6g` -> 7212.0200. Deviations
+> in the @2 review_note.
 > `qp_industrial_electrician@2`: sheet-7 ladder
 > (Helper/Electrician/Senior/Supervisor, mandatory; stored `senior` IS the
 > sheet's senior_technician rung) + 1 separating confirm (senior self/other;

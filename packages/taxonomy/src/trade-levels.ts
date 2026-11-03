@@ -45,7 +45,10 @@ export type TradeLevel =
   // Track B #2 (CEO Launch Plan Pack v1, sheet 7) — the electrician operator
   // rung. Lower; stored by qp_industrial_electrician@1 already, rendered null
   // until this extension.
-  | "electrician";
+  | "electrician"
+  // Track B #3 (CEO Launch Plan Pack v1, sheet 8) — the welder operator rung.
+  // Lower; stored by qp_welding_trade@1 already, rendered null until now.
+  | "welder";
 
 /**
  * C6 CROSSWALK — pack level answers → trade skill + `trade_level` (Middle Way P5).
@@ -109,6 +112,9 @@ export const TRADE_LEVEL_PACKS: Readonly<Record<string, TradeLevelPack>> = {
   // stored `senior` key IS the sheet's senior_technician rung (Higher,
   // confirmed); shared labels print it. Supervisor by rule (no confirm item).
   qp_industrial_electrician: { skillId: "mskill_industrial_electrician", levelKey: "electrician_level" },
+  // Track B #3 — the welder (CEO Launch Plan Pack v1, sheet 8). Shared labels
+  // already print the trade's words (Welder / Skilled / Senior / Supervisor).
+  qp_welding_trade: { skillId: "mskill_welder", levelKey: "welder_level" },
 };
 
 /** Legacy/alias spellings that name a `TradeLevel` without being one. */
@@ -116,6 +122,10 @@ const LEVEL_KEY_ALIASES: Readonly<Record<string, TradeLevel>> = {
   setter_cum_programmer: "setter_programmer",
   settercumprogrammer: "setter_programmer",
   "setter-cum-programmer": "setter_programmer",
+  // Track B #3 (CEO Launch Plan Pack v1, sheet 8): qp_welding_trade@1 stored
+  // `certified_welder` for the skilled rung; @2 keeps the key as a history
+  // chip. The alias lands old answers on `skilled` (confirmed, Higher).
+  certified_welder: "skilled",
   // CEO Launch Pack v1 (RULED 2026-11-02, reconciled): bare "junior" is a trainee
   // claim now (no ladder carries `junior_programmer` anymore; that key stays for
   // history). Bare "senior" needs no alias: it IS a union member and the union
@@ -172,6 +182,8 @@ export const TRADE_LEVEL_LABELS: Readonly<Record<TradeLevel, string>> = {
   senior_fitter: "Senior Fitter",
   // Track B #2 — the electrician operator rung (sheet 7).
   electrician: "Electrician",
+  // Track B #3 — the welder operator rung (sheet 8).
+  welder: "Welder",
 };
 
 /**
@@ -239,6 +251,7 @@ function levelTier(level: TradeLevel): "higher" | "lower" {
   // trainee/operator/designer rungs. Everything else Higher.
   // Track B #1 — the fitter operator rung is Lower (sheet 6).
   // Track B #2 — the electrician operator rung is Lower (sheet 7).
+  // Track B #3 — the welder operator rung is Lower (sheet 8).
   switch (level) {
     case "helper":
     case "trainee":
@@ -252,6 +265,7 @@ function levelTier(level: TradeLevel): "higher" | "lower" {
     case "designer":
     case "fitter":
     case "electrician":
+    case "welder":
       return "lower";
     default:
       return "higher";
@@ -351,6 +365,12 @@ export const TRADE_LEVEL_CONFIRM_ITEMS: Readonly<
   // supervisor by rule.
   qp_industrial_electrician: {
     senior: "electrician_senior_confirm",
+  },
+  // Track B #3 — the welder confirms (CEO Launch Plan Pack v1, sheet 8).
+  // Confirmed from `skilled`: skilled, senior; supervisor by rule.
+  qp_welding_trade: {
+    skilled: "welder_skilled_confirm",
+    senior: "welder_senior_confirm",
   },
 };
 

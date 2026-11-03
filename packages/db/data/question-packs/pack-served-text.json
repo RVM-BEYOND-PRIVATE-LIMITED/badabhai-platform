@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "pack_count": 186,
+  "pack_count": 187,
   "packs": {
     "qp_ac_refrigeration@1": {
       "served_text_sha256": "d06b4ae6ca7502d3f991cdb96b4b53c04208085afa9450799c453967ac6f6b7e",
@@ -733,6 +733,10 @@
     "qp_welding_trade@1": {
       "served_text_sha256": "25962977448bd13421f8c50520929bac10d338a1a36ecf0d8586d42ee1dddee9",
       "served_text_count": 66
+    },
+    "qp_welding_trade@2": {
+      "served_text_sha256": "d17aaf0a80aad894c412af127f255beae3391ad4a6b5f83810cb9e45161ea2fe",
+      "served_text_count": 77
     },
     "qp_wood_plant@1": {
       "served_text_sha256": "7b8019db9ec2e177b2a9ced79bee63011fddf396ea182cdd0d5cc547ccee5575",

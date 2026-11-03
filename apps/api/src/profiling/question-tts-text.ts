@@ -321,6 +321,8 @@ const QUESTION_TTS_TEXT: Readonly<Record<string, string>> = {
   "Mahine ka kitna milna chahiye?": "महीने का कितना मिलना चाहिए?",
   "Aap kaunse sheher mein rehte hain?": "आप कौनसे शहर में रहते हैं?",
   "Gas, arc, MIG ya TIG mein se kaunsi?": "गैस, आर्क, MIG या TIG में से कौनसी?",
+  // Track B #3 (@2): the process retry lists the sheet-8 chips.
+  "MIG, TIG, arc ya spot mein se kaunsi?": "MIG, TIG, आर्क या स्पॉट में से कौनसी?",
   "Kis sheher mein kaam karna hai?": "किस शहर में काम करना है?",
   "Kitne saal se ye kaam kar rahe hain?": "कितने साल से ये काम कर रहे हैं?",
   // --- qp_cnc_turning@1 (role pack, CNC turning) ---
@@ -610,6 +612,15 @@ const QUESTION_TTS_TEXT: Readonly<Record<string, string>> = {
   "Welding ke alawa kaunsa kaam karte hain?": "वेल्डिंग के अलावा कौनसा काम करते हैं?",
   "Lagbhag kitne saal welding ka kaam kiya hai?": "लगभग कितने साल वेल्डिंग का काम किया है?",
   "Inverter, CO2 ya TIG machine, kaunsi chalayi hai?": "इनवर्टर, CO2 या TIG मशीन, कौनसी चलाई है?",
+  // --- qp_welding_trade@2 (Track B #3) — level + separating confirms + certificate.
+  // The level prompt/why reuse the twins above verbatim (lines 250/1131).
+  "Helper, welder, skilled, senior ya supervisor hain?":
+    "हेल्पर, वेल्डर, स्किल्ड, सीनियर या सुपरवाइज़र हैं?",
+  "TIG ya all-position welding karte ho — test plate ya certificate hai?":
+    "TIG या ऑल-पोज़िशन वेल्डिंग करते हो — टेस्ट प्लेट या सर्टिफिकेट है?",
+  "Doosre welders ko parameter set karke dete ho, inspection karte ho?":
+    "दूसरे वेल्डर्स को पैरामीटर सेट करके देते हो, इंस्पेक्शन करते हो?",
+  "Welding ka certificate ya test diya hai?": "वेल्डिंग का सर्टिफिकेट या टेस्ट दिया है?",
 
   // --- qp_powder_coating@1 (powder coating and industrial spray) — Batch 2 --------------------
   "Powder coating ya paint ka kitna tajurba hai?": "पाउडर कोटिंग या पेंट का कितना तजुर्बा है?",
@@ -1214,6 +1225,15 @@ const WHY_TTS_TEXT: Readonly<Record<string, string>> = {
   "Setting karne wale welder ko zyada vetan milta hai.": "सेटिंग करने वाले वेल्डर को ज़्यादा वेतन मिलता है।",
   "Kharabi sudhaarne wale welder ki shop par zaroorat rehti hai.": "खराबी सुधारने वाले वेल्डर की शॉप पर ज़रूरत रहती है।",
   "Poora fabrication jaanne wale ko shop me aage rakha jaata hai.": "पूरा फैब्रिकेशन जानने वाले को शॉप में आगे रखा जाता है।",
+  // --- qp_welding_trade@2 (Track B #3) — the separating-confirm + certificate whys.
+  // Filed HERE, not in the question table: `composeClarify` scans only this
+  // table for the clarify prefix (R10 §2.6).
+  "TIG ya all-position karne wale skilled welder ko alag kaam milta hai.":
+    "TIG या ऑल-पोज़िशन करने वाले स्किल्ड वेल्डर को अलग काम मिलता है।",
+  "Doosron ka kaam set karne wale senior welder ko alag zimmedari milti hai.":
+    "दूसरों का काम सेट करने वाले सीनियर वेल्डर को अलग ज़िम्मेदारी मिलती है।",
+  "Certificate wale welder ko pressure vessel jaise kaam milte hain.":
+    "सर्टिफिकेट वाले वेल्डर को प्रेशर वेसल जैसे काम मिलते हैं।",
 
   // --- qp_powder_coating@1 (powder coating and industrial spray) — Batch 2 --------------------
   "Level se employer ko aapka darja saaf pata chalta hai.": "लेवल से एम्प्लॉयर को आपका दर्जा साफ़ पता चलता है।",

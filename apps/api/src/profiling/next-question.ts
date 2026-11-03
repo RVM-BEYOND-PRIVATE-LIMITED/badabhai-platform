@@ -247,6 +247,7 @@ const EASY_REQUIRED_UNIVERSAL_KEYS: Readonly<Record<string, readonly string[]>> 
   qp_cad_drafting: ["primary_trade", "current_city", "availability"],
   qp_fitter: ["primary_trade", "current_city", "availability"],
   qp_industrial_electrician: ["primary_trade", "current_city", "availability"],
+  qp_welding_trade: ["primary_trade", "current_city", "availability"],
 };
 
 const TRADE_REQUIRED_KEYS: Readonly<Record<string, readonly string[]>> = {
@@ -254,6 +255,8 @@ const TRADE_REQUIRED_KEYS: Readonly<Record<string, readonly string[]>> = {
   // VMC Easy Q2–Q3 (Track A #2), CAM Easy Q2–Q3 (Track A #3), 3D Easy Q2–Q3
   // (Track A #4), 2D Easy Q2–Q3 (Track A #5), Fitter Easy Q2–Q3 (Track B #1),
   // Electrician Easy Q2–Q3 (Track B #2). Machine/software/controller moved to Medium (Q6–Q7) — asked, never required.
+  // The two process trades keep their required Medium chip: grinding's
+  // controller, the welder's process (sheet 8, Rules Q14).
   qp_cnc_turning: ["turning_experience", "turning_level"],
   qp_vmc_milling: ["milling_experience", "milling_level"],
   qp_cam_programming: ["programming_experience", "cam_level"],
@@ -261,6 +264,8 @@ const TRADE_REQUIRED_KEYS: Readonly<Record<string, readonly string[]>> = {
   qp_cad_drafting: ["drafting_experience", "cad_level"],
   qp_fitter: ["fitting_experience", "fitter_level"],
   qp_industrial_electrician: ["electrical_experience", "electrician_level"],
+  // Track B #3 — welding_process is REQUIRED in Medium.
+  qp_welding_trade: ["welding_experience", "welder_level", "welding_process"],
   qp_cnc_grinding: [
     "grinding_machine",
     "grinding_experience",

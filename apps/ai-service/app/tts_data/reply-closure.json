@@ -1,12 +1,12 @@
 {
   "schema_version": 1,
-  "clip_count": 1341,
+  "clip_count": 1354,
   "producers": {
-    "retry": 108,
-    "clarify": 486,
-    "prompt": 351,
+    "retry": 110,
+    "clarify": 491,
+    "prompt": 354,
     "constant": 97,
-    "why": 299
+    "why": 302
   },
   "clips": [
     {
@@ -163,6 +163,11 @@
       "id": "065298108248c6b2",
       "text": "Kaunse tool steel par kaam kiya hai?",
       "producer": "prompt"
+    },
+    {
+      "id": "0670ac80ac0cb4ad",
+      "text": "Level ke hisaab se sahi sawaal poochhe jaate hain. Helper, welder, skilled, senior ya supervisor hain?",
+      "producer": "clarify"
     },
     {
       "id": "067f737f21db6304",
@@ -488,6 +493,11 @@
       "id": "0f70b161fbc02b60",
       "text": "Record rakhne wale technician ko badi plant me kaam milta hai.",
       "producer": "why"
+    },
+    {
+      "id": "0f8b046086d2d9e4",
+      "text": "MIG, TIG, arc ya spot mein se kaunsi?",
+      "producer": "retry"
     },
     {
       "id": "0fdaf128b01465cb",
@@ -1100,6 +1110,11 @@
       "producer": "clarify"
     },
     {
+      "id": "29b8c5ae2c4d9a47",
+      "text": "TIG ya all-position karne wale skilled welder ko alag kaam milta hai. TIG ya all-position welding karte ho — test plate ya certificate hai?",
+      "producer": "clarify"
+    },
+    {
       "id": "29d7b854668860c0",
       "text": "High voltage ka alag rate hota hai. Aap kitne volt tak ka kaam karte hain?",
       "producer": "clarify"
@@ -1113,6 +1128,11 @@
       "id": "2a20fc365a165998",
       "text": "Har kaam alag hunar hai, isse sahi naukri milti hai. Aap kis tarah ka bijli kaam karte hain?",
       "producer": "clarify"
+    },
+    {
+      "id": "2a69ea1ae5b0f4d7",
+      "text": "Doosron ka kaam set karne wale senior welder ko alag zimmedari milti hai.",
+      "producer": "why"
     },
     {
       "id": "2a7708d1c20e37d3",
@@ -1847,6 +1867,11 @@
     {
       "id": "4579d5e09b46e98f",
       "text": "Nesting ya program ka kaunsa kaam kar lete hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "45b1c1a53fcf54f2",
+      "text": "TIG ya all-position welding karte ho — test plate ya certificate hai?",
       "producer": "prompt"
     },
     {
@@ -4770,6 +4795,11 @@
       "producer": "constant"
     },
     {
+      "id": "b2ce5ddac5e8ce67",
+      "text": "Certificate wale welder ko pressure vessel jaise kaam milte hain.",
+      "producer": "why"
+    },
+    {
       "id": "b2d0d1f01a5471f5",
       "text": "Theek hai, ab se Hindi mein baat karenge.",
       "producer": "constant"
@@ -5060,6 +5090,11 @@
       "producer": "clarify"
     },
     {
+      "id": "be4d7a7856e05048",
+      "text": "Doosron ka kaam set karne wale senior welder ko alag zimmedari milti hai. Doosre welders ko parameter set karke dete ho, inspection karte ho?",
+      "producer": "clarify"
+    },
+    {
       "id": "be61683c035f7fb5",
       "text": "Sinchai jaanne wale ki maang hai.",
       "producer": "why"
@@ -5067,6 +5102,11 @@
     {
       "id": "be685f57376905dd",
       "text": "Requirement se design karne wale senior designer ko alag kaam milta hai. Sirf requirement mile to design khud karte ho, ya drawing dekh ke model banate ho?",
+      "producer": "clarify"
+    },
+    {
+      "id": "bebe84a2d386af54",
+      "text": "Certificate wale welder ko pressure vessel jaise kaam milte hain. Welding ka certificate ya test diya hai?",
       "producer": "clarify"
     },
     {
@@ -5302,6 +5342,11 @@
     {
       "id": "c6e42ed9c1765957",
       "text": "Cutting aur bending ke alawa kaunsa kaam karte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "c6f82cb8e3621138",
+      "text": "Welding ka certificate ya test diya hai?",
       "producer": "prompt"
     },
     {
@@ -5605,6 +5650,11 @@
       "producer": "retry"
     },
     {
+      "id": "d1d74b3c1508b2ee",
+      "text": "TIG ya all-position karne wale skilled welder ko alag kaam milta hai.",
+      "producer": "why"
+    },
+    {
       "id": "d20d756f234b9878",
       "text": "Banaya hua job dikhata hai ki aap kya kar sakte hain. Kaunsa job ya model banaya tha ITI me?",
       "producer": "clarify"
@@ -5678,6 +5728,11 @@
       "id": "d48a6a95a1a30749",
       "text": "Bas ho gaya. Resume ban raha hai. 3 sawaal aur? Resume aur strong banega.",
       "producer": "constant"
+    },
+    {
+      "id": "d4bf0cf30de04a15",
+      "text": "Helper, welder, skilled, senior ya supervisor hain?",
+      "producer": "retry"
     },
     {
       "id": "d540b93f67369e3c",
@@ -5973,6 +6028,11 @@
       "id": "e1852138a023f55b",
       "text": "Taper, gear cutting ya lamba shaft, kya bana lete hain?",
       "producer": "retry"
+    },
+    {
+      "id": "e1875760cb7173d7",
+      "text": "Doosre welders ko parameter set karke dete ho, inspection karte ho?",
+      "producer": "prompt"
     },
     {
       "id": "e1a04ee5bebf595d",
@@ -6272,6 +6332,11 @@
     {
       "id": "ee0cc162a11b8bfe",
       "text": "Har product ki line alag hoti hai. Aap kya assemble karte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "ee38cc9f6269cfcd",
+      "text": "Har welding alag hoti hai, isse sahi naukri milti hai. MIG, TIG, arc ya spot mein se kaunsi?",
       "producer": "clarify"
     },
     {

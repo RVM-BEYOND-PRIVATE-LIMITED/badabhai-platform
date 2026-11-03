@@ -809,6 +809,33 @@ describe("Middle-Way required close (P3a) — the settled slots end the intervie
     expect(decision.completionReason).toBe("required_complete");
   });
 
+  it("Welder closes on Easy 5 + process too (Track B #3) — process is required in Medium", () => {
+    const welding: EnginePacks = {
+      occupation: pack("qp_welding_trade", []),
+      universal: pack("pk_universal", []),
+    };
+    const easy5 = settledAnswers([
+      "primary_trade",
+      "welding_experience",
+      "welder_level",
+      "current_city",
+      "availability",
+    ]);
+    // Process still open: merely complete, never required-complete.
+    expect(nextQuestion(state({ answers: easy5 }), welding).completionReason).toBe("complete");
+    const withProcess = settledAnswers([
+      "primary_trade",
+      "welding_experience",
+      "welder_level",
+      "welding_process",
+      "current_city",
+      "availability",
+    ]);
+    const decision = nextQuestion(state({ answers: withProcess }), welding);
+    expect(decision.kind).toBe("close");
+    expect(decision.completionReason).toBe("required_complete");
+  });
+
   it("other packs still need all 8 — grinding still gates on machine + salary", () => {
     const grinding: EnginePacks = {
       occupation: pack("qp_cnc_grinding", []),

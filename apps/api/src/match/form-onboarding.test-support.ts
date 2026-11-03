@@ -77,8 +77,10 @@ export const TRADE_FORM_CASES: readonly TradeFormCase[] = [
   },
   {
     kind: "welder",
+    // Track B #3 (@2): the 6-band scale replaced three_to_seven (5) with
+    // three_to_five (4) and five_to_ten (7) — the fixture keeps a senior band.
     answers: {
-      welding_experience: ["three_to_seven"],
+      welding_experience: ["five_to_ten"],
       welding_process: ["mig_mag"],
       welding_position: ["flat", "vertical"],
     },
