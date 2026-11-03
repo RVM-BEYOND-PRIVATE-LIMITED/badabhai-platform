@@ -133,7 +133,6 @@ export default async function NewPostingPage() {
       postingTrades={postingTrades}
       lead={lead}
       free={free}
-      payerRef={session.payerId.slice(0, 8)}
     />
   );
 }

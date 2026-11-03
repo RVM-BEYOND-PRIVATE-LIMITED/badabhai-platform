@@ -89,6 +89,11 @@ vi.mock("../../components/ds", async (importOriginal) => {
 });
 // AccountMenu is a client component (hooks) — render a thin stand-in that echoes its
 // accessible name so the walk can assert the shell mounts the identity menu.
+vi.mock("./page-title-heading", () => ({
+  // The header title is a client component (route + DOM read). Its own render is covered by
+  // the shell's browser pass; here it must not run hooks in the node walk.
+  PageTitleHeading: () => null,
+}));
 vi.mock("./account-menu", () => ({
   AccountMenu: ({ orgName, email }: { orgName: string; email?: string }) => ({
     type: "div",
@@ -202,7 +207,6 @@ describe("portal nav — the Owner-only link (Team) by getOrgRole (affordance, N
     for (const orgRole of ["owner", "recruiter"] as const) {
       const { hrefs } = await render({ orgRole });
       expect(hrefs).toContain("/dashboard");
-      expect(hrefs).toContain("/postings/new");
       expect(hrefs).toContain("/postings");
       // Capacity now lives under the combined "Plans & capacity" entry.
       expect(hrefs).toContain("/plans");
@@ -211,22 +215,19 @@ describe("portal nav — the Owner-only link (Team) by getOrgRole (affordance, N
 });
 
 describe("portal labeling — driven by session.role (server-side, not a client flag)", () => {
-  it("employer → 'Companies' wordmark + 'New posting' on the company surface, no agency links", async () => {
+  it("employer → 'Companies' wordmark + Postings on the company surface, no agency links", async () => {
     const { hrefs, text } = await render({ role: "employer", orgRole: "owner" });
     expect(text).toContain("Companies");
     expect(text).not.toMatch(/Employer/);
-    expect(text).toContain("New posting");
-    expect(hrefs).toContain("/postings/new");
+    expect(hrefs).toContain("/postings");
     expect(hrefs).not.toContain("/agency/dashboard");
     expect(hrefs.filter((h) => h.startsWith("/agency"))).toEqual([]);
   });
 
-  it("agent → 'Agencies' wordmark + 'New posting' on the AGENCY surface + referrals link", async () => {
+  it("agent → 'Agencies' wordmark + Postings on the AGENCY surface + referrals link", async () => {
     const { hrefs, text } = await render({ role: "agent", orgRole: "owner" });
     expect(text).toContain("Agencies");
-    expect(text).toContain("New posting");
     // An agency posts AGENCY jobs only: the rail never opens the company posting surface.
-    expect(hrefs).toContain("/agency/jobs/new");
     expect(hrefs).toContain("/agency/jobs");
     expect(hrefs.filter((h) => h.startsWith("/postings"))).toEqual([]);
     // MERGE-1: the agency dashboard is now the single /dashboard, so there is NO separate

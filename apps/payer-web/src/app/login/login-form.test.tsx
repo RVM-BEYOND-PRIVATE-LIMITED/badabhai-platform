@@ -455,11 +455,10 @@ describe("AUTH-1 · errors are neutral (no enumeration oracle) via DS Toast", ()
     expect(textOf(tree)).not.toMatch(ENUM);
   });
 
-  it("the neutral send confirmation renders in a brand (non-error) Toast with no code", () => {
+  it("the send confirmation is NOT rendered as a blue card", () => {
     const tree = render({ step: "code", info: SEND_CONFIRMATION });
     const brand = findAll(tree, Toast).find((t) => p(t).tone === "brand");
-    expect(brand).toBeDefined();
-    expect(textOf(p(brand!).children as ReactNode)).not.toMatch(/\b\d{4,8}\b/);
+    expect(brand).toBeUndefined();
   });
 
   it("an inline org-name error is surfaced through the DS Input error slot", () => {
