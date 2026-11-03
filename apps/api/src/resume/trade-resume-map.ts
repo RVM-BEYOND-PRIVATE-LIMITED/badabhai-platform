@@ -3001,9 +3001,13 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
         // `bench_fitting` is the pack's fourth chip — the bound "Fitter, Bench" worker's own — and
         // sits last so the ratified persona renders exactly as printed.
         values: {
-          assembly_fitting: "Assembly fitting",
+          assembly_fitting: "Mechanical assembly",
           maintenance_fitting: "Maintenance fitting",
-          erection_commissioning: "Erection & commissioning",
+          // Track B #1 (@2): sheet-6 work set.
+          pipe_fitting: "Pipe fitting",
+          structural_fitting: "Structural fitting",
+          die_press_fitting: "Die / press fitting",
+          erection_commissioning: "Machine erection / commissioning",
           bench_fitting: "Bench fitting",
         },
       },
@@ -3064,6 +3068,8 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           torque_wrench: "Torque wrench",
           hydraulic_puller: "Hydraulic puller",
           laser_alignment: "Laser alignment kit",
+          // Track B #1 (@2): sheet-6 instrument set.
+          height_gauge: "Height gauge",
         },
       },
       {
@@ -3107,8 +3113,12 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
         // this row reads "Auto components · Plant maintenance".
         values: {
           auto_components: "Auto components",
+          // Track B #1 (@2): sheet-6 industry set.
+          spm_machine_building: "SPM / machine building",
+          fabrication: "Fabrication",
+          pumps_compressors: "Pumps / compressors",
           plant_maintenance: "Plant maintenance",
-          steel_cement: "Steel & cement plants",
+          steel_cement: "Power / steel plants",
           process_plant: "Chemical & process plants",
           general_engg: "General engineering",
         },

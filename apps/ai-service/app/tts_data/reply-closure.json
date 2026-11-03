@@ -1,12 +1,12 @@
 {
   "schema_version": 1,
-  "clip_count": 1327,
+  "clip_count": 1336,
   "producers": {
-    "retry": 106,
-    "clarify": 480,
-    "prompt": 348,
+    "retry": 107,
+    "clarify": 484,
+    "prompt": 350,
     "constant": 97,
-    "why": 296
+    "why": 298
   },
   "clips": [
     {
@@ -153,6 +153,11 @@
       "id": "05e86c803712bef8",
       "text": "Theek hai. Aaram se batayiye, koi jaldi nahi.",
       "producer": "constant"
+    },
+    {
+      "id": "05f9d963cdd38d87",
+      "text": "Level ke hisaab se sahi sawaal poochhe jaate hain. Helper, fitter, skilled, senior ya supervisor hain?",
+      "producer": "clarify"
     },
     {
       "id": "065298108248c6b2",
@@ -643,6 +648,11 @@
       "id": "173ce6222a4f2e70",
       "text": "Post-processor theek karne wale programmer kam milte hain. Post-processor ke saath aap kitna kaam karte hain?",
       "producer": "clarify"
+    },
+    {
+      "id": "17b60ecfdfff8a2b",
+      "text": "Drawing dekh ke poori assembly khud kar lete ho, ya senior ke saath?",
+      "producer": "prompt"
     },
     {
       "id": "17bc0d776adb5f41",
@@ -1780,6 +1790,11 @@
       "producer": "why"
     },
     {
+      "id": "44a9cc668f223451",
+      "text": "Helper, fitter, skilled, senior ya supervisor hain?",
+      "producer": "retry"
+    },
+    {
       "id": "44d4c443c1beb72a",
       "text": "Level ke hisaab se sahi sawaal poochhe jaate hain. Machine par helper, operator ya setter hain?",
       "producer": "clarify"
@@ -2780,6 +2795,11 @@
       "producer": "why"
     },
     {
+      "id": "68df7ba6e16c5765",
+      "text": "Team sambhalne wale senior fitter ko alag zimmedari milti hai. Kitne fitter aapke under kaam karte hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "691c853e0bd38ae6",
       "text": "Level se employer ko aapke kaam ka darja pata chalta hai. Helper, operator ya skilled machinist, kaunsa kaam karte hain?",
       "producer": "clarify"
@@ -2942,6 +2962,11 @@
     {
       "id": "6decc871ef99bdaf",
       "text": "Trade test pass hona certificate jitna hi mayne rakhta hai. Trade test pass kiya hai ya abhi nahi diya?",
+      "producer": "clarify"
+    },
+    {
+      "id": "6e04a91da7dd003e",
+      "text": "Level ke hisaab se sahi sawaal poochhe jaate hain. Aap kya karte hain?",
       "producer": "clarify"
     },
     {
@@ -3893,6 +3918,11 @@
       "id": "910329d8d8dea748",
       "text": "Design ka kaam jaanne wale ko design engineer banaya jaata hai. Design ka kaunsa kaam aap karte hain?",
       "producer": "clarify"
+    },
+    {
+      "id": "912b510e74563a87",
+      "text": "Kitne fitter aapke under kaam karte hain?",
+      "producer": "prompt"
     },
     {
       "id": "9162a47c2c835819",
@@ -5485,6 +5515,11 @@
       "producer": "clarify"
     },
     {
+      "id": "cf33467ba64f9de6",
+      "text": "Khud assembly karne wale skilled fitter ko alag kaam milta hai. Drawing dekh ke poori assembly khud kar lete ho, ya senior ke saath?",
+      "producer": "clarify"
+    },
+    {
       "id": "cfc888a142999a9f",
       "text": "Kis tarah ke plant ya company me kaam kiya hai?",
       "producer": "prompt"
@@ -5902,6 +5937,11 @@
     {
       "id": "e0e58b0abb222bc9",
       "text": "Spray ka kaam alag hunar hai.",
+      "producer": "why"
+    },
+    {
+      "id": "e10e5d9c7c8eabca",
+      "text": "Team sambhalne wale senior fitter ko alag zimmedari milti hai.",
       "producer": "why"
     },
     {
@@ -6497,6 +6537,11 @@
     {
       "id": "faeb0a6c4c7edade",
       "text": "Dikkat sudhaarne wale operator ki shop par zaroorat rehti hai.",
+      "producer": "why"
+    },
+    {
+      "id": "fb56e784ae34a42a",
+      "text": "Khud assembly karne wale skilled fitter ko alag kaam milta hai.",
       "producer": "why"
     },
     {

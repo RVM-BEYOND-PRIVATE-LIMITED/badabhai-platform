@@ -106,7 +106,9 @@ export const TRADE_FORM_CASES: readonly TradeFormCase[] = [
   },
   {
     kind: "fitter",
-    answers: { fitting_experience: ["three_to_seven"], fitter_work_type: ["maintenance_fitting"] },
+    // Track B #1 (@2): the 6-band scale replaced three_to_seven (5) with
+    // three_to_five (4) and five_to_ten (7) — the fixture keeps a senior band.
+    answers: { fitting_experience: ["five_to_ten"], fitter_work_type: ["maintenance_fitting"] },
     expected: ["mskill_fitter"],
   },
   {

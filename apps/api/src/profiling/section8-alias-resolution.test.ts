@@ -375,6 +375,25 @@ describe("§8 rung words resolve to the rung; signal phrases corroborate the tra
     expect(rungFor(cadLevel2, text as string)).toEqual([expected]);
   });
 
+  // TRACK B #1 (@2) — the sheet-6 ladder. Old helper/fitter/senior_fitter keys
+  // live on in frozen @1 (no rung block existed then); @2 asks helper/fitter/
+  // skilled/senior_fitter/supervisor, and the chips capture the same way.
+  const fitterLevel2 = loadItem("qp_fitter@2.json", "fitter_level");
+  it.each([
+    ["Helper", "helper"],
+    ["helper hoon", "helper"],
+    ["Fitter", "fitter"],
+    ["fitter hoon", "fitter"],
+    ["Skilled Fitter", "skilled"],
+    ["skilled fitter hoon", "skilled"],
+    ["Senior Fitter", "senior_fitter"],
+    ["senior fitter hoon", "senior_fitter"],
+    ["Supervisor", "supervisor"],
+    ["supervisor hoon", "supervisor"],
+  ])("fitter_level@2: %s → %s", (text, expected) => {
+    expect(rungFor(fitterLevel2, text as string)).toEqual([expected]);
+  });
+
   // The P4 contract, owner-approved: §8 signal phrases corroborate the family pin
   // (asserted in the routing tables above) and NEVER write a rung by themselves.
   // The rung lands when the worker taps a chip or names it. Each null below is the
@@ -720,6 +739,35 @@ describe("§8 machine/controller rows resolve at capture; unlisted spellings re-
     ["qp_cad_drafting@2.json", "cad_senior_confirm", "Haan, check karta hoon", "self"],
     ["qp_cad_drafting@2.json", "cad_senior_confirm", "Nahi, sirf apni dekhta hoon", "other"],
     ["qp_cad_drafting@2.json", "cad_lead_confirm", "Haan, mere naam se jaati hain", "self"],
+  ] as ReadonlyArray<readonly [string, string, string, string | null]>)(
+    "%s %s: %s → %s",
+    (packFile, questionKey, text, expected) => {
+      expect(capturedOption(packFile, questionKey, text)).toEqual(
+        expected === null ? [] : [expected],
+      );
+    },
+  );
+
+  // TRACK B #1 (@2) — the sheet-6 work-type/industry sets and the separating
+  // confirms resolve at capture. The pipe/structural/die-press work chips and
+  // the SPM/fabrication/pumps industry chips are new; the kept history chips
+  // capture the same way.
+  it.each([
+    ["qp_fitter@2.json", "fitter_work_type", "Mechanical assembly", "assembly_fitting"],
+    ["qp_fitter@2.json", "fitter_work_type", "Maintenance fitting", "maintenance_fitting"],
+    ["qp_fitter@2.json", "fitter_work_type", "Pipe fitting", "pipe_fitting"],
+    ["qp_fitter@2.json", "fitter_work_type", "Structural fitting", "structural_fitting"],
+    ["qp_fitter@2.json", "fitter_work_type", "Machine erection / commissioning", "erection_commissioning"],
+    ["qp_fitter@2.json", "fitter_work_type", "Die / press fitting", "die_press_fitting"],
+    ["qp_fitter@2.json", "fitter_work_type", "Bench fitting", "bench_fitting"],
+    ["qp_fitter@2.json", "sector_worked", "Auto components", "auto_components"],
+    ["qp_fitter@2.json", "sector_worked", "SPM / machine building", "spm_machine_building"],
+    ["qp_fitter@2.json", "sector_worked", "Fabrication", "fabrication"],
+    ["qp_fitter@2.json", "sector_worked", "Pumps / compressors", "pumps_compressors"],
+    ["qp_fitter@2.json", "sector_worked", "Plant maintenance", "plant_maintenance"],
+    ["qp_fitter@2.json", "measuring_tools", "Height gauge", "height_gauge"],
+    ["qp_fitter@2.json", "fitter_skilled_confirm", "Khud kar leta hoon", "self"],
+    ["qp_fitter@2.json", "fitter_skilled_confirm", "Senior ke saath karta hoon", "other"],
   ] as ReadonlyArray<readonly [string, string, string, string | null]>)(
     "%s %s: %s → %s",
     (packFile, questionKey, text, expected) => {

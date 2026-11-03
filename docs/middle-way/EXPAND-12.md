@@ -91,6 +91,25 @@ senior_programmer`; P5 crosswalk already handles). Role `levelTerms` += rung
 > with migrations 0139 (job_postings/jobs role_kind) + 0140 (wri role kinds).
 > Deviations in the @1 review_note. ✅ Seeds after merge (`db:migrate` 0139+0140
 > then `db:seed:packs` + verify by Divyanshu).
+>
+> TRACK A #5 — 2D DRAUGHTSMAN RETAG ✅ CODE DONE (`feat/mw-2d-draughtsman`, PR #2514, merged).
+> `qp_cad_drafting@2` live on production (seeded + verified post-merge):
+> Easy/Medium/Advanced tiers; 6-band experience; sheet-5 level ladder
+> (Trainee/Draughtsman/Senior Draughtsman/Lead/Head, mandatory); sheet-5
+> software set (+AutoCAD Mechanical/DraftSight/ZWCAD/BricsCAD) + NEW
+> drawing-subject row (Medium); depth rows retagged Advanced + NEW 3D-to-2D
+> row; 3 separating confirms; per-pack Draughtsman labels. Deviations in the
+> @2 review_note.
+>
+> TRACK B #1 — FITTER RETAG (in progress, `feat/mw-fitter-retag`).
+> `qp_fitter@2`: sheet-6 ladder (Helper/Fitter/Skilled/Senior/Supervisor,
+> mandatory, confirmed from skilled) + 2 separating confirms (skilled
+> self/other, senior team count; supervisor by rule); 6-band experience;
+> work-type extended (pipe/structural/die-press); equipment retagged Medium;
+> sector retagged Medium (+SPM/fabrication/pumps); hand-skill/instrument/
+> drawing rows retagged Advanced (+height gauge); hard rows gated years OR
+> rung. Union extension: `fitter` (Lower) + `senior_fitter` (Higher,
+> confirmed). Deviations in the @2 review_note.
 
 | #   | Trade (kind)                                      | Pack                           | Level Q today                       | Notes                                                                                                                                                                     |
 | --- | ------------------------------------------------- | ------------------------------ | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
