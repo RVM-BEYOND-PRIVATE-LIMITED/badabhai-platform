@@ -894,6 +894,60 @@ describe("trade-level crosswalk", () => {
     ]);
   });
 
+  it("asks the one grinding confirm of both setter rungs (CEO Launch Plan Pack v1, Phase 2 #2)", () => {
+    const grinding = (
+      level: string,
+      confirm: { attributeKey: string; value: unknown } | null,
+    ) =>
+      tradeLevelEntriesForPackAnswers(
+        "qp_cnc_grinding@6",
+        confirm === null
+          ? [{ attributeKey: "grinding_level", value: level }]
+          : [{ attributeKey: "grinding_level", value: level }, confirm],
+      );
+    const asked = (value: string) => ({ attributeKey: "grinding_setting_confirm", value });
+    // No confirm answer: the rung rule stands (setter+ confirmed, below not).
+    // @6 stores `trainee` for the first chip; @5's `helper` still renders.
+    expect(grinding("trainee", null)).toEqual([
+      { skillId: "mskill_cnc_grinding_operator", tradeLevel: "trainee", levelConfirmed: false },
+    ]);
+    expect(grinding("helper", null)).toEqual([
+      { skillId: "mskill_cnc_grinding_operator", tradeLevel: "helper", levelConfirmed: false },
+    ]);
+    expect(grinding("operator", null)).toEqual([
+      { skillId: "mskill_cnc_grinding_operator", tradeLevel: "operator", levelConfirmed: false },
+    ]);
+    expect(grinding("setter", null)).toEqual([
+      { skillId: "mskill_cnc_grinding_operator", tradeLevel: "setter", levelConfirmed: true },
+    ]);
+    // The same question settles both setter rungs: self confirms, other disconfirms.
+    expect(grinding("setter", asked("self"))).toEqual([
+      { skillId: "mskill_cnc_grinding_operator", tradeLevel: "setter", levelConfirmed: true },
+    ]);
+    expect(grinding("setter", asked("other"))).toEqual([
+      { skillId: "mskill_cnc_grinding_operator", tradeLevel: "setter", levelConfirmed: false },
+    ]);
+    expect(grinding("setter_programmer", asked("self"))).toEqual([
+      {
+        skillId: "mskill_cnc_grinding_operator",
+        tradeLevel: "setter_programmer",
+        levelConfirmed: true,
+      },
+    ]);
+    expect(grinding("setter_cum_programmer", asked("other"))).toEqual([
+      {
+        skillId: "mskill_cnc_grinding_operator",
+        tradeLevel: "setter_programmer",
+        levelConfirmed: false,
+      },
+    ]);
+    // Supervisor: no confirm item, rung rule (confirmed). A stray confirm
+    // answer never reaches a rung it was not asked about.
+    expect(grinding("supervisor", asked("other"))).toEqual([
+      { skillId: "mskill_cnc_grinding_operator", tradeLevel: "supervisor", levelConfirmed: true },
+    ]);
+  });
+
   it("prints the 2D trade's own rung words (CEO Launch Plan Pack v1, Track A #5)", () => {
     // Shared crosswalk everywhere else; the draughtsman's sheet headlines his own ladder.
     expect(tradeLevelLabelFor("qp_cad_drafting", "trainee")).toBe("Trainee");

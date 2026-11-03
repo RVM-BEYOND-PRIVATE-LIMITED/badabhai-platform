@@ -88,6 +88,8 @@ export interface TradeLevelPack {
 export const TRADE_LEVEL_PACKS: Readonly<Record<string, TradeLevelPack>> = {
   qp_cnc_turning: { skillId: "mskill_cnc_turner", levelKey: "turning_level" },
   qp_vmc_milling: { skillId: "mskill_vmc_operator", levelKey: "milling_level" },
+  // Phase 2 #2 — the CNC grinder (CEO Launch Plan Pack v1, sheet 15). No union
+  // extension: every sheet-15 rung is already a member. Supervisor by rule.
   qp_cnc_grinding: { skillId: "mskill_cnc_grinding_operator", levelKey: "grinding_level" },
   qp_cam_programming: { skillId: "mskill_cam_programmer", levelKey: "cam_level" },
   // Track A #4 — the 3D CAD Designer (CEO Launch Plan Pack v1, sheet 4).
@@ -425,6 +427,14 @@ export const TRADE_LEVEL_CONFIRM_ITEMS: Readonly<
   qp_tool_die_making: {
     skilled: "toolroom_skilled_confirm",
     senior: "toolroom_senior_confirm",
+  },
+  // Phase 2 #2 — the grinding confirm (CEO Launch Plan Pack v1, sheet 15).
+  // Confirmed from `setter`. The sheet writes one separating question (the
+  // setter's) and none for setter-cum-programmer, so by owner ruling
+  // (2026-11-03) that one question is asked of both rungs. Supervisor by rule.
+  qp_cnc_grinding: {
+    setter: "grinding_setting_confirm",
+    setter_programmer: "grinding_setting_confirm",
   },
 };
 

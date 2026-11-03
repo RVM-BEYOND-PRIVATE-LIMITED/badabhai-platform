@@ -921,34 +921,33 @@ describe("Middle-Way required close (P3a) — the settled slots end the intervie
     expect(decision.completionReason).toBe("required_complete");
   });
 
-  it("other packs still need all 8 — grinding still gates on machine + salary", () => {
+  it("Grinding closes on its Easy 5 too (Phase 2 #2) — machine/controller/salary optional", () => {
     const grinding: EnginePacks = {
       occupation: pack("qp_cnc_grinding", []),
       universal: pack("pk_universal", []),
     };
-    const withoutMedium = settledAnswers([
+    const easy5 = settledAnswers([
       "primary_trade",
       "grinding_experience",
       "grinding_level",
       "current_city",
       "availability",
     ]);
-    expect(nextQuestion(state({ answers: withoutMedium }), grinding).completionReason).toBe(
-      "complete",
-    );
-    const full = settledAnswers([
+    const decision = nextQuestion(state({ answers: easy5 }), grinding);
+    expect(decision.kind).toBe("close");
+    expect(decision.completionReason).toBe("required_complete");
+    // The level is still required: without it the interview drains, never
+    // closing on required_complete — machine + controller cannot stand in.
+    const noLevel = settledAnswers([
       "primary_trade",
       "grinding_machine",
       "grinding_experience",
-      "grinding_level",
       "controller_brand",
       "current_city",
       "salary_expected",
       "availability",
     ]);
-    expect(nextQuestion(state({ answers: full }), grinding).completionReason).toBe(
-      "required_complete",
-    );
+    expect(nextQuestion(state({ answers: noLevel }), grinding).completionReason).toBe("complete");
   });
 
   it("a declined slot counts as settled — 'nahi pata' closes, never re-asks", () => {

@@ -128,6 +128,7 @@ describe("the shipped corpus, as the trade form serves it", () => {
       "qp_cnc_grinding@3:grinding_machine",
       "qp_cnc_grinding@4:grinding_machine",
       "qp_cnc_grinding@5:grinding_machine",
+      "qp_cnc_grinding@6:grinding_machine",
       "qp_cnc_turning:turning_machine",
       "qp_cnc_turning@2:turning_machine",
       "qp_cnc_turning@3:turning_machine",
