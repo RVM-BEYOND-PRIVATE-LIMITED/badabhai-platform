@@ -3310,3 +3310,129 @@ textarea.field__input {
     display: none;
   }
 }
+
+/* ==================================================================
+ * ADR-0060 · PASSWORD SIGN-IN, ACCOUNT, TWO-STEP VERIFICATION
+ * Existing tokens only; no new colour. The password field's toggle is the shared IconButton,
+ * the trust-device box and the switch are the only new controls.
+ * ================================================================== */
+
+/* A field-level error line (the reset, account and create-admin forms; the invite page has used
+   this class since #1494 with no rule behind it). The danger text step, not just a colour cue:
+   it always sits beside an `aria-invalid` field and says in words what is wrong. */
+.field__error {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--danger);
+}
+
+/* The password input and its show/hide toggle on one row. The input takes the row; the toggle
+   (an outline IconButton, 44px) keeps its size. */
+.password-input {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.password-input > .field__input {
+  flex: 1;
+  min-width: 0;
+}
+
+/* A standalone checkbox with its label ("Trust this device for 30 days"). The whole row is the
+   label, so the target is the row's 44px height, not the 20px box. */
+.check-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-block-size: var(--control-md);
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+.check-row > input {
+  flex: none;
+  inline-size: var(--space-5);
+  block-size: var(--space-5);
+  margin: 0;
+  accent-color: var(--text-heading);
+}
+
+/* A positive note in the sign-in card's status line ("Your new password is saved"). Same box as
+   `.auth-error`, in the success tone. */
+.auth-note {
+  display: block;
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-sm);
+  background: var(--success-tint);
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  border: var(--border-hairline) solid var(--success);
+}
+
+/* The two-step verification switch (Account). `role="switch"` + `aria-checked` carry the state;
+   the track fill and the thumb's side carry it visually, and the "On" / "Off" word beside it
+   carries it for a reader who separates neither. On = the Safety Yellow fill with a Shift Blue
+   thumb (an ACTIVE utility); off = the sunken track with a muted thumb on a 3:1 control edge. */
+.switch-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+.switch-row__label {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--text-secondary);
+}
+.switch-row__state {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--text-heading);
+}
+.switch {
+  --switch-h: var(--control-sm);
+  --switch-w: calc(var(--switch-h) * 1.75);
+  --switch-pad: var(--space-1);
+  --switch-thumb: calc(var(--switch-h) - 2 * var(--switch-pad) - 2 * var(--border-hairline));
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  inline-size: var(--switch-w);
+  block-size: var(--switch-h);
+  padding: 0 var(--switch-pad);
+  border-radius: var(--radius-pill);
+  border: var(--border-hairline) solid var(--border-control);
+  background: var(--surface-sunken);
+  cursor: pointer;
+  transition: var(--transition-control);
+}
+.switch__thumb {
+  inline-size: var(--switch-thumb);
+  block-size: var(--switch-thumb);
+  border-radius: var(--radius-pill);
+  background: var(--text-muted);
+  transition: transform var(--duration-fast) var(--ease-out);
+}
+.switch[aria-checked="true"] {
+  background: var(--brand);
+  border-color: var(--brand-border);
+}
+.switch[aria-checked="true"] > .switch__thumb {
+  background: var(--text-on-brand);
+  transform: translateX(
+    calc(var(--switch-w) - var(--switch-thumb) - 2 * var(--switch-pad) - 2 * var(--border-hairline))
+  );
+}
+.switch:disabled {
+  cursor: not-allowed;
+}
+.switch:disabled > .switch__thumb {
+  background: var(--text-disabled);
+}
+/* Touch: the track takes the 44px control height itself (the thumb scales with it). */
+@media (max-width: 600px), (pointer: coarse) {
+  .switch {
+    --switch-h: var(--control-md);
+  }
+}

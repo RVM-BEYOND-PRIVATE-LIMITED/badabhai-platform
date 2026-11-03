@@ -561,9 +561,21 @@ const CONTRACT: ControllerContract[] = [
       requestLogin: [],
       verifyLogin: [],
       verifyMfa: [],
+      // The invite accept link — no session exists yet; the single-use token is the credential.
+      acceptInvite: [],
+      // Migration 0142 — the password door + forgot/reset: public on the same footing (no
+      // session yet), same per-IP cap. The reset never mints a session.
+      loginWithPassword: [],
+      forgotPassword: [],
+      resetPassword: [],
       refresh: [A],
       logout: [A],
       me: [A],
+      // 0142 — self-service: own password + own two-step switch (Amendment 1), session-bound.
+      changeOwnPassword: [A],
+      enableMfa: [A],
+      confirmMfa: [A],
+      disableMfa: [A],
     },
   },
   // Admin Ops Portal READ-ONLY event-spine API (ADR-0025 ADMIN-2). EVERY route is behind the
@@ -599,8 +611,11 @@ const CONTRACT: ControllerContract[] = [
       flagWorker: [A, AR],
       unflagWorker: [A, AR],
       inviteAdmin: [A, AR],
+      // 0142 — create an ACTIVE admin with a temporary password (manage_admins).
+      createAdminDirect: [A, AR],
       changeAdminRole: [A, AR],
       suspendAdmin: [A, AR],
+      resetAdminMfa: [A, AR],
     },
   },
   // Admin Ops Portal reason-gated worker-PII REVEAL (ADR-0025 ADMIN-3b). The single most sensitive

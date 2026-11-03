@@ -1,3 +1,5 @@
+import { auditActionLabel } from "./skill-discovery-vocabulary";
+
 /**
  * Closed vocabularies for governed admin-action request bodies (ADR-0025 ADMIN-3a).
  *
@@ -43,3 +45,45 @@ export const WORKER_FLAG_REASON_LABELS: Record<WorkerFlagReasonCode, string> = {
   duplicate: "Duplicate account",
   other: "Other",
 };
+
+/**
+ * Human labels for the `action_code` on an `admin.action_performed` event — the OPEN vocabulary
+ * of `ADMIN_ACTION_CODES` in apps/api's `admin-actions.service.ts` (action_code is a free string
+ * on the event, so the server can add a code without an event-schema change).
+ *
+ * Display polish for the event detail page, never translation of meaning: the raw code is shown
+ * beside the label, and a code this build does not know renders as itself (the skill-candidate
+ * decision codes have their own sentences in `skill-discovery-vocabulary.ts`).
+ *
+ * The last six are ADR-0060's: direct creation, password set/reset, a trusted device, and the
+ * per-admin two-step verification switch.
+ */
+export const ADMIN_ACTION_CODE_LABELS: Readonly<Record<string, string>> = {
+  payer_suspended: "Customer suspended",
+  payer_reinstated: "Customer reinstated",
+  credits_granted: "Credits granted",
+  posting_force_closed: "Posting force-closed",
+  worker_flagged: "Worker flagged",
+  worker_unflagged: "Worker unflagged",
+  admin_invited: "Admin invited",
+  admin_invite_accepted: "Admin invite accepted",
+  admin_role_changed: "Admin role changed",
+  admin_suspended: "Admin suspended",
+  admin_mfa_reset: "Admin MFA reset",
+  admin_created: "Admin created with a temporary password",
+  admin_password_set: "Admin password set",
+  admin_password_reset: "Admin password reset with an emailed code",
+  admin_device_trusted: "Device trusted to skip the authenticator code",
+  admin_mfa_enabled: "Two-step verification (MFA) turned on",
+  admin_mfa_disabled: "Two-step verification (MFA) turned off",
+};
+
+/**
+ * The label for an admin action code: this table, then the skill-candidate decision sentences,
+ * then the code itself when this build does not know it.
+ */
+export function adminActionLabel(code: string): string {
+  return Object.hasOwn(ADMIN_ACTION_CODE_LABELS, code)
+    ? ADMIN_ACTION_CODE_LABELS[code]!
+    : auditActionLabel(code);
+}

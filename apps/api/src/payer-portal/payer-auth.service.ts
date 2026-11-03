@@ -17,6 +17,8 @@ import { isE164Phone, emailSchema } from "@badabhai/validators";
 import { SERVER_CONFIG } from "../config/config.module";
 import { isSyntheticPayerEmail } from "../payers/payer-test-login.guard";
 import { PiiCryptoService } from "../common/pii-crypto.service";
+// #2497's never-matching scrypt token — now shared with the admin password door (0142).
+import { DUMMY_PASSWORD_HASH } from "../common/password-policy";
 import { OtpSendCapExceededException } from "../common/otp-send-cap";
 import type { RequestContext } from "../common/request-context";
 import { EventsService } from "../events/events.service";
@@ -52,15 +54,6 @@ interface RedisPasswordClient {
   get(key: string): Promise<string | null>;
   del(...keys: string[]): Promise<number>;
 }
-
-/**
- * A well-formed but never-matching scrypt token (#2497). `verifyPassword` against this
- * still runs the FULL KDF (format checks pass, bytes differ), so the unknown-identifier
- * and no-password paths burn the same scrypt time as a real mismatch — miss/hit timing
- * cannot distinguish "no account" from "wrong password". Deterministic (no per-call
- * hash cost); the zero bytes carry no secret.
- */
-const DUMMY_PASSWORD_HASH = `password-v1.${Buffer.alloc(16).toString("base64")}.${Buffer.alloc(32).toString("base64")}`;
 
 /**
  * Self-serve PAYER auth orchestration (ADR-0019 Decision B — closes R16/LC-1/TD33). The

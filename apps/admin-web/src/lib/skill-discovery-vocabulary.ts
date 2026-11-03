@@ -450,7 +450,10 @@ const SKILL_CANDIDATE_AUDIT_ACTION_LABELS: Readonly<Record<string, string>> = {
 };
 
 export function auditActionLabel(code: string): string {
-  return SKILL_CANDIDATE_AUDIT_ACTION_LABELS[code] ?? code;
+  // Own keys only: `labels["toString"]` is Object.prototype's function, not a label.
+  return Object.hasOwn(SKILL_CANDIDATE_AUDIT_ACTION_LABELS, code)
+    ? SKILL_CANDIDATE_AUDIT_ACTION_LABELS[code]!
+    : code;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════

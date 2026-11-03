@@ -6,6 +6,7 @@ import { getEvent, getTrace } from "../../../../lib/events";
 import { AdminRequestError } from "../../../../lib/admin-http";
 import { formatTimestamp, humanizeEventName } from "../../../../lib/format";
 import { PageHeader } from "../../../../components/page-header";
+import { adminActionLabel } from "../../../../lib/admin-action-vocabulary";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 
 export const dynamic = "force-dynamic";
@@ -42,6 +43,14 @@ export default async function EventDetailPage({
   const trace = await getTrace(event.correlation_id).catch(() => null);
   const siblings = trace?.events.filter((e) => e.id !== event.id) ?? [];
 
+  // `admin.action_performed` carries WHICH action in its payload's free-string `action_code`.
+  // Named here beside the raw code (the payload below stays verbatim); a code this build does
+  // not know shows as itself.
+  const actionCode =
+    event.event_name === "admin.action_performed" && typeof event.payload.action_code === "string"
+      ? event.payload.action_code
+      : null;
+
   return (
     <div className="page">
       <PageHeader
@@ -74,6 +83,16 @@ export default async function EventDetailPage({
               </>
             }
           />
+          {actionCode ? (
+            <Row
+              k="Action"
+              v={
+                <>
+                  {adminActionLabel(actionCode)} <code className="mono">{actionCode}</code>
+                </>
+              }
+            />
+          ) : null}
           <Row k="Event id" v={event.id} mono />
           <Row k="Actor" v={`${event.actor_type} · ${event.actor_id ?? "—"}`} mono />
           <Row k="Subject" v={`${event.subject_type} · ${event.subject_id ?? "—"}`} mono />

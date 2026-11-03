@@ -30,8 +30,14 @@ vi.mock("../../../lib/admin-http", () => ({
   isAdminForbidden: () => false,
 }));
 
-const { inviteAdminAction, changeAdminRoleAction, resetAdminMfaAction, suspendAdminAction } =
-  await import("./actions");
+const {
+  inviteAdminAction,
+  createAdminAction,
+  changeAdminRoleAction,
+  resetAdminMfaAction,
+  suspendAdminAction,
+} = await import("./actions");
+const { PASSWORD_POLICY_ERROR } = await import("../../../lib/password-policy");
 
 beforeEach(() => {
   adminFetch.mockReset();
@@ -67,6 +73,72 @@ describe("inviteAdminAction", () => {
     );
     const res = await inviteAdminAction({ email: "ops@example.com", role: "support" });
     expect(res).toEqual({ ok: false, error: "An admin with that email already exists" });
+  });
+});
+
+describe("createAdminAction (ADR-0060 A6)", () => {
+  const input = {
+    email: "New.Admin@Example.com",
+    name: "  Asha Rao  ",
+    role: "support" as const,
+    temporaryPassword: "Temp1234x",
+  };
+
+  it("POSTs email, trimmed name, role and temporary password to /admin/admins/direct", async () => {
+    adminFetch.mockResolvedValueOnce({ admin_id: "33333333-3333-4333-8333-333333333333" });
+    await createAdminAction(input);
+    expect(adminFetch).toHaveBeenCalledWith(
+      "/admin/admins/direct",
+      expect.objectContaining({
+        method: "POST",
+        body: {
+          email: "new.admin@example.com",
+          name: "Asha Rao",
+          role: "support",
+          temporary_password: "Temp1234x",
+        },
+      }),
+    );
+  });
+
+  it("the result names the new admin and the hand-over — and NEVER echoes the password", async () => {
+    adminFetch.mockResolvedValueOnce({ admin_id: "33333333-3333-4333-8333-333333333333" });
+    const res = await createAdminAction(input);
+    expect(res).toMatchObject({ ok: true, changed: true });
+    if (!res.ok) throw new Error("expected success");
+    expect(res.message).toContain("Created 33333333… as Support.");
+    expect(res.message).toContain("privately");
+    expect(res.message).toContain("first sign-in");
+    expect(JSON.stringify(res)).not.toContain("Temp1234x");
+  });
+
+  it("a weak temporary password is refused before the request, with the policy in words", async () => {
+    const res = await createAdminAction({ ...input, temporaryPassword: "password" });
+    expect(res).toEqual({ ok: false, error: PASSWORD_POLICY_ERROR });
+    expect(adminFetch).not.toHaveBeenCalled();
+  });
+
+  it("a blank name, a bad email or an unknown role is refused before the request", async () => {
+    for (const bad of [
+      { ...input, name: "   " },
+      { ...input, name: "x".repeat(101) },
+      { ...input, email: "nope" },
+      { ...input, role: "root" as unknown as "support" },
+    ]) {
+      const res = await createAdminAction(bad);
+      expect(res.ok).toBe(false);
+      if (!res.ok) expect(res.error).not.toBe(PASSWORD_POLICY_ERROR);
+    }
+    expect(adminFetch).not.toHaveBeenCalled();
+  });
+
+  it("surfaces the duplicate-email conflict verbatim", async () => {
+    adminFetch.mockRejectedValueOnce(
+      new FakeRequestError(409, "An admin with that email already exists"),
+    );
+    const res = await createAdminAction(input);
+    expect(res).toEqual({ ok: false, error: "An admin with that email already exists" });
+    expect(JSON.stringify(res)).not.toContain("Temp1234x");
   });
 });
 

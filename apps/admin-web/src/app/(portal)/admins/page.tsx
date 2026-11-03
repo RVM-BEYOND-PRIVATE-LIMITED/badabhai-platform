@@ -10,6 +10,7 @@ import { NameCell } from "../../../components/name-cell";
 import { IdentityCapNotice } from "../../../components/identity-notice";
 import { Stat } from "../../../components/stat";
 import { InviteAdminForm } from "./invite-admin-form";
+import { CreateAdminForm } from "./create-admin-form";
 import { AdminRowActions } from "./admin-row-actions";
 import { PageHeader } from "../../../components/page-header";
 import { ALL_ADMIN_ACTIONS_LINK } from "../../../components/admin-action-result-banner";
@@ -146,24 +147,32 @@ export default async function AdminsPage({
               ? "Who holds access to this portal, by id while names are withheld (see below) — the handle on every audit event; emails stay encrypted and are served to no role at all."
               : "Who holds access to this portal — names are shown to your role and every read of one is audited, emails stay encrypted and are served to no role at all, and the id is the handle on every audit event."
         }
-        /* The page's own action, first, as on every other page. The form itself stays at the
-           foot of the page, under the directory it adds to; this is the way to it. */
+        /* The page's own actions, first, as on every other page. The forms themselves stay at
+           the foot of the page, under the directory they add to; these are the way to them.
+           Creating with a temporary password (ADR-0060 A6) is the primary one: it works with no
+           email delivery configured, which an invite link does not. */
         primaryAction={
-          <a className="btn btn--primary" href="#ad-invite">
+          <a className="btn btn--primary" href="#ad-create">
             <Icon name="user-plus" />
-            Invite an admin
+            Create an admin
           </a>
         }
-        /* The way back to the audit spine. Every governed admin action emits an
-           `admin.action_performed`, and without this the page states that fact and then
-           offers no way to go and read them. */
+        /* Inviting stays, beside it. Then the way back to the audit spine: every governed admin
+           action emits an `admin.action_performed`, and without this link the page states that
+           fact and then offers no way to go and read them. */
         secondaryActions={
-          mayReadEvents ? (
-            <Link className="btn btn--ghost" href={ALL_ADMIN_ACTIONS_LINK.href}>
-              <Icon name={ACTION_ICON.timeline} />
-              {ALL_ADMIN_ACTIONS_LINK.label}
-            </Link>
-          ) : null
+          <>
+            <a className="btn btn--ghost" href="#ad-invite">
+              <Icon name={ACTION_ICON.send} />
+              Invite an admin
+            </a>
+            {mayReadEvents ? (
+              <Link className="btn btn--ghost" href={ALL_ADMIN_ACTIONS_LINK.href}>
+                <Icon name={ACTION_ICON.timeline} />
+                {ALL_ADMIN_ACTIONS_LINK.label}
+              </Link>
+            ) : null}
+          </>
         }
       />
 
@@ -391,7 +400,11 @@ export default async function AdminsPage({
         )}
       </section>
 
-      <InviteAdminForm mayReadEvents={mayReadEvents} />
+      {/* Side by side where there is room, stacked on a phone (`.cols`). */}
+      <div className="cols">
+        <CreateAdminForm mayReadEvents={mayReadEvents} />
+        <InviteAdminForm mayReadEvents={mayReadEvents} />
+      </div>
     </div>
   );
 }

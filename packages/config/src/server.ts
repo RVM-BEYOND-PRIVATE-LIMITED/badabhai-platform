@@ -1216,10 +1216,16 @@ export const serverEnvSchema = z.object({
   // equal the worker/payer JWT_SECRET (a shared secret would defeat the principal
   // separation) — both enforced fail-closed by assertAdminAuthConfig.
   ADMIN_JWT_SECRET: z.string().min(16).default(DEV_ADMIN_JWT_SECRET),
-  // MFA scope (ADR-0025 OQ-1 — owner: MFA for ALL roles, incl. analyst). Default ON. When
-  // true, EVERY admin role must have mfa_enrolled=true AND pass a TOTP step before a session
-  // is minted (enforced server-side at session-mint, must-fix #1). booleanFromString +
-  // a true default would coerce wrong, so this is its own coerced boolean defaulting true.
+  // The GLOBAL two-step switch. Owner AMENDMENT 1 (2026-11-03) made two-step OPTIONAL, PER
+  // ADMIN: each admin turns it on/off for their own account (`admin_users.mfa_enabled`,
+  // default off), so the meaning of this flag is now:
+  //   true  (default) — HONOUR EACH ADMIN'S TOGGLE: an admin with mfa_enabled=true must pass a
+  //                     TOTP step (or present a trusted device) before a session is minted;
+  //                     an admin with it off gets a session straight from the first factor.
+  //   false           — two-step OFF FOR EVERYONE: no TOTP step for any admin, whatever their
+  //                     toggle says.
+  // booleanFromString + a true default would coerce wrong, so this is its own coerced boolean
+  // defaulting true.
   ADMIN_MFA_REQUIRED: z
     .union([z.boolean(), z.string()])
     .transform((v) =>
@@ -1234,6 +1240,21 @@ export const serverEnvSchema = z.object({
   // MFA) — the admin analogue of PAYER_AUTH_MAX_PER_IP_PER_HOUR (credential-stuffing /
   // account-farming backstop). Fail-closed (a Redis outage rejects).
   ADMIN_AUTH_MAX_PER_IP_PER_HOUR: z.coerce.number().int().positive().default(20),
+  // Admin password sign-in (migration 0142) — the per-ACCOUNT attempt throttle, the admin
+  // analogue of PAYER_PASSWORD_MAX_ATTEMPTS / _LOCKOUT_SECONDS (the per-IP cap above is shared
+  // and coarse behind NAT). N failed passwords inside the window lock that admin's password door
+  // for ADMIN_PASSWORD_LOCKOUT_SECONDS; a success clears the counter. The locked-out answer on
+  // the public route stays the neutral 401 (no lockout oracle). Fail-closed (Redis error → 503).
+  // The SAME limits bound the authenticator-code attempts, each in its OWN per-admin counter:
+  // the sign-in TOTP step (POST /admin/mfa/verify — cleared only by a correct code, never by a
+  // correct password) and the signed-in two-step switch. Safe defaults, no secret, no box change.
+  ADMIN_PASSWORD_MAX_ATTEMPTS: z.coerce.number().int().positive().default(5),
+  ADMIN_PASSWORD_LOCKOUT_SECONDS: z.coerce.number().int().positive().default(900),
+  // "Trust this device" on the admin two-step step: a browser that passed TOTP with the box
+  // ticked skips TOTP for this many days. 0 = the feature is OFF (no device is ever issued and
+  // none is ever honoured). The device record dies early on a password change/reset or a new
+  // TOTP secret. min(0), not positive(): 0 is the documented off-switch.
+  ADMIN_TRUSTED_DEVICE_DAYS: z.coerce.number().int().min(0).default(30),
 
   // Reason-gated worker-PII reveal (ADR-0025 ADMIN-3b, Decision 4) — the single most
   // sensitive route in the system (it decrypts a worker's phone). Master switch: DEFAULT
@@ -2784,10 +2805,11 @@ export function isUsingDevAdminJwtDefault(config: ServerConfig): boolean {
  *     anyone forge an admin session (the most privileged token in the system).
  *   - ADMIN_JWT_SECRET must NOT equal the worker/payer JWT_SECRET — a shared secret would
  *     collapse the principal separation (an admin token must be cryptographically distinct).
- *   - when ADMIN_MFA_REQUIRED is true (the owner default — MFA for ALL roles), the TOTP
- *     config must be complete: a non-empty ADMIN_TOTP_ISSUER is required. MFA-required with
- *     no issuer is a HALF-SET MFA config → reject (never boot a half-configured second
- *     factor).
+ *   - when ADMIN_MFA_REQUIRED is true (the default — honour each admin's own two-step toggle,
+ *     owner Amendment 1 2026-11-03), the TOTP config must be complete: a non-empty
+ *     ADMIN_TOTP_ISSUER is required, because any admin may switch two-step on and be handed an
+ *     authenticator QR. Toggle-honoured with no issuer is a HALF-SET MFA config → reject (never
+ *     boot a half-configured second factor). false = two-step off for everyone.
  * Call once at boot (main.ts), after `assertPayerAuthConfig`.
  */
 export function assertAdminAuthConfig(
@@ -2812,7 +2834,7 @@ export function assertAdminAuthConfig(
   // even in development/test, since it is a structural mis-configuration, not a dev shortcut.
   if (config.ADMIN_MFA_REQUIRED && config.ADMIN_TOTP_ISSUER.trim().length === 0) {
     problems.push(
-      "ADMIN_MFA_REQUIRED is true but ADMIN_TOTP_ISSUER is empty — refusing to boot a half-configured second factor",
+      "ADMIN_MFA_REQUIRED is true (honour each admin's two-step toggle) but ADMIN_TOTP_ISSUER is empty — refusing to boot a half-configured second factor",
     );
   }
 

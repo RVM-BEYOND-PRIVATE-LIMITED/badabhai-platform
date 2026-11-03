@@ -484,3 +484,166 @@ describe("AdminOtpService.issueAndSend — REAL delivery (ADR-0038)", () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// Migration 0142 — the password_reset PURPOSE: its own namespace, copy and email purpose.
+// ---------------------------------------------------------------------------
+describe("AdminOtpService — password_reset purpose (0142)", () => {
+  const resetCodeKey = (h: string) => `admin_otp_pwreset:code:${h}`;
+  const resetCode = (store: Map<string, string>) =>
+    (store.get(resetCodeKey(EMAIL_HASH)) ?? "").match(/^hmac<(\d+)>$/)?.[1] ?? "";
+
+  it("reserves ONLY under admin_otp_pwreset:* — no key in the login namespace", async () => {
+    const { svc, redis } = setup();
+    await svc.issueAndSend(EMAIL_HASH, EMAIL, "password_reset");
+    const keys = [...redis.store.keys()];
+    expect(keys.length).toBeGreaterThan(0);
+    for (const k of keys) expect(k.startsWith("admin_otp_pwreset:")).toBe(true);
+    expect(redis.store.has(codeKey(EMAIL_HASH))).toBe(false);
+  });
+
+  it("a LOGIN code can never redeem a password reset", async () => {
+    const { svc, redis } = setup();
+    await svc.issueAndSend(EMAIL_HASH, EMAIL); // login
+    const loginCode = reservedCode(redis.store);
+    expect(loginCode).toMatch(/^\d{6}$/);
+    const err = await svc.verify(EMAIL_HASH, loginCode, "password_reset").catch((e) => e);
+    expect(err.getStatus()).toBe(HttpStatus.UNAUTHORIZED);
+    // ...and the login code is still intact for the login door.
+    await expect(svc.verify(EMAIL_HASH, loginCode)).resolves.toBeUndefined();
+  });
+
+  it("a RESET code can never sign anyone in", async () => {
+    const { svc, redis } = setup();
+    await svc.issueAndSend(EMAIL_HASH, EMAIL, "password_reset");
+    const code = resetCode(redis.store);
+    expect(code).toMatch(/^\d{6}$/);
+    const err = await svc.verify(EMAIL_HASH, code).catch((e) => e); // login purpose
+    expect(err.getStatus()).toBe(HttpStatus.UNAUTHORIZED);
+    await expect(svc.verify(EMAIL_HASH, code, "password_reset")).resolves.toBeUndefined();
+  });
+
+  it("the two purposes have independent cooldowns (a reset request does not block a login code)", async () => {
+    const { svc } = setup();
+    await svc.issueAndSend(EMAIL_HASH, EMAIL, "password_reset");
+    await expect(svc.issueAndSend(EMAIL_HASH, EMAIL)).resolves.toEqual({
+      resendInSeconds: config.OTP_RESEND_COOLDOWN_SECONDS,
+    });
+  });
+
+  it("sends the reset copy, tagged purpose=password_reset, code in the bodies never the subject", async () => {
+    const { svc, email, redis } = setup();
+    await svc.issueAndSend(EMAIL_HASH, EMAIL, "password_reset");
+    const msg = email.send.mock.calls[0]![0];
+    expect(msg.subject).toBe("Reset your BadaBhai admin password");
+    expect(msg.purpose).toBe("password_reset");
+    expect(msg.principal).toBe("admin");
+    const code = resetCode(redis.store);
+    expect(msg.text).toContain(code);
+    expect(msg.html).toContain(code);
+    expect(msg.subject).not.toContain(code);
+  });
+
+  it("the LOGIN email is unchanged (subject + purpose)", async () => {
+    const { svc, email } = setup();
+    await svc.issueAndSend(EMAIL_HASH, EMAIL);
+    const msg = email.send.mock.calls[0]![0];
+    expect(msg.subject).toBe("Your BadaBhai admin login code");
+    expect(msg.purpose).toBe("login_code");
+  });
+
+  it("issueWithoutDelivery honours the purpose (unknown-account parity in the reset namespace)", async () => {
+    const known = setup();
+    await known.svc.issueAndSend(EMAIL_HASH, EMAIL, "password_reset");
+    const unknown = setup();
+    await unknown.svc.issueWithoutDelivery(EMAIL_HASH, "password_reset");
+    expect([...unknown.redis.store.keys()].sort()).toEqual([...known.redis.store.keys()].sort());
+  });
+
+  it("the LOGIN door's delivery failure is unchanged: rolled back, then the same 503 as ever", async () => {
+    const { svc, redis } = setup({ sendThrows: true });
+    const err = await svc.issueAndSend(EMAIL_HASH, EMAIL).catch((e) => e);
+    expect(err.getStatus()).toBe(HttpStatus.SERVICE_UNAVAILABLE);
+    expect(err.message).toBe("This is temporarily unavailable; please retry shortly");
+    expect(redis.store.has(codeKey(EMAIL_HASH))).toBe(false);
+  });
+});
+
+/** Let the macrotask the dispatch scheduled run, plus the promise chain hanging off it. */
+const flushDispatch = async (): Promise<void> => {
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  await new Promise<void>((resolve) => setImmediate(resolve));
+};
+
+// ---------------------------------------------------------------------------
+// Security review SHOULD-FIX — the forgot-password door must not wait on the provider.
+// ---------------------------------------------------------------------------
+describe("AdminOtpService.issueAndDispatch — delivery never reaches the response", () => {
+  const resetCodeKey = `admin_otp_pwreset:code:${EMAIL_HASH}`;
+
+  it("resolves while the provider is STILL in flight (the response waits for the reserve only)", async () => {
+    const { svc, email, redis } = setup();
+    // A provider that never answers: issueAndSend would hang here; this must not.
+    email.send.mockImplementation(() => new Promise<void>(() => undefined));
+    const settled = await Promise.race([
+      svc.issueAndDispatch(EMAIL_HASH, EMAIL, "password_reset").then(() => "resolved"),
+      new Promise<string>((resolve) => setTimeout(() => resolve("blocked"), 200)),
+    ]);
+    expect(settled).toBe("resolved");
+    // The code is reserved before the response — identical Redis state to the unknown path.
+    expect(redis.store.get(resetCodeKey)).toMatch(/^hmac<\d{6}>$/);
+  });
+
+  it("does not even START the send before the response (scheduled for the next macrotask)", async () => {
+    const { svc, email } = setup();
+    await svc.issueAndDispatch(EMAIL_HASH, EMAIL, "password_reset");
+    expect(email.send).not.toHaveBeenCalled();
+    await flushDispatch();
+    expect(email.send).toHaveBeenCalledTimes(1);
+    expect(email.send.mock.calls[0]![0]).toMatchObject({
+      purpose: "password_reset",
+      subject: "Reset your BadaBhai admin password",
+    });
+  });
+
+  it("returns the SAME body and reserves the SAME keys as the unknown-account path", async () => {
+    const known = setup();
+    const unknown = setup();
+    const a = await known.svc.issueAndDispatch(EMAIL_HASH, EMAIL, "password_reset");
+    const b = await unknown.svc.issueWithoutDelivery(EMAIL_HASH, "password_reset");
+    expect(a).toEqual(b);
+    expect([...known.redis.store.keys()].sort()).toEqual([...unknown.redis.store.keys()].sort());
+  });
+
+  it("a FAILED send is logged (hash prefix only, no code, no address) and the code STAYS reserved", async () => {
+    const errorLog = vi.spyOn(Logger.prototype, "error").mockImplementation(() => undefined);
+    try {
+      const { svc, redis } = setup({ sendThrows: true });
+      await expect(svc.issueAndDispatch(EMAIL_HASH, EMAIL, "password_reset")).resolves.toEqual({
+        resendInSeconds: config.OTP_RESEND_COOLDOWN_SECONDS,
+      });
+      await flushDispatch();
+      const code = (redis.store.get(resetCodeKey) ?? "").match(/^hmac<(\d+)>$/)?.[1] ?? "";
+      expect(code).toMatch(/^\d{6}$/);
+      const logged = JSON.stringify(errorLog.mock.calls);
+      expect(logged).toContain("delivery failed");
+      expect(logged).toContain(EMAIL_HASH.slice(0, 8));
+      assertNoPii(logged, code);
+    } finally {
+      errorLog.mockRestore();
+    }
+  });
+
+  it("a reserve failure still surfaces exactly like the unknown path (429 cooldown, 503 Redis)", async () => {
+    const cooled = setup();
+    await cooled.svc.issueAndDispatch(EMAIL_HASH, EMAIL, "password_reset");
+    const err = await cooled.svc
+      .issueAndDispatch(EMAIL_HASH, EMAIL, "password_reset")
+      .catch((e) => e);
+    expect(err.getStatus()).toBe(HttpStatus.TOO_MANY_REQUESTS);
+    const down = await setup({ throwOn: "exists" })
+      .svc.issueAndDispatch(EMAIL_HASH, EMAIL, "password_reset")
+      .catch((e) => e);
+    expect(down.getStatus()).toBe(HttpStatus.SERVICE_UNAVAILABLE);
+  });
+});

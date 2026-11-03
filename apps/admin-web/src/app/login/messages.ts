@@ -26,3 +26,20 @@ export const NEUTRAL_MFA_ERROR =
 /** Shown when the API itself is unreachable — honest, because it reveals nothing. */
 export const SERVICE_UNAVAILABLE_ERROR =
   "The admin service is unreachable. Try again shortly, or contact platform support.";
+
+// ── Password sign-in, ADR-0060 ─────────────────────────────────────────────────────────────
+
+/**
+ * Email + password — the SAME text for an unknown email, a wrong password, an account with no
+ * password yet, a locked account, a pending one and a suspended one. The API fuses all six into
+ * one 401 (with a dummy KDF on every miss path) so neither the text nor the timing says which.
+ */
+export const NEUTRAL_PASSWORD_ERROR =
+  "That email and password didn't work. Check both and try again, or reset your password.";
+
+/**
+ * The server refused a policy-valid new password at the "set a new password" step. The client
+ * already enforces the policy, so what is left is re-using the temporary password itself.
+ */
+export const NEW_PASSWORD_REJECTED_ERROR =
+  "That password can't be used here. Choose a different one — not the temporary password you were given.";

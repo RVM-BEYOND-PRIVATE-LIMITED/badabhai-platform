@@ -34,11 +34,17 @@ export function AcceptForm({ token }: { token: string }) {
         <div className="alert__text">
           <p className="alert__title">Your admin account is active</p>
           <p className="alert__body">
-            Sign in to finish setting up. You&rsquo;ll get a one-time code by email, then
-            register an authenticator app for MFA.
+            Sign in with a one-time code sent to your email. Then set a password &mdash; and,
+            if you want it, two-step verification &mdash; on your Account page.
           </p>
         </div>
-        <button type="button" className="btn btn--primary" onClick={() => router.push("/login")}>
+        {/* The emailed-code door: an invited account has no password yet (ADR-0060 A7), so the
+            default password form could only refuse it. */}
+        <button
+          type="button"
+          className="btn btn--primary"
+          onClick={() => router.push("/login?method=code")}
+        >
           <Icon name="sign-in" />
           Go to sign in
         </button>
@@ -50,7 +56,7 @@ export function AcceptForm({ token }: { token: string }) {
     <div className="auth-step">
       <p className="auth-step__lede">
         Accepting activates your admin account. You&rsquo;ll sign in afterwards with a
-        one-time code and an authenticator app.
+        one-time code sent to your email.
       </p>
       {outcome && !outcome.ok ? (
         <p className="field__error" role="alert">

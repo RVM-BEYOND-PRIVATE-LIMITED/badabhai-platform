@@ -52,6 +52,16 @@ export class AdminMfaSecretStore {
     await this.admins.setMfaSecret(adminId, this.pii.encrypt(secret));
   }
 
+  /**
+   * 0142 (Amendment 1) — stage a FRESH seed for an admin switching two-step ON from the Account
+   * page: encrypted here (the one place a seed is encrypted), written with `mfa_enrolled=false`
+   * until the confirm step proves it. Returns false when the admin's two-step is already ON (the
+   * repository guard) — a live seed is never swapped from a session alone.
+   */
+  async stageEnrolment(adminId: string, secret: string): Promise<boolean> {
+    return this.admins.stageMfaEnrolment(adminId, this.pii.encrypt(secret));
+  }
+
   /** Load + decrypt an admin's TOTP secret, or null if none/decrypt fails (fail-closed). */
   async load(adminId: string): Promise<string | null> {
     try {
