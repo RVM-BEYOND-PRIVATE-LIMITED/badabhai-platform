@@ -267,7 +267,7 @@ class _FindView extends StatelessWidget {
             Expanded(
               child: Text(
                 'Browse & unlock',
-                style: AppTypography.display(
+                style: AppTypography.header(
                   size: AppTypography.sizeXl,
                   weight: FontWeight.w800,
                 ),

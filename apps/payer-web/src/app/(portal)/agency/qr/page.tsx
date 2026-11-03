@@ -40,8 +40,10 @@ export default async function QrPage() {
       */}
       <PageHeader
         className="dash-sub"
-        title="QR invite"
-        description="Create an invite link as a QR code and put it up where workers already are — a gate, a canteen, a chai stall — so they can scan it and join themselves."
+        title="Worker QR Code Generator"
+        badge={<span className="dash-workspace-badge">Instant Onboarding</span>}
+        description="Create printable posters and station QR codes for factory gates, chai stalls, and transit hubs so blue-collar workers can scan and self-register with verified KYC in seconds."
+        actionsSlot={<span className="agency-protected">Auto-Attribution Enabled</span>}
       />
 
       <AgencyQrInvite />

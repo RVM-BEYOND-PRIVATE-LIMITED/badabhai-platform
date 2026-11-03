@@ -155,7 +155,7 @@ class _PayoutCard extends StatelessWidget {
               children: <Widget>[
                 Text(
                   '₹${formatIndianGrouped(payout.amountInr)}',
-                  style: AppTypography.display(
+                  style: AppTypography.heading(
                     size: AppTypography.sizeLg,
                     weight: FontWeight.w800,
                   ),
@@ -206,7 +206,7 @@ class _Header extends StatelessWidget {
           const SizedBox(width: AppSpacing.s3),
           Text(
             'Payout history',
-            style: AppTypography.display(
+            style: AppTypography.header(
               size: AppTypography.sizeLg,
               weight: FontWeight.w800,
             ),

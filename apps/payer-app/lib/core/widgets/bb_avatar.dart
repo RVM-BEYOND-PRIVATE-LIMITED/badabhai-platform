@@ -53,7 +53,7 @@ class BbAvatar extends StatelessWidget {
             ),
             child: Text(
               initials,
-              style: AppTypography.display(
+              style: AppTypography.heading(
                 size: size * 0.36,
                 weight: FontWeight.w800,
                 color: foreground,

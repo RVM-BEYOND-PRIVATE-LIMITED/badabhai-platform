@@ -1,17 +1,15 @@
 import { redirect } from "next/navigation";
 import { requirePayer } from "../../../../lib/auth";
 import { agentPostingRedirect } from "../../../../lib/posting-routes";
-import { HIRING_CAPACITY_HREF } from "../../../../lib/billing-routes";
 import { PageHeader } from "../../../../components/page-header";
+import { HIRING_CAPACITY_HREF } from "../../../../lib/billing-routes";
 import { PortalLink } from "../../../../components/portal-link";
 import { getLiveCatalog } from "../../../../lib/live-catalog";
 import {
   applicantQuotaStep,
   postingIsFreeThroughLaunch,
-  postingPaidTiers,
 } from "../../../../lib/pricing-config";
 import { getCapacity, listMatchSkills } from "../../../../lib/payer-api";
-import { formatInr } from "../../../../lib/format";
 import { CachedPricingNote } from "../../../../components/cached-pricing-note";
 import type { MatchSkillWire } from "../../../../lib/contracts";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
@@ -36,11 +34,11 @@ export const dynamic = "force-dynamic";
  */
 export default async function NewPostingPage() {
   // Company-only surface: an agency posts AGENCY jobs (owner ruling 2026-10-01) → its own form.
-  if ((await requirePayer()).role === "agent") redirect(agentPostingRedirect("create"));
+  const session = await requirePayer();
+  if (session.role === "agent") redirect(agentPostingRedirect("create"));
   const free = postingIsFreeThroughLaunch();
   const catalog = await getLiveCatalog();
   const { live } = catalog;
-  const paidTiers = postingPaidTiers(catalog);
   const quotaStep = applicantQuotaStep(catalog.products);
 
   let atCapacity = false;
@@ -71,33 +69,35 @@ export default async function NewPostingPage() {
   const lead = (
     <>
       <PageHeader
-        title="New posting"
-        description="Describe the role — applicants appear faceless until you unlock them."
+        title="Create Job Posting"
+        description="Describe the role — candidate names and contact details remain faceless until you review and unlock them."
+        badge={<span className="mw-badge">FACELESS HIRING MODE</span>}
+        actionsSlot={
+          <button type="button" className="bb-btn bb-btn--secondary bb-btn--sm">
+            Save Draft
+          </button>
+        }
       />
 
-      {/* ADR-0035 entry point: the AI chat is an ALTERNATIVE INPUT SURFACE onto this same
-          create path — the manual form below is unchanged and remains the default. Both
-          options are stated in one band so neither reads as the "real" way in. */}
-      <div className="alert alert--info">
-        <Icon name="sparkle" className="alert__icon" />
-        <div className="alert__text">
-          <p className="alert__title">Answer a few questions instead of filling this form</p>
-          <p className="alert__body">
-            Tell us about the role in plain language and we&rsquo;ll build the posting for you —
-            resumable on any device you sign in on. Prefer to type the fields yourself? The full
-            manual form is right below — nothing changes.
+      <div className="mw-ai">
+        <span className="mw-ai__icon" aria-hidden="true">
+          <Icon name="sparkle" />
+        </span>
+        <div className="mw-ai__body">
+          <p className="mw-ai__title">Short of time? Build posting with AI</p>
+          <p className="mw-ai__sub">
+            Tell us about the role in casual Hindi/English and we&rsquo;ll draft all technical
+            fields.
           </p>
         </div>
-        <div className="alert__actions">
-          <PortalLink
-            className="bb-btn bb-btn--secondary bb-btn--sm"
-            href="/postings/ai/new"
-            pendingLabel="Post with AI"
-          >
-            <span>Post with AI</span>
-            <Icon name={ACTION_ICON.next} />
-          </PortalLink>
-        </div>
+        <PortalLink
+          className="bb-btn bb-btn--secondary bb-btn--sm"
+          href="/postings/ai/new"
+          pendingLabel="Post with AI"
+        >
+          <span>Post with AI</span>
+          <Icon name={ACTION_ICON.next} />
+        </PortalLink>
       </div>
 
       {atCapacity ? (
@@ -116,39 +116,15 @@ export default async function NewPostingPage() {
         </div>
       ) : null}
 
-      {free ? (
-        <div className="alert alert--success">
-          <Icon name="gift" className="alert__icon" />
-          <div className="alert__text">
-            <p className="alert__title">Free through launch</p>
-            <p className="alert__body">
-              Publishing a posting is free during the launch phase. (We show this from a launch-phase
-              config flag — the pricing catalog cannot represent a ₹0 price, so &ldquo;free&rdquo;
-              is not a catalog amount.)
-            </p>
-          </div>
-        </div>
-      ) : (
-        <div className="alert alert--warning">
-          <Icon name="tag" className="alert__icon" />
-          <div className="alert__text">
-            <p className="alert__title">Paid plans</p>
-            <p className="alert__body">
-              Paid posting plans (config-driven):{" "}
-              {paidTiers.length === 0
-                ? "unavailable"
-                : paidTiers
-                    .map((t) => `${t.code} ${formatInr(t.priceInr)} / ${t.validityDays}d`)
-                    .join(" · ")}
-              .
-            </p>
-          </div>
-        </div>
-      )}
-
       {!live ? <CachedPricingNote /> : null}
     </>
   );
 
-  return <PostingForm quotaStep={quotaStep} matchSkills={matchSkills} lead={lead} />;
+  return <PostingForm
+      quotaStep={quotaStep}
+      matchSkills={matchSkills}
+      lead={lead}
+      free={free}
+      payerRef={session.payerId.slice(0, 8)}
+    />;
 }

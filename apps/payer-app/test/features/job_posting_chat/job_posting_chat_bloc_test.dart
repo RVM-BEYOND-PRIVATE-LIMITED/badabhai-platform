@@ -30,6 +30,8 @@ class _FakeRepo implements JobPostingChatRepository {
   int _turn = 0;
   int openCalls = 0;
   final List<String> sent = <String>[];
+  String? publishedRoleKind;
+  String? publishedArea;
 
   @override
   String? get sessionId => _sessionId;
@@ -63,7 +65,9 @@ class _FakeRepo implements JobPostingChatRepository {
       const <JobPostingChatSessionSummary>[];
 
   @override
-  Future<PublishJobResult> publish() async {
+  Future<PublishJobResult> publish({String? roleKind, String? area}) async {
+    publishedRoleKind = roleKind;
+    publishedArea = area;
     final PayerApiException? err = publishError;
     if (err != null) throw err;
     return PublishJobResult(jobPostingId: 'job-9', unmappedFields: unmappedFields);
@@ -343,6 +347,53 @@ void main() {
         expect(bloc.state.publishOutcome, e.value, reason: '${e.key}');
         await bloc.close();
       }
+    });
+
+    test('carries the publish-step role pick to the repository (#2490)',
+        () async {
+      final _FakeRepo repo = _FakeRepo();
+      final JobPostingChatBloc bloc = JobPostingChatBloc(repo);
+      bloc.add(const JobPostingChatPublishRequested(roleKind: 'cnc_turner'));
+      await bloc.stream.firstWhere(
+          (JobPostingChatState s) => s.publishOutcome != PublishOutcome.none);
+
+      expect(repo.publishedRoleKind, 'cnc_turner',
+          reason: 'display-only role_kind rides the publish call');
+      await bloc.close();
+    });
+
+    test('an unpicked role publishes with NO role_kind (#2490)',
+        () async {
+      final _FakeRepo repo = _FakeRepo();
+      final JobPostingChatBloc bloc = JobPostingChatBloc(repo);
+      bloc.add(const JobPostingChatPublishRequested());
+      await bloc.stream.firstWhere(
+          (JobPostingChatState s) => s.publishOutcome != PublishOutcome.none);
+
+      expect(repo.publishedRoleKind, isNull);
+      await bloc.close();
+    });
+
+    test('carries the publish-step area to the repository (#2493)', () async {
+      final _FakeRepo repo = _FakeRepo();
+      final JobPostingChatBloc bloc = JobPostingChatBloc(repo);
+      bloc.add(const JobPostingChatPublishRequested(area: 'Chakan'));
+      await bloc.stream.firstWhere(
+          (JobPostingChatState s) => s.publishOutcome != PublishOutcome.none);
+
+      expect(repo.publishedArea, 'Chakan');
+      await bloc.close();
+    });
+
+    test('an empty area publishes with NO area (#2493)', () async {
+      final _FakeRepo repo = _FakeRepo();
+      final JobPostingChatBloc bloc = JobPostingChatBloc(repo);
+      bloc.add(const JobPostingChatPublishRequested());
+      await bloc.stream.firstWhere(
+          (JobPostingChatState s) => s.publishOutcome != PublishOutcome.none);
+
+      expect(repo.publishedArea, isNull);
+      await bloc.close();
     });
   });
 }

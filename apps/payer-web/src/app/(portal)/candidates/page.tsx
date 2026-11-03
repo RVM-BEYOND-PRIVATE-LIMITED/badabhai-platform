@@ -504,27 +504,16 @@ function EmptyState({ isAgency, hasPostings }: { isAgency: boolean; hasPostings:
         <p className="state__body">
           Workers who apply to your postings appear here — faceless — newest first.
         </p>
-        {routes ? (
+        {routes && hasPostings ? (
           <div className="state__actions">
-            {hasPostings ? (
-              <PortalLink
-                className="bb-btn bb-btn--secondary"
-                href={routes.list}
-                pendingLabel="Postings"
-              >
-                <Icon name={ACTION_ICON.posting} />
-                <span>Postings</span>
-              </PortalLink>
-            ) : (
-              <PortalLink
-                className="bb-btn bb-btn--secondary"
-                href={routes.create}
-                pendingLabel="New posting"
-              >
-                <Icon name={ACTION_ICON.create} />
-                <span>New posting</span>
-              </PortalLink>
-            )}
+            <PortalLink
+              className="bb-btn bb-btn--secondary"
+              href={routes.list}
+              pendingLabel="Postings"
+            >
+              <Icon name={ACTION_ICON.posting} />
+              <span>Postings</span>
+            </PortalLink>
           </div>
         ) : null}
       </div>

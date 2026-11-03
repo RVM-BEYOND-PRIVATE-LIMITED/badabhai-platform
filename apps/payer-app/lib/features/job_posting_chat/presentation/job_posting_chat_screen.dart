@@ -83,6 +83,7 @@ String jobChatJoinLabels(List<String> labels) {
 /// reads them on the card.
 const Map<String, String> kJobChatCardFieldLabels = <String, String>{
   'city': 'city',
+  'area': 'area',
   'pay_min': 'pay band',
   'pay_max': 'pay band',
   'pay_type': 'pay type',
@@ -204,6 +205,18 @@ class _ChatViewState extends State<_ChatView> {
   bool _draftOpen = false;
   bool _autoOpenedDraft = false;
 
+  /// The publish-step role pick (#2490) — one of the 21 declared `role_kind`s,
+  /// or null. DISPLAY ONLY (it keys the worker card's role illustration, never
+  /// a match input). Local to the publish step because the interview does not
+  /// ask for a role; blank publishes with `role_kind` absent (generic art).
+  String? _roleKind;
+
+  /// The publish-step area/locality (#2493). Until the payer edits it, the input
+  /// follows the interview draft (`draft.area`); after that the payer's value
+  /// wins. Blank publishes with `area` absent (city-only card).
+  String _area = '';
+  bool _areaTouched = false;
+
   @override
   void dispose() {
     _scroll.dispose();
@@ -233,7 +246,17 @@ class _ChatViewState extends State<_ChatView> {
   }
 
   void _publish() {
-    context.read<JobPostingChatBloc>().add(const JobPostingChatPublishRequested());
+    final JobPostingChatState state = context.read<JobPostingChatBloc>().state;
+    // Untouched → follow the interview draft; edited → the payer's value wins.
+    // Blank stays null, so the body key is ABSENT (NULL area = city-only card).
+    final String area =
+        (_areaTouched ? _area : (state.draft.area ?? '')).trim();
+    context.read<JobPostingChatBloc>().add(
+          JobPostingChatPublishRequested(
+            roleKind: _roleKind,
+            area: area.isEmpty ? null : area,
+          ),
+        );
   }
 
   void _animateToBottom() {
@@ -353,6 +376,16 @@ class _ChatViewState extends State<_ChatView> {
                               draft: state.draft,
                               ready: state.draftReady,
                               publishing: state.publishing,
+                              roleKind: _roleKind,
+                              onRoleKindChanged: (String? roleKind) =>
+                                  setState(() => _roleKind = roleKind),
+                              area: _areaTouched
+                                  ? _area
+                                  : (state.draft.area ?? ''),
+                              onAreaChanged: (String area) => setState(() {
+                                _area = area;
+                                _areaTouched = true;
+                              }),
                               onPublish: _publish,
                             ),
                           ],
@@ -407,7 +440,7 @@ class _ChatViewState extends State<_ChatView> {
           Expanded(
             child: Text(
               kJobChatTitle,
-              style: AppTypography.display(
+              style: AppTypography.header(
                 size: AppTypography.sizeLg,
                 weight: FontWeight.w800,
               ),

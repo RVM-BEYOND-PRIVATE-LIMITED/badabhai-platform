@@ -62,6 +62,7 @@ class _ScriptedApi extends MockPayerApiClient {
     List<String>? benefits,
     List<String>? requirements,
     String? neededBy,
+    String? roleKind,
     List<String>? matchSkillIds,
     List<String>? untickedRelatedIds,
     List<JobPostingClearField>? clear,
@@ -171,7 +172,7 @@ void main() {
     cubit = JobsCubit(api);
     addTearDown(cubit.close);
 
-    tester.view.physicalSize = const Size(1000, 3000);
+    tester.view.physicalSize = const Size(1000, 4000);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
 

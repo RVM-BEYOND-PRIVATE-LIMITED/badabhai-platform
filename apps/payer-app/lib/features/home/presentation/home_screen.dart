@@ -148,7 +148,7 @@ class _Header extends StatelessWidget {
                   acct.name,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: AppTypography.display(
+                  style: AppTypography.header(
                     size: AppTypography.sizeMd,
                     weight: FontWeight.w700,
                     color: AppColors.onBlue,
@@ -196,7 +196,7 @@ class _AgencyHubCard extends StatelessWidget {
               children: <Widget>[
                 Text(
                   'Refer & earn',
-                  style: AppTypography.display(
+                  style: AppTypography.heading(
                     size: AppTypography.sizeBase,
                     weight: FontWeight.w700,
                   ),

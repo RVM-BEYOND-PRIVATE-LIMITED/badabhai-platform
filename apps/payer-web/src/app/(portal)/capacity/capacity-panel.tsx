@@ -3,11 +3,10 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Icon } from "@badabhai/icons";
-import { Badge, Button, Card, Dialog, Toast } from "../../../components/ds";
+import { Button, Card, Dialog, Toast } from "../../../components/ds";
 import { formatInr } from "../../../lib/format";
 import type { ChargedPrice } from "../../../lib/pricing-config";
 import { earlierPurchaseMessage, priceChangedMessage } from "../../../lib/purchase-messages";
-import { priceFigure } from "../../../components/price-figure";
 import { upgradeCapacityAction } from "./actions";
 
 /**
@@ -192,17 +191,28 @@ export function CapacityPanel({
         </div>
       ) : (
         <div className="capacity-tiers">
-          {tiers.map((t) => (
-            <Card key={t.code} className="capacity-tier">
+          {tiers.map((t, i) => (
+            <Card
+              key={t.code}
+              className={t.code === topTierCode ? "capacity-tier capacity-tier--best" : "capacity-tier"}
+            >
+              {t.code === topTierCode ? (
+                <span className="capacity-tier__ribbon">MOST CAPACITY</span>
+              ) : null}
               <div className="capacity-tier__head">
-                <span className="capacity-tier__name">{t.code.replace(/_/g, " ")}</span>
-                {t.code === topTierCode ? (
-                  <Badge tone="brand" upper>
-                    Most capacity
-                  </Badge>
+                <span className="capacity-tier__name">
+                  CAP <span className="bb-mono">{t.maxActiveVacancies}</span>
+                </span>
+                {i === 0 && t.code !== topTierCode ? (
+                  <span className="capacity-tier__tag">Popular</span>
                 ) : null}
               </div>
-              <div className="capacity-tier__price bb-mono">{priceFigure(t)}</div>
+              <div className="capacity-tier__price bb-mono">
+                {formatInr(t.priceInr)}
+                {t.listPriceInr !== undefined && t.listPriceInr > t.priceInr ? (
+                  <s className="price-was">{formatInr(t.listPriceInr)}</s>
+                ) : null}
+              </div>
               <p className="capacity-tier__allowance">
                 <span className="bb-mono">{t.maxActiveVacancies}</span> concurrent postings
               </p>

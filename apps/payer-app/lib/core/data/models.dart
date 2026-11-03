@@ -109,6 +109,7 @@ class JobPosting extends Equatable {
     this.requirements,
     this.shift,
     this.neededBy,
+    this.roleKind,
     this.matchSkillIds = const <String>[],
   });
 
@@ -196,6 +197,11 @@ class JobPosting extends Equatable {
   /// `immediate | soon | flexible` (`needed_by`), or null when unset.
   final String? neededBy;
 
+  /// The declared role kind (`role_kind`, one of [kJobRoleKinds]) — display /
+  /// classification only. It picks the role illustration on the worker's card;
+  /// null renders the generic art.
+  final String? roleKind;
+
   /// The closed-set demand skills the posting asks for (`match_skill_ids`).
   /// EMPTY means the posting materialises no reach — it can match no worker.
   final List<String> matchSkillIds;
@@ -231,6 +237,7 @@ class JobPosting extends Equatable {
         requirements,
         shift,
         neededBy,
+        roleKind,
         matchSkillIds,
       ];
 }
@@ -740,6 +747,66 @@ const Map<String, String> kAgencyTradeLabels = <String, String>{
 /// Label for a trade key — falls back to the raw key for an unknown value.
 String agencyTradeLabel(String key) => kAgencyTradeLabels[key] ?? key;
 
+/// The 21 declared job ROLE kinds (`role_kind`, migration 0131) — DISPLAY /
+/// CLASSIFICATION ONLY, never a match input. This is the value that picks the
+/// role illustration on the worker's job card; a posting without it still
+/// renders the generic art. Mirrors `TRADE_FORM_KINDS_ALL` in
+/// `@badabhai/types` (the backend's closed enum), so the payer app asks for the
+/// same field payer-web already sends.
+const List<String> kJobRoleKinds = <String>[
+  'cnc_turner',
+  'vmc_milling',
+  'cnc_grinding',
+  'conventional_machinist',
+  'tool_die_maker',
+  'cam_programmer',
+  'cad_draughtsman',
+  'welder',
+  'sheet_metal_worker',
+  'press_operator',
+  'painter_coating',
+  'fitter',
+  'maintenance_technician',
+  'industrial_electrician',
+  'assembly_line_worker',
+  'quality_inspector',
+  'injection_moulding_operator',
+  'mould_die_maker',
+  'blow_moulding_operator',
+  'rubber_moulding_operator',
+  'plastic_process_technician',
+];
+
+/// Human labels for [kJobRoleKinds] (display only — the wire always carries the
+/// key). Mirrors `JOB_ROLE_LABELS` in `@badabhai/types`.
+const Map<String, String> kJobRoleLabels = <String, String>{
+  'cnc_turner': 'CNC Turner',
+  'vmc_milling': 'CNC Machining Centre Operator',
+  'cnc_grinding': 'CNC Grinding Operator',
+  'conventional_machinist': 'Conventional Machinist',
+  'tool_die_maker': 'Tool & Die Maker',
+  'cam_programmer': 'CAM Programmer',
+  'cad_draughtsman': 'CAD Designer / Draughtsman',
+  'welder': 'Welder',
+  'sheet_metal_worker': 'Sheet Metal Worker',
+  'press_operator': 'Press / Machine Operator',
+  'painter_coating': 'Painter / Powder Coating',
+  'fitter': 'Fitter',
+  'maintenance_technician': 'Maintenance Technician',
+  'industrial_electrician': 'Industrial Electrician',
+  'assembly_line_worker': 'Assembly Line Worker',
+  'quality_inspector': 'Quality Inspector / QC',
+  'injection_moulding_operator': 'Injection Moulding Operator',
+  'mould_die_maker': 'Mould / Die Maker (Plastics)',
+  'blow_moulding_operator': 'Blow Moulding / Extrusion Operator',
+  'rubber_moulding_operator': 'Rubber Moulding / Compression Operator',
+  'plastic_process_technician': 'Plastic Process / Quality Technician',
+};
+
+/// Label for a role kind — null when the value is not one of the 21.
+String? jobRoleLabel(String? kind) =>
+    kind == null ? null : kJobRoleLabels[kind];
+
 /// The coarse `needed_by` timing enum the agency route accepts.
 const List<String> kAgencyNeededBy = <String>['immediate', 'soon', 'flexible'];
 
@@ -807,6 +874,7 @@ class AgencyJobView extends Equatable {
     this.shift,
     this.benefits,
     this.requirements,
+    this.roleKind,
     this.matchSkillIds = const <String>[],
     this.createdAt,
     this.updatedAt,
@@ -827,6 +895,9 @@ class AgencyJobView extends Equatable {
         minExperienceYears: (row['minExperienceYears'] as num?)?.toInt(),
         maxExperienceYears: (row['maxExperienceYears'] as num?)?.toInt(),
         neededBy: row['neededBy'] as String?,
+        // Migration 0131 — the display role. The agency view returns it as
+        // `roleKind`; tolerate `role_kind` too for an older wire shape.
+        roleKind: row['roleKind'] as String? ?? row['role_kind'] as String?,
         // #1647 — the write-only four, now readable. An ABSENT key stays null
         // (an older deployment simply does not return them); only a real `[]`
         // becomes an empty list, so "unstated" and "cleared" stay distinct.
@@ -861,6 +932,11 @@ class AgencyJobView extends Equatable {
   final int? minExperienceYears;
   final int? maxExperienceYears;
   final String? neededBy;
+
+  /// The declared role kind (`role_kind`, one of [kJobRoleKinds]) — display /
+  /// classification only. It picks the role illustration on the worker's card;
+  /// null renders the generic art.
+  final String? roleKind;
 
   // --- The WORKER-VISIBLE content the job card renders VERBATIM -------------
   // `AgencyService.toJobView` returns all four since #1647, so the edit form
@@ -928,6 +1004,7 @@ class AgencyJobView extends Equatable {
         shift,
         benefits,
         requirements,
+        roleKind,
         matchSkillIds,
         applicantsReceived,
         createdAt,

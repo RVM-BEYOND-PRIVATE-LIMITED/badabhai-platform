@@ -227,12 +227,12 @@ describe("credits panel — PR-D2 best-value container flag", () => {
     findAll(tree, Card).filter((c) =>
       String((c.props as { className?: string }).className ?? "")
         .split(/\s+/)
-        .includes("credit-pack"),
+        .includes("cred-pack"),
     );
   const isBest = (c: ReactElement) =>
     String((c.props as { className?: string }).className ?? "")
       .split(/\s+/)
-      .includes("credit-pack--best");
+      .includes("cred-pack--best");
 
   it("flags exactly ONE pack — the lowest ₹/credit — and it is the pack carrying the badge", () => {
     // PACK_A = ₹40/credit, PACK_B = ₹35/credit → B is the best value.
@@ -242,11 +242,11 @@ describe("credits panel — PR-D2 best-value container flag", () => {
     const best = cards.filter(isBest);
     expect(best).toHaveLength(1);
     expect(best[0]!.key).toBe(PACK_B.code);
-    expect(textOf(best[0]!)).toContain("Best value");
+    expect(textOf(best[0]!)).toMatch(/best value/i);
     // …and the unflagged pack carries no badge either (flag and copy agree).
     const other = cards.find((c) => !isBest(c))!;
     expect(other.key).toBe(PACK_A.code);
-    expect(textOf(other)).not.toContain("Best value");
+    expect(textOf(other)).not.toMatch(/best value/i);
   });
 
   it("follows the catalog, not a position: re-price A below B and the flag moves with it", () => {
@@ -283,7 +283,10 @@ describe("credits panel — no mock wording, in either mode", () => {
       stateQueue = [null, null, null, null, null];
       stateCursor = 0;
       const tree = CreditsPanel({ packs: [PACK_A, PACK_B], real }) as ReactElement;
-      expect(packButtons(tree), `real=${real}`).toEqual(["Buy", "Buy"]);
+      expect(packButtons(tree), `real=${real}`).toEqual([
+        `Buy Pack ${PACK_A.credits}`,
+        `Buy Pack ${PACK_B.credits}`,
+      ]);
     }
   });
 
@@ -419,7 +422,7 @@ describe("credits panel — #2085: the price shown is the price sent; a refused 
     const tree = CreditsPanel({ packs: PACKS, real: true }) as ReactElement;
     const tile = findAll(tree, Card).find((c) => c.key === OFFER_PACK.code)!;
     const tilePrice = findAll(tile, "div").find((d) =>
-      String((d.props as { className?: string }).className).includes("credit-pack__price"),
+      String((d.props as { className?: string }).className).includes("cred-pack__price"),
     )!;
     // The tile's charged figure is the last ₹ on it (the struck list price comes first).
     const shown = rupees((textOf(tilePrice).match(/₹[\d,]+/g) ?? []).at(-1)!);

@@ -41,5 +41,11 @@ abstract interface class JobPostingChatRepository {
   /// collected fields the server could not fold onto the live posting, which the
   /// chat surfaces as a non-blocking honesty notice. Throws [PayerApiException]
   /// on 400 (draft incomplete) / 409 (already published or not ready) / 404.
-  Future<PublishJobResult> publish();
+  ///
+  /// [roleKind] is the publish-step role pick (#2490) — display only, never a
+  /// match input. Null/absent leaves `role_kind` NULL (generic card art).
+  ///
+  /// [area] is the publish-step locality (#2493), prefilled from the draft and
+  /// editable. Null/absent leaves `area` NULL (city-only card).
+  Future<PublishJobResult> publish({String? roleKind, String? area});
 }

@@ -106,6 +106,9 @@ class _EditCompanyJobScreenState extends State<EditCompanyJobScreen> {
       _neededBys.contains(widget.job.neededBy) ? widget.job.neededBy : null;
   late String? _payType =
       kJobPayTypes.contains(widget.job.payType) ? widget.job.payType : null;
+  late String? _roleKind = kJobRoleKinds.contains(widget.job.roleKind)
+      ? widget.job.roleKind
+      : null;
 
   // NO 'Not set' / 'Not stated' OPTION. Shift, needed-by and pay type are all
   // printed on the worker's card, so "leave it unstated" is not a choice the
@@ -265,6 +268,11 @@ class _EditCompanyJobScreenState extends State<EditCompanyJobScreen> {
     final String? shift = _shift == widget.job.shift ? null : _shift;
     final String? neededBy = _neededBy == widget.job.neededBy ? null : _neededBy;
     final String? payType = _payType == widget.job.payType ? null : _payType;
+    final bool roleKindEmptied =
+        _roleKind == null && widget.job.roleKind != null;
+    final String? roleKind = roleKindEmptied || _roleKind == widget.job.roleKind
+        ? null
+        : _roleKind;
     final int? patchPayMin = _changedInt(payMin, widget.job.payMin);
     final int? patchPayMax = _changedInt(payMax, widget.job.payMax);
     final int? patchExpMin =
@@ -282,6 +290,7 @@ class _EditCompanyJobScreenState extends State<EditCompanyJobScreen> {
       if (_emptied(_area.text, widget.job.area)) JobPostingClearField.area,
       if (_emptied(_location.text, widget.job.locationLabel))
         JobPostingClearField.locationLabel,
+      if (roleKindEmptied) JobPostingClearField.roleKind,
     ];
 
     final bool nothingChanged = roleTitle == null &&
@@ -293,6 +302,7 @@ class _EditCompanyJobScreenState extends State<EditCompanyJobScreen> {
         shift == null &&
         neededBy == null &&
         payType == null &&
+        roleKind == null &&
         patchPayMin == null &&
         patchPayMax == null &&
         patchExpMin == null &&
@@ -329,6 +339,7 @@ class _EditCompanyJobScreenState extends State<EditCompanyJobScreen> {
       maxExperienceYears: patchExpMax,
       shift: shift,
       neededBy: neededBy,
+      roleKind: roleKind,
       description: description,
       // Only when they CHANGED — and an emptied list rides as `[]`, which is
       // how this contract clears the chips.
@@ -351,14 +362,14 @@ class _EditCompanyJobScreenState extends State<EditCompanyJobScreen> {
   }
 
   /// A JUL31 section card — paper, 1px hairline, radius 10, elevation 0 — with a
-  /// deep-blue Anek section title. Uses a [ListBody] (never a [Column]) as its
+  /// deep-blue normal-face section title. Uses a [ListBody] (never a [Column]) as its
   /// vertical wrapper so a field label's only [Column] ancestor stays its own.
   Widget _sectionCard(String title, List<Widget> children) => BbCard(
         child: ListBody(
           children: <Widget>[
             Text(
               title,
-              style: AppTypography.display(
+              style: AppTypography.heading(
                 size: AppTypography.sizeMd,
                 weight: FontWeight.w800,
                 color: AppColors.blue,
@@ -494,7 +505,7 @@ class _EditCompanyJobScreenState extends State<EditCompanyJobScreen> {
                 const SizedBox(width: AppSpacing.s3),
                 Text(
                   'Edit job',
-                  style: AppTypography.display(
+                  style: AppTypography.header(
                     size: AppTypography.sizeLg,
                     weight: FontWeight.w800,
                   ),
@@ -504,6 +515,15 @@ class _EditCompanyJobScreenState extends State<EditCompanyJobScreen> {
             const SizedBox(height: AppSpacing.s4),
             _sectionCard('Job details', <Widget>[
               BbField(label: 'Job title', controller: _title),
+              const SizedBox(height: AppSpacing.s4),
+              BbSelect<String?>(
+                label: 'Role (card illustration)',
+                value: _roleKind,
+                items: <String?>[null, ...kJobRoleKinds],
+                labelOf: (String? v) =>
+                    v == null ? 'Not specified' : (jobRoleLabel(v) ?? v),
+                onChanged: (String? v) => setState(() => _roleKind = v),
+              ),
               const SizedBox(height: AppSpacing.s4),
               BbField(
                 label: 'Location',

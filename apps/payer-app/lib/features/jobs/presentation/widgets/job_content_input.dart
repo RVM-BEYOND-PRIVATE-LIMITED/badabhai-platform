@@ -271,7 +271,7 @@ class _AddPhraseDialogState extends State<_AddPhraseDialog> {
       backgroundColor: AppColors.surfaceCard,
       title: Text(
         widget.title,
-        style: AppTypography.display(
+        style: AppTypography.heading(
           size: AppTypography.sizeMd,
           weight: FontWeight.w800,
         ),

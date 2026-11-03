@@ -288,7 +288,7 @@ class _Header extends StatelessWidget {
           const SizedBox(width: AppSpacing.s3),
           Text(
             'Referred workers',
-            style: AppTypography.display(
+            style: AppTypography.header(
               size: AppTypography.sizeLg,
               weight: FontWeight.w800,
             ),

@@ -94,6 +94,7 @@ class _SpyApi extends MockPayerApiClient {
     int? maxExperienceYears,
     String? shift,
     String? neededBy,
+    String? roleKind,
     List<String>? benefits,
     List<String>? requirements,
     List<String>? matchSkillIds,
@@ -127,6 +128,7 @@ class _SpyApi extends MockPayerApiClient {
       maxExperienceYears: maxExperienceYears,
       shift: shift,
       neededBy: neededBy,
+      roleKind: roleKind,
       benefits: benefits,
       requirements: requirements,
       matchSkillIds: matchSkillIds,
@@ -146,6 +148,7 @@ class _SpyApi extends MockPayerApiClient {
     int? minExperienceYears,
     int? maxExperienceYears,
     String? neededBy,
+    String? roleKind,
     String? description,
     String? shift,
     List<String>? benefits,
@@ -175,6 +178,7 @@ class _SpyApi extends MockPayerApiClient {
       minExperienceYears: minExperienceYears,
       maxExperienceYears: maxExperienceYears,
       neededBy: neededBy,
+      roleKind: roleKind,
       description: description,
       shift: shift,
       benefits: benefits,
@@ -202,6 +206,7 @@ class _SpyApi extends MockPayerApiClient {
     int? maxExperienceYears,
     String? shift,
     String? neededBy,
+    String? roleKind,
     List<String>? benefits,
     List<String>? requirements,
     List<String>? matchSkillIds,
@@ -291,6 +296,7 @@ class _OldRouteSpyApi extends _V1SpyApi {
     int? maxExperienceYears,
     String? shift,
     String? neededBy,
+    String? roleKind,
     List<String>? benefits,
     List<String>? requirements,
     List<String>? matchSkillIds,
@@ -323,7 +329,7 @@ void main() {
     // builds EVERY field, which both lets us reach 'Post job' without scrolling
     // and keeps the `findsNothing` prefill assertions honest — off-screen text
     // would satisfy them for the wrong reason.
-    tester.view.physicalSize = const Size(1000, 3000);
+    tester.view.physicalSize = const Size(1000, 4000);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
 
@@ -482,6 +488,18 @@ void main() {
       expect(find.text('Chakan'), findsNothing);
     });
 
+    testWidgets('company form asks for the worker-card role illustration',
+        (WidgetTester tester) async {
+      await pump(tester, PayerRole.company);
+      expect(find.text('Role (card illustration)'), findsOneWidget);
+    });
+
+    testWidgets('agency form asks for the worker-card role illustration',
+        (WidgetTester tester) async {
+      await pump(tester, PayerRole.agency);
+      expect(find.text('Role (card illustration)'), findsOneWidget);
+    });
+
     testWidgets('untouched company form posts nothing', (
       WidgetTester tester,
     ) async {
@@ -523,8 +541,9 @@ void main() {
       );
 
       // Trade is a deliberate pick — it starts unset so nothing lands in the
-      // description the payer did not choose.
-      await tester.tap(find.text('Not specified'));
+      // description the payer did not choose. The ROLE dropdown also starts at
+      // 'Not specified', and the trade is the first of the two on the form.
+      await tester.tap(find.text('Not specified').first);
       await tester.pumpAndSettle();
       await tester.tap(find.text('Quality Inspector').last);
       await tester.pumpAndSettle();

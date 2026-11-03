@@ -331,7 +331,7 @@ class _Banner extends StatelessWidget {
                   children: <Widget>[
                     Text(
                       title,
-                      style: AppTypography.display(
+                      style: AppTypography.heading(
                         size: AppTypography.sizeBase,
                         weight: FontWeight.w700,
                       ),
@@ -392,7 +392,7 @@ class _ResultsHeader extends StatelessWidget {
         Expanded(
           child: Text(
             'Ready to share (${invites.length})',
-            style: AppTypography.display(
+            style: AppTypography.heading(
               size: AppTypography.sizeBase,
               weight: FontWeight.w700,
             ),
@@ -534,7 +534,7 @@ class _Header extends StatelessWidget {
           const SizedBox(width: AppSpacing.s3),
           Text(
             'Invite in bulk',
-            style: AppTypography.display(
+            style: AppTypography.header(
               size: AppTypography.sizeLg,
               weight: FontWeight.w800,
             ),

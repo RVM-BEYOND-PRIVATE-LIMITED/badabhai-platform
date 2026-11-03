@@ -129,6 +129,10 @@ class _PostJobScreenState extends State<PostJobScreen> {
   /// Company trade — null until the payer picks one (#357: a default of
   /// 'CNC Setter' would put a trade the payer never chose into `description`).
   String? _trade;
+  /// The declared role kind (`role_kind`) — DISPLAY ONLY, but it is what picks
+  /// the role illustration on the worker's job card. Null = no role stated, so
+  /// the card draws the generic art rather than guessing one.
+  String? _roleKind;
   String _band = '2-5';
   // Agency `trade_key` enum + coarse `needed_by` timing (server-accepted
   // values). BOTH start NULL. The trade is the worker card's own trade line and
@@ -559,6 +563,7 @@ class _PostJobScreenState extends State<PostJobScreen> {
         maxExperienceYears: expMax,
         shift: shift,
         neededBy: neededBy,
+        roleKind: _roleKind,
         // Untouched lists send NOTHING (there is nothing stored to clear).
         benefits: benefits.isEmpty ? null : benefits,
         requirements: requirements.isEmpty ? null : requirements,
@@ -576,6 +581,7 @@ class _PostJobScreenState extends State<PostJobScreen> {
         maxExperienceYears: expMax,
         shift: shift,
         neededBy: neededBy,
+        roleKind: _roleKind,
         benefits: benefits,
         requirements: requirements,
         matchSkillIds: matchSkillIds,
@@ -638,6 +644,7 @@ class _PostJobScreenState extends State<PostJobScreen> {
     required int? maxExperienceYears,
     required String? shift,
     required String? neededBy,
+    required String? roleKind,
     required List<String> benefits,
     required List<String> requirements,
     required List<String> matchSkillIds,
@@ -654,6 +661,7 @@ class _PostJobScreenState extends State<PostJobScreen> {
         maxExperienceYears != null && draft.maxExperienceYears == null;
     final bool missingShift = shift != null && draft.shift == null;
     final bool missingNeededBy = neededBy != null && draft.neededBy == null;
+    final bool missingRoleKind = roleKind != null && draft.roleKind == null;
     // A chip list counts as dropped only when we SENT one and the draft came
     // back with nothing stated. `[]` on the draft would mean the server stored
     // an empty list, which a create never does from this form.
@@ -672,6 +680,7 @@ class _PostJobScreenState extends State<PostJobScreen> {
         missingExpMax ||
         missingShift ||
         missingNeededBy ||
+        missingRoleKind ||
         missingBenefits ||
         missingRequirements ||
         missingSkills;
@@ -694,6 +703,7 @@ class _PostJobScreenState extends State<PostJobScreen> {
         maxExperienceYears: missingExpMax ? maxExperienceYears : null,
         shift: missingShift ? shift : null,
         neededBy: missingNeededBy ? neededBy : null,
+        roleKind: missingRoleKind ? roleKind : null,
         // Only ever a NON-EMPTY list here: an empty one would be sent as the
         // contract's "clear" instruction, which is not what a create dropping a
         // field means.
@@ -813,6 +823,7 @@ class _PostJobScreenState extends State<PostJobScreen> {
         minExperienceYears: expMin,
         maxExperienceYears: expMax,
         neededBy: _neededBy,
+        roleKind: _roleKind,
         // The worker-visible half of the card. Untouched inputs send NOTHING
         // (null / omitted), never a filler string or a placeholder chip.
         description: description.isEmpty ? null : description,
@@ -942,7 +953,7 @@ class _PostJobScreenState extends State<PostJobScreen> {
               const SizedBox(width: AppSpacing.s3),
               Text(
                 'Post a job',
-                style: AppTypography.display(
+                style: AppTypography.header(
                   size: AppTypography.sizeLg,
                   weight: FontWeight.w800,
                 ),
@@ -961,7 +972,7 @@ class _PostJobScreenState extends State<PostJobScreen> {
   }
 
   /// A JUL31 section card — paper, 1px hairline, radius 10, elevation 0 — with a
-  /// deep-blue Anek section title. Uses a [ListBody] (never a [Column]) as its
+  /// deep-blue normal-face section title. Uses a [ListBody] (never a [Column]) as its
   /// vertical wrapper so the only [Column] ancestor of a field label stays the
   /// field's own — the form tests locate an input by that ancestor.
   Widget _sectionCard(String title, List<Widget> children) => BbCard(
@@ -969,7 +980,7 @@ class _PostJobScreenState extends State<PostJobScreen> {
           children: <Widget>[
             Text(
               title,
-              style: AppTypography.display(
+              style: AppTypography.heading(
                 size: AppTypography.sizeMd,
                 weight: FontWeight.w800,
                 color: AppColors.blue,
@@ -1070,6 +1081,18 @@ class _PostJobScreenState extends State<PostJobScreen> {
             items: <String?>[null, ..._trades],
             labelOf: (String? t) => t ?? 'Not specified',
             onChanged: (String? v) => setState(() => _trade = v),
+          ),
+          const SizedBox(height: AppSpacing.s4),
+          // The worker card's role illustration is picked by `role_kind`, not by
+          // the free-text trade above. Ask for it so a posted job reaches the
+          // feed with the right art instead of the generic scene.
+          BbSelect<String?>(
+            label: 'Role (card illustration)',
+            value: _roleKind,
+            items: <String?>[null, ...kJobRoleKinds],
+            labelOf: (String? v) =>
+                v == null ? 'Not specified' : (jobRoleLabel(v) ?? v),
+            onChanged: (String? v) => setState(() => _roleKind = v),
           ),
           const SizedBox(height: AppSpacing.s4),
           Row(
@@ -1460,6 +1483,18 @@ class _PostJobScreenState extends State<PostJobScreen> {
           ),
           const SizedBox(height: AppSpacing.s4),
           BbField(label: 'Job title', controller: _title),
+          const SizedBox(height: AppSpacing.s4),
+          // The worker card's role illustration (`role_kind`). Optional, but
+          // asking for it is the difference between the right art and the
+          // generic scene on every card this agency posts.
+          BbSelect<String?>(
+            label: 'Role (card illustration)',
+            value: _roleKind,
+            items: <String?>[null, ...kJobRoleKinds],
+            labelOf: (String? v) =>
+                v == null ? 'Not specified' : (jobRoleLabel(v) ?? v),
+            onChanged: (String? v) => setState(() => _roleKind = v),
+          ),
           const SizedBox(height: AppSpacing.s4),
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,

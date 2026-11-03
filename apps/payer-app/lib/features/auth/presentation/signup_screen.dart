@@ -251,7 +251,7 @@ class _SignupScreenState extends State<SignupScreen> {
   List<Widget> _detailsStep() => <Widget>[
         Text(
           'Create your account',
-          style: AppTypography.display(
+          style: AppTypography.heading(
             size: AppTypography.sizeLg,
             weight: FontWeight.w700,
           ),
@@ -321,7 +321,7 @@ class _SignupScreenState extends State<SignupScreen> {
   List<Widget> _codeStep() => <Widget>[
         Text(
           'Enter the code',
-          style: AppTypography.display(
+          style: AppTypography.heading(
             size: AppTypography.sizeLg,
             weight: FontWeight.w700,
           ),
@@ -367,7 +367,7 @@ class _SignupScreenState extends State<SignupScreen> {
   List<Widget> _passwordStep() => <Widget>[
         Text(
           'Create your password',
-          style: AppTypography.display(
+          style: AppTypography.heading(
             size: AppTypography.sizeLg,
             weight: FontWeight.w700,
           ),
@@ -449,7 +449,7 @@ class _SignupTopBar extends StatelessWidget {
               const SizedBox(width: AppSpacing.s1),
               Text(
                 'Sign up',
-                style: AppTypography.display(
+                style: AppTypography.header(
                   size: AppTypography.sizeLg,
                   weight: FontWeight.w800,
                   color: AppColors.onBlue,

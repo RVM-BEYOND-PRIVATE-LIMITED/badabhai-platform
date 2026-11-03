@@ -239,6 +239,7 @@ class MockPayerApiClient implements PayerApiClient {
     int? maxExperienceYears,
     String? shift,
     String? neededBy,
+    String? roleKind,
     List<String>? benefits,
     List<String>? requirements,
   }) async {
@@ -276,6 +277,7 @@ class MockPayerApiClient implements PayerApiClient {
           requirements != null && requirements.isNotEmpty ? requirements : null,
       shift: shift,
       neededBy: neededBy,
+      roleKind: roleKind,
       matchSkillIds: matchSkillIds ?? const <String>[],
       createdAt: '2026-07-08T00:00:00Z',
       status: JobStatus.review,
@@ -314,6 +316,7 @@ class MockPayerApiClient implements PayerApiClient {
     int? maxExperienceYears,
     String? shift,
     String? neededBy,
+    String? roleKind,
     List<String>? benefits,
     List<String>? requirements,
     List<JobPostingClearField>? clear,
@@ -367,6 +370,8 @@ class MockPayerApiClient implements PayerApiClient {
       shift: patched(JobPostingClearField.shift, shift, current.shift),
       neededBy:
           patched(JobPostingClearField.neededBy, neededBy, current.neededBy),
+      roleKind:
+          patched(JobPostingClearField.roleKind, roleKind, current.roleKind),
       matchSkillIds: matchSkillIds ?? current.matchSkillIds,
       createdAt: current.createdAt,
       status: current.status,
@@ -668,8 +673,10 @@ class MockPayerApiClient implements PayerApiClient {
 
   @override
   Future<PublishJobResult> publishJobPostingChatSession(
-    String sessionId,
-  ) async {
+    String sessionId, {
+    String? roleKind,
+    String? area,
+  }) async {
     final _MockChatSession? session = _chatSessions[sessionId];
     if (session == null) throw const PayerApiException(404);
     if (session.published) throw const PayerApiException(409);
@@ -677,6 +684,10 @@ class MockPayerApiClient implements PayerApiClient {
     // and rejects an incomplete one — mirror that so the UI's publish-failure
     // path is exercised in MOCK too.
     if (!session.draft.hasRequiredFields) throw const PayerApiException(400);
+    // #2490/#2493 — the optional publish-step picks. Display only; the canned
+    // mock posting carries no card columns, so nothing else changes here.
+    session.publishedRoleKind = roleKind;
+    session.publishedArea = area;
     session.published = true;
     _chatSeq += 1;
     // Canned clean publish — nothing left unmapped.
@@ -750,6 +761,7 @@ class MockPayerApiClient implements PayerApiClient {
     int? minExperienceYears,
     int? maxExperienceYears,
     String? neededBy,
+    String? roleKind,
     String? description,
     String? shift,
     List<String>? benefits,
@@ -777,6 +789,7 @@ class MockPayerApiClient implements PayerApiClient {
       minExperienceYears: minExperienceYears,
       maxExperienceYears: maxExperienceYears,
       neededBy: neededBy,
+      roleKind: roleKind,
       description: description,
       shift: shift,
       benefits: benefits != null && benefits.isNotEmpty ? benefits : null,
@@ -817,6 +830,7 @@ class MockPayerApiClient implements PayerApiClient {
     int? minExperienceYears,
     int? maxExperienceYears,
     String? neededBy,
+    String? roleKind,
     String? description,
     String? shift,
     List<String>? benefits,
@@ -836,6 +850,7 @@ class MockPayerApiClient implements PayerApiClient {
         minExperienceYears == null &&
         maxExperienceYears == null &&
         neededBy == null &&
+        roleKind == null &&
         description == null &&
         shift == null &&
         benefits == null &&
@@ -872,6 +887,7 @@ class MockPayerApiClient implements PayerApiClient {
           j.maxExperienceYears,
         ),
         neededBy: patched(AgencyJobClearField.neededBy, neededBy, j.neededBy),
+        roleKind: patched(AgencyJobClearField.roleKind, roleKind, j.roleKind),
         description: patched(
           AgencyJobClearField.description,
           description,
@@ -918,6 +934,7 @@ class MockPayerApiClient implements PayerApiClient {
           minExperienceYears: j.minExperienceYears,
           maxExperienceYears: j.maxExperienceYears,
           neededBy: j.neededBy,
+          roleKind: j.roleKind,
           // Lifecycle does not touch the demand skills (#1960).
           matchSkillIds: j.matchSkillIds,
           applicantsReceived: j.applicantsReceived,
@@ -1429,6 +1446,11 @@ class _MockChatSession {
   final List<JobPostingChatMessageRow> messages = <JobPostingChatMessageRow>[];
   JobPostingDraft draft = const JobPostingDraft();
   bool published = false;
+  /// #2490 — the role picked on the publish step (display only), or null.
+  String? publishedRoleKind;
+
+  /// #2493 — the area/locality picked on the publish step, or null.
+  String? publishedArea;
   int _asked = 0;
 
   bool get draftReady => _asked >= _kMockChatTopics.length;

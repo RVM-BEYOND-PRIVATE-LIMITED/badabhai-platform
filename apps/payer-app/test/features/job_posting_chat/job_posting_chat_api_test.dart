@@ -287,6 +287,50 @@ void main() {
       final String body = h.router.seen.single.body;
       expect(body.contains('payer_id'), isFalse);
       expect(body.contains('org'), isFalse);
+      // No role picked → the key is ABSENT, so the posting stores NULL.
+      expect(jsonDecode(body), <String, dynamic>{});
+    });
+
+    test('carries an optionally picked role as role_kind, and nothing else '
+        '(#2490)', () async {
+      final h = _harness(<String, http.Response>{
+        'POST /payer/job-posting-chat/sessions/$_sid/publish':
+            _json(<String, dynamic>{
+          'job_posting_id': 'job-9',
+          'session_id': _sid,
+          'status': 'published',
+        }, 201),
+      });
+
+      await h.api.publishJobPostingChatSession(_sid, roleKind: 'cnc_turner');
+      final Map<String, dynamic> body =
+          jsonDecode(h.router.seen.single.body) as Map<String, dynamic>;
+      expect(body, <String, dynamic>{'role_kind': 'cnc_turner'});
+      expect(body.containsKey('payer_id'), isFalse);
+    });
+
+    test('carries an optionally picked area beside role_kind (#2493)',
+        () async {
+      final h = _harness(<String, http.Response>{
+        'POST /payer/job-posting-chat/sessions/$_sid/publish':
+            _json(<String, dynamic>{
+          'job_posting_id': 'job-9',
+          'session_id': _sid,
+          'status': 'published',
+        }, 201),
+      });
+
+      await h.api.publishJobPostingChatSession(
+        _sid,
+        roleKind: 'cnc_turner',
+        area: 'Chakan',
+      );
+      final Map<String, dynamic> body =
+          jsonDecode(h.router.seen.single.body) as Map<String, dynamic>;
+      expect(body, <String, dynamic>{
+        'role_kind': 'cnc_turner',
+        'area': 'Chakan',
+      });
     });
 
     test('a 2xx WITHOUT job_posting_id is contract breakage, not a success',
@@ -336,8 +380,21 @@ void main() {
           isFalse);
     });
 
-    test('vacancy is only ever the BANDED enum', () async {
-      expect(kVacancyBands, <String>['1', '2-5', '6-10', '11-25', '25+']);
+    test('the draft carries the coarse area bucket (#2493)', () async {
+      final JobPostingDraft draft = JobPostingDraft.fromJson(<String, dynamic>{
+        'role_title': 'CNC Setter',
+        'city': 'Pune',
+        'area': 'Chakan',
+      });
+      expect(draft.city, 'Pune');
+      expect(draft.area, 'Chakan');
+      // Absent stays null (city-only card), never a guessed locality.
+      final JobPostingDraft noArea =
+          JobPostingDraft.fromJson(<String, dynamic>{'city': 'Pune'});
+      expect(noArea.area, isNull);
+    });
+
+    test('vacancy is only ever the BANDED enum', () async {      expect(kVacancyBands, <String>['1', '2-5', '6-10', '11-25', '25+']);
       final JobPostingDraft draft = JobPostingDraft.fromJson(<String, dynamic>{
         'role_title': 'CNC Setter',
         'vacancy_band': '6-10',

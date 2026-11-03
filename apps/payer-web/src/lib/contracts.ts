@@ -1650,6 +1650,9 @@ export const jobPostingChatDraftWireSchema = z.object({
   // plain strings here so a value added server-side reaches the humaniser
   // rather than the error path.
   city: z.string().nullable().optional(),
+  // #2493 — the COARSE area/locality bucket the interview derives from the
+  // location answer (or asks one follow-up for). Optional: absent stays null.
+  area: z.string().nullable().optional(),
   pay_type: z.string().nullable().optional(),
   min_experience_years: z.number().int().nullable().optional(),
   max_experience_years: z.number().int().nullable().optional(),
@@ -1673,6 +1676,8 @@ export interface JobPostingDraft {
   description: string | null;
   /** The coarse card city — never derived from `locationLabel` (poster free text). */
   city: string | null;
+  /** #2493 — the coarse area/locality beside the city, or null when unanswered. */
+  area: string | null;
   /** `in_hand` | `gross` | `ctc`, raw — humanised at the display edge. */
   payType: string | null;
   /** Either end may be null on its own; 0 is a real value (a fresher). */
@@ -1702,6 +1707,7 @@ export function toJobPostingDraft(
     requirements: wire.requirements ?? [],
     description: wire.description ?? null,
     city: wire.city ?? null,
+    area: wire.area ?? null,
     payType: wire.pay_type ?? null,
     minExperienceYears: wire.min_experience_years ?? null,
     maxExperienceYears: wire.max_experience_years ?? null,

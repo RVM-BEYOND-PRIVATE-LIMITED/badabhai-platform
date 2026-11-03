@@ -153,7 +153,7 @@ class _CreditsView extends StatelessWidget {
                 // now names what the screen actually is.
                 Text(
                   'Credits',
-                  style: AppTypography.display(
+                  style: AppTypography.header(
                     size: AppTypography.sizeLg,
                     weight: FontWeight.w800,
                   ),
@@ -222,7 +222,7 @@ class _CreditsView extends StatelessWidget {
             // real per-unlock history is a separate section below.
             Text(
               'Credit ledger',
-              style: AppTypography.display(
+              style: AppTypography.heading(
                 size: AppTypography.sizeBase,
                 weight: FontWeight.w700,
               ),
@@ -252,7 +252,7 @@ class _CreditsView extends StatelessWidget {
               const SizedBox(height: AppSpacing.s5),
               Text(
                 'Unlock history',
-                style: AppTypography.display(
+                style: AppTypography.heading(
                   size: AppTypography.sizeBase,
                   weight: FontWeight.w700,
                 ),

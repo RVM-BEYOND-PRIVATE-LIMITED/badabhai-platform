@@ -9,7 +9,8 @@ import { PayerValidationError } from "../../../../../lib/payer-errors";
 const publishJobPostingChatSession = vi.fn();
 
 vi.mock("../../../../../lib/payer-api", () => ({
-  publishJobPostingChatSession: (id: unknown) => publishJobPostingChatSession(id),
+  publishJobPostingChatSession: (id: unknown, roleKind: unknown, area: unknown) =>
+    publishJobPostingChatSession(id, roleKind, area),
   startJobPostingChatSession: vi.fn(),
   sendJobPostingChatMessage: vi.fn(),
   getJobPostingChatTranscript: vi.fn(),
@@ -52,5 +53,68 @@ describe("publishJobPostingChatAction (#1912)", () => {
     });
     const res = await publishJobPostingChatAction({ sessionId: SESSION });
     expect(res).toEqual({ ok: true, postingId: "job-1", unsetCardFields: ["role_kind"] });
+  });
+
+  it("forwards an optional role_kind and leaves it ABSENT when not picked (#2490)", async () => {
+    publishJobPostingChatSession.mockResolvedValue({
+      jobPostingId: "job-1",
+      unsetCardFields: [],
+      unmappedFields: [],
+    });
+
+    await publishJobPostingChatAction({ sessionId: SESSION, roleKind: "cnc_turner" });
+    expect(publishJobPostingChatSession).toHaveBeenLastCalledWith(
+      SESSION,
+      "cnc_turner",
+      undefined,
+    );
+
+    await publishJobPostingChatAction({ sessionId: SESSION });
+    expect(publishJobPostingChatSession).toHaveBeenLastCalledWith(
+      SESSION,
+      undefined,
+      undefined,
+    );
+  });
+
+  it("rejects a role_kind outside the closed 21-value set (#2490)", async () => {
+    const res = await publishJobPostingChatAction({
+      sessionId: SESSION,
+      roleKind: "rocket_surgeon",
+    });
+    expect(res).toEqual({ ok: false, error: "Pick a valid role." });
+    expect(publishJobPostingChatSession).not.toHaveBeenCalled();
+  });
+
+  it("forwards a trimmed area and omits a blank one (#2493)", async () => {
+    publishJobPostingChatSession.mockResolvedValue({
+      jobPostingId: "job-1",
+      unsetCardFields: [],
+      unmappedFields: [],
+    });
+
+    await publishJobPostingChatAction({ sessionId: SESSION, area: "  Chakan  " });
+    expect(publishJobPostingChatSession).toHaveBeenLastCalledWith(
+      SESSION,
+      undefined,
+      "Chakan",
+    );
+
+    // Cleared at publish → absent, so the posting stores NULL (city-only card).
+    await publishJobPostingChatAction({ sessionId: SESSION, area: "   " });
+    expect(publishJobPostingChatSession).toHaveBeenLastCalledWith(
+      SESSION,
+      undefined,
+      undefined,
+    );
+  });
+
+  it("rejects an area over the 120-char cap before the wire (#2493)", async () => {
+    const res = await publishJobPostingChatAction({
+      sessionId: SESSION,
+      area: "x".repeat(121),
+    });
+    expect(res).toEqual({ ok: false, error: "Keep the area under 120 characters." });
+    expect(publishJobPostingChatSession).not.toHaveBeenCalled();
   });
 });

@@ -118,7 +118,7 @@ class _EarningsView extends StatelessWidget {
               const SizedBox(height: AppSpacing.s5),
               Text(
                 'How you earn',
-                style: AppTypography.display(
+                style: AppTypography.heading(
                   size: AppTypography.sizeBase,
                   weight: FontWeight.w700,
                 ),
@@ -128,7 +128,7 @@ class _EarningsView extends StatelessWidget {
               const SizedBox(height: AppSpacing.s5),
               Text(
                 'Manage',
-                style: AppTypography.display(
+                style: AppTypography.heading(
                   size: AppTypography.sizeBase,
                   weight: FontWeight.w700,
                 ),
@@ -224,7 +224,7 @@ class _RequestableCard extends StatelessWidget {
           const SizedBox(height: AppSpacing.s1),
           Text(
             '₹${formatIndianGrouped(earnings.requestableInr)}',
-            style: AppTypography.display(
+            style: AppTypography.heading(
               size: AppTypography.sizeXl,
               weight: FontWeight.w800,
             ),
@@ -351,7 +351,7 @@ class _Total extends StatelessWidget {
         children: <Widget>[
           Text(
             '₹${formatIndianGrouped(value)}',
-            style: AppTypography.display(
+            style: AppTypography.heading(
               size: AppTypography.sizeLg,
               weight: FontWeight.w800,
             ),
@@ -431,7 +431,7 @@ class _KycNavCard extends StatelessWidget {
               children: <Widget>[
                 Text(
                   'KYC details',
-                  style: AppTypography.display(
+                  style: AppTypography.heading(
                     size: AppTypography.sizeBase,
                     weight: FontWeight.w700,
                   ),
@@ -484,7 +484,7 @@ class _NavCard extends StatelessWidget {
               children: <Widget>[
                 Text(
                   title,
-                  style: AppTypography.display(
+                  style: AppTypography.heading(
                     size: AppTypography.sizeBase,
                     weight: FontWeight.w700,
                   ),
@@ -533,7 +533,7 @@ class _Header extends StatelessWidget {
           const SizedBox(width: AppSpacing.s3),
           Text(
             'Earnings & payouts',
-            style: AppTypography.display(
+            style: AppTypography.header(
               size: AppTypography.sizeLg,
               weight: FontWeight.w800,
             ),

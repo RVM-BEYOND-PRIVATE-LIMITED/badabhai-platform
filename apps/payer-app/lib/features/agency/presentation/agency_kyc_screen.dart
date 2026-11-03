@@ -188,7 +188,7 @@ class _KycFormState extends State<_KycForm> {
           kyc != null && !kyc.isNotSubmitted
               ? 'Update your details'
               : 'Add your payout details',
-          style: AppTypography.display(
+          style: AppTypography.heading(
             size: AppTypography.sizeBase,
             weight: FontWeight.w700,
           ),
@@ -319,7 +319,7 @@ class _StatusCard extends StatelessWidget {
               Expanded(
                 child: Text(
                   'Your KYC',
-                  style: AppTypography.display(
+                  style: AppTypography.heading(
                     size: AppTypography.sizeBase,
                     weight: FontWeight.w700,
                   ),
@@ -409,7 +409,7 @@ class _Header extends StatelessWidget {
           const SizedBox(width: AppSpacing.s3),
           Text(
             'KYC details',
-            style: AppTypography.display(
+            style: AppTypography.header(
               size: AppTypography.sizeLg,
               weight: FontWeight.w800,
             ),

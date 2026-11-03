@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { ACTION_ICON, Icon } from "@badabhai/icons";
+import { Icon } from "@badabhai/icons";
 import { requireAgent } from "../../../../lib/auth/roles";
 import { agencyFlags } from "../../../../lib/config";
 import { listAgencyJobs } from "../../../../lib/payer-api";
@@ -47,7 +47,6 @@ export default async function AgencyPostingsPage() {
       <PageHeader
         title="Postings"
         description="Every posting your agency has published, with the controls to edit, pause, resume or close it."
-        primaryAction={{ href: "/agency/jobs/new", label: "New posting", icon: ACTION_ICON.create }}
       />
       {jobs ? (
         <AgencyJobsManager jobs={jobs} />

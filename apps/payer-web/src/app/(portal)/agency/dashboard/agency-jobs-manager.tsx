@@ -117,7 +117,7 @@ export function AgencyJobsManager({ jobs }: { jobs: AgencyJob[] }) {
             </span>
             <h2 className="state__title">No postings yet</h2>
             <p className="state__body">
-              Matched workers can only find your agency once a role is live — use New posting above.
+              Matched workers can only find your agency once a role is live — use New posting in the sidebar.
               Posting is free through launch.
             </p>
           </div>

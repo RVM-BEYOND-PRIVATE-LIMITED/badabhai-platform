@@ -1,4 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
+import { Fragment } from "react";
 import type { ReactElement, ReactNode } from "react";
 import { ProgressBar, StatTile } from "../../../../components/ds";
 import type { AgencyEarnings, AgencyKyc, AgencyReferralsSummary } from "../../../../lib/contracts";
@@ -151,9 +152,18 @@ describe("agency referrals page — referral link + funnel are LIVE", () => {
     expect(components).toContain(AgencyInvitePanel);
   });
 
-  it("renders the three funnel StatTiles", async () => {
-    const { components } = collect(await AgencyReferralsPage());
-    expect(components.filter((c) => c === StatTile)).toHaveLength(3);
+  it("renders the three funnel stage cards", async () => {
+    const tree = await AgencyReferralsPage();
+    const cards = elements(tree).filter((e) =>
+      String(e.props.className ?? "")
+        .split(/\s+/)
+        .includes("agency-stage-card"),
+    );
+    expect(cards).toHaveLength(3);
+    const text = collect(tree).text.join(" ");
+    expect(text).toContain("INVITES CREATED");
+    expect(text).toContain("CLICKED");
+    expect(text).toContain("ACCEPTED");
   });
 
   it("respects the k-anon floor — a suppressed stage shows '<minBucket', never a literal 0", async () => {
@@ -167,7 +177,15 @@ describe("agency referrals page — referral link + funnel are LIVE", () => {
     const { text } = collect(await AgencyReferralsPage());
     expect(text).toContain("<5");
     expect(text).toContain("7");
-    expect(text).not.toContain("0");
+    // A suppressed stage is NEVER a literal 0 in the stage figures.
+    const figures = elements(await AgencyReferralsPage())
+      .filter((e) =>
+        String(e.props.className ?? "")
+          .split(/\s+/)
+          .includes("agency-stage-card"),
+      )
+      .map((e) => collect(e).text.join(" "));
+    for (const card of figures) expect(card).not.toMatch(/\b0\b/);
   });
 });
 
@@ -180,10 +198,10 @@ describe("agency referrals page — GATED supply money", () => {
     expect(text.join(" ")).not.toMatch(/Payouts coming soon/);
   });
 
-  it("payouts OFF (earnings 404 → null) → 'Payouts coming soon' inert card, panels do NOT render", async () => {
+  it("payouts OFF (earnings 404 → null) → inert 'Soon' card, panels do NOT render", async () => {
     getAgencyEarnings.mockResolvedValueOnce(null);
     const { components, text } = collect(await AgencyReferralsPage());
-    expect(text.join(" ")).toMatch(/Payouts coming soon/);
+    expect(text.join(" ")).toMatch(/switched on yet/);
     expect(components).not.toContain(EarningsPanel);
     expect(components).not.toContain(PayoutPanel);
   });
@@ -204,7 +222,7 @@ describe("agency referrals page — GATED supply money", () => {
     const { components, text } = collect(await AgencyReferralsPage());
     const joined = text.join(" ");
     expect(joined).toContain("owner can see payouts");
-    expect(joined).not.toMatch(/Payouts coming soon/);
+    expect(joined).not.toMatch(/switched on yet/);
     expect(joined).not.toMatch(/could not load/i);
     expect(components).not.toContain(EarningsPanel);
     expect(components).not.toContain(KycPanel);
@@ -251,15 +269,20 @@ describe("agency referrals page — W2-B layout", () => {
     expect(tree.props.className).toBe("agency-referrals-page");
   });
 
-  it("the funnel tiles use the compact KPI row (one ledger line per tile on a phone)", async () => {
+  it("the funnel is the three-card designr7 stage strip", async () => {
     const els = elements(await AgencyReferralsPage());
-    // The element whose DIRECT children are the three funnel tiles.
     const row = els.find((e) =>
-      ([] as ReactNode[])
-        .concat(e.props.children as ReactNode)
-        .some((c) => c !== null && typeof c === "object" && (c as El).type === StatTile),
+      String(e.props.className ?? "")
+        .split(/\s+/)
+        .includes("agency-stages--lg"),
     );
-    expect(String(row!.props.className).split(/\s+/)).toEqual(["stat-row", "stat-row--kpi"]);
+    expect(row).toBeDefined();
+    const cards = elements(row!).filter((e) =>
+      String(e.props.className ?? "")
+        .split(/\s+/)
+        .includes("agency-stage-card"),
+    );
+    expect(cards).toHaveLength(3);
   });
 });
 
@@ -289,54 +312,79 @@ describe("agency referrals page — the conversion RATE honours the k-anon floor
       minBucket: 5,
     });
     const tree = await renderFunnelOnly();
-    expect(barOf(tree)).toMatchObject({ value: 0, showValue: false });
+    expect(elements(tree).some((e) => e.type === ProgressBar)).toBe(false);
     expect(collect(tree).text.join(" ")).toMatch(
-      /Conversion appears once both stages clear the\s+privacy floor of/,
+      /Conversion percentage metrics unlock once counts exceed/,
     );
   });
 });
 
-/* ── F19 (final sweep): the funnel first, then the one primary, then the secondary tool ── */
+/* ── designr7 reading order: funnel stages → invite grid → batch → money ── */
 
-describe("agency referrals page — F19 reading order", () => {
+describe("agency referrals page — designr7 reading order", () => {
   type Block = ReactElement<Record<string, unknown>>;
-  const LEAD = "agency-referrals-page__lead";
   const blocksOf = (children: ReactNode): Block[] =>
     ([] as ReactNode[])
       .concat(children)
       .flat()
       .filter((k): k is Block => typeof k === "object" && k !== null);
-  /** What a top-level block is. */
+  const cls = (k: Block): string => String(k.props.className ?? "");
   const kind = (k: Block): string => {
     if (k.type === AgencyInvitePanel) return "invite";
     if (k.type === AgencyBatchInvitePanel) return "batch";
+    if (cls(k).includes("agency-stages--lg")) return "funnel";
+    if (cls(k).includes("agency-privacy-banner")) return "privacy";
+    if (cls(k).includes("agency-conversion")) return "conversion";
+    if (cls(k).includes("agency-referrals-grid")) return "grid";
+    if (k.type === KycPanel || k.type === PayoutPanel) return "money";
     const text = collect(k).text.join(" ");
-    if (/Referral funnel/.test(text)) return "funnel";
+    if (/Referral Funnel & Worker Onboarding/.test(text)) return "header";
     if (/earnings|payout/i.test(text) || collect(k).components.includes(EarningsPanel)) return "money";
+    if (cls(k).includes("dash-foot")) return "footer";
     return typeof k.type === "string" ? k.type : "header";
   };
-  /** The page's blocks in DOM (reading) order. The lead box is layout only: read through it. */
   async function blocks(): Promise<string[]> {
     const page = (await AgencyReferralsPage()) as ReactElement<{ children: ReactNode[] }>;
-    return blocksOf(page.props.children)
-      .flatMap((k) => (k.props.className === LEAD ? blocksOf(k.props.children as ReactNode) : [k]))
-      .map(kind);
+    const walkBlocks = (children: ReactNode): string[] =>
+      blocksOf(children).flatMap((k) =>
+        k.type === Fragment ? walkBlocks(k.props.children as ReactNode) : [kind(k)],
+      );
+    return walkBlocks(page.props.children);
   }
 
-  it("funnel ABOVE the forms; the invite link (the one primary) before the batch links; money last", async () => {
-    expect(await blocks()).toEqual(["header", "funnel", "invite", "batch", "money"]);
+  it("funnel stages first, then the invite/money grid, then batch and the money panels", async () => {
+    expect(await blocks()).toEqual([
+      "header",
+      "funnel",
+      "privacy",
+      "conversion",
+      "grid",
+      "batch",
+      "money",
+      "money",
+      "footer",
+    ]);
   });
 
-  it("…and the same order while payouts are off", async () => {
+  it("…and the same order while payouts are off (the side shows the Soon card)", async () => {
     getAgencyEarnings.mockResolvedValueOnce(null);
-    expect(await blocks()).toEqual(["header", "funnel", "invite", "batch", "money"]);
+    expect(await blocks()).toEqual([
+      "header",
+      "funnel",
+      "privacy",
+      "conversion",
+      "grid",
+      "batch",
+      "footer",
+    ]);
   });
 
-  it("F19 (re-sweep): the funnel and the one primary share ONE lead box — the phone reorders only inside it", async () => {
-    // globals.css lifts the invite panel above the funnel at ≤600px within this box; the DOM —
-    // and every wider screen — keeps the funnel first.
-    const lead = elements(await AgencyReferralsPage()).filter((e) => e.props.className === LEAD);
-    expect(lead).toHaveLength(1);
-    expect(blocksOf(lead[0]!.props.children as ReactNode).map(kind)).toEqual(["funnel", "invite"]);
+  it("the invite panel is the left column and the money/dispatch stack is the right", async () => {
+    const page = (await AgencyReferralsPage()) as ReactElement<{ children: ReactNode[] }>;
+    const grid = elements(page).find((e) => cls(e).includes("agency-referrals-grid"))!;
+    const main = elements(grid).find((e) => cls(e).includes("agency-referrals-main"))!;
+    const side = elements(grid).find((e) => cls(e).includes("agency-referrals-side"))!;
+    expect(collect(main).components).toContain(AgencyInvitePanel);
+    expect(collect(side).text.join(" ")).toMatch(/Earnings|Dispatch Channels/);
   });
 });

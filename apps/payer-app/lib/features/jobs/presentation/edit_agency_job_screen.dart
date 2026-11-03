@@ -78,6 +78,9 @@ class _EditAgencyJobScreenState extends State<EditAgencyJobScreen> {
       kAgencyTradeKeys.contains(widget.job.tradeKey) ? widget.job.tradeKey : null;
   late String? _neededBy =
       kAgencyNeededBy.contains(widget.job.neededBy) ? widget.job.neededBy : null;
+  late String? _roleKind = kJobRoleKinds.contains(widget.job.roleKind)
+      ? widget.job.roleKind
+      : null;
 
   // --- Worker-visible content, PREFILLED from the row (#1647) ---------------
   // All four come back on the job view now, so there is a real stored value to
@@ -273,6 +276,11 @@ class _EditAgencyJobScreenState extends State<EditAgencyJobScreen> {
     // was never set and is still empty sends neither.
     final bool areaEmptied =
         area.isEmpty && (widget.job.area ?? '').trim().isNotEmpty;
+    final bool roleKindEmptied =
+        _roleKind == null && widget.job.roleKind != null;
+    final String? roleKind = roleKindEmptied || _roleKind == widget.job.roleKind
+        ? null
+        : _roleKind;
     // ADR-0050 — send the demand-skill pick only when it CHANGED (an untouched
     // pick omits it, leaving the stored set alone). Stripped by the route until
     // the API field lands (#1960/#1957).
@@ -293,6 +301,7 @@ class _EditAgencyJobScreenState extends State<EditAgencyJobScreen> {
       minExperienceYears: expMin,
       maxExperienceYears: expMax,
       neededBy: _neededBy,
+      roleKind: roleKind,
       // An EMPTIED description is not sent: `description` is `min(1)` on the
       // contract, so a blank would 400 rather than clear the stored text.
       description: description.isEmpty || description == widget.job.description
@@ -306,8 +315,11 @@ class _EditAgencyJobScreenState extends State<EditAgencyJobScreen> {
           _requirementsTouched ? List<String>.of(_requirements) : null,
       matchSkillIds:
           _matchSkillsAvailable && skillsChanged ? picked : null,
-      clear: areaEmptied
-          ? const <AgencyJobClearField>[AgencyJobClearField.area]
+      clear: (areaEmptied || roleKindEmptied)
+          ? <AgencyJobClearField>[
+              if (areaEmptied) AgencyJobClearField.area,
+              if (roleKindEmptied) AgencyJobClearField.roleKind,
+            ]
           : null,
     );
     if (!mounted) return;
@@ -359,14 +371,14 @@ class _EditAgencyJobScreenState extends State<EditAgencyJobScreen> {
   }
 
   /// A JUL31 section card — paper, 1px hairline, radius 10, elevation 0 — with a
-  /// deep-blue Anek section title. Uses a [ListBody] (never a [Column]) as its
+  /// deep-blue normal-face section title. Uses a [ListBody] (never a [Column]) as its
   /// vertical wrapper so a field label's only [Column] ancestor stays its own.
   Widget _sectionCard(String title, List<Widget> children) => BbCard(
         child: ListBody(
           children: <Widget>[
             Text(
               title,
-              style: AppTypography.display(
+              style: AppTypography.heading(
                 size: AppTypography.sizeMd,
                 weight: FontWeight.w800,
                 color: AppColors.blue,
@@ -460,7 +472,7 @@ class _EditAgencyJobScreenState extends State<EditAgencyJobScreen> {
                 const SizedBox(width: AppSpacing.s3),
                 Text(
                   'Edit job',
-                  style: AppTypography.display(
+                  style: AppTypography.header(
                     size: AppTypography.sizeLg,
                     weight: FontWeight.w800,
                   ),
@@ -479,6 +491,15 @@ class _EditAgencyJobScreenState extends State<EditAgencyJobScreen> {
                 options: kAgencyTradeKeys,
                 labelOf: agencyTradeLabel,
                 onSelected: (String v) => setState(() => _tradeKey = v),
+              ),
+              const SizedBox(height: AppSpacing.s4),
+              BbSelect<String?>(
+                label: 'Role (card illustration)',
+                value: _roleKind,
+                items: <String?>[null, ...kJobRoleKinds],
+                labelOf: (String? v) =>
+                    v == null ? 'Not specified' : (jobRoleLabel(v) ?? v),
+                onChanged: (String? v) => setState(() => _roleKind = v),
               ),
               const SizedBox(height: AppSpacing.s4),
               Row(

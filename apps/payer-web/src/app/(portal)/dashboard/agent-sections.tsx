@@ -1,108 +1,67 @@
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 import { requireAgent } from "../../../lib/auth/roles";
 import { agencyFlags } from "../../../lib/config";
-import {
-  getAgencyAccount,
-  getAgencyEarnings,
-  getAgencyReferralsSummary,
-  listAgencyJobs,
-} from "../../../lib/payer-api";
+import { getAgencyReferralsSummary, listAgencyJobs } from "../../../lib/payer-api";
 import { assertNoAgencyPII } from "../../../lib/assert-no-agency-pii";
+import { formatInr } from "../../../lib/format";
 import { summarizeAgencyJobs } from "../../../lib/agency-summary";
-import { tradeLabel } from "../../../lib/agency-view";
+import { kAnonCount, tradeLabel } from "../../../lib/agency-view";
+import { lowBalanceThreshold } from "../../../lib/pricing-config";
 import { bandLabel } from "../../../lib/masking";
 import { AGENCY_POSTING_ROUTES } from "../../../lib/posting-routes";
+import { recentUnlockRows } from "../../../lib/unlock-history";
 import type {
-  AgencyAccount,
   AgencyJob,
   AgencyReferralsSummary,
+  CreditBalance,
+  UnlockHistoryItem,
 } from "../../../lib/contracts";
-import { Badge, Card } from "../../../components/ds";
+import { Badge, Card, StatTile } from "../../../components/ds";
 import { PortalLink } from "../../../components/portal-link";
 import { RetryButton } from "../../../components/retry-button";
-import { ReferralFunnel } from "../agency/dashboard/referral-funnel";
-import { AgencyParkedModules } from "../agency/dashboard/parked-modules";
 
 /**
- * AGENT DEMAND SECTIONS (MERGE-1) — the agency-only modules of the unified `/dashboard`.
- * DS3.1 visual layer; SERVER component. Rendered by `dashboard/page.tsx` ONLY in the
- * `session.role === "agent"` branch; an EMPLOYER never imports/reaches this (the page does
- * not render it for them), so an employer never fetches or sees any agency read.
+ * AGENCY DASHBOARD (designr8) — the agency-only half of the unified `/dashboard`.
  *
- * SECURITY / authz (XB-A / XT3 — DEFENCE-IN-DEPTH): the FIRST statement is `requireAgent()`,
- * which reads the SERVER-HELD signed session and returns a NEUTRAL 404 for any non-`agent`.
- * This re-asserts the role server-side independently of the page's own `isAgency` label, so
- * the agency reads CANNOT run for a non-agent even if a future caller composed it wrong. The
- * agency-portal public flag additionally fail-closes (off → these sections render NOTHING;
- * the rest of the shared dashboard is unaffected — see the note at the flag check).
+ * SERVER component. The FIRST statement is `requireAgent()`, so an employer can never reach
+ * an agency read even if a future caller composed this wrongly; the agency-portal flag then
+ * fail-closes (off → render nothing, read nothing) without taking the shared page down.
  *
- * FACELESS (CLAUDE.md §2 #2 + #6 / B-R2): the agency sees ONLY opaque ids, COUNTS, status
- * enums, coarse bands, timestamps, and its OWN org label — NEVER a worker name/phone/raw
- * resume/unconsented data. Every payload crosses {@link assertNoAgencyPII} at the render
- * boundary (defence-in-depth; the data seam also wraps it). k-anon flooring is applied inside
- * the referral funnel. NO worker id/phone/name ever enters the DOM or an href.
+ * FACELESS: only opaque ids, counts, status enums, coarse bands and the agency's own label
+ * reach the DOM. Every payload crosses `assertNoAgencyPII` at the render boundary. No worker
+ * name/phone/raw resume/unconsented data is read or rendered.
  *
- * LIVE (honest labelling): the account identity, a glance at the agency's OWN postings
- * (`/payer/agency/jobs`; they are created on `/agency/jobs/new` and managed on `/agency/jobs`)
- * and the referral funnel (`/payer/agency/referrals/summary`, aggregate + k-anon) are LIVE
- * payer-authed, agent-role-gated reads (ADR-0022); the earnings read only tells "Not in this
- * release" whether the server has payouts on. DATA-COHERENCE: for an agent these AGENCY
- * postings (`jobs.payer_id`) — NOT the employer `job-postings` the shared dashboard top
- * reads — are the source of truth for the posting count + listing; the shared top therefore
- * omits its `job-postings`-derived tile + "Your postings" section for agents so the two never
- * contradict (see dashboard/page.tsx). Every "New posting" for an agency opens the AGENCY form.
- *
- * The credits + unlocked-count stat tiles are NOT repeated here: they are coherent between
- * the two surfaces (same payer-authed reads) and already render in the shared top, so this
- * section adds only the agency-SPECIFIC identity + demand modules.
- *
- * A GLANCE, NOT A SECOND RAIL (final sweep F15/F17/F21 — the page was 5,354px tall at 375). No
- * tile repeats a rail destination (Worker activity, QR invite: the rail opens them); the invite
- * FORM and the batch links live on Referrals, which the funnel panel links ONCE; the dead "Bulk
- * invite upload" tile is gone (its explanation page stays, by URL); "Your postings" glances at
- * three rows; and "Not in this release" starts closed.
+ * The credit/unlock reads belong to the shared page (one payer-scoped read each); they arrive
+ * as props so this section never fetches them twice. Everything agency-specific — the jobs
+ * list and the k-anon referral funnel — is read here, each isolated so one failure degrades
+ * that panel only.
  */
-/** How many of the agency's postings the dashboard glances at; "Postings" opens the rest. */
+export interface AgentSectionsProps {
+  credits: CreditBalance | null;
+  unlocks: UnlockHistoryItem[] | null;
+  unitPriceInr: number | null;
+}
+
 const GLANCE_ROWS = 3;
 
-export async function AgentSections() {
+export async function AgentSections({
+  credits = null,
+  unlocks = null,
+  unitPriceInr = null,
+}: Partial<AgentSectionsProps> = {}) {
   // 1) SERVER-enforced role gate — employer → neutral 404, before any agency read runs.
-  const session = await requireAgent();
+  await requireAgent();
 
   // 2) Public flag fail-close: agency portal off → these sections do not render.
-  //
-  // RENDERS NOTHING, RATHER THAN 404-ing THE PAGE — and the difference only became visible
-  // once MERGE-1 moved these modules INLINE. `notFound()` was right when this code guarded a
-  // standalone `/agency/dashboard`: a surface that is switched off should not exist. Inline on
-  // the SHARED `/dashboard`, the same call takes the whole page down for an agent, including
-  // the shared top (credits, attention items, quick actions) that has nothing to do with
-  // agency demand. And since `/agency/dashboard` is now a `redirect()` to here, an agent whose
-  // flag was off had NO reachable home screen at all: every nav target, the brand lockup and
-  // any old bookmark landed on the same 404. README called this flag the way to "roll back"
-  // the agency surface; it bricked the portal instead.
-  //
-  // THE FAIL-CLOSED PROPERTY IS UNCHANGED, which is what makes this safe: authorization is
-  // `requireAgent()` above, not this flag, and returning here still runs ZERO agency reads —
-  // no account, jobs or referral fetch, nothing rendered, no PII surface. The flag gates a
-  // SHELL, and a shell that is off should be absent, not fatal.
   const flags = agencyFlags();
   if (!flags.agencyPortalEnabled) return null;
 
   // 3) LIVE reads, each isolated so a single failing source degrades to "—"/empty rather
-  //    than blanking the page. Credits + unlocks are intentionally NOT re-read here — the
-  //    shared dashboard top owns those (coherent, same reads).
-  let account: AgencyAccount | null = null;
+  //    than blanking the page.
   let jobs: AgencyJob[] | null = null;
   let referrals: AgencyReferralsSummary | null = null;
   let readError = false;
 
-  try {
-    account = assertNoAgencyPII(await getAgencyAccount(), "payer/me");
-  } catch {
-    // Fall back to the session's own non-PII label; never block the page on /me.
-    account = { role: "agent", status: "active", displayLabel: session.displayLabel };
-    readError = true;
-  }
   try {
     jobs = assertNoAgencyPII(await listAgencyJobs(), "payer/agency/jobs");
   } catch {
@@ -116,28 +75,13 @@ export async function AgentSections() {
   } catch {
     readError = true;
   }
-  // The SERVER's payouts gate (`AGENCY_PAYOUTS_ENABLED`), read the way /agency/referrals reads it
-  // before it draws the KYC, earnings and payout panels: the earnings route answers (a 404 is the
-  // seam's `null` = off). It only decides whether "Not in this release" may call those modules
-  // available (review M1), so a failure is "not available" — never an error state, never the
-  // "Some signals unavailable" alert. The seam crosses assertNoAgencyPII; only a boolean is kept.
-  let payoutsAvailable = false;
-  try {
-    payoutsAvailable = (await getAgencyEarnings()) !== null;
-  } catch {
-    payoutsAvailable = false;
-  }
 
   const demand = jobs ? summarizeAgencyJobs(jobs) : null;
-  const dash = (n: number | null): string => (n === null ? "—" : String(n));
-  const accountActive = account?.status === "active";
+  const unlockRows = recentUnlockRows(unlocks ?? [], [], Date.now());
+  const lowBalance = credits !== null && credits.balance < lowBalanceThreshold();
 
   return (
     <>
-      {/* Partial-read degrade: the UI-1 `alert` primitive (the DS replacement for the
-          flat-Card + uppercase-Badge + paragraph this used to build by hand). The tone spine
-          carries the "warning" the Badge used to; the recovery action moves into the
-          alert's own action slot so a degraded read always offers the way out. */}
       {readError ? (
         <div className="alert alert--warning">
           <Icon name="warning" className="alert__icon" />
@@ -154,215 +98,401 @@ export async function AgentSections() {
         </div>
       ) : null}
 
-      {/* a) AGENCY IDENTITY — the agency's OWN non-PII org label + account status.
-          The tile row is the shared `stat-row` grid, which also carries the section's
-          bottom rhythm — hence no block class on the <section> itself. */}
-      <section>
-        <div className="section__head">
-          <h2 className="section__title">Your agency</h2>
-        </div>
-        <div className="stat-row">
-          <Card
-            className="agency-stat"
-            href="/account"
-            ariaLabel={`Account ${account?.displayLabel ?? "Your agency"} — manage account`}
-            pendingLabel="Account"
-          >
-            <div className="agency-stat__head">
-              <span className="agency-stat__label">Account</span>
-            </div>
-            <div className="agency-stat__value">{account?.displayLabel ?? "Your agency"}</div>
-            <div className="agency-stat__foot">
-              <Badge tone="brand" upper>
-                Agency
-              </Badge>
-              <Badge tone={accountActive ? "success" : "warning"} upper>
-                {account?.status ?? "—"}
-              </Badge>
-            </div>
-          </Card>
-        </div>
-      </section>
-
-      {/* b) DEMAND SUMMARY — counts derived from the agency's OWN LIVE jobs. This is the
-          AGENT's authoritative posting count (NOT the shared top's job-postings tile). */}
-      <section>
-        <div className="section__head">
-          <div className="section__text">
-            <h2 className="section__title">Demand summary</h2>
-            <p className="section__sub">Counts across the postings your agency has published.</p>
-          </div>
-        </div>
-        <div className="stat-row">
-          {/* A count, not a door: "Postings" on the panel below is this screen's one link
-              to the Postings page. */}
-          <Card className="agency-stat">
-            <div className="agency-stat__head">
-              <span className="agency-stat__label">Total postings</span>
-            </div>
-            <div className="agency-stat__value bb-mono">{dash(demand ? demand.total : null)}</div>
-            <div className="agency-stat__foot">
-              <Badge tone="success" upper>
-                Live
-              </Badge>
-              <span className="agency-stat__hint">Your agency&rsquo;s own roles</span>
-            </div>
-          </Card>
-          <Card className="agency-stat">
-            <div className="agency-stat__head">
-              <span className="agency-stat__label">Open</span>
-            </div>
-            <div className="agency-stat__value bb-mono">{dash(demand ? demand.open : null)}</div>
-            <div className="agency-stat__foot">
-              <span className="agency-stat__hint">
-                Closed <span className="bb-mono">{dash(demand ? demand.closed : null)}</span>
+      {/* KPI strip — the four cards designr8 opens with. */}
+      <div className="stat-row stat-row--kpi">
+        <StatTile
+          className="dash-kpi dash-kpi--credit"
+          label="Credit balance"
+          value={credits?.balance ?? "—"}
+          icon={ACTION_ICON.credits}
+          status={
+            credits === null ? undefined : (
+              <span
+                className={
+                  lowBalance
+                    ? "dash-stat-pill dash-stat-pill--low"
+                    : "dash-stat-pill dash-stat-pill--ready"
+                }
+              >
+                {lowBalance ? "Low" : "Ready"}
               </span>
-            </div>
-          </Card>
-          <Card className="agency-stat">
-            <div className="agency-stat__head">
-              <span className="agency-stat__label">Applicants received</span>
-            </div>
-            <div className="agency-stat__value bb-mono">
-              {dash(demand ? demand.applicantsReceived : null)}
-            </div>
-            <div className="agency-stat__foot">
-              <Badge tone="success" upper>
-                Live
-              </Badge>
-              <span className="agency-stat__hint">Across all your roles</span>
-            </div>
-          </Card>
-          {/* Counts only. Worker activity and Revenue are rail destinations — the rail is their
-              door (no tile repeats the rail, F15). */}
-        </div>
-      </section>
+            )
+          }
+          caption={
+            credits === null ? (
+              "Not available right now"
+            ) : unitPriceInr !== null ? (
+              <>
+                <span className="bb-mono">{formatInr(unitPriceInr)}</span> per contact unlock
+              </>
+            ) : undefined
+          }
+          foot={
+            <PortalLink className="dash-kpi__link" href="/credits" pendingLabel="Credits">
+              <Icon name="plus" /> Top-up
+            </PortalLink>
+          }
+        />
 
-      {/* c) YOUR POSTINGS — a glance at the agency's OWN postings: each card opens that
-          posting's details, and the panel's one link opens the Postings page where they are
-          managed. Each card ALSO links its REAL applicants (#1956 — since #1955 the agency
-          feed serves only the workers who applied). `id` keeps old `#agency-vacancies` deep
-          links landing here. */}
-      <section id="agency-vacancies" className="panel anchor-target">
-        <div className="panel__head">
-          <div className="panel__text">
-            <h2 className="panel__title">Your postings</h2>
-            <p className="panel__sub">The roles your agency has published, newest first.</p>
+        <StatTile
+          className="dash-kpi dash-kpi--unlocks"
+          label="Contacts unlocked"
+          value={unlocks?.length ?? "—"}
+          icon="lock-key"
+          status={unlocks === null ? undefined : <span className="dash-stat-note">revealed</span>}
+          caption={unlocks === null ? "Not available right now" : "1 credit / 1 profile"}
+          foot={<span className="dash-kpi__meta">Direct verified phone &amp; email access</span>}
+        />
+
+        <StatTile
+          className="dash-kpi dash-kpi--postings"
+          label="Demand summary"
+          value={demand ? demand.open : "—"}
+          icon={ACTION_ICON.posting}
+          status={demand ? <span className="dash-stat-pill dash-stat-pill--ready">Live</span> : undefined}
+          caption={demand ? `${demand.applicantsReceived} applicants` : "Not available right now"}
+          foot={<span className="dash-kpi__meta">Open roles across your agency</span>}
+        />
+
+        <StatTile
+          className="dash-kpi dash-kpi--referrals"
+          label="Worker referrals"
+          value={referrals ? kAnonCount(referrals.created, referrals.minBucket) : "—"}
+          icon="users-three"
+          status={
+            referrals ? (
+              <span className="dash-stat-pill dash-stat-pill--ready">Consent Ready</span>
+            ) : undefined
+          }
+          caption={
+            referrals ? "Privacy-first worker conversion" : "Not available right now"
+          }
+          foot={<span className="dash-kpi__meta">Invites sent</span>}
+        />
+      </div>
+
+      <div className="agency-dash-grid">
+        {/* Your postings & recruitment pipeline */}
+        <section
+          id="agency-vacancies"
+          className="panel dash-panel agency-pipeline-panel anchor-target"
+        >
+          <div className="panel__head">
+            <div className="panel__text">
+              <div className="dash-panel__titlerow">
+                <h2 className="panel__title">Your Postings &amp; Recruitment Pipeline</h2>
+                {demand ? <span className="dash-count">{demand.open} Active roles</span> : null}
+              </div>
+              <p className="panel__sub">
+                Roles your agency has published, newest first.
+              </p>
+            </div>
+            <div className="panel__actions">
+              <PortalLink
+                className="dash-panel__link"
+                href={AGENCY_POSTING_ROUTES.list}
+                pendingLabel="Postings"
+              >
+                View all <Icon name={ACTION_ICON.next} />
+              </PortalLink>
+            </div>
           </div>
-          <div className="panel__actions">
-            {/* Named as the rail item and the list's H1 name it: one label per destination. */}
+
+          <div className="agency-pipeline">
+            <div>
+              <span>TOTAL POSTINGS</span>
+              <strong className="bb-mono">{demand ? demand.total : "—"}</strong>
+              <em>created</em>
+            </div>
+            <div>
+              <span>ACTIVE OPEN</span>
+              <strong className="bb-mono">{demand ? demand.open : "—"}</strong>
+              <em>filled</em>
+            </div>
+            <div>
+              <span>APPLICANTS RECEIVED</span>
+              <strong className="bb-mono">
+                {demand ? demand.applicantsReceived : "—"}
+              </strong>
+              <em>across all</em>
+            </div>
+          </div>
+
+          <div className="panel__body">
+            {jobs === null ? (
+              <div className="state state--error">
+                <span className="state__icon">
+                  <Icon name="warning-circle" />
+                </span>
+                <h3 className="state__title">Postings are unavailable right now</h3>
+                <p className="state__body">
+                  The list could not be read. Nothing has changed — your postings are still there.
+                  Please retry shortly.
+                </p>
+                <div className="state__actions">
+                  <RetryButton />
+                </div>
+              </div>
+            ) : jobs.length === 0 ? (
+              <div className="state dash-empty-panel agency-empty-panel">
+                <span className="state__icon dash-empty-panel__icon">
+                  <Icon name={ACTION_ICON.posting} />
+                </span>
+                <h3 className="state__title">No active postings yet</h3>
+                <p className="state__body">
+                  Matched workers can only find your agency once a role is published. Postings are
+                  100% free through launch.
+                </p>
+                <div className="dash-empty-panel__actions">
+                  <PortalLink
+                    className="bb-btn bb-btn--primary"
+                    href={AGENCY_POSTING_ROUTES.create}
+                    pendingLabel="New posting"
+                  >
+                    <Icon name={ACTION_ICON.create} />
+                    <span>Create New Posting</span>
+                  </PortalLink>
+                  <PortalLink
+                    className="bb-btn bb-btn--secondary"
+                    href={AGENCY_POSTING_ROUTES.list}
+                    pendingLabel="Postings"
+                  >
+                    <span>View postings</span>
+                  </PortalLink>
+                </div>
+              </div>
+            ) : (
+              <div className="dash-postings">
+                {jobs.slice(0, GLANCE_ROWS).map((j) => (
+                  <Card
+                    key={j.id}
+                    padding="sm"
+                    className="dash-posting"
+                    href={`${AGENCY_POSTING_ROUTES.list}/${j.id}`}
+                    ariaLabel={`${j.title} — view posting`}
+                    pendingLabel={j.title}
+                  >
+                    <span className="dash-posting__icon" aria-hidden="true">
+                      <Icon name={ACTION_ICON.posting} />
+                    </span>
+                    <div className="dash-posting__main">
+                      <div className="dash-posting__title">{j.title}</div>
+                      <div className="dash-posting__meta">
+                        <span>
+                          <Icon name="map-pin" />
+                          {bandLabel([j.city, j.area]) || "Location flexible"}
+                        </span>
+                        <span>
+                          <Icon name="briefcase" />
+                          {tradeLabel(j.tradeKey)}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="dash-posting__right">
+                      <PortalLink
+                        className="dash-posting__applicants"
+                        href={`${AGENCY_POSTING_ROUTES.list}/${j.id}/applicants`}
+                        pendingLabel="Applicants"
+                      >
+                        Applicants
+                      </PortalLink>
+                      <Badge tone={j.status === "open" ? "success" : "neutral"} upper>
+                        {j.status}
+                      </Badge>
+                      <span className="dash-posting__cta">
+                        View posting <Icon name={ACTION_ICON.next} className="dash-view__arrow" />
+                      </span>
+                    </div>
+                  </Card>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="agency-pipeline__foot">
+            <Icon name="sparkle" />
+            <p>
+              <strong>Need help drafting?</strong> Our talent engine matches candidates within
+              minutes.
+            </p>
             <PortalLink
-              className="bb-btn bb-btn--secondary bb-btn--sm"
-              href={AGENCY_POSTING_ROUTES.list}
-              pendingLabel="Postings"
+              className="dash-panel__link"
+              href={AGENCY_POSTING_ROUTES.create}
+              pendingLabel="New posting"
             >
-              <span>Postings</span>
-              <Icon name={ACTION_ICON.next} />
+              Learn how <Icon name={ACTION_ICON.next} />
             </PortalLink>
           </div>
-        </div>
-        <div className="panel__body">
-          {jobs === null ? (
-            <div className="state state--error">
-              <span className="state__icon">
-                <Icon name="warning-circle" />
-              </span>
-              <h3 className="state__title">Postings are unavailable right now</h3>
-              <p className="state__body">
-                The list could not be read. Nothing has changed — your postings are still there.
-                Please retry shortly.
-              </p>
-              <div className="state__actions">
-                <RetryButton />
+        </section>
+
+        {/* Right rail — funnel + recent unlocks */}
+        <div className="agency-dash-side">
+          <section className="panel dash-panel">
+            <div className="panel__head">
+              <div className="panel__text">
+                <h2 className="panel__title">Referral Funnel &amp; Growth</h2>
+                <p className="panel__sub">
+                  How workers you invite are joining, in aggregate.
+                </p>
+              </div>
+              <div className="panel__actions">
+                <PortalLink
+                  className="bb-btn bb-btn--primary bb-btn--sm"
+                  href="/agency/referrals"
+                  pendingLabel="Referrals"
+                >
+                  <Icon name="user-plus" /> Invite workers
+                </PortalLink>
               </div>
             </div>
-          ) : jobs.length === 0 ? (
-            <div className="state">
-              <span className="state__icon">
-                <Icon name={ACTION_ICON.posting} />
-              </span>
-              <h3 className="state__title">No postings yet</h3>
-              <p className="state__body">
-                Matched workers can only find your agency once a role is live — use New posting
-                above. Posting is free through launch.
-              </p>
-            </div>
-          ) : (
-            <div className="dash-postings">
-              {jobs.slice(0, GLANCE_ROWS).map((j) => (
-                // Whole-card link to THIS posting's details. The id is the posting's OWN opaque
-                // uuid (never a worker id/phone).
-                <Card
-                  key={j.id}
-                  padding="sm"
-                  className="dash-posting"
-                  href={`${AGENCY_POSTING_ROUTES.list}/${j.id}`}
-                  ariaLabel={`${j.title} — view posting`}
-                  pendingLabel={j.title}
-                >
-                  <div className="dash-posting__main">
-                    <div className="dash-posting__title">{j.title}</div>
-                    <div className="dash-posting__meta">
-                      {tradeLabel(j.tradeKey)} ·{" "}
-                      {bandLabel([j.city, j.area]) || "Location flexible"}
+            <div className="panel__body">
+              {referrals === null ? (
+                <div className="state state--error">
+                  <span className="state__icon">
+                    <Icon name="warning-circle" />
+                  </span>
+                  <h3 className="state__title">Referral funnel unavailable</h3>
+                  <p className="state__body">
+                    Your funnel counts could not load right now. Nothing has changed — please
+                    retry shortly.
+                  </p>
+                  <div className="state__actions">
+                    <RetryButton />
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div className="agency-stages">
+                    <div className="agency-stage">
+                      <span>INVITES SENT</span>
+                      <strong className="bb-mono">
+                        {kAnonCount(referrals.created, referrals.minBucket)}
+                      </strong>
+                      <em>Links generated</em>
+                    </div>
+                    <div className="agency-stage">
+                      <span>CLICKED</span>
+                      <strong className="bb-mono">
+                        {kAnonCount(referrals.clicked, referrals.minBucket)}
+                      </strong>
+                      <em>Opened link</em>
+                    </div>
+                    <div className="agency-stage">
+                      <span>ACCEPTED</span>
+                      <strong className="bb-mono">
+                        {kAnonCount(referrals.accepted, referrals.minBucket)}
+                      </strong>
+                      <em>Joined agency</em>
                     </div>
                   </div>
-                  <div className="dash-posting__right">
-                    {/* A real link ABOVE the card's stretched overlay (z-index in CSS): the
-                        whole card still opens the posting; this opens its applicants. */}
-                    <PortalLink
-                      className="dash-posting__applicants"
-                      href={`${AGENCY_POSTING_ROUTES.list}/${j.id}/applicants`}
-                      pendingLabel="Applicants"
-                    >
-                      Applicants
-                    </PortalLink>
-                    <Badge tone={j.status === "open" ? "success" : "neutral"} upper>
-                      {j.status}
-                    </Badge>
-                    <span className="dash-posting__cta">
-                      View posting
-                      <Icon name={ACTION_ICON.next} className="dash-view__arrow" />
-                    </span>
-                  </div>
-                </Card>
-              ))}
+                  <p className="agency-privacy-note">
+                    <Icon name="shield-check" />
+                    Aggregate only — counts below {referrals.minBucket} show as &ldquo;&lt;
+                    {referrals.minBucket}&rdquo; to protect individual worker privacy.
+                  </p>
+                </>
+              )}
             </div>
-          )}
-        </div>
-      </section>
+          </section>
 
-      {/* d) REFERRAL FUNNEL — LIVE aggregate, k-anon floored (no per-invitee oracle) — and the
-          dashboard's ONE door to Referrals, where the invite form and the batch links live
-          (F21: the form used to be repeated here, a second primary 2,595px down the page). */}
-      <section className="panel">
-        <div className="panel__head">
-          <div className="panel__text">
-            <h2 className="panel__title">Referral funnel</h2>
-            <p className="panel__sub">
-              How the workers you invited are getting on, in aggregate. Invite links are created on
-              Referrals.
-            </p>
-          </div>
-          <div className="panel__actions">
-            <PortalLink
-              className="bb-btn bb-btn--secondary bb-btn--sm"
-              href="/agency/referrals"
-              pendingLabel="Referrals"
-            >
-              <span>Invite workers</span>
-              <Icon name={ACTION_ICON.next} />
-            </PortalLink>
-          </div>
+          <section className="panel dash-panel">
+            <div className="panel__head">
+              <div className="panel__text">
+                <h2 className="panel__title">Recent Candidate Unlocks</h2>
+                <p className="panel__sub">Direct phone &amp; WhatsApp reveal vault.</p>
+              </div>
+              <div className="panel__actions">
+                <PortalLink
+                  className="dash-panel__link"
+                  href="/credits"
+                  pendingLabel="Credits"
+                >
+                  Usage log <Icon name={ACTION_ICON.next} />
+                </PortalLink>
+              </div>
+            </div>
+            <div className="panel__body">
+              {unlocks === null ? (
+                <div className="state state--error">
+                  <span className="state__icon">
+                    <Icon name="warning-circle" />
+                  </span>
+                  <h3 className="state__title">Recent unlocks unavailable</h3>
+                  <p className="state__body">
+                    Your unlocked contacts are safe. Please retry to read them again.
+                  </p>
+                  <div className="state__actions">
+                    <RetryButton />
+                  </div>
+                </div>
+              ) : unlockRows.length === 0 ? (
+                <div className="state dash-empty-panel agency-empty-panel">
+                  <span className="state__icon dash-empty-panel__icon">
+                    <Icon name="lock-key" />
+                  </span>
+                  <h3 className="state__title">No contacts unlocked yet</h3>
+                  <p className="state__body">
+                    Open candidate profiles to reveal verified direct mobile, WhatsApp, and
+                    complete verified work history.
+                  </p>
+                </div>
+              ) : (
+                <div className="dash-candlist">
+                  {unlockRows.map((row) => (
+                    <div className="dash-unlock" key={row.key}>
+                      <span
+                        className={
+                          row.live
+                            ? "dash-unlock__icon dash-unlock__icon--live"
+                            : "dash-unlock__icon"
+                        }
+                        aria-hidden="true"
+                      >
+                        <Icon name={row.live ? "lock-key-open" : "lock-key"} />
+                      </span>
+                      <div className="dash-unlock__main">
+                        <div className="dash-unlock__title">Unlocked contact</div>
+                        <div className="dash-unlock__meta">
+                          Unlocked <span className="bb-mono">{row.unlockedOn}</span> ·{" "}
+                          {row.live ? "until" : "ended"}{" "}
+                          <span className="bb-mono">{row.endsOn}</span>
+                        </div>
+                      </div>
+                      <div className="dash-unlock__right">
+                        <Badge tone={row.live ? "success" : "neutral"} upper>
+                          {row.live ? "Unlocked" : "Expired"}
+                        </Badge>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="dash-panel__foot">
+              <span className="dash-panel__footstart">
+                <Icon name="check-circle" /> Auto-refund if phone number is invalid
+              </span>
+              <span className="dash-panel__footend">Consent-gated</span>
+            </div>
+          </section>
         </div>
-        <div className="panel__body">
-          <ReferralFunnel summary={referrals} />
-        </div>
-      </section>
+      </div>
 
-      {/* e) NOT IN THIS RELEASE — closed by default; parked cards are inert, and KYC + Payouts
-          link to Referrals only when the server has payouts on (see parked-modules.tsx). */}
-      <AgencyParkedModules flags={flags} payoutsAvailable={payoutsAvailable} />
+      <footer className="dash-foot">
+        <div className="dash-foot__status">
+          <span className="dash-foot__dot" aria-hidden="true" />
+          <span>Gateway Online: BadaBhai Recruiter Engine v2.8</span>
+          <span className="dash-foot__sep" aria-hidden="true">
+            ·
+          </span>
+          <span>Candidate Database: 180,000+ Verified Workers</span>
+        </div>
+        <div className="dash-foot__links">
+          <span>Worker identities masked until consent-granted</span>
+          <span>Employer Helpdesk</span>
+          <span>Pricing Terms</span>
+        </div>
+      </footer>
     </>
   );
 }

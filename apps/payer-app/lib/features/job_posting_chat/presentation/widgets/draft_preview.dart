@@ -9,6 +9,7 @@ import '../../../../core/util/pay_format.dart';
 import '../../../../core/widgets/bb_badge.dart';
 import '../../../../core/widgets/bb_button.dart';
 import '../../../../core/widgets/bb_card.dart';
+import '../../../../core/widgets/bb_field.dart';
 
 /// Heading of the structured draft the payer reviews before anything is created.
 const String kDraftPreviewTitle = 'Your job posting';
@@ -34,12 +35,16 @@ const String kDraftNotReadyNote =
 ///
 /// Vacancy is shown as the BAND the server holds (`1` / `2-5` / …, ADR-0012),
 /// never as a headcount.
-class DraftPreview extends StatelessWidget {
+class DraftPreview extends StatefulWidget {
   const DraftPreview({
     super.key,
     required this.draft,
     required this.ready,
     required this.publishing,
+    required this.roleKind,
+    required this.onRoleKindChanged,
+    required this.area,
+    required this.onAreaChanged,
     required this.onPublish,
   });
 
@@ -50,10 +55,59 @@ class DraftPreview extends StatelessWidget {
   final bool ready;
 
   final bool publishing;
+
+  /// The publish-step role pick (#2490) — one of the 21 declared `role_kind`s,
+  /// or null. DISPLAY ONLY: it keys the worker card's role illustration and is
+  /// sent as `role_kind` on publish. Null stays absent, so the card draws the
+  /// generic art.
+  final String? roleKind;
+  final ValueChanged<String?> onRoleKindChanged;
+
+  /// The publish-step area/locality (#2493), prefilled from `draft.area` and
+  /// editable. Optional: blank stays absent (city-only card).
+  final String area;
+  final ValueChanged<String> onAreaChanged;
+
   final VoidCallback onPublish;
 
   @override
+  State<DraftPreview> createState() => _DraftPreviewState();
+}
+
+class _DraftPreviewState extends State<DraftPreview> {
+  late final TextEditingController _area = TextEditingController(
+    text: widget.area,
+  );
+
+  @override
+  void didUpdateWidget(DraftPreview oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Follow the parent's value (the draft filling in, or an external reset)
+    // without clobbering what the payer is typing: only rewrite when the value
+    // genuinely changed.
+    if (widget.area != _area.text) {
+      _area.value = TextEditingValue(
+        text: widget.area,
+        selection: TextSelection.collapsed(offset: widget.area.length),
+      );
+    }
+  }
+
+  @override
+  void dispose() {
+    _area.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final JobPostingDraft draft = widget.draft;
+    final bool ready = widget.ready;
+    final bool publishing = widget.publishing;
+    final String? roleKind = widget.roleKind;
+    final ValueChanged<String?> onRoleKindChanged = widget.onRoleKindChanged;
+    final ValueChanged<String> onAreaChanged = widget.onAreaChanged;
+    final VoidCallback onPublish = widget.onPublish;
     final List<(String, String)> rows = <(String, String)>[
       if (draft.roleTitle != null) ('Role', draft.roleTitle!),
       if (draft.locationLabel != null) ('Location', draft.locationLabel!),
@@ -85,7 +139,7 @@ class DraftPreview extends StatelessWidget {
               Expanded(
                 child: Text(
                   kDraftPreviewTitle,
-                  style: AppTypography.display(
+                  style: AppTypography.heading(
                     size: AppTypography.sizeMd,
                     weight: FontWeight.w800,
                   ),
@@ -133,6 +187,28 @@ class DraftPreview extends StatelessWidget {
             ),
           ],
           const SizedBox(height: AppSpacing.s4),
+          // #2493 — the COARSE locality, prefilled from the interview draft and
+          // editable at publish. Optional: blank publishes with `area` absent
+          // (the worker card then shows the city alone).
+          BbField(
+            label: 'Area / locality',
+            controller: _area,
+            hint: 'e.g. Chakan',
+            onChanged: onAreaChanged,
+          ),
+          const SizedBox(height: AppSpacing.s4),
+          // #2490 — the role pick lives on the publish step because the
+          // interview does not ask for one. Optional: null publishes with
+          // `role_kind` absent and the worker card keeps the generic art.
+          BbSelect<String?>(
+            label: 'Role (card illustration)',
+            value: roleKind,
+            items: <String?>[null, ...kJobRoleKinds],
+            labelOf: (String? v) =>
+                v == null ? 'Not specified' : (jobRoleLabel(v) ?? v),
+            onChanged: onRoleKindChanged,
+          ),
+          const SizedBox(height: AppSpacing.s4),
           BbButton(
             label: kDraftPublishLabel,
             block: true,
@@ -154,14 +230,14 @@ class DraftPreview extends StatelessWidget {
   /// "₹18,000 – ₹24,000" from whichever bound(s) the server holds. Never
   /// invents the missing half.
   /// `in_hand` → "In-hand". The shared humaniser both demand forms use.
-  String? get _payType => jobPayTypeLabel(draft.payType);
+  String? get _payType => jobPayTypeLabel(widget.draft.payType);
 
   /// `immediate` → "Immediate".
   String? get _neededBy =>
-      draft.neededBy == null ? null : agencyNeededByLabel(draft.neededBy);
+      widget.draft.neededBy == null ? null : agencyNeededByLabel(widget.draft.neededBy);
 
   /// `night` → "Night". The raw enum used to print here verbatim.
-  String? get _shift => switch (draft.shift) {
+  String? get _shift => switch (widget.draft.shift) {
         'day' => 'Day',
         'night' => 'Night',
         'rotational' => 'Rotational',
@@ -172,8 +248,8 @@ class DraftPreview extends StatelessWidget {
   /// prints, because either end may legitimately be absent ("5+ years" has no
   /// max) and 0 is a real value (a fresher), not a missing one.
   String? get _experience {
-    final int? lo = draft.minExperienceYears;
-    final int? hi = draft.maxExperienceYears;
+    final int? lo = widget.draft.minExperienceYears;
+    final int? hi = widget.draft.maxExperienceYears;
     if (lo == null && hi == null) return null;
     if (lo != null && hi != null) return '$lo–$hi yrs';
     if (lo != null) return '$lo+ yrs';
@@ -181,8 +257,8 @@ class DraftPreview extends StatelessWidget {
   }
 
   String? get _pay {
-    final int? min = draft.payMin;
-    final int? max = draft.payMax;
+    final int? min = widget.draft.payMin;
+    final int? max = widget.draft.payMax;
     if (min == null && max == null) return null;
     if (min != null && max != null) {
       return '₹${formatIndianGrouped(min)} – ₹${formatIndianGrouped(max)}';

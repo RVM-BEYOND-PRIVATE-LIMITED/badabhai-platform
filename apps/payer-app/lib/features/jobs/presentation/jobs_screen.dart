@@ -171,7 +171,7 @@ class _JobsView extends StatelessWidget {
                       const SizedBox(height: 2),
                       Text(
                         '${state.jobs.length} jobs',
-                        style: AppTypography.display(
+                        style: AppTypography.header(
                           size: AppTypography.sizeXl,
                           weight: FontWeight.w800,
                         ),
@@ -256,7 +256,7 @@ class _ResumeChatCard extends StatelessWidget {
                     children: <Widget>[
                       Text(
                         kResumeChatTitle,
-                        style: AppTypography.display(
+                        style: AppTypography.heading(
                           size: AppTypography.sizeBase,
                           weight: FontWeight.w700,
                         ),
@@ -379,7 +379,7 @@ class _RealJobCard extends StatelessWidget {
               Expanded(
                 child: Text(
                   job.title,
-                  style: AppTypography.display(
+                  style: AppTypography.heading(
                     size: AppTypography.sizeMd,
                     weight: FontWeight.w700,
                   ),
@@ -616,7 +616,7 @@ class _JobCard extends StatelessWidget {
               Expanded(
                 child: Text(
                   job.title,
-                  style: AppTypography.display(
+                  style: AppTypography.heading(
                     size: AppTypography.sizeMd,
                     weight: FontWeight.w700,
                   ),
