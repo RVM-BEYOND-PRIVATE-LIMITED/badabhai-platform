@@ -17,7 +17,7 @@ export interface AdminAccountActionInput {
 
 /**
  * Emit ONE value-free `admin.action_performed` about an ADMIN account (subject/target type
- * `admin_session`) — the migration-0142 account actions: created, password set/reset, device
+ * `admin_session`) — the migration-0144 account actions: created, password set/reset, device
  * trusted, two-step on/off. The SAME registered event and payload shape `AdminActionsService`
  * emits for invite/role/suspend; no event-schema change.
  *

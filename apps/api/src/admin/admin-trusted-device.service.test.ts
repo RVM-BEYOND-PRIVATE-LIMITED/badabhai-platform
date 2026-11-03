@@ -61,7 +61,7 @@ async function issued(over: { days?: number; passwordSetAt?: Date | null } = {})
   return { ...d, device: device! };
 }
 
-describe("AdminTrustedDeviceService.issue (0142)", () => {
+describe("AdminTrustedDeviceService.issue (0144)", () => {
   it("mints a 256-bit base64url token and stores ONLY its keyed HMAC, with the day TTL", async () => {
     const { device, redis } = await issued();
     expect(device.token).toMatch(/^[A-Za-z0-9_-]{43}$/);

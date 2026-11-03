@@ -1,5 +1,5 @@
 /**
- * Migration 0142 — `admin_users` password sign-in + the per-admin two-step switch (owner rulings
+ * Migration 0144 — `admin_users` password sign-in + the per-admin two-step switch (owner rulings
  * 2026-11-03, incl. Amendment 1: two-step optional, starts OFF for everyone).
  *
  * Registered in the schema contract from day one — the #2506 lesson (0138 shipped without an
@@ -26,8 +26,8 @@ import { describe, expect, it } from "vitest";
 import { SCHEMA_REQUIREMENTS } from "./schema-contract";
 import { adminUsers } from "./schema/ops";
 
-const TAG = "0142_admin_password_auth";
-const CONTRACT_ID = "0142-admin-users-password-hash";
+const TAG = "0144_admin_password_auth";
+const CONTRACT_ID = "0144-admin-users-password-hash";
 const RAW = readFileSync(join(__dirname, "..", "migrations", `${TAG}.sql`), "utf8");
 const DDL = RAW.replace(/--[^\n]*/g, " ").replace(/\/\*[\s\S]*?\*\//g, " ");
 const FLAT = DDL.replace(/\s+/g, " ");
@@ -62,7 +62,7 @@ describe("the fixture is real", () => {
   });
 });
 
-describe("0142 is additive only", () => {
+describe("0144 is additive only", () => {
   it("is SET lock_timeout + five ADD COLUMN — and nothing else", () => {
     expect(statements).toHaveLength(6);
     expect(statements[0]).toBe("SET lock_timeout='3s'");
@@ -130,7 +130,7 @@ describe("the LIVE model carries the same columns", () => {
 describe("the operator instructions, the manifest and the slot", () => {
   it("says manual-apply-BEFORE-the-deploy and names the schema-contract id", () => {
     expect(RAW).toContain("APPLY-BEFORE-DEPLOY");
-    expect(RAW).toContain("Manual apply by Divyanshu BEFORE the build");
+    expect(RAW).toContain("Manual apply BEFORE the build");
     expect(RAW).toContain(CONTRACT_ID);
   });
 
@@ -155,13 +155,13 @@ describe("the operator instructions, the manifest and the slot", () => {
     }
   });
 
-  it("holds the only 0142 slot, after 0141, with a later `when`", () => {
+  it("holds the only 0144 slot, after 0143, with a later `when`", () => {
     const entry = JOURNAL.entries.find((e) => e.tag === TAG);
-    expect(entry?.idx).toBe(142);
-    expect(JOURNAL.entries.filter((e) => e.idx === 142)).toHaveLength(1);
+    expect(entry?.idx).toBe(144);
+    expect(JOURNAL.entries.filter((e) => e.idx === 144)).toHaveLength(1);
     const sorted = [...JOURNAL.entries].sort((a, b) => a.idx - b.idx);
     const at = sorted.findIndex((e) => e.tag === TAG);
-    expect(sorted[at - 1]?.idx).toBe(141);
+    expect(sorted[at - 1]?.idx).toBe(143);
     expect(sorted[at]!.when).toBeGreaterThan(sorted[at - 1]!.when);
   });
 });

@@ -9,7 +9,7 @@ import { emitAdminAccountAction } from "./admin-account-event";
 import type { AdminCreateDirectDto } from "./admin-actions.dto";
 
 /**
- * A super_admin creating an admin DIRECTLY (migration 0142, owner ruling 2026-11-03) — the
+ * A super_admin creating an admin DIRECTLY (migration 0144, owner ruling 2026-11-03) — the
  * alternative to the invite link, which in production still renders as a `mock://` URL and so
  * cannot onboard anyone on its own.
  *

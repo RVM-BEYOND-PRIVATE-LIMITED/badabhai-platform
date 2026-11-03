@@ -19,7 +19,7 @@ const AdminEmailedCodeSchema = z.string().regex(/^\d{4,8}$/, "Code must be 4-8 d
 const AdminTotpCodeSchema = z.string().regex(/^\d{6}$/, "TOTP code must be 6 digits");
 
 /**
- * A "trust this device" token presented back at sign-in (migration 0142). Bounded so an
+ * A "trust this device" token presented back at sign-in (migration 0144). Bounded so an
  * oversized value is rejected before it reaches a hash: the mint is 43 base64url chars.
  */
 const AdminDeviceTokenSchema = z.string().trim().min(20).max(128);
@@ -35,7 +35,7 @@ export const AdminLoginVerifySchema = z
   .object({
     email: AdminEmailSchema,
     code: AdminEmailedCodeSchema,
-    // 0142 — optional: a trusted browser skips the TOTP step (never the emailed code).
+    // 0144 — optional: a trusted browser skips the TOTP step (never the emailed code).
     device_token: AdminDeviceTokenSchema.optional(),
   })
   .strict();
@@ -47,7 +47,7 @@ export const AdminMfaVerifySchema = z
     email: AdminEmailSchema,
     // The 6-digit TOTP code from the authenticator app.
     code: AdminTotpCodeSchema,
-    // 0142 — "trust this device": when true (and ADMIN_TRUSTED_DEVICE_DAYS > 0) the session
+    // 0144 — "trust this device": when true (and ADMIN_TRUSTED_DEVICE_DAYS > 0) the session
     // response also carries a device token the browser presents on later sign-ins.
     trust_device: z.boolean().optional(),
   })
@@ -55,7 +55,7 @@ export const AdminMfaVerifySchema = z
 export type AdminMfaVerifyDto = z.infer<typeof AdminMfaVerifySchema>;
 
 /**
- * POST /admin/login/password (migration 0142). `password` is bounded but NOT policy-checked —
+ * POST /admin/login/password (migration 0144). `password` is bounded but NOT policy-checked —
  * every well-formed attempt burns one KDF, so a weak guess is indistinguishable from a wrong one.
  * `new_password` IS policy-checked: it is only consumed on the must-change step (temporary
  * password → own password) and is ignored otherwise.
@@ -152,7 +152,7 @@ export interface AdminSessionResponse {
   admin_id: string;
   role: AdminRole;
   /**
-   * 0142 — present ONLY on POST /admin/mfa/verify with `trust_device: true` while
+   * 0144 — present ONLY on POST /admin/mfa/verify with `trust_device: true` while
    * ADMIN_TRUSTED_DEVICE_DAYS > 0. Shown once; the browser stores it and presents it as
    * `device_token` on later sign-ins to skip the TOTP step.
    */
@@ -161,7 +161,7 @@ export interface AdminSessionResponse {
 }
 
 /**
- * 0142 — POST /admin/login/password when the account carries a TEMPORARY password and the
+ * 0144 — POST /admin/login/password when the account carries a TEMPORARY password and the
  * request had no `new_password`: the client must ask for one and resend. No session, no token.
  */
 export interface AdminPasswordChangeRequiredResponse {
@@ -169,7 +169,7 @@ export interface AdminPasswordChangeRequiredResponse {
 }
 
 /**
- * 0142 — POST /admin/password/reset. NO SESSION, by design: a reset proves mailbox control and
+ * 0144 — POST /admin/password/reset. NO SESSION, by design: a reset proves mailbox control and
  * sets a password; the admin then signs in through the ordinary door (two-step included).
  */
 export interface AdminPasswordResetResponse {
@@ -177,7 +177,7 @@ export interface AdminPasswordResetResponse {
   next: "sign_in";
 }
 
-/** 0142 — POST /admin/me/mfa/enable: the fresh authenticator material, shown once. */
+/** 0144 — POST /admin/me/mfa/enable: the fresh authenticator material, shown once. */
 export interface AdminMfaEnrollmentResponse {
   enrollment: {
     secret: string;
@@ -185,7 +185,7 @@ export interface AdminMfaEnrollmentResponse {
   };
 }
 
-/** 0142 — POST /admin/me/mfa/confirm and /disable: the admin's two-step switch after the call. */
+/** 0144 — POST /admin/me/mfa/confirm and /disable: the admin's two-step switch after the call. */
 export interface AdminMfaStateResponse {
   mfa_enabled: boolean;
 }
@@ -225,15 +225,15 @@ export interface AdminMeResponse {
   admin_id: string;
   role: AdminRole;
   capabilities: AdminCapability[];
-  /** 0142 — true once the admin has a password (else the Account page offers "set"). */
+  /** 0144 — true once the admin has a password (else the Account page offers "set"). */
   has_password: boolean;
-  /** 0142 — true while the admin still holds a super_admin-issued temporary password. */
+  /** 0144 — true while the admin still holds a super_admin-issued temporary password. */
   must_change_password: boolean;
-  /** 0142 (Amendment 1) — the admin's own two-step switch. */
+  /** 0144 (Amendment 1) — the admin's own two-step switch. */
   mfa_enabled: boolean;
 }
 
-/** 0142 — the per-admin account flags `GET /admin/me` adds (read from the live row). */
+/** 0144 — the per-admin account flags `GET /admin/me` adds (read from the live row). */
 export type AdminAccountFlags = Pick<
   AdminMeResponse,
   "has_password" | "must_change_password" | "mfa_enabled"

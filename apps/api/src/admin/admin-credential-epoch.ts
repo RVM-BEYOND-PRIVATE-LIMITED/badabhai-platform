@@ -12,7 +12,7 @@
  * second as a reset and survived it. An epoch copied from the row the session was VALIDATED
  * against cannot move forward without a fresh first factor.
  *
- * BACKWARD COMPATIBLE: a pre-0142 token has no `pwe`, which reads as 0 — valid exactly while the
+ * BACKWARD COMPATIBLE: a pre-0144 token has no `pwe`, which reads as 0 — valid exactly while the
  * admin has never set a password (every admin at deploy time), and dead the moment they do.
  */
 export function passwordEpochOf(passwordSetAt: Date | null | undefined): number {

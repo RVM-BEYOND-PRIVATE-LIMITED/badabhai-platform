@@ -20,7 +20,7 @@ export type EmailPrincipal = "worker" | "payer" | "agency" | "admin";
 // radius, and the whole point of a closed purpose vocabulary is that a triage line
 // distinguishes them. `principal=admin purpose=admin_invite status=failed` says an admin
 // onboarding link did not arrive — a different incident from a payer teammate invite.
-// `password_reset` (migration 0142) is likewise NOT folded into `login_code`: a reset code that
+// `password_reset` (migration 0144) is likewise NOT folded into `login_code`: a reset code that
 // failed to arrive is a locked-out admin, and a burst of them is someone probing the forgot door.
 export type EmailPurpose = "login_code" | "team_invite" | "admin_invite" | "password_reset";
 

@@ -38,7 +38,7 @@ function setup(taken = false) {
   return { svc, admins, events, TX };
 }
 
-describe("AdminProvisioningService.createDirect (0142)", () => {
+describe("AdminProvisioningService.createDirect (0144)", () => {
   it("creates with a HASHED temporary password + emits admin_created (creator → new admin) on the tx", async () => {
     const d = setup();
     const res = await d.svc.createDirect(CREATOR_ID, DTO, CTX);

@@ -842,14 +842,14 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "builds on a migrated database are fine (a superset); new builds on an unmigrated one " +
       "are not, which is why this is APPLY-BEFORE-DEPLOY",
   },
-  // 0142 (owner rulings 2026-11-03): admin password sign-in + the per-admin two-step switch.
+  // 0144 (owner rulings 2026-11-03): admin password sign-in + the per-admin two-step switch.
   // Unconditional — no flag — because `admin_users` is read through bare `select()` /
   // `.returning()`, which name every model column, and the session guard reads the row on EVERY
   // admin request. The five columns ride one migration, so one column answers for all. Registered
   // up front — the #2506 lesson: 0138 shipped without an entry and took payer login down.
   {
-    id: "0142-admin-users-password-hash",
-    migration: "0142_admin_password_auth",
+    id: "0144-admin-users-password-hash",
+    migration: "0144_admin_password_auth",
     kind: "column",
     table: "admin_users",
     object: "password_hash",

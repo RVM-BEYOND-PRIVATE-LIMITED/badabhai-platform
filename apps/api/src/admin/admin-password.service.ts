@@ -45,7 +45,7 @@ const RESET_CODE_FAILED = "Incorrect or expired code";
 const CURRENT_PASSWORD_WRONG = "Current password is incorrect";
 
 /**
- * Admin PASSWORD sign-in, forgot/reset and self-service change (migration 0142, owner rulings
+ * Admin PASSWORD sign-in, forgot/reset and self-service change (migration 0144, owner rulings
  * 2026-11-03). The password is a FIRST factor only: a successful password hands the account to
  * the SAME MFA gate the emailed-code door uses (`AdminAuthService.gateMfaThenMaybeMint`), so
  * there is one way past the second factor, not two.

@@ -1010,6 +1010,13 @@
       "when": 1793710858642,
       "tag": "0143_wri_role_kind_plc",
       "breakpoints": true
+    },
+    {
+      "idx": 144,
+      "version": "7",
+      "when": 1793715747298,
+      "tag": "0144_admin_password_auth",
+      "breakpoints": true
     }
   ]
 }

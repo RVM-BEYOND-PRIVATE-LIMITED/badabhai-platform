@@ -8,7 +8,7 @@ import { PiiCryptoService } from "../common/pii-crypto.service";
 import { AdminRepository } from "./admin.repository";
 
 /**
- * Migration 0142 repository writes — asserted on the RENDERED WHERE (the guard IS the
+ * Migration 0144 repository writes — asserted on the RENDERED WHERE (the guard IS the
  * security property: a reset racing a suspension, a session swapping a live seed) and on the
  * exact values written (hash, never a password; ciphertext, never a name or an email).
  */

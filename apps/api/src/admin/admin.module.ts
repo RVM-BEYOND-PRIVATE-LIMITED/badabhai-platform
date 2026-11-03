@@ -212,7 +212,7 @@ import { AdminMatchEngineController } from "./admin-match-engine.controller";
     AdminAuthService,
     AdminAuthGuard,
     AdminRolesGuard,
-    // Migration 0142 — password sign-in, forgot/reset, self-service password change, the
+    // Migration 0144 — password sign-in, forgot/reset, self-service password change, the
     // per-admin two-step switch (owner Amendment 1), "trust this device", and direct admin
     // creation. The lockout + trusted-device providers reuse the BullMQ Redis client (the
     // queue registered below); AdminPasswordService hands every first factor to the SAME

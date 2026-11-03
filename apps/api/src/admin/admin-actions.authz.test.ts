@@ -59,7 +59,7 @@ const MANAGE_ADMINS_ROUTES = [
   "inviteAdmin",
   "changeAdminRole",
   "suspendAdmin",
-  // 0142 — direct creation with a temporary password is admin management: super_admin ONLY.
+  // 0144 — direct creation with a temporary password is admin management: super_admin ONLY.
   "createAdminDirect",
 ] as const;
 

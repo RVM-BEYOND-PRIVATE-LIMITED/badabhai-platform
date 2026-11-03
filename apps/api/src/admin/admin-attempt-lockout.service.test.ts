@@ -18,7 +18,7 @@ function setup(throwOn?: string) {
   return { svc: new AdminAttemptLockoutService(config, queue), redis };
 }
 
-describe("AdminAttemptLockoutService (0142)", () => {
+describe("AdminAttemptLockoutService (0144)", () => {
   it("scope keys: the contract's admin_pw:attempts:<id>, plus one counter per guessable code", () => {
     expect(AdminAttemptLockoutService.key("password", ADMIN_ID)).toBe(
       `admin_pw:attempts:${ADMIN_ID}`,

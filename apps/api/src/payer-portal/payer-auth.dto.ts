@@ -54,7 +54,7 @@ export type PayerLoginVerifyDto = z.infer<typeof PayerLoginVerifySchema>;
 /**
  * #2497 — `POST /payer/password/set` body. The SERVER is the policy authority (the
  * client mirrors): 8–128 chars with at least one letter and one digit — the ONE shared
- * {@link PasswordPolicySchema} (also the admin password door's, migration 0142).
+ * {@link PasswordPolicySchema} (also the admin password door's, migration 0144).
  */
 export const PayerPasswordSetSchema = z.object({
   password: PasswordPolicySchema,

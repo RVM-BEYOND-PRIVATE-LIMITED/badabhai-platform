@@ -15,7 +15,7 @@ const pii = new PiiCryptoService({
   PII_ENCRYPTION_KEY: Buffer.alloc(32, 7).toString("base64"),
 } as unknown as ServerConfig);
 
-describe("PasswordPolicySchema — the ONE policy (payer #2497 + admin 0142)", () => {
+describe("PasswordPolicySchema — the ONE policy (payer #2497 + admin 0144)", () => {
   it("accepts 8..128 chars with at least one letter and one digit", () => {
     for (const ok of ["abcdefg1", "A1bcdefg", "x".repeat(127) + "1"]) {
       expect(PasswordPolicySchema.safeParse(ok).success, ok).toBe(true);

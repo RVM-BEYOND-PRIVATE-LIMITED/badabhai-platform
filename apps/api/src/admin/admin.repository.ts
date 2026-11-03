@@ -23,7 +23,7 @@ export interface CreateAdminInput {
 }
 
 /**
- * A password write (migration 0142). The RAW password never reaches this layer — the service
+ * A password write (migration 0144). The RAW password never reaches this layer — the service
  * hashes first, exactly as the payer door does (#2497).
  */
 export interface AdminPasswordWrite {
@@ -38,7 +38,7 @@ export interface AdminPasswordWrite {
   setAt: Date;
 }
 
-/** A super_admin creating an ACTIVE admin directly with a temporary password (0142). */
+/** A super_admin creating an ACTIVE admin directly with a temporary password (0144). */
 export interface CreateActiveAdminInput {
   role: AdminRole;
   email: string;
@@ -289,7 +289,7 @@ export class AdminRepository {
   }
 
   // ---------------------------------------------------------------------------
-  // Migration 0142 — password sign-in + the per-admin two-step switch. Every write takes a
+  // Migration 0144 — password sign-in + the per-admin two-step switch. Every write takes a
   // HASH or a CIPHERTEXT, never a raw password or TOTP seed; every guard lives in the WHERE so
   // a concurrent change is a no-op (undefined / false), never a silent overwrite.
   // ---------------------------------------------------------------------------

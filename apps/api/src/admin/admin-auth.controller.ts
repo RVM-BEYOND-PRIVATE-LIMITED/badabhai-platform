@@ -62,7 +62,7 @@ import {
  * `/payer/*`, and the ops `InternalServiceGuard` routes (one principal class per route).
  *
  * PUBLIC (untrusted boundary, IP-rate-limited): `login/request`, `login/verify`, `mfa/verify`,
- * `invites/accept`, and (0142) `login/password`, `password/forgot`, `password/reset` — these are
+ * `invites/accept`, and (0144) `login/password`, `password/forgot`, `password/reset` — these are
  * the ONLY unguarded admin routes. EVERY other admin route
  * requires a valid admin session via {@link AdminAuthGuard}. `invites/accept` is unguarded on
  * the same grounds as the login routes and no weaker ones: its caller has no session yet, and
@@ -74,7 +74,7 @@ import {
  * `mfa/verify` (or a trusted device is presented). With two-step OFF (owner Amendment 1, the
  * default) they return the session directly. Enforced in {@link AdminAuthService}.
  *
- * MIGRATION 0142 adds three more PUBLIC routes on the same footing and the same IP cap —
+ * MIGRATION 0144 adds three more PUBLIC routes on the same footing and the same IP cap —
  * `login/password`, `password/forgot`, `password/reset` (no session exists yet; the password or
  * the emailed reset code is the credential) — and four SELF routes behind the session:
  * `me/password`, `me/mfa/enable`, `me/mfa/confirm`, `me/mfa/disable`. Every one takes its
@@ -114,7 +114,7 @@ export class AdminAuthController {
   }
 
   /**
-   * PUBLIC — password sign-in (0142). Answers `password_change_required` (temporary password,
+   * PUBLIC — password sign-in (0144). Answers `password_change_required` (temporary password,
    * no `new_password`), `mfa_required`, or a session. Every failure is the same neutral 401.
    */
   @Post("login/password")
@@ -219,13 +219,13 @@ export class AdminAuthController {
       admin_id: admin.id,
       role: admin.role,
       capabilities: capabilitiesFor(admin.role),
-      // 0142 — has_password / must_change_password / mfa_enabled, read from the live row.
+      // 0144 — has_password / must_change_password / mfa_enabled, read from the live row.
       ...(await this.auth.accountFlags(admin.id)),
     };
   }
 
   /**
-   * Set (first time) or change the session admin's OWN password (0142). Returns a FRESH session —
+   * Set (first time) or change the session admin's OWN password (0144). Returns a FRESH session —
    * the change moved the session cut-off past the caller's current token.
    */
   @Post("me/password")

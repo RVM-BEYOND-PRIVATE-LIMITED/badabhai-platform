@@ -25,7 +25,7 @@ const WRONG_CODE = "Incorrect code";
 
 /**
  * The signed-in admin's OWN two-step switch (owner Amendment 1, 2026-11-03: two-step is
- * optional, per admin, default off — migration 0142's `mfa_enabled`).
+ * optional, per admin, default off — migration 0144's `mfa_enabled`).
  *
  *   enable  → a FRESH TOTP seed is staged (encrypted, `mfa_enrolled=false`) and shown once; the
  *             switch stays OFF until confirmed, so a QR nobody scanned can never lock anyone out.

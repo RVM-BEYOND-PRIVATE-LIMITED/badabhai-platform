@@ -42,7 +42,7 @@ import {
 export class AdminActionsController {
   constructor(
     private readonly service: AdminActionsService,
-    // 0142 — direct admin creation (the one admin action that handles a credential).
+    // 0144 — direct admin creation (the one admin action that handles a credential).
     private readonly provisioning: AdminProvisioningService,
   ) {}
 
@@ -134,7 +134,7 @@ export class AdminActionsController {
   }
 
   /**
-   * Create an ACTIVE admin directly with a temporary password (migration 0142) — the onboarding
+   * Create an ACTIVE admin directly with a temporary password (migration 0144) — the onboarding
    * path that does not depend on the invite link reaching anyone. 409 when the email is taken.
    */
   @Post("admins/direct")

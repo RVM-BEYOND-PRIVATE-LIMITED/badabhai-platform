@@ -343,7 +343,7 @@ export const adminUsers = pgTable(
     // When the accept link stops working. Checked at accept time, so an expired invite is
     // indistinguishable from an unknown one (no-oracle 404). Cleared alongside the hash.
     inviteExpiresAt: timestamp("invite_expires_at", { withTimezone: true }),
-    // ── Migration 0142 — admin password sign-in (owner ruling 2026-11-03) ──────────────────
+    // ── Migration 0144 — admin password sign-in (owner ruling 2026-11-03) ──────────────────
     // The login password as a self-encoded scrypt token (`password-v1.<salt>.<derived>`,
     // PiiCryptoService.hashPassword — the payer #2497 scheme). NULL = no password yet: the
     // admin still signs in by emailed code, which stays the backward-compatible door.
@@ -361,7 +361,7 @@ export const adminUsers = pgTable(
     // The admin's OWN two-step switch (owner Amendment 1, 2026-11-03 — two-step is optional,
     // per admin, default OFF). Distinct from `mfa_enrolled`: enrolled says a confirmed TOTP
     // seed exists, enabled says the sign-in gate asks for it. Starts OFF for EVERY admin, an
-    // already-enrolled one included (owner ruling — 0142 deliberately has no backfill).
+    // already-enrolled one included (owner ruling — 0144 deliberately has no backfill).
     mfaEnabled: boolean("mfa_enabled").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),

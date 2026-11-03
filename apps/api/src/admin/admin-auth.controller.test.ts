@@ -62,10 +62,10 @@ function makeCtrl() {
     verifyMfa: vi.fn(async () => sessionResponse),
     refresh: vi.fn(async () => ({ access_token: "fresh-admin-jwt", token_type: "Bearer" as const, expires_in_seconds: 2592000 })),
     logout: vi.fn(async () => undefined),
-    // 0142 — the three account booleans GET /admin/me adds, read from the live row.
+    // 0144 — the three account booleans GET /admin/me adds, read from the live row.
     accountFlags: vi.fn(async () => ({ has_password: true, must_change_password: false, mfa_enabled: false })),
   };
-  // 0142 — the password + two-step-switch seams.
+  // 0144 — the password + two-step-switch seams.
   const passwords = {
     loginWithPassword: vi.fn(async () => ({ status: "mfa_required", needs_enrollment: false })),
     requestReset: vi.fn(async () => ({ status: "code_sent", resend_in_seconds: 30 })),
@@ -206,7 +206,7 @@ describe("AdminAuthController — delegation to AdminAuthService", () => {
 
   it("me is built from the GUARD admin + the live account flags (keyed on the session id only)", async () => {
     const res = await d.ctrl.me(ADMIN);
-    // The only service read is the three 0142 booleans, keyed on the GUARD admin's id.
+    // The only service read is the three 0144 booleans, keyed on the GUARD admin's id.
     expect(d.auth.accountFlags).toHaveBeenCalledWith(ADMIN_ID);
     // LITERAL, not `capabilitiesFor(ROLE)` — comparing the endpoint to the function it calls
     // would pass no matter what either one did. ops_admin's exact grant per ADR-0025 §3.1:
@@ -317,7 +317,7 @@ describe("AdminAuthController — PII-free response bodies (invariant #2)", () =
     const res = await d.ctrl.me(ADMIN);
     assertPiiFree(res);
     // Capability names are a closed vocabulary of role verbs; they carry no worker or admin
-    // identity, so widening the body to include them does not widen the PII surface. The 0142
+    // identity, so widening the body to include them does not widen the PII surface. The 0144
     // additions are booleans — derived from the row, carrying none of it.
     expect(Object.keys(res).sort()).toEqual([
       "admin_id",
@@ -431,9 +431,9 @@ describe("AdminAuthController — session token channel (rolling refresh / x-ses
 });
 
 // ---------------------------------------------------------------------------
-// Migration 0142 — password door, forgot/reset, self-service password + two-step switch.
+// Migration 0144 — password door, forgot/reset, self-service password + two-step switch.
 // ---------------------------------------------------------------------------
-describe("AdminAuthController — 0142 public password routes (IP-capped, then delegated)", () => {
+describe("AdminAuthController — 0144 public password routes (IP-capped, then delegated)", () => {
   let d: ReturnType<typeof makeCtrl>;
   beforeEach(() => {
     d = makeCtrl();
@@ -483,7 +483,7 @@ describe("AdminAuthController — 0142 public password routes (IP-capped, then d
   });
 });
 
-describe("AdminAuthController — 0142 self routes take identity from the GUARD only", () => {
+describe("AdminAuthController — 0144 self routes take identity from the GUARD only", () => {
   let d: ReturnType<typeof makeCtrl>;
   beforeEach(() => {
     d = makeCtrl();
@@ -510,7 +510,7 @@ describe("AdminAuthController — 0142 self routes take identity from the GUARD 
     expect(headers).toContainEqual({ name: "Cache-Control", value: "no-store" });
   });
 
-  it("the 0142 self routes are behind AdminAuthGuard; the 0142 public routes are not", () => {
+  it("the 0144 self routes are behind AdminAuthGuard; the 0144 public routes are not", () => {
     const guardsOf = (method: string): string[] => {
       const target = (AdminAuthController.prototype as unknown as Record<string, object>)[method];
       const g = (Reflect.getMetadata("__guards__", target as object) as Array<{ name?: string }> | undefined) ?? [];

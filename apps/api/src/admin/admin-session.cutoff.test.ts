@@ -9,7 +9,7 @@ import type { AdminRepository } from "./admin.repository";
 import { epochMatches, passwordEpochOf } from "./admin-credential-epoch";
 
 /**
- * Migration 0142 / security review B2 — the CREDENTIAL-EPOCH cut-off in `validateAndTouch`.
+ * Migration 0144 / security review B2 — the CREDENTIAL-EPOCH cut-off in `validateAndTouch`.
  *
  * Every admin JWT carries `pwe` = the `password_set_at` epoch (ms, 0 = none) it was minted for,
  * and is valid only while that EQUALS the row's. The previous rule — `iat < floor(set_at/1000)`
@@ -128,7 +128,7 @@ describe("AdminSessionService — the credential-epoch cut-off (B2)", () => {
     expect(await svc.validateAndTouch(token)).toMatchObject({ adminId: ADMIN_ID });
   });
 
-  it("BACKWARD COMPATIBLE: a pre-0142 token (no `pwe`) works until the admin sets a password", async () => {
+  it("BACKWARD COMPATIBLE: a pre-0144 token (no `pwe`) works until the admin sets a password", async () => {
     const { svc, live, jwt } = setup();
     // Seed a live Redis session for a hand-signed legacy token.
     const created = await svc.create(ADMIN_ID, "super_admin", 0);

@@ -24,7 +24,7 @@ type Account = {
   status: AdminStatus;
   mfaEnrolled: boolean;
   /**
-   * The admin's own two-step switch (owner Amendment 1, migration 0142). Defaults to ON in
+   * The admin's own two-step switch (owner Amendment 1, migration 0144). Defaults to ON in
    * `setup`, so every pre-amendment case below keeps exercising the two-step-ON gate it was
    * written for; the switch-OFF cases pass `false` explicitly.
    */
@@ -97,7 +97,7 @@ function setup(
   // to the invite side. Identity-ish hashing keeps an accept assertion readable.
   const invites = { hashToken: vi.fn((raw: string) => `hash(${raw})`) };
 
-  // 0142 — the trusted-device seam. `trusted` is what isTrusted answers; `issuedDevice` what
+  // 0144 — the trusted-device seam. `trusted` is what isTrusted answers; `issuedDevice` what
   // issue() returns (null = feature off / Redis refused).
   const devices = {
     isTrusted: vi.fn(async () => over.trusted ?? false),
@@ -344,7 +344,7 @@ describe("AdminAuthService — PII-free, registry-valid admin events", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Migration 0142 / owner AMENDMENT 1 — two-step is a per-admin switch, default OFF.
+// Migration 0144 / owner AMENDMENT 1 — two-step is a per-admin switch, default OFF.
 // ---------------------------------------------------------------------------
 describe("AdminAuthService — the per-admin two-step switch (Amendment 1)", () => {
   it("two-step OFF: the emailed code alone mints a session (no TOTP, no enrolment, no marker)", async () => {
@@ -381,7 +381,7 @@ describe("AdminAuthService — the per-admin two-step switch (Amendment 1)", () 
     expect(d.mfaStore.markOtpPassed).not.toHaveBeenCalled();
   });
 
-  it("two-step OFF even when ENROLLED (the owner's own row after 0142): no TOTP asked", async () => {
+  it("two-step OFF even when ENROLLED (the owner's own row after 0144): no TOTP asked", async () => {
     const d = setup({
       account: { id: ADMIN_ID, role: "super_admin", status: "active", mfaEnrolled: true, mfaEnabled: false },
     });
@@ -426,7 +426,7 @@ describe("AdminAuthService — the per-admin two-step switch (Amendment 1)", () 
   });
 });
 
-describe("AdminAuthService — trusted device at the MFA gate (0142)", () => {
+describe("AdminAuthService — trusted device at the MFA gate (0144)", () => {
   const ENROLLED_ON = {
     id: ADMIN_ID,
     role: "support" as const,
@@ -527,7 +527,7 @@ describe("AdminAuthService — trusted device at the MFA gate (0142)", () => {
   });
 });
 
-describe("AdminAuthService.accountFlags — the GET /admin/me additions (0142)", () => {
+describe("AdminAuthService.accountFlags — the GET /admin/me additions (0144)", () => {
   it("maps the live row to three booleans — never the hash, the seed or a timestamp", async () => {
     const d = setup();
     d.admins.findById.mockResolvedValueOnce({

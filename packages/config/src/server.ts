@@ -1240,7 +1240,7 @@ export const serverEnvSchema = z.object({
   // MFA) — the admin analogue of PAYER_AUTH_MAX_PER_IP_PER_HOUR (credential-stuffing /
   // account-farming backstop). Fail-closed (a Redis outage rejects).
   ADMIN_AUTH_MAX_PER_IP_PER_HOUR: z.coerce.number().int().positive().default(20),
-  // Admin password sign-in (migration 0142) — the per-ACCOUNT attempt throttle, the admin
+  // Admin password sign-in (migration 0144) — the per-ACCOUNT attempt throttle, the admin
   // analogue of PAYER_PASSWORD_MAX_ATTEMPTS / _LOCKOUT_SECONDS (the per-IP cap above is shared
   // and coarse behind NAT). N failed passwords inside the window lock that admin's password door
   // for ADMIN_PASSWORD_LOCKOUT_SECONDS; a success clears the counter. The locked-out answer on

@@ -43,7 +43,7 @@ interface AdminJwtClaims {
   exp?: number;
   /**
    * The credential epoch the token was minted for (`password_set_at` ms, 0 = none) — see
-   * `admin-credential-epoch.ts`. Absent on pre-0142 tokens, which then read as 0.
+   * `admin-credential-epoch.ts`. Absent on pre-0144 tokens, which then read as 0.
    */
   pwe?: number;
 }
@@ -124,7 +124,7 @@ export class AdminSessionService {
    *   (a) rejects the session if `status !== 'active'` (suspended/pending → null → 401), and
    *   (b) returns the CURRENT `role` FROM THE ROW (so AdminRolesGuard sees a demotion live).
    * The JWT/Redis role is never used for authz once the row is loaded. A missing row (deleted
-   * admin) → null → 401. And (c) (0142, security review B2) a token whose `pwe` credential epoch
+   * admin) → null → 401. And (c) (0144, security review B2) a token whose `pwe` credential epoch
    * no longer equals the row's → null → 401: a password set/change/reset kills every session.
    */
   async validateAndTouch(token: string): Promise<ValidatedAdminSession | null> {

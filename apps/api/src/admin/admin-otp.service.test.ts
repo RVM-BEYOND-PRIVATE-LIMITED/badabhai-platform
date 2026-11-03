@@ -486,9 +486,9 @@ describe("AdminOtpService.issueAndSend — REAL delivery (ADR-0038)", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Migration 0142 — the password_reset PURPOSE: its own namespace, copy and email purpose.
+// Migration 0144 — the password_reset PURPOSE: its own namespace, copy and email purpose.
 // ---------------------------------------------------------------------------
-describe("AdminOtpService — password_reset purpose (0142)", () => {
+describe("AdminOtpService — password_reset purpose (0144)", () => {
   const resetCodeKey = (h: string) => `admin_otp_pwreset:code:${h}`;
   const resetCode = (store: Map<string, string>) =>
     (store.get(resetCodeKey(EMAIL_HASH)) ?? "").match(/^hmac<(\d+)>$/)?.[1] ?? "";

@@ -563,7 +563,7 @@ const CONTRACT: ControllerContract[] = [
       verifyMfa: [],
       // The invite accept link — no session exists yet; the single-use token is the credential.
       acceptInvite: [],
-      // Migration 0142 — the password door + forgot/reset: public on the same footing (no
+      // Migration 0144 — the password door + forgot/reset: public on the same footing (no
       // session yet), same per-IP cap. The reset never mints a session.
       loginWithPassword: [],
       forgotPassword: [],
@@ -571,7 +571,7 @@ const CONTRACT: ControllerContract[] = [
       refresh: [A],
       logout: [A],
       me: [A],
-      // 0142 — self-service: own password + own two-step switch (Amendment 1), session-bound.
+      // 0144 — self-service: own password + own two-step switch (Amendment 1), session-bound.
       changeOwnPassword: [A],
       enableMfa: [A],
       confirmMfa: [A],
@@ -611,7 +611,7 @@ const CONTRACT: ControllerContract[] = [
       flagWorker: [A, AR],
       unflagWorker: [A, AR],
       inviteAdmin: [A, AR],
-      // 0142 — create an ACTIVE admin with a temporary password (manage_admins).
+      // 0144 — create an ACTIVE admin with a temporary password (manage_admins).
       createAdminDirect: [A, AR],
       changeAdminRole: [A, AR],
       suspendAdmin: [A, AR],

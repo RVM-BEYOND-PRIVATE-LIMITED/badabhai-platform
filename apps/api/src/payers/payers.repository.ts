@@ -12,7 +12,7 @@ import { PiiCryptoService } from "../common/pii-crypto.service";
 
 /**
  * The pepper version that produced a row's `password_hash` (#2497). Defined once in
- * `common/password-policy.ts` (shared with the admin password door, migration 0142) and
+ * `common/password-policy.ts` (shared with the admin password door, migration 0144) and
  * re-exported here so every existing payer import keeps resolving unchanged.
  */
 export { CURRENT_PASSWORD_PEPPER_VERSION } from "../common/password-policy";

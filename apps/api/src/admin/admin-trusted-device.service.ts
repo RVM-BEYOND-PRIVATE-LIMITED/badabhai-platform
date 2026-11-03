@@ -44,7 +44,7 @@ export type TrustedDeviceAccount = Pick<
 >;
 
 /**
- * "Trust this device for N days" on the admin two-step step (migration 0142).
+ * "Trust this device for N days" on the admin two-step step (migration 0144).
  *
  * A browser that passed TOTP with the box ticked gets a 256-bit random token; Redis holds ONLY
  * its keyed HMAC (`admin_trusted_device:<hmac(token)>`) → `{admin_id, created_at_ms, mfa_fp, pwe}`

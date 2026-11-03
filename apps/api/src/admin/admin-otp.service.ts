@@ -26,14 +26,14 @@ export interface AdminOtpIssued {
 }
 
 /**
- * WHY a code exists (migration 0142). Each purpose owns a DISJOINT Redis namespace, so a login
+ * WHY a code exists (migration 0144). Each purpose owns a DISJOINT Redis namespace, so a login
  * code can never redeem a password reset and a reset code can never sign anyone in — the code,
  * its attempt counter, its resend cooldown and its hourly cap are all per purpose.
  */
 export type AdminOtpPurpose = "login" | "password_reset";
 
 interface AdminOtpPurposeSpec {
-  /** Redis key prefix. `login` keeps the pre-0142 `admin_otp` keys byte-for-byte. */
+  /** Redis key prefix. `login` keeps the pre-0144 `admin_otp` keys byte-for-byte. */
   readonly namespace: string;
   /** The log-line noun — closed vocabulary, never PII. */
   readonly logLabel: string;
@@ -95,7 +95,7 @@ const ADMIN_OTP_PURPOSES: Readonly<Record<AdminOtpPurpose, AdminOtpPurposeSpec>>
  *
  * Keyed on the email's keyed HMAC (`emailHash`) — never the raw email. Redis namespace is
  * `admin_otp:*`, DISTINCT from `payer_otp:*`/worker `otp:*`, so the principals never collide.
- * Migration 0142 adds a second PURPOSE, `password_reset`, under its own `admin_otp_pwreset:*`
+ * Migration 0144 adds a second PURPOSE, `password_reset`, under its own `admin_otp_pwreset:*`
  * namespace (see {@link AdminOtpPurpose}); every method defaults to `login`, whose keys, email
  * copy and log lines are unchanged.
  *
@@ -367,7 +367,7 @@ export class AdminOtpService {
   }
 
   /**
-   * `<namespace>:<kind>:<suffix>`. For `login` this is exactly the pre-0142 key set
+   * `<namespace>:<kind>:<suffix>`. For `login` this is exactly the pre-0144 key set
    * (`admin_otp:code:<hash>`, `…:attempts:`, `…:cooldown:`, `…:sendcount:<hash>:<hour>`).
    */
   private static key(

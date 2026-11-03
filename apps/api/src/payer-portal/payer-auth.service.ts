@@ -17,7 +17,7 @@ import { isE164Phone, emailSchema } from "@badabhai/validators";
 import { SERVER_CONFIG } from "../config/config.module";
 import { isSyntheticPayerEmail } from "../payers/payer-test-login.guard";
 import { PiiCryptoService } from "../common/pii-crypto.service";
-// #2497's never-matching scrypt token — now shared with the admin password door (0142).
+// #2497's never-matching scrypt token — now shared with the admin password door (0144).
 import { DUMMY_PASSWORD_HASH } from "../common/password-policy";
 import { OtpSendCapExceededException } from "../common/otp-send-cap";
 import type { RequestContext } from "../common/request-context";

@@ -150,7 +150,7 @@ describe("AdminModule wiring (DI regression guard)", () => {
     expect(queueModules.length, "AdminModule must register the BullMQ queue").toBeGreaterThan(0);
   });
 
-  it("provides every 0142 password / two-step / provisioning dependency the two controllers inject", () => {
+  it("provides every 0144 password / two-step / provisioning dependency the two controllers inject", () => {
     // AdminAuthController now injects AdminPasswordService + AdminMfaSelfService, and
     // AdminActionsController injects AdminProvisioningService; those in turn need the lockout +
     // trusted-device providers. Each missing registration is a BOOT failure that typecheck, lint

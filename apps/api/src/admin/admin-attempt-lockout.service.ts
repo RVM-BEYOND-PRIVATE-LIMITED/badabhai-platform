@@ -51,7 +51,7 @@ const SCOPE_PREFIX: Readonly<Record<AdminAttemptScope, string>> = {
 };
 
 /**
- * Per-ADMIN failed-attempt lockout (migration 0142) — the admin analogue of PayerAuthService's
+ * Per-ADMIN failed-attempt lockout (migration 0144) — the admin analogue of PayerAuthService's
  * `isPasswordLockedOut` / `recordPasswordFailure` / `clearPasswordFailures` (#2497), extracted
  * into its own provider because four admin flows share it.
  *

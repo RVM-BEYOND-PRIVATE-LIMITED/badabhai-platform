@@ -96,7 +96,7 @@ export const AdminInviteSchema = z
 export type AdminInviteDto = z.infer<typeof AdminInviteSchema>;
 
 /**
- * POST /admin/admins/direct body (migration 0142) — create an ACTIVE admin with a TEMPORARY
+ * POST /admin/admins/direct body (migration 0144) — create an ACTIVE admin with a TEMPORARY
  * password (super_admin only). The name and email are ADMIN-class PII: encrypted at rest, never
  * evented. The temporary password meets the SAME shared policy as every password, and the new
  * admin must replace it on first sign-in.

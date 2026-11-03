@@ -13,7 +13,7 @@ import { AdminCreateDirectSchema } from "./admin-actions.dto";
 const EMAIL = "Ops.Admin@BadaBhai.in ";
 const DEVICE = "a".repeat(43);
 
-describe("0142 admin auth DTOs", () => {
+describe("0144 admin auth DTOs", () => {
   it("login/password: normalizes the email; password bounded but NOT policy-checked", () => {
     const ok = AdminPasswordLoginSchema.parse({ email: EMAIL, password: "x" });
     expect(ok.email).toBe("ops.admin@badabhai.in");
@@ -45,7 +45,7 @@ describe("0142 admin auth DTOs", () => {
     ).toBe(false);
   });
 
-  it("every 0142 body is .strict() — an unexpected key (an id, a role) is a 400", () => {
+  it("every 0144 body is .strict() — an unexpected key (an id, a role) is a 400", () => {
     expect(
       AdminPasswordLoginSchema.safeParse({ email: EMAIL, password: "x", admin_id: "y" }).success,
     ).toBe(false);

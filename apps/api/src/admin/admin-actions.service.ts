@@ -37,7 +37,7 @@ export const ADMIN_ACTION_CODES = {
   admin_role_changed: "admin_role_changed",
   admin_suspended: "admin_suspended",
   admin_mfa_reset: "admin_mfa_reset",
-  // ── Migration 0142 — admin password sign-in + optional two-step (owner 2026-11-03) ──────────
+  // ── Migration 0144 — admin password sign-in + optional two-step (owner 2026-11-03) ──────────
   // Every one targets an ADMIN (subject/target `admin_session`). The password, the code, the
   // device token and the email NEVER ride the event — the code names WHAT happened, nothing else.
   //   admin_created        — a super_admin created an ACTIVE admin directly with a temporary

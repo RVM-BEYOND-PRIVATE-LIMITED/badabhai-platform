@@ -34,7 +34,7 @@ export const MUST_CHANGE_VIA_PASSWORD =
 
 /**
  * Admin auth orchestration (ADR-0025 ADMIN-1) — the login flow for the 4th principal:
- *   first factor (emailed code, or — migration 0142 — a password) → **MFA gate** → session.
+ *   first factor (emailed code, or — migration 0144 — a password) → **MFA gate** → session.
  *
  * THE MFA GATE (`gateMfaThenMaybeMint`, shared by BOTH first factors). Must-fix #1 originally
  * made TOTP mandatory for every role; owner AMENDMENT 1 (2026-11-03) made it OPTIONAL, PER
@@ -70,7 +70,7 @@ export class AdminAuthService {
     // Needed for exactly one thing here: hashing a presented accept token so the raw value is
     // never compared, logged, or held beyond the lookup.
     private readonly invites: AdminInviteService,
-    // 0142 — "trust this device": consulted at the MFA gate only when a token is presented, and
+    // 0144 — "trust this device": consulted at the MFA gate only when a token is presented, and
     // asked to issue one only on a TOTP success with `trust_device`.
     private readonly devices: AdminTrustedDeviceService,
     // Security review B1 — the per-admin TOTP attempt cap on POST /admin/mfa/verify.
@@ -173,7 +173,7 @@ export class AdminAuthService {
   }
 
   /**
-   * 0142 — the account flags `GET /admin/me` adds, read from the LIVE row (the guard already
+   * 0144 — the account flags `GET /admin/me` adds, read from the LIVE row (the guard already
    * proved the session; a row that vanished in between is the same neutral 401 the guard gives).
    * Booleans only — the hash, the seed and the timestamps never leave this method.
    */
@@ -274,7 +274,7 @@ export class AdminAuthService {
    * proven the factor AND that the account is active; this method never re-checks either.
    *   - ADMIN_MFA_REQUIRED false (config: two-step off for everyone) → mint a session.
    *   - the admin's own two-step is OFF (`mfa_enabled = false`, Amendment 1) → mint a session.
-   *   - two-step ON + a valid trusted-device token for THIS admin → mint (TOTP skipped; 0142).
+   *   - two-step ON + a valid trusted-device token for THIS admin → mint (TOTP skipped; 0144).
    *   - two-step ON + NOT enrolled → an enrollment step ONLY (a fresh TOTP secret), NO session.
    *   - two-step ON + enrolled → `mfa_required` with no enrollment material; the admin must
    *     POST /admin/mfa/verify to complete and get a session. NO session is minted here.
@@ -315,7 +315,7 @@ export class AdminAuthService {
   }
 
   /**
-   * 0142 — issue a trusted-device token after a TOTP success with `trust_device`, and record it
+   * 0144 — issue a trusted-device token after a TOTP success with `trust_device`, and record it
    * (`admin_device_trusted`, value-free). Nothing is issued — and nothing evented — when the
    * feature is off (ADMIN_TRUSTED_DEVICE_DAYS=0) or Redis refused the write: the session is
    * already minted, and an un-trusted browser is simply asked for TOTP next time.
@@ -337,7 +337,7 @@ export class AdminAuthService {
 
   /**
    * Mint the session + emit `admin.session_started` (PII-free). Touch last_login (best-effort).
-   * Public for `AdminPasswordService` (0142), whose password change hands back a FRESH session:
+   * Public for `AdminPasswordService` (0144), whose password change hands back a FRESH session:
    * every session start, whatever the door, goes through this one method and this one event.
    */
   async mintSession(account: AdminUser, ctx: RequestContext): Promise<AdminSessionResponse> {

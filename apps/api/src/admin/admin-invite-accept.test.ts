@@ -62,7 +62,7 @@ function make(over: { accepted?: AdminUser | undefined } = {}) {
     {} as never,
     events as never,
     invites as never,
-    // 0142 trusted-device seam + B1 TOTP lockout — the accept path never touches either.
+    // 0144 trusted-device seam + B1 TOTP lockout — the accept path never touches either.
     {} as never,
     {} as never,
   );

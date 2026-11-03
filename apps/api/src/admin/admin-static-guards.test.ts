@@ -128,7 +128,7 @@ describe("Admin every-route-guarded build-blocker (must-fix #4)", () => {
   // Adding a name here is a SECURITY decision, which is the whole point of this test: the
   // list is the reviewable record of every route reachable without a session.
   //
-  // Migration 0142 (owner ruling 2026-11-03) adds three, each on the login routes' footing and
+  // Migration 0144 (owner ruling 2026-11-03) adds three, each on the login routes' footing and
   // behind the same per-IP cap: `loginWithPassword` (the password IS the first factor — it hands
   // off to the same MFA gate as `verifyLogin`), and `forgotPassword` / `resetPassword` (the
   // emailed reset code is the credential; the reset NEVER mints a session).
@@ -261,7 +261,7 @@ describe("ADMIN-3a entity-action routes — guarded + exactly one capability (mu
         // PERMANENT lockout: clear() had zero callers and setMfaEnrolled was only ever
         // called with true.
         "resetAdminMfa",
-        // Migration 0142 — create an ACTIVE admin with a temporary password (the invite link
+        // Migration 0144 — create an ACTIVE admin with a temporary password (the invite link
         // still renders as mock:// in production, so it cannot onboard anyone on its own).
         "createAdminDirect",
       ].sort(),
@@ -306,7 +306,7 @@ describe("ADMIN-3a entity-action routes — guarded + exactly one capability (mu
     // under the SAME super_admin-only capability. A weaker one (say ops_admin) would let a
     // lower-privileged role strip MFA off a super_admin, which inverts the whole hierarchy.
     expect(capabilityOf("resetAdminMfa")).toBe("manage_admins");
-    // 0142 — minting an account with a credential is the most direct admin-management act.
+    // 0144 — minting an account with a credential is the most direct admin-management act.
     expect(capabilityOf("createAdminDirect")).toBe("manage_admins");
   });
 });
