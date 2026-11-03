@@ -398,6 +398,20 @@ export const MATCH_SKILLS = [
     source: "rvm",
     status: "active",
   },
+  {
+    // CEO Launch Plan Pack v1, Phase 2 #6 (sheet 14): the PLC / Automation Technician —
+    // ladder logic, HMI/SCADA, VFD/servo and commissioning on automated lines and SPMs.
+    // APPENDED, never inserted. The maintenance bench, beside the electrician it grows out
+    // of. UNPAIRED for now: #2022 left the electrician deliberately unpaired, and a new
+    // relation pair changes who sees whom — an owner call, not a retag default.
+    skillId: "mskill_plc_automation_tech",
+    labelEn: "PLC / Automation Technician",
+    labelHi: null,
+    industryId: "ind_industrial_manufacturing",
+    domainId: "maintenance",
+    source: "rvm",
+    status: "active",
+  },
 ] as const satisfies readonly MatchSkillSeed[];
 
 export type MatchSkillId = (typeof MATCH_SKILLS)[number]["skillId"];

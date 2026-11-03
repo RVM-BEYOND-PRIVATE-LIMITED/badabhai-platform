@@ -1174,8 +1174,9 @@ describe("Batch 2 part two — industrial electrician", () => {
   });
 
   it("leaves every other 7412 neighbour, and the ISCO node, on the generic pack", () => {
+    // 7412.0101 "automation specialist" (process-control systems) LEFT this list in Phase 2 #6:
+    // it is the PLC / automation family's own code now (see the Phase 2 #6 block at the end).
     for (const p of [
-      "automation specialist", // 7412.0101 — process-control systems
       "fitter-electrical and electronic assembly", // 7412.0201 — panels and electronics
       "mechanical fitter", // 7412.0202 — the alias every mechanical fitter says
       "iron and steel fitter electrical assembly", // 7412.0203 — machine assembly
@@ -1899,5 +1900,52 @@ describe("Phase 2 #5 — the sheet-21 maintenance words (CEO Launch Plan Pack v1
   it("leaves the CNC operator and the electronics mechanic where they were", () => {
     expect(familyFor("cnc operator")).toBe("fam_machining");
     expect(familyFor("maintenance mechanic")).toBe("fam_electronics_install");
+  });
+});
+
+describe("Phase 2 #6 — PLC / automation, a new family on 7412.0101 (CEO Launch Plan Pack v1)", () => {
+  const offline = resolveJobDomainCorpus();
+  const parents = new Set(
+    offline.filter((d) => d.selectable && d.parentJobDomainId).map((d) => d.parentJobDomainId),
+  );
+  const live = offline.filter(
+    (d) => d.selectable && !(d.source === "isco08" && parents.has(d.jobDomainId)),
+  );
+  const liveClaimants = (phrase: string) => {
+    const norm = normalizeOccupationText(phrase);
+    return live
+      .filter((d) => d.aliases.some((a) => normalizeOccupationText(a.text) === norm))
+      .map((d) => d.jobDomainId)
+      .sort();
+  };
+
+  it("binds exactly the one code", () => {
+    const codes = corpus.bindings
+      .filter((b) => b.family_id === "fam_plc_automation")
+      .map((b) => b.job_domain_id);
+    expect(codes).toEqual(["jd_nco_7412_0101"]);
+  });
+
+  it("reaches the family on the trade's programming words, each the ONLY claimant in production", () => {
+    for (const phrase of [
+      "plc programming",
+      "plc programmer",
+      "plc technician",
+      "automation technician",
+      "automation engineer",
+      "पीएलसी प्रोग्रामिंग",
+      "automation specialist",
+    ]) {
+      expect(familyFor(phrase), phrase).toBe("fam_plc_automation");
+      if (phrase !== "automation specialist") {
+        expect(liveClaimants(phrase), phrase).toEqual(["jd_nco_7412_0101"]);
+      }
+    }
+  });
+
+  it("leaves the panel electrician, police and place where they were", () => {
+    expect(familyFor("panel wiring")).not.toBe("fam_plc_automation");
+    expect(familyFor("electrical fitter")).not.toBe("fam_plc_automation");
+    expect(familyFor("police")).not.toBe("fam_plc_automation");
   });
 });

@@ -97,6 +97,7 @@ const SHEET_METAL_WORKER = ["mskill_sheet_metal_worker"] as const;
 const PRESS_OPERATOR = ["mskill_press_operator"] as const;
 const PAINTER_COATER = ["mskill_painter_coater"] as const;
 const MAINTENANCE_TECHNICIAN = ["mskill_maintenance_technician"] as const;
+const PLC_AUTOMATION_TECH = ["mskill_plc_automation_tech"] as const;
 const INDUSTRIAL_ELECTRICIAN = ["mskill_industrial_electrician"] as const;
 const ASSEMBLY_LINE_WORKER = ["mskill_assembly_line_worker"] as const;
 
@@ -346,6 +347,32 @@ export const PACK_ANSWER_SKILLS: Readonly<Record<string, PackMap>> = {
   // INDUSTRIAL Electrician, and those chips do not claim the plant. "Kaunse electrical equipment
   // par kaam karte hain?" — MCC/PCC panels, VFDs, starters and induction motors are plant
   // equipment. `dg_set` is left out: a DG set is run by an operator as often as by an electrician.
+  // ══ PLC / AUTOMATION (Phase 2 #6) ═══════════════════════════════════════════════════════
+  // "Kaunsa PLC chalate hain?" and "Automation me kya kya karte hain?" — a named PLC or a
+  // programming / HMI / drive / commissioning task is the trade's claim. Panel wiring and
+  // I/O checks alone are the electrician's work too (A3), so they stay unmapped here:
+  // reach comes from the programming side of the trade, never from wiring.
+  qp_plc_automation: {
+    plc_brand: {
+      siemens: PLC_AUTOMATION_TECH,
+      allen_bradley: PLC_AUTOMATION_TECH,
+      mitsubishi: PLC_AUTOMATION_TECH,
+      delta: PLC_AUTOMATION_TECH,
+      omron: PLC_AUTOMATION_TECH,
+      schneider: PLC_AUTOMATION_TECH,
+      fuji: PLC_AUTOMATION_TECH,
+      keyence: PLC_AUTOMATION_TECH,
+    },
+    plc_work: {
+      program_editing: PLC_AUTOMATION_TECH,
+      program_writing: PLC_AUTOMATION_TECH,
+      hmi_scada: PLC_AUTOMATION_TECH,
+      vfd_servo: PLC_AUTOMATION_TECH,
+      robot_teaching: PLC_AUTOMATION_TECH,
+      commissioning: PLC_AUTOMATION_TECH,
+    },
+  },
+
   qp_industrial_electrician: {
     electrical_work_type: {
       panel_wiring: INDUSTRIAL_ELECTRICIAN,

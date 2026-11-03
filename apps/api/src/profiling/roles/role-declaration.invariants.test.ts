@@ -139,7 +139,12 @@ describe("the declared-role set", () => {
       ],
       design: ["cam_programmer", "cad_draughtsman", "cad_designer_3d"],
       fabrication: ["welder", "sheet_metal_worker", "press_operator", "painter_coating"],
-      maintenance: ["fitter", "maintenance_technician", "industrial_electrician"],
+      maintenance: [
+        "fitter",
+        "maintenance_technician",
+        "industrial_electrician",
+        "plc_automation_technician",
+      ],
       production: ["assembly_line_worker", "quality_inspector"],
       polymer: [
         "injection_moulding_operator",

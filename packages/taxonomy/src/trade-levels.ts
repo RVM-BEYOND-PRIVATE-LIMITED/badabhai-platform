@@ -148,6 +148,10 @@ export const TRADE_LEVEL_PACKS: Readonly<Record<string, TradeLevelPack>> = {
   // No union extension: technician (Lower) and senior_technician (confirmed,
   // Higher) are already members. Supervisor by rule.
   qp_maintenance_tech: { skillId: "mskill_maintenance_technician", levelKey: "maintenance_level" },
+  // Phase 2 #6 — the PLC / automation technician (CEO Launch Plan Pack v1, sheet 14), a
+  // new trade. No union extension: trainee, technician, senior_technician, lead and
+  // supervisor are all members. Supervisor by rule.
+  qp_plc_automation: { skillId: "mskill_plc_automation_tech", levelKey: "plc_level" },
 };
 
 /** Legacy/alias spellings that name a `TradeLevel` without being one. */
@@ -469,6 +473,17 @@ export const TRADE_LEVEL_CONFIRM_ITEMS: Readonly<
   // confirmed by rule — so one rung, one question.
   qp_maintenance_tech: {
     senior_technician: "maintenance_senior_confirm",
+  },
+  // Phase 2 #6 — the PLC confirms (CEO Launch Plan Pack v1, sheet 14). Confirmed from
+  // `technician`: the sheet writes a question for technician and one for senior
+  // technician; lead has none, so it takes the senior question (standing owner rule,
+  // 2026-11-03). Supervisor by rule. The technician confirm is what confirms that rung:
+  // its shared key is not in CONFIRMED_RUNGS (maintenance/electrician sheets rule it
+  // Lower), so with no answer the rung rule leaves it unconfirmed.
+  qp_plc_automation: {
+    technician: "plc_technician_confirm",
+    senior_technician: "plc_senior_confirm",
+    lead: "plc_senior_confirm",
   },
 };
 

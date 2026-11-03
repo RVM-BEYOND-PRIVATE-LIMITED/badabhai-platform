@@ -273,7 +273,8 @@ describe("the tripwire itself still decides nothing", () => {
     // split off the generic designer — again as its own approved decision, not batch fit.
     // The CEO-pack reconcile (2026-11-02) minted TWO more — mskill_cad_designer_3d (the
     // trade's permanent ID) and the mskill_welder umbrella — same carve-out, not batch fit.
-    expect(MATCH_SKILLS).toHaveLength(18 + 8 + 3);
+    // + 1: Phase 2 #6 (CEO Launch Plan Pack v1, sheet 14, 2026-11-03) minted the PLC trade.
+    expect(MATCH_SKILLS).toHaveLength(18 + 8 + 4);
     expect(artifact.match_vocabulary_size).toBe(18);
   });
 

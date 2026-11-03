@@ -88,11 +88,12 @@ describe("the pack is structurally sound", () => {
     expect(counts.matched + counts.intentionallyUnmatched + counts.review).toBe(96);
   });
 
-  it("no unknown mskill_* can enter — every candidate is one of the existing 21", () => {
+  it("no unknown mskill_* can enter — every candidate is one of the existing vocabulary", () => {
     // +1: Middle Way E0 (Q3, owner-approved 2026-10-31) minted mskill_3d_designer.
     // +2: the CEO-pack reconcile (2026-11-02) minted mskill_cad_designer_3d and
     // mskill_welder. Q1 dispositions still validate against the Q1-era 18 alone.
-    expect(VALID.size).toBe(Q1_ERA_MATCH_SKILLS + MINTED_FOR_2022 + 3);
+    // + 1: Phase 2 #6 (CEO Launch Plan Pack v1, sheet 14, 2026-11-03) minted the PLC trade.
+    expect(VALID.size).toBe(Q1_ERA_MATCH_SKILLS + MINTED_FOR_2022 + 4);
     expect(VALID_AT_Q1.size).toBe(Q1_ERA_MATCH_SKILLS);
     for (const r of Q1_TRIAGE) {
       for (const c of r.candidates) expect(VALID_AT_Q1, `${r.skillId} -> ${c}`).toContain(c);
@@ -267,7 +268,8 @@ describe("what was applied, and what was not", () => {
     // Q1 did not move the vocabulary; #2022 later appended eight (see Q1_ERA_MATCH_SKILLS).
     // +1: Middle Way E0 minted mskill_3d_designer (same owner-ruling carve-out as #2022).
     // +2: the CEO-pack reconcile minted mskill_cad_designer_3d + mskill_welder.
-    expect(MATCH_SKILLS).toHaveLength(Q1_ERA_MATCH_SKILLS + MINTED_FOR_2022 + 3);
+    // + 1: Phase 2 #6 (CEO Launch Plan Pack v1, sheet 14, 2026-11-03) minted the PLC trade.
+    expect(MATCH_SKILLS).toHaveLength(Q1_ERA_MATCH_SKILLS + MINTED_FOR_2022 + 4);
     expect(SKILL_CORPUS).toHaveLength(49);
   });
 

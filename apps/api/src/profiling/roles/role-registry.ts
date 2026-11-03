@@ -24,6 +24,7 @@ import {
 import { ASSEMBLY_LINE_WORKER } from "./assembly-line-worker.role";
 import { BLOW_MOULDING_OPERATOR } from "./blow-moulding-operator.role";
 import { CAD_DESIGN_3D } from "./cad-design-3d.role";
+import { PLC_AUTOMATION } from "./plc-automation.role";
 import { CAD_DRAUGHTSMAN } from "./cad-draughtsman.role";
 import { CAM_PROGRAMMER } from "./cam-programmer.role";
 import { CNC_GRINDING } from "./cnc-grinding.role";
@@ -73,6 +74,8 @@ const DECLARED = [
   FITTER,
   MAINTENANCE_TECHNICIAN,
   INDUSTRIAL_ELECTRICIAN,
+  // Phase 2 #6 (CEO Launch Plan Pack v1, sheet 14) — formless, like 3D.
+  PLC_AUTOMATION,
   // ── production ───────────────────────────────────────────────────────────────────────────────
   ASSEMBLY_LINE_WORKER,
   QUALITY_INSPECTOR,

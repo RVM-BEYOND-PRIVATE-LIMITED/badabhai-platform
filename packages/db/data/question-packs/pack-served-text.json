@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "pack_count": 196,
+  "pack_count": 197,
   "packs": {
     "qp_ac_refrigeration@1": {
       "served_text_sha256": "d06b4ae6ca7502d3f991cdb96b4b53c04208085afa9450799c453967ac6f6b7e",
@@ -493,6 +493,10 @@
     "qp_painting@1": {
       "served_text_sha256": "c36911a4cf4e6bb5b156430942ae927cb7e9070e0f6ed0bdfb91f0f809e0ff14",
       "served_text_count": 15
+    },
+    "qp_plc_automation@1": {
+      "served_text_sha256": "ec6aee54a1d1efa7d0e40a02e08507d6d7363a383c2dd1bb33d8fd9f5954d87a",
+      "served_text_count": 33
     },
     "qp_plumbing@1": {
       "served_text_sha256": "d91d3caf157e5c77ad236f98d3e1a0962d87e92f3d5a18edd26ace07fa3c4138",

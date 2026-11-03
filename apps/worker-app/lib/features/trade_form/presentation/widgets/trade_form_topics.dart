@@ -113,6 +113,12 @@ const Map<String, (String, String)> _kTopics = <String, (String, String)>{
   // Track A #3 (qp_cam_programming@4) — same mechanism, same category.
   'cam_program_confirm': _level, 'cam_senior_confirm': _level,
   'cam_lead_confirm': _level, 'cam_team_confirm': _level,
+  // Phase 2 #6 (qp_plc_automation) — chat-only pack, no form walks it; each
+  // key is listed with its true category, as for the 3D pack below.
+  'plc_experience': _experience, 'plc_level': _level,
+  'plc_technician_confirm': _level, 'plc_senior_confirm': _level,
+  'plc_brand': _software, 'plc_work': _operations,
+  'plc_hmi_brand': _software, 'plc_field_devices': _equipment,
   // Track A #4 (qp_cad_design_3d) — chat-only pack, no form walks it, but the
   // coverage test reads every tier-tagged active pack: each key is listed with
   // its true category so the table stays complete rather than failing closed.

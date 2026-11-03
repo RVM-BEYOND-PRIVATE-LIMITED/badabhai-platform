@@ -962,6 +962,18 @@
 # code carries the title. Pinned to the role-pack code beside "panel electrician".
 {"kind":"alias","job_domain_id":"jd_nco_7412_0200","text":"panel wireman","lang":"en"}
 {"kind":"alias","job_domain_id":"jd_nco_7412_0200","text":"पैनल वायरमैन","lang":"hi"}
+# PHASE 2 #6 (CEO Launch Plan Pack v1, sheet 14 "Words"): the PLC / automation trade, a new
+# family bound to 7412.0101 "Automation Specialist". The rows name the PROGRAMMING side of the
+# trade (A3: "PLC/Automation if programming is main job; else Electrician"). Bare "plc" is NOT a
+# row: its skeleton is "police" and "place", and "PLC panel wiring" is the electrician's work.
+# Software and device words (ladder logic, TIA Portal, WinCC, servo) are capture chips and role
+# machine terms, never routes. Chip label: "plc programmer", the shortest Latin row.
+{"kind":"alias","job_domain_id":"jd_nco_7412_0101","text":"plc programming","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7412_0101","text":"plc programmer","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7412_0101","text":"plc technician","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7412_0101","text":"automation technician","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7412_0101","text":"automation engineer","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7412_0101","text":"पीएलसी प्रोग्रामिंग","lang":"hi"}
 #
 # ── Press — NCO 7223.2300 (Power Press Operator, Metal) / 7223.3000 (Metal Stamper) — 20, 22 ─
 # "press ka kaam" (23) is struck — it is ironing clothes — and "machine operator" (24) routes

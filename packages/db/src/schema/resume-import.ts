@@ -207,9 +207,10 @@ export const workerResumeImports = pgTable(
     // frozen record, and a future 22nd kind widens the registry AND this list in
     // the same change (the settle test pins the SQL it compiles).
     // Migration 0140 (Track A #4): the 22nd kind is `cad_designer_3d`.
+    // Migration 0143 (Phase 2 #6): the 23rd kind is `plc_automation_technician`.
     check(
       "wri_association_kind_chk",
-      sql`${t.associationKind} IS NULL OR ${t.associationKind} IN ('cnc_turner', 'vmc_milling', 'cnc_grinding', 'cam_programmer', 'cad_draughtsman', 'conventional_machinist', 'tool_die_maker', 'welder', 'sheet_metal_worker', 'press_operator', 'painter_coating', 'fitter', 'maintenance_technician', 'industrial_electrician', 'assembly_line_worker', 'quality_inspector', 'injection_moulding_operator', 'mould_die_maker', 'blow_moulding_operator', 'rubber_moulding_operator', 'plastic_process_technician', 'cad_designer_3d')`,
+      sql`${t.associationKind} IS NULL OR ${t.associationKind} IN ('cnc_turner', 'vmc_milling', 'cnc_grinding', 'cam_programmer', 'cad_draughtsman', 'conventional_machinist', 'tool_die_maker', 'welder', 'sheet_metal_worker', 'press_operator', 'painter_coating', 'fitter', 'maintenance_technician', 'industrial_electrician', 'assembly_line_worker', 'quality_inspector', 'injection_moulding_operator', 'mould_die_maker', 'blow_moulding_operator', 'rubber_moulding_operator', 'plastic_process_technician', 'cad_designer_3d', 'plc_automation_technician')`,
     ),
     check(
       "wri_fields_extracted_nonneg_chk",
@@ -237,9 +238,10 @@ export const workerResumeImports = pgTable(
     // ones in code (`narrowRoleKind`, and the far side's `_narrow_role_kind`), which is where
     // "is this form live" belongs — not in a constraint that needs a migration per role.
     // Migration 0140 (Track A #4): the 22nd kind is `cad_designer_3d`.
+    // Migration 0143 (Phase 2 #6): the 23rd kind is `plc_automation_technician`.
     check(
       "wri_identity_role_kind_chk",
-      sql`${t.identityRoleKind} IS NULL OR ${t.identityRoleKind} IN ('cnc_turner', 'vmc_milling', 'cnc_grinding', 'cam_programmer', 'cad_draughtsman', 'conventional_machinist', 'tool_die_maker', 'welder', 'sheet_metal_worker', 'press_operator', 'painter_coating', 'fitter', 'maintenance_technician', 'industrial_electrician', 'assembly_line_worker', 'quality_inspector', 'injection_moulding_operator', 'mould_die_maker', 'blow_moulding_operator', 'rubber_moulding_operator', 'plastic_process_technician', 'cad_designer_3d')`,
+      sql`${t.identityRoleKind} IS NULL OR ${t.identityRoleKind} IN ('cnc_turner', 'vmc_milling', 'cnc_grinding', 'cam_programmer', 'cad_draughtsman', 'conventional_machinist', 'tool_die_maker', 'welder', 'sheet_metal_worker', 'press_operator', 'painter_coating', 'fitter', 'maintenance_technician', 'industrial_electrician', 'assembly_line_worker', 'quality_inspector', 'injection_moulding_operator', 'mould_die_maker', 'blow_moulding_operator', 'rubber_moulding_operator', 'plastic_process_technician', 'cad_designer_3d', 'plc_automation_technician')`,
     ),
     check("wri_byte_size_chk", sql`${t.byteSize} > 0`),
     check("wri_storage_key_present_chk", sql`length(btrim(${t.storageKey})) > 0`),

@@ -1146,6 +1146,9 @@ export const TRADE_FORM_KINDS_ALL = Object.freeze([
 
   // ── TRACK A #4 — 3D CAD Designer (CEO Launch Plan Pack v1, sheet 4) ──
   "cad_designer_3d", // qp_cad_design_3d — `design`; formless, like the polymer batch
+
+  // ── PHASE 2 #6 — PLC / Automation Technician (CEO Launch Plan Pack v1, sheet 14) ──
+  "plc_automation_technician", // qp_plc_automation — `maintenance`; formless, like 3D
 ] as const);
 
 export type TradeFormKindName = (typeof TRADE_FORM_KINDS_ALL)[number];
@@ -1244,6 +1247,8 @@ export const JOB_ROLE_LABELS: Readonly<Record<TradeFormKindName, JobRoleLabel>> 
   rubber_moulding_operator: { label: "Rubber Moulding / Compression Operator", family: "polymer" },
   plastic_process_technician: { label: "Plastic Process / Quality Technician", family: "polymer" },
   cad_designer_3d: { label: "3D CAD Designer", family: "design" },
+  // Phase 2 #6 (CEO Launch Plan Pack v1, sheet 14).
+  plc_automation_technician: { label: "PLC / Automation Technician", family: "maintenance" },
 } satisfies Record<TradeFormKindName, JobRoleLabel>);
 
 /**
