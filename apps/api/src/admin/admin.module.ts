@@ -49,6 +49,9 @@ import { AdminIdentityService } from "./admin-identity.service";
 import { AdminEntitiesRepository } from "./admin-entities.repository";
 import { AdminEntitiesService } from "./admin-entities.service";
 import { AdminEntitiesController } from "./admin-entities.controller";
+import { AdminPayerLoginsRepository } from "./admin-payer-logins.repository";
+import { AdminPayerLoginsService } from "./admin-payer-logins.service";
+import { AdminPayerLoginsController } from "./admin-payer-logins.controller";
 import { AdminFinanceRepository } from "./admin-finance.repository";
 import { AdminFinanceService } from "./admin-finance.service";
 import { AdminFinanceController } from "./admin-finance.controller";
@@ -203,6 +206,7 @@ import { WorkerQualificationsRepository } from "../profiles/worker-qualification
     AdminPiiRevealController,
     AdminKillSwitchController,
     AdminEntitiesController,
+    AdminPayerLoginsController,
     AdminFinanceController,
     AdminDirectoryController,
     AdminDashboardController,
@@ -291,6 +295,12 @@ import { WorkerQualificationsRepository } from "../profiles/worker-qualification
     // worker/payer reads come from AdminIdentityService above, never from this repository.
     AdminEntitiesRepository,
     AdminEntitiesService,
+    // #2563: payer login management — create/issue/revoke + the User accounts list, behind
+    // `manage_payer_credentials`. The credential write, the `audit_logs` reason row and the
+    // value-free `admin.action_performed` share ONE transaction; the login ID and organisation
+    // name on the list go through AdminIdentityService above, never through this repository.
+    AdminPayerLoginsRepository,
+    AdminPayerLoginsService,
     // BP-2: finance reads (credit position, platform-wide ledger, payment orders) behind
     // `read_entities`. SELECT-ONLY. Every money-bearing response carries the payments
     // posture, so a mock rupee can never be read as a real one.

@@ -8,6 +8,7 @@ import { AdminActionsController } from "./admin-actions.controller";
 import { AdminPiiRevealController } from "./admin-pii-reveal.controller";
 import { AdminKillSwitchController } from "./admin-kill-switch.controller";
 import { AdminEntitiesController } from "./admin-entities.controller";
+import { AdminPayerLoginsController } from "./admin-payer-logins.controller";
 import { AdminFeedbackController } from "./admin-feedback.controller";
 import { AdminFinanceController } from "./admin-finance.controller";
 import { AdminDirectoryController } from "./admin-directory.controller";
@@ -693,15 +694,15 @@ describe("identity reads — one reader, one decrypter, and no name search", () 
 
   it("the identity repository projects NO other PII column", () => {
     // It is one id-keyed lookup per table, and each of those tables carries something worse than
-    // a name next to it: `phone_e164`/`phone_hash` on workers, four ciphertext columns on
-    // payers, and `mfa_secret_enc` — the TOTP seed — on admin_users.
+    // a name next to it: `phone_e164`/`phone_hash` on workers, the two keyed hashes on payers,
+    // and `mfa_secret_enc` — the TOTP seed — on admin_users. The login-ID projection (#2563) is
+    // the one deliberate exception: it coalesces `email_enc`/`phone_enc` into `nameCipher`, so
+    // those two ciphertext columns appear in the source while the hashes stay out.
     const src = code(IDENTITY_REPO);
     for (const forbidden of [
       "phoneE164",
       "phoneHash",
-      "emailEnc",
       "emailHash",
-      "phoneEnc",
       "mfaSecretEnc",
       "photoStorageKey",
     ]) {
@@ -717,14 +718,17 @@ describe("identity reads — one reader, one decrypter, and no name search", () 
     // shape is pinned, so a column added here fails whether or not anyone predicted it — a
     // `phoneHash`, a `status`, a `createdAt`, a column that does not exist yet.
     //
-    // It also pins the COUNT of projections at three, one per surface, so a fourth lookup cannot
+    // It also pins the COUNT of projections at four, one per surface, so a fifth lookup cannot
     // arrive without this list being edited.
     const src = code(IDENTITY_REPO);
-    const selects = [...src.matchAll(/\.select\(\s*\{([^}]*)\}\s*\)/g)].map((m) =>
+    // Strip the `${...}` interpolation bodies before parsing: the login-ID projection is a
+    // `sql` template whose braces would otherwise truncate the key list at the first `}`.
+    const flat = src.replace(/\$\{[^}]*\}/g, "");
+    const selects = [...flat.matchAll(/\.select\(\s*\{([^}]*)\}\s*\)/g)].map((m) =>
       [...m[1]!.matchAll(/(\w+)\s*:/g)].map((k) => k[1]!).sort(),
     );
     expect(selects, "the identity repository must have exactly one select per surface").toHaveLength(
-      3,
+      4,
     );
     for (const keys of selects) {
       expect(keys, `a select projects ${keys.join(", ")}`).toEqual(["id", "nameCipher"]);
@@ -799,16 +803,16 @@ describe("identity reads — one reader, one decrypter, and no name search", () 
     return headers.find((h) => h.name.toLowerCase() === "cache-control")?.value;
   }
 
-  it("EXACTLY THREE non-test files reach the identity layer (the no-store derivation's own input)", () => {
+  it("EXACTLY FOUR non-test files reach the identity layer (the no-store derivation's own input)", () => {
     // `nameBearingHandlers` derives METHODS from source, which is the right shape — but it is
-    // only ever CALLED with two hardcoded filenames, so the derivation is wrapped in exactly the
+    // only ever CALLED with hardcoded filenames, so the derivation is wrapped in exactly the
     // hand-kept list its own header says a hand-kept list is what a new route gets left off.
     //
     // MEASURED: a new `admin-lookup.service.ts` calling `this.identity.resolve(` plus a wired
     // `@Get("lookup")` controller with NO `@Header("Cache-Control", "no-store")`, no page clamp
     // and `ids` taken straight off a query string passed all 77 guards, all 917 admin tests and
     // `tsc --noEmit`. `admin.module.boot.test.ts` uses `toContain`, so registering it was
-    // additive too. This closes that: a third caller of the identity layer now fails HERE, and
+    // additive too. This closes that: a fourth caller of the identity layer now fails HERE, and
     // whoever adds it must extend the no-store derivation below in the same edit.
     const callers = tsFiles(ADMIN_DIR)
       .filter((f) => {
@@ -827,6 +831,8 @@ describe("identity reads — one reader, one decrypter, and no name search", () 
         "admin/admin-candidate-detail.service.ts",
         "admin/admin-directory.service.ts",
         "admin/admin-entities.service.ts",
+        // #2563 — the User accounts list.
+        "admin/admin-payer-logins.service.ts",
       ].sort(),
     );
   });
@@ -843,6 +849,7 @@ describe("identity reads — one reader, one decrypter, and no name search", () 
     ]);
     expect(nameBearingHandlers("admin-directory.service.ts")).toEqual(["directory"]);
     expect(nameBearingHandlers("admin-candidate-detail.service.ts")).toEqual(["getCandidate"]);
+    expect(nameBearingHandlers("admin-payer-logins.service.ts")).toEqual(["listAccounts"]);
   });
 
   it("EVERY name-bearing route sets Cache-Control: no-store (the reveal route's Control 8)", () => {
@@ -866,6 +873,11 @@ describe("identity reads — one reader, one decrypter, and no name search", () 
         cacheControlOf(AdminCandidateDetailController, method),
         `${method} must be no-store`,
       ).toBe("no-store");
+    }
+    for (const method of nameBearingHandlers("admin-payer-logins.service.ts")) {
+      expect(cacheControlOf(AdminPayerLoginsController, method), `${method} must be no-store`).toBe(
+        "no-store",
+      );
     }
   });
 

@@ -73,6 +73,13 @@ export const ADMIN_ACTION_CODES = {
   skill_candidate_approved_merge: "skill_candidate_approved_merge",
   skill_candidate_rejected: "skill_candidate_rejected",
   skill_candidate_deferred: "skill_candidate_deferred",
+  // ── #2563 — payer login management ──────────────────────────────────────────────────────
+  // Three codes, each targeting a PAYER. The temporary password, its hash and the login ID
+  // never ride the event; the reason code/text lives on the `audit_logs` row written in the
+  // same transaction, because `admin.action_performed` is `.strict()` and value-free.
+  payer_login_created: "payer_login_created",
+  payer_password_issued: "payer_password_issued",
+  payer_password_revoked: "payer_password_revoked",
 } as const;
 export type AdminActionCode = (typeof ADMIN_ACTION_CODES)[keyof typeof ADMIN_ACTION_CODES];
 

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { randomInt } from "node:crypto";
 import type { PiiCryptoService } from "./pii-crypto.service";
 
 /**
@@ -68,4 +69,33 @@ export function burnPasswordKdf(
   password: string,
 ): void {
   pii.verifyPassword(password, DUMMY_PASSWORD_HASH);
+}
+
+/**
+ * #2563 — generate a TEMPORARY password an admin hands to a payer.
+ *
+ * 14 characters from an unambiguous alphabet (no `0/O`, `1/l/I`), with at least one letter
+ * and one digit by construction. It is generated with `crypto.randomInt`, not `Math.random`:
+ * the value is a real credential for the account until the payer replaces it. Length is fixed
+ * at 14 rather than merely policy-minimum 8, because this secret travels through a human
+ * channel (read out over a phone, pasted into a chat) where a short password is guessed or
+ * mistyped; 14 keeps it inside the policy's 128-character ceiling with room to spare.
+ *
+ * The caller returns it ONCE and never persists or logs it — only its scrypt hash is stored.
+ */
+export function generateTemporaryPassword(): string {
+  const letters = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+  const digits = "23456789";
+  const all = `${letters}${digits}`;
+  const randomChar = (alphabet: string): string => alphabet[randomInt(alphabet.length)] as string;
+
+  // Guarantee the policy's two required classes, then fill; shuffle so the guaranteed
+  // positions are not predictable from the alphabet's order.
+  const chars = [randomChar(letters), randomChar(digits)];
+  while (chars.length < 14) chars.push(randomChar(all));
+  for (let i = chars.length - 1; i > 0; i--) {
+    const j = randomInt(i + 1);
+    [chars[i], chars[j]] = [chars[j] as string, chars[i] as string];
+  }
+  return chars.join("");
 }

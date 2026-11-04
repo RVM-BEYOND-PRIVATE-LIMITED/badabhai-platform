@@ -132,6 +132,17 @@ export class PayerAuthGuard implements CanActivate {
       throw new ForbiddenException("Account is not active");
     }
 
+    // #2563 — CREDENTIAL EPOCH. An admin issue/revoke stamps `sessions_valid_after`; a token
+    // minted before that instant is dead even if its Redis record survived a failed revoke.
+    // Compared in whole seconds (`iat` has no finer precision), and NULL — every payer on
+    // deploy — leaves every existing session untouched.
+    if (facts.sessionsValidAfter != null) {
+      const watermarkSeconds = Math.floor(facts.sessionsValidAfter.getTime() / 1000);
+      if (validated.issuedAtSeconds < watermarkSeconds) {
+        throw new UnauthorizedException("Invalid or expired payer session");
+      }
+    }
+
     // Role now comes from the same read (the session claim is only a hint, and the row is
     // authoritative). This also retires the pre-ADR-0022 fallback: every request resolves
     // the role from the row, so a stale session claim can never outrank it.

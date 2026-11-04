@@ -16,10 +16,7 @@ import {
   uniqueIndex,
   check,
 } from "drizzle-orm/pg-core";
-import type {
-  MessageDirection,
-  MessageType,
-} from "@badabhai/types";
+import type { MessageDirection, MessageType } from "@badabhai/types";
 import { jsonObject } from "./internal/sql-defaults";
 import { workers } from "./worker";
 import { generatedResumes } from "./profile";
@@ -103,6 +100,29 @@ export const payers = pgTable(
      * reinstate so it only ever describes the CURRENT suspension.
      */
     previousStatus: text("previous_status").$type<PayerStatus>(),
+    /**
+     * #2563 — true while the stored password is a TEMPORARY one an admin issued. A
+     * password sign-in with this set returns `password_change_required` and mints NO
+     * session; email-code sign-in refuses with 409 for the same reason, so the code
+     * door cannot bypass the change. Cleared in the same write that stores the
+     * payer's own password.
+     */
+    mustChangePassword: boolean("must_change_password").notNull().default(false),
+    /**
+     * #2563 — when an admin revoked password sign-in. A non-NULL value with no newer
+     * `password_set_at` means password sign-in is off; email-code sign-in still works.
+     * Cleared when a new password is stored.
+     */
+    passwordRevokedAt: timestamp("password_revoked_at", { withTimezone: true }),
+    /**
+     * #2563 — sessions minted at or before this instant are dead. Admin issue/revoke
+     * stamps it and ends every session; a self-service password set stamps it for the
+     * OTHER sessions only and keeps the caller's. NULL (every payer on deploy) leaves
+     * sessions unaffected.
+     */
+    sessionsValidAfter: timestamp("sessions_valid_after", { withTimezone: true }),
+    /** #2563 — last successful payer sign-in (OTP or password). */
+    lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -916,4 +936,3 @@ export type PayerJobPostingChatMessage = typeof payerJobPostingChatMessages.$inf
 export type NewPayerJobPostingChatMessage = typeof payerJobPostingChatMessages.$inferInsert;
 export type PayerFormDraft = typeof payerFormDrafts.$inferSelect;
 export type NewPayerFormDraft = typeof payerFormDrafts.$inferInsert;
-

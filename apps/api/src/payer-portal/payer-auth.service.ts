@@ -1,4 +1,6 @@
 import {
+  BadRequestException,
+  ConflictException,
   ForbiddenException,
   HttpException,
   HttpStatus,
@@ -25,6 +27,7 @@ import { EventsService } from "../events/events.service";
 import { PayersRepository, CURRENT_PASSWORD_PEPPER_VERSION } from "../payers/payers.repository";
 import { PayerOrgsRepository, type ResolvedOrg } from "../payers/payer-orgs.repository";
 import { PayerSessionService } from "../payers/payer-session.service";
+import { payerPasswordAttemptsKey } from "../payers/payer-password-lockout";
 import { resolveSessionOrgClaim } from "../payers/payer-session-org-claim";
 import { PayerTenantScopeService } from "../payers/payer-tenant-scope.service";
 import { PayerOtpService, type PayerOtpIssued } from "../payers/payer-otp.service";
@@ -37,6 +40,7 @@ import type {
   PayerAuthCodeResponse,
   PayerSessionResponse,
   PayerRefreshResponse,
+  PayerPasswordChangeRequiredResponse,
 } from "./payer-auth.dto";
 
 /**
@@ -151,7 +155,10 @@ export class PayerAuthService {
   }
 
   /** POST /payer/login/request — issue a code; NO-ENUMERATION across known/unknown contacts. */
-  async requestLogin(dto: PayerLoginRequestDto, ctx: RequestContext): Promise<PayerAuthCodeResponse> {
+  async requestLogin(
+    dto: PayerLoginRequestDto,
+    ctx: RequestContext,
+  ): Promise<PayerAuthCodeResponse> {
     try {
       const contact = PayerAuthService.mustContact(dto);
       const account = await this.findByContact(contact);
@@ -199,9 +206,7 @@ export class PayerAuthService {
    */
   async testLogin(email: string, ctx: RequestContext): Promise<PayerSessionResponse> {
     if (!isSyntheticPayerEmail(email)) {
-      this.logger.warn(
-        "payer test login refused: address outside the reserved synthetic domain",
-      );
+      this.logger.warn("payer test login refused: address outside the reserved synthetic domain");
       throw new NotFoundException("Not found");
     }
 
@@ -229,6 +234,7 @@ export class PayerAuthService {
 
     // #2079 — the org claim rides the session exactly as on a real login.
     const session = await this.sessions.create(id, "employer", org);
+    await this.recordLogin(id);
 
     // NOT `payer.session_started`: a synthetic session must never be indistinguishable from a
     // real login when reading the spine. No idempotencyKey — each mint is a distinct fact.
@@ -282,6 +288,14 @@ export class PayerAuthService {
       throw new ForbiddenException("Account is suspended");
     }
 
+    // #2563 — a TEMPORARY password must be replaced before any session is issued, and the
+    // code door must not bypass that. The caller has already proven the mailbox, so a distinct
+    // 409 is not an enumeration oracle; it is the only way the client can tell the payer what
+    // to do. No session is minted and no login is recorded.
+    if (account.mustChangePassword) {
+      throw new ConflictException("Password change required");
+    }
+
     // First successful verification promotes the payer to `active`. The pending→active
     // predicate lives in the WHERE clause (see PayersRepository.activate), so this is
     // idempotent on every later login and structurally cannot resurrect a suspended row.
@@ -303,6 +317,7 @@ export class PayerAuthService {
     // client value) rides the session as a display hint. The authority stays server-side:
     // PayerOrgRoleGuard re-reads the CURRENT role on every owner-only request.
     const session = await this.sessions.create(account.id, account.role, org);
+    await this.recordLogin(account.id);
     await this.events.emit({
       event_name: "payer.session_started",
       actor: { actor_type: "payer", actor_id: account.id },
@@ -451,7 +466,9 @@ export class PayerAuthService {
       // Swallow ONLY a delivery failure (502) → neutral. 429 (cooldown/cap) and 503 (Redis)
       // are existence-independent (the unknown-email branch hits the same codes) → propagate.
       if (err instanceof HttpException && err.getStatus() === HttpStatus.BAD_GATEWAY) {
-        this.logger.warn(`payer login code delivery failed (neutralized) payer=${payerId.slice(0, 8)}…`);
+        this.logger.warn(
+          `payer login code delivery failed (neutralized) payer=${payerId.slice(0, 8)}…`,
+        );
         issued = { resendInSeconds: this.config.OTP_RESEND_COOLDOWN_SECONDS };
       } else {
         throw err;
@@ -478,7 +495,9 @@ export class PayerAuthService {
    * domain, so an email and a phone can never share a key).
    */
   private contactHash(contact: PayerLoginContact): string {
-    return contact.kind === "email" ? this.pii.hmac(contact.value) : this.pii.hashPhone(contact.value);
+    return contact.kind === "email"
+      ? this.pii.hmac(contact.value)
+      : this.pii.hashPhone(contact.value);
   }
 
   /**
@@ -507,38 +526,51 @@ export class PayerAuthService {
   }
 
   /**
-   * POST /payer/password/set — store the payer's login password (#2497).
+   * POST /payer/password/set — store the payer's own login password (#2497, #2563).
    *
-   * Bearer-guarded (the OTP-verified session), so only the proven account holder gets
-   * here. Stores the scrypt token + pepper version + timestamp; the RAW password is
-   * never logged, never evented, and never leaves this call (CLAUDE.md §2). No event
-   * is emitted — there is nothing PII-free to say beyond "a write happened", and the
-   * verify that authorized this call already has its spine trail (`payer.session_started`).
+   * Bearer-guarded (the OTP-verified session), so only the proven account holder gets here.
+   * Stores the scrypt token + pepper version + timestamp; the RAW password is never logged,
+   * never evented, and never leaves this call (CLAUDE.md §2). The password write and the
+   * value-free `payer.password_set` event commit in ONE transaction; the caller's session is
+   * kept and every OTHER session is ended after that commit (a password change is how a payer
+   * reacts to a leaked credential, so every other device must be signed out).
    */
-  async setPassword(payerId: string, password: string): Promise<void> {
-    await this.payers.setPassword(payerId, {
-      hash: this.pii.hashPassword(password),
-      pepperVersion: CURRENT_PASSWORD_PEPPER_VERSION,
-    });
+  async setPassword(
+    payerId: string,
+    password: string,
+    currentSid: string,
+    ctx: RequestContext,
+  ): Promise<void> {
+    await this.storeOwnPassword(payerId, password, ctx);
+    // After the commit: Redis is not transactional with Postgres. A failure THROWS (see
+    // revokeAllForPayerExcept) rather than reporting a completed change that left other
+    // devices signed in — the retry is the same idempotent write plus a fresh revoke.
+    await this.sessions.revokeAllForPayerExcept(payerId, currentSid);
   }
 
   /**
-   * POST /payer/login/password — verify a password and mint a session (#2497).
+   * POST /payer/login/password — verify a password and mint a session (#2497, #2563).
    *
    * The identifier is, in order: a normalized email, an E.164 phone, or the exact org
    * display name (trimmed, case-insensitive). EVERY MISS IS THE SAME NEUTRAL 401 —
-   * unknown identifier, wrong password, OTP-only account (no hash), colliding org name
-   * (2+ rows), and pending status (never promoted without a fresh OTP proof) are all
-   * indistinguishable (XB-H). Only a proven credential on a SUSPENDED account gets the
-   * distinct 403, mirroring verifyLogin (the caller proved the account exists AND the
-   * secret, so no oracle remains). Per-account attempt lockout (5 fails → 15 min,
+   * unknown identifier, wrong password, OTP-only account (no hash), revoked password,
+   * colliding org name (2+ rows), and pending status (never promoted without a fresh OTP
+   * proof) are all indistinguishable (XB-H). Only a proven credential on a SUSPENDED account
+   * gets the distinct 403, mirroring verifyLogin (the caller proved the account exists AND
+   * the secret, so no oracle remains). Per-account attempt lockout (5 fails → 15 min,
    * Redis, fail-closed) sits beside the shared per-IP cap on the route.
+   *
+   * #2563 — a TEMPORARY password returns `{status:"password_change_required"}` and NO session
+   * unless the request also carries `new_password`, which must pass the policy and differ
+   * from the temporary one. On that step the new password is stored, every existing session is
+   * ended, `payer.password_set` is emitted, and only then is a session minted.
    */
   async loginWithPassword(
     identifier: string,
     password: string,
     ctx: RequestContext,
-  ): Promise<PayerSessionResponse> {
+    newPassword?: string,
+  ): Promise<PayerSessionResponse | PayerPasswordChangeRequiredResponse> {
     const account = await this.resolvePasswordAccount(identifier);
     if (!account) {
       // No row: still burn one full KDF so miss/hit timing matches a real mismatch.
@@ -549,6 +581,14 @@ export class PayerAuthService {
     if (await this.isPasswordLockedOut(account.id)) {
       // Locked out: same neutral 401 (a 429 would announce the throttle — and the
       // account's existence — to a prober). The lockout is logged prefix-only.
+      this.pii.verifyPassword(password, DUMMY_PASSWORD_HASH);
+      throw new UnauthorizedException("Incorrect identifier or password");
+    }
+
+    // #2563 — a REVOKED password is closed even though the hash is still on the row. Read as a
+    // miss: one full KDF, the same neutral 401, no failure counter (this credential is not a
+    // guess, it is a door that was deliberately shut).
+    if (account.passwordRevokedAt != null) {
       this.pii.verifyPassword(password, DUMMY_PASSWORD_HASH);
       throw new UnauthorizedException("Incorrect identifier or password");
     }
@@ -577,6 +617,21 @@ export class PayerAuthService {
       throw new UnauthorizedException("Incorrect identifier or password");
     }
 
+    // #2563 — FORCED CHANGE. The temporary password proves the account; it does not open a
+    // session. Without a replacement the client is told to ask for one and resend.
+    if (account.mustChangePassword && newPassword === undefined) {
+      return { status: "password_change_required" };
+    }
+    if (account.mustChangePassword) {
+      if (newPassword === password) {
+        throw new BadRequestException("Choose a new password - it cannot be the temporary one");
+      }
+      await this.storeOwnPassword(account.id, newPassword!, ctx);
+      // No caller session exists yet: every session that does exist belongs to an earlier
+      // credential and must end. A failure THROWS before a new session is minted.
+      await this.sessions.revokeAllForPayer(account.id);
+    }
+
     // Lazy org-hash fill for pre-#2493 rows (best-effort — never fails a good login).
     if (!account.orgNameLookupHash) {
       await this.payers.ensureOrgLookupHash(account).catch((err: unknown) => {
@@ -588,11 +643,16 @@ export class PayerAuthService {
 
     const org = await this.resolveOrEnsureOrg(account.id);
     const session = await this.sessions.create(account.id, account.role, org);
+    await this.recordLogin(account.id);
     await this.events.emit({
       event_name: "payer.session_started",
       actor: { actor_type: "payer", actor_id: account.id },
       subject: { subject_type: "payer", subject_id: account.id },
-      payload: { payer_id: account.id, method: "password" as PayerLoginMethodEnum, is_new_payer: false },
+      payload: {
+        payer_id: account.id,
+        method: "password" as PayerLoginMethodEnum,
+        is_new_payer: false,
+      },
       correlationId: ctx.correlationId,
       requestId: ctx.requestId,
     });
@@ -605,6 +665,50 @@ export class PayerAuthService {
       role: account.role,
       is_new_payer: false,
     };
+  }
+
+  /**
+   * #2563 — store the payer's own replacement password and emit `payer.password_set` in ONE
+   * transaction. Shared by the self-service route and the forced-change step of the password
+   * door, so both produce the same credential state and the same spine fact. The RAW password
+   * never reaches this method — the caller has already hashed it into `hash`.
+   */
+  private async storeOwnPassword(
+    payerId: string,
+    password: string,
+    ctx: RequestContext,
+  ): Promise<void> {
+    const hash = this.pii.hashPassword(password);
+    await this.payers.withTransaction(async (tx) => {
+      const updated = await this.payers.setPassword(
+        payerId,
+        { hash, pepperVersion: CURRENT_PASSWORD_PEPPER_VERSION },
+        { tx },
+      );
+      if (!updated) throw new NotFoundException("Payer not found");
+      await this.events.emit({
+        event_name: "payer.password_set",
+        actor: { actor_type: "payer", actor_id: payerId },
+        subject: { subject_type: "payer", subject_id: payerId },
+        payload: { payer_id: payerId },
+        correlationId: ctx.correlationId,
+        requestId: ctx.requestId,
+        tx,
+      });
+    });
+  }
+
+  /** #2563 — stamp `last_login_at`; a metrics write must not fail a good sign-in. */
+  private async recordLogin(payerId: string): Promise<void> {
+    try {
+      await this.payers.recordLogin(payerId);
+    } catch (err) {
+      this.logger.warn(
+        `payer last_login_at update failed payer=${payerId.slice(0, 8)}… reason=${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
   }
 
   /**
@@ -638,7 +742,7 @@ export class PayerAuthService {
   }
 
   private static passwordAttemptsKey(payerId: string): string {
-    return `payer_pw:attempts:${payerId}`;
+    return payerPasswordAttemptsKey(payerId);
   }
 
   /**
@@ -650,7 +754,9 @@ export class PayerAuthService {
   private async isPasswordLockedOut(payerId: string): Promise<boolean> {
     let count = 0;
     try {
-      const raw = await (await this.passwordRedis()).get(PayerAuthService.passwordAttemptsKey(payerId));
+      const raw = await (
+        await this.passwordRedis()
+      ).get(PayerAuthService.passwordAttemptsKey(payerId));
       count = raw ? Number.parseInt(raw, 10) || 0 : 0;
     } catch {
       this.logger.error(
@@ -671,7 +777,11 @@ export class PayerAuthService {
     try {
       const redis = await this.passwordRedis();
       const count = await redis.incr(PayerAuthService.passwordAttemptsKey(payerId));
-      if (count === 1) await redis.expire(PayerAuthService.passwordAttemptsKey(payerId), this.config.PAYER_PASSWORD_LOCKOUT_SECONDS);
+      if (count === 1)
+        await redis.expire(
+          PayerAuthService.passwordAttemptsKey(payerId),
+          this.config.PAYER_PASSWORD_LOCKOUT_SECONDS,
+        );
     } catch {
       this.logger.error(
         `payer password failure record failed (failing closed) payer=${payerId.slice(0, 8)}…`,

@@ -1,6 +1,8 @@
 import "reflect-metadata";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
+  BadRequestException,
+  ConflictException,
   ForbiddenException,
   HttpException,
   HttpStatus,
@@ -17,7 +19,10 @@ import { PayerTenantScopeService } from "../payers/payer-tenant-scope.service";
 import type { PayerOrgsRepository } from "../payers/payer-orgs.repository";
 import type { ActiveMembershipFacts } from "../payers/payer-tenant-scope";
 
-const CTX: RequestContext = { correlationId: "11111111-1111-4111-8111-111111111111", requestId: "req-1" };
+const CTX: RequestContext = {
+  correlationId: "11111111-1111-4111-8111-111111111111",
+  requestId: "req-1",
+};
 const PAYER_ID = "aaaaaaaa-0000-4000-8000-000000000001";
 /** Opaque test-double password hash (deterministic, never embeds the raw password). */
 const pwHashFor = (p: string): string => `pw$${[...p].reverse().join("")}${p.length}`;
@@ -35,20 +40,37 @@ function setup(over: { method?: "email_otp" | "whatsapp" | "supabase" } = {}) {
     PAYER_PASSWORD_LOCKOUT_SECONDS: 900,
   } as unknown as ServerConfig;
 
-  const account: Record<string, unknown> = { id: PAYER_ID, role: "employer", status: "active" };
+  const account: Record<string, unknown> = {
+    id: PAYER_ID,
+    role: "employer",
+    status: "active",
+    // #2563 — defaults for every fixture: an ordinary, non-revoked, self-set password.
+    mustChangePassword: false,
+    passwordRevokedAt: null,
+  };
   const payers = {
     createOrGet: vi.fn(async () => ({ id: PAYER_ID, created: true })),
     findByEmail: vi.fn(async (): Promise<Record<string, unknown> | undefined> => account),
     findByPhone: vi.fn(async (): Promise<Record<string, unknown>[]> => []),
     findByOrgName: vi.fn(async (): Promise<Record<string, unknown>[]> => []),
     setPassword: vi.fn(async () => ({})),
+    setTemporaryPassword: vi.fn(async () => ({})),
+    revokePassword: vi.fn(async () => ({})),
+    recordLogin: vi.fn(async () => undefined),
+    withTransaction: vi.fn(async (work: (tx: unknown) => Promise<unknown>) => work({})),
     ensureOrgLookupHash: vi.fn(async () => undefined),
     findById: vi.fn(async (): Promise<Record<string, unknown> | undefined> => account),
     // ADR-0037 — first successful verify promotes pending → active. Default: the account
     // is already active in this fixture, so the guarded update moves no row (undefined)
     // and no `payer.activated` event fires. Tests that exercise activation override this.
     activate: vi.fn(async () => undefined),
-    decryptContact: vi.fn(() => ({ id: PAYER_ID, role: "employer", status: "active", email: EMAIL, phone: PHONE })),
+    decryptContact: vi.fn(() => ({
+      id: PAYER_ID,
+      role: "employer",
+      status: "active",
+      email: EMAIL,
+      phone: PHONE,
+    })),
   };
   const otp = {
     // Real-only: PayerOtpIssued is { resendInSeconds } — the code is delivered to the payer's
@@ -71,6 +93,8 @@ function setup(over: { method?: "email_otp" | "whatsapp" | "supabase" } = {}) {
     create: vi.fn(async () => ({ token: "jwt-token", expiresInSeconds: 2592000 })),
     mint: vi.fn(async () => ({ token: "fresh-jwt", expiresInSeconds: 2592000 })),
     revoke: vi.fn(async () => undefined),
+    revokeAllForPayer: vi.fn(async () => 0),
+    revokeAllForPayerExcept: vi.fn(async () => 0),
   };
   const events = {
     emit: vi.fn(
@@ -124,12 +148,24 @@ describe("PayerAuthService.signup", () => {
   });
 
   it("creates a NEW account, emits a PII-free payer.created, and issues a code", async () => {
-    const res = await d.svc.signup({ role: "employer", email: EMAIL, org_name: ORG, phone: PHONE }, CTX);
-    expect(d.payers.createOrGet).toHaveBeenCalledWith({ role: "employer", email: EMAIL, orgName: ORG, phone: PHONE });
+    const res = await d.svc.signup(
+      { role: "employer", email: EMAIL, org_name: ORG, phone: PHONE },
+      CTX,
+    );
+    expect(d.payers.createOrGet).toHaveBeenCalledWith({
+      role: "employer",
+      email: EMAIL,
+      orgName: ORG,
+      phone: PHONE,
+    });
 
     const created = d.events.emit.mock.calls.find((c) => c[0].event_name === "payer.created");
     expect(created).toBeDefined();
-    expect(created![0].payload).toEqual({ payer_id: PAYER_ID, role: "employer", method: "email_otp" });
+    expect(created![0].payload).toEqual({
+      payer_id: PAYER_ID,
+      role: "employer",
+      method: "email_otp",
+    });
     expect(d.otp.issueAndSend).toHaveBeenCalledTimes(1);
     // Real-only: the response is the neutral { status, resend_in_seconds } only — no dev_otp echo.
     expect(res).toEqual({ status: "code_sent", resend_in_seconds: 30 });
@@ -140,8 +176,13 @@ describe("PayerAuthService.signup", () => {
 
   it("an EXISTING email does NOT emit payer.created (no overwrite) but returns the IDENTICAL response (XB-H)", async () => {
     d.payers.createOrGet.mockResolvedValueOnce({ id: PAYER_ID, created: false });
-    const res = await d.svc.signup({ role: "employer", email: EMAIL, org_name: ORG, phone: PHONE }, CTX);
-    expect(d.events.emit.mock.calls.find((c) => c[0].event_name === "payer.created")).toBeUndefined();
+    const res = await d.svc.signup(
+      { role: "employer", email: EMAIL, org_name: ORG, phone: PHONE },
+      CTX,
+    );
+    expect(
+      d.events.emit.mock.calls.find((c) => c[0].event_name === "payer.created"),
+    ).toBeUndefined();
     // B5: an existing account is NEVER mutated on the signup path — no org ensure either.
     expect(d.orgs.ensureSoloOrg).not.toHaveBeenCalled();
     expect(res).toMatchObject({ status: "code_sent" }); // same neutral shape as a new signup
@@ -173,7 +214,12 @@ describe("PayerAuthService.testLogin (Phase 2.1 seam)", () => {
     const res = await d.svc.testLogin(SYNTHETIC_EMAIL, CTX);
     // Force-activated: without this PayerAuthGuard 403s the very next request.
     expect(d.payers.activate).toHaveBeenCalledWith(PAYER_ID);
-    expect(res).toMatchObject({ access_token: "jwt-token", payer_id: PAYER_ID, role: "employer", is_new_payer: true });
+    expect(res).toMatchObject({
+      access_token: "jwt-token",
+      payer_id: PAYER_ID,
+      role: "employer",
+      is_new_payer: true,
+    });
 
     const names = d.events.emit.mock.calls.map((c) => c[0].event_name);
     expect(names).toContain("payer.test_login");
@@ -201,7 +247,9 @@ describe("PayerAuthService.requestLogin (no user-enumeration)", () => {
     const res = await d.svc.requestLogin({ email: EMAIL }, CTX);
     expect(d.otp.issueAndSend).toHaveBeenCalledTimes(1);
     expect(d.otp.issueWithoutDelivery).not.toHaveBeenCalled();
-    const reqEvt = d.events.emit.mock.calls.find((c) => c[0].event_name === "payer.login_requested");
+    const reqEvt = d.events.emit.mock.calls.find(
+      (c) => c[0].event_name === "payer.login_requested",
+    );
     expect(reqEvt![0].payload).toEqual({ payer_id: PAYER_ID, method: "email_otp" });
     expect(res).toMatchObject({ status: "code_sent" });
     assertNoPiiInEvents(d.events);
@@ -296,7 +344,10 @@ describe("PayerAuthService global send-cap breach (OTP-5 — PII-free event + no
   it("signup on a breach also degrades to the neutral code_sent (account already created)", async () => {
     const d = setup();
     d.otp.issueAndSend.mockRejectedValueOnce(breach());
-    const res = await d.svc.signup({ role: "employer", email: EMAIL, org_name: ORG, phone: PHONE }, CTX);
+    const res = await d.svc.signup(
+      { role: "employer", email: EMAIL, org_name: ORG, phone: PHONE },
+      CTX,
+    );
     expect(res).toEqual({ status: "code_sent", resend_in_seconds: 30 });
     // payer.created still fired (account creation precedes the code issue); the breach event fired too.
     const names = d.events.emit.mock.calls.map((c) => c[0].event_name);
@@ -328,17 +379,26 @@ describe("PayerAuthService.verifyLogin", () => {
       orgRole: "owner",
     });
     const evt = d.events.emit.mock.calls.find((c) => c[0].event_name === "payer.session_started");
-    expect(evt![0].payload).toEqual({ payer_id: PAYER_ID, method: "email_otp", is_new_payer: false });
-    expect(res).toMatchObject({ access_token: "jwt-token", token_type: "Bearer", payer_id: PAYER_ID, role: "employer" });
+    expect(evt![0].payload).toEqual({
+      payer_id: PAYER_ID,
+      method: "email_otp",
+      is_new_payer: false,
+    });
+    expect(res).toMatchObject({
+      access_token: "jwt-token",
+      token_type: "Bearer",
+      payer_id: PAYER_ID,
+      role: "employer",
+    });
     assertNoPiiInEvents(d.events);
   });
 
   it("a verified code for an UNKNOWN account does NOT mint a session — returns the SAME 401 (no oracle)", async () => {
     const d = setup();
     d.payers.findByEmail.mockResolvedValueOnce(undefined); // reserved code, no account
-    await expect(d.svc.verifyLogin({ email: "ghost@nowhere.com", code: "999999" }, CTX)).rejects.toBeInstanceOf(
-      UnauthorizedException,
-    );
+    await expect(
+      d.svc.verifyLogin({ email: "ghost@nowhere.com", code: "999999" }, CTX),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
     expect(d.sessions.create).not.toHaveBeenCalled();
     expect(d.events.emit).not.toHaveBeenCalled();
   });
@@ -352,7 +412,10 @@ describe("PayerAuthService.verifyLogin", () => {
 
   it("a gap payer (B5.1→B5.2) gets the org the healing entry point returns", async () => {
     const d = setup();
-    d.tenancy.ensureActingOrg.mockResolvedValueOnce({ orgId: "org-healed", orgRole: "owner" } as never);
+    d.tenancy.ensureActingOrg.mockResolvedValueOnce({
+      orgId: "org-healed",
+      orgRole: "owner",
+    } as never);
     await d.svc.verifyLogin({ email: EMAIL, code: "123456" }, CTX);
     // Still mints the session normally — carrying the freshly-ensured solo-org OWNER claim.
     expect(d.sessions.create).toHaveBeenCalledWith(PAYER_ID, "employer", {
@@ -370,7 +433,10 @@ describe("PayerAuthService.verifyLogin", () => {
 
   it("#2079: a RECRUITER member's session carries org_role 'recruiter' (decided server-side)", async () => {
     const d = setup();
-    d.tenancy.ensureActingOrg.mockResolvedValueOnce({ orgId: "org-9", orgRole: "recruiter" } as never);
+    d.tenancy.ensureActingOrg.mockResolvedValueOnce({
+      orgId: "org-9",
+      orgRole: "recruiter",
+    } as never);
     await d.svc.verifyLogin({ email: EMAIL, code: "123456" }, CTX);
     expect(d.sessions.create).toHaveBeenCalledWith(PAYER_ID, "employer", {
       orgId: "org-9",
@@ -411,7 +477,9 @@ describe("PayerAuthService.signup/request/verify with phone (#2497)", () => {
 
   it("login/verify by phone verifies the phone-keyed code", async () => {
     const d = setup();
-    d.payers.findByPhone.mockResolvedValueOnce([{ id: PAYER_ID, role: "employer", status: "active" }]);
+    d.payers.findByPhone.mockResolvedValueOnce([
+      { id: PAYER_ID, role: "employer", status: "active" },
+    ]);
     await d.svc.verifyLogin({ phone: PHONE, code: "123456" }, CTX);
     expect(d.otp.verify).toHaveBeenCalledWith(`phone<${PHONE}>`, "123456");
   });
@@ -421,23 +489,33 @@ describe("PayerAuthService.signup/request/verify with phone (#2497)", () => {
     await d.svc.requestLogin({ email: EMAIL, phone: PHONE }, CTX);
     expect(d.payers.findByEmail).toHaveBeenCalledWith(EMAIL);
     expect(d.otp.issueWithoutDelivery).not.toHaveBeenCalled();
-    expect(d.otp.issueAndSend).toHaveBeenCalledWith(expect.objectContaining({ emailHash: `hmac<${EMAIL}>` }));
+    expect(d.otp.issueAndSend).toHaveBeenCalledWith(
+      expect.objectContaining({ emailHash: `hmac<${EMAIL}>` }),
+    );
   });
 });
 
 describe("PayerAuthService.setPassword (#2497)", () => {
-  it("stores the scrypt hash + pepper version — never the password, never an event", async () => {
+  it("stores the scrypt hash + pepper version, emits payer.password_set, and keeps the caller session", async () => {
     const d = setup();
-    await d.svc.setPassword(PAYER_ID, "CorrectHorse9");
-    expect(d.payers.setPassword).toHaveBeenCalledWith(PAYER_ID, {
-      hash: pwHashFor("CorrectHorse9"),
-      pepperVersion: 1,
-    });
-    expect(d.events.emit).not.toHaveBeenCalled();
-    const blob = JSON.stringify([
-      d.payers.setPassword.mock.calls,
-      d.events.emit.mock.calls,
-    ]);
+    await d.svc.setPassword(PAYER_ID, "CorrectHorse9", "sid-1", CTX);
+    expect(d.payers.setPassword).toHaveBeenCalledWith(
+      PAYER_ID,
+      {
+        hash: pwHashFor("CorrectHorse9"),
+        pepperVersion: 1,
+      },
+      { tx: {} },
+    );
+    expect(d.events.emit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event_name: "payer.password_set",
+        payload: { payer_id: PAYER_ID },
+      }),
+    );
+    // #2563: the caller stays signed in; only the OTHER sessions end.
+    expect(d.sessions.revokeAllForPayerExcept).toHaveBeenCalledWith(PAYER_ID, "sid-1");
+    const blob = JSON.stringify([d.payers.setPassword.mock.calls, d.events.emit.mock.calls]);
     expect(blob).not.toContain("CorrectHorse9");
   });
 });
@@ -452,6 +530,8 @@ describe("PayerAuthService.loginWithPassword (#2497)", () => {
     orgNameLookupHash: "org<acme manufacturing pvt ltd>",
     passwordHash: pwHashFor(PW),
     passwordPepperVersion: 1,
+    mustChangePassword: false,
+    passwordRevokedAt: null,
     ...over,
   });
 
@@ -467,7 +547,11 @@ describe("PayerAuthService.loginWithPassword (#2497)", () => {
       orgRole: "owner",
     });
     const evt = d.events.emit.mock.calls.find((c) => c[0].event_name === "payer.session_started");
-    expect(evt![0].payload).toEqual({ payer_id: PAYER_ID, method: "password", is_new_payer: false });
+    expect(evt![0].payload).toEqual({
+      payer_id: PAYER_ID,
+      method: "password",
+      is_new_payer: false,
+    });
     expect(res).toMatchObject({ payer_id: PAYER_ID, role: "employer", is_new_payer: false });
     const blob = JSON.stringify(d.events.emit.mock.calls);
     expect(blob).not.toContain(PW);
@@ -480,7 +564,7 @@ describe("PayerAuthService.loginWithPassword (#2497)", () => {
     const res = await d.svc.loginWithPassword(PHONE, PW, CTX);
     expect(d.payers.findByPhone).toHaveBeenCalledWith(PHONE);
     expect(d.payers.findByEmail).not.toHaveBeenCalled();
-    expect(res.payer_id).toBe(PAYER_ID);
+    expect((res as { payer_id?: string }).payer_id).toBe(PAYER_ID);
   });
 
   it("org-name login is trimmed + case-insensitive, and requires EXACTLY one match", async () => {
@@ -550,9 +634,7 @@ describe("PayerAuthService.loginWithPassword (#2497)", () => {
 
   it("a stale pepper version fails closed (no verify against the old token)", async () => {
     const d = setup();
-    d.payers.findByEmail.mockResolvedValueOnce(
-      pwAccount({ passwordPepperVersion: 0 }) as never,
-    );
+    d.payers.findByEmail.mockResolvedValueOnce(pwAccount({ passwordPepperVersion: 0 }) as never);
     await expect(d.svc.loginWithPassword(EMAIL, PW, CTX)).rejects.toBeInstanceOf(
       UnauthorizedException,
     );
@@ -573,7 +655,9 @@ describe("PayerAuthService.loginWithPassword (#2497)", () => {
   it("a SUSPENDED account with the RIGHT password gets the distinct 403 (proven credential, no oracle)", async () => {
     const d = setup();
     d.payers.findByEmail.mockResolvedValueOnce(pwAccount({ status: "suspended" }));
-    await expect(d.svc.loginWithPassword(EMAIL, PW, CTX)).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(d.svc.loginWithPassword(EMAIL, PW, CTX)).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
     expect(d.sessions.create).not.toHaveBeenCalled();
   });
 
@@ -630,6 +714,130 @@ describe("PayerAuthService.loginWithPassword (#2497)", () => {
   });
 });
 
+describe("PayerAuthService — #2563 forced change, revoke and last sign-in", () => {
+  const PW = "CorrectHorse9";
+  const NEW_PW = "BrandNewPass7";
+  const pwAccount = (over: Record<string, unknown> = {}) => ({
+    id: PAYER_ID,
+    role: "employer",
+    status: "active",
+    orgNameLookupHash: "org<acme manufacturing pvt ltd>",
+    passwordHash: pwHashFor(PW),
+    passwordPepperVersion: 1,
+    mustChangePassword: false,
+    passwordRevokedAt: null,
+    ...over,
+  });
+
+  it("a temporary password without new_password returns password_change_required and NO session", async () => {
+    const d = setup();
+    d.payers.findByEmail.mockResolvedValueOnce(pwAccount({ mustChangePassword: true }));
+
+    await expect(d.svc.loginWithPassword(EMAIL, PW, CTX)).resolves.toEqual({
+      status: "password_change_required",
+    });
+    expect(d.sessions.create).not.toHaveBeenCalled();
+    expect(d.payers.recordLogin).not.toHaveBeenCalled();
+    expect(d.events.emit).not.toHaveBeenCalledWith(
+      expect.objectContaining({ event_name: "payer.session_started" }),
+    );
+  });
+
+  it("a temporary password PLUS a policy-valid new_password stores the new one, emits password_set and mints a session", async () => {
+    const d = setup();
+    d.payers.findByEmail.mockResolvedValueOnce(pwAccount({ mustChangePassword: true }));
+
+    const res = await d.svc.loginWithPassword(EMAIL, PW, CTX, NEW_PW);
+
+    expect(res).toMatchObject({ payer_id: PAYER_ID, role: "employer" });
+    expect(d.payers.setPassword).toHaveBeenCalledWith(
+      PAYER_ID,
+      { hash: pwHashFor(NEW_PW), pepperVersion: 1 },
+      { tx: {} },
+    );
+    expect(d.events.emit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event_name: "payer.password_set",
+        payload: { payer_id: PAYER_ID },
+      }),
+    );
+    // No caller session exists yet: every earlier session must end.
+    expect(d.sessions.revokeAllForPayer).toHaveBeenCalledWith(PAYER_ID);
+    expect(d.sessions.create).toHaveBeenCalledTimes(1);
+    expect(d.payers.recordLogin).toHaveBeenCalledWith(PAYER_ID);
+  });
+
+  it("rejects a new_password equal to the temporary one", async () => {
+    const d = setup();
+    d.payers.findByEmail.mockResolvedValueOnce(pwAccount({ mustChangePassword: true }));
+
+    await expect(d.svc.loginWithPassword(EMAIL, PW, CTX, PW)).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+    expect(d.payers.setPassword).not.toHaveBeenCalled();
+    expect(d.sessions.create).not.toHaveBeenCalled();
+  });
+
+  it("a revoked password is a neutral 401 even when the old password is correct", async () => {
+    const d = setup();
+    d.payers.findByEmail.mockResolvedValueOnce(
+      pwAccount({ passwordRevokedAt: new Date("2026-11-04T00:00:00Z") }),
+    );
+
+    await expect(d.svc.loginWithPassword(EMAIL, PW, CTX)).rejects.toBeInstanceOf(
+      UnauthorizedException,
+    );
+    expect(d.sessions.create).not.toHaveBeenCalled();
+  });
+
+  it("OTP verify refuses a temporary-password account with 409 and no session", async () => {
+    const d = setup();
+    d.payers.findByEmail.mockResolvedValueOnce(pwAccount({ mustChangePassword: true }));
+
+    await expect(
+      d.svc.verifyLogin({ email: EMAIL, code: "123456" } as never, CTX),
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect(d.sessions.create).not.toHaveBeenCalled();
+    expect(d.payers.recordLogin).not.toHaveBeenCalled();
+  });
+
+  it("stamps last_login_at on a successful OTP login and on a successful password login", async () => {
+    const otp = setup();
+    otp.payers.findByEmail.mockResolvedValueOnce(pwAccount());
+    await otp.svc.verifyLogin({ email: EMAIL, code: "123456" } as never, CTX);
+    expect(otp.payers.recordLogin).toHaveBeenCalledWith(PAYER_ID);
+
+    const pw = setup();
+    pw.payers.findByEmail.mockResolvedValueOnce(pwAccount());
+    await pw.svc.loginWithPassword(EMAIL, PW, CTX);
+    expect(pw.payers.recordLogin).toHaveBeenCalledWith(PAYER_ID);
+  });
+
+  it("the emitted payer.password_set payload validates against the registry", async () => {
+    const d = setup();
+    await d.svc.setPassword(PAYER_ID, NEW_PW, "sid-1", CTX);
+    const emitted = d.events.emit.mock.calls.find(
+      (c) => (c[0] as { event_name: string }).event_name === "payer.password_set",
+    )![0] as { payload: Record<string, unknown> };
+
+    const result = validateEvent({
+      event_id: "66666666-6666-4666-8666-666666666666",
+      event_name: "payer.password_set",
+      event_version: 1,
+      occurred_at: "2026-11-04T00:00:00.000Z",
+      actor: { actor_type: "payer", actor_id: PAYER_ID },
+      subject: { subject_type: "payer", subject_id: PAYER_ID },
+      payload: emitted.payload,
+      source: "api",
+      correlation_id: CTX.correlationId,
+      causation_id: null,
+      metadata: { environment: "test", service: "api" },
+      request_id: CTX.requestId,
+    });
+    expect(result.success).toBe(true);
+  });
+});
+
 describe("login heals a missing org ONCE, through the resolver (ADR-0053 R4; review L1)", () => {
   /**
    * The REAL resolver over a fake membership read: login's org repair must have one entry point.
@@ -640,7 +848,9 @@ describe("login heals a missing org ONCE, through the resolver (ADR-0053 R4; rev
   function realResolver(mode: "off" | "on", reads: ActiveMembershipFacts[][]) {
     const queue = [...reads];
     const orgs = {
-      listActiveMembershipsWithAnchor: vi.fn(async () => (queue.length > 1 ? queue.shift()! : queue[0]!)),
+      listActiveMembershipsWithAnchor: vi.fn(async () =>
+        queue.length > 1 ? queue.shift()! : queue[0]!,
+      ),
       ensureSoloOrg: vi.fn(async () => null),
     };
     const tenancy = new PayerTenantScopeService(
@@ -653,7 +863,10 @@ describe("login heals a missing org ONCE, through the resolver (ADR-0053 R4; rev
   function serviceWith(r: ReturnType<typeof realResolver>) {
     const d = setup();
     const svc = new PayerAuthService(
-      { PAYER_LOGIN_METHOD: "email_otp", OTP_RESEND_COOLDOWN_SECONDS: 30 } as unknown as ServerConfig,
+      {
+        PAYER_LOGIN_METHOD: "email_otp",
+        OTP_RESEND_COOLDOWN_SECONDS: 30,
+      } as unknown as ServerConfig,
       d.payers as never,
       r.orgs as never,
       d.otp as never,
@@ -690,16 +903,19 @@ describe("login heals a missing org ONCE, through the resolver (ADR-0053 R4; rev
     },
   );
 
-  it.each<"off" | "on">(["off", "on"])("%s: a gap payer is healed once and gets the solo org", async (mode) => {
-    const r = realResolver(mode, [[], [solo()]]);
-    const { svc, d } = serviceWith(r);
-    await svc.verifyLogin({ email: EMAIL, code: "123456" }, CTX);
-    expect(r.orgs.ensureSoloOrg).toHaveBeenCalledTimes(1);
-    expect(d.sessions.create).toHaveBeenCalledWith(PAYER_ID, "employer", {
-      orgId: solo().orgId,
-      orgRole: "owner",
-    });
-  });
+  it.each<"off" | "on">(["off", "on"])(
+    "%s: a gap payer is healed once and gets the solo org",
+    async (mode) => {
+      const r = realResolver(mode, [[], [solo()]]);
+      const { svc, d } = serviceWith(r);
+      await svc.verifyLogin({ email: EMAIL, code: "123456" }, CTX);
+      expect(r.orgs.ensureSoloOrg).toHaveBeenCalledTimes(1);
+      expect(d.sessions.create).toHaveBeenCalledWith(PAYER_ID, "employer", {
+        orgId: solo().orgId,
+        orgRole: "owner",
+      });
+    },
+  );
 
   it("on: a DENIED team member (suspended founder) is never 'healed' — a heal cannot fix a denial", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => undefined);
@@ -732,7 +948,10 @@ describe("PayerAuthService.refresh + logout", () => {
 
   it("#2079: refresh after a DEMOTION carries 'recruiter', not the old 'owner'", async () => {
     const d = setup();
-    d.tenancy.resolveActingOrg.mockResolvedValueOnce({ orgId: "org-1", orgRole: "recruiter" } as never);
+    d.tenancy.resolveActingOrg.mockResolvedValueOnce({
+      orgId: "org-1",
+      orgRole: "recruiter",
+    } as never);
     await d.svc.refresh(PAYER_ID, "sid-1");
     expect(d.sessions.mint).toHaveBeenCalledWith(PAYER_ID, "sid-1", undefined, {
       orgId: "org-1",
@@ -747,7 +966,9 @@ describe("PayerAuthService.refresh + logout", () => {
     expect(d.sessions.mint).toHaveBeenLastCalledWith(PAYER_ID, "sid-1", undefined, undefined);
 
     d.tenancy.resolveActingOrg.mockRejectedValueOnce(new Error("pg blip"));
-    await expect(d.svc.refresh(PAYER_ID, "sid-1")).resolves.toMatchObject({ access_token: "fresh-jwt" });
+    await expect(d.svc.refresh(PAYER_ID, "sid-1")).resolves.toMatchObject({
+      access_token: "fresh-jwt",
+    });
     expect(d.sessions.mint).toHaveBeenLastCalledWith(PAYER_ID, "sid-1", undefined, undefined);
   });
 

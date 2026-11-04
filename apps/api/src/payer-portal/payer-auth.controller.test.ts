@@ -59,14 +59,19 @@ describe("PayerAuthController — XB-H per-IP rate limit on the public endpoints
   it("password/set delegates the GUARD payer id + the raw password (service hashes)", async () => {
     // 204: the controller returns nothing — success is the set itself.
     await expect(
-      d.ctrl.setPassword(PAYER, { password: "CorrectHorse9" } as never),
+      d.ctrl.setPassword(PAYER, { password: "CorrectHorse9" } as never, CTX),
     ).resolves.toBeUndefined();
-    expect(d.auth.setPassword).toHaveBeenCalledWith(PAYER.id, "CorrectHorse9");
+    expect(d.auth.setPassword).toHaveBeenCalledWith(PAYER.id, "CorrectHorse9", PAYER.sid, CTX);
   });
 
   it("login/password delegates identifier + password and skips nothing (public + IP-capped)", async () => {
     await d.ctrl.loginWithPassword({ identifier: "Acme Works", password: "CorrectHorse9" } as never, req, CTX);
-    expect(d.auth.loginWithPassword).toHaveBeenCalledWith("Acme Works", "CorrectHorse9", CTX);
+    expect(d.auth.loginWithPassword).toHaveBeenCalledWith(
+      "Acme Works",
+      "CorrectHorse9",
+      CTX,
+      undefined,
+    );
     expect(d.ipRateLimit.assertWithinHourlyIpCap).toHaveBeenCalledWith("payer_auth", "203.0.113.7", 20);
   });
 });

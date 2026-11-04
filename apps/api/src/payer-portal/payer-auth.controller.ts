@@ -22,6 +22,7 @@ import {
   type PayerAuthCodeResponse,
   type PayerSessionResponse,
   type PayerRefreshResponse,
+  type PayerPasswordChangeRequiredResponse,
   PayerTestLoginSchema,
   type PayerTestLoginDto,
 } from "./payer-auth.dto";
@@ -103,8 +104,9 @@ export class PayerAuthController {
   async setPassword(
     @CurrentPayer() payer: AuthenticatedPayer,
     @Body(new ZodValidationPipe(PayerPasswordSetSchema)) dto: PayerPasswordSetDto,
+    @Ctx() ctx: RequestContext,
   ): Promise<void> {
-    await this.auth.setPassword(payer.id, dto.password);
+    await this.auth.setPassword(payer.id, dto.password, payer.sid, ctx);
   }
 
   /**
@@ -120,9 +122,9 @@ export class PayerAuthController {
     @Body(new ZodValidationPipe(PayerPasswordLoginSchema)) dto: PayerPasswordLoginDto,
     @Req() req: Request,
     @Ctx() ctx: RequestContext,
-  ): Promise<PayerSessionResponse> {
+  ): Promise<PayerSessionResponse | PayerPasswordChangeRequiredResponse> {
     await this.assertWithinIpCap(req);
-    return this.auth.loginWithPassword(dto.identifier, dto.password, ctx);
+    return this.auth.loginWithPassword(dto.identifier, dto.password, ctx, dto.new_password);
   }
 
   /**

@@ -71,6 +71,12 @@ export type PayerPasswordSetDto = z.infer<typeof PayerPasswordSetSchema>;
 export const PayerPasswordLoginSchema = z.object({
   identifier: z.string().trim().min(1).max(320),
   password: z.string().min(1).max(128),
+  /**
+   * #2563 — only consumed on the must-change step (a temporary password): the payer's own new
+   * password, policy-checked. Absent → the response is `password_change_required` with no
+   * session. Present on an ordinary account → treated as a change of the verified password.
+   */
+  new_password: PasswordPolicySchema.optional(),
 });
 export type PayerPasswordLoginDto = z.infer<typeof PayerPasswordLoginSchema>;
 
@@ -93,6 +99,15 @@ export interface PayerSessionResponse {
   payer_id: string;
   role: PayerRole;
   is_new_payer: boolean;
+}
+
+/**
+ * #2563 — POST /payer/login/password when the account holds a TEMPORARY password and the
+ * request carried no `new_password`: the client must ask for one and resend. No session, no
+ * token, exactly like the admin door's same-named response.
+ */
+export interface PayerPasswordChangeRequiredResponse {
+  status: "password_change_required";
 }
 
 /** Response of POST /payer/refresh. */

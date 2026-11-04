@@ -1,12 +1,6 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { and, eq, isNull, sql } from "drizzle-orm";
-import {
-  type Database,
-  payers,
-  type Payer,
-  type PayerRole,
-  type PayerStatus,
-} from "@badabhai/db";
+import { type Database, payers, type Payer, type PayerRole, type PayerStatus } from "@badabhai/db";
 import { DATABASE } from "../database/database.module";
 import { PiiCryptoService } from "../common/pii-crypto.service";
 
@@ -17,13 +11,28 @@ import { PiiCryptoService } from "../common/pii-crypto.service";
  */
 export { CURRENT_PASSWORD_PEPPER_VERSION } from "../common/password-policy";
 
-export interface CreatePayerInput {
+export type CreatePayerInput = {
   role: PayerRole;
   /** Login email (optional since #2497 — phone-only signup has none). Normalized on write. */
   email?: string;
-  orgName: string;
   phone?: string;
-}
+} & (
+  | {
+      /** Display name in PLAINTEXT; encrypted on write and given the exact-name login hash. */
+      orgName: string;
+      orgNameEnc?: never;
+    }
+  | {
+      /**
+       * #2563 — an ALREADY-ENCRYPTED display name, copied from `payer_orgs.name_enc` when an
+       * admin attaches a team member to an existing org. No plaintext exists in that path, so
+       * there is nothing to encrypt and no exact-name login hash is written (a team member
+       * signs in by email/phone, never by the company name).
+       */
+      orgNameEnc: string;
+      orgName?: never;
+    }
+);
 
 /** A payer's decrypted contact details — backend-only, for the payer's OWN view. */
 export interface PayerContact {
@@ -51,6 +60,11 @@ export class PayersRepository {
     private readonly pii: PiiCryptoService,
   ) {}
 
+  /** Run `work` inside ONE transaction (the caller's atomic boundary for a write + its event). */
+  withTransaction<T>(work: (tx: Database) => Promise<T>): Promise<T> {
+    return this.db.transaction(work as (tx: unknown) => Promise<T>);
+  }
+
   /** Normalize an email for hashing/lookup (case- and whitespace-insensitive). */
   private static normEmail(email: string): string {
     return email.trim().toLowerCase();
@@ -66,17 +80,35 @@ export class PayersRepository {
     return orgName.trim().toLowerCase();
   }
 
+  /**
+   * The two org-name columns for an insert: either encrypt the caller's plaintext and derive
+   * the exact-name login hash, or copy an already-encrypted token with no hash (#2563 team
+   * member). One helper so the three insert paths cannot drift.
+   */
+  private orgColumns(input: CreatePayerInput): {
+    orgNameEnc: string;
+    orgNameLookupHash: string | null;
+  } {
+    if (input.orgName !== undefined) {
+      return {
+        orgNameEnc: this.pii.encrypt(input.orgName),
+        orgNameLookupHash: this.pii.hashOrgName(PayersRepository.normOrgName(input.orgName)),
+      };
+    }
+    return { orgNameEnc: input.orgNameEnc, orgNameLookupHash: null };
+  }
+
   /** Create a payer, encrypting all contact PII at rest. Returns the new id only. */
-  async create(input: CreatePayerInput): Promise<{ id: string }> {
+  async create(input: CreatePayerInput, tx?: Database): Promise<{ id: string }> {
+    const db = tx ?? this.db;
     const normEmail = input.email ? PayersRepository.normEmail(input.email) : null;
-    const [row] = await this.db
+    const [row] = await db
       .insert(payers)
       .values({
         role: input.role,
         emailEnc: normEmail ? this.pii.encrypt(normEmail) : null,
         emailHash: normEmail ? this.pii.hmac(normEmail) : null,
-        orgNameEnc: this.pii.encrypt(input.orgName),
-        orgNameLookupHash: this.pii.hashOrgName(PayersRepository.normOrgName(input.orgName)),
+        ...this.orgColumns(input),
         phoneEnc: input.phone ? this.pii.encrypt(input.phone) : null,
         phoneHash: input.phone ? this.pii.hashPhone(input.phone) : null,
       })
@@ -104,29 +136,33 @@ export class PayersRepository {
    * here. At least one of `email`/`phone` is REQUIRED (the DTO guarantees it); neither
    * is a programming error and throws rather than inserting a contactless row.
    */
-  async createOrGet(input: CreatePayerInput): Promise<{ id: string; created: boolean }> {
+  async createOrGet(
+    input: CreatePayerInput,
+    tx?: Database,
+  ): Promise<{ id: string; created: boolean }> {
     if (!input.email && !input.phone) {
       throw new Error("payer signup requires at least one of email/phone");
     }
     // Email wins on a both-supplied body (deterministic + preserves the unique-key dedup).
-    if (input.email) return this.createOrGetByEmail({ ...input, email: input.email });
-    return this.createOrGetByPhone(input as { role: PayerRole; orgName: string; phone: string });
+    if (input.email) return this.createOrGetByEmail({ ...input, email: input.email }, tx);
+    return this.createOrGetByPhone(input as CreatePayerInput & { phone: string }, tx);
   }
 
   /** Email-keyed path — the pre-#2497 behaviour, unchanged. */
   private async createOrGetByEmail(
     input: CreatePayerInput & { email: string },
+    tx?: Database,
   ): Promise<{ id: string; created: boolean }> {
+    const db = tx ?? this.db;
     const normEmail = PayersRepository.normEmail(input.email);
     const emailHash = this.pii.hmac(normEmail);
-    const inserted = await this.db
+    const inserted = await db
       .insert(payers)
       .values({
         role: input.role,
         emailEnc: this.pii.encrypt(normEmail),
         emailHash,
-        orgNameEnc: this.pii.encrypt(input.orgName),
-        orgNameLookupHash: this.pii.hashOrgName(PayersRepository.normOrgName(input.orgName)),
+        ...this.orgColumns(input),
         phoneEnc: input.phone ? this.pii.encrypt(input.phone) : null,
         phoneHash: input.phone ? this.pii.hashPhone(input.phone) : null,
       })
@@ -135,7 +171,7 @@ export class PayersRepository {
     if (inserted[0]) return { id: inserted[0].id, created: true };
 
     // Lost the insert race (or the account already existed) — resolve by the keyed hash.
-    const [existing] = await this.db
+    const [existing] = await db
       .select({ id: payers.id })
       .from(payers)
       .where(eq(payers.emailHash, emailHash))
@@ -150,54 +186,58 @@ export class PayersRepository {
    * the winner's row inside the same lock. The lock is transaction-scoped (released on
    * commit/rollback) and keyed on the opaque hash, never the raw phone.
    */
-  private async createOrGetByPhone(input: {
-    role: PayerRole;
-    orgName: string;
-    phone: string;
-  }): Promise<{ id: string; created: boolean }> {
+  private async createOrGetByPhone(
+    input: CreatePayerInput & { phone: string },
+    tx?: Database,
+  ): Promise<{ id: string; created: boolean }> {
     const phoneHash = this.pii.hashPhone(input.phone);
-    return this.db.transaction(async (tx) => {
-      await tx.execute(
-        sql`select pg_advisory_xact_lock(hashtextextended(${phoneHash}, 0))`,
-      );
-      const [existing] = await tx
+    const work = async (db: Database) => {
+      await db.execute(sql`select pg_advisory_xact_lock(hashtextextended(${phoneHash}, 0))`);
+      const [existing] = await db
         .select({ id: payers.id })
         .from(payers)
         .where(eq(payers.phoneHash, phoneHash))
         .limit(1);
       if (existing) return { id: existing.id, created: false };
-      const [inserted] = await tx
+      const [inserted] = await db
         .insert(payers)
         .values({
           role: input.role,
           emailEnc: null,
           emailHash: null,
-          orgNameEnc: this.pii.encrypt(input.orgName),
-          orgNameLookupHash: this.pii.hashOrgName(PayersRepository.normOrgName(input.orgName)),
+          ...this.orgColumns(input),
           phoneEnc: this.pii.encrypt(input.phone),
           phoneHash,
         })
         .returning({ id: payers.id });
       if (!inserted) throw new Error("payer insert returned no row");
       return { id: inserted.id, created: true };
-    });
+    };
+    // Inside the caller's transaction, join it rather than opening a second connection: a nested
+    // transaction would commit the payer even if the caller later rolled back, and would wait on
+    // an advisory lock held by the outer transaction. Alone, open the transaction ourselves.
+    return tx
+      ? work(tx)
+      : this.db.transaction(work as (tx: unknown) => Promise<{ id: string; created: boolean }>);
   }
 
   /** Fetch the raw row by id (ciphertext fields; decrypt only via {@link decryptContact}). */
-  async findById(id: string): Promise<Payer | undefined> {
-    const [row] = await this.db.select().from(payers).where(eq(payers.id, id)).limit(1);
+  async findById(id: string, tx?: Database): Promise<Payer | undefined> {
+    const [row] = await (tx ?? this.db).select().from(payers).where(eq(payers.id, id)).limit(1);
     return row;
   }
 
   /**
    * The two facts {@link import("./payer-auth.guard").PayerAuthGuard} needs on EVERY
-   * request: the vertical-authz `role` and the lifecycle `status` (ADR-0037).
+   * request: the vertical-authz `role`, the lifecycle `status` (ADR-0037) and — since #2563 —
+   * the credential-epoch watermark `sessions_valid_after`. Formerly two columns; the third is
+   * read on the same PK lookup and never widens the projection to contact ciphertext.
    *
    * A NARROW projection on purpose. `findById` above is `select()` — it returns
    * `email_enc`, `phone_enc` and `org_name_enc`, i.e. the full encrypted-PII row. Putting
    * that on the hot path of all 55 payer routes would pull B2B contact ciphertext into
-   * guard scope on every single request for two scalar columns. Two columns is what the
-   * guard needs, so two columns is what it reads.
+   * guard scope on every single request for three scalar columns. Three columns is what the
+   * guard needs, so three columns is what it reads.
    *
    * Deliberately NOT cached in the session blob. `PayerSessionService` writes that blob
    * once at `create()` and `validateAndTouch` only slides the TTL — it never rewrites it —
@@ -208,9 +248,17 @@ export class PayersRepository {
    * Cost: one PK-index lookup per guarded request — the same order as the per-request read
    * `PayerOrgRoleGuard` already performs on the org routes.
    */
-  async findAuthFacts(id: string): Promise<{ role: PayerRole; status: PayerStatus } | undefined> {
+  async findAuthFacts(
+    id: string,
+  ): Promise<
+    { role: PayerRole; status: PayerStatus; sessionsValidAfter: Date | null } | undefined
+  > {
     const [row] = await this.db
-      .select({ role: payers.role, status: payers.status })
+      .select({
+        role: payers.role,
+        status: payers.status,
+        sessionsValidAfter: payers.sessionsValidAfter,
+      })
       .from(payers)
       .where(eq(payers.id, id))
       .limit(1);
@@ -338,18 +386,82 @@ export class PayersRepository {
   async setPassword(
     id: string,
     password: { hash: string; pepperVersion: number },
+    options?: { tx?: Database; sessionsValidAfter?: Date | null },
   ): Promise<Payer | undefined> {
-    const [row] = await this.db
+    const [row] = await (options?.tx ?? this.db)
       .update(payers)
       .set({
         passwordHash: password.hash,
         passwordPepperVersion: password.pepperVersion,
         passwordSetAt: new Date(),
+        // A new password always clears the temporary-password and revocation state: the
+        // credential the payer now holds is their own, and the password door is open again.
+        mustChangePassword: false,
+        passwordRevokedAt: null,
+        ...(options?.sessionsValidAfter !== undefined
+          ? { sessionsValidAfter: options.sessionsValidAfter }
+          : {}),
         updatedAt: new Date(),
       })
       .where(eq(payers.id, id))
       .returning();
     return row;
+  }
+
+  /**
+   * #2563 — an admin ISSUES a temporary password (create or re-issue). Stores the credential,
+   * marks it temporary, clears any revocation, and stamps `sessions_valid_after` so sessions
+   * minted before this instant are dead even if the Redis revoke is missed. The caller revokes
+   * the live sessions after this transaction commits.
+   */
+  async setTemporaryPassword(
+    id: string,
+    password: { hash: string; pepperVersion: number },
+    tx?: Database,
+  ): Promise<Payer | undefined> {
+    const now = new Date();
+    const [row] = await (tx ?? this.db)
+      .update(payers)
+      .set({
+        passwordHash: password.hash,
+        passwordPepperVersion: password.pepperVersion,
+        passwordSetAt: now,
+        mustChangePassword: true,
+        passwordRevokedAt: null,
+        sessionsValidAfter: now,
+        updatedAt: now,
+      })
+      .where(eq(payers.id, id))
+      .returning();
+    return row;
+  }
+
+  /**
+   * #2563 — an admin REVOKES password sign-in. The hash stays (so the account's password age
+   * and history survive), but `password_revoked_at` closes the door; a later set clears it.
+   * The session watermark is stamped for the same reason as issue.
+   */
+  async revokePassword(id: string, tx?: Database): Promise<Payer | undefined> {
+    const now = new Date();
+    const [row] = await (tx ?? this.db)
+      .update(payers)
+      .set({
+        passwordRevokedAt: now,
+        mustChangePassword: false,
+        sessionsValidAfter: now,
+        updatedAt: now,
+      })
+      .where(eq(payers.id, id))
+      .returning();
+    return row;
+  }
+
+  /** #2563 — stamp a successful sign-in (OTP or password). Best-effort by caller contract. */
+  async recordLogin(id: string): Promise<void> {
+    await this.db
+      .update(payers)
+      .set({ lastLoginAt: new Date(), updatedAt: new Date() })
+      .where(eq(payers.id, id));
   }
 
   /**

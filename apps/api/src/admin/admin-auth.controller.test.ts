@@ -236,6 +236,8 @@ describe("AdminAuthController — delegation to AdminAuthService", () => {
         // LAST because this literal is order-sensitive against `ADMIN_CAPABILITIES`, and the new
         // row was appended at the tail of the write block precisely so no existing entry moves.
         "review_skill_candidates",
+        // #2563 — payer credential administration (super_admin, ops_admin, support).
+        "manage_payer_credentials",
         // ADR-0062 §3.8 (#2560) — the Candidates full-detail read, all four roles. Appended at the
         // TAIL of the vocabulary, so it closes the list and moves no existing entry.
         "read_candidates",

@@ -2389,6 +2389,21 @@ export const PayerTestLoginPayload = z.object({
 });
 export type PayerTestLoginPayload = z.infer<typeof PayerTestLoginPayload>;
 
+/**
+ * A payer set their OWN password (#2563) — the self-service path, whether from Settings or
+ * during the forced change on first sign-in. FACELESS and value-free: the opaque payer id
+ * only. The password, its hash, the pepper version and the temporary password never reach
+ * the spine; the row in `payers` is the system of record for the credential itself.
+ *
+ * Admin-issued temporary passwords and admin revocations do NOT emit this event: they are
+ * recorded by `admin.action_performed` with their own action codes, so the spine can tell
+ * "the payer changed it" from "an admin changed it" without a payload flag.
+ */
+export const PayerPasswordSetPayload = z.object({
+  payer_id: uuidSchema,
+});
+export type PayerPasswordSetPayload = z.infer<typeof PayerPasswordSetPayload>;
+
 /** A member's role within a payer org (ADR-0027 / B5). Enum-only → no PII. */
 export const OrgRoleEnum = z.enum(["owner", "recruiter"]);
 export type OrgRoleEnum = z.infer<typeof OrgRoleEnum>;
@@ -3071,8 +3086,13 @@ export type AdminPiiRevealCapExceededPayload = z.infer<typeof AdminPiiRevealCapE
  *   payers  — `GET /admin/payers`  + `/admin/payers/:id`  → `payers.org_name_enc` (the portal's
  *             Companies AND Agencies tabs; ONE table, one surface, one projection)
  *   admins  — `GET /admin/admins`                         → `admin_users.name_enc`
+ *   payer_logins — `GET /admin/accounts`                   → `payers.email_enc`, else
+ *             `payers.phone_enc` (the login ID on the User accounts screen, #2563). A separate
+ *             surface because a login ID is a different field from the organisation's display
+ *             name, and an auditor reading "which screen disclosed it" should not have to infer
+ *             that from the entity type.
  */
-export const ADMIN_IDENTITY_SURFACES = ["workers", "payers", "admins"] as const;
+export const ADMIN_IDENTITY_SURFACES = ["workers", "payers", "admins", "payer_logins"] as const;
 export const AdminIdentitySurface = z.enum(ADMIN_IDENTITY_SURFACES);
 export type AdminIdentitySurface = z.infer<typeof AdminIdentitySurface>;
 
@@ -5848,9 +5868,7 @@ export type ProfilingFieldEditCancelledPayload = z.infer<typeof ProfilingFieldEd
  */
 export const PayerCandidateSearchPerformedPayload = z
   .object({
-    skill_ids: z
-      .array(z.string().regex(/^mskill_[a-z0-9_]+$/, "not a match skill id"))
-      .max(10),
+    skill_ids: z.array(z.string().regex(/^mskill_[a-z0-9_]+$/, "not a match skill id")).max(10),
     experience_filtered: z.boolean(),
     industry_filtered: z.boolean(),
     industry_experience_filtered: z.boolean(),

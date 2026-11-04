@@ -188,6 +188,8 @@ describe("capability matrix drift (must-fix #5 — pinned to ADR-0025 Decision 3
     // this test pins the code against the code, which is drift detection but not ADR compliance.
     review_skill_candidates: ["super_admin", "ops_admin"],
     manage_agency_match_skills: ["super_admin"],
+    // #2563 — payer credential administration. `analyst` denied.
+    manage_payer_credentials: ["super_admin", "ops_admin", "support"],
     toggle_kill_switch: ["super_admin"],
     reveal_pii: ["super_admin", "support"],
     manage_admins: ["super_admin"],
@@ -206,7 +208,7 @@ describe("capability matrix drift (must-fix #5 — pinned to ADR-0025 Decision 3
     }
   });
 
-  it("the every-cell assertion: can(role, cap) === (role ∈ the ADR cell) for ALL 52 cells", () => {
+  it("the every-cell assertion: can(role, cap) === (role ∈ the ADR cell) for ALL 60 cells", () => {
     const roles: AdminRole[] = ["super_admin", "ops_admin", "support", "analyst"];
     for (const cap of ADMIN_CAPABILITIES) {
       for (const role of roles) {
@@ -295,7 +297,7 @@ describe("capability matrix drift (must-fix #5 — pinned to ADR-0025 Decision 3
 describe("capabilitiesFor — what the UI is told matches what the server permits", () => {
   const ROLES: AdminRole[] = ["super_admin", "ops_admin", "support", "analyst"];
 
-  it("agrees with can() on ALL 52 cells — the UI can never show a control the guard denies", () => {
+  it("agrees with can() on ALL 60 cells — the UI can never show a control the guard denies", () => {
     for (const role of ROLES) {
       const granted = capabilitiesFor(role);
       for (const cap of ADMIN_CAPABILITIES) {
@@ -321,6 +323,8 @@ describe("capabilitiesFor — what the UI is told matches what the server permit
       "read_events",
       "read_entities",
       "read_identity",
+      // #2563 — payer credential administration.
+      "manage_payer_credentials",
       "reveal_pii",
       "read_candidates",
     ]);
@@ -337,6 +341,8 @@ describe("capabilitiesFor — what the UI is told matches what the server permit
       // this literal is order-sensitive against `ADMIN_CAPABILITIES`, and placing the new
       // capability anywhere but the end of the governed-write block would move an existing row.
       "review_skill_candidates",
+      // #2563 — payer credential administration.
+      "manage_payer_credentials",
       "read_candidates",
     ]);
     // super_admin holds everything — the one role for which the list is the whole vocabulary.

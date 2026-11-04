@@ -14,6 +14,7 @@ import { AdminPiiRevealController } from "./admin-pii-reveal.controller";
 import { AdminDashboardController } from "./admin-dashboard.controller";
 import { AdminWorkerJourneyController } from "./admin-worker-journey.controller";
 import { AdminAiTracesController } from "./admin-ai-traces.controller";
+import { AdminPayerLoginsController } from "./admin-payer-logins.controller";
 import { AdminSkillDiscoveryController } from "./admin-skill-discovery.controller";
 import { AdminCandidateDetailController } from "./admin-candidate-detail.controller";
 import { DatabaseModule } from "../database/database.module";
@@ -197,6 +198,17 @@ describe("AdminModule wiring (DI regression guard)", () => {
     ]) {
       expect(tokens, name).toContain(name);
     }
+  });
+
+  it("declares the #2563 payer-login controller + provides its service/repository", () => {
+    // The service injects PayersRepository, PayerOrgsRepository, PayerSessionService and
+    // PayerPasswordStateService (all exported by PayersModule), plus the identity layer and
+    // FreeTierService. A dropped registration is a BOOT failure every hand-built unit test
+    // misses.
+    expect(getMeta("controllers", AdminModule)).toContain(AdminPayerLoginsController);
+    const tokens = providerTokens();
+    expect(tokens).toContain("AdminPayerLoginsService");
+    expect(tokens).toContain("AdminPayerLoginsRepository");
   });
 
   it("the providers reference the real classes (no accidental shadowing)", () => {
