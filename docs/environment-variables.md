@@ -296,6 +296,18 @@ NestJS boot assertion).
   secret set to `true` plus a redeploy; values lowercase `true`/`false`/`1`/`0`/empty only. Its write
   cap `PAYER_APPLICANT_STAGE_MAX_PER_HOUR` (default 600 per payer per UTC hour, its own Redis
   bucket) runs on its default; neither compose file forwards it.
+- **Sign-up age gate (#2541, CEO pack v1 A4 #9, owner rulings 2026-11-04)** — `SIGNUP_AGE_GATE_ENABLED`,
+  api only (`booleanFromString`, default off). `POST /consent/accept` takes an additive optional
+  `age_18_plus` boolean. An explicit `false` is refused **whatever the flag says**: no consent row
+  (a live one from before is withdrawn), `consent.age_declared` with `age_18_plus: false`, then
+  403 `AGE_BELOW_MINIMUM`; the app signs the worker out. `true` records consent as before plus `consent.age_declared` naming the
+  row. The flag decides only the **missing** answer: off (today) it passes exactly as before; on it
+  is a 400 `AGE_CONFIRMATION_REQUIRED` with nothing written. **No migration.** Turn it on only once
+  the worker-app release that sends `age_18_plus` is live, otherwise new sign-ups on older builds
+  stop at consent. Bridged through the GitHub `production` environment secret of the same name
+  (compose `${SIGNUP_AGE_GATE_ENABLED:-false}` on `api`, `ci.yml` `env:` + `envs:`, preflighted in
+  `scripts/deploy/staging-deploy.sh`). Arming is the secret set to `true` plus a redeploy; off again
+  is `false` plus a redeploy. Values lowercase `true`/`false`/`1`/`0`/empty only.
 - **Payer all-candidates search cap (ADR-0040 / E2, owner rulings 2026-11-03)** —
   `PAYER_CANDIDATE_SEARCH_MAX_PER_HOUR`, api only (default 120 pages per payer login per UTC hour,
   its own Redis bucket `payer_candidate_search`, fail-closed). Bounds how fast one login can page

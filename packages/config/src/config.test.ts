@@ -872,6 +872,18 @@ describe("loadServerConfig", () => {
     expect(() => loadServerConfig({ FEED_POSTINGS_UNION_ENABLED: "yes" })).toThrow();
   });
 
+  it("SIGNUP_AGE_GATE_ENABLED (#2541) is OFF by default, for the empty string, 'false' and '0'", () => {
+    // Off keeps POST /consent/accept's contract for app builds that do not send `age_18_plus`
+    // yet. The deploy bridge exports an unset secret as "", so "" must read as OFF, not throw.
+    const gate = (value?: string) =>
+      loadServerConfig(value === undefined ? {} : { SIGNUP_AGE_GATE_ENABLED: value })
+        .SIGNUP_AGE_GATE_ENABLED;
+    expect(gate()).toBe(false);
+    for (const off of ["", "false", "0"]) expect(gate(off), off).toBe(false);
+    for (const on of ["true", "1"]) expect(gate(on), on).toBe(true);
+    expect(() => loadServerConfig({ SIGNUP_AGE_GATE_ENABLED: "yes" })).toThrow();
+  });
+
   it("isFeedPostingsUnionEnabled is true ONLY with the union on AND Matching V1 off", () => {
     // Structurally inert under V1: the V1 feed already reads postings, and this flag must never
     // become a second V1 source (ADR-0049 S1).

@@ -1518,6 +1518,15 @@ export const EVENT_REGISTRY = {
     domain: "payer",
     payload: p.PayerCandidateSearchPerformedPayload,
   },
+
+  // #2541 (CEO pack v1 A4 #9) — the worker's 18+ answer at sign-up (POST /consent/accept). A NEW
+  // name: `consent.accepted` v1 is not mutated, and an under-18 answer writes no consent row at
+  // all, so it could never ride that event. Appended at the tail per protocol. v1.
+  "consent.age_declared": {
+    version: 1,
+    domain: "consent",
+    payload: p.ConsentAgeDeclaredPayload,
+  },
 } as const satisfies Record<string, EventDefinition>;
 
 /** Union of all known event names. */
