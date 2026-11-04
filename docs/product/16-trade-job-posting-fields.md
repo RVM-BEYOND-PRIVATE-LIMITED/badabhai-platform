@@ -86,8 +86,8 @@ kept, but matching runs only for the 16:
 
 ### Payer web
 
-- New/edit company posting forms render the 16-trade `TradePostingFields` panel. The generic
-  match picker remains the fallback when the catalogue cannot be loaded.
+- New/edit company posting forms render the 16-trade `TradePostingFields` panel. Since #2645 they
+  have no generic match-picker fallback (see below); the agency forms keep theirs.
 - On an edit, the panel appears for drafts and for postings that already use the trade form
   (or after a role change). An older open posting with a hand-picked match set keeps its panel
   hidden, so a display-only rung edit cannot silently shrink its reach.
@@ -98,6 +98,21 @@ kept, but matching runs only for the 16:
   reach preview (fallback 3 / 5 in the app); an over-cap tap is refused with the reason before
   publish.
 - The preview rail lists the rung and selected answers under “Also in your posting”.
+- **#2645 (web half of #2635) — a company job is always one of the 16 trades.** New posting, Edit
+  posting and the AI chat's publish step share one picker (`postings/trade-picker.tsx`) that lists
+  only the trades `GET /payer/posting-trades` served: no free role list, flat match picker or
+  "could not load the skill list" fallback for company forms. A failed or empty catalogue names
+  the real cause at the picker with a Retry (a server re-read that keeps the form), and posting is
+  refused there with "Pick one of the 16 trades". The create always sends `role_kind` plus the
+  trade form (`trade_answers` `{}` when untouched), so the server derives the match set. Edit sends
+  the role only when the payer moved it to another trade and never clears it (`role_kind` is out
+  of the client's `clear` diff). A `400 reason: posting_trade_required` on
+  `PATCH /payer/job-postings/:id` is read by its `reason` (never the message) and shown AT the
+  picker; a create whose publish is refused that way opens the draft's edit page there
+  (`?trade=required`). The postings list has no Publish of its own (a draft publishes from Edit),
+  so no list path can meet the refusal. The company reach preview (live and post-publish) sends
+  `role_kind`; the agency one sends none. The AI chat refuses a publish without one of the 16
+  before anything is sent. Agency jobs are unchanged.
 
 ### Payer app (Flutter)
 
@@ -136,9 +151,11 @@ kept, but matching runs only for the 16:
   stored and returned, but the applicant feed does not yet filter by a facet or show
   “N of M match <chip>”. That is the next backend slice: join `worker_attributes` on the
   applicant's worker/pack, then reorder without changing the candidate set or count.
-- **AI chat publishing** still writes the legacy draft fields. It can carry `role_kind`, but it
-  does not ask the pack questions yet; a chat-created posting should either route the payer to
-  the trade fields before publish or the chat must gain the same pack flow.
+- **AI chat publishing** still writes the legacy draft fields. Since #2645 it must carry
+  `role_kind` (one of the 16; refused before publish otherwise, in both apps), but it does not ask
+  the pack questions yet: `PublishJobPostingChatSchema` takes only `role_kind` and `area`, so the
+  trade level and chips need a backend contract change first. On web the chat lands on the
+  posting's edit page, where the trade fields are.
 - **Polymer roles** are intentionally not postable. If they return, add five rows to
   `POSTING_TRADES` and a posting pack per role; no migration is needed.
 - Flutter changes were compiled and the payer-app suite passes (`flutter analyze` clean); the
