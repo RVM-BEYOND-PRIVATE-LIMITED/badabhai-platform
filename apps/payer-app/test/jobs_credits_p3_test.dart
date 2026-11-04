@@ -327,6 +327,7 @@ void main() {
               'unlock_id': null,
               'pack_code': 'pack_200',
               'payment_ref': 'pay_1',
+              'price_inr': 8000,
               'created_at': '2026-07-08T00:00:00Z',
             },
             <String, dynamic>{
@@ -336,6 +337,7 @@ void main() {
               'unlock_id': 'u1',
               'pack_code': null,
               'payment_ref': null,
+              'price_inr': null,
               'created_at': '2026-07-08T01:00:00Z',
             },
           ],
@@ -347,6 +349,9 @@ void main() {
       expect(ledger.first.direction, LedgerDirection.credit);
       expect(ledger.first.amount, '+200');
       expect(ledger.first.label, 'Pack purchase · pack_200');
+      // #2589: the wire's price_inr never reaches the credit history.
+      expect(ledger.first.label, isNot(contains('₹')));
+      expect(ledger.first.amount, isNot(contains('₹')));
       expect(ledger[1].direction, LedgerDirection.debit);
       expect(ledger[1].amount, '−1');
       expect(ledger[1].label, 'Unlock');
