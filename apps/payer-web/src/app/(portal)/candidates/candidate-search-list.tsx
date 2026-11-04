@@ -11,6 +11,7 @@ import { countSummary, type SearchCounts } from "../../../lib/candidate-counts";
 import { Avatar, Badge, Card } from "../../../components/ds";
 import { useToast } from "../../../components/ds/toast-provider";
 import { PageHeader, type PageHeaderProps } from "../../../components/page-header";
+import { PagedListHeading } from "../../../components/paged-list";
 import { PortalLink } from "../../../components/portal-link";
 import {
   ConfirmSpendDialog,
@@ -221,7 +222,8 @@ export function CandidateSearchList({
 
       {summary ? (
         <div className="candidate-search__summary">
-          <p className="candidate-search__count">{summary.line}</p>
+          {/* The list's heading: where focus lands after paging (#2588). */}
+          <PagedListHeading className="candidate-search__count">{summary.line}</PagedListHeading>
           {summary.strictNote ? (
             <p className="candidate-search__note">{summary.strictNote}</p>
           ) : null}

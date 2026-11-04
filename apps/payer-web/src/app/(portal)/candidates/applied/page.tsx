@@ -31,8 +31,17 @@ import {
   type CandidatesQuery,
   type PostingOption,
 } from "../../../../lib/candidate-inbox";
+import {
+  FROM_PARAM,
+  listRange,
+  nextStart,
+  pageStart,
+  rangeLabel,
+  type ListRange,
+} from "../../../../lib/list-range";
 import { Card } from "../../../../components/ds";
 import { PageHeader } from "../../../../components/page-header";
+import { PagedListHeading } from "../../../../components/paged-list";
 import { PortalLink } from "../../../../components/portal-link";
 import { ApplicantActions } from "../../postings/[id]/applicants/applicant-actions";
 import { CandidatesViews } from "../candidates-views";
@@ -89,7 +98,10 @@ export const dynamic = "force-dynamic";
  * A `postingId` that matches nothing — another payer's, unknown, or not an id at all — is the same
  * "no applicants for this posting" state as an owned posting nobody applied to (the server answers
  * all of them with one empty page; a non-id is decided here, before any read). Paging is keyset:
- * "Next page" carries the server's `nextCursor` verbatim, keeping the filter.
+ * "Next page" carries the server's `nextCursor` verbatim, keeping the filter, and where its page
+ * starts (`from`), so a paged inbox says which rows are on screen — "Showing 21–40", with no "of
+ * N": the inbox answers no total — under the filter (the list's heading, where focus lands after
+ * paging, #2588) and in the pager.
  *
  * LOADING: no route `loading.tsx`, no Suspense, no `next/dynamic` here — a navigation keeps the
  * current page on screen until this one has rendered (app/no-suspense-above-a-page.test.ts). Every
@@ -128,7 +140,8 @@ export default async function CandidatesAppliedPage({
   const { agencyPortalEnabled } = agencyFlags();
   if (isAgency && !agencyPortalEnabled) notFound();
 
-  const query = parseCandidatesQuery((await searchParams) ?? {});
+  const params = (await searchParams) ?? {};
+  const query = parseCandidatesQuery(params);
   const [read, options, balance, unlocks] = await Promise.all([
     readInbox(query),
     readPostingOptions(isAgency),
@@ -142,6 +155,11 @@ export default async function CandidatesAppliedPage({
   // kept by the error states' links, which re-ask (a refused one is re-read without it).
   const stage = read.kind === "ok" ? read.stage : query.stage;
   const offerStages = read.kind === "ok" && stagesOffered(read.stage, hasSavedStages(inboxRows));
+  // The rows on screen, when this page's start is known (1 without a cursor). A list of one page
+  // says nothing: the range is for finding your place between pages.
+  const range = listRange(pageStart(params[FROM_PARAM], query.cursor), inboxRows.length, null);
+  const paged =
+    read.kind === "ok" && range !== null && (query.cursor !== null || read.inbox.nextCursor !== null);
   const header = {
     ...HEAD,
     toolbar: (
@@ -157,6 +175,9 @@ export default async function CandidatesAppliedPage({
           stage={offerStages ? { selected: stage } : null}
           stageRefused={read.kind === "ok" && read.stageRefused}
         />
+        {paged && range ? (
+          <PagedListHeading className="candidate-search__count">{rangeLabel(range)}</PagedListHeading>
+        ) : null}
       </div>
     ),
   };
@@ -192,6 +213,7 @@ export default async function CandidatesAppliedPage({
           stage={stage}
           cursor={query.cursor}
           nextCursor={read.inbox.nextCursor}
+          range={range}
         />
       </div>
     );
@@ -227,6 +249,7 @@ export default async function CandidatesAppliedPage({
           stage={stage}
           cursor={query.cursor}
           nextCursor={read.inbox.nextCursor}
+          range={null}
         />
       ) : null}
     </div>
@@ -300,24 +323,37 @@ async function readUnlocks(): Promise<UnlockHistoryItem[]> {
 }
 
 /**
- * Keyset paging: "Next page" carries the server's cursor verbatim; "First page" returns to the
- * newest. Both keep the posting and stage filters. Nothing when the list is one page.
+ * Keyset paging: "Next page" carries the server's cursor verbatim (and where that page starts,
+ * when this one's start is known); "First page" returns to the newest. Both keep the posting and
+ * stage filters. Nothing when the list is one page.
  */
 function Pager({
   postingId,
   stage,
   cursor,
   nextCursor,
+  range,
 }: {
   postingId: string | null;
   stage: ApplicantStage | null;
   cursor: string | null;
   nextCursor: string | null;
+  range: ListRange | null;
 }) {
   return (
     <CandidatesPager
+      range={range ? rangeLabel(range) : null}
       firstPage={cursor ? candidatesHref({ postingId, stage }) : null}
-      nextPage={nextCursor ? candidatesHref({ postingId, stage, cursor: nextCursor }) : null}
+      nextPage={
+        nextCursor
+          ? candidatesHref({
+              postingId,
+              stage,
+              cursor: nextCursor,
+              from: range ? nextStart(range) : null,
+            })
+          : null
+      }
     />
   );
 }

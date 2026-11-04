@@ -404,7 +404,7 @@ describe("candidates page — the posting filter reaches the server; a non-id ne
     expect(out).not.toContain(upper);
     expect(out).not.toContain("Selected posting");
     // The pager keeps the posting in the form every other link carries.
-    expect(out).toContain(`href="/candidates/applied?postingId=${PX}&amp;cursor=${NEXT}"`);
+    expect(out).toContain(`href="/candidates/applied?postingId=${PX}&amp;cursor=${NEXT}&amp;from=2"`);
   });
 
   it("?postingId=<not an id> → NO read, the filtered-empty state, the value shown as selected", async () => {
@@ -420,7 +420,7 @@ describe("candidates page — keyset paging", () => {
     getCandidateInbox.mockResolvedValueOnce({ applicants: [companyRow(W1)], nextCursor: NEXT });
     const out = await html({ postingId: P1 });
     expect(out).toContain('<nav class="candidates-pager" aria-label="Candidate pages">');
-    expect(out).toContain(`href="/candidates/applied?postingId=${P1}&amp;cursor=${NEXT}"`);
+    expect(out).toContain(`href="/candidates/applied?postingId=${P1}&amp;cursor=${NEXT}&amp;from=2"`);
     expect(textOf(out)).toContain("Next page");
     // The newest page offers no way "back" to itself.
     expect(textOf(out)).not.toContain("First page");
@@ -728,7 +728,7 @@ describe("candidates page — SAVED stages (#2139): the Stage filter, and each c
     expect(getCandidateInbox).toHaveBeenCalledTimes(1);
     expect(getCandidateInbox).toHaveBeenCalledWith({ postingId: P1, stage: "shortlist" });
     expect(selectedStage(out)).toBe("shortlist");
-    expect(out).toContain(`href="/candidates/applied?postingId=${P1}&amp;stage=shortlist&amp;cursor=${NEXT}"`);
+    expect(out).toContain(`href="/candidates/applied?postingId=${P1}&amp;stage=shortlist&amp;cursor=${NEXT}&amp;from=2"`);
 
     getCandidateInbox.mockResolvedValueOnce({
       applicants: [staged(companyRow(W2), "shortlist")],
@@ -760,7 +760,7 @@ describe("candidates page — SAVED stages (#2139): the Stage filter, and each c
       expect(out).not.toContain("couldn’t load");
       expect(textOf(out)).toContain("Applied to");
       // The pager no longer carries the refused stage.
-      expect(out).toContain(`href="/candidates/applied?postingId=${P1}&amp;cursor=${NEXT}"`);
+      expect(out).toContain(`href="/candidates/applied?postingId=${P1}&amp;cursor=${NEXT}&amp;from=2"`);
     }
   });
 
@@ -892,5 +892,50 @@ describe("candidates › applied — the view switch (owner rulings 2026-11-03)"
     const cues = linkCue(views(await html()));
     expect(cues.get("/candidates")).toBe(true);
     expect(cues.get("/candidates/applied")).toBe(true);
+  });
+});
+
+describe("#2588 · a paged inbox says which rows are on screen — under the filter (its heading) and in the pager", () => {
+  const HEADING = '<h2 tabindex="-1" class="paged-list-heading candidate-search__count">';
+  const headingOf = (markup: string) =>
+    new RegExp(`${HEADING}([^<]*)</h2>`).exec(markup)?.[1] ?? null;
+  const rangeOf = (markup: string) =>
+    /<p class="candidates-pager__range">([^<]*)<\/p>/.exec(markup)?.[1] ?? null;
+  const TWO = [companyRow(W1), companyRow(W2, P2, "VMC Operator")];
+
+  it("the first page of several: 'Showing 1–2' — no 'of N', the inbox answers no total", async () => {
+    getCandidateInbox.mockResolvedValueOnce({ applicants: TWO, nextCursor: NEXT });
+    const out = await html();
+    expect(headingOf(out)).toBe("Showing 1–2");
+    expect(rangeOf(out)).toBe("Showing 1–2");
+    expect(textOf(out)).not.toMatch(/Showing [^<]* of /);
+    // The heading sits in the head's toolbar, after the filter and before the cards.
+    expect(out.indexOf(HEADING)).toBeGreaterThan(out.indexOf("candidates-filter"));
+    expect(out.indexOf(HEADING)).toBeLessThan(out.indexOf('<div class="applicants-list">'));
+    expect(linkCue(out).get(`/candidates/applied?cursor=${NEXT}&from=3`)).toBe(true);
+  });
+
+  it("a later page reached by Next: 'Showing 21–22', and First page drops the cursor and the start", async () => {
+    getCandidateInbox.mockResolvedValueOnce({ applicants: TWO, nextCursor: null });
+    const out = await html({ postingId: P1, cursor: NEXT, from: "21" });
+    // The start is the portal's own count: it is never sent to the API.
+    expect(getCandidateInbox).toHaveBeenCalledWith({ postingId: P1, cursor: NEXT });
+    expect(headingOf(out)).toBe("Showing 21–22");
+    expect(rangeOf(out)).toBe("Showing 21–22");
+    expect(out).toContain(`<a href="/candidates/applied?postingId=${P1}" class="bb-btn bb-btn--secondary">`);
+  });
+
+  it("one page: no heading, no pager — there is no place to lose", async () => {
+    const out = await html();
+    expect(headingOf(out)).toBeNull();
+    expect(out).not.toContain("candidates-pager");
+  });
+
+  it("a later page whose start is unknown (an old link): no range anywhere, and its Next carries none", async () => {
+    getCandidateInbox.mockResolvedValueOnce({ applicants: TWO, nextCursor: NEXT });
+    const out = await html({ cursor: NEXT });
+    expect(headingOf(out)).toBeNull();
+    expect(rangeOf(out)).toBeNull();
+    expect(linkCue(out).has(`/candidates/applied?cursor=${NEXT}`)).toBe(true);
   });
 });

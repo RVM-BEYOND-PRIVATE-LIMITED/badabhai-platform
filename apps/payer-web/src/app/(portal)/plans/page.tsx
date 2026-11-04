@@ -269,7 +269,9 @@ export default async function PlansPage() {
           </section>
         </div>
 
-        <aside className="plans-col plans-col--side">
+        {/* Named: the shell's rail is an aside too, and two unnamed complementary landmarks
+          cannot be told apart (#2588). */}
+        <aside className="plans-col plans-col--side" aria-label="Posting plans and quota">
           <section className="plans-card">
             <div className="plans-card__head">
               <h2 className="plans-card__title">Posting Plans</h2>
