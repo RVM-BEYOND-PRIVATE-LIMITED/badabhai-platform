@@ -27,7 +27,7 @@ gate (`requireCapability` / `requireSession`) whatever the sidebar shows.
 | Group         | Nav item        | Icon                      | Route               | Page                                 | Purpose                                                       | Capability                                            |
 | ------------- | --------------- | ------------------------- | ------------------- | ------------------------------------ | ------------------------------------------------------------- | ----------------------------------------------------- |
 | Home          | Dashboard       | `squares-four`            | `/`                 | `(portal)/page.tsx`                  | What needs attention, headline figures, AI spend and volume   | session (panels: `read_events`, `read_entities`)      |
-| Directory     | Candidates      | `users-three`             | `/candidates`       | `(portal)/candidates/page.tsx`       | The worker roster (no search until A7 / #2559)                | `read_entities`                                       |
+| Directory     | Candidates      | `users-three`             | `/candidates`       | `(portal)/candidates/page.tsx`       | The worker roster; a row opens the candidate drawer (below)   | `read_entities` (drawer: `read_candidates`)           |
 | Directory     | Companies       | `buildings`               | `/companies`        | `(portal)/companies/page.tsx`        | Every customer — Kind: All · Companies · Agencies             | `read_entities`                                       |
 | Directory     | Postings        | `briefcase`               | `/jobs`             | `(portal)/jobs/page.tsx`             | Every posting, with the poster's own text; Agency postings    | `read_entities`                                       |
 | Finance       | Credits         | `wallet`                  | `/credits`          | `(portal)/credits/page.tsx`          | Credit position and the credit ledger                         | `read_entities`                                       |
@@ -95,6 +95,45 @@ filter panel, so it stays in view on a phone. `?kind=company|agency` sets the `r
 chip keeps the status (and drops the page cursor), and Clear filters clears both. The All view's
 grid carries a Kind column (Company · Agency, off each row's own role); a filtered view has one
 kind, which its header says, so it has none. All three views share one set of column choices.
+
+### The candidate drawer (A7, #2577)
+
+A Candidates row opens ONE candidate's full record — `GET /admin/candidates/:id` (#2560, every field
+with its value and its source) — in a drawer over the list instead of leaving it. Offered to a
+session holding `read_candidates` (all four roles); without it a row still opens `/candidates/[id]`
+and a `?c=` in the address is ignored.
+
+- **Addressed by URL.** Open while `?c=<worker id>` is in the address, beside the list's own
+  filters and page cursor: linkable, survives a reload, opens in a new tab. A row opens it (one new
+  history entry), ↑/↓ and the footer's Previous/Next move through the current page (the same
+  entry, rewritten), Escape / the scrim / Close / Back close it (Close pops the entry the row
+  pushed, so Back never lands on a duplicate of the list). "Open full page" links `/candidates/[id]`.
+- **Shallow, so the list is never re-read.** `useUrlDrawer` (`components/drawer.tsx`) changes the
+  param with the history API, which Next syncs into `useSearchParams` without re-rendering the
+  page — on Candidates a re-render re-reads 50 names against the admin's hourly name budget. The
+  page reads the open record on the server when it loads with `?c=`; every later open or move reads
+  it from the browser through the same-origin route `/candidates/[id]/record` (a route handler, not
+  a page — a server action's pending state would be discarded by a URL change and followed by a
+  full refresh). A move waits 180ms for the next press before it reads; a passed read is aborted.
+- **Tabs.** Profile · Work history · Skills · Applications · Resume · Activity · Edit log — the
+  console's segmented chip row with the ARIA tabs pattern (←/→, Home/End), sticky at the top of the
+  drawer, one scrolling line on a phone. Each renders exactly the groups the record carries; every
+  field shows its value and a humanised source tag (Interview, Form, Resume import, Worker edit,
+  Ops, Derived, Not stored, Unknown source). The Edit log is an honest empty state until #2561's
+  corrections exist.
+- **Locked fields.** Name, phone and photo visibility are shown Locked, the reason in the shared
+  tooltip (hover and keyboard focus); there is no edit control anywhere (#2561). The name follows
+  the three postures: named, withheld (budget spent), "Hidden for your role" (analyst) — never an
+  empty string.
+- **Phone reveal.** The record never carries a phone. A session holding `reveal_pii` reveals it
+  through the existing reason-gated `POST /admin/workers/:id/reveal-contact` behind the T2 confirm
+  (the API's closed reasons, an explanation the API checks and does not store); every neutral 404
+  reads as one sentence. The phone lives in the drawer's state only.
+- **States and motion.** A skeleton (1.4s sheen) while loading; not found; a role that may not read
+  records; a session that ended; an error with Retry. The drawer slides in over 220ms (A5); a move
+  fades the content in over 140ms with no slide. All of it is zero under reduced motion.
+- **Overlays stack.** The reveal's confirm opens over the drawer; only the topmost overlay answers
+  Escape and Tab (`components/overlay-focus.ts`), so Escape closes the confirm alone.
 
 ### Redirects (old addresses)
 
@@ -331,6 +370,9 @@ User accounts and Companies tabs (#2577–#2579) are built on it. A source fence
   exact instant, a full id, a cut name — so its `title` shows on hover and it can be selected; a
   plain click on that text still opens the row. A row with no page (a ledger movement, a payment
   order, an admin account, a feedback message) does not link, and has no chevron.
+  A row can instead open a DRAWER over its own list (`rowLink.drawer`, the Candidates row): its
+  href is the list's address with the drawer's param added, a plain click takes that address in
+  place (no navigation, no re-read), and a new-tab click follows it.
 - **Overlays in a row.** Each row is its own stacking context (WebKit takes a table row as the
   stretch's containing block only through a `transform`), so a row showing an overlay — the
   "Copied" toast, a tooltip, a control with `aria-expanded="true"` — is raised above the rows and
