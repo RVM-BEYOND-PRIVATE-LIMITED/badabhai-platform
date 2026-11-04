@@ -178,6 +178,34 @@ describe("panel sub-sections", () => {
     expect(decl(next, "border-block-start")).toBe("var(--border-hairline) solid var(--divider)");
     expect(resolve("--space-6")).toBe("24px");
   });
+
+  it("lets sections side by side in a .cols grid sit level, with no divider over the second", () => {
+    const columns = top(".cols > .panel__section + .panel__section");
+    expect(decl(columns, "margin-block-start")).toBe("0");
+    expect(decl(columns, "padding-block-start")).toBe("0");
+    expect(decl(columns, "border-block-start")).toBe("0");
+  });
+
+  it("spaces a section's children by its gap alone, so a caption never adds its own margin", () => {
+    expect(decl(top(".panel__section"), "gap")).toBe("var(--space-3)");
+    const children = top(".panel__section > .panel__sub, .panel__section > .about");
+    expect(decl(children, "margin-block-start")).toBe("0");
+  });
+
+  it("wraps a section title the way it wraps a panel title", () => {
+    const selectors = (prop: string, value: string, media: string) =>
+      ALL.filter((r) => r.atRules.join() === media && decl(r.body, prop) === value).flatMap((r) =>
+        r.selector.split(",").map((s) => s.trim()),
+      );
+    for (const [prop, value, media] of [
+      ["text-wrap", "balance", ""],
+      ["overflow-wrap", "anywhere", PHONE],
+    ] as const) {
+      expect(selectors(prop, value, media), `${prop}: ${value}`).toEqual(
+        expect.arrayContaining([".panel__title", ".panel__section-title"]),
+      );
+    }
+  });
 });
 
 describe("hover states ease in over 140ms", () => {

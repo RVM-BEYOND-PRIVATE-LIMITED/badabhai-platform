@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { AiCostSummary } from "../lib/dashboard";
 import { AiSpendPanel, realCallsText } from "./ai-spend-panel";
+import { SECTION, childTags } from "../../test/panel-markup";
 
 /**
  * What the AI-spend panel actually RENDERS.
@@ -696,5 +697,80 @@ describe("AI spend — the A2 rebuild (#2572)", () => {
     expect(out).not.toContain("Spend on deleted accounts");
     // The older API's erasure sentence still renders for the older code.
     expect(out).toContain("drifts upward");
+  });
+});
+
+describe("AI spend — each block is a PanelSection (A1, #2571)", () => {
+  const ROOT = '<section class="panel" aria-labelledby="ai-spend-heading">';
+  const HEAD = '<div class="panel__head">';
+
+  it("stacks the totals, the per-profile block, the two breakdowns and the breaches as sibling sections", () => {
+    // Siblings, so `.panel__section + .panel__section` sets 24px and a hairline between them.
+    expect(childTags(html(<AiSpendPanel cost={COST} />), ROOT)).toEqual([
+      HEAD,
+      SECTION,
+      SECTION,
+      SECTION,
+      SECTION,
+    ]);
+  });
+
+  it("opens the first section with the basis chip, above every figure", () => {
+    expect(childTags(html(<AiSpendPanel cost={COST} />), SECTION)).toEqual([
+      '<div class="spend-basis" role="note">',
+      '<div class="stats">',
+    ]);
+  });
+
+  it("still sets the breaches apart when nothing has accrued", () => {
+    const out = html(
+      <AiSpendPanel
+        cost={{
+          ...COST,
+          accruing_since: null,
+          total_cost_inr: "0",
+          total_calls: 0,
+          real_calls: 0,
+          by_provider: [],
+          by_task_type: [],
+          per_profile: null,
+        }}
+      />,
+    );
+    expect(childTags(out, ROOT)).toEqual([HEAD, SECTION, SECTION]);
+  });
+
+  it("lays By provider and By task type out as sections of one .cols grid", () => {
+    expect(childTags(html(<AiSpendPanel cost={COST} />), '<div class="cols">')).toEqual([
+      SECTION,
+      SECTION,
+    ]);
+  });
+
+  it("titles each sub-section with a section heading that its list still names itself by", () => {
+    const out = html(
+      <AiSpendPanel
+        cost={{
+          ...COST,
+          cap_breaches: {
+            ...COST.cap_breaches,
+            total: 1,
+            by_reason: [{ reason: "kill_switch_engaged", count: 1 }],
+          },
+        }}
+      />,
+    );
+    for (const [id, title] of [
+      ["ai-spend-per-profile", "What a finished profile costs"],
+      ["ai-spend-provider", "By provider"],
+      ["ai-spend-task", "By task type"],
+      ["ai-spend-breaches", "Spend-cap breaches"],
+    ] as const) {
+      expect(out).toContain(`<h3 class="panel__section-title" id="${id}">${title}</h3>`);
+    }
+    for (const id of ["ai-spend-provider", "ai-spend-task", "ai-spend-breaches"]) {
+      expect(out).toContain(`<ul class="funnel" aria-labelledby="${id}">`);
+    }
+    expect(out).not.toContain('<h3 class="panel__title"');
   });
 });

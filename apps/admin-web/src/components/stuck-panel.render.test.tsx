@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { SessionStuck, StuckCandidate } from "../lib/journey";
 import { StuckPanel } from "./stuck-panel";
+import { SECTION, childTags } from "../../test/panel-markup";
 
 /**
  * What the stuck-question panel actually RENDERS.
@@ -237,5 +238,38 @@ describe("stuck panel — an unknown servability is shown as unknown", () => {
     // Toned `warn`, not muted: null is "the ranking could not judge this leg", which is not
     // the same fact as "the engine could never have served it again".
     expect(out()).toContain('<span class="pill pill--warn">Unknown</span>');
+  });
+});
+
+describe("stuck panel — each block is a PanelSection (A1, #2571)", () => {
+  const ROOT = '<section class="panel" aria-labelledby="stuck-heading">';
+  const HEAD = '<div class="panel__head">';
+
+  it("stacks the headline with its question, then the ranked candidates, as sibling sections", () => {
+    // Siblings, so `.panel__section + .panel__section` sets 24px and a hairline between them.
+    const out = html(<StuckPanel stuck={stuck({})} />);
+    expect(childTags(out, ROOT)).toEqual([HEAD, SECTION, SECTION]);
+    expect(childTags(out, SECTION)).toEqual([
+      '<p class="notice notice--warn" role="note">',
+      '<div class="stats stats--compact">',
+    ]);
+  });
+
+  it("titles the candidates with a section heading that the table still names itself by", () => {
+    const out = html(<StuckPanel stuck={stuck({})} />);
+    expect(out).toContain(
+      '<h3 class="panel__section-title" id="stuck-candidates">Every question this session left unsettled, ranked</h3>',
+    );
+    expect(out).toContain('<table class="table" aria-labelledby="stuck-candidates">');
+    expect(out).not.toContain('<h3 class="panel__title"');
+  });
+
+  it("renders the headline alone as one section when nothing is left to rank", () => {
+    const out = html(
+      <StuckPanel
+        stuck={stuck({ outcome: "all_settled", stuck_question: null, candidates: [] })}
+      />,
+    );
+    expect(childTags(out, ROOT)).toEqual([HEAD, SECTION]);
   });
 });
