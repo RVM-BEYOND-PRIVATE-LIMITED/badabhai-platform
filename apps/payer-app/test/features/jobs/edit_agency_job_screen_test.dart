@@ -154,6 +154,39 @@ const AgencyJobView _jobTrade = AgencyJobView(
   },
 );
 
+/// A one-role trade catalogue whose five match chips, with the role's base
+/// skill, come to one more than the edit form's cap of five match skills.
+final PostingTradeForm _capTrade = PostingTradeForm(
+  roleKind: 'fitter',
+  roleLabel: 'Fitter',
+  packId: 'pack_fitter',
+  matchSkillId: 'mskill_fitting',
+  questions: <PostingTradeQuestion>[
+    PostingTradeQuestion(
+      questionKey: 'machines',
+      prompt: 'Machines run',
+      answerType: 'multi_select',
+      options: <PostingTradeOption>[
+        for (int i = 1; i <= 5; i++)
+          PostingTradeOption(
+            optionKey: 'm$i',
+            value: 'm$i',
+            label: 'Machine $i',
+            match: true,
+            matchSkillIds: <String>['mskill_m$i'],
+          ),
+      ],
+    ),
+  ],
+);
+
+/// [_ScriptedApi] serving [_capTrade] as the whole catalogue.
+class _CapTradeApi extends _ScriptedApi {
+  @override
+  Future<List<PostingTradeForm>> fetchPostingTrades() async =>
+      <PostingTradeForm>[_capTrade];
+}
+
 void main() {
   /// Push the edit screen under a route that can be popped back to, so the
   /// pop-on-success does not empty the navigator.
@@ -563,6 +596,52 @@ void main() {
 
     expect(api.updated, isEmpty);
     expect(find.text('Add the job title'), findsOneWidget);
+    expect(find.byType(SnackBar), findsNothing);
+  });
+
+  testWidgets('a match chip past the cap is refused under the chips', (
+    WidgetTester tester,
+  ) async {
+    final _CapTradeApi api = _CapTradeApi();
+    final AgencyJobsCubit cubit = AgencyJobsCubit(api);
+    addTearDown(cubit.close);
+    await open(
+      tester,
+      cubit,
+      api: api,
+      height: 5000,
+      job: const AgencyJobView(
+        id: 'a1',
+        status: 'open',
+        tradeKey: 'fitter',
+        title: 'Fitter',
+        city: 'Pune',
+        payMin: 18000,
+        payMax: 24000,
+        payType: 'in_hand',
+        minExperienceYears: 1,
+        maxExperienceYears: 4,
+        neededBy: 'soon',
+        shift: 'day',
+        description: 'Fitting and assembly on site.',
+        benefits: <String>['PF + ESI'],
+        requirements: <String>['Fanuc control'],
+        applicantsReceived: 4,
+        roleKind: 'fitter',
+        tradeLevel: 'helper',
+      ),
+    );
+    for (int i = 1; i <= 5; i++) {
+      await tester.tap(find.text('Machine $i · Match'));
+      await tester.pumpAndSettle();
+    }
+    expect(
+      find.text(
+        'Pick up to 5 match skills — the rest are requirements and do not '
+        'change reach.',
+      ),
+      findsOneWidget,
+    );
     expect(find.byType(SnackBar), findsNothing);
   });
 

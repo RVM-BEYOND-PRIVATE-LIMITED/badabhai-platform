@@ -9,6 +9,7 @@ import '../../../core/di/locator.dart';
 import '../../../core/session/app_session.dart';
 import '../../../core/session/app_session_cubit.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/app_haptics.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/util/number_input.dart';
@@ -194,6 +195,10 @@ class _PostJobScreenState extends State<PostJobScreen> {
 
   /// True once the post went through: nothing on the form is unsaved after.
   bool _posted = false;
+
+  /// A trade chip refused at the match-skill cap, explained under the trade
+  /// fields; cleared by the next accepted change.
+  String? _skillCapError;
 
   static const BbLeavePrompt _leavePrompt = BbLeavePrompt(
     title: 'Discard this job?',
@@ -438,17 +443,16 @@ class _PostJobScreenState extends State<PostJobScreen> {
             // + match chips). Refuse the tap here with the reason rather than failing the
             // publish later; the live cap arrives with the first reach preview.
             if (nextMatch.length > _maxSkillsPerPosting) {
-              showBbToast(
-                context,
-                title: 'Too many match skills',
-                message:
-                    'Pick up to $_maxSkillsPerPosting match skills — the rest are '
-                    'requirements and do not change reach.',
-                icon: Icons.info_rounded,
+              // #2595 — said under the chips that were tapped, not in a toast.
+              // ignore: discarded_futures — fire-and-forget double tick.
+              AppHaptics.error();
+              setState(
+                () => _skillCapError = matchSkillCapError(_maxSkillsPerPosting),
               );
               return;
             }
             setState(() {
+              _skillCapError = null;
               _tradeLevel = level;
               _tradeAnswers = answers;
               _pickedSkillIds
@@ -463,6 +467,7 @@ class _PostJobScreenState extends State<PostJobScreen> {
             }
           },
         ),
+        BbFieldError(text: _skillCapError),
         if (_reach != null) ...<Widget>[
           const SizedBox(height: AppSpacing.s3),
           Text(
@@ -705,7 +710,7 @@ class _PostJobScreenState extends State<PostJobScreen> {
   /// A keystroke in any box: drop the inline errors it fixed. Nothing NEW is
   /// flagged until the next submit — no nagging mid-typing.
   void _onInputChanged() {
-    if (_form.settle(_validate())) setState(() {});
+    if (!_form.isEmpty && _form.settle(_validate())) setState(() {});
   }
 
   List<TextEditingController> get _textBoxes => <TextEditingController>[
@@ -1203,7 +1208,7 @@ class _PostJobScreenState extends State<PostJobScreen> {
     // or a chip can fix an error from another control (raising "Pay min" fixes
     // "Max pay must be at least the min"), and those rebuild through setState
     // rather than [_onInputChanged]. Errors only ever drop here.
-    _form.settle(_validate());
+    if (!_form.isEmpty) _form.settle(_validate());
     return BbLeaveGuard(
       hasUnsavedChanges: () => _hasUnsavedChanges,
       prompt: _leavePrompt,

@@ -259,7 +259,7 @@ class _EditCompanyJobScreenState extends State<EditCompanyJobScreen> {
 
   /// A keystroke: drop the inline errors it fixed (nothing new until Save).
   void _onInputChanged() {
-    if (_form.settle(_validate())) setState(() {});
+    if (!_form.isEmpty && _form.settle(_validate())) setState(() {});
   }
 
   Future<void> _loadPostingTrades() async {
@@ -616,7 +616,7 @@ class _EditCompanyJobScreenState extends State<EditCompanyJobScreen> {
   @override
   Widget build(BuildContext context) {
     // #2595 — a pick can fix an error from another control; errors only drop.
-    _form.settle(_validate());
+    if (!_form.isEmpty) _form.settle(_validate());
     return BbLeaveGuard(
       hasUnsavedChanges: () => _hasUnsavedChanges,
       prompt: _leavePrompt,

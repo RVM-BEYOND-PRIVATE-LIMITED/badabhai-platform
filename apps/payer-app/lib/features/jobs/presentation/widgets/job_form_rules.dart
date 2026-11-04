@@ -43,6 +43,12 @@ JobFormField jobFormFieldOf(WorkerCardField field) => switch (field) {
 const String kPayBandOrderError = 'Max pay must be at least the min.';
 const String kExperienceOrderError = 'Max experience must be at least the min.';
 
+/// Why a trade chip was refused at the server's match-skill cap — shown
+/// inline under the trade fields (#2595; it used to be a toast).
+String matchSkillCapError(int cap) =>
+    'Pick up to $cap match skills — the rest are requirements and do not '
+    'change reach.';
+
 /// The worker-visible half every posting form insists on, as inline errors AT
 /// their controls (#2595) — one copy for the three forms:
 ///  - each worker-card gap ([workerCardGaps]), shown as its short title

@@ -354,6 +354,39 @@ class _OldRouteSpyApi extends _V1SpyApi {
   }
 }
 
+/// A one-role trade catalogue whose five match chips, with the role's base
+/// skill, come to one more than the fallback cap of five match skills.
+final PostingTradeForm _capTrade = PostingTradeForm(
+  roleKind: 'fitter',
+  roleLabel: 'Fitter',
+  packId: 'pack_fitter',
+  matchSkillId: 'mskill_fitting',
+  questions: <PostingTradeQuestion>[
+    PostingTradeQuestion(
+      questionKey: 'machines',
+      prompt: 'Machines run',
+      answerType: 'multi_select',
+      options: <PostingTradeOption>[
+        for (int i = 1; i <= 5; i++)
+          PostingTradeOption(
+            optionKey: 'm$i',
+            value: 'm$i',
+            label: 'Machine $i',
+            match: true,
+            matchSkillIds: <String>['mskill_m$i'],
+          ),
+      ],
+    ),
+  ],
+);
+
+/// [_SpyApi] with the trade catalogue on (the 16-trade form path).
+class _TradeSpyApi extends _SpyApi {
+  @override
+  Future<List<PostingTradeForm>> fetchPostingTrades() async =>
+      <PostingTradeForm>[_capTrade];
+}
+
 void main() {
   late _SpyApi api;
 
@@ -1330,6 +1363,41 @@ void main() {
       await tester.tap(find.byIcon(Icons.arrow_back_rounded));
       await tester.pumpAndSettle();
       expect(find.text('Discard this job?'), findsOneWidget);
+    });
+
+    testWidgets(
+        'a match chip past the cap is refused under the chips — not a toast',
+        (WidgetTester tester) async {
+      await pump(tester, PayerRole.company, spy: _TradeSpyApi());
+      await tester.tap(find.text('— pick the role —'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Fitter').last);
+      await tester.pumpAndSettle();
+
+      for (int i = 1; i <= 4; i++) {
+        await tapChip(tester, 'Machine $i · Match');
+      }
+      expect(find.textContaining('Pick up to 5 match skills'), findsNothing);
+      haptics.clear();
+
+      // Base skill + five chips = six: one past the cap of five.
+      await tapChip(tester, 'Machine 5 · Match');
+      expect(
+        find.text(
+          'Pick up to 5 match skills — the rest are requirements and do not '
+          'change reach.',
+        ),
+        findsOneWidget,
+      );
+      expect(find.byType(SnackBar), findsNothing);
+      await tester.pump(const Duration(milliseconds: 100));
+      // The chip's own tap, then the error double tick.
+      const String light = 'HapticFeedbackType.lightImpact';
+      expect(haptics, <String>[light, light, light]);
+
+      // The next accepted change clears it.
+      await tapChip(tester, 'Machine 4 · Match');
+      expect(find.textContaining('Pick up to 5 match skills'), findsNothing);
     });
 
     testWidgets(

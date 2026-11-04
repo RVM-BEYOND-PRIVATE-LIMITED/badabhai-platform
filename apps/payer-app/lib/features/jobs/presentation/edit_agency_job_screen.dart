@@ -5,6 +5,7 @@ import '../../../core/data/models.dart';
 import '../../../core/data/payer_api_client.dart';
 import '../../../core/di/locator.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/app_haptics.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/util/number_input.dart';
@@ -13,6 +14,7 @@ import '../../../core/widgets/bb_button.dart';
 import '../../../core/widgets/bb_card.dart';
 import '../../../core/widgets/bb_chip_select.dart';
 import '../../../core/widgets/bb_field.dart';
+import '../../../core/widgets/bb_field_error.dart';
 import '../../../core/widgets/bb_focus_chain.dart';
 import '../../../core/widgets/bb_form_errors.dart';
 import '../../../core/widgets/bb_icon_button.dart';
@@ -195,6 +197,10 @@ class _EditAgencyJobScreenState extends State<EditAgencyJobScreen> {
   /// The form as it opened (prefilled from the job).
   late final List<Object?> _pristine;
 
+  /// A trade chip refused at the match-skill cap, explained under the trade
+  /// fields; cleared by the next accepted change.
+  String? _skillCapError;
+
   static const BbLeavePrompt _leavePrompt = BbLeavePrompt(
     title: 'Discard your changes?',
     message: 'Your edits to this job have not been saved.',
@@ -265,7 +271,7 @@ class _EditAgencyJobScreenState extends State<EditAgencyJobScreen> {
 
   /// A keystroke: drop the inline errors it fixed (nothing new until Save).
   void _onInputChanged() {
-    if (_form.settle(_validate())) setState(() {});
+    if (!_form.isEmpty && _form.settle(_validate())) setState(() {});
   }
 
   Future<void> _loadPostingTrades() async {
@@ -556,7 +562,7 @@ class _EditAgencyJobScreenState extends State<EditAgencyJobScreen> {
   @override
   Widget build(BuildContext context) {
     // #2595 — a pick can fix an error from another control; errors only drop.
-    _form.settle(_validate());
+    if (!_form.isEmpty) _form.settle(_validate());
     return BbLeaveGuard(
       hasUnsavedChanges: () => _hasUnsavedChanges,
       prompt: _leavePrompt,
@@ -837,37 +843,40 @@ class _EditAgencyJobScreenState extends State<EditAgencyJobScreen> {
                   const SizedBox(height: AppSpacing.s4),
                   _sectionCard('Trade requirements', <Widget>[
                     if (_formForKind(_roleKind) case final PostingTradeForm form)
-                      TradePostingFields(
-                        trade: form,
-                        tradeLevel: _tradeLevel,
-                        answers: _tradeAnswers,
-                        onChanged: (
-                          String level,
-                          Map<String, List<String>> answers,
-                        ) {
-                          final List<String> nextMatch =
-                              form.matchSkillIdsFor(answers);
-                          if (nextMatch.length > _maxSkillsPerPosting) {
-                            showBbToast(
-                              context,
-                              title: 'Too many match skills',
-                              message: 'Pick up to $_maxSkillsPerPosting match '
-                                  'skills — the rest are requirements and do '
-                                  'not change reach.',
-                              icon: Icons.info_rounded,
-                            );
-                            return;
-                          }
-                          setState(() {
-                            _tradeLevel = level;
-                            _tradeAnswers = answers;
-                            _tradeDirty = true;
-                            _pickedSkillIds
-                              ..clear()
-                              ..addAll(nextMatch);
-                          });
-                        },
-                      )
+                      ...<Widget>[
+                        TradePostingFields(
+                          trade: form,
+                          tradeLevel: _tradeLevel,
+                          answers: _tradeAnswers,
+                          onChanged: (
+                            String level,
+                            Map<String, List<String>> answers,
+                          ) {
+                            final List<String> nextMatch =
+                                form.matchSkillIdsFor(answers);
+                            if (nextMatch.length > _maxSkillsPerPosting) {
+                              // #2595 — said under the chips, not in a toast.
+                              // ignore: discarded_futures — fire-and-forget.
+                              AppHaptics.error();
+                              setState(
+                                () => _skillCapError =
+                                    matchSkillCapError(_maxSkillsPerPosting),
+                              );
+                              return;
+                            }
+                            setState(() {
+                              _skillCapError = null;
+                              _tradeLevel = level;
+                              _tradeAnswers = answers;
+                              _tradeDirty = true;
+                              _pickedSkillIds
+                                ..clear()
+                                ..addAll(nextMatch);
+                            });
+                          },
+                        ),
+                        BbFieldError(text: _skillCapError),
+                      ]
                     else
                       Text(
                         'Pick a role above and the facts that role is hired on '
