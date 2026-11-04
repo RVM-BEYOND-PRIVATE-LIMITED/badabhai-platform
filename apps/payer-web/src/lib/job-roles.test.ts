@@ -11,14 +11,14 @@ import {
 
 /**
  * The role surface re-export is the single seam onto the shared `@badabhai/types` vocabulary. These
- * pin that it does NOT drift: the 23 kinds ARE the shared set, the picker groups all 23 exactly once,
+ * pin that it does NOT drift: the 24 kinds ARE the shared set, the picker groups all 24 exactly once,
  * and the boundary schema accepts a role kind but rejects a trade key.
  */
 
-describe("job-roles — re-exports the shared 23-role vocabulary without drift", () => {
-  it("the 23 kinds ARE TRADE_FORM_KINDS_ALL (same values, same order)", () => {
+describe("job-roles — re-exports the shared 24-role vocabulary without drift", () => {
+  it("the 24 kinds ARE TRADE_FORM_KINDS_ALL (same values, same order)", () => {
     expect([...TRADE_FORM_KINDS_ALL]).toEqual([...SHARED]);
-    expect(TRADE_FORM_KINDS_ALL.length).toBe(23);
+    expect(TRADE_FORM_KINDS_ALL.length).toBe(24);
   });
 
   it("every kind has a label + a family, and jobRoleLabel returns the shared label", () => {
@@ -36,7 +36,7 @@ describe("job-roles — re-exports the shared 23-role vocabulary without drift",
   });
 });
 
-describe("roleOptionGroups — groups all 23 kinds by family exactly once", () => {
+describe("roleOptionGroups — groups all 24 kinds by family exactly once", () => {
   it("covers every kind exactly once, only under its own family", () => {
     const groups = roleOptionGroups();
     const seen: string[] = [];
@@ -50,12 +50,12 @@ describe("roleOptionGroups — groups all 23 kinds by family exactly once", () =
       }
     }
     expect(seen.sort()).toEqual([...TRADE_FORM_KINDS_ALL].sort());
-    expect(seen.length).toBe(23);
+    expect(seen.length).toBe(24);
   });
 });
 
 describe("roleKindInputSchema — the form/action boundary guard", () => {
-  it("accepts every one of the 23 kinds", () => {
+  it("accepts every one of the 24 kinds", () => {
     for (const kind of TRADE_FORM_KINDS_ALL) {
       expect(roleKindInputSchema.safeParse(kind).success).toBe(true);
     }

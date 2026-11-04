@@ -914,6 +914,22 @@ const QUESTION_TTS_TEXT: Readonly<Record<string, string>> = {
   // "Machine ki kaunsi dikkat aap sudhaar lete hain?" (the turner's) and "Kis machine ka poora
   // overhaul khud kar lete hain?" (the fitter's).
   "Maintenance ka kitna tajurba hai?": "मेंटेनेंस का कितना तजुर्बा है?",
+  // --- qp_edm_wirecut@1 (Phase 2 #7, a new trade) — prompts and retries. "EDM" and "CAM"
+  // stay Latin (spelled letter by letter, as an operator says them); "wire-cut" is Devanagari.
+  // The level prompt/retry and the tenure, level and machine whys are shared and twinned above.
+  "EDM ya wire-cut ka kitna tajurba hai?": "EDM या वायर-कट का कितना तजुर्बा है?",
+  "Lagbhag kitne saal EDM ya wire-cut ka kaam kiya hai?":
+    "लगभग कितने साल EDM या वायर-कट का काम किया है?",
+  "Naya job alignment aur setting aap karte ho?": "नया जॉब अलाइनमेंट और सेटिंग आप करते हो?",
+  "Program khud banate ho (machine pe ya CAM se)?":
+    "प्रोग्राम खुद बनाते हो, मशीन पे या CAM से?",
+  "Kaunsi EDM machine chalate hain?": "कौनसी EDM मशीन चलाते हैं?",
+  "Wire-cut, sinker ya hole drill, kaunsi EDM chalayi hai?":
+    "वायर-कट, सिंकर या होल ड्रिल, कौनसी EDM चलाई है?",
+  "Kaunse brand ki machine chalayi hai?": "कौनसे ब्रांड की मशीन चलाई है?",
+  "Program kahan se aata hai?": "प्रोग्राम कहाँ से आता है?",
+  "Kitni tolerance tak kaam kar lete hain?": "कितनी टॉलरेंस तक काम कर लेते हैं?",
+  "EDM par kaunsa kaam khud karte hain?": "EDM पर कौनसा काम खुद करते हैं?",
   // --- qp_plc_automation@1 (Phase 2 #6, a new trade) — prompts and retries. "PLC", "HMI",
   // "SCADA" and "I/O" stay Latin: a hi-IN voice spells an initialism letter by letter, which is
   // how a technician says it. The tenure, level and sector whys are shared and twinned above.
@@ -1523,6 +1539,16 @@ const WHY_TTS_TEXT: Readonly<Record<string, string>> = {
   // the three fresher ones) are shared verbatim with packs twinned above.
   "Kaam ki kism se sahi plant ka kaam dikhaya jaata hai.":
     "काम की किस्म से सही प्लांट का काम दिखाया जाता है।",
+  // --- qp_edm_wirecut@1 (Phase 2 #7) — why-texts. Filed HERE: `composeClarify` scans only
+  // this table.
+  "Alignment aur setting khud karne wale setter ko alag kaam milta hai.":
+    "अलाइनमेंट और सेटिंग खुद करने वाले सेटर को अलग काम मिलता है।",
+  "Program khud banane wale ko programmer ka kaam milta hai.":
+    "प्रोग्राम खुद बनाने वाले को प्रोग्रामर का काम मिलता है।",
+  "Brand jaanne wale operator ko jaldi kaam milta hai.": "ब्रांड जानने वाले ऑपरेटर को जल्दी काम मिलता है।",
+  "Program banana aana EDM ka sabse bada hunar hai.": "प्रोग्राम बनाना आना EDM का सबसे बड़ा हुनर है।",
+  "Mushkil kaam karne wale EDM operator ki alag maang hai.":
+    "मुश्किल काम करने वाले EDM ऑपरेटर की अलग माँग है।",
   // --- qp_plc_automation@1 (Phase 2 #6) — why-texts. Filed HERE: `composeClarify` scans
   // only this table.
   "Program kholke fault dhoondhne wale technician ko alag kaam milta hai.":

@@ -25,6 +25,7 @@ import { ASSEMBLY_LINE_WORKER } from "./assembly-line-worker.role";
 import { BLOW_MOULDING_OPERATOR } from "./blow-moulding-operator.role";
 import { CAD_DESIGN_3D } from "./cad-design-3d.role";
 import { PLC_AUTOMATION } from "./plc-automation.role";
+import { EDM_WIRECUT } from "./edm-wirecut.role";
 import { CAD_DRAUGHTSMAN } from "./cad-draughtsman.role";
 import { CAM_PROGRAMMER } from "./cam-programmer.role";
 import { CNC_GRINDING } from "./cnc-grinding.role";
@@ -61,6 +62,8 @@ const DECLARED = [
   CNC_GRINDING,
   CONVENTIONAL_MACHINIST,
   TOOL_DIE_MAKER,
+  // Phase 2 #7 (CEO Launch Plan Pack v1, sheet 16) — formless, like PLC.
+  EDM_WIRECUT,
   // ── design ───────────────────────────────────────────────────────────────────────────────────
   CAM_PROGRAMMER,
   CAD_DRAUGHTSMAN,

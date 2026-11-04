@@ -113,6 +113,12 @@ const Map<String, (String, String)> _kTopics = <String, (String, String)>{
   // Track A #3 (qp_cam_programming@4) — same mechanism, same category.
   'cam_program_confirm': _level, 'cam_senior_confirm': _level,
   'cam_lead_confirm': _level, 'cam_team_confirm': _level,
+  // Phase 2 #7 (qp_edm_wirecut) — chat-only pack, like PLC below.
+  'edm_experience': _experience, 'edm_level': _level,
+  'edm_setting_confirm': _level, 'edm_program_confirm': _level,
+  'edm_machine': _machines, 'edm_brand': _machines,
+  'edm_program_source': _software, 'edm_tolerance': _precision,
+  'edm_work_type': _operations,
   // Phase 2 #6 (qp_plc_automation) — chat-only pack, no form walks it; each
   // key is listed with its true category, as for the 3D pack below.
   'plc_experience': _experience, 'plc_level': _level,

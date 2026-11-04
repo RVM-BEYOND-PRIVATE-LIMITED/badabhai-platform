@@ -768,7 +768,7 @@ describe("job_posting events (ops-created, vacancy-banded, PII-free)", () => {
     }
   });
 
-  it("carries job_posting.created role_kind as one of the 23 declared kinds, or null (0131)", () => {
+  it("carries job_posting.created role_kind as one of the 24 declared kinds, or null (0131)", () => {
     const base = {
       ...workerCreatedEvent(),
       event_name: "job_posting.created",
@@ -1552,7 +1552,7 @@ describe("job entity + agency_invite events (ADR-0022 — FACELESS, ids/enums/ba
       expect(result.event.payload.role_kind).toBeNull();
       // No field could carry an employer name / address / worker id — opaque ids +
       // coarse bands + closed enums only (the city label is the only non-id string,
-      // capped + coarse; `role_kind` is a closed 23-slug enum).
+      // capped + coarse; `role_kind` is a closed 24-slug enum).
       expect(Object.keys(result.event.payload).sort()).toEqual(
         [
           "city",
@@ -1570,7 +1570,7 @@ describe("job entity + agency_invite events (ADR-0022 — FACELESS, ids/enums/ba
     }
   });
 
-  it("carries job.created role_kind as one of the 23 declared kinds, or null (0131)", () => {
+  it("carries job.created role_kind as one of the 24 declared kinds, or null (0131)", () => {
     const payload = {
       job_id: UUID_A,
       payer_id: UUID_B,

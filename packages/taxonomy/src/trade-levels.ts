@@ -152,6 +152,9 @@ export const TRADE_LEVEL_PACKS: Readonly<Record<string, TradeLevelPack>> = {
   // new trade. No union extension: trainee, technician, senior_technician, lead and
   // supervisor are all members. Supervisor by rule.
   qp_plc_automation: { skillId: "mskill_plc_automation_tech", levelKey: "plc_level" },
+  // Phase 2 #7 — the EDM / wire-cut operator (CEO Launch Plan Pack v1, sheet 16), a new
+  // trade. No union extension: the CNC ladder's rungs are all members. Supervisor by rule.
+  qp_edm_wirecut: { skillId: "mskill_edm_wirecut_operator", levelKey: "edm_level" },
 };
 
 /** Legacy/alias spellings that name a `TradeLevel` without being one. */
@@ -484,6 +487,13 @@ export const TRADE_LEVEL_CONFIRM_ITEMS: Readonly<
     technician: "plc_technician_confirm",
     senior_technician: "plc_senior_confirm",
     lead: "plc_senior_confirm",
+  },
+  // Phase 2 #7 — the EDM confirms (CEO Launch Plan Pack v1, sheet 16). Confirmed from
+  // `setter`; the sheet writes a question for setter and one for setter-cum-programmer, both
+  // verbatim. Supervisor by rule.
+  qp_edm_wirecut: {
+    setter: "edm_setting_confirm",
+    setter_programmer: "edm_program_confirm",
   },
 };
 

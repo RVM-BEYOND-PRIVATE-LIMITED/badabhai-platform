@@ -99,13 +99,16 @@ describe("Matching V1 — the mskill_* vocabulary", () => {
     expect(MATCH_SKILLS[27]?.skillId).toBe("mskill_cad_designer_3d");
     expect(MATCH_SKILLS[28]?.skillId).toBe("mskill_welder");
     // Phase 2 #6 (CEO Launch Plan Pack v1, sheet 14) appended the PLC trade after them.
-    expect(MATCH_SKILLS.at(-1)?.skillId).toBe("mskill_plc_automation_tech");
+    expect(MATCH_SKILLS[29]?.skillId).toBe("mskill_plc_automation_tech");
+    // Phase 2 #7 (sheet 16) appended the EDM trade after it.
+    expect(MATCH_SKILLS.at(-1)?.skillId).toBe("mskill_edm_wirecut_operator");
     expect(matchSkillLabel("mskill_plc_automation_tech")).toBe("PLC / Automation Technician");
     for (const id of [
       "mskill_3d_designer",
       "mskill_cad_designer_3d",
       "mskill_welder",
       "mskill_plc_automation_tech",
+      "mskill_edm_wirecut_operator",
     ] as const) {
       expect(matchSkillIndustry(id), id).toBe("ind_industrial_manufacturing");
     }
@@ -476,7 +479,7 @@ describe("bridge — ATTRIBUTE_TO_MATCH_SKILLS", () => {
     // re-dispositioned any promotable skill (the five-mapping pin above still
     // holds), and no promotable skill reaches a #2022 skill. Phase 2 #6 (2026-11-03)
     // minted one more: the PLC / automation trade, a new CEO-pack trade.
-    expect(MATCH_SKILLS).toHaveLength(18 + MINTED_FOR_2022.length + 4);
+    expect(MATCH_SKILLS).toHaveLength(18 + MINTED_FOR_2022.length + 5);
     for (const id of PROMOTABLE_SKILL_IDS) {
       for (const m of ATTRIBUTE_TO_MATCH_SKILLS[id] ?? []) {
         expect(MINTED_FOR_2022 as readonly string[], `${id} -> ${m}`).not.toContain(m);

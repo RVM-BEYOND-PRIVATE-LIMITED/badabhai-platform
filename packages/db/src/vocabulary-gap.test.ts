@@ -55,9 +55,11 @@ describe("the demand surface is closed, and that is the whole argument", () => {
     expect(TRADE_KEYS).toHaveLength(15);
     expect(reachable.size).toBe(7);
     // + 1: Phase 2 #6 (CEO Launch Plan Pack v1, sheet 14, 2026-11-03) minted the PLC trade.
-    expect(MATCH_SKILLS).toHaveLength(AUDIT_ERA_MATCH_SKILLS + MINTED_FOR_2022 + 4);
+    // + 1: Phase 2 #7 (sheet 16, 2026-11-03) minted the EDM / wire-cut trade.
+    expect(MATCH_SKILLS).toHaveLength(AUDIT_ERA_MATCH_SKILLS + MINTED_FOR_2022 + 5);
     // + 1: Phase 2 #6 (CEO Launch Plan Pack v1, sheet 14, 2026-11-03) minted the PLC trade.
-    expect(unreachableMatchSkills()).toHaveLength(11 + MINTED_FOR_2022 + 4);
+    // + 1: Phase 2 #7 (sheet 16, 2026-11-03) minted the EDM / wire-cut trade.
+    expect(unreachableMatchSkills()).toHaveLength(11 + MINTED_FOR_2022 + 5);
   });
 
   it("the unreachable eleven include the whole welding and plumbing vocabulary", () => {
@@ -181,7 +183,8 @@ describe("nothing was invented", () => {
     // E0 (Q3) added the 3D designer afterwards, same owner-ruling carve-out as #2022.
     // The CEO-pack reconcile added the permanent 3D ID + the welder umbrella the same way.
     // + 1: Phase 2 #6 (CEO Launch Plan Pack v1, sheet 14, 2026-11-03) minted the PLC trade.
-    expect(MATCH_SKILLS).toHaveLength(AUDIT_ERA_MATCH_SKILLS + MINTED_FOR_2022 + 4);
+    // + 1: Phase 2 #7 (sheet 16, 2026-11-03) minted the EDM / wire-cut trade.
+    expect(MATCH_SKILLS).toHaveLength(AUDIT_ERA_MATCH_SKILLS + MINTED_FOR_2022 + 5);
     expect(art.match_skills_defined).toBe(AUDIT_ERA_MATCH_SKILLS);
   });
 

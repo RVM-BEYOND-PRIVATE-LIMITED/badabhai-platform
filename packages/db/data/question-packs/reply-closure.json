@@ -1,12 +1,12 @@
 {
   "schema_version": 1,
-  "clip_count": 1481,
+  "clip_count": 1506,
   "producers": {
-    "retry": 124,
-    "clarify": 540,
-    "prompt": 388,
+    "retry": 126,
+    "clarify": 550,
+    "prompt": 396,
     "constant": 97,
-    "why": 332
+    "why": 337
   },
   "clips": [
     {
@@ -17,6 +17,11 @@
     {
       "id": "002b632ca4de7f21",
       "text": "Chip level wale ka rate zyada hai. Kya aap chip level ka kaam karte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "0030ea24b4360158",
+      "text": "Mushkil kaam karne wale EDM operator ki alag maang hai. EDM par kaunsa kaam khud karte hain?",
       "producer": "clarify"
     },
     {
@@ -283,6 +288,11 @@
       "id": "08f2a3074de52185",
       "text": "Kya aapke paas bijli ka licence hai?",
       "producer": "prompt"
+    },
+    {
+      "id": "0907c3dd1a2bc151",
+      "text": "Program khud banane wale ko programmer ka kaam milta hai.",
+      "producer": "why"
     },
     {
       "id": "091993e1dc3a72f3",
@@ -577,6 +587,11 @@
     {
       "id": "11a13bb9097c7971",
       "text": "Kaam ki jagah ke hisaab se sahi company milti hai. Kis cheez ki drawing banate hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "12c14b2b4b2a6406",
+      "text": "Program banana aana EDM ka sabse bada hunar hai. Program kahan se aata hai?",
       "producer": "clarify"
     },
     {
@@ -1193,6 +1208,11 @@
       "id": "29679d78c886c539",
       "text": "Checking karne wale ko quality ka kaam diya jaata hai. Coating ke baad kaunsi checking karte hain?",
       "producer": "clarify"
+    },
+    {
+      "id": "29a4991a9bc9920b",
+      "text": "Brand jaanne wale operator ko jaldi kaam milta hai.",
+      "producer": "why"
     },
     {
       "id": "29b8c5ae2c4d9a47",
@@ -1905,6 +1925,11 @@
       "producer": "prompt"
     },
     {
+      "id": "4228cfe7290b1e66",
+      "text": "Mushkil kaam karne wale EDM operator ki alag maang hai.",
+      "producer": "why"
+    },
+    {
       "id": "4259fe63cdc79af7",
       "text": "Grinding ka kitna tajurba hai?",
       "producer": "prompt"
@@ -2440,6 +2465,16 @@
       "producer": "constant"
     },
     {
+      "id": "539a06d9b825540f",
+      "text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain. Lagbhag kitne saal EDM ya wire-cut ka kaam kiya hai?",
+      "producer": "clarify"
+    },
+    {
+      "id": "53c3902a5a715d03",
+      "text": "Program banana aana EDM ka sabse bada hunar hai.",
+      "producer": "why"
+    },
+    {
       "id": "53ce6947e022ceb8",
       "text": "Khraad par kitne bade job tak kaam kiya hai?",
       "producer": "prompt"
@@ -2532,6 +2567,11 @@
     {
       "id": "56555528e5bf3cfa",
       "text": "Design ki calculation aur doosron ke design ka review aap karte ho?",
+      "producer": "prompt"
+    },
+    {
+      "id": "5668252ff07a69b5",
+      "text": "Naya job alignment aur setting aap karte ho?",
       "producer": "prompt"
     },
     {
@@ -2875,6 +2915,11 @@
       "producer": "prompt"
     },
     {
+      "id": "61ad3c25915b1923",
+      "text": "Wire-cut, sinker ya hole drill, kaunsi EDM chalayi hai?",
+      "producer": "retry"
+    },
+    {
       "id": "621828e272ff1224",
       "text": "Weld ki checking ka kaunsa kaam karte hain?",
       "producer": "prompt"
@@ -3062,6 +3107,11 @@
     {
       "id": "67d1ff2f22032e33",
       "text": "Har kaam alag hunar hai, isse sahi naukri milti hai. Bending, punching, notching ya rolling, kaunsa kaam karte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "6865aded799b5a2e",
+      "text": "Tolerance se aapke kaam ki fine quality pata chalti hai. Kitni tolerance tak kaam kar lete hain?",
       "producer": "clarify"
     },
     {
@@ -3490,6 +3540,11 @@
       "producer": "prompt"
     },
     {
+      "id": "760a8b898288e7e3",
+      "text": "EDM ya wire-cut ka kitna tajurba hai?",
+      "producer": "prompt"
+    },
+    {
       "id": "766f203f7746531e",
       "text": "Wheel dressing kaise karte hain?",
       "producer": "prompt"
@@ -3865,6 +3920,11 @@
       "producer": "clarify"
     },
     {
+      "id": "8343e11020596eaf",
+      "text": "Kaunse brand ki machine chalayi hai?",
+      "producer": "prompt"
+    },
+    {
       "id": "83575a76a5485452",
       "text": "Kya aap rotating shift kar sakte hain?",
       "producer": "prompt"
@@ -3960,6 +4020,11 @@
       "producer": "clarify"
     },
     {
+      "id": "86d315dc0def51fe",
+      "text": "Program khud banane wale ko programmer ka kaam milta hai. Program khud banate ho (machine pe ya CAM se)?",
+      "producer": "clarify"
+    },
+    {
       "id": "86de899f47467cdf",
       "text": "Kaam ke naam se employer samajhta hai aap kya kar sakte hain. Turning, milling, drilling ya boring, kya kya karte hain?",
       "producer": "clarify"
@@ -4023,6 +4088,11 @@
       "id": "87fda6640eb6521c",
       "text": "Factory aur site ka kaam alag hota hai.",
       "producer": "why"
+    },
+    {
+      "id": "8822634f252edcbd",
+      "text": "Kaunsi EDM machine chalate hain?",
+      "producer": "prompt"
     },
     {
       "id": "882ab4b0deb7bf49",
@@ -4630,6 +4700,11 @@
       "producer": "retry"
     },
     {
+      "id": "9e90fdf4d1afd04b",
+      "text": "Brand jaanne wale operator ko jaldi kaam milta hai. Kaunse brand ki machine chalayi hai?",
+      "producer": "clarify"
+    },
+    {
       "id": "9eac5f9412729b5f",
       "text": "Kitne tonnage ki press par tryout kiya hai?",
       "producer": "prompt"
@@ -5190,6 +5265,11 @@
       "producer": "clarify"
     },
     {
+      "id": "b05c4132d3ed115b",
+      "text": "EDM par kaunsa kaam khud karte hain?",
+      "producer": "prompt"
+    },
+    {
       "id": "b0c97f3f7a510e8b",
       "text": "Plant me shift badalti rehti hai.",
       "producer": "why"
@@ -5510,6 +5590,11 @@
       "producer": "clarify"
     },
     {
+      "id": "bcefcef1af76ee72",
+      "text": "Lagbhag kitne saal EDM ya wire-cut ka kaam kiya hai?",
+      "producer": "retry"
+    },
+    {
       "id": "bcf156f95563513d",
       "text": "Cutting tool khud grind karke banate hain?",
       "producer": "prompt"
@@ -5765,6 +5850,11 @@
       "producer": "clarify"
     },
     {
+      "id": "c4aa156e75ca0e19",
+      "text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain. EDM ya wire-cut ka kitna tajurba hai?",
+      "producer": "clarify"
+    },
+    {
       "id": "c4e5abdf1476a954",
       "text": "Oven ka temperature aur time coating ki jaan hai.",
       "producer": "why"
@@ -5902,6 +5992,16 @@
     {
       "id": "c9db85a8a7c59fa3",
       "text": "Permanent aur daily kaam mein farak hota hai. Aap kis tarah ka kaam lena chahte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "c9e6c32214a01c28",
+      "text": "Machine ke hisaab se sahi kaam dikhaya jaata hai. Kaunsi EDM machine chalate hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "ca0c96a3ad31cbb1",
+      "text": "Alignment aur setting khud karne wale setter ko alag kaam milta hai. Naya job alignment aur setting aap karte ho?",
       "producer": "clarify"
     },
     {
@@ -6070,6 +6170,11 @@
       "producer": "clarify"
     },
     {
+      "id": "cf0a4bdeabfee8c9",
+      "text": "Machine ke hisaab se sahi kaam dikhaya jaata hai. Wire-cut, sinker ya hole drill, kaunsi EDM chalayi hai?",
+      "producer": "clarify"
+    },
+    {
       "id": "cf2a0be5bd5a58b1",
       "text": "Drawing se program banane wale programmer ki alag maang hai. Drawing se naya program khud banate ho, prove-out bhi aap?",
       "producer": "clarify"
@@ -6233,6 +6338,11 @@
       "id": "d48a6a95a1a30749",
       "text": "Bas ho gaya. Resume ban raha hai. 3 sawaal aur? Resume aur strong banega.",
       "producer": "constant"
+    },
+    {
+      "id": "d4b028ab8b525144",
+      "text": "Program khud banate ho (machine pe ya CAM se)?",
+      "producer": "prompt"
     },
     {
       "id": "d4bf0cf30de04a15",
@@ -6735,6 +6845,11 @@
       "producer": "prompt"
     },
     {
+      "id": "e78062c74ed22741",
+      "text": "Alignment aur setting khud karne wale setter ko alag kaam milta hai.",
+      "producer": "why"
+    },
+    {
       "id": "e7a95f1af488f9be",
       "text": "Export line ka tajurba zyada maanga jaata hai.",
       "producer": "why"
@@ -7045,6 +7160,11 @@
       "producer": "why"
     },
     {
+      "id": "f2a10686a3d44b48",
+      "text": "Program kahan se aata hai?",
+      "producer": "prompt"
+    },
+    {
       "id": "f2ad05c189a792d0",
       "text": "Har product ki line alag hoti hai.",
       "producer": "why"
@@ -7198,6 +7318,11 @@
       "id": "f8b31ee16a6ec3e1",
       "text": "MS, alloy ya cast iron, kis par kaam kiya hai?",
       "producer": "retry"
+    },
+    {
+      "id": "f8db6221bb064823",
+      "text": "Kitni tolerance tak kaam kar lete hain?",
+      "producer": "prompt"
     },
     {
       "id": "f8f95791c1a5cc40",

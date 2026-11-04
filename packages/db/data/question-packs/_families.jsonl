@@ -785,3 +785,5 @@
 {"kind":"binding","family_id":"fam_cad_design_3d","job_domain_id":"jd_rvm_3d_cad_designer"}
 {"kind":"family","family_id":"fam_plc_automation","label_en":"PLC / Automation Technician","label_hi":"पीएलसी / ऑटोमेशन टेक्नीशियन","industry_id":"ind_industrial_manufacturing"}
 {"kind":"binding","family_id":"fam_plc_automation","job_domain_id":"jd_nco_7412_0101"}
+{"kind":"family","family_id":"fam_edm_wirecut","label_en":"EDM / Wire-cut Operator","label_hi":"ईडीएम / वायर-कट ऑपरेटर","industry_id":"ind_industrial_manufacturing"}
+{"kind":"binding","family_id":"fam_edm_wirecut","job_domain_id":"jd_nco_7223_2800"}

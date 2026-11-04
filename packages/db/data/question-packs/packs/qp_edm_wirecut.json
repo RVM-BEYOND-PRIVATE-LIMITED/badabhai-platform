@@ -1,0 +1,443 @@
+{
+  "_why": "Role track for EDM / WIRE-CUT, a new trade (CEO Launch Plan Pack v1, Phase 2 #7, sheet 16). fam_edm_wirecut binds NCO 7223.2800 'Die Copying Machine Operator / Die Sinking Electric Discharge Machine Operator' at job-domain specificity 50; every other 7223 code stays on fam_machining, and the tool room keeps its own EDM chips.",
+  "_scope": "THE SPARK-EROSION MACHINES, NOT THE TOOL ROOM. A tool maker who also runs a wire-cut is a Tool & Die Maker (his EDM row lives in qp_tool_die_making); this trade is the operator, setter and programmer whose job IS the wire-cut / sinker EDM, in a tool room or a job shop.",
+  "_depth": "THE TIER GATE IS edm_experience, asked FIRST. Its options carry value_number ONLY: pack-registry.service.ts resolves valueText ?? valueNumber, and a value_text would turn every gte below into a string compare that is false forever (the #776 defect).",
+  "_budget": "MAX_ENGINE_ASKS is 28 and qp_universal spends 8. Easy is 2 trade items + at most 1 confirm; Medium adds 2 (machine, brand); Advanced adds 3 (program source, tolerance / finish, work). Worst case 2 + 1 + 2 + 3 = 8 trade asks.",
+  "_sheet": "READ OFF CEO LAUNCH PLAN PACK v1 SHEET 16 (a new trade, no ratified page). Section title 'EDM, machines & capability'. Its rows are Machines, Brands, Program source, Tolerance / finish and Work, and every row has exactly one question here.",
+  "pack_id": "qp_edm_wirecut",
+  "version": 1,
+  "family_id": "fam_edm_wirecut",
+  "locale": "hi-IN",
+  "status": "active",
+  "review_note": "v1 (CEO Launch Plan Pack v1, Phase 2 #7): new trade. Easy/Medium/Advanced tiers; 6-band experience; sheet-16 level ladder (Trainee/Operator/Setter/Setter-cum-Programmer/Supervisor, mandatory); 2 separating confirms, the sheet's questions verbatim: setter, and setter-cum-programmer; supervisor by rule. Medium Q6 machine, Q7 brand; Advanced Q9 program source, Q10 tolerance / finish, Q11 work (taper, 4-axis, electrode making, carbide), gated years OR rung. Deviations recorded: Q10's bands are the grinding / tool-room tolerance bands (the sheet names the row, not its chips); no fresher items and no per-trade ITI row (Q12 is the shared qp_universal block; 3D / PLC precedent for a new trade). Drafted for owner review (Prakash).",
+  "items": [
+    {
+      "question_key": "edm_experience",
+      "min_tier": "easy",
+      "prompt_text": "EDM ya wire-cut ka kitna tajurba hai?",
+      "why_text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "edm_experience",
+      "answer_type": "single_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "fresher",
+          "label_text": "Fresher",
+          "value_number": 0
+        },
+        {
+          "option_key": "below_one",
+          "label_text": "1 saal se kam",
+          "value_number": 0
+        },
+        {
+          "option_key": "one_to_three",
+          "label_text": "1 se 3 saal",
+          "value_number": 2
+        },
+        {
+          "option_key": "three_to_five",
+          "label_text": "3 se 5 saal",
+          "value_number": 4
+        },
+        {
+          "option_key": "five_to_ten",
+          "label_text": "5 se 10 saal",
+          "value_number": 7
+        },
+        {
+          "option_key": "above_ten",
+          "label_text": "10 saal se zyada",
+          "value_number": 12
+        }
+      ],
+      "retry_text": "Lagbhag kitne saal EDM ya wire-cut ka kaam kiya hai?",
+      "is_mandatory": true
+    },
+    {
+      "question_key": "edm_level",
+      "min_tier": "easy",
+      "prompt_text": "Machine pe aap kya karte hain?",
+      "why_text": "Level ke hisaab se sahi sawaal poochhe jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "edm_level",
+      "answer_type": "single_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "helper",
+          "label_text": "Helper/Trainee",
+          "value_text": "trainee"
+        },
+        {
+          "option_key": "operator",
+          "label_text": "Operator",
+          "value_text": "operator"
+        },
+        {
+          "option_key": "setter",
+          "label_text": "Setter",
+          "value_text": "setter"
+        },
+        {
+          "option_key": "setter_cum_programmer",
+          "label_text": "Setter-cum-Programmer",
+          "value_text": "setter_programmer"
+        },
+        {
+          "option_key": "supervisor",
+          "label_text": "Supervisor",
+          "value_text": "supervisor"
+        }
+      ],
+      "retry_text": "Machine par helper, operator ya setter hain?",
+      "is_mandatory": true
+    },
+    {
+      "question_key": "edm_setting_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Naya job alignment aur setting aap karte ho?",
+      "why_text": "Alignment aur setting khud karne wale setter ko alag kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "edm_setting_confirm",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "edm_level"
+        },
+        "right": {
+          "const": ["setter"]
+        }
+      },
+      "options": [
+        {
+          "option_key": "self_confirm",
+          "label_text": "Haan, khud karta hoon",
+          "value_text": "self"
+        },
+        {
+          "option_key": "other_confirm",
+          "label_text": "Nahi, koi aur karta hai",
+          "value_text": "other"
+        }
+      ]
+    },
+    {
+      "question_key": "edm_program_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Program khud banate ho (machine pe ya CAM se)?",
+      "why_text": "Program khud banane wale ko programmer ka kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "edm_program_confirm",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "edm_level"
+        },
+        "right": {
+          "const": ["setter_programmer"]
+        }
+      },
+      "options": [
+        {
+          "option_key": "self_confirm",
+          "label_text": "Haan, khud karta hoon",
+          "value_text": "self"
+        },
+        {
+          "option_key": "other_confirm",
+          "label_text": "Nahi, koi aur karta hai",
+          "value_text": "other"
+        }
+      ]
+    },
+    {
+      "question_key": "edm_machine",
+      "min_tier": "medium",
+      "prompt_text": "Kaunsi EDM machine chalate hain?",
+      "why_text": "Machine ke hisaab se sahi kaam dikhaya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "edm_machine",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "wire_cut",
+          "label_text": "Wire-cut / wire EDM",
+          "value_text": "wire_cut"
+        },
+        {
+          "option_key": "sinker_edm",
+          "label_text": "Sinker / die-sinking EDM",
+          "value_text": "sinker_edm"
+        },
+        {
+          "option_key": "hole_drill",
+          "label_text": "Hole drill EDM / super drill",
+          "value_text": "hole_drill"
+        },
+        {
+          "option_key": "small_hole",
+          "label_text": "Small-hole EDM",
+          "value_text": "small_hole"
+        },
+        {
+          "option_key": "other_machine",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "retry_text": "Wire-cut, sinker ya hole drill, kaunsi EDM chalayi hai?",
+      "is_mandatory": true
+    },
+    {
+      "question_key": "edm_brand",
+      "min_tier": "medium",
+      "prompt_text": "Kaunse brand ki machine chalayi hai?",
+      "why_text": "Brand jaanne wale operator ko jaldi kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "edm_brand",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "electronica",
+          "label_text": "Electronica",
+          "value_text": "electronica"
+        },
+        {
+          "option_key": "sodick",
+          "label_text": "Sodick",
+          "value_text": "sodick"
+        },
+        {
+          "option_key": "mitsubishi",
+          "label_text": "Mitsubishi",
+          "value_text": "mitsubishi"
+        },
+        {
+          "option_key": "makino",
+          "label_text": "Makino",
+          "value_text": "makino"
+        },
+        {
+          "option_key": "agie_charmilles",
+          "label_text": "Agie / Charmilles",
+          "value_text": "agie_charmilles"
+        },
+        {
+          "option_key": "fanuc_robocut",
+          "label_text": "Fanuc Robocut",
+          "value_text": "fanuc_robocut"
+        },
+        {
+          "option_key": "other_brand",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "is_mandatory": true
+    },
+    {
+      "question_key": "edm_program_source",
+      "min_tier": "hard",
+      "prompt_text": "Program kahan se aata hai?",
+      "why_text": "Program banana aana EDM ka sabse bada hunar hai.",
+      "target_kind": "attribute",
+      "target_field": "edm_program_source",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "on_machine",
+          "label_text": "Machine pe khud banata hoon",
+          "value_text": "on_machine"
+        },
+        {
+          "option_key": "from_cam",
+          "label_text": "CAM se, jaise Mastercam / ESPRIT",
+          "value_text": "from_cam"
+        },
+        {
+          "option_key": "from_drawing",
+          "label_text": "Drawing se, koi aur program deta hai",
+          "value_text": "from_drawing"
+        },
+        {
+          "option_key": "no_program",
+          "label_text": "Program koi aur karta hai",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "edm_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "edm_level"
+            },
+            "right": {
+              "const": ["setter", "setter_programmer", "supervisor"]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "edm_tolerance",
+      "min_tier": "hard",
+      "prompt_text": "Kitni tolerance tak kaam kar lete hain?",
+      "why_text": "Tolerance se aapke kaam ki fine quality pata chalti hai.",
+      "target_kind": "attribute",
+      "target_field": "edm_tolerance",
+      "answer_type": "single_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "point_zero_two",
+          "label_text": "0.02 mm tak",
+          "value_text": "0.02"
+        },
+        {
+          "option_key": "point_zero_one",
+          "label_text": "0.01 mm tak",
+          "value_text": "0.01"
+        },
+        {
+          "option_key": "point_zero_zero_five",
+          "label_text": "0.005 mm tak",
+          "value_text": "0.005"
+        },
+        {
+          "option_key": "micron",
+          "label_text": "Micron / 0.002 mm ya usse kam",
+          "value_text": "0.002"
+        },
+        {
+          "option_key": "tolerance_unknown",
+          "label_text": "Pata nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "edm_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "edm_level"
+            },
+            "right": {
+              "const": ["setter", "setter_programmer", "supervisor"]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "edm_work_type",
+      "min_tier": "hard",
+      "prompt_text": "EDM par kaunsa kaam khud karte hain?",
+      "why_text": "Mushkil kaam karne wale EDM operator ki alag maang hai.",
+      "target_kind": "attribute",
+      "target_field": "edm_work_type",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "taper_cutting",
+          "label_text": "Taper cutting",
+          "value_text": "taper_cutting"
+        },
+        {
+          "option_key": "four_axis",
+          "label_text": "4-axis cutting",
+          "value_text": "four_axis"
+        },
+        {
+          "option_key": "electrode_making",
+          "label_text": "Electrode banana, copper / graphite",
+          "value_text": "electrode_making"
+        },
+        {
+          "option_key": "carbide",
+          "label_text": "Carbide cutting",
+          "value_text": "carbide"
+        },
+        {
+          "option_key": "wire_threading",
+          "label_text": "Wire threading aur setting",
+          "value_text": "wire_threading"
+        },
+        {
+          "option_key": "no_work",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "edm_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "edm_level"
+            },
+            "right": {
+              "const": ["setter", "setter_programmer", "supervisor"]
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

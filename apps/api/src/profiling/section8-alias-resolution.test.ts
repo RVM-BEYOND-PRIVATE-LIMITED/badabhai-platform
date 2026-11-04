@@ -1476,3 +1476,39 @@ describe("Phase 2 #6 PLC / automation — rungs and capture (CEO Launch Plan Pac
     },
   );
 });
+
+describe("Phase 2 #7 EDM / wire-cut — rungs and capture (CEO Launch Plan Pack v1, sheet 16)", () => {
+  // Formless (chat-only, like PLC): no form route to pin.
+  const edmLevel = loadItem("qp_edm_wirecut.json", "edm_level");
+  it.each([
+    ["Helper/Trainee", "trainee"],
+    ["Operator", "operator"],
+    ["Setter", "setter"],
+    ["setter hoon", "setter"],
+    ["Setter-cum-Programmer", "setter_programmer"],
+    ["Supervisor", "supervisor"],
+  ])("edm_level: %s → %s", (text, expected) => {
+    expect(matchOptions(edmLevel as never, text as string)).toEqual([expected]);
+  });
+
+  it.each([
+    ["qp_edm_wirecut.json", "edm_machine", "Wire-cut / wire EDM", "wire_cut"],
+    ["qp_edm_wirecut.json", "edm_machine", "wire EDM", "wire_cut"],
+    ["qp_edm_wirecut.json", "edm_machine", "Sinker / die-sinking EDM", "sinker_edm"],
+    ["qp_edm_wirecut.json", "edm_machine", "super drill", "hole_drill"],
+    ["qp_edm_wirecut.json", "edm_brand", "Electronica", "electronica"],
+    ["qp_edm_wirecut.json", "edm_brand", "Sodick", "sodick"],
+    ["qp_edm_wirecut.json", "edm_brand", "Fanuc Robocut", "fanuc_robocut"],
+    ["qp_edm_wirecut.json", "edm_work_type", "Taper cutting", "taper_cutting"],
+    ["qp_edm_wirecut.json", "edm_work_type", "4-axis cutting", "four_axis"],
+    ["qp_edm_wirecut.json", "edm_setting_confirm", "Haan, khud karta hoon", "self"],
+    ["qp_edm_wirecut.json", "edm_program_confirm", "Nahi, koi aur karta hai", "other"],
+  ] as ReadonlyArray<readonly [string, string, string, string | null]>)(
+    "%s %s: %s → %s",
+    (packFile, questionKey, text, expected) => {
+      expect(capturedOption(packFile, questionKey, text)).toEqual(
+        expected === null ? [] : [expected],
+      );
+    },
+  );
+});

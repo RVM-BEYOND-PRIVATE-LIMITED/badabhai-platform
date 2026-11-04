@@ -267,6 +267,7 @@ describe("MACHINE_ROW_LABELS — the split stays true to the trade maps (#2257)"
       "qp_cad_design_3d",
       // Phase 2 #6: a PLC technician's brand is a platform he programs, not a machine he runs.
       "qp_plc_automation",
+      // Phase 2 #7: an EDM is a machine, so this trade DOES print a Machines line.
     ]);
     for (const { pack_id } of TRADE_RESUME_MAPS) {
       const hasMachineRow = listRows.some(
