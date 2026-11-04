@@ -6,6 +6,24 @@
 > below are kept as history. Reconciliation of the pack's ID/key conflicts rides
 > `feat/mw-reconcile-pack-v1`.
 
+> STATUS 2026-11-04 — CEO LAUNCH PLAN PACK v1, PHASE 2 COMPLETE. All 23 sheet trades (Track A
+> 1-5, Track B 1-7, Phase 2 #1-#11) are merged, seeded and verify-PASS on production.
+> Cross-cutting, from the 2026-11-03 handover:
+> - ITI age gate 18+: LIVE (backend #2545, worker-app screen #2558).
+> - "Level needed" applicant sort (CEO ruling 30 Oct): MERGED #2552 (migration 0153 applied),
+>   behind LEVEL_NEEDED_SORT_ENABLED in the production environment.
+> - Per-pack price tier (A4 item 8): MERGED #2611 (code only, no seed).
+> - Alias embeddings backfill: DONE 2026-11-04, 287 rows, gemini-embedding-001, ~Rs 0.01;
+>   no searchable alias without an embedding (verify:domains PASS).
+> - A4 item 5 sheet-word audit: #2614 (35 aliases + 3 retirements, correct sheet-word routes
+>   126 -> 160 of 379), seeded.
+> - TTS re-render #701: BLOCKED on two native listeners, not on code.
+> Open owner calls: generic "electrician" (ruling A2 keeps the house wireman; sheet 7 says
+> Industrial), "die setting" / "die setter" (sheet 18 vs the press role's tool-room veto),
+> related-trade pairs for the four new trades (PLC, EDM, heat treatment, foundry: all unpaired).
+> Frontend: #2605 (payer-app kJobRoleLabels needs foundry_forging_operator). Curator sign-off
+> per trade (A4 item 11) is the CEO's.
+
 v1 shipped C1–C6 on 4 trades (Turner, VMC, Grinding, CAM). Turner + VMC are fully
 loaded (P2 gates, P3 required+stop, P4 §8 aliases, P5 display+price hook).
 Grinding/CAM miss their P4 alias starter; the other 12 live trades miss everything
@@ -371,7 +389,10 @@ senior_programmer`; P5 crosswalk already handles). Role `levelTerms` += rung
 > held out (3 letters; would become the chip label). Off the demo skip list (own demo row).
 > Seeds after merge (+ seed:match:vocabulary).
 >
-> PHASE 2 #10 — PRODUCTION SUPERVISOR (NEW BUILD, CROSS-TRADE) ✅ CODE DONE (`feat/mw-production-supervisor`).
+> PHASE 2 #10 — PRODUCTION SUPERVISOR (NEW BUILD, CROSS-TRADE) ✅ CODE DONE (`feat/mw-production-supervisor`, PR #2599, merged).
+> LIVE on production 2026-11-04: migrations 0149 + 0150 applied by the owner before merge;
+> seed:domains → normalize → seed:packs → seed:match:vocabulary; verify:packs,
+> verify:domains (curated 633/633) and verify:match-v1 all PASS.
 > New 26th declared kind `production_supervisor` (formless, `production` cluster) with
 > migrations 0149 + 0150 — APPLY BOTH BEFORE MERGE (Foundry takes 27 / 0151-0152 after it, by
 > agreement with that session). New `mskill_production_supervisor` (unpaired; the
@@ -389,7 +410,10 @@ senior_programmer`; P5 crosswalk already handles). Role `levelTerms` += rung
 > (+Hi) -> 3122.1900. Bare `supervisor` stays unrouted (A3). Demo row weight 2 (measured).
 > Seeds after migrations + merge (+ seed:match:vocabulary).
 >
-> PHASE 2 #11 — FOUNDRY / FORGING OPERATOR (NEW BUILD) ✅ CODE DONE (`feat/mw-foundry-forging`).
+> PHASE 2 #11 — FOUNDRY / FORGING OPERATOR (NEW BUILD) ✅ CODE DONE (`feat/mw-foundry-forging`, PR #2602, merged).
+> LIVE on production 2026-11-04: migrations 0151 + 0152 applied by the owner before merge (on
+> the 26-kind list, production_supervisor kept); seed:domains → normalize → seed:packs →
+> seed:match:vocabulary; verify:packs, verify:domains and verify:match-v1 all PASS.
 > New 27th declared kind `foundry_forging_operator` (formless, `fabrication`) with migrations
 > 0151 + 0152 (on the 26-kind list) — APPLY BOTH BEFORE MERGE. New
 > `mskill_foundry_forging_operator` (unpaired), `fam_foundry_forging` bound to 19 casting /
