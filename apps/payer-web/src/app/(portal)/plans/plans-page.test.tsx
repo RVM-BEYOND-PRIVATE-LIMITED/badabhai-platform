@@ -233,7 +233,14 @@ describe("/plans — the page spine and the per-posting table", () => {
     const out = await html();
     expect(textOf(out)).toContain("No active postings yet");
     expect(textOf(out)).toContain("You haven’t published a posting yet");
-    expect(links(out).filter((l) => l.text === "New posting")).toEqual([]);
+    // The ONE "New posting" door is the empty state's own link (one label per destination,
+    // #2581) — never a page-level CTA.
+    expect(links(out).filter((l) => l.text === "New posting")).toEqual([
+      { href: "/postings/new", text: "New posting" },
+    ]);
+    expect(out.match(/<a [^>]*>/g)!.filter((a) => a.includes('href="/postings/new"'))).toEqual([
+      expect.stringContaining("plans-empty__link"),
+    ]);
   });
 
   it("each row's role opens that POSTING (a title always opens the details — F12); faceless", async () => {

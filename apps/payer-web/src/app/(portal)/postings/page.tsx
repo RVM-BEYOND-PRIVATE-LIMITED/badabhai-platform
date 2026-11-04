@@ -117,11 +117,10 @@ export default async function PostingsPage() {
                 <>
                   Each &ldquo;Add applicant slots&rdquo; adds{" "}
                   <span className="bb-mono">{topUpOffer.additionalViews}</span> more applicant slots
-                  for <span className="bb-mono">{priceFigure(topUpOffer)}</span> (from the
-                  pricing config).
+                  for <span className="bb-mono">{priceFigure(topUpOffer)}</span>.
                 </>
               ) : (
-                "Slot amounts come from the pricing config."
+                "Applicant slot top-ups are not on offer right now."
               )}
             </p>
           </div>

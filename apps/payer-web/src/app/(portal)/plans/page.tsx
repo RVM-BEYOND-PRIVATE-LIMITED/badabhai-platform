@@ -366,7 +366,7 @@ export default async function PlansPage() {
                     appear here.
                   </p>
                   <PortalLink className="plans-empty__link" href="/postings/new" pendingLabel="New posting">
-                    Create your first job post <Icon name={ACTION_ICON.next} />
+                    New posting <Icon name={ACTION_ICON.next} />
                   </PortalLink>
                 </div>
               )}
@@ -377,11 +377,6 @@ export default async function PlansPage() {
 
       <footer className="plans-foot">
         <span>© 2026 BadaBhai for Business. All rights reserved.</span>
-        <span className="plans-foot__links">
-          <span>Billing Documentation</span>
-          <span>Usage Policies</span>
-          <span>Contact Support</span>
-        </span>
       </footer>
     </div>
   );

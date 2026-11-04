@@ -587,7 +587,6 @@ export function AgencyJobForm({
                   Specify the technical trade and the place the work happens.
                 </p>
               </div>
-              <span className="mw-pill mw-pill--warm">In Progress</span>
             </div>
             <div className="mw-card__body">
               <Select
@@ -677,7 +676,6 @@ export function AgencyJobForm({
                   Set the pay band, experience window, shift and joining time.
                 </p>
               </div>
-              <span className="mw-pill">In Progress</span>
             </div>
             <div className="mw-card__body">
               <div className="mw-grid2">
@@ -809,7 +807,6 @@ export function AgencyJobForm({
                   Pick the skills workers search by, then add the detail and perks.
                 </p>
               </div>
-              <span className="mw-pill">In Progress</span>
             </div>
             <div className="mw-card__body">
               <Textarea

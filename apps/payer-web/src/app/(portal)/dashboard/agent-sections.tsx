@@ -399,7 +399,7 @@ export async function AgentSections({
             <div className="panel__head">
               <div className="panel__text">
                 <h2 className="panel__title">Recent Candidate Unlocks</h2>
-                <p className="panel__sub">Direct phone &amp; WhatsApp reveal vault.</p>
+                <p className="panel__sub">Contacts you have unlocked.</p>
               </div>
               <div className="panel__actions">
                 <PortalLink
@@ -477,22 +477,6 @@ export async function AgentSections({
           </section>
         </div>
       </div>
-
-      <footer className="dash-foot">
-        <div className="dash-foot__status">
-          <span className="dash-foot__dot" aria-hidden="true" />
-          <span>Gateway Online: BadaBhai Recruiter Engine v2.8</span>
-          <span className="dash-foot__sep" aria-hidden="true">
-            ·
-          </span>
-          <span>Candidate Database: 180,000+ Verified Workers</span>
-        </div>
-        <div className="dash-foot__links">
-          <span>Worker identities masked until consent-granted</span>
-          <span>Employer Helpdesk</span>
-          <span>Pricing Terms</span>
-        </div>
-      </footer>
     </>
   );
 }

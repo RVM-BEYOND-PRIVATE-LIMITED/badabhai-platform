@@ -481,7 +481,6 @@ export function PostingForm({
                   Specify the technical trade and factory premises location.
                 </p>
               </div>
-              <span className="mw-pill mw-pill--warm">In Progress</span>
             </div>
             <div className="mw-card__body">
               <Select
@@ -551,9 +550,6 @@ export function PostingForm({
               />
             </div>
             <div className="mw-card__foot">
-              <button type="button" className="bb-btn bb-btn--secondary bb-btn--sm">
-                Save Draft
-              </button>
               <button type="button" className="bb-btn bb-btn--primary bb-btn--sm" onClick={goNext}>
                 Next: Pay &amp; Openings <Icon name="arrow-right" />
               </button>
@@ -566,7 +562,6 @@ export function PostingForm({
                 <h2 className="mw-card__title">Step 2: Pay &amp; Openings</h2>
                 <p className="mw-card__sub">Set the pay band, openings and joining window.</p>
               </div>
-              <span className="mw-pill">In Progress</span>
             </div>
             <div className="mw-card__body">
               <div className="posting-form__vacancies">
@@ -721,7 +716,6 @@ export function PostingForm({
                 <h2 className="mw-card__title">Step 3: Skills &amp; Perks</h2>
                 <p className="mw-card__sub">Pick the skills workers search by, then add perks.</p>
               </div>
-              <span className="mw-pill">In Progress</span>
             </div>
             <div className="mw-card__body">
               <div className="form__section">

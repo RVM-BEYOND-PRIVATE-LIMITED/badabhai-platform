@@ -287,7 +287,7 @@ export default async function DashboardPage({
                 href={createHref}
                 pendingLabel="New posting"
               >
-                <Icon name="plus" /> Create role
+                <Icon name="plus" /> New posting
               </PortalLink>
             }
           />
@@ -303,7 +303,6 @@ export default async function DashboardPage({
             unlocks === null ? undefined : <span className="dash-stat-note">revealed</span>
           }
           caption={unlocks === null ? UNREAD_CAPTION : "Cost: 1 credit / profile"}
-          foot={<span className="dash-kpi__meta">Direct phone &amp; email</span>}
         />
 
         {/* The plans card rides the same strip as a dark Quick Action tile — the one
@@ -316,7 +315,6 @@ export default async function DashboardPage({
           >
             <span className="dash-quick-action__top">
               <span className="dash-quick-action__eyebrow">QUICK ACTION</span>
-              <span className="dash-quick-action__badge">Free Tier</span>
             </span>
             <span className="dash-quick-action__title">Plans &amp; capacity</span>
             <span className="dash-quick-action__desc">
@@ -406,7 +404,7 @@ export default async function DashboardPage({
                     pendingLabel="New posting"
                   >
                     <Icon name={ACTION_ICON.create} />
-                    <span>Create First Posting</span>
+                    <span>New posting</span>
                   </PortalLink>
                   <PortalLink
                     className="bb-btn bb-btn--secondary"
@@ -605,21 +603,6 @@ export default async function DashboardPage({
 
       {/* MERGE-1: agency demand modules render INLINE for an AGENT only. */}
       {isAgency ? <AgentSections /> : null}
-
-      <footer className="dash-foot">
-        <div className="dash-foot__status">
-          <span className="dash-foot__dot" aria-hidden="true" />
-          <span>Gateway Online: Badabhai Recruiter Engine v2.4</span>
-          <span className="dash-foot__sep" aria-hidden="true">
-            ·
-          </span>
-          <span>Candidate Database: 160,000+ Verified Workers</span>
-        </div>
-        <div className="dash-foot__links">
-          <span>Employer Helpdesk</span>
-          <span>Pricing Terms</span>
-        </div>
-      </footer>
     </>
   );
 }

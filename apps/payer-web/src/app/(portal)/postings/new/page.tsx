@@ -75,14 +75,9 @@ export default async function NewPostingPage() {
   const lead = (
     <>
       <PageHeader
-        title="Create Job Posting"
+        title="New posting"
         description="Describe the role — candidate names and contact details remain faceless until you review and unlock them."
         badge={<span className="mw-badge">FACELESS HIRING MODE</span>}
-        actionsSlot={
-          <button type="button" className="bb-btn bb-btn--secondary bb-btn--sm">
-            Save Draft
-          </button>
-        }
       />
 
       <div className="mw-ai">
