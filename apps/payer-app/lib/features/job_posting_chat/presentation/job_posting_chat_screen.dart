@@ -9,6 +9,7 @@ import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/bb_chat_bubble.dart';
 import '../../../core/widgets/bb_chip.dart';
 import '../../../core/widgets/bb_icon_button.dart';
+import '../../../core/widgets/bb_leave_guard.dart';
 import '../../../core/widgets/bb_status_view.dart';
 import '../../../core/widgets/bb_toast.dart';
 import '../domain/chat_message.dart';
@@ -217,12 +218,45 @@ class _ChatViewState extends State<_ChatView> {
   String _area = '';
   bool _areaTouched = false;
 
+  /// #2595 — what to ask before a leave would lose something.
+  static const BbLeavePrompt _leavePrompt = BbLeavePrompt(
+    title: 'Leave this chat?',
+    message: 'Your unsent message and any role or area you picked will be '
+        'lost. Messages already sent stay saved.',
+    leaveLabel: 'Leave',
+    stayLabel: 'Keep chatting',
+  );
+
   @override
   void dispose() {
     _scroll.dispose();
     _controller.dispose();
     super.dispose();
   }
+
+  /// True when leaving would lose something the server does not have (#2595):
+  /// a message typed but not sent, one that FAILED to send, or a role / area
+  /// picked for the publish step. A sent conversation is stored server-side
+  /// (and resumable from Jobs), so it never counts — and nothing does once the
+  /// posting is published.
+  bool get _hasUnsavedChanges {
+    final JobPostingChatState state = context.read<JobPostingChatBloc>().state;
+    if (state.publishOutcome == PublishOutcome.success) return false;
+    return _controller.text.trim().isNotEmpty ||
+        state.messages.any(
+          (ChatMessage m) => m.fromPayer && m.status == ChatSendStatus.failed,
+        ) ||
+        _roleKind != null ||
+        (_areaTouched && _area.trim() != (state.draft.area ?? '').trim());
+  }
+
+  /// The header's back arrow: leaves at once unless something would be lost,
+  /// and asks first then (the shell asks the same for system Back / a nav tap).
+  void _leave() => _leavePrompt.guard(
+        context,
+        dirty: _hasUnsavedChanges,
+        leave: widget.onBack,
+      );
 
   void _send() {
     final String text = _controller.text;
@@ -324,6 +358,14 @@ class _ChatViewState extends State<_ChatView> {
 
   @override
   Widget build(BuildContext context) {
+    return BbLeaveGuard(
+      hasUnsavedChanges: () => _hasUnsavedChanges,
+      prompt: _leavePrompt,
+      child: _buildChat(context),
+    );
+  }
+
+  Widget _buildChat(BuildContext context) {
     return MultiBlocListener(
       listeners: <BlocListener<JobPostingChatBloc, JobPostingChatState>>[
         BlocListener<JobPostingChatBloc, JobPostingChatState>(
@@ -434,7 +476,7 @@ class _ChatViewState extends State<_ChatView> {
           BbIconButton(
             icon: Icons.arrow_back_rounded,
             semanticLabel: 'Back',
-            onPressed: widget.onBack,
+            onPressed: _leave,
           ),
           const SizedBox(width: AppSpacing.s3),
           Expanded(
