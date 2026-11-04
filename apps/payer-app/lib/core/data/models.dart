@@ -729,6 +729,10 @@ class PayerApiException implements Exception {
   /// [kJobEditSetAndClearedCode]).
   bool get isSetAndCleared => code == kJobEditSetAndClearedCode;
 
+  /// #2635 — a company job write refused because the job would be live
+  /// without one of the 16 trades (see [kPostingTradeRequiredCode]).
+  bool get isPostingTradeRequired => code == kPostingTradeRequiredCode;
+
   @override
   String toString() =>
       'PayerApiException($statusCode${code == null ? '' : ', $code'})';
@@ -777,6 +781,22 @@ const String kJobEditNoChangesMessage =
 
 /// What the payer is told on [kJobEditClosedCode]: closed is terminal.
 const String kJobEditClosedMessage = 'This job is closed and cannot be edited.';
+
+/// #2635 — the [PayerApiException.code] for a company job write the server
+/// refused because it would leave a LIVE job outside the 16 postable trades:
+/// publishing one that names none of them, or moving an open/paused one off
+/// them. Matching runs only for those trades, so such a job would reach nobody.
+///
+/// It is the server's own machine-readable `error.reason`, verbatim — unlike
+/// the codes above, the HTTP client reads it rather than inferring it from a
+/// message. Never rendered: the payer sees [kPostingTradeRequiredMessage].
+const String kPostingTradeRequiredCode = 'posting_trade_required';
+
+/// What the payer is told on [kPostingTradeRequiredCode] — AT the trade
+/// picker, never in place of it, and never the server's own message. Also the
+/// forms' own refusal when a company job has no trade picked yet, so one rule
+/// reads one way wherever it is met.
+const String kPostingTradeRequiredMessage = 'Pick one of the 16 trades';
 
 // --- Agency demand (ADR-0022) — jobs + referral funnel --------------------
 // The agency (role='agent') owns its OWN faceless `jobs` rows: a coarse

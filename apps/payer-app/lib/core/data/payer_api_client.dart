@@ -189,11 +189,16 @@ abstract class PayerApiClient {
 
   /// Deterministic reach preview for a picked skill set
   /// (`POST /payer/match/reach-preview`, body `{match_skill_ids,
-  /// unticked_related_ids}`). Returns per-skill breakdowns + roll-up totals. A
-  /// non-2xx surfaces as [PayerApiException].
+  /// unticked_related_ids, role_kind?}`). Returns per-skill breakdowns + roll-up
+  /// totals. A non-2xx surfaces as [PayerApiException].
+  ///
+  /// [roleKind] (#2635) is the job's trade: one of the 16 scopes the posted ids
+  /// to that trade exactly as publish will, so the "reaches N workers" figure
+  /// matches what goes live. Omitted from the body when null.
   Future<ReachPreview> reachPreview({
     required List<String> matchSkillIds,
     List<String> untickedRelatedIds = const <String>[],
+    String? roleKind,
   });
 
   // --- AI job-posting chat (ADR-0035) ---------------------------------------

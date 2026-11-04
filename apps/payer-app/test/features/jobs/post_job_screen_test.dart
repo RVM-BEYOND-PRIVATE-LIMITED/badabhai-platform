@@ -304,16 +304,22 @@ class _V1SpyApi extends _SpyApi {
         ),
       ];
 
+  /// The `role_kind` of every reach preview asked for (#2635).
+  final List<String?> reachRoleKinds = <String?>[];
+
   @override
   Future<ReachPreview> reachPreview({
     required List<String> matchSkillIds,
     List<String> untickedRelatedIds = const <String>[],
-  }) async =>
-      const ReachPreview(
-        reachTotal: 12,
-        reachTier1: 9,
-        maxSkillsPerPosting: 5,
-      );
+    String? roleKind,
+  }) async {
+    reachRoleKinds.add(roleKind);
+    return const ReachPreview(
+      reachTotal: 12,
+      reachTier1: 9,
+      maxSkillsPerPosting: 5,
+    );
+  }
 }
 
 /// The route as it behaved BEFORE #1653: `PayerCreateJobPostingSchema` stripped
