@@ -21,17 +21,27 @@ class AgencyJobsCubit extends Cubit<AgencyJobsState> {
 
   Future<void> load() async {
     emit(state.copyWith(status: AgencyJobsStatus.loading));
+    await _refresh();
+  }
+
+  /// Fetches the list WITHOUT flipping to [AgencyJobsStatus.loading] — the
+  /// refetch after an action (#2594), so the list stays on screen and the
+  /// closed card settles in place instead of the tab flashing to a spinner.
+  Future<void> _refresh() async {
     try {
       final List<AgencyJobView> jobs = await _api.fetchAgencyJobs();
+      if (isClosed) return; // screen gone mid-fetch — emit would throw
       emit(AgencyJobsState(status: AgencyJobsStatus.ready, jobs: jobs));
     } catch (_) {
+      if (isClosed) return;
       emit(state.copyWith(status: AgencyJobsStatus.error));
     }
   }
 
   Future<JobActionResult> closePosting(String id) => _lifecycle(
         () => _api.closeAgencyJob(id),
-        okMessage: 'Closed — no longer taking applicants.',
+        // The toast title already says "Job closed" (#2594).
+        okMessage: 'No longer taking applicants.',
         // A close 400 means the row is already closed (the only 400 this
         // terminal transition has).
         badRequestMessage: 'This job is already closed.',
@@ -112,7 +122,7 @@ class AgencyJobsCubit extends Cubit<AgencyJobsState> {
   }) async {
     try {
       await op();
-      await load();
+      await _refresh();
       return JobActionResult.ok(okMessage);
     } on PayerApiException catch (e) {
       // #1652 — checked BEFORE the blanket 400 below: a set-and-cleared edit

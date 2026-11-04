@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:payer_app/core/data/mock_payer_api_client.dart';
@@ -152,9 +154,24 @@ void main() {
       final JobActionResult result = await cubit.closePosting('j1');
 
       expect(result.success, isTrue);
-      expect(result.message, 'Closed — no longer taking applicants.');
+      // #2594 — the toast title says "Job closed"; the message says what changed.
+      expect(result.message, 'No longer taking applicants.');
       expect(api.closed, <String>['j1']);
       expect(api.fetches, 1, reason: 'the pill/buttons come from a refetch');
+      expect(cubit.state.jobs.first.status, 'closed');
+    });
+
+    test('#2594 — the refetch keeps the list on screen (never flips to '
+        'loading), so the closed card settles in place', () async {
+      final List<AgencyJobsStatus> seen = <AgencyJobsStatus>[];
+      final StreamSubscription<AgencyJobsState> sub =
+          cubit.stream.listen((AgencyJobsState s) => seen.add(s.status));
+
+      await cubit.closePosting('j1');
+      await sub.cancel();
+
+      expect(seen, isNot(contains(AgencyJobsStatus.loading)));
+      expect(cubit.state.status, AgencyJobsStatus.ready);
       expect(cubit.state.jobs.first.status, 'closed');
     });
 
