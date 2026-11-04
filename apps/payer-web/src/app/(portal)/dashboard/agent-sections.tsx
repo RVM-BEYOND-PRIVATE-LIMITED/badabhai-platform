@@ -309,18 +309,21 @@ export async function AgentSections({
             )}
           </div>
 
+          {/* The panel's standing door to the agency form says where it goes, in the form's own
+              name (one label per destination, #2581). The line beside it states what publishing
+              does — no claimed matching speed and no drafting help the form does not offer. */}
           <div className="agency-pipeline__foot">
-            <Icon name="sparkle" />
+            <Icon name={ACTION_ICON.create} />
             <p>
-              <strong>Need help drafting?</strong> Our talent engine matches candidates within
-              minutes.
+              <strong>Have a role to fill?</strong> It goes live for matched workers as soon as you
+              publish it.
             </p>
             <PortalLink
               className="dash-panel__link"
               href={AGENCY_POSTING_ROUTES.create}
               pendingLabel="New posting"
             >
-              Learn how <Icon name={ACTION_ICON.next} />
+              New posting <Icon name={ACTION_ICON.next} />
             </PortalLink>
           </div>
         </section>

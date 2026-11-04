@@ -412,7 +412,7 @@ export default async function DashboardPage({
                     pendingLabel="Post with AI"
                   >
                     <Icon name="sparkle" />
-                    <span>Build with AI</span>
+                    <span>Post with AI</span>
                   </PortalLink>
                 </div>
                 <ul className="dash-perks">

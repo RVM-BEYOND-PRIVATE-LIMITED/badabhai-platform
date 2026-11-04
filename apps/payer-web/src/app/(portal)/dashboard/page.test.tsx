@@ -919,4 +919,27 @@ describe("#2581 — no invented figures or dead controls on the dashboard", () =
       }
     }
   });
+
+  it("the empty postings panel names each door as its destination does (one label per destination)", async () => {
+    const panel = findByClass(await render({ postings: [], unlocks: [] }), "dash-empty-panel")[0]!;
+    // Each link to `href` in the panel: its visible text, then the destination its cue names.
+    const labels = (href: string): string[] => {
+      const out: string[] = [];
+      (function walk(node: ReactNode): void {
+        if (node === null || node === undefined || typeof node !== "object") return;
+        if (Array.isArray(node)) return void node.forEach(walk);
+        const el = node as ReactElement<{
+          href?: unknown;
+          pendingLabel?: unknown;
+          children?: ReactNode;
+        }>;
+        if (el.props?.href === href) {
+          out.push(textOf(el.props.children).trim(), String(el.props.pendingLabel));
+        } else if (el.props && "children" in el.props) walk(el.props.children);
+      })(panel);
+      return out;
+    };
+    expect(labels("/postings/new")).toEqual(["New posting", "New posting"]);
+    expect(labels("/postings/ai/new")).toEqual(["Post with AI", "Post with AI"]);
+  });
 });
