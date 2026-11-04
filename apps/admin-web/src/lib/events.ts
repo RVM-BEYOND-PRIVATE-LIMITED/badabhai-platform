@@ -84,6 +84,13 @@ export interface EventFilters {
   actorType?: string;
   subjectType?: string;
   correlationId?: string;
+  /**
+   * The occurred-at range, both ends inclusive (`occurred_at >= from`, `<= to`) — instants the
+   * server coerces to dates. The Events page sends the bounds of the IST days chosen
+   * (`lib/ist-day.ts`), and a hand-edited value as it stands, so the server can refuse it.
+   */
+  occurredFrom?: string;
+  occurredTo?: string;
   cursor?: string;
   limit?: number;
 }
@@ -96,6 +103,8 @@ function toQuery(filters: EventFilters): string {
   if (filters.actorType) q.set("actorType", filters.actorType);
   if (filters.subjectType) q.set("subjectType", filters.subjectType);
   if (filters.correlationId) q.set("correlationId", filters.correlationId);
+  if (filters.occurredFrom) q.set("occurredFrom", filters.occurredFrom);
+  if (filters.occurredTo) q.set("occurredTo", filters.occurredTo);
   if (filters.cursor) q.set("cursor", filters.cursor);
   if (filters.limit) q.set("limit", String(filters.limit));
   const s = q.toString();

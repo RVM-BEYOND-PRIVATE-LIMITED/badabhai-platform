@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { requireCapability } from "../../../lib/auth";
 import { can } from "../../../lib/auth/capabilities";
-import { listJobPostings } from "../../../lib/entities";
+import { listJobPostings, type JobPostingListItem } from "../../../lib/entities";
 import {
   isMalformedUuid,
   isUnknownValue,
@@ -15,6 +15,8 @@ import { StatusPill } from "../../../components/status-pill";
 import { CustomerLink } from "../../../components/customer-link";
 import { Pager } from "../../../components/pager";
 import { PageHeader } from "../../../components/page-header";
+import { DataGrid, type GridColumn } from "../../../components/data-grid";
+import { NavPendingCue } from "../../../components/nav-pending";
 import { JobFilterBar } from "./filter-bar";
 import { FilterPanel } from "../../../components/filter-panel";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
@@ -26,6 +28,67 @@ import {
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Postings" };
+
+/**
+ * The postings columns on the data grid (A4, #2574). Nine columns have to fit a 1440px window
+ * beside the full sidebar without scrolling sideways, so the three poster-typed text columns share
+ * what the fixed ones leave and cut long values (each keeps its whole text in `title`); the row's
+ * link is its role title.
+ */
+const COLUMNS: readonly GridColumn<JobPostingListItem>[] = [
+  {
+    id: "title",
+    header: "Role title",
+    cell: (j) => j.role_title,
+    trail: (j) => <span className="table__meta">{j.vacancy_band} openings</span>,
+    title: (j) => `${j.role_title} · ${j.vacancy_band} openings`,
+  },
+  { id: "org", header: "Published as", cell: (j) => j.org_label, title: (j) => j.org_label },
+  {
+    id: "location",
+    header: "Location",
+    className: "table__meta",
+    cell: (j) => j.city ?? j.location_label ?? "—",
+    title: (j) => j.location_label ?? j.city ?? undefined,
+  },
+  {
+    id: "pay",
+    header: "Pay",
+    width: "money",
+    className: "table__meta",
+    cell: (j) => formatPayBand(j.pay_min, j.pay_max),
+  },
+  { id: "status", header: "Status", width: "status", cell: (j) => <StatusPill value={j.status} /> },
+  {
+    id: "trust",
+    header: "Trust review",
+    width: "status",
+    cell: (j) => <StatusPill value={j.verification_status} />,
+  },
+  {
+    id: "customer",
+    header: "Customer",
+    width: "customer",
+    cell: (j) =>
+      j.payer_id ? (
+        <CustomerLink payerId={j.payer_id} payerRole={j.payer_role} />
+      ) : (
+        // No payer_id means ops created it directly — there is no customer account behind it,
+        // and saying so beats a dead link.
+        <span className="table__meta">ops-created</span>
+      ),
+  },
+  {
+    id: "created",
+    header: "Created",
+    width: "date",
+    cell: (j) => (
+      <time dateTime={j.created_at} title={timestampTitle(j.created_at)}>
+        {formatRelative(j.created_at)}
+      </time>
+    ),
+  },
+];
 
 /**
  * Postings — and, in practice, the entry point for most operational work.
@@ -91,11 +154,12 @@ export default async function JobsPage({
     <Link className="btn btn--ghost" href="/jobs">
       <Icon name={ACTION_ICON.clearFilters} />
       Clear filters
+      <NavPendingCue message="Clearing the filters…" />
     </Link>
   ) : null;
 
   return (
-    <div className="page">
+    <div className="page page--list">
       <PageHeader
         title="Postings"
         description="Every posting on the platform, as workers see it in the feed."
@@ -168,58 +232,22 @@ export default async function JobsPage({
             <RetryActions href={listHref} cursor={cursor} />
           </div>
         ) : page && page.items.length > 0 ? (
-          <div className="tablewrap">
-            <table className="table">
-              <caption className="sr-only">Postings, newest first</caption>
-              <thead>
-                <tr>
-                  <th scope="col">Role title</th>
-                  <th scope="col">Published as</th>
-                  <th scope="col">Location</th>
-                  <th scope="col">Pay</th>
-                  <th scope="col">Status</th>
-                  <th scope="col">Trust review</th>
-                  <th scope="col">Customer</th>
-                  <th scope="col">Created</th>
-                </tr>
-              </thead>
-              <tbody>
-                {page.items.map((j) => (
-                  <tr key={j.id}>
-                    <td>
-                      <Link className="link" href={`/jobs/${j.id}`}>
-                        {j.role_title}
-                      </Link>
-                      <span className="table__meta">{j.vacancy_band} openings</span>
-                    </td>
-                    <td>{j.org_label}</td>
-                    <td className="table__meta">{j.city ?? j.location_label ?? "—"}</td>
-                    <td className="table__meta">{formatPayBand(j.pay_min, j.pay_max)}</td>
-                    <td>
-                      <StatusPill value={j.status} />
-                    </td>
-                    <td>
-                      <StatusPill value={j.verification_status} />
-                    </td>
-                    <td>
-                      {j.payer_id ? (
-                        <CustomerLink payerId={j.payer_id} payerRole={j.payer_role} />
-                      ) : (
-                        // No payer_id means ops created it directly — there is no customer
-                        // account behind it, and saying so beats a dead link.
-                        <span className="table__meta">ops-created</span>
-                      )}
-                    </td>
-                    <td>
-                      <time dateTime={j.created_at} title={timestampTitle(j.created_at)}>
-                        {formatRelative(j.created_at)}
-                      </time>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <DataGrid
+            id="postings"
+            caption="Postings, newest first"
+            columns={COLUMNS}
+            rows={page.items}
+            rowKey={(j) => j.id}
+            rowLink={{ column: "title", href: (j) => `/jobs/${j.id}`, name: (j) => j.role_title }}
+            pager={
+              <Pager
+                basePath="/jobs"
+                params={{ status, verificationStatus, payerId }}
+                cursor={cursor}
+                nextCursor={page.nextCursor}
+              />
+            }
+          />
         ) : filtered ? (
           <div className="state">
             <h3 className="state__title">No postings match these filters</h3>
@@ -246,12 +274,6 @@ export default async function JobsPage({
             ) : null}
           </div>
         )}
-
-        <Pager
-          basePath="/jobs"
-          params={{ status, verificationStatus, payerId }}
-          nextCursor={page?.nextCursor}
-        />
       </section>
     </div>
   );

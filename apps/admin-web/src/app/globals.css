@@ -3889,3 +3889,551 @@ textarea.field__input {
   text-transform: uppercase;
   color: var(--text-secondary);
 }
+
+/* ══ A4 (#2574) — DATA GRID: one scroller, sticky header, the row as one link, the pager bar,
+   the pending state, the column chooser and the density toggle ══════════════════════════════
+   The console's one list primitive (components/data-grid.tsx). Its own block, appended, so the
+   parallel admin lanes rebase over it trivially. Brand tokens only, no new colour; every duration
+   is a motion token (tokens.css zeroes them under reduced motion), and only opacity and transform
+   ever animate — nothing moves the scroll position or the table as a whole.
+
+   ONE VERTICAL SCROLLER PER LIST PAGE, in either of two layouts:
+   - FLOW (the default — laptops, tablets, phones, and the pages that stack sections above their
+     list): the PAGE is the one scroller. The grid never caps its height, so it never traps the
+     wheel; its column header sticks under the topbar and its footer bar (the pager, the view
+     controls) sticks to the bottom of the window while the rows are on screen. A table too wide
+     for its box scrolls SIDEWAYS in its own box — never the page — and there the header rides
+     with the rows (a header can only stick to a box that scrolls it).
+   - FILL (a list page, `.page--list`, on a desktop at least 860px tall): the page fills the
+     window. Header and filters stay put, the grid's body flexes into the rest and is the one
+     scroller, the footer bar closes the panel. Opening the page's "About this data" hands the
+     page back to FLOW, so its small print never squeezes the rows or adds a second scroller. */
+
+.grid {
+  --grid-row-h: var(--row-h);
+  --grid-pad-inline: var(--space-3);
+  /* Where the column header sticks: under the topbar while the PAGE scrolls a grid that fits
+     (`data-fit`, measured by DataGridView); the grid's own top edge everywhere else. */
+  --grid-head-top: 0px;
+  display: flex;
+  flex-direction: column;
+}
+.grid[data-fit="true"] {
+  --grid-head-top: var(--shell-header-h);
+}
+/* Density (the viewer's choice): 44px rows, or 36px — the token layer's two row rails. */
+.grid[data-density="compact"] {
+  --grid-row-h: var(--row-h-compact);
+}
+
+.grid__scroll {
+  /* Contains the row-level hidden labels, as `.tablewrap` does: they can never widen the page. */
+  position: relative;
+  overflow-x: auto;
+  /* Never a vertical scroller in FLOW: the page is the one. */
+  overflow-y: hidden;
+  /* A sideways swipe that reaches the edge stays here — it must not become the back gesture. */
+  overscroll-behavior-inline: contain;
+  border: var(--border-hairline) solid var(--divider);
+  border-radius: var(--radius-md);
+}
+/* A grid that FITS its box clips instead of scrolling, so it is no scroll container at all and its
+   header sticks to the window. `clip` creates no scroller; the corners still clip to the radius. */
+.grid[data-fit="true"] .grid__scroll {
+  overflow-x: clip;
+  overflow-y: visible;
+}
+
+/* The table: fixed layout — the columns take their KIND's width (`.grid__col--*` below) and the
+   text columns share the rest — and never narrower than `--grid-min` (DataGridView, from the
+   visible columns), below which the grid scrolls sideways instead of crushing a text column.
+   Separate borders: each row paints its own divider, so a dimmed or hovered row keeps its edge. */
+.grid__table {
+  table-layout: fixed;
+  inline-size: 100%;
+  min-inline-size: var(--grid-min, 0);
+  border-collapse: separate;
+  border-spacing: 0;
+}
+.grid__table th,
+.grid__table td {
+  height: var(--grid-row-h);
+  padding: var(--space-1) var(--grid-pad-inline);
+}
+.grid[data-density="compact"] .grid__table th,
+.grid[data-density="compact"] .grid__table td {
+  padding-block: 0;
+}
+/* The column header: sticky (`.table th`) at --grid-head-top; a long label cuts rather than
+   running into its neighbour. Its rule is the inset shadow `.table th` draws, so the cell border
+   is dropped (it would double the line). */
+.grid__table th {
+  top: var(--grid-head-top);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border-bottom-width: 0;
+}
+
+/* WIDTHS BY KIND (`GridColumnWidth`, components/data-grid-model.ts) — in `ch` of the 13.5px table
+   type, each with its two cell paddings: ID 10ch (+ its copy button), status 10ch (+ the pill's own
+   padding), date 12ch. A `fill` column has no width: the text columns share what is left. */
+.grid__col--id {
+  width: calc(10ch + var(--control-sm) + var(--space-1) + 2 * var(--grid-pad-inline));
+}
+.grid__col--customer {
+  width: calc(
+    10ch + var(--control-sm) + var(--space-1) + var(--space-2) + 7ch + 2 * var(--grid-pad-inline)
+  );
+}
+.grid__col--typed-id {
+  width: calc(22ch + var(--space-2) + var(--control-sm) + var(--space-1) + 2 * var(--grid-pad-inline));
+}
+.grid__col--status {
+  width: calc(10ch + 2 * var(--space-3) + 2 * var(--border-hairline) + 2 * var(--grid-pad-inline));
+}
+.grid__col--date {
+  width: calc(12ch + 2 * var(--grid-pad-inline));
+}
+.grid__col--number {
+  width: calc(8ch + 2 * var(--grid-pad-inline));
+}
+.grid__col--money,
+.grid__col--short {
+  width: calc(14ch + 2 * var(--grid-pad-inline));
+}
+.grid__col--actions {
+  width: calc(12rem + 2 * var(--grid-pad-inline));
+}
+.grid__col--end {
+  width: calc(var(--icon-size-sm) + 2 * var(--space-2));
+}
+
+/* A type tag inside a `typed-id` cell is cut at 12ch, its full name in its `title`: a subject type
+   runs to 30 characters ("payer_job_posting_chat_session") and must not push the id off its cell. */
+.grid__table .tag {
+  max-inline-size: 12ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+}
+/* A text cell: one line cut with an ellipsis (its full text in `title`), or every line. */
+.grid__cell--truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.grid__cell--wrap {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+/* A table of sentences (Feedback): the rows keep `.table td`'s reading rhythm. */
+.grid--prose .grid__table td {
+  padding-block: var(--space-3);
+}
+
+/* ROWS. Each row is the containing block of its link's stretch: `position: relative` names the
+   intent, `transform` makes it hold in every engine (WebKit does not take a relative table row as
+   a containing block). Hover tints over --duration-fast (the 120ms the brief asks for has no token;
+   140ms is the nearest). New rows fade in over --duration-fast, staggered --stagger-step for the
+   first eight and then together (--stagger-max); `backwards`, so once in, a row's opacity is the
+   cascade's again (the pending dim below). */
+.grid__table tbody tr {
+  position: relative;
+  transform: scale(1);
+  transition:
+    background-color var(--duration-fast) var(--ease-out),
+    opacity var(--duration-fast) var(--ease-out);
+  animation: grid-row-in var(--duration-fast) var(--ease-enter) backwards;
+}
+.grid__table tbody tr:nth-child(2) {
+  animation-delay: var(--stagger-step);
+}
+.grid__table tbody tr:nth-child(3) {
+  animation-delay: calc(var(--stagger-step) * 2);
+}
+.grid__table tbody tr:nth-child(4) {
+  animation-delay: calc(var(--stagger-step) * 3);
+}
+.grid__table tbody tr:nth-child(5) {
+  animation-delay: calc(var(--stagger-step) * 4);
+}
+.grid__table tbody tr:nth-child(6) {
+  animation-delay: calc(var(--stagger-step) * 5);
+}
+.grid__table tbody tr:nth-child(7) {
+  animation-delay: calc(var(--stagger-step) * 6);
+}
+.grid__table tbody tr:nth-child(n + 8) {
+  animation-delay: calc(var(--stagger-step) * 7);
+}
+@keyframes grid-row-in {
+  from {
+    opacity: 0;
+  }
+}
+
+/* THE ROW AS ONE LINK. The name cell's link stretches over the whole row (`::after`), so the row is
+   one click target and one tab stop. The link's text sits above the stretch (its `title` shows on
+   it); every other control in the row — a copy button, a customer link, a row action — sits above
+   it too and keeps its own target. Focus rings the whole row, inside its edges, where no cell's
+   clipping can cut it; the outline survives forced colours. */
+.grid__link {
+  color: var(--text-link);
+  font-weight: var(--weight-semibold);
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  transition: text-decoration-color var(--duration-fast) var(--ease-out);
+}
+.grid__link::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+}
+.grid__table tbody tr:hover .grid__link {
+  text-decoration-color: currentColor;
+}
+.grid__link-text {
+  position: relative;
+  z-index: 1;
+}
+.grid__table tbody :is(a, button, input, select, textarea, summary):not(.grid__link) {
+  position: relative;
+  z-index: 1;
+}
+.grid__link:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+.grid__link:focus-visible::after {
+  outline: var(--border-bold) solid var(--focus-ring);
+  outline-offset: calc(-1 * var(--border-bold));
+}
+/* The row's cue still announces "Opening …"; the grid's own pending state is what shows it. */
+.grid__link > .nav-pending--on {
+  display: none;
+}
+/* The end chevron: a cue that the row opens, in the 60% step at rest and full on hover. */
+.grid__end {
+  padding-inline: var(--space-2);
+  text-align: end;
+  color: var(--icon-secondary);
+}
+.grid__end .ph-fill {
+  font-size: var(--icon-size-sm);
+}
+.grid__table tbody tr:hover .grid__end {
+  color: var(--text-link);
+}
+
+/* A SORTABLE HEADER: its arrow points down for descending and turns 180° for ascending over
+   --duration-page (the 180ms of the brief has no token; 200ms is the nearest); a column that does
+   not sort the list shows it in the 60% step. */
+.grid__sort {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: inherit;
+  text-decoration: none;
+}
+.grid__sort:hover {
+  color: var(--text-heading);
+}
+.grid__sort-icon {
+  font-size: var(--icon-size-sm);
+  color: var(--icon-secondary);
+  transition: transform var(--duration-page) var(--ease-out);
+}
+.grid__sort:not([data-direction="none"]) > .grid__sort-icon {
+  color: var(--text-heading);
+}
+.grid__sort[data-direction="ascending"] > .grid__sort-icon {
+  transform: rotate(180deg);
+}
+
+/* THE PENDING STATE — a navigation under way (DataGridView, after the console's 180ms): the rows dim
+   to the brand's 60% step over --duration-fast — the clicked row stays bright — and a 2px shimmer
+   runs under the column header. The shimmer is a progress indicator, the one thing allowed to loop;
+   under reduced motion it holds still as a solid bar. */
+.grid__table[aria-busy="true"] tbody tr {
+  opacity: 0.6;
+}
+.grid__table[aria-busy="true"] tbody tr:has(.nav-pending--on) {
+  opacity: 1;
+}
+.grid__progress-row > .grid__progress-cell {
+  position: sticky;
+  top: calc(var(--grid-head-top) + var(--grid-row-h));
+  z-index: 1;
+  height: var(--border-bold);
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  background: transparent;
+}
+.grid__progress {
+  display: block;
+  inline-size: 100%;
+  block-size: 100%;
+  background: linear-gradient(90deg, transparent, var(--text-heading), transparent);
+  opacity: 0;
+  transform: translateX(-100%);
+  transition: opacity var(--duration-fast) var(--ease-exit);
+}
+.grid__table[aria-busy="true"] .grid__progress {
+  opacity: 1;
+  animation: grid-shimmer var(--duration-shimmer) var(--ease-in-out) infinite;
+  transition: opacity var(--duration-fast) var(--ease-enter);
+}
+@keyframes grid-shimmer {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+
+/* THE FOOTER BAR: the pager at the start, the view controls at the end. Sticky to the bottom of the
+   window while the rows are on screen (FLOW); its hairline is drawn above it, over the scroller's
+   own bottom edge at rest, so the two never double. */
+.grid__footer {
+  position: sticky;
+  inset-block-end: 0;
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding-block: var(--space-3);
+  background: var(--surface-card);
+  box-shadow: 0 calc(-1 * var(--border-hairline)) 0 var(--divider);
+}
+.grid__pager {
+  min-inline-size: 0;
+}
+.grid__footer .pager {
+  margin-top: 0;
+  gap: var(--space-2);
+}
+/* Its ⓘ opens UPWARD: the bar sits at the bottom of the window. */
+.grid__footer .infopop__body {
+  inset-block-start: auto;
+  inset-block-end: calc(100% + var(--space-1));
+  transform-origin: bottom left;
+}
+.grid__controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-inline-start: auto;
+}
+
+/* THE NUMBERED PAGER (`NumberedPager`, a list with an exact total): "1–50 of 24,310 · ‹ 1 2 3 … ›".
+   The current page takes the selected-chip pairing (`.btn--selected`): a state, not an action. */
+.pager__range {
+  margin: 0;
+  font-size: var(--ui-body-sm-size);
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+.pager__sep,
+.pager__gap {
+  color: var(--text-muted);
+}
+.pager__pages {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.pager__page,
+.pager__step {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-inline-size: var(--control-sm);
+  min-block-size: var(--control-sm);
+  padding-inline: var(--space-2);
+  border: var(--border-hairline) solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--text-link);
+  font-size: var(--ui-body-sm-size);
+  font-weight: var(--weight-semibold);
+  font-variant-numeric: tabular-nums;
+  text-decoration: none;
+  transition: var(--transition-control);
+}
+.pager__step .ph-fill {
+  font-size: var(--icon-size-sm);
+}
+a.pager__page:hover,
+a.pager__step:hover {
+  background: var(--surface-sunken);
+}
+.pager__page[aria-current="page"] {
+  background: var(--brand-tint);
+  color: var(--text-accent);
+  border-color: var(--text-accent);
+}
+.pager__step[aria-disabled="true"] {
+  color: var(--text-disabled);
+}
+.pager__page > .nav-pending--on,
+.pager__step > .nav-pending--on {
+  position: absolute;
+  inset-block-start: calc(-1 * var(--space-1));
+  inset-inline-end: calc(-1 * var(--space-1));
+  margin: 0;
+}
+
+/* THE COLUMN CHOOSER — a disclosure in the footer bar, opening UPWARD. It fades and scales
+   0.98 → 1 in over --duration-fast and out ~30% faster; closed, it is `visibility: hidden`, so it is
+   out of the tab order and the accessibility tree. */
+.grid-menu {
+  position: relative;
+}
+.grid-menu__panel {
+  position: absolute;
+  inset-block-end: calc(100% + var(--space-1));
+  inset-inline-end: 0;
+  z-index: var(--z-raised);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-inline-size: 14rem;
+  max-block-size: min(60vh, 28rem);
+  overflow-y: auto;
+  padding: var(--space-3) var(--space-4);
+  border: var(--border-hairline) solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--surface-card);
+  box-shadow: var(--shadow-md);
+  transform-origin: bottom right;
+  visibility: hidden;
+  opacity: 0;
+  transform: scale(var(--motion-enter-scale));
+  transition:
+    opacity calc(var(--duration-fast) * 0.7) var(--ease-exit),
+    transform calc(var(--duration-fast) * 0.7) var(--ease-exit),
+    visibility 0s linear calc(var(--duration-fast) * 0.7);
+}
+.grid-menu__panel[data-open="true"] {
+  visibility: visible;
+  opacity: 1;
+  transform: none;
+  transition:
+    opacity var(--duration-fast) var(--ease-enter),
+    transform var(--duration-fast) var(--ease-enter),
+    visibility 0s;
+}
+.grid-menu__title {
+  margin: 0;
+  font-size: var(--ui-label-size);
+  font-weight: var(--ui-label-weight);
+  color: var(--text-secondary);
+}
+.grid-menu__group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.grid-menu__legend {
+  margin-block-end: var(--space-1);
+  padding: 0;
+  font-size: var(--ui-eyebrow-size);
+  font-weight: var(--ui-eyebrow-weight);
+  letter-spacing: var(--ui-eyebrow-tracking);
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.grid-menu__option {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-block-size: var(--control-sm);
+  font-size: var(--ui-body-sm-size);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.grid-menu__option > input {
+  accent-color: var(--color-brand-primary);
+}
+.grid-menu__note {
+  margin-inline-start: auto;
+  font-size: var(--ui-caption-size);
+  color: var(--text-muted);
+}
+
+/* TOUCH: rows stay 44px whatever the density (a 36px row is under the touch target), so the
+   density toggle is not drawn; the chooser's rows and the pager's numbers reach 44px. */
+@media (max-width: 600px), (pointer: coarse) {
+  .grid[data-density="compact"] {
+    --grid-row-h: var(--row-h);
+  }
+  .grid__density {
+    display: none;
+  }
+  .grid-menu__option,
+  .pager__page,
+  .pager__step {
+    min-block-size: var(--control-md);
+  }
+  .pager__page,
+  .pager__step {
+    min-inline-size: var(--control-md);
+  }
+}
+
+/* FILL — a list page on a tall desktop fills the window (see the block header). The shell column
+   is exactly the window's height, the content and the page flex down it, and the panel holding the
+   grid takes the rest: its body is the one scroller, header sticky at its top edge. */
+@media (min-width: 1024px) and (min-height: 860px) {
+  .shell__main:has(> .content > .page--list):not(:has(.about[open])) {
+    block-size: 100dvh;
+  }
+  .shell__main:has(> .content > .page--list):not(:has(.about[open])) > .content {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 0;
+    min-block-size: 0;
+  }
+  .shell__main:has(> .content > .page--list):not(:has(.about[open])) .page--list {
+    flex: 1 1 0;
+    min-block-size: 0;
+  }
+  .shell__main:has(> .content > .page--list):not(:has(.about[open]))
+    .page--list
+    > .panel:has(> .grid) {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 0;
+    min-block-size: 0;
+  }
+  .shell__main:has(> .content > .page--list):not(:has(.about[open])) .page--list .panel > .grid {
+    --grid-head-top: 0px;
+    flex: 1 1 0;
+    min-block-size: 0;
+  }
+  .shell__main:has(> .content > .page--list):not(:has(.about[open])) .page--list .grid__scroll {
+    flex: 1 1 0;
+    min-block-size: 0;
+    overflow: auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .grid__table[aria-busy="true"] .grid__progress {
+    animation: none;
+    transform: none;
+    background: var(--text-heading);
+  }
+}

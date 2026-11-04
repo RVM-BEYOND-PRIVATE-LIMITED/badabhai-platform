@@ -8,12 +8,14 @@ import {
   type ReadRefusal,
 } from "../../../lib/read-refusal";
 import { EVENT_FILTER_MAX_LENGTH } from "../../../lib/list-filter-values";
+import { isCalendarDay, istDayEnd, istDayStart } from "../../../lib/ist-day";
 import { queryHref } from "../../../lib/query-href";
 import { EventTable } from "../../../components/event-table";
 import { Pager } from "../../../components/pager";
 import { PageHeader } from "../../../components/page-header";
 import { EventFilterBar } from "./filter-bar";
 import { FilterPanel } from "../../../components/filter-panel";
+import { NavPendingCue } from "../../../components/nav-pending";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 import {
   CURSOR_REFUSAL,
@@ -34,6 +36,10 @@ export const metadata = { title: "Events" };
  * Pagination is the server's opaque keyset cursor. Offset paging over a table that is
  * being appended to in real time silently skips and repeats rows, which on an audit log
  * is not a cosmetic bug.
+ *
+ * The date range (A4, #2574) is two IST days in the address (`occurredFrom=2026-11-01`), both
+ * inclusive; the API compares instants, so a day becomes its first or last IST instant here. A
+ * value that is not a calendar day travels as it stands, so the API — not this page — refuses it.
  */
 export default async function EventsPage({
   searchParams,
@@ -47,20 +53,27 @@ export default async function EventsPage({
   const one = (v: string | string[] | undefined) =>
     (Array.isArray(v) ? v[0] : v)?.trim() || undefined;
 
+  const occurredFrom = one(sp.occurredFrom);
+  const occurredTo = one(sp.occurredTo);
   const filters: EventFilters = {
     eventName: one(sp.eventName),
     actorType: one(sp.actorType),
     subjectType: one(sp.subjectType),
     correlationId: one(sp.correlationId),
+    occurredFrom: isCalendarDay(occurredFrom) ? istDayStart(occurredFrom) : occurredFrom,
+    occurredTo: isCalendarDay(occurredTo) ? istDayEnd(occurredTo) : occurredTo,
     cursor: one(sp.cursor),
     limit: 50,
   };
 
+  /** The filters as the ADDRESS carries them — the range as days, not instants. */
   const active = Object.entries({
     eventName: filters.eventName,
     actorType: filters.actorType,
     subjectType: filters.subjectType,
     correlationId: filters.correlationId,
+    occurredFrom,
+    occurredTo,
   }).filter(([, v]) => Boolean(v));
   const filtered = active.length > 0;
 
@@ -71,7 +84,9 @@ export default async function EventsPage({
     isOverLength(filters.eventName, EVENT_FILTER_MAX_LENGTH.eventName) ||
     isOverLength(filters.actorType, EVENT_FILTER_MAX_LENGTH.actorType) ||
     isOverLength(filters.subjectType, EVENT_FILTER_MAX_LENGTH.subjectType) ||
-    isMalformedUuid(filters.correlationId);
+    isMalformedUuid(filters.correlationId) ||
+    (occurredFrom !== undefined && !isCalendarDay(occurredFrom)) ||
+    (occurredTo !== undefined && !isCalendarDay(occurredTo));
   let refusal: ReadRefusal = null;
   try {
     page = await listEvents(filters);
@@ -101,6 +116,7 @@ export default async function EventsPage({
     <Link className="btn btn--ghost" href="/events">
       <Icon name={ACTION_ICON.clearFilters} />
       Clear filters
+      <NavPendingCue message="Clearing the filters…" />
     </Link>
   ) : null;
 
@@ -109,7 +125,7 @@ export default async function EventsPage({
   // one implementation of that rule — this screen used to hand-roll a second copy of it.
 
   return (
-    <div className="page">
+    <div className="page page--list">
       <PageHeader
         title="Events"
         description="The audit spine: every important state change on the platform is recorded here."
@@ -121,6 +137,8 @@ export default async function EventsPage({
               actorType={filters.actorType ?? ""}
               subjectType={filters.subjectType ?? ""}
               correlationId={filters.correlationId ?? ""}
+              occurredFrom={occurredFrom ?? ""}
+              occurredTo={occurredTo ?? ""}
             />
           </FilterPanel>
         }
@@ -150,7 +168,7 @@ export default async function EventsPage({
             </h3>
             <p className="state__body">
               {filtersRefused
-                ? "Nothing was fetched. A correlation id must be a full UUID — the short id shown in the table is only the first segment. Correct the value above, or clear the filters and start again."
+                ? "Nothing was fetched. A correlation id must be a full UUID — the short id shown in the table is only the first segment — and a date must be a real calendar day. Correct the value above, or clear the filters and start again."
                 : CURSOR_REFUSAL.body}
             </p>
             {/* Repeating a refused request cannot succeed, so there is no Retry. With a filter
@@ -192,20 +210,17 @@ export default async function EventsPage({
                 ? "A narrow filter can hide a busy day. Widen it, or clear it to see the whole timeline."
                 : "The audit spine fills as the platform is used. Events will appear here as they are emitted."
             }
+            pager={
+              <Pager
+                basePath="/events"
+                params={Object.fromEntries(active)}
+                cursor={filters.cursor}
+                nextCursor={page?.nextCursor}
+                note="Paging uses a keyset cursor, so new events arriving mid-scan cannot make rows skip or repeat."
+              />
+            }
           />
         )}
-
-        <Pager
-          basePath="/events"
-          params={{
-            eventName: filters.eventName,
-            actorType: filters.actorType,
-            subjectType: filters.subjectType,
-            correlationId: filters.correlationId,
-          }}
-          nextCursor={page?.nextCursor}
-          note="Paging uses a keyset cursor, so new events arriving mid-scan cannot make rows skip or repeat."
-        />
       </section>
     </div>
   );
