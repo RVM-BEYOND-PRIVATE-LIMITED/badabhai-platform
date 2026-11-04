@@ -14,6 +14,7 @@ import { AdminDirectoryController } from "./admin-directory.controller";
 import { AdminDashboardController } from "./admin-dashboard.controller";
 import { AdminWorkerJourneyController } from "./admin-worker-journey.controller";
 import { AdminAiTracesController } from "./admin-ai-traces.controller";
+import { AdminCandidateDetailController } from "./admin-candidate-detail.controller";
 import { AdminAuthGuard } from "./admin-auth.guard";
 import { AdminRolesGuard, ADMIN_CAPABILITY_KEY } from "./admin-roles.guard";
 import { AdminAiTraceFlagGuard } from "./admin-ai-trace-flag.guard";
@@ -798,7 +799,7 @@ describe("identity reads — one reader, one decrypter, and no name search", () 
     return headers.find((h) => h.name.toLowerCase() === "cache-control")?.value;
   }
 
-  it("EXACTLY TWO non-test files reach the identity layer (the no-store derivation's own input)", () => {
+  it("EXACTLY THREE non-test files reach the identity layer (the no-store derivation's own input)", () => {
     // `nameBearingHandlers` derives METHODS from source, which is the right shape — but it is
     // only ever CALLED with two hardcoded filenames, so the derivation is wrapped in exactly the
     // hand-kept list its own header says a hand-kept list is what a new route gets left off.
@@ -819,7 +820,15 @@ describe("identity reads — one reader, one decrypter, and no name search", () 
     expect(
       callers,
       `a new name-bearing service must be added to the no-store derivation below. Callers: ${callers.join(", ")}`,
-    ).toEqual(["admin/admin-directory.service.ts", "admin/admin-entities.service.ts"].sort());
+    ).toEqual(
+      [
+        // ADR-0062 (#2560) — the Candidates full-detail read. Added to the derivation below in the
+        // same edit, as this test demands.
+        "admin/admin-candidate-detail.service.ts",
+        "admin/admin-directory.service.ts",
+        "admin/admin-entities.service.ts",
+      ].sort(),
+    );
   });
 
   it("the DERIVED name-bearing handler set is exactly the five reads the ruling names", () => {
@@ -833,6 +842,7 @@ describe("identity reads — one reader, one decrypter, and no name search", () 
       "listWorkers",
     ]);
     expect(nameBearingHandlers("admin-directory.service.ts")).toEqual(["directory"]);
+    expect(nameBearingHandlers("admin-candidate-detail.service.ts")).toEqual(["getCandidate"]);
   });
 
   it("EVERY name-bearing route sets Cache-Control: no-store (the reveal route's Control 8)", () => {
@@ -850,6 +860,12 @@ describe("identity reads — one reader, one decrypter, and no name search", () 
       expect(cacheControlOf(AdminDirectoryController, method), `${method} must be no-store`).toBe(
         "no-store",
       );
+    }
+    for (const method of nameBearingHandlers("admin-candidate-detail.service.ts")) {
+      expect(
+        cacheControlOf(AdminCandidateDetailController, method),
+        `${method} must be no-store`,
+      ).toBe("no-store");
     }
   });
 
@@ -1599,5 +1615,154 @@ describe("0083 ai-trace routes — one ruling, one gate, and the flag ahead of t
       WRITER_REF.test('import { AdminAiTracesRepository } from "./admin-ai-traces.repository";'),
     ).toBe(false);
     expect(WRITER_REF.test("private readonly repo: AdminAiTracesRepository,")).toBe(false);
+  });
+});
+
+/**
+ * ADR-0062 (#2560) — the Candidates FULL-DETAIL read: guarded, one `read_candidates` capability,
+ * read-only, audited before the read, and free of the phone, the WhatsApp number, résumé
+ * download keys and every encrypted column it has no review to decrypt.
+ */
+describe("#2560 candidate full-detail route — guarded, read-only, audited first, phone-free", () => {
+  const proto = AdminCandidateDetailController.prototype as unknown as Record<string, unknown>;
+  const routeMethods = Object.getOwnPropertyNames(AdminCandidateDetailController.prototype).filter(
+    (m) =>
+      m !== "constructor" &&
+      typeof proto[m] === "function" &&
+      Reflect.getMetadata("path", proto[m] as object) !== undefined,
+  );
+  /** Non-comment source of a file under admin/**. */
+  const code = (file: string): string =>
+    readFileSync(join(ADMIN_DIR, file), "utf8").replace(/^\s*(\/\/|\*|\/\*).*$/gm, "");
+
+  it("discovers exactly the one detail route (no list, export or write on this controller)", () => {
+    expect(routeMethods).toEqual(["getCandidate"]);
+    expect(Reflect.getMetadata("path", proto.getCandidate as object)).toBe("candidates/:id");
+  });
+
+  it("the route carries AdminAuthGuard AND AdminRolesGuard", () => {
+    const guards = effectiveGuards(AdminCandidateDetailController, "getCandidate");
+    expect(guards).toContain(AdminAuthGuard.name);
+    expect(guards).toContain(AdminRolesGuard.name);
+  });
+
+  it("declares EXACTLY ONE method-level @RequireAdminRole('read_candidates'), none on the class", () => {
+    expect(Reflect.getMetadata(ADMIN_CAPABILITY_KEY, proto.getCandidate as object)).toBe(
+      "read_candidates",
+    );
+    expect(
+      Reflect.getMetadata(ADMIN_CAPABILITY_KEY, AdminCandidateDetailController),
+      "AdminCandidateDetailController must NOT declare a class-level capability",
+    ).toBeUndefined();
+  });
+
+  it("is a GET with Cache-Control: no-store (the body may carry a decrypted name)", () => {
+    expect(Reflect.getMetadata("method", proto.getCandidate as object) as number).toBe(0);
+    const headers = (Reflect.getMetadata("__headers__", proto.getCandidate as object) ??
+      []) as Array<{ name: string; value: string }>;
+    expect(headers.find((h) => h.name.toLowerCase() === "cache-control")?.value).toBe("no-store");
+  });
+
+  it("the repository issues no write and never reads a whole row", () => {
+    const src = code("admin-candidate-detail.repository.ts");
+    expect(src).not.toMatch(/\.(insert|update|delete)\s*\(/);
+    expect(src).not.toMatch(/\.select\(\s*\)/);
+    expect(src).not.toMatch(/\.from\s*\(\s*events\s*\)/);
+  });
+
+  it("the repository projects NO identity, contact, key or answer-VALUE column", () => {
+    const src = code("admin-candidate-detail.repository.ts");
+    for (const forbidden of [
+      "fullName",
+      "phoneE164",
+      "phoneHash",
+      "whatsappEnc",
+      "employerNameEnc",
+      "licenceNumberEnc",
+      "pushToken",
+      "deviceHash",
+      "ipHash",
+      "userAgent",
+      "answerText",
+      "answerNumber",
+      "answerOptionKeys",
+      "answerOtherText",
+      "valueText",
+      "valueJson",
+      "valueNumber",
+      // Reduced to booleans in Postgres — projecting the key under its own name is what is banned.
+      "photoStorageKey:",
+      "pdfStorageKey:",
+    ]) {
+      expect(src, `admin-candidate-detail.repository must not project ${forbidden}`).not.toContain(
+        forbidden,
+      );
+    }
+  });
+
+  it("the service calls EXACTLY this set of dependency methods — reads, one audit emit, the name layer", () => {
+    // An ALLOW-LIST, not a list of banned writers: the five non-admin repositories provided in
+    // AdminModule can also write (`upsertMany`, `replaceForWorker`, `appendIfEmpty`, …), and a
+    // deny-list only catches the writers somebody thought to name. Any new call fails here and
+    // must be added deliberately.
+    const src = code("admin-candidate-detail.service.ts");
+    const calls = [...new Set([...src.matchAll(/this\.(\w+)\.(\w+)\s*\(/g)].map((m) => `${m[1]}.${m[2]}`))];
+    expect(calls.sort()).toEqual(
+      [
+        "attributes.loadTradeSheet",
+        "candidateSearch.findCardRow",
+        "candidateSearch.listWantedRoles",
+        "entities.listApplications",
+        "events.emit",
+        "identity.resolve",
+        "languages.loadForResume",
+        "occupations.loadForWorker",
+        "qualifications.loadForResume",
+        "repo.account",
+        "repo.attributeProvenance",
+        "repo.currentJobDomain",
+        "repo.employment",
+        "repo.findCore",
+        "repo.industryTenure",
+        "repo.matchSkills",
+        "repo.resumeVersions",
+        "workerSkills.listStatedTradeLevels",
+        "workers.latestProfile",
+      ].sort(),
+    );
+  });
+
+  it("the audit is emitted BEFORE the identity layer and every data read (source order)", () => {
+    const src = code("admin-candidate-detail.service.ts");
+    const body = src.slice(src.indexOf("async getCandidate("));
+    const audit = body.indexOf("this.auditView(");
+    expect(audit, "getCandidate must audit").toBeGreaterThan(0);
+    expect(body.indexOf("this.repo.findCore(")).toBeLessThan(audit);
+    for (const later of [
+      "this.identity.resolve(",
+      "this.workers.latestProfile(",
+      "this.attributes.loadTradeSheet(",
+      "this.repo.employment(",
+    ]) {
+      expect(body.indexOf(later), later).toBeGreaterThan(audit);
+    }
+  });
+
+  it("the DTO names no phone, WhatsApp, download link, PDF key or reason text", () => {
+    const src = code("admin-candidate-detail.dto.ts");
+    for (const forbidden of [
+      "phone",
+      "whatsapp",
+      "download",
+      "pdf_storage_key",
+      "storage_key",
+      "reason_text",
+      "employer_name",
+      "licence_number",
+    ]) {
+      expect(src.toLowerCase(), `the candidate contract must not declare ${forbidden}`).not.toContain(
+        forbidden,
+      );
+    }
   });
 });

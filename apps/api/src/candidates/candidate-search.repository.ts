@@ -90,6 +90,13 @@ export interface CandidatePoolQuery {
   after: { workerId: string; served: number } | null;
   /** Rows to read (the service asks for one past the page). */
   limit: number;
+  /**
+   * ADR-0062 (#2560) — narrow the POOL to this one worker; absent = the whole pool, and the
+   * statement is then byte-identical to the one the payer search runs. Membership, order and every
+   * value stay the search's own: the admin candidate read uses it to show exactly the card an
+   * employer would see (or that he is not in the pool at all), never a re-implementation of it.
+   */
+  onlyWorkerId?: string;
 }
 
 /** One candidate in the pool, before labelling. */
@@ -128,7 +135,12 @@ export interface CandidateRoleRow {
  * worker row's `updated_at`. Shared by the search and the city facet so the two can never
  * disagree about who is in the population.
  */
-function consentingWorkers(): SQL {
+function consentingWorkers(onlyWorkerId: string | null = null): SQL {
+  const only =
+    onlyWorkerId === null
+      ? dsql``
+      : dsql`
+      AND w.id = ${onlyWorkerId}::uuid`;
   return dsql`
     SELECT w.id AS worker_id,
            NULLIF(btrim(w.current_city), '') AS current_city,
@@ -146,7 +158,7 @@ function consentingWorkers(): SQL {
       ) IS TRUE
       AND EXISTS (
         SELECT 1 FROM worker_skill ws0 WHERE ws0.worker_id = w.id AND ws0.wants
-      )`;
+      )${only}`;
 }
 
 /** `[min, max)` over an int expression. */
@@ -221,7 +233,7 @@ export function candidateSearchStatement(q: CandidatePoolQuery): SQL {
   const anchorWorker = q.after === null ? null : q.after.workerId;
 
   return dsql`
-    WITH consenting AS (${consentingWorkers()}),
+    WITH consenting AS (${consentingWorkers(q.onlyWorkerId ?? null)}),
     wanted AS (
       SELECT ws.worker_id, ws.skill_id, ws.industry_id AS ws_industry_id, ws.months_bucketed,
              ${matchClass} AS match_class
@@ -343,6 +355,33 @@ export class CandidateSearchRepository {
     };
     const rows = raw.filter((r) => r.worker_id !== null).map(toPoolRow);
     return { counts, rows };
+  }
+
+  /**
+   * ONE worker's unfiltered search row — the card an employer's all-candidates search would serve
+   * for him — or null when he is not in the eligible pool (ADR-0062, #2560, the admin candidate
+   * read). The search statement itself, narrowed by {@link CandidatePoolQuery.onlyWorkerId}, with
+   * no filter engaged: so the lead role, the floored industry months and the trimmed city are the
+   * search's own values, and pool membership is the search's own rule.
+   *
+   * `tierFloorMonths` is inert here: it only promotes a RELATED role, and with no role asked every
+   * row is class 1.
+   */
+  async findCardRow(workerId: string): Promise<CandidatePoolRow | null> {
+    const { rows } = await this.searchPool({
+      skillIds: [],
+      relatedSkillIds: [],
+      experience: null,
+      industryId: null,
+      industryExperience: null,
+      city: null,
+      tierFloorMonths: 0,
+      strict: false,
+      after: null,
+      limit: 1,
+      onlyWorkerId: workerId,
+    });
+    return rows[0] ?? null;
   }
 
   /** Every trimmed raw city the eligible pool records — the city facet's source. */

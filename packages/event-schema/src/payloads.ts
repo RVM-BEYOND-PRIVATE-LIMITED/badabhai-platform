@@ -3147,6 +3147,35 @@ export const AdminIdentityCapExceededPayload = z
 export type AdminIdentityCapExceededPayload = z.infer<typeof AdminIdentityCapExceededPayload>;
 
 /**
+ * An admin OPENED one candidate's full-detail record (ADR-0062 §3.9, #2560) —
+ * `GET /admin/candidates/:id`: every field employers and the résumé read, where each came from,
+ * the résumé versions and the account state.
+ *
+ * WHY A READ IS AUDITED. It is the largest single-worker read on the admin surface — the whole
+ * profile in one response, on `read_candidates`, which all four roles hold. Broad access is
+ * exactly why looking must leave a trail naming who looked and at whom: the
+ * `admin.worker_journey_viewed` argument, at a higher granularity.
+ *
+ * EMITTED AFTER THE 404 CHECK AND BEFORE ANY DATA IS READ OR A NAME IS DECRYPTED, awaited and
+ * fail-closed: an unknown id leaves no row (no enumeration oracle) and a failed emit returns
+ * nothing. The NAME on the same response is audited separately by `admin.identity_viewed`, whose
+ * budget and capability it rides; this event records the view, not the disclosure.
+ *
+ * SUBJECT IS THE WORKER (the path parameter, structurally one worker), the journey precedent.
+ *
+ * PII-FREE BY CONSTRUCTION: the opaque admin id and the opaque worker id ONLY — never a field
+ * value, a field key, a source, a name or a phone. WHICH fields were shown is the same for every
+ * view and belongs in the response contract, not on the spine. `.strict()` is the backstop.
+ */
+export const AdminCandidateViewedPayload = z
+  .object({
+    admin_id: uuidSchema,
+    worker_id: uuidSchema,
+  })
+  .strict();
+export type AdminCandidateViewedPayload = z.infer<typeof AdminCandidateViewedPayload>;
+
+/**
  * The CLOSED SET of failure codes an `ai_call_traces` row may carry (migration 0083).
  *
  * ── WHY A CLOSED SET, AND NOT "the provider's error_code, bounded to 64 chars" ────────────
