@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
-import { isMatchSkillId, type MatchSkillId } from "@badabhai/taxonomy";
+import { isMatchSkillId, isPostingTradeKind, type MatchSkillId } from "@badabhai/taxonomy";
 import type { PayloadInputOf } from "@badabhai/event-schema";
 import type { RequestContext } from "../common/request-context";
 import { EventsService } from "../events/events.service";
@@ -24,6 +24,20 @@ export interface MaterializeResult {
 
 /** Which write produced a reach set — carried onto the audit event. */
 export type MaterializeTrigger = "publish" | "unpause" | "ops_widen" | "edit";
+
+/** What {@link PublishReachService.materialize} resolves a reach set from. */
+export interface MaterializeInput {
+  matchSkillIds: readonly string[];
+  untickedIds: readonly string[];
+  trigger: MaterializeTrigger;
+  actor: { actor_type: "ops" | "payer"; actor_id: string };
+  /**
+   * #2635 — the posting's `role_kind`. One of the 16 postable trades → its match set is scoped
+   * to that trade and its related reach stays inside the 16. Omitted or any other value → the
+   * pre-#2635 behaviour.
+   */
+  roleKind?: string | null;
+}
 
 /** What one expiry-sweep tick retracted — counts only, safe to return/log. */
 export interface WidenRetractSummary {
@@ -77,15 +91,12 @@ export class PublishReachService {
    */
   async materialize(
     jobPostingId: string,
-    input: {
-      matchSkillIds: readonly string[];
-      untickedIds: readonly string[];
-      trigger: MaterializeTrigger;
-      actor: { actor_type: "ops" | "payer"; actor_id: string };
-    },
+    input: MaterializeInput,
     ctx: RequestContext,
   ): Promise<MaterializeResult> {
-    const resolved = await this.skills.resolveForPublish(input.matchSkillIds, input.untickedIds);
+    const resolved = await this.skills.resolveForPublish(input.matchSkillIds, input.untickedIds, {
+      roleKind: input.roleKind ?? null,
+    });
 
     const existing = await this.repo.findPostingSkillSets(jobPostingId);
     if (!existing) throw new NotFoundException("Job posting not found");
@@ -140,8 +151,41 @@ export class PublishReachService {
       requestId: ctx.requestId,
     });
 
+    await this.emitScopedIfDropped(jobPostingId, input, resolved, ctx);
     await this.emitAlertIfShort(result, ctx);
     return result;
+  }
+
+  /**
+   * #2635 — the audit trail for the server overriding a company's ask: emitted only when
+   * scoping to the posting's trade dropped a requested skill (a legacy row, or a client that
+   * sent ids outside the trade). A non-16 posting is never scoped, so it never emits this.
+   */
+  private async emitScopedIfDropped(
+    jobPostingId: string,
+    input: MaterializeInput,
+    resolved: { postedSkillIds: readonly string[]; droppedSkillIds: readonly string[] },
+    ctx: RequestContext,
+  ): Promise<void> {
+    const roleKind = input.roleKind ?? null;
+    // Only a 16-trade posting is ever scoped, so only it can have dropped anything.
+    if (resolved.droppedSkillIds.length === 0 || !isPostingTradeKind(roleKind)) return;
+    if (input.trigger === "ops_widen") return; // the widen appends; it never scopes a request
+    const payload: PayloadInputOf<"job_posting.match_skills_scoped"> = {
+      job_posting_id: jobPostingId,
+      role_kind: roleKind,
+      trigger: input.trigger,
+      kept_skill_ids: [...resolved.postedSkillIds],
+      dropped_skill_ids: [...resolved.droppedSkillIds],
+    };
+    await this.events.emit({
+      event_name: "job_posting.match_skills_scoped",
+      actor: input.actor,
+      subject: { subject_type: "job_posting", subject_id: jobPostingId },
+      payload,
+      correlationId: ctx.correlationId,
+      requestId: ctx.requestId,
+    });
   }
 
   /**

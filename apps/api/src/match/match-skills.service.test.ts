@@ -40,14 +40,17 @@ const MIG = "mskill_mig_welder";
  *
  * Chosen so the numbers are all different: w5 holds TWO of the VMC job's related
  * skills, which is what makes the documented "the +N's do not sum" property visible.
+ * Both are INSIDE the 16-trade scope (#2635), because the company preview never offers
+ * one outside it (the setter / general-operator skills belong to no postable trade).
  */
 const FLEET: Record<string, string[]> = {
   "worker-aaaa": [VMC],
   "worker-bbbb": [VMC],
   "worker-cccc": [HMC],
   "worker-dddd": [TURNER],
-  "worker-eeee": [TURNER, SETTER],
+  "worker-eeee": [TURNER, HMC],
   "worker-ffff": [MIG],
+  "worker-gggg": [SETTER],
 };
 
 function setup(overrides: Partial<MatchConfig> = {}) {
@@ -250,9 +253,10 @@ describe("MatchSkillsService.reachPreview — the live counter", () => {
     const { svc } = setup();
     const res = await svc.reachPreview(preview([VMC]));
 
-    // Reach set = VMC ∪ {setter, turner, hmc}. Fleet: aaaa+bbbb (VMC), cccc (HMC),
-    // dddd (turner), eeee (turner+setter) = 5 distinct men. ffff (MIG) is off-trade.
-    expect(res.reach_skill_ids).toEqual([SETTER, TURNER, HMC, VMC].sort());
+    // Reach set = VMC ∪ {turner, hmc} — the setter relation is outside the 16 (#2635). Fleet:
+    // aaaa+bbbb (VMC), cccc (HMC), dddd (turner), eeee (turner+hmc) = 5 distinct men. ffff
+    // (MIG) is off-trade, and gggg (setter only) is outside the scope.
+    expect(res.reach_skill_ids).toEqual([TURNER, HMC, VMC].sort());
     expect(res.reach_total).toBe(5);
     // Tier 1 is the POSTED skill alone — two men actually run a VMC.
     expect(res.reach_tier1).toBe(2);
@@ -265,12 +269,11 @@ describe("MatchSkillsService.reachPreview — the live counter", () => {
 
     expect(vmc!.reach_count).toBe(2); // men holding the posted skill
     expect(vmc!.related.map((r) => [r.skill_id, r.reach_count])).toEqual([
-      [SETTER, 1],
       [TURNER, 2],
-      [HMC, 1],
+      [HMC, 2],
     ]);
 
-    // The documented consequence: eeee holds BOTH setter and turner, so the "+N"s
+    // The documented consequence: eeee holds BOTH turner and hmc, so the "+N"s
     // over-count him and do NOT sum to the marginal reach. That is deliberate — a "+N"
     // that changed with tick ORDER would be worse — and the total is reported separately.
     const sumOfPluses = vmc!.related.reduce((n, r) => n + r.reach_count, 0);
@@ -311,9 +314,32 @@ describe("MatchSkillsService.reachPreview — the live counter", () => {
       }
     }
     expect(res.skills.find((s) => s.skill_id === VMC)!.related.map((r) => r.skill_id)).toEqual([
-      SETTER,
       TURNER,
     ]);
+  });
+
+  it("#2635 — never offers a related skill outside the 16 trades, so it shows what publish stores", async () => {
+    const { svc } = setup();
+    const res = await svc.reachPreview(preview([VMC]));
+    const offered = res.skills.flatMap((s) => s.related.map((r) => r.skill_id));
+    expect(offered).not.toContain(SETTER);
+    expect(offered).not.toContain(GENERAL);
+    expect(res.reach_skill_ids).not.toContain(SETTER);
+    // gggg holds only the out-of-scope setter skill, so a VMC job does not reach him.
+    expect(res.reach_total).toBe(5);
+  });
+
+  it("#2635 — with the form's trade named, the posted ids are scoped to it as publish does", async () => {
+    const { svc } = setup();
+    const res = await svc.reachPreview({
+      match_skill_ids: [RIDER],
+      unticked_related_ids: [],
+      role_kind: "vmc_milling",
+    });
+    // The rider is not a VMC skill: dropped. VMC's own skill is always posted.
+    expect(res.skills.map((s) => s.skill_id)).toEqual([VMC]);
+    expect(res.reach_skill_ids).toEqual([TURNER, HMC, VMC].sort());
+    expect(res.reach_tier1).toBe(2);
   });
 
   it("leaks NO worker identifier — the payer sees closed-set ids, labels and integers", async () => {
@@ -327,7 +353,7 @@ describe("MatchSkillsService — Policy 10: the untick is the COMPANY's, within 
   it("pre-ticks every suggestion by default (ruling #4)", async () => {
     const { svc } = setup();
     const [vmc] = (await svc.reachPreview(preview([VMC]))).skills;
-    expect(vmc!.related.map((r) => r.ticked)).toEqual([true, true, true]);
+    expect(vmc!.related.map((r) => r.ticked)).toEqual([true, true]);
   });
 
   it("HONOURS an untick that names a suggested related skill — and narrows the reach", async () => {
@@ -335,15 +361,15 @@ describe("MatchSkillsService — Policy 10: the untick is the COMPANY's, within 
     const res = await svc.reachPreview(preview([VMC], [TURNER]));
 
     expect(res.applied_unticked_ids).toEqual([TURNER]);
-    expect(res.reach_skill_ids).toEqual([SETTER, HMC, VMC].sort());
-    // dddd (turner only) drops out; eeee survives on setter. 5 → 4.
+    expect(res.reach_skill_ids).toEqual([HMC, VMC].sort());
+    // dddd (turner only) drops out; eeee survives on hmc. 5 → 4.
     expect(res.reach_total).toBe(4);
     expect(res.reach_tier1).toBe(2); // tier 1 is untouched by a related untick
 
     const flags = Object.fromEntries(
       res.skills[0]!.related.map((r) => [r.skill_id, r.ticked] as const),
     );
-    expect(flags).toEqual({ [SETTER]: true, [TURNER]: false, [HMC]: true });
+    expect(flags).toEqual({ [TURNER]: false, [HMC]: true });
   });
 
   it("IGNORES an untick naming a POSTED skill — a company cannot exclude the trade it advertised", async () => {
@@ -371,7 +397,7 @@ describe("MatchSkillsService — Policy 10: the untick is the COMPANY's, within 
     expect(res.reach_total).toBe(2);
     expect(res.reach_total).toBe(res.reach_tier1);
     // The suggestions are still SHOWN (so the UI can offer them) but none is ticked.
-    expect(res.skills[0]!.related.map((r) => r.skill_id)).toEqual([SETTER, TURNER, HMC]);
+    expect(res.skills[0]!.related.map((r) => r.skill_id)).toEqual([TURNER, HMC]);
     expect(res.skills[0]!.related.every((r) => r.ticked)).toBe(false);
     expect(res.skills[0]!.related.some((r) => r.ticked)).toBe(false);
   });
@@ -409,5 +435,75 @@ describe("MatchSkillsService.resolveForPublish — one resolver for publish/unpa
     // relations, minus the posted pair) — "off" narrows what is REACHED, not what the
     // form may offer.
     expect(out.suggestedRelatedIds).toEqual([GENERAL, SETTER, TURNER]);
+  });
+
+  it("a posting with no role is never scoped — droppedSkillIds is always empty", async () => {
+    const { svc } = setup();
+    const out = await svc.resolveForPublish([VMC], []);
+    expect(out.droppedSkillIds).toEqual([]);
+  });
+});
+
+describe("MatchSkillsService.resolveForPublish — #2635 matching runs only for the 16 trades", () => {
+  const ARC = "mskill_arc_welder";
+  const WELDER = "mskill_welder";
+  const GRINDING = "mskill_cnc_grinding_operator";
+
+  it("scopes the 2026-11-03 Welder job to its trade and reports what it dropped", async () => {
+    const { svc } = setup();
+    const out = await svc.resolveForPublish([ARC, GRINDING, GENERAL], [], { roleKind: "welder" });
+    expect(out.postedSkillIds).toEqual([ARC, WELDER].sort());
+    expect(out.droppedSkillIds).toEqual([GRINDING, GENERAL]);
+    // Nothing CNC survives into the reach: CNC turners no longer see a welder job.
+    for (const cnc of [GRINDING, GENERAL, TURNER, VMC]) expect(out.reachSkillIds).not.toContain(cnc);
+  });
+
+  it("keeps related reach inside the 16: a VMC job loses the setter / general relations", async () => {
+    const { svc } = setup();
+    const scoped = await svc.resolveForPublish([VMC], [], { roleKind: "vmc_milling" });
+    expect(scoped.reachSkillIds).toEqual([HMC, TURNER, VMC].sort());
+    expect(scoped.suggestedRelatedIds).not.toContain(SETTER);
+    // …while the same skills on a non-16 posting keep the full curated relation.
+    const unscoped = await svc.resolveForPublish([VMC], []);
+    expect(unscoped.reachSkillIds).toContain(SETTER);
+  });
+
+  it("adds the trade's own skill when the request lacks it — a named trade never reaches nobody", async () => {
+    const { svc } = setup();
+    const out = await svc.resolveForPublish([], [], { roleKind: "fitter" });
+    expect(out.postedSkillIds).toEqual(["mskill_fitter"]);
+    expect(out.reachSkillIds).not.toContain("mskill_plumber");
+  });
+
+  it("the cap counts what the client ASKED for — the base skill the server adds is free", async () => {
+    const { svc } = setup();
+    // A legacy client sends three welding skills (the cap) and no base skill: accepted.
+    const out = await svc.resolveForPublish([ARC, MIG, "mskill_tig_welder"], [], {
+      roleKind: "welder",
+    });
+    expect(out.postedSkillIds).toEqual([ARC, MIG, "mskill_tig_welder", WELDER].sort());
+  });
+
+  it("…but four asked-for skills is still a 400 naming the client's count, never a truncation", async () => {
+    const { svc } = setup();
+    await expect(
+      svc.resolveForPublish([WELDER, ARC, MIG, "mskill_tig_welder"], [], { roleKind: "welder" }),
+    ).rejects.toThrow(/at most 3 skills \(got 4\)/);
+  });
+
+  it("still 400s on an id outside the closed vocabulary — a client bug is not a scoping input", async () => {
+    const { svc } = setup();
+    await expect(
+      svc.resolveForPublish(["mskill_not_a_skill"], [], { roleKind: "welder" }),
+    ).rejects.toThrow(/mskill_not_a_skill/);
+  });
+
+  it("a role outside the 16 resolves exactly as a posting with no role", async () => {
+    const { svc } = setup();
+    const polymer = await svc.resolveForPublish([VMC], [], {
+      roleKind: "injection_moulding_operator",
+    });
+    const none = await svc.resolveForPublish([VMC], []);
+    expect(polymer).toEqual(none);
   });
 });

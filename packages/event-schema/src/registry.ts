@@ -801,6 +801,13 @@ export const EVENT_REGISTRY = {
     domain: "job_posting",
     payload: p.JobPostingReachAlertPayload,
   },
+  // #2635 — the server dropped requested match skills a 16-trade job's trade does not own.
+  // Emitted only when something was dropped. IDS ONLY. v1.
+  "job_posting.match_skills_scoped": {
+    version: 1,
+    domain: "job_posting",
+    payload: p.JobPostingMatchSkillsScopedPayload,
+  },
   // POLICY 27 — an ops human WIDENED a reach set. Narrowing is structurally
   // impossible on that path (the service appends, never removes). v1.
   "job_posting.reach_widened": {

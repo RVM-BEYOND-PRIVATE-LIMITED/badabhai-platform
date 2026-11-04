@@ -258,6 +258,8 @@ export * from "./crosswalk-integrity";
 // never read by the match engine).
 export * from "./trade-levels";
 export * from "./posting-trades";
+// #2635 — matching runs only for the 16 postable trades: each trade's own skill set + the scope.
+export * from "./posting-scope";
 export * from "./level-needed";
 
 // ADR-0030 / TAX-5 — PROPOSED vernacular wedge aliases (RVM ratification-gated).

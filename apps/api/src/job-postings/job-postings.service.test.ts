@@ -1331,16 +1331,19 @@ describe("#1645/#1646/#1648 — create persists everything the payer sent", () =
     // PATCH carries NO skills of its own, and the reach is still materialized from what
     // the row has been holding since the create. Before this batch the stored list was
     // empty, `materializeIfNeeded` returned early, and `job_reach` got no rows.
+    // A company may publish only a 16-trade posting (#2635), so this one names VMC.
     const draft = row({ status: "draft", untickedRelatedIds: ["mskill_cnc_turner"] });
     const d = make(draft);
     d.findByIdAndPayer.mockResolvedValue({
       ...toApi(draft),
       payer_id: PAYER_ID,
+      role_kind: "vmc_milling",
       match_skill_ids: ["mskill_vmc_operator"],
     });
     d.updateOwned.mockResolvedValue({
       ...toApi(row({ status: "open", untickedRelatedIds: ["mskill_cnc_turner"] })),
       payer_id: PAYER_ID,
+      role_kind: "vmc_milling",
       match_skill_ids: ["mskill_vmc_operator"],
     });
 
@@ -1349,11 +1352,13 @@ describe("#1645/#1646/#1648 — create persists everything the payer sent", () =
     expect(d.materializeReach).toHaveBeenCalledTimes(1);
     const [postingId, input] = d.materializeReach.mock.calls[0]! as [
       string,
-      { matchSkillIds: string[]; untickedIds: string[]; trigger: string },
+      { matchSkillIds: string[]; untickedIds: string[]; trigger: string; roleKind: string },
     ];
     expect(postingId).toBe(POSTING_ID);
     expect(input.matchSkillIds).toEqual(["mskill_vmc_operator"]);
     expect(input.trigger).toBe("publish");
+    // The trade rides into the reach step, which scopes the set to it (#2635).
+    expect(input.roleKind).toBe("vmc_milling");
     // AND THE UNTICKS SURVIVED create -> publish. This PATCH sent none; before 0121 they
     // existed only as a PATCH body value, so a create-time untick evaporated and the reach
     // silently widened past what the payer chose.
@@ -1362,17 +1367,30 @@ describe("#1645/#1646/#1648 — create persists everything the payer sent", () =
 
   it("MUTATION CHECK: with no stored match skills the publish materializes an EMPTY set", async () => {
     // The inverse of the test above, and what makes it evidence rather than a coincidence.
-    // A posting with no skills reaches nobody: `materialize` still runs once on a publish
-    // (so the E13 zero-reach alert fires) but with an EMPTY list. Nothing invents skills.
+    // `materialize` still runs once on a publish (so the E13 alert can fire) with the EMPTY
+    // stored list: this service invents no skills. The only addition is the trade's own base
+    // skill, and that is the reach step's scoping (#2635, `MatchSkillsService`), not this one.
     const draft = row({ status: "draft" });
     const d = make(draft);
-    d.findByIdAndPayer.mockResolvedValue({ ...toApi(draft), payer_id: PAYER_ID });
-    d.updateOwned.mockResolvedValue({ ...toApi(row({ status: "open" })), payer_id: PAYER_ID });
+    d.findByIdAndPayer.mockResolvedValue({
+      ...toApi(draft),
+      payer_id: PAYER_ID,
+      role_kind: "vmc_milling",
+    });
+    d.updateOwned.mockResolvedValue({
+      ...toApi(row({ status: "open" })),
+      payer_id: PAYER_ID,
+      role_kind: "vmc_milling",
+    });
 
     await d.svc.updateForPayer(POSTING_ID, PAYER_ID, { status: "open" }, CTX as never);
 
-    const [, input] = d.materializeReach.mock.calls[0]! as [string, { matchSkillIds: string[] }];
+    const [, input] = d.materializeReach.mock.calls[0]! as [
+      string,
+      { matchSkillIds: string[]; roleKind: string },
+    ];
     expect(input.matchSkillIds).toEqual([]);
+    expect(input.roleKind).toBe("vmc_milling");
   });
 
   it("400s an unknown match skill id AT CREATE, not at publish", async () => {
@@ -1674,9 +1692,10 @@ describe("#1652 — the clear CONTRACT", () => {
 
 // ---------------------------------------------------------------------------
 // Migration 0131 — the posting's ROLE (ADR-0036 addendum 2026-09-29). One of the 21 declared
-// kinds, picked by the payer. DISPLAY / CLASSIFICATION ONLY: it is stored, echoed, evented by
-// KEY on update and by VALUE on create (a closed, PII-free enum), and it never reaches a match
-// input.
+// kinds, picked by the payer. It is stored, echoed, evented by KEY on update and by VALUE on
+// create (a closed, PII-free enum). Since #2635 a role that is one of the 16 postable trades
+// BOUNDS the match set (its base skill always, nothing outside the trade); any other role is
+// still display-only.
 // ---------------------------------------------------------------------------
 describe("migration 0131 — role_kind on the posting routes", () => {
   it("create stores the role and puts it on job_posting.created", async () => {
@@ -1719,20 +1738,37 @@ describe("migration 0131 — role_kind on the posting routes", () => {
     expect(d.emit.mock.calls[0]![0].payload.role_kind).toBeNull();
   });
 
-  it("is NEVER a match input — a role alone resolves no skills and stores none", async () => {
-    // ADR-0036 addendum: `match_skill_ids` stays the ONLY thing a posting is matched on. A
-    // role with no skills must not trigger the skill resolver or seed the match set.
+  it("#2635 — a 16-trade role alone stores its trade's base skill, validated, and no reach", async () => {
+    // Matching runs only for the 16 trades, so naming one IS a match input: the trade's own
+    // skill is always in the set, and it goes through the same closed-set + cap check.
     const d = make();
     await d.svc.createForPayer(
       PAYER_ID,
       { org_label: ORG, role_title: ROLE, vacancy_band: "1", role_kind: "welder" } as never,
       CTX as never,
     );
+    expect(d.resolveForPublish).toHaveBeenCalledWith([], [], { roleKind: "welder" });
+    const stored = d.create.mock.calls[0]![0] as Record<string, unknown>;
+    expect(stored.matchSkillIds).toEqual(["mskill_welder"]);
+    expect(stored.jobDomainId).toBeUndefined();
+    expect("reachSkillIds" in stored).toBe(false);
+  });
+
+  it("a role OUTSIDE the 16 is still never a match input — no resolver call, no skills", async () => {
+    const d = make();
+    await d.svc.createForPayer(
+      PAYER_ID,
+      {
+        org_label: ORG,
+        role_title: ROLE,
+        vacancy_band: "1",
+        role_kind: "injection_moulding_operator",
+      } as never,
+      CTX as never,
+    );
     expect(d.resolveForPublish).not.toHaveBeenCalled();
     const stored = d.create.mock.calls[0]![0] as Record<string, unknown>;
     expect(stored.matchSkillIds).toEqual([]);
-    expect(stored.jobDomainId).toBeUndefined();
-    expect("reachSkillIds" in stored).toBe(false);
   });
 
   it('an update reports changed_fields ["role_kind"] — the KEY, never the value', async () => {
@@ -1752,6 +1788,29 @@ describe("migration 0131 — role_kind on the posting routes", () => {
     const d = make(row({ status: "open" }));
     await d.svc.update(POSTING_ID, { role_kind: "welder" } as never, CTX as never);
     expect(d.emit.mock.calls[0]![0].payload.changed_fields).not.toContain("match_skills");
+  });
+
+  it("#2635 — moving an OPEN posting into a 16 trade rebuilds its reach, scoped to that trade", async () => {
+    // The match set of a 16-trade posting follows its trade, so a live posting that changes
+    // trade must stop reaching the old trade's workers even though the edit sent no skills.
+    const d = make(row({ status: "open" }));
+    await d.svc.update(POSTING_ID, { role_kind: "welder" } as never, CTX as never);
+    expect(d.materializeReach).toHaveBeenCalledTimes(1);
+    const [, input] = d.materializeReach.mock.calls[0]! as [
+      string,
+      { trigger: string; roleKind: string },
+    ];
+    expect(input.trigger).toBe("edit");
+    expect(input.roleKind).toBe("welder");
+  });
+
+  it("…while a role change between two non-16 roles still moves no reach", async () => {
+    const d = make(row({ status: "open" }));
+    await d.svc.update(
+      POSTING_ID,
+      { role_kind: "injection_moulding_operator" } as never,
+      CTX as never,
+    );
     expect(d.materializeReach).not.toHaveBeenCalled();
   });
 
@@ -2063,11 +2122,22 @@ describe("migration 0141 — the trade form is the server-derived match input", 
       controller_brand: ["fanuc"],
     });
     // The closed-set check and the row both see the DERIVED set, not the body's list.
-    expect(d.resolveForPublish).toHaveBeenCalledWith(["mskill_cnc_turner"], []);
+    expect(d.resolveForPublish).toHaveBeenCalledWith(["mskill_cnc_turner"], [], {
+      roleKind: "cnc_turner",
+    });
     expect(d.create.mock.calls[0]![0]).toMatchObject({
       tradeLevel: "setter",
       tradeAnswers: { controller_brand: ["fanuc"] },
       matchSkillIds: ["mskill_cnc_turner"],
+    });
+    // #2635 — the override is on the record: the client's extra VMC id was not stored.
+    const scoped = d.emit.mock.calls.find(
+      (c) => c[0].event_name === "job_posting.match_skills_scoped",
+    );
+    expect(scoped?.[0].payload).toMatchObject({
+      role_kind: "cnc_turner",
+      trigger: "create",
+      dropped_skill_ids: ["mskill_vmc_operator"],
     });
   });
 
@@ -2101,5 +2171,222 @@ describe("migration 0141 — the trade form is the server-derived match input", 
     // so the rung must not rebuild every reach row for a display-only change.
     expect(patch.matchSkillIds).toBeUndefined();
     expect(d.materializeReach).not.toHaveBeenCalled();
+  });
+
+  it("#2635 — a client's own ids never ride a trade-form edit into the reach rebuild", async () => {
+    // The derived set is unchanged, so the chips request no rebuild. The client's wider list
+    // used to survive into `materializeIfNeeded` (it read the RAW request) and widen the reach.
+    const normalizeSelection = vi.fn().mockResolvedValue(SELECTION);
+    const existing = row({ status: "open", roleKind: "cnc_turner", tradeLevel: "operator" });
+    const d = make(existing, { postingTrades: { normalizeSelection } });
+    d.findByIdAndPayer.mockResolvedValue({
+      ...toApi(existing),
+      payer_id: PAYER_ID,
+      match_skill_ids: ["mskill_cnc_turner"],
+    });
+
+    await d.svc.updateForPayer(
+      POSTING_ID,
+      PAYER_ID,
+      {
+        trade_level: "setter",
+        match_skill_ids: ["mskill_cnc_turner", "mskill_delivery_rider"],
+      } as never,
+      CTX as never,
+    );
+
+    expect(d.materializeReach).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #2635 — matching runs only for the 16 postable trades (owner ruling 2026-11-04).
+// ---------------------------------------------------------------------------
+describe("#2635 — company jobs match only within the 16 postable trades", () => {
+  const DTO = { org_label: ORG, role_title: ROLE, vacancy_band: "1" as const };
+
+  it("a create scopes a legacy client's ids to the trade and records what it dropped", async () => {
+    // The 2026-11-03 production Welder job: no trade fields, a free skill list.
+    const d = make();
+    await d.svc.createForPayer(
+      PAYER_ID,
+      {
+        ...DTO,
+        role_kind: "welder",
+        match_skill_ids: [
+          "mskill_arc_welder",
+          "mskill_cnc_grinding_operator",
+          "mskill_cnc_operator_general",
+        ],
+      } as never,
+      CTX as never,
+    );
+
+    expect(d.create.mock.calls[0]![0]).toMatchObject({
+      matchSkillIds: ["mskill_welder", "mskill_arc_welder"],
+    });
+    const names = d.emit.mock.calls.map((c) => c[0].event_name);
+    expect(names).toEqual(["job_posting.created", "job_posting.match_skills_scoped"]);
+    const scoped = d.emit.mock.calls[1]![0];
+    expect(scoped.payload).toEqual({
+      job_posting_id: expect.any(String),
+      role_kind: "welder",
+      trigger: "create",
+      kept_skill_ids: ["mskill_welder", "mskill_arc_welder"],
+      dropped_skill_ids: ["mskill_cnc_grinding_operator", "mskill_cnc_operator_general"],
+    });
+    // Same transaction as the create: the row never commits without the record of why.
+    expect(scoped.tx).toBe(d.TX);
+  });
+
+  it("emits no scoping event when nothing was dropped", async () => {
+    const d = make();
+    await d.svc.createForPayer(
+      PAYER_ID,
+      { ...DTO, role_kind: "welder", match_skill_ids: ["mskill_tig_welder"] } as never,
+      CTX as never,
+    );
+    expect(d.emit.mock.calls.map((c) => c[0].event_name)).toEqual(["job_posting.created"]);
+  });
+
+  it("a company PUBLISH of a posting with no trade is a 400 with a reason — and writes nothing", async () => {
+    const draft = row({ status: "draft" });
+    const d = make(draft);
+    d.findByIdAndPayer.mockResolvedValue({ ...toApi(draft), payer_id: PAYER_ID });
+
+    const err = await d.svc
+      .updateForPayer(POSTING_ID, PAYER_ID, { status: "open" }, CTX as never)
+      .catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(BadRequestException);
+    expect((err as BadRequestException).getResponse()).toMatchObject({
+      reason: "posting_trade_required",
+    });
+    expect(d.updateOwned).not.toHaveBeenCalled();
+    expect(d.materializeReach).not.toHaveBeenCalled();
+  });
+
+  it("…and so is one whose trade is outside the 16", async () => {
+    const draft = row({ status: "draft", roleKind: "injection_moulding_operator" });
+    const d = make(draft);
+    d.findByIdAndPayer.mockResolvedValue({ ...toApi(draft), payer_id: PAYER_ID });
+    await expect(
+      d.svc.updateForPayer(POSTING_ID, PAYER_ID, { status: "open" }, CTX as never),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it("a company publish that names the trade IN the same PATCH is allowed", async () => {
+    const draft = row({ status: "draft" });
+    const d = make(draft);
+    d.findByIdAndPayer.mockResolvedValue({ ...toApi(draft), payer_id: PAYER_ID });
+    d.updateOwned.mockResolvedValue({
+      ...toApi(row({ status: "open", roleKind: "fitter" })),
+      payer_id: PAYER_ID,
+    });
+    await d.svc.updateForPayer(
+      POSTING_ID,
+      PAYER_ID,
+      { status: "open", role_kind: "fitter" } as never,
+      CTX as never,
+    );
+    expect(d.updateOwned).toHaveBeenCalledTimes(1);
+  });
+
+  it("a company cannot move a LIVE posting off the 16 — clearing its trade is a 400", async () => {
+    const live = row({ status: "open", roleKind: "welder" });
+    const d = make(live);
+    d.findByIdAndPayer.mockResolvedValue({ ...toApi(live), payer_id: PAYER_ID });
+    const err = await d.svc
+      .updateForPayer(POSTING_ID, PAYER_ID, { clear: ["role_kind"] } as never, CTX as never)
+      .catch((e: unknown) => e);
+    expect((err as BadRequestException).getResponse()).toMatchObject({
+      reason: "posting_trade_required",
+    });
+    expect(d.updateOwned).not.toHaveBeenCalled();
+  });
+
+  it("…and so is moving a PAUSED posting to a role outside the 16", async () => {
+    const paused = row({ status: "paused", roleKind: "fitter" });
+    const d = make(paused);
+    d.findByIdAndPayer.mockResolvedValue({ ...toApi(paused), payer_id: PAYER_ID });
+    await expect(
+      d.svc.updateForPayer(
+        POSTING_ID,
+        PAYER_ID,
+        { role_kind: "injection_moulding_operator" } as never,
+        CTX as never,
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(d.updateOwned).not.toHaveBeenCalled();
+  });
+
+  it("…while a DRAFT may change its role freely (the gate is at publish)", async () => {
+    const draft = row({ status: "draft", roleKind: "fitter" });
+    const d = make(draft);
+    d.findByIdAndPayer.mockResolvedValue({ ...toApi(draft), payer_id: PAYER_ID });
+    await d.svc.updateForPayer(
+      POSTING_ID,
+      PAYER_ID,
+      { role_kind: "injection_moulding_operator" } as never,
+      CTX as never,
+    );
+    expect(d.updateOwned).toHaveBeenCalledTimes(1);
+  });
+
+  it("an OPS posting moved OUT of the 16 rebuilds its reach unscoped (role rides along)", async () => {
+    // A live 16-trade posting always carries at least its base skill.
+    const d = make(row({ status: "open", roleKind: "welder" }));
+    d.update.mockResolvedValue({
+      ...toApi(row({ status: "open", roleKind: "injection_moulding_operator" })),
+      match_skill_ids: ["mskill_welder"],
+    });
+    await d.svc.update(
+      POSTING_ID,
+      { role_kind: "injection_moulding_operator" } as never,
+      CTX as never,
+    );
+    expect(d.materializeReach).toHaveBeenCalledTimes(1);
+    const [, input] = d.materializeReach.mock.calls[0]! as [string, { roleKind: string }];
+    expect(input.roleKind).toBe("injection_moulding_operator");
+  });
+
+  it("…but an edit that leaves the role alone is never refused, even on a legacy live row", async () => {
+    // A live posting from before #2635 with no trade must stay editable (backward compatible).
+    const legacy = row({ status: "open" });
+    const d = make(legacy);
+    d.findByIdAndPayer.mockResolvedValue({ ...toApi(legacy), payer_id: PAYER_ID });
+    d.updateOwned.mockResolvedValue({
+      ...toApi(row({ status: "open" })),
+      shift: "night",
+      payer_id: PAYER_ID,
+    });
+    await d.svc.updateForPayer(POSTING_ID, PAYER_ID, { shift: "night" } as never, CTX as never);
+    expect(d.updateOwned).toHaveBeenCalledTimes(1);
+  });
+
+  it("an OPS publish without a trade is unchanged — the gate is the company surface's", async () => {
+    const d = make(row({ status: "draft" }));
+    await d.svc.update(POSTING_ID, { status: "open" } as never, CTX as never);
+    expect(d.update).toHaveBeenCalledTimes(1);
+  });
+
+  it("a skill-cap 400 on a 16-trade publish surfaces BEFORE the write, not as a silent zero reach", async () => {
+    const FOUR = ["mskill_welder", "mskill_arc_welder", "mskill_mig_welder", "mskill_tig_welder"];
+    const draft = row({ status: "draft", roleKind: "welder" });
+    const d = make(draft);
+    d.findByIdAndPayer.mockResolvedValue({
+      ...toApi(draft),
+      payer_id: PAYER_ID,
+      match_skill_ids: FOUR,
+    });
+    d.resolveForPublish.mockRejectedValue(
+      new BadRequestException("a posting may name at most 3 skills (got 4)"),
+    );
+
+    await expect(
+      d.svc.updateForPayer(POSTING_ID, PAYER_ID, { status: "open" }, CTX as never),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(d.resolveForPublish).toHaveBeenCalledWith(FOUR, [], { roleKind: "welder" });
+    expect(d.updateOwned).not.toHaveBeenCalled();
   });
 });
