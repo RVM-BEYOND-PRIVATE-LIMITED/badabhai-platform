@@ -17,7 +17,13 @@ export const ACCOUNT_HREF = "/account";
  * A DISCLOSURE, not an ARIA menu: a button (`aria-expanded`, `aria-controls`) and a panel of an
  * ordinary link and an ordinary button, reached with Tab — a `role="menu"` would promise arrow-key
  * handling this does not need. Escape closes it and puts focus back on the button; a click
- * outside, Tab leaving it, and a navigation close it too.
+ * outside, focus landing outside it (Tab past either end), and a navigation close it too.
+ *
+ * All but the navigation are listened for on the DOCUMENT while it is open, not on the menu:
+ * Safari and Firefox on macOS do not focus a button on click, so a menu opened with the mouse may
+ * hold no focus for its own key or blur handlers to hear. And it closes on focus ARRIVING
+ * outside, never on focus leaving it: a click on the panel's own text (the admin id, read or
+ * copied) moves focus to nowhere, which a blur on the menu took for leaving.
  *
  * The panel STAYS MOUNTED, `hidden` while closed: Account's pending cue is its link's own state,
  * so the link must outlive the click that closes the menu (as in payer-web). Opening fades it in
@@ -48,36 +54,38 @@ export function AvatarMenu({
     setOpen(false);
   }, [pathname]);
 
-  // A click outside closes it (listened for only while open).
+  // While open: a click outside, focus arriving outside, and Escape — wherever focus is — close it.
   useEffect(() => {
     if (!open) return;
+    const outside = (target: EventTarget | null) =>
+      !!rootRef.current && !rootRef.current.contains(target as Node | null);
     const onDown = (e: PointerEvent) => {
-      if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false);
+      if (outside(e.target)) setOpen(false);
+    };
+    // Tab past the last item (or Shift+Tab off the button) lands on something outside. Focus
+    // dropped to nowhere — a click on the panel's own text — fires no focusin: it stays open.
+    const onFocusIn = (e: FocusEvent) => {
+      if (outside(e.target)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      // An Escape something else already answered is that thing's.
+      if (e.key !== "Escape" || e.defaultPrevented) return;
+      e.preventDefault();
+      setOpen(false);
+      triggerRef.current?.focus();
     };
     document.addEventListener("pointerdown", onDown);
-    return () => document.removeEventListener("pointerdown", onDown);
+    document.addEventListener("focusin", onFocusIn);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onDown);
+      document.removeEventListener("focusin", onFocusIn);
+      document.removeEventListener("keydown", onKey);
+    };
   }, [open]);
 
-  const closeToTrigger = () => {
-    setOpen(false);
-    triggerRef.current?.focus();
-  };
-
   return (
-    <div
-      className="avatar-menu"
-      ref={rootRef}
-      onKeyDown={(e) => {
-        if (e.key === "Escape" && open) {
-          e.preventDefault();
-          closeToTrigger();
-        }
-      }}
-      onBlur={(e) => {
-        // Tab past the last item (or Shift+Tab off the button) leaves the menu: close it.
-        if (open && !e.currentTarget.contains(e.relatedTarget as Node | null)) setOpen(false);
-      }}
-    >
+    <div className="avatar-menu" ref={rootRef}>
       <button
         type="button"
         ref={triggerRef}
