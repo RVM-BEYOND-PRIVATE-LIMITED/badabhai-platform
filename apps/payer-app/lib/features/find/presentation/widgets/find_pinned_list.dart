@@ -13,18 +13,31 @@ import '../../../../core/theme/app_spacing.dart';
 /// it ([AppMotion.headerShadow], opacity only; at once under reduced motion),
 /// and fades out when the list is back at the top. The shadow is the border
 /// token, blurred — no new colour.
+///
+/// The header can never starve the list: it takes at most [maxHeaderShare] of
+/// the view's height. On a short screen — a phone turned sideways, large text,
+/// a tall filtered header — it scrolls within that share instead of pushing
+/// the list down to nothing (or overflowing); the list always keeps the rest.
 class FindPinnedList extends StatefulWidget {
   const FindPinnedList({super.key, required this.header, required this.list});
 
-  /// The pinned block. It never scrolls.
+  /// The pinned block. It stays put while the list scrolls; only when it is
+  /// taller than [maxHeaderShare] of the view does it scroll, on its own.
   final Widget header;
 
   /// The view's vertical scroll view.
   final Widget list;
 
+  /// The most of the view's height the [header] may take.
+  static const double maxHeaderShare = 0.5;
+
   /// Key of the shadow's [AnimatedOpacity] (for widget tests).
   @visibleForTesting
   static const Key shadowKey = Key('find_pinned_header_shadow');
+
+  /// Key of the area under the header that holds [list] (for widget tests).
+  @visibleForTesting
+  static const Key listAreaKey = Key('find_pinned_list_area');
 
   @override
   State<FindPinnedList> createState() => _FindPinnedListState();
@@ -45,41 +58,54 @@ class _FindPinnedListState extends State<FindPinnedList> {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: <Widget>[
-        widget.header,
-        Expanded(
-          child: Stack(
-            children: <Widget>[
-              NotificationListener<ScrollMetricsNotification>(
-                onNotification: (ScrollMetricsNotification n) =>
-                    _onMetrics(n.metrics, n.depth),
-                child: NotificationListener<ScrollNotification>(
-                  onNotification: (ScrollNotification n) =>
+    return LayoutBuilder(
+      builder: (BuildContext context, BoxConstraints constraints) => Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          ConstrainedBox(
+            constraints: BoxConstraints(
+              maxHeight: constraints.maxHeight * FindPinnedList.maxHeaderShare,
+            ),
+            child: SingleChildScrollView(
+              // Never the tab's primary scroll controller: that is the list's
+              // (re-tapping the tab scrolls the list to the top, #2592).
+              primary: false,
+              child: widget.header,
+            ),
+          ),
+          Expanded(
+            child: Stack(
+              key: FindPinnedList.listAreaKey,
+              children: <Widget>[
+                NotificationListener<ScrollMetricsNotification>(
+                  onNotification: (ScrollMetricsNotification n) =>
                       _onMetrics(n.metrics, n.depth),
-                  child: widget.list,
-                ),
-              ),
-              Positioned(
-                top: 0,
-                left: 0,
-                right: 0,
-                child: IgnorePointer(
-                  child: AnimatedOpacity(
-                    key: FindPinnedList.shadowKey,
-                    opacity: _under ? 1 : 0,
-                    duration:
-                        AppMotion.resolve(context, AppMotion.headerShadow),
-                    curve: _under ? AppMotion.easeOut : AppMotion.easeIn,
-                    child: const _HeaderShadow(),
+                  child: NotificationListener<ScrollNotification>(
+                    onNotification: (ScrollNotification n) =>
+                        _onMetrics(n.metrics, n.depth),
+                    child: widget.list,
                   ),
                 ),
-              ),
-            ],
+                Positioned(
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  child: IgnorePointer(
+                    child: AnimatedOpacity(
+                      key: FindPinnedList.shadowKey,
+                      opacity: _under ? 1 : 0,
+                      duration:
+                          AppMotion.resolve(context, AppMotion.headerShadow),
+                      curve: _under ? AppMotion.easeOut : AppMotion.easeIn,
+                      child: const _HeaderShadow(),
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }

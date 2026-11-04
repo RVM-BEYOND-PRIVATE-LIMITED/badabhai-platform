@@ -9,6 +9,7 @@ import 'package:payer_app/core/data/payer_api_client.dart';
 import 'package:payer_app/core/di/locator.dart';
 import 'package:payer_app/features/find/presentation/cubit/find_cubit.dart';
 import 'package:payer_app/features/find/presentation/find_screen.dart';
+import 'package:payer_app/features/find/presentation/widgets/find_pinned_list.dart';
 import 'package:payer_app/features/find/presentation/widgets/unlock_button.dart';
 
 /// #364 — the Find feed must build LAZILY.
@@ -211,7 +212,14 @@ void main() {
       await tester.scrollUntilVisible(
         find.text(_BigFeedApi.labelFor(_total - 1)),
         400,
-        scrollable: find.byType(Scrollable).first,
+        // #2593 — the feed under the pinned header (the header is a scroll
+        // view of its own, for a screen too short to hold it).
+        scrollable: find
+            .descendant(
+              of: find.byKey(FindPinnedList.listAreaKey),
+              matching: find.byType(Scrollable),
+            )
+            .first,
         // #2593 — the 360dp card (full-width footer action) is taller.
         maxScrolls: 100,
       );

@@ -258,6 +258,19 @@ void _phone(WidgetTester tester) {
   addTearDown(tester.view.reset);
 }
 
+/// A phone of [size] with a 24dp status bar and gesture bar, at [textScale].
+/// The app does not lock orientation, so 640×360 is that phone turned
+/// sideways.
+void _device(WidgetTester tester, Size size, {double textScale = 1.0}) {
+  tester.view.physicalSize = size;
+  tester.view.devicePixelRatio = 1.0;
+  tester.view.padding = const FakeViewPadding(top: 24, bottom: 24);
+  tester.view.viewPadding = const FakeViewPadding(top: 24, bottom: 24);
+  tester.platformDispatcher.textScaleFactorTestValue = textScale;
+  addTearDown(tester.view.reset);
+  addTearDown(tester.platformDispatcher.clearAllTestValues);
+}
+
 void main() {
   late _M5Api api;
   late List<RevealArgs> revealed;
@@ -889,6 +902,109 @@ void main() {
     });
   });
 
+  group('a short screen never starves the list', () {
+    const AppSession company = AppSession(
+      role: PayerRole.company,
+      account: PayerAccount(
+        name: 'Kalyani Industries',
+        plan: 'Starter',
+        initials: 'KI',
+      ),
+    );
+
+    /// The visible view's list, under its pinned header.
+    Finder visibleList() => find
+        .descendant(
+          of: find.byKey(FindPinnedList.listAreaKey),
+          matching: find.byType(Scrollable),
+        )
+        .first;
+
+    /// No overflow, and the list keeps at least its share of the view.
+    void expectListKeepsItsShare(WidgetTester tester, String view) {
+      expect(tester.takeException(), isNull, reason: '$view: no overflow');
+      final double whole = tester.getSize(find.byType(FindPinnedList)).height;
+      final double list = tester.getSize(visibleList()).height;
+      expect(list, greaterThan(0), reason: '$view: the list is on screen');
+      expect(
+        list,
+        greaterThanOrEqualTo(whole * (1 - FindPinnedList.maxHeaderShare)),
+        reason: '$view: the header never takes more than its share',
+      );
+    }
+
+    /// [target], in a header taller than its share, scrolls into the header's
+    /// own viewport — nothing in it is out of reach.
+    Future<void> expectReachable(WidgetTester tester, Finder target) async {
+      await tester.ensureVisible(target);
+      await tester.pumpAndSettle();
+      final Rect header = tester.getRect(find
+          .descendant(
+            of: find.byType(FindPinnedList),
+            matching: find.byType(SingleChildScrollView),
+          )
+          .first);
+      expect(tester.getRect(target).intersect(header).height, greaterThan(0));
+    }
+
+    for (final (Size size, double scale) in const <(Size, double)>[
+      (Size(640, 360), 1.0),
+      (Size(640, 360), 1.3),
+      (Size(360, 640), 1.3),
+    ]) {
+      testWidgets(
+          'in the shell at ${size.width.toInt()}×${size.height.toInt()}, text '
+          '×$scale, the tallest headers: both lists stay on screen and the '
+          'counts stay reachable', (WidgetTester tester) async {
+        _device(tester, size, textScale: scale);
+        // Filtered + strict + not-recorded counts, three filters applied, and
+        // (Applicants) two open jobs, so the job selector shows.
+        api.page = (List<CandidateSearchRow> rows) => CandidateSearchPage(
+              total: 12345,
+              matched: 9876,
+              unrecorded: 543,
+              filtered: true,
+              strict: true,
+              candidates: rows,
+              nextCursor: null,
+            );
+        await tester.pumpWidget(MaterialApp(
+          theme: AppTheme.light(),
+          home: BlocProvider<AppSessionCubit>.value(
+            value: locator<AppSessionCubit>(),
+            child: const AppShell(session: company),
+          ),
+        ));
+        await tester.pumpAndSettle();
+        await tester.tap(find.descendant(
+          of: find.byType(BbBottomNav),
+          matching: find.text('Find'),
+        ));
+        await tester.pumpAndSettle();
+        // ignore: discarded_futures
+        searchCubit!.applyQuery(const CandidateSearchQuery(
+          skillIds: <String>['mskill_cnc_turner'],
+          experience: '1_3',
+          city: 'Pune',
+          strict: true,
+        ));
+        await tester.pumpAndSettle();
+        expectListKeepsItsShare(tester, 'All candidates');
+        // A header taller than its share scrolls on its own: the counts are
+        // still there to read.
+        await expectReachable(
+            tester, find.byKey(const Key('candidate_count_badge')));
+
+        await tester.tap(find.byKey(const Key('find_view_applicants')));
+        await tester.pumpAndSettle();
+        expect(find.widgetWithText(BbChip, 'VMC Operator'), findsOneWidget);
+        expectListKeepsItsShare(tester, 'Applicants');
+        await expectReachable(tester,
+            find.textContaining('matched candidates', findRichText: true));
+      });
+    }
+  });
+
   group('the filter sheet', () {
     testWidgets('clears the gesture bar', (WidgetTester tester) async {
       _phone(tester);
@@ -915,6 +1031,49 @@ void main() {
         tester.getBottomLeft(find.byType(ListView).last).dy,
         lessThanOrEqualTo(640 - bar),
       );
+    });
+
+    testWidgets(
+        'the role picker sideways with the keyboard up: the sheet scrolls, '
+        'never overflows, and a role can still be picked',
+        (WidgetTester tester) async {
+      _device(tester, const Size(640, 360));
+      await pumpFind(tester);
+      await tester.tap(find.byKey(const Key('candidate_filters_open')));
+      await tester.pumpAndSettle();
+      final Finder roleField = find.byKey(const Key('filter_role'));
+      await tester.tap(find.descendant(
+        of: roleField,
+        matching: find.byType(InputDecorator),
+      ));
+      await tester.pumpAndSettle();
+
+      // The search box autofocuses, so the keyboard rises at once — over the
+      // gesture bar.
+      tester.view.viewInsets = const FakeViewPadding(bottom: 200);
+      tester.view.padding = const FakeViewPadding(top: 24);
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      final Finder search =
+          find.byKey(BbSearchableDropdownField.searchFieldKey);
+      expect(search, findsOneWidget);
+      expect(tester.getSize(find.byType(ListView).last).height, greaterThan(0),
+          reason: 'the options list is still there');
+
+      await tester.enterText(search, 'vmc');
+      await tester.pumpAndSettle();
+      final Finder vmc = find.widgetWithText(ListTile, 'VMC Operator');
+      await tester.ensureVisible(vmc);
+      await tester.pumpAndSettle();
+      await tester.tap(vmc);
+      // The pick closes the sheet, and the keyboard with it.
+      tester.view.resetViewInsets();
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      expect(
+          find.descendant(of: roleField, matching: find.text('VMC Operator')),
+          findsOneWidget);
     });
 
     testWidgets(

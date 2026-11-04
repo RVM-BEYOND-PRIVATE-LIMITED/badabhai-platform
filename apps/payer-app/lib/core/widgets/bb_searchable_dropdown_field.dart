@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../theme/app_colors.dart';
@@ -14,8 +16,10 @@ import 'bb_field.dart';
 /// sheet with a search box on top and the matching options below, so a payer
 /// types to filter a long list instead of scrolling a wall of options.
 ///
-/// The sheet clears the system gesture bar and rises with the keyboard; its
-/// list shrinks to fit rather than overflow on a short phone.
+/// The sheet clears the system gesture bar and rises with the keyboard. Its
+/// list is sized from the space left above the keyboard, and where the title,
+/// the search box and the list still do not fit (a phone turned sideways, the
+/// keyboard up) the sheet scrolls rather than overflows.
 class BbSearchableDropdownField<T extends Object> extends StatelessWidget {
   const BbSearchableDropdownField({
     super.key,
@@ -156,6 +160,12 @@ class _SearchSheetState<T extends Object> extends State<_SearchSheet<T>> {
             .where((T o) => widget.labelOf(o).toLowerCase().contains(q))
             .toList(growable: false);
 
+    // The list gets a share of the height left ABOVE the keyboard, so it
+    // shrinks as the keyboard rises.
+    final double keyboard = MediaQuery.viewInsetsOf(context).bottom;
+    final double listMaxHeight =
+        math.max(0, (MediaQuery.sizeOf(context).height - keyboard) * 0.4);
+
     // SafeArea: the sheet's last row clears the gesture bar; the keyboard
     // inset lifts the whole sheet above the keyboard.
     return SafeArea(
@@ -163,33 +173,32 @@ class _SearchSheetState<T extends Object> extends State<_SearchSheet<T>> {
         padding: EdgeInsets.only(
           left: AppSpacing.gutter,
           right: AppSpacing.gutter,
-          bottom: MediaQuery.viewInsetsOf(context).bottom + AppSpacing.s4,
+          bottom: keyboard + AppSpacing.s4,
         ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: <Widget>[
-            Text(
-              widget.title,
-              style: AppTypography.heading(size: AppTypography.sizeLg),
-            ),
-            const SizedBox(height: AppSpacing.s3),
-            BbField(
-              fieldKey: BbSearchableDropdownField.searchFieldKey,
-              controller: _search,
-              hint: widget.searchHint,
-              icon: Icons.search_rounded,
-              autofocus: true,
-              textInputAction: TextInputAction.search,
-              onChanged: (String v) => setState(() => _query = v),
-            ),
-            const SizedBox(height: AppSpacing.s2),
-            // Flexible: with the keyboard up the list gives way, never the sheet.
-            Flexible(
-              child: ConstrainedBox(
-                constraints: BoxConstraints(
-                  maxHeight: MediaQuery.sizeOf(context).height * 0.4,
-                ),
+        // Scrolls, never overflows: sideways with the keyboard up, the title,
+        // the search box and the list do not all fit above the keyboard.
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              Text(
+                widget.title,
+                style: AppTypography.heading(size: AppTypography.sizeLg),
+              ),
+              const SizedBox(height: AppSpacing.s3),
+              BbField(
+                fieldKey: BbSearchableDropdownField.searchFieldKey,
+                controller: _search,
+                hint: widget.searchHint,
+                icon: Icons.search_rounded,
+                autofocus: true,
+                textInputAction: TextInputAction.search,
+                onChanged: (String v) => setState(() => _query = v),
+              ),
+              const SizedBox(height: AppSpacing.s2),
+              ConstrainedBox(
+                constraints: BoxConstraints(maxHeight: listMaxHeight),
                 child: visible.isEmpty
                     ? Padding(
                         padding: const EdgeInsets.symmetric(
@@ -205,6 +214,9 @@ class _SearchSheetState<T extends Object> extends State<_SearchSheet<T>> {
                       )
                     : ListView.separated(
                         shrinkWrap: true,
+                        // The sheet's own scroll view holds the primary
+                        // controller; this list scrolls only its options.
+                        primary: false,
                         itemCount: visible.length,
                         separatorBuilder: (BuildContext context, int i) =>
                             const Divider(height: 1, color: AppColors.border),
@@ -231,8 +243,8 @@ class _SearchSheetState<T extends Object> extends State<_SearchSheet<T>> {
                         },
                       ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

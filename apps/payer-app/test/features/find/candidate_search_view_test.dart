@@ -19,6 +19,7 @@ import 'package:payer_app/features/find/presentation/cubit/candidate_search_cubi
 import 'package:payer_app/features/find/presentation/find_screen.dart';
 import 'package:payer_app/features/find/presentation/reveal_args.dart';
 import 'package:payer_app/core/widgets/bb_searchable_dropdown_field.dart';
+import 'package:payer_app/features/find/presentation/widgets/find_pinned_list.dart';
 import 'package:payer_app/features/find/presentation/widgets/find_view_switch.dart';
 import 'package:payer_app/features/find/presentation/widgets/unlock_button.dart';
 
@@ -467,7 +468,13 @@ void main() {
       await tester.scrollUntilVisible(
         find.text("That's everyone for now."),
         200,
-        scrollable: find.byType(Scrollable).first,
+        // The list under the pinned header (#2593), which scrolls on its own.
+        scrollable: find
+            .descendant(
+              of: find.byKey(FindPinnedList.listAreaKey),
+              matching: find.byType(Scrollable),
+            )
+            .first,
       );
       expect(find.text('VMC Operator'), findsOneWidget);
       expect(find.text("That's everyone for now."), findsOneWidget);
