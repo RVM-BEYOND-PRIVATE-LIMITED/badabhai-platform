@@ -1743,10 +1743,11 @@ class _PostJobScreenState extends State<PostJobScreen> {
   /// Needed-by are display columns on the Pay & timing card.)
   List<Widget> _companySkillsSection() => <Widget>[_tradeSection()];
 
-  /// The AGENCY demand-skill area (ADR-0050). Unlike the company branch there is
-  /// NO free-text fallback: an agency job's skills only ever ride the closed
-  /// `match_skill_ids` field, so when the vocabulary is unavailable the section is
-  /// simply absent — never a free-text box whose value could not be sent.
+  /// The AGENCY demand-skill area (ADR-0050). There is NO free-text fallback: an
+  /// agency job's skills only ever ride the closed `match_skill_ids` field, so
+  /// when the vocabulary is unavailable the section is simply absent — never a
+  /// free-text box whose value could not be sent. Without the trade catalogue
+  /// it keeps the flat picker (agency jobs are not scoped by trade, #2635).
   List<Widget> _agencySkillsSection() {
     if (_postingTrades.isNotEmpty) return <Widget>[_tradeSection()];
     switch (_matchV1) {
