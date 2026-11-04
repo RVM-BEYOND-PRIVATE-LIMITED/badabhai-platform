@@ -5,15 +5,20 @@ import {
   buildLocationLine,
   buildQualificationRows,
   buildVerdictLine,
+  containerAvailability,
   formatOpenTopSalary,
+  profileAvailability,
+  type SheetAvailability,
 } from "./resume-sheet-rows";
+
+const FIFTEEN_DAYS: SheetAvailability = { label: "15 days", start: { kind: "in_days", days: 15 } };
 
 const FULL = {
   role: "CNC Turner (Setter-cum-Operator)",
   years: 8,
   tools: ["Fanuc", "Siemens", "Mitsubishi"],
   city: "Faridabad",
-  availability: "15 days",
+  availability: FIFTEEN_DAYS,
   salary: "₹24,000 – ₹28,000 / month",
 };
 
@@ -143,12 +148,84 @@ describe("the Verdict Line (§6.2)", () => {
   });
 
   it("says 'available immediately', not 'available in Immediate'", () => {
-    expect(buildVerdictLine({ ...FULL, availability: "Immediate" }).subheadLine).toContain(
-      "available immediately",
+    const immediate: SheetAvailability = { label: "Immediate", start: { kind: "immediate" } };
+    expect(buildVerdictLine({ ...FULL, availability: immediate }).subheadLine).toBe(
+      "Faridabad · available immediately · expects ₹24,000 – ₹28,000 / month",
     );
-    expect(buildVerdictLine({ ...FULL, availability: "immediately" }).subheadLine).toContain(
-      "available immediately",
+  });
+
+  // Owner ruling 2026-11-04: the header states the start in DAYS, whatever the row's wording.
+  it.each<[string, SheetAvailability, string]>([
+    [
+      "a month chip",
+      { label: "1 month", start: { kind: "in_days", days: 30 } },
+      "available in 30 days",
+    ],
+    [
+      "within a week",
+      { label: "Within a week", start: { kind: "in_days", days: 7 } },
+      "available in 7 days",
+    ],
+    ["one day", { label: "1 day", start: { kind: "in_days", days: 1 } }, "available in 1 day"],
+    [
+      "a future date",
+      { label: "From 12 Nov 2026", start: { kind: "from_date", date: "12 Nov 2026" } },
+      "available from 12 Nov 2026",
+    ],
+    [
+      "notice, no length",
+      { label: "Notice period", start: { kind: "on_notice" } },
+      "on notice period",
+    ],
+    ["an unmapped word", { label: "2 months", start: { kind: "worded" } }, "available in 2 months"],
+  ])("prints %s as %s", (_name, availability, phrase) => {
+    expect(buildVerdictLine({ ...FULL, availability }).subheadLine).toBe(
+      `Faridabad · ${phrase} · expects ₹24,000 – ₹28,000 / month`,
     );
+  });
+});
+
+describe("the interview's availability as a sheet fact", () => {
+  it("reads the profile's status and notice days", () => {
+    expect(profileAvailability({ status: "immediate" })).toEqual({
+      label: "Immediate",
+      start: { kind: "immediate" },
+    });
+    expect(profileAvailability({ status: "notice_period", notice_period_days: 30 })).toEqual({
+      label: "30 days",
+      start: { kind: "in_days", days: 30 },
+    });
+    expect(profileAvailability({ status: "notice_period", notice_period_days: null })).toEqual({
+      label: "Notice period",
+      start: { kind: "on_notice" },
+    });
+    expect(profileAvailability({ status: "not_looking" })).toBeNull();
+    expect(profileAvailability({ status: "unknown" })).toBeNull();
+  });
+
+  it("turns the container's chip words into days, and keeps the row's label", () => {
+    expect(containerAvailability("15_days")).toEqual({
+      label: "15 days",
+      start: { kind: "in_days", days: 15 },
+    });
+    expect(containerAvailability("1_month")).toEqual({
+      label: "1 month",
+      start: { kind: "in_days", days: 30 },
+    });
+    expect(containerAvailability("immediate")).toEqual({
+      label: "Immediate",
+      start: { kind: "immediate" },
+    });
+    expect(containerAvailability("notice_period")).toEqual({
+      label: "Notice period",
+      start: { kind: "on_notice" },
+    });
+    expect(containerAvailability("2_months")).toEqual({
+      label: "2 months",
+      start: { kind: "worded" },
+    });
+    expect(containerAvailability("not_looking")).toBeNull();
+    expect(containerAvailability(null)).toBeNull();
   });
 });
 
@@ -156,7 +233,7 @@ describe("availability & terms rows", () => {
   it("emits only the rows that have a value", () => {
     expect(
       buildAvailabilityRows({
-        availability: "15 days",
+        availability: FIFTEEN_DAYS,
         salary: "₹24,000 / month",
         preferredLocations: ["Faridabad", "Gurugram"],
         willingToRelocate: true,
@@ -276,9 +353,9 @@ describe("the masthead location line", () => {
       "Nai Dilli, Uttar Pradesh",
     );
     // Unrecognised but short (a 4-word UT) still prints; `titleCaseName` raises "and".
-    expect(
-      buildLocationLine({ city: "Faridabad", state: "Andaman and Nicobar Islands" }),
-    ).toBe("Faridabad, Andaman And Nicobar Islands");
+    expect(buildLocationLine({ city: "Faridabad", state: "Andaman and Nicobar Islands" })).toBe(
+      "Faridabad, Andaman And Nicobar Islands",
+    );
   });
 });
 

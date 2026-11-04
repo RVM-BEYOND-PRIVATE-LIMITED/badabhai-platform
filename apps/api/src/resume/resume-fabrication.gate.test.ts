@@ -154,8 +154,12 @@ const COMPOSED_PHRASES: readonly { re: RegExp; why: string }[] = [
   { re: /^\d+ months?$/, why: "#2358 Work History duration under a year" },
   { re: /^duration not stated$/i, why: "§11 #3" },
   { re: /^available immediately$/, why: "§6.2 availability segment" },
-  { re: /^available in \d+ days$/, why: "§6.2 availability segment" },
-  { re: /^available in Notice period$/, why: "§6.2 availability, notice with no day count" },
+  { re: /^available in \d+ days?$/, why: "§6.2 availability segment, in days (ruling 2026-11-04)" },
+  { re: /^on notice period$/, why: "§6.2 availability, notice with no day count" },
+  {
+    re: /^available from \d{1,2} (?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{4}$/,
+    why: "§6.2 availability, a stated date still ahead",
+  },
   { re: /^\d+ days$/, why: "§4.4 notice period" },
   { re: /^Notice period$/, why: "§4.4 notice period with no day count" },
   { re: /^Immediate$/, why: "§4.4 availability" },
@@ -575,6 +579,16 @@ describe("§8 — every printed digit is stated or is arithmetic over stated dat
     if (typeof availability?.notice_period_days === "number") {
       digits.add(String(availability.notice_period_days));
     }
+    // Owner ruling 2026-11-04 — the header states a closed availability answer IN DAYS. A fixed
+    // conversion of the worker's own chip ("Within a week" = 7, a month = 30), not a figure the
+    // sheet invents; listed here, by hand, so a new conversion needs its own licence.
+    const status = (availability as { status?: string } | undefined)?.status;
+    if (status === "within_week") digits.add("7");
+    if (status === "within_month") digits.add("30");
+    const token = (shape.snapshot.resume_profile as { availability?: string } | undefined)
+      ?.availability;
+    if (token === "15_days") digits.add("15");
+    if (token === "1_month") digits.add("30");
     return digits;
   }
 

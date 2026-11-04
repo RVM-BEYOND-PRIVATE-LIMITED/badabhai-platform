@@ -4,7 +4,9 @@ import type { QuestionPackItem } from "@badabhai/ai-contracts";
 import {
   CHAT_FACT_OWNER,
   chatServableItems,
+  ASKED_ONLY_FACTS,
   crossFillItems,
+  isAskedOnlyItem,
   isChatOwnedItem,
   PER_JOB_FACTS,
 } from "./worker-fact.ownership";
@@ -150,5 +152,35 @@ describe("crossFillItems", () => {
 
   it("never drops current_city even when phaseALeads is true — it is chat-owned and not per-job", () => {
     expect(crossFillItems(ALL, true).map((i) => i.question_key)).toContain("current_city");
+  });
+
+  // Owner ruling 2026-11-04 — "lagbhag 8 mahine" on a Phase A turn settled availability silently.
+  it("drops availability and its notice-period part UNCONDITIONALLY — asked only by its own question", () => {
+    const withAvailability = [
+      ...ALL,
+      item("availability", "availability"),
+      item("notice_period_days", "notice_period_days"),
+    ];
+    for (const phaseALeads of [true, false]) {
+      const keys = crossFillItems(withAvailability, phaseALeads).map((i) => i.question_key);
+      expect(keys, `phaseALeads=${phaseALeads}`).not.toContain("availability");
+      expect(keys, `phaseALeads=${phaseALeads}`).not.toContain("notice_period_days");
+      expect(keys, `phaseALeads=${phaseALeads}`).toContain("current_city");
+    }
+  });
+});
+
+describe("ASKED_ONLY_FACTS / isAskedOnlyItem", () => {
+  it("is availability alone, and chat-owned — the chat still ASKS it", () => {
+    expect([...ASKED_ONLY_FACTS]).toEqual(["availability"]);
+    expect(CHAT_FACT_OWNER.availability).toBe("chat");
+    expect(isChatOwnedItem(item("availability", "availability"))).toBe(true);
+  });
+
+  it("matches every settling alias of availability and nothing else", () => {
+    expect(isAskedOnlyItem(item("availability", "availability"))).toBe(true);
+    expect(isAskedOnlyItem(item("notice_period_days", "notice_period_days"))).toBe(true);
+    expect(isAskedOnlyItem(item("current_city", "current_city"))).toBe(false);
+    expect(isAskedOnlyItem(item("machine_type", "skills"))).toBe(false);
   });
 });

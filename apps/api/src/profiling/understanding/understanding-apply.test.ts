@@ -198,6 +198,43 @@ describe("applying the fills (R4: empty fields only)", () => {
     expect(led.draft).toBe(DRAFT);
   });
 
+  // Owner ruling 2026-11-04 — availability is filled only by its own question.
+  it("never fills an EMPTY availability from a mention; a change still goes to the edit gate", () => {
+    const AVAILABILITY = item({
+      question_key: "availability",
+      target_field: "availability",
+      answer_type: "single_select",
+      options: [
+        { option_key: "immediate", label_text: "Abhi turant", implies_skill_id: null, is_none_of_above: false, value: "immediate" },
+        { option_key: "one_month", label_text: "Ek mahine mein", implies_skill_id: null, is_none_of_above: false, value: "1_month" },
+      ],
+    });
+    const items = [...ITEMS, AVAILABILITY];
+    // A job's length the model offered as a mention: the parser reads it as a 90-day notice.
+    const fills = [{ key: "availability", value: "3 mahine" }];
+    const empty = applyFills({
+      ...base,
+      view: buildProfilingSchema(items, {}, EMPTY_DRAFT),
+      fills,
+      answers: {},
+      draft: EMPTY_DRAFT,
+    });
+    expect(empty.answers.availability).toBeUndefined();
+    expect(empty.answers.notice_period_days).toBeUndefined();
+    expect(empty.appliedKeys).toEqual([]);
+
+    const held = answered({}, "availability", "immediate", "Abhi turant");
+    const change = applyFills({
+      ...base,
+      view: buildProfilingSchema(items, held, EMPTY_DRAFT),
+      fills: [{ key: "availability", value: "Ek mahine mein" }],
+      answers: held,
+      draft: EMPTY_DRAFT,
+    });
+    expect(change.answers.availability?.value_normalized).toBe("immediate");
+    expect(change.conflicts).toEqual([{ key: "availability", value: "Ek mahine mein" }]);
+  });
+
   it("refuses a job with no role", () => {
     const view = buildProfilingSchema(ITEMS, {}, EMPTY_DRAFT);
     const out = applyFills({
