@@ -482,6 +482,41 @@ void main() {
       expect(type(years, '', '1a').text, '1');
     });
 
+    // Dropping the point as "just a non-digit" joined the fraction to the
+    // whole part: a pasted "₹18,000.00" landed as 18,00,000 and "2.5" as 25.
+    test('a pasted fraction of zeros is the whole number', () {
+      expect(type(pay, '', '₹18,000.00').text, '18,000');
+      expect(type(pay, '', '₹18,000.00/-').text, '18,000');
+      expect(type(pay, '', '18000.0').text, '18,000');
+      expect(type(years, '', '2.0').text, '2');
+      // Pasted over a value already there (select-all + paste).
+      expect(type(pay, '15,000', '₹18,000.00').text, '18,000');
+      expect(
+        type(pay, '', '₹18,000.00').selection,
+        const TextSelection.collapsed(offset: 6),
+      );
+      // A point after a word is not a decimal point.
+      expect(type(pay, '', 'Rs. 18000').text, '18,000');
+    });
+
+    test('any other fraction is refused, never read as a bigger number', () {
+      expect(type(pay, '', '₹18,000.50').text, '');
+      expect(type(pay, '15,000', '₹18,000.50').text, '15,000');
+      expect(type(years, '', '2.5').text, '');
+      expect(type(years, '3', '2.5').text, '3');
+    });
+
+    test('a point typed into a number is refused; on its own, it is a no-op',
+        () {
+      // "2|5" → "2.5" is not 25, and "18,0|00" → "18,0.00" is not 180.
+      expect(type(years, '25', '2.5', caret: 2).text, '25');
+      expect(type(pay, '18,000', '18,0.00', caret: 5).text, '18,000');
+      // "2" then "." keeps "2", caret at its end.
+      final TextEditingValue v = type(years, '2', '2.');
+      expect(v.text, '2');
+      expect(v.selection, const TextSelection.collapsed(offset: 1));
+    });
+
     test('parseWholeNumber reads a grouped box back', () {
       expect(parseWholeNumber('18,000'), 18000);
       expect(parseWholeNumber('1,25,000'), 125000);
