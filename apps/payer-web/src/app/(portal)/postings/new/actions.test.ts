@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { PayerBadRequestError } from "../../../../lib/payer-errors";
 
 /**
  * createPostingAction — the "Reached N workers" half (demo liveness). The create → publish
@@ -47,10 +48,11 @@ beforeEach(() => {
 });
 
 describe("createPostingAction — Reached N workers", () => {
-  it("a published posting returns reach-preview's total for the SAME selection", async () => {
+  it("a published posting returns reach-preview's total for the SAME selection, scoped by its trade", async () => {
     const res = await createPostingAction(INPUT);
     expect(res).toEqual({ ok: true, postingId: POSTING_ID, published: true, reached: 18 });
-    expect(previewReach).toHaveBeenCalledWith(SELECTION);
+    // #2635 — the confirmation's read scopes the posted skills by the job's trade, as publish did.
+    expect(previewReach).toHaveBeenCalledWith({ ...SELECTION, roleKind: "cnc_turner" });
   });
 
   it("a publish that left a draft claims no reach (and never reads it)", async () => {
@@ -70,5 +72,54 @@ describe("createPostingAction — Reached N workers", () => {
     previewReach.mockRejectedValueOnce(new Error("503"));
     const res = await createPostingAction(INPUT);
     expect(res).toEqual({ ok: true, postingId: POSTING_ID, published: true, reached: null });
+  });
+});
+
+describe("createPostingAction — #2645: a company job is always one of the 16 trades", () => {
+  it("no trade is refused AT the picker before anything is created", async () => {
+    const res = await createPostingAction({ ...INPUT, roleKind: "" });
+    expect(res).toEqual({
+      ok: false,
+      error: "Pick one of the 16 trades",
+      fieldErrors: { roleKind: "Pick one of the 16 trades" },
+    });
+    expect(createPosting).not.toHaveBeenCalled();
+    expect(publishPostingWithMatchSkills).not.toHaveBeenCalled();
+  });
+
+  it("the create always carries the trade form — {} when no chip was picked", async () => {
+    await createPostingAction(INPUT);
+    expect(createPosting.mock.calls[0]![0]).toMatchObject({
+      roleKind: "cnc_turner",
+      tradeAnswers: {},
+    });
+    await createPostingAction({ ...INPUT, tradeLevel: "setter", tradeAnswers: { x_y: ["a_b"] } });
+    expect(createPosting.mock.calls[1]![0]).toMatchObject({
+      tradeLevel: "setter",
+      tradeAnswers: { x_y: ["a_b"] },
+    });
+  });
+
+  it("a publish refused with posting_trade_required reports the draft AND the refusal", async () => {
+    publishPostingWithMatchSkills.mockRejectedValueOnce(
+      new PayerBadRequestError("/payer/job-postings/x", "posting_trade_required"),
+    );
+    const res = await createPostingAction(INPUT);
+    expect(res).toEqual({
+      ok: true,
+      postingId: POSTING_ID,
+      published: false,
+      reached: null,
+      tradeRequired: true,
+    });
+    expect(previewReach).not.toHaveBeenCalled();
+  });
+
+  it("any other refused publish is a plain draft — the reason, not the status, decides", async () => {
+    publishPostingWithMatchSkills.mockRejectedValueOnce(
+      new PayerBadRequestError("/payer/job-postings/x", "something_else"),
+    );
+    const res = await createPostingAction(INPUT);
+    expect(res).toEqual({ ok: true, postingId: POSTING_ID, published: false, reached: null });
   });
 });
