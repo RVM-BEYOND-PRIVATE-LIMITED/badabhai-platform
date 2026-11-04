@@ -9,13 +9,14 @@ import type { Rule } from "../../test/css-rules";
  * W2 (#2582) — payer-web CSS token sweep, as a source-level lint fence (node env, no layout
  * engine; the repo carries no stylelint, so the rules are enforced here instead):
  *   - no raw px font size and nothing under 11px in app CSS;
- *   - no raw hex colour in app CSS outside the named exceptions below;
+ *   - no raw hex colour in app CSS (the job-card preview aside), and no payer-web override of
+ *     the shared navy ramp: payer-web ships Shift Blue #05194C from tokens.css;
  *   - table headers never take the muted step; every header rule clears 4.5:1 on its own fill,
  *     light and ink;
  *   - ONE active-nav definition, painted by CSS from the server-rendered class (readable with JS
  *     disabled, no sliding plate);
- *   - no hover lift on static containers; every hover transform sits under `(hover: hover)` and
- *     the moved element transitions on the fast (140ms) token;
+ *   - no hover lift on static containers; every hover transform sits under `(hover: hover)`, the
+ *     moved element transitions on the fast (140ms) token, and reduced motion zeroes the travel;
  *   - KPI values take the compact size on phones.
  */
 
@@ -34,13 +35,6 @@ const RULES: Rule[] = [...parseRules(GLOBALS), ...parseRules(DS)];
  *  values by job-card-preview.css.test.ts); its sizes are `calc(N * --jcp-u)` and its colours
  *  are the app's. It is the one component exempt from the token sweep. */
 const isJcp = (r: Rule) => r.selector.split(",").every((s) => s.trim().startsWith(".jcp"));
-
-/** Hex colours that intentionally stay literal in payer-web (owner: colour changes are scoped
- *  to the Flutter apps — the payer-web ramp and the AI card wash are kept as they are). */
-const HEX_EXCEPTIONS: ReadonlyArray<(r: Rule) => boolean> = [
-  (r) => r.selector === ":root" && decl(r, "--navy-900") !== null, // the payer-web navy ramp
-  (r) => r.selector === ".mw-ai", // the AI card's wash
-];
 
 const px = (value: string, root = 16): number | null => {
   const m = /^(\d+(?:\.\d+)?)(px|rem)$/.exec(value.trim());
@@ -122,12 +116,23 @@ describe("W2 #2582 — font sizes", () => {
 describe("W2 #2582 — colours", () => {
   const headers = RULES.filter((r) => /(^|[\s,])(thead )?th(\s*,|$)|\bth$/.test(r.selector));
 
-  it("no raw hex colour in app CSS outside the named exceptions", () => {
+  it("no raw hex colour in app CSS outside the job-card preview", () => {
     const offenders = RULES.filter((r) => !isJcp(r))
       .filter((r) => /#[0-9a-fA-F]{3,8}\b/.test(r.body))
-      .filter((r) => !HEX_EXCEPTIONS.some((ok) => ok(r)))
       .map((r) => r.selector);
     expect(offenders).toEqual([]);
+  });
+
+  it("payer-web ships the shared Shift Blue ramp — no `--navy-*` or `--brand-primary-rgb` override", () => {
+    // Re-declaring either re-points every navy surface, alpha step, ring and shadow off-brand.
+    const redeclared = [GLOBALS, DS].flatMap(
+      (css) => css.match(/--(?:navy-\d+|brand-primary-rgb)\s*:/g) ?? [],
+    );
+    expect(redeclared).toEqual([]);
+    expect(hexOf("--navy-900")).toBe("#05194c");
+    expect(
+      tokenValue(GLOBALS, "--brand-primary-rgb") ?? tokenValue(TOKENS, "--brand-primary-rgb"),
+    ).toBe("5 25 76");
   });
 
   it("table headers never take the muted step — the old `.pshell__content .table thead th` override is gone", () => {
@@ -213,13 +218,22 @@ describe("W2 #2582 — hover", () => {
     expect(offenders).toEqual([]);
   });
 
+  /** True when a rule moves its element: it sets a transform other than `none`. */
+  const moves = (r: Rule) => {
+    const t = decl(r, "transform");
+    return t !== null && t !== "none";
+  };
+  const selectorsOf = (r: Rule) => r.selector.split(",").map((s) => s.trim());
+
+  /** Every hover lift: each `:hover` selector of a `(hover: hover)` rule that moves its element. */
+  const LIFTS = RULES.filter((r) => r.at.includes("(hover: hover)") && moves(r))
+    .flatMap(selectorsOf)
+    .filter((s) => s.includes(":hover"));
+
   it("every hover transform sits under (hover: hover) — nothing stays lifted after a tap", () => {
     const offenders = RULES.filter((r) => r.selector.includes(":hover"))
       .filter((r) => !r.selector.includes("bb-tooltip")) // positions the tooltip, not a lift
-      .filter((r) => {
-        const t = decl(r, "transform");
-        return t !== null && t !== "none";
-      })
+      .filter(moves)
       .filter((r) => !r.at.includes("(hover: hover)"))
       .map((r) => r.selector);
     expect(offenders).toEqual([]);
@@ -257,16 +271,9 @@ describe("W2 #2582 — hover", () => {
     expect(transformSteps(tokenValue(TOKENS, "--transition-control"))).toEqual([
       "transform var(--duration-fast) var(--ease-out)",
     ]);
-    const lifts = RULES.filter((r) => r.at.includes("(hover: hover)"))
-      .filter((r) => {
-        const t = decl(r, "transform");
-        return t !== null && t !== "none";
-      })
-      .flatMap((r) => r.selector.split(",").map((s) => s.trim()))
-      .filter((s) => s.includes(":hover"));
-    expect(lifts.length).toBeGreaterThan(0);
+    expect(LIFTS.length).toBeGreaterThan(0);
     const bases = RULES.filter((r) => !r.at.includes("prefers-reduced-motion"));
-    for (const lift of lifts) {
+    for (const lift of LIFTS) {
       const steps = bases
         .filter((r) => r.selector.split(",").some((b) => selectsMoved(b.trim(), lift)))
         .flatMap((r) => transformSteps(decl(r, "transition")));
@@ -274,6 +281,28 @@ describe("W2 #2582 — hover", () => {
       for (const step of steps) {
         expect(step, lift).toMatch(/var\(--duration-fast\)|^var\(--transition-control\)$/);
       }
+    }
+  });
+
+  it("reduced motion zeroes every hover lift's travel — `transform: none` on the same selector, after the lift", () => {
+    // The tokens only zero durations, so without this the element jumps instead of moving.
+    // ds-components.css is @imported at the top of globals.css, so its rules come first in the
+    // cascade; an equal-specificity override wins only when it comes after the lift.
+    const cascade = [...parseRules(DS), ...parseRules(GLOBALS)];
+    expect(LIFTS.length).toBeGreaterThan(0);
+    for (const lift of LIFTS) {
+      let last = -1;
+      cascade.forEach((r, i) => {
+        if (r.at.includes("(hover: hover)") && moves(r) && selectorsOf(r).includes(lift)) last = i;
+      });
+      const zeroed = cascade.some(
+        (r, i) =>
+          i > last &&
+          r.at.includes("prefers-reduced-motion: reduce") &&
+          decl(r, "transform") === "none" &&
+          selectorsOf(r).includes(lift),
+      );
+      expect(zeroed, `${lift} keeps its travel under reduced motion`).toBe(true);
     }
   });
 });

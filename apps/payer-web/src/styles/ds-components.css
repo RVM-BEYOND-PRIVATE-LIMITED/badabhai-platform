@@ -295,6 +295,7 @@
 .bb-card--interactive { cursor: pointer; transition: var(--transition-control); }
 .bb-card--interactive:hover { border-color: var(--border-default); }
 @media (hover: hover) { .bb-card--interactive:hover { box-shadow: var(--shadow-md); transform: translateY(-2px); } }
+@media (prefers-reduced-motion: reduce) { .bb-card--interactive:hover { transform: none; } }
 .bb-card--interactive:active { transform: translateY(0); box-shadow: var(--shadow-xs); }
 .bb-card--pad-sm { padding: var(--space-3); }
 .bb-card--pad-lg { padding: var(--space-7); }
@@ -313,6 +314,7 @@
 .bb-card--link { position: relative; cursor: pointer; transition: var(--transition-control); }
 .bb-card--link:hover { border-color: var(--border-default); }
 @media (hover: hover) { .bb-card--link:hover { box-shadow: var(--shadow-lg); transform: translateY(-2px); } }
+@media (prefers-reduced-motion: reduce) { .bb-card--link:hover { transform: none; } }
 .bb-card--link:active { transform: translateY(0); box-shadow: var(--shadow-md); }
 .bb-card--link:has(> .bb-stretched-link:focus-visible) { outline: var(--focus-outline); outline-offset: var(--focus-outline-offset); box-shadow: var(--ring-focus); border-color: var(--brand); }
 @supports not selector(:has(*)) {
@@ -479,6 +481,7 @@
 .bb-stat--link { position: relative; cursor: pointer; transition: var(--transition-control); }
 .bb-stat--link:hover { border-color: var(--border-default); }
 @media (hover: hover) { .bb-stat--link:hover { box-shadow: var(--shadow-md); transform: translateY(-2px); } }
+@media (prefers-reduced-motion: reduce) { .bb-stat--link:hover { transform: none; } }
 .bb-stat--link:active { transform: translateY(0); box-shadow: var(--shadow-xs); }
 .bb-stat--link:has(> .bb-stretched-link:focus-visible) { outline: var(--focus-outline); outline-offset: var(--focus-outline-offset); box-shadow: var(--ring-focus); border-color: var(--brand); }
 @supports not selector(:has(*)) {
