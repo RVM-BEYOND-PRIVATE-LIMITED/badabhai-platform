@@ -76,10 +76,19 @@ const useState = vi.fn((initial: unknown) => {
 // lib/posting-draft.test.ts's and components/use-posting-draft.test.ts's. Here it is idle (nothing
 // saved yet; restored only when a test says so) and keeps the options the form called it with.
 const discardDraft = vi.fn();
-const draftHook = { restored: false, storageKey: "" };
+interface DraftOptions {
+  storageKey: string;
+  isDirty?: (saved: unknown) => boolean;
+  onRestore?: (saved: unknown) => void;
+}
+const draftHook: { restored: boolean; storageKey: string; options?: DraftOptions } = {
+  restored: false,
+  storageKey: "",
+};
 vi.mock("../../../../../components/use-posting-draft", () => ({
-  usePostingDraft: (options: { storageKey: string }) => {
+  usePostingDraft: (options: DraftOptions) => {
     draftHook.storageKey = options.storageKey;
+    draftHook.options = options;
     return { saved: false, restored: draftHook.restored, discard: discardDraft };
   },
 }));
@@ -1093,6 +1102,43 @@ describe("EditPostingForm — W4: one spinner per action", () => {
       matchSkillIds: [],
       dirty: false,
     });
+    expect(setters[13]).toHaveBeenCalledWith({ matchSkillIds: [], untickedRelatedIds: [] });
+  });
+});
+
+describe("EditPostingForm — #2645: a device draft that changes nothing is not restored", () => {
+  /** A draft as this page kept it: the posting as seeded, plus a pick from the old flat list. */
+  const OLD_PICK = { matchSkillIds: ["mskill_delivery_rider"], untickedRelatedIds: [] };
+  const SAVED = {
+    fields: BLANK_FIELDS,
+    requirements: [],
+    benefits: [],
+    reqDraft: "",
+    benDraft: "",
+    trade: { tradeLevel: "", answers: {}, matchSkillIds: [], dirty: false },
+    legacySelection: OLD_PICK,
+  };
+
+  it("the form hands the hook its dirty test, so a draft whose one change is the old pick is dropped", () => {
+    render({});
+    const isDirty = draftHook.options!.isDirty!;
+    expect(isDirty(SAVED)).toBe(false);
+    expect(isDirty({ ...SAVED, fields: { ...BLANK_FIELDS, city: "Pune" } })).toBe(true);
+    // A draft is read the way it is restored: a part it lacks keeps the seed (never a throw).
+    expect(isDirty({ legacySelection: OLD_PICK })).toBe(false);
+    expect(isDirty({ fields: { city: "Pune" } })).toBe(true);
+  });
+
+  it("onRestore applies that same reading of the draft", () => {
+    render({});
+    draftHook.options!.onRestore!({ fields: { city: "Pune" } });
+    expect(setters[0]).toHaveBeenCalledWith({ ...BLANK_FIELDS, city: "Pune" }); // fields
+    expect(setters[6]).toHaveBeenCalledWith({
+      tradeLevel: "",
+      answers: {},
+      matchSkillIds: [],
+      dirty: false,
+    }); // trade: the seed
     expect(setters[13]).toHaveBeenCalledWith({ matchSkillIds: [], untickedRelatedIds: [] });
   });
 });

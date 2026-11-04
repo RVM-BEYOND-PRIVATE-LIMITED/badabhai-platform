@@ -163,6 +163,22 @@ export function isNewPostingDirty(d: NewPostingDraft): boolean {
   );
 }
 
+/**
+ * A draft kept on this device as the form restores it (W4): what `onRestore` applies, and what
+ * `isDirty` judges before restoring. A part an older draft lacks starts blank.
+ */
+function restoredNewPostingDraft(saved: Partial<NewPostingDraft>): NewPostingDraft {
+  return {
+    fields: { ...BLANK, ...saved.fields },
+    requirements: saved.requirements ?? [],
+    benefits: saved.benefits ?? [],
+    reqDraft: saved.reqDraft ?? "",
+    benDraft: saved.benDraft ?? "",
+    selection: saved.selection ?? { matchSkillIds: [], untickedRelatedIds: [] },
+    trade: saved.trade ?? { ...BLANK_TRADE, matchSkillIds: [] },
+  };
+}
+
 /** The openings box as a whole number ≥ 1, or null. */
 function openingsOf(raw: string): number | null {
   const n = parseWholeNumber(raw);
@@ -254,15 +270,18 @@ export function PostingForm({
     base: DRAFT_BASE,
     payload: draftPayload,
     dirty: isNewPostingDirty(draftPayload),
+    // #2645 — a draft whose one change is the old flat pick restores as a blank form: dropped.
+    isDirty: (saved) => isNewPostingDirty(restoredNewPostingDraft(saved)),
     off: navigating,
     onRestore: (saved) => {
-      setFields({ ...BLANK, ...saved.fields });
-      setRequirements(saved.requirements ?? []);
-      setBenefits(saved.benefits ?? []);
-      setReqDraft(saved.reqDraft ?? "");
-      setBenDraft(saved.benDraft ?? "");
-      if (saved.selection) setSelection(saved.selection);
-      if (saved.trade) setTrade(saved.trade);
+      const restored = restoredNewPostingDraft(saved);
+      setFields(restored.fields);
+      setRequirements(restored.requirements);
+      setBenefits(restored.benefits);
+      setReqDraft(restored.reqDraft);
+      setBenDraft(restored.benDraft);
+      setSelection(restored.selection);
+      setTrade(restored.trade);
     },
   });
 

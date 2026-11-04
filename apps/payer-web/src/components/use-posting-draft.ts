@@ -8,7 +8,8 @@ import { clearDraft, installLeaveGuard, loadDraft, saveDraft } from "../lib/post
  * rules; this wires them to the form's lifecycle).
  *
  *  - On mount, a draft stored from the same `base` is handed to `onRestore` once, and `restored`
- *    turns true (the form's "Restored unsaved changes from this device · Discard" line).
+ *    turns true (the form's "Restored unsaved changes from this device · Discard" line). A draft
+ *    the form's `isDirty` finds unchanged is removed instead, and nothing is restored.
  *  - While `dirty`, the payload is saved a moment after the payer stops typing, and `saved` turns
  *    true for a short while (the form's "Draft saved" cue).
  *  - When the form is back to its seed (cleared or reverted by hand), the stored draft is removed:
@@ -26,6 +27,14 @@ export interface PostingDraftOptions<T> {
   base: string;
   payload: T;
   dirty: boolean;
+  /**
+   * `dirty`'s own test, run on a STORED draft before it is restored. A draft it finds unchanged
+   * (all it differs in is something no control shows or sends any more, such as a pick from a
+   * picker since removed) is removed rather than restored: restored, it would put "Restored unsaved
+   * changes" over an unchanged form for good (that form never turns dirty, so nothing clears it).
+   * Optional: without it, every draft from the same `base` is restored, as before.
+   */
+  isDirty?: (payload: T) => boolean;
   off: boolean;
   onRestore: (payload: T) => void;
 }
@@ -44,6 +53,7 @@ export function usePostingDraft<T>({
   base,
   payload,
   dirty,
+  isDirty,
   off,
   onRestore,
 }: PostingDraftOptions<T>): PostingDraft {
@@ -53,6 +63,8 @@ export function usePostingDraft<T>({
   guarding.current = dirty && !off;
   const restore = useRef(onRestore);
   restore.current = onRestore;
+  const changesTheForm = useRef(isDirty);
+  changesTheForm.current = isDirty;
   const loaded = useRef(false);
   // `dirty` as of the previous save pass. It starts false, so the mount pass — which runs before a
   // restored draft's state lands — never reads as "back to the seed" and wipes that draft.
@@ -66,6 +78,11 @@ export function usePostingDraft<T>({
     loaded.current = true;
     const draft = loadDraft<T>(storageKey, base);
     if (draft === null) return;
+    // A draft that changes nothing the form holds is no change to restore (see `isDirty`).
+    if (changesTheForm.current?.(draft) === false) {
+      clearDraft(storageKey);
+      return;
+    }
     restore.current(draft);
     setRestored(true);
   }, [storageKey, base]);

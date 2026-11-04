@@ -86,10 +86,14 @@ const SAVE_AFTER_MS = 600;
 
 interface Form {
   payMin: string;
+  /** A pick from a control the form no longer has: kept in a stored draft, never part of `dirty`. */
+  oldPick?: string[];
 }
 /** The live posting's value — the form's seed. */
 const SEED: Form = { payMin: "15000" };
 const EDITED: Form = { payMin: "18000" };
+/** The form's "differs from the seed" — its `dirty`, and the `isDirty` it may pass for a draft. */
+const differsFromSeed = (form: Form) => form.payMin !== SEED.payMin;
 
 const stored = () => store.getItem(KEY);
 
@@ -99,15 +103,23 @@ function mount() {
   runtime.effects = [];
 }
 
-/** One render of the hook, then its commit. `dirty` is the form's own "differs from the seed". */
-function render(payload: Form, onRestore: (p: Form) => void = () => undefined) {
+/**
+ * One render of the hook, then its commit. `dirty` is the form's own "differs from the seed";
+ * `isDirty`, when given, is the same test passed for a stored draft.
+ */
+function render(
+  payload: Form,
+  onRestore: (p: Form) => void = () => undefined,
+  isDirty?: (p: Form) => boolean,
+) {
   runtime.cursor = { state: 0, ref: 0, effect: 0 };
   runtime.queue = [];
   const out = usePostingDraft<Form>({
     storageKey: KEY,
     base: BASE,
     payload,
-    dirty: payload.payMin !== SEED.payMin,
+    dirty: differsFromSeed(payload),
+    ...(isDirty !== undefined ? { isDirty } : {}),
     off: false,
     onRestore,
   });
@@ -181,6 +193,47 @@ describe("usePostingDraft — a form back at its seed keeps no draft", () => {
     render(SEED);
     expect(stored()).toBeNull();
     expect(render(SEED).restored).toBe(false);
+    unmount();
+  });
+});
+
+describe("usePostingDraft — a stored draft that changes nothing is dropped, not restored", () => {
+  /** A draft whose one difference from the seed is a pick no control shows or sends any more. */
+  const OLD_PICK_ONLY: Form = { ...SEED, oldPick: ["mskill_delivery_rider"] };
+
+  it("is removed from the device: no onRestore, no 'Restored' line, nothing for the next visit", () => {
+    saveDraft(KEY, BASE, OLD_PICK_ONLY);
+    const onRestore = vi.fn();
+    mount();
+    render(SEED, onRestore, differsFromSeed);
+    expect(onRestore).not.toHaveBeenCalled();
+    expect(stored()).toBeNull();
+    expect(render(SEED, onRestore, differsFromSeed).restored).toBe(false);
+    unmount();
+
+    mount();
+    render(SEED, onRestore, differsFromSeed);
+    expect(onRestore).not.toHaveBeenCalled();
+    unmount();
+  });
+
+  it("a draft that does change the form is restored, as before", () => {
+    saveDraft(KEY, BASE, EDITED);
+    const onRestore = vi.fn();
+    mount();
+    render(SEED, onRestore, differsFromSeed);
+    expect(onRestore).toHaveBeenCalledWith(EDITED);
+    expect(render(EDITED, onRestore, differsFromSeed).restored).toBe(true);
+    expect(stored()).not.toBeNull();
+    unmount();
+  });
+
+  it("without `isDirty`, every draft from the same base is restored, as before (the option is additive)", () => {
+    saveDraft(KEY, BASE, OLD_PICK_ONLY);
+    const onRestore = vi.fn();
+    mount();
+    render(SEED, onRestore);
+    expect(onRestore).toHaveBeenCalledWith(OLD_PICK_ONLY);
     unmount();
   });
 });

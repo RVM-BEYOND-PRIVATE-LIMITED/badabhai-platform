@@ -118,10 +118,19 @@ const useTransition = vi.fn((): [boolean, (cb: () => void) => void] => [false, (
 // lib/posting-draft.test.ts's and components/use-posting-draft.test.ts's. Here it is idle (nothing
 // saved yet; restored only when a test says so) and keeps the options the form called it with.
 const discardDraft = vi.fn();
-const draftHook = { restored: false, storageKey: "" };
+interface DraftOptions {
+  storageKey: string;
+  isDirty?: (saved: unknown) => boolean;
+  onRestore?: (saved: unknown) => void;
+}
+const draftHook: { restored: boolean; storageKey: string; options?: DraftOptions } = {
+  restored: false,
+  storageKey: "",
+};
 vi.mock("../../../../components/use-posting-draft", () => ({
-  usePostingDraft: (options: { storageKey: string }) => {
+  usePostingDraft: (options: DraftOptions) => {
     draftHook.storageKey = options.storageKey;
+    draftHook.options = options;
     return { saved: false, restored: draftHook.restored, discard: discardDraft };
   },
 }));
@@ -1024,6 +1033,38 @@ describe("PostingForm — W4: steps, the phone publish bar and the draft", () =>
     expect(setters[6]).toHaveBeenCalledWith([]); // requirements
     expect(setters[7]).toHaveBeenCalledWith([]); // benefits
     expect(setters[12]).toHaveBeenCalledWith(1); // step
+    expect(setters[13]).toHaveBeenCalledWith({ tradeLevel: "", answers: {}, matchSkillIds: [] });
+  });
+});
+
+describe("PostingForm — #2645: a device draft that changes nothing is not restored", () => {
+  /** A draft as this page kept it: a blank form, plus a pick from the old flat skill list. */
+  const OLD_PICK = { matchSkillIds: ["mskill_cnc_turning"], untickedRelatedIds: [] };
+  const SAVED = {
+    fields: BLANK_FIELDS,
+    requirements: [],
+    benefits: [],
+    reqDraft: "",
+    benDraft: "",
+    selection: OLD_PICK,
+    trade: { tradeLevel: "", answers: {}, matchSkillIds: [] },
+  };
+
+  it("the form hands the hook its dirty test, so a draft whose one change is the old pick is dropped", () => {
+    render({ fields: BLANK_FIELDS, fieldErrors: {} });
+    const isDirty = draftHook.options!.isDirty!;
+    expect(isDirty(SAVED)).toBe(false);
+    expect(isDirty({ ...SAVED, fields: { ...BLANK_FIELDS, city: "Pune" } })).toBe(true);
+    // A draft is read the way it is restored: a part it lacks starts blank (never a throw).
+    expect(isDirty({ selection: OLD_PICK })).toBe(false);
+    expect(isDirty({ fields: { city: "Pune" } })).toBe(true);
+  });
+
+  it("onRestore applies that same reading of the draft", () => {
+    render({ fields: BLANK_FIELDS, fieldErrors: {} });
+    draftHook.options!.onRestore!({ fields: { city: "Pune" } });
+    expect(setters[0]).toHaveBeenCalledWith({ ...BLANK_FIELDS, city: "Pune" }); // fields
+    expect(setters[4]).toHaveBeenCalledWith({ matchSkillIds: [], untickedRelatedIds: [] });
     expect(setters[13]).toHaveBeenCalledWith({ tradeLevel: "", answers: {}, matchSkillIds: [] });
   });
 });

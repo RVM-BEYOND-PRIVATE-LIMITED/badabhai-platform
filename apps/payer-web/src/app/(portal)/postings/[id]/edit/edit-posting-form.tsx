@@ -233,9 +233,9 @@ export function EditPostingForm({
   // The legacy flat picker's selection. No flat picker since #2645 (the trade owns the match set);
   // kept for the stored draft's shape (W4). APPENDED too, so the earlier positional state order is
   // unchanged.
-  const [legacySelection, setLegacySelection] = useState<MatchSelection>(
-    matchSelection ?? { matchSkillIds: [], untickedRelatedIds: [] },
-  );
+  const seedLegacySelection = (): MatchSelection =>
+    matchSelection ?? { matchSkillIds: [], untickedRelatedIds: [] };
+  const [legacySelection, setLegacySelection] = useState<MatchSelection>(seedLegacySelection());
   const [pending, startTransition] = useTransition();
   // A saved form lands on the posting with the shell's "Opening <title>…" cue; its button stays
   // pending (`navigating`) until the page is gone.
@@ -243,6 +243,20 @@ export function EditPostingForm({
 
   // W4 — unsaved edits are kept on this device (only over the SAME saved copy: the base is the
   // seed) and leaving with them asks first.
+  /**
+   * A draft kept on this device as the form restores it over the saved posting: what `onRestore`
+   * applies, and what `isDirty` judges before restoring. A field, the trade or the old pick an older
+   * draft lacks keeps the form's seed.
+   */
+  const restoredDraft = (saved: Partial<EditPostingDraft>): EditPostingDraft => ({
+    fields: { ...seedFields(initial), ...saved.fields },
+    requirements: saved.requirements ?? [],
+    benefits: saved.benefits ?? [],
+    reqDraft: saved.reqDraft ?? "",
+    benDraft: saved.benDraft ?? "",
+    trade: saved.trade ?? seedTrade(),
+    legacySelection: saved.legacySelection ?? seedLegacySelection(),
+  });
   const draftPayload: EditPostingDraft = {
     fields,
     requirements,
@@ -257,15 +271,18 @@ export function EditPostingForm({
     base: JSON.stringify({ status, initial, matchSelection: matchSelection ?? null }),
     payload: draftPayload,
     dirty: isEditPostingDirty(draftPayload, initial),
+    // #2645 — a draft whose one change is the old flat pick restores as the saved posting: dropped.
+    isDirty: (saved) => isEditPostingDirty(restoredDraft(saved), initial),
     off: navigating,
     onRestore: (saved) => {
-      setFields({ ...seedFields(initial), ...saved.fields });
-      setRequirements(saved.requirements ?? []);
-      setBenefits(saved.benefits ?? []);
-      setReqDraft(saved.reqDraft ?? "");
-      setBenDraft(saved.benDraft ?? "");
-      if (saved.trade) setTrade(saved.trade);
-      if (saved.legacySelection) setLegacySelection(saved.legacySelection);
+      const restored = restoredDraft(saved);
+      setFields(restored.fields);
+      setRequirements(restored.requirements);
+      setBenefits(restored.benefits);
+      setReqDraft(restored.reqDraft);
+      setBenDraft(restored.benDraft);
+      setTrade(restored.trade);
+      setLegacySelection(restored.legacySelection);
     },
   });
 
@@ -283,7 +300,7 @@ export function EditPostingForm({
     setRevealed({});
     setProblem(null);
     setServerFieldErrors({});
-    setLegacySelection(matchSelection ?? { matchSkillIds: [], untickedRelatedIds: [] });
+    setLegacySelection(seedLegacySelection());
   }
 
   const isDraft = status === "draft";
