@@ -373,36 +373,15 @@ class _PostJobScreenState extends State<PostJobScreen> {
   /// for want of a trade is told why where the trade goes.
   Widget _roleField() {
     if (_postingTradesLoading || _postingTrades.isEmpty) {
-      return ListBody(
-        children: <Widget>[
-          Text(
-            'Role',
-            style: AppTypography.body(
-              size: AppTypography.sizeSm,
-              weight: FontWeight.w700,
-              color: AppColors.textPrimary,
-            ),
-          ),
-          const SizedBox(height: AppSpacing.s2),
-          if (_postingTradesLoading)
-            Text(
-              kPostingTradesLoadingLabel,
-              style: AppTypography.body(
-                size: AppTypography.sizeSm,
-                color: AppColors.textMuted,
-              ),
-            )
-          else
-            PostingTradesUnavailable(
-              failure: _postingTradesFailure,
-              onRetry: _loadPostingTrades,
-            ),
-          BbFieldError(text: _form[JobFormField.role]),
-        ],
+      return PostingTradePickerPlaceholder(
+        loading: _postingTradesLoading,
+        failure: _postingTradesFailure,
+        onRetry: _loadPostingTrades,
+        errorText: _form[JobFormField.role],
       );
     }
     return BbSelect<String?>(
-      label: 'Role',
+      label: kPostingTradePickerLabel,
       value: _roleKind,
       items: <String?>[
         null,

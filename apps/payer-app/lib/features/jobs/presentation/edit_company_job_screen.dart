@@ -14,7 +14,6 @@ import '../../../core/widgets/bb_button.dart';
 import '../../../core/widgets/bb_card.dart';
 import '../../../core/widgets/bb_chip_select.dart';
 import '../../../core/widgets/bb_field.dart';
-import '../../../core/widgets/bb_field_error.dart';
 import '../../../core/widgets/bb_focus_chain.dart';
 import '../../../core/widgets/bb_form_errors.dart';
 import '../../../core/widgets/bb_icon_button.dart';
@@ -632,7 +631,7 @@ class _EditCompanyJobScreenState extends State<EditCompanyJobScreen> {
   Widget _roleField() {
     if (!_postingTradesLoading && _postingTrades.isNotEmpty) {
       return BbChipSelect<String>(
-        label: 'Role',
+        label: kPostingTradePickerLabel,
         value: _roleKind,
         options: _postingTrades
             .map((PostingTradeForm t) => t.roleKind)
@@ -642,33 +641,11 @@ class _EditCompanyJobScreenState extends State<EditCompanyJobScreen> {
         errorText: _form[JobFormField.role],
       );
     }
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        Text(
-          'Role',
-          style: AppTypography.body(
-            size: AppTypography.sizeSm,
-            weight: FontWeight.w700,
-            color: AppColors.textPrimary,
-          ),
-        ),
-        const SizedBox(height: AppSpacing.s2),
-        if (_postingTradesLoading)
-          Text(
-            kPostingTradesLoadingLabel,
-            style: AppTypography.body(
-              size: AppTypography.sizeSm,
-              color: AppColors.textMuted,
-            ),
-          )
-        else
-          PostingTradesUnavailable(
-            failure: _postingTradesFailure,
-            onRetry: _loadPostingTrades,
-          ),
-        BbFieldError(text: _form[JobFormField.role]),
-      ],
+    return PostingTradePickerPlaceholder(
+      loading: _postingTradesLoading,
+      failure: _postingTradesFailure,
+      onRetry: _loadPostingTrades,
+      errorText: _form[JobFormField.role],
     );
   }
 

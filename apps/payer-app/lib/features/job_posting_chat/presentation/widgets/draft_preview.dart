@@ -11,11 +11,10 @@ import '../../../../core/widgets/bb_badge.dart';
 import '../../../../core/widgets/bb_button.dart';
 import '../../../../core/widgets/bb_card.dart';
 import '../../../../core/widgets/bb_field.dart';
-import '../../../../core/widgets/bb_field_error.dart';
 import '../../../../core/widgets/bb_form_errors.dart';
 import '../../../../core/widgets/bb_shake.dart';
 import '../../../jobs/presentation/widgets/trade_posting_fields.dart'
-    show PostingTradesUnavailable, kPostingTradesLoadingLabel;
+    show PostingTradePickerPlaceholder, kPostingTradePickerLabel;
 
 /// Heading of the structured draft the payer reviews before anything is created.
 const String kDraftPreviewTitle = 'Your job posting';
@@ -278,7 +277,7 @@ class _DraftPreviewState extends State<DraftPreview> {
     final List<PostingTradeForm> trades = widget.trades;
     if (!widget.tradesLoading && trades.isNotEmpty) {
       return BbSelect<String?>(
-        label: 'Role',
+        label: kPostingTradePickerLabel,
         // Only ever a value the list holds (the dropdown requires it).
         value: _isTrade(widget.roleKind) ? widget.roleKind : null,
         items: <String?>[
@@ -294,33 +293,11 @@ class _DraftPreviewState extends State<DraftPreview> {
         onChanged: widget.onRoleKindChanged,
       );
     }
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        Text(
-          'Role',
-          style: AppTypography.body(
-            size: AppTypography.sizeSm,
-            weight: FontWeight.w700,
-            color: AppColors.textPrimary,
-          ),
-        ),
-        const SizedBox(height: AppSpacing.s2),
-        if (widget.tradesLoading)
-          Text(
-            kPostingTradesLoadingLabel,
-            style: AppTypography.body(
-              size: AppTypography.sizeSm,
-              color: AppColors.textMuted,
-            ),
-          )
-        else
-          PostingTradesUnavailable(
-            failure: widget.tradesFailure,
-            onRetry: widget.onRetryTrades,
-          ),
-        BbFieldError(text: _form[_PublishField.trade]),
-      ],
+    return PostingTradePickerPlaceholder(
+      loading: widget.tradesLoading,
+      failure: widget.tradesFailure,
+      onRetry: widget.onRetryTrades,
+      errorText: _form[_PublishField.trade],
     );
   }
 

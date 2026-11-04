@@ -7,10 +7,72 @@ import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/theme/app_typography.dart';
 import '../../../../core/widgets/bb_button.dart';
 import '../../../../core/widgets/bb_chip.dart';
+import '../../../../core/widgets/bb_field_error.dart';
 
 /// Shown where a company form's trade picker goes while the 16-trade catalogue
 /// (`GET /payer/posting-trades`) loads.
 const String kPostingTradesLoadingLabel = 'Loading roles…';
+
+/// The trade picker's label on every form that picks one of the 16 trades —
+/// and on [PostingTradePickerPlaceholder], which stands in for it.
+const String kPostingTradePickerLabel = 'Role';
+
+/// #2635 — what a form shows where its trade picker goes until the 16 trades
+/// are there to pick from: the picker's label, then [kPostingTradesLoadingLabel]
+/// while the catalogue loads, or [PostingTradesUnavailable] (the real cause and
+/// a Retry) if it did not. [errorText] is the role's inline error, so a refusal
+/// placed at the role always has a spot to show under.
+///
+/// One copy for the post form, Edit job and the AI chat's draft panel.
+class PostingTradePickerPlaceholder extends StatelessWidget {
+  const PostingTradePickerPlaceholder({
+    super.key,
+    required this.loading,
+    required this.failure,
+    required this.onRetry,
+    this.errorText,
+  });
+
+  /// The catalogue read is in flight.
+  final bool loading;
+
+  /// Why the catalogue did not load; null when it answered but listed no trade.
+  final PayerFailure? failure;
+
+  final VoidCallback onRetry;
+
+  /// The role's inline error; null shows none.
+  final String? errorText;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Text(
+          kPostingTradePickerLabel,
+          style: AppTypography.body(
+            size: AppTypography.sizeSm,
+            weight: FontWeight.w700,
+            color: AppColors.textPrimary,
+          ),
+        ),
+        const SizedBox(height: AppSpacing.s2),
+        if (loading)
+          Text(
+            kPostingTradesLoadingLabel,
+            style: AppTypography.body(
+              size: AppTypography.sizeSm,
+              color: AppColors.textMuted,
+            ),
+          )
+        else
+          PostingTradesUnavailable(failure: failure, onRetry: onRetry),
+        BbFieldError(text: errorText),
+      ],
+    );
+  }
+}
 
 /// #2635 — what stands in for the trade picker when the 16-trade catalogue did
 /// not load: the real reason and a Retry.
