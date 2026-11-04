@@ -4557,3 +4557,375 @@ a.pager__step:hover {
     background: var(--text-heading);
   }
 }
+
+/* ==================================================================
+ * A5 (#2575) — OVERLAYS: Dialog, Drawer, Toast, the T2/T3 confirm, the armed pulse and the
+ * primary button's press edge. Every duration is a motion token, so all of it is 0 under
+ * prefers-reduced-motion (tokens.css); only opacity and transform move, and never by more than
+ * 6px. Enter on --ease-enter over --duration-base, leave on --ease-exit over --duration-fast —
+ * the token `usePresence` (components/presence.ts) waits for before it unmounts.
+ * ================================================================== */
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal);
+  display: grid;
+}
+.overlay__scrim {
+  position: absolute;
+  inset: 0;
+  background: var(--scrim);
+  animation: overlay-fade-in var(--duration-base) var(--ease-enter) both;
+}
+.overlay[data-state="closing"] .overlay__scrim {
+  animation: overlay-fade-out var(--duration-fast) var(--ease-exit) both;
+}
+.overlay__panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: var(--surface-card);
+  color: var(--text-primary);
+  border: var(--border-hairline) solid var(--divider);
+}
+.overlay__panel:focus {
+  outline: none;
+}
+.overlay__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-5) var(--space-5) var(--space-3);
+}
+.overlay__heading {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+.overlay__title {
+  margin: 0;
+  font-size: var(--ui-h2-size);
+  line-height: var(--ui-h2-leading);
+  font-weight: var(--ui-h2-weight);
+  letter-spacing: var(--ui-h2-tracking);
+  overflow-wrap: anywhere;
+}
+.overlay__sub {
+  margin: 0;
+  font-size: var(--ui-body-sm-size);
+  line-height: var(--ui-body-leading);
+  color: var(--text-secondary);
+  max-width: var(--reading-max);
+}
+.overlay__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-2) var(--space-5) var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+.overlay__body > .alert {
+  margin-bottom: 0;
+}
+.overlay__foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-5) var(--space-5);
+  border-top: var(--border-hairline) solid var(--divider);
+}
+.overlay__hint {
+  flex: 1 1 100%;
+  margin: 0;
+  font-size: var(--ui-caption-size);
+  line-height: var(--ui-caption-leading);
+  color: var(--text-muted);
+  text-align: end;
+}
+
+/* Dialog — centred; the scrim fades in while the panel rises and scales 0.98 → 1. */
+.overlay--dialog {
+  place-items: center;
+  padding: var(--space-4);
+}
+.overlay--dialog .overlay__panel {
+  width: min(560px, 100%);
+  max-height: calc(100dvh - 2 * var(--space-4));
+  border-radius: var(--radius-lg);
+  animation: dialog-in var(--duration-base) var(--ease-enter) both;
+}
+.overlay--dialog[data-state="closing"] .overlay__panel {
+  animation: dialog-out var(--duration-fast) var(--ease-exit) both;
+}
+
+/* Drawer — the right edge, min(960px, 62vw); the whole width on a phone, where 62vw is too
+   narrow to read. Addressable by URL (`useUrlDrawer`). */
+.overlay--drawer {
+  justify-items: end;
+}
+.overlay--drawer .overlay__panel {
+  width: min(960px, 62vw);
+  height: 100dvh;
+  border-width: 0 0 0 var(--border-hairline);
+  animation: drawer-in var(--duration-base) var(--ease-enter) both;
+}
+.overlay--drawer[data-state="closing"] .overlay__panel {
+  animation: drawer-out var(--duration-fast) var(--ease-exit) both;
+}
+@media (max-width: 1023px) {
+  .overlay--drawer .overlay__panel {
+    width: 100%;
+  }
+}
+
+@keyframes overlay-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes overlay-fade-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+@keyframes dialog-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes dialog-out {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    transform: translateY(6px) scale(0.98);
+  }
+}
+@keyframes drawer-in {
+  from {
+    opacity: 0;
+    transform: translateX(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes drawer-out {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    transform: translateX(6px);
+  }
+}
+
+/* The T2/T3 confirm's before/after diff (components/confirm-dialog.tsx). */
+.diff {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--ui-body-sm-size);
+  line-height: var(--ui-body-leading);
+}
+.diff th,
+.diff td {
+  padding: var(--space-2) var(--space-3);
+  border-bottom: var(--border-hairline) solid var(--divider);
+  text-align: start;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+.diff thead th {
+  font-size: var(--ui-label-size);
+  font-weight: var(--ui-label-weight);
+  color: var(--text-muted);
+}
+.diff tbody th {
+  font-weight: var(--weight-semibold);
+  color: var(--text-secondary);
+}
+.diff__before {
+  color: var(--text-muted);
+  text-decoration: line-through;
+}
+.diff__after {
+  color: var(--text-primary);
+  font-weight: var(--weight-semibold);
+}
+.confirm__name {
+  font-family: var(--font-mono);
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+
+/* Toast — bottom-right, above every overlay; rises 6px with a fade and leaves faster. An Undo
+   toast drains a thin Safety Yellow bar over its undo window (a progress indicator: the one
+   motion allowed to run longer than 300ms). The window itself is the inline animation-duration
+   set from UNDO_WINDOW_MS, so the bar and the timer are one number. */
+.toasts {
+  position: fixed;
+  right: var(--space-4);
+  bottom: var(--space-4);
+  left: var(--space-4);
+  z-index: var(--z-toast);
+  display: flex;
+  justify-content: flex-end;
+  pointer-events: none;
+}
+.toasts__list {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  width: min(420px, 100%);
+}
+.toast {
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-3) var(--space-3) var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  background: var(--surface-ink);
+  color: var(--text-on-ink);
+  box-shadow: inset 3px 0 0 var(--toast-tone, var(--brand));
+  pointer-events: auto;
+  animation: toast-in var(--duration-base) var(--ease-enter) both;
+}
+.toast[data-state="closing"] {
+  animation: toast-out var(--duration-fast) var(--ease-exit) both;
+}
+.toast--success {
+  --toast-tone: var(--success);
+}
+.toast--danger {
+  --toast-tone: var(--danger);
+}
+.toast__message {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  font-size: var(--ui-body-sm-size);
+  line-height: var(--ui-body-leading);
+  overflow-wrap: anywhere;
+}
+.toast .btn--ghost,
+.toast .iconbtn {
+  color: var(--text-on-ink);
+}
+.toast .btn--ghost {
+  border-color: var(--text-on-ink-muted);
+}
+.toast__timer {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  background: var(--brand);
+  transform-origin: left center;
+  animation-name: toast-drain;
+  animation-timing-function: linear;
+  animation-fill-mode: forwards;
+}
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes toast-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+@keyframes toast-drain {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .toast__timer {
+    animation: none;
+  }
+}
+
+/* An ARMED "click again to confirm" button (AdminActionButton): its edge pulses ONCE as it arms
+   — a ring that fades out as it grows by 2px — and never repeats. */
+.admin-action [data-armed] {
+  position: relative;
+}
+.admin-action [data-armed]::after {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  border: 2px solid var(--pulse-tone, var(--brand));
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 0;
+  animation: armed-pulse var(--duration-slow) var(--ease-out) 1;
+}
+.admin-action .btn--danger[data-armed] {
+  --pulse-tone: var(--danger);
+}
+@keyframes armed-pulse {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(1.03);
+  }
+}
+
+/* The primary button sits on a 3px Safety Yellow press edge (#2570 --shadow-press-primary) that
+   collapses as it sinks onto it over --duration-press, and springs back over --duration-fast.
+   --press-depth is 0 under reduced motion, so there the edge just disappears on press. */
+.btn--primary {
+  box-shadow: var(--shadow-press-primary);
+}
+.btn--primary:active:not(:disabled) {
+  box-shadow: var(--shadow-press-primary-pressed);
+  transform: translateY(var(--press-depth));
+  transition-duration: var(--duration-press);
+}
+.btn--primary:disabled {
+  box-shadow: none;
+}

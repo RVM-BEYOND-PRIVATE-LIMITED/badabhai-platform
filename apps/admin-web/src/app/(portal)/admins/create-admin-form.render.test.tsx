@@ -16,9 +16,11 @@ const { CreateAdminForm } = await import("./create-admin-form");
 const html = renderToStaticMarkup(<CreateAdminForm mayReadEvents />);
 
 describe("the create-admin form", () => {
-  it("has its anchor for the page header's primary action", () => {
-    expect(html).toContain('id="ad-create"');
-    expect(html).toContain("Create an admin");
+  it("is a dialog body: the Dialog owns the title, so the form draws no heading of its own", () => {
+    // A5 (#2575) — it opens in the header's "Create an admin" dialog (admin-access-dialogs.tsx).
+    expect(html).not.toContain('id="ad-create"');
+    expect(html).not.toContain("<h2");
+    expect(html.startsWith('<form class="form"')).toBe(true);
   });
 
   it("asks for work email, full name and role", () => {
@@ -50,5 +52,9 @@ describe("the create-admin form", () => {
   it("calls nothing on render and shows no banner yet", () => {
     expect(createAdminAction).not.toHaveBeenCalled();
     expect(html).not.toContain("alert");
+  });
+
+  it("shows no temporary password before an admin has been created", () => {
+    expect(html).not.toContain("Copy password");
   });
 });

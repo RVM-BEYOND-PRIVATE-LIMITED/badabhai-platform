@@ -11,10 +11,21 @@ import { inviteAdminAction } from "./actions";
 import { ADMIN_ROLES, ROLE_LABELS, type AdminRole } from "../../../lib/auth/capabilities";
 import { looksLikeAdminEmail } from "../../../lib/email-shape";
 import type { AdminActionOutcome } from "../../../lib/admin-action-result";
-import { ACTION_ICON, Icon } from "@badabhai/icons";
+import { ACTION_ICON } from "@badabhai/icons";
 import { Timestamp } from "../../../components/timestamp";
+import { OneTimeSecret } from "../../../components/one-time-secret";
 
-/** Invite a new admin by work email + role (`manage_admins`). Status defaults to `pending`. */
+/** What the invite dialog says under its title. */
+export const INVITE_ADMIN_DESCRIPTION =
+  "Creates a pending admin and a one-time accept link, shown here once for you to share. An email is sent only when real invite delivery is configured.";
+
+/**
+ * Invite a new admin by work email + role (`manage_admins`). Status defaults to `pending`.
+ *
+ * The body of the "Invite an admin" dialog (`AdminAccessDialogs`), which owns its title and
+ * description; the result and the one-time link render inside it, and closing the dialog drops
+ * them (the link cannot be fetched again).
+ */
 export function InviteAdminForm({
   mayReadEvents,
 }: {
@@ -42,16 +53,7 @@ export function InviteAdminForm({
   }
 
   return (
-    <section className="panel" aria-labelledby="ad-invite">
-      <div className="panel__head">
-        <h2 className="panel__title" id="ad-invite">
-          Invite an admin
-        </h2>
-        <p className="panel__sub">
-          Creates a pending admin and a one-time accept link, shown here once for you to share.
-          An email is sent only when real invite delivery is configured.
-        </p>
-      </div>
+    <>
       <form className="form" onSubmit={(e) => e.preventDefault()}>
         <div className="form-grid">
           <label className="field" htmlFor={emailId}>
@@ -104,9 +106,9 @@ export function InviteAdminForm({
         />
       )}
       {outcome?.ok && outcome.acceptUrl ? (
-        <AcceptLinkPanel url={outcome.acceptUrl} expiresAt={outcome.acceptExpiresAt} />
+        <AcceptLink url={outcome.acceptUrl} expiresAt={outcome.acceptExpiresAt} />
       ) : null}
-    </section>
+    </>
   );
 }
 
@@ -117,32 +119,15 @@ export function InviteAdminForm({
  * explicitly enabled and an email provider is configured, so in the ordinary case no mail
  * is sent and this link is the only way the invitee can ever reach the accept page.
  *
- * A BEARER SECRET, treated like one: rendered for the operator to copy, never logged,
- * never put in an analytics event, never persisted. It cannot be fetched again —
- * re-inviting a pending admin mints a fresh link and invalidates this one.
+ * A BEARER SECRET (`OneTimeSecret`). It cannot be fetched again — re-inviting a pending admin
+ * mints a fresh link and invalidates this one.
  */
-function AcceptLinkPanel({ url, expiresAt }: { url: string; expiresAt?: string }) {
-  const [copied, setCopied] = useState(false);
-
-  async function copy() {
-    try {
-      await navigator.clipboard.writeText(url);
-      setCopied(true);
-      // Long enough to be seen, short enough that the button does not lie about a
-      // clipboard the operator may have overwritten since.
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      // Clipboard denied (insecure origin, permission policy). The link is on screen and
-      // selectable, so the operator can still copy it by hand — say nothing misleading.
-      setCopied(false);
-    }
-  }
-
+function AcceptLink({ url, expiresAt }: { url: string; expiresAt?: string }) {
   return (
-    <div className="alert alert--ok" role="status">
-      <div className="alert__text">
-        <p className="alert__title">Send this link to the invitee</p>
-        <p className="alert__body">
+    <OneTimeSecret
+      title="Send this link to the invitee"
+      body={
+        <>
           Shown once. No email was sent unless real invite delivery is configured
           {expiresAt ? (
             <>
@@ -151,22 +136,11 @@ function AcceptLinkPanel({ url, expiresAt }: { url: string; expiresAt?: string }
             </>
           ) : null}
           .
-        </p>
-        {/* readOnly, not disabled: an operator must be able to select it by hand when the
-            clipboard API is unavailable. */}
-        <input
-          className="field__input"
-          type="text"
-          readOnly
-          value={url}
-          onFocus={(e) => e.currentTarget.select()}
-          aria-label="Invite accept link"
-        />
-      </div>
-      <button type="button" className="btn" onClick={copy}>
-        <Icon name={copied ? ACTION_ICON.approve : ACTION_ICON.copy} />
-        <span>{copied ? "Copied" : "Copy link"}</span>
-      </button>
-    </div>
+        </>
+      }
+      value={url}
+      inputLabel="Invite accept link"
+      copyLabel="Copy link"
+    />
   );
 }

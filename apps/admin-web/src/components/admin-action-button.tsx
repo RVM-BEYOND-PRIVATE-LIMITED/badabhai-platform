@@ -1,8 +1,22 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition, type FocusEvent } from "react";
 import { ACTION_ICON, Icon, type IconName } from "@badabhai/icons";
 import type { AdminActionOutcome } from "../lib/admin-action-result";
+
+/** How long an armed button waits for its confirming click before it disarms itself (A5, #2575). */
+export const ARM_TIMEOUT_MS = 5000;
+
+/**
+ * Whether focus leaving `container` for `next` disarms it: focus went OUTSIDE the button's own
+ * cluster (Tab to Cancel keeps it armed; a click or Tab anywhere else does not).
+ */
+export function focusLeftCluster(
+  container: { contains(node: unknown): boolean },
+  next: unknown,
+): boolean {
+  return next === null || next === undefined || !container.contains(next);
+}
 
 interface AdminActionButtonProps {
   /** Button copy before the first click. */
@@ -47,6 +61,11 @@ interface AdminActionButtonProps {
  * only a SECOND click while still armed invokes `action`. Disabled the whole time a request is
  * in flight (`useTransition`), so a double-click cannot fire it twice.
  *
+ * An armed button does NOT stay armed (A5, #2575): it disarms after ARM_TIMEOUT_MS without the
+ * confirming click, and as soon as focus leaves its cluster (the button and its Cancel), so a
+ * button armed and walked away from cannot be fired by a later stray click. Its border pulses
+ * once as it arms (`.admin-action [data-armed]` in globals.css), never repeatedly.
+ *
  * ── ONE OWNER FOR THE RESULT COPY ───────────────────────────────────────────────────────
  * This button reports the outcome through `onSettled` and renders NOTHING about it itself.
  * It used to also keep its own `error` state and print the failure inline, while every one of
@@ -68,6 +87,16 @@ export function AdminActionButton({
   const [armed, setArmed] = useState(false);
   const [pending, startTransition] = useTransition();
 
+  useEffect(() => {
+    if (!armed || pending) return;
+    const timer = setTimeout(() => setArmed(false), ARM_TIMEOUT_MS);
+    return () => clearTimeout(timer);
+  }, [armed, pending]);
+
+  function handleBlur(e: FocusEvent<HTMLSpanElement>) {
+    if (armed && !pending && focusLeftCluster(e.currentTarget, e.relatedTarget)) setArmed(false);
+  }
+
   function handleClick() {
     if (pending) return;
     if (!armed) {
@@ -82,10 +111,11 @@ export function AdminActionButton({
   }
 
   return (
-    <span className="admin-action" aria-live="polite">
+    <span className="admin-action" aria-live="polite" onBlur={handleBlur}>
       <button
         type="button"
         className={`btn btn--sm ${armed ? `btn--${variant}` : "btn--ghost"}`}
+        data-armed={armed && !pending ? "" : undefined}
         onClick={handleClick}
         disabled={disabled || pending}
       >

@@ -3,6 +3,7 @@ import { ROLE_LABELS, can } from "../../lib/auth/capabilities";
 import { NAV } from "../../components/nav-model";
 import { Shell } from "../../components/shell";
 import { SignOutButton } from "../../components/sign-out-button";
+import { ToastProvider } from "../../components/toast";
 
 // Per-request. A cached admin shell could show one operator another's navigation.
 export const dynamic = "force-dynamic";
@@ -27,14 +28,18 @@ export default async function PortalLayout({ children }: { children: React.React
     // an empty heading that reads like a broken menu.
   })).filter((section) => section.items.length > 0);
 
+  // The toast stack (A5, #2575) wraps the whole shell, so any page's action can raise a toast
+  // (a T1 Undo) and it outlives a navigation inside the portal.
   return (
-    <Shell
-      sections={sections}
-      roleLabel={ROLE_LABELS[session.role]}
-      adminId={session.adminId}
-      onSignOut={<SignOutButton />}
-    >
-      {children}
-    </Shell>
+    <ToastProvider>
+      <Shell
+        sections={sections}
+        roleLabel={ROLE_LABELS[session.role]}
+        adminId={session.adminId}
+        onSignOut={<SignOutButton />}
+      >
+        {children}
+      </Shell>
+    </ToastProvider>
   );
 }
