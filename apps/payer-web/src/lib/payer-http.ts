@@ -123,24 +123,32 @@ export async function payerFetch<T>(path: string, opts: RequestOptions<T>): Prom
 }
 
 /**
- * Classify a 409 body, defensively. The API's exception filter nests the thrown payload under
- * `error` (`{ statusCode, error: { reason, message, current_price_inr, … }, requestId, … }`); a
- * flat body is accepted too. `reason: "price_mismatch"` → {@link PriceMismatchError}; anything
- * else (including an unreadable body) → {@link PayerConflictError}, a status-409
+ * The fields of an error body. The API's exception filter nests the thrown payload under `error`
+ * (`{ statusCode, error: { reason, message, … }, requestId, … }`); a flat body is read as it is.
+ * A body that is not an object has none. The one reading of the envelope a 400 and a 409 share.
+ */
+function envelopeFields(body: unknown): Record<string, unknown> {
+  if (typeof body !== "object" || body === null) return {};
+  const nested = (body as { error?: unknown }).error;
+  return (typeof nested === "object" && nested !== null ? nested : body) as Record<string, unknown>;
+}
+
+/** The machine-readable `reason` an error body's fields name, or null when they name none. */
+function reasonOf(fields: Record<string, unknown>): string | null {
+  return typeof fields.reason === "string" && fields.reason.length > 0 ? fields.reason : null;
+}
+
+/**
+ * Classify a 409 body, defensively ({@link envelopeFields}: nested under `error` or flat).
+ * `reason: "price_mismatch"` → {@link PriceMismatchError} with the body's `current_price_inr`;
+ * anything else (including an unreadable body) → {@link PayerConflictError}, a status-409
  * {@link PayerHttpError} carrying the API's `reason` (#2135 — `in_flight`, `no_active_plan`) when
  * the body names one, else null (an API before #2135), and its `message`.
  */
 async function readConflict(path: string, res: Response): Promise<Error> {
   let fields: Record<string, unknown> = {};
   try {
-    const body: unknown = await res.json();
-    if (typeof body === "object" && body !== null) {
-      const nested = (body as { error?: unknown }).error;
-      fields = (typeof nested === "object" && nested !== null ? nested : body) as Record<
-        string,
-        unknown
-      >;
-    }
+    fields = envelopeFields(await res.json());
   } catch {
     fields = {};
   }
@@ -152,20 +160,21 @@ async function readConflict(path: string, res: Response): Promise<Error> {
   return new PayerConflictError(
     path,
     typeof fields.message === "string" ? fields.message : null,
-    typeof fields.reason === "string" && fields.reason.length > 0 ? fields.reason : null,
+    reasonOf(fields),
   );
 }
 
 /**
- * Read a 400 body ONCE, defensively: its field `issues` and its machine-readable `reason`.
- * A malformed or unreadable body yields neither (the class-only 400, as before).
+ * Read a 400 body ONCE, defensively: its field `issues` and its machine-readable `reason` (#2635 —
+ * read from the same {@link envelopeFields} as a 409's). A malformed or unreadable body yields
+ * neither (the class-only 400, as before).
  */
 async function readBadRequest(
   res: Response,
 ): Promise<{ issues: ApiFieldIssue[]; reason: string | null }> {
   try {
     const body: unknown = await res.json();
-    return { issues: fieldIssuesIn(body), reason: reasonIn(body) };
+    return { issues: fieldIssuesIn(body), reason: reasonOf(envelopeFields(body)) };
   } catch {
     return { issues: [], reason: null };
   }
@@ -191,18 +200,4 @@ function fieldIssuesIn(body: unknown): ApiFieldIssue[] {
     issues.push({ path: typeof path === "string" ? path : "", message });
   }
   return issues;
-}
-
-/**
- * The 400's `reason` (#2635 — nested under `error` by the exception filter; a flat body is read
- * too), or null when it names none. The same reading as a 409's {@link readConflict}.
- */
-function reasonIn(body: unknown): string | null {
-  if (typeof body !== "object" || body === null) return null;
-  const nested = (body as { error?: unknown }).error;
-  const fields = (typeof nested === "object" && nested !== null ? nested : body) as Record<
-    string,
-    unknown
-  >;
-  return typeof fields.reason === "string" && fields.reason.length > 0 ? fields.reason : null;
 }
