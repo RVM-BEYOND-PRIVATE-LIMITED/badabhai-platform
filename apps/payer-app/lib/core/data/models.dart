@@ -822,7 +822,7 @@ const Map<String, String> kAgencyTradeLabels = <String, String>{
 /// Label for a trade key — falls back to the raw key for an unknown value.
 String agencyTradeLabel(String key) => kAgencyTradeLabels[key] ?? key;
 
-/// The 26 declared job ROLE kinds (`role_kind`, migration 0131) — DISPLAY /
+/// The 27 declared job ROLE kinds (`role_kind`, migration 0131) — DISPLAY /
 /// CLASSIFICATION ONLY, never a match input. This is the value that picks the
 /// role illustration on the worker's job card; a posting without it still
 /// renders the generic art. Mirrors `TRADE_FORM_KINDS_ALL` in
@@ -855,6 +855,7 @@ const List<String> kJobRoleKinds = <String>[
   'edm_wirecut_operator',
   'heat_treatment_technician',
   'production_supervisor',
+  'foundry_forging_operator',
 ];
 
 /// Human labels for [kJobRoleKinds] (display only — the wire always carries the
@@ -886,9 +887,10 @@ const Map<String, String> kJobRoleLabels = <String, String>{
   'edm_wirecut_operator': 'EDM / Wire-cut Operator',
   'heat_treatment_technician': 'Heat-Treatment Technician',
   'production_supervisor': 'Production Supervisor',
+  'foundry_forging_operator': 'Foundry / Forging Operator',
 };
 
-/// Label for a role kind — null when the value is not one of the 26.
+/// Label for a role kind — null when the value is not one of the 27.
 String? jobRoleLabel(String? kind) =>
     kind == null ? null : kJobRoleLabels[kind];
 
