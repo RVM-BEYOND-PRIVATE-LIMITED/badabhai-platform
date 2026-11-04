@@ -312,8 +312,12 @@ export function formatDisplayRupees(value: string): string {
   const sign = negative ? "−" : "";
   const isZero = /^0+$/.test(whole + fraction);
   if (isZero) return "₹0.00";
+  // The sub-paisa band is judged on the UNROUNDED value: rounding first turned 0.005–0.0099…
+  // into "₹0.01", overstating a small call by up to 2×.
+  if (whole === "0" && fraction.padEnd(2, "0").startsWith("00")) {
+    return negative ? "> −₹0.01" : "<₹0.01";
+  }
   const cents = roundDecimal(whole, fraction, 2);
-  if (BigInt(whole) < 1n && cents === 0n) return negative ? "> −₹0.01" : "<₹0.01";
   if (BigInt(whole) >= 100n || cents >= 10000n) {
     return `${sign}₹${groupIndianDigits(roundDecimal(whole, fraction, 0).toString())}`;
   }

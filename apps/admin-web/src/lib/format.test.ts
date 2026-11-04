@@ -314,7 +314,7 @@ describe("formatDisplayRupees — no ₹ on screen shows more than two decimals 
     expect(formatDisplayRupees("12.480000")).toBe("₹12.48");
     expect(formatDisplayRupees("3")).toBe("₹3.00");
     expect(formatDisplayRupees("0.5")).toBe("₹0.50");
-    expect(formatDisplayRupees("0.005")).toBe("₹0.01");
+    expect(formatDisplayRupees("0.01")).toBe("₹0.01");
   });
 
   it("a figure that rounds up to ₹100 is shown whole, not as ₹100.00", () => {
@@ -325,6 +325,9 @@ describe("formatDisplayRupees — no ₹ on screen shows more than two decimals 
   it("below ₹0.01 reads '<₹0.01' — never ₹0.00, which would claim nothing was spent", () => {
     expect(formatDisplayRupees("0.000012")).toBe("<₹0.01");
     expect(formatDisplayRupees("0.004999")).toBe("<₹0.01");
+    // Judged before rounding: these round to a paisa, but are still under one.
+    expect(formatDisplayRupees("0.005")).toBe("<₹0.01");
+    expect(formatDisplayRupees("0.009999")).toBe("<₹0.01");
   });
 
   it("an exact zero is a measurement and reads ₹0.00", () => {
@@ -355,6 +358,7 @@ describe("formatDisplayRupees — no ₹ on screen shows more than two decimals 
     expect(formatDisplayRupeesFromNumber(1.512879)).toBe("₹1.51");
     expect(formatDisplayRupeesFromNumber(870.7651)).toBe("₹871");
     expect(formatDisplayRupeesFromNumber(0.0000004)).toBe("<₹0.01");
+    expect(formatDisplayRupeesFromNumber(0.005)).toBe("<₹0.01");
     expect(formatDisplayRupeesFromNumber(Number.NaN)).toBe("—");
   });
 });
