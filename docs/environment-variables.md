@@ -315,11 +315,10 @@ NestJS boot assertion).
   its applicants meets → level not confirmed → below inside each trade group, from the rung frozen
   on each application. Nobody is hidden; "Any level" posts are unchanged. Migration 0153 is
   APPLY-BEFORE-DEPLOY whatever the flag says (the apply snapshot writes its columns either way).
-  Compose passes `${LEVEL_NEEDED_SORT_ENABLED:-false}` to `api`. **NOT YET BRIDGED:** the `ci.yml`
-  `env:` + `envs:` lines and the `scripts/deploy/staging-deploy.sh` preflight land in #2613 (split
-  out of #2552 while the payer-app job is red on main, #2605). Until then, production always
-  resolves to off. After #2613, arming is the GitHub `production` environment secret of the same
-  name set to `true` plus a redeploy, on the CEO's go-ahead; values lowercase
+  Bridged through the GitHub `production` environment secret of the same name (compose
+  `${LEVEL_NEEDED_SORT_ENABLED:-false}` on `api`, `ci.yml` `env:` + `envs:`, preflighted in
+  `scripts/deploy/staging-deploy.sh`; the bridge shipped in #2613, after #2552). Arming is the
+  secret set to `true` plus a redeploy, on the CEO's go-ahead; values lowercase
   `true`/`false`/`1`/`0`/empty only.
 - **Payer all-candidates search cap (ADR-0040 / E2, owner rulings 2026-11-03)** —
   `PAYER_CANDIDATE_SEARCH_MAX_PER_HOUR`, api only (default 120 pages per payer login per UTC hour,
