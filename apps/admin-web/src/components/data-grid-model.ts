@@ -17,7 +17,7 @@
  *                 button: an event's actor or subject.
  *  - `status`   — one status pill of up to 10 characters.
  *  - `date`     — "3d ago" / "19 Aug 2026" (12ch).
- *  - `number`   — a count or a delta, right where it can be compared down the column (8ch).
+ *  - `number`   — a count, a delta or a short code (8ch).
  *  - `money`    — a ₹ figure or a pay band (14ch).
  *  - `short`    — a short label: a language, a build, a pack, a provider (14ch).
  *  - `actions`  — a stacked cluster of row controls (the admin directory's).
