@@ -65,7 +65,10 @@ describe("SidebarNav", () => {
   });
 
   it("an item that is not this route's section is not current at all", () => {
-    const other = out.slice(out.indexOf('href="/candidates"') - 40, out.indexOf("Candidates</span>"));
+    const other = out.slice(
+      out.indexOf('href="/candidates"') - 40,
+      out.indexOf("Candidates</span>"),
+    );
     expect(other).not.toContain("aria-current");
     expect(other).not.toContain("is-active");
   });
@@ -93,7 +96,11 @@ describe("SidebarNav — the pending cue", () => {
 describe("SidebarNav — the group titles", () => {
   it("each title is a button in its heading, open, controlling its own list", () => {
     const html = renderAt("/jobs");
-    const toggles = [...html.matchAll(/<h2 class="sidebar__grouptitle"><button type="button" class="sidebar__grouptoggle" aria-expanded="true" aria-controls="([^"]+)">/g)];
+    const toggles = [
+      ...html.matchAll(
+        /<h2 class="sidebar__grouptitle"><button type="button" class="sidebar__grouptoggle" aria-expanded="true" aria-controls="([^"]+)">/g,
+      ),
+    ];
     expect(toggles).toHaveLength(2);
     for (const [, id] of toggles) {
       expect(html).toContain(`<ul class="sidebar__list" id="${id}">`);

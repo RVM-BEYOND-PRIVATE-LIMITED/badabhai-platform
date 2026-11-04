@@ -53,6 +53,8 @@ with the brand caret; every group starts open. A navigation into a closed group 
 current page is never hidden; only a group the operator toggled animates (180ms), so nothing moves
 on a page load. **The active marker glides**: the active row's wash and spine are one element under
 the rows, moved by `transform` (220ms, `--ease-glide`); without JS each active row draws its own.
+It is placed from the row's layout box (offsets summed up to the nav), never where the row is
+drawn, so a group still sliding open cannot leave it off its row.
 
 ### Detail and child pages
 
@@ -116,7 +118,12 @@ The quick jump opens a record by **id only**: there is no admin lookup by phone 
 never expose one; the universal candidate search is backend #2559, screen #2577), so a phone number
 typed there is told so. A wrong id opens that page's not-found. The palette's highlight moves
 instantly; it fades in with an 8px drop over 160ms. Behind the open mobile drawer the topbar is
-`inert` and the shortcut does nothing.
+`inert` and the shortcut does nothing. A click closes it only when the press began on the backdrop
+too: a drag-select out of the field, let go below the panel, keeps the palette and the pasted id.
+
+The avatar menu listens on the document while it is open. Escape closes it wherever focus is
+(Safari and Firefox on macOS do not focus a button on click), and it closes when focus lands
+outside it, never when focus merely leaves: a click on its own text (the admin id) keeps it open.
 
 ### Header rules
 
