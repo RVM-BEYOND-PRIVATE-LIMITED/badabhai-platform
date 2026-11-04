@@ -146,7 +146,11 @@ interface NewPostingDraft {
   trade: TradeFormValue & { matchSkillIds: string[] };
 }
 
-/** True once the payer has entered anything — the form then differs from a blank one. */
+/**
+ * True once the payer has entered anything — the form then differs from a blank one. Not the old
+ * flat pick (`selection`): no control sets it since #2645 and it is never sent, so a pick restored
+ * from an older draft is no change to lose.
+ */
 export function isNewPostingDirty(d: NewPostingDraft): boolean {
   return (
     Object.values(d.fields).some((v) => v.trim() !== "") ||
@@ -154,7 +158,6 @@ export function isNewPostingDirty(d: NewPostingDraft): boolean {
     d.benefits.length > 0 ||
     d.reqDraft.trim() !== "" ||
     d.benDraft.trim() !== "" ||
-    d.selection.matchSkillIds.length > 0 ||
     d.trade.tradeLevel !== "" ||
     Object.keys(d.trade.answers).length > 0
   );

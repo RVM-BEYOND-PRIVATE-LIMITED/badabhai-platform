@@ -1045,19 +1045,23 @@ describe("isNewPostingDirty — what makes leaving ask first (W4)", () => {
     expect(isNewPostingDirty({ ...blank, fields: { ...BLANK_FIELDS, city: "  " } })).toBe(false);
   });
 
-  it("any typed field, chip, chip draft, skill or trade answer makes it dirty", async () => {
+  it("any typed field, chip, chip draft or trade answer makes it dirty", async () => {
     const { isNewPostingDirty } = await import("./posting-form");
     expect(isNewPostingDirty({ ...blank, fields: { ...BLANK_FIELDS, city: "Pune" } })).toBe(true);
     expect(isNewPostingDirty({ ...blank, requirements: ["ITI"] })).toBe(true);
     expect(isNewPostingDirty({ ...blank, benDraft: "PF" })).toBe(true);
-    expect(
-      isNewPostingDirty({ ...blank, selection: { matchSkillIds: ["s1"], untickedRelatedIds: [] } }),
-    ).toBe(true);
     expect(
       isNewPostingDirty({
         ...blank,
         trade: { tradeLevel: "lead", answers: {}, matchSkillIds: [] },
       }),
     ).toBe(true);
+  });
+
+  it("#2645 — an old flat skill pick restored from this device is no change: nothing shows or sends it", async () => {
+    const { isNewPostingDirty } = await import("./posting-form");
+    expect(
+      isNewPostingDirty({ ...blank, selection: { matchSkillIds: ["s1"], untickedRelatedIds: [] } }),
+    ).toBe(false);
   });
 });

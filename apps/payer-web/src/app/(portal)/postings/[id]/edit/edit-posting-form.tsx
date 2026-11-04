@@ -140,12 +140,12 @@ interface EditPostingDraft {
 
 const sameJson = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 
-/** True once the payer changed anything the saved posting holds. */
-export function isEditPostingDirty(
-  draft: EditPostingDraft,
-  initial: EditPostingInitial,
-  matchSelection: MatchSelection | undefined,
-): boolean {
+/**
+ * True once the payer changed anything the saved posting holds. Not the old flat pick
+ * (`legacySelection`): no control sets it since #2645 and it is never sent, so a pick restored from
+ * an older draft is no change to lose.
+ */
+export function isEditPostingDirty(draft: EditPostingDraft, initial: EditPostingInitial): boolean {
   return (
     !sameJson(draft.fields, seedFields(initial)) ||
     !sameJson(draft.requirements, initial.requirements ?? []) ||
@@ -154,8 +154,7 @@ export function isEditPostingDirty(
     draft.benDraft.trim() !== "" ||
     draft.trade.dirty ||
     draft.trade.tradeLevel !== (initial.tradeLevel ?? "") ||
-    !sameJson(draft.trade.answers, initial.tradeAnswers ?? {}) ||
-    !sameJson(draft.legacySelection.matchSkillIds, matchSelection?.matchSkillIds ?? [])
+    !sameJson(draft.trade.answers, initial.tradeAnswers ?? {})
   );
 }
 
@@ -256,7 +255,7 @@ export function EditPostingForm({
     storageKey: postingDraftKey({ kind: "edit", payerId, postingId }),
     base: JSON.stringify({ status, initial, matchSelection: matchSelection ?? null }),
     payload: draftPayload,
-    dirty: isEditPostingDirty(draftPayload, initial, matchSelection),
+    dirty: isEditPostingDirty(draftPayload, initial),
     off: navigating,
     onRestore: (saved) => {
       setFields({ ...seedFields(initial), ...saved.fields });

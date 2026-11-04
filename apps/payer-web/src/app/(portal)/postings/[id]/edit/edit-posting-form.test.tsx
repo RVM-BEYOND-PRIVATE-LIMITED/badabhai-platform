@@ -1028,26 +1028,24 @@ describe("isEditPostingDirty — what makes leaving an edit ask first (W4)", () 
 
   it("the form exactly as seeded is clean", async () => {
     const { isEditPostingDirty } = await import("./edit-posting-form");
-    expect(isEditPostingDirty(SEEDED, INITIAL, undefined)).toBe(false);
+    expect(isEditPostingDirty(SEEDED, INITIAL)).toBe(false);
   });
 
   it("a changed field, chip, chip draft or trade pick is dirty", async () => {
     const { isEditPostingDirty } = await import("./edit-posting-form");
     expect(
-      isEditPostingDirty(
-        { ...SEEDED, fields: { ...BLANK_FIELDS, city: "Pune" } },
-        INITIAL,
-        undefined,
-      ),
+      isEditPostingDirty({ ...SEEDED, fields: { ...BLANK_FIELDS, city: "Pune" } }, INITIAL),
     ).toBe(true);
-    expect(isEditPostingDirty({ ...SEEDED, requirements: ["ITI"] }, INITIAL, undefined)).toBe(true);
-    expect(isEditPostingDirty({ ...SEEDED, reqDraft: "ITI" }, INITIAL, undefined)).toBe(true);
+    expect(isEditPostingDirty({ ...SEEDED, requirements: ["ITI"] }, INITIAL)).toBe(true);
+    expect(isEditPostingDirty({ ...SEEDED, reqDraft: "ITI" }, INITIAL)).toBe(true);
     expect(
-      isEditPostingDirty(
-        { ...SEEDED, trade: { ...SEEDED.trade, dirty: true } },
-        INITIAL,
-        undefined,
-      ),
+      isEditPostingDirty({ ...SEEDED, trade: { ...SEEDED.trade, dirty: true } }, INITIAL),
     ).toBe(true);
+  });
+
+  it("#2645 — an old flat pick restored from this device is no change: nothing shows or sends it", async () => {
+    const { isEditPostingDirty } = await import("./edit-posting-form");
+    const restoredPick = { matchSkillIds: ["mskill_delivery_rider"], untickedRelatedIds: [] };
+    expect(isEditPostingDirty({ ...SEEDED, legacySelection: restoredPick }, INITIAL)).toBe(false);
   });
 });
