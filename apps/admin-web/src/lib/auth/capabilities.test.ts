@@ -110,13 +110,14 @@ describe("labels stay in lockstep with the vocabulary", () => {
     expect(Object.keys(ROLE_LABELS).sort()).toEqual([...ADMIN_ROLES].sort());
   });
 
-  it("the vocabulary matches the server's fourteen capabilities", () => {
+  it("the vocabulary matches the server's fifteen capabilities", () => {
     // Pinned as a literal: if the API adds one, this fails and someone has to decide how
     // the portal should present it, rather than silently ignoring it. It did exactly that
     // when BP-1 implemented `read_entities`, again when `read_identity` split names off
     // the read floor, again when migration 0083 added `read_ai_traces`, and again for
     // `review_skill_candidates` (migration 0093, #1260), and again for
-    // `manage_agency_match_skills` (#2144 — the agency match-skill write).
+    // `manage_agency_match_skills` (#2144 — the agency match-skill write), and again for
+    // `read_candidates` (#2560 — the full candidate record read).
     expect([...ADMIN_CAPABILITIES].sort()).toEqual(
       [
         "export",
@@ -126,6 +127,7 @@ describe("labels stay in lockstep with the vocabulary", () => {
         "manage_admins",
         "manage_agency_match_skills",
         "read_ai_traces",
+        "read_candidates",
         "read_entities",
         "read_events",
         "read_identity",
