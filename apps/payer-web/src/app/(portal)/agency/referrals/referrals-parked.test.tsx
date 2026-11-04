@@ -362,21 +362,12 @@ describe("agency referrals page — designr7 reading order", () => {
       "batch",
       "money",
       "money",
-      "footer",
     ]);
   });
 
   it("…and the same order while payouts are off (the side shows the Soon card)", async () => {
     getAgencyEarnings.mockResolvedValueOnce(null);
-    expect(await blocks()).toEqual([
-      "header",
-      "funnel",
-      "privacy",
-      "conversion",
-      "grid",
-      "batch",
-      "footer",
-    ]);
+    expect(await blocks()).toEqual(["header", "funnel", "privacy", "conversion", "grid", "batch"]);
   });
 
   it("the invite panel is the left column and the money/dispatch stack is the right", async () => {

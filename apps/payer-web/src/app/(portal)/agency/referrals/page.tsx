@@ -199,7 +199,7 @@ export default async function AgencyReferralsPage() {
                 {kAnonCount(summary.accepted, summary.minBucket)}
               </strong>
               <em>ready to deploy</em>
-              <div className="agency-stage-card__foot">Self-selected on Badabhai</div>
+              <div className="agency-stage-card__foot">Self-selected on BadaBhai</div>
             </div>
           </div>
 
@@ -352,22 +352,6 @@ export default async function AgencyReferralsPage() {
           <PayoutPanel earnings={earnings} payouts={payouts} />
         </>
       ) : null}
-
-      <footer className="dash-foot">
-        <div className="dash-foot__status">
-          <span className="dash-foot__dot" aria-hidden="true" />
-          <span>Gateway Online: BadaBhai Recruiter Engine v2.8</span>
-          <span className="dash-foot__sep" aria-hidden="true">
-            ·
-          </span>
-          <span>Candidate Database: 180,000+ Verified Workers</span>
-        </div>
-        <div className="dash-foot__links">
-          <span>Audit Guidelines</span>
-          <span>Privacy Floor Documentation</span>
-          <span>V2.15-ag</span>
-        </div>
-      </footer>
     </div>
   );
 }

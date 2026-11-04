@@ -178,7 +178,7 @@ function hrefsOf(node: ReactNode, acc: string[] = []): string[] {
     const hp = el.props as { primaryAction?: { href: string } };
     if (hp.primaryAction) acc.push(hp.primaryAction.href);
   }
-  // StatTile's NEW `foot` slot carries a contextual link (Top-up / Create role); walk it too.
+  // StatTile's NEW `foot` slot carries a contextual link (Top-up / New posting); walk it too.
   if (el.props && "foot" in el.props) hrefsOf(el.props.foot, acc);
   if (el.props && "children" in el.props) hrefsOf(el.props.children, acc);
   return acc;
@@ -329,7 +329,7 @@ describe("CARDS-1 · clickable tiles + cards link to their REAL routes", () => {
     }
   });
 
-  it("all postings closed: the needs-you item says so, and the KPI card carries Create role", async () => {
+  it("all postings closed: the needs-you item says so, and the KPI card carries New posting", async () => {
     const tree = await render({
       postings: DATA.postings.map((x) => ({ ...x, status: "closed" })),
       unlocks: [DATA.unlocks[0]!],
@@ -373,7 +373,7 @@ describe("CARDS-1 · clickable tiles + cards link to their REAL routes", () => {
     const tree = await render();
     const all = hrefsOf(tree);
     expect(all.filter((h) => h === "/postings")).toHaveLength(1);
-    // A healthy account has no attention item; the KPI card's "+ Create role" is the form's door,
+    // A healthy account has no attention item; the KPI card's "+ New posting" is the form's door,
     // and the head adds none.
     const healthy = await render({ unlocks: [DATA.unlocks[0]!] });
     expect(hrefsOf(healthy).filter((h) => h === "/postings/new")).toHaveLength(1);
@@ -629,8 +629,9 @@ describe("UI-1 · empty + error states", () => {
     expect(textOf(tree)).toContain("No contacts unlocked yet");
     expect(textOf(tree)).toContain("No active job postings yet");
     // PHASE 16 — an empty state must say what to do next, not just that it is empty: the
-    // panel carries its own "Create First Posting" action.
-    expect(textOf(tree)).toContain("Create First Posting");
+    // panel carries its own "New posting" action (one label per destination, #2581).
+    expect(textOf(tree)).toContain("New posting");
+    expect(textOf(tree)).not.toContain("Create First Posting");
     expect(p(headOf(tree)).primaryAction).toBeUndefined();
   });
 
@@ -738,11 +739,11 @@ describe("PR-D2 · hierarchy + KPI variant", () => {
     return out;
   }
 
-  it("employer: head → needs-you → position → columns → footer", async () => {
+  it("employer: head → needs-you → position → columns (no invented-figures footer, #2581)", async () => {
     // balance 3 is below the pricing config's low-balance threshold (lowBalanceThreshold(),
     // default 5), so the needs-you band renders.
     const tree = await render({ credits: { payerId: "p", balance: 3 } });
-    expect(bands(tree)).toEqual(["head", "needs-you", "position", "columns", "footer"]);
+    expect(bands(tree)).toEqual(["head", "needs-you", "position", "columns"]);
     // …the columns hold the postings panel then the unlocks panel, in that reading order.
     const columns = findByClass(tree, "dash-columns")[0]!;
     const panels = findByClass(columns, "panel");
@@ -897,5 +898,25 @@ describe("the navigation pending cue on the dashboard (components/portal-link.ts
     expect(cues.get("/plans")).toEqual(["Plans & capacity"]);
     expect(cues.get("/postings")).toEqual(["Postings"]);
     expect([...cues].filter(([, labels]) => labels.length === 0)).toEqual([]);
+  });
+});
+
+describe("#2581 — no invented figures or dead controls on the dashboard", () => {
+  it("no fake engine/database footer, no Free Tier badge, no direct-phone claim", async () => {
+    for (const role of ["employer", "agent"] as const) {
+      const tree = await render(undefined, role, "owner");
+      const txt = textOf(tree);
+      expect(findByClass(tree, "dash-foot"), role).toEqual([]);
+      for (const gone of [
+        "160,000+",
+        "Recruiter Engine",
+        "Free Tier",
+        "Direct phone",
+        "Employer Helpdesk",
+        "Pricing Terms",
+      ]) {
+        expect(txt, `${role}: ${gone}`).not.toContain(gone);
+      }
+    }
   });
 });

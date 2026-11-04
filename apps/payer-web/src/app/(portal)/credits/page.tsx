@@ -203,9 +203,6 @@ export default async function CreditsPage() {
               <h2 className="cred-panel__title">Credit Movement &amp; History</h2>
               <p className="cred-panel__sub">Your purchases and candidate unlock spends</p>
             </div>
-            {history.length > 0 ? (
-              <span className="cred-link">Download GST Invoices</span>
-            ) : null}
           </div>
           <div className="cred-panel__body">
             {history.length > 0 ? (
@@ -287,7 +284,7 @@ export default async function CreditsPage() {
               </p>
             </div>
             <span className="cred-pill">
-              <Icon name="hourglass" /> Earliest First FIFO
+              <Icon name="hourglass" /> Oldest credits used first
             </span>
           </div>
           <div className="cred-panel__body">
