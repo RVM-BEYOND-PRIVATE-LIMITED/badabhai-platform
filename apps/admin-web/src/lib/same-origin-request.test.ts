@@ -55,10 +55,26 @@ describe("Origin — must be the portal's own, as the browser addressed it", () 
     expect(isSameOriginRequest(at({ ...PORTAL, "sec-fetch-site": "same-origin", origin }))).toBe(false);
   });
 
-  it("X-Forwarded-Host is never trusted: a forged one naming the foreign Origin changes nothing", () => {
+  /**
+   * The forged Origin is on the request's OWN scheme, so only the host can tell it apart: were
+   * X-Forwarded-Host read (first, as Next's server-action check reads it, or in place of a missing
+   * Host), it would match and pass. On another scheme it would be refused for the scheme alone.
+   */
+  it.each([
+    ["http", "http://0.0.0.0:3003/candidates/x/phone"],
+    ["https", "https://0.0.0.0:3003/candidates/x/phone"],
+  ])(
+    "X-Forwarded-Host is never trusted: a forged one naming the foreign Origin changes nothing (%s)",
+    (scheme, url) => {
+      const forged = { origin: `${scheme}://evil.example`, "x-forwarded-host": "evil.example" };
+      expect(isSameOriginRequest(at({ ...PORTAL, ...forged }, url))).toBe(false);
+    },
+  );
+
+  it("nor does a forged X-Forwarded-Host stand in for a missing Host", () => {
     expect(
       isSameOriginRequest(
-        at({ ...PORTAL, origin: "https://evil.example", "x-forwarded-host": "evil.example" }),
+        at({ origin: "http://evil.example", "x-forwarded-host": "evil.example" }),
       ),
     ).toBe(false);
   });

@@ -174,7 +174,12 @@ describe("a request from anywhere but a page of this portal is refused before an
   );
 
   it("an X-Forwarded-Host naming the foreign Origin is not believed → 403", async () => {
-    const headers = { ...DRAWER, origin: "https://evil.example", "x-forwarded-host": "evil.example" };
+    // The request's own scheme (post() is http), so only the host tells the forged Origin apart.
+    const headers = {
+      ...DRAWER,
+      origin: "http://evil.example",
+      "x-forwarded-host": "evil.example",
+    };
     await expectRefusedBeforeTheApi(await post({ headers }), 403, REVEAL_NOT_SAME_ORIGIN);
   });
 
