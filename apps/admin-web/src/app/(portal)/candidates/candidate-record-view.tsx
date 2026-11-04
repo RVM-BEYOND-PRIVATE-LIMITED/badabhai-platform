@@ -786,8 +786,8 @@ function EditLogPanel({ d }: { d: CandidateDetail }) {
       <div className="state">
         <h3 className="state__title">No admin edits</h3>
         <p className="state__body">
-          No admin has corrected a field on this record. Every value comes from the worker, the
-          interview, a form or the platform, and each field says which.
+          No admin has corrected a field on this record. Each field&apos;s source tag says where
+          its value came from.
         </p>
       </div>
     );

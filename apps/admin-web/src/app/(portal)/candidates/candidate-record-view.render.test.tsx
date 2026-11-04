@@ -257,6 +257,18 @@ describe("the Edit log", () => {
     expect(p).not.toContain("<table");
   });
 
+  it("claims no closed list of writers — an operator (`ops`) writes values too, and its tag says so", () => {
+    const d = candidateRecord();
+    // The fixture's own record carries an operator-written value, shown under the Ops tag…
+    expect(JSON.stringify(d)).toContain('"source":"ops"');
+    const p = panel(render(d), "edits");
+    // …so the empty Edit log must not say every value comes from the worker, the interview, a
+    // form or the platform. It points at the tags, which name every writer, ops included.
+    expect(p).toContain("No admin has corrected a field on this record.");
+    expect(p).toContain("Each field&#x27;s source tag says where its value came from.");
+    expect(p).not.toContain("Every value comes from");
+  });
+
   it("lists a correction the record does carry, with its reason code and admin", () => {
     const d = candidateRecord();
     d.location.current_city = {

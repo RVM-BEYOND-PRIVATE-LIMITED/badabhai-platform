@@ -53,8 +53,9 @@ export interface CandidateDrawerProps {
  *    open or move reads it from the browser (`[id]/record`), aborting the read it replaces. A MOVE
  *    waits {@link RECORD_SETTLE_MS} for the next press first — each read is audited and spends a
  *    name — while the title and the skeleton change at once.
- *  - STATES: a skeleton while loading, the record's seven tabs, not found, a role that may not
- *    read records, a session that ended, and an error with Retry.
+ *  - STATES: a skeleton while loading (announced by a status line that outlives the move), the
+ *    record's seven tabs, not found, a role that may not read records, a session that ended, and
+ *    an error with Retry.
  *  - MOTION: A5's Drawer slides in over 220ms; a move cross-fades the content in over 140ms with
  *    no slide (the panel keeps its place). Zero under reduced motion.
  */
@@ -178,6 +179,12 @@ export function CandidateDrawer({ rows, initial, entitled, canReveal }: Candidat
             <RecordProblem status={result.status} onRetry={record.retry} />
           )}
         </div>
+        {/* The loading cue for assistive tech. OUTSIDE the view: the skeleton is aria-hidden and
+            the view is aria-busy and remounted on every move, and a live region announces only
+            a change to one that is already there — so this one stays, and only its text changes. */}
+        <p className="sr-only" role="status">
+          {result === null ? "Loading the candidate's record…" : ""}
+        </p>
       </div>
     </Drawer>
   );
@@ -387,7 +394,10 @@ function DrawerFooter({
   );
 }
 
-/** The loading state: the shape of a record, with the console's 1.4s sheen. */
+/**
+ * The loading state: the shape of a record, with the console's 1.4s sheen. Hidden from assistive
+ * tech, which hears the drawer's status line instead.
+ */
 function RecordSkeleton() {
   return (
     <div className="cdrawer__skeleton" aria-hidden="true">
@@ -402,7 +412,6 @@ function RecordSkeleton() {
           ))}
         </div>
       ))}
-      <span className="sr-only">Loading the candidate&apos;s record…</span>
     </div>
   );
 }

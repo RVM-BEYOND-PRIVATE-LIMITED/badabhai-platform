@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { candidateRecord, facelessRecord, RECORD_WORKER_ID } from "../../../../test/candidate-record";
+import { childTags } from "../../../../test/panel-markup";
 import type { CandidateRecordResult } from "../../../lib/candidate-detail";
 import type * as RecordView from "./candidate-record-view";
 
@@ -121,11 +122,33 @@ describe("while the record loads", () => {
     const out = html(null);
     expect(out).toContain('class="cdrawer__view" aria-busy="true"');
     expect(out).toContain('<div class="cdrawer__skeleton" aria-hidden="true">');
-    expect(out).toContain("Loading the candidate&#x27;s record…");
     expect(out).toContain(">Ramesh Kumar</h2>");
     expect(out.match(/role="tab"[^>]*disabled=""/g)?.length).toBe(7);
     // A disabled tab controls no panel yet.
     expect(out).not.toContain("aria-controls");
+  });
+
+  it("is ANNOUNCED: a status line outside the aria-hidden skeleton and the busy, remounted view", () => {
+    nav.search = `c=${W}`;
+    const out = html(null);
+    // A direct child of the drawer's content — a sibling of the view, so of nothing aria-hidden —
+    // and the only place the words are: none of them sits under the skeleton's aria-hidden.
+    expect(childTags(out, '<div class="cdrawer">')).toEqual([
+      '<div class="cdrawer__tabbar">',
+      '<div class="cdrawer__view" aria-busy="true">',
+      '<p class="sr-only" role="status">',
+    ]);
+    expect(out).toContain(
+      '<p class="sr-only" role="status">Loading the candidate&#x27;s record…</p>',
+    );
+    expect(out.split("Loading the candidate").length - 1).toBe(1);
+  });
+
+  it("the status line stays when the record lands — empty, so the next move's loading is a change it announces", () => {
+    nav.search = `c=${W}`;
+    const out = html(ok());
+    expect(out).toContain('<p class="sr-only" role="status"></p>');
+    expect(out).not.toContain("Loading the candidate");
   });
 
   it("the server's read of ANOTHER candidate is not shown for this one", () => {
