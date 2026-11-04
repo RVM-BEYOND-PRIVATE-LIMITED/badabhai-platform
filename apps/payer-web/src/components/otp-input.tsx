@@ -7,7 +7,9 @@
  * edit that fills the last box, which is where it submits ("auto-submit"). A whole code arrives in
  * one go from a paste (into any box) or the browser's one-time-code autofill (into the first);
  * Backspace clears a box and walks back through the empty ones; the arrows, Home and End move
- * between boxes. The code has no gaps: a click on an empty box lands on the first empty one.
+ * between boxes. The code has no gaps: a click on an empty box lands on the first empty one, and
+ * the boxes past it are not tab stops — so Tab from the first empty box leaves the group (to the
+ * form's Verify) instead of being sent back to it.
  *
  * `success` locks the boxes — read-only, never `disabled`, so the accepted digits keep full
  * contrast and stay focusable to re-read — and fades a check in beside the label. The check is
@@ -132,14 +134,26 @@ export function OtpCodeInput({
 }: OtpCodeInputProps) {
   const labelId = useId();
   const boxes = useRef<Array<HTMLInputElement | null>>([]);
+  // True while THIS component moves focus: the box's focus event fires inside `focus()`, during
+  // the edit that moved it — before the caller re-renders with the new code — so the stale code
+  // would send focus straight back. Our own moves are already right; only the payer's are checked.
+  const steering = useRef(false);
   // Only digits, never more than the boxes hold — whatever the caller passes.
   const code = value.replace(/\D/g, "").slice(0, length);
+  // The last box focus may rest in: the first empty one (the last box once the code is complete).
+  const lastReachable = otpFocusable(code, length, length - 1);
 
   /** Focus a box with its digit selected, so the next keystroke replaces it. */
   const focusBox = (i: number) => {
     const box = boxes.current[i];
-    box?.focus();
-    box?.select();
+    if (!box) return;
+    steering.current = true;
+    try {
+      box.focus();
+    } finally {
+      steering.current = false;
+    }
+    box.select();
   };
 
   /** Apply an edit: tell the caller (and, on the edit that completes the code, submit), then focus. */
@@ -192,6 +206,7 @@ export function OtpCodeInput({
   };
 
   const onBoxFocus = (i: number, e: FocusEvent<HTMLInputElement>) => {
+    if (steering.current) return;
     const at = otpFocusable(code, length, i);
     if (at !== i) focusBox(at);
     else e.target.select();
@@ -223,6 +238,9 @@ export function OtpCodeInput({
               autoComplete={i === 0 ? "one-time-code" : "off"}
               aria-label={`Digit ${i + 1} of ${length}`}
               aria-describedby={describedBy}
+              // Past the first empty box: reachable by click (which lands on that box), never by
+              // Tab — Tab there would only be handed back.
+              tabIndex={i > lastReachable ? -1 : undefined}
               readOnly={success}
               value={digit}
               autoFocus={autoFocus && i === 0}

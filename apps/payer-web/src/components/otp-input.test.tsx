@@ -147,6 +147,16 @@ describe("the markup — six labelled boxes in a labelled group", () => {
     expect(out).not.toMatch(/readonly/i);
   });
 
+  it("no keyboard trap: the boxes past the first empty one are not tab stops", () => {
+    // Tab from the first empty box must leave the group (to Verify): a later box would only hand
+    // focus back to it.
+    const tabStops = (value: string) =>
+      boxes(html({ value })).map((b) => (/tabindex="-1"/i.test(b) ? "-" : "tab"));
+    expect(tabStops("")).toEqual(["tab", "-", "-", "-", "-", "-"]);
+    expect(tabStops("12")).toEqual(["tab", "tab", "tab", "-", "-", "-"]);
+    expect(tabStops("123456")).toEqual(["tab", "tab", "tab", "tab", "tab", "tab"]);
+  });
+
   it("another length draws that many boxes", () => {
     const all = boxes(html({ length: 4 }));
     expect(all).toHaveLength(4);
@@ -182,8 +192,13 @@ function mount(value: string, over: { success?: boolean; autoFocus?: boolean } =
   const onComplete = vi.fn();
   const tree = OtpCodeInput({ label: LABEL, value, onChange, onComplete, ...over }) as ReactElement;
   const inputs = inputsOf(tree);
+  // Like a browser's: `focus()` dispatches the box's focus event at once — while the edit that
+  // moved it is still being handled, i.e. before the caller has re-rendered with the new code.
   const boxes = inputs.map((input) => {
-    const box = { focus: vi.fn(), select: vi.fn() };
+    const box = {
+      focus: vi.fn(() => input.props.onFocus({ target: box })),
+      select: vi.fn(),
+    };
     input.props.ref(box);
     return box;
   });
@@ -228,6 +243,16 @@ describe("typing — the sixth digit completes the code (auto-submit)", () => {
     expect(m.focused()).toBe(5);
     // The box is selected, so the next keystroke replaces its digit.
     expect(m.boxes[5]!.select).toHaveBeenCalled();
+  });
+
+  it("focus moves on even though the caller has not re-rendered yet (no bounce back)", () => {
+    // The next box's focus event fires inside the move, while this render still holds "12": it
+    // must not read that stale code as "past the first empty box" and send focus back.
+    const m = mount("12");
+    m.change(2, "3");
+    expect(m.onChange).toHaveBeenCalledExactlyOnceWith("123");
+    expect(m.focused()).toBe(3);
+    expect(m.boxes[2]!.focus).not.toHaveBeenCalled();
   });
 
   it("any digit before the sixth only changes the code, and moves on a box", () => {
