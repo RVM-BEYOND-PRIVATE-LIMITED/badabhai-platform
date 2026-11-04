@@ -17,8 +17,8 @@ import { MockMoneyTag } from "./payments-posture";
  * — a tag rendered anywhere else would not travel with it.
  *
  * `wide` exists for the ₹ tiles: a ₹ figure must never break between digits. The class is the
- * whole mechanism (`.stat--wide .stat__value` keeps the figure on one line at the 22px step, and
- * the flex stat row widens the tile to hold it), so it must appear exactly when asked for — and
+ * whole mechanism (`.stat--wide .stat__value` keeps the figure on one line at the 22px step, on
+ * the shared --stat-min grid), so it must appear exactly when asked for — and
  * never on a tile that did not ask, or every count tile would take the ₹ treatment.
  */
 

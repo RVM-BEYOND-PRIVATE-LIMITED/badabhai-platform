@@ -37,8 +37,43 @@ export function statusTone(value: string | null | undefined): Tone {
 }
 
 /**
+ * THE status label map (A1, #2571) — what an operator READS for a status value, in sentence case.
+ * The console printed raw values beside curated labels, so one table said "open" and the next
+ * "Closed". A value with no entry here is de-snaked and sentence-cased by `statusLabel`, so a new
+ * backend state still reads like every other pill.
+ */
+export const STATUS_LABELS: Record<string, string> = {
+  active: "Active",
+  open: "Open",
+  verified: "Verified",
+  pending: "Pending",
+  suspended: "Suspended",
+  rejected: "Rejected",
+  draft: "Draft",
+  paused: "Paused",
+  closed: "Closed",
+  unverified: "Unverified",
+  confirmed: "Confirmed",
+  extracted: "Extracted",
+  extracting: "Extracting",
+  applied: "Applied",
+  skipped: "Skipped",
+};
+
+/** Upper-cases the first letter only — the rest is kept, so an acronym ("AI") survives. */
+export function sentenceCase(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+/** The sentence-case label for a status value: the map, else the de-snaked value. */
+export function statusLabel(value: string): string {
+  return STATUS_LABELS[value.toLowerCase()] ?? sentenceCase(value.replace(/_/g, " "));
+}
+
+/**
  * @param label  Display text, when the raw value is not what an operator should read
- *               (e.g. `pack_purchase` → "Pack purchase"). Defaults to the de-snaked value.
+ *               (e.g. `pack_purchase` → "Pack purchase"). Defaults to `statusLabel(value)`.
+ *               Rendered in sentence case either way, so every pill on the console reads alike.
  * @param tone   Explicit tone, for domains this component's map does not cover.
  *
  * ── WHY `tone` EXISTS ───────────────────────────────────────────────────────────────────
@@ -64,7 +99,7 @@ export function StatusPill({
   if (!value) return <span className="pill pill--muted">—</span>;
   return (
     <span className={`pill pill--${tone ?? statusTone(value)}`} title={title}>
-      {label ?? value.replace(/_/g, " ")}
+      {sentenceCase(label ?? statusLabel(value))}
     </span>
   );
 }

@@ -6,6 +6,10 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  // A1 (#2571) — the dev-only Next indicator defaults to bottom-left, where it sat on top of the
+  // sidebar footer (who-am-I, Account, Sign out). Bottom-right puts it over page whitespace.
+  // Development only: a production build renders no indicator.
+  devIndicators: { position: "bottom-right" },
   eslint: {
     // The monorepo lints via the root flat ESLint config (`pnpm lint`), so we
     // don't run Next's own ESLint during `next build`.

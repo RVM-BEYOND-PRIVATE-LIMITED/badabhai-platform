@@ -107,7 +107,7 @@ export default async function SkillDiscoveryDetailPage({
   const weakMatches = candidate.related_skills.filter((m) => m.strength === "weak");
 
   return (
-    <div className="page">
+    <div className="page page--reading">
       <PageHeader
         back={{ href: "/skills/discovery", label: "Skill discovery" }}
         title={candidate.normalized_phrase}

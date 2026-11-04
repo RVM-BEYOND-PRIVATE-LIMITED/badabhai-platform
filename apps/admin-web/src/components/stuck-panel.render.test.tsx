@@ -236,6 +236,6 @@ describe("stuck panel — an unknown servability is shown as unknown", () => {
   it("never renders a null `unservable` as a clean 'no' in the candidates PILL", () => {
     // Toned `warn`, not muted: null is "the ranking could not judge this leg", which is not
     // the same fact as "the engine could never have served it again".
-    expect(out()).toContain('<span class="pill pill--warn">unknown</span>');
+    expect(out()).toContain('<span class="pill pill--warn">Unknown</span>');
   });
 });

@@ -234,13 +234,13 @@ describe("a row", () => {
   it("paints a MOCK provider call as warn, and a real one as ok", async () => {
     // TD81: simulated work must never render in the same type as the real thing.
     const real = await render();
-    expect(real).toContain(">real<");
+    expect(real).toContain(">Real<");
     expect(real).toContain("A provider was really called for this.");
 
     stub.page = { items: [FAILED_MOCK_ROW], nextCursor: null };
     const mock = await render();
     expect(mock).toContain("pill--warn");
-    expect(mock).toContain(">mock<");
+    expect(mock).toContain(">Mock<");
     expect(mock).toContain("No provider was called — the mock adapter answered.");
   });
 
@@ -248,7 +248,7 @@ describe("a row", () => {
     stub.page = { items: [FAILED_MOCK_ROW], nextCursor: null };
     const out = await render();
     expect(out).toContain("pill--bad");
-    expect(out).toContain(">failed<");
+    expect(out).toContain(">Failed<");
     expect(out).toContain("Speech service unreachable");
     // …and keeps the raw code reachable, because that is what an operator greps a log for.
     expect(out).toContain('title="stt_service_unreachable"');

@@ -225,7 +225,7 @@ describe("a row", () => {
   it("tones `problem` as the one tag that reports a fault", async () => {
     const out = await render();
     expect(out).toContain("pill--warn");
-    expect(out).toContain(">problem<");
+    expect(out).toContain(">Problem<");
   });
 
   it("tones `suggestion` neutrally — a worker writing in is not by itself good news", async () => {
@@ -238,14 +238,14 @@ describe("a row", () => {
   it("renders an UNTAGGED message as a dash — never as `other`", async () => {
     // The regression this file exists for. The app omits the tag entirely when the worker
     // skips it; folding that into the third tag would put a lie in any count made here.
-    // `>other<` is the pill's text — the "Other" filter chip is capitalised, so this is
-    // specific to a row and not to the chip above it.
+    // `>Other</span>` is the pill's text (sentence case, A1) — the "Other" filter chip is
+    // followed by its pending cue (`Other<span`), so this is specific to a row, not the chip.
     stub.page = { items: [UNTAGGED], nextCursor: null };
     const out = await render();
     expect(out).toContain(
       '<span class="table__meta" title="The worker did not tag this.">—</span>',
     );
-    expect(out).not.toContain(">other<");
+    expect(out).not.toContain(">Other</span>");
   });
 
   it("renders a missing build stamp as a dash, and says why on hover", async () => {

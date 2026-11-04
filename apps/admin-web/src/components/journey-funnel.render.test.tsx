@@ -123,7 +123,7 @@ describe("JourneyFunnel", () => {
   it("tones `not_done` MUTED — a funnel is not seven failures", () => {
     const out = html(<JourneyFunnel steps={STEPS} />);
     expect(out).toContain("pill--muted");
-    expect(out).toContain("not done");
+    expect(out).toContain(">Not done<");
     expect(out).not.toContain("pill--bad");
   });
 
@@ -193,9 +193,9 @@ describe("VoiceAttempts", () => {
         ]}
       />,
     );
-    expect(out).toContain("capture failed");
+    expect(out).toContain(">Capture failed<");
     expect(out).toContain("never reached storage");
-    expect(out).toContain("transcription failed");
+    expect(out).toContain(">Transcription failed<");
     expect(out).toContain("speech budget");
   });
 
