@@ -348,7 +348,10 @@ export default async function DashboardPage({
             </div>
             <div className="panel__actions dash-panel__actions">
               {postings !== null ? (
-                <div className="dash-tabs" role="tablist" aria-label="Posting status">
+                // Three LINKS to three addresses, so a nav with the current one marked — the
+                // Candidates views' pattern. It was a `tablist` of plain links: a tablist promises
+                // tabs, a selection and arrow-key panels, none of which is here.
+                <nav className="dash-tabs" aria-label="Posting status">
                   {POSTING_TABS.map((tab) => (
                     <PortalLink
                       key={tab.value}
@@ -356,12 +359,13 @@ export default async function DashboardPage({
                         postingFilter === tab.value ? "dash-tab dash-tab--active" : "dash-tab"
                       }
                       href={tab.href}
+                      aria-current={postingFilter === tab.value ? "page" : undefined}
                       pendingLabel={tab.label}
                     >
                       {tab.label}
                     </PortalLink>
                   ))}
-                </div>
+                </nav>
               ) : null}
               {/* The dashboard's ONE link to the Postings list, named as the rail item and the
                   list's H1 name it: one label per destination. */}

@@ -953,3 +953,48 @@ describe("#2581 — no invented figures or dead controls on the dashboard", () =
     expect(labels("/postings/ai/new")).toEqual(["Post with AI", "Post with AI"]);
   });
 });
+
+describe("#2588 · the postings panel's views are a nav with the current one marked", () => {
+  /** The employer dashboard at `/dashboard?posting=<view>` (no view = All). */
+  async function atView(posting?: string): Promise<ReactElement> {
+    await render(); // seeds the session and the three reads
+    return (await DashboardPage({
+      searchParams: Promise.resolve(posting ? { posting } : {}),
+    })) as ReactElement;
+  }
+
+  it("a labelled <nav> of three links — not a tablist (no tab roles, no arrow-key panels)", async () => {
+    const [nav, ...more] = findByClass(await atView(), "dash-tabs");
+    expect(more).toEqual([]);
+    expect(nav!.type).toBe("nav");
+    expect(p(nav!)["aria-label"]).toBe("Posting status");
+    expect(p(nav!).role).toBeUndefined();
+    const links = findByClass(nav!, "dash-tab");
+    expect(links.map((l) => p(l).href)).toEqual([
+      "/dashboard",
+      "/dashboard?posting=drafts",
+      "/dashboard?posting=closed",
+    ]);
+    for (const l of links) expect(p(l).role).toBeUndefined();
+  });
+
+  it.each([
+    [undefined, "/dashboard"],
+    ["drafts", "/dashboard?posting=drafts"],
+    ["closed", "/dashboard?posting=closed"],
+    ["anything-else", "/dashboard"],
+  ])("view %s: exactly ONE link is aria-current=page — %s — and it wears the active look", async (view, href) => {
+    const links = findByClass(await atView(view), "dash-tab");
+    const current = links.filter((l) => p(l)["aria-current"] === "page");
+    expect(current.map((l) => p(l).href)).toEqual([href]);
+    expect(String(p(current[0]!).className).split(" ")).toContain("dash-tab--active");
+    for (const l of links.filter((x) => x !== current[0])) {
+      expect(p(l)["aria-current"]).toBeUndefined();
+      expect(String(p(l).className).split(" ")).not.toContain("dash-tab--active");
+    }
+  });
+
+  it("a FAILED postings read draws no views at all (there is nothing to filter)", async () => {
+    expect(findByClass(await render({ fail: ["postings"] }), "dash-tabs")).toEqual([]);
+  });
+});

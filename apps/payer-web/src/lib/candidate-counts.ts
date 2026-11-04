@@ -26,6 +26,18 @@ export interface CountSummary {
 }
 
 /**
+ * How many candidates the PAGED list holds — the N of "Showing 21–40 of N". Filters reorder
+ * (ADR-0040 Decision 1), so without strict the list is the whole pool, `total`. Strict drops the
+ * definite non-matches and nothing else (Decisions 2 and 4), so it lists the matches plus the
+ * unrecorded. Both numbers come from the same response as the rows.
+ */
+export function listedCount(
+  c: Pick<SearchCounts, "total" | "matched" | "unrecorded" | "strict">,
+): number {
+  return c.strict ? c.matched + c.unrecorded : c.total;
+}
+
+/**
  * Three numbers, never folded into one:
  *  - unfiltered: "{total} candidates";
  *  - filtered: "{matched} of {total} match", and " · {unrecorded} not recorded" when any was kept

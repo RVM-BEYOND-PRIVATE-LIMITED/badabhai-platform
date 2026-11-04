@@ -167,8 +167,12 @@ vi.mock("../../../../lib/form-focus", () => ({
 
 vi.mock("react", async () => {
   const actual = await vi.importActual<typeof ReactModule>("react");
+  // The DS fields mint their auto ids with `useId`, which needs a renderer; the walks below call
+  // them as plain functions, so it answers from a counter (unique per call, like the hook).
+  let ids = 0;
   return {
     ...actual,
+    useId: () => `:r${(ids += 1)}:`,
     useState: (initial: unknown) => useState(initial),
     useTransition: () => useTransition(),
   };

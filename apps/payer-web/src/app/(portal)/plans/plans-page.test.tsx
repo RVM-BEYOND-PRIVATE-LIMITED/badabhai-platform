@@ -364,3 +364,12 @@ describe("/plans — #2085: the tiles and the capacity panel carry the charged p
     ]);
   });
 });
+
+describe("/plans — landmarks (#2588, W8: axe passes on the page)", () => {
+  it("the side column is a NAMED complementary landmark: the shell's rail is an aside too, and two unnamed ones cannot be told apart", async () => {
+    const asides = Array.from((await html()).matchAll(/<aside\b[^>]*>/g), (m) => m[0]);
+    expect(asides).toEqual([
+      '<aside class="plans-col plans-col--side" aria-label="Posting plans and quota">',
+    ]);
+  });
+});

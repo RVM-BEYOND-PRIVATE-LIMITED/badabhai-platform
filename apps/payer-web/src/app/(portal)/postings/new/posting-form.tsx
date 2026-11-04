@@ -550,7 +550,7 @@ export function PostingForm({
               />
             </div>
             <div className="mw-card__foot">
-              <button type="button" className="bb-btn bb-btn--primary bb-btn--sm" onClick={goNext}>
+              <button type="button" className="bb-btn bb-btn--primary" onClick={goNext}>
                 Next: Pay &amp; Openings <Icon name="arrow-right" />
               </button>
             </div>
@@ -704,7 +704,7 @@ export function PostingForm({
               >
                 Back
               </button>
-              <button type="button" className="bb-btn bb-btn--primary bb-btn--sm" onClick={goNext}>
+              <button type="button" className="bb-btn bb-btn--primary" onClick={goNext}>
                 Next: Skills &amp; Perks <Icon name="arrow-right" />
               </button>
             </div>

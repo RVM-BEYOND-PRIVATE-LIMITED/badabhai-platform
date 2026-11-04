@@ -35,6 +35,11 @@ ops console's privileged data access.
      Same faceless cards and the same unlock as Applicants; it shares the per-payer hourly
      reach cap with the per-posting feed. An old `/candidates?postingId=` / `?stage=` link is
      redirected here.
+   - **Paging (both views, #2588)** — keyset, by the server's opaque `nextCursor`. The pager
+     says which rows are on screen ("Showing 21–40 of N"; the inbox answers no total, so
+     Applied says no "of N"): the cursor is never read, so "Next page" also carries `from`,
+     where its page starts — the portal's own count, never sent to the API. A later page
+     reached without it shows no range. Paging moves focus to the list's heading.
 6. **Unlock (LIVE)** — `POST /payer/unlocks`; no-oracle neutral on any deny cause.
 7. **Reveal (LIVE)** — `POST /payer/unlocks/:id/reveal` → a **routed relay handle**
    (opaque, expiring) — **never a raw phone**.

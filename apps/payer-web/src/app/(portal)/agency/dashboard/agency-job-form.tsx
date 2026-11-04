@@ -662,7 +662,7 @@ export function AgencyJobForm({
               ) : (
                 <span />
               )}
-              <button type="button" className="bb-btn bb-btn--primary bb-btn--sm" onClick={goNext}>
+              <button type="button" className="bb-btn bb-btn--primary" onClick={goNext}>
                 Next: Pay &amp; Experience <Icon name="arrow-right" />
               </button>
             </div>
@@ -793,7 +793,7 @@ export function AgencyJobForm({
               >
                 Back
               </button>
-              <button type="button" className="bb-btn bb-btn--primary bb-btn--sm" onClick={goNext}>
+              <button type="button" className="bb-btn bb-btn--primary" onClick={goNext}>
                 Next: Skills &amp; Perks <Icon name="arrow-right" />
               </button>
             </div>

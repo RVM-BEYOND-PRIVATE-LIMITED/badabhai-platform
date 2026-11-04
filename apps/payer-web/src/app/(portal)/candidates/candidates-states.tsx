@@ -1,6 +1,6 @@
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 import { Card } from "../../../components/ds";
-import { PortalLink } from "../../../components/portal-link";
+import { PagerLink } from "../../../components/paged-list";
 import { RetryButton } from "../../../components/retry-button";
 
 /**
@@ -13,38 +13,45 @@ import { RetryButton } from "../../../components/retry-button";
  *  - a page cursor the server REFUSED (a 400 with a cursor in the address — one it never minted)
  *    is calm, not an error: Retry would only be refused again, so the one way out is the first
  *    page, filters kept;
- *  - the pager: "Next page" carries the server's cursor verbatim; "First page" drops it.
- * Server-safe (no hooks). Every link is a `PortalLink`, so each carries the navigation pending cue
- * (no loading boundary — app/no-suspense-above-a-page.test.ts).
+ *  - the pager: "Next page" carries the server's cursor verbatim (and where its page starts);
+ *    "First page" drops both. It says which rows are on screen ("Showing 21–40 of 57").
+ * Server-safe (no hooks). Every link is a `PagerLink` — a `PortalLink`, so each carries the
+ * navigation pending cue (no loading boundary — app/no-suspense-above-a-page.test.ts) — and the
+ * heading of the list it opens takes focus when that list is drawn (#2588).
  */
 
 /**
  * Keyset paging: "Next page" (the server's `nextCursor`, filters kept) and "First page" (no
- * cursor, filters kept) — each only when it leads somewhere. Nothing when the list is one page.
+ * cursor, filters kept) — each only when it leads somewhere — after the rows this page shows
+ * (lib/list-range.ts), when that is known. Nothing when the list is one page.
  */
 export function CandidatesPager({
   firstPage,
   nextPage,
+  range = null,
 }: {
   /** The first page of the same list — null on the first page itself. */
   firstPage: string | null;
   /** The next page — null on the last page. */
   nextPage: string | null;
+  /** "Showing 21–40 of 57" — null when this page's start is not known. */
+  range?: string | null;
 }) {
   if (!firstPage && !nextPage) return null;
   return (
     <nav className="candidates-pager" aria-label="Candidate pages">
+      {range ? <p className="candidates-pager__range">{range}</p> : null}
       {firstPage ? (
-        <PortalLink className="bb-btn bb-btn--secondary" href={firstPage} pendingLabel="First page">
+        <PagerLink className="bb-btn bb-btn--secondary" href={firstPage} pendingLabel="First page">
           <Icon name={ACTION_ICON.back} />
           <span>First page</span>
-        </PortalLink>
+        </PagerLink>
       ) : null}
       {nextPage ? (
-        <PortalLink className="bb-btn bb-btn--secondary" href={nextPage} pendingLabel="Next page">
+        <PagerLink className="bb-btn bb-btn--secondary" href={nextPage} pendingLabel="Next page">
           <span>Next page</span>
           <Icon name={ACTION_ICON.next} />
-        </PortalLink>
+        </PagerLink>
       ) : null}
     </nav>
   );
@@ -64,14 +71,14 @@ export function LoadErrorState({ firstPage, body }: { firstPage: string | null; 
           <RetryButton />
           {/* A later page's link can go stale; the newest page is always a way back in. */}
           {firstPage ? (
-            <PortalLink
+            <PagerLink
               className="bb-btn bb-btn--secondary"
               href={firstPage}
               pendingLabel="First page"
             >
               <Icon name={ACTION_ICON.back} />
               <span>First page</span>
-            </PortalLink>
+            </PagerLink>
           ) : null}
         </div>
       </div>
@@ -98,10 +105,10 @@ export function CursorRefusedState({ firstPage }: { firstPage: string }) {
           first page.
         </p>
         <div className="state__actions">
-          <PortalLink className="bb-btn bb-btn--secondary" href={firstPage} pendingLabel="First page">
+          <PagerLink className="bb-btn bb-btn--secondary" href={firstPage} pendingLabel="First page">
             <Icon name={ACTION_ICON.back} />
             <span>First page</span>
-          </PortalLink>
+          </PagerLink>
         </div>
       </div>
     </Card>
