@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/material.dart';
 
 import '../../../core/data/models.dart';
@@ -6,15 +7,21 @@ import '../../../core/di/locator.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
+import '../../../core/util/number_input.dart';
+import '../../../core/widgets/bb_action_bar.dart';
 import '../../../core/widgets/bb_button.dart';
 import '../../../core/widgets/bb_card.dart';
-import '../../../core/widgets/bb_chip.dart';
+import '../../../core/widgets/bb_chip_select.dart';
 import '../../../core/widgets/bb_field.dart';
+import '../../../core/widgets/bb_focus_chain.dart';
+import '../../../core/widgets/bb_form_errors.dart';
 import '../../../core/widgets/bb_icon_button.dart';
+import '../../../core/widgets/bb_leave_guard.dart';
+import '../../../core/widgets/bb_shake.dart';
 import '../../../core/widgets/bb_toast.dart';
 import 'cubit/jobs_cubit.dart';
-import '../domain/worker_card_fields.dart';
 import 'widgets/job_content_input.dart';
+import 'widgets/job_form_rules.dart';
 import 'widgets/trade_posting_fields.dart';
 
 /// Edit an existing COMPANY posting (`PATCH /payer/job-postings/:id`).
@@ -31,7 +38,7 @@ import 'widgets/trade_posting_fields.dart';
 /// EMPTYING A BOX (#1652): the PATCH takes a `clear` list, so a saved value can
 /// now be REMOVED, not only overwritten. Only the two OPTIONAL boxes can be
 /// emptied at all — Area and the Location note; every other field is on the
-/// worker's card and [workerCardGap] refuses a save that blanks it. So when
+/// worker's card and the shared card rule refuses a save that blanks it. So when
 /// Area or Location HAD a saved value and is now empty, that field rides
 /// `clear` and is left OUT of the edit body (a field in both is a 400). A box
 /// that was never set and is still empty sends nothing. Only the fields the
@@ -40,6 +47,13 @@ import 'widgets/trade_posting_fields.dart';
 ///
 /// Pushed as a full page with its own back; drives the SHARED [JobsCubit] (so the
 /// My-jobs list refetches) and pops on success.
+///
+/// #2595 (M7) — a refused save shows every reason AT its field and scrolls to
+/// the first (shake + error haptic); Save sits in the shared pinned
+/// [BbActionBar]; pay/experience boxes are digits-only (pay ₹-prefixed and
+/// grouped); the keyboard's "next" walks the text boxes; a drag closes the
+/// keyboard; and Back (system or arrow) on an edited form asks before
+/// discarding it.
 class EditCompanyJobScreen extends StatefulWidget {
   const EditCompanyJobScreen({
     super.key,
@@ -88,9 +102,9 @@ class _EditCompanyJobScreenState extends State<EditCompanyJobScreen> {
   late final TextEditingController _area =
       TextEditingController(text: widget.job.area ?? '');
   late final TextEditingController _payMin =
-      TextEditingController(text: widget.job.payMin?.toString() ?? '');
+      TextEditingController(text: formatPayInput(widget.job.payMin));
   late final TextEditingController _payMax =
-      TextEditingController(text: widget.job.payMax?.toString() ?? '');
+      TextEditingController(text: formatPayInput(widget.job.payMax));
   late final TextEditingController _expMin = TextEditingController(
     text: widget.job.minExperienceYears?.toString() ?? '',
   );
@@ -151,11 +165,101 @@ class _EditCompanyJobScreenState extends State<EditCompanyJobScreen> {
 
   bool _saving = false;
 
+  // --- #2595 (M7) — inline errors, keyboard flow, the leave guard -----------
+
+  /// What is wrong and where; see [_validate].
+  final BbFormErrors<JobFormField> _form = BbFormErrors<JobFormField>();
+
+  /// The keyboard's "next" through the text boxes, in the order drawn; "done"
+  /// on the last experience box (the chips after it need a tap).
+  final BbFocusChain<JobFormField> _chain = BbFocusChain<JobFormField>(
+    const <JobFormField>[
+      JobFormField.title,
+      JobFormField.location,
+      JobFormField.city,
+      JobFormField.area,
+      JobFormField.payMin,
+      JobFormField.payMax,
+      JobFormField.expMin,
+      JobFormField.expMax,
+    ],
+  );
+
+  /// Every text box, merged — typing does not rebuild the form.
+  late final Listenable _inputs = Listenable.merge(_textBoxes);
+
+  /// The form as it opened (prefilled from the row).
+  late final List<Object?> _pristine;
+
+  static const BbLeavePrompt _leavePrompt = BbLeavePrompt(
+    title: 'Discard your changes?',
+    message: 'Your edits to this job have not been saved.',
+  );
+
   @override
   void initState() {
     super.initState();
+    _pristine = _snapshot();
+    _inputs.addListener(_onInputChanged);
     // ignore: discarded_futures — fire-and-forget; state updates on done.
     _loadPostingTrades();
+  }
+
+  List<TextEditingController> get _textBoxes => <TextEditingController>[
+        _title,
+        _location,
+        _city,
+        _area,
+        _payMin,
+        _payMax,
+        _expMin,
+        _expMax,
+        _description,
+      ];
+
+  /// Everything on the form, flattened for [listEquals] (see the post form).
+  List<Object?> _snapshot() => <Object?>[
+        for (final TextEditingController box in _textBoxes) box.text.trim(),
+        _band,
+        _shift,
+        _neededBy,
+        _payType,
+        _roleKind,
+        _tradeLevel,
+        listSnapshotKey(_benefits),
+        listSnapshotKey(_requirements),
+        tradeAnswersSnapshotKey(_tradeAnswers),
+      ];
+
+  /// True when leaving would throw an edit away.
+  bool get _hasUnsavedChanges => !listEquals(_snapshot(), _pristine);
+
+  /// Every reason the form cannot be saved, keyed by the control to change —
+  /// the title plus the worker-visible content every posting form insists on
+  /// ([jobContentErrors]). Checked against the FORM state, which is the
+  /// resulting card: every box here is prefilled from the stored row, so a
+  /// blank one is either a field the row never had or one the payer just
+  /// emptied, and both leave the same hole on the worker's card.
+  Map<JobFormField, String> _validate() => <JobFormField, String>{
+        if (_title.text.trim().isEmpty) JobFormField.title: 'Add the job title',
+        ...jobContentErrors(
+          city: _city.text,
+          payMin: _intOrNull(_payMin.text),
+          payMax: _intOrNull(_payMax.text),
+          payType: _payType,
+          expMin: _intOrNull(_expMin.text),
+          expMax: _intOrNull(_expMax.text),
+          shift: _shift,
+          neededBy: _neededBy,
+          description: _description.text,
+          requirements: _requirements,
+          benefits: _benefits,
+        ),
+      };
+
+  /// A keystroke: drop the inline errors it fixed (nothing new until Save).
+  void _onInputChanged() {
+    if (_form.settle(_validate())) setState(() {});
   }
 
   Future<void> _loadPostingTrades() async {
@@ -185,6 +289,8 @@ class _EditCompanyJobScreenState extends State<EditCompanyJobScreen> {
 
   @override
   void dispose() {
+    _inputs.removeListener(_onInputChanged);
+    _chain.dispose();
     _title.dispose();
     _location.dispose();
     _city.dispose();
@@ -197,12 +303,9 @@ class _EditCompanyJobScreenState extends State<EditCompanyJobScreen> {
     super.dispose();
   }
 
-  /// A trimmed whole-number field → int, or null when empty/invalid.
-  static int? _intOrNull(String raw) {
-    final String t = raw.trim();
-    if (t.isEmpty) return null;
-    return int.tryParse(t);
-  }
+  /// A pay/experience box → int, or null when empty (the boxes take digits
+  /// only; the pay ones show grouping, read straight through).
+  static int? _intOrNull(String raw) => parseWholeNumber(raw);
 
   /// [now] when the payer changed it, else null (→ omitted from the PATCH, so
   /// the stored value survives). An EMPTIED box is a null too — a blank is
@@ -262,81 +365,20 @@ class _EditCompanyJobScreenState extends State<EditCompanyJobScreen> {
   }
 
   Future<void> _save() async {
-    final String title = _title.text.trim();
-    if (title.isEmpty) {
-      showBbToast(
-        context,
-        title: 'Add the basics',
-        message: 'A job title is needed.',
-        icon: Icons.info_rounded,
-      );
+    // #2595 — every reason the save cannot go is shown AT its field, and the
+    // payer is taken to the first (scroll + shake + error haptic) — the same
+    // rules the post form and the server apply, once toasts naming one field.
+    final Map<JobFormField, String> errors = _validate();
+    if (errors.isNotEmpty) {
+      setState(() => _form.show(errors));
       return;
     }
 
+    final String title = _title.text.trim();
     final int? payMin = _intOrNull(_payMin.text);
     final int? payMax = _intOrNull(_payMax.text);
     final int? expMin = _intOrNull(_expMin.text);
     final int? expMax = _intOrNull(_expMax.text);
-    // Same ordering rules the post form and the server both apply.
-    if (payMin != null && payMax != null && payMax < payMin) {
-      showBbToast(
-        context,
-        title: 'Check the bands',
-        message: 'Max pay must be at least the min.',
-        icon: Icons.info_rounded,
-      );
-      return;
-    }
-    if (expMin != null && expMax != null && expMax < expMin) {
-      showBbToast(
-        context,
-        title: 'Check the bands',
-        message: 'Max experience must be at least the min.',
-        icon: Icons.info_rounded,
-      );
-      return;
-    }
-
-    // The description is worker-visible free text: screened at entry (cap + the
-    // server's fail-closed PII rule) so a whole save is never 400'd for it.
-    final String? descriptionError = postingDescriptionError(_description.text);
-    if (descriptionError != null) {
-      showBbToast(
-        context,
-        title: 'Check the description',
-        message: descriptionError,
-        icon: Icons.info_rounded,
-      );
-      return;
-    }
-
-    // The card's own fields — the SAME rule the create form applies, because an
-    // edit can empty what a create had to fill. Checked against the FORM state,
-    // which is the resulting card: every box here is prefilled from the stored
-    // row, so a blank one is either a field the row never had or one the payer
-    // just emptied, and both leave the same hole on the worker's card.
-    final WorkerCardGap? gap = workerCardGap(
-      city: _city.text,
-      payMin: payMin,
-      payMax: payMax,
-      payType: _payType,
-      expMin: expMin,
-      expMax: expMax,
-      shift: _shift,
-      neededBy: _neededBy,
-      description: _description.text,
-      requirements: _requirements,
-      benefits: _benefits,
-    );
-    if (gap != null) {
-      showBbToast(
-        context,
-        title: gap.title,
-        message: gap.message,
-        icon: Icons.info_rounded,
-      );
-      return;
-    }
 
     // Only what actually CHANGED rides the PATCH — a resent prefill would be
     // pointless at best and, on a stale row, a clobber.
@@ -479,43 +521,33 @@ class _EditCompanyJobScreenState extends State<EditCompanyJobScreen> {
         ),
       );
 
-  /// A labelled single-select rendered as aligned kit chips — the JUL31 pattern
-  /// for enum choices; selected flips to a solid haldi pill.
-  /// [value] is nullable so a REQUIRED enum can sit UNPICKED on a row that
-  /// stores none — no chip is selected until the payer taps one.
-  Widget _chipField<T extends Object>({
+  /// [control], anchored for its inline error (#2595): when [field] is the
+  /// first error on a refused save, this is what scrolls into view and shakes.
+  Widget _anchored(JobFormField field, Widget control) =>
+      BbShake(key: _form.anchor(field), child: control);
+
+  /// An enum as kit chips ([BbChipSelect]); selected flips to a solid haldi
+  /// pill. [value] is nullable so a REQUIRED enum can sit UNPICKED on a row
+  /// that stores none — no chip is selected until the payer taps one. A
+  /// validated one ([field]) is anchored with its inline error.
+  Widget _chipField({
+    JobFormField? field,
     required String label,
-    required T? value,
-    required List<T> options,
-    required String Function(T) labelOf,
-    required ValueChanged<T> onSelected,
-  }) =>
-      Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          Text(
-            label,
-            style: AppTypography.body(
-              size: AppTypography.sizeSm,
-              weight: FontWeight.w700,
-              color: AppColors.textPrimary,
-            ),
-          ),
-          const SizedBox(height: AppSpacing.s2),
-          Wrap(
-            spacing: AppSpacing.s2,
-            runSpacing: AppSpacing.s2,
-            children: <Widget>[
-              for (final T option in options)
-                BbChip(
-                  label: labelOf(option),
-                  selected: option == value,
-                  onTap: () => onSelected(option),
-                ),
-            ],
-          ),
-        ],
-      );
+    required String? value,
+    required List<String> options,
+    required String Function(String) labelOf,
+    required ValueChanged<String> onSelected,
+  }) {
+    final Widget select = BbChipSelect<String>(
+      label: label,
+      value: value,
+      options: options,
+      labelOf: labelOf,
+      onSelected: onSelected,
+      errorText: field == null ? null : _form[field],
+    );
+    return field == null ? select : _anchored(field, select);
+  }
 
   /// "day/night/rotational" → display labels; null = the honest "Not set" (only
   /// offered while nothing is stored — see [_shiftOptions]).
@@ -583,252 +615,313 @@ class _EditCompanyJobScreenState extends State<EditCompanyJobScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(
-            AppSpacing.gutter,
-            AppSpacing.s2,
-            AppSpacing.gutter,
-            AppSpacing.s6,
+    // #2595 — a pick can fix an error from another control; errors only drop.
+    _form.settle(_validate());
+    return BbLeaveGuard(
+      hasUnsavedChanges: () => _hasUnsavedChanges,
+      prompt: _leavePrompt,
+      watch: _inputs,
+      child: Scaffold(
+        // #2595 — Save is pinned like Post's (the shared bar): it used to sit
+        // at the very end of this tall form, below the fold.
+        bottomNavigationBar: BbActionBar(
+          child: BbButton(
+            label: 'Save changes',
+            iconLeft: Icons.check_rounded,
+            block: true,
+            loading: _saving,
+            onPressed: _save,
           ),
-          children: <Widget>[
-            Row(
+        ),
+        body: SafeArea(
+          // Every field is built (not a lazy list) so the first invalid one
+          // can always be scrolled to; a drag closes the keyboard.
+          child: SingleChildScrollView(
+            keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.gutter,
+              AppSpacing.s2,
+              AppSpacing.gutter,
+              AppSpacing.s6,
+            ),
+            child: ListBody(
               children: <Widget>[
-                BbIconButton(
-                  icon: Icons.arrow_back_rounded,
-                  semanticLabel: 'Back',
-                  onPressed: () => Navigator.of(context).pop(),
+                Row(
+                  children: <Widget>[
+                    BbIconButton(
+                      icon: Icons.arrow_back_rounded,
+                      semanticLabel: 'Back',
+                      // Through the route's back, so an edited form asks first.
+                      onPressed: () => Navigator.of(context).maybePop(),
+                    ),
+                    const SizedBox(width: AppSpacing.s3),
+                    Text(
+                      'Edit job',
+                      style: AppTypography.header(
+                        size: AppTypography.sizeLg,
+                        weight: FontWeight.w800,
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(width: AppSpacing.s3),
+                const SizedBox(height: AppSpacing.s4),
+                _sectionCard('Job details', <Widget>[
+                  _anchored(
+                    JobFormField.title,
+                    BbField(
+                      label: 'Job title',
+                      controller: _title,
+                      errorText: _form[JobFormField.title],
+                      flow: _chain[JobFormField.title],
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.s4),
+                  if (_postingTrades.isNotEmpty) ...<Widget>[
+                    _chipField(
+                      label: 'Role',
+                      value: _roleKind,
+                      options: _postingTrades
+                          .map((PostingTradeForm t) => t.roleKind)
+                          .toList(growable: false),
+                      labelOf: (String kind) =>
+                          _formForKind(kind)?.roleLabel ?? kind,
+                      onSelected: _selectRole,
+                    ),
+                    const SizedBox(height: AppSpacing.s4),
+                  ] else ...<Widget>[
+                    BbSelect<String?>(
+                      label: 'Role (card illustration)',
+                      value: _roleKind,
+                      items: <String?>[null, ...kJobRoleKinds],
+                      labelOf: (String? v) =>
+                          v == null ? 'Not specified' : (jobRoleLabel(v) ?? v),
+                      onChanged: (String? v) => setState(() => _roleKind = v),
+                    ),
+                    const SizedBox(height: AppSpacing.s4),
+                  ],
+                  BbField(
+                    label: 'Location',
+                    controller: _location,
+                    hint: 'optional',
+                    flow: _chain[JobFormField.location],
+                  ),
+                  const SizedBox(height: AppSpacing.s4),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Expanded(
+                        child: _anchored(
+                          JobFormField.city,
+                          BbField(
+                            label: 'City',
+                            controller: _city,
+                            hint: 'e.g. Pune',
+                            errorText: _form[JobFormField.city],
+                            flow: _chain[JobFormField.city],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: AppSpacing.s3),
+                      Expanded(
+                        // COARSE locality bucket — never an address, and kept
+                        // apart from the free-text Location above on purpose.
+                        child: BbField(
+                          label: 'Area (optional)',
+                          controller: _area,
+                          hint: 'e.g. Chakan',
+                          flow: _chain[JobFormField.area],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: AppSpacing.s4),
+                  _chipField(
+                    label: 'Vacancies',
+                    value: _band,
+                    options: _bands,
+                    labelOf: (String b) => b,
+                    onSelected: (String v) => setState(() => _band = v),
+                  ),
+                ]),
+                if (_showTradeForm) ...<Widget>[
+                  const SizedBox(height: AppSpacing.s4),
+                  _sectionCard('Trade requirements', <Widget>[
+                    if (_formForKind(_roleKind) case final PostingTradeForm form)
+                      TradePostingFields(
+                        trade: form,
+                        tradeLevel: _tradeLevel,
+                        answers: _tradeAnswers,
+                        onChanged: (
+                          String level,
+                          Map<String, List<String>> answers,
+                        ) {
+                          setState(() {
+                            _tradeLevel = level;
+                            _tradeAnswers = answers;
+                            _tradeDirty = true;
+                          });
+                        },
+                      )
+                    else
+                      Text(
+                        'Pick a role above and the facts that role is hired on '
+                        'appear here.',
+                        style: AppTypography.body(
+                          size: AppTypography.sizeSm,
+                          color: AppColors.textMuted,
+                          height: 1.45,
+                        ),
+                      ),
+                  ]),
+                ],
+                const SizedBox(height: AppSpacing.s4),
+                _sectionCard('Pay & timing', <Widget>[
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Expanded(
+                        child: _anchored(
+                          JobFormField.payMin,
+                          JobPayField(
+                            label: 'Pay min ₹/mo',
+                            controller: _payMin,
+                            hint: 'e.g. 18,000',
+                            errorText: _form[JobFormField.payMin],
+                            flow: _chain[JobFormField.payMin],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: AppSpacing.s3),
+                      Expanded(
+                        child: _anchored(
+                          JobFormField.payMax,
+                          JobPayField(
+                            label: 'Pay max ₹/mo',
+                            controller: _payMax,
+                            hint: 'e.g. 25,000',
+                            errorText: _form[JobFormField.payMax],
+                            flow: _chain[JobFormField.payMax],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: AppSpacing.s4),
+                  // What the band MEANS (#1648). No 'Not stated' chip: the card
+                  // prints it, so the form never offers to remove one (the
+                  // PATCH's `clear` could since #1652; the card rule is what
+                  // forbids it).
+                  _chipField(
+                    field: JobFormField.payType,
+                    label: 'Pay type',
+                    value: _payType,
+                    options: kJobPayTypes,
+                    labelOf: _payTypeLabel,
+                    onSelected: (String v) => setState(() => _payType = v),
+                  ),
+                  const SizedBox(height: AppSpacing.s4),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Expanded(
+                        child: _anchored(
+                          JobFormField.expMin,
+                          JobExperienceField(
+                            label: 'Exp min (yrs)',
+                            controller: _expMin,
+                            hint: 'e.g. 1',
+                            errorText: _form[JobFormField.expMin],
+                            flow: _chain[JobFormField.expMin],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: AppSpacing.s3),
+                      Expanded(
+                        child: _anchored(
+                          JobFormField.expMax,
+                          JobExperienceField(
+                            label: 'Exp max (yrs)',
+                            controller: _expMax,
+                            hint: 'e.g. 4',
+                            errorText: _form[JobFormField.expMax],
+                            flow: _chain[JobFormField.expMax],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: AppSpacing.s4),
+                  _chipField(
+                    field: JobFormField.shift,
+                    label: 'Shift',
+                    value: _shift,
+                    options: _shifts,
+                    labelOf: _shiftLabel,
+                    onSelected: (String v) => setState(() => _shift = v),
+                  ),
+                  const SizedBox(height: AppSpacing.s4),
+                  _chipField(
+                    field: JobFormField.neededBy,
+                    label: 'Needed by',
+                    value: _neededBy,
+                    options: _neededBys,
+                    labelOf: _neededByLabel,
+                    onSelected: (String v) => setState(() => _neededBy = v),
+                  ),
+                ]),
+                const SizedBox(height: AppSpacing.s4),
+                _sectionCard('What workers see', <Widget>[
+                  _anchored(
+                    JobFormField.description,
+                    JobDescriptionField(
+                      controller: _description,
+                      label: 'Description',
+                      errorText: _form[JobFormField.description],
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.s4),
+                  _anchored(
+                    JobFormField.benefits,
+                    JobChipListField(
+                      label: 'Benefits',
+                      values: _benefits,
+                      maxItems: JobContentLimits.listItems,
+                      addLabel: '+ Add benefit',
+                      onAdd: _addBenefit,
+                      onRemove: (String value) =>
+                          setState(() => _benefits.remove(value)),
+                      errorText: _form[JobFormField.benefits],
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.s4),
+                  _anchored(
+                    JobFormField.requirements,
+                    JobChipListField(
+                      label: 'Requirements',
+                      values: _requirements,
+                      maxItems: JobContentLimits.listItems,
+                      addLabel: '+ Add requirement',
+                      onAdd: _addRequirement,
+                      onRemove: (String value) =>
+                          setState(() => _requirements.remove(value)),
+                      errorText: _form[JobFormField.requirements],
+                    ),
+                  ),
+                ]),
+                const SizedBox(height: AppSpacing.s4),
                 Text(
-                  'Edit job',
-                  style: AppTypography.header(
-                    size: AppTypography.sizeLg,
-                    weight: FontWeight.w800,
+                  'Emptying Area or Location removes it from the job. The other '
+                  'details can be changed but not left blank. The role and its '
+                  'trade requirements stay on the worker’s job detail.',
+                  style: AppTypography.body(
+                    size: AppTypography.sizeSm,
+                    color: AppColors.textMuted,
+                    height: 1.45,
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: AppSpacing.s4),
-            _sectionCard('Job details', <Widget>[
-              BbField(label: 'Job title', controller: _title),
-              const SizedBox(height: AppSpacing.s4),
-              if (_postingTrades.isNotEmpty) ...<Widget>[
-                _chipField<String>(
-                  label: 'Role',
-                  value: _roleKind,
-                  options: _postingTrades
-                      .map((PostingTradeForm t) => t.roleKind)
-                      .toList(growable: false),
-                  labelOf: (String kind) =>
-                      _formForKind(kind)?.roleLabel ?? kind,
-                  onSelected: _selectRole,
-                ),
-                const SizedBox(height: AppSpacing.s4),
-              ] else ...<Widget>[
-                BbSelect<String?>(
-                  label: 'Role (card illustration)',
-                  value: _roleKind,
-                  items: <String?>[null, ...kJobRoleKinds],
-                  labelOf: (String? v) =>
-                      v == null ? 'Not specified' : (jobRoleLabel(v) ?? v),
-                  onChanged: (String? v) => setState(() => _roleKind = v),
-                ),
-                const SizedBox(height: AppSpacing.s4),
-              ],
-              BbField(
-                label: 'Location',
-                controller: _location,
-                hint: 'optional',
-              ),
-              const SizedBox(height: AppSpacing.s4),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  Expanded(
-                    child: BbField(
-                      label: 'City',
-                      controller: _city,
-                      hint: 'e.g. Pune',
-                    ),
-                  ),
-                  const SizedBox(width: AppSpacing.s3),
-                  Expanded(
-                    // COARSE locality bucket — never an address, and kept apart
-                    // from the free-text Location above on purpose.
-                    child: BbField(
-                      label: 'Area (optional)',
-                      controller: _area,
-                      hint: 'e.g. Chakan',
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: AppSpacing.s4),
-              _chipField<String>(
-                label: 'Vacancies',
-                value: _band,
-                options: _bands,
-                labelOf: (String b) => b,
-                onSelected: (String v) => setState(() => _band = v),
-              ),
-            ]),
-            if (_showTradeForm) ...<Widget>[
-              const SizedBox(height: AppSpacing.s4),
-              _sectionCard('Trade requirements', <Widget>[
-                if (_formForKind(_roleKind) case final PostingTradeForm form)
-                  TradePostingFields(
-                    trade: form,
-                    tradeLevel: _tradeLevel,
-                    answers: _tradeAnswers,
-                    onChanged: (
-                      String level,
-                      Map<String, List<String>> answers,
-                    ) {
-                      setState(() {
-                        _tradeLevel = level;
-                        _tradeAnswers = answers;
-                        _tradeDirty = true;
-                      });
-                    },
-                  )
-                else
-                  Text(
-                    'Pick a role above and the facts that role is hired on '
-                    'appear here.',
-                    style: AppTypography.body(
-                      size: AppTypography.sizeSm,
-                      color: AppColors.textMuted,
-                      height: 1.45,
-                    ),
-                  ),
-              ]),
-            ],
-            const SizedBox(height: AppSpacing.s4),
-            _sectionCard('Pay & timing', <Widget>[
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  Expanded(
-                    child: BbField(
-                      label: 'Pay min ₹/mo',
-                      controller: _payMin,
-                      hint: 'e.g. 18000',
-                      keyboardType: TextInputType.number,
-                      mono: true,
-                    ),
-                  ),
-                  const SizedBox(width: AppSpacing.s3),
-                  Expanded(
-                    child: BbField(
-                      label: 'Pay max ₹/mo',
-                      controller: _payMax,
-                      hint: 'e.g. 25000',
-                      keyboardType: TextInputType.number,
-                      mono: true,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: AppSpacing.s4),
-              // What the band MEANS (#1648). No 'Not stated' chip: the card
-              // prints it, so the form never offers to remove one (the PATCH's
-              // `clear` could since #1652; the card rule is what forbids it).
-              _chipField<String>(
-                label: 'Pay type',
-                value: _payType,
-                options: kJobPayTypes,
-                labelOf: _payTypeLabel,
-                onSelected: (String v) => setState(() => _payType = v),
-              ),
-              const SizedBox(height: AppSpacing.s4),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  Expanded(
-                    child: BbField(
-                      label: 'Exp min (yrs)',
-                      controller: _expMin,
-                      hint: 'e.g. 1',
-                      keyboardType: TextInputType.number,
-                      mono: true,
-                    ),
-                  ),
-                  const SizedBox(width: AppSpacing.s3),
-                  Expanded(
-                    child: BbField(
-                      label: 'Exp max (yrs)',
-                      controller: _expMax,
-                      hint: 'e.g. 4',
-                      keyboardType: TextInputType.number,
-                      mono: true,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: AppSpacing.s4),
-              _chipField<String>(
-                label: 'Shift',
-                value: _shift,
-                options: _shifts,
-                labelOf: _shiftLabel,
-                onSelected: (String v) => setState(() => _shift = v),
-              ),
-              const SizedBox(height: AppSpacing.s4),
-              _chipField<String>(
-                label: 'Needed by',
-                value: _neededBy,
-                options: _neededBys,
-                labelOf: _neededByLabel,
-                onSelected: (String v) => setState(() => _neededBy = v),
-              ),
-            ]),
-            const SizedBox(height: AppSpacing.s4),
-            _sectionCard('What workers see', <Widget>[
-              JobDescriptionField(
-                  controller: _description, label: 'Description'),
-              const SizedBox(height: AppSpacing.s4),
-              JobChipListField(
-                label: 'Benefits',
-                values: _benefits,
-                maxItems: JobContentLimits.listItems,
-                addLabel: '+ Add benefit',
-                onAdd: _addBenefit,
-                onRemove: (String value) =>
-                    setState(() => _benefits.remove(value)),
-              ),
-              const SizedBox(height: AppSpacing.s4),
-              JobChipListField(
-                label: 'Requirements',
-                values: _requirements,
-                maxItems: JobContentLimits.listItems,
-                addLabel: '+ Add requirement',
-                onAdd: _addRequirement,
-                onRemove: (String value) =>
-                    setState(() => _requirements.remove(value)),
-              ),
-            ]),
-            const SizedBox(height: AppSpacing.s4),
-            Text(
-              'Emptying Area or Location removes it from the job. The other '
-              'details can be changed but not left blank. The role and its '
-              'trade requirements stay on the worker’s job detail.',
-              style: AppTypography.body(
-                size: AppTypography.sizeSm,
-                color: AppColors.textMuted,
-                height: 1.45,
-              ),
-            ),
-            const SizedBox(height: AppSpacing.s5),
-            BbButton(
-              label: 'Save changes',
-              iconLeft: Icons.check_rounded,
-              block: true,
-              loading: _saving,
-              onPressed: _save,
-            ),
-          ],
+          ),
         ),
       ),
     );
