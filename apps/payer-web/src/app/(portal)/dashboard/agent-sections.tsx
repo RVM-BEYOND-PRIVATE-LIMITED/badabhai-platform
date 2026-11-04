@@ -339,7 +339,7 @@ export async function AgentSections({
               </div>
               <div className="panel__actions">
                 <PortalLink
-                  className="bb-btn bb-btn--primary bb-btn--sm"
+                  className="bb-btn bb-btn--primary"
                   href="/agency/referrals"
                   pendingLabel="Referrals"
                 >

@@ -60,7 +60,7 @@ export function AcceptInvite({ token }: { token: string }) {
         </div>
         <div className="alert__actions">
           <PortalLink
-            className="bb-btn bb-btn--primary bb-btn--sm"
+            className="bb-btn bb-btn--primary"
             href="/dashboard"
             pendingLabel="Dashboard"
           >
