@@ -21,6 +21,7 @@ import '../../job_posting_chat/presentation/cubit/chat_sessions_cubit.dart';
 import 'agency_jobs_screen.dart';
 import 'cubit/jobs_cubit.dart';
 import 'edit_company_job_screen.dart';
+import 'widgets/trade_posting_fields.dart' show humaniseTradeKey;
 
 /// Opens an external URL. Overridable so widget tests can assert WHERE a link
 /// went without a platform channel (`launchUrl` throws MissingPluginException
@@ -378,6 +379,11 @@ class _RealJobCard extends StatelessWidget {
     final List<String> meta = <String>[
       if (job.locationLabel != null && job.locationLabel!.isNotEmpty)
         job.locationLabel!,
+      // #2548 — the posting's level, READ-ONLY here. Editing it in the app is
+      // a later decision (owner ruling Q1); the value is whatever the server
+      // already stored, never a client default.
+      if (job.tradeLevel != null && job.tradeLevel!.isNotEmpty)
+        'Level needed: ${humaniseTradeKey(job.tradeLevel!)}',
       if (job.band.isNotEmpty) '${job.band} vacancies',
       if (job.createdAt != null) 'Posted ${_shortDate(job.createdAt!)}',
       // Truthful per-posting engagement (backend-sourced); omitted when none.

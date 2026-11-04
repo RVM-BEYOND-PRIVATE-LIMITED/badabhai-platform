@@ -86,6 +86,7 @@ Future<void> _pumpViaLocator(
   WidgetTester tester,
   JobDetail light, {
   String? roleKind,
+  String? tradeLevelLabel,
 }) async {
   GoogleFonts.config.allowRuntimeFetching = false;
   await locator.reset();
@@ -102,6 +103,7 @@ Future<void> _pumpViaLocator(
       // #2009 — `role_kind` arrives on the FETCHED detail, so the art a test
       // asserts has to come through the swap, not off the light handover.
       roleKind: roleKind,
+      tradeLevelLabel: tradeLevelLabel,
     ),
   );
   locator.registerLazySingleton<JobsRepository>(() => jobs);
@@ -194,6 +196,19 @@ void main() {
         findsOneWidget,
       );
     });
+  });
+
+  testWidgets('the posting level reads "<Level> needed" (#2548)',
+      (WidgetTester tester) async {
+    await _pumpViaLocator(tester, lightFull, tradeLevelLabel: 'Setter');
+
+    await tester.scrollUntilVisible(
+      find.text('Setter needed'),
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(find.text('Setter needed'), findsOneWidget);
+    expect(find.text('Level: Setter'), findsNothing);
   });
 
   testWidgets(

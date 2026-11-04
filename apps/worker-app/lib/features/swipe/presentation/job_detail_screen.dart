@@ -327,7 +327,7 @@ class _JobDetailViewState extends State<_JobDetailView> {
             children: <Widget>[
               if (d.tradeLevelLabel != null && d.tradeLevelLabel!.isNotEmpty) ...<Widget>[
                 Text(
-                  'Level: ${d.tradeLevelLabel!}',
+                  '${d.tradeLevelLabel!} needed',
                   style: OnboardingTypography.inter(
                     size: 14,
                     weight: FontWeight.w700,

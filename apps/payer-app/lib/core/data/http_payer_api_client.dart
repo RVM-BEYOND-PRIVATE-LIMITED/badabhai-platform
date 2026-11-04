@@ -1458,6 +1458,8 @@ class HttpPayerApiClient implements PayerApiClient {
         industryMonths: (row['industryMonths'] as num?)?.toInt(),
         matchedSkillLabel: row['matchedSkillLabel'] as String?,
         lastWorkedAt: row['lastWorkedAt'] as String?,
+        // #2548 — display-only level fit; absent or null = no level sort.
+        levelFit: row['levelFit'] as String?,
       );
     }
     final List<dynamic> components =
@@ -1483,6 +1485,7 @@ class HttpPayerApiClient implements PayerApiClient {
       industryMonths: (row['industry_months'] as num?)?.toInt(),
       matchedSkillLabel: row['matched_skill_label'] as String?,
       lastWorkedAt: row['last_worked_at'] as String?,
+      levelFit: row['levelFit'] as String?,
     );
   }
 

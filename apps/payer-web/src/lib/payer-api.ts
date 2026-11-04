@@ -276,6 +276,9 @@ function toWeightedApplicant(a: ReachApplicantWire): FacelessApplicant {
     experienceBand: a.experienceBand ?? undefined,
     tradeLabel: a.tradeLabel ?? undefined,
     cityLabel: a.cityLabel ?? undefined,
+    // "Level needed" fit (#2548). Absent on an old backend; `null` means no
+    // level sort. Both read as "no tag", never a guessed level.
+    levelFit: a.levelFit ?? undefined,
     ...savedStage(a),
   };
 }
@@ -307,6 +310,8 @@ function toMatchCandidate(a: MatchCandidateWire): FacelessApplicant {
     // Middle Way P5 — display-only rungs, carried verbatim. Absent on an old backend (and
     // on the legacy weighted row), where the card prints no badge; never a placeholder.
     ...(a.tradeLevels !== undefined ? { tradeLevels: a.tradeLevels } : {}),
+    // "Level needed" fit (#2548) — carried verbatim; absent/null = no tag.
+    levelFit: a.levelFit ?? undefined,
     ...savedStage(a),
   };
 }
@@ -468,7 +473,9 @@ const candidateSearchTransportSchema = candidateSearchWireSchema
  *  - SCRAPE BOUND: the payer's hourly cap answers 429 (`isPayerRateLimited`). Any failure
  *    throws — the page renders its own state; nothing here fabricates a row or a count.
  */
-export async function searchCandidates(body: CandidateSearchBody = {}): Promise<CandidateSearchPage> {
+export async function searchCandidates(
+  body: CandidateSearchBody = {},
+): Promise<CandidateSearchPage> {
   const sent = candidateSearchBodySchema.parse(body);
   const wire = await payerFetch("/payer/candidates/search", {
     method: "POST",
