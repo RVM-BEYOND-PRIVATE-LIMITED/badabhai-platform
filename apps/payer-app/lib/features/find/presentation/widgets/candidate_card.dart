@@ -134,7 +134,7 @@ class CandidateCard extends StatelessWidget {
                   const BbBadge(
                     kSampleCandidateLabel,
                     tone: BbBadgeTone.neutral,
-                    icon: Icons.info,
+                    icon: Icons.info_rounded,
                   ),
                 ],
                 if (related != null) ...<Widget>[
