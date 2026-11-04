@@ -4,6 +4,8 @@ import 'package:flutter/services.dart' show TextInputFormatter;
 import '../theme/app_colors.dart';
 import '../theme/app_spacing.dart';
 import '../theme/app_typography.dart';
+import 'bb_field_error.dart';
+import 'bb_focus_chain.dart';
 
 /// Focus = a deep-blue hairline (kit law: haldi is a fill, blue carries
 /// structure / focus). Overrides the theme's default focus edge on these form
@@ -13,12 +15,30 @@ final OutlineInputBorder _kFocusBorder = OutlineInputBorder(
   borderSide: const BorderSide(color: AppColors.blue, width: 2),
 );
 
+/// The input edge for a field with an inline error — the theme's own crimson
+/// `errorBorder` / `focusedErrorBorder`, so an invalid box reads as invalid at
+/// a glance (no new colour: it is the theme's error chrome, applied here
+/// because the error TEXT is drawn by [BbFieldError], not by Material).
+({InputBorder? enabled, InputBorder? focused}) _errorBorders(
+  BuildContext context,
+  bool hasError,
+) {
+  if (!hasError) return (enabled: null, focused: _kFocusBorder);
+  final InputDecorationThemeData theme =
+      Theme.of(context).inputDecorationTheme;
+  return (enabled: theme.errorBorder, focused: theme.focusedErrorBorder);
+}
+
 /// A labelled form field — `.bb-field` + `.bb-input`. A bold label over a
 /// themed [TextField] (the input chrome comes from [AppTheme]'s
 /// `inputDecorationTheme`); paper fill, 1px hairline, radius 10, and a deep-blue
 /// focus border. Optional leading [icon] for the phone/search inputs.
 ///
 /// [mono] renders the value in Roboto Mono (the phone field).
+///
+/// #2595 — [errorText] shows the field's inline error under the input (and
+/// edges the box in the theme's error crimson); [flow] places it in a form's
+/// keyboard "next"/"done" chain ([BbFocusChain]).
 class BbField extends StatelessWidget {
   const BbField({
     super.key,
@@ -39,6 +59,10 @@ class BbField extends StatelessWidget {
     this.obscureText = false,
     this.suffixIcon,
     this.onChanged,
+    this.errorText,
+    this.flow,
+    this.textInputAction,
+    this.onSubmitted,
   });
 
   final String? label;
@@ -89,8 +113,25 @@ class BbField extends StatelessWidget {
   /// Fires on every edit (a controlled caller mirrors the value back).
   final ValueChanged<String>? onChanged;
 
+  /// The field's inline error (#2595), shown under the input — null for none.
+  final String? errorText;
+
+  /// This input's place in a form's keyboard chain: its focus node, the
+  /// "next"/"done" key, and where that key goes. Null keeps the defaults.
+  final BbFieldFlow? flow;
+
+  /// The keyboard action key when the field is not in a [flow] chain (e.g.
+  /// "done" on a one-field dialog, paired with [onSubmitted]).
+  final TextInputAction? textInputAction;
+
+  /// Fires when the keyboard action key is pressed (outside a [flow] chain).
+  final ValueChanged<String>? onSubmitted;
+
   @override
   Widget build(BuildContext context) {
+    final BbFieldFlow? flow = this.flow;
+    final ({InputBorder? enabled, InputBorder? focused}) borders =
+        _errorBorders(context, errorText != null);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
@@ -108,6 +149,10 @@ class BbField extends StatelessWidget {
         TextField(
           key: fieldKey,
           controller: controller,
+          focusNode: flow?.focusNode,
+          textInputAction: flow?.action ?? textInputAction,
+          onEditingComplete: flow?.onAction,
+          onSubmitted: flow == null ? onSubmitted : null,
           readOnly: readOnly,
           keyboardType: keyboardType,
           minLines: minLines,
@@ -137,9 +182,11 @@ class BbField extends StatelessWidget {
                     size: AppTypography.sizeBase,
                     weight: FontWeight.w600,
                   ),
-            focusedBorder: _kFocusBorder,
+            enabledBorder: borders.enabled,
+            focusedBorder: borders.focused,
           ),
         ),
+        BbFieldError(text: errorText),
       ],
     );
   }
@@ -154,6 +201,7 @@ class BbSelect<T> extends StatelessWidget {
     required this.items,
     required this.onChanged,
     required this.labelOf,
+    this.errorText,
   });
 
   final String? label;
@@ -162,8 +210,13 @@ class BbSelect<T> extends StatelessWidget {
   final ValueChanged<T?> onChanged;
   final String Function(T) labelOf;
 
+  /// The select's inline error (#2595), shown under it — null for none.
+  final String? errorText;
+
   @override
   Widget build(BuildContext context) {
+    final ({InputBorder? enabled, InputBorder? focused}) borders =
+        _errorBorders(context, errorText != null);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
@@ -181,7 +234,10 @@ class BbSelect<T> extends StatelessWidget {
         DropdownButtonFormField<T>(
           initialValue: value,
           isExpanded: true,
-          decoration: InputDecoration(focusedBorder: _kFocusBorder),
+          decoration: InputDecoration(
+            enabledBorder: borders.enabled,
+            focusedBorder: borders.focused,
+          ),
           icon: const Icon(Icons.expand_more_rounded, color: AppColors.textMuted),
           style: AppTypography.body(size: AppTypography.sizeBase),
           items: items
@@ -194,6 +250,7 @@ class BbSelect<T> extends StatelessWidget {
               .toList(growable: false),
           onChanged: onChanged,
         ),
+        BbFieldError(text: errorText),
       ],
     );
   }

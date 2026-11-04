@@ -53,6 +53,28 @@ class AppMotion {
   /// Horizontal slide of a page/overlay transition, as a fraction of its width.
   static const double pageSlide = 0.08;
 
+  // ---- #2595 (M7) form feedback -----------------------------------------
+  // Same laws as M3: opacity/transform only, ≤6px of travel, zero under the
+  // OS "remove animations" setting (every one is read through [resolve]).
+
+  /// An inline field error appearing: a fade + [errorTravel] slide down.
+  static const Duration errorReveal = Duration(milliseconds: 160);
+
+  /// How far an inline error slides down as it appears, in logical pixels.
+  static const double errorTravel = 4;
+
+  /// The one shake of the first invalid field on a refused submit.
+  static const Duration shake = Duration(milliseconds: 200);
+
+  /// The shake's travel either side of rest, in logical pixels.
+  static const double shakeTravel = 6;
+
+  /// A form progress bar filling to its next step.
+  static const Duration progress = Duration(milliseconds: 300);
+
+  /// The scale an OTP box pops to as its digit lands (over [press]).
+  static const double popScale = 1.04;
+
   /// True when the OS asks for animations to be removed
   /// ([MediaQueryData.disableAnimations]). Safe without a [MediaQuery].
   static bool reduced(BuildContext context) =>
