@@ -11,7 +11,7 @@ import 'package:payer_app/core/session/app_session_cubit.dart';
 
 /// Smoke test: the app boots to Login; picking Company vs Agency and getting OTP
 /// lands on Home with the shared nav; and a candidate card on Find shows the
-/// redacted name + ₹40 — never a demographic.
+/// redacted name + a 1-credit unlock — never a demographic.
 ///
 /// The agency Earn tab (and its hub / referral / referred / payouts / KYC
 /// screens) was REMOVED — no backend route existed, so every figure on it was
@@ -213,7 +213,7 @@ void main() {
     expect(find.text('₹34,000'), findsNothing);
   });
 
-  testWidgets('Find feed shows a redacted name + ₹40, never a demographic',
+  testWidgets('Find feed shows a redacted name + 1 credit, never a demographic',
       (WidgetTester tester) async {
     await boot(tester);
     await loginAs(tester, 'pick_company');
@@ -226,10 +226,11 @@ void main() {
     await tester.pumpAndSettle();
 
     // A masked candidate renders a redacted name (soft dots, no solid block) and
-    // a ₹40 unlock — the real name stays hidden until a paid unlock.
+    // a 1-credit unlock (no ₹ price) — the real name stays hidden until a paid
+    // unlock.
     expect(find.textContaining('••••'), findsWidgets);
     expect(find.textContaining('█'), findsNothing);
-    expect(find.text('₹40'), findsWidgets);
+    expect(find.text('1 credit'), findsWidgets);
     // The real (unmasked) name must NOT be visible before a paid unlock.
     expect(find.text('Ramesh Kumar'), findsNothing);
     // No demographic fields anywhere in the feed.

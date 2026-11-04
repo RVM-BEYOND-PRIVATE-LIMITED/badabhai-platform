@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:url_launcher/url_launcher.dart';
 
-import '../../../core/config/app_config.dart';
 import '../../../core/data/models.dart';
 import '../../../core/di/locator.dart';
 import '../../../core/error/payer_failure.dart';
@@ -14,55 +12,15 @@ import '../../../core/widgets/bb_button.dart';
 import '../../../core/widgets/bb_card.dart';
 import '../../../core/widgets/bb_icon_button.dart';
 import '../../../core/widgets/bb_status_view.dart';
-import '../../../core/widgets/bb_toast.dart';
 import 'cubit/credits_screen_cubit.dart';
-
-/// Opens an external URL. Overridable so widget tests can assert WHERE a link
-/// went without a platform channel (`launchUrl` throws MissingPluginException
-/// under `flutter test`). Mirrors the `ExternalUrlLauncher` seam in
-/// `jobs_screen.dart`.
-typedef CreditsUrlLauncher = Future<bool> Function(Uri url);
-
-/// Production launcher: hand the url to the OS browser, never an in-app webview —
-/// the payer signs in and pays on the web portal, outside this app.
-Future<bool> defaultCreditsUrlLauncher(Uri url) =>
-    launchUrl(url, mode: LaunchMode.externalApplication);
-
-/// The seam the "buy credits on web" link leaves through. Production must always
-/// leave this as [defaultCreditsUrlLauncher].
-@visibleForTesting
-CreditsUrlLauncher creditsExternalUrlLauncher = defaultCreditsUrlLauncher;
-
-/// Label of the external affordance that REPLACED the in-app pack purchase.
-const String kBuyCreditsOnWebLabel = 'Buy credits on web';
-
-/// Says the missing capability out loud on the screen, so "where do I buy
-/// credits?" is answered here instead of read as a bug — the same honesty the
-/// Jobs screen applies to plans, boosts and quota top-ups.
-const String kBuyCreditsOnWebNote =
-    'Credit packs are bought on the BadaBhai website.';
-
-/// Whether the "Buy credits on web" affordance is shown.
-///
-/// HIDDEN FOR NOW (`false`) — credits are an in-app spendable balance (virtual
-/// currency), and an in-app affordance that points out to a web purchase is
-/// Google Play ANTI-STEERING surface, which Play does NOT bless for virtual
-/// currency the way it does for reader content. Hidden by VISIBILITY ONLY: the
-/// button, its note, `_openCreditsOnWeb`, and the whole web-hand-off code stay
-/// in place — flip this back to `true` to re-enable (e.g. once distribution is
-/// confirmed India-only, where anti-steering is struck down, or alternative
-/// billing is wired).
-const bool kShowBuyCreditsOnWeb = false;
 
 /// Credits — the REAL balance (`GET /payer/credits`, ink card) and the REAL
 /// credit ledger (`GET /payer/credits/ledger`), both READ-ONLY.
 ///
-/// There is NO in-app purchase surface here. Selling a digital entitlement from
-/// inside a store-distributed app is exactly what App Store / Play Store IAP
-/// policy covers, and the mobile-payments rule bars it outright. Credit packs are
-/// bought on the payer WEB portal, so this screen REPORTS what the server says
-/// the payer has and has spent, and POINTS to the web for the purchase — the same
-/// hand-off the Jobs screen uses for plans, boosts and quota top-ups.
+/// There is NO purchase surface and NO payment information here (#2589, owner
+/// ruling 4 Nov 2026): no pack, no price, no "buy on web" pointer. Credits are
+/// shown as credits only — never a ₹ amount. Credit packs are bought on the
+/// payer WEB portal; this screen only REPORTS the balance and the spend.
 class CreditsScreen extends StatelessWidget {
   const CreditsScreen({super.key, required this.onBack});
 
@@ -81,33 +39,6 @@ class _CreditsView extends StatelessWidget {
   const _CreditsView({required this.onBack});
 
   final VoidCallback onBack;
-
-  /// Hands the payer to the WEB portal to buy credit packs. This REPLACED an
-  /// in-app pack catalogue + Buy buttons that granted credits from inside the
-  /// app — a store-barred payment surface. Falls back to an honest toast (no
-  /// dead end, no fabricated link) when no usable web origin is configured or
-  /// nothing on the device can open it.
-  Future<void> _openCreditsOnWeb(BuildContext context) async {
-    final String? base = resolvePayerWebUrl();
-    bool opened = false;
-    if (base != null) {
-      final Uri? url = Uri.tryParse('$base/credits');
-      if (url != null) {
-        try {
-          opened = await creditsExternalUrlLauncher(url);
-        } catch (_) {
-          opened = false;
-        }
-      }
-    }
-    if (opened || !context.mounted) return;
-    showBbToast(
-      context,
-      title: 'Open on web',
-      message: kBuyCreditsOnWebNote,
-      icon: Icons.open_in_new,
-    );
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -197,24 +128,6 @@ class _CreditsView extends StatelessWidget {
                 ],
               ),
             ),
-            // #1200 — the in-app "Buy credits" pack catalogue + Buy buttons were
-            // REMOVED (store IAP policy / mobile-payments rule). In their place, an
-            // honest pointer to the web portal where the purchase actually happens,
-            // mirroring the Jobs screen's plan/boost/top-up hand-off.
-            // Hidden by VISIBILITY ONLY (kShowBuyCreditsOnWeb) — the Play Store
-            // anti-steering concern for virtual currency. Code kept; the leading
-            // spacer rides inside the Visibility so hiding leaves ONE gap, not two.
-            Visibility(
-              visible: kShowBuyCreditsOnWeb,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  const SizedBox(height: AppSpacing.s5),
-                  _BuyCreditsOnWeb(onOpen: () => _openCreditsOnWeb(context)),
-                ],
-              ),
-            ),
             const SizedBox(height: AppSpacing.s5),
             // #376 follow-up — this section reads `GET /payer/credits/ledger`
             // (pack purchases, unlock debits, grants, refunds), so it is the
@@ -274,40 +187,6 @@ class _CreditsView extends StatelessWidget {
           ],
         );
       },
-    );
-  }
-}
-
-/// The external "buy credits on web" affordance + the one-line note that says out
-/// loud why there is no in-app Buy button here. Mirrors the Jobs screen's
-/// `_manageOnWeb` (secondary, block button + a muted note).
-class _BuyCreditsOnWeb extends StatelessWidget {
-  const _BuyCreditsOnWeb({required this.onOpen});
-
-  final VoidCallback onOpen;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        BbButton(
-          label: kBuyCreditsOnWebLabel,
-          variant: BbButtonVariant.secondary,
-          size: BbButtonSize.sm,
-          iconLeft: Icons.open_in_new,
-          block: true,
-          onPressed: onOpen,
-        ),
-        const SizedBox(height: AppSpacing.s1),
-        Text(
-          kBuyCreditsOnWebNote,
-          style: AppTypography.body(
-            size: AppTypography.sizeXs,
-            color: AppColors.textMuted,
-          ),
-        ),
-      ],
     );
   }
 }

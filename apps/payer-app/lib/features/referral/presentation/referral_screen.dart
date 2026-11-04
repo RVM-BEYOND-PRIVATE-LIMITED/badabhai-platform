@@ -12,7 +12,6 @@ import '../../../core/widgets/bb_card.dart';
 import '../../../core/widgets/bb_icon_button.dart';
 import '../../../core/widgets/bb_status_view.dart';
 import '../../../core/widgets/bb_toast.dart';
-import '../../agency/presentation/agency_earnings_screen.dart';
 import '../../agency/presentation/agency_engagement_screen.dart';
 import '../../agency/presentation/batch_invite_screen.dart';
 import '../../agency/util/invite_url.dart';
@@ -26,12 +25,12 @@ import 'cubit/referral_cubit.dart';
 /// PII-free: an opaque invite code + link and aggregate counts (k-anon floor
 /// applied server-side). The aggregate funnel here links out to three deeper
 /// agent-only surfaces — the FACELESS per-worker engagement funnel
-/// ([AgencyEngagementScreen], `GET /payer/agency/workers`), BULK invite minting
-/// ([BatchInviteScreen], `POST /payer/agency/invites/batch`), and the
-/// supply-money hub ([AgencyEarningsScreen], `GET /payer/agency/earnings` +
-/// KYC + payouts). The money surface is FLAG-GATED server-side
-/// (`AgencyPayoutsEnabledGuard` → neutral 404 while off) and degrades to an
-/// honest "not available yet" state, so the entry is safe to show unconditionally.
+/// ([AgencyEngagementScreen], `GET /payer/agency/workers`) and BULK invite
+/// minting ([BatchInviteScreen], `POST /payer/agency/invites/batch`).
+///
+/// NO PAYMENT INFORMATION (#2589, owner ruling 4 Nov 2026): earnings, payouts
+/// and KYC (PAN / bank / IFSC) are not in the mobile app — they live on
+/// payer-web only, so this hub carries no entry to them.
 class ReferralScreen extends StatelessWidget {
   const ReferralScreen({super.key});
 
@@ -140,17 +139,6 @@ class _ReferralView extends StatelessWidget {
                 context,
                 name: 'payer/agency/invites',
                 builder: (_) => const BatchInviteScreen(),
-              ),
-            ),
-            const SizedBox(height: AppSpacing.s3),
-            _NavCard(
-              icon: Icons.payments_outlined,
-              title: 'Earnings & payouts',
-              subtitle: 'What you have earned and request a payout.',
-              onTap: () => _open(
-                context,
-                name: 'payer/agency/earnings',
-                builder: (_) => const AgencyEarningsScreen(),
               ),
             ),
           ],

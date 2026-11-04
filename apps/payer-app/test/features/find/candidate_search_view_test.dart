@@ -239,7 +239,7 @@ void main() {
           expect(s.contains(name), isFalse);
         }
       }
-      expect(find.text('₹40'), findsNWidgets(2));
+      expect(find.text('1 credit'), findsNWidgets(2));
     });
 
     testWidgets('a related-role row says what it is related to',
@@ -484,16 +484,16 @@ void main() {
         (WidgetTester tester) async {
       await pumpFind(tester);
 
-      await tester.tap(find.text('₹40').first);
+      await tester.tap(find.text('1 credit').first);
       await tester.pumpAndSettle();
 
       expect(find.text('Unlock this candidate?'), findsOneWidget);
       expect(find.textContaining('Worker ••0003', findRichText: true),
           findsWidgets);
-      expect(find.textContaining('1 credit (₹40)', findRichText: true),
+      expect(find.textContaining('1 credit will be used', findRichText: true),
           findsOneWidget);
 
-      await tester.tap(find.text('Unlock for ₹40'));
+      await tester.tap(find.text('Unlock for 1 credit'));
       await tester.pumpAndSettle();
 
       expect(api.unlockCalls.single.workerId, _turner.workerId);
@@ -508,13 +508,13 @@ void main() {
       expect(args.facets, <String>['CNC Turner', '4 yrs experience', 'Pune']);
       // The card now offers the reveal, not a second spend.
       expect(find.text('View'), findsOneWidget);
-      expect(find.text('₹40'), findsOneWidget);
+      expect(find.text('1 credit'), findsOneWidget);
     });
 
     testWidgets('cancel spends nothing', (WidgetTester tester) async {
       await pumpFind(tester);
 
-      await tester.tap(find.text('₹40').first);
+      await tester.tap(find.text('1 credit').first);
       await tester.pumpAndSettle();
       await tester.tap(find.text('Cancel'));
       await tester.pumpAndSettle();

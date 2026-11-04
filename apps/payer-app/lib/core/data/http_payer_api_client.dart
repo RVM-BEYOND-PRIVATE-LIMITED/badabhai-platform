@@ -413,71 +413,6 @@ class HttpPayerApiClient implements PayerApiClient {
     return _jobFromRow(res.body);
   }
 
-  @override
-  Future<PlanPurchase> buyPlan(
-    String id, {
-    required String tier,
-    String? coupon,
-  }) async {
-    final PayerResponse res = await _http.send(
-      PayerMethod.post,
-      '/payer/job-postings/$id/plan',
-      body: <String, dynamic>{
-        'tier': tier,
-        if (coupon != null && coupon.isNotEmpty) 'coupon': coupon,
-      },
-    );
-    if (!res.isSuccess) throw PayerApiException(res.statusCode);
-    return _planFromResponse(res.body);
-  }
-
-  @override
-  Future<BoostPurchase> buyBoost(
-    String id, {
-    String tier = 'all_candidates',
-    String? coupon,
-  }) async {
-    final PayerResponse res = await _http.send(
-      PayerMethod.post,
-      '/payer/job-postings/$id/boost',
-      body: <String, dynamic>{
-        'tier': tier,
-        if (coupon != null && coupon.isNotEmpty) 'coupon': coupon,
-      },
-    );
-    // 409 when an active boost already exists.
-    if (!res.isSuccess) throw PayerApiException(res.statusCode);
-    final Map<String, dynamic> boost =
-        (res.body['boost'] as Map<String, dynamic>?) ??
-            const <String, dynamic>{};
-    final Map<String, dynamic> quote =
-        (res.body['quote'] as Map<String, dynamic>?) ??
-            const <String, dynamic>{};
-    return BoostPurchase(
-      status: boost['status'] as String?,
-      finalInr: (quote['finalInr'] as num?)?.toInt(),
-    );
-  }
-
-  @override
-  Future<PlanPurchase> quotaTopup(
-    String id, {
-    required String tier,
-    String? coupon,
-  }) async {
-    final PayerResponse res = await _http.send(
-      PayerMethod.post,
-      '/payer/job-postings/$id/quota-topup',
-      body: <String, dynamic>{
-        'tier': tier,
-        if (coupon != null && coupon.isNotEmpty) 'coupon': coupon,
-      },
-    );
-    // 409 when there is no active plan to top up.
-    if (!res.isSuccess) throw PayerApiException(res.statusCode);
-    return _planFromResponse(res.body);
-  }
-
   // --- Match V1 — demand skill picker + reach preview ------------------------
 
   @override
@@ -1142,86 +1077,6 @@ class HttpPayerApiClient implements PayerApiClient {
     return ReferralsSummary.fromJson(res.body);
   }
 
-  // --- Agency supply-money — KYC · earnings · payouts (AGENT-only, FLAG-GATED)-
-  // Every route is behind `AgencyPayoutsEnabledGuard` → a NEUTRAL 404 while the
-  // launch flag is OFF. We surface EVERY non-2xx (incl. that 404) as a typed
-  // [PayerApiException] so the cubit maps 404 → "not available yet" and 403 →
-  // "agent-only", never a fabricated empty/zero state shown as real.
-
-  @override
-  Future<AgencyKycView> submitAgencyKyc({
-    required String pan,
-    required String bankAccount,
-    required String ifsc,
-    required String accountHolderName,
-  }) async {
-    // snake_case body — the server uppercases + format-validates PAN/IFSC and
-    // encrypts at rest. NEVER a body payer_id (derived from the bearer).
-    final PayerResponse res = await _http.send(
-      PayerMethod.post,
-      '/payer/agency/kyc',
-      body: <String, dynamic>{
-        'pan': pan,
-        'bank_account': bankAccount,
-        'ifsc': ifsc,
-        'account_holder_name': accountHolderName,
-      },
-    );
-    // 400 bad format · 409 PAN already used · 404 flag off · 403 company → typed.
-    if (!res.isSuccess) throw PayerApiException(res.statusCode);
-    return AgencyKycView.fromJson(res.body);
-  }
-
-  @override
-  Future<AgencyKycView> fetchAgencyKyc() async {
-    final PayerResponse res =
-        await _http.send(PayerMethod.get, '/payer/agency/kyc');
-    // 404 flag off → typed (cubit shows "not available yet"), never a fake
-    // not_submitted decoded from an error body.
-    if (!res.isSuccess) throw PayerApiException(res.statusCode);
-    return AgencyKycView.fromJson(res.body);
-  }
-
-  @override
-  Future<AgencyEarnings> fetchAgencyEarnings() async {
-    final PayerResponse res =
-        await _http.send(PayerMethod.get, '/payer/agency/earnings');
-    // 404 flag off / 403 company / 5xx → typed, never a fabricated all-zero
-    // earnings view shown as real.
-    if (!res.isSuccess) throw PayerApiException(res.statusCode);
-    return AgencyEarnings.fromJson(res.body);
-  }
-
-  @override
-  Future<PayoutRequestResult> requestAgencyPayout() async {
-    // Empty body — the acting agency is the SESSION payer (bearer), and the
-    // request claims the currently-requestable accruals server-side. MONEY-OUT:
-    // there is NO gateway/card here. The route returns HTTP 200 for BOTH a pass
-    // (`ok:true`) and a gate refusal (`ok:false, blocked, reason`), so a 2xx is
-    // always parsed; only a real non-2xx (404 flag off / 403) is an exception.
-    final PayerResponse res =
-        await _http.send(PayerMethod.post, '/payer/agency/payouts');
-    if (!res.isSuccess) throw PayerApiException(res.statusCode);
-    return PayoutRequestResult.fromJson(res.body);
-  }
-
-  @override
-  Future<List<AgencyPayout>> fetchAgencyPayouts() async {
-    // The list route returns a BARE JSON array — PayerHttp._decode wraps it
-    // under `items`.
-    final PayerResponse res =
-        await _http.send(PayerMethod.get, '/payer/agency/payouts');
-    // 404 flag off / 403 company / 5xx → typed, never a fabricated empty history.
-    if (!res.isSuccess) throw PayerApiException(res.statusCode);
-    final List<dynamic> rows = res.body['items'] is List<dynamic>
-        ? res.body['items'] as List<dynamic>
-        : const <dynamic>[];
-    return rows
-        .whereType<Map<String, dynamic>>()
-        .map(AgencyPayout.fromJson)
-        .toList(growable: false);
-  }
-
   // --- Org / team members (ADR-0027) — masked, owner-gated -------------------
 
   @override
@@ -1495,23 +1350,6 @@ class HttpPayerApiClient implements PayerApiClient {
         weight: (row['weight'] as num?)?.toDouble() ?? 0,
         reason: row['reason'] as String? ?? '',
       );
-
-  /// Flattens the plan/quota-topup response (`{plan{applicantVisibilityQuota,
-  /// status}, quote{finalInr}, paused, wouldPause}`) → [PlanPurchase].
-  PlanPurchase _planFromResponse(Map<String, dynamic> body) {
-    final Map<String, dynamic> plan =
-        (body['plan'] as Map<String, dynamic>?) ?? const <String, dynamic>{};
-    final Map<String, dynamic> quote =
-        (body['quote'] as Map<String, dynamic>?) ?? const <String, dynamic>{};
-    return PlanPurchase(
-      applicantVisibilityQuota:
-          (plan['applicantVisibilityQuota'] as num?)?.toInt(),
-      status: plan['status'] as String?,
-      finalInr: (quote['finalInr'] as num?)?.toInt(),
-      paused: body['paused'] as bool? ?? false,
-      wouldPause: body['wouldPause'] as bool? ?? false,
-    );
-  }
 
   /// One credit-ledger row (`{delta, reason, pack_code, ...}`) → [LedgerEntry].
   /// The sign of `delta` drives credit/debit; the label is derived from the

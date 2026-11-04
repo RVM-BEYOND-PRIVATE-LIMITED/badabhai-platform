@@ -9,7 +9,7 @@ import '../../../../core/error/payer_failure.dart';
 /// Loads the Find feed. Two shapes behind one cubit:
 ///
 ///  - MOCK feed ([kUseMocks] true) — the rich global candidate list; an unlock
-///    flips the card locally from "₹40" to "View" without a refetch.
+///    flips the card locally from "1 credit" to "View" without a refetch.
 ///  - REAL feed — the payer's OPEN postings drive a per-job, FACELESS applicant
 ///    list (`GET /payer/reach/jobs/:jobId/applicants`). With >1 open job a
 ///    selector is shown; with none, an empty state ("post a job").

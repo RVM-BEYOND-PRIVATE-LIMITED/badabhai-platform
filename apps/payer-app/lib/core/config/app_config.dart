@@ -81,12 +81,10 @@ String resolvePayerApiBaseUrl({String? configuredUrl, bool? isRelease}) {
 /// The payer/agency WEB portal origin (`apps/payer-web`), overridable at build
 /// time with `--dart-define=PAYER_WEB_URL=https://…`.
 ///
-/// WHY THE APP NEEDS ONE AT ALL: every money action — buying a plan, a boost, a
-/// quota top-up, credits — is deliberately absent from this app so it can never
-/// trip App Store / Play Store in-app-purchase policy. That leaves the payer
-/// needing somewhere to go, and a dead end ("not available here", full stop) is
-/// how a real capability gets read as a broken app. So the app POINTS, and the
-/// purchase itself happens on the web, outside the store's payment rules.
+/// The app uses it to build agency invite links. It is NOT a payment hand-off:
+/// every money action — buying a plan, a boost, a quota top-up, credits — and
+/// every pointer to one is absent from this app (#2589, owner ruling 4 Nov 2026:
+/// no payment information of any kind); payment lives on payer-web only.
 const String _kPayerWebUrl = String.fromEnvironment('PAYER_WEB_URL');
 
 /// Default payer-web origin, matching the origin the server config already
@@ -94,8 +92,7 @@ const String _kPayerWebUrl = String.fromEnvironment('PAYER_WEB_URL');
 /// `MEMBER_INVITE_ACCEPT_URL` / CORS examples). Overridable per build.
 const String _kDefaultPayerWebUrl = 'https://app.badabhai.in';
 
-/// Resolves the payer-web origin an external "manage this on the web" link
-/// opens. Returns null when the configured value is not a usable absolute URL,
+/// Resolves the payer-web origin (the base of an agency invite link). Returns null when the configured value is not a usable absolute URL,
 /// so the caller renders the honest text WITHOUT a broken link rather than
 /// launching something that cannot resolve.
 ///

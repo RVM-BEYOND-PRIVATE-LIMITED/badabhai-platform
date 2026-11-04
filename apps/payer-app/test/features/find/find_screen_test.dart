@@ -170,7 +170,7 @@ void main() {
     ) async {
       await pump(tester);
 
-      final int built = find.text('₹40').evaluate().length;
+      final int built = find.text('1 credit').evaluate().length;
       expect(built, lessThan(_total ~/ 3),
           reason: 'expected a lazily built window, got $built of $_total cards');
       expect(find.text(_BigFeedApi.labelFor(_total - 1)), findsNothing);

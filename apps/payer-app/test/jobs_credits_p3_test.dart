@@ -9,11 +9,12 @@ import 'package:payer_app/core/auth/payer_token_store.dart';
 import 'package:payer_app/core/data/http_payer_api_client.dart';
 import 'package:payer_app/core/data/models.dart';
 
-/// PASS P3 — company job-postings CRUD + lifecycle + monetization, and the
-/// credits balance/ledger/purchase, over `HttpPayerApiClient` driven by a mock
+/// PASS P3 — company job-postings CRUD + lifecycle, and the credits
+/// balance/ledger, over `HttpPayerApiClient` driven by a mock
 /// `http.Client`. Verifies snake_case IN / camelCase OUT, the exactly-one
 /// vacancy rule, no body `payer_id`, honest 409 handling, and the credit-ledger
-/// snake parse.
+/// snake parse. The plan / boost / top-up client calls are gone from the app
+/// (#2589); `test/no_payment_info_test.dart` fences them out.
 class _Router {
   _Router(this.routes);
   final Map<String, http.Response> routes;
@@ -302,126 +303,6 @@ void main() {
       final Map<String, dynamic> body =
           jsonDecode(req.body) as Map<String, dynamic>;
       expect(body['status'], 'open');
-    });
-  });
-
-  group('P3 — monetization', () {
-    test('buyPlan → POST /plan {tier}; parses quota + finalInr', () async {
-      final h = _harness(<String, http.Response>{
-        'POST /payer/job-postings/$_jobId/plan': _json(<String, dynamic>{
-          'plan': <String, dynamic>{
-            'id': 'plan-1',
-            'applicantVisibilityQuota': 50,
-            'status': 'active',
-          },
-          'quote': <String, dynamic>{'finalInr': 4999},
-          'paused': false,
-          'wouldPause': false,
-        }, 201),
-      });
-
-      final PlanPurchase p = await h.api.buyPlan(_jobId, tier: 'standard');
-      expect(p.applicantVisibilityQuota, 50);
-      expect(p.status, 'active');
-      expect(p.finalInr, 4999);
-      expect(p.paused, isFalse);
-      expect(p.wouldPause, isFalse);
-
-      final http.Request req = h.router.seen.single;
-      expect(req.url.path, '/payer/job-postings/$_jobId/plan');
-      final Map<String, dynamic> body =
-          jsonDecode(req.body) as Map<String, dynamic>;
-      expect(body['tier'], 'standard');
-      expect(body.containsKey('payer_id'), isFalse);
-    });
-
-    test('buyBoost → POST /boost with default tier; 409 active boost', () async {
-      final ok = _harness(<String, http.Response>{
-        'POST /payer/job-postings/$_jobId/boost': _json(<String, dynamic>{
-          'boost': <String, dynamic>{'id': 'b-1', 'status': 'active'},
-          'quote': <String, dynamic>{'finalInr': 999},
-        }, 201),
-      });
-      final BoostPurchase b = await ok.api.buyBoost(_jobId);
-      expect(b.status, 'active');
-      expect(b.finalInr, 999);
-      final Map<String, dynamic> body =
-          jsonDecode(ok.router.seen.single.body) as Map<String, dynamic>;
-      expect(body['tier'], 'all_candidates');
-
-      final conflict = _harness(<String, http.Response>{
-        'POST /payer/job-postings/$_jobId/boost':
-            _json(<String, dynamic>{'message': 'active boost'}, 409),
-      });
-      await expectLater(
-        conflict.api.buyBoost(_jobId),
-        throwsA(isA<PayerApiException>()),
-      );
-    });
-
-    test('quotaTopup → POST /quota-topup {tier}; 409 no active plan', () async {
-      final ok = _harness(<String, http.Response>{
-        'POST /payer/job-postings/$_jobId/quota-topup': _json(<String, dynamic>{
-          'plan': <String, dynamic>{
-            'applicantVisibilityQuota': 25,
-            'status': 'active',
-          },
-          'quote': <String, dynamic>{'finalInr': 1999},
-        }, 201),
-      });
-      // A VALID quota_topup code — 'standard' is a PLAN tier and would 400.
-      final PlanPurchase p = await ok.api.quotaTopup(_jobId, tier: 'topup_10');
-      expect(p.applicantVisibilityQuota, 25);
-      expect(p.finalInr, 1999);
-      expect(ok.router.seen.single.url.path,
-          '/payer/job-postings/$_jobId/quota-topup');
-      final Map<String, dynamic> topupBody =
-          jsonDecode(ok.router.seen.single.body) as Map<String, dynamic>;
-      expect(topupBody['tier'], 'topup_10');
-
-      final conflict = _harness(<String, http.Response>{
-        'POST /payer/job-postings/$_jobId/quota-topup':
-            _json(<String, dynamic>{'message': 'no plan'}, 409),
-      });
-      await expectLater(
-        conflict.api.quotaTopup(_jobId, tier: 'topup_30'),
-        throwsA(
-          isA<PayerApiException>()
-              .having((PayerApiException e) => e.isConflict, 'isConflict', true),
-        ),
-      );
-    });
-
-    // STORE POLICY (owner decision, ADR-0035 slice): the money actions were
-    // removed from the MOBILE app entirely — `JobsCubit.buyPlan/boost/topup` are
-    // gone along with the "Plan & boost" sheet that called them, so the app
-    // cannot trip App Store / Play Store IAP policy. The API-CLIENT methods and
-    // the backend endpoints are untouched (apps/payer-web still drives them),
-    // which is what this now asserts: the quota_topup tier contract still holds
-    // on the seam that remains.
-    test('quotaTopup still forwards a valid quota_topup tier on the API seam '
-        '(the cubit action is gone — no money action in the app)', () async {
-      final h = _harness(<String, http.Response>{
-        'POST /payer/job-postings/$_jobId/quota-topup': _json(<String, dynamic>{
-          'plan': <String, dynamic>{
-            'applicantVisibilityQuota': 10,
-            'status': 'active',
-          },
-          'quote': <String, dynamic>{'finalInr': 1000},
-        }, 201),
-      });
-
-      final PlanPurchase p = await h.api.quotaTopup(_jobId, tier: 'topup_10');
-
-      expect(p.applicantVisibilityQuota, 10);
-      final http.Request topup = h.router.seen.firstWhere(
-          (http.Request r) => r.url.path.endsWith('/quota-topup'));
-      final Map<String, dynamic> body =
-          jsonDecode(topup.body) as Map<String, dynamic>;
-      // topup_10 / topup_30 are the pricing `quota_topup` codes — NEVER a plan
-      // tier like 'standard' (that would be a 400 invalid-tier).
-      expect(body['tier'], 'topup_10');
-      expect(<String>['topup_10', 'topup_30'], contains(body['tier']));
     });
   });
 

@@ -9,6 +9,7 @@ import '../../../../core/widgets/bb_avatar.dart';
 import '../../../../core/widgets/bb_badge.dart';
 import '../../../../core/widgets/bb_button.dart';
 import '../../../../core/widgets/bb_card.dart';
+import '../../../../core/widgets/bb_unlock_dialog.dart' show kUnlockCreditLabel;
 
 /// "4 yrs experience" — years on the role the card leads with. A 0 bucket is
 /// under six months (months are bucketed DOWN to 6), never "0 yrs".
@@ -32,7 +33,7 @@ String _tenure(int months, {required String zero}) =>
 
 /// The MASKED all-candidates card (ADR-0040 E2) — the per-job applicant card's
 /// family: the sealed "••" avatar, the masked "Worker ••3f9a" handle, closed-
-/// vocabulary facts, and the SAME ₹40 unlock / View pair.
+/// vocabulary facts, and the SAME 1-credit unlock / View pair.
 ///
 /// It leads with the ROLE. Then: "Related to `picked role`" when he surfaced
 /// through a related role (tier 2); years in the role; the industry with its
@@ -57,7 +58,7 @@ class CandidateCard extends StatelessWidget {
   /// This payer holds a live grant for him (the card shows "View").
   final bool unlocked;
 
-  /// An unlock is in flight (the ₹40 button shows progress, not a second tap).
+  /// An unlock is in flight (the unlock button shows progress, not a second tap).
   final bool unlocking;
 
   /// The picked role's label, for the tier-2 badge.
@@ -73,7 +74,7 @@ class CandidateCard extends StatelessWidget {
     final CandidateTradeLevel? rung = row.leadTradeLevel;
     final List<LabelledId> others =
         row.otherRoles.take(maxOtherRoles).toList(growable: false);
-    // Tier 2: plainly a related-role match BEFORE the ₹40 spend.
+    // Tier 2: plainly a related-role match BEFORE the credit spend.
     final String? related = row.matchTier != 2
         ? null
         : (relatedToLabel == null ? 'Related role' : 'Related to $relatedToLabel');
@@ -161,11 +162,12 @@ class CandidateCard extends StatelessWidget {
             )
           else
             BbButton(
-              label: '₹40',
+              // #2589 — credits only, never a ₹ price on the unlock CTA; no
+              // leading icon, exactly like the applicant card's (width).
+              label: kUnlockCreditLabel,
               // md (44px) not sm — the paid CTA clears the 48px tap floor
               // (#1082), exactly like the applicant card's.
               size: BbButtonSize.md,
-              iconLeft: Icons.lock_open,
               loading: unlocking,
               onPressed: onUnlock,
             ),

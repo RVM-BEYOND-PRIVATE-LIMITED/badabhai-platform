@@ -17,7 +17,7 @@ enum FindView {
 /// Find's segmented control: "All candidates" | "Applicants".
 ///
 /// Structural navigation, so the selected segment is deep blue (the bottom
-/// nav's active colour), never haldi: haldi is the ₹40 unlock CTA on every card
+/// nav's active colour), never haldi: haldi is the 1-credit unlock CTA on every card
 /// below, and a second haldi block would compete with it. Each segment clears
 /// the 48px tap floor and is announced as a selectable button.
 class FindViewSwitch extends StatelessWidget {
