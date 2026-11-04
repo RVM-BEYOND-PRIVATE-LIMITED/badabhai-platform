@@ -14,6 +14,8 @@ import 'package:payer_app/core/session/app_session_cubit.dart';
 import 'package:payer_app/core/widgets/bb_bottom_nav.dart';
 import 'package:payer_app/features/find/presentation/find_screen.dart';
 import 'package:payer_app/features/home/presentation/home_screen.dart';
+import 'package:payer_app/features/job_posting_chat/presentation/job_posting_chat_screen.dart';
+import 'package:payer_app/features/jobs/presentation/jobs_screen.dart';
 import 'package:payer_app/features/jobs/presentation/post_job_screen.dart';
 import 'package:payer_app/features/shell/presentation/app_shell.dart';
 
@@ -264,6 +266,159 @@ void main() {
 
       await tester.pumpAndSettle();
       expect(find.byType(PostJobScreen, skipOffstage: false), findsNothing);
+    });
+  });
+
+  // #2595 (M7) — the bottom nav steps aside under Post (one pinned bar, not
+  // two), and leaving an overlay that holds unsaved input — by the system
+  // Back or a nav tap — asks first.
+  group('#2595 — full-screen tasks and the unsaved-changes guard', () {
+    Future<void> openPost(WidgetTester tester) async {
+      await tester.tap(find.descendant(
+        of: find.byType(HomeScreen),
+        matching: find.text('Post a job'),
+      ));
+      await tester.pumpAndSettle();
+      expect(find.byType(PostJobScreen), findsOneWidget);
+    }
+
+    Future<void> openAiChat(WidgetTester tester) async {
+      await tapNav(tester, 'Jobs');
+      await tester.tap(find.descendant(
+        of: find.byType(JobsScreen),
+        matching: find.text(kAiPostLabel),
+      ));
+      await tester.pumpAndSettle();
+      expect(find.byType(JobPostingChatScreen), findsOneWidget);
+    }
+
+    /// Types into the Post form's Job title box.
+    Future<void> typeTitle(WidgetTester tester, String value) async {
+      final Finder field = find.ancestor(
+        of: find.text('Job title'),
+        matching: find.byType(Column),
+      );
+      await tester.enterText(
+        find.descendant(of: field.first, matching: find.byType(TextField)),
+        value,
+      );
+      await tester.pump();
+    }
+
+    testWidgets('the bottom nav hides under Post and comes back after it', (
+      WidgetTester tester,
+    ) async {
+      await pumpShell(tester);
+      expect(find.byType(BbBottomNav), findsOneWidget);
+
+      await openPost(tester);
+      // Post brings its own pinned action bar — the nav no longer stacks
+      // under it.
+      expect(find.byType(BbBottomNav), findsNothing);
+      expect(find.text('Post job'), findsOneWidget);
+
+      await systemBack(tester);
+      expect(find.byType(BbBottomNav), findsOneWidget);
+      expect(navId(tester), 'home');
+    });
+
+    testWidgets('system Back on an untouched Post leaves without asking', (
+      WidgetTester tester,
+    ) async {
+      await pumpShell(tester);
+      await openPost(tester);
+      final bool exited = await systemBack(tester);
+      expect(exited, isFalse);
+      expect(find.text('Discard this job?'), findsNothing);
+      expect(find.byType(PostJobScreen, skipOffstage: false), findsNothing);
+    });
+
+    testWidgets('system Back on a filled-in Post asks before discarding it', (
+      WidgetTester tester,
+    ) async {
+      await pumpShell(tester);
+      await openPost(tester);
+      await typeTitle(tester, 'CNC Setter');
+
+      expect(await systemBack(tester), isFalse);
+      expect(find.text('Discard this job?'), findsOneWidget);
+      await tester.tap(find.text('Keep editing'));
+      await tester.pumpAndSettle();
+      // Still on the form, with what was typed.
+      expect(find.byType(PostJobScreen), findsOneWidget);
+      expect(find.widgetWithText(TextField, 'CNC Setter'), findsOneWidget);
+
+      expect(await systemBack(tester), isFalse);
+      await tester.tap(find.text('Discard'));
+      await tester.pumpAndSettle();
+      expect(find.byType(PostJobScreen, skipOffstage: false), findsNothing);
+      expect(navId(tester), 'home');
+    });
+
+    testWidgets('a nav tap on the AI chat with an unsent message asks first', (
+      WidgetTester tester,
+    ) async {
+      await pumpShell(tester);
+      await openAiChat(tester);
+      // The AI chat keeps the nav — a tap on it is the leave to guard.
+      expect(find.byType(BbBottomNav), findsOneWidget);
+
+      await tester.enterText(
+        find.descendant(
+          of: find.byType(JobPostingChatScreen),
+          matching: find.byType(TextField),
+        ),
+        'CNC operators for the night shift',
+      );
+      await tester.pump();
+
+      await tapNav(tester, 'Home');
+      expect(find.text('Leave this chat?'), findsOneWidget);
+      await tester.tap(find.text('Keep chatting'));
+      await tester.pumpAndSettle();
+      expect(find.byType(JobPostingChatScreen), findsOneWidget);
+
+      await tapNav(tester, 'Home');
+      await tester.tap(find.text('Leave'));
+      await tester.pumpAndSettle();
+      expect(find.byType(JobPostingChatScreen, skipOffstage: false),
+          findsNothing);
+      expect(navId(tester), 'home');
+    });
+
+    testWidgets('a nav tap on a chat with nothing unsent leaves at once', (
+      WidgetTester tester,
+    ) async {
+      await pumpShell(tester);
+      await openAiChat(tester);
+      await tapNav(tester, 'Home');
+      expect(find.text('Leave this chat?'), findsNothing);
+      expect(find.byType(JobPostingChatScreen, skipOffstage: false),
+          findsNothing);
+      expect(navId(tester), 'home');
+    });
+
+    testWidgets('system Back on the chat with an unsent message asks first', (
+      WidgetTester tester,
+    ) async {
+      await pumpShell(tester);
+      await openAiChat(tester);
+      await tester.enterText(
+        find.descendant(
+          of: find.byType(JobPostingChatScreen),
+          matching: find.byType(TextField),
+        ),
+        'Two welders',
+      );
+      await tester.pump();
+
+      expect(await systemBack(tester), isFalse);
+      expect(find.text('Leave this chat?'), findsOneWidget);
+      await tester.tap(find.text('Leave'));
+      await tester.pumpAndSettle();
+      expect(find.byType(JobPostingChatScreen, skipOffstage: false),
+          findsNothing);
+      expect(navId(tester), 'jobs');
     });
   });
 }
