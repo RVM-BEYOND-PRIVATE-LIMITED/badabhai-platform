@@ -126,7 +126,7 @@ describe("the heading, when the worker never gave us a name", () => {
   it("falls back to the short id rather than rendering an empty heading", async () => {
     // The layout-collapse case, and the reason the heading is not simply `{worker.full_name}`.
     const out = await render();
-    expect(out).toContain('<h1 class="page__title mono">5eeded00…</h1>');
+    expect(out).toContain('<h1 class="page__title mono">5eed…0001</h1>');
   });
 
   it("drops the WHO clause instead of claiming an identity it does not have", async () => {
@@ -145,7 +145,7 @@ describe("the heading, when the worker never gave us a name", () => {
   it("renders a BLANK name exactly as a null one", async () => {
     stub.worker = { ...FACELESS, full_name: "   " };
     const out = await render();
-    expect(out).toContain('<h1 class="page__title mono">5eeded00…</h1>');
+    expect(out).toContain('<h1 class="page__title mono">5eed…0001</h1>');
     expect(out).toContain('title="No name on record for this account."');
   });
 });
@@ -158,7 +158,7 @@ describe("an analyst", () => {
 
   it("gets the id heading and NO Name row at all", async () => {
     const out = await render();
-    expect(out).toContain('<h1 class="page__title mono">5eeded00…</h1>');
+    expect(out).toContain('<h1 class="page__title mono">5eed…0001</h1>');
     expect(out).not.toContain("No name on record");
   });
 
@@ -194,7 +194,7 @@ describe("an entitled admin whose budget is spent", () => {
     const out = await render();
     expect(out).toContain("Names are withheld on this page");
     expect(out).toContain("hourly name budget");
-    expect(out).toContain('<h1 class="page__title mono">5eeded00…</h1>');
+    expect(out).toContain('<h1 class="page__title mono">5eed…0001</h1>');
   });
 
   it("does NOT dash a Name row — nothing was disclosed to dash", async () => {

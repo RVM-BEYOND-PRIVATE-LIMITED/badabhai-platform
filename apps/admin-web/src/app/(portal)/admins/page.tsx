@@ -4,7 +4,8 @@ import { ADMIN_ROLES, ROLE_LABELS, can } from "../../../lib/auth/capabilities";
 import { adminRowSchema, listAdmins } from "../../../lib/entities";
 import { identityPosture } from "../../../lib/identity";
 import { isUnknownValue, readRefusal } from "../../../lib/read-refusal";
-import { formatCount, formatRelative, formatTimestamp, shortId } from "../../../lib/format";
+import { formatCount, formatRelative, shortId, timestampTitle } from "../../../lib/format";
+import { CopyId } from "../../../components/copy-id";
 import { StatusPill } from "../../../components/status-pill";
 import { NameCell } from "../../../components/name-cell";
 import { IdentityCapNotice } from "../../../components/identity-notice";
@@ -330,6 +331,7 @@ export default async function AdminsPage({
                       <span className="mono" title={a.id}>
                         {shortId(a.id)}
                       </span>
+                      <CopyId id={a.id} label="admin id" />
                       {a.is_self && posture !== "named" && (
                         <span className="table__meta">you</span>
                       )}
@@ -368,7 +370,7 @@ export default async function AdminsPage({
                       {a.last_login_at ? (
                         <time
                           dateTime={a.last_login_at}
-                          title={formatTimestamp(a.last_login_at)}
+                          title={timestampTitle(a.last_login_at)}
                         >
                           {formatRelative(a.last_login_at)}
                         </time>
@@ -377,7 +379,7 @@ export default async function AdminsPage({
                       )}
                     </td>
                     <td>
-                      <time dateTime={a.created_at} title={formatTimestamp(a.created_at)}>
+                      <time dateTime={a.created_at} title={timestampTitle(a.created_at)}>
                         {formatRelative(a.created_at)}
                       </time>
                     </td>

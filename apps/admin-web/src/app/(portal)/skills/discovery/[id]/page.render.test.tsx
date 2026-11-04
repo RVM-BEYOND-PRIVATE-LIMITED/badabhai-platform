@@ -590,7 +590,9 @@ describe("the header description", () => {
     const out = await render();
     const sub = /<p class="page__sub">(.*?)<\/p>/.exec(out)?.[1] ?? "";
     expect(sub).toContain("One discovery claim — its evidence, matches and decision — recorded");
-    expect(sub).toContain("(2026-08-26 09:00:00Z).");
+    expect(sub).toContain(
+      '(<time dateTime="2026-08-26T09:00:00.000Z" title="2026-08-26 09:00:00 UTC">26 Aug 2026, 14:30 IST</time>).',
+    );
     expect(sub).not.toContain(BASE.phrase_class_label);
   });
 

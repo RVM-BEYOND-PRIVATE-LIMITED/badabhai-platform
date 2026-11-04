@@ -13,7 +13,8 @@ import {
   type FeedbackCategory,
   type FeedbackPage,
 } from "../../../lib/feedback";
-import { formatRelative, formatTimestamp, shortId } from "../../../lib/format";
+import { formatRelative, shortId, timestampTitle } from "../../../lib/format";
+import { CopyId } from "../../../components/copy-id";
 import { StatusPill, type Tone } from "../../../components/status-pill";
 import { Pager } from "../../../components/pager";
 import { PageHeader } from "../../../components/page-header";
@@ -317,7 +318,7 @@ export default async function FeedbackPage({
                 {page.items.map((f) => (
                   <tr key={f.id}>
                     <td>
-                      <time dateTime={f.created_at} title={formatTimestamp(f.created_at)}>
+                      <time dateTime={f.created_at} title={timestampTitle(f.created_at)}>
                         {formatRelative(f.created_at)}
                       </time>
                     </td>
@@ -329,6 +330,7 @@ export default async function FeedbackPage({
                       >
                         {shortId(f.worker_id)}
                       </Link>
+                      <CopyId id={f.worker_id} label="worker id" />
                       {mayOpenJourney ? (
                         /* THE OTHER HALF OF THIS ROW. The message is what the worker said;
                            the journey is what they did. Reading "the apply button does not

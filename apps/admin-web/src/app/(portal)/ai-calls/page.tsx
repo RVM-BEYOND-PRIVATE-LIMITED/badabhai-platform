@@ -14,10 +14,11 @@ import { AI_TASK_TYPES, taskTypeLabel } from "../../../lib/ai-cost";
 import {
   formatCount,
   formatRelative,
-  formatTimestamp,
   healthTone,
   shortId,
+  timestampTitle,
 } from "../../../lib/format";
+import { CopyId } from "../../../components/copy-id";
 import { StatusPill } from "../../../components/status-pill";
 import { Pager } from "../../../components/pager";
 import { PageHeader } from "../../../components/page-header";
@@ -283,7 +284,7 @@ export default async function AiCallsPage({
                 {page.items.map((t) => (
                   <tr key={t.id}>
                     <td>
-                      <time dateTime={t.created_at} title={formatTimestamp(t.created_at)}>
+                      <time dateTime={t.created_at} title={timestampTitle(t.created_at)}>
                         {formatRelative(t.created_at)}
                       </time>
                     </td>
@@ -340,6 +341,7 @@ export default async function AiCallsPage({
                       >
                         {shortId(t.worker_id)}
                       </Link>
+                      <CopyId id={t.worker_id} label="worker id" />
                       {t.session_id ? (
                         <>
                           <br />

@@ -5,12 +5,17 @@ import { getChatSession } from "../../../../../../lib/journey";
 import { isAdminRequestError } from "../../../../../../lib/admin-http";
 import {
   formatCount,
+  formatDate,
+  formatDisplayRupees,
+  formatDisplayRupeesFromNumber,
   formatDuration,
   formatExactRupees,
   formatRelative,
-  formatTimestamp,
   shortId,
+  timestampTitle,
 } from "../../../../../../lib/format";
+import { CopyId } from "../../../../../../components/copy-id";
+import { Timestamp } from "../../../../../../components/timestamp";
 import { CaveatList } from "../../../../../../components/caveat-list";
 import { DetailList } from "../../../../../../components/detail-list";
 import { Stat } from "../../../../../../components/stat";
@@ -67,12 +72,12 @@ export default async function ChatSessionDetailPage({
     <div className="page">
       <PageHeader
         back={{ href: journeyHref, label: "Journey" }}
-        title={shortId(session.id, 12)}
+        title={shortId(session.id, 6)}
         titleMono
         description={
           <>
             One AI profiling interview — what was asked, what settled and where it stopped —
-            started {formatRelative(session.started_at)} ({formatTimestamp(session.started_at)}).
+            started {formatRelative(session.started_at)} (<Timestamp iso={session.started_at} />).
           </>
         }
         secondaryActions={
@@ -126,7 +131,7 @@ export default async function ChatSessionDetailPage({
               {
                 label: "Started",
                 value: (
-                  <time dateTime={session.started_at} title={formatTimestamp(session.started_at)}>
+                  <time dateTime={session.started_at} title={timestampTitle(session.started_at)}>
                     {formatRelative(session.started_at)}
                   </time>
                 ),
@@ -134,7 +139,7 @@ export default async function ChatSessionDetailPage({
               {
                 label: "Ended",
                 value: session.ended_at ? (
-                  <time dateTime={session.ended_at} title={formatTimestamp(session.ended_at)}>
+                  <time dateTime={session.ended_at} title={timestampTitle(session.ended_at)}>
                     {formatRelative(session.ended_at)}
                   </time>
                 ) : (
@@ -146,7 +151,7 @@ export default async function ChatSessionDetailPage({
                 value: session.last_message_at ? (
                   <time
                     dateTime={session.last_message_at}
-                    title={formatTimestamp(session.last_message_at)}
+                    title={timestampTitle(session.last_message_at)}
                   >
                     {formatRelative(session.last_message_at)}
                   </time>
@@ -196,8 +201,9 @@ export default async function ChatSessionDetailPage({
             <>
               <div className="stats stats--compact">
                 <Stat
-                  label={`Spend since ${formatTimestamp(session.ai_cost.first_recorded_at).slice(0, 10)}`}
-                  value={formatExactRupees(session.ai_cost.total_cost_inr)}
+                  label={`Spend since ${formatDate(session.ai_cost.first_recorded_at)}`}
+                  value={formatDisplayRupees(session.ai_cost.total_cost_inr)}
+                  valueTitle={formatExactRupees(session.ai_cost.total_cost_inr)}
                   wide
                 />
                 <Stat label="Calls" value={formatCount(session.ai_cost.call_count)} />
@@ -213,7 +219,7 @@ export default async function ChatSessionDetailPage({
               </div>
               <p className="field__help">
                 Last updated {formatRelative(session.ai_cost.updated_at)} ·{" "}
-                {formatTimestamp(session.ai_cost.updated_at)}.
+                <Timestamp iso={session.ai_cost.updated_at} />.
               </p>
             </>
           ) : (
@@ -257,6 +263,7 @@ export default async function ChatSessionDetailPage({
                     <tr key={job.id}>
                       <th className="table__rowhead mono" scope="row" title={job.id}>
                         {shortId(job.id)}
+                        <CopyId id={job.id} label="AI job id" />
                       </th>
                       <td>
                         <StatusPill
@@ -274,11 +281,14 @@ export default async function ChatSessionDetailPage({
                       <td className="table__meta">
                         {job.total_tokens === null ? "—" : formatCount(job.total_tokens)}
                       </td>
-                      <td className="table__meta mono">
+                      <td
+                        className="table__meta mono"
+                        title={job.cost_inr === null ? undefined : `₹${job.cost_inr}`}
+                      >
                         {/* `ai_jobs.cost_inr` is `double precision`, unlike every other ₹ on
-                            this surface — shown as the server sent it rather than dressed up
-                            as an exact decimal it is not. */}
-                        {job.cost_inr === null ? "—" : `₹${job.cost_inr}`}
+                            this surface — rounded for display (#2572), and the value exactly as
+                            the server sent it stays in the hover. */}
+                        {job.cost_inr === null ? "—" : formatDisplayRupeesFromNumber(job.cost_inr)}
                       </td>
                     </tr>
                   ))}
@@ -367,7 +377,7 @@ export default async function ChatSessionDetailPage({
                       {a.pack_id} v{a.pack_version}
                     </td>
                     <td className="table__meta">
-                      <time dateTime={a.answered_at} title={formatTimestamp(a.answered_at)}>
+                      <time dateTime={a.answered_at} title={timestampTitle(a.answered_at)}>
                         {formatRelative(a.answered_at)}
                       </time>
                     </td>

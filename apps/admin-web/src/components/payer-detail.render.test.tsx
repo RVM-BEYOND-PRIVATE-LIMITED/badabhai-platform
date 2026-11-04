@@ -133,7 +133,7 @@ describe("when the account never recorded one", () => {
 
   it("falls back to the short id heading rather than an empty line", () => {
     const out = render(UNNAMED, ENTITLED);
-    expect(out).toContain('<h1 class="page__title mono">6155050c…</h1>');
+    expect(out).toContain('<h1 class="page__title mono">6155…d2d2</h1>');
   });
 
   it("keeps the `not who registered it` clause, which IS true here", () => {
@@ -153,7 +153,7 @@ describe("when the account never recorded one", () => {
 
   it("a BLANK registered name behaves exactly as a null one", () => {
     const out = render({ ...FACELESS, org_name: " " }, ENTITLED);
-    expect(out).toContain('<h1 class="page__title mono">6155050c…</h1>');
+    expect(out).toContain('<h1 class="page__title mono">6155…d2d2</h1>');
     expect(out).toContain('title="No readable name is stored for this customer."');
   });
 });
@@ -161,7 +161,7 @@ describe("when the account never recorded one", () => {
 describe("an analyst", () => {
   it("gets the id heading, no Registered name row, and the role-scoped explanation", () => {
     const out = render(FACELESS, ANALYST);
-    expect(out).toContain('<h1 class="page__title mono">6155050c…</h1>');
+    expect(out).toContain('<h1 class="page__title mono">6155…d2d2</h1>');
     expect(out).not.toContain("No name on record");
     expect(out).toContain("not served to your role");
     expect(out).not.toContain("Names are withheld on this page");

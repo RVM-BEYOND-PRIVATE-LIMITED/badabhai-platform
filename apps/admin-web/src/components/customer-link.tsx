@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { CUSTOMER_KIND_LABELS, customerHref, type PayerRole } from "../lib/customer";
 import { shortId } from "../lib/format";
+import { CopyId } from "./copy-id";
 
 /**
  * A customer cell — the payer behind a posting, a ledger movement, a payment order or a balance
@@ -27,6 +28,7 @@ export function CustomerLink({
       <Link className="link mono" href={customerHref(payerId, payerRole)} title={payerId}>
         {shortId(payerId)}
       </Link>
+      <CopyId id={payerId} label="customer id" />
       {payerRole ? <span className="table__meta">{CUSTOMER_KIND_LABELS[payerRole]}</span> : null}
     </>
   );

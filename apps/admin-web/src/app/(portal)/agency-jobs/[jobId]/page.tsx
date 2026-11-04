@@ -1,3 +1,4 @@
+import { Timestamp } from "../../../../components/timestamp";
 import { notFound } from "next/navigation";
 import { requireCapability } from "../../../../lib/auth";
 import { isAdminRequestError } from "../../../../lib/admin-http";
@@ -12,7 +13,7 @@ import { CustomerLink } from "../../../../components/customer-link";
 import { DetailList } from "../../../../components/detail-list";
 import { PageHeader } from "../../../../components/page-header";
 import { StatusPill } from "../../../../components/status-pill";
-import { formatTimestamp } from "../../../../lib/format";
+
 import { MatchSkillForm } from "./match-skill-form";
 import { readMatchVocabularyAction } from "./actions";
 
@@ -78,7 +79,7 @@ export default async function AgencyJobDetailPage({
               label: "Status",
               value: <StatusPill value={job.status} label={agencyJobStatusLabel(job.status)} />,
             },
-            { label: "Updated", value: <time dateTime={job.updated_at}>{formatTimestamp(job.updated_at)}</time> },
+            { label: "Updated", value: <Timestamp iso={job.updated_at} /> },
           ]}
         />
       </section>

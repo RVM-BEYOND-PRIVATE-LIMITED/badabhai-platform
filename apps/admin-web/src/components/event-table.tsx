@@ -1,7 +1,8 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import type { EventListItem } from "../lib/events";
-import { formatRelative, formatTimestamp, humanizeEventName, shortId } from "../lib/format";
+import { formatRelative, humanizeEventName, shortId, timestampTitle } from "../lib/format";
+import { CopyId } from "./copy-id";
 
 /**
  * The event feed table — a Server Component: it renders already-fetched, PII-free rows
@@ -63,7 +64,7 @@ export function EventTable({
               <td>
                 {/* Relative for scanning, absolute in the title so an incident review can
                     still get the exact instant. */}
-                <time dateTime={e.occurred_at} title={formatTimestamp(e.occurred_at)}>
+                <time dateTime={e.occurred_at} title={timestampTitle(e.occurred_at)}>
                   {formatRelative(e.occurred_at)}
                 </time>
               </td>
@@ -78,12 +79,14 @@ export function EventTable({
                 <span className="mono" title={e.actor_id ?? undefined}>
                   {shortId(e.actor_id)}
                 </span>
+                {e.actor_id ? <CopyId id={e.actor_id} label="actor id" /> : null}
               </td>
               <td>
                 <span className="tag">{e.subject_type}</span>
                 <span className="mono" title={e.subject_id ?? undefined}>
                   {shortId(e.subject_id)}
                 </span>
+                {e.subject_id ? <CopyId id={e.subject_id} label="subject id" /> : null}
               </td>
               <td>
                 <Link
@@ -93,6 +96,7 @@ export function EventTable({
                 >
                   {shortId(e.correlation_id)}
                 </Link>
+                <CopyId id={e.correlation_id} label="correlation id" />
               </td>
             </tr>
           ))}

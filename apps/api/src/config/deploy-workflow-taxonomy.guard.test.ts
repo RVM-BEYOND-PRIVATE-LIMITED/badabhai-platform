@@ -307,6 +307,13 @@ describe("the four Phase-9 flags, as they reach the box", () => {
       /PAYER_APPLICANT_STAGES_ENABLED:\s*\$\{\{\s*secrets\.PAYER_APPLICANT_STAGES_ENABLED\s*\}\}/,
       /envs:[^\n]*\bPAYER_APPLICANT_STAGES_ENABLED\b/,
     ],
+    // Engine v1.1 (ADR-0061, #2613) — the "Level needed" applicant sort. A plain boolean on the
+    // api only, turned on in production ONLY by the environment secret.
+    [
+      "LEVEL_NEEDED_SORT_ENABLED",
+      /LEVEL_NEEDED_SORT_ENABLED:\s*\$\{\{\s*secrets\.LEVEL_NEEDED_SORT_ENABLED\s*\}\}/,
+      /envs:[^\n]*\bLEVEL_NEEDED_SORT_ENABLED\b/,
+    ],
     // ADR-0053 (PAY-DB-01) — payer org tenancy (off | shadow | on), api only. The environment
     // secret is its one arming path (owner decision O-8); absent, the bridge holds it off.
     [

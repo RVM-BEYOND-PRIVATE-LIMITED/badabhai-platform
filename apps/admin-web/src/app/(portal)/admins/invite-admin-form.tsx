@@ -12,6 +12,7 @@ import { ADMIN_ROLES, ROLE_LABELS, type AdminRole } from "../../../lib/auth/capa
 import { looksLikeAdminEmail } from "../../../lib/email-shape";
 import type { AdminActionOutcome } from "../../../lib/admin-action-result";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
+import { Timestamp } from "../../../components/timestamp";
 
 /** Invite a new admin by work email + role (`manage_admins`). Status defaults to `pending`. */
 export function InviteAdminForm({
@@ -143,7 +144,13 @@ function AcceptLinkPanel({ url, expiresAt }: { url: string; expiresAt?: string }
         <p className="alert__title">Send this link to the invitee</p>
         <p className="alert__body">
           Shown once. No email was sent unless real invite delivery is configured
-          {expiresAt ? <> — the link expires {new Date(expiresAt).toLocaleString()}</> : null}.
+          {expiresAt ? (
+            <>
+              {" "}
+              — the link expires <Timestamp iso={expiresAt} />
+            </>
+          ) : null}
+          .
         </p>
         {/* readOnly, not disabled: an operator must be able to select it by hand when the
             clipboard API is unavailable. */}
