@@ -13,8 +13,9 @@ import type { Rule } from "../../test/css-rules";
  *     the shared navy ramp: payer-web ships Shift Blue #05194C from tokens.css;
  *   - table headers never take the muted step; every header rule clears 4.5:1 on its own fill,
  *     light and ink;
- *   - ONE active-nav definition, painted by CSS from the server-rendered class (readable with JS
- *     disabled, no sliding plate);
+ *   - ONE active-nav plate, painted by CSS from the server-rendered class (readable with JS
+ *     disabled, never sliding in on load); W6 (#2586) hands it to a gliding marker only once a
+ *     script has placed that marker (w6-transitions.css.test.ts);
  *   - no hover lift on static containers; every hover transform sits under `(hover: hover)`, the
  *     moved element transitions on the fast (140ms) token, and reduced motion zeroes the travel;
  *   - KPI values take the compact size on phones.
@@ -175,13 +176,20 @@ describe("W2 #2582 — active nav", () => {
     /\.pnav__link--active(?![\w-])/.test(r.selector.replace(/:not\(\.pnav__link--active\)/g, "")),
   );
 
-  it("exactly one rule paints the active row's background, at top level, not behind .pshell", () => {
+  it("exactly one rule paints the active row's plate, at top level, not behind .pshell", () => {
     const painters = active.filter((r) => decl(r, "background") !== null);
-    expect(painters.map((r) => r.selector)).toEqual([
+    const plates = painters.filter((r) => decl(r, "background") !== "transparent");
+    expect(plates.map((r) => r.selector)).toEqual([
       ".pnav__link--active, .pnav__link--active:hover",
     ]);
-    expect(painters[0]!.at).toBe("");
-    expect(decl(painters[0]!, "background")).not.toBe("transparent");
+    expect(plates[0]!.at).toBe("");
+    // W6 (#2586): the one other background on an active row is the hand-over to the gliding
+    // marker. It only CLEARS the plate, and only once a script has placed the marker
+    // (`.pnav[data-marker]`, rail-marker.ts) — so before scripts, and with them off, the rule
+    // above is the only one that applies.
+    expect(
+      painters.filter((r) => !plates.includes(r)).map((r) => `${r.selector} (${r.at || "top"})`),
+    ).toEqual([".pnav[data-marker] .pnav__link--active (top)"]);
   });
 
   it("the active label is readable on its own plate (≥ 4.5:1) — no script needed", () => {
@@ -191,7 +199,10 @@ describe("W2 #2582 — active nav", () => {
     expect(contrast(fg, bg)).toBeGreaterThanOrEqual(4.5);
   });
 
-  it("no measured/sliding plate and no load-time icon pop", () => {
+  it("no plate measured before paint or sliding in on load, and no load-time icon pop", () => {
+    // The old plate was measured in a layout effect and slid in from the top on every load. W6's
+    // marker (rail-marker.ts) is not drawn until it is placed, and appears there without a
+    // transition (w6-transitions.css.test.ts); the row's own plate stays the static one.
     expect(SIDEBAR).not.toContain("pnav__plate");
     expect(SIDEBAR).not.toMatch(/useLayoutEffect|getBoundingClientRect/);
     expect(RULES.some((r) => r.selector.includes("pnav__plate"))).toBe(false);

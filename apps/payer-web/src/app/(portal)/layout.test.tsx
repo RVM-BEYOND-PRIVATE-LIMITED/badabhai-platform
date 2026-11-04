@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { Children, isValidElement } from "react";
 import type { ReactElement, ReactNode } from "react";
 import type { PayerSession } from "../../lib/auth/types";
 
@@ -109,6 +110,12 @@ vi.mock("./account-menu", () => ({
 // link carries one.
 vi.mock("../../components/nav-pending", () => ({
   NavPendingCue: ({ label }: { label: string }) => ({ type: "nav-pending-cue", props: { label } }),
+}));
+// The rail's press report is a client component (it reads its link's status); its own behaviour
+// is sidebar-nav.test.tsx. The stand-in keeps its destination, so the walk can see which link
+// reports a press to the rail.
+vi.mock("./rail-press", () => ({
+  RailPress: ({ href }: { href: string }) => ({ type: "rail-press", props: { href } }),
 }));
 
 // The balance chip is a client component (hooks: its tooltip's Escape listener); its own markup
@@ -326,5 +333,28 @@ describe("the brand link carries the navigation pending cue (components/portal-l
     getCredits.mockResolvedValue({ payerId: "p", balance: 184 });
     const tree = (await PortalLayout({ children: null })) as ReactElement<{ brand: ReactNode }>;
     expect(linkCues(tree.props.brand).get("/dashboard")).toEqual(["Dashboard"]);
+  });
+
+  it("…and reports its press to the rail, so the marker moves to Dashboard on a press on the logo too (W6 #2586)", async () => {
+    // Bullet 2 of #2586: the rail marker moves ON THE PRESS. The lockup is in the rail and goes to
+    // a rail destination, so a press on it is a press on the Dashboard row (rail-press.tsx).
+    const { RailPress } = await import("./rail-press");
+    requirePayer.mockResolvedValue({
+      payerId: "11111111-1111-4111-8111-111111111111",
+      displayLabel: "Acme",
+      role: "agent",
+      email: "ops@acme.example",
+      phoneLast4: null,
+      status: "active",
+    });
+    getOrgRole.mockReturnValue("owner");
+    getCredits.mockResolvedValue({ payerId: "p", balance: 184 });
+    const tree = (await PortalLayout({ children: null })) as ReactElement<{ brand: ReactNode }>;
+    const brand = tree.props.brand as ReactElement<{ href: string; children: ReactNode }>;
+    expect(brand.props.href).toBe("/dashboard");
+    const reports = Children.toArray(brand.props.children).filter(
+      (c): c is ReactElement<{ href: string }> => isValidElement(c) && c.type === RailPress,
+    );
+    expect(reports.map((r) => r.props.href)).toEqual([brand.props.href]);
   });
 });
