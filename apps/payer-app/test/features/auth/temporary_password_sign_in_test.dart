@@ -208,6 +208,14 @@ Future<void> _signIn(WidgetTester tester, String password,
   await _tap(tester, _kLogin);
 }
 
+/// Types a whole code into the six code boxes: its last digit submits it
+/// (#2595), so there is no Verify tap.
+Future<void> _enterCode(WidgetTester tester, String code) async {
+  await tester.enterText(find.byKey(const Key('otp_code_field')), code);
+  await tester.pump();
+  await tester.pumpAndSettle();
+}
+
 Future<void> _chooseNewPassword(WidgetTester tester, String password,
     {String? confirm}) async {
   await tester.enterText(find.byKey(_kNewField), password);
@@ -580,8 +588,7 @@ void main() {
     await _tap(tester, const Key('otp_login_open'));
     await tester.enterText(find.byKey(const Key('otp_contact_field')), _kId);
     await _tap(tester, const Key('otp_get_code'));
-    await tester.enterText(find.byKey(const Key('otp_code_field')), '123456');
-    await _tap(tester, const Key('otp_verify'));
+    await _enterCode(tester, '123456');
 
     // Back in password mode, with the contact they proved already filled in.
     expect(find.byKey(_kPassword), findsOneWidget);
@@ -617,8 +624,7 @@ void main() {
     await _tap(tester, const Key('otp_login_open'));
     await tester.enterText(find.byKey(const Key('otp_contact_field')), _kId);
     await _tap(tester, const Key('otp_get_code'));
-    await tester.enterText(find.byKey(const Key('otp_code_field')), '123456');
-    await _tap(tester, const Key('otp_verify'));
+    await _enterCode(tester, '123456');
     expect(find.text(kTemporaryPasswordSignInCopy), findsOneWidget);
     _expectLockedOut(tester);
 

@@ -15,6 +15,7 @@ import '../../../core/widgets/bb_animated_switcher.dart';
 import '../../../core/widgets/bb_button.dart';
 import '../../../core/widgets/bb_field.dart';
 import '../../../core/widgets/bb_logo.dart';
+import '../../../core/widgets/bb_otp_input.dart';
 import 'signup_screen.dart';
 import 'widgets/auth_form_support.dart';
 import 'widgets/set_new_password_step.dart';
@@ -243,6 +244,11 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _verifyOtp() async {
+    // #2595 — one verify at a time. The boxes submit on their last digit and
+    // the button by hand; whichever comes second while a verify runs is
+    // dropped, so one code is never sent twice (each try counts against the
+    // attempt cap).
+    if (_busy) return;
     final String code = _code.text.trim();
     if (code.isEmpty) {
       setState(() => _error = 'Enter the code we sent you.');
@@ -265,10 +271,7 @@ class _LoginScreenState extends State<LoginScreen> {
       );
       if (result.accessToken.isEmpty) {
         if (!mounted) return;
-        setState(() {
-          _busy = false;
-          _error = 'That code did not work. Try again.';
-        });
+        _failVerify('That code did not work. Try again.');
         return;
       }
       await _storeAndSignIn(result);
@@ -287,12 +290,18 @@ class _LoginScreenState extends State<LoginScreen> {
       });
     } catch (e) {
       if (!mounted) return;
-      setState(() {
-        _busy = false;
-        _error = authErrorFor(e, otp: true);
-      });
+      _failVerify(authErrorFor(e, otp: true));
     }
   }
+
+  /// #2595 — a verify that did not sign the payer in: [message] shows and the
+  /// boxes empty, which re-arms their auto-submit — the same code typed again
+  /// submits again.
+  void _failVerify(String message) => setState(() {
+        _busy = false;
+        _code.clear();
+        _error = message;
+      });
 
   Future<void> _storeAndSignIn(PayerLoginResult result) async {
     await _tokens.save(
@@ -526,14 +535,14 @@ class _LoginScreenState extends State<LoginScreen> {
           ),
         ),
         const SizedBox(height: AppSpacing.s4),
-        BbField(
-          label: 'OTP code',
+        // #2595 — six boxes. The last digit (typed, pasted or autofilled from
+        // the SMS) submits through the same verify as the button below, which
+        // stays for a payer who taps.
+        BbOtpInput(
           controller: _code,
           fieldKey: const Key('otp_code_field'),
-          icon: Icons.lock_rounded,
-          keyboardType: TextInputType.number,
-          mono: true,
-          autofillHints: const <String>[AutofillHints.oneTimeCode],
+          semanticLabel: 'OTP code',
+          onCompleted: (_) => _verifyOtp(),
         ),
         const SizedBox(height: AppSpacing.s5),
         BbButton(
