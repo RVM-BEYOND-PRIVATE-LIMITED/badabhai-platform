@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
+import { columnHeaders } from "../../../../test/grid-markup";
 
 /**
  * What the Workers roster actually RENDERS after the 2026-08-18 name ruling.
@@ -102,19 +103,22 @@ function firstRowCells(html: string): string[] {
 describe("an admin who holds read_identity", () => {
   it("renders the name, in its own column, before the id", async () => {
     const out = await render();
-    expect(out).toContain("<th scope=\"col\">Name</th>");
+    expect(columnHeaders(out)[0]).toBe("Name");
     expect(out).toContain("Ramesh Kumar");
     // Order matters: the name is the label an operator scans, the id is the handle.
     expect(out.indexOf("Ramesh Kumar")).toBeLessThan(out.indexOf(`title="${WORKER_ID}"`));
   });
 
-  it("KEEPS the opaque id link — the name does not replace the join key", async () => {
+  it("links the row through the NAME, and KEEPS the opaque id beside it — the join key", async () => {
     // The id is the `actor_id`/`subject_id` on the spine and the value an operator copies into
-    // a query. A name is not unique enough to be either.
+    // a query. A name is not unique enough to be either. Since A4 the row's one link is its
+    // name (stretched over the row); the id stays a cell of its own, its full value in its
+    // title and one click from the clipboard.
     const out = await render();
-    expect(out).toContain(`href="/workers/${WORKER_ID}"`);
-    expect(out).toContain(`title="${WORKER_ID}"`);
-    expect(out).toContain("5eed…0001");
+    expect(out).toMatch(
+      new RegExp(`<a class="grid__link" href="/workers/${WORKER_ID}"><span class="grid__link-text" title="Ramesh Kumar">`),
+    );
+    expect(out).toContain(`<span class="mono" title="${WORKER_ID}">5eed…0001</span>`);
     expect(out).toContain('aria-label="Copy worker id"');
   });
 
@@ -138,7 +142,7 @@ describe("an admin who holds read_identity", () => {
     // about the page looks wrong.
     stub.page = { items: [NAMED, UNNAMED], nextCursor: null };
     const out = await render();
-    const headers = (out.match(/<th scope="col">/g) ?? []).length;
+    const headers = columnHeaders(out).length;
     // 6 faceless columns + Name.
     expect(headers).toBe(7);
     expect(firstRowCells(out)).toHaveLength(headers);
@@ -180,14 +184,14 @@ describe("an analyst, who will never hold read_identity", () => {
     // cannot be shown. A dash under it would also be a lie, since a dash means "no name on
     // record" everywhere else on this console.
     const out = await render();
-    expect(out).not.toContain("<th scope=\"col\">Name</th>");
+    expect(columnHeaders(out)).not.toContain("Name");
     expect(out).not.toContain("No name on record");
   });
 
   it("gets the pre-ruling roster, intact", async () => {
     const out = await render();
     expect(out).toContain(`href="/workers/${WORKER_ID}"`);
-    expect((out.match(/<th scope="col">/g) ?? []).length).toBe(6);
+    expect(columnHeaders(out)).toHaveLength(6);
     expect(firstRowCells(out)).toHaveLength(6);
   });
 
@@ -230,7 +234,7 @@ describe("an entitled admin whose name budget is spent", () => {
 
   it("hides the Name column rather than filling it with dashes", async () => {
     const out = await render();
-    expect(out).not.toContain("<th scope=\"col\">Name</th>");
+    expect(columnHeaders(out)).not.toContain("Name");
     expect(out).not.toContain("No name on record");
   });
 

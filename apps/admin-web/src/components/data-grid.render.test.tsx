@@ -20,6 +20,7 @@ vi.mock("react", async (importOriginal) => ({
 }));
 
 const { DataGrid, gridColumnMeta } = await import("./data-grid");
+const { headerWidthRem } = await import("./data-grid-model");
 const { DataGridView } = await import("./data-grid-view");
 const { NumberedPager, Pager } = await import("./pager");
 const { announceNavigation, resetNavigationForTests, withdrawNavigation } = await import(
@@ -82,7 +83,8 @@ const bodyRows = (html: string) =>
     .split("</tr>")
     .filter(Boolean);
 /** The column headers' text, in order. */
-const headers = (html: string) => [...html.matchAll(/<th scope="col"[^>]*>([^<]*)/g)].map((m) => m[1]);
+const headers = (html: string) =>
+  [...html.matchAll(/<th scope="col"[^>]*>(?:<a [^>]*>)?<span class="grid__head">([^<]*)/g)].map((m) => m[1]);
 
 beforeEach(() => {
   resetNavigationForTests();
@@ -93,7 +95,7 @@ describe("columns", () => {
   it("draws one plain column header per column, in order, and names the table for assistive tech", () => {
     const out = grid();
     expect(headers(out)).toEqual(["Name", "Worker", "Status", "City"]);
-    expect(out).toContain('<th scope="col">Status</th>');
+    expect(out).toContain('<th scope="col"><span class="grid__head">Status</span></th>');
     expect(out).toContain('<caption class="sr-only">Workers, newest first</caption>');
   });
 
@@ -107,6 +109,36 @@ describe("columns", () => {
       "grid__col grid__col--fill",
       "grid__col grid__col--end",
     ]);
+  });
+
+  it("hands every FIXED column its header's width, so the stylesheet never draws one narrower", () => {
+    const out = grid();
+    expect(out).toContain(`<col class="grid__col grid__col--id" style="--col-head:${headerWidthRem("Worker")}rem"/>`);
+    expect(out).toContain(`<col class="grid__col grid__col--status" style="--col-head:${headerWidthRem("Status")}rem"/>`);
+    // A text column takes its share of what is left: no width of its own, from its header or not.
+    expect(out).toContain('<col class="grid__col grid__col--fill"/>');
+    // A sortable header counts its arrow too.
+    const sortable = grid({
+      columns: COLUMNS.map((c) =>
+        c.id === "status" ? { ...c, sort: { href: "/workers?sort=status", label: "sort by status" } } : c,
+      ),
+    });
+    expect(sortable).toContain(`style="--col-head:${headerWidthRem("Status", true)}rem"`);
+    expect(headerWidthRem("Status", true)).toBeGreaterThan(headerWidthRem("Status"));
+  });
+
+  it("a header that can be cut — a squeezed text column's — carries its full label in a title", () => {
+    const columns: GridColumn<Row>[] = [
+      ...COLUMNS,
+      { id: "where", header: "Published as", cell: (r) => r.city },
+      { id: "count", header: "Questions settled", width: "number", cell: () => "3" },
+    ];
+    const out = grid({ columns });
+    expect(out).toContain('<th scope="col" title="Published as"><span class="grid__head">Published as</span></th>');
+    // A fixed kind is drawn as wide as its header, so it is never cut and needs no title.
+    expect(out).toContain('<th scope="col"><span class="grid__head">Questions settled</span></th>');
+    // …nor does a short label in a text column.
+    expect(out).toContain('<th scope="col"><span class="grid__head">Name</span></th>');
   });
 
   it("a text column cuts with an ellipsis and keeps the whole value in its title", () => {
@@ -313,7 +345,7 @@ describe("a sortable header", () => {
   it("is a link to the list ordered by it, telling assistive tech the current order", () => {
     const out = sorted("descending");
     expect(out).toMatch(
-      /<th scope="col" aria-sort="descending"><a class="grid__sort" data-direction="descending" href="\/workers\?sort=status">Status<span class="sr-only">, sort by status<\/span><i class="ph-fill ph-sort-descending grid__sort-icon" aria-hidden="true"><\/i>/,
+      /<th scope="col" aria-sort="descending"><a class="grid__sort" data-direction="descending" href="\/workers\?sort=status"><span class="grid__head">Status<\/span><span class="sr-only">, sort by status<\/span><i class="ph-fill ph-sort-descending grid__sort-icon" aria-hidden="true"><\/i>/,
     );
   });
 

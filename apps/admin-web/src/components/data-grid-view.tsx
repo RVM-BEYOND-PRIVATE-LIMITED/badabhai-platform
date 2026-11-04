@@ -16,7 +16,13 @@ import { NavPendingCue } from "./nav-pending";
 import { pendingNavigation, subscribeNavigation } from "./nav-pending-store";
 import { GridViewControls } from "./grid-view-controls";
 import { useColumnChoices, useGridDensity } from "./grid-preferences";
-import { gridMinWidthRem, visibleColumns, type GridColumnMeta } from "./data-grid-model";
+import {
+  gridMinWidthRem,
+  headerMayCut,
+  headerWidthRem,
+  visibleColumns,
+  type GridColumnMeta,
+} from "./data-grid-model";
 
 /** One row as the view draws it — every cell already rendered by the server-side `DataGrid`. */
 export interface GridViewRow {
@@ -114,7 +120,13 @@ export function DataGridView({
           <caption className="sr-only">{caption}</caption>
           <colgroup>
             {shown.map((c) => (
-              <col key={c.id} className={`grid__col grid__col--${c.width}`} />
+              <col
+                key={c.id}
+                className={`grid__col grid__col--${c.width}`}
+                // A fixed kind is drawn at least as wide as its header (globals.css): a long
+                // label ("Questions settled") over a short value is never cut.
+                style={c.width === "fill" ? undefined : headerWidth(c)}
+              />
             ))}
             {linked ? <col className="grid__col grid__col--end" /> : null}
           </colgroup>
@@ -257,19 +269,35 @@ export function openRowFromCell(event: ReactMouseEvent<HTMLElement>): void {
   link.click();
 }
 
-/** A column header — plain text, or the link that orders the list by this column. */
+/** A fixed column's header width, for the stylesheet to take the wider of it and the kind. */
+function headerWidth(column: GridColumnMeta): CSSProperties {
+  return { "--col-head": `${headerWidthRem(column.header, column.sort !== undefined)}rem` } as CSSProperties;
+}
+
+/**
+ * A column header — plain text, or the link that orders the list by this column. Its label wraps
+ * onto a second line rather than run into its neighbour; a text column's header, which can be
+ * squeezed past even that, carries its full label in a `title` (`headerMayCut`).
+ */
 function HeaderCell({ column }: { column: GridColumnMeta }) {
   const sort = column.sort;
-  if (!sort) return <th scope="col">{column.header}</th>;
+  const title = headerMayCut(column) ? column.header : undefined;
+  const label = <span className="grid__head">{column.header}</span>;
+  if (!sort)
+    return (
+      <th scope="col" title={title}>
+        {label}
+      </th>
+    );
   return (
-    <th scope="col" aria-sort={sort.direction}>
+    <th scope="col" aria-sort={sort.direction} title={title}>
       <Link
         className="grid__sort"
         href={sort.href}
         data-direction={sort.direction ?? "none"}
         scroll={false}
       >
-        {column.header}
+        {label}
         <span className="sr-only">, {sort.label}</span>
         <Icon name="sort-descending" className="grid__sort-icon" />
         <NavPendingCue message="Sorting the list…" />

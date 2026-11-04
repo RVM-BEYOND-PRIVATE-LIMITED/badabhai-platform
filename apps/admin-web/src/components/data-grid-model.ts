@@ -133,14 +133,62 @@ export const GRID_WRAP_MIN_REM = 14;
 /** The row link's end chevron column. */
 export const GRID_END_REM = 2;
 
+/** A cell's two inline paddings (`--grid-pad-inline`, 12px a side). */
+export const GRID_CELL_PAD_REM = 1.5;
+
+/** The widest glyph of each class at the header type, in rem (Chrome, Inter 700, 2026-11). */
+const HEADER_GLYPH_REM = { narrow: 0.36, semi: 0.48, regular: 0.61, wide: 0.81 } as const;
+const HEADER_NARROW = new Set(" .,·'()/I1");
+const HEADER_SEMI = new Set("-LJFE7");
+const HEADER_WIDE = new Set("MW");
+const HEADER_SORT_REM = 1.25;
+
+/**
+ * A column header's label, as its width in rem — ESTIMATED from its characters, because the
+ * header type is not the cells' (11.5px Inter Bold, uppercase, tracked 0.06em: `.table th`) and
+ * the widths by kind are in the cells' `ch`. Each character counts as the WIDEST glyph of its
+ * class, measured in Chrome with Inter: so the estimate never falls short of the drawn label (the
+ * widest header is ~15% over), and a character outside the classes counts as wide. A sortable
+ * header adds its arrow and the gap before it (16px + 4px).
+ */
+export function headerWidthRem(header: string, sortable = false): number {
+  let rem = sortable ? HEADER_SORT_REM : 0;
+  for (const glyph of header.toUpperCase()) {
+    rem += HEADER_NARROW.has(glyph)
+      ? HEADER_GLYPH_REM.narrow
+      : HEADER_SEMI.has(glyph)
+        ? HEADER_GLYPH_REM.semi
+        : HEADER_WIDE.has(glyph) || !/[A-Z0-9&]/.test(glyph)
+          ? HEADER_GLYPH_REM.wide
+          : HEADER_GLYPH_REM.regular;
+  }
+  return Math.ceil(rem * 100) / 100;
+}
+
+/**
+ * Whether a header can be CUT. A fixed kind is drawn at least as wide as its header (globals.css
+ * takes the wider of the kind and `--col-head`), so never; a text column shares what is left and
+ * can be squeezed to its minimum, where a header longer than that wraps and, past two lines, is
+ * cut — so it carries its full label in a `title`.
+ */
+export function headerMayCut(column: Pick<GridColumnMeta, "width" | "header" | "sort">): boolean {
+  return (
+    column.width === "fill" &&
+    headerWidthRem(column.header, column.sort !== undefined) > GRID_WIDTH_REM.fill - GRID_CELL_PAD_REM
+  );
+}
+
 /** The minimum width, in rem, of a table drawing `columns` (and the chevron column when linked). */
 export function gridMinWidthRem(
-  columns: readonly Pick<GridColumnMeta, "width" | "text">[],
+  columns: readonly Pick<GridColumnMeta, "width" | "text" | "header" | "sort">[],
   linked: boolean,
 ): number {
-  const sum = columns.reduce(
-    (total, c) => total + (c.width === "fill" && c.text === "wrap" ? GRID_WRAP_MIN_REM : GRID_WIDTH_REM[c.width]),
-    linked ? GRID_END_REM : 0,
-  );
+  const sum = columns.reduce((total, c) => total + columnMinRem(c), linked ? GRID_END_REM : 0);
   return Math.round(sum * 4) / 4;
+}
+
+/** One column's share of the minimum: its kind's width — or, for a fixed kind, its header's. */
+function columnMinRem(c: Pick<GridColumnMeta, "width" | "text" | "header" | "sort">): number {
+  if (c.width === "fill") return c.text === "wrap" ? GRID_WRAP_MIN_REM : GRID_WIDTH_REM.fill;
+  return Math.max(GRID_WIDTH_REM[c.width], headerWidthRem(c.header, c.sort !== undefined) + GRID_CELL_PAD_REM);
 }

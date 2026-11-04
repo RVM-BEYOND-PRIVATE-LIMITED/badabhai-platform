@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
+import { columnHeaders } from "../../../../test/grid-markup";
 import type * as EntitiesModule from "../../../lib/entities";
 
 /**
@@ -82,7 +83,7 @@ function firstRowCells(html: string): string[] {
 describe("a super_admin, who holds read_identity", () => {
   it("renders the name column first, and keeps the id behind it", async () => {
     const out = await render();
-    expect(out).toContain('<th scope="col">Name</th>');
+    expect(columnHeaders(out)[0]).toBe("Name");
     expect(out).toContain("Divyanshu Sharma");
     expect(out).toContain(`<span class="mono" title="${ADMIN_ID}">aaaa…0001</span>`);
     // The full id is one click from the clipboard (#2572).
@@ -106,7 +107,7 @@ describe("a super_admin, who holds read_identity", () => {
   it("keeps header and row widths in step", async () => {
     stub.directory = { admins: [NAMED, UNNAMED], active_super_admins: 2 };
     const out = await render();
-    const headers = (out.match(/<th scope="col">/g) ?? []).length;
+    const headers = columnHeaders(out).length;
     expect(headers).toBe(8);
     expect(firstRowCells(out)).toHaveLength(headers);
   });
@@ -166,7 +167,7 @@ describe("the capped posture on the one unpaginated route", () => {
 
   it("hides the Name column rather than dashing it", async () => {
     const out = await render();
-    expect(out).not.toContain('<th scope="col">Name</th>');
+    expect(columnHeaders(out)).not.toContain("Name");
     expect(out).not.toContain("No name on record");
   });
 

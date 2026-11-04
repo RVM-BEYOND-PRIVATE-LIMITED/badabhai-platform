@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
+import { columnHeaders } from "../../../../test/grid-markup";
 import { customerCell } from "../../../../test/customer-cell";
 
 /**
@@ -92,13 +93,14 @@ describe("the names (owner ruling 2026-10-01)", () => {
 
   it("names the columns for what they hold", async () => {
     const out = await render();
-    expect(out).toContain('<th scope="col">Role title</th>');
-    expect(out).toContain('<th scope="col">Trust review</th>');
+    const headers = columnHeaders(out);
+    expect(headers).toContain("Role title");
+    expect(headers).toContain("Trust review");
     // The customer who published it: "Customer", never "Owner account" (owner ruling
     // 2026-10-01 — "Account" is the payer's own settings page).
-    expect(out).toContain('<th scope="col">Customer</th>');
+    expect(headers).toContain("Customer");
     expect(out).not.toContain("Owner account");
-    expect(out).not.toContain('<th scope="col">Role</th>');
+    expect(headers).not.toContain("Role");
   });
 });
 

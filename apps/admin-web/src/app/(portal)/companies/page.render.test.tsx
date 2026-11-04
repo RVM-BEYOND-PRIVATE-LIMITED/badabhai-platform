@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
+import { columnHeaders } from "../../../../test/grid-markup";
 
 /**
  * The two payer roster ROUTES — what they compute and hand to the shared list.
@@ -90,7 +91,7 @@ describe("both roster pages read the posture off org_name", () => {
     // The copy-paste bug this exists for: asking about `full_name` here yields `capped` for a
     // fully disclosed page, and the column silently vanishes.
     const out = await render(page);
-    expect(out).toContain('<th scope="col">Organisation</th>');
+    expect(columnHeaders(out)).toContain("Organisation");
     expect(out).toContain("Acme Fabrication Pvt Ltd");
     expect(out).not.toContain("Names are withheld on this page");
   });
@@ -100,7 +101,7 @@ describe("both roster pages read the posture off org_name", () => {
     const out = await render(page);
     expect(out).toContain("Names are withheld on this page");
     expect(out).toContain("hourly name budget");
-    expect(out).not.toContain('<th scope="col">Organisation</th>');
+    expect(columnHeaders(out)).not.toContain("Organisation");
     expect(out).not.toContain("No name on record");
   });
 
@@ -121,7 +122,7 @@ describe("both roster pages read the posture off org_name", () => {
     stub.page = { items: [FACELESS], nextCursor: null };
     const out = await render(page);
     expect(out).toContain("your role does not include name access");
-    expect(out).not.toContain('<th scope="col">Organisation</th>');
+    expect(columnHeaders(out)).not.toContain("Organisation");
     expect(out).not.toContain("Names are withheld on this page");
     expect(out).toContain(`title="${PAYER_ID}"`);
   });

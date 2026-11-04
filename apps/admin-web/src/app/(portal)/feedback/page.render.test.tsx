@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { renderToStaticMarkup } from "react-dom/server";
+import { columnHeaders } from "../../../../test/grid-markup";
 
 /**
  * What the Feedback screen actually RENDERS (#997).
@@ -787,7 +788,7 @@ describe("the images column (#1191)", () => {
   it("adds exactly one column to the header, between Screen and Message", async () => {
     stub.page = { items: [TAGGED], nextCursor: null };
     const html = await render();
-    const headers = [...html.matchAll(/<th scope="col">([^<]*)<\/th>/g)].map((m) => m[1]);
+    const headers = columnHeaders(html);
     expect(headers).toEqual(["When", "Worker", "Category", "Build", "Screen", "Images", "Message"]);
   });
 

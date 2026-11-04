@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
+import { columnHeaders } from "../../../../test/grid-markup";
 
 /**
  * What the AI calls list actually RENDERS (migration 0083).
@@ -315,7 +316,7 @@ describe("the row's link to the text moves with the session, not with the page g
     expect(link?.[1]).toMatch(/, call [0-9a-f]{4}…[0-9a-f]{4}$/);
     // One link per target: no separate "View" column beside the row link.
     expect(out.split(`href="/ai-calls/${TRACE_ID}"`)).toHaveLength(2);
-    expect(out).not.toContain("<th scope=\"col\">Text</th>");
+    expect(columnHeaders(out)).not.toContain("Text");
   });
 
   it("offers NOTHING without it — the rows do not link, and no column of dashes (dormant; see above)", async () => {
@@ -326,7 +327,7 @@ describe("the row's link to the text moves with the session, not with the page g
     const out = await render();
     expect(out).not.toContain(`href="/ai-calls/${TRACE_ID}"`);
     expect(out).not.toContain('class="grid__link"');
-    expect(out).not.toContain("<th scope=\"col\">Text</th>");
+    expect(columnHeaders(out)).not.toContain("Text");
     // …and the row is otherwise intact.
     expect(out).toContain(`href="/workers/${WORKER_ID}"`);
     expect(out).toContain(">412<");

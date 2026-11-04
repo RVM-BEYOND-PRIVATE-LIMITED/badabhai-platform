@@ -108,10 +108,36 @@ describe("widths by kind — ID 10ch, status 10ch, date 12ch", () => {
     expect(decl(table.body, "min-inline-size")).toBe("var(--grid-min, 0)");
   });
 
+  /** A column's declared width on one line (a long `max(…)` is wrapped across several). */
+  const width = (selector: string) =>
+    decl(top(selector).body, "width")!.replace(/\s+/g, " ").replace(/\( /g, "(").replace(/ \)/g, ")");
+
   it("each kind's width starts from the brief's characters", () => {
-    expect(decl(top(".grid__col--id").body, "width")).toMatch(/^calc\(10ch \+/);
-    expect(decl(top(".grid__col--status").body, "width")).toMatch(/^calc\(10ch \+/);
-    expect(decl(top(".grid__col--date").body, "width")).toMatch(/^calc\(12ch \+/);
+    expect(width(".grid__col--id")).toMatch(/^max\(calc\(10ch \+/);
+    expect(width(".grid__col--status")).toMatch(/^max\(calc\(10ch \+/);
+    expect(width(".grid__col--date")).toMatch(/^max\(calc\(12ch \+/);
+  });
+
+  it("…and no fixed kind is ever drawn narrower than its header (DataGridView's --col-head)", () => {
+    expect(decl(top(".grid__col").body, "--col-head-w")).toBe(
+      "calc(var(--col-head, 0rem) + 2 * var(--grid-pad-inline))",
+    );
+    const kinds = ["id", "customer", "typed-id", "status", "date", "number", "actions"];
+    for (const kind of kinds) {
+      expect(width(`.grid__col--${kind}`), kind).toMatch(/^max\(.*, var\(--col-head-w\)\)$/);
+    }
+    expect(width(".grid__col--money, .grid__col--short")).toMatch(/^max\(calc\(14ch \+.*, var\(--col-head-w\)\)$/);
+    // A text column has no width of its own: it shares what the fixed kinds leave.
+    expect(ALL.some((r) => r.selector.includes(".grid__col--fill"))).toBe(false);
+  });
+
+  it("a header's label wraps onto two lines before it is cut — two lines of header type fit a 36px row", () => {
+    const label = top(".grid__head");
+    expect(decl(label.body, "-webkit-line-clamp")).toBe("2");
+    expect(decl(label.body, "white-space")).toBe("normal");
+    expect(decl(label.body, "overflow")).toBe("hidden");
+    // The cell itself no longer cuts its text on one line.
+    expect(decl(top(".grid__table thead th").body, "text-overflow")).toBeNull();
   });
 
   it("a text column cuts with an ellipsis", () => {

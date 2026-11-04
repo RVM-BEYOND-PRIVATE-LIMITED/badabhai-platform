@@ -3984,45 +3984,69 @@ textarea.field__input {
 .grid[data-density="compact"] .grid__table td {
   padding-block: 0;
 }
-/* The column header: sticky (`.table th`) at --grid-head-top; a long label cuts rather than
-   running into its neighbour. Its rule is the inset shadow `.table th` draws, so the cell border
-   is dropped (it would double the line). A ROW header stays `.table tbody th`'s: static, bordered. */
+/* The column header: sticky (`.table th`) at --grid-head-top. Its rule is the inset shadow
+   `.table th` draws, so the cell border is dropped (it would double the line). A ROW header stays
+   `.table tbody th`'s: static, bordered. */
 .grid__table thead th {
   top: var(--grid-head-top);
+  border-bottom-width: 0;
+}
+/* Its LABEL wraps at a space onto a second line rather than run into its neighbour — two lines of
+   the 11.5px header type still fit a 36px row — and is cut only past that, its full text then in
+   the header's `title` (DataGridView). A fixed kind is drawn at least as wide as its header
+   (below), so only a squeezed text column's label ever wraps. */
+.grid__head {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
   overflow: hidden;
   text-overflow: ellipsis;
-  border-bottom-width: 0;
+  white-space: normal;
 }
 
 /* WIDTHS BY KIND (`GridColumnWidth`, components/data-grid-model.ts) — in `ch` of the 13.5px table
    type, each with its two cell paddings: ID 10ch (+ its copy button), status 10ch (+ the pill's own
-   padding), date 12ch. A `fill` column has no width: the text columns share what is left. */
+   padding), date 12ch. A `fill` column has no width: the text columns share what is left.
+   A fixed kind is never narrower than its HEADER: DataGridView sets `--col-head`, the label's width
+   as `headerWidthRem` estimates it (never short of the drawn label), and each kind takes the wider
+   of the two — so "Questions settled" over a two-digit count is never "QUESTI…". */
+.grid__col {
+  --col-head-w: calc(var(--col-head, 0rem) + 2 * var(--grid-pad-inline));
+}
 .grid__col--id {
-  width: calc(10ch + var(--control-sm) + var(--space-1) + 2 * var(--grid-pad-inline));
+  width: max(calc(10ch + var(--control-sm) + var(--space-1) + 2 * var(--grid-pad-inline)), var(--col-head-w));
 }
 .grid__col--customer {
-  width: calc(
-    10ch + var(--control-sm) + var(--space-1) + var(--space-2) + 7ch + 2 * var(--grid-pad-inline)
+  width: max(
+    calc(10ch + var(--control-sm) + var(--space-1) + var(--space-2) + 7ch + 2 * var(--grid-pad-inline)),
+    var(--col-head-w)
   );
 }
 .grid__col--typed-id {
-  width: calc(22ch + var(--space-2) + var(--control-sm) + var(--space-1) + 2 * var(--grid-pad-inline));
+  width: max(
+    calc(22ch + var(--space-2) + var(--control-sm) + var(--space-1) + 2 * var(--grid-pad-inline)),
+    var(--col-head-w)
+  );
 }
 .grid__col--status {
-  width: calc(10ch + 2 * var(--space-3) + 2 * var(--border-hairline) + 2 * var(--grid-pad-inline));
+  width: max(
+    calc(10ch + 2 * var(--space-3) + 2 * var(--border-hairline) + 2 * var(--grid-pad-inline)),
+    var(--col-head-w)
+  );
 }
 .grid__col--date {
-  width: calc(12ch + 2 * var(--grid-pad-inline));
+  width: max(calc(12ch + 2 * var(--grid-pad-inline)), var(--col-head-w));
 }
 .grid__col--number {
-  width: calc(8ch + 2 * var(--grid-pad-inline));
+  width: max(calc(8ch + 2 * var(--grid-pad-inline)), var(--col-head-w));
 }
 .grid__col--money,
 .grid__col--short {
-  width: calc(14ch + 2 * var(--grid-pad-inline));
+  width: max(calc(14ch + 2 * var(--grid-pad-inline)), var(--col-head-w));
 }
 .grid__col--actions {
-  width: calc(12rem + 2 * var(--grid-pad-inline));
+  width: max(calc(12rem + 2 * var(--grid-pad-inline)), var(--col-head-w));
 }
 .grid__col--end {
   width: calc(var(--icon-size-sm) + 2 * var(--space-2));

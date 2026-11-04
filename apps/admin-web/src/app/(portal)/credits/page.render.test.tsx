@@ -8,6 +8,7 @@ import {
   statTiles,
 } from "../../../../test/stat-tiles";
 import { customerCell } from "../../../../test/customer-cell";
+import { columnHeaders } from "../../../../test/grid-markup";
 import { formatCount, formatDelta } from "../../../lib/format";
 
 /**
@@ -250,8 +251,9 @@ describe("credits — each recovery once on the screen", () => {
 
   it("names the holder of a balance or a movement 'Customer' — never 'Account' (sweep AW-12)", async () => {
     const out = await renderWith();
-    expect(count(out, '<th scope="col">Customer</th>')).toBe(2);
-    expect(out).not.toContain('<th scope="col">Account</th>');
+    const headers = columnHeaders(out);
+    expect(headers.filter((h) => h === "Customer")).toHaveLength(2);
+    expect(headers).not.toContain("Account");
   });
 });
 
