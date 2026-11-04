@@ -1512,3 +1512,41 @@ describe("Phase 2 #7 EDM / wire-cut — rungs and capture (CEO Launch Plan Pack 
     },
   );
 });
+
+describe("Phase 2 #9 injection moulding — rungs and capture (CEO Launch Plan Pack v1, sheet 22)", () => {
+  // Formless (chat-only, like EDM): no form route to pin.
+  const mouldingLevel = loadItem("qp_injection_moulding.json", "moulding_level");
+  it.each([
+    ["Helper/Trainee", "trainee"],
+    ["Operator", "operator"],
+    ["Setter", "setter"],
+    ["setter hoon", "setter"],
+    ["Senior / Process technician", "senior"],
+    ["process technician", "senior"],
+    ["Supervisor", "supervisor"],
+  ])("moulding_level: %s → %s", (text, expected) => {
+    expect(matchOptions(mouldingLevel as never, text as string)).toEqual([expected]);
+  });
+
+  it.each([
+    ["qp_injection_moulding.json", "moulding_machine_brand", "Ferromatik / Milacron", "ferromatik_milacron"],
+    ["qp_injection_moulding.json", "moulding_machine_brand", "Haitian", "haitian"],
+    ["qp_injection_moulding.json", "moulding_machine_brand", "L&T", "larsen_toubro"],
+    ["qp_injection_moulding.json", "moulding_tonnage", "100 se 300 ton", "hundred_to_threehundred"],
+    ["qp_injection_moulding.json", "moulding_material", "PP", "pp"],
+    ["qp_injection_moulding.json", "moulding_material", "PA / Nylon", "nylon"],
+    ["qp_injection_moulding.json", "moulding_process_work", "Hot runner", "hot_runner"],
+    ["qp_injection_moulding.json", "moulding_process_work", "Mould change", "mould_change"],
+    ["qp_injection_moulding.json", "moulding_defects", "Short shot", "short_shot"],
+    ["qp_injection_moulding.json", "moulding_training_institute", "CIPET", "cipet"],
+    ["qp_injection_moulding.json", "moulding_setting_confirm", "Haan, khud karta hoon", "self"],
+    ["qp_injection_moulding.json", "moulding_senior_confirm", "Nahi, doosre karte hain", "other"],
+  ] as ReadonlyArray<readonly [string, string, string, string | null]>)(
+    "%s %s: %s → %s",
+    (packFile, questionKey, text, expected) => {
+      expect(capturedOption(packFile, questionKey, text)).toEqual(
+        expected === null ? [] : [expected],
+      );
+    },
+  );
+});

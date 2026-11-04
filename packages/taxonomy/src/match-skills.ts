@@ -425,6 +425,20 @@ export const MATCH_SKILLS = [
     source: "rvm",
     status: "active",
   },
+  {
+    // CEO Launch Plan Pack v1, Phase 2 #9 (sheet 22): the Injection-Moulding Operator / Setter —
+    // runs, sets and optimises the plastics moulding machine. APPENDED, never inserted. Filed
+    // under `fabrication` beside the press operator (no plastics skill domain exists, and the
+    // painter set the precedent of a non-sheet-metal bench there). UNPAIRED, like PLC and EDM:
+    // the sheet relates it to Tool & Die, Assembly and QC, and a relation pair is an owner call.
+    skillId: "mskill_imm_operator",
+    labelEn: "Injection Moulding Operator",
+    labelHi: null,
+    industryId: "ind_industrial_manufacturing",
+    domainId: "fabrication",
+    source: "rvm",
+    status: "active",
+  },
 ] as const satisfies readonly MatchSkillSeed[];
 
 export type MatchSkillId = (typeof MATCH_SKILLS)[number]["skillId"];

@@ -1,12 +1,12 @@
 {
   "schema_version": 1,
-  "clip_count": 1506,
+  "clip_count": 1530,
   "producers": {
-    "retry": 126,
-    "clarify": 550,
-    "prompt": 396,
+    "retry": 127,
+    "clarify": 559,
+    "prompt": 404,
     "constant": 97,
-    "why": 337
+    "why": 343
   },
   "clips": [
     {
@@ -183,6 +183,11 @@
       "id": "0670ac80ac0cb4ad",
       "text": "Level ke hisaab se sahi sawaal poochhe jaate hain. Helper, welder, skilled, senior ya supervisor hain?",
       "producer": "clarify"
+    },
+    {
+      "id": "06732be0e0f56dbe",
+      "text": "Injection moulding ka kitna tajurba hai?",
+      "producer": "prompt"
     },
     {
       "id": "067f737f21db6304",
@@ -418,6 +423,11 @@
       "id": "0d6acab419a2cabb",
       "text": "Poora naam resume par sahi dikhta hai. Aapka surname kya hai?",
       "producer": "constant"
+    },
+    {
+      "id": "0d76d472c1fd50a3",
+      "text": "Kaunse plastic material ki moulding ki hai?",
+      "producer": "prompt"
     },
     {
       "id": "0da00b5c4e974f4f",
@@ -700,6 +710,11 @@
       "producer": "prompt"
     },
     {
+      "id": "16f84c5230b0b92b",
+      "text": "Material ki samajh se mushkil job ka kaam milta hai. Kaunse plastic material ki moulding ki hai?",
+      "producer": "clarify"
+    },
+    {
       "id": "170f72b17b1db98f",
       "text": "Thoda sa aur. Bas 3 sawaal bache hain.",
       "producer": "constant"
@@ -950,6 +965,11 @@
       "producer": "constant"
     },
     {
+      "id": "1f48840c1b1cc1b6",
+      "text": "Moulding machine pe kaunsa kaam khud karte hain?",
+      "producer": "prompt"
+    },
+    {
       "id": "1f89f2dab925eaeb",
       "text": "Isse hum aapke kaam ke hisaab se sahi naukri dhoondh sakte hain. Aap kaunsa kaam karte hain?",
       "producer": "clarify"
@@ -1015,6 +1035,16 @@
       "producer": "clarify"
     },
     {
+      "id": "219ec363a62716c4",
+      "text": "Mould change aur parameter setting aap khud karte ho?",
+      "producer": "prompt"
+    },
+    {
+      "id": "21d8bdbcb52a25b6",
+      "text": "Moulding ka course ya training kahan se kiya?",
+      "producer": "prompt"
+    },
+    {
       "id": "2234fcfdda52d291",
       "text": "Sheet metal ki kaunsi machine chalate hain?",
       "producer": "prompt"
@@ -1032,6 +1062,11 @@
     {
       "id": "2276dc17faa6989f",
       "text": "Kuch naukri ke liye padhai ka record maanga jaata hai. Aapne kahaan tak padhai ki hai?",
+      "producer": "clarify"
+    },
+    {
+      "id": "229935f542d4b356",
+      "text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain. Lagbhag kitne saal moulding machine pe kaam kiya hai?",
       "producer": "clarify"
     },
     {
@@ -1210,6 +1245,11 @@
       "producer": "clarify"
     },
     {
+      "id": "296fa24dba7c282d",
+      "text": "Mould change aur setting khud karne wale setter ko alag kaam milta hai. Mould change aur parameter setting aap khud karte ho?",
+      "producer": "clarify"
+    },
+    {
       "id": "29a4991a9bc9920b",
       "text": "Brand jaanne wale operator ko jaldi kaam milta hai.",
       "producer": "why"
@@ -1243,6 +1283,11 @@
       "id": "2a7708d1c20e37d3",
       "text": "High voltage ka alag rate hota hai.",
       "producer": "why"
+    },
+    {
+      "id": "2a7e70832034702f",
+      "text": "Lagbhag kitne saal moulding machine pe kaam kiya hai?",
+      "producer": "retry"
     },
     {
       "id": "2a801f2a87d266f2",
@@ -2075,6 +2120,11 @@
       "producer": "why"
     },
     {
+      "id": "45ed9da157164116",
+      "text": "Setting aur process ka kaam jaanne wale ki alag maang hai. Moulding machine pe kaunsa kaam khud karte hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "466616f2fd73914f",
       "text": "Season wale kaam ki timing alag hoti hai. Kya aap season ke hisaab se kaam karte hain?",
       "producer": "clarify"
@@ -2157,6 +2207,11 @@
     {
       "id": "49a2e9413f3c41a7",
       "text": "Output dekhkar employer samajhta hai aap kya kaam de sakte hain.",
+      "producer": "why"
+    },
+    {
+      "id": "49b50ce5fc6d66ad",
+      "text": "Mould change aur setting khud karne wale setter ko alag kaam milta hai.",
       "producer": "why"
     },
     {
@@ -2833,6 +2888,11 @@
       "id": "5dbdaee94d9ada42",
       "text": "Kya aap engine kholte hain?",
       "producer": "prompt"
+    },
+    {
+      "id": "5deb512c7b98c3f0",
+      "text": "Material ki samajh se mushkil job ka kaam milta hai.",
+      "producer": "why"
     },
     {
       "id": "5e1a18b52cd3742a",
@@ -3515,6 +3575,11 @@
       "producer": "why"
     },
     {
+      "id": "755941f4a4f5362a",
+      "text": "Achhe institute ka certificate badi plastic company me kaam dilata hai. Moulding ka course ya training kahan se kiya?",
+      "producer": "clarify"
+    },
+    {
       "id": "755cbb615c93f115",
       "text": "Badi jagah English maangi jaati hai. Kya aap English bol lete hain?",
       "producer": "clarify"
@@ -3955,6 +4020,11 @@
       "producer": "prompt"
     },
     {
+      "id": "83fe8b64834f6018",
+      "text": "Setting aur process ka kaam jaanne wale ki alag maang hai.",
+      "producer": "why"
+    },
+    {
       "id": "8411363fe7ead8c9",
       "text": "Helper, operator, skilled, senior ya supervisor hain?",
       "producer": "retry"
@@ -4000,9 +4070,19 @@
       "producer": "prompt"
     },
     {
+      "id": "85a4f7a26197a6a8",
+      "text": "Badi machine chalane wale ko bade job ka kaam milta hai. Kitne ton tak ki machine chalayi hai?",
+      "producer": "clarify"
+    },
+    {
       "id": "85a75d73e62e6ee5",
       "text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain. Lagbhag kitne saal tool room ka kaam kiya hai?",
       "producer": "clarify"
+    },
+    {
+      "id": "85ab85a7be5e7ffc",
+      "text": "Naya mould trial aur process optimisation aap lead karte ho?",
+      "producer": "prompt"
     },
     {
       "id": "85b73597b040a6f8",
@@ -4665,6 +4745,11 @@
       "producer": "clarify"
     },
     {
+      "id": "9d9d985dcf78d310",
+      "text": "Achhe institute ka certificate badi plastic company me kaam dilata hai.",
+      "producer": "why"
+    },
+    {
       "id": "9dc499ba2c0c63e2",
       "text": "Maintenance ka kitna tajurba hai?",
       "producer": "prompt"
@@ -5085,6 +5170,11 @@
       "producer": "why"
     },
     {
+      "id": "aa6860bceb815de4",
+      "text": "Kaunse defect khud theek kar lete hain?",
+      "producer": "prompt"
+    },
+    {
       "id": "aac49aceba09e0da",
       "text": "Press tool, mould, jig ya gauge, kya banate hain?",
       "producer": "retry"
@@ -5475,6 +5565,16 @@
       "producer": "prompt"
     },
     {
+      "id": "b9366f29fb08ae39",
+      "text": "Mould trial lead karne wale process technician ki alag maang hai. Naya mould trial aur process optimisation aap lead karte ho?",
+      "producer": "clarify"
+    },
+    {
+      "id": "b961bf8ccc3ebde3",
+      "text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain. Injection moulding ka kitna tajurba hai?",
+      "producer": "clarify"
+    },
+    {
       "id": "b98ee4024446b243",
       "text": "Sector ka tajurba usi line ke employer dhoondhte hain.",
       "producer": "why"
@@ -5608,6 +5708,11 @@
       "id": "bd2f304da1df76d1",
       "text": "Machine wale ko plant me kaam milta hai.",
       "producer": "why"
+    },
+    {
+      "id": "bd4a801decf8ac9f",
+      "text": "Kitne ton tak ki machine chalayi hai?",
+      "producer": "prompt"
     },
     {
       "id": "bd61ffc2ab39a7f8",
@@ -6580,6 +6685,11 @@
       "producer": "why"
     },
     {
+      "id": "ddd5a07c0067c903",
+      "text": "Mould trial lead karne wale process technician ki alag maang hai.",
+      "producer": "why"
+    },
+    {
       "id": "de19c1ed4cb5e54e",
       "text": "Har welding alag hoti hai, isse sahi naukri milti hai. Gas, arc, MIG ya TIG mein se kaunsi?",
       "producer": "clarify"
@@ -6758,6 +6868,11 @@
       "id": "e30f7ea97325c22b",
       "text": "Aap factory mein kaam karte hain ya site par?",
       "producer": "prompt"
+    },
+    {
+      "id": "e335b3c2df66dfb1",
+      "text": "Defect theek karna aana setter ka sabse bada hunar hai. Kaunse defect khud theek kar lete hain?",
+      "producer": "clarify"
     },
     {
       "id": "e37485ff1a108fd0",
@@ -7378,6 +7493,11 @@
       "id": "fb77647ad898ab38",
       "text": "Waise, aapka resume bana dein? Kaam dhoondhne mein kaam aayega.",
       "producer": "constant"
+    },
+    {
+      "id": "fb79cbf863694d56",
+      "text": "Defect theek karna aana setter ka sabse bada hunar hai.",
+      "producer": "why"
     },
     {
       "id": "fbb9aec1667f0416",

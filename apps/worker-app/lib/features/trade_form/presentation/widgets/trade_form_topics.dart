@@ -113,6 +113,12 @@ const Map<String, (String, String)> _kTopics = <String, (String, String)>{
   // Track A #3 (qp_cam_programming@4) — same mechanism, same category.
   'cam_program_confirm': _level, 'cam_senior_confirm': _level,
   'cam_lead_confirm': _level, 'cam_team_confirm': _level,
+  // Phase 2 #9 (qp_injection_moulding) — chat-only pack, like EDM below.
+  'moulding_experience': _experience, 'moulding_level': _level,
+  'moulding_setting_confirm': _level, 'moulding_senior_confirm': _level,
+  'moulding_machine_brand': _machines, 'moulding_tonnage': _capability,
+  'moulding_material': _material, 'moulding_process_work': _operations,
+  'moulding_defects': _trouble, 'moulding_training_institute': _training,
   // Phase 2 #7 (qp_edm_wirecut) — chat-only pack, like PLC below.
   'edm_experience': _experience, 'edm_level': _level,
   'edm_setting_confirm': _level, 'edm_program_confirm': _level,

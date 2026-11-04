@@ -130,22 +130,24 @@ function cityByName(name: string): DemoCity {
  *     `mskill_cnc_operator_general`; vmc/hmc/setter/programmer/cam/grinding roles → their own
  *     match skill (`ROLE_TO_MATCH_SKILL`, packages/taxonomy/src/match-skills.ts);
  *   - trade form: every form whose pack has a `PACK_ANSWER_SKILLS` entry derives its trade's own
- *     skill (#2019; and since #2022 the eight trades below too). The five polymer forms derive
- *     NOTHING today.
+ *     skill (#2019; and since #2022 the eight trades below too). Four of the five polymer kinds
+ *     derive NOTHING today; injection moulding derives its own skill since Phase 2 #9.
  * So `welder` postings are mostly MIG (what a live welder holds), and `cnc_turner` postings name
  * `mskill_cnc_turner`.
  *
  * NO PROXIES (owner decision, 2026-10-06). A kind is posted ONLY under its own skill. The eight
  * trades the owner minted skills for in #2022 (manual machinist, tool & die, sheet metal, press,
  * coating, maintenance, industrial electrician, assembly line) are posted under THOSE skills —
- * never the old "nearest" one (an electrician job is not a fitter job). The polymer kinds still
- * have no match skill and are SKIPPED: a worker must never see an irrelevant job.
+ * never the old "nearest" one (an electrician job is not a fitter job). The four remaining
+ * polymer kinds still have no match skill and are SKIPPED: a worker must never see an irrelevant
+ * job.
  * {@link SKIPPED_ROLE_KINDS} names them; the plan test pins that the catalogue covers exactly the
  * other kinds, and that every form the taxonomy bridges is posted.
  */
 /** Role kinds with no match skill of their own — no demo postings (see above). */
 export const SKIPPED_ROLE_KINDS: readonly TradeFormKindName[] = [
-  "injection_moulding_operator",
+  // Phase 2 #9 took `injection_moulding_operator` off this list: it posts under its own
+  // `mskill_imm_operator` now (DEMO_TRADES below).
   "mould_die_maker",
   "blow_moulding_operator",
   "rubber_moulding_operator",
@@ -541,6 +543,31 @@ export const DEMO_TRADES: readonly DemoTrade[] = [
       "Hydraulics and pneumatics",
       "Bearing and gearbox work",
       "PM checklist",
+    ],
+    shiftWeights: [4, 5, 1],
+  },
+  // Phase 2 #9 — the injection-moulding trade posts under its own permanent ID (its first
+  // match skill; it was a skipped polymer kind until now). Weight 3 keeps the demo profile
+  // non-vacuous (measured on a throwaway DB: 2 and 3 hold; 4 left no persona whose top 10 the
+  // company interleave changes).
+  {
+    roleKind: "injection_moulding_operator",
+    skillId: "mskill_imm_operator",
+
+    weight: 3,
+    titles: [
+      "Injection Moulding Operator",
+      "Moulding Machine Operator",
+      "Injection Moulding Setter",
+    ],
+    pay: [15000, 30000],
+    minExp: [0, 4],
+    unit: PLANT,
+    requirements: [
+      "Injection moulding machine operation",
+      "Mould change and parameter setting",
+      "PP / ABS moulding",
+      "Defect correction (short shot, flash)",
     ],
     shiftWeights: [4, 5, 1],
   },
