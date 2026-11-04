@@ -61,7 +61,7 @@ class _AgencyJobsBody extends StatelessWidget {
         }
         if (state.status == AgencyJobsStatus.error) {
           return BbStatusView(
-            icon: Icons.wifi_off,
+            icon: Icons.wifi_off_rounded,
             title: 'Could not load jobs',
             action: BbButton(
               label: 'Retry',
@@ -119,7 +119,7 @@ class _AgencyJobsBody extends StatelessWidget {
                       // md (44px) not sm — a loud primary CTA clears the 48px tap
                       // floor (#1082).
                       size: BbButtonSize.md,
-                      iconLeft: Icons.add,
+                      iconLeft: Icons.add_rounded,
                       onPressed: onPost,
                     ),
                   ],
@@ -160,7 +160,7 @@ class _AgencyJobCard extends StatelessWidget {
       context,
       title: result.success ? 'Done' : 'Not now',
       message: result.message,
-      icon: result.success ? Icons.check_circle : Icons.info_outline,
+      icon: result.success ? Icons.check_circle_rounded : Icons.info_rounded,
     );
   }
 
@@ -237,7 +237,7 @@ class _AgencyJobCard extends StatelessWidget {
               label: 'Applicants',
               variant: BbButtonVariant.secondary,
               size: BbButtonSize.sm,
-              iconLeft: Icons.groups_outlined,
+              iconLeft: Icons.groups_rounded,
               block: true,
               onPressed: onApplicants,
             ),
@@ -250,7 +250,7 @@ class _AgencyJobCard extends StatelessWidget {
               label: 'Edit details',
               variant: BbButtonVariant.secondary,
               size: BbButtonSize.sm,
-              iconLeft: Icons.edit_outlined,
+              iconLeft: Icons.edit_rounded,
               block: true,
               onPressed: () => _openEdit(context),
             ),
@@ -296,7 +296,7 @@ class _AgencyJobCard extends StatelessWidget {
         label: 'Close',
         variant: BbButtonVariant.secondary,
         size: BbButtonSize.sm,
-        iconLeft: Icons.close,
+        iconLeft: Icons.close_rounded,
         block: true,
         onPressed: () =>
             _run(context, (AgencyJobsCubit c) => c.closePosting(id)),

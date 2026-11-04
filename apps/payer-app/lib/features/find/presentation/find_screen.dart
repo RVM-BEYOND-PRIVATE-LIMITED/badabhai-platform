@@ -173,7 +173,7 @@ class _FindView extends StatelessWidget {
         context,
         title: 'Something went wrong',
         message: "Couldn't complete the unlock — please try again.",
-        icon: Icons.refresh,
+        icon: Icons.refresh_rounded,
       );
       return;
     }
@@ -185,7 +185,7 @@ class _FindView extends StatelessWidget {
         context,
         title: "Couldn't unlock",
         message: 'This candidate is not available to unlock right now.',
-        icon: Icons.info_outline,
+        icon: Icons.info_rounded,
       );
       return;
     }
@@ -227,7 +227,7 @@ class _FindView extends StatelessWidget {
         }
         if (state.status == FindStatus.empty) {
           return const BbStatusView(
-            icon: Icons.work_outline,
+            icon: Icons.work_rounded,
             title: 'No matched candidates yet',
             subtitle: 'Post a job to see matched candidates here.',
           );
@@ -412,7 +412,7 @@ class _JobSelector extends StatelessWidget {
           for (final JobPosting job in jobs) ...<Widget>[
             BbChip(
               label: job.title,
-              icon: Icons.work_outline,
+              icon: Icons.work_rounded,
               selected: job.id == selected?.id,
               onTap: () => context.read<FindCubit>().selectJob(job),
             ),
@@ -484,7 +484,7 @@ class _ApplicantCard extends StatelessWidget {
                       const BbBadge(
                         'Hot',
                         tone: BbBadgeTone.danger,
-                        icon: Icons.local_fire_department,
+                        icon: Icons.local_fire_department_rounded,
                         solid: true,
                       ),
                     ],
@@ -517,7 +517,7 @@ class _ApplicantCard extends StatelessWidget {
                         const BbBadge(
                           'Level not confirmed',
                           tone: BbBadgeTone.warning,
-                          icon: Icons.help_outline,
+                          icon: Icons.help_rounded,
                         ),
                       for (final String s in signals)
                         BbBadge(s, tone: BbBadgeTone.neutral),
@@ -548,7 +548,7 @@ class _ApplicantCard extends StatelessWidget {
                 BbButton(
                   label: 'View',
                   size: BbButtonSize.md,
-                  iconLeft: Icons.chat_bubble_outline,
+                  iconLeft: Icons.chat_bubble_rounded,
                   onPressed: onView,
                 ),
             ],
@@ -569,14 +569,14 @@ class _ApplicantCard extends StatelessWidget {
       return BbBadge(
         'Related to ${a.matchedSkillLabel}',
         tone: BbBadgeTone.warning,
-        icon: Icons.hub_outlined,
+        icon: Icons.hub_rounded,
       );
     }
     if (a.matchTier == 1) {
       return const BbBadge(
         'Direct match',
         tone: BbBadgeTone.success,
-        icon: Icons.check_circle_outline,
+        icon: Icons.check_circle_rounded,
       );
     }
     return null;
@@ -646,13 +646,13 @@ class _CandidateCard extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(width: AppSpacing.gap6),
-                    const Icon(Icons.verified, size: 15, color: AppColors.success),
+                    const Icon(Icons.verified_rounded, size: 15, color: AppColors.success),
                     if (candidate.hot) ...<Widget>[
                       const SizedBox(width: AppSpacing.gap6),
                       const BbBadge(
                         'Hot',
                         tone: BbBadgeTone.danger,
-                        icon: Icons.local_fire_department,
+                        icon: Icons.local_fire_department_rounded,
                         solid: true,
                       ),
                     ],
@@ -674,10 +674,10 @@ class _CandidateCard extends StatelessWidget {
                   spacing: AppSpacing.s3,
                   runSpacing: AppSpacing.gap2,
                   children: <Widget>[
-                    _meta(Icons.military_tech_outlined, candidate.exp),
-                    _meta(Icons.location_on_outlined, candidate.loc),
+                    _meta(Icons.military_tech_rounded, candidate.exp),
+                    _meta(Icons.location_on_rounded, candidate.loc),
                     _meta(
-                      Icons.circle,
+                      Icons.circle_rounded,
                       candidate.avail,
                       color: AppColors.success,
                       bold: true,
@@ -712,7 +712,7 @@ class _CandidateCard extends StatelessWidget {
                 BbButton(
                   label: 'View',
                   size: BbButtonSize.md,
-                  iconLeft: Icons.phone,
+                  iconLeft: Icons.phone_rounded,
                   onPressed: onView,
                 ),
             ],

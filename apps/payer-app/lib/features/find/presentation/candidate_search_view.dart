@@ -169,7 +169,7 @@ class CandidateSearchView extends StatelessWidget {
         context,
         title: 'Something went wrong',
         message: "Couldn't complete the unlock — please try again.",
-        icon: Icons.refresh,
+        icon: Icons.refresh_rounded,
       );
       return;
     }
@@ -180,7 +180,7 @@ class CandidateSearchView extends StatelessWidget {
         context,
         title: "Couldn't unlock",
         message: 'This candidate is not available to unlock right now.',
-        icon: Icons.info_outline,
+        icon: Icons.info_rounded,
       );
       return;
     }
@@ -262,7 +262,7 @@ class _FilterBar extends StatelessWidget {
         message: state.filtersFailed
             ? 'Trying again — tap Filters in a moment.'
             : 'Tap Filters again in a moment.',
-        icon: Icons.hourglass_bottom,
+        icon: Icons.hourglass_bottom_rounded,
       );
       return;
     }
@@ -293,14 +293,14 @@ class _FilterBar extends StatelessWidget {
               label: n == 0 ? 'Filters' : 'Filters · $n',
               variant: BbButtonVariant.secondary,
               size: BbButtonSize.md,
-              iconLeft: Icons.tune,
+              iconLeft: Icons.tune_rounded,
               onPressed: () => _open(context),
             ),
             if (q.strict)
               const BbBadge(
                 'Only matches',
                 tone: BbBadgeTone.info,
-                icon: Icons.filter_alt,
+                icon: Icons.filter_alt_rounded,
               ),
             if (q.hasFilters)
               BbButton(
@@ -490,7 +490,7 @@ class _Footer extends StatelessWidget {
               label: 'Retry',
               variant: BbButtonVariant.secondary,
               size: BbButtonSize.md,
-              iconLeft: Icons.refresh,
+              iconLeft: Icons.refresh_rounded,
               onPressed: cubit.loadMore,
             ),
           ],
@@ -505,7 +505,7 @@ class _Footer extends StatelessWidget {
           label: 'Load more',
           variant: BbButtonVariant.secondary,
           size: BbButtonSize.md,
-          iconLeft: Icons.expand_more,
+          iconLeft: Icons.expand_more_rounded,
           block: true,
           onPressed: cubit.loadMore,
         ),
@@ -538,7 +538,7 @@ class _NoMatches extends StatelessWidget {
     final CandidateSearchCubit cubit = context.read<CandidateSearchCubit>();
     if (state.strict) {
       return BbStatusView(
-        icon: Icons.filter_alt_off,
+        icon: Icons.filter_alt_off_rounded,
         title: 'No candidates match every filter',
         subtitle: '"Only show matches" hides everyone else — show all '
             'candidates to see them, with any matches first.',
@@ -550,7 +550,7 @@ class _NoMatches extends StatelessWidget {
       );
     }
     return BbStatusView(
-      icon: Icons.filter_alt_off,
+      icon: Icons.filter_alt_off_rounded,
       title: 'No candidates match every filter',
       subtitle: 'Clear the filters to see everyone.',
       action: BbButton(
@@ -568,7 +568,7 @@ class _EmptyPool extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return BbStatusView(
-      icon: Icons.groups,
+      icon: Icons.groups_rounded,
       title: 'No candidates to show yet',
       subtitle: 'Workers appear here — faceless — once they are on BadaBhai '
           'and open to employers.',
@@ -592,7 +592,7 @@ class _ErrorBlock extends StatelessWidget {
     final CandidateSearchCubit cubit = context.read<CandidateSearchCubit>();
     if (state.rateLimited) {
       return BbStatusView(
-        icon: Icons.hourglass_bottom,
+        icon: Icons.hourglass_bottom_rounded,
         title: kSearchCappedTitle,
         subtitle: kSearchCappedMessage,
         action: BbButton(label: 'Retry', onPressed: cubit.retry),
@@ -646,7 +646,7 @@ class _Notice extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          const Icon(Icons.info, size: 18, color: AppColors.teal700),
+          const Icon(Icons.info_rounded, size: 18, color: AppColors.teal700),
           const SizedBox(width: AppSpacing.s2),
           Expanded(
             child: Text(

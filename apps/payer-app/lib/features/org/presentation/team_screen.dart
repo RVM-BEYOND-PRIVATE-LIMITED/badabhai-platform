@@ -62,7 +62,7 @@ class _TeamView extends StatelessWidget {
     }
     if (state.status == OrgStatus.error && state.members.isEmpty) {
       return BbStatusView(
-        icon: Icons.wifi_off,
+        icon: Icons.wifi_off_rounded,
         title: 'Could not load your team',
         subtitle: state.error,
         action: BbButton(
@@ -83,7 +83,7 @@ class _TeamView extends StatelessWidget {
         if (state.isOwner) ...<Widget>[
           BbButton(
             label: 'Invite recruiter',
-            iconLeft: Icons.person_add_alt,
+            iconLeft: Icons.person_add_alt_rounded,
             block: true,
             onPressed: () => _openInvite(context),
           ),
@@ -216,7 +216,7 @@ class _Header extends StatelessWidget {
       child: Row(
         children: <Widget>[
           BbIconButton(
-            icon: Icons.arrow_back,
+            icon: Icons.arrow_back_rounded,
             semanticLabel: 'Back',
             onPressed: onBack,
           ),
@@ -315,7 +315,7 @@ class _MemberRow extends StatelessWidget {
           ),
           if (canRemove)
             BbIconButton(
-              icon: Icons.person_remove_alt_1_outlined,
+              icon: Icons.person_remove_alt_1_rounded,
               semanticLabel: 'Remove ${member.emailMasked}',
               onPressed: onRemove,
             ),
@@ -401,7 +401,7 @@ class _InviteSheetState extends State<_InviteSheet> {
             label: 'Their email',
             controller: _email,
             hint: 'name@company.in',
-            icon: Icons.mail_outline,
+            icon: Icons.mail_rounded,
             keyboardType: TextInputType.emailAddress,
           ),
           const SizedBox(height: AppSpacing.s5),
@@ -498,6 +498,6 @@ void _toast(BuildContext context, bool success, String message) {
     context,
     title: success ? 'Done' : 'Not now',
     message: message,
-    icon: success ? Icons.check_circle : Icons.info_outline,
+    icon: success ? Icons.check_circle_rounded : Icons.info_rounded,
   );
 }

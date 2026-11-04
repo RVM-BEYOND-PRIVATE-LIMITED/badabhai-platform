@@ -13,7 +13,7 @@ import 'bb_success_stamp.dart';
 /// stay tappable while it plays. Drop it into a [Stack] via `Positioned.fill`,
 /// gated on the success state — remounting on each fresh success replays it.
 class BbStampCelebration extends StatefulWidget {
-  const BbStampCelebration({super.key, this.icon = Icons.check});
+  const BbStampCelebration({super.key, this.icon = Icons.check_rounded});
 
   final IconData icon;
 

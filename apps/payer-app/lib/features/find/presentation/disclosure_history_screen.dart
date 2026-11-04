@@ -28,7 +28,7 @@ class DisclosureHistoryButton extends StatelessWidget {
           builder: (_) => const DisclosureHistoryScreen(),
         ),
       ),
-      icon: const Icon(Icons.history, size: 18),
+      icon: const Icon(Icons.history_rounded, size: 18),
       label: const Text('History'),
       style: TextButton.styleFrom(
         foregroundColor: AppColors.textSecondary,
@@ -90,7 +90,7 @@ class _DisclosureHistoryView extends StatelessWidget {
         return const BbStatusView.loading(caption: 'Loading history…');
       case DisclosureHistoryStatus.error:
         return BbStatusView(
-          icon: Icons.wifi_off,
+          icon: Icons.wifi_off_rounded,
           title: 'Could not load history',
           subtitle: 'Please check your connection and try again.',
           action: BbButton(
@@ -101,7 +101,7 @@ class _DisclosureHistoryView extends StatelessWidget {
       case DisclosureHistoryStatus.ready:
         if (state.disclosures.isEmpty) {
           return const BbStatusView(
-            icon: Icons.folder_open_outlined,
+            icon: Icons.folder_open_rounded,
             title: 'No disclosures yet',
             subtitle:
                 'Résumés you disclose from a candidate will appear here.',
@@ -140,7 +140,7 @@ class _Header extends StatelessWidget {
       child: Row(
         children: <Widget>[
           BbIconButton(
-            icon: Icons.arrow_back,
+            icon: Icons.arrow_back_rounded,
             semanticLabel: 'Back',
             onPressed: onBack,
           ),

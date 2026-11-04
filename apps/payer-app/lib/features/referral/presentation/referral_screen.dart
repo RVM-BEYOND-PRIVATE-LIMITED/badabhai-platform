@@ -74,7 +74,7 @@ class _ReferralView extends StatelessWidget {
         return const BbStatusView.loading(caption: 'Loading…');
       case ReferralStatus.error:
         return BbStatusView(
-          icon: Icons.wifi_off,
+          icon: Icons.wifi_off_rounded,
           title: 'Could not load',
           subtitle: 'Please check your connection and try again.',
           action: BbButton(
@@ -121,7 +121,7 @@ class _ReferralView extends StatelessWidget {
             ),
             const SizedBox(height: AppSpacing.s2),
             _NavCard(
-              icon: Icons.groups_outlined,
+              icon: Icons.groups_rounded,
               title: 'Referred workers',
               subtitle: 'See each worker you referred and how far they have got.',
               onTap: () => _open(
@@ -132,7 +132,7 @@ class _ReferralView extends StatelessWidget {
             ),
             const SizedBox(height: AppSpacing.s3),
             _NavCard(
-              icon: Icons.qr_code_2,
+              icon: Icons.qr_code_2_rounded,
               title: 'Invite in bulk',
               subtitle: 'Mint a run of codes with QR to print or forward.',
               onTap: () => _open(
@@ -210,7 +210,7 @@ class _NavCard extends StatelessWidget {
             ),
           ),
           const SizedBox(width: AppSpacing.s2),
-          const Icon(Icons.chevron_right, size: 20, color: AppColors.textFaint),
+          const Icon(Icons.chevron_right_rounded, size: 20, color: AppColors.textFaint),
         ],
       ),
     );
@@ -234,7 +234,7 @@ class _Header extends StatelessWidget {
       child: Row(
         children: <Widget>[
           BbIconButton(
-            icon: Icons.arrow_back,
+            icon: Icons.arrow_back_rounded,
             semanticLabel: 'Back',
             onPressed: onBack,
           ),
@@ -276,7 +276,7 @@ class _LinkCard extends StatelessWidget {
       context,
       title: 'Link copied',
       message: 'Share it on WhatsApp with workers you trust.',
-      icon: Icons.check_circle,
+      icon: Icons.check_circle_rounded,
     );
   }
 
@@ -293,7 +293,7 @@ class _LinkCard extends StatelessWidget {
         context,
         title: 'WhatsApp not available',
         message: 'Copy the link instead and paste it wherever you like.',
-        icon: Icons.error_outline,
+        icon: Icons.error_rounded,
       );
     }
   }
@@ -346,7 +346,7 @@ class _LinkCard extends StatelessWidget {
           const SizedBox(height: AppSpacing.s2),
           BbButton(
             label: 'Copy link',
-            iconLeft: Icons.copy,
+            iconLeft: Icons.copy_rounded,
             block: true,
             variant: BbButtonVariant.secondary,
             onPressed: () => _copy(context),

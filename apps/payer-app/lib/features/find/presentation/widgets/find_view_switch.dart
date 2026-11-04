@@ -45,7 +45,7 @@ class FindViewSwitch extends StatelessWidget {
             child: _Segment(
               key: const Key('find_view_all'),
               label: 'All candidates',
-              icon: Icons.groups,
+              icon: Icons.groups_rounded,
               selected: selected == FindView.allCandidates,
               onTap: () => onChanged(FindView.allCandidates),
             ),
@@ -55,7 +55,7 @@ class FindViewSwitch extends StatelessWidget {
             child: _Segment(
               key: const Key('find_view_applicants'),
               label: 'Applicants',
-              icon: Icons.assignment_ind,
+              icon: Icons.assignment_ind_rounded,
               selected: selected == FindView.applicants,
               onTap: () => onChanged(FindView.applicants),
             ),

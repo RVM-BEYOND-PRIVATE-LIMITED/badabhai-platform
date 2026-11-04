@@ -176,7 +176,7 @@ class _JobsView extends StatelessWidget {
                       // md (44px) not sm — a loud primary CTA clears the 48px tap
                       // floor (#1082).
                       size: BbButtonSize.md,
-                      iconLeft: Icons.add,
+                      iconLeft: Icons.add_rounded,
                       onPressed: onPost,
                     ),
                   ],
@@ -189,7 +189,7 @@ class _JobsView extends StatelessWidget {
                     label: kAiPostLabel,
                     variant: BbButtonVariant.tonal,
                     size: BbButtonSize.sm,
-                    iconLeft: Icons.auto_awesome,
+                    iconLeft: Icons.auto_awesome_rounded,
                     block: true,
                     onPressed: () => onAiPost!(null),
                   ),
@@ -240,7 +240,7 @@ class _ResumeChatCard extends StatelessWidget {
             onTap: () => onResume(session.id),
             child: Row(
               children: <Widget>[
-                const Icon(Icons.forum_outlined, color: AppColors.brand),
+                const Icon(Icons.forum_rounded, color: AppColors.brand),
                 const SizedBox(width: AppSpacing.s3),
                 Expanded(
                   child: Column(
@@ -263,7 +263,7 @@ class _ResumeChatCard extends StatelessWidget {
                     ],
                   ),
                 ),
-                const Icon(Icons.chevron_right, color: AppColors.textMuted),
+                const Icon(Icons.chevron_right_rounded, color: AppColors.textMuted),
               ],
             ),
           ),
@@ -309,7 +309,7 @@ class _RealJobCard extends StatelessWidget {
       context,
       title: result.success ? 'Done' : 'Not now',
       message: result.message,
-      icon: result.success ? Icons.check_circle : Icons.info_outline,
+      icon: result.success ? Icons.check_circle_rounded : Icons.info_rounded,
     );
   }
 
@@ -378,13 +378,13 @@ class _RealJobCard extends StatelessWidget {
                   const BbBadge(
                     'Verified job',
                     tone: BbBadgeTone.success,
-                    icon: Icons.verified_user,
+                    icon: Icons.verified_user_rounded,
                   ),
                 if (job.boosted)
                   const BbBadge(
                     'Boosted',
                     tone: BbBadgeTone.brand,
-                    icon: Icons.rocket_launch,
+                    icon: Icons.rocket_launch_rounded,
                   ),
               ],
             ),
@@ -407,7 +407,7 @@ class _RealJobCard extends StatelessWidget {
               label: 'Edit details',
               variant: BbButtonVariant.secondary,
               size: BbButtonSize.sm,
-              iconLeft: Icons.edit_outlined,
+              iconLeft: Icons.edit_rounded,
               block: true,
               onPressed: () => _openEdit(context),
             ),
@@ -445,7 +445,7 @@ class _RealJobCard extends StatelessWidget {
                   // 'Post' CTA, so per-card actions never compete for it.
                   variant: BbButtonVariant.navy,
                   size: BbButtonSize.md,
-                  iconLeft: Icons.send,
+                  iconLeft: Icons.send_rounded,
                   onPressed: () =>
                       _run(context, (JobsCubit c) => c.publish(id)),
                 ),
@@ -472,7 +472,7 @@ class _RealJobCard extends StatelessWidget {
                   label: 'Pause',
                   variant: BbButtonVariant.secondary,
                   size: BbButtonSize.sm,
-                  iconLeft: Icons.pause,
+                  iconLeft: Icons.pause_rounded,
                   onPressed: () => _run(context, (JobsCubit c) => c.pause(id)),
                 ),
               ),
@@ -496,7 +496,7 @@ class _RealJobCard extends StatelessWidget {
             // Navy commitment — keeps the header 'Post' as the view's sole haldi.
             variant: BbButtonVariant.navy,
             size: BbButtonSize.md,
-            iconLeft: Icons.play_arrow,
+            iconLeft: Icons.play_arrow_rounded,
             block: true,
             onPressed: () => _run(context, (JobsCubit c) => c.resume(id)),
           ),
@@ -581,13 +581,13 @@ class _JobCard extends StatelessWidget {
                   const BbBadge(
                     'Verified job',
                     tone: BbBadgeTone.success,
-                    icon: Icons.verified_user,
+                    icon: Icons.verified_user_rounded,
                   ),
                 if (job.boosted)
                   const BbBadge(
                     'Boosted',
                     tone: BbBadgeTone.brand,
-                    icon: Icons.rocket_launch,
+                    icon: Icons.rocket_launch_rounded,
                   ),
               ],
             ),
@@ -606,7 +606,7 @@ class _JobCard extends StatelessWidget {
             label: 'Applicants',
             variant: BbButtonVariant.secondary,
             size: BbButtonSize.sm,
-            iconLeft: Icons.groups_outlined,
+            iconLeft: Icons.groups_rounded,
             block: true,
             onPressed: onApplicants,
           ),

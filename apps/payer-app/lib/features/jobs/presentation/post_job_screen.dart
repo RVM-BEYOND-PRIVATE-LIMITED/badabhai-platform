@@ -371,7 +371,7 @@ class _PostJobScreenState extends State<PostJobScreen> {
                 message:
                     'Pick up to $_maxSkillsPerPosting match skills — the rest are '
                     'requirements and do not change reach.',
-                icon: Icons.info_outline,
+                icon: Icons.info_rounded,
               );
               return;
             }
@@ -596,7 +596,7 @@ class _PostJobScreenState extends State<PostJobScreen> {
         context,
         title: 'Add the basics',
         message: 'Company name and job title are needed.',
-        icon: Icons.info_outline,
+        icon: Icons.info_rounded,
       );
       return;
     }
@@ -606,7 +606,7 @@ class _PostJobScreenState extends State<PostJobScreen> {
         title: 'Pick the role',
         message:
             'Choose the role this posting is for — its trade fields follow.',
-        icon: Icons.info_outline,
+        icon: Icons.info_rounded,
       );
       return;
     }
@@ -622,7 +622,7 @@ class _PostJobScreenState extends State<PostJobScreen> {
         context,
         title: 'Check the bands',
         message: bandError,
-        icon: Icons.info_outline,
+        icon: Icons.info_rounded,
       );
       return;
     }
@@ -635,7 +635,7 @@ class _PostJobScreenState extends State<PostJobScreen> {
         context,
         title: gap.title,
         message: gap.message,
-        icon: Icons.info_outline,
+        icon: Icons.info_rounded,
       );
       return;
     }
@@ -651,7 +651,7 @@ class _PostJobScreenState extends State<PostJobScreen> {
         context,
         title: 'Check the description',
         message: descriptionError,
-        icon: Icons.info_outline,
+        icon: Icons.info_rounded,
       );
       return;
     }
@@ -666,7 +666,7 @@ class _PostJobScreenState extends State<PostJobScreen> {
         title: 'Pick a skill',
         message: 'Choose at least one skill this role needs so we can match it '
             'to workers.',
-        icon: Icons.info_outline,
+        icon: Icons.info_rounded,
       );
       return;
     }
@@ -776,7 +776,7 @@ class _PostJobScreenState extends State<PostJobScreen> {
             ? 'Saved as a draft — publish it from My jobs.'
             : 'Draft saved, but the pay, shift and skills details did not. '
                 'Open it from My jobs and edit to add them.',
-        icon: landed ? Icons.check_circle : Icons.info_outline,
+        icon: landed ? Icons.check_circle_rounded : Icons.info_rounded,
       );
       widget.onBack();
     } catch (error) {
@@ -928,7 +928,7 @@ class _PostJobScreenState extends State<PostJobScreen> {
           ? 'The server rejected these details. Take out any phone number, '
               'email address, company name or link.'
           : 'Something went wrong. Please try again.',
-      icon: Icons.info_outline,
+      icon: Icons.info_rounded,
     );
   }
 
@@ -949,7 +949,7 @@ class _PostJobScreenState extends State<PostJobScreen> {
         message:
             'Trade, role and job title are needed — all are printed on the '
             'worker\'s card.',
-        icon: Icons.info_outline,
+        icon: Icons.info_rounded,
       );
       return;
     }
@@ -965,7 +965,7 @@ class _PostJobScreenState extends State<PostJobScreen> {
         context,
         title: 'Check the bands',
         message: bandError,
-        icon: Icons.info_outline,
+        icon: Icons.info_rounded,
       );
       return;
     }
@@ -978,7 +978,7 @@ class _PostJobScreenState extends State<PostJobScreen> {
         context,
         title: gap.title,
         message: gap.message,
-        icon: Icons.info_outline,
+        icon: Icons.info_rounded,
       );
       return;
     }
@@ -992,7 +992,7 @@ class _PostJobScreenState extends State<PostJobScreen> {
         context,
         title: 'Check the description',
         message: descriptionError,
-        icon: Icons.info_outline,
+        icon: Icons.info_rounded,
       );
       return;
     }
@@ -1120,7 +1120,7 @@ class _PostJobScreenState extends State<PostJobScreen> {
           ),
           child: BbButton(
             label: 'Post job',
-            iconLeft: Icons.send,
+            iconLeft: Icons.send_rounded,
             block: true,
             loading: _submitting,
             // Disabled (null) for the company path until at least one demand skill
@@ -1141,7 +1141,7 @@ class _PostJobScreenState extends State<PostJobScreen> {
           Row(
             children: <Widget>[
               BbIconButton(
-                icon: Icons.arrow_back,
+                icon: Icons.arrow_back_rounded,
                 semanticLabel: 'Back',
                 onPressed: widget.onBack,
               ),
@@ -1469,7 +1469,7 @@ class _PostJobScreenState extends State<PostJobScreen> {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
-              const Icon(Icons.verified_user,
+              const Icon(Icons.verified_user_rounded,
                   size: 22, color: AppColors.green700),
               const SizedBox(width: AppSpacing.s2),
               Expanded(
@@ -1844,7 +1844,7 @@ class _PostJobScreenState extends State<PostJobScreen> {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
-              const Icon(Icons.info_outline,
+              const Icon(Icons.info_rounded,
                   size: 22, color: AppColors.bluePressed),
               const SizedBox(width: AppSpacing.s2),
               Expanded(

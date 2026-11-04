@@ -114,7 +114,7 @@ class _UnlockDialog extends StatelessWidget {
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: <Widget>[
-                    const Icon(Icons.info, size: 18, color: AppColors.teal700),
+                    const Icon(Icons.info_rounded, size: 18, color: AppColors.teal700),
                     const SizedBox(width: AppSpacing.s2),
                     Expanded(
                       child: Text(
@@ -133,7 +133,7 @@ class _UnlockDialog extends StatelessWidget {
               const SizedBox(height: AppSpacing.s5),
               BbButton(
                 label: 'Unlock for $kUnlockCreditLabel',
-                iconLeft: Icons.lock_open,
+                iconLeft: Icons.lock_open_rounded,
                 block: true,
                 onPressed: () => Navigator.of(context).pop(true),
               ),

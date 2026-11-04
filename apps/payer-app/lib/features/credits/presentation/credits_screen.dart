@@ -73,7 +73,7 @@ class _CreditsView extends StatelessWidget {
             Row(
               children: <Widget>[
                 BbIconButton(
-                  icon: Icons.arrow_back,
+                  icon: Icons.arrow_back_rounded,
                   semanticLabel: 'Back',
                   onPressed: onBack,
                 ),

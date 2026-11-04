@@ -17,7 +17,7 @@ class BbSuccessStamp extends StatefulWidget {
   const BbSuccessStamp({
     super.key,
     this.size = 74,
-    this.icon = Icons.check,
+    this.icon = Icons.check_rounded,
   });
 
   final double size;

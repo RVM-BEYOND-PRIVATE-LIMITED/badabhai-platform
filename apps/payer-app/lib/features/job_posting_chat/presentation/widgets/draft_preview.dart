@@ -212,7 +212,7 @@ class _DraftPreviewState extends State<DraftPreview> {
           BbButton(
             label: kDraftPublishLabel,
             block: true,
-            iconLeft: Icons.send,
+            iconLeft: Icons.send_rounded,
             loading: publishing,
             // A SOFT gate, and the server is still the authority: the button
             // stays visible and keeps its ≥48px target, but it is only armed

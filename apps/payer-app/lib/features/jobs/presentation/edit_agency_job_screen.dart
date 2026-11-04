@@ -278,7 +278,7 @@ class _EditAgencyJobScreenState extends State<EditAgencyJobScreen> {
         title: 'Add the basics',
         message: 'Trade and job title are needed — both are printed on the '
             'worker\'s card.',
-        icon: Icons.info_outline,
+        icon: Icons.info_rounded,
       );
       return;
     }
@@ -292,7 +292,7 @@ class _EditAgencyJobScreenState extends State<EditAgencyJobScreen> {
         context,
         title: 'Check the bands',
         message: 'Max pay must be at least the min.',
-        icon: Icons.info_outline,
+        icon: Icons.info_rounded,
       );
       return;
     }
@@ -301,7 +301,7 @@ class _EditAgencyJobScreenState extends State<EditAgencyJobScreen> {
         context,
         title: 'Check the bands',
         message: 'Max experience must be at least the min.',
-        icon: Icons.info_outline,
+        icon: Icons.info_rounded,
       );
       return;
     }
@@ -326,7 +326,7 @@ class _EditAgencyJobScreenState extends State<EditAgencyJobScreen> {
         context,
         title: gap.title,
         message: gap.message,
-        icon: Icons.info_outline,
+        icon: Icons.info_rounded,
       );
       return;
     }
@@ -340,7 +340,7 @@ class _EditAgencyJobScreenState extends State<EditAgencyJobScreen> {
         context,
         title: 'Check the description',
         message: descriptionError,
-        icon: Icons.info_outline,
+        icon: Icons.info_rounded,
       );
       return;
     }
@@ -415,7 +415,7 @@ class _EditAgencyJobScreenState extends State<EditAgencyJobScreen> {
       context,
       title: result.success ? 'Saved' : 'Not now',
       message: result.message,
-      icon: result.success ? Icons.check_circle : Icons.info_outline,
+      icon: result.success ? Icons.check_circle_rounded : Icons.info_rounded,
     );
     if (result.success) {
       Navigator.of(context).pop();
@@ -534,7 +534,7 @@ class _EditAgencyJobScreenState extends State<EditAgencyJobScreen> {
           ),
           child: BbButton(
             label: 'Save changes',
-            iconLeft: Icons.check,
+            iconLeft: Icons.check_rounded,
             block: true,
             loading: _saving,
             onPressed: _save,
@@ -553,7 +553,7 @@ class _EditAgencyJobScreenState extends State<EditAgencyJobScreen> {
             Row(
               children: <Widget>[
                 BbIconButton(
-                  icon: Icons.arrow_back,
+                  icon: Icons.arrow_back_rounded,
                   semanticLabel: 'Back',
                   onPressed: () => Navigator.of(context).pop(),
                 ),
@@ -764,7 +764,7 @@ class _EditAgencyJobScreenState extends State<EditAgencyJobScreen> {
                           message: 'Pick up to $_maxSkillsPerPosting match '
                               'skills — the rest are requirements and do not '
                               'change reach.',
-                          icon: Icons.info_outline,
+                          icon: Icons.info_rounded,
                         );
                         return;
                       }

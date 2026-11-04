@@ -182,7 +182,7 @@ class BbSelect<T> extends StatelessWidget {
           initialValue: value,
           isExpanded: true,
           decoration: InputDecoration(focusedBorder: _kFocusBorder),
-          icon: const Icon(Icons.expand_more, color: AppColors.textMuted),
+          icon: const Icon(Icons.expand_more_rounded, color: AppColors.textMuted),
           style: AppTypography.body(size: AppTypography.sizeBase),
           items: items
               .map(

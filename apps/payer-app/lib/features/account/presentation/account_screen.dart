@@ -109,19 +109,19 @@ class _AccountView extends StatelessWidget {
               child: Column(
                 children: <Widget>[
                   _SettingsRow(
-                    icon: Icons.edit_outlined,
+                    icon: Icons.edit_rounded,
                     label: 'Edit account',
                     onTap: state.me == null
                         ? null
                         : () => _openEdit(context, state.me!),
                   ),
                   _SettingsRow(
-                    icon: Icons.groups_outlined,
+                    icon: Icons.groups_rounded,
                     label: 'Team',
                     onTap: () => _openTeam(context),
                   ),
                   _SettingsRow(
-                    icon: Icons.tune,
+                    icon: Icons.tune_rounded,
                     label: 'Hiring capacity',
                     onTap: () => _openCapacity(context),
                   ),
@@ -129,7 +129,7 @@ class _AccountView extends StatelessWidget {
                   // agent-gated routes (they 403 for a company session).
                   if (session.isAgency)
                     _SettingsRow(
-                      icon: Icons.campaign_outlined,
+                      icon: Icons.campaign_rounded,
                       label: 'Refer & earn',
                       onTap: () => _openReferral(context),
                     ),
@@ -137,12 +137,12 @@ class _AccountView extends StatelessWidget {
                   // deferred, CLAUDE.md §8) — so it does NOT render a chevron and
                   // is not tappable, rather than looking like a dead affordance.
                   const _SettingsRow(
-                    icon: Icons.verified_user_outlined,
+                    icon: Icons.verified_user_rounded,
                     label: 'Privacy & DPDP consent',
                     showChevron: false,
                   ),
                   _SettingsRow(
-                    icon: Icons.logout,
+                    icon: Icons.logout_rounded,
                     label: 'Sign out',
                     danger: true,
                     showBorder: false,
@@ -444,18 +444,18 @@ class _DetailsCard extends StatelessWidget {
       child: Column(
         children: <Widget>[
           _InfoRow(
-            icon: Icons.mail_outline,
+            icon: Icons.mail_rounded,
             label: 'Email',
             value: m?.email.isNotEmpty == true ? m!.email : '—',
           ),
           _InfoRow(
-            icon: Icons.phone_outlined,
+            icon: Icons.phone_rounded,
             label: 'Phone',
             value: _maskedPhone(m?.phoneLast4),
             mono: true,
           ),
           _InfoRow(
-            icon: Icons.badge_outlined,
+            icon: Icons.badge_rounded,
             label: 'Status',
             value: m == null ? '—' : _statusLabel(m.status),
             showBorder: false,
@@ -608,7 +608,7 @@ class _SettingsRow extends StatelessWidget {
             ),
           ),
           if (showChevron)
-            const Icon(Icons.chevron_right,
+            const Icon(Icons.chevron_right_rounded,
                 size: 20, color: AppColors.textFaint),
         ],
       ),

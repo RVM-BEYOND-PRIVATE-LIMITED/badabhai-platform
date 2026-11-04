@@ -210,7 +210,7 @@ class _CandidateFilterSheetState extends State<CandidateFilterSheet> {
             child: BbButton(
               key: const Key('filters_apply'),
               label: 'Show candidates',
-              iconLeft: Icons.search,
+              iconLeft: Icons.search_rounded,
               block: true,
               onPressed: () => Navigator.of(context).pop(_query),
             ),
