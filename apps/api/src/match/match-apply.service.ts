@@ -15,6 +15,14 @@ export interface RankSnapshot {
   /** ISO date, or null. Null at launch — coarse history has no stint dates (E4). */
   lastWorkedAt: string | null;
   engineVersion: string;
+  /**
+   * Engine v1.1 "Level needed" (ADR-0061): the worker's stated rung on the skill he was reached
+   * through, and its confirm bit, AS OF this decision. Null when he stated none — a level post
+   * then sorts him as "level not confirmed". Frozen like the months: a later level edit never
+   * moves him on a list the company already saw (E16).
+   */
+  tradeLevel: string | null;
+  levelConfirmed: boolean | null;
 }
 
 /** The result of a V1 apply/skip upsert. */
@@ -128,6 +136,10 @@ export class MatchApplyService {
     const industryMonths =
       industryId === undefined ? 0 : await this.skills.findIndustryMonths(workerId, industryId);
 
+    // v1.1 — the rung on the skill he was REACHED THROUGH: the posted trade for an exact match,
+    // the related trade for a related one (the 30 Oct worked example's "VMC Operator · Setter").
+    const level = await this.skills.findStatedTradeLevel(workerId, reach.matchedSkillId);
+
     return {
       matchTier: reach.matchTier,
       skillMonths,
@@ -138,6 +150,8 @@ export class MatchApplyService {
       // last-worked date. It sorts NULLS LAST in both the SQL and `rankKeyCompare`.
       lastWorkedAt: null,
       engineVersion: cfg.engineVersion,
+      tradeLevel: level?.tradeLevel ?? null,
+      levelConfirmed: level?.levelConfirmed ?? null,
     };
   }
 
@@ -147,7 +161,7 @@ export class MatchApplyService {
    *
    * ONE STATEMENT, NO READ-THEN-WRITE. The insert's `ON CONFLICT DO UPDATE` decides in
    * SQL whether this is a flip (`applications.action <> 'applied' AND EXCLUDED.action =
-   * 'applied'`) and only then overwrites the five snapshot columns; otherwise it keeps
+   * 'applied'`) and only then overwrites the seven snapshot columns; otherwise it keeps
    * the stored ones. Doing that in application code would race two concurrent applies
    * and could rewrite a snapshot between the read and the write — which is exactly the
    * failure E16 forbids.
@@ -176,15 +190,19 @@ export class MatchApplyService {
       industry_months: number | null;
       last_worked_at: string | null;
       engine_version: string | null;
+      trade_level: string | null;
+      level_confirmed: boolean | null;
     }>(dsql`
       INSERT INTO applications
         (worker_id, job_posting_id, action, reason, source_surface, rank,
-         match_tier, skill_months, industry_months, last_worked_at, engine_version)
+         match_tier, skill_months, industry_months, last_worked_at, engine_version,
+         trade_level, level_confirmed)
       VALUES
         (${input.workerId}::uuid, ${input.jobPostingId}::uuid, ${input.action},
          ${input.reason}, ${input.sourceSurface}, ${input.rank},
          ${s?.matchTier ?? null}, ${s?.skillMonths ?? null}, ${s?.industryMonths ?? null},
-         ${s?.lastWorkedAt ?? null}::date, ${s?.engineVersion ?? null})
+         ${s?.lastWorkedAt ?? null}::date, ${s?.engineVersion ?? null},
+         ${s?.tradeLevel ?? null}, ${s?.levelConfirmed ?? null}::boolean)
       ON CONFLICT (worker_id, job_posting_id) WHERE job_posting_id IS NOT NULL
       DO UPDATE SET
         action         = EXCLUDED.action,
@@ -204,10 +222,15 @@ export class MatchApplyService {
         last_worked_at  = CASE WHEN applications.action <> 'applied' AND EXCLUDED.action = 'applied'
                                THEN EXCLUDED.last_worked_at ELSE applications.last_worked_at END,
         engine_version  = CASE WHEN applications.action <> 'applied' AND EXCLUDED.action = 'applied'
-                               THEN EXCLUDED.engine_version ELSE applications.engine_version END
+                               THEN EXCLUDED.engine_version ELSE applications.engine_version END,
+        trade_level     = CASE WHEN applications.action <> 'applied' AND EXCLUDED.action = 'applied'
+                               THEN EXCLUDED.trade_level ELSE applications.trade_level END,
+        level_confirmed = CASE WHEN applications.action <> 'applied' AND EXCLUDED.action = 'applied'
+                               THEN EXCLUDED.level_confirmed ELSE applications.level_confirmed END
       RETURNING id,
                 (xmax = 0) AS inserted,
-                match_tier, skill_months, industry_months, last_worked_at, engine_version
+                match_tier, skill_months, industry_months, last_worked_at, engine_version,
+                trade_level, level_confirmed
     `);
 
     const list = rows as unknown as {
@@ -218,6 +241,8 @@ export class MatchApplyService {
       industry_months: number | null;
       last_worked_at: string | null;
       engine_version: string | null;
+      trade_level: string | null;
+      level_confirmed: boolean | null;
     }[];
     const row = list[0];
     if (!row) throw new Error("Failed to upsert V1 application");
@@ -241,6 +266,8 @@ export class MatchApplyService {
               industryMonths: row.industry_months ?? 0,
               lastWorkedAt: row.last_worked_at,
               engineVersion: row.engine_version,
+              tradeLevel: row.trade_level,
+              levelConfirmed: row.level_confirmed,
             },
     };
   }

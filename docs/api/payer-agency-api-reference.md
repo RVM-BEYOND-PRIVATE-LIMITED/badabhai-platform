@@ -503,9 +503,12 @@ Routes: `POST /payer/job-postings/:id/plan`, `…/boost`, `…/quota-topup`, `PO
       workerId, applicationId, rank,
       matchTier, effectiveTier,            // number | null (null when no rank snapshot)
       skillMonths, industryMonths,         // number | null
-      lastWorkedAt, matchedSkillLabel, engineVersion   // string | null
+      lastWorkedAt, matchedSkillLabel, engineVersion,  // string | null
+      tradeLevels,                         // [ TradeLevelBadge ] — live, display only (Middle Way P5)
+      levelFit                             // 'meets' | 'not_confirmed' | 'below' | null (engine v1.1)
   } ] }
   ```
+- **"Level needed" sort (engine v1.1, CEO ruling 30 Oct 2026, [ADR-0061](../decisions/0061-level-needed-applicant-sort.md) — behind `LEVEL_NEEDED_SORT_ENABLED`, default off). Company postings only.** When the flag is on, a posting whose `role_kind` is `cnc_turner`, `vmc_milling`, `cnc_grinding` or `cam_programmer` and whose `trade_level` names a rung ("Setter needed" = Setter **and above**) groups its applicants **inside each trade group** (after the effective tier, before months): `meets` first, then `not_confirmed` (no rung stated, a rung this trade's ladder does not know, or an upper rung whose separating question he answered "koi aur" — tag the card **"Level not confirmed"**), then `below`. Months, industry months and recency order each group as before. **Nobody is added or removed**, and the related-trade floor (36 months) is unchanged. The group comes from the rung **frozen on the application at apply time**, so a worker who edits his level later never moves; applications from before migration 0153 have no frozen rung and sit in `not_confirmed`. `levelFit` is `null` on every row when the list has no level sort: the flag is off, the posting says "Any level" (`trade_level` null), or its trade is not one of the four — and then the order is exactly the previous one. `levelFit` is additive: a client that ignores it keeps working.
 - **Events:** agency `jobs` list only: `feed.shown` (one per rendered applier — none for an empty list, actor `payer`, batch all-or-nothing; payload `worker_id`/`job_id`/`rank`/`score`/`hot` — PII-free). The posting list emits nothing (people who already applied are not a feed impression), so a posting-list read is rate-limited (Redis, hourly) but **not durably audited**.
 - **Errors:** `404` as above. `429` on the reach cap. A DB failure is a `5xx`, never folded into the `404`.
 - **Mobile gotchas:**
@@ -540,12 +543,12 @@ Routes: `POST /payer/job-postings/:id/plan`, `…/boost`, `…/quota-topup`, `PO
     posting: { id, title, kind: 'agency_job' } }
   // company posting applicant — the V1 candidate row
   { workerId, applicationId, rank, matchTier, effectiveTier, skillMonths, industryMonths,
-    lastWorkedAt, matchedSkillLabel, engineVersion,
+    lastWorkedAt, matchedSkillLabel, engineVersion, tradeLevels, levelFit,
     posting: { id, title, kind: 'company_posting' } }
   ```
 
   - `posting.id` is the id the per-posting route and the unlock's `job_id` context take; `posting.title` is the payer's own title (`jobs.title` / `job_postings.role_title`); branch on `posting.kind` (or, as on the per-posting route, on `score` vs `applicationId`).
-  - `rank` (and `hot` on an agency row) is the applicant's position on **his posting's** list ("#2 on Welder"), not his position in this inbox. A worker who applied to two of your postings is two rows.
+  - `rank` (and `hot` on an agency row) is the applicant's position on **his posting's** list ("#2 on Welder"), not his position in this inbox. A worker who applied to two of your postings is two rows. On a "Level needed" posting (engine v1.1, see the per-posting route) that rank includes the level group, and `levelFit` is his group on that posting.
   - `stage` — present on every row **only while `PAYER_APPLICANT_STAGES_ENABLED` is on**: the same value the per-posting route shows for him on that posting (a worker's two rows have two independent stages, one per posting). Absent while off.
 
 - **Membership:** the per-posting lists' — `action = 'applied'` only, never a worker inside the deletion grace window (ADR-0031 (b)), and an agency applier only if he has a profile row (the agency list ranks profiles). An application that names both one of your agency jobs and one of your postings is listed once, under the agency job. The per-posting company list stops at 500 rows; this list is paginated instead, so a company posting's applicants ranked 501st and below appear only here, with their true posting `rank`.

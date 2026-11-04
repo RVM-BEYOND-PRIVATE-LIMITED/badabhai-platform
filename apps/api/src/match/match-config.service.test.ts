@@ -61,7 +61,7 @@ describe("MatchConfigService — the shipped V1 defaults", () => {
   it("serves the whole shipped knob set, by value", async () => {
     const { service } = make(undefined);
     expect(await service.get()).toEqual({
-      engineVersion: "v1.0",
+      engineVersion: "v1.1",
       monthBucket: 6,
       maxSkillsPerPosting: 3,
       relatedSkillsDefault: "on",

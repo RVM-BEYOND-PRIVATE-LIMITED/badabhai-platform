@@ -41,6 +41,8 @@ function candidate(id: string, over: Partial<CandidateRow> = {}): CandidateRow {
     engineVersion: "v1.0",
     matchedSkillId: "mskill_vmc_operator",
     tradeLevels: [],
+    frozenTradeLevel: null,
+    frozenLevelConfirmed: null,
     ...over,
   };
 }
@@ -165,7 +167,8 @@ describe("MatchCandidatesService — the floor is CONFIG, and the SQL gets the s
     // The rank tuple exists twice (comparator + SQL). If the service labelled with 24
     // while the SQL sorted on 36, the list would be ordered by one rule and explained
     // by another — the exact failure the repository's parity note warns about.
-    expect(repo.listCandidates).toHaveBeenCalledWith(JOB, 24, OPS_LIST_CAP);
+    // Flag off (no config handed in) → an EMPTY level map: the v1.0 ORDER BY.
+    expect(repo.listCandidates).toHaveBeenCalledWith(JOB, 24, OPS_LIST_CAP, new Map());
   });
 });
 
@@ -236,6 +239,7 @@ describe("MatchCandidatesService — the row a payer reads before paying", () =>
         "rank",
         "skillMonths",
         "tradeLevels",
+        "levelFit",
         "workerId",
       ].sort(),
     );
@@ -339,6 +343,7 @@ describe("MatchCandidatesService.rowsForOwnedApplications — the payer inbox's 
       [JOB],
       ["a", "b"],
       DEFAULT_MATCH_CONFIG.tierFloorMonths,
+      new Map(),
     );
   });
 
@@ -439,5 +444,162 @@ describe("MatchCandidatesService — Middle Way P6: a rung changes nothing but t
     for (const run of runs.slice(1)) {
       expect(run.applicants.map(withoutBadge)).toStrictEqual(first);
     }
+  });
+});
+
+describe("MatchCandidatesService — engine v1.1 'Level needed' (CEO ruling 30 Oct 2026, ADR-0061)", () => {
+  const PAYER_KEY = "tenant-key" as unknown as TenantKey;
+  // Postgres prints ids lower-case; the route may not. The map is keyed by the DB's spelling.
+  const DB_ID = JOB.toLowerCase();
+
+  function levelSetup(opts: {
+    enabled: boolean;
+    posting?: { roleKind: string | null; tradeLevel: string | null };
+    rows: Array<CandidateRow & { jobPostingId?: string; rank?: number }>;
+  }) {
+    const repo = {
+      listCandidates: vi.fn(async () => opts.rows),
+      listRankedCandidatesByApplication: vi.fn(async () =>
+        opts.rows.map((r, i) => ({ jobPostingId: DB_ID, rank: i + 1, ...r })),
+      ),
+      listPostingLevels: vi.fn(async () =>
+        opts.posting === undefined ? [] : [{ id: DB_ID, ...opts.posting }],
+      ),
+    };
+    const config = { get: vi.fn(async () => DEFAULT_MATCH_CONFIG) };
+    const server = { LEVEL_NEEDED_SORT_ENABLED: opts.enabled };
+    const svc = new MatchCandidatesService(repo as never, config as never, server);
+    return { svc, repo };
+  }
+
+  // The SQL order (the repo hands rows back already sorted); the service only labels it.
+  const rows = () => [
+    candidate("A", { skillMonths: 48, frozenTradeLevel: "setter", frozenLevelConfirmed: true }),
+    candidate("D", { skillMonths: 72 }),
+    candidate("S", { skillMonths: 200, frozenTradeLevel: "setter", frozenLevelConfirmed: false }),
+    candidate("B", { skillMonths: 120, frozenTradeLevel: "operator", frozenLevelConfirmed: false }),
+  ];
+
+  it("FLAG OFF: no posting read, an empty level map, levelFit null on every row (today's list)", async () => {
+    const { svc, repo } = levelSetup({
+      enabled: false,
+      posting: { roleKind: "cnc_turner", tradeLevel: "setter" },
+      rows: rows(),
+    });
+    const out = await svc.listForPosting(JOB);
+    expect(repo.listPostingLevels).not.toHaveBeenCalled();
+    expect(repo.listCandidates).toHaveBeenCalledWith(JOB, 36, OPS_LIST_CAP, new Map());
+    expect(out.applicants.map((a) => a.levelFit)).toEqual([null, null, null, null]);
+  });
+
+  it("A HAND-BUILT SERVICE WITH NO CONFIG fails closed to the flag-off list", async () => {
+    const { svc, repo } = setup(rows());
+    const out = await svc.listForPosting(JOB);
+    expect(out.applicants.every((a) => a.levelFit === null)).toBe(true);
+    expect(repo.listCandidates).toHaveBeenCalledWith(JOB, 36, OPS_LIST_CAP, new Map());
+  });
+
+  it("FLAG ON, CNC Turner 'Setter needed': hands the SQL the setter groups, keyed by the DB id", async () => {
+    const { svc, repo } = levelSetup({
+      enabled: true,
+      posting: { roleKind: "cnc_turner", tradeLevel: "setter" },
+      rows: rows(),
+    });
+    await svc.listForPosting(JOB);
+    expect(repo.listPostingLevels).toHaveBeenCalledWith([JOB]);
+    const sorts = (repo.listCandidates.mock.calls[0] as unknown[])[3] as Map<string, unknown>;
+    expect([...sorts.keys()]).toEqual([DB_ID]);
+    expect(sorts.get(DB_ID)).toMatchObject({ needed: "setter", meets: [] });
+  });
+
+  it("labels each row from the FROZEN rung: meets / not confirmed ('koi aur' too) / below", async () => {
+    const { svc } = levelSetup({
+      enabled: true,
+      posting: { roleKind: "cnc_turner", tradeLevel: "setter" },
+      rows: rows(),
+    });
+    const out = await svc.listForPosting(JOB);
+    expect(out.applicants.map((a) => [a.applicationId, a.levelFit])).toEqual([
+      ["A", "meets"],
+      ["D", "not_confirmed"],
+      ["S", "not_confirmed"],
+      ["B", "below"],
+    ]);
+  });
+
+  it("the label reads the frozen rung, NOT the live badge — a later level edit changes neither", async () => {
+    const { svc } = levelSetup({
+      enabled: true,
+      posting: { roleKind: "cnc_turner", tradeLevel: "setter" },
+      rows: [
+        candidate("B", {
+          frozenTradeLevel: "operator",
+          frozenLevelConfirmed: false,
+          // He has since told us he is a programmer. The badge shows it; the group does not move.
+          tradeLevels: [{ skillId: "mskill_cnc_turner", tradeLevel: "programmer", levelConfirmed: true }],
+        }),
+      ],
+    });
+    const [b] = (await svc.listForPosting(JOB)).applicants;
+    expect(b!.levelFit).toBe("below");
+    expect(b!.tradeLevels[0]!.tradeLevel).toBe("programmer");
+  });
+
+  it.each([
+    ["'Any level' (no rung on the posting)", { roleKind: "cnc_turner", tradeLevel: null }],
+    ["a trade the sort is not on for", { roleKind: "welder", tradeLevel: "skilled" }],
+    ["a rung the trade's ladder does not know", { roleKind: "cnc_turner", tradeLevel: "senior" }],
+    ["a posting with no role", { roleKind: null, tradeLevel: "setter" }],
+  ])("FLAG ON, %s → no level sort, levelFit null", async (_label, posting) => {
+    const { svc, repo } = levelSetup({ enabled: true, posting, rows: rows() });
+    const out = await svc.listForPosting(JOB);
+    expect(repo.listCandidates).toHaveBeenCalledWith(JOB, 36, OPS_LIST_CAP, new Map());
+    expect(out.applicants.every((a) => a.levelFit === null)).toBe(true);
+  });
+
+  it("never re-sorts: the SQL's order is the list's order, labels and all", async () => {
+    const reversed = rows().reverse();
+    const { svc } = levelSetup({
+      enabled: true,
+      posting: { roleKind: "cnc_turner", tradeLevel: "setter" },
+      rows: reversed,
+    });
+    const out = await svc.listForPosting(JOB);
+    expect(out.applicants.map((a) => a.applicationId)).toEqual(["B", "S", "D", "A"]);
+    expect(out.applicants.map((a) => a.rank)).toEqual([1, 2, 3, 4]);
+  });
+
+  it("toRankInputs carries levelOrder only with a spec — the comparator then agrees with the labels", async () => {
+    const spec = { needed: "setter", below: ["trainee", "operator", "helper"], meets: [],
+      meetsIfConfirmed: ["setter", "setter_programmer", "programmer", "supervisor"] } as const;
+    const plain = MatchCandidatesService.toRankInputs(rows());
+    expect(plain.every((r) => !("levelOrder" in r))).toBe(true);
+    const levelled = MatchCandidatesService.toRankInputs(rows(), spec);
+    expect(levelled.map((r) => r.levelOrder)).toEqual([0, 1, 1, 2]);
+    const sorted = [...levelled].sort((x, y) => rankKeyCompare(x, y, DEFAULT_MATCH_CONFIG));
+    // S (200 months, 'koi aur') beats D (72) inside the middle group; B (120) is still last.
+    expect(sorted.map((r) => r.id)).toEqual(["A", "S", "D", "B"]);
+  });
+
+  it("the inbox labels each row by ITS posting's sort and hands the SQL the same map", async () => {
+    const { svc, repo } = levelSetup({
+      enabled: true,
+      posting: { roleKind: "vmc_milling", tradeLevel: "operator" },
+      rows: rows(),
+    });
+    const byApp = await svc.rowsForOwnedApplications(PAYER_KEY, [
+      { applicationId: "A", postingId: JOB },
+      { applicationId: "B", postingId: JOB },
+    ]);
+    expect(repo.listPostingLevels).toHaveBeenCalledWith([JOB]);
+    const sorts = (repo.listRankedCandidatesByApplication.mock.calls[0] as unknown[])[4] as Map<
+      string,
+      unknown
+    >;
+    expect([...sorts.keys()]).toEqual([DB_ID]);
+    // 'Operator needed': a stated operator meets without a separating question.
+    expect(byApp.get("B")!.levelFit).toBe("meets");
+    expect(byApp.get("A")!.levelFit).toBe("meets");
+    expect(byApp.get("D")!.levelFit).toBe("not_confirmed");
   });
 });

@@ -6,6 +6,8 @@
  * tiebreak, in this fixed order:
  *
  *   1. effectiveTier      ASC   exact-skill (or a floor-promoted related) first
+ *   1b. levelOrder        ASC   v1.1, ONLY on a "Level needed" posting: meets → not
+ *                               confirmed → below (CEO ruling 30 Oct 2026, ADR-0061)
  *   2. skillMonths        DESC  time on the matched skill
  *   3. industryMonths     DESC  time in the job's industry
  *   4. lastWorkedAt       DESC  recency, NULLS LAST
@@ -67,6 +69,11 @@ export function rankKeyCompare(a: RankInputs, b: RankInputs, cfg: MatchConfig): 
   const tierA = effectiveTier(a.matchTier, a.skillMonths, cfg.tierFloorMonths);
   const tierB = effectiveTier(b.matchTier, b.skillMonths, cfg.tierFloorMonths);
   if (tierA !== tierB) return tierA - tierB;
+
+  // v1.1 — "Level needed" groups INSIDE the tier group (meets < not confirmed < below). Absent
+  // on both sides when the posting has no level sort, so v1.0 lists are untouched.
+  const levelDelta = (a.levelOrder ?? 0) - (b.levelOrder ?? 0);
+  if (levelDelta !== 0) return levelDelta;
 
   const skillDelta = finiteMonths(b.skillMonths) - finiteMonths(a.skillMonths);
   if (skillDelta !== 0) return skillDelta;

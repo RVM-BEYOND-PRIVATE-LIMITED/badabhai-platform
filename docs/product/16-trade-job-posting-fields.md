@@ -11,8 +11,11 @@ declared on the worker side, but they are absent from every posting picker.
 A posting form asks, in order:
 
 1. **Role** — mandatory, one of the 16.
-2. **Function / collar (rung)** — the trade's ladder, stored as `trade_level`. **Display-only**:
-   it never enters `match_skill_ids` or `job_reach`.
+2. **Function / collar (rung)** — the trade's ladder, stored as `trade_level`. It never enters
+   `match_skill_ids` or `job_reach`. Since engine v1.1 ([ADR-0061](../decisions/0061-level-needed-applicant-sort.md),
+   CEO ruling 30 Oct 2026) it is the posting's **"Level needed"**: on the 4 CNC trades, with
+   `LEVEL_NEEDED_SORT_ENABLED` on, it sorts the applicant list (meets → not confirmed → below,
+   inside each trade group). Sort only, never hide; no rung = "Any level" = today's list.
 3. **Match-affecting chips** — the pack chips whose `PACK_ANSWER_SKILLS` entry resolves to an
    `mskill_*` the poster does not already get from the role's base skill. They drive reach
    through `match_skill_ids`.

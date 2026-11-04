@@ -867,6 +867,28 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "database are fine (a superset); new builds on an unmigrated one are not, which is why " +
       "this is APPLY-BEFORE-DEPLOY",
   },
+  // 0153 (engine v1.1 "Level needed", ADR-0061): the worker's frozen rung on each application.
+  // Unconditional — no flag — because the apply upserts write it on EVERY V1 and agency-twin
+  // apply (history not captured is gone), and bare `select()`s of `applications` name it. The two
+  // columns ride one migration, so one column answers for both. Registered up front (#2506).
+  {
+    id: "0153-applications-trade-level",
+    migration: "0153_application_trade_level",
+    kind: "column",
+    table: "applications",
+    object: "trade_level",
+    requiredBy:
+      "MatchApplyService.upsertDecision (every V1 apply/skip) and " +
+      "ApplicationsRepository.upsertDecision (every agency-twin apply) write it; " +
+      "MatchFeedRepository.listCandidates / listRankedCandidatesByApplication select it for the " +
+      "payer applicant list and inbox; every bare `select()` of `applications` names it. " +
+      "`level_confirmed` rides the same migration and fails together",
+    failureMode:
+      "every worker apply 500s (column does not exist) — the V1 feed apply, the union apply and " +
+      "the agency-twin apply — and the payer applicant list and inbox 500. Old builds on a " +
+      "migrated database are fine (a superset); new builds on an unmigrated one are not, which is " +
+      "why this is APPLY-BEFORE-DEPLOY",
+  },
   // 0134: THE API names `payer_applicant_stages` only while PAYER_APPLICANT_STAGES_ENABLED is on
   // (owner ruling 2026-10-07, the payer pipeline board), so a deploy ahead of the migration breaks
   // no request and the table is NOT a `table` entry. It is listed for its lock, exactly as 0128's

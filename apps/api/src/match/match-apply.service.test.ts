@@ -50,6 +50,7 @@ function setup(opts: {
   rows?: SkillRow[];
   industryMonths?: number;
   config?: Partial<MatchConfig>;
+  level?: { tradeLevel: string; levelConfirmed: boolean } | undefined;
 } = {}) {
   const cfg: MatchConfig = { ...DEFAULT_MATCH_CONFIG, ...opts.config };
   const reach = "reach" in opts ? opts.reach : { matchTier: 1 as const, matchedSkillId: VMC };
@@ -63,6 +64,7 @@ function setup(opts: {
     findIndustryMonths: vi.fn(async (_workerId: string, _industryId: string) =>
       opts.industryMonths ?? 0,
     ),
+    findStatedTradeLevel: vi.fn(async (_workerId: string, _skillId: string) => opts.level),
   };
   const config = { get: vi.fn(async () => cfg) };
   const db = { execute: vi.fn(), select: vi.fn() };
@@ -168,6 +170,9 @@ describe("buildSnapshot — a posting that is no longer OPEN takes the SAME 404 
       industryMonths: 30,
       lastWorkedAt: null,
       engineVersion: DEFAULT_MATCH_CONFIG.engineVersion,
+      // v1.1: the stub has no rung row, so the frozen rung is NULL — never a guess.
+      tradeLevel: null,
+      levelConfirmed: null,
     });
   });
 
@@ -397,6 +402,8 @@ const SNAPSHOT: RankSnapshot = {
   industryMonths: 72,
   lastWorkedAt: null,
   engineVersion: "v1.0",
+  tradeLevel: null,
+  levelConfirmed: null,
 };
 
 function applySetup(returning: Record<string, unknown>[]) {
@@ -413,6 +420,8 @@ const STORED = {
   industry_months: 12,
   last_worked_at: "2024-03-01",
   engine_version: "v0.9",
+  trade_level: "operator",
+  level_confirmed: false,
 };
 
 describe("upsertDecision — one statement, no read-then-write (the E16 race guard)", () => {
@@ -434,7 +443,7 @@ describe("upsertDecision — one statement, no read-then-write (the E16 race gua
     expect(db.select).not.toHaveBeenCalled();
   });
 
-  it("binds all five snapshot columns, in order, into the INSERT", async () => {
+  it("binds all seven snapshot columns, in order, into the INSERT", async () => {
     const { svc, db } = applySetup([STORED]);
     await svc.upsertDecision({
       workerId: WORKER,
@@ -443,7 +452,7 @@ describe("upsertDecision — one statement, no read-then-write (the E16 race gua
       reason: "wants_it",
       sourceSurface: "feed",
       rank: 3,
-      snapshot: SNAPSHOT,
+      snapshot: { ...SNAPSHOT, tradeLevel: "setter", levelConfirmed: true },
       previousAction: null,
     });
     // A dropped column here writes NULL rank inputs onto a real application, and the
@@ -460,6 +469,8 @@ describe("upsertDecision — one statement, no read-then-write (the E16 race gua
       72, // industry_months
       null, // last_worked_at
       "v1.0", // engine_version
+      "setter", // trade_level (v1.1)
+      true, // level_confirmed (v1.1)
     ]);
   });
 
@@ -475,7 +486,7 @@ describe("upsertDecision — one statement, no read-then-write (the E16 race gua
       snapshot: null,
       previousAction: null,
     });
-    expect(statementOf(db).params.slice(6)).toEqual([null, null, null, null, null]);
+    expect(statementOf(db).params.slice(6)).toEqual([null, null, null, null, null, null, null]);
   });
 
   it("guards EVERY snapshot column behind the skip→apply flip CASE", async () => {
@@ -529,7 +540,7 @@ describe("upsertDecision — the returned snapshot is the STORED row, never the 
       sourceSurface: "feed",
       rank: 1,
       // A re-apply computed FRESH inputs off a profile the worker has since edited…
-      snapshot: { matchTier: 1, skillMonths: 120, industryMonths: 120, lastWorkedAt: "2026-07-31", engineVersion: "v1.0" },
+      snapshot: { matchTier: 1, skillMonths: 120, industryMonths: 120, lastWorkedAt: "2026-07-31", engineVersion: "v1.0", tradeLevel: "supervisor", levelConfirmed: true },
       previousAction: "applied",
     });
 
@@ -541,6 +552,9 @@ describe("upsertDecision — the returned snapshot is the STORED row, never the 
       industryMonths: 12,
       lastWorkedAt: "2024-03-01",
       engineVersion: "v0.9",
+      // v1.1: the STORED rung, not the input's "supervisor" — a level edit never moves him.
+      tradeLevel: "operator",
+      levelConfirmed: false,
     });
     expect(out.applicationId).toBe(STORED.id);
   });
@@ -593,6 +607,8 @@ describe("upsertDecision — the returned snapshot is the STORED row, never the 
       industryMonths: 0,
       lastWorkedAt: null,
       engineVersion: STORED.engine_version,
+      tradeLevel: "operator",
+      levelConfirmed: false,
     });
   });
 
@@ -661,5 +677,48 @@ describe("findDecision — the caller's pre-read", () => {
   it("returns undefined when the worker has never decided on the posting", async () => {
     const { svc } = chainSetup([]);
     await expect(svc.findDecision(WORKER, POSTING)).resolves.toBeUndefined();
+  });
+});
+
+describe("engine v1.1 — the worker's rung is frozen at apply (ADR-0061, migration 0153)", () => {
+  it("freezes the rung on the skill he was REACHED THROUGH — the related trade for a tier-2 match", async () => {
+    // The 30 Oct worked example's C: a VMC Setter reached by a CNC Turner posting through the
+    // curated relation. His rung is the VMC one; the turner ladder places `setter` the same way.
+    const d = setup({
+      reach: { matchTier: 2, matchedSkillId: TURNER },
+      rows: [row(TURNER, 72)],
+      level: { tradeLevel: "setter", levelConfirmed: true },
+    });
+    const snap = await d.svc.buildSnapshot(WORKER, POSTING);
+    expect(d.skills.findStatedTradeLevel).toHaveBeenCalledWith(WORKER, TURNER);
+    expect(snap).toMatchObject({ matchTier: 2, tradeLevel: "setter", levelConfirmed: true });
+  });
+
+  it("freezes a 'koi aur' answer as stated: the rung AND its false confirm bit", async () => {
+    const d = setup({ level: { tradeLevel: "setter", levelConfirmed: false } });
+    const snap = await d.svc.buildSnapshot(WORKER, POSTING);
+    expect(d.skills.findStatedTradeLevel).toHaveBeenCalledWith(WORKER, VMC);
+    expect(snap).toMatchObject({ tradeLevel: "setter", levelConfirmed: false });
+  });
+
+  it("no rung stated → NULL rung and NULL confirm bit, never a guessed rung", async () => {
+    const snap = await setup({ level: undefined }).svc.buildSnapshot(WORKER, POSTING);
+    expect(snap.tradeLevel).toBeNull();
+    expect(snap.levelConfirmed).toBeNull();
+  });
+
+  it("the upsert rewrites the rung ONLY on a skip→apply flip, like every other frozen column", async () => {
+    const { svc, db } = applySetup([STORED]);
+    await svc.upsertDecision({
+      workerId: WORKER, jobPostingId: POSTING, action: "applied", reason: null,
+      sourceSurface: "feed", rank: null, snapshot: SNAPSHOT, previousAction: null,
+    });
+    const { text } = statementOf(db);
+    for (const col of ["trade_level", "level_confirmed"]) {
+      expect(text).toContain(
+        `${col} = CASE WHEN applications.action <> 'applied' AND EXCLUDED.action = 'applied' ` +
+          `THEN EXCLUDED.${col} ELSE applications.${col} END`,
+      );
+    }
   });
 });

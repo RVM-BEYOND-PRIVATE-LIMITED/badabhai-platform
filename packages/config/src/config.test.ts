@@ -796,6 +796,17 @@ describe("loadServerConfig", () => {
     ).toBe(true);
   });
 
+  it("LEVEL_NEEDED_SORT_ENABLED (engine v1.1, ADR-0061) is OFF by default and for the empty string", () => {
+    // Off is today's applicant list exactly; the CEO turns it on (30 Oct ruling Q4).
+    expect(loadServerConfig({}).LEVEL_NEEDED_SORT_ENABLED).toBe(false);
+    expect(loadServerConfig({ LEVEL_NEEDED_SORT_ENABLED: "" }).LEVEL_NEEDED_SORT_ENABLED).toBe(false);
+    expect(loadServerConfig({ LEVEL_NEEDED_SORT_ENABLED: "0" }).LEVEL_NEEDED_SORT_ENABLED).toBe(false);
+    expect(loadServerConfig({ LEVEL_NEEDED_SORT_ENABLED: "true" }).LEVEL_NEEDED_SORT_ENABLED).toBe(
+      true,
+    );
+    expect(() => loadServerConfig({ LEVEL_NEEDED_SORT_ENABLED: "yes" })).toThrow();
+  });
+
   it("PAYER_APPLICANT_STAGE_MAX_PER_HOUR defaults to 600 and refuses a non-positive cap", () => {
     expect(loadServerConfig({}).PAYER_APPLICANT_STAGE_MAX_PER_HOUR).toBe(600);
     expect(

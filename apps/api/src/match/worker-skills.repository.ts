@@ -643,6 +643,32 @@ export class WorkerSkillsRepository {
   }
 
   /**
+   * The worker's STATED rung on one skill, for the apply-time snapshot (engine v1.1 "Level
+   * needed", ADR-0061). The SAME rule as the applicant card's badge (`tradeLevelsColumn`) and
+   * {@link listStatedTradeLevels}: latest profile wins among those that state a rung for the
+   * skill. Undefined = no rung stated — the snapshot then freezes NULL, never a guess.
+   */
+  async findStatedTradeLevel(
+    workerId: string,
+    skillId: string,
+  ): Promise<{ tradeLevel: string; levelConfirmed: boolean } | undefined> {
+    const rows = (await this.db.execute<{ trade_level: string; level_confirmed: boolean }>(dsql`
+      SELECT wps.trade_level, wps.level_confirmed
+      FROM worker_profiles wp
+      JOIN worker_profile_skill wps ON wps.worker_profile_id = wp.id
+      WHERE wp.worker_id = ${workerId}::uuid
+        AND wps.skill_id = ${skillId}
+        AND wps.trade_level IS NOT NULL
+      ORDER BY wp.created_at DESC
+      LIMIT 1
+    `)) as unknown as { trade_level: string; level_confirmed: boolean }[];
+    const row = rows[0];
+    // A row that names no rung (a hand-written seed, a version-skewed read) is "not stated".
+    if (!row || typeof row.trade_level !== "string") return undefined;
+    return { tradeLevel: row.trade_level, levelConfirmed: row.level_confirmed === true };
+  }
+
+  /**
    * The STATED trade rungs of a page of workers (Middle Way P5's level badge), batched: latest
    * profile wins per (worker, skill), `trade_level` set. The rule the applicant card's
    * `tradeLevelsColumn` (match-feed.repository.ts) applies per row, for the payer all-candidates

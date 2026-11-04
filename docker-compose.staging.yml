@@ -421,6 +421,11 @@ services:
       # a missing answer is a 400. Turn on only once the worker-app release that sends
       # `age_18_plus` is live. No migration. `:-false` because this bool rejects "".
       SIGNUP_AGE_GATE_ENABLED: ${SIGNUP_AGE_GATE_ENABLED:-false}
+      # "LEVEL NEEDED" APPLICANT SORT (engine v1.1, CEO ruling 30 Oct 2026, ADR-0061). Off is
+      # today's list exactly: no extra query, the v1.0 ORDER BY, `levelFit` null. On, a 4-CNC-trade
+      # posting that names a rung sorts its applicants meets → not confirmed → below inside each
+      # trade group. Nobody is hidden. `:-false` because this bool rejects "".
+      LEVEL_NEEDED_SORT_ENABLED: ${LEVEL_NEEDED_SORT_ENABLED:-false}
 
       # ---- THE REFERRAL RESOLVER'S DESTINATION (#1800).
       #

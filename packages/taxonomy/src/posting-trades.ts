@@ -15,10 +15,11 @@ import type { TradeLevel } from "./trade-levels";
  * supplies the four things a pack does not carry: the pack id, the family id, the base match
  * skill and the display-only ladder.
  *
- * WHAT A LADDER IS, AND IS NOT. Ladders are DISPLAY-ONLY in matching V1 (see
- * `trade-levels.ts`). Posting a rung never changes `job_reach`; it is the collar/function
- * fact the payer states and the worker reads. The error to avoid is treating a rung as a
- * filter — a "Setter" posting must still reach every turner the match skills reach.
+ * WHAT A LADDER IS, AND IS NOT. Posting a rung never changes `job_reach`; it is the
+ * collar/function fact the payer states and the worker reads. The error to avoid is treating
+ * a rung as a filter — a "Setter" posting must still reach every turner the match skills
+ * reach. Since engine v1.1 (ADR-0061) the rung SORTS the applicant list of the 4 CNC trades
+ * ("Level needed", sort never hide); that rung order lives in `level-needed.ts`, not here.
  *
  * ADDING A 17TH TRADE IS ONE ROW. No migration (the DB validates only the jsonb shape), no
  * second form, no new branch in either client: the API's posting-trades route reflects this

@@ -1219,6 +1219,16 @@ export const serverEnvSchema = z.object({
   // `payer_reach` read budget, so triaging a long list cannot lock a payer out of reading it.
   // Generous: a recruiter clears hundreds of applicants an hour. Fail-closed (Redis down rejects).
   PAYER_APPLICANT_STAGE_MAX_PER_HOUR: z.coerce.number().int().positive().default(600),
+  // "LEVEL NEEDED" APPLICANT SORT (engine v1.1, CEO ruling 30 Oct 2026, ADR-0061). With it on, a
+  // company posting in one of the 4 CNC trades (`LEVEL_SORT_TRADE_KINDS`) that names a rung lists
+  // its applicants meets → level not confirmed → below INSIDE each trade group, and each row
+  // carries `levelFit`. Nobody is hidden; "Any level" posts are unchanged either way.
+  //
+  // DEFAULT OFF, AND OFF IS TODAY'S LIST EXACTLY: no extra query, the v1.0 ORDER BY, `levelFit`
+  // null. The CEO turns it on ("my go-ahead after you ship", ruling Q4). Migration 0153 is
+  // APPLY-BEFORE-DEPLOY regardless (the apply snapshot writes its columns with the flag off too:
+  // history not captured is gone), so the flag gates the SORT only, never the capture.
+  LEVEL_NEEDED_SORT_ENABLED: booleanFromString,
 
   // Admin Ops Portal auth (ADR-0025 ADMIN-1) — the 4th privileged principal (worker /
   // payer / ops-secret / admin). The admin session reuses the payer rolling/revocable
