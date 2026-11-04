@@ -19,8 +19,10 @@ import 'package:payer_app/core/theme/app_system_ui.dart';
 import 'package:payer_app/core/theme/app_theme.dart';
 import 'package:payer_app/core/widgets/bb_avatar.dart';
 import 'package:payer_app/core/widgets/bb_logo.dart';
+import 'package:payer_app/features/auth/presentation/signup_screen.dart';
 import 'package:payer_app/features/find/presentation/find_screen.dart';
 import 'package:payer_app/features/home/presentation/home_screen.dart';
+import 'package:payer_app/features/referral/presentation/referral_screen.dart';
 import 'package:payer_app/features/shell/presentation/app_shell.dart';
 
 /// #2590 (M2) — payer-app brand alignment fences: solid rounded icons only, no
@@ -147,6 +149,13 @@ void main() {
 
     tearDown(() async => GetIt.instance.reset());
 
+    // Bounded pumps: a loading indicator never lets pumpAndSettle settle.
+    Future<void> settle(WidgetTester tester) async {
+      for (int i = 0; i < 15; i++) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+    }
+
     Future<void> pumpShell(WidgetTester tester) async {
       tester.view.physicalSize = const Size(800, 1600);
       tester.view.devicePixelRatio = 1.0;
@@ -221,6 +230,46 @@ void main() {
         ),
         findsOneWidget,
       );
+    });
+
+    // The real PayerApp, so its app-wide fallback region is in the tree.
+    Future<void> pumpApp(WidgetTester tester) async {
+      tester.view.physicalSize = const Size(800, 1600);
+      tester.view.devicePixelRatio = 1.0;
+      tester.view.padding = const FakeViewPadding(top: statusBar);
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(const PayerApp());
+      await settle(tester);
+    }
+
+    Brightness? statusBarIcons() =>
+        SystemChrome.latestStyle?.statusBarIconBrightness;
+
+    testWidgets(
+        'a pushed light page gets dark icons, not the blue header it was '
+        'opened from (Home → Refer & earn)', (WidgetTester tester) async {
+      locator<AppSessionCubit>().signIn(PayerRole.agency);
+      await pumpApp(tester);
+      expect(find.byType(HomeScreen), findsOneWidget);
+      expect(statusBarIcons(), Brightness.light);
+
+      await tester.tap(find.text('Refer & earn'));
+      await settle(tester);
+
+      expect(find.byType(ReferralScreen), findsOneWidget);
+      expect(statusBarIcons(), Brightness.dark);
+    });
+
+    testWidgets('Login → Sign up keeps light icons on the blue sign-up bar',
+        (WidgetTester tester) async {
+      await pumpApp(tester);
+      expect(statusBarIcons(), Brightness.light);
+
+      await tester.tap(find.byKey(const Key('signup_open')));
+      await settle(tester);
+
+      expect(find.byType(SignupScreen), findsOneWidget);
+      expect(statusBarIcons(), Brightness.light);
     });
 
     test('app bars ask for dark status-bar icons', () {

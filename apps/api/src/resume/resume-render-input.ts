@@ -21,7 +21,7 @@ import {
   type WorkerEmploymentRecord,
 } from "./resume-employment-rows";
 import {
-  formAvailabilityLabel,
+  formAvailability,
   readPreferenceFacts,
   type ResumePreferenceFacts,
 } from "./resume-preference-facts";
@@ -40,8 +40,6 @@ import {
 import { applyTranscriptVeto } from "./resume-transcript-veto";
 import { buildProfileHeadline, buildProfileSummary } from "./resume-headline";
 import {
-  bareAvailability,
-  bareAvailabilityLabel,
   buildAvailabilityRows,
   buildDocumentRows,
   buildQualificationRows,
@@ -50,8 +48,11 @@ import {
   composeWhatsappLine,
   formatOpenTopSalary,
   formatSalaryBand,
+  containerAvailability,
   joinSegments,
+  profileAvailability,
   profileNoticeDays,
+  type SheetAvailability,
 } from "./resume-sheet-rows";
 
 /**
@@ -484,6 +485,10 @@ function buildUndegraded(
   // carries them. `languages` in particular has no draft column at all (`crosswalk.ts` records
   // `draftPath: null`), so this is the only source it will ever have.
   const preferences = readPreferenceFacts(vettedAttributes);
+  // WHEN HE CAN START, AS HE ANSWERED IT HIMSELF (the preferences page or the résumé-menu walk).
+  // It outranks the interview's reading on BOTH branches (`worker-field-precedence.ts`,
+  // AVAILABILITY); each branch falls back to its own interview source when this is null.
+  const workerAvailability = formAvailability(preferences, tradeSheet?.asOf ?? null);
   // ZONE 4 IS BUILT HERE FOR THE SAME REASON, and it also decides which of the two work-history
   // regions the template renders. `employments` is the designed two-level shape; `experiences`
   // is the flat, employer-less shape every profile in the database actually has today. The
@@ -774,6 +779,7 @@ function buildUndegraded(
         noticeDays: profileNoticeDays(draft.availability, draft.resume_profile.availability),
       },
       preferences,
+      workerAvailability,
       // THE MANDATORY UNIVERSAL ASK, reaching the container path for the first time. It rides
       // the answer map onto the draft (`profile-extraction.processor.ts` → `experience`), which
       // is why it is read here rather than inside the branch: the container has no such field.
@@ -812,19 +818,15 @@ function buildUndegraded(
   const legacyHeadlineTools = road
     ? road.tools
     : headlineToolsOrFallback(capability.headlineTools, legacyMachines, legacySkills);
-  const legacyAvailability = bareAvailability(draft.availability);
-  // ADR-0045 §3.4 — THE ROAD'S TWO TERMS ROWS, each falling back to what the row printed before
-  // when the worker answered nothing for it. These two fall back and the four above do not,
-  // deliberately: an unanswered availability or shift is ABSENCE, and today's value is the honest
-  // rendering of absence; an unknown years total or salary band is itself the road's answer.
-  //   - "Available from": the form's own answer, dated where it can be (`formAvailabilityLabel`).
-  //     The Verdict Line's availability is NOT changed — `bb_general` does not print the subhead.
-  //   - "Shift": the shift and the worker's work types, `work_types` in place of the single
-  //     `job_type`.
+  // The worker's own answer, else the interview profile's — one fact for the row AND the Verdict
+  // Line, on every road (the general road's dated row is `formAvailability`'s label).
+  const legacyAvailability = workerAvailability ?? profileAvailability(draft.availability);
+  // ADR-0045 §3.4 — THE ROAD'S SHIFT ROW, falling back to what the row printed before when the
+  // worker answered nothing for it: the shift and his work types, `work_types` in place of the
+  // single `job_type`. An unanswered shift is ABSENCE, and today's value is the honest rendering
+  // of absence.
   const legacyShift = preferences.shiftLine ?? humanizeShift(draft.shift);
   const legacyShiftRow = road !== null && road.shiftLine !== null ? road.shiftLine : legacyShift;
-  const legacyAvailabilityRow =
-    road !== null && road.availableFrom !== null ? road.availableFrom : legacyAvailability;
   // ONE TOTAL ON THIS BRANCH, READ BY THE VERDICT LINE, THE PROFILE HEADLINE, `experienceYears`
   // AND THE SUMMARY — four renderings of one fact, computed once so they cannot disagree.
   //
@@ -942,8 +944,8 @@ function buildUndegraded(
       axes: capability.headlineAxes,
     }),
     availFactRows: buildAvailabilityRows({
-      // The general road's dated row where it answered, else today's — see `legacyAvailabilityRow`.
-      availability: legacyAvailabilityRow,
+      // The SAME resolved fact the Verdict Line prints — see `legacyAvailability`.
+      availability: legacyAvailability,
       // WAS HARD `null`, AND IT SHOULD NOT HAVE BEEN. `salary_expected` is a universal pack ask
       // on every interview, the crosswalk carries it onto the draft, and the extraction
       // projection scatters it into `salary_expectation.amount_min` — so the figure was captured,
@@ -1257,6 +1259,11 @@ function fromResumeProfile(
    */
   preferences: ResumePreferenceFacts,
   /**
+   * The worker's own availability answer (`formAvailability`), resolved above the branch. It wins
+   * over the container's word and the profile's notice days; null falls back to them.
+   */
+  workerAvailability: SheetAvailability | null,
+  /**
    * `experience.total_years` — the MANDATORY universal ask, in the worker's own words.
    *
    * PASSED IN RATHER THAN READ HERE because `rp` is the résumé container and the container has
@@ -1323,16 +1330,21 @@ function fromResumeProfile(
         ? formatOpenTopSalary(rp.expected_salary)
         : formatSalaryBand(rp.expected_salary, preferences.salaryMax)
       : null;
-  // HUMANISED ONCE, HERE. The container stores the model's own token ("immediate",
-  // "notice_period") so it stays diffable against its trace; the sheet prints a label. Both the
-  // Verdict Line and the Terms row read this, and computing it twice is how they drift.
+  // RESOLVED ONCE, HERE. The worker's own form answer wins; else the container's word, which
+  // stores the model's own token ("immediate", "notice_period") so it stays diffable against its
+  // trace, humanised for the sheet. Both the Verdict Line and the Terms row read this, and
+  // computing it twice is how they drift.
   //
   // #2469 — a notice period the worker typed ("3 mahine") is on the profile, and the container's
   // word cannot say it, so the profile's days print instead.
-  const availabilityLabel =
-    draftQualification.noticeDays !== null
-      ? bareAvailability({ status: "notice_period", notice_period_days: draftQualification.noticeDays })
-      : bareAvailabilityLabel(cleanScalar(rp.availability));
+  const availability =
+    workerAvailability ??
+    (draftQualification.noticeDays !== null
+      ? profileAvailability({
+          status: "notice_period",
+          notice_period_days: draftQualification.noticeDays,
+        })
+      : containerAvailability(cleanScalar(rp.availability)));
 
   // ZONE 5, RESOLVED ONCE — R15 §1, and resolving it once is the fix rather than a tidy-up.
   //
@@ -1411,7 +1423,7 @@ function fromResumeProfile(
       // R16 §2 — the SAME expression the legacy branch uses. See the note there.
       tools: headlineToolsResolved,
       city: cleanScalar(rp.current_city),
-      availability: availabilityLabel,
+      availability,
       salary: salaryText,
       tenureLabel,
       // Middle Way P5 — passed in on the same terms as `headlineTools` above.
@@ -1422,7 +1434,7 @@ function fromResumeProfile(
       axes: headlineAxes,
     }),
     availFactRows: buildAvailabilityRows({
-      availability: availabilityLabel,
+      availability,
       // SUPPRESSED ON THE PAYER COPY, exactly like the scalar below it. A worker's asking price
       // is a negotiating position handed away if a payer reads it before any conversation, and
       // moving it into a labelled row must not become a way around that.
@@ -1648,7 +1660,8 @@ function draftSkillLabels(draft: ParsedDraft): string[] {
  *   salary   the form's band (`salary_expected_min` / `_max`), through the shared precedence
  *            helper. AUDIENCE-BLIND HERE ON PURPOSE: the gate is applied OUTERMOST at each use
  *            site, where it has always lived, so there is one gate and not two that must agree.
- *   rows     "Available from" and "Shift" — null when unanswered; the use site falls back.
+ *   rows     "Shift" — null when unanswered; the use site falls back. ("Available from" is
+ *            `formAvailability`, resolved above the branch for every road.)
  *   brief    the worker's own line when the caller's re-check passed AND it is still clean here;
  *            else the fixed fallback line (`composeFallbackBrief`); else null.
  *
@@ -1661,7 +1674,6 @@ interface GeneralRoadFacts {
   readonly tools: string[];
   readonly salaryBand: string | null;
   readonly expectedSalary: number | null;
-  readonly availableFrom: string | null;
   readonly shiftLine: string | null;
   readonly brief: string | null;
 }
@@ -1712,7 +1724,6 @@ function resolveGeneralRoadFacts(input: {
         ? null
         : formatSalaryBand(band.low, band.high),
     expectedSalary: openTopChip ? OPEN_TOP_SALARY_CHIP_FLOOR : band === null ? null : band.low,
-    availableFrom: formAvailabilityLabel(preferences, asOf),
     shiftLine: joinSegments([preferences.shiftLabel, preferences.workTypes.join(", ")]),
     brief:
       ownLine ??

@@ -131,6 +131,7 @@ const row = (workerId: string, over: Partial<CandidateSearchRow> = {}): Candidat
   industryMonths: 54,
   city: "Pune",
   tradeLevels: [],
+  isSample: false,
   ...over,
 });
 
@@ -627,6 +628,20 @@ describe("all candidates — the list and its counts (ADR-0040 Decision 3)", () 
       '<span class="applicant__bands">Industrial Manufacturing · 4.5 yrs in industry</span>',
     );
     expect(card).not.toContain("Related");
+  });
+
+  it("R74: a SAMPLE card wears the neutral 'Sample candidate' badge and offers no Unlock", async () => {
+    searchCandidates.mockResolvedValueOnce(
+      page({ candidates: [row(W1), row(W2, { isSample: true })] }),
+    );
+    const out = cardsOf(await html());
+    const badge = '<span class="bb-badge bb-badge--neutral">Sample candidate</span>';
+    expect(out.split(badge)).toHaveLength(2); // exactly one — on the sample card only
+    expect(out).toContain('<p class="applicant__neutral">Sample profile — can’t be unlocked</p>');
+    // One Unlock (the real card's), and it comes BEFORE the sample card's badge.
+    expect(unlockButtons(out)).toHaveLength(1);
+    expect(out.indexOf("Unlock contact (1 credit)")).toBeLessThan(out.indexOf(badge));
+    expect(textOf(out)).toContain("Worker ••0002"); // the masked handle stays
   });
 
   it("FACELESS: no phone/email-shaped run and never a full worker id in the visible text", async () => {

@@ -8,6 +8,7 @@ import {
   statTiles,
 } from "../../../../test/stat-tiles";
 import { customerCell } from "../../../../test/customer-cell";
+import { formatCount, formatDelta } from "../../../lib/format";
 
 /**
  * The credits page's simulated-money marking, asserted on the PAGE (#1856). `Stat` itself is
@@ -471,5 +472,20 @@ describe("a valid reason with a refused cursor gets the cursor's copy", () => {
     );
     expect(out).toContain("The ledger is unavailable");
     expect(out).not.toContain("rejected");
+  });
+});
+
+describe("the credit tables set their figures in the UI face (A1, #2571)", () => {
+  it("renders every delta and balance with tabular figures, not mono", async () => {
+    const out = await render();
+    // By reason (+1,200 and −40), the largest balance (500) and the ledger's movement (+100).
+    for (const figure of [
+      formatDelta(1200),
+      formatDelta(-40),
+      formatCount(500),
+      formatDelta(100),
+    ]) {
+      expect(out).toContain(`<td class="ui-num">${figure}</td>`);
+    }
   });
 });

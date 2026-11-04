@@ -72,6 +72,7 @@ function setup(
   };
   const otp = {
     issueAndSend: vi.fn(async () => ({ resendInSeconds: 30 })),
+    issueAndDispatch: vi.fn(async () => ({ resendInSeconds: 30 })),
     issueWithoutDelivery: vi.fn(async () => ({ resendInSeconds: 30 })),
     verify: vi.fn(async () => undefined),
   };
@@ -269,15 +270,20 @@ describe("AdminAuthService — status gating (pending/suspended authenticate to 
 // NO-ENUMERATION — known vs unknown vs inactive email are indistinguishable.
 // ---------------------------------------------------------------------------
 describe("AdminAuthService — no user-enumeration (XB-H)", () => {
-  it("requestLogin for an ACTIVE account issues+delivers; for an unknown one runs the no-delivery reserve", async () => {
+  it("requestLogin for an ACTIVE account issues+dispatches; for an unknown one runs the no-delivery reserve", async () => {
     const active = setup({ account: { id: ADMIN_ID, role: "support", status: "active", mfaEnrolled: true } });
     const a = await active.svc.requestLogin({ email: EMAIL });
-    expect(active.otp.issueAndSend).toHaveBeenCalledTimes(1);
+    // R73 — delivery is DISPATCHED off the request path; the awaited send is never used here,
+    // so the provider's latency cannot tell an admin address from an unknown one.
+    expect(active.otp.issueAndDispatch).toHaveBeenCalledTimes(1);
+    expect(active.otp.issueAndDispatch).toHaveBeenCalledWith(expect.any(String), EMAIL, "login");
+    expect(active.otp.issueAndSend).not.toHaveBeenCalled();
     expect(active.otp.issueWithoutDelivery).not.toHaveBeenCalled();
 
     const unknown = setup({ noAccount: true });
     const b = await unknown.svc.requestLogin({ email: "ghost@nowhere.com" });
     expect(unknown.otp.issueWithoutDelivery).toHaveBeenCalledTimes(1);
+    expect(unknown.otp.issueAndDispatch).not.toHaveBeenCalled();
     expect(unknown.otp.issueAndSend).not.toHaveBeenCalled();
 
     // Byte-identical neutral response — no oracle.
@@ -292,6 +298,7 @@ describe("AdminAuthService — no user-enumeration (XB-H)", () => {
     const pending = setup({ account: { id: ADMIN_ID, role: "support", status: "pending", mfaEnrolled: true } });
     await pending.svc.requestLogin({ email: EMAIL });
     expect(pending.otp.issueWithoutDelivery).toHaveBeenCalledTimes(1);
+    expect(pending.otp.issueAndDispatch).not.toHaveBeenCalled();
     expect(pending.otp.issueAndSend).not.toHaveBeenCalled();
   });
 

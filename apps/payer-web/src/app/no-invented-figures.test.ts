@@ -25,9 +25,21 @@ const REMOVED: readonly string[] = [
   "Recruiter Engine v",
   "Gateway Online",
   "Candidate Database:",
-  // Claims the product does not make: contact is routed, the tier is not known here.
+  // Claims the product does not make: contact is routed (an unlock gives no phone, email, mobile
+  // or WhatsApp number, and its access window ends), the tier is not known here, matching speed is
+  // not measured, and the agency form offers no drafting help.
   "Direct phone",
+  "Direct verified phone",
+  "phone &amp; email",
+  "phone & email",
+  "direct mobile",
+  "Direct contacts revealed",
+  "reveal their phone",
+  "direct WhatsApp number",
+  "lifetime candidate re-contact",
   "Free Tier",
+  "talent engine",
+  "Need help drafting",
   // Dead controls and text styled as links that go nowhere.
   "Save Draft",
   "In Progress",
@@ -49,12 +61,15 @@ const REMOVED: readonly string[] = [
   "come from the pricing config",
   "Earliest First FIFO",
   "routed relay is ready",
-  // One label per destination: the create form is "New posting" everywhere.
+  // One label per destination: the create form is "New posting" everywhere (never a "help" link),
+  // and its AI mode is "Post with AI".
   "Create role",
   "Create First Posting",
   "Create New Posting",
   "Create your first job post",
   "Create Job Posting",
+  "Learn how",
+  "Build with AI",
   // Brand spelling.
   "Badabhai",
 ];

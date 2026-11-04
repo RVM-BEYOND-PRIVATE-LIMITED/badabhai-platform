@@ -8,6 +8,7 @@ import {
   statTiles,
 } from "../../../../test/stat-tiles";
 import { customerCell } from "../../../../test/customer-cell";
+import { formatCount, formatRupees } from "../../../lib/format";
 
 /**
  * The transactions page's simulated-money marking, asserted on the PAGE (#1856). The ₹ tile here
@@ -321,5 +322,13 @@ describe("valid filters with a refused cursor get the cursor's copy", () => {
     const out = await renderWith({ status: "paid", payerId: PAYER });
     expect(out).toContain("Payment orders are unavailable");
     expect(out).not.toContain("rejected");
+  });
+});
+
+describe("the orders table sets its figures in the UI face (A1, #2571)", () => {
+  it("renders the ₹ amount and the credits granted with tabular figures, not mono", async () => {
+    const out = await render();
+    expect(out).toContain(`<td class="ui-num">${formatRupees(1500)}</td>`);
+    expect(out).toContain(`<td class="ui-num">${formatCount(100)}</td>`);
   });
 });

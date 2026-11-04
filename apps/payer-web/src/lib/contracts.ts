@@ -1253,7 +1253,9 @@ export type LabelledId = z.infer<typeof labelledIdWireSchema>;
  *    neither (or no role filter);
  *  - `skillMonths`: months on `role`, bucketed to 6 (never exact);
  *  - `industryMonths` / `city`: null = not recorded (never a guess);
- *  - `tradeLevels`: the rungs he stated (display only) — the applicant card's own badge source.
+ *  - `tradeLevels`: the rungs he stated (display only) — the applicant card's own badge source;
+ *  - `isSample`: a synthetic seed row, not a person (R74) — badged, never offered an unlock.
+ *    Always sent; the API also refuses its unlock with the neutral body.
  */
 export const candidateSearchRowWireSchema = z.object({
   workerId: z.string().uuid(),
@@ -1266,6 +1268,7 @@ export const candidateSearchRowWireSchema = z.object({
   industryMonths: z.number().int().nonnegative().nullable(),
   city: z.string().nullable(),
   tradeLevels: z.array(tradeLevelBadgeWireSchema),
+  isSample: z.boolean(),
 });
 export type CandidateSearchRow = z.infer<typeof candidateSearchRowWireSchema>;
 

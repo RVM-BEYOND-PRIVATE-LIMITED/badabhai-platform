@@ -12,6 +12,8 @@ import 'package:payer_app/core/data/models.dart';
 import 'package:payer_app/core/data/payer_api_client.dart';
 import 'package:payer_app/core/di/locator.dart';
 import 'package:payer_app/core/widgets/bb_avatar.dart';
+import 'package:payer_app/core/widgets/bb_badge.dart';
+import 'package:payer_app/core/widgets/bb_button.dart';
 import 'package:payer_app/features/find/presentation/candidate_search_view.dart';
 import 'package:payer_app/features/find/presentation/cubit/candidate_search_cubit.dart';
 import 'package:payer_app/features/find/presentation/find_screen.dart';
@@ -35,11 +37,12 @@ final CandidateSearchPage _fixtureStrictZero = CandidateSearchPage.tryFromJson(
 final CandidateFilters _fixtureFilters =
     CandidateFilters.tryFromJson(_fixture['filters'] as Map<String, dynamic>)!;
 
-/// Row 1 of the fixture: a CNC Turner in Pune, a Setter, tier 1, a match.
+/// Row 1 of the fixture: a CNC Turner in Pune, a Setter, tier 1, a match — a
+/// real-shaped worker.
 final CandidateSearchRow _turner = _fixturePage.candidates[0];
 
 /// Row 2: a VMC Operator, tier 2 (related), NOT a match, city + industry
-/// tenure not recorded.
+/// tenure not recorded — and a SAMPLE (R74): badged, never unlockable.
 final CandidateSearchRow _vmc = _fixturePage.candidates[1];
 
 CandidateSearchPage _page(
@@ -212,7 +215,7 @@ void main() {
 
       // Row 1 — every recorded fact.
       expect(find.text('CNC Turner'), findsOneWidget);
-      expect(find.text('Worker ••0003'), findsOneWidget);
+      expect(find.text('Worker ••8a90'), findsOneWidget);
       expect(find.text('4 yrs experience'), findsOneWidget);
       expect(find.text('Industrial Manufacturing · 4.5 yrs'), findsOneWidget);
       expect(find.text('Pune'), findsOneWidget);
@@ -239,7 +242,8 @@ void main() {
           expect(s.contains(name), isFalse);
         }
       }
-      expect(find.text('1 credit'), findsNWidgets(2));
+      expect(find.text('1 credit'), findsOneWidget,
+          reason: 'row 2 is a sample (R74) — it offers no unlock');
     });
 
     testWidgets('a related-role row says what it is related to',
@@ -358,7 +362,7 @@ void main() {
       final double line = tester.getTopLeft(find.text('Other candidates')).dy;
       // The masked handles are unique per card (the filter summary also reads
       // "CNC Turner").
-      expect(tester.getTopLeft(find.text('Worker ••0003')).dy, lessThan(line),
+      expect(tester.getTopLeft(find.text('Worker ••8a90')).dy, lessThan(line),
           reason: 'the match leads');
       expect(tester.getTopLeft(find.text('Worker ••0007')).dy,
           greaterThan(line));
@@ -488,7 +492,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Unlock this candidate?'), findsOneWidget);
-      expect(find.textContaining('Worker ••0003', findRichText: true),
+      expect(find.textContaining('Worker ••8a90', findRichText: true),
           findsWidgets);
       expect(find.textContaining('1 credit will be used', findRichText: true),
           findsOneWidget);
@@ -504,11 +508,12 @@ void main() {
       expect(args.workerId, _turner.workerId);
       expect(args.unlockId, 'unl-search-1');
       expect(args.jobId, isNull, reason: 'the masked résumé goes out posting-less');
-      expect(args.title, 'Worker ••0003');
+      expect(args.title, 'Worker ••8a90');
       expect(args.facets, <String>['CNC Turner', '4 yrs experience', 'Pune']);
-      // The card now offers the reveal, not a second spend.
+      // The card now offers the reveal, not a second spend (row 2 is a
+      // sample, so no unlock is left on screen).
       expect(find.text('View'), findsOneWidget);
-      expect(find.text('1 credit'), findsOneWidget);
+      expect(find.text('1 credit'), findsNothing);
     });
 
     testWidgets('cancel spends nothing', (WidgetTester tester) async {
@@ -544,6 +549,74 @@ void main() {
 
       expect(api.unlockCalls, isEmpty, reason: 'no second credit for a held grant');
       expect(revealed.single.unlockId, 'held-1');
+    });
+  });
+
+  group('R74 — a sample candidate is badged and never unlockable', () {
+    const String note = "Sample profile — can't be unlocked";
+    Finder inCard(CandidateSearchRow row, Finder matching) => find.descendant(
+          of: find.byKey(ValueKey<String>(row.workerId)),
+          matching: matching,
+        );
+
+    testWidgets('the sample card: a neutral badge, a muted note, no button',
+        (WidgetTester tester) async {
+      expect(_vmc.isSample, isTrue, reason: 'fixture row 2 is the sample');
+      expect(_turner.isSample, isFalse);
+      await pumpFind(tester);
+
+      expect(inCard(_vmc, find.text('Sample candidate')), findsOneWidget);
+      expect(
+        tester
+            .widget<BbBadge>(
+                inCard(_vmc, find.widgetWithText(BbBadge, 'Sample candidate')))
+            .tone,
+        BbBadgeTone.neutral,
+      );
+      expect(inCard(_vmc, find.text(note)), findsOneWidget);
+      expect(inCard(_vmc, find.byType(BbButton)), findsNothing,
+          reason: 'no unlock and no View');
+
+      // The real card is unchanged: no badge, no note, the 1-credit unlock.
+      expect(inCard(_turner, find.text('Sample candidate')), findsNothing);
+      expect(inCard(_turner, find.text(note)), findsNothing);
+      expect(inCard(_turner, find.text('1 credit')), findsOneWidget);
+    });
+
+    testWidgets('tapping the note opens nothing and spends nothing',
+        (WidgetTester tester) async {
+      await pumpFind(tester);
+
+      await tester.ensureVisible(inCard(_vmc, find.text(note)));
+      await tester.tap(inCard(_vmc, find.text(note)), warnIfMissed: false);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Unlock this candidate?'), findsNothing);
+      expect(api.unlockCalls, isEmpty);
+      expect(revealed, isEmpty);
+    });
+
+    // A grant held from before R74 is the server's record: View stays, as on
+    // payer-web — the payer already paid for it. Nothing new can be bought.
+    testWidgets('a held grant on a sample still shows View (no new unlock)',
+        (WidgetTester tester) async {
+      api.history = <PayerUnlock>[
+        PayerUnlock(
+          unlockId: 'held-sample',
+          workerId: _vmc.workerId,
+          status: 'granted',
+          expiresAt: DateTime.now()
+              .toUtc()
+              .add(const Duration(days: 7))
+              .toIso8601String(),
+        ),
+      ];
+      await pumpFind(tester);
+
+      expect(inCard(_vmc, find.text('View')), findsOneWidget);
+      expect(inCard(_vmc, find.text('1 credit')), findsNothing);
+      expect(inCard(_vmc, find.text(note)), findsNothing);
+      expect(inCard(_vmc, find.text('Sample candidate')), findsOneWidget);
     });
   });
 

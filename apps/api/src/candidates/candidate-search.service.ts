@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, Logger } from "@nestjs/common";
+import { isSampleWorkerId } from "@badabhai/db";
 import { canonicalCity } from "@badabhai/profiling-lexicon";
 import {
   INDUSTRIES,
@@ -360,5 +361,6 @@ export function toCandidateRow(
     // trade he switched off, or on any other trade, never reaches the card (the clients print the
     // card's one rung beside `role`).
     tradeLevels: tradeLevels.filter((l) => l.skillId === row.skillId).map(toTradeLevelBadge),
+    isSample: isSampleWorkerId(row.workerId),
   };
 }

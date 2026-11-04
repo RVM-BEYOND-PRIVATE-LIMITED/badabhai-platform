@@ -700,11 +700,13 @@ Owner rulings 2026-11-03: payer-web's **Candidates** opens on **All candidates**
                     skillMonths,                                          // bucketed to 6
                     industry: {id,label}, industryMonths: number|null,    // floored to 6; null = not recorded
                     city: string|null,                                    // gazetteer-recognised only
-                    tradeLevels: [ TradeLevelBadge ] } ],
+                    tradeLevels: [ TradeLevelBadge ],
+                    isSample: boolean } ],                                // R74: a seeded demo profile
     nextCursor: string|null }
   ```
 
   `workerId` is the id `POST /payer/unlocks` takes (`job_id: null` for a search row). **Masked:** no name, phone, photo, employer, salary, address or free text — identity is only released by an unlock.
+- **Sample candidates (R74, 2026-11-04):** `isSample: true` marks a synthetic-workforce seed row shown for demos, not a person. Clients badge the card "Sample candidate" and offer no unlock. `POST /payer/unlocks` for a sample worker returns the normal neutral `unavailable` body with **no credit debited and no unlock row written** (only `unlock.requested` is recorded). Sample rows are ranked and counted like any other candidate.
 - **Cursor:** opaque base64url of `{ v: 1, f: <search fingerprint>, w: <last worker served>, o: <rows served> }` — it names who you were last shown, never a sort key. Bound to its search: reused under different filters or `strict` → `400`. The next page resumes after that worker's current position (or, if he has left the pool, at position `o`).
 - **Events:** one `payer.candidate_search_performed` v1 per page — the shape (closed role ids, which filters were engaged as booleans, strict, first page, page size, the three counts); never a worker id or a city.
 - **Errors:** `400` bad body / unknown role / malformed or foreign cursor; `401` no session; `429` cap or Redis down; a DB failure is a `5xx`.

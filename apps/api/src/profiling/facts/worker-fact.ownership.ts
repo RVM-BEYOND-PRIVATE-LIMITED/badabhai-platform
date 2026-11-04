@@ -97,6 +97,29 @@ export const CHAT_FACT_OWNER: Readonly<Record<WorkerFactId, ChatFactOwner>> = {
 export const PER_JOB_FACTS: ReadonlySet<WorkerFactId> = new Set(["experience"]);
 
 /**
+ * Facts the chat settles ONLY through their own question — never by cross-question fill and never
+ * by an understanding fill (owner ruling 2026-11-04).
+ *
+ * WHY AVAILABILITY. Its reader is context-free, and work history is full of the same words: the
+ * notice cues read "lagbhag 8 mahine se kaam kar raha hoon" as a 240-day notice period and "job
+ * chhod di hai" as immediate. The question is ask-once, so one misread on a Phase A turn settled
+ * it silently and the worker never saw "Aap kaam kab se shuru kar sakte hain?" (2026-11-02 chat,
+ * qp_machining). A volunteered "turant join kar sakta hoon" now costs one chip tap instead.
+ *
+ * A CHANGE THE WORKER STATES is still put to him through the edit gate (#2312) — only the silent
+ * write of an EMPTY field is closed.
+ */
+export const ASKED_ONLY_FACTS: ReadonlySet<WorkerFactId> = new Set(["availability"]);
+
+/** Does this item settle a fact the chat may write only from its own question? */
+export function isAskedOnlyItem(
+  item: Pick<QuestionPackItem, "question_key" | "target_field">,
+): boolean {
+  const match = factForPackItem(item);
+  return match !== null && match.strength === "settles" && ASKED_ONLY_FACTS.has(match.fact);
+}
+
+/**
  * Is this pack item something the CHAT may serve, settle, or cross-fill?
  *
  * THREE CASES, in the order the registry itself distinguishes them:
@@ -163,6 +186,8 @@ export function crossFillItems<T extends Pick<QuestionPackItem, "question_key" |
     if (match === null) return true;
     if (match.strength === "prefill_hint") return true;
     if (CHAT_FACT_OWNER[match.fact] === "pages") return false;
+    // Owner ruling 2026-11-04 — settled only by its own question, on every turn.
+    if (ASKED_ONLY_FACTS.has(match.fact)) return false;
     if (phaseALeads && PER_JOB_FACTS.has(match.fact)) return false;
     return true;
   });

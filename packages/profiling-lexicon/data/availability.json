@@ -217,10 +217,13 @@
     { "source": "{WB}resign{WE}", "flags": "i" },
     { "source": "{WB}next\\s+month{WE}", "flags": "i" },
     {
-      "source": "{WB}{NUM}\\s*{UNIT}{WE}[^.;!?]{0,14}?{WB}(?:lag{WC}*|baad|bad){WE}",
+      "source": "{WB}{NUM}\\s*{UNIT}{WE}[^.;!?]{0,14}?{WB}(?:lag(?!\\s*bh?ag){WC}*|baad|bad){WE}",
       "flags": "i"
     },
-    { "source": "{WB}lag{WC}*{WE}[^.;!?]{0,14}?{WB}{NUM}\\s*{UNIT}{WE}", "flags": "i" }
+    {
+      "source": "{WB}lag(?!\\s*bh?ag){WC}*{WE}[^.;!?]{0,14}?{WB}{NUM}\\s*{UNIT}{WE}",
+      "flags": "i"
+    }
   ],
   "$comment_noticeCues": [
     "Durations deliberately EXCLUDE 'saal'/'year': years are experience, never a notice period —",
@@ -228,7 +231,10 @@
     "misreading.",
     "",
     "A duration only means NOTICE when it is the time something TAKES ('15 din lagenge', '30 din",
-    "baad'). A duration on its own ('6 month ka experience hai') says nothing about availability."
+    "baad'). A duration on its own ('6 month ka experience hai') says nothing about availability.",
+    "",
+    "'lag' NEVER MATCHES INSIDE 'lagbhag' / 'lag bhag' (about): 'lagbhag 8 mahine se kaam kar raha",
+    "hoon' is a tenure, and it was read as a 240-day notice (2026-11-02 production chat)."
   ],
 
   "askedNotice": { "source": "{WB}{NUM}\\s*{UNIT}{WE}", "flags": "i" },

@@ -789,6 +789,19 @@ details[open] > summary > .disclosure__caret {
   padding-block-start: var(--space-6);
   border-block-start: var(--border-hairline) solid var(--divider);
 }
+/* Sections SIDE BY SIDE in a `.cols` grid are columns, not a stack: the grid's gap spaces them,
+   and a divider over the second column would drop it 48px below the first. */
+.cols > .panel__section + .panel__section {
+  margin-block-start: 0;
+  padding-block-start: 0;
+  border-block-start: 0;
+}
+/* The section's gap spaces its children, so a child's own top margin would add to it (the
+   `.queue-metrics > .about` rule, for a section). */
+.panel__section > .panel__sub,
+.panel__section > .about {
+  margin-block-start: 0;
+}
 .panel__section-title {
   font-size: var(--ui-h3-size);
   line-height: var(--ui-h3-leading);
@@ -2594,6 +2607,7 @@ textarea.field__input {
 }
 .page__title,
 .panel__title,
+.panel__section-title,
 .state__title {
   text-wrap: balance;
 }
@@ -2861,6 +2875,7 @@ textarea.field__input {
      flex row it sits in — `anywhere`, because only it lowers the min-content size. */
   .page__title,
   .panel__title,
+  .panel__section-title,
   .state__title {
     overflow-wrap: anywhere;
   }
