@@ -4,7 +4,7 @@ import { Button } from "./forms";
 import { Dialog, DIALOG_CLOSING_STATE, playExit } from "./dialog";
 import { Tabs, placeTabsIndicator, TABS_INDICATOR_ATTR } from "./tabs";
 import { Toast } from "./toast";
-import { ToastProvider, TOAST_DURATION_MS } from "./toast-provider";
+import { focusIsWithin, ToastProvider, TOAST_DURATION_MS } from "./toast-provider";
 import { ToastTimers } from "./toast-timers";
 import { countUpValue } from "./count-up";
 
@@ -233,6 +233,33 @@ describe("toast auto-dismiss — 5 seconds, paused while the payer is reading", 
     timers.remove(3);
     advance(10_000);
     expect(expired).toEqual([]);
+  });
+
+  it("focus is read off the DOM: a focused toast removed without a blur does not pause later toasts", () => {
+    const closeButton = { id: "close" };
+    const body = { id: "body" };
+    const children = new Set<object>([closeButton]);
+    const viewport = { contains: (n: object) => children.has(n) } as unknown as Element;
+    const doc = { activeElement: closeButton as object };
+    vi.stubGlobal("document", doc);
+    // What the provider does on focus and on every change to the stack.
+    const sync = () => (focusIsWithin(viewport) ? timers.pause() : timers.resume());
+
+    timers.add(1);
+    sync(); // the payer tabs onto the ✕ — the clock stops
+    advance(60_000);
+    expect(expired).toEqual([]);
+
+    // The ✕ dismisses its toast: the focused node goes with it and NO blur fires.
+    timers.remove(1);
+    children.delete(closeButton);
+    doc.activeElement = body;
+    sync();
+
+    timers.add(2);
+    sync();
+    advance(TOAST_DURATION_MS);
+    expect(expired).toEqual([2]);
   });
 });
 

@@ -70,11 +70,22 @@ function leavesAtOnce(el: Element | null): boolean {
   return !name || name === "none";
 }
 
+/**
+ * True when keyboard focus is inside the toast stack, read off the DOM rather than kept from
+ * focus/blur events: a focused ✕ that unmounts with its toast fires no blur in Firefox or Safari,
+ * so a flag cleared only on blur would stay set and every later toast would never dismiss itself.
+ */
+export function focusIsWithin(viewport: Element | null): boolean {
+  if (!viewport || typeof document === "undefined") return false;
+  const active = document.activeElement;
+  return active !== null && viewport.contains(active);
+}
+
 export function ToastProvider({ children }: { children?: ReactNode }) {
   const [entries, setEntries] = useState<Entry[]>([]);
   const seq = useRef(0);
+  const viewport = useRef<HTMLDivElement>(null);
   const hovered = useRef(false);
-  const focused = useRef(false);
 
   const startLeaving = useCallback((id: number) => {
     setEntries((list) => list.map((e) => (e.id === id ? { ...e, leaving: true } : e)));
@@ -114,15 +125,21 @@ export function ToastProvider({ children }: { children?: ReactNode }) {
 
   const api = useMemo<ToastApi>(() => ({ show, dismiss }), [show, dismiss]);
 
-  const syncPause = () => {
-    if (hovered.current || focused.current) timers.current?.pause();
+  const syncPause = useCallback(() => {
+    if (hovered.current || focusIsWithin(viewport.current)) timers.current?.pause();
     else timers.current?.resume();
-  };
+  }, []);
+
+  // A toast leaving the stack can take focus with it and fire no blur: re-read on every change.
+  useEffect(() => {
+    syncPause();
+  }, [entries, syncPause]);
 
   return (
     <ToastContext.Provider value={api}>
       {children}
       <div
+        ref={viewport}
         className="bb-toast-viewport"
         role="status"
         aria-live="polite"
@@ -136,13 +153,9 @@ export function ToastProvider({ children }: { children?: ReactNode }) {
           hovered.current = false;
           syncPause();
         }}
-        onFocus={() => {
-          focused.current = true;
-          syncPause();
-        }}
+        onFocus={syncPause}
         onBlur={(e) => {
           if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
-          focused.current = false;
           syncPause();
         }}
       >
