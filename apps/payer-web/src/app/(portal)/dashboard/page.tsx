@@ -501,9 +501,7 @@ export default async function DashboardPage({
                 <span className="dash-count">{recentUnlocks.length}</span>
               ) : null}
             </div>
-            <p className="panel__sub">
-              Direct contacts revealed. Masked until unlock.
-            </p>
+            <p className="panel__sub">Contacts you have unlocked. Masked until unlock.</p>
           </div>
         </div>
         <div className="panel__body">
@@ -519,16 +517,9 @@ export default async function DashboardPage({
               </span>
               <h3 className="state__title">No contacts unlocked yet</h3>
               <p className="state__body">
-                Open a posting&rsquo;s applicants and unlock any candidate to reveal their phone,
-                email, and resume.
+                Open a posting&rsquo;s applicants and unlock any candidate to get their masked
+                resume and a contact routed through BadaBhai.
               </p>
-              <div className="dash-callout">
-                <Icon name="check-circle" />
-                <span>
-                  Unlocks include direct WhatsApp number and lifetime candidate re-contact
-                  rights.
-                </span>
-              </div>
             </div>
           ) : (
             <div className="dash-candlist">

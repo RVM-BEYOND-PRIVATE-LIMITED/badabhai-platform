@@ -920,6 +920,16 @@ describe("#2581 — no invented figures or dead controls on the dashboard", () =
     }
   });
 
+  it("the empty recent-unlocks panel promises no direct phone, email or WhatsApp (contact is routed)", async () => {
+    const panel = findByClass(await render({ unlocks: [] }), "dash-panel").find((el) =>
+      textOf(el).includes("Recent unlocks"),
+    );
+    expect(panel).toBeDefined();
+    const txt = textOf(panel!);
+    expect(txt).toContain("No contacts unlocked yet");
+    expect(txt).not.toMatch(/direct|phone|email|whatsapp|lifetime/i);
+  });
+
   it("the empty postings panel names each door as its destination does (one label per destination)", async () => {
     const panel = findByClass(await render({ postings: [], unlocks: [] }), "dash-empty-panel")[0]!;
     // Each link to `href` in the panel: its visible text, then the destination its cue names.

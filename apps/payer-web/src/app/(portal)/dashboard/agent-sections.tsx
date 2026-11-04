@@ -141,7 +141,6 @@ export async function AgentSections({
           icon="lock-key"
           status={unlocks === null ? undefined : <span className="dash-stat-note">revealed</span>}
           caption={unlocks === null ? "Not available right now" : "1 credit / 1 profile"}
-          foot={<span className="dash-kpi__meta">Direct verified phone &amp; email access</span>}
         />
 
         <StatTile
@@ -435,8 +434,8 @@ export async function AgentSections({
                   </span>
                   <h3 className="state__title">No contacts unlocked yet</h3>
                   <p className="state__body">
-                    Open candidate profiles to reveal verified direct mobile, WhatsApp, and
-                    complete verified work history.
+                    Open candidate profiles and unlock one to get their masked resume and a contact
+                    routed through BadaBhai.
                   </p>
                 </div>
               ) : (

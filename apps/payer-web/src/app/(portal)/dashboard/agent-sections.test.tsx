@@ -297,4 +297,17 @@ describe("#2581 — one label per destination, no unbacked claim", () => {
       expect(text).not.toContain(gone);
     }
   });
+
+  it("the unlock tile and the empty recent unlocks promise no direct phone, email or WhatsApp", async () => {
+    const tree = await AgentSections(PROPS);
+    const tile = findAll(tree, StatTile).find((t) => p(t).label === "Contacts unlocked");
+    expect(tile).toBeDefined();
+    // `textOf` walks children only, so the StatTile's `foot` prop is read on its own.
+    expect(textOf(p(tile!).foot as ReactNode)).not.toMatch(/phone|email/i);
+    const empty = findByClass(tree, "agency-empty-panel").find((el) =>
+      textOf(el).includes("No contacts unlocked yet"),
+    );
+    expect(empty).toBeDefined();
+    expect(textOf(empty!)).not.toMatch(/phone|email|mobile|whatsapp/i);
+  });
 });

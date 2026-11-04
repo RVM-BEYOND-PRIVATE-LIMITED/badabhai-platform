@@ -25,9 +25,18 @@ const REMOVED: readonly string[] = [
   "Recruiter Engine v",
   "Gateway Online",
   "Candidate Database:",
-  // Claims the product does not make: contact is routed, the tier is not known here, matching
-  // speed is not measured, and the agency form offers no drafting help.
+  // Claims the product does not make: contact is routed (an unlock gives no phone, email, mobile
+  // or WhatsApp number, and its access window ends), the tier is not known here, matching speed is
+  // not measured, and the agency form offers no drafting help.
   "Direct phone",
+  "Direct verified phone",
+  "phone &amp; email",
+  "phone & email",
+  "direct mobile",
+  "Direct contacts revealed",
+  "reveal their phone",
+  "direct WhatsApp number",
+  "lifetime candidate re-contact",
   "Free Tier",
   "talent engine",
   "Need help drafting",
