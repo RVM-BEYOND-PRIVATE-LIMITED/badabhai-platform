@@ -6,6 +6,7 @@ import 'package:payer_app/core/data/mock_payer_api_client.dart';
 import 'package:payer_app/core/data/models.dart';
 import 'package:payer_app/core/di/locator.dart';
 import 'package:payer_app/core/auth/payer_token_store.dart';
+import 'package:payer_app/core/widgets/bb_action_bar.dart';
 import 'package:payer_app/features/jobs/presentation/cubit/agency_jobs_cubit.dart';
 import 'package:payer_app/features/jobs/presentation/edit_agency_job_screen.dart';
 
@@ -513,6 +514,81 @@ void main() {
     expect(api.lastTradeAnswers, <String, List<String>>{
       'controller_brand': <String>['fanuc'],
     });
+  });
+
+  // --- #2595 (M7) -------------------------------------------------------------
+
+  testWidgets('Save sits in the shared pinned action bar', (
+    WidgetTester tester,
+  ) async {
+    final _ScriptedApi api = _ScriptedApi();
+    final AgencyJobsCubit cubit = AgencyJobsCubit(api);
+    addTearDown(cubit.close);
+    await open(tester, cubit);
+
+    final Scaffold scaffold = tester.widget<Scaffold>(find.descendant(
+      of: find.byType(EditAgencyJobScreen),
+      matching: find.byType(Scaffold),
+    ));
+    expect(scaffold.bottomNavigationBar, isA<BbActionBar>());
+  });
+
+  testWidgets('pay prefills grouped and saves as a whole number', (
+    WidgetTester tester,
+  ) async {
+    final _ScriptedApi api = _ScriptedApi();
+    final AgencyJobsCubit cubit = AgencyJobsCubit(api);
+    addTearDown(cubit.close);
+    await open(tester, cubit);
+
+    expect(find.widgetWithText(TextField, '18,000'), findsOneWidget);
+    expect(find.widgetWithText(TextField, '24,000'), findsOneWidget);
+    await save(tester);
+    expect(api.updated, <String>['a1']);
+  });
+
+  testWidgets('an emptied title is refused at its field', (
+    WidgetTester tester,
+  ) async {
+    final _ScriptedApi api = _ScriptedApi();
+    final AgencyJobsCubit cubit = AgencyJobsCubit(api);
+    addTearDown(cubit.close);
+    await open(tester, cubit);
+
+    await tester.enterText(find.byType(TextField).first, '');
+    await tester.pump();
+    await tester.tap(find.text('Save changes'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+
+    expect(api.updated, isEmpty);
+    expect(find.text('Add the job title'), findsOneWidget);
+    expect(find.byType(SnackBar), findsNothing);
+  });
+
+  testWidgets('system Back on an edited job asks; an unedited one just leaves',
+      (WidgetTester tester) async {
+    final _ScriptedApi api = _ScriptedApi();
+    final AgencyJobsCubit cubit = AgencyJobsCubit(api);
+    addTearDown(cubit.close);
+    await open(tester, cubit);
+
+    await tester.enterText(find.byType(TextField).first, 'Senior Fitter');
+    await tester.pump();
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(find.text('Discard your changes?'), findsOneWidget);
+    await tester.tap(find.text('Keep editing'));
+    await tester.pumpAndSettle();
+    expect(find.text('Edit job'), findsOneWidget);
+
+    // Put the title back: nothing is unsaved, so Back leaves at once.
+    await tester.enterText(find.byType(TextField).first, 'Fitter');
+    await tester.pump();
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(find.text('Discard your changes?'), findsNothing);
+    expect(find.text('Edit job'), findsNothing);
   });
 }
 
