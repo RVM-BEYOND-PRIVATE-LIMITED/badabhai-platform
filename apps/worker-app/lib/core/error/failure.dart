@@ -86,6 +86,23 @@ class ConsentRequiredFailure extends Failure {
   const ConsentRequiredFailure([super.message = 'Please accept consent to continue.']);
 }
 
+/// HTTP 403 with `error.code == "AGE_BELOW_MINIMUM"` — the sign-up declared
+/// they are under 18. The server wrote NO consent row, so there is nothing to
+/// retry: the worker sees the terminal "come back at 18" screen and the app
+/// signs them out locally.
+class AgeBelowMinimumFailure extends Failure {
+  const AgeBelowMinimumFailure([super.message = '18 saal ke baad aana.']);
+}
+
+/// HTTP 400 with `error.code == "AGE_CONFIRMATION_REQUIRED"` — the server's
+/// age gate is armed but this build sent no answer. Nothing was written; the
+/// worker has to update the app (or try again after an update).
+class AgeConfirmationRequiredFailure extends Failure {
+  const AgeConfirmationRequiredFailure([
+    super.message = 'App update karein, phir dobara koshish karein.',
+  ]);
+}
+
 /// HTTP 401 on an OTP-check step (e.g. account-delete confirm) — the code the
 /// worker typed is wrong/expired. DISTINCT from [UnauthorizedFailure]: the
 /// session is fine; only the OTP was wrong, so the copy says "OTP sahi nahi",

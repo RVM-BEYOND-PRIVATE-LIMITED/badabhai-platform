@@ -4,7 +4,12 @@ import 'employer_contact.dart';
 /// Implementations throw a [Failure] on error and take the worker from the
 /// session (never from the widget).
 abstract interface class ConsentRepository {
-  Future<void> acceptConsent({required List<String> purposes});
+  /// Records consent. [age18Plus] is the worker's yes/no answer to the sign-up
+  /// age gate — it rides the same call as the DPDP purposes.
+  Future<void> acceptConsent({
+    required List<String> purposes,
+    required bool age18Plus,
+  });
 
   /// Withdraws the session worker's DPDP consent (POST /consent/withdraw).
   /// Implementations throw a [Failure] on error and take the worker from the

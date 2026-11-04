@@ -46,6 +46,7 @@ void main() {
     // a frame scheduled forever, so hold it still.
     BbPinView.debugDeterministicCaret = true;
     registerFallbackValue(const <String>[]);
+    registerFallbackValue(false);
   });
   tearDownAll(() => BbPinView.debugDeterministicCaret = false);
 
@@ -70,7 +71,10 @@ void main() {
     locator.registerFactory<SetPinCubit>(() => SetPinCubit(manager));
     final _MockConsentRepo repo = _MockConsentRepo();
     when(
-      () => repo.acceptConsent(purposes: any(named: 'purposes')),
+      () => repo.acceptConsent(
+        purposes: any(named: 'purposes'),
+        age18Plus: any(named: 'age18Plus'),
+      ),
     ).thenAnswer((_) async {});
     locator.registerFactory<ConsentCubit>(() => ConsentCubit(repo));
   });

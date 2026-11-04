@@ -16,6 +16,17 @@ Failure mapError(Object error) {
   if (error is Failure) return error;
 
   if (error is ApiException) {
+    // The sign-up age gate rides the generic 400/403 statuses, so it is
+    // identified by the server's stable `error.code`, never by message text.
+    // Checked BEFORE the status switch: an under-18 403 is NOT the consent
+    // gate, and answering it by routing back to consent would loop forever.
+    final String? code = _errorCode(error);
+    if (error.statusCode == 403 && code == 'AGE_BELOW_MINIMUM') {
+      return const AgeBelowMinimumFailure();
+    }
+    if (error.statusCode == 400 && code == 'AGE_CONFIRMATION_REQUIRED') {
+      return const AgeConfirmationRequiredFailure();
+    }
     return switch (error.statusCode) {
       // #1013 — a 400 is the server's CONSIDERED answer about this request, not a
       // blip. Left as a ServerFailure it rendered "Server error (400). Thodi der
@@ -55,4 +66,19 @@ Failure mapError(Object error) {
   }
 
   return const UnknownFailure();
+}
+
+/// The server's stable machine-readable error code, when the response body
+/// carries one. The global error envelope nests it as `error.code`; a flat
+/// `code` is accepted too for forward/backward tolerance.
+String? _errorCode(ApiException error) {
+  final Map<String, dynamic>? body = error.body;
+  if (body == null) return null;
+  final Object? nested = body['error'];
+  if (nested is Map<String, dynamic>) {
+    final Object? code = nested['code'];
+    if (code is String && code.isNotEmpty) return code;
+  }
+  final Object? code = body['code'];
+  return code is String && code.isNotEmpty ? code : null;
 }
