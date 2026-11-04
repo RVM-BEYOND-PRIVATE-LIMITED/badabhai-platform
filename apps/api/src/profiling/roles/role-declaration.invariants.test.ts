@@ -152,7 +152,7 @@ describe("the declared-role set", () => {
         "industrial_electrician",
         "plc_automation_technician",
       ],
-      production: ["assembly_line_worker", "quality_inspector"],
+      production: ["assembly_line_worker", "quality_inspector", "production_supervisor"],
       polymer: [
         "injection_moulding_operator",
         "mould_die_maker",

@@ -83,6 +83,14 @@ export interface TradeLevelPack {
    * "Senior Draughtsman", never "Senior Designer". Absent = shared labels.
    */
   readonly labels?: Readonly<Partial<Record<TradeLevel, string>>>;
+  /**
+   * Rungs the shared rung rule confirms but THIS sheet places below its confirmed rung
+   * (CEO Launch Plan Pack v1, Phase 2 #10): Production Supervisor is "confirmed from
+   * supervisor", so its Line Leader (`senior`) is not confirmed there, although `senior`
+   * confirms in every trade that rules it a separating rung. A separating-confirm answer
+   * still wins; with none, these rungs read unconfirmed. Absent = the shared rule.
+   */
+  readonly unconfirmedRungs?: readonly TradeLevel[];
 }
 
 export const TRADE_LEVEL_PACKS: Readonly<Record<string, TradeLevelPack>> = {
@@ -163,6 +171,20 @@ export const TRADE_LEVEL_PACKS: Readonly<Record<string, TradeLevelPack>> = {
   // the first pack for the declared kind. No union extension: trainee, operator, setter,
   // senior and supervisor are all members. Supervisor by rule.
   qp_injection_moulding: { skillId: "mskill_imm_operator", levelKey: "moulding_level" },
+  // Phase 2 #10 — the production supervisor (CEO Launch Plan Pack v1, sheet 23), a new
+  // cross-trade trade. No union extension: senior, supervisor and lead are all members (all
+  // Higher). Labels print the sheet's own chips; confirmed FROM supervisor, so the Line Leader
+  // rung reads unconfirmed here.
+  qp_production_supervisor: {
+    skillId: "mskill_production_supervisor",
+    levelKey: "supervision_level",
+    labels: {
+      senior: "Line Leader",
+      supervisor: "Supervisor",
+      lead: "Production In-charge",
+    },
+    unconfirmedRungs: ["senior"],
+  },
 };
 
 /** Legacy/alias spellings that name a `TradeLevel` without being one. */
@@ -517,6 +539,14 @@ export const TRADE_LEVEL_CONFIRM_ITEMS: Readonly<
     setter: "moulding_setting_confirm",
     senior: "moulding_senior_confirm",
   },
+  // Phase 2 #10 — the production supervisor confirm (CEO Launch Plan Pack v1, sheet 23). The
+  // sheet's two-question prompt is split along its own rows (owner ruling 2026-11-04): the
+  // shift-report half confirms supervisor, and — by the standing owner rule of 2026-11-03 —
+  // production in-charge (`lead`), for which the sheet writes none.
+  qp_production_supervisor: {
+    supervisor: "supervision_report_confirm",
+    lead: "supervision_report_confirm",
+  },
 };
 
 /**
@@ -569,6 +599,7 @@ function isConfirmed(
       return true;
     }
   }
+  if (TRADE_LEVEL_PACKS[packId.split("@")[0]!]?.unconfirmedRungs?.includes(level)) return false;
   return isLevelConfirmed(level);
 }
 

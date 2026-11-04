@@ -1034,6 +1034,32 @@
 {"kind":"alias","job_domain_id":"jd_nco_8142_1300","text":"injection moulding setter","lang":"en"}
 {"kind":"alias","job_domain_id":"jd_nco_8142_1301","text":"plastic moulding","lang":"en"}
 {"kind":"alias","job_domain_id":"jd_nco_8141_0713","text":"rubber injection moulding operator","lang":"en"}
+# PHASE 2 #10 (CEO Launch Plan Pack v1, sheet 23 "Words"): Production Supervisor, the cross-
+# trade supervisor codes. The generic words name 3122.9900 'Manufacturing Supervisors, Other';
+# 'line in-charge' sits on 3122.0601 Assembly Line Supervisor and 'foreman' on 3122.1900
+# 'Supervisor and Foreman, Machine Tool Operations', so each code's chip label is its own word.
+# 'foreman' reached protective service and 'floor incharge' a flayer (skeleton matches) before.
+# Bare 'supervisor' is NOT a row (A3: every trade's top rung; ask the department first).
+# 'shift report', '5S', 'kaizen', 'OEE' and 'SAP entry' are capture chips, never routes.
+{"kind":"alias","job_domain_id":"jd_nco_3122_9900","text":"production supervisor","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3122_9900","text":"production in-charge","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3122_9900","text":"production incharge","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3122_9900","text":"production in charge","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3122_9900","text":"plant in-charge","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3122_9900","text":"plant incharge","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3122_9900","text":"shift in-charge","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3122_9900","text":"shift incharge","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3122_9900","text":"shift in charge","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3122_9900","text":"floor in-charge","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3122_9900","text":"floor incharge","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3122_9900","text":"production team leader","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3122_9900","text":"प्रोडक्शन सुपरवाइजर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_3122_9900","text":"शिफ्ट इंचार्ज","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_3122_0601","text":"line in-charge","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3122_0601","text":"line incharge","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3122_0601","text":"line in charge","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3122_1900","text":"foreman","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3122_1900","text":"फोरमैन","lang":"hi"}
 #
 # ── Press — NCO 7223.2300 (Power Press Operator, Metal) / 7223.3000 (Metal Stamper) — 20, 22 ─
 # "press ka kaam" (23) is struck — it is ironing clothes — and "machine operator" (24) routes

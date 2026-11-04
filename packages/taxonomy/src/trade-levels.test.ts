@@ -19,7 +19,7 @@ import {
  * alias spelling lands on the canonical key, and null prices Lower.
  */
 describe("trade-level crosswalk", () => {
-  it("covers the four v1 trades plus the CAD trades, the fitter, the electrician, the welder, the conventional machinist, the sheet-metal operator, the assembly technician, the QC inspector, the tool & die maker, the press-shop operator, the painter / coater, the maintenance technician, the PLC / automation technician, the EDM / wire-cut operator, the injection-moulding operator and the heat-treatment technician, each with its skill and level key", () => {
+  it("covers the four v1 trades plus the CAD trades, the fitter, the electrician, the welder, the conventional machinist, the sheet-metal operator, the assembly technician, the QC inspector, the tool & die maker, the press-shop operator, the painter / coater, the maintenance technician, the PLC / automation technician, the EDM / wire-cut operator, the injection-moulding operator, the heat-treatment technician and the production supervisor, each with its skill and level key", () => {
     expect(TRADE_LEVEL_PACKS).toEqual({
       qp_cnc_turning: { skillId: "mskill_cnc_turner", levelKey: "turning_level" },
       qp_vmc_milling: { skillId: "mskill_vmc_operator", levelKey: "milling_level" },
@@ -55,6 +55,16 @@ describe("trade-level crosswalk", () => {
       qp_edm_wirecut: { skillId: "mskill_edm_wirecut_operator", levelKey: "edm_level" },
       qp_heat_treatment: { skillId: "mskill_heat_treatment_tech", levelKey: "heat_level" },
       qp_injection_moulding: { skillId: "mskill_imm_operator", levelKey: "moulding_level" },
+      qp_production_supervisor: {
+        skillId: "mskill_production_supervisor",
+        levelKey: "supervision_level",
+        labels: {
+          senior: "Line Leader",
+          supervisor: "Supervisor",
+          lead: "Production In-charge",
+        },
+        unconfirmedRungs: ["senior"],
+      },
     });
   });
 
@@ -1137,6 +1147,42 @@ describe("trade-level crosswalk", () => {
     expect(imm("senior", senior("other"))).toEqual(row("senior", false));
     // Supervisor: no confirm item, rung rule (confirmed).
     expect(imm("supervisor", senior("other"))).toEqual(row("supervisor", true));
+  });
+
+  it("confirms the production supervisor FROM supervisor, Line Leader unconfirmed (CEO Launch Plan Pack v1, Phase 2 #10)", () => {
+    const ps = (level: string, confirm: string | null) =>
+      tradeLevelEntriesForPackAnswers(
+        "qp_production_supervisor@1",
+        confirm === null
+          ? [{ attributeKey: "supervision_level", value: level }]
+          : [
+              { attributeKey: "supervision_level", value: level },
+              { attributeKey: "supervision_report_confirm", value: confirm },
+            ],
+      );
+    const row = (tradeLevel: string, levelConfirmed: boolean) => [
+      { skillId: "mskill_production_supervisor", tradeLevel, levelConfirmed },
+    ];
+    // Line Leader is `senior`, which confirms in every other trade — not on this sheet.
+    expect(ps("senior", null)).toEqual(row("senior", false));
+    expect(ps("supervisor", null)).toEqual(row("supervisor", true));
+    expect(ps("supervisor", "self")).toEqual(row("supervisor", true));
+    expect(ps("supervisor", "other")).toEqual(row("supervisor", false));
+    // Production in-charge shares the shift-report confirm (standing owner rule).
+    expect(ps("lead", "self")).toEqual(row("lead", true));
+    expect(ps("lead", "other")).toEqual(row("lead", false));
+    // The override is per pack: `senior` still confirms on the injection-moulding sheet.
+    expect(
+      tradeLevelEntriesForPackAnswers("qp_injection_moulding@1", [
+        { attributeKey: "moulding_level", value: "senior" },
+      ]),
+    ).toEqual([{ skillId: "mskill_imm_operator", tradeLevel: "senior", levelConfirmed: true }]);
+    // The headline prints the sheet's own chips; every rung prices Higher.
+    expect(tradeLevelLabelFor("qp_production_supervisor", "senior")).toBe("Line Leader");
+    expect(tradeLevelLabelFor("qp_production_supervisor", "lead")).toBe("Production In-charge");
+    for (const rung of ["senior", "supervisor", "lead"] as const) {
+      expect(priceTierForTradeLevel(rung), rung).toBe("higher");
+    }
   });
 
   it("prints the 2D trade's own rung words (CEO Launch Plan Pack v1, Track A #5)", () => {

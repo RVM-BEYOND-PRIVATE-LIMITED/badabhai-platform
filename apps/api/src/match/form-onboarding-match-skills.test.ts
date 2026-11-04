@@ -183,6 +183,7 @@ describe("the reachable set per mapped pack — every chip, exhaustively", () =>
     qp_edm_wirecut: ["mskill_edm_wirecut_operator"],
     qp_heat_treatment: ["mskill_heat_treatment_tech"],
     qp_injection_moulding: ["mskill_imm_operator"],
+    qp_production_supervisor: ["mskill_production_supervisor"],
     qp_industrial_electrician: ["mskill_industrial_electrician"],
     qp_assembly_line: ["mskill_assembly_line_worker"],
   };

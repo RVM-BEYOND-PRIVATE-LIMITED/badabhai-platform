@@ -48,6 +48,7 @@ export const ROLE_ART_KINDS = [
   "plc_automation_technician",
   "edm_wirecut_operator",
   "heat_treatment_technician",
+  "production_supervisor",
   "generic",
 ] as const;
 
@@ -1373,6 +1374,67 @@ export const ROLE_ART_DATA: Readonly<Record<RoleArtKind, RoleArtDef>> = {
         shapes: [
           { d: "M84 60Q120 62 150 58", colour: "accent", opacity: 1, strokeWidth: 9 },
           { d: "M150 58L170 58", colour: "surface", opacity: 1, strokeWidth: 5 },
+        ],
+      },
+    ],
+  },
+  production_supervisor: {
+    loop: 3,
+    parts: [
+      {
+        name: "scene",
+        motion: null,
+        shapes: [
+          { d: "M0 0L300 0L300 100L0 100Z", colour: "primary", opacity: 1, strokeWidth: 0 },
+          { d: "M220 24A32 32 0 1 1 284 24A32 32 0 1 1 220 24Z", colour: "surface", opacity: 0.4, strokeWidth: 0 },
+          { d: "M0 84L300 84L300 100L0 100Z", colour: "surface", opacity: 0.4, strokeWidth: 0 },
+        ],
+      },
+      {
+        name: "stations",
+        motion: null,
+        shapes: [
+          { d: "M210 48L232 48A6 6 0 0 1 238 54L238 78A6 6 0 0 1 232 84L210 84A6 6 0 0 1 204 78L204 54A6 6 0 0 1 210 48Z", colour: "surface", opacity: 0.6, strokeWidth: 0 },
+          { d: "M252 40L280 40A6 6 0 0 1 286 46L286 78A6 6 0 0 1 280 84L252 84A6 6 0 0 1 246 78L246 46A6 6 0 0 1 252 40Z", colour: "surface", opacity: 0.8, strokeWidth: 0 },
+          { d: "M215 56L227 56A3 3 0 0 1 230 59L230 63A3 3 0 0 1 227 66L215 66A3 3 0 0 1 212 63L212 59A3 3 0 0 1 215 56Z", colour: "primary", opacity: 0.6, strokeWidth: 0 },
+          { d: "M259 50L273 50A3 3 0 0 1 276 53L276 59A3 3 0 0 1 273 62L259 62A3 3 0 0 1 256 59L256 53A3 3 0 0 1 259 50Z", colour: "primary", opacity: 0.6, strokeWidth: 0 },
+        ],
+      },
+      {
+        name: "team",
+        motion: null,
+        shapes: [
+          { d: "M146 84L146 76A12 12 0 0 1 170 76L170 84Z", colour: "surface", opacity: 0.6, strokeWidth: 0 },
+          { d: "M150 60A8 8 0 1 1 166 60A8 8 0 1 1 150 60Z", colour: "surface", opacity: 0.6, strokeWidth: 0 },
+          { d: "M176 84L176 76A12 12 0 0 1 200 76L200 84Z", colour: "surface", opacity: 0.6, strokeWidth: 0 },
+          { d: "M180 60A8 8 0 1 1 196 60A8 8 0 1 1 180 60Z", colour: "surface", opacity: 0.6, strokeWidth: 0 },
+        ],
+      },
+      {
+        name: "figure",
+        motion: null,
+        shapes: [
+          { d: "M48 84L48 70A22 22 0 0 1 92 70L92 84Z", colour: "accent", opacity: 1, strokeWidth: 0 },
+          { d: "M57 40A13 13 0 0 1 83 40L83 41A3 3 0 0 1 80 44L60 44A3 3 0 0 1 57 41Z", colour: "accent", opacity: 1, strokeWidth: 0 },
+        ],
+      },
+      {
+        name: "board",
+        motion: { type: "nod", amp: 4, ox: 84, oy: 60, rate: 1, phase: 0 },
+        shapes: [
+          { d: "M84 60Q98 58 108 54", colour: "accent", opacity: 1, strokeWidth: 9 },
+          { d: "M110 34L126 34A4 4 0 0 1 130 38L130 60A4 4 0 0 1 126 64L110 64A4 4 0 0 1 106 60L106 38A4 4 0 0 1 110 34Z", colour: "surface", opacity: 1, strokeWidth: 0 },
+          { d: "M114 30L122 30A2 2 0 0 1 124 32L124 34A2 2 0 0 1 122 36L114 36A2 2 0 0 1 112 34L112 32A2 2 0 0 1 114 30Z", colour: "surface", opacity: 0.6, strokeWidth: 0 },
+          { d: "M112 42L124 42A1 1 0 0 1 125 43L125 44A1 1 0 0 1 124 45L112 45A1 1 0 0 1 111 44L111 43A1 1 0 0 1 112 42Z", colour: "primary", opacity: 0.6, strokeWidth: 0 },
+          { d: "M112 49L124 49A1 1 0 0 1 125 50L125 51A1 1 0 0 1 124 52L112 52A1 1 0 0 1 111 51L111 50A1 1 0 0 1 112 49Z", colour: "primary", opacity: 0.6, strokeWidth: 0 },
+          { d: "M112 56L119 56A1 1 0 0 1 120 57L120 58A1 1 0 0 1 119 59L112 59A1 1 0 0 1 111 58L111 57A1 1 0 0 1 112 56Z", colour: "primary", opacity: 0.6, strokeWidth: 0 },
+        ],
+      },
+      {
+        name: "light",
+        motion: { type: "blink", amp: 0.6, ox: 266, oy: 32, rate: 1, phase: 0.3 },
+        shapes: [
+          { d: "M261 32A5 5 0 1 1 271 32A5 5 0 1 1 261 32Z", colour: "accent", opacity: 1, strokeWidth: 0 },
         ],
       },
     ],
