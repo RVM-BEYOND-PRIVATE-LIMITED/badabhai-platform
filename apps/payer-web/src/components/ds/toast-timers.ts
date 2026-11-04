@@ -63,7 +63,7 @@ export class ToastTimers {
 
   /** Clear everything (the provider unmounting). */
   dispose(): void {
-    for (const id of [...this.clocks.keys()]) this.remove(id);
+    for (const id of this.clocks.keys()) this.remove(id);
   }
 
   private run(id: number, clock: Clock): void {
