@@ -106,7 +106,12 @@ export function Shell({
           the drawer is never open and this does nothing. A MODIFIED click opens the link elsewhere
           (Ctrl/Cmd or the middle button: a new tab; Shift: a window; Alt: a download) and this
           page stays, so the drawer does too (review Nit-2) — guarded on the click itself, since
-          Next's Link prevents the default of every plain click it routes. */}
+          Next's Link prevents the default of every plain click it routes.
+          A link a POINTER activated (`detail` > 0; Enter gives 0) also gives up focus. Kept, it
+          survived the navigation — Next's focus move lands on the new page's root, which is not
+          focusable — and Chromium shows a mouse-focused element :focus-visible after the next key
+          press, so PageDown on the new page reopened the 1024–1439px rail over it (globals.css).
+          Enter keeps focus on the link, and the rail stays open for the keyboard user. */}
       <aside
         className="sidebar"
         id="portal-sidebar"
@@ -121,7 +126,11 @@ export function Shell({
           ) {
             return;
           }
-          if ((event.target as Element).closest("a[href]")) setDrawerOpen(false);
+          const link = (event.target as Element).closest<HTMLElement>("a[href]");
+          if (link) {
+            setDrawerOpen(false);
+            if (event.detail > 0) link.blur();
+          }
         }}
       >
         <div className="sidebar__brand">

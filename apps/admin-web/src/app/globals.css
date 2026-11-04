@@ -1069,8 +1069,11 @@ details[open] > summary > .disclosure__caret {
    - Motion: width over --duration-base (220ms) ease-out. Closing, the labels fade out first and
      the width follows after --duration-fade; opening, the width goes first and the labels fade
      in after it. Under reduced motion the width change is instant.
-   Keyboard: `:has(:focus-visible)`, not `:focus-within`, so a mouse click on a rail link does not
-   hold the rail open over the next page.
+   Keyboard: `:has(:focus-visible)`, not `:focus-within`, so a mouse click alone does not open the
+   rail. That alone did not keep it shut: the clicked link kept focus across the navigation, and
+   Chromium shows a mouse-focused element :focus-visible after the next key press, so PageDown on
+   the new page reopened the rail over it. The shell (components/shell.tsx) blurs a rail link a
+   pointer activated; Enter keeps focus, so the rail stays open for the keyboard user.
    Hover-capable devices only: a tap neither hovers nor sets focus-visible, so on a touch tablet
    or touch laptop at these widths the rail could never open — they keep the full sidebar. */
 @media (min-width: 1024px) and (max-width: 1439px) and (hover: hover) {
@@ -2045,10 +2048,14 @@ details[open] > summary > .disclosure__caret {
    .btn was --control-md (44px) while .field__input was --control-lg (52px), and .filters
    puts them side by side on every filter bar in the console. The 8px mismatch is why a
    `.field--check { align-self: end; padding-bottom: … }` hack exists further down this
-   file. A desktop console wants the denser control anyway. */
+   file. A desktop console wants the denser control anyway.
+   A1 (#2571) — both take the console button's height: --admin-btn-h (40px) for a mouse, and
+   the touch block lifts both to --control-md (44px). When only .btn dropped to 40px, every
+   filter bar's Apply sat 4px below the inputs beside it (`.filters` aligns its cells to the
+   end). The password field's reveal toggle takes the same height (`.password-input`). */
 .field__input {
-  min-height: var(--control-md);
-  height: var(--control-md);
+  min-height: var(--admin-btn-h);
+  height: var(--admin-btn-h);
   font-size: var(--ui-body-size);
 }
 textarea.field__input {
@@ -2639,6 +2646,11 @@ textarea.field__input {
      `:not(.btn--sm)`: a small button keeps its 36px drawing and grows its hit strip below. */
   .btn:not(.btn--sm) {
     min-height: var(--control-md);
+  }
+  /* The inputs beside it rise with it, so a filter bar's row stays level (the shared-row block). */
+  .field__input {
+    min-height: var(--control-md);
+    height: var(--control-md);
   }
   .btn--sm {
     position: relative;
@@ -3486,7 +3498,8 @@ textarea.field__input {
 }
 
 /* The password input and its show/hide toggle on one row. The input takes the row; the toggle
-   (an outline IconButton, 44px) keeps its size. */
+   (an outline IconButton) stays square at the input's height — 40px for a mouse, 44px on touch
+   (the shared-row block). At the IconButton's own 44px it overhung a 40px input by 2px. */
 .password-input {
   display: flex;
   align-items: center;
@@ -3495,6 +3508,16 @@ textarea.field__input {
 .password-input > .field__input {
   flex: 1;
   min-width: 0;
+}
+.password-input > .iconbtn {
+  inline-size: var(--admin-btn-h);
+  block-size: var(--admin-btn-h);
+}
+@media (max-width: 600px), (pointer: coarse) {
+  .password-input > .iconbtn {
+    inline-size: var(--control-md);
+    block-size: var(--control-md);
+  }
 }
 
 /* A standalone checkbox with its label ("Trust this device for 30 days"). The whole row is the
