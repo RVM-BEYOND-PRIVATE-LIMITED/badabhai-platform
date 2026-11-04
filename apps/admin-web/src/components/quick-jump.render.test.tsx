@@ -278,12 +278,30 @@ describe("the palette", () => {
     expect(back.focus).not.toHaveBeenCalled();
   });
 
-  it("a click on the backdrop (the dialog itself) closes it; one inside does not", () => {
+  /** A press on `pressed`, then the click the browser sends to `clicked`, on the dialog. */
+  const pressThenClick = (pressed: string, clicked: string) => {
     const el = find(render(), (e) => e.props.className === "jump")[0]!;
-    const click = el.props.onClick as (e: unknown) => void;
-    click({ target: "panel", currentTarget: "dialog" });
+    (el.props.onPointerDown as ((e: unknown) => void) | undefined)?.({ target: pressed });
+    (el.props.onClick as (e: unknown) => void)({ target: clicked, currentTarget: "dialog" });
+  };
+
+  it("a click on the backdrop (the dialog itself) closes it; one inside does not", () => {
+    pressThenClick("panel", "panel");
     expect(dialog.close).not.toHaveBeenCalled();
-    click({ target: "dialog", currentTarget: "dialog" });
+    pressThenClick("dialog", "dialog");
+    expect(dialog.close).toHaveBeenCalledTimes(1);
+  });
+
+  it("a drag that began in the field and was let go on the backdrop keeps it open, id and all", () => {
+    // Selecting the pasted id to fix a character, the mouse ending below the panel: the click goes
+    // to what the press (the field) and the release (the backdrop) share — the dialog itself,
+    // which read alone looks just like a backdrop click.
+    type(ID);
+    pressThenClick("input", "dialog");
+    expect(dialog.close).not.toHaveBeenCalled();
+    expect(input(render()).props.value).toBe(ID);
+    // The press is spent on its click: a later backdrop click still needs a press of its own.
+    pressThenClick("dialog", "dialog");
     expect(dialog.close).toHaveBeenCalledTimes(1);
   });
 });

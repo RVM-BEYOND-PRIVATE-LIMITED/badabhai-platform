@@ -74,6 +74,8 @@ export function QuickJump({ kinds }: { kinds: readonly JumpKindId[] }) {
   const highlighted: JumpOption | undefined = options[state.highlight];
   /** The record the last pick opened — what the pending cue names while it loads. */
   const opening = useRef<JumpOption | null>(null);
+  /** What the press behind the next click landed on — a backdrop click must BEGIN there too. */
+  const pressedOn = useRef<EventTarget | null>(null);
 
   const open = useCallback(() => {
     const dialog = dialogRef.current;
@@ -142,9 +144,17 @@ export function QuickJump({ kinds }: { kinds: readonly JumpKindId[] }) {
           returnFocus.current = null;
           if (back?.isConnected && typeof back.focus === "function") back.focus();
         }}
+        onPointerDown={(e) => {
+          pressedOn.current = e.target;
+        }}
         onClick={(e) => {
-          // A click on the backdrop lands on the dialog element itself (its content fills it).
-          if (e.target === e.currentTarget) close();
+          // A click on the backdrop lands on the dialog element itself (its content fills it). So
+          // does a drag that began in the field and was let go past the panel — selecting the id
+          // to fix a character — since that click goes to what the press and the release share.
+          // Only a press that began on the backdrop closes it, or the pasted id would be lost.
+          const pressedBackdrop = pressedOn.current === e.currentTarget;
+          pressedOn.current = null;
+          if (pressedBackdrop && e.target === e.currentTarget) close();
         }}
       >
         <div className="jump__panel">
