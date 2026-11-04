@@ -1216,3 +1216,48 @@
 {"kind":"alias","job_domain_id":"jd_nco_7221_0301","text":"फोर्जिंग","lang":"hi"}
 {"kind":"alias","job_domain_id":"jd_nco_7221_0300","text":"power hammer","lang":"en"}
 {"kind":"alias","job_domain_id":"jd_nco_7221_0300","text":"hammer forging","lang":"en"}
+# CEO LAUNCH PLAN PACK v1 — SHEET-WORD AUDIT (2026-11-04). Every word a sheet routes to its
+# trade was run through the production-shaped resolver; these rows fix the ones that reached
+# another trade. Most were ONE stray token matched loosely ("die" -> street sales, "threading"
+# -> beauty, "seal" -> tailoring, "coat" -> 3D CAD, "ladder" -> loading); a full-phrase row
+# is an exact multi-token match and wins. Each row sits on a code of the right family whose chip
+# label it cannot take over (a code's chip is its shortest Latin alias). Held out on purpose:
+# "die setting" / "die setter" (the press role vetoes them as tool-room words; owner call),
+# bare "ladder" (a ladder), "booth", "ced" (3 letters), "dryer", "team leader", "imm",
+# "pu paint", "design engineer" (three degree-engineer codes own it), "wireman" (house wiring,
+# owner ruling 2026-11-04), "kharad" / "lathe operator" (the sheets say ask CNC ya manual).
+{"kind":"alias","job_domain_id":"jd_nco_7222_0200","text":"die fitting","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7222_0200","text":"die assembly","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7222_0200","text":"die repair","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7222_0200","text":"die maintenance","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7222_0200","text":"press tool","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7222_0200","text":"progressive die","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7222_0200","text":"blanking die","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7222_0200","text":"forming die","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7222_0200","text":"core cavity","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7222_0200","text":"die casting die","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7222_0200","text":"hand finishing","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7412_0101","text":"ladder logic","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7412_0101","text":"instrument mechanic","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2200","text":"grinder","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2200","text":"cylindrical grinder","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2200","text":"diamond dresser","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2800","text":"die sinking","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2800","text":"copper electrode","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2800","text":"graphite electrode","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2800","text":"taper cutting","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2800","text":"wire threading","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2800","text":"super drill","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_3000","text":"coil feeder","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7132_0300","text":"powder coat","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7132_0300","text":"spray painting","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7132_0300","text":"ed coating","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7132_0300","text":"salt spray test","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7233_1200","text":"seal change","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_0500","text":"manual lathe","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_0500","text":"conventional lathe","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7213_0101","text":"body banata hoon","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_rvm_3d_cad_designer","text":"cad engineer","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7233_0200","text":"mechanical fitter","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7412_0200","text":"electrical technician","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_0200","text":"press tool setter","lang":"en"}
