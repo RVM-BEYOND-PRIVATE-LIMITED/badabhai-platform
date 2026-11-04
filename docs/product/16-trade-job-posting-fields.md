@@ -28,6 +28,37 @@ A posting form asks, in order:
 The trade's own `mskill_*` is always part of the match set. A role posting with no chips still
 reaches that trade.
 
+## Matching scope: the 16 trades only (#2635, owner ruling 2026-11-04)
+
+The app profiles workers in more trades than the 16. Their profiles and `worker_skill` rows are
+kept, but matching runs only for the 16:
+
+- **A company can publish only a 16-trade posting**, and cannot move a live one off the 16
+  (`400 reason: posting_trade_required`).
+- **A 16-trade posting's match set comes from its trade, whatever the client sends.** The trade's
+  own skill, plus every requested id the trade owns (its pack's chip skills,
+  `postingTradeSkillIds`). Anything else is dropped and recorded on
+  `job_posting.match_skills_scoped`. This stops the 2026-11-03 production defect — a Welder job
+  matching on CNC grinding, and a Grinding job matching on delivery riders, both sent by a client
+  that skipped the trade fields — for every write from now on.
+- **Postings already live keep their stored set** until an edit that changes their skills or
+  trade, an unpause, or a re-post rebuilds them. The nightly `db:materialize:reach` and the
+  per-worker reconcile only re-read the stored `reach_skill_ids`; neither re-scopes. The two
+  2026-11-03 jobs (`8b3e6fc0…`, `04bfde7d…`) and the June seed job (`5eeded00…`, no trade) are an
+  owner close / re-post step.
+- **Related reach stays inside the 16** (`POSTING_SCOPE_SKILL_IDS`, 22 skills: the 16 base skills
+  plus CNC programmer, HMC operator, 3D designer and Arc/MIG/TIG welder). Related matches between
+  the 16 stay (Turner → VMC/Grinding, Fitter → Maintenance/QC). The ones that leave the 16 are
+  trimmed: General CNC operator, CNC setter-operator, 3D CAD designer, Interior designer, Plumber.
+- **One place:** `scopePostingSkills` / `POSTING_SCOPE_SKILL_IDS` (`packages/taxonomy/src/posting-scope.ts`),
+  applied by `MatchSkillsService.resolveForPublish` (create, publish, edit, unpause) and the
+  company reach preview. The stored `reach_skill_ids` then drives the nightly
+  `db:materialize:reach` and the per-worker reconcile unchanged.
+- **Not covered:** ops postings without a 16-trade role (unchanged); the audited ops reach widen
+  (an explicit ops act); and **agency twins** — `packages/db/src/agency-twin.ts` resolves a
+  twin's reach on its own, unscoped, even for a 16-trade agency job. Twins are off in
+  production (`AGENCY_TWIN_SYNC_ENABLED` unset); scope them before that flag is armed.
+
 ## What is implemented
 
 ### Canonical catalogue (`packages/taxonomy/src/posting-trades.ts`)

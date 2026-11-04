@@ -81,6 +81,38 @@ describe("validateEvent", () => {
   });
 });
 
+describe("job_posting.match_skills_scoped (#2635)", () => {
+  function scopedEvent(payload: Record<string, unknown>): Record<string, unknown> {
+    return {
+      ...workerCreatedEvent(),
+      event_name: "job_posting.match_skills_scoped",
+      actor: { actor_type: "payer", actor_id: UUID_A },
+      subject: { subject_type: "job_posting", subject_id: UUID_B },
+      payload,
+    };
+  }
+  const valid = {
+    job_posting_id: UUID_B,
+    role_kind: "welder",
+    trigger: "create",
+    kept_skill_ids: ["mskill_welder", "mskill_arc_welder"],
+    dropped_skill_ids: ["mskill_cnc_grinding_operator"],
+  };
+
+  it("accepts the ids-only payload", () => {
+    expect(validateEvent(scopedEvent(valid)).success).toBe(true);
+  });
+
+  it("refuses an event with nothing dropped — no drop, no event", () => {
+    expect(validateEvent(scopedEvent({ ...valid, dropped_skill_ids: [] })).success).toBe(false);
+  });
+
+  it("refuses a role outside the declared vocabulary and any extra field", () => {
+    expect(validateEvent(scopedEvent({ ...valid, role_kind: "astronaut" })).success).toBe(false);
+    expect(validateEvent(scopedEvent({ ...valid, org_label: "Acme" })).success).toBe(false);
+  });
+});
+
 describe("voice_note.uploaded duration guard", () => {
   function voiceEvent(duration: number): Record<string, unknown> {
     return {
@@ -3211,8 +3243,8 @@ describe("chat.session_abandoned (idle sweep — COUNTS ONLY, no transcript)", (
 });
 
 describe("registry", () => {
-  it("exposes all 242 event names (179 prior + the two trade-form offer steps + Layer A + resume.edited + resume-identity + resume-autofill + profile.viewed_v2 + E0's relay trio + the C-2 consent exit + the ADR-0043 resume-update answer + its erasure backfill + the four tiered-profiling events + the ADR-0044 companion turn + the five ADR-0045 general-road events + the #1318 safe-field resume.edited_v2 + the #1801 resume.skin_changed + the #1800 profile.qr_scanned + the four ADR-0046 companion-v2 Phase 1 events + the ADR-0046 P2 faltu strike + the ADR-0046 P3 career answer + the E4 match-skill wants event + the ADR-0048 identity-intake step + the six TD150/WP8 companion versions + the two ADR-0051 free-chat events + the ADR-0050 job_posting.twin_synced + the ADR-0051 Release 2 summary fold + the ADR-0054 live-news request + the 2026-10-07 payer.applicant_stage_changed + the ADR-0051 §11 reply-language change + the ADR-0055 companion turn v4 + the #2297 companion summary fold + the ADR-0057 turn understood + its three edit-gate events + the #2409 typed-answer review + the two Middle-Way optional-depth offer steps + the 2026-11-03 payer.candidate_search_performed + the #2541 consent.age_declared + the 2026-11-04 consent.purposes_granted + the ADR-0062 admin.candidate_viewed)", () => {
-    expect(EVENT_NAMES).toHaveLength(242);
+  it("exposes all 243 event names (179 prior + the two trade-form offer steps + Layer A + resume.edited + resume-identity + resume-autofill + profile.viewed_v2 + E0's relay trio + the C-2 consent exit + the ADR-0043 resume-update answer + its erasure backfill + the four tiered-profiling events + the ADR-0044 companion turn + the five ADR-0045 general-road events + the #1318 safe-field resume.edited_v2 + the #1801 resume.skin_changed + the #1800 profile.qr_scanned + the four ADR-0046 companion-v2 Phase 1 events + the ADR-0046 P2 faltu strike + the ADR-0046 P3 career answer + the E4 match-skill wants event + the ADR-0048 identity-intake step + the six TD150/WP8 companion versions + the two ADR-0051 free-chat events + the ADR-0050 job_posting.twin_synced + the ADR-0051 Release 2 summary fold + the ADR-0054 live-news request + the 2026-10-07 payer.applicant_stage_changed + the ADR-0051 §11 reply-language change + the ADR-0055 companion turn v4 + the #2297 companion summary fold + the ADR-0057 turn understood + its three edit-gate events + the #2409 typed-answer review + the two Middle-Way optional-depth offer steps + the 2026-11-03 payer.candidate_search_performed + the #2541 consent.age_declared + the 2026-11-04 consent.purposes_granted + the #2635 job_posting.match_skills_scoped + the ADR-0062 admin.candidate_viewed)", () => {
+    expect(EVENT_NAMES).toHaveLength(243);
     // ADR-0062 §3.9 (#2560) — an admin opened one candidate's full-detail record (a new name).
     expect(isEventName("admin.candidate_viewed")).toBe(true);
     // #2541 — the sign-up 18+ answer (a new name; consent.accepted v1 not mutated).
@@ -3362,6 +3394,8 @@ describe("registry", () => {
     expect(isEventName("worker.match_skill_wants_set")).toBe(true);
     expect(isEventName("job_posting.reach_materialized")).toBe(true);
     expect(isEventName("job_posting.reach_alert")).toBe(true);
+    // #2635 — the server dropped requested skills a 16-trade job's trade does not own.
+    expect(isEventName("job_posting.match_skills_scoped")).toBe(true);
     expect(isEventName("job_posting.reach_widened")).toBe(true);
     expect(isEventName("job_posting.boost_refused")).toBe(true);
     expect(isEventName("payer.credits_exhausted")).toBe(true);

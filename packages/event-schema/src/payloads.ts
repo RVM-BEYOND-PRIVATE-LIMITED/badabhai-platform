@@ -3628,6 +3628,32 @@ export const JobPostingReachAlertPayload = z
 export type JobPostingReachAlertPayload = z.infer<typeof JobPostingReachAlertPayload>;
 
 /**
+ * #2635 — matching runs only for the 16 postable trades. The server SCOPED a 16-trade job's
+ * requested match skills to that trade: it kept the trade's own skill plus every requested id
+ * the trade owns, and DROPPED the rest (a Welder job asking for CNC grinding, a Grinding job
+ * asking for delivery riders). Emitted ONLY when something was dropped, on the write that
+ * dropped it — so the audit trail records every time the server overrode a company's ask.
+ *
+ * IDS ONLY — closed-vocabulary `mskill_*` ids and the role slug; no org label, no title.
+ */
+export const JobPostingMatchSkillsScopedPayload = z
+  .object({
+    job_posting_id: uuidSchema,
+    /** The posting's trade — always one of the 16 (a non-16 posting is never scoped). */
+    role_kind: z.enum(TRADE_FORM_KINDS_ALL),
+    /** Which write did the scoping. */
+    trigger: z.enum(["create", "publish", "edit", "unpause"]),
+    /** The match set that was stored. Always includes the trade's own skill. */
+    kept_skill_ids: z.array(matchSkillIdSchema).min(1),
+    /** The requested ids the trade does not own. Never empty — no drop, no event. */
+    dropped_skill_ids: z.array(matchSkillIdSchema).min(1),
+  })
+  .strict();
+export type JobPostingMatchSkillsScopedPayload = z.infer<
+  typeof JobPostingMatchSkillsScopedPayload
+>;
+
+/**
  * POLICY 27 — "Ops may widen a reach set, never narrow one. Expiring, audited, evented."
  * This is the EVENTED half; the audited half is the ops actor on the envelope.
  *

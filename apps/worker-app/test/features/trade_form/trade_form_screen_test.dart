@@ -75,21 +75,23 @@ QuestionnaireBottomBar _bottomBar(WidgetTester tester) =>
 FormProgressStrip _progressStrip(WidgetTester tester) =>
     tester.widget<FormProgressStrip>(find.byType(FormProgressStrip));
 
-/// The preferences marker is SIX internal pages (languages / documents /
-/// shift / jobType / cities / relocate+accommodation+salary —
+/// The preferences marker is SEVEN internal pages on the first pass
+/// (languages / documents / shift / jobType / cities / availability (#2642) /
+/// relocate+accommodation+salary —
 /// languages+documents was its own further split so a worker never faces
 /// more than one question group at a time), each walked via its own "Aage
 /// badhein" tap; only the LAST tap (on the last internal page) actually
 /// calls `TradeFormCubit.savePreferencesAndAdvance` and moves the OUTER
 /// walk. Every test that used to reach/save the preferences marker in one
-/// tap drives all six here instead of duplicating this sequence.
+/// tap drives all seven here instead of duplicating this sequence. (An
+/// eighth, the notice period, appears only after "Serving notice".)
 ///
 /// USED TO be nine pages (credential / council / kis saal poora hua +
 /// institute) — dropped because they duplicated the SAME "ITI ya Diploma?"
 /// ask the `qualifications` marker's education entries already own; see
 /// `TradeFormPreferencesPageState.pageCount`'s own doc.
 Future<void> _walkThroughPreferencesPages(WidgetTester tester) async {
-  for (int i = 0; i < 6; i++) {
+  for (int i = 0; i < 7; i++) {
     await tester.ensureVisible(find.text('Aage badhein'));
     await tester.tap(find.text('Aage badhein'));
     await tester.pumpAndSettle();
@@ -1209,7 +1211,7 @@ void main() {
       expect(_progressStrip(tester).position, 3);
       expect(_progressStrip(tester).total, 4);
 
-      for (int i = 0; i < 5; i++) {
+      for (int i = 0; i < 6; i++) {
         await tester.ensureVisible(find.text('Aage badhein'));
         await tester.tap(find.text('Aage badhein'));
         await tester.pumpAndSettle();
@@ -1915,7 +1917,13 @@ void main() {
       await tester.tap(find.text('Aage badhein'));
       await tester.pumpAndSettle();
 
-      // Page 5 (relocate + accommodation + salary) — the LAST internal page;
+      // Page 5 (availability, #2642) — asked on the first pass, optional.
+      expect(find.text('Kab se available hain?'), findsOneWidget);
+      await tester.ensureVisible(find.text('Aage badhein'));
+      await tester.tap(find.text('Aage badhein'));
+      await tester.pumpAndSettle();
+
+      // Page 6 (relocate + accommodation + salary) — the LAST internal page;
       // this tap actually saves.
       expect(find.text('Doosre sheher ja sakte hain?'), findsOneWidget);
       await tester.ensureVisible(find.text('Aage badhein'));
@@ -2092,8 +2100,9 @@ void main() {
       expect(find.text('5/5 Sheher Chune'), findsOneWidget);
 
       // Walk to the marker's last internal page and save: page 4 (cities)
-      // -> 5 (relocate) is 1 tap, then one more tap WHILE on page 5 saves.
-      for (int i = 0; i < 2; i++) {
+      // -> 5 (availability, #2642) -> 6 (relocate) is 2 taps, then one more
+      // tap WHILE on page 6 saves.
+      for (int i = 0; i < 3; i++) {
         await tester.ensureVisible(find.text('Aage badhein'));
         await tester.tap(find.text('Aage badhein'));
         await tester.pumpAndSettle();

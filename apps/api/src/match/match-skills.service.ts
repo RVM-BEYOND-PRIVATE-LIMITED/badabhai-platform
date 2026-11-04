@@ -1,11 +1,15 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
 import {
+  POSTING_SCOPE_SKILL_IDS,
   RELATED_MATCH_SKILLS,
+  isInPostingScope,
   isMatchSkillId,
   matchSkillIndustry,
   matchSkillLabel,
   relatedMatchSkills,
+  scopePostingSkills,
   type MatchSkillId,
+  type ScopedPostingSkills,
 } from "@badabhai/taxonomy";
 import { resolveReachSet, type ReachSet } from "@badabhai/match-engine";
 import { MatchConfigService } from "./match-config.service";
@@ -60,6 +64,24 @@ export interface ReachPreviewResponseDto {
   applied_unticked_ids: string[];
   /** `match_config.max_skills_per_posting`, so the form can disable the add button. */
   max_skills_per_posting: number;
+}
+
+/**
+ * A publish-time reach set, plus what scoping removed from the request (#2635). For a posting
+ * outside the 16 trades nothing is scoped and `droppedSkillIds` is always empty.
+ */
+export interface ScopedReachSet extends ReachSet {
+  /** Requested ids the posting's trade does not own — dropped, never rejected. */
+  droppedSkillIds: string[];
+}
+
+/** Which posting a reach set is being resolved for. */
+export interface ResolveForPublishOptions {
+  /**
+   * The posting's `role_kind`. One of the 16 postable trades → the request is scoped to that
+   * trade and related expansion stays inside the 16 (#2635). Anything else → unscoped.
+   */
+  roleKind?: string | null;
 }
 
 /**
@@ -126,15 +148,24 @@ export class MatchSkillsService {
    *
    * Every count is one `COUNT(DISTINCT worker_id) WHERE skill_id = ANY(...) AND wants`,
    * which is exactly the shape of `worker_skill_reach_idx` — index-only, no heap fetch.
+   *
+   * #2635 — this is the COMPANY preview, and a company can publish only a 16-trade job, so its
+   * related expansion always stays inside the 16 (what publish will store). When the form names
+   * its trade (`role_kind`), the posted ids are scoped to that trade too, exactly as publish does.
    */
   async reachPreview(dto: ReachPreviewDto): Promise<ReachPreviewResponseDto> {
     const cfg = await this.config.get();
-    const posted = this.assertPostableSkills(dto.match_skill_ids, cfg.maxSkillsPerPosting);
+    const { posted } = this.checkRequest(
+      dto.match_skill_ids,
+      dto.role_kind,
+      cfg.maxSkillsPerPosting,
+    );
 
     const resolved = resolveReachSet({
       postedSkillIds: posted,
       relatedDefault: cfg.relatedSkillsDefault,
       untickedIds: dto.unticked_related_ids,
+      scopeSkillIds: POSTING_SCOPE_SKILL_IDS,
     });
 
     const unticked = new Set<string>(resolved.appliedUntickedIds);
@@ -148,7 +179,7 @@ export class MatchSkillsService {
         reach_count: await this.repo.countWorkersReachedBy([skillId]),
         related: await Promise.all(
           relatedMatchSkills(skillId)
-            .filter((r) => !resolved.postedSkillIds.includes(r))
+            .filter((r) => !resolved.postedSkillIds.includes(r) && isInPostingScope(r))
             .map(async (relatedId): Promise<RelatedPreviewDto> => ({
               skill_id: relatedId,
               label: matchSkillLabel(relatedId) ?? relatedId,
@@ -180,18 +211,34 @@ export class MatchSkillsService {
   /**
    * Resolve a publish-time reach set. The single place a posting's `reach_skill_ids`
    * is decided, shared by the publish path, the unpause path and the ops widen.
+   *
+   * #2635 — MATCHING RUNS ONLY FOR THE 16 POSTABLE TRADES. When `roleKind` is one of them, the
+   * request is scoped to that trade first (its base skill always, plus every requested id the
+   * trade owns; the rest are DROPPED and returned so the caller can record them) and related
+   * expansion stays inside the 16. Any other posting resolves exactly as before.
+   *
+   * An id outside the closed vocabulary is still a 400 — that is a client bug, not a request
+   * the trade can be scoped against. The skill cap counts what the client asked for (see
+   * {@link checkRequest}).
    */
   async resolveForPublish(
     matchSkillIds: readonly string[],
     untickedIds: readonly string[],
-  ): Promise<ReachSet> {
+    opts: ResolveForPublishOptions = {},
+  ): Promise<ScopedReachSet> {
     const cfg = await this.config.get();
-    const posted = this.assertPostableSkills(matchSkillIds, cfg.maxSkillsPerPosting);
-    return resolveReachSet({
+    const { posted, scoped } = this.checkRequest(
+      matchSkillIds,
+      opts.roleKind,
+      cfg.maxSkillsPerPosting,
+    );
+    const reach = resolveReachSet({
       postedSkillIds: posted,
       relatedDefault: cfg.relatedSkillsDefault,
       untickedIds,
+      ...(scoped ? { scopeSkillIds: POSTING_SCOPE_SKILL_IDS } : {}),
     });
+    return { ...reach, droppedSkillIds: scoped ? [...scoped.dropped] : [] };
   }
 
   /**
@@ -203,16 +250,55 @@ export class MatchSkillsService {
    */
   async validateSelection(matchSkillIds: readonly string[]): Promise<MatchSkillId[]> {
     const cfg = await this.config.get();
+    this.assertKnownSkills(matchSkillIds);
     return this.assertPostableSkills(matchSkillIds, cfg.maxSkillsPerPosting);
   }
 
   /**
-   * Closed-set + cap check. REJECTS an oversized list rather than truncating it:
-   * `packages/match-engine` deliberately leaves the cap to the API (`// integration:`
-   * in `reach.ts`) precisely so the refusal is an explicit 400 a payer can see, not a
-   * silent drop of a skill they typed.
+   * #2635 — the ONE request check the preview and publish both run, in this order:
+   *  1. closed-set on the RAW ids — an unknown id is a 400, never silently scoped away;
+   *  2. for a 16-trade posting, scope to the trade (base skill kept, off-trade ids dropped);
+   *  3. the cap. It counts what the CLIENT asked for: the base skill the server adds on its
+   *     own never pushes a request over it, so a legacy client sending three welding skills
+   *     for a Welder job is not refused for a skill it did not send.
    */
-  private assertPostableSkills(ids: readonly string[], maxSkills: number): MatchSkillId[] {
+  private checkRequest(
+    ids: readonly string[],
+    roleKind: string | null | undefined,
+    maxSkills: number,
+  ): { posted: MatchSkillId[]; scoped: ScopedPostingSkills | undefined } {
+    this.assertKnownSkills(ids);
+    const scoped = scopePostingSkills(roleKind, ids);
+    if (scoped === undefined) return { posted: this.assertPostableSkills(ids, maxSkills), scoped };
+    const serverAdded = ids.includes(scoped.kept[0]!) ? 0 : 1;
+    return { posted: this.assertPostableSkills(scoped.kept, maxSkills, serverAdded), scoped };
+  }
+
+  /**
+   * Non-empty + cap check over closed-set ids. REJECTS an oversized list rather than
+   * truncating it: `packages/match-engine` deliberately leaves the cap to the API
+   * (`// integration:` in `reach.ts`) precisely so the refusal is an explicit 400 a payer
+   * can see, not a silent drop of a skill they typed. `serverAdded` ids (the trade's base
+   * skill, #2635) are in the list but not counted against the cap.
+   */
+  private assertPostableSkills(
+    ids: readonly string[],
+    maxSkills: number,
+    serverAdded = 0,
+  ): MatchSkillId[] {
+    const unique = [...new Set(ids)] as MatchSkillId[];
+    if (unique.length === 0) {
+      throw new BadRequestException("at least one match skill is required");
+    }
+    const asked = unique.length - serverAdded;
+    if (asked > maxSkills) {
+      throw new BadRequestException(`a posting may name at most ${maxSkills} skills (got ${asked})`);
+    }
+    return unique;
+  }
+
+  /** 400 on any id outside the closed `mskill_*` vocabulary. */
+  private assertKnownSkills(ids: readonly string[]): void {
     const unknown = ids.filter((id) => !isMatchSkillId(id));
     if (unknown.length > 0) {
       // Names the ids, not a count: they are public closed-set values, and an opaque
@@ -220,15 +306,5 @@ export class MatchSkillsService {
       // input is regex-constrained to `mskill_[a-z0-9_]+` by the DTO.
       throw new BadRequestException(`unknown match skill id(s): ${unknown.join(", ")}`);
     }
-    const unique = [...new Set(ids)] as MatchSkillId[];
-    if (unique.length === 0) {
-      throw new BadRequestException("at least one match skill is required");
-    }
-    if (unique.length > maxSkills) {
-      throw new BadRequestException(
-        `a posting may name at most ${maxSkills} skills (got ${unique.length})`,
-      );
-    }
-    return unique;
   }
 }

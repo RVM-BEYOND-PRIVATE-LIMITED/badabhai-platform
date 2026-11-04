@@ -94,6 +94,22 @@ describe("ReachPreviewSchema — the posting form's request", () => {
         .success,
     ).toBe(false);
   });
+
+  it("#2635 — takes the form's trade as an OPTIONAL, additive field", () => {
+    expect(ReachPreviewSchema.parse({ match_skill_ids: [VMC] }).role_kind).toBeUndefined();
+    expect(
+      ReachPreviewSchema.parse({ match_skill_ids: [VMC], role_kind: "vmc_milling" }).role_kind,
+    ).toBe("vmc_milling");
+    expect(ReachPreviewSchema.parse({ match_skill_ids: [VMC], role_kind: null }).role_kind).toBe(
+      null,
+    );
+  });
+
+  it("#2635 — rejects a role outside the declared vocabulary", () => {
+    expect(
+      ReachPreviewSchema.safeParse({ match_skill_ids: [VMC], role_kind: "astronaut" }).success,
+    ).toBe(false);
+  });
 });
 
 describe("MatchPublishFieldsSchema — the publish half", () => {
