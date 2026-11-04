@@ -210,6 +210,19 @@ describe("the Kind filter (A6)", () => {
       expect(await render({ kind })).toContain('<h1 class="page__title">Companies</h1>');
     }
   });
+
+  it.each(VIEWS)("%s: only the All view names each row's kind, in a Kind column", async (n, kind) => {
+    // A filtered view has one kind, which its header already says; All mixes the two.
+    stub.page = { items: [NAMED, { ...NAMED, id: "x", role: "agent" }], nextCursor: null };
+    expect(columnHeaders(await render({ kind })).includes("Kind")).toBe(n === "all");
+  });
+
+  it.each(VIEWS)("%s: a row opens /companies/<id>, an agency's too", async (_n, kind) => {
+    stub.page = { items: [{ ...NAMED, role: "agent" }], nextCursor: null };
+    const out = await render({ kind });
+    expect(out).toContain(`href="/companies/${PAYER_ID}"`);
+    expect(out).not.toContain("/agencies");
+  });
 });
 
 describe("the roster reads the posture off org_name, in every view", () => {

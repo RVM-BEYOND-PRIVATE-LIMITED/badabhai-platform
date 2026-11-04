@@ -239,7 +239,7 @@ describe("a plain click on a cell's text still opens the row", () => {
     const linked = {
       ...PROPS,
       linkColumn: "a",
-      rows: [{ ...PROPS.rows[0]!, href: "/workers/1", name: "one" }],
+      rows: [{ ...PROPS.rows[0]!, href: "/candidates/1", name: "one" }],
     };
     const tree = harness().render(() => {
       h.refCalls = 0;

@@ -236,6 +236,7 @@ export default async function CompaniesPage({
             payers={page?.items ?? []}
             basePath="/companies"
             posture={posture}
+            kind={kind}
             pager={
               <Pager
                 basePath="/companies"

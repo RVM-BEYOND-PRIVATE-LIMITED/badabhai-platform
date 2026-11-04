@@ -92,7 +92,9 @@ skills are the second of its two tabs (Overview · Match skills, the console's s
 **Companies' Kind filter.** One segmented chip row — All · Companies · Agencies — above the folding
 filter panel, so it stays in view on a phone. `?kind=company|agency` sets the `role` that
 `GET /admin/payers` takes; an unknown kind is never sent and reads as All. Status keeps the kind, a
-chip keeps the status (and drops the page cursor), and Clear filters clears both.
+chip keeps the status (and drops the page cursor), and Clear filters clears both. The All view's
+grid carries a Kind column (Company · Agency, off each row's own role); a filtered view has one
+kind, which its header says, so it has none. All three views share one set of column choices.
 
 ### Redirects (old addresses)
 
