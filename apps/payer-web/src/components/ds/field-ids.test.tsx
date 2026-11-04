@@ -23,9 +23,17 @@ function Form() {
   );
 }
 
-/** Every `attr="value"` in the markup, in document order. */
-const values = (out: string, attr: string) =>
-  Array.from(out.matchAll(new RegExp(`\\s${attr}="([^"]+)"`, "g")), (m) => m[1]!);
+/**
+ * Every `attr="value"` in the markup, in document order. One literal pattern per attribute:
+ * a RegExp built from a string is flagged by the SAST gate even in a test.
+ */
+const ATTR_PATTERNS = {
+  id: /\sid="([^"]+)"/g,
+  for: /\sfor="([^"]+)"/g,
+  "aria-describedby": /\saria-describedby="([^"]+)"/g,
+} as const;
+const values = (out: string, attr: keyof typeof ATTR_PATTERNS) =>
+  Array.from(out.matchAll(ATTR_PATTERNS[attr]), (m) => m[1]!);
 
 describe("DS fields — an auto id is stable across renders and shared by its parts", () => {
   it("the same form renders the SAME ids twice (a second request; a hydration)", () => {
