@@ -4,7 +4,9 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/di/locator.dart';
 import '../../../core/theme/onboarding_theme.dart';
+import '../../../core/widgets/bb_alert_dialog.dart';
 import '../../../core/widgets/kit/kit_docked_bar.dart';
+import '../../../core/widgets/kit/kit_select_chip.dart';
 import '../../../core/widgets/onboarding/onboarding_body.dart';
 import '../../../core/widgets/onboarding/primary_action_button.dart';
 import '../../../router.dart';
@@ -82,6 +84,12 @@ class _ConsentView extends StatelessWidget {
       },
       builder: (BuildContext context, ConsentState state) {
         final ConsentCubit cubit = context.read<ConsentCubit>();
+        // TERMINAL under-18 screen. No retry: the server wrote no consent and
+        // answering again cannot change the declaration. Acknowledging clears
+        // the local session and lands on phone login.
+        if (state.status == ConsentStatus.ageBlocked) {
+          return _AgeBlockedView(onAcknowledge: cubit.acknowledgeAgeBlock);
+        }
         // BACK BUTTON: none on the onboarding path — consent is a gate you pass
         // through once (#381). It appears ONLY on the pushed recovery path
         // ([ConsentReturnIntent]), where the worker must be able to decline and
@@ -108,6 +116,12 @@ class _ConsentView extends StatelessWidget {
                         _NoticeCard(
                           accepted: state.accepted,
                           onAcceptedChanged: cubit.setAccepted,
+                        ),
+                        const SizedBox(height: 12),
+                        _AgeGateCard(
+                          answer: state.age18Plus,
+                          onAnswer: (bool value) =>
+                              _answerAge(context, cubit, value),
                         ),
                         // Honest failure text — say what happened, in red,
                         // instead of a silently un-pressed button.
@@ -147,7 +161,7 @@ class _ConsentView extends StatelessWidget {
                 child: PrimaryActionButton(
                   label: 'Aage Badhein',
                   isLoading: state.isSubmitting,
-                  // Still gated on the explicit tick — see [_NoticeCard].
+                  // Gated on the explicit tick AND a yes/no age answer.
                   onPressed: state.canSubmit ? cubit.submit : null,
                 ),
               ),
@@ -155,6 +169,136 @@ class _ConsentView extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+}
+
+/// Records the age answer. A "Nahi" tap is confirmed first, so a mis-tap can
+/// never put the worker on the terminal under-18 path.
+Future<void> _answerAge(
+  BuildContext context,
+  ConsentCubit cubit,
+  bool value,
+) async {
+  if (value) {
+    cubit.setAge18Plus(true);
+    return;
+  }
+  if (cubit.state.age18Plus == false) return;
+  final bool confirmed = await showBbConfirm(
+    context,
+    title: 'Pakka?',
+    message: 'Pakka? 18 saal se kam hone par abhi profile nahi ban sakti.',
+    confirmLabel: 'Haan',
+    cancelLabel: 'Nahi',
+    destructive: true,
+  );
+  if (confirmed) cubit.setAge18Plus(false);
+}
+
+/// The sign-up age gate: one yes/no question, two chips, no birth year or DOB.
+///
+/// Every NEW consent is asked (owner ruling 2026-11-04) — onboarding and the
+/// pushed consent after a withdrawal — because the trade is only picked later
+/// and DPDP's minors rule does not depend on it.
+class _AgeGateCard extends StatelessWidget {
+  const _AgeGateCard({required this.answer, required this.onAnswer});
+
+  final bool? answer;
+  final ValueChanged<bool> onAnswer;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: OnboardingColors.paperWhite,
+        borderRadius: BorderRadius.circular(OnboardingRadii.card),
+        border: Border.all(color: OnboardingColors.borderSubtle),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text(
+            'Kya aapki umar 18 saal ya usse zyada hai?',
+            style: OnboardingTypography.questionHeadline(
+              color: OnboardingColors.shiftBlue,
+            ),
+          ),
+          const SizedBox(height: 14),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: <Widget>[
+              KitSelectChip(
+                label: 'Haan, 18+ hoon',
+                selected: answer == true,
+                onTap: () => onAnswer(true),
+              ),
+              KitSelectChip(
+                label: 'Nahi',
+                selected: answer == false,
+                onTap: () => onAnswer(false),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The terminal under-18 screen. No retry — the declaration is final for this
+/// sign-up. The single acknowledge clears the local session and returns to
+/// phone login.
+class _AgeBlockedView extends StatelessWidget {
+  const _AgeBlockedView({required this.onAcknowledge});
+
+  final VoidCallback onAcknowledge;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: OnboardingColors.canvasBg,
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              const Icon(
+                Icons.lock_clock_rounded,
+                size: 64,
+                color: OnboardingColors.shiftBlue,
+              ),
+              const SizedBox(height: 24),
+              Text(
+                '18 saal ke baad aana',
+                textAlign: TextAlign.center,
+                style: OnboardingTypography.anek(
+                  size: 26,
+                  weight: FontWeight.w800,
+                  color: OnboardingColors.shiftBlue,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'Abhi profile nahi ban sakti. 18 saal poore hone par dobara '
+                'sign in karein.',
+                textAlign: TextAlign.center,
+                style: OnboardingTypography.inter(
+                  size: 15,
+                  height: 1.45,
+                  color: OnboardingColors.ink600,
+                ),
+              ),
+              const SizedBox(height: 32),
+              PrimaryActionButton(label: 'Theek hai', onPressed: onAcknowledge),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

@@ -37,12 +37,14 @@ void main() {
     final ConsentRepositoryImpl repo =
         ConsentRepositoryImpl(api, _session(), store);
 
-    await repo.acceptConsent(purposes: <String>['profiling']);
+    await repo.acceptConsent(purposes: <String>['profiling'], age18Plus: true);
     await _flush();
 
-    // Consent was posted first...
-    expect(requests.any((http.Request r) => r.url.path == '/consent/accept'),
-        isTrue);
+    // Consent was posted first, carrying the age answer as a real JSON bool...
+    final http.Request consent =
+        requests.firstWhere((http.Request r) => r.url.path == '/consent/accept');
+    expect(jsonDecode(consent.body), containsPair('age_18_plus', true));
+    expect(jsonDecode(consent.body)['age_18_plus'], isA<bool>());
     // ...then the attribution, with the bearer + opaque code.
     final http.Request attr =
         requests.firstWhere((http.Request r) => r.url.path == '/referrals/attribute');
@@ -65,7 +67,7 @@ void main() {
     final ConsentRepositoryImpl repo = ConsentRepositoryImpl(
         api, _session(), InMemoryPendingReferralStore());
 
-    await repo.acceptConsent(purposes: <String>['profiling']);
+    await repo.acceptConsent(purposes: <String>['profiling'], age18Plus: true);
     await _flush();
 
     expect(requests.any((http.Request r) => r.url.path == '/referrals/attribute'),
@@ -90,7 +92,7 @@ void main() {
 
     // acceptConsent must NOT throw even though attribution 403s.
     await expectLater(
-      repo.acceptConsent(purposes: <String>['profiling']),
+      repo.acceptConsent(purposes: <String>['profiling'], age18Plus: true),
       completes,
     );
     await _flush();
@@ -106,7 +108,7 @@ void main() {
     final ConsentRepositoryImpl repo = ConsentRepositoryImpl(api, _session());
 
     await expectLater(
-      repo.acceptConsent(purposes: <String>['profiling']),
+      repo.acceptConsent(purposes: <String>['profiling'], age18Plus: true),
       completes,
     );
   });
@@ -120,8 +122,72 @@ void main() {
     final ConsentRepositoryImpl repo =
         ConsentRepositoryImpl(api, session, InMemoryPendingReferralStore());
 
-    expect(repo.acceptConsent(purposes: <String>['profiling']),
+    expect(repo.acceptConsent(purposes: <String>['profiling'], age18Plus: true),
         throwsA(isA<UnauthorizedFailure>()));
+  });
+
+  test('sends age_18_plus: false as a JSON boolean (never a string)', () async {
+    final List<http.Request> requests = <http.Request>[];
+    final ApiClient api = ApiClient(
+      baseUrl: 'http://test',
+      client: MockClient((http.Request req) async {
+        requests.add(req);
+        return http.Response(jsonEncode(<String, dynamic>{'ok': true}), 200);
+      }),
+    );
+    final ConsentRepositoryImpl repo = ConsentRepositoryImpl(api, _session());
+
+    await repo.acceptConsent(purposes: <String>['profiling'], age18Plus: false);
+    await _flush();
+
+    final dynamic body = jsonDecode(
+        requests.singleWhere((r) => r.url.path == '/consent/accept').body);
+    expect(body['age_18_plus'], false);
+    expect(body['age_18_plus'], isA<bool>());
+  });
+
+  test('403 AGE_BELOW_MINIMUM -> AgeBelowMinimumFailure', () {
+    final ApiClient api = ApiClient(
+      baseUrl: 'http://test',
+      client: MockClient((http.Request req) async => http.Response(
+            jsonEncode(<String, dynamic>{
+              'statusCode': 403,
+              'error': <String, dynamic>{
+                'code': 'AGE_BELOW_MINIMUM',
+                'message': 'Sign-up requires 18+.',
+              },
+            }),
+            403,
+          )),
+    );
+    final ConsentRepositoryImpl repo = ConsentRepositoryImpl(api, _session());
+
+    expect(
+      repo.acceptConsent(purposes: <String>['profiling'], age18Plus: false),
+      throwsA(isA<AgeBelowMinimumFailure>()),
+    );
+  });
+
+  test('400 AGE_CONFIRMATION_REQUIRED -> AgeConfirmationRequiredFailure', () {
+    final ApiClient api = ApiClient(
+      baseUrl: 'http://test',
+      client: MockClient((http.Request req) async => http.Response(
+            jsonEncode(<String, dynamic>{
+              'statusCode': 400,
+              'error': <String, dynamic>{
+                'code': 'AGE_CONFIRMATION_REQUIRED',
+                'message': 'Age confirmation is required.',
+              },
+            }),
+            400,
+          )),
+    );
+    final ConsentRepositoryImpl repo = ConsentRepositoryImpl(api, _session());
+
+    expect(
+      repo.acceptConsent(purposes: <String>['profiling'], age18Plus: true),
+      throwsA(isA<AgeConfirmationRequiredFailure>()),
+    );
   });
 
   group('withdrawConsent', () {

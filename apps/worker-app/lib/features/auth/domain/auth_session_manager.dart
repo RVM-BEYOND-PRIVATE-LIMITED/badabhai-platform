@@ -856,6 +856,15 @@ class AuthSessionManager extends ChangeNotifier {
     await _wipeAndLogOut();
   }
 
+  /// LOCAL-ONLY sign-out for a session the server has already made useless.
+  ///
+  /// Today that is the under-18 sign-up: the server wrote no consent and
+  /// deliberately did NOT revoke sessions (a minor must not get a
+  /// "logged out everywhere" push), so there is nothing to revoke — only
+  /// device state to clear. Wipes tokens + PIN unlock state and flips to
+  /// [AuthStatus.loggedOut], which the router turns into phone login.
+  Future<void> discardSession() => _wipeAndLogOut();
+
   /// "Log out of ALL devices" (the stolen/lost-handset panic button). Revokes
   /// every session server-side (POST /auth/logout-all) — which INCLUDES this
   /// device (session.service.ts:revokeAll) and every device's push token

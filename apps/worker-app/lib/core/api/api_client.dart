@@ -263,6 +263,7 @@ class ApiClient {
   Future<void> acceptConsent({
     required String authToken,
     required List<String> purposes,
+    required bool age18Plus,
     String consentVersion = kConsentVersion,
   }) async {
     await _post(
@@ -270,6 +271,10 @@ class ApiClient {
       <String, dynamic>{
         'consent_version': consentVersion,
         'purposes': purposes,
+        // Sign-up age gate (owner ruling 2026-11-04): a real JSON boolean,
+        // never the string "true"/"false". The server treats `false` as a
+        // terminal answer (403 AGE_BELOW_MINIMUM, no consent row).
+        'age_18_plus': age18Plus,
       },
       authToken: authToken,
     );

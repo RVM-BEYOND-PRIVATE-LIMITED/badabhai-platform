@@ -32,6 +32,7 @@ class MockApiClient extends ApiClient {
   Future<void> acceptConsent({
     required String authToken,
     required List<String> purposes,
+    required bool age18Plus,
     String consentVersion = kConsentVersion,
   }) async {
     await _delay();

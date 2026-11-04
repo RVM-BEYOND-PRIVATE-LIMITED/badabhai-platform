@@ -18,23 +18,33 @@ import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
 import 'package:badabhai_worker_app/core/di/locator.dart';
+import 'package:badabhai_worker_app/core/error/failure.dart';
 import 'package:badabhai_worker_app/core/theme/app_theme.dart';
+import 'package:badabhai_worker_app/features/auth/domain/auth_session_manager.dart';
 import 'package:badabhai_worker_app/features/consent/domain/consent_repository.dart';
 import 'package:badabhai_worker_app/features/consent/presentation/consent_screen.dart';
 import 'package:badabhai_worker_app/features/consent/presentation/cubit/consent_cubit.dart';
 
 class _MockConsentRepository extends Mock implements ConsentRepository {}
 
+class _MockAuthSessionManager extends Mock implements AuthSessionManager {}
+
 void main() {
   late _MockConsentRepository repo;
 
-  setUpAll(() => registerFallbackValue(const <String>[]));
+  setUpAll(() {
+    registerFallbackValue(const <String>[]);
+    registerFallbackValue(false);
+  });
 
   setUp(() async {
     await locator.reset();
     repo = _MockConsentRepository();
     when(
-      () => repo.acceptConsent(purposes: any(named: 'purposes')),
+      () => repo.acceptConsent(
+        purposes: any(named: 'purposes'),
+        age18Plus: any(named: 'age18Plus'),
+      ),
     ).thenAnswer((_) async {});
     locator.registerFactory<ConsentCubit>(() => ConsentCubit(repo));
   });
@@ -98,10 +108,23 @@ void main() {
     return router;
   }
 
-  Future<void> agreeAndContinue(WidgetTester tester) async {
+  Future<void> agreeAndContinue(
+    WidgetTester tester, {
+    bool over18 = true,
+  }) async {
     // The DPDP voice notice (#1270) is long enough that the checkbox now sits
     // below the fold on the test surface — scroll it into view first, exactly
     // what a real worker does before ticking it.
+    await tester.ensureVisible(find.text('Haan, 18+ hoon'));
+    await tester.pumpAndSettle();
+    if (over18) {
+      await tester.tap(find.text('Haan, 18+ hoon'));
+    } else {
+      await tester.tap(find.text('Nahi'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Haan').last);
+    }
+    await tester.pump();
     await tester.ensureVisible(find.byType(Checkbox));
     await tester.pumpAndSettle();
     await tester.tap(find.byType(Checkbox));
@@ -131,10 +154,16 @@ void main() {
       // (the chat asks instead) and the upload comes from the chat's own
       // resume chips, not from this handover.
       expect(find.text('CHAT STEP'), findsOneWidget);
-      expect(find.text('NAME STEP'), findsNothing,
-          reason: 'the name form is retired — the chat asks instead');
-      expect(find.text('UPLOAD STEP'), findsNothing,
-          reason: 'the upload is offered inside the chat now, not here');
+      expect(
+        find.text('NAME STEP'),
+        findsNothing,
+        reason: 'the name form is retired — the chat asks instead',
+      );
+      expect(
+        find.text('UPLOAD STEP'),
+        findsNothing,
+        reason: 'the upload is offered inside the chat now, not here',
+      );
       verify(
         () => repo.acceptConsent(
           purposes: <String>[
@@ -142,6 +171,7 @@ void main() {
             'resume_generation',
             'voice_processing',
           ],
+          age18Plus: true,
         ),
       ).called(1);
     });
@@ -172,7 +202,10 @@ void main() {
           expect(find.text('YOUR PRIVACY'), findsNothing);
           // Backing out is not consent. Nothing may be written on the way out.
           verifyNever(
-            () => repo.acceptConsent(purposes: any(named: 'purposes')),
+            () => repo.acceptConsent(
+              purposes: any(named: 'purposes'),
+              age18Plus: any(named: 'age18Plus'),
+            ),
           );
         },
       );
@@ -192,6 +225,7 @@ void main() {
               'resume_generation',
               'voice_processing',
             ],
+            age18Plus: true,
           ),
         ).called(1);
         expect(
@@ -205,4 +239,105 @@ void main() {
       });
     },
   );
+
+  group('the 18+ age question gates every new consent', () {
+    testWidgets('cannot continue with only the DPDP tick', (
+      WidgetTester tester,
+    ) async {
+      await pump(tester, recovery: false);
+
+      await tester.ensureVisible(find.byType(Checkbox));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byType(Checkbox));
+      await tester.pump();
+
+      await tester.ensureVisible(find.text('Aage Badhein'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Aage Badhein'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('CHAT STEP'), findsNothing);
+      verifyNever(
+        () => repo.acceptConsent(
+          purposes: any(named: 'purposes'),
+          age18Plus: any(named: 'age18Plus'),
+        ),
+      );
+    });
+
+    testWidgets('"Nahi" asks for confirmation first', (
+      WidgetTester tester,
+    ) async {
+      await pump(tester, recovery: false);
+
+      await tester.ensureVisible(find.text('Nahi'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Nahi'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Pakka?'), findsOneWidget);
+      expect(
+        find.text(
+          'Pakka? 18 saal se kam hone par abhi profile nahi ban sakti.',
+        ),
+        findsOneWidget,
+      );
+
+      // Backing out leaves the answer unset: the gate still holds.
+      await tester.tap(find.text('Nahi').last);
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.byType(Checkbox));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byType(Checkbox));
+      await tester.pump();
+      await tester.ensureVisible(find.text('Aage Badhein'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Aage Badhein'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('CHAT STEP'), findsNothing);
+      verifyNever(
+        () => repo.acceptConsent(
+          purposes: any(named: 'purposes'),
+          age18Plus: any(named: 'age18Plus'),
+        ),
+      );
+    });
+
+    testWidgets(
+      'confirmed under-18 sends false, shows the terminal screen, and discards '
+      'the local session on acknowledge',
+      (WidgetTester tester) async {
+        when(
+          () => repo.acceptConsent(
+            purposes: any(named: 'purposes'),
+            age18Plus: any(named: 'age18Plus'),
+          ),
+        ).thenThrow(const AgeBelowMinimumFailure());
+        final _MockAuthSessionManager auth = _MockAuthSessionManager();
+        when(auth.discardSession).thenAnswer((_) async {});
+        locator.registerSingleton<AuthSessionManager>(auth);
+
+        await pump(tester, recovery: false);
+        await agreeAndContinue(tester, over18: false);
+
+        expect(find.text('18 saal ke baad aana'), findsOneWidget);
+        expect(find.text('Aage Badhein'), findsNothing);
+        verify(
+          () => repo.acceptConsent(
+            purposes: <String>[
+              'profiling',
+              'resume_generation',
+              'voice_processing',
+            ],
+            age18Plus: false,
+          ),
+        ).called(1);
+
+        await tester.tap(find.text('Theek hai'));
+        await tester.pumpAndSettle();
+        verify(() => auth.discardSession()).called(1);
+      },
+    );
+  });
 }

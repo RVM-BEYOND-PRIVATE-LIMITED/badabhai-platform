@@ -19,7 +19,10 @@ class ConsentRepositoryImpl implements ConsentRepository {
   final PendingReferralStore? _pendingReferral;
 
   @override
-  Future<void> acceptConsent({required List<String> purposes}) async {
+  Future<void> acceptConsent({
+    required List<String> purposes,
+    required bool age18Plus,
+  }) async {
     // `POST /consent/accept` is now WORKER-AUTHED and takes the subject from the
     // session, never from the body — consent is the DPDP gate (invariant #6) and
     // a body worker_id on an unguarded route made it forgeable for any worker.
@@ -28,7 +31,11 @@ class ConsentRepositoryImpl implements ConsentRepository {
     // Should never happen after login; fail closed rather than call unauthed.
     if (token == null || token.isEmpty) throw const UnauthorizedFailure();
     try {
-      await _api.acceptConsent(authToken: token, purposes: purposes);
+      await _api.acceptConsent(
+        authToken: token,
+        purposes: purposes,
+        age18Plus: age18Plus,
+      );
     } catch (error) {
       throw mapError(error);
     }
