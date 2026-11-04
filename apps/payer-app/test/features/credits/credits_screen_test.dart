@@ -11,27 +11,18 @@ import 'package:payer_app/features/credits/presentation/credits_screen.dart';
 /// #1200 — the Credits screen is READ-ONLY. The in-app "Buy credits" pack
 /// catalogue + Buy buttons were removed: selling a digital entitlement from
 /// inside a store-distributed app is exactly what App Store / Play Store IAP
-/// policy covers, and the mobile-payments rule bars it outright. What remains is
-/// the server balance + ledger and an external pointer to the payer WEB portal
-/// where the purchase actually happens. These tests pin that no purchase surface
+/// policy covers, and the mobile-payments rule bars it outright. #2589 (owner
+/// ruling 4 Nov 2026) then removed the hidden "Buy credits on web" pointer too:
+/// no payment information of any kind. What remains is the server balance +
+/// ledger, in credits only. These tests pin that no purchase surface or ₹ amount
 /// leaks back in, and that the screen still reports what it must.
 void main() {
-  final List<Uri> launched = <Uri>[];
-
   setUp(() async {
     await GetIt.instance.reset();
     setupLocator(
       apiClient: MockPayerApiClient(),
       secureStore: InMemoryKeyValueStore(),
     );
-    launched.clear();
-    // Capture WHERE the web pointer goes without a platform channel
-    // (`launchUrl` throws MissingPluginException under `flutter test`).
-    creditsExternalUrlLauncher = (Uri url) async {
-      launched.add(url);
-      return true;
-    };
-    addTearDown(() => creditsExternalUrlLauncher = defaultCreditsUrlLauncher);
   });
 
   Future<void> pump(WidgetTester tester) async {
@@ -43,8 +34,8 @@ void main() {
   }
 
   testWidgets(
-      'reports the read-only balance + ledger and points to the web, with NO '
-      'in-app purchase surface', (WidgetTester tester) async {
+      'reports the read-only balance + ledger with NO purchase surface and NO '
+      'web purchase pointer', (WidgetTester tester) async {
     await pump(tester);
 
     // Still does its actual job: the server balance + the credit ledger.
@@ -54,11 +45,9 @@ void main() {
     // ledger' heading mislabelled it; the real per-unlock history is separate.
     expect(find.text('Credit ledger'), findsOneWidget);
 
-    // The "Buy credits on web" pointer is HIDDEN for now (kShowBuyCreditsOnWeb
-    // = false — Play Store anti-steering for virtual currency). Hidden by
-    // Visibility, code kept, so it must not render.
-    expect(find.text(kBuyCreditsOnWebLabel), findsNothing);
-    expect(find.text(kBuyCreditsOnWebNote), findsNothing);
+    // #2589 — the "Buy credits on web" pointer is deleted, not just hidden.
+    expect(find.textContaining('Buy credits on web'), findsNothing);
+    expect(find.textContaining('bought on the BadaBhai website'), findsNothing);
 
     // No purchase surface leaked back in: no 'Buy credits' heading, no pack
     // card (its ₹ price), no Buy button.
@@ -68,15 +57,15 @@ void main() {
   });
 
   testWidgets(
-      'while kShowBuyCreditsOnWeb is off the pointer is hidden — nothing to tap, '
-      'no URL launched', (WidgetTester tester) async {
+      '#2589 — the credit history shows credits only (signed counts), never a '
+      '₹ amount', (WidgetTester tester) async {
     await pump(tester);
 
-    // Hidden by Visibility → not in the render tree, so it cannot be tapped and
-    // the external launcher is never invoked. (Re-enable the flag to restore the
-    // https-hand-off behaviour this used to assert; the launcher code is kept.)
-    expect(find.text(kBuyCreditsOnWebLabel), findsNothing);
-    expect(launched, isEmpty);
+    // The mock ledger: a +200 pack grant and −1 unlock debits — credit counts.
+    expect(find.text('+200'), findsWidgets);
+    expect(find.text('−1'), findsWidgets);
+    expect(find.textContaining('₹'), findsNothing);
+    expect(find.textContaining('INR'), findsNothing);
   });
 
   testWidgets('still shows the per-unlock history further down', (

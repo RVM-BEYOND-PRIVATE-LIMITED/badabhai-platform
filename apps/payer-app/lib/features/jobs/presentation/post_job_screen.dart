@@ -1500,20 +1500,9 @@ class _PostJobScreenState extends State<PostJobScreen> {
             ],
           ),
         ),
-        const SizedBox(height: AppSpacing.s4),
-        // #357 — this was a live-looking 'Boost this posting' toggle that the
-        // create call never read. Boost really is a separate paid action
-        // (`POST /payer/job-postings/:id/boost`) on an existing posting, so we
-        // say where it lives instead of faking a switch here.
-        Text(
-          'Boost and applicant plans are bought from My jobs once this posting '
-          'is published.',
-          style: AppTypography.body(
-            size: AppTypography.sizeSm,
-            color: AppColors.textMuted,
-            height: 1.45,
-          ),
-        ),
+        // #357 removed a fake 'Boost this posting' toggle; #2589 removed the
+        // line that pointed to buying boosts / plans — no payment information
+        // of any kind in the app (those live on payer-web only).
       ];
 
   /// The COMPANY skills area, branched on Matching-V1 availability:

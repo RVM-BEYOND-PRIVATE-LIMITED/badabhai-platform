@@ -5,9 +5,13 @@ import '../theme/app_spacing.dart';
 import '../theme/app_typography.dart';
 import 'bb_button.dart';
 
+/// The unlock CTA label on every candidate card — the spend in CREDITS, never a
+/// ₹ price (#2589: no payment information of any kind in the app).
+const String kUnlockCreditLabel = '1 credit';
+
 /// The unlock confirmation — `.bb-dialog` over a scrim. Names the candidate
-/// (their redacted feed name), states the spend ("1 credit (₹40) used —
-/// N left after"), and carries the deep-blue fair-use note. Confirm returns `true`.
+/// (their redacted feed name), states the spend in credits only ("1 credit
+/// will be used — N left after"; no ₹ amount, #2589), and carries the deep-blue fair-use note. Confirm returns `true`.
 ///
 /// The redacted name is passed in (the dialog never receives the real name);
 /// the fair-use note states the unlock NEVER changes a worker's ranking.
@@ -80,7 +84,7 @@ class _UnlockDialog extends StatelessWidget {
                     ),
                     const TextSpan(text: "'s real name and phone number. "),
                     TextSpan(
-                      text: '1 credit (₹40)',
+                      text: kUnlockCreditLabel,
                       style: AppTypography.body(
                         size: AppTypography.sizeBase,
                         weight: FontWeight.w700,
@@ -128,7 +132,7 @@ class _UnlockDialog extends StatelessWidget {
               ),
               const SizedBox(height: AppSpacing.s5),
               BbButton(
-                label: 'Unlock for ₹40',
+                label: 'Unlock for $kUnlockCreditLabel',
                 iconLeft: Icons.lock_open,
                 block: true,
                 onPressed: () => Navigator.of(context).pop(true),

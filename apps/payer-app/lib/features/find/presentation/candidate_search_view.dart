@@ -147,7 +147,7 @@ class CandidateSearchView extends StatelessWidget {
   }
 
   /// The applicant card's unlock flow, unchanged in every step the payer sees:
-  /// the same confirm dialog (1 credit · ₹40 · N left), the same three outcomes
+  /// the same confirm dialog (1 credit · N left), the same three outcomes
   /// (#348 outage → retry toast · neutral deny · grant → balance re-read →
   /// reveal), and never a fabricated reason.
   Future<void> _unlock(BuildContext context, CandidateSearchRow row) async {

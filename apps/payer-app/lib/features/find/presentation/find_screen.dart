@@ -36,7 +36,7 @@ export 'widgets/find_view_switch.dart' show FindView;
 ///    mode shows the FACELESS per-job applicant feed: a masked label derived
 ///    from the worker UUID, coarse trade/city/exp chips, a red "Hot" flag on a
 ///    minority, up to two SOFT signal chips (never a number/score), and an
-///    Unlock·₹40 button. No demographics in either.
+///    Unlock·1 credit button. No demographics in either.
 ///
 /// Both views lead to the same unlock and the same reveal ([onReveal]).
 class FindScreen extends StatefulWidget {
@@ -354,7 +354,7 @@ class _FindView extends StatelessWidget {
         // controller/onChanged so typing filtered nothing, and _staticFilters()
         // rendered hardcoded chips — 'Pune · 25 km' and 'Verified' shown as
         // SELECTED — over real applicants. That is a fabricated assertion about
-        // people the payer is about to spend ₹40 to unlock: it claims the list
+        // people the payer is about to spend a credit to unlock: it claims the list
         // is radius-filtered and identity-verified when nothing of the sort ran.
         // A Delhi employer saw "Pune · 25 km". Same call the worker app already
         // made about its own decorative chips ("they could only ever have been
@@ -534,11 +534,14 @@ class _ApplicantCard extends StatelessWidget {
             children: <Widget>[
               if (masked)
                 BbButton(
-                  label: '₹40',
-                  // md (44px) not sm — the ₹40 unlock is the paid CTA and must
+                  // #2589 — credits only, never a ₹ price on the unlock CTA.
+                  // No leading icon: "1 credit" is wider than "₹40", and the
+                  // icon would steal that width from the card body on a narrow
+                  // phone. The confirm dialog keeps the lock icon.
+                  label: kUnlockCreditLabel,
+                  // md (44px) not sm — the unlock is the paid CTA and must
                   // clear the 48px tap floor (#1082).
                   size: BbButtonSize.md,
-                  iconLeft: Icons.lock_open,
                   onPressed: onUnlock,
                 )
               else
@@ -557,7 +560,7 @@ class _ApplicantCard extends StatelessWidget {
 
   /// E18 match-tier chip. When the applicant surfaced via a RELATED skill
   /// (tier 2), the payer opted into breadth and must see PLAINLY that this is a
-  /// related-skill match — "Related to `skill`" — before spending ₹40 to unlock.
+  /// related-skill match — "Related to `skill`" — before spending a credit to unlock.
   /// A direct (tier 1) match gets a quiet positive affordance. Returns null on
   /// legacy / non-V1 rows (no [matchTier]) so those cards render exactly as
   /// before — no chip, no layout change.
@@ -695,11 +698,14 @@ class _CandidateCard extends StatelessWidget {
               ],
               if (masked)
                 BbButton(
-                  label: '₹40',
-                  // md (44px) not sm — the ₹40 unlock is the paid CTA and must
+                  // #2589 — credits only, never a ₹ price on the unlock CTA.
+                  // No leading icon: "1 credit" is wider than "₹40", and the
+                  // icon would steal that width from the card body on a narrow
+                  // phone. The confirm dialog keeps the lock icon.
+                  label: kUnlockCreditLabel,
+                  // md (44px) not sm — the unlock is the paid CTA and must
                   // clear the 48px tap floor (#1082).
                   size: BbButtonSize.md,
-                  iconLeft: Icons.lock_open,
                   onPressed: onUnlock,
                 )
               else

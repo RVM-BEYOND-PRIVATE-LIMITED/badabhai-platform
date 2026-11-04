@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:url_launcher/url_launcher.dart';
 
-import '../../../core/config/app_config.dart';
 import '../../../core/data/job_posting_chat_models.dart';
 import '../../../core/data/models.dart';
 import '../../../core/di/locator.dart';
@@ -22,30 +20,6 @@ import 'agency_jobs_screen.dart';
 import 'cubit/jobs_cubit.dart';
 import 'edit_company_job_screen.dart';
 import 'widgets/trade_posting_fields.dart' show humaniseTradeKey;
-
-/// Opens an external URL. Overridable so widget tests can assert WHERE a link
-/// went without a platform channel (`launchUrl` throws MissingPluginException
-/// under `flutter test`).
-typedef ExternalUrlLauncher = Future<bool> Function(Uri url);
-
-/// Production launcher: hand the url to the OS browser, never an in-app webview
-/// — the payer signs in and pays on the web portal, outside this app.
-Future<bool> defaultExternalUrlLauncher(Uri url) =>
-    launchUrl(url, mode: LaunchMode.externalApplication);
-
-/// The seam a "manage this on the web" link leaves through. Production must
-/// always leave this as [defaultExternalUrlLauncher].
-@visibleForTesting
-ExternalUrlLauncher jobsExternalUrlLauncher = defaultExternalUrlLauncher;
-
-/// Label of the external affordance that REPLACED the in-app purchase actions.
-const String kManagePlanOnWebLabel = 'Manage plan on web';
-
-/// Says the missing capability out loud on the screen, so "where do I buy a
-/// plan?" is answered here instead of read as a bug (the same honesty the
-/// Credits screen already applies to buying credits).
-const String kManagePlanOnWebNote =
-    'Plans, boosts and quota top-ups are managed on the BadaBhai website.';
 
 /// Entry point label for the conversational create path (ADR-0035).
 const String kAiPostLabel = 'Create with AI';
@@ -69,9 +43,9 @@ const String kResumeChatTitle = 'Continue your job posting';
 /// NO MONEY ACTION EXISTS ON THIS SCREEN (owner decision). The one-tap
 /// "Buy plan" / "Boost reach" / "Top up quota" sheet that used to live on the
 /// open/paused cards charged real money from inside a store-distributed app —
-/// exactly what App Store / Play Store IAP policy governs. It is replaced by
-/// [kManagePlanOnWebLabel], an external link to the web portal. The API-client
-/// methods and the backend endpoints are untouched.
+/// exactly what App Store / Play Store IAP policy governs. Its "Manage plan on
+/// web" replacement is gone too (#2589 — no payment information of any kind in
+/// the app); plans, boosts and top-ups live on payer-web only.
 ///
 /// AGENCY DOES NOT GET THE AI PATH: ADR-0035's publish step calls
 /// `JobPostingsService.createForPayer`, which writes a COMPANY `job_postings`
@@ -339,39 +313,6 @@ class _RealJobCard extends StatelessWidget {
     );
   }
 
-  /// Hands the payer to the WEB portal to manage plans / boosts / top-ups.
-  ///
-  /// This REPLACED a one-tap in-app purchase sheet ("Buy plan · Standard",
-  /// "Buy plan · Pro", "Boost reach", "Top up quota") that charged real money
-  /// behind a confirm dialog. Selling a digital entitlement from inside a
-  /// store-distributed app is precisely what the App Store / Play Store IAP
-  /// rules cover, so the app now has zero money-spending actions and points
-  /// outward instead.
-  ///
-  /// Falls back to an honest toast (no dead-end, no fabricated link) when no
-  /// usable web origin is configured or nothing on the device can open it.
-  Future<void> _openPlanOnWeb(BuildContext context) async {
-    final String? base = resolvePayerWebUrl();
-    bool opened = false;
-    if (base != null) {
-      final Uri? url = Uri.tryParse('$base/jobs/${job.id}');
-      if (url != null) {
-        try {
-          opened = await jobsExternalUrlLauncher(url);
-        } catch (_) {
-          opened = false;
-        }
-      }
-    }
-    if (opened || !context.mounted) return;
-    showBbToast(
-      context,
-      title: 'Open on web',
-      message: kManagePlanOnWebNote,
-      icon: Icons.open_in_new,
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final (String label, BbBadgeTone tone) = _pill;
@@ -547,8 +488,6 @@ class _RealJobCard extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: AppSpacing.s2),
-          _manageOnWeb(context),
         ];
       case 'paused':
         return <Widget>[
@@ -561,8 +500,6 @@ class _RealJobCard extends StatelessWidget {
             block: true,
             onPressed: () => _run(context, (JobsCubit c) => c.resume(id)),
           ),
-          const SizedBox(height: AppSpacing.s2),
-          _manageOnWeb(context),
         ];
       default: // closed — terminal, no actions.
         return <Widget>[
@@ -575,32 +512,6 @@ class _RealJobCard extends StatelessWidget {
           ),
         ];
     }
-  }
-
-  /// The external "manage plan on web" affordance + the one-line note that says
-  /// out loud why there is no purchase button here.
-  Widget _manageOnWeb(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        BbButton(
-          label: kManagePlanOnWebLabel,
-          variant: BbButtonVariant.secondary,
-          size: BbButtonSize.sm,
-          iconLeft: Icons.open_in_new,
-          block: true,
-          onPressed: () => _openPlanOnWeb(context),
-        ),
-        const SizedBox(height: AppSpacing.s1),
-        Text(
-          kManagePlanOnWebNote,
-          style: AppTypography.body(
-            size: AppTypography.sizeXs,
-            color: AppColors.textMuted,
-          ),
-        ),
-      ],
-    );
   }
 
   /// The date portion of an ISO timestamp (no intl dep). Falls back to the raw

@@ -17,11 +17,12 @@ import 'package:payer_app/features/jobs/presentation/jobs_screen.dart';
 /// Pro, Boost reach, Top up quota — each charging real money through
 /// `POST /payer/job-postings/:id/{plan,boost,quota-topup}` behind a confirm
 /// dialog. Selling a digital entitlement from inside a store-distributed app is
-/// exactly what App Store / Play Store IAP policy governs, so the app now has
-/// ZERO money-spending actions and links out to the web portal instead.
+/// exactly what App Store / Play Store IAP policy governs, so the app has ZERO
+/// money-spending actions. #2589 (owner ruling 4 Nov 2026) then removed the
+/// "Manage plan on web" pointer too: no payment information of any kind.
 ///
-/// These tests fail against the old screen: the money labels are all present on
-/// an open posting, and there is no external affordance.
+/// These tests fail against either old screen: the money labels, or the web
+/// plan pointer + its note, on an open/paused posting.
 class _JobsApi extends MockPayerApiClient {
   _JobsApi({this.sessions = const <JobPostingChatSessionSummary>[]});
 
@@ -53,7 +54,6 @@ class _JobsApi extends MockPayerApiClient {
 
 void main() {
   late _JobsApi api;
-  final List<Uri> launched = <Uri>[];
   final List<String?> aiOpens = <String?>[];
 
   Future<void> pump(
@@ -63,19 +63,10 @@ void main() {
     bool wireAi = true,
   }) async {
     await GetIt.instance.reset();
-    launched.clear();
     aiOpens.clear();
     api = _JobsApi(sessions: sessions);
     setupLocator(apiClient: api, secureStore: InMemoryKeyValueStore());
     locator<AppSessionCubit>().signIn(PayerRole.company);
-
-    // Capture WHERE an external link goes without a platform channel
-    // (`launchUrl` throws MissingPluginException under `flutter test`).
-    jobsExternalUrlLauncher = (Uri url) async {
-      launched.add(url);
-      return true;
-    };
-    addTearDown(() => jobsExternalUrlLauncher = defaultExternalUrlLauncher);
 
     tester.view.physicalSize = const Size(1000, 2400);
     tester.view.devicePixelRatio = 1.0;
@@ -112,24 +103,18 @@ void main() {
       }
     });
 
-    testWidgets('it offers the external "manage on web" path instead, and says '
-        'out loud why', (WidgetTester tester) async {
+    testWidgets('#2589 — no "Manage plan on web" button or plan/boost note '
+        'on a job card', (WidgetTester tester) async {
       await pump(tester);
 
-      expect(find.text(kManagePlanOnWebLabel), findsOneWidget);
-      expect(find.text(kManagePlanOnWebNote), findsOneWidget);
-    });
-
-    testWidgets('tapping it hands an https web URL to the OS, not an in-app '
-        'purchase', (WidgetTester tester) async {
-      await pump(tester);
-
-      await tester.tap(find.text(kManagePlanOnWebLabel));
-      await tester.pumpAndSettle();
-
-      expect(launched.length, 1);
-      expect(launched.single.scheme, 'https');
-      expect(launched.single.toString(), contains('job-1'));
+      expect(find.textContaining('Manage plan'), findsNothing);
+      expect(find.textContaining('on web'), findsNothing);
+      expect(find.textContaining('quota top-ups'), findsNothing);
+      expect(find.textContaining('BadaBhai website'), findsNothing);
+      expect(find.byIcon(Icons.open_in_new), findsNothing);
+      // The lifecycle actions an open posting legitimately has stay.
+      expect(find.text('Pause'), findsOneWidget);
+      expect(find.text('Close'), findsOneWidget);
     });
   });
 

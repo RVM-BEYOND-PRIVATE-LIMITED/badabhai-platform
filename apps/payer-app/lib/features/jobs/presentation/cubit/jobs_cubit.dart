@@ -18,9 +18,8 @@ import '../../../../core/error/payer_failure.dart';
 /// sells a digital entitlement through its own payment rail is exactly what the
 /// App Store / Play Store IAP rules exist to catch, so the whole path is gone
 /// from the app: no button, and no cubit method a future screen could quietly
-/// re-bind to. The API-client methods and the backend endpoints are UNCHANGED —
-/// `apps/payer-web` still drives them, and the app now points there instead
-/// (see `resolvePayerWebUrl`).
+/// re-bind to. The mobile API-client methods are gone too (#2589); the backend
+/// endpoints are UNCHANGED and `apps/payer-web` still drives them.
 class JobsCubit extends Cubit<JobsState> {
   JobsCubit(this._api) : super(const JobsState());
 
