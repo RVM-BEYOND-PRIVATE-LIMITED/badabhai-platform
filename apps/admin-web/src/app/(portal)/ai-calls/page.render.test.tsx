@@ -255,6 +255,18 @@ describe("a row", () => {
     expect(out).toContain('title="stt_service_unreachable"');
   });
 
+  it("WRAPS the failure reason — triage reads it down the column, so it is never cut", async () => {
+    // The column was a one-line cut: "Provider failed — code not recognised" read
+    // "Provider failed —…" in its 14ch, with no title on the cell (A4 review).
+    stub.page = { items: [{ ...FAILED_MOCK_ROW, error_code: "provider_error" }], nextCursor: null };
+    const out = await render();
+    expect(out).toContain(
+      '<td class="grid__cell--wrap"><span class="pill pill--bad"',
+    );
+    expect(out).toContain('<span class="table__meta" title="provider_error">Provider failed — code not recognised</span>');
+    expect(out).not.toMatch(/<td class="grid__cell--truncate"><span class="pill/);
+  });
+
   it("links the worker as an opaque id, and the call to its interview session", async () => {
     const out = await render();
     expect(out).toContain(`href="/workers/${WORKER_ID}"`);

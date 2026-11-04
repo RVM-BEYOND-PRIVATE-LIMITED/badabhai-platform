@@ -420,7 +420,10 @@ const COLUMNS: readonly GridColumn<AiTraceListItem>[] = [
     id: "outcome",
     header: "Outcome",
     width: "short",
-    text: "truncate",
+    /* WRAPS: the failure reason is what an operator triaging failed calls reads down the column
+       ("Provider failed — code not recognised"), so it is never cut to an ellipsis. Its raw code
+       stays in the reason's title, for a log search. */
+    text: "wrap",
     cell: (t) => (
       <>
         <StatusPill value={t.success ? "succeeded" : "failed"} tone={outcomeTone(t.success)} />
