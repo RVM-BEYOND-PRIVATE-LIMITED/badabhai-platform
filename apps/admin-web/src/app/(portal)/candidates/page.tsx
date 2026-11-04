@@ -2,6 +2,8 @@ import Link from "next/link";
 import { requireCapability } from "../../../lib/auth";
 import { can } from "../../../lib/auth/capabilities";
 import { listWorkers, type WorkerListItem } from "../../../lib/entities";
+import { readCandidateRecord } from "../../../lib/candidate-detail";
+import { candidateIdTitle } from "../../../lib/candidate-view";
 import {
   isUnknownValue,
   readRefusal,
@@ -27,6 +29,8 @@ import {
   FirstPageAction,
   RetryActions,
 } from "../../../components/retry-actions";
+import { CandidateDrawer, type InitialCandidateRecord } from "./candidate-drawer";
+import { CANDIDATE_PARAM, type DrawerRow } from "./candidate-drawer-model";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Candidates" };
@@ -53,6 +57,15 @@ export const metadata = { title: "Candidates" };
  *
  * So this screen still answers operational questions — how many, in what state, how far through
  * profiling, who is pending deletion — and now says who each row is while doing it.
+ *
+ * ── THE CANDIDATE DRAWER (A7, #2577) ────────────────────────────────────────────────────
+ * For a session holding `read_candidates` (all four roles today) a row opens ONE candidate's
+ * #2560 record in a drawer over this list instead of leaving it: `?c=<id>` joins the list's own
+ * query, so the drawer is linkable and survives a reload, and the page reads that record on the
+ * server beside the list when it loads with one (`readCandidateRecord`). Every later open, move and
+ * close is shallow — the list is never re-read for it (see `candidate-drawer.tsx`). Without the
+ * capability the row still opens the worker's page. The phone stays off the record: the drawer's
+ * reveal is the same single-subject, reason-gated `reveal_pii` path, behind a confirm.
  */
 export default async function CandidatesPage({
   searchParams,
@@ -68,6 +81,13 @@ export default async function CandidatesPage({
   const status = one(sp.status);
   const pendingDeletion = one(sp.pendingDeletion) === "true";
   const cursor = one(sp.cursor);
+
+  // The drawer (A7, #2577): only for a session that may read candidate records — without it a
+  // `?c=` in the address is ignored and every row opens the worker's page, as before. Read beside
+  // the list, not after it.
+  const mayOpenRecords = can(session.capabilities, "read_candidates");
+  const openId = mayOpenRecords ? one(sp[CANDIDATE_PARAM]) : undefined;
+  const openRead = openId ? readCandidateRecord(openId) : null;
 
   const filtered = Boolean(status) || pendingDeletion;
 
@@ -90,6 +110,8 @@ export default async function CandidatesPage({
     // counts as refusable: a valid one beside an over-long cursor leaves the CURSOR refused.
     refusal = readRefusal(err, { filtered: refusable, cursor });
   }
+  const initialRecord: InitialCandidateRecord | null =
+    openId && openRead ? { id: openId, result: await openRead } : null;
   const refused = refusal !== null;
   /** The filters were refused — not the page cursor beside them. */
   const filtersRefused = refusal === "filters";
@@ -300,7 +322,18 @@ export default async function CandidatesPage({
             rowKey={(w) => w.id}
             rowLink={{
               column: named ? "name" : "worker",
-              href: (w) => `/candidates/${w.id}`,
+              // With the drawer, the row's address is THIS list with `?c=` added — every filter
+              // and the page cursor kept — and a plain click opens the drawer in place.
+              href: (w) =>
+                mayOpenRecords
+                  ? queryHref("/candidates", {
+                      status,
+                      pendingDeletion: pendingDeletion ? "true" : undefined,
+                      cursor,
+                      [CANDIDATE_PARAM]: w.id,
+                    })
+                  : `/candidates/${w.id}`,
+              drawer: mayOpenRecords ? CANDIDATE_PARAM : undefined,
               name: (w) =>
                 (named ? displayName(w.full_name) : null) ?? `worker ${shortId(w.id)}`,
               // A dash says "no name on record"; as a link's whole name it would say nothing.
@@ -346,8 +379,28 @@ export default async function CandidatesPage({
           </div>
         )}
       </section>
+
+      {mayOpenRecords ? (
+        <CandidateDrawer
+          rows={drawerRows(page?.items ?? [], named)}
+          initial={initialRecord}
+          entitled={can(session.capabilities, "read_identity")}
+          canReveal={can(session.capabilities, "reveal_pii")}
+        />
+      ) : null}
     </div>
   );
+}
+
+/**
+ * The rows the drawer moves through with ↑/↓, in the list's order, each titled the way the list
+ * names it — the name in the `named` posture, the short id otherwise — while its record loads.
+ */
+function drawerRows(items: readonly WorkerListItem[], named: boolean): DrawerRow[] {
+  return items.map((w) => ({
+    id: w.id,
+    title: (named ? displayName(w.full_name) : null) ?? candidateIdTitle(w.id),
+  }));
 }
 
 /** The worker's resume preferences in a few words: "no photo · night shift". */

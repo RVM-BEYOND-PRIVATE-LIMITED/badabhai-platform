@@ -108,3 +108,135 @@ describe("holdFocus — Escape closes, and focus returns to the trigger", () => 
     expect(t.onEscape).not.toHaveBeenCalled();
   });
 });
+
+/**
+ * A7 (#2577) — an overlay can OUTLIVE ITS TRIGGER: the candidate drawer moved down the list by
+ * ↑/↓ (its trigger is the row it was opened from), the phone reveal's confirm whose success put
+ * the revealed phone in place of the Reveal button (its trigger has left the page, and focusing
+ * it would drop focus on the page body). `returnFocus` is asked where focus belongs AT RELEASE.
+ */
+describe("holdFocus — returnFocus: where focus belongs now, asked at release", () => {
+  function held(returnFocus: () => { focus(): void; isConnected?: boolean } | null) {
+    const trigger = control("trigger");
+    const ask = vi.fn(returnFocus);
+    const release = holdFocus({
+      container: { focus: vi.fn(), querySelectorAll: () => [control("a")] },
+      keyTarget: new EventTarget(),
+      activeElement: () => null,
+      onEscape: vi.fn(),
+      returnTo: trigger,
+      returnFocus: ask,
+    });
+    return { trigger, ask, release };
+  }
+
+  it("is asked when the overlay is released — not when it opens — and gets focus instead of the trigger", () => {
+    const row = control("row now open");
+    const t = held(() => row);
+    expect(t.ask).not.toHaveBeenCalled();
+    t.release();
+    expect(t.ask).toHaveBeenCalledTimes(1);
+    expect(row.focus).toHaveBeenCalledTimes(1);
+    expect(t.trigger.focus).not.toHaveBeenCalled();
+  });
+
+  it("naming nothing, it leaves focus to the trigger", () => {
+    const t = held(() => null);
+    t.release();
+    expect(t.trigger.focus).toHaveBeenCalledTimes(1);
+  });
+
+  it("naming an element that has left the page, it leaves focus to the trigger", () => {
+    const gone = { focus: vi.fn(), isConnected: false };
+    const t = held(() => gone);
+    t.release();
+    expect(gone.focus).not.toHaveBeenCalled();
+    expect(t.trigger.focus).toHaveBeenCalledTimes(1);
+  });
+
+  it("an element still on the page (isConnected) is focused", () => {
+    const there = { focus: vi.fn(), isConnected: true };
+    const t = held(() => there);
+    t.release();
+    expect(there.focus).toHaveBeenCalledTimes(1);
+    expect(t.trigger.focus).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * A7 (#2577) — a confirm opens OVER the candidate drawer (the phone reveal's reason). Both holds
+ * listen on the same window, so before this only one key press ever belonged to the top one:
+ * Escape closed the drawer under the confirm as well, and every Tab inside the confirm was pulled
+ * back into the drawer first.
+ */
+describe("holdFocus — stacked overlays: only the topmost answers a key", () => {
+  function stacked() {
+    const keyTarget = new EventTarget();
+    let active: unknown = null;
+    const hold = (controls: Control[]) => {
+      const onEscape = vi.fn();
+      const release = holdFocus({
+        container: { focus: vi.fn(), querySelectorAll: () => controls },
+        keyTarget,
+        activeElement: () => active,
+        onEscape,
+      });
+      return { onEscape, release };
+    };
+    const press = (key: string, shiftKey = false) => {
+      const e = new Event("keydown", { cancelable: true });
+      Object.defineProperties(e, { key: { value: key }, shiftKey: { value: shiftKey } });
+      keyTarget.dispatchEvent(e);
+      return e;
+    };
+    return { hold, press, focusOn: (c: unknown) => (active = c) };
+  }
+
+  it("Escape closes the confirm on top and leaves the drawer under it open", () => {
+    const s = stacked();
+    const drawer = s.hold([control("close"), control("reveal")]);
+    const confirm = s.hold([control("cancel"), control("confirm")]);
+    s.press("Escape");
+    expect(confirm.onEscape).toHaveBeenCalledTimes(1);
+    expect(drawer.onEscape).not.toHaveBeenCalled();
+  });
+
+  it("Tab wraps inside the confirm, never into the drawer beneath", () => {
+    const s = stacked();
+    const drawerFirst = control("drawer-close");
+    s.hold([drawerFirst, control("reveal")]);
+    const [cancel, confirm] = [control("cancel"), control("confirm")];
+    s.hold([cancel, confirm]);
+    drawerFirst.focus.mockClear();
+    cancel.focus.mockClear();
+    s.focusOn(confirm);
+    expect(s.press("Tab").defaultPrevented).toBe(true);
+    expect(cancel.focus).toHaveBeenCalledTimes(1);
+    expect(drawerFirst.focus).not.toHaveBeenCalled();
+    // Inside the confirm's run the browser moves focus itself — the drawer does not pull it.
+    s.focusOn(cancel);
+    expect(s.press("Tab").defaultPrevented).toBe(false);
+    expect(drawerFirst.focus).not.toHaveBeenCalled();
+  });
+
+  it("once the confirm is released, the drawer answers again", () => {
+    const s = stacked();
+    const drawer = s.hold([control("close")]);
+    const confirm = s.hold([control("cancel")]);
+    confirm.release();
+    s.press("Escape");
+    expect(drawer.onEscape).toHaveBeenCalledTimes(1);
+    expect(confirm.onEscape).not.toHaveBeenCalled();
+    drawer.release();
+  });
+
+  it("releasing out of order (the drawer first) still leaves the confirm in charge", () => {
+    const s = stacked();
+    const drawer = s.hold([control("close")]);
+    const confirm = s.hold([control("cancel")]);
+    drawer.release();
+    s.press("Escape");
+    expect(confirm.onEscape).toHaveBeenCalledTimes(1);
+    confirm.release();
+  });
+});

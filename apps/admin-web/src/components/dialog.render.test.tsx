@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 
 /**
@@ -17,7 +17,46 @@ vi.mock("next/navigation", () => ({
 }));
 
 const { Dialog } = await import("./dialog");
-const { Drawer, drawerHref, useUrlDrawer } = await import("./drawer");
+const {
+  DRAWER_DOCUMENT_KEY,
+  DRAWER_ENTRY_KEY,
+  Drawer,
+  closeDrawerEntry,
+  drawerEntryState,
+  drawerHref,
+  moveDrawerEntry,
+  openDrawerEntry,
+  useUrlDrawer,
+} = await import("./drawer");
+
+/** An entry a row pushed BEFORE a reload: the same drawer's mark, another document's token. */
+const pushedBeforeReload = (param: string) => ({
+  [DRAWER_ENTRY_KEY]: param,
+  [DRAWER_DOCUMENT_KEY]: "an-earlier-document",
+  __NA: true,
+});
+
+/** A stand-in for `window.history`: a stack of entries, the current one's state and URL. */
+function fakeHistory(state: unknown = { __NA: true }) {
+  const calls: Array<[string, unknown, string | null | undefined]> = [];
+  const history = {
+    state,
+    pushState(data: unknown, _u: string, url?: string | null) {
+      calls.push(["push", data, url]);
+      history.state = data;
+    },
+    replaceState(data: unknown, _u: string, url?: string | null) {
+      calls.push(["replace", data, url]);
+      history.state = data;
+    },
+    back() {
+      calls.push(["back", null, null]);
+    },
+  };
+  return { history, calls };
+}
+
+afterEach(() => vi.unstubAllGlobals());
 
 const html = (el: React.ReactElement) => renderToStaticMarkup(el);
 
@@ -92,6 +131,22 @@ describe("Drawer", () => {
     expect(out).toContain(">Worker</h2>");
   });
 
+  it("its Close tip opens below, from the right — above it, the window's top edge cut it off", () => {
+    const drawer = html(
+      <Drawer open onClose={() => {}} title="Worker">
+        x
+      </Drawer>,
+    );
+    expect(drawer).toContain('class="bb-icon-tip bb-icon-tip--bottom-end"');
+    // A centred dialog has room above its Close and keeps the default.
+    const dialog = html(
+      <Dialog open onClose={() => {}} title="T">
+        x
+      </Dialog>,
+    );
+    expect(dialog).toContain('class="bb-icon-tip bb-icon-tip--top"');
+  });
+
   it("renders nothing while closed", () => {
     expect(
       html(
@@ -115,7 +170,11 @@ describe("a drawer addressable by URL", () => {
     expect(drawerHref("/workers", "drawer=abc", "drawer", "xyz")).toBe("/workers?drawer=xyz");
   });
 
-  it("useUrlDrawer is open while the param is in the URL; close replaces it away", () => {
+  it("useUrlDrawer is open while the param is in the URL, and changes it with the HISTORY API", () => {
+    // A7 (#2577): never the router. A router push re-renders the page under the drawer, and on
+    // Candidates that re-reads 50 names of the admin's hourly budget per open, move and close.
+    const { history, calls } = fakeHistory();
+    vi.stubGlobal("window", { history });
     let api: ReturnType<typeof useUrlDrawer> | undefined;
     function Probe() {
       api = useUrlDrawer();
@@ -125,10 +184,63 @@ describe("a drawer addressable by URL", () => {
     expect(api!.isOpen).toBe(true);
     expect(api!.value).toBe("abc");
     expect(api!.href("def")).toBe("/workers?status=active&drawer=def");
-    api!.close();
-    expect(nav.replace).toHaveBeenCalledWith("/workers?status=active", { scroll: false });
     api!.open("def");
-    expect(nav.push).toHaveBeenCalledWith("/workers?status=active&drawer=def", { scroll: false });
+    api!.move("ghi");
+    api!.close();
+    expect(calls).toEqual([
+      ["push", drawerEntryState("drawer"), "/workers?status=active&drawer=def"],
+      ["replace", drawerEntryState("drawer"), "/workers?status=active&drawer=ghi"],
+      ["back", null, null],
+    ]);
+    expect(nav.push).not.toHaveBeenCalled();
+    expect(nav.replace).not.toHaveBeenCalled();
+  });
+
+  it("opening pushes ONE entry marked with the drawer's param and THIS document, so Back closes it", () => {
+    const { history, calls } = fakeHistory();
+    openDrawerEntry("/candidates?c=1", "c", history);
+    expect(calls).toEqual([["push", drawerEntryState("c"), "/candidates?c=1"]]);
+    const mark = drawerEntryState("c");
+    expect(mark[DRAWER_ENTRY_KEY]).toBe("c");
+    // One token for the whole page load — every push and move of it carries the same one.
+    expect(mark[DRAWER_DOCUMENT_KEY]).toMatch(/\S/);
+    expect(drawerEntryState("other")[DRAWER_DOCUMENT_KEY]).toBe(mark[DRAWER_DOCUMENT_KEY]);
+  });
+
+  it("moving rewrites the current entry and keeps its mark — ↑/↓ never stack entries", () => {
+    const marked = fakeHistory(drawerEntryState("c"));
+    moveDrawerEntry("/candidates?c=2", "c", marked.history);
+    expect(marked.calls).toEqual([["replace", drawerEntryState("c"), "/candidates?c=2"]]);
+    // A drawer that came with the page has no entry of its own to mark — nor, after a reload,
+    // does one whose entry an earlier document pushed: its mark is dropped, not adopted.
+    for (const state of [{ __NA: true }, pushedBeforeReload("c")]) {
+      const loaded = fakeHistory(state);
+      moveDrawerEntry("/candidates?c=2", "c", loaded.history);
+      expect(loaded.calls).toEqual([["replace", null, "/candidates?c=2"]]);
+    }
+  });
+
+  it("closing pops the entry it pushed — no duplicate of the list is left for Back", () => {
+    const { history, calls } = fakeHistory(drawerEntryState("c"));
+    closeDrawerEntry("/candidates", "c", history);
+    expect(calls).toEqual([["back", null, null]]);
+  });
+
+  it("closing a drawer that came with the page (a reload, a pasted link) replaces its param away", () => {
+    for (const state of [null, { __NA: true }, drawerEntryState("drawer"), "x"]) {
+      const { history, calls } = fakeHistory(state);
+      closeDrawerEntry("/candidates?status=active", "c", history);
+      expect(calls).toEqual([["replace", null, "/candidates?status=active"]]);
+    }
+  });
+
+  it("after a RELOAD, closing a drawer a row opened before it closes in place — never pops", () => {
+    // Next carries the entry's state into the reloaded page, mark and all. Popping it would land
+    // on an entry whose page this document's router never rendered, and Next would fetch that
+    // page — the whole list — from the server again.
+    const { history, calls } = fakeHistory(pushedBeforeReload("c"));
+    closeDrawerEntry("/candidates?status=active", "c", history);
+    expect(calls).toEqual([["replace", null, "/candidates?status=active"]]);
   });
 
   it("is closed when the param is absent", () => {

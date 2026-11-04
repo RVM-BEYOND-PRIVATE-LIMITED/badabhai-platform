@@ -39,7 +39,8 @@ vi.mock("react", async (importOriginal) => {
   };
 });
 
-const { DataGridView, openRowFromCell } = await import("./data-grid-view");
+const { DataGridView, drawerRowLink, openRowDrawer, openRowFromCell } =
+  await import("./data-grid-view");
 const { resetGridPreferencesForTests, writeDensity } = await import("./grid-preferences");
 
 const PROPS: DataGridViewProps = {
@@ -246,5 +247,107 @@ describe("a plain click on a cell's text still opens the row", () => {
       return DataGridView(linked);
     });
     expect(props(tree).onClick).toBe(openRowFromCell);
+  });
+});
+
+/**
+ * A7 (#2577): a row can open a DRAWER over its own list (`rowLink.drawer`). The link keeps its
+ * href (`?c=<id>` with the list's query — a new tab opens the drawer there), but a plain click
+ * Next would handle is stopped and the address taken in place, so the list is not re-read.
+ */
+describe("a row that opens a drawer over the list", () => {
+  type RowLinkEl = ReactElement<{ row: unknown; href: string; drawer?: string }>;
+  const linked = (linkDrawer?: string) => ({
+    ...PROPS,
+    linkColumn: "a",
+    linkDrawer,
+    rows: [{ ...PROPS.rows[0]!, href: "/candidates?status=active&c=w1", name: "one" }],
+  });
+  /** The row link the view drew, and the <Link> it renders. */
+  function rowLink(props: DataGridViewProps) {
+    const tree = harness().render(() => {
+      h.refCalls = 0;
+      return DataGridView(props);
+    });
+    const el = elements(tree).find(
+      (e) => typeof e.type === "function" && e.type.name === "RowLink",
+    ) as RowLinkEl | undefined;
+    expect(el).toBeDefined();
+    const render = el!.type as unknown as (p: RowLinkEl["props"]) => ReactElement<{
+      href: string;
+      onNavigate?: (e: { preventDefault(): void }) => void;
+      "data-drawer-value"?: string;
+    }>;
+    return { el: el!, link: render(el!.props) };
+  }
+
+  it("hands the drawer's param to the row link — and nothing to a grid whose rows open pages", () => {
+    expect(rowLink(linked("c")).el.props.drawer).toBe("c");
+    expect(rowLink(linked()).el.props.drawer).toBeUndefined();
+    expect(rowLink(linked()).link.props.onNavigate).toBeUndefined();
+  });
+
+  it("keeps the row's href — the drawer's own address, filters kept — for a new tab", () => {
+    expect(rowLink(linked("c")).link.props.href).toBe("/candidates?status=active&c=w1");
+  });
+
+  it("a plain click: Next's navigation is stopped and ONE history entry is pushed in place", () => {
+    const pushState = vi.fn();
+    vi.stubGlobal("window", { history: { state: null, pushState, replaceState: vi.fn(), back: vi.fn() } });
+    const { link } = rowLink(linked("c"));
+    const event = { preventDefault: vi.fn() };
+    link.props.onNavigate!(event);
+    expect(event.preventDefault).toHaveBeenCalledTimes(1);
+    expect(pushState).toHaveBeenCalledTimes(1);
+    expect(pushState.mock.calls[0]![2]).toBe("/candidates?status=active&c=w1");
+  });
+
+  it("openRowDrawer stops the navigation before it opens anything", () => {
+    const order: string[] = [];
+    openRowDrawer(
+      { preventDefault: () => order.push("prevent") },
+      "/candidates?c=w2",
+      "c",
+      (href, param) => order.push(`open ${href} ${param}`),
+    );
+    expect(order).toEqual(["prevent", "open /candidates?c=w2 c"]);
+  });
+
+  it("its link names the value it opens the drawer at — read from its own href", () => {
+    expect(rowLink(linked("c")).link.props["data-drawer-value"]).toBe("w1");
+    // A row that opens a page names no drawer value.
+    expect(rowLink(linked()).link.props["data-drawer-value"]).toBeUndefined();
+  });
+});
+
+/**
+ * A7 (#2577): when the drawer closes, focus goes back to the row it is ON — after ↑/↓ the row it
+ * moved to, not the one that opened it — found by the value each drawer row link names.
+ */
+describe("drawerRowLink — the row a drawer is on", () => {
+  const link = (value: string) => ({ dataset: { drawerValue: value } }) as unknown as HTMLElement;
+  const scopeOf = (links: HTMLElement[]) => {
+    const asked: string[] = [];
+    return {
+      asked,
+      scope: {
+        querySelectorAll: (selector: string) => {
+          asked.push(selector);
+          return links;
+        },
+      },
+    };
+  };
+
+  it("finds the drawer row link whose value is the drawer's", () => {
+    const [w1, w2, w3] = [link("w1"), link("w2"), link("w3")];
+    const { scope, asked } = scopeOf([w1, w2, w3]);
+    expect(drawerRowLink("w3", scope)).toBe(w3);
+    expect(asked).toEqual(["a.grid__link[data-drawer-value]"]);
+  });
+
+  it("is null when that row is not on this page", () => {
+    expect(drawerRowLink("w9", scopeOf([link("w1")]).scope)).toBeNull();
+    expect(drawerRowLink("w1", scopeOf([]).scope)).toBeNull();
   });
 });

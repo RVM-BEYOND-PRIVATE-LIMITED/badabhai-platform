@@ -5290,3 +5290,262 @@ a.pager__step:hover {
     display: none;
   }
 }
+
+/* ══ A7 (#2577) — CANDIDATES: the candidate drawer — its tabs, field rows with their source
+   tags, the locked fields, the skeleton, and the record's content fade ══
+   ONE block, appended after A6's, so the parallel admin lanes rebase over it trivially. Brand
+   tokens only, no new colours. Motion is opacity and transform only and every duration is a
+   token, so tokens.css zeroes all of it under prefers-reduced-motion:
+     drawer        slides in from the right over 220ms   A5's Drawer (`.overlay--drawer`), unchanged
+     a move        the content fades in over 140ms, the panel stays put (no slide)   --duration-fast
+     skeleton      one 1.4s sheen sweep, repeated while loading — a progress indicator, the one
+                   motion allowed to loop   --duration-shimmer */
+
+/* ---- the drawer's body: the sticky tab row, then the record ------------------------------- */
+
+.cdrawer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+}
+/* The tab row stays at the top of the drawer's scroller, on the card surface, so the content
+   scrolling under it never shows through. */
+.cdrawer__tabbar {
+  position: sticky;
+  inset-block-start: 0;
+  z-index: 1;
+  padding-block: var(--space-1);
+  background: var(--surface-card);
+}
+.cdrawer__tabs {
+  max-inline-size: 100%;
+}
+/* A move remounts the view (keyed by the record): it fades in, and nothing travels. */
+.cdrawer__view {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+  animation: cdrawer-content-in var(--duration-fast) var(--ease-enter) both;
+}
+@keyframes cdrawer-content-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.cdrawer__panel[hidden] {
+  display: none;
+}
+.cdrawer__panel:focus-visible {
+  border-radius: var(--radius-sm);
+}
+/* The description line: the trade and city, then the short id. */
+.cdrawer__sub {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+/* A value in the drawer wraps between words; `.kv__v`'s break-all is for ids and hashes. */
+.cdrawer .kv__v {
+  word-break: normal;
+  overflow-wrap: anywhere;
+}
+
+/* ---- the footer: Previous · position · Next, then Open full page ------------------------- */
+
+.cdrawer__nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-inline-end: auto;
+}
+.cdrawer__pos {
+  font-size: var(--ui-caption-size);
+  line-height: var(--ui-caption-leading);
+  color: var(--text-secondary);
+}
+
+/* ---- one field: its value, a lock when it is locked, and where it came from -------------- */
+
+.cfield {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  max-inline-size: 100%;
+}
+.cfield__value {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.cfield__value > .chips {
+  gap: var(--space-1);
+}
+/* The console's muted text carries a leading gap, for a note trailing a table cell's value. In the
+   drawer a muted value IS the value (a dash, "Hidden", "Hidden for your role"), so it starts where
+   every other value starts. */
+.cdrawer .table__meta {
+  margin-left: 0;
+}
+.cfield__note {
+  flex: 1 0 100%;
+  font-size: var(--ui-caption-size);
+  line-height: var(--ui-caption-leading);
+  color: var(--text-muted);
+}
+/* The source tag: small, quiet, on the hairline — read after the value, never before it. */
+.source-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 var(--space-2);
+  border: var(--border-hairline) solid var(--divider);
+  border-radius: var(--radius-pill);
+  font-size: var(--ui-caption-size);
+  line-height: var(--ui-caption-leading);
+  font-weight: var(--weight-medium);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+/* The lock: a solid lock-key glyph and "Locked", the reason in the shared tooltip on hover and
+   keyboard focus. Positioned, because the tooltip is placed against it. */
+.lock-tag {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-pill);
+  background: var(--surface-sunken);
+  font-size: var(--ui-caption-size);
+  line-height: var(--ui-caption-leading);
+  font-weight: var(--weight-semibold);
+  color: var(--text-heading);
+  cursor: help;
+}
+.lock-tag > .ph-fill {
+  font-size: var(--icon-size-sm);
+}
+/* A reason is a sentence: it wraps inside a bounded tooltip instead of running off the drawer. */
+.lock-tag > .bb-icon-tip {
+  inline-size: max-content;
+  max-inline-size: min(20rem, 70vw);
+  white-space: normal;
+  text-align: start;
+}
+
+/* ---- work history: one card per employer, its roles under it ------------------------------ */
+
+.cjobs,
+.cjob__roles {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.cjob {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border: var(--border-hairline) solid var(--divider);
+  border-radius: var(--radius-md);
+}
+.cjob__head,
+.cjob__role-head,
+.cjob__words {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.cjob__role {
+  display: grid;
+  gap: var(--space-1);
+  padding-inline-start: var(--space-3);
+  border-inline-start: var(--border-hairline) solid var(--divider);
+}
+
+/* ---- the loading state: the shape of a record, swept by one sheen ------------------------- */
+
+.cdrawer__skeleton {
+  display: grid;
+  gap: var(--space-6);
+}
+.cdrawer__skeleton-group {
+  display: grid;
+  gap: var(--space-3);
+}
+.cdrawer__skeleton-row {
+  display: grid;
+  grid-template-columns: minmax(8rem, 12rem) 1fr;
+  gap: var(--space-5);
+}
+.skeleton {
+  position: relative;
+  display: block;
+  overflow: hidden;
+  block-size: var(--space-4);
+  border-radius: var(--radius-sm);
+  background: var(--skeleton-base);
+}
+.skeleton--title {
+  inline-size: 30%;
+  block-size: var(--space-5);
+}
+.skeleton--label {
+  inline-size: 70%;
+}
+.skeleton--value {
+  inline-size: 55%;
+}
+/* The sheen: a band of the card surface swept across by transform, 1.4s a sweep. */
+.skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, var(--skeleton-sheen), transparent);
+  transform: translateX(-100%);
+  animation: skeleton-sheen var(--duration-shimmer) var(--ease-in-out) infinite;
+}
+@keyframes skeleton-sheen {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+/* Reduced motion: the token is already 0ms; the sheen is also taken away, so the placeholder
+   holds still as a plain block rather than flickering through a zero-length loop. */
+@media (prefers-reduced-motion: reduce) {
+  .skeleton::after {
+    animation: none;
+  }
+}
+
+/* ---- small screens ------------------------------------------------------------------------- */
+
+@media (max-width: 600px) {
+  /* Seven tabs wrapped to three sticky lines on a phone — a quarter of the screen. One line that
+     scrolls sideways instead; a tab focused by ←/→ scrolls itself into view. */
+  .cdrawer__tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+  }
+  .cdrawer__tabs > .btn {
+    flex: none;
+  }
+  .cdrawer__skeleton-row {
+    grid-template-columns: 1fr;
+    gap: var(--space-2);
+  }
+}

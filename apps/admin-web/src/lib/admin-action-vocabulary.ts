@@ -47,6 +47,24 @@ export const WORKER_FLAG_REASON_LABELS: Record<WorkerFlagReasonCode, string> = {
 };
 
 /**
+ * Why an admin is revealing a worker's phone — `ADMIN_PII_REVEAL_REASONS` in apps/api's
+ * `admin-pii-reveal.dto.ts` (ADR-0025 Decision 4). The CODE is what `admin.pii_viewed` records;
+ * the free-text note beside it is checked by the API and never stored. Same rule as the two lists
+ * above: a copy for rendering the choice, never the authority on it.
+ */
+export const PII_REVEAL_REASON_CODES = [
+  "worker_support_callback",
+  "dispute_resolution",
+  "safety_escalation",
+] as const;
+export type PiiRevealReasonCode = (typeof PII_REVEAL_REASON_CODES)[number];
+export const PII_REVEAL_REASON_LABELS: Record<PiiRevealReasonCode, string> = {
+  worker_support_callback: "Calling the worker back (support)",
+  dispute_resolution: "Resolving a dispute",
+  safety_escalation: "Safety escalation",
+};
+
+/**
  * Human labels for the `action_code` on an `admin.action_performed` event — the OPEN vocabulary
  * of `ADMIN_ACTION_CODES` in apps/api's `admin-actions.service.ts` (action_code is a free string
  * on the event, so the server can add a code without an event-schema change).

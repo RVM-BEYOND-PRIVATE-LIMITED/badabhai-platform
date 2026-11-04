@@ -1,9 +1,12 @@
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
 import {
   CREDIT_GRANT_REASONS,
   CREDIT_GRANT_REASON_LABELS,
   WORKER_FLAG_REASON_CODES,
   WORKER_FLAG_REASON_LABELS,
+  PII_REVEAL_REASON_CODES,
+  PII_REVEAL_REASON_LABELS,
   ADMIN_CREDIT_GRANT_MAX,
   ADMIN_ACTION_CODE_LABELS,
   adminActionLabel,
@@ -44,6 +47,26 @@ describe("worker flag reason codes", () => {
   it("every code has a label", () => {
     for (const code of WORKER_FLAG_REASON_CODES) {
       expect(WORKER_FLAG_REASON_LABELS[code]).toBeTruthy();
+    }
+  });
+});
+
+describe("phone reveal reason codes (A7, #2577)", () => {
+  it("matches the server's closed enum exactly — read from admin-pii-reveal.dto.ts itself", () => {
+    // The API source is in this repo, so the drift test reads it rather than a second literal.
+    const dto = readFileSync(
+      new URL("../../../api/src/admin/admin-pii-reveal.dto.ts", import.meta.url),
+      "utf8",
+    );
+    const declared = /ADMIN_PII_REVEAL_REASONS = \[([^\]]*)\]/.exec(dto)?.[1] ?? "";
+    const codes = [...declared.matchAll(/"([a-z_]+)"/g)].map((m) => m[1]);
+    expect(codes.length).toBeGreaterThan(0);
+    expect([...PII_REVEAL_REASON_CODES]).toEqual(codes);
+  });
+
+  it("every code has a label", () => {
+    for (const code of PII_REVEAL_REASON_CODES) {
+      expect(PII_REVEAL_REASON_LABELS[code]).toBeTruthy();
     }
   });
 });

@@ -52,6 +52,15 @@ export interface GridRowLink<Row> {
   name: (row: Row) => string;
   /** The link's accessible name where its visible cell says nothing (a dash for "no name"). */
   label?: (row: Row) => string | undefined;
+  /**
+   * The row opens a DRAWER over this list instead of a page (A7, #2577): the search param the
+   * drawer is addressed by (`"c"` — `href` then carries `?c=<id>` with the list's own query).
+   * A plain click updates the address in place, shallow, so the list is not re-read and does not
+   * move (`openDrawerEntry`); a new-tab click still follows `href`, which opens the drawer there.
+   * Each row link names the value it opens (`data-drawer-value`), so the drawer can hand focus
+   * back to the row it is ON when it closes (`drawerRowLink`).
+   */
+  drawer?: string;
 }
 
 export interface DataGridProps<Row> {
@@ -126,6 +135,7 @@ export function DataGrid<Row>({
       columns={meta}
       rows={viewRows}
       linkColumn={rowLink?.column}
+      linkDrawer={rowLink?.drawer}
       pager={pager}
       variant={variant}
       viewControls={viewControls}
