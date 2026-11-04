@@ -166,6 +166,14 @@ interface RequestOptions<T> {
   public?: boolean;
   /** Next.js cache behaviour. Admin data is operational: never cache by default. */
   revalidate?: number;
+  /**
+   * The caller's own cancellation: a route handler passes its incoming request's signal, so a
+   * browser that stopped waiting (the candidate drawer moved on) cancels the API call with it.
+   * Combined with the timeout — whichever fires first. It cancels only a call the API has not
+   * received yet: one it already has runs to the end, audit row and all, and the abort only drops
+   * the answer. Either way it rejects as the unreachable-API error, which nobody reads.
+   */
+  signal?: AbortSignal;
 }
 
 /** How long to wait on the API before showing an honest timeout rather than hanging. */
@@ -214,13 +222,14 @@ export async function adminFetch<T>(path: string, opts: RequestOptions<T> = {}):
     headers.authorization = `Bearer ${token}`;
   }
 
+  const timeout = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
   let res: Response;
   try {
     res = await fetch(`${apiBaseUrl}${path}`, {
       method: opts.method ?? "GET",
       headers,
       body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      signal: opts.signal ? AbortSignal.any([opts.signal, timeout]) : timeout,
       // Operational data. A cached suspension state is a wrong answer, not a fast one.
       cache: opts.revalidate === undefined ? "no-store" : undefined,
       next: opts.revalidate === undefined ? undefined : { revalidate: opts.revalidate },

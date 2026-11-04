@@ -23,9 +23,11 @@ const ROWS = [
 ];
 
 describe("the address", () => {
-  it("is ?c=<worker id>, and a move settles for the console's 180ms before it reads", () => {
+  it("is ?c=<worker id>, and a move settles 350ms before it reads — longer than a ↓ skim's gap", () => {
     expect(CANDIDATE_PARAM).toBe("c");
-    expect(RECORD_SETTLE_MS).toBe(180);
+    expect(RECORD_SETTLE_MS).toBe(350);
+    // About four presses a second while scanning: each passed row must not start a read.
+    expect(RECORD_SETTLE_MS).toBeGreaterThan(1000 / 4);
   });
 });
 

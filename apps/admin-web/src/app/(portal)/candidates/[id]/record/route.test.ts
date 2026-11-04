@@ -26,7 +26,23 @@ describe("the record read", () => {
     expect(res.status).toBe(200);
     expect(res.headers.get("cache-control")).toBe("no-store");
     expect(await res.json()).toEqual({ status: "ok", detail });
-    expect(read).toHaveBeenCalledWith(RECORD_WORKER_ID);
+    expect(read).toHaveBeenCalledWith(RECORD_WORKER_ID, expect.any(AbortSignal));
+  });
+
+  it("hands the request's own signal to the read: a drawer that moved on cancels the API call", async () => {
+    read.mockResolvedValue({ status: "not_found" });
+    const browser = new AbortController();
+    await GET(
+      new Request(`http://admin.test/candidates/${RECORD_WORKER_ID}/record`, {
+        headers: { "sec-fetch-site": "same-origin" },
+        signal: browser.signal,
+      }),
+      { params: Promise.resolve({ id: RECORD_WORKER_ID }) },
+    );
+    const passed = read.mock.calls[0]![1] as AbortSignal;
+    expect(passed.aborted).toBe(false);
+    browser.abort();
+    expect(passed.aborted).toBe(true);
   });
 
   it.each([

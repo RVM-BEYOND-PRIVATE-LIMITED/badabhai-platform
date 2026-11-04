@@ -74,6 +74,13 @@ describe("readCandidateRecord — the request", () => {
     http.adminFetch.mockResolvedValue(detail);
     expect(await readCandidateRecord(RECORD_WORKER_ID)).toEqual({ status: "ok", detail });
   });
+
+  it("hands the caller's signal to adminFetch, so a drawer that moved on cancels the API call", async () => {
+    http.adminFetch.mockResolvedValue(candidateRecord());
+    const signal = new AbortController().signal;
+    await readCandidateRecord(RECORD_WORKER_ID, signal);
+    expect((http.adminFetch.mock.calls[0]![1] as { signal?: unknown }).signal).toBe(signal);
+  });
 });
 
 describe("readCandidateRecord — every failure is a status, never a throw", () => {

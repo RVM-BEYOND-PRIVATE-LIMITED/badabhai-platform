@@ -311,6 +311,26 @@ describe("reading the record", () => {
     expect(read.calls.map((c) => c.id)).toEqual([W3]);
   });
 
+  /**
+   * Each read that reaches the API is audited and spends a name, even one aborted after it was
+   * sent — so the row an ordinary skim passes over (↓ about four times a second) is never read.
+   */
+  it("↓ at a skim's pace (a press every 250ms) reads only the row it stops on", () => {
+    h.search = `status=active&c=${W1}`;
+    initial = { id: W1, result: ok(W1) };
+    draw();
+    mountContent();
+    key("ArrowDown");
+    follow();
+    draw();
+    vi.advanceTimersByTime(250);
+    key("ArrowDown");
+    follow();
+    draw();
+    vi.advanceTimersByTime(RECORD_SETTLE_MS);
+    expect(read.calls.map((c) => c.id)).toEqual([W3]);
+  });
+
   it("an OPEN from a row reads at once", () => {
     initial = null;
     draw();

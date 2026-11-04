@@ -51,8 +51,9 @@ export interface CandidateDrawerProps {
  *    hands focus to the row it is ON (after a move, not the row that opened it).
  *  - ITS OWN READ: the page reads the record on the server when it loads with `?c=`; every later
  *    open or move reads it from the browser (`[id]/record`), aborting the read it replaces. A MOVE
- *    waits {@link RECORD_SETTLE_MS} for the next press first — each read is audited and spends a
- *    name — while the title and the skeleton change at once.
+ *    waits {@link RECORD_SETTLE_MS} for the next press first — each read that reaches the API is
+ *    audited and spends a name, an aborted one included (the abort cancels only a read not yet
+ *    sent) — while the title and the skeleton change at once.
  *  - STATES: a skeleton while loading (announced by a status line that outlives the move), the
  *    record's seven tabs, not found, a role that may not read records, a session that ended, and
  *    an error with Retry.

@@ -460,3 +460,69 @@ describe("a path the URL parser would rewrite is refused before anything is sent
     expect(fetchMock).toHaveBeenCalledWith(`${INTERNAL_ORIGIN}${path}`, expect.anything());
   });
 });
+
+// ---------------------------------------------------------------------------
+// 9. The caller's own cancellation, beside the timeout (A7 review, #2577).
+// ---------------------------------------------------------------------------
+
+/**
+ * A route handler passes its incoming request's signal, so a browser that stopped waiting (the
+ * candidate drawer moved on) cancels the API call — when the API has not received it yet.
+ */
+describe("the caller's signal is combined with the timeout", () => {
+  const sentSignal = () => (fetchMock.mock.calls[0]![1] as RequestInit).signal!;
+
+  it("an abort from the caller cancels the request", async () => {
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }));
+    const caller = new AbortController();
+    await adminFetch("/admin/me", { signal: caller.signal });
+    expect(sentSignal().aborted).toBe(false);
+    caller.abort();
+    expect(sentSignal().aborted).toBe(true);
+  });
+
+  it("…and the 15s timeout still cancels it beside the caller's signal", async () => {
+    const timeout = new AbortController();
+    const spy = vi.spyOn(AbortSignal, "timeout").mockReturnValue(timeout.signal);
+    try {
+      fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }));
+      await adminFetch("/admin/me", { signal: new AbortController().signal });
+      expect(spy).toHaveBeenCalledWith(15_000);
+      expect(sentSignal().aborted).toBe(false);
+      timeout.abort();
+      expect(sentSignal().aborted).toBe(true);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("without a caller's signal, the timeout alone", async () => {
+    const timeout = new AbortController();
+    const spy = vi.spyOn(AbortSignal, "timeout").mockReturnValue(timeout.signal);
+    try {
+      fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }));
+      await adminFetch("/admin/me");
+      expect(sentSignal()).toBe(timeout.signal);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("an aborted call rejects as the unreachable-API error, never with the abort's own text", async () => {
+    const caller = new AbortController();
+    caller.abort();
+    fetchMock.mockImplementationOnce(async (_url: string, init: RequestInit) => {
+      if (init.signal?.aborted) throw new DOMException("This operation was aborted", "AbortError");
+      return new Response(null, { status: 204 });
+    });
+    let thrown: unknown;
+    try {
+      await adminFetch("/admin/me", { signal: caller.signal });
+    } catch (err) {
+      thrown = err;
+    }
+    expect(isAdminRequestError(thrown)).toBe(true);
+    expect((thrown as { status: number }).status).toBe(0);
+    expect((thrown as Error).message).toBe("The admin API is unreachable.");
+  });
+});

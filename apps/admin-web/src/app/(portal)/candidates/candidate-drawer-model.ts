@@ -12,11 +12,14 @@ import type {
 export const CANDIDATE_PARAM = "c";
 
 /**
- * How long a MOVE waits for the next one before reading its record. Every read is audited and
- * spends one name of the admin's hourly budget, so three quick ↓ presses read only the row they
- * stop on. The title and the skeleton change at once — only the read waits.
+ * How long a MOVE waits for the next one before reading its record. Every read that reaches the API
+ * is audited and spends one name of the admin's hourly budget — even one the drawer aborts because
+ * it moved on, since the API records the view before it answers; aborting cancels only a read not
+ * yet sent. So the read waits out a skim: ↓ pressed at an ordinary scanning pace (about four a
+ * second, 250ms apart) reads only the row it stops on. The title and the skeleton change at once —
+ * only the read waits.
  */
-export const RECORD_SETTLE_MS = 180;
+export const RECORD_SETTLE_MS = 350;
 
 /** One row of the list under the drawer: its worker id, and what the drawer is titled while it loads. */
 export interface DrawerRow {
@@ -112,7 +115,8 @@ export function narrowRecordResult(body: unknown): CandidateRecordResult {
 
 /**
  * Read one record. Never throws for a failed read (the result says what failed); rejects only when
- * `signal` aborts it — the drawer moved on and nobody will look at the answer.
+ * `signal` aborts it — the drawer moved on and nobody will look at the answer. The route passes the
+ * abort on to its API call, which it cancels only if the API has not received it yet.
  */
 export async function fetchCandidateRecord(
   id: string,

@@ -267,12 +267,20 @@ export type CandidateRecordStatus = CandidateRecordResult["status"];
  * and fetch's URL parser resolves them away, so `?c=..` would have read `GET /admin/` and `?c=.`
  * the candidate LIST, spending the name budget and writing audit rows for a view nobody asked for.
  * (`adminFetch` refuses such a path too, for every caller; this keeps it from being built.)
+ *
+ * `signal` is the caller's cancellation — the record route passes its incoming request's, so a
+ * drawer that moved on cancels the API call if it has not reached the API yet. One that has is
+ * audited and charged a name all the same: the API records the view before it reads anything.
  */
-export async function readCandidateRecord(id: string): Promise<CandidateRecordResult> {
+export async function readCandidateRecord(
+  id: string,
+  signal?: AbortSignal,
+): Promise<CandidateRecordResult> {
   if (!uuidSchema.safeParse(id).success) return { status: "not_found" };
   try {
     const detail = await adminFetch(`/admin/candidates/${encodeURIComponent(id)}`, {
       schema: candidateDetailSchema,
+      signal,
     });
     return { status: "ok", detail };
   } catch (err) {

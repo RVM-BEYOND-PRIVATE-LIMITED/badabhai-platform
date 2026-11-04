@@ -16,6 +16,13 @@ import {
  * record loads would have re-read the whole list. A plain fetch never enters that queue, can be
  * aborted when the drawer moves on, and runs beside the next.
  *
+ * ── AN ABORTED READ ─────────────────────────────────────────────────────────────────────
+ * The incoming request's signal is passed to the API call (`readCandidateRecord` → `adminFetch`),
+ * so a drawer that moved on cancels it — if it has not reached the API yet. A read that has is
+ * audited (`admin.candidate_viewed`) and charged a name all the same, whatever happens to the
+ * answer: the API records the view before it reads anything. That is why the drawer lets a burst
+ * of ↑/↓ settle before it reads at all (`RECORD_SETTLE_MS`).
+ *
  * ── SECURITY ────────────────────────────────────────────────────────────────────────────
  *  - Same as every portal read: the admin JWT is read from the httpOnly cookie and sent to the API
  *    server-side (`adminFetch`); it never reaches the browser. The API enforces `read_candidates`,
@@ -51,7 +58,7 @@ export async function GET(
     );
   }
   const { id } = await params;
-  const result = await readCandidateRecord(id);
+  const result = await readCandidateRecord(id, request.signal);
   return Response.json(result, {
     status: HTTP_STATUS[result.status],
     headers: { "Cache-Control": "no-store" },
