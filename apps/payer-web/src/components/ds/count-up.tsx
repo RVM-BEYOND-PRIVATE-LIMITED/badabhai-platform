@@ -7,8 +7,14 @@
  * once — under reduced motion. It eases out. Screen readers get the FINAL figure only: the moving
  * digits are aria-hidden and the settled value sits in an sr-only twin, so a live region that
  * holds a CountUp announces one number, once.
+ *
+ * A CountUp that CAME WITH THE PAGE — the server render and its hydration — prints the final
+ * figure and does not count (#2585): the server's HTML never shows `from` (a "Reached 0 workers"
+ * before the script runs, or for good if it never does), and hydrating does not replay a count
+ * the reader never saw start. One that mounts in the browser — a toast, a page reached by a client
+ * navigation — counts.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 
 /** The token the run lasts for. */
 export const COUNT_UP_DURATION_TOKEN = "--duration-count";
@@ -40,12 +46,28 @@ export interface CountUpProps {
   format?: (n: number) => string;
 }
 
+/** No store to watch: the snapshot only tells the server render and hydration from the browser. */
+const subscribeToNothing = () => () => {};
+
 export function CountUp({ from, to, format = String }: CountUpProps) {
-  const [shown, setShown] = useState(from);
+  // True for the server render and the hydration of its HTML, false for a mount in the browser.
+  // The FIRST render's answer is kept: React re-renders with `false` once hydration is done.
+  const serverOrHydrating = useSyncExternalStore(
+    subscribeToNothing,
+    () => false,
+    () => true,
+  );
+  const [cameWithPage] = useState(serverOrHydrating);
+  const [shown, setShown] = useState(cameWithPage ? to : from);
 
   useEffect(() => {
     const duration = countUpDurationMs();
-    if (duration === 0 || from === to || typeof requestAnimationFrame !== "function") {
+    if (
+      cameWithPage ||
+      duration === 0 ||
+      from === to ||
+      typeof requestAnimationFrame !== "function"
+    ) {
       setShown(to);
       return undefined;
     }
@@ -58,7 +80,7 @@ export function CountUp({ from, to, format = String }: CountUpProps) {
     };
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
-  }, [from, to]);
+  }, [cameWithPage, from, to]);
 
   return (
     <>

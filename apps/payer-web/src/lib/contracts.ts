@@ -47,6 +47,17 @@ export const creditBalanceSchema = z.object({
 export type CreditBalance = z.infer<typeof creditBalanceSchema>;
 
 /**
+ * A balance the portal's SERVER read, with when it read it (#2585) — so the browser can tell which
+ * of two figures is newer (components/live-balance.ts). Not a wire shape: `GET /payer/credits`
+ * carries no time, so `asOf` is the portal server's `Date.now()` just before that read.
+ */
+export interface BalanceReading {
+  balance: number;
+  /** Epoch ms on the portal server, taken just before `GET /payer/credits`. */
+  asOf: number;
+}
+
+/**
  * One past unlock by THIS payer (payer-scoped). PII-free routing record only.
  *
  * An unlock is ONE grant per (payer, worker) — ADR-0010 sign-off resolution 1 ("per candidate

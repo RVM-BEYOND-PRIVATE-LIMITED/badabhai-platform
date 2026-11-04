@@ -56,6 +56,9 @@ export default async function PortalLayout({ children }: { children: ReactNode }
   });
 
   let balance: number | null = null;
+  // When it was read (#2585): the chip shows a balance an unlock published only if the server read
+  // that one later (components/live-balance.ts).
+  const balanceAsOf = Date.now();
   try {
     balance = (await getCredits()).balance;
   } catch {
@@ -93,7 +96,7 @@ export default async function PortalLayout({ children }: { children: ReactNode }
                  decorative chip — for every member, since any member can buy (owner ruling
                  2026-10-07). Below ~540px its unit word is hidden visually; the chip keeps an
                  accessible name and a tooltip (balance-chip.tsx). */
-              <BalanceChip balance={balance} linkToCredits />
+              <BalanceChip balance={balance} balanceAsOf={balanceAsOf} linkToCredits />
             ) : null}
             {/* Light/dark theme — a per-user display preference, role-agnostic. */}
             <ThemeToggle />

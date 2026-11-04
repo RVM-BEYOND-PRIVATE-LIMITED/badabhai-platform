@@ -84,6 +84,8 @@ export default async function ApplicantsPage({
   let roleTitle: string | null = null;
   let postingStatus: string | null = null;
   let unlocks: UnlockHistoryItem[] = [];
+  // When the balance was read (#2585 — the feed orders it against an unlock's read-back).
+  const balanceAsOf = Date.now();
   try {
     const dashboard = await getDashboard({ withPostings: true });
     balance = dashboard.credits.balance;
@@ -113,6 +115,7 @@ export default async function ApplicantsPage({
           // ENABLED — the no-oracle server still makes the real decision; we never block on a
           // UI-side balance we couldn't read.
           balance={balance ?? 1}
+          balanceAsOf={balanceAsOf}
           // Only this feed's workers, only live grants — the client gets no unlock id it has no
           // row for. Request time: this page is force-dynamic.
           unlocked={liveUnlocksFor(

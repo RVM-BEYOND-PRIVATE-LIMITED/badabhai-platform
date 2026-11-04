@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ReactElement, ReactNode } from "react";
+import { ACTION_ICON } from "@badabhai/icons";
 import { Button } from "../ds";
 import { NEUTRAL_UNLOCK_MESSAGE } from "../../lib/unlock-view";
 import type { ContactView } from "../../lib/unlock-view";
@@ -61,7 +62,7 @@ describe("RoutedContactCard — routed relay ONLY, never a phone (ADR-0010 F-4)"
   it("renders the opaque relay handle + channel label + expiry", () => {
     const text = deepText(RoutedContactCard({ view }) as ReactElement);
     expect(text).toContain("RELAY-7h3k9q"); // the opaque handle
-    expect(text).toContain("In-app relay"); // channel is in_app_relay | proxy_number ONLY
+    expect(text).toContain("In the BadaBhai app"); // channel is in_app_relay | proxy_number ONLY
     expect(text).toContain("2026-07-01"); // expiry (date-only)
     expect(text).toContain("not a phone number"); // the explicit faceless guarantee copy
   });
@@ -80,6 +81,63 @@ describe("RoutedContactCard — routed relay ONLY, never a phone (ADR-0010 F-4)"
     const text = deepText(RoutedContactCard({ view: { ...view, channel: "proxy_number" } }) as ReactElement);
     expect(text).toContain("Proxy number");
     expect(text).not.toMatch(/\d{10,}/); // still no phone digits — only a channel LABEL
+  });
+});
+
+describe("#2585 — plain words: no 'routed' or 'relay' in what the payer reads", () => {
+  const view: Extract<ContactView, { kind: "routed" }> = {
+    kind: "routed",
+    relayHandle: "RELAY-7h3k9q",
+    channel: "in_app_relay",
+    expiresAt: "2026-07-01T00:00:00.000Z",
+  };
+
+  it("the contact card names a reference reached through BadaBhai (the handle itself is the API's)", () => {
+    const text = deepText(RoutedContactCard({ view }) as ReactElement).replace("RELAY-7h3k9q", "");
+    expect(text).toContain("Contact reference.");
+    expect(text).toContain("through BadaBhai");
+    expect(text).not.toMatch(/routed|relay/i);
+    const proxy = deepText(
+      RoutedContactCard({ view: { ...view, channel: "proxy_number" } }) as ReactElement,
+    );
+    expect(proxy.replace("RELAY-7h3k9q", "")).not.toMatch(/routed|relay/i);
+  });
+
+  it("the confirm dialog's title and body say what happens, in plain words", () => {
+    const inner = ConfirmSpendDialog({
+      open: true,
+      onCancel: () => {},
+      onConfirm: () => {},
+    }) as ReactElement<{
+      title?: ReactNode;
+      children?: ReactNode;
+    }>;
+    expect(deepText(inner.props.title as ReactNode).trim()).toBe("Unlock this contact?");
+    const body = deepText(inner.props.children as ReactNode);
+    expect(body).toContain("through BadaBhai");
+    expect(`${deepText(inner.props.title as ReactNode)} ${body}`).not.toMatch(/routed|relay/i);
+  });
+});
+
+describe("#2585 — one action, one colour: the confirm IS the card's Unlock button", () => {
+  it("the dialog's Unlock is the primary (Safety Yellow) button with the lock-open glyph, as on the card", () => {
+    const inner = ConfirmSpendDialog({
+      open: true,
+      onCancel: () => {},
+      onConfirm: () => {},
+    }) as ReactElement<{
+      footer?: ReactNode;
+    }>;
+    const footer = inner.props.footer as ReactElement<{ children?: ReactNode }>;
+    const confirm = (
+      footer.props.children as ReactElement<{
+        variant?: string;
+        iconLeft?: string;
+        children?: ReactNode;
+      }>[]
+    ).find((b) => b.type === Button && deepText(b.props.children).includes("Unlock · 1 credit"));
+    expect(confirm?.props.variant).toBe("primary");
+    expect(confirm?.props.iconLeft).toBe(ACTION_ICON.unlock);
   });
 });
 

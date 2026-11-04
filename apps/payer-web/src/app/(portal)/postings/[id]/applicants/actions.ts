@@ -4,11 +4,13 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { requirePayer } from "../../../../../lib/auth";
 import {
+  getCredits,
   requestUnlock,
   reveal,
   revealMaskedResume,
   setApplicantStage,
 } from "../../../../../lib/payer-api";
+import type { BalanceReading } from "../../../../../lib/contracts";
 import { isPayerRateLimited } from "../../../../../lib/payer-errors";
 import { APPLICANT_STAGES, type ApplicantStage } from "../../../../../lib/applicant-stages";
 import {
@@ -36,8 +38,17 @@ import {
 
 const uuid = z.string().uuid();
 
+/**
+ * `readBack` (#2585): the payer's OWN balance, read back from `GET /payer/credits` right after a
+ * GRANT, with when this server read it (`asOf`) — so the screen's zero-balance checks and the
+ * shell's credits chip show what the unlock left, with no reload, and outrank any figure read
+ * before it (components/live-balance.ts). Null when nothing was granted (no read is made) or the
+ * read failed (the grant still stands; the screens keep the figure they had). Never computed: the
+ * unlock response carries no balance, and only the server knows what a grant cost (re-granting a
+ * live one is free).
+ */
 export type UnlockActionResult =
-  | { ok: true; view: UnlockView }
+  | { ok: true; view: UnlockView; readBack: BalanceReading | null }
   | { ok: false; error: string };
 
 export async function unlockAction(input: {
@@ -67,18 +78,40 @@ export async function candidateUnlockAction(input: {
     return { ok: false, error: "Invalid request." };
   }
   if (input.isSample) {
-    return { ok: true, view: { kind: "unavailable", message: NEUTRAL_UNLOCK_MESSAGE } };
+    return {
+      ok: true,
+      view: { kind: "unavailable", message: NEUTRAL_UNLOCK_MESSAGE },
+      readBack: null,
+    };
   }
   return spendUnlock(null, input.workerId);
 }
 
-/** One ids-only unlock call — the posting context, or null for none — mapped to its view. */
+/**
+ * One ids-only unlock call — the posting context, or null for none — mapped to its view; a grant
+ * also reads the balance back. A neutral answer reads nothing: nothing was granted, so nothing was
+ * spent (and no balance ever travels beside a deny).
+ */
 async function spendUnlock(postingId: string | null, workerId: string): Promise<UnlockActionResult> {
+  let view: UnlockView;
   try {
-    const result = await requestUnlock({ postingId, workerId });
-    return { ok: true, view: mapUnlockResult(result) };
+    view = mapUnlockResult(await requestUnlock({ postingId, workerId }));
   } catch {
     return { ok: false, error: "Unlock failed (service unavailable). Please retry." };
+  }
+  return { ok: true, view, readBack: view.kind === "granted" ? await balanceAfterGrant() : null };
+}
+
+/**
+ * The balance a grant left: `GET /payer/credits`, the payer's own (not reach-capped), stamped with
+ * this server's clock just before the read. Null on a failed read.
+ */
+async function balanceAfterGrant(): Promise<BalanceReading | null> {
+  const asOf = Date.now();
+  try {
+    return { balance: (await getCredits()).balance, asOf };
+  } catch {
+    return null;
   }
 }
 

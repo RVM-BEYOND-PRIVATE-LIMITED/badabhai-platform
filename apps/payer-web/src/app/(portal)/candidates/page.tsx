@@ -127,6 +127,8 @@ export default async function CandidatesPage({
   const resolving: Promise<ResolvedSearch> = asksForOptions(address)
     ? optionsRead.then((options) => resolveCandidateSearch(address, options))
     : Promise.resolve(resolveCandidateSearch(address, null));
+  // When the balance below was read (#2585 — the list orders it against an unlock's read-back).
+  const balanceAsOf = Date.now();
   const [options, { query, ignored }, read, balance, unlocks] = await Promise.all([
     optionsRead,
     resolving,
@@ -170,6 +172,7 @@ export default async function CandidatesPage({
           relatedTo={pickedRoleLabel(query, options)}
           // An affordance only — an unread balance keeps Unlock enabled (the server decides).
           balance={balance ?? 1}
+          balanceAsOf={balanceAsOf}
           // Only this page's workers, only live grants. Request time: this page is force-dynamic.
           unlocked={liveUnlocksFor(
             unlocks,

@@ -75,24 +75,42 @@ const useState = vi.fn((init: unknown) => {
   };
   return [cells[i], setter] as [unknown, (v: unknown) => void];
 });
+// The live balance (components/live-balance.ts, #2585) as React reads it: ONE subscription per
+// mount, whose notification re-renders the feed — so a publish alone can move what it shows.
+let unsubscribe: (() => void) | null = null;
 vi.mock("react", async () => {
   const actual = await vi.importActual<typeof ReactModule>("react");
-  return { ...actual, useState: (init: unknown) => useState(init) };
+  return {
+    ...actual,
+    useState: (init: unknown) => useState(init),
+    useSyncExternalStore: (
+      subscribe: (onChange: () => void) => () => void,
+      getSnapshot: () => unknown,
+    ) => {
+      if (unsubscribe === null) unsubscribe = subscribe(() => renderFn?.());
+      return getSnapshot();
+    },
+  };
 });
 
 const { ApplicantActions } = await import("./applicant-actions");
+const { publishBalance, publishedBalance, resetPublishedBalanceForTests } =
+  await import("../../../../../components/live-balance");
 
 const POSTING = "33333333-3333-4333-8333-333333333333";
 const A: FacelessApplicant = { workerId: "aaaaaaaa-0000-4000-8000-000000000001", rank: 1, score: 0.91, hot: true, signals: ["on-trade"], tradeLabel: "VMC Operator", experienceBand: "6-10 yrs", cityLabel: "pune" };
 const B: FacelessApplicant = { workerId: "bbbbbbbb-0000-4000-8000-000000000002", rank: 2, score: 0.74, hot: false, signals: ["adjacent"], tradeLabel: "CNC Operator", experienceBand: "1-2 yrs", cityLabel: "nashik" };
 const C: FacelessApplicant = { workerId: "cccccccc-0000-4000-8000-000000000003", rank: 3, score: 0.6, hot: true, signals: ["city"], tradeLabel: "Fitter", experienceBand: "3-5 yrs", cityLabel: "pune" };
 
-/** Render the component fresh, wiring the stateful re-render loop. */
+/** Render the component fresh, wiring the stateful re-render loop (`balance` read at `balanceAsOf`). */
 function mount(
   applicants: FacelessApplicant[],
   balance = 5,
   unlocked?: Record<string, { kind: "granted"; unlockId: string; expiresAt: string }>,
+  balanceAsOf = 0,
 ) {
+  unsubscribe?.();
+  unsubscribe = null;
   cells = [];
   renderFn = () => {
     cursor = 0;
@@ -101,6 +119,7 @@ function mount(
       postingId: POSTING,
       applicants,
       balance,
+      balanceAsOf,
       ...(unlocked ? { unlocked } : {}),
     }) as ReactElement;
   };
@@ -230,6 +249,8 @@ beforeEach(() => {
   unlockAction.mockReset();
   revealContactAction.mockReset();
   maskedResumeAction.mockReset();
+  resetPublishedBalanceForTests();
+  unsubscribe = null;
 });
 
 const GRANTED = {
@@ -265,11 +286,11 @@ describe("applicant feed — (a) no Call/WhatsApp at any stage; the routed card 
     await driveUnlock();
     expect(unlockAction).toHaveBeenCalledTimes(1);
     expect(reach()).toEqual([]);
-    expect(findStarts("Open routed contact")).toBeDefined();
+    expect(findStarts("Open contact")).toBeDefined();
 
     // Drive the reveal → routed relay handle: still none. The card is the read-out, and its own
     // words say why there is nothing to press.
-    await findStarts("Open routed contact")!.onClick!();
+    await findStarts("Open contact")!.onClick!();
     expect(revealContactAction).toHaveBeenCalledTimes(1);
     expect(reach()).toEqual([]);
     expect(deepText()).toContain("RELAY-7h3k9q");
@@ -285,13 +306,13 @@ describe("applicant feed — (a') a held grant starts the row unlocked (F10)", (
     expiresAt: "2026-11-04T09:30:00.000Z",
   };
 
-  it("Open routed contact reveals the HELD grant; no unlock, no confirm, no spend; the card renders", async () => {
+  it("Open contact reveals the HELD grant; no unlock, no confirm, no spend; the card renders", async () => {
     revealContactAction.mockResolvedValue(ROUTED);
     mount([A, B], 5, { [A.workerId]: HELD });
     // A starts granted; B is offered the spend as usual.
     expect(buttons().filter((b) => b.text === "Unlock contact (1 credit)")).toHaveLength(1);
     expect(deepText()).toContain("2026-11-04");
-    await findStarts("Open routed contact")!.onClick!();
+    await findStarts("Open contact")!.onClick!();
     expect(revealContactAction).toHaveBeenCalledWith({ unlockId: HELD.unlockId });
     expect(unlockAction).not.toHaveBeenCalled();
     // The confirm dialog never opened: confirmWorker (state cell 4 — rows, confirmedUnlock,
@@ -337,10 +358,10 @@ describe("applicant feed — (b) zero PII (no phone / full name) in the rendered
 
     // Drive unlock + reveal on the first row, then re-check the FULL tree incl. the card.
     await driveUnlock();
-    await findStarts("Open routed contact")!.onClick!();
+    await findStarts("Open contact")!.onClick!();
     text = deepText();
     expect(text).toContain("RELAY-7h3k9q"); // the opaque handle rendered (card is in the tree)
-    expect(text).toContain("In-app relay"); // channel label only (in_app_relay | proxy_number)
+    expect(text).toContain("In the BadaBhai app"); // channel label only (in_app_relay | proxy_number)
     expect(text).not.toMatch(/\d{10,}/);
     expect(text).not.toMatch(/\+\d{7,}/);
   });
@@ -423,7 +444,7 @@ describe("applicant feed — (g) after a granted reveal the row MOVES TO CONTACT
 
     // Drive the full spend → reveal flow (dialog confirm spends; reveal returns routed).
     await driveUnlock();
-    await findStarts("Open routed contact")!.onClick!();
+    await findStarts("Open contact")!.onClick!();
 
     // "Mark as contacted" appears ONLY now that a routed handle exists; click it (LOCAL).
     const mark = find("Mark as contacted");
@@ -484,5 +505,171 @@ describe("applicant feed — a posting's own feed is unchanged by the inbox's pe
     find("Unlock contact (1 credit)")!.onClick!();
     expect(cells[4]).toBe(B.workerId);
     expect(unlockAction).toHaveBeenCalledTimes(2);
+  });
+});
+
+/* ── #2585 — feedback after spending a credit ───────────────────────────────────────────── */
+
+type AnyEl = ReactElement<Record<string, unknown> & { children?: ReactNode }>;
+
+/** Every element in the tree (children walked; components are not expanded, the dialog is). */
+function allElements(node: ReactNode = currentTree, out: AnyEl[] = []): AnyEl[] {
+  if (node === null || node === undefined || typeof node !== "object") return out;
+  if (Array.isArray(node)) {
+    for (const n of node) allElements(n, out);
+    return out;
+  }
+  const el = node as AnyEl;
+  out.push(el);
+  if (isConfirmDialogEl(el))
+    return allElements((el.type as (p: unknown) => ReactNode)(el.props), out);
+  if (el.props && "footer" in el.props) allElements(el.props.footer as ReactNode, out);
+  if (el.props && "children" in el.props) allElements(el.props.children, out);
+  return out;
+}
+const withClass = (cls: string) =>
+  allElements().filter(
+    (el) =>
+      typeof el.props?.className === "string" && el.props.className.split(/\s+/).includes(cls),
+  );
+const unlockButtons = () => buttons().filter((b) => b.text === "Unlock contact (1 credit)");
+
+describe("#2585 — after an unlock the balance updates with NO page reload", () => {
+  it("the server's read-back is the list's balance at once: the alert, every other Unlock, the chip", async () => {
+    unlockAction.mockResolvedValue({ ...GRANTED, readBack: { balance: 0, asOf: 200 } });
+    mount([A, B], 1, undefined, 100); // one credit left, read at 100
+    expect(deepText()).not.toContain("0 credits");
+    expect(unlockButtons().map((b) => b.disabled)).toEqual([false, false]);
+
+    await driveUnlock(); // A — the SAME mount: no reload, no new props from the server
+
+    // Every zero-balance check reads the new figure: the alert, B's disabled Unlock + its next
+    // step, and the shell's chip gets the very same server figure.
+    expect(deepText()).toContain("0 credits");
+    expect(unlockButtons()).toHaveLength(1);
+    expect(unlockButtons()[0]!.disabled).toBe(true);
+    expect(deepText()).toContain("Buy credits to unlock.");
+    expect(publishedBalance()).toEqual({ balance: 0, asOf: 200 });
+  });
+
+  it("a balance still above zero updates too — and nothing is subtracted on the client", async () => {
+    // The server says 5 after the grant (a re-grant it did not debit): the list shows 5, not 4.
+    unlockAction.mockResolvedValue({ ...GRANTED, readBack: { balance: 5, asOf: 200 } });
+    mount([A, B], 5, undefined, 100);
+    await driveUnlock();
+    expect(unlockButtons()[0]!.disabled).toBe(false);
+    expect(publishedBalance()?.balance).toBe(5);
+  });
+
+  it("no read-back (the read failed) keeps the figure it had — never a guess, nothing published", async () => {
+    unlockAction.mockResolvedValue({ ...GRANTED, readBack: null });
+    mount([A, B], 1, undefined, 100);
+    await driveUnlock();
+    expect(deepText()).not.toContain("0 credits");
+    expect(unlockButtons()[0]!.disabled).toBe(false);
+    expect(publishedBalance()).toBeNull();
+  });
+
+  it("a figure the server read LATER (a fresh render) outranks the read-back", async () => {
+    unlockAction.mockResolvedValue({ ...GRANTED, readBack: { balance: 0, asOf: 200 } });
+    let balance = 1;
+    let balanceAsOf = 100;
+    unsubscribe = null;
+    cells = [];
+    renderFn = () => {
+      cursor = 0;
+      currentTree = ApplicantActions({
+        header: { title: "Applicants" },
+        postingId: POSTING,
+        applicants: [A, B],
+        balance,
+        balanceAsOf,
+      }) as ReactElement;
+    };
+    renderFn();
+    await driveUnlock();
+    expect(deepText()).toContain("0 credits");
+    // e.g. a purchase, then the page re-rendered from fresh reads
+    balance = 10;
+    balanceAsOf = 300;
+    renderFn();
+    expect(deepText()).not.toContain("0 credits");
+    expect(unlockButtons()[0]!.disabled).toBe(false);
+  });
+
+  it("Back / Forward: the feed mounted again with its FIRST props still follows the unlock made on it", async () => {
+    unlockAction.mockResolvedValue({ ...GRANTED, readBack: { balance: 0, asOf: 200 } });
+    mount([A, B], 1, undefined, 100); // one credit, read at 100
+    await driveUnlock(); // A — the server reads 0 back at 200
+    // The router cache restores the page as first rendered — balance 1 read at 100 — on a NEW
+    // mount: no session state, so A is offered the spend again, as its old props say.
+    mount([A, B], 1, undefined, 100);
+    expect(deepText()).toContain("0 credits");
+    expect(unlockButtons().map((b) => b.disabled)).toEqual([true, true]);
+    expect(deepText()).toContain("Buy credits to unlock.");
+  });
+
+  it("Back / Forward: …and the unlock made on ANOTHER list since (its read-back is newer)", () => {
+    publishBalance({ balance: 0, asOf: 200 }); // e.g. an unlock on /candidates
+    mount([A, B], 1, undefined, 100);
+    expect(deepText()).toContain("0 credits");
+    expect(unlockButtons().map((b) => b.disabled)).toEqual([true, true]);
+    // A page the server rendered AFTER that read-back is newer than it: its own figure stands.
+    mount([A, B], 1, undefined, 300);
+    expect(deepText()).not.toContain("0 credits");
+    expect(unlockButtons().map((b) => b.disabled)).toEqual([false, false]);
+  });
+
+  it("a publish alone re-renders the feed — its subscription, not a state change of its own", () => {
+    mount([A, B], 1, undefined, 100);
+    expect(unlockButtons().map((b) => b.disabled)).toEqual([false, false]);
+    publishBalance({ balance: 0, asOf: 200 }); // e.g. the other unlock list, still mounted
+    expect(deepText()).toContain("0 credits");
+    expect(unlockButtons().map((b) => b.disabled)).toEqual([true, true]);
+  });
+});
+
+describe("#2585 — a card that unlocks: 320ms reveal + a success stamp, once", () => {
+  it("a fresh grant's band carries the reveal; its stamp ending clears it, so it never replays", async () => {
+    unlockAction.mockResolvedValue({ ...GRANTED, readBack: { balance: 4, asOf: 200 } });
+    mount([A], 5);
+    await driveUnlock();
+    expect(withClass("applicant__granted--fresh")).toHaveLength(1);
+    const stamp = allElements().find(
+      (el) => el.type === Badge && el.props.className === "applicant__unlocked",
+    );
+    expect(stamp?.props.icon).toBe("seal-check");
+    // The stamp is the last motion to end: React hands its animationend to the badge.
+    (stamp!.props.onAnimationEnd as () => void)();
+    expect(withClass("applicant__granted--fresh")).toHaveLength(0);
+    expect(withClass("applicant__granted")).toHaveLength(1);
+    const settled = allElements().find(
+      (el) => el.type === Badge && el.props.className === "applicant__unlocked",
+    );
+    expect(settled?.props.icon).toBe("seal-check"); // the seal stays — still
+    expect(settled?.props.onAnimationEnd).toBeUndefined();
+  });
+
+  it("a grant read from the history shows the same band, still — no reveal, no stamp", () => {
+    mount([A], 5, {
+      [A.workerId]: {
+        kind: "granted",
+        unlockId: "66666666-6666-4666-8666-666666666666",
+        expiresAt: "2026-11-04T09:30:00.000Z",
+      },
+    });
+    expect(withClass("applicant__granted")).toHaveLength(1);
+    expect(withClass("applicant__granted--fresh")).toHaveLength(0);
+  });
+
+  it("an unavailable answer is no grant: no reveal", async () => {
+    unlockAction.mockResolvedValue({
+      ok: true,
+      view: { kind: "unavailable", message: "x" },
+      readBack: null,
+    });
+    mount([A], 5);
+    await driveUnlock();
+    expect(withClass("applicant__granted--fresh")).toHaveLength(0);
   });
 });
