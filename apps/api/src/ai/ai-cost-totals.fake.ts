@@ -3,10 +3,12 @@ import type { Database } from "@badabhai/db";
 import type { AiCostAccrual, AiCostTotalsRepository } from "./ai-cost-totals.repository";
 
 /**
- * An in-memory `AiCostTotalsRepository` for unit tests, shaped like the real one in the three
+ * An in-memory `AiCostTotalsRepository` for unit tests, shaped like the real one in the four
  * ways that matter to a caller: `withTransaction` runs the work and propagates a throw,
- * `withSavepoint` proves the accrual was nested on that transaction rather than run bare on it,
- * and `accrue` records exactly what it was handed.
+ * `withSavepoint` proves the write was nested on that transaction rather than run bare on it,
+ * the PLATFORM and OWNED legs are separate calls, and `order` records which was asked for
+ * first. The order is load-bearing: the platform total has no FK and must be written before an
+ * owned leg that can fail with 23503.
  *
  * IT DOES NOT MODEL COMMIT/ROLLBACK. Whether the `ai.cost_recorded` row survives a failed
  * accrual is a property of Postgres transaction semantics, and asserting it needs a harness that
@@ -15,20 +17,26 @@ import type { AiCostAccrual, AiCostTotalsRepository } from "./ai-cost-totals.rep
  *
  * NOT A NO-OP STUB. `AiCostRecorder` swallows every failure by design, so a stub that quietly
  * accepted anything would let a recorder that accrues nothing — or accrues on a deduplicated
- * redelivery — pass every test in the suite. The `accrued` array is the assertion surface.
+ * redelivery — pass every test in the suite. The arrays are the assertion surface.
  *
  * Lives in `src/` beside its subject rather than in a test file so the three suites that build
  * a real `AiCostRecorder` share ONE fake and cannot drift into three slightly different ones.
  */
 export interface FakeAiCostTotals {
-  /** Every accrual the recorder asked for, in order. */
+  /** Every OWNED (worker/session) accrual the recorder asked for, in order. */
   readonly accrued: AiCostAccrual[];
+  /** Every PLATFORM accrual — one per attributed call, plus payer-side calls. */
+  readonly platformAccrued: AiCostAccrual[];
+  /** The order the two legs were asked for — `["platform", "owned"]` on a normal call. */
+  readonly order: Array<"platform" | "owned">;
   /** How many transactions were opened (an emit that never ran opens none). */
   transactions: number;
   /** How many savepoints were opened on those transactions. */
   savepoints: number;
-  /** Set to make the next accrual throw — the degraded path. */
+  /** Set to make the next OWNED write throw — the deleted-worker path. */
   failNext: boolean;
+  /** Set to make the next PLATFORM write throw — the degraded-platform path. */
+  failNextPlatform: boolean;
   /** Pass this where an `AiCostTotalsRepository` is expected. */
   readonly repo: AiCostTotalsRepository;
 }
@@ -45,11 +53,16 @@ export const FAKE_SP = { __fakeSavepoint: true } as unknown as Database;
 
 export function fakeAiCostTotals(): FakeAiCostTotals {
   const accrued: AiCostAccrual[] = [];
+  const platformAccrued: AiCostAccrual[] = [];
+  const order: Array<"platform" | "owned"> = [];
   const state = {
     accrued,
+    platformAccrued,
+    order,
     transactions: 0,
     savepoints: 0,
     failNext: false,
+    failNextPlatform: false,
     repo: {
       async withTransaction<T>(work: (tx: Database) => Promise<T>): Promise<T> {
         state.transactions += 1;
@@ -63,15 +76,25 @@ export function fakeAiCostTotals(): FakeAiCostTotals {
         state.savepoints += 1;
         return work(FAKE_SP);
       },
-      async accrue(input: AiCostAccrual, tx: Database): Promise<void> {
+      async accruePlatform(input: AiCostAccrual, tx: Database): Promise<void> {
+        order.push("platform");
+        if (tx !== FAKE_SP) {
+          // A failure here aborts the whole transaction and takes the event row with it.
+          throw new Error("accruePlatform was called off the savepoint it was given");
+        }
+        if (state.failNextPlatform) throw new Error("platform totals write failed");
+        platformAccrued.push(input);
+      },
+      async accrueOwned(input: AiCostAccrual, tx: Database): Promise<void> {
+        order.push("owned");
         if (tx !== FAKE_SP) {
           // The accrual must ride a SAVEPOINT opened on the handle the event insert used.
           // Handed `FAKE_TX` it would still be inside the right transaction — but a failure
           // there aborts that transaction and takes the `ai.cost_recorded` row with it, which
           // is precisely the defect the savepoint exists to prevent.
-          throw new Error("accrue was called off the savepoint it was given");
+          throw new Error("accrueOwned was called off the savepoint it was given");
         }
-        if (state.failNext) throw new Error("totals write failed");
+        if (state.failNext) throw new Error("owned totals write failed");
         accrued.push(input);
       },
     } as unknown as AiCostTotalsRepository,

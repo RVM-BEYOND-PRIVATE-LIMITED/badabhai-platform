@@ -28,32 +28,34 @@ export interface AiCostAccrual {
 /**
  * The running totals `ai.cost_recorded` is materialized into (migration 0077).
  *
- * ONE METHOD, AND IT ONLY EVER ADDS. There is no decrement, no set, and no delete: spend is
- * monotonic, the CHECK constraints on all three tables say so, and a repository that could
- * subtract would be a repository someone could use to make a number look better.
+ * TWO WRITE METHODS, AND THE SPLIT IS THE POINT. `platform_ai_cost_totals` has NO worker
+ * foreign key and must be written for every call — including a call whose worker was deleted
+ * mid-flight. `worker_ai_cost_totals` and `session_ai_cost_totals` DO have one, so they can fail
+ * with 23503 when their subject is gone. They used to share one savepoint, which meant that
+ * failure rolled the platform total back too and the headline lost a call the ledger had
+ * recorded. The recorder now calls {@link accruePlatform} first and {@link accrueOwned} second,
+ * each in its OWN savepoint: a missing worker costs the worker/session rows and nothing else.
  *
- * ALWAYS RUNS ON A CALLER-SUPPLIED TRANSACTION. The `tx` parameter is required, not optional,
- * because on the success path these numbers move in the SAME commit as the `ai.cost_recorded`
- * row they are derived from. An overload that opened its own transaction would make the
- * drifting version the easy one to call. (The recorder runs this inside a {@link
- * AiCostTotalsRepository.withSavepoint} so that a FAILED accrual costs only the accrual — see
- * `AiCostRecorder.record`. Success is atomic with the event; failure degrades to "the totals
- * trail the spine", never to "the ledger row was destroyed".)
+ * NEITHER METHOD DECIDES WHEN TO DEGRADE (CLAUDE.md §4). They write what they are told and let
+ * the error out. `AiCostRecorder` owns the exactly-once rule, the ordering, and the catch that
+ * turns a failed leg into a warning while the `ai.cost_recorded` row commits.
  *
- * NO BUSINESS LOGIC HERE (CLAUDE.md §4): the decision of WHETHER to accrue — only when the
- * event row was actually inserted, never on a deduplicated redelivery — belongs to
- * `AiCostRecorder`, which owns the exactly-once rule. This layer writes what it is told.
+ * ONLY EVER ADDS. There is no decrement, no set, and no delete: spend is monotonic, the CHECK
+ * constraints on all three tables say so, and a repository that could subtract would be a
+ * repository someone could use to make a number look better.
  */
 @Injectable()
 export class AiCostTotalsRepository {
   constructor(@Inject(DATABASE) private readonly db: Database) {}
 
   /**
-   * Add one call's spend to every total that has an owner.
+   * Add one call's spend to the PLATFORM running total — the unconditional leg.
    *
-   * THREE UPSERTS AT MOST, and each is skipped when its subject is absent — a payer-side
-   * embed touches only the platform row, and inventing a worker for it would be worse than
-   * counting it platform-wide alone.
+   * NO FK, NO OWNER, ALWAYS WRITABLE. This is the row that makes the platform figure complete:
+   * payer-side spend (`skill_embedding` on a posting write, `job_posting_chat_turn`) has no
+   * worker and no session, and a call whose worker was deleted mid-flight still spent money.
+   * The recorder calls this FIRST, in its own savepoint, precisely so a later worker/session
+   * failure cannot undo it.
    *
    * `INSERT ... ON CONFLICT DO UPDATE` rather than read-then-write: the read-modify-write
    * version loses concurrent increments unless every reader takes a row lock first, and the
@@ -61,64 +63,16 @@ export class AiCostTotalsRepository {
    * conflict already takes, so N concurrent calls produce N increments with no coordination.
    *
    * `first_recorded_at` is deliberately NOT in the update set — it is the insert's value
-   * forever, which is what makes "cost since we first saw this worker" answerable.
+   * forever, which is what makes "spend since this task type first accrued" answerable.
    */
-  async accrue(input: AiCostAccrual, tx: Database): Promise<void> {
-    const { workerId, sessionId, provider, taskType, costInr, realCall } = input;
+  async accruePlatform(input: AiCostAccrual, tx: Database): Promise<void> {
+    const { provider, taskType, costInr, realCall } = input;
     const realDelta = realCall ? 1 : 0;
     // Bound to a string in the same shape the column stores. `numeric` is exact; handing it a
     // JS float's decimal expansion here is the LAST place the value is a float, and every
     // addition after it happens in Postgres.
     const cost = costInr.toString();
 
-    if (workerId !== null) {
-      await tx
-        .insert(workerAiCostTotals)
-        .values({
-          workerId,
-          totalCostInr: cost,
-          callCount: 1,
-          realCallCount: realDelta,
-        })
-        .onConflictDoUpdate({
-          target: workerAiCostTotals.workerId,
-          set: {
-            totalCostInr: sql`${workerAiCostTotals.totalCostInr} + ${cost}::numeric`,
-            callCount: sql`${workerAiCostTotals.callCount} + 1`,
-            realCallCount: sql`${workerAiCostTotals.realCallCount} + ${realDelta}`,
-            updatedAt: sql`now()`,
-          },
-        });
-    }
-
-    // A SESSION TOTAL NEEDS BOTH IDS. `session_ai_cost_totals.worker_id` is NOT NULL — it is
-    // the second cascade path to DSAR erasure — so a session with no worker cannot be
-    // recorded. That combination does not occur (every profiling session belongs to a
-    // worker), and refusing to invent one is the fail-closed reading.
-    if (sessionId !== null && workerId !== null) {
-      await tx
-        .insert(sessionAiCostTotals)
-        .values({
-          chatSessionId: sessionId,
-          workerId,
-          totalCostInr: cost,
-          callCount: 1,
-          realCallCount: realDelta,
-        })
-        .onConflictDoUpdate({
-          target: sessionAiCostTotals.chatSessionId,
-          set: {
-            totalCostInr: sql`${sessionAiCostTotals.totalCostInr} + ${cost}::numeric`,
-            callCount: sql`${sessionAiCostTotals.callCount} + 1`,
-            realCallCount: sql`${sessionAiCostTotals.realCallCount} + ${realDelta}`,
-            updatedAt: sql`now()`,
-          },
-        });
-    }
-
-    // UNCONDITIONAL — this is the row that makes the platform figure complete. Payer-side
-    // spend (`skill_embedding` on a posting write, `job_posting_chat_turn`) has no worker and
-    // no session, and it is exactly the spend a worker-derived total would silently omit.
     await tx
       .insert(platformAiCostTotals)
       .values({
@@ -134,6 +88,63 @@ export class AiCostTotalsRepository {
           totalCostInr: sql`${platformAiCostTotals.totalCostInr} + ${cost}::numeric`,
           callCount: sql`${platformAiCostTotals.callCount} + 1`,
           realCallCount: sql`${platformAiCostTotals.realCallCount} + ${realDelta}`,
+          updatedAt: sql`now()`,
+        },
+      });
+  }
+
+  /**
+   * Add one call's spend to the WORKER and SESSION running totals — the owned legs.
+   *
+   * BOTH ARE FK-BOUND and can legitimately fail with 23503 when a queued job outlives its
+   * subject. That is why the recorder runs this in a SEPARATE savepoint from {@link
+   * accruePlatform}: the failure costs these rows, never the platform total.
+   *
+   * A payer-side call has neither owner and this is a no-op. A session without a worker cannot
+   * be recorded — `session_ai_cost_totals.worker_id` is NOT NULL, the second cascade path to
+   * DSAR erasure — and refusing to invent one is the fail-closed reading.
+   */
+  async accrueOwned(input: AiCostAccrual, tx: Database): Promise<void> {
+    const { workerId, sessionId, costInr, realCall } = input;
+    if (workerId === null) return;
+    const realDelta = realCall ? 1 : 0;
+    const cost = costInr.toString();
+
+    await tx
+      .insert(workerAiCostTotals)
+      .values({
+        workerId,
+        totalCostInr: cost,
+        callCount: 1,
+        realCallCount: realDelta,
+      })
+      .onConflictDoUpdate({
+        target: workerAiCostTotals.workerId,
+        set: {
+          totalCostInr: sql`${workerAiCostTotals.totalCostInr} + ${cost}::numeric`,
+          callCount: sql`${workerAiCostTotals.callCount} + 1`,
+          realCallCount: sql`${workerAiCostTotals.realCallCount} + ${realDelta}`,
+          updatedAt: sql`now()`,
+        },
+      });
+
+    if (sessionId === null) return;
+
+    await tx
+      .insert(sessionAiCostTotals)
+      .values({
+        chatSessionId: sessionId,
+        workerId,
+        totalCostInr: cost,
+        callCount: 1,
+        realCallCount: realDelta,
+      })
+      .onConflictDoUpdate({
+        target: sessionAiCostTotals.chatSessionId,
+        set: {
+          totalCostInr: sql`${sessionAiCostTotals.totalCostInr} + ${cost}::numeric`,
+          callCount: sql`${sessionAiCostTotals.callCount} + 1`,
+          realCallCount: sql`${sessionAiCostTotals.realCallCount} + ${realDelta}`,
           updatedAt: sql`now()`,
         },
       });

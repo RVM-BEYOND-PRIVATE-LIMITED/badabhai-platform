@@ -339,13 +339,17 @@ describe.skipIf(!RUN)("worker/session/platform AI cost totals (migration 0077)",
       .where(eq(events.idempotencyKey, `ai.cost_recorded:${FK_CALL}`));
     expect(rows).toHaveLength(1);
 
-    // AND THE ACCRUAL WAS ALL-OR-NOTHING: the platform upsert runs AFTER the worker one and is
-    // unconditional, so a savepoint that only covered part of `accrue` would have let it
-    // through and made the platform total count a call no worker total did.
-    expect((await platformRow(PROVIDER, "profiling_chat_turn"))[0]!.totalCostInr).toBe(
-      beforePlatform!.totalCostInr,
+    // AND THE PLATFORM TOTAL STILL COUNTS THE CALL. It has no worker FK, it is written first in
+    // its own savepoint, and a worker deleted mid-flight must not remove spend the platform
+    // really paid. Before the split, this row was rolled back with the failing worker leg and
+    // the headline quietly dropped the call the ledger had recorded.
+    const [afterPlatform] = await platformRow(PROVIDER, "profiling_chat_turn");
+    expect(afterPlatform!.callCount).toBe(beforePlatform!.callCount + 1);
+    expect(Number(afterPlatform!.totalCostInr)).toBeCloseTo(
+      Number(beforePlatform!.totalCostInr) + 0.1,
+      10,
     );
-    // The surviving worker's total is untouched too.
+    // The surviving worker's total is untouched — the FK failure cost only the owned leg.
     expect((await workerRow())[0]!.totalCostInr).toBe(beforeWorker.totalCostInr);
   });
 });
