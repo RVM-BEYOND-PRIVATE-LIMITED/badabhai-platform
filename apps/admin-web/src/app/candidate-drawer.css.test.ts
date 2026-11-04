@@ -114,6 +114,15 @@ describe("layout", () => {
     expect(decl(bar, "background")).toBe("var(--surface-card)");
   });
 
+  it("on a phone the seven tabs are one line that scrolls sideways, not three sticky lines", () => {
+    const phone = ALL.filter((r) => r.atRules.join() === "@media (max-width: 600px)");
+    const tabs = phone.find((r) => r.selector === ".cdrawer__tabs");
+    expect(tabs && decl(tabs.body, "flex-wrap")).toBe("nowrap");
+    expect(tabs && decl(tabs.body, "overflow-x")).toBe("auto");
+    const tab = phone.find((r) => r.selector === ".cdrawer__tabs > .btn");
+    expect(tab && decl(tab.body, "flex")).toBe("none");
+  });
+
   it("a hidden tab panel takes no room", () => {
     expect(decl(top(".cdrawer__panel[hidden]"), "display")).toBe("none");
   });
@@ -127,6 +136,10 @@ describe("layout", () => {
 
   it("drawer values wrap between words — not `.kv__v`'s break-all, which is for ids", () => {
     expect(decl(top(".cdrawer .kv__v"), "word-break")).toBe("normal");
+  });
+
+  it("a muted value starts where every value starts — no table-cell leading gap", () => {
+    expect(decl(top(".cdrawer .table__meta"), "margin-left")).toBe("0");
   });
 });
 

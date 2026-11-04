@@ -171,9 +171,10 @@ describe("every failure has its own screen and its own way out", () => {
     expect(out).toMatch(/<button type="button" class="btn btn--ghost">.*Retry<\/button>/);
   });
 
-  it("none of them shows a record's tabs", () => {
+  it("none of them shows a record's tabs — not even the tab row", () => {
     for (const s of ["not_found", "forbidden", "signed_out", "error"] as const) {
       expect(failed(s)).not.toContain("data-panels");
+      expect(failed(s)).not.toContain('role="tablist"');
     }
   });
 });

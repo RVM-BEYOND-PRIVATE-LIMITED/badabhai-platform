@@ -122,6 +122,22 @@ describe("Drawer", () => {
     expect(out).toContain(">Worker</h2>");
   });
 
+  it("its Close tip opens below, from the right — above it, the window's top edge cut it off", () => {
+    const drawer = html(
+      <Drawer open onClose={() => {}} title="Worker">
+        x
+      </Drawer>,
+    );
+    expect(drawer).toContain('class="bb-icon-tip bb-icon-tip--bottom-end"');
+    // A centred dialog has room above its Close and keeps the default.
+    const dialog = html(
+      <Dialog open onClose={() => {}} title="T">
+        x
+      </Dialog>,
+    );
+    expect(dialog).toContain('class="bb-icon-tip bb-icon-tip--top"');
+  });
+
   it("renders nothing while closed", () => {
     expect(
       html(

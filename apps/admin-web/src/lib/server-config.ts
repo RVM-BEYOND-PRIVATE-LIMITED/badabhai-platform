@@ -5,7 +5,8 @@ import "server-only";
  *
  * `apiBaseUrl` is deliberately NOT a `NEXT_PUBLIC_*` value: the browser must never learn
  * the internal API origin, and no admin request is ever made from the client — every call
- * goes through a server action or a server component using {@link adminFetch}.
+ * goes through a server action, a server component or a route handler (the candidate drawer's
+ * same-origin record read, A7 #2577) using {@link adminFetch}.
  */
 export interface AdminServerConfig {
   apiBaseUrl: string;

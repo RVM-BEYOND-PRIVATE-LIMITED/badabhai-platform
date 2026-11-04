@@ -5392,6 +5392,12 @@ a.pager__step:hover {
 .cfield__value > .chips {
   gap: var(--space-1);
 }
+/* The console's muted text carries a leading gap, for a note trailing a table cell's value. In the
+   drawer a muted value IS the value (a dash, "Hidden", "Hidden for your role"), so it starts where
+   every other value starts. */
+.cdrawer .table__meta {
+  margin-left: 0;
+}
 .cfield__note {
   flex: 1 0 100%;
   font-size: var(--ui-caption-size);
@@ -5529,6 +5535,15 @@ a.pager__step:hover {
 /* ---- small screens ------------------------------------------------------------------------- */
 
 @media (max-width: 600px) {
+  /* Seven tabs wrapped to three sticky lines on a phone — a quarter of the screen. One line that
+     scrolls sideways instead; a tab focused by ←/→ scrolls itself into view. */
+  .cdrawer__tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+  }
+  .cdrawer__tabs > .btn {
+    flex: none;
+  }
   .cdrawer__skeleton-row {
     grid-template-columns: 1fr;
     gap: var(--space-2);

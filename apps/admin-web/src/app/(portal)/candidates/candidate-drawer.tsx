@@ -140,15 +140,19 @@ export function CandidateDrawer({ rows, initial, entitled, canReveal }: Candidat
       }
     >
       <div className="cdrawer" ref={contentRef}>
-        {/* Sticky at the top of the drawer's scroller: a long Profile never scrolls the tabs away. */}
-        <div className="cdrawer__tabbar">
-          <CandidateTabList
-            idBase={idBase}
-            active={tab}
-            onSelect={setTab}
-            disabled={detail === null}
-          />
-        </div>
+        {/* Sticky at the top of the drawer's scroller: a long Profile never scrolls the tabs away.
+            Drawn while a record loads (disabled — nothing to switch to yet, and the body does not
+            jump when it lands) and over a record; a failed read has no tabs to offer. */}
+        {result === null || result.status === "ok" ? (
+          <div className="cdrawer__tabbar">
+            <CandidateTabList
+              idBase={idBase}
+              active={tab}
+              onSelect={setTab}
+              disabled={detail === null}
+            />
+          </div>
+        ) : null}
         {/* Keyed by the record shown: a move remounts the body, which fades it in (140ms). */}
         <div
           key={`${viewId ?? ""}:${result?.status ?? "loading"}`}

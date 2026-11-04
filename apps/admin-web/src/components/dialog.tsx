@@ -53,7 +53,7 @@ export function OverlayFrame({
       describedBy={descId}
       initialFocusRef={initialFocusRef}
     >
-      <OverlayHeader titleId={titleId} title={title} onClose={onClose}>
+      <OverlayHeader kind={kind} titleId={titleId} title={title} onClose={onClose}>
         {description ? (
           <p className="overlay__sub" id={descId}>
             {description}
@@ -66,13 +66,21 @@ export function OverlayFrame({
   );
 }
 
-/** The title row Dialog and Drawer share: heading, optional description, and the close button. */
+/**
+ * The title row Dialog and Drawer share: heading, optional description, and the close button.
+ *
+ * A drawer runs the full height of the window, so its Close sits at the very top edge and a tip
+ * above it was cut off by the viewport (A7, #2577): there it opens BELOW, growing in from the
+ * right edge. A centred dialog has room above and keeps the default.
+ */
 function OverlayHeader({
+  kind,
   titleId,
   title,
   onClose,
   children,
 }: {
+  kind: "dialog" | "drawer";
   titleId: string;
   title: string;
   onClose: () => void;
@@ -86,7 +94,12 @@ function OverlayHeader({
         </h2>
         {children}
       </div>
-      <IconButton icon={ACTION_ICON.close} label="Close" onClick={onClose} />
+      <IconButton
+        icon={ACTION_ICON.close}
+        label="Close"
+        onClick={onClose}
+        tooltipPlacement={kind === "drawer" ? "bottom-end" : undefined}
+      />
     </div>
   );
 }
