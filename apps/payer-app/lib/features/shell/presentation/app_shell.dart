@@ -275,6 +275,14 @@ class _AppShellState extends State<AppShell> {
   /// request; the new one is set after it, for this visit only.
   void _landOnPostedJob(String postingId) {
     _selectTab('jobs');
+    // #2592 — My jobs keeps its scroll across visits, but the server lists
+    // postings newest first, so the new card is at the TOP. A lazy list left
+    // scrolled down would never build that row, and an unbuilt row never
+    // claims the highlight or scrolls into view. Jump (no motion; the
+    // overlay still covers the list), for the company and agency list alike.
+    // A first visit mounts at the top and has no clients yet.
+    final ScrollController jobs = _scrollOf('jobs');
+    if (jobs.hasClients) jobs.jumpTo(0);
     setState(() {
       _resumeChatId = null;
       _justPosted = BbHighlightRequest(postingId);

@@ -317,6 +317,47 @@ void main() {
           reason: 'it missed a return: one quiet re-read');
       expect(find.byType(BbSkeletonCandidateRow), findsNothing);
     });
+
+    for (final bool paged in <bool>[false, true]) {
+      testWidgets(
+          'the nav return that re-opens All candidates after a Jobs card '
+          '"Applicants" re-reads it once (paged: $paged)',
+          (WidgetTester tester) async {
+        api.cannedJobs = true;
+        await pumpShell(tester, phone: false);
+        await tapNav(tester, 'Find');
+        await tester.pumpAndSettle();
+        final CandidateSearchCubit search = tester
+            .element(find.byType(CandidateSearchView))
+            .read<CandidateSearchCubit>();
+        if (paged) {
+          // Past the first page a return re-reads only the unlock history
+          // (the place is kept), so a second re-read cannot hide behind the
+          // first page's in-flight guard.
+          await search.loadMore();
+          await tester.pumpAndSettle();
+          expect(search.state.pagedBeyondFirst, isTrue);
+        }
+        // A Jobs card's "Applicants" opens Find on Applicants: the hidden
+        // All-candidates view misses that return.
+        await tapNav(tester, 'Jobs');
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Applicants').first);
+        await tester.pumpAndSettle();
+        expect(shownView(tester), FindView.applicants);
+        await tapNav(tester, 'Home');
+        await tester.pumpAndSettle();
+        final int historyReads = api.unlockHistoryReads;
+
+        // The nav tab opens All candidates — the view that missed a return.
+        await tapNav(tester, 'Find');
+        await tester.pumpAndSettle();
+
+        expect(shownView(tester), FindView.allCandidates);
+        expect(api.unlockHistoryReads, historyReads + 1,
+            reason: 'one return, one quiet re-read — never two');
+      });
+    }
   });
 
   testWidgets('Home pulls to refresh the balance', (WidgetTester tester) async {
