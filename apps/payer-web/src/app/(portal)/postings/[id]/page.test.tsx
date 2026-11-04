@@ -126,7 +126,13 @@ describe("PostingDetailPage — Reached N workers (post-publish confirmation)", 
   it("a publish landing with ?reached=N confirms the real count", async () => {
     const out = await landed("23");
     expect(out).toContain("Posting published");
-    expect(out).toContain("Reached 23 workers");
+    // The figure counts up in the browser (#2585); the server's HTML prints it settled, and the
+    // sentence a screen reader hears (the moving digits are aria-hidden) is the real count.
+    const spoken = out
+      .replace(/<span class="bb-countup" aria-hidden="true">[^<]*<\/span>/g, "")
+      .replace(/<[^>]+>/g, "");
+    expect(spoken).toContain("Reached 23 workers");
+    expect(out).toContain('<span class="bb-countup" aria-hidden="true">23</span>');
   });
 
   it("no param, a malformed one, or a posting that is not live → no count at all", async () => {

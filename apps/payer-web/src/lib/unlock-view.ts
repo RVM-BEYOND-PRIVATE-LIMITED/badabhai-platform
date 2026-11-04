@@ -12,9 +12,9 @@ import type { MaskedResumeResult, RevealResult, UnlockResult } from "./contracts
 export const NEUTRAL_UNLOCK_MESSAGE =
   "Unavailable — this applicant can't be unlocked right now. The reason is intentionally not disclosed (no consent, capped, no credits, and already-unlocked all look identical).";
 
-/** The single neutral routed-contact-reveal message. */
+/** The single neutral routed-contact-reveal message (plain words, #2585 — no "routed"). */
 export const NEUTRAL_CONTACT_MESSAGE =
-  "Unavailable — a routed contact can't be opened for this applicant right now. The reason is intentionally not disclosed (no consent, expired, capped all look identical).";
+  "Unavailable — this contact can't be opened right now. The reason is intentionally not disclosed (no consent, expired, capped all look identical).";
 
 /** The single neutral masked-reveal message (WAITING masked-resume shim). */
 export const NEUTRAL_REVEAL_MESSAGE =

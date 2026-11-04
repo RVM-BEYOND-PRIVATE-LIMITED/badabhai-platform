@@ -142,6 +142,8 @@ export default async function CandidatesAppliedPage({
 
   const params = (await searchParams) ?? {};
   const query = parseCandidatesQuery(params);
+  // When the balance below was read (#2585 — the list orders it against an unlock's read-back).
+  const balanceAsOf = Date.now();
   const [read, options, balance, unlocks] = await Promise.all([
     readInbox(query),
     readPostingOptions(isAgency),
@@ -201,6 +203,7 @@ export default async function CandidatesAppliedPage({
           applicants={rows}
           // An affordance only — an unread balance keeps Unlock enabled (the server decides).
           balance={balance ?? 1}
+          balanceAsOf={balanceAsOf}
           // Only this page's workers, only live grants. Request time: this page is force-dynamic.
           unlocked={liveUnlocksFor(
             unlocks,

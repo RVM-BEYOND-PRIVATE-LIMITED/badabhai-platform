@@ -1,10 +1,16 @@
 /**
  * The faceless card's CONTACT BAND — the ONE spend → reveal surface every candidate card ends on:
  * the Unlock CTA (with its zero-balance next step), the neutral "Currently engaged" state, and —
- * once granted — "Unlocked until", Open routed contact (the relay handle, NEVER a phone) and View
+ * once granted — "Unlocked until", Open contact (the relay handle, NEVER a phone) and View
  * masked resume. Used by a posting's Applicants feed / the applicant inbox (ApplicantActions) and
  * by the all-candidates search (CandidateSearchList), so the spend and the reveal read the same
  * everywhere (ADR-0010 F-4 / XB-C; C11's confirm gate stays in the caller's screen).
+ *
+ * A grant made THIS session (`row.fresh`, #2585) arrives with a 320ms blur-to-clear reveal and the
+ * Unlocked badge's seal stamping in (0.6 → 1.08 → 1 over 520ms) — once: when the stamp ends the
+ * caller clears `fresh` (`onRevealed`), so a card that re-mounts (moved to another tab) never
+ * replays it. A grant read from the unlock history shows the same band, still. No motion under
+ * reduced motion (globals.css, W5 block).
  *
  * A RENDER FUNCTION, not a component: it returns the band's elements in place, so the caller's
  * returned tree is exactly what it would be with the band written inline (the card suites walk
@@ -30,6 +36,8 @@ export interface UnlockRowState {
   resumeBusy: boolean;
   resume: RevealView | null;
   resumeError: string | null;
+  /** Granted this session and its reveal not yet played (see the top). Never from the history. */
+  fresh: boolean;
 }
 
 export const EMPTY_UNLOCK_ROW: UnlockRowState = {
@@ -42,6 +50,7 @@ export const EMPTY_UNLOCK_ROW: UnlockRowState = {
   resumeBusy: false,
   resume: null,
   resumeError: null,
+  fresh: false,
 };
 
 export interface ContactBandInput {
@@ -60,6 +69,8 @@ export interface ContactBandInput {
   onUnlock: () => void;
   onRevealContact: (unlockId: string) => void;
   onMaskedResume: (unlockId: string) => void;
+  /** A fresh grant's stamp has played: clear the row's `fresh`, so it never plays again. */
+  onRevealed: () => void;
 }
 
 export function contactBand({
@@ -71,6 +82,7 @@ export function contactBand({
   onUnlock,
   onRevealContact,
   onMaskedResume,
+  onRevealed,
 }: ContactBandInput): ReactElement {
   const granted = row.unlock?.kind === "granted" ? row.unlock : null;
   return (
@@ -83,12 +95,24 @@ export function contactBand({
           View only — applicants to this posting can&rsquo;t be unlocked here.
         </p>
       ) : granted ? (
-        <div className="applicant__granted">
+        <div
+          className={
+            row.fresh ? "applicant__granted applicant__granted--fresh" : "applicant__granted"
+          }
+        >
           {/* The UNLOCK status only. "Contacted" is a pipeline stage and shows once,
               in the toolbar where "Mark as contacted" was (W3-A: it was repeated
-              here as a second solid badge); the unlock itself stays true. */}
+              here as a second solid badge); the unlock itself stays true. Its seal is the
+              success stamp a fresh grant plays (the event bubbles up from the icon). */}
           <div className="applicant__granted-head">
-            <Badge tone="success">Unlocked</Badge>
+            <Badge
+              tone="success"
+              icon="seal-check"
+              className="applicant__unlocked"
+              onAnimationEnd={row.fresh ? onRevealed : undefined}
+            >
+              Unlocked
+            </Badge>
             <span className="applicant__until">
               until <span className="bb-mono">{isoDay(granted.expiresAt)}</span>
             </span>
@@ -115,8 +139,8 @@ export function contactBand({
                 {row.contactBusy
                   ? "Opening…"
                   : row.contactError
-                    ? "Retry — open routed contact"
-                    : "Open routed contact"}
+                    ? "Retry — open contact"
+                    : "Open contact"}
               </Button>
             )}
             {/* Transient reveal failure: retryable inline error (the button above
@@ -164,7 +188,8 @@ export function contactBand({
         <div className="applicant__unlock">
           <div className="applicant__unlock-actions">
             {/* A disabled button takes no hover, so a `title` here was never shown:
-                the reason is the visible line below, tied to the button. */}
+                the reason is the visible line below, tied to the button. Safety Yellow
+                (`primary`), as the confirm dialog's Unlock: one action, one colour. */}
             <Button
               variant="primary"
               size="md"

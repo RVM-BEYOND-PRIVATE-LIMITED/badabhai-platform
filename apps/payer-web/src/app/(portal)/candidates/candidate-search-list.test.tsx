@@ -63,13 +63,28 @@ const useState = vi.fn((init: unknown) => {
   };
   return [cells[i], setter] as [unknown, (v: unknown) => void];
 });
+// The live balance (components/live-balance.ts, #2585) as React reads it: ONE subscription per
+// mount, whose notification re-renders the list — so a publish alone can move what it shows.
+let unsubscribe: (() => void) | null = null;
 vi.mock("react", async () => {
   const actual = await vi.importActual<typeof ReactModule>("react");
-  return { ...actual, useState: (init: unknown) => useState(init) };
+  return {
+    ...actual,
+    useState: (init: unknown) => useState(init),
+    useSyncExternalStore: (
+      subscribe: (onChange: () => void) => () => void,
+      getSnapshot: () => unknown,
+    ) => {
+      if (unsubscribe === null) unsubscribe = subscribe(() => renderFn?.());
+      return getSnapshot();
+    },
+  };
 });
 
 const { CandidateSearchList } = await import("./candidate-search-list");
 const { UNLOCK_GRANTED_TOAST } = await import("../../../components/unlock");
+const { publishBalance, publishedBalance, resetPublishedBalanceForTests } =
+  await import("../../../components/live-balance");
 
 const W1 = "face2000-0000-4000-8000-000000000001";
 const W2 = "face2000-0000-4000-8000-000000000002";
@@ -94,8 +109,15 @@ const row = (workerId: string, over: Partial<CandidateSearchRow> = {}): Candidat
 let mountedRows: CandidateSearchRow[] = [];
 function mount(
   candidates: CandidateSearchRow[],
-  opts: { balance?: number; unlocked?: Record<string, { kind: "granted"; unlockId: string; expiresAt: string }> } = {},
+  opts: {
+    balance?: number;
+    /** When the page's server read `balance` (#2585). */
+    balanceAsOf?: number;
+    unlocked?: Record<string, { kind: "granted"; unlockId: string; expiresAt: string }>;
+  } = {},
 ) {
+  unsubscribe?.();
+  unsubscribe = null;
   cells = [];
   mountedRows = candidates;
   renderFn = () => {
@@ -106,6 +128,7 @@ function mount(
       candidates: mountedRows,
       relatedTo: null,
       balance: opts.balance ?? 5,
+      balanceAsOf: opts.balanceAsOf ?? 0,
       ...(opts.unlocked ? { unlocked: opts.unlocked } : {}),
     }) as ReactElement;
   };
@@ -196,6 +219,8 @@ const GRANTED = { ok: true, view: { kind: "granted", unlockId: UNLOCK_ID, expire
 
 beforeEach(() => {
   for (const f of [candidateUnlockAction, unlockAction, revealContactAction, maskedResumeAction]) f.mockReset();
+  resetPublishedBalanceForTests();
+  unsubscribe = null;
 });
 
 describe("the posting-less unlock (job_id null) — the same confirm-on-spend", () => {
@@ -213,7 +238,7 @@ describe("the posting-less unlock (job_id null) — the same confirm-on-spend", 
     expect(cells[2]).toBeNull();
     // Granted: the card shows the reveal band; the other card still offers its own spend.
     const [first, second] = cards();
-    expect(buttons(second!).map((b) => b.text)).toEqual(["Open routed contact", "View masked resume"]);
+    expect(buttons(second!).map((b) => b.text)).toEqual(["Open contact", "View masked resume"]);
     expect(deepText(second!)).toContain("Unlocked");
     expect(buttons(first!).map((b) => b.text)).toEqual(["Unlock contact (1 credit)"]);
     // The grant is the portal's one success toast (#2583) — announced once, never list state.
@@ -310,13 +335,13 @@ describe("the reveal and the masked résumé — no posting context", () => {
     expect(deepText(cards()[0]!)).toContain("Masked resume.");
   });
 
-  it("Open routed contact reveals the relay handle — never a phone", async () => {
+  it("Open contact reveals the relay handle — never a phone", async () => {
     revealContactAction.mockResolvedValue({
       ok: true,
       view: { kind: "routed", relayHandle: "RELAY-7h3k9q", channel: "in_app_relay", expiresAt: UNTIL },
     });
     mount([row(W1)], { unlocked: held });
-    await button(cards()[0]!, "Open routed contact")!.onClick!();
+    await button(cards()[0]!, "Open contact")!.onClick!();
     expect(revealContactAction.mock.calls[0]![0]).toStrictEqual({ unlockId: UNLOCK_ID });
     const text = deepText(cards()[0]!);
     expect(text).toContain("RELAY-7h3k9q");
@@ -337,7 +362,7 @@ describe("the reveal and the masked résumé — no posting context", () => {
       for (const id of [W1, W2]) expect(text).not.toContain(id);
     };
     check();
-    await button(cards()[0]!, "Open routed contact")!.onClick!();
+    await button(cards()[0]!, "Open contact")!.onClick!();
     check();
   });
 });
@@ -383,7 +408,81 @@ describe("a SAMPLE row (R74) — badged, never offered an unlock", () => {
     const held = { [W1]: { kind: "granted" as const, unlockId: UNLOCK_ID, expiresAt: UNTIL } };
     mount([row(W1, { isSample: true })], { unlocked: held });
     expect(badges(cards()[0]!)).toContain("Sample candidate");
-    expect(buttons(cards()[0]!).map((b) => b.text)).toEqual(["Open routed contact", "View masked resume"]);
+    expect(buttons(cards()[0]!).map((b) => b.text)).toEqual(["Open contact", "View masked resume"]);
     expect(deepText(cards()[0]!)).not.toContain(SAMPLE_LINE);
+  });
+});
+
+describe("#2585 — after an unlock the balance updates with NO page reload", () => {
+  const unlockOn = (i: number) => button(cards()[i]!, "Unlock contact (1 credit)");
+
+  it("the server's read-back is the list's balance at once: the alert, the other card's Unlock, the chip", async () => {
+    candidateUnlockAction.mockResolvedValue({ ...GRANTED, readBack: { balance: 0, asOf: 200 } });
+    mount([row(W1), row(W2)], { balance: 1, balanceAsOf: 100 });
+    expect(deepText()).not.toContain("0 credits");
+    unlockOn(0)!.onClick!();
+    await confirm(); // the SAME mount: no reload, no new props from the server
+    expect(deepText()).toContain("0 credits");
+    expect(unlockOn(1)!.disabled).toBe(true);
+    expect(elements(cards()[1]!).some((el) => el.props?.href === "/credits")).toBe(true);
+    expect(publishedBalance()).toEqual({ balance: 0, asOf: 200 });
+  });
+
+  it("Back / Forward: the list mounted again with its FIRST props still follows the unlock made on it", async () => {
+    candidateUnlockAction.mockResolvedValue({ ...GRANTED, readBack: { balance: 0, asOf: 200 } });
+    mount([row(W1), row(W2)], { balance: 1, balanceAsOf: 100 });
+    unlockOn(0)!.onClick!();
+    await confirm(); // the server reads 0 back at 200
+    // The router cache restores the page as first rendered — balance 1 read at 100 — on a NEW
+    // mount: no session state, so W1 is offered the spend again, as its old props say.
+    mount([row(W1), row(W2)], { balance: 1, balanceAsOf: 100 });
+    expect(deepText()).toContain("0 credits");
+    expect([unlockOn(0)!.disabled, unlockOn(1)!.disabled]).toEqual([true, true]);
+  });
+
+  it("Back / Forward: …and the unlock made on ANOTHER list since; a page read after it stands", () => {
+    publishBalance({ balance: 0, asOf: 200 }); // e.g. an unlock on a posting's Applicants
+    mount([row(W1), row(W2)], { balance: 1, balanceAsOf: 100 });
+    expect(deepText()).toContain("0 credits");
+    expect([unlockOn(0)!.disabled, unlockOn(1)!.disabled]).toEqual([true, true]);
+    mount([row(W1), row(W2)], { balance: 1, balanceAsOf: 300 });
+    expect(deepText()).not.toContain("0 credits");
+    expect([unlockOn(0)!.disabled, unlockOn(1)!.disabled]).toEqual([false, false]);
+  });
+
+  it("a publish alone re-renders the list — its subscription, not a state change of its own", () => {
+    mount([row(W1), row(W2)], { balance: 1, balanceAsOf: 100 });
+    publishBalance({ balance: 0, asOf: 200 });
+    expect(deepText()).toContain("0 credits");
+    expect([unlockOn(0)!.disabled, unlockOn(1)!.disabled]).toEqual([true, true]);
+  });
+
+  it("no read-back keeps the figure — nothing computed, nothing published", async () => {
+    candidateUnlockAction.mockResolvedValue({ ...GRANTED, readBack: null });
+    mount([row(W1), row(W2)], { balance: 1 });
+    unlockOn(0)!.onClick!();
+    await confirm();
+    expect(deepText()).not.toContain("0 credits");
+    expect(unlockOn(1)!.disabled).toBe(false);
+    expect(publishedBalance()).toBeNull();
+  });
+
+  it("a fresh grant's band plays the reveal and stamp once; a held one never does", async () => {
+    candidateUnlockAction.mockResolvedValue({ ...GRANTED, readBack: { balance: 4, asOf: 200 } });
+    mount([row(W1), row(W2)], {
+      unlocked: { [W2]: { kind: "granted", unlockId: UNLOCK_ID, expiresAt: UNTIL } },
+    });
+    unlockOn(0)!.onClick!();
+    await confirm();
+    const fresh = () =>
+      elements().filter(
+        (el) => el.props?.className === "applicant__granted applicant__granted--fresh",
+      );
+    expect(fresh()).toHaveLength(1); // W1 only — W2's grant came from the history
+    const stamp = elements(cards()[0]!).find(
+      (el) => el.props?.className === "applicant__unlocked",
+    )!;
+    (stamp.props.onAnimationEnd as () => void)();
+    expect(fresh()).toHaveLength(0);
   });
 });

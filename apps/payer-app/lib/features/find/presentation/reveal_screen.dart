@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/data/models.dart';
 import '../../../core/di/locator.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/app_haptics.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/util/name_mask.dart';
@@ -14,6 +14,7 @@ import '../../../core/widgets/bb_avatar.dart';
 import '../../../core/widgets/bb_badge.dart';
 import '../../../core/widgets/bb_button.dart';
 import '../../../core/widgets/bb_card.dart';
+import '../../../core/widgets/bb_copy_button.dart';
 import '../../../core/widgets/bb_icon_button.dart';
 import '../../../core/widgets/bb_stamp_celebration.dart';
 import '../../../core/widgets/bb_status_view.dart';
@@ -48,6 +49,22 @@ Future<bool> defaultSignedUrlLauncher(Uri url) =>
 @visibleForTesting
 SignedUrlLauncher revealSignedUrlLauncher = defaultSignedUrlLauncher;
 
+/// The relay card's copy action (#2596) — it copies the handle and confirms in
+/// place (icon → check), with no toast.
+const String kCopyRelayHandleLabel = 'Copy relay handle';
+
+/// What a screen reader hears as the unlock stamp lands (#2596) — the spoken
+/// half of the "Unlocked!" toast the stamp replaced.
+const String kUnlockedAnnouncement = 'Candidate unlocked';
+
+/// Title of the toast that confirms a fresh unlock when its relay did not
+/// resolve, so no stamp can land (#2596 / #1077).
+const String kUnlockedToastTitle = 'Unlocked!';
+
+/// The relay card's closed state: the neutral deny and an outage alike.
+const String kRelayUnavailableMessage =
+    'Contact relay is not available right now.';
+
 /// Revealed profile. Two shapes behind one screen (see [RevealArgs]):
 ///
 ///  - MOCK — the kit's rich reveal: real name + phone (mono pill), skills, and a
@@ -56,6 +73,13 @@ SignedUrlLauncher revealSignedUrlLauncher = defaultSignedUrlLauncher;
 ///    RELAY handle from `POST /payer/unlocks/:id/reveal` and a MASKED résumé
 ///    disclosure. The backend returns NO name/phone, so none is ever
 ///    fabricated here.
+///
+/// The one-shot success stamp (+ a medium haptic + a spoken "unlocked") plays
+/// ONLY when the reveal was opened by the unlock that just happened
+/// ([RevealArgs.justUnlocked]), never on a "View" of an earlier unlock (#2596)
+/// — and, on the real reveal, only once the relay resolved (#1077): no seal
+/// lands over a "relay not available" card. That unlock still gets its one
+/// confirmation: a "Unlocked!" toast with the same medium haptic.
 class RevealScreen extends StatelessWidget {
   const RevealScreen({
     super.key,
@@ -74,7 +98,11 @@ class RevealScreen extends StatelessWidget {
         child: _RealReveal(args: args, onBack: onBack),
       );
     }
-    return _MockReveal(candidate: args.candidate!, onBack: onBack);
+    return _MockReveal(
+      candidate: args.candidate!,
+      justUnlocked: args.justUnlocked,
+      onBack: onBack,
+    );
   }
 }
 
@@ -87,16 +115,6 @@ class _RealReveal extends StatelessWidget {
 
   final RevealArgs args;
   final VoidCallback onBack;
-
-  Future<void> _contactViaRelay(BuildContext context, String handle) async {
-    await Clipboard.setData(ClipboardData(text: handle));
-    if (!context.mounted) return;
-    showBbToast(
-      context,
-      title: 'Relay handle copied',
-      message: 'Reach this candidate through the in-app relay.',
-    );
-  }
 
   Future<void> _downloadResume(BuildContext context) async {
     final RevealCubit cubit = context.read<RevealCubit>();
@@ -173,9 +191,33 @@ class _RealReveal extends StatelessWidget {
     );
   }
 
+  /// True on the one transition where the relay for the unlock that JUST
+  /// happened comes back unavailable or failed. That is the case where the
+  /// stamp stays off (#1077), so the grant needs its confirmation another way.
+  /// Never for a "View" of an earlier unlock.
+  bool _grantNotStamped(RevealState previous, RevealState current) =>
+      args.justUnlocked &&
+      previous.status != current.status &&
+      (current.status == RevealStatus.unavailable ||
+          current.status == RevealStatus.error);
+
+  /// #2596 — confirms a fresh unlock exactly once when no stamp can land. The
+  /// toast is a SnackBar, so TalkBack / VoiceOver announce it, and it carries
+  /// the same single medium haptic the stamp would have fired.
+  void _confirmGrant(BuildContext context, RevealState state) {
+    AppHaptics.confirm();
+    showBbToast(
+      context,
+      title: kUnlockedToastTitle,
+      message: kRelayUnavailableMessage,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    return BlocBuilder<RevealCubit, RevealState>(
+    return BlocConsumer<RevealCubit, RevealState>(
+      listenWhen: _grantNotStamped,
+      listener: _confirmGrant,
       builder: (BuildContext context, RevealState state) {
         return Stack(
           children: <Widget>[
@@ -196,13 +238,21 @@ class _RealReveal extends StatelessWidget {
                 _resumeRow(context, state),
               ],
             ),
-            // #1077 — the "stamp" beat for the paid conversion moment: a green
-            // seal lands once when the unlock reveal resolves to a relay handle.
-            // Ignores pointer + auto-fades so it stays brief and never blocks the
-            // relay/résumé actions beneath it.
-            if (state.status == RevealStatus.ready)
+            // #1077 / #2596 — the "stamp" beat for the paid conversion moment:
+            // a green seal lands once, with a medium haptic, when the reveal of
+            // the unlock that JUST happened resolves to a relay handle — never
+            // for a "View" of an earlier one, and never over the "not
+            // available" card (the header's Unlocked badge still says it).
+            // Ignores pointer + auto-fades so it never blocks the relay/résumé
+            // actions beneath it. A relay that does not resolve gets the
+            // toast instead (see [_confirmGrant]).
+            if (args.justUnlocked && state.status == RevealStatus.ready)
               const Positioned.fill(
-                child: BbStampCelebration(icon: Icons.lock_open_rounded),
+                child: BbStampCelebration(
+                  icon: Icons.lock_open_rounded,
+                  haptic: true,
+                  announcement: kUnlockedAnnouncement,
+                ),
               ),
           ],
         );
@@ -303,7 +353,7 @@ class _RealReveal extends StatelessWidget {
             const SizedBox(width: AppSpacing.s3),
             Expanded(
               child: Text(
-                'Contact relay is not available right now.',
+                kRelayUnavailableMessage,
                 style: AppTypography.body(
                   size: AppTypography.sizeSm,
                   color: AppColors.textSecondary,
@@ -350,11 +400,12 @@ class _RealReveal extends StatelessWidget {
               ],
             ),
             const SizedBox(height: AppSpacing.s4),
-            BbButton(
-              label: 'Contact via relay',
-              iconLeft: Icons.chat_bubble_rounded,
+            // #2596 — copies the opaque in-app handle and confirms in place:
+            // the icon morphs to a check for a moment, then turns back.
+            BbCopyButton(
+              text: handle,
+              label: kCopyRelayHandleLabel,
               block: true,
-              onPressed: () => _contactViaRelay(context, handle),
             ),
           ],
         ),
@@ -443,13 +494,35 @@ class _RealReveal extends StatelessWidget {
 // ===========================================================================
 
 class _MockReveal extends StatelessWidget {
-  const _MockReveal({required this.candidate, required this.onBack});
+  const _MockReveal({
+    required this.candidate,
+    required this.justUnlocked,
+    required this.onBack,
+  });
 
   final Candidate candidate;
+  final bool justUnlocked;
   final VoidCallback onBack;
 
   @override
   Widget build(BuildContext context) {
+    // The same one-shot stamp as the real reveal, on the same terms (#2596).
+    return Stack(
+      children: <Widget>[
+        _list(),
+        if (justUnlocked)
+          const Positioned.fill(
+            child: BbStampCelebration(
+              icon: Icons.lock_open_rounded,
+              haptic: true,
+              announcement: kUnlockedAnnouncement,
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _list() {
     return ListView(
       padding: const EdgeInsets.fromLTRB(
         AppSpacing.gutter,

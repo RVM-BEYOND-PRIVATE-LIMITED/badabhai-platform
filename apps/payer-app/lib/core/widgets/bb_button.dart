@@ -40,6 +40,7 @@ class BbButton extends StatelessWidget {
     this.block = false,
     this.iconLeft,
     this.iconRight,
+    this.leading,
     this.loading = false,
     this.buttonKey,
   }) : assert(
@@ -62,6 +63,11 @@ class BbButton extends StatelessWidget {
   final bool block;
   final IconData? iconLeft;
   final IconData? iconRight;
+
+  /// A widget in the leading icon slot, in place of [iconLeft] — for an icon
+  /// that animates (e.g. copy → check, #2596). Sized like [iconLeft] through
+  /// the ambient [IconTheme], and replaced by the spinner while [loading].
+  final Widget? leading;
   final bool loading;
 
   /// Key applied to the underlying Material button (handy for widget tests).
@@ -98,6 +104,7 @@ class BbButton extends StatelessWidget {
       label: label,
       iconLeft: iconLeft,
       iconRight: iconRight,
+      leading: leading,
       loading: loading,
       size: size,
       spinnerColor: spinnerColor,
@@ -224,6 +231,7 @@ class _Content extends StatelessWidget {
     required this.label,
     required this.iconLeft,
     required this.iconRight,
+    required this.leading,
     required this.loading,
     required this.size,
     required this.spinnerColor,
@@ -232,6 +240,7 @@ class _Content extends StatelessWidget {
   final String label;
   final IconData? iconLeft;
   final IconData? iconRight;
+  final Widget? leading;
   final bool loading;
   final BbButtonSize size;
   final Color spinnerColor;
@@ -251,6 +260,12 @@ class _Content extends StatelessWidget {
               strokeWidth: 2,
               valueColor: AlwaysStoppedAnimation<Color>(spinnerColor),
             ),
+          ),
+          const SizedBox(width: AppSpacing.s2),
+        ] else if (leading != null) ...<Widget>[
+          IconTheme.merge(
+            data: IconThemeData(size: iconSize),
+            child: leading!,
           ),
           const SizedBox(width: AppSpacing.s2),
         ] else if (iconLeft != null) ...<Widget>[

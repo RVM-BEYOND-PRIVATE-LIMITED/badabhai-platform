@@ -27,6 +27,13 @@ class JobsCubit extends Cubit<JobsState> {
 
   Future<void> load() async {
     emit(state.copyWith(status: JobsStatus.loading));
+    await _refresh();
+  }
+
+  /// Fetches the list WITHOUT flipping to [JobsStatus.loading] — the refetch
+  /// after an action (#2594), so the list stays on screen and the changed card
+  /// settles in place instead of the whole tab flashing to a spinner.
+  Future<void> _refresh() async {
     try {
       final List<JobPosting> jobs = await _api.fetchJobs();
       if (isClosed) {
@@ -44,30 +51,33 @@ class JobsCubit extends Cubit<JobsState> {
 
   // --- Lifecycle -------------------------------------------------------------
 
+  // The ok messages sit under a toast title that already names the action
+  // ("Job paused", #2594), so each says what changed for workers.
+
   /// Publish a draft (`PATCH … status:'open'`).
   Future<JobActionResult> publish(String id) => _lifecycle(
         () => _api.updateJob(id, status: 'open'),
-        okMessage: 'Published — workers can see it now.',
+        okMessage: 'Workers can see it now.',
         conflictMessage: "This job can't be published.",
       );
 
   Future<JobActionResult> pause(String id) => _lifecycle(
         () => _api.pauseJob(id),
-        okMessage: 'Paused — hidden from workers for now.',
+        okMessage: 'Hidden from workers until you resume it.',
         conflictMessage: 'Only an open job can be paused.',
       );
 
   Future<JobActionResult> resume(String id) => _lifecycle(
         () => _api.resumeJob(id),
-        okMessage: 'Resumed — live again.',
+        okMessage: 'Workers can see it again.',
         conflictMessage: 'Only a paused job can be resumed.',
       );
 
   // Named [closePosting] (not `close`) so it does not shadow [Cubit.close].
   Future<JobActionResult> closePosting(String id) => _lifecycle(
         () => _api.closeJob(id),
-        okMessage: 'Closed.',
-        conflictMessage: 'Already closed.',
+        okMessage: 'Workers can no longer apply.',
+        conflictMessage: 'This job is already closed.',
       );
 
   /// Edit an existing posting's content (`PATCH /payer/job-postings/:id`) —
@@ -142,7 +152,7 @@ class JobsCubit extends Cubit<JobsState> {
   }) async {
     try {
       await op();
-      await load();
+      await _refresh();
       return JobActionResult.ok(okMessage);
     } on PayerApiException catch (e) {
       // #1652 — a set-and-cleared edit is named for what it is: retrying the

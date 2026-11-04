@@ -347,7 +347,7 @@ describe("candidates page — already unlocked rows start unlocked (liveUnlocksF
     getUnlocks.mockResolvedValueOnce([unlock(W1)]);
     const out = await html();
     expect(unlockButtons(out)).toHaveLength(1);
-    expect(out).toContain("Open routed contact");
+    expect(out).toContain("Open contact");
     expect(textOf(out)).toContain(FUTURE.slice(0, 10));
   });
 
@@ -368,7 +368,7 @@ describe("candidates page — already unlocked rows start unlocked (liveUnlocksF
     getUnlocks.mockRejectedValueOnce(new Error("503"));
     const out = await html();
     expect(unlockButtons(out)).toHaveLength(2);
-    expect(out).not.toContain("Open routed contact");
+    expect(out).not.toContain("Open contact");
     expect(out).not.toContain("couldn’t load");
   });
 });

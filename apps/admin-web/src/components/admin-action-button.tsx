@@ -1,8 +1,22 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition, type FocusEvent } from "react";
 import { ACTION_ICON, Icon, type IconName } from "@badabhai/icons";
 import type { AdminActionOutcome } from "../lib/admin-action-result";
+
+/** How long an armed button waits for its confirming click before it disarms itself (A5, #2575). */
+export const ARM_TIMEOUT_MS = 5000;
+
+/**
+ * Whether focus leaving `container` for `next` disarms it: focus went OUTSIDE the button's own
+ * cluster (Tab to Cancel keeps it armed; a click or Tab anywhere else does not).
+ */
+export function focusLeftCluster(
+  container: { contains(node: unknown): boolean },
+  next: unknown,
+): boolean {
+  return next === null || next === undefined || !container.contains(next);
+}
 
 interface AdminActionButtonProps {
   /** Button copy before the first click. */
@@ -33,6 +47,12 @@ interface AdminActionButtonProps {
    * of its own — see the component doc for why there is exactly one owner of it.
    */
   onSettled?: (outcome: AdminActionOutcome) => void;
+  /**
+   * Called with `true` when the confirmed request goes out, and `false` once it settles (or if
+   * the button unmounts mid-request). For a host that must not close while the result is on its
+   * way — a dialog whose result is a one-time secret (A5, #2575).
+   */
+  onPendingChange?: (pending: boolean) => void;
 }
 
 /**
@@ -46,6 +66,11 @@ interface AdminActionButtonProps {
  * click only arms the control, swapping its label for `confirmLabel` and revealing Cancel;
  * only a SECOND click while still armed invokes `action`. Disabled the whole time a request is
  * in flight (`useTransition`), so a double-click cannot fire it twice.
+ *
+ * An armed button does NOT stay armed (A5, #2575): it disarms after ARM_TIMEOUT_MS without the
+ * confirming click, and as soon as focus leaves its cluster (the button and its Cancel), so a
+ * button armed and walked away from cannot be fired by a later stray click. Its border pulses
+ * once as it arms (`.admin-action [data-armed]` in globals.css), never repeatedly.
  *
  * ── ONE OWNER FOR THE RESULT COPY ───────────────────────────────────────────────────────
  * This button reports the outcome through `onSettled` and renders NOTHING about it itself.
@@ -64,9 +89,28 @@ export function AdminActionButton({
   icon,
   subject,
   onSettled,
+  onPendingChange,
 }: AdminActionButtonProps) {
   const [armed, setArmed] = useState(false);
   const [pending, startTransition] = useTransition();
+  const onPendingChangeRef = useRef(onPendingChange);
+  onPendingChangeRef.current = onPendingChange;
+
+  useEffect(() => {
+    if (!armed || pending) return;
+    const timer = setTimeout(() => setArmed(false), ARM_TIMEOUT_MS);
+    return () => clearTimeout(timer);
+  }, [armed, pending]);
+
+  useEffect(() => {
+    if (!pending) return;
+    onPendingChangeRef.current?.(true);
+    return () => onPendingChangeRef.current?.(false);
+  }, [pending]);
+
+  function handleBlur(e: FocusEvent<HTMLSpanElement>) {
+    if (armed && !pending && focusLeftCluster(e.currentTarget, e.relatedTarget)) setArmed(false);
+  }
 
   function handleClick() {
     if (pending) return;
@@ -82,10 +126,11 @@ export function AdminActionButton({
   }
 
   return (
-    <span className="admin-action" aria-live="polite">
+    <span className="admin-action" aria-live="polite" onBlur={handleBlur}>
       <button
         type="button"
         className={`btn btn--sm ${armed ? `btn--${variant}` : "btn--ghost"}`}
+        data-armed={armed && !pending ? "" : undefined}
         onClick={handleClick}
         disabled={disabled || pending}
       >

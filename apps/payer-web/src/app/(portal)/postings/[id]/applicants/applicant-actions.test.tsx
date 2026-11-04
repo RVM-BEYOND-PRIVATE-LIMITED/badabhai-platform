@@ -64,7 +64,13 @@ const useState = vi.fn((initial: unknown) => {
 });
 vi.mock("react", async () => {
   const actual = await vi.importActual<typeof ReactModule>("react");
-  return { ...actual, useState: (initial: unknown) => useState(initial) };
+  return {
+    ...actual,
+    useState: (initial: unknown) => useState(initial),
+    // The live balance (components/live-balance.ts, #2585) is read, never published, here: the
+    // store's snapshot is all a render needs (its subscription is pinned in applicant-feed.test.tsx).
+    useSyncExternalStore: (_subscribe: unknown, getSnapshot: () => unknown) => getSnapshot(),
+  };
 });
 
 const { ApplicantActions } = await import("./applicant-actions");
@@ -201,6 +207,7 @@ function render(opts: {
     postingId: "33333333-3333-4333-8333-333333333333",
     applicants: opts.applicants ?? [APPLICANT],
     balance: opts.balance ?? 5,
+    balanceAsOf: 0,
     // No viewer/role input: every member can open Credits (owner ruling 2026-10-07).
     ...(opts.unlocked ? { unlocked: opts.unlocked } : {}),
   }) as ReactElement;
@@ -749,7 +756,7 @@ describe("ApplicantActions — (c) a contactError is inline, retryable, cause-fr
       rows: { [WORKER]: { ...baseRow, unlock: granted, contactError: "Reveal failed (service unavailable). Please retry." } },
     });
     const { buttons, ariaLiveCount } = collect(tree);
-    const retry = buttons.find((b) => b.text === "Retry — open routed contact");
+    const retry = buttons.find((b) => b.text === "Retry — open contact");
     expect(retry).toBeDefined(); // retryable: the reveal button stays, relabeled
     expect(retry!.onClick).toBeTypeOf("function");
     expect(ariaLiveCount).toBeGreaterThanOrEqual(1);
@@ -1256,7 +1263,7 @@ describe("ApplicantActions — every row control leads with its icon (F08)", () 
       expiresAt: "2026-11-04T09:30:00.000Z",
     };
     const idle = render({ unlocked: { [WORKER]: held } });
-    expect(iconOf(idle, "Open routed contact")).toBe(ACTION_ICON.view);
+    expect(iconOf(idle, "Open contact")).toBe(ACTION_ICON.view);
     expect(iconOf(idle, "View masked resume")).toBe(ACTION_ICON.view);
     // A session row REPLACES the held base row, so it carries the grant itself.
     const failed = render({
@@ -1270,7 +1277,7 @@ describe("ApplicantActions — every row control leads with its icon (F08)", () 
         },
       },
     });
-    expect(iconOf(failed, "Retry — open routed contact")).toBe(ACTION_ICON.view);
+    expect(iconOf(failed, "Retry — open contact")).toBe(ACTION_ICON.view);
     expect(iconOf(failed, "Retry — view masked resume")).toBe(ACTION_ICON.view);
   });
 });
@@ -1315,7 +1322,7 @@ describe("ApplicantActions — an applicant the payer already unlocked STARTS un
     expiresAt: "2026-11-04T09:30:00.000Z",
   };
 
-  it("a held row renders the granted band (Unlocked · Open routed contact), never a fresh spend", () => {
+  it("a held row renders the granted band (Unlocked · Open contact), never a fresh spend", () => {
     const tree = render({ applicants: [A, B], unlocked: { [A.workerId]: HELD } });
     const cards = elements(tree).filter((e) => hasClass(e, "applicant"));
     expect(cards).toHaveLength(2);
@@ -1323,7 +1330,7 @@ describe("ApplicantActions — an applicant the payer already unlocked STARTS un
     const labels = (els: El[]) =>
       els.filter((e) => e.type === Button).map((e) => textOf(e.props.children as ReactNode).trim());
     // A: the payer holds a live grant — the band is the granted one, with its window end.
-    expect(labels(held!)).toContain("Open routed contact");
+    expect(labels(held!)).toContain("Open contact");
     expect(labels(held!)).not.toContain("Unlock contact (1 credit)");
     expect(held!.some((e) => e.type === Badge && textOf(e.props.children as ReactNode) === "Unlocked")).toBe(true);
     expect(gatherText(cards[0]!)).toContain("2026-11-04");
@@ -1334,7 +1341,7 @@ describe("ApplicantActions — an applicant the payer already unlocked STARTS un
   it("opening the held row's contact reveals THAT grant — no unlock, no confirm, no spend", () => {
     revealContactAction.mockResolvedValue({ ok: false, error: "x" });
     const { buttons } = collect(render({ unlocked: { [WORKER]: HELD } }));
-    buttons.find((b) => b.text === "Open routed contact")!.onClick!();
+    buttons.find((b) => b.text === "Open contact")!.onClick!();
     expect(revealContactAction).toHaveBeenCalledWith({ unlockId: HELD.unlockId });
     expect(unlockAction).not.toHaveBeenCalled();
     expect(setters[4]).not.toHaveBeenCalled(); // the confirm dialog never opened
@@ -1343,7 +1350,7 @@ describe("ApplicantActions — an applicant the payer already unlocked STARTS un
   it("session state layers OVER the held grant (the patch keeps it; this session's state wins)", () => {
     revealContactAction.mockReturnValue(new Promise(() => {}));
     const { buttons } = collect(render({ unlocked: { [WORKER]: HELD } }));
-    buttons.find((b) => b.text === "Open routed contact")!.onClick!();
+    buttons.find((b) => b.text === "Open contact")!.onClick!();
     // The busy patch starts from the held row, so the grant survives the patch.
     const updater = setters[0]!.mock.calls[0]![0] as (
       p: Record<string, unknown>,

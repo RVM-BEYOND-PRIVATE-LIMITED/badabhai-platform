@@ -53,6 +53,24 @@ void main() {
         home: Scaffold(body: Center(child: child)),
       );
 
+  /// Types into the one TextField [build] shows, then flips the OS "remove
+  /// animations" switch on and back off while the app runs: the text must
+  /// survive both flips (a remount would reset it, e.g. a half-filled form).
+  Future<void> expectTypedTextSurvivesFlips(
+    WidgetTester tester,
+    Widget Function(bool reduced) build,
+  ) async {
+    await tester.pumpWidget(build(false));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), 'Welder, 2 yrs');
+    for (final bool reduced in <bool>[true, false]) {
+      await tester.pumpWidget(build(reduced));
+      await tester.pumpAndSettle();
+      expect(find.text('Welder, 2 yrs'), findsOneWidget,
+          reason: 'after turning animations ${reduced ? 'off' : 'back on'}');
+    }
+  }
+
   const String light = 'HapticFeedbackType.lightImpact';
   const String medium = 'HapticFeedbackType.mediumImpact';
 
@@ -384,16 +402,28 @@ void main() {
       expect(find.text('Next page'), findsOneWidget);
     });
 
-    testWidgets('with animations disabled the route has no transition',
-        (WidgetTester tester) async {
+    testWidgets(
+        'with animations disabled the route holds still: opacity 1, '
+        'no offset', (WidgetTester tester) async {
       await pushPage(tester, reduced: true);
-      expect(
-        find.descendant(
-          of: find.byType(BbFadeSlideTransition),
-          matching: find.byType(FadeTransition),
-        ),
-        findsNothing,
-      );
+      final Iterable<FadeTransition> fades =
+          tester.widgetList<FadeTransition>(find.descendant(
+        of: find.byType(BbFadeSlideTransition),
+        matching: find.byType(FadeTransition),
+      ));
+      final Iterable<SlideTransition> slides =
+          tester.widgetList<SlideTransition>(find.descendant(
+        of: find.byType(BbFadeSlideTransition),
+        matching: find.byType(SlideTransition),
+      ));
+      expect(fades, isNotEmpty);
+      expect(slides, isNotEmpty);
+      for (final FadeTransition fade in fades) {
+        expect(fade.opacity.value, 1);
+      }
+      for (final SlideTransition slide in slides) {
+        expect(slide.position.value, Offset.zero);
+      }
       await tester.pumpAndSettle();
     });
 
@@ -441,6 +471,47 @@ void main() {
         expect(route.animation!.value, closeTo(0.5, 0.01));
 
         await send('commitBackGesture');
+        await tester.pumpAndSettle();
+        expect(find.text('Next page'), findsNothing);
+        expect(find.text('open'), findsOneWidget);
+      } finally {
+        debugDefaultTargetPlatformOverride = null;
+      }
+    });
+
+    testWidgets(
+        'iOS left-edge swipe drives the route: a short one snaps back, past '
+        'half the width pops', (WidgetTester tester) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      try {
+        await pushPage(tester);
+        await tester.pumpAndSettle();
+        final ModalRoute<dynamic> route =
+            ModalRoute.of(tester.element(find.text('Next page')))!;
+
+        // From the left edge, in small steps so the drag tracks however the
+        // touch slop is spent.
+        Future<TestGesture> edgeDrag(double distance) async {
+          final TestGesture g = await tester.startGesture(const Offset(5, 300));
+          for (double moved = 0; moved < distance; moved += 50) {
+            await g.moveBy(const Offset(50, 0));
+            await tester.pump();
+          }
+          return g;
+        }
+
+        // A short swipe follows the finger, then snaps back on release.
+        TestGesture g = await edgeDrag(100);
+        expect(route.animation!.value, inExclusiveRange(0.5, 1));
+        await g.up();
+        await tester.pumpAndSettle();
+        expect(find.text('Next page'), findsOneWidget);
+        expect(route.animation!.value, 1);
+
+        // Past half the (800px) width: the page pops.
+        g = await edgeDrag(500);
+        expect(route.animation!.value, lessThan(0.5));
+        await g.up();
         await tester.pumpAndSettle();
         expect(find.text('Next page'), findsNothing);
         expect(find.text('open'), findsOneWidget);
@@ -513,15 +584,27 @@ void main() {
       await tester.pumpWidget(overlayHost(open: true, reduced: true));
       expect(find.text('Overlay'), findsOneWidget);
       expect(find.text('Base tab'), findsNothing);
-      expect(
-        find.ancestor(
-            of: find.text('Overlay'), matching: find.byType(FadeTransition)),
-        findsNothing,
-      );
+      expect(overlayOpacity(tester), 1);
 
       await tester.pumpWidget(overlayHost(open: false, reduced: true));
       expect(find.text('Overlay', skipOffstage: false), findsNothing);
       expect(find.text('Base tab'), findsOneWidget);
+    });
+
+    testWidgets(
+        'flipping "remove animations" keeps the open overlay mounted '
+        '(its state survives)', (WidgetTester tester) async {
+      await expectTypedTextSurvivesFlips(
+        tester,
+        (bool reduced) => host(
+          const SizedBox(
+            width: 300,
+            height: 400,
+            child: BbOverlayHost(base: Text('Base tab'), overlay: TextField()),
+          ),
+          reduced: reduced,
+        ),
+      );
     });
   });
 
@@ -552,6 +635,24 @@ void main() {
         reduced: true,
       ));
       expect(switcherDuration(tester), Duration.zero);
+    });
+
+    testWidgets(
+        'flipping "remove animations" keeps the current screen mounted '
+        '(its state survives)', (WidgetTester tester) async {
+      await expectTypedTextSurvivesFlips(
+        tester,
+        (bool reduced) => host(
+          const SizedBox(
+            width: 300,
+            height: 120,
+            child: BbFadeSlideSwitcher(
+              child: TextField(key: ValueKey<String>('app')),
+            ),
+          ),
+          reduced: reduced,
+        ),
+      );
     });
   });
 

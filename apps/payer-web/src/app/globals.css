@@ -28,26 +28,6 @@
  * value resolves. Source of truth: docs/design/BadaBhai Design System/components/. */
 @import "../styles/ds-components.css";
 
-/* PAYER-WEB BRAND BLUE — the payer app's original theme blue, sampled from
-   designr/color_refe.jpeg (#0E1946). The shared token package stays untouched (admin-web and
-   marketing keep Shift Blue #05194C); this scoped ramp re-points EVERY payer-web surface,
-   heading, link, focus ring, shadow and alpha step at the reference blue. The lighter/darker
-   steps are derived from the same hue so hover, raised and muted states stay coherent. */
-:root {
-  --navy-950: #070d26;
-  --navy-900: #0e1946;
-  --navy-800: #162556;
-  --navy-700: #1e316b;
-  --navy-600: #2a4386;
-  --navy-500: #3a57a3;
-  --navy-400: #6178bd;
-  --navy-300: #91a2d4;
-  --navy-200: #bac6e5;
-  --navy-100: #dde2f1;
-  --navy-50: #eef1f8;
-  --brand-primary-rgb: 14 25 70;
-}
-
 /* UI-1 — `.form`, `.section` and `.req` USED to be defined in this legacy block. They are
  * now design-system primitives (see the UI-1 PAGE FURNITURE / FORM LAYOUT sections at the
  * foot of this file), so the legacy definitions were removed rather than left to collide:
@@ -1656,6 +1636,11 @@ textarea.input {
     transform: translateX(3px);
   }
 }
+@media (prefers-reduced-motion: reduce) {
+  .account-menu__link:hover .account-menu__link-arrow {
+    transform: none;
+  }
+}
 
 /* ------------------------------------------------------------------
  * ACCOUNT PAGE (PROF-2 read shell + PROF-4 edit) — the payer's OWN account. An identity
@@ -2714,6 +2699,86 @@ textarea.input {
     inset-block: calc((100% - var(--control-md)) / 2);
     inset-inline: min(0%, calc((100% - var(--control-md)) / 2));
   }
+}
+
+/* ==================================================================
+ * W5 (#2585) — FEEDBACK AFTER SPENDING A CREDIT. Motion tokens only (#2570), opacity and
+ * transform only, every piece plays ONCE (nothing here loops) and every duration and distance
+ * here is a token, so all of it is 0 under prefers-reduced-motion.
+ *  - The shell's credits chip, when its figure changes (balance-chip.tsx): the figure counts to
+ *    the new balance over --duration-count (CountUp) while a Safety Yellow tint fades out of the
+ *    chip over two thirds of that (400ms). The chip re-keys `.pshell__balancetint` per change.
+ *  - A card's FRESH grant (`.applicant__granted--fresh`, components/unlock/contact-band.tsx): the
+ *    band arrives blurred and clears over --duration-slow (320ms) — a blur LAYER over it that only
+ *    fades, so no filter is animated — and the Unlocked badge's seal stamps in, 0.6 → 1.08 → 1
+ *    over --duration-celebrate (520ms). The blur radius is the --motion-rise distance.
+ *  - The Post-job CTA's shine (DS5 block below) sweeps once, and never on a disabled button.
+ * ================================================================== */
+
+/* The tint sits UNDER the chip's icon and figure: while it exists, the chip is its stacking
+   context (`:has`, so a chip that never changed stacks exactly as before). */
+.pshell__balance:has(> .pshell__balancetint) {
+  isolation: isolate;
+}
+.pshell__balancetint {
+  position: absolute;
+  inset: 0;
+  z-index: calc(var(--z-base) - 1);
+  border-radius: inherit;
+  background: var(--color-brand-accent-40);
+  opacity: 0;
+  pointer-events: none;
+  animation: balance-tint-out calc(var(--duration-count) * 2 / 3) var(--ease-exit) both;
+}
+@keyframes balance-tint-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+.applicant__granted--fresh {
+  position: relative;
+}
+.applicant__granted--fresh::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  -webkit-backdrop-filter: blur(var(--motion-rise));
+  backdrop-filter: blur(var(--motion-rise));
+  opacity: 0;
+  pointer-events: none;
+  animation: unlock-clear var(--duration-slow) var(--ease-enter) both;
+}
+@keyframes unlock-clear {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+.applicant__granted--fresh .applicant__unlocked > .ph-fill {
+  animation: unlock-stamp var(--duration-celebrate) var(--ease-out) both;
+}
+@keyframes unlock-stamp {
+  0% {
+    transform: scale(0.6);
+  }
+  60% {
+    transform: scale(1.08);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+/* A disabled (or busy) CTA never shines; enabled again, it sweeps once. */
+.posting-cta:disabled::after,
+.posting-cta[aria-disabled="true"]::after {
+  animation: none;
 }
 
 /* ------------------------------------------------------------------
@@ -5238,6 +5303,11 @@ img.agency-qr__code,
     transform: translateX(3px);
   }
 }
+@media (prefers-reduced-motion: reduce) {
+  .dash-action:hover .ph-fill {
+    transform: none;
+  }
+}
 
 /* ---- "View" card action — tonal pill with a CONTINUOUSLY nudging arrow ---- */
 .dash-view__arrow {
@@ -5275,7 +5345,8 @@ img.agency-qr__code,
     transparent 70%
   );
   transform: translateX(-130%);
-  animation: cta-shine calc(var(--duration-shimmer) * 2) var(--ease-in-out) infinite;
+  /* ONE sweep (#2585 — it looped forever); never on a disabled button (the W5 block). */
+  animation: cta-shine calc(var(--duration-shimmer) * 2) var(--ease-in-out);
   pointer-events: none;
 }
 @keyframes cta-shine {
@@ -5299,6 +5370,9 @@ img.agency-qr__code,
   .posting-cta::after {
     animation: none;
     display: none;
+  }
+  .posting-cta:hover .ph-fill {
+    transform: none;
   }
 }
 
@@ -7345,7 +7419,7 @@ body:has(.invite-landing) .chrome-footer {
   padding: var(--space-3) var(--space-4);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-lg);
-  background: linear-gradient(90deg, var(--navy-50), #f3eefe);
+  background: var(--navy-50);
 }
 .mw-ai__icon {
   display: inline-flex;
@@ -7868,7 +7942,7 @@ body:has(.invite-landing) .chrome-footer {
     transform var(--duration-fast) var(--ease-out);
 }
 .pshell .pshell__collapse .ph-fill {
-  transition: transform var(--duration-base) var(--ease-out);
+  transition: transform var(--duration-fast) var(--ease-out);
 }
 /* Hover motion only on devices that hover — a tap on a phone leaves nothing lifted. */
 @media (hover: hover) {
@@ -8858,6 +8932,11 @@ body:has(.invite-landing) .chrome-footer {
   .dash-quick-action:hover {
     box-shadow: var(--shadow-md);
     transform: translateY(-2px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dash-quick-action:hover {
+    transform: none;
   }
 }
 .dash-quick-action:focus-visible {

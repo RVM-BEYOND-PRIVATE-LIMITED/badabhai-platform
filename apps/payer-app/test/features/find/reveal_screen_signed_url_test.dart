@@ -189,13 +189,15 @@ void main() {
       'capability url)', (WidgetTester tester) async {
     await pump(tester);
 
-    await tester.tap(find.text('Contact via relay'));
-    await tester.pumpAndSettle();
+    await tester.tap(find.text(kCopyRelayHandleLabel));
+    await tester.pump();
 
     // MockPayerApiClient.reveal returns relay handle 'relay-7Q2X'. This copy is
     // intentionally still allowed — #354 is about the signed url only.
     expect(clipboardWrites(), <String>['relay-7Q2X']);
-    expect(find.text('Relay handle copied'), findsOneWidget);
+    // #2596 — the button confirms in place (label + check), not by a toast.
+    expect(find.text('Copied'), findsOneWidget);
     expect(launched, isEmpty);
+    await tester.pumpAndSettle();
   });
 }

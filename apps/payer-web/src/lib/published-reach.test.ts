@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parsePublishedReach, publishedReachMessage, withPublishedReach } from "./published-reach";
+import { formatReach, parsePublishedReach, reachUnit, withPublishedReach } from "./published-reach";
 
 describe("published reach — the ?reached=N hand-off", () => {
   it("attaches a whole count and leaves the path alone without one", () => {
@@ -20,9 +20,10 @@ describe("published reach — the ?reached=N hand-off", () => {
     }
   });
 
-  it("reads 'Reached N workers', singular for one", () => {
-    expect(publishedReachMessage(1)).toBe("Reached 1 worker");
-    expect(publishedReachMessage(12)).toBe("Reached 12 workers");
-    expect(publishedReachMessage(1500)).toBe("Reached 1,500 workers");
+  it("reads 'Reached N workers' — the figure grouped, the unit singular for one", () => {
+    expect(`Reached ${formatReach(1)} ${reachUnit(1)}`).toBe("Reached 1 worker");
+    expect(`Reached ${formatReach(12)} ${reachUnit(12)}`).toBe("Reached 12 workers");
+    expect(`Reached ${formatReach(1500)} ${reachUnit(1500)}`).toBe("Reached 1,500 workers");
+    expect(formatReach(150000)).toBe("1,50,000");
   });
 });

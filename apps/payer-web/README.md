@@ -40,7 +40,11 @@ ops console's privileged data access.
      Applied says no "of N"): the cursor is never read, so "Next page" also carries `from`,
      where its page starts — the portal's own count, never sent to the API. A later page
      reached without it shows no range. Paging moves focus to the list's heading.
-6. **Unlock (LIVE)** — `POST /payer/unlocks`; no-oracle neutral on any deny cause.
+6. **Unlock (LIVE)** — `POST /payer/unlocks`; no-oracle neutral on any deny cause. A grant reads
+   the balance back (`GET /payer/credits`), so the header credits chip and every zero-balance
+   check update with no reload (#2585, `src/components/live-balance.ts`). Each figure carries the
+   server time of its read, and the newest wins — so a page Back / Forward restores with its first
+   props still shows the balance an unlock left.
 7. **Reveal (LIVE)** — `POST /payer/unlocks/:id/reveal` → a **routed relay handle**
    (opaque, expiring) — **never a raw phone**.
 8. **Masked résumé (LIVE)** — `POST /payer/resume-disclosures` (`payer-api.ts`).

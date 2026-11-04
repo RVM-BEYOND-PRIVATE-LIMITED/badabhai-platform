@@ -8,6 +8,7 @@ import type { ContactView, RevealView, UnlockView } from "../../../../../lib/unl
 import type { GrantedUnlock } from "../../../../../lib/unlock-history";
 import { Avatar, Badge, Button, Card, Tabs, Toast } from "../../../../../components/ds";
 import { useToast } from "../../../../../components/ds/toast-provider";
+import { publishBalance, useLiveBalance } from "../../../../../components/live-balance";
 import { PageHeader, type PageHeaderProps } from "../../../../../components/page-header";
 import { PortalLink } from "../../../../../components/portal-link";
 import { bandLabel, monthsLabel, opaqueId } from "../../../../../lib/masking";
@@ -65,12 +66,19 @@ import {
  *
  * ALREADY UNLOCKED: `unlocked` carries the payer's LIVE grants for this feed's workers (read by
  * the page from the payer's own unlock history). A row in it starts in the granted state — the
- * "Unlocked until" band with Open routed contact — so a reload never offers a fresh spend on an
+ * "Unlocked until" band with Open contact — so a reload never offers a fresh spend on an
  * applicant the payer already holds. An unlock is one grant per (payer, worker) (ADR-0010
  * sign-off 1), so the worker id alone identifies the row. Session state for the row layers on top.
  *
  * LOADING: busy / contactBusy / resumeBusy each surface the Button `loading` spinner + `aria-busy`
  * + disabled on their OWN action while it is pending; the error region stays aria-live for SRs.
+ *
+ * AFTER A GRANT (#2585): the action reads the balance back from the server and this list publishes
+ * it (components/live-balance.ts) — the "0 credits" alert, every card's Unlock / Buy credits and
+ * the shell's credits chip follow it with no reload. The list shows whichever figure the server
+ * read last — its own `balance` (read at `balanceAsOf`) or a publish — so a list Back / Forward
+ * brings back with its first props still follows an unlock made since. A fresh grant's band plays
+ * its reveal and stamp once (contact-band.tsx). No read-back (it failed) keeps the figure.
  *
  * PAGE HEAD: this component renders the screen's PageHeader itself, so the New / Shortlist tabs
  * (state that lives HERE) sit in the head's toolbar row — the header's filter slot — directly
@@ -240,6 +248,8 @@ interface RowState {
   resumeError: string | null;
   /** LOCAL "contacted" marker — set after a routed reveal; rides the already-spent unlock. */
   contacted: boolean;
+  /** Granted this session, its reveal not yet played (contact-band.tsx). */
+  fresh: boolean;
 }
 
 const EMPTY: RowState = {
@@ -253,6 +263,7 @@ const EMPTY: RowState = {
   resume: null,
   resumeError: null,
   contacted: false,
+  fresh: false,
 };
 
 export type ApplicantActionsProps = FeedProps & {
@@ -262,6 +273,8 @@ export type ApplicantActionsProps = FeedProps & {
    */
   header: Pick<PageHeaderProps, "back" | "title" | "description" | "toolbar">;
   balance: number;
+  /** When the page's server read `balance` (epoch ms, the portal server's clock). */
+  balanceAsOf: number;
   /**
    * The payer's LIVE grants for this feed's workers, keyed by worker id (see liveUnlocksFor).
    * Default none — a caller that did not read the unlock history starts every row locked (the
@@ -271,7 +284,7 @@ export type ApplicantActionsProps = FeedProps & {
 };
 
 export function ApplicantActions(props: ApplicantActionsProps) {
-  const { header, balance, unlocked = {} } = props;
+  const { header, balance, balanceAsOf, unlocked = {} } = props;
   const feed = feedRows(props);
   // ONE posting's feed carries the New / Shortlist board; the inbox does not (see the top).
   const board = props.postingId !== undefined;
@@ -316,6 +329,9 @@ export function ApplicantActions(props: ApplicantActionsProps) {
   // press handled before the re-render, or a `gone` answer deciding which moves are still
   // pending, must see the present. Appended LAST, after `stageNotice`.
   const [inFlight] = useState<Set<string>>(() => new Set());
+  // The newest balance the server read (#2585): this page's, or an unlock's read-back since — the
+  // figure every zero-balance check below reads.
+  const liveBalance = useLiveBalance(balance, balanceAsOf);
   // The portal's toast stack (#2583): a granted unlock is its one success pattern; the neutral
   // failure and a failed move stay in this card list's own region below.
   const toast = useToast();
@@ -416,7 +432,9 @@ export function ApplicantActions(props: ApplicantActionsProps) {
     patch(workerId, { busy: true, unlockError: null });
     const res = await unlockAction({ postingId, workerId });
     if (res.ok) {
-      patch(workerId, { busy: false, unlock: res.view });
+      patch(workerId, { busy: false, unlock: res.view, fresh: res.view.kind === "granted" });
+      // The server's balance after the grant (null: nothing granted, or the read failed).
+      if (res.readBack) publishBalance(res.readBack);
       // A grant is the portal's one success toast (#2583); only the neutral failure stays here.
       if (res.view.kind === "granted") {
         setResult(null);
@@ -583,7 +601,7 @@ export function ApplicantActions(props: ApplicantActionsProps) {
     <>
       <PageHeader {...header} toolbar={pipeline} />
 
-      {balance === 0 ? (
+      {liveBalance === 0 ? (
         <div className="alert alert--warning">
           <Icon name={ACTION_ICON.credits} className="alert__icon" />
           <div className="alert__text">
@@ -593,8 +611,8 @@ export function ApplicantActions(props: ApplicantActionsProps) {
               <PortalLink href="/credits" pendingLabel="Credits">
                 Buy credits
               </PortalLink>{" "}
-              to unlock an applicant&rsquo;s routed
-              contact. This is your own balance — not a signal about any applicant.
+              to unlock an applicant&rsquo;s contact. This is your own balance — not a signal about
+              any applicant.
             </p>
           </div>
         </div>
@@ -872,12 +890,13 @@ export function ApplicantActions(props: ApplicantActionsProps) {
                 {contactBand({
                   row,
                   unlockError,
-                  balance,
+                  balance: liveBalance,
                   unlockHintId,
                   viewOnly: r.posting?.viewOnly === true,
                   onUnlock: () => onUnlock(r),
                   onRevealContact: (unlockId) => onRevealContact(unlockId, a.workerId),
                   onMaskedResume: (unlockId) => onMaskedResume(unlockId, a.workerId, r.context),
+                  onRevealed: () => patch(a.workerId, { fresh: false }),
                 })}
               </Card>
             );

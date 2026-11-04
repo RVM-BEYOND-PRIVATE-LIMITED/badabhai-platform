@@ -1,4 +1,7 @@
+import 'dart:math' as math;
+
 import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart' show HorizontalDragGestureRecognizer;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show PredictiveBackEvent;
 
@@ -9,7 +12,9 @@ import 'app_motion.dart';
 /// and [AppMotion.easeIn] out. Shared by page routes ([BbPageTransitionsBuilder])
 /// and the in-shell overlays / root switch ([BbFadeSlideSwitcher]) so every
 /// screen change moves the same way. Opacity + transform only; with animations
-/// disabled the child is returned as-is (no transition at all).
+/// disabled it holds at fully shown (opacity 1, no offset) in the SAME widget
+/// shape, so flipping the OS setting never remounts — and so never resets —
+/// the child (an open Post form, the shell's tab).
 class BbFadeSlideTransition extends StatefulWidget {
   const BbFadeSlideTransition({
     super.key,
@@ -39,6 +44,9 @@ class _BbFadeSlideTransitionState extends State<BbFadeSlideTransition> {
     end: Offset.zero,
   );
 
+  static const Animation<Offset> _still =
+      AlwaysStoppedAnimation<Offset>(Offset.zero);
+
   @override
   void didUpdateWidget(BbFadeSlideTransition oldWidget) {
     super.didUpdateWidget(oldWidget);
@@ -56,11 +64,11 @@ class _BbFadeSlideTransitionState extends State<BbFadeSlideTransition> {
 
   @override
   Widget build(BuildContext context) {
-    if (AppMotion.reduced(context)) return widget.child;
+    final bool reduced = AppMotion.reduced(context);
     return FadeTransition(
-      opacity: _curved,
+      opacity: reduced ? kAlwaysCompleteAnimation : _curved,
       child: SlideTransition(
-        position: _slide.animate(_curved),
+        position: reduced ? _still : _slide.animate(_curved),
         child: widget.child,
       ),
     );
@@ -71,7 +79,9 @@ class _BbFadeSlideTransitionState extends State<BbFadeSlideTransition> {
 /// [BbFadeSlideTransition] over [AppMotion.page]. On Android it also follows
 /// the system predictive-back gesture: the route's own animation is driven by
 /// the swipe, so the page fades and slides away under the finger (and snaps
-/// back on cancel). Needs `android:enableOnBackInvokedCallback="true"`.
+/// back on cancel). Needs `android:enableOnBackInvokedCallback="true"`. iOS has
+/// no system back button, so there a left-edge swipe drives the same route
+/// animation (the swipe Cupertino routes give every page).
 class BbPageTransitionsBuilder extends PageTransitionsBuilder {
   const BbPageTransitionsBuilder({this.reduced = false});
 
@@ -96,8 +106,13 @@ class BbPageTransitionsBuilder extends PageTransitionsBuilder {
   ) {
     final Widget transition =
         BbFadeSlideTransition(animation: animation, child: child);
-    if (defaultTargetPlatform != TargetPlatform.android) return transition;
-    return _PredictiveBackDetector(route: route, child: transition);
+    return switch (defaultTargetPlatform) {
+      TargetPlatform.android =>
+        _PredictiveBackDetector(route: route, child: transition),
+      TargetPlatform.iOS =>
+        _EdgeSwipeBackDetector(route: route, child: transition),
+      _ => transition,
+    };
   }
 
   /// The app's [PageTransitionsTheme]: this builder on every platform.
@@ -197,6 +212,120 @@ class _PredictiveBackDetectorState extends State<_PredictiveBackDetector>
 
   @override
   Widget build(BuildContext context) => widget.child;
+}
+
+/// iOS edge swipe-back: a horizontal drag that starts in the leading-edge strip
+/// drives [route]'s animation through the same back-gesture API as
+/// [_PredictiveBackDetector], so the page fades + slides away under the finger.
+/// Strip width and release rules match Cupertino's own detector: past half the
+/// width, or a fling toward the trailing edge, pops; anything else snaps back.
+class _EdgeSwipeBackDetector extends StatefulWidget {
+  const _EdgeSwipeBackDetector({required this.route, required this.child});
+
+  final PageRoute<dynamic> route;
+  final Widget child;
+
+  @override
+  State<_EdgeSwipeBackDetector> createState() => _EdgeSwipeBackDetectorState();
+}
+
+class _EdgeSwipeBackDetectorState extends State<_EdgeSwipeBackDetector> {
+  /// The leading-edge strip that starts the swipe (wider under a notch).
+  static const double _edgeWidth = 20;
+
+  /// Screen widths per second above which the release direction decides.
+  static const double _minFlingVelocity = 1;
+
+  late final HorizontalDragGestureRecognizer _recognizer =
+      HorizontalDragGestureRecognizer(debugOwner: this)
+        ..onStart = _onStart
+        ..onUpdate = _onUpdate
+        ..onEnd = _onEnd;
+
+  /// The navigator of the swipe in flight; null when no swipe is.
+  NavigatorState? _navigator;
+
+  /// The route's animation under the finger: 1 = shown, 0 = gone.
+  double _progress = 1;
+
+  @override
+  void dispose() {
+    _recognizer.dispose();
+    // Disposed mid-swipe (the route went away under the finger): release the
+    // navigator's user-gesture flag the swipe set, as Cupertino does.
+    final NavigatorState? navigator = _navigator;
+    if (navigator != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (navigator.mounted) navigator.didStopUserGesture();
+      });
+    }
+    super.dispose();
+  }
+
+  void _onPointerDown(PointerDownEvent event) {
+    if (widget.route.isCurrent && widget.route.popGestureEnabled) {
+      _recognizer.addPointer(event);
+    }
+  }
+
+  void _onStart(DragStartDetails details) {
+    if (!widget.route.isCurrent) return;
+    _navigator = widget.route.navigator;
+    _progress = 1;
+    widget.route.handleStartBackGesture(progress: _progress);
+  }
+
+  void _onUpdate(DragUpdateDetails details) {
+    if (_navigator == null) return;
+    _progress =
+        (_progress - _widthFraction(details.primaryDelta!)).clamp(0.0, 1.0);
+    widget.route.handleUpdateBackGestureProgress(progress: _progress);
+  }
+
+  void _onEnd(DragEndDetails details) {
+    if (_navigator == null) return;
+    _navigator = null;
+    final double velocity = _widthFraction(details.velocity.pixelsPerSecond.dx);
+    final bool pop =
+        velocity.abs() >= _minFlingVelocity ? velocity > 0 : _progress <= 0.5;
+    if (pop) {
+      widget.route.handleCommitBackGesture();
+    } else {
+      widget.route.handleCancelBackGesture();
+    }
+  }
+
+  /// [dx] as a fraction of the page width, positive toward the trailing edge.
+  double _widthFraction(double dx) {
+    final double fraction = dx / context.size!.width;
+    return Directionality.of(context) == TextDirection.rtl
+        ? -fraction
+        : fraction;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final EdgeInsets padding = MediaQuery.paddingOf(context);
+    final double inset = Directionality.of(context) == TextDirection.rtl
+        ? padding.right
+        : padding.left;
+    return Stack(
+      fit: StackFit.passthrough,
+      children: <Widget>[
+        widget.child,
+        PositionedDirectional(
+          start: 0,
+          top: 0,
+          bottom: 0,
+          width: math.max(inset, _edgeWidth),
+          child: Listener(
+            onPointerDown: _onPointerDown,
+            behavior: HitTestBehavior.translucent,
+          ),
+        ),
+      ],
+    );
+  }
 }
 
 /// An [AnimatedSwitcher] that moves between full-screen children with the
