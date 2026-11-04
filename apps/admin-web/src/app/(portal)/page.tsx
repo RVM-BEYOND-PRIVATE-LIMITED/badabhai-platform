@@ -8,6 +8,7 @@ import { AiSpendPanel } from "../../components/ai-spend-panel";
 import { VolumePanel } from "../../components/volume-panel";
 import { Stat } from "../../components/stat";
 import { PageHeader } from "../../components/page-header";
+import { SegmentedControl } from "../../components/segmented-control";
 import { buildAdminAttention } from "./attention";
 import {
   formatCount,
@@ -18,6 +19,17 @@ import {
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 
 export const dynamic = "force-dynamic";
+
+/** The dashboard's reporting windows (#2572). 30 is both APIs' default, so `/` is unchanged. */
+const WINDOWS = [7, 30, 90] as const;
+type WindowDays = (typeof WINDOWS)[number];
+const DEFAULT_WINDOW: WindowDays = 30;
+
+/** `?window=` → one of the three, or the default. Anything else is ignored, never trusted. */
+function parseWindow(raw: string | string[] | undefined): WindowDays {
+  const n = Number(Array.isArray(raw) ? raw[0] : raw);
+  return (WINDOWS as readonly number[]).includes(n) ? (n as WindowDays) : DEFAULT_WINDOW;
+}
 export const metadata = { title: "Dashboard" };
 
 /**
@@ -51,18 +63,32 @@ export default async function DashboardPage({
    * whether the click had missed, the page was broken, or you simply were not allowed.
    * Saying so plainly is the difference between a permission boundary and a bug.
    */
-  const deniedParam = (await searchParams).denied;
+  const sp = await searchParams;
+  const deniedParam = sp.denied;
   const denied = Array.isArray(deniedParam) ? deniedParam[0] : deniedParam;
+  /**
+   * The 7/30/90 window (#2572). It scopes what the API lets it scope — the event aggregates and
+   * the AI cap-breach count. AI spend and volume are running totals with no window, and their
+   * sections say so; the control does not pretend to move them.
+   */
+  const windowDays = parseWindow(sp.window);
+  const hrefFor = (w: number) => {
+    const q = new URLSearchParams();
+    if (w !== DEFAULT_WINDOW) q.set("window", String(w));
+    if (denied) q.set("denied", denied);
+    const qs = q.toString();
+    return qs ? `/?${qs}` : "/";
+  };
   /** This page's own address, as it was asked for — what a Retry repeats. */
-  const retryHref = denied ? `/?denied=${encodeURIComponent(denied)}` : "/";
+  const retryHref = hrefFor(windowDays);
 
   // `allSettled`, not `all`: health is a different service from the events API, and one
   // being down must not blank the whole dashboard. Each region renders its own failure.
   const [metricsRes, healthRes, recentRes, summaryRes] = await Promise.allSettled([
-    mayReadEvents ? getMetrics() : Promise.reject(new Error("no capability")),
+    mayReadEvents ? getMetrics(windowDays) : Promise.reject(new Error("no capability")),
     getHealth(),
     mayReadEvents ? listEvents({ limit: 8 }) : Promise.reject(new Error("no capability")),
-    mayReadEntities ? getDashboardSummary() : Promise.reject(new Error("no capability")),
+    mayReadEntities ? getDashboardSummary(windowDays) : Promise.reject(new Error("no capability")),
   ]);
 
   const metrics = metricsRes.status === "fulfilled" ? metricsRes.value : null;
@@ -93,9 +119,17 @@ export default async function DashboardPage({
         title="Dashboard"
         description={
           <>
-            Event activity over the last {metrics?.window_days ?? "—"} days; AI spend and
+            Event activity over the last {metrics?.window_days ?? windowDays} days; AI spend and
             volume below carry their own periods.
           </>
+        }
+        filters={
+          /* Replaces the "Window" tile (#2572): the period is a choice, not a figure. */
+          <SegmentedControl
+            label="Reporting window"
+            selectedIndex={WINDOWS.indexOf(windowDays)}
+            options={WINDOWS.map((w) => ({ label: `${w} days`, href: hrefFor(w) }))}
+          />
         }
       />
 
@@ -141,14 +175,22 @@ export default async function DashboardPage({
           </h2>
           {metrics ? (
             <div className="stats">
-              <Stat label="Events recorded" value={formatCount(totalEvents)} />
-              <Stat label="Distinct event types" value={formatCount(metrics.by_event_name.length)} />
+              <Stat
+                label="Events recorded"
+                value={formatCount(totalEvents)}
+                countUp={{ to: totalEvents, kind: "count" }}
+              />
+              <Stat
+                label="Distinct event types"
+                value={formatCount(metrics.by_event_name.length)}
+                countUp={{ to: metrics.by_event_name.length, kind: "count" }}
+              />
               <Stat
                 label="Cap breaches"
                 value={formatCount(breachTotal)}
                 tone={breachTotal > 0 ? "warn" : undefined}
+                countUp={{ to: breachTotal, kind: "count" }}
               />
-              <Stat label="Window" value={`${metrics.window_days} days`} />
             </div>
           ) : (
             <p className="empty">Metrics are unavailable right now.</p>
@@ -223,10 +265,10 @@ export default async function DashboardPage({
                   );
                 })}
               </ul>
+              {/* An outage or a simulated dependency is announced ONCE, in Needs attention
+                  above (#2572); this panel is the per-check detail it links to. */}
               <p className="field__help">
-                Environment <strong>{health.environment}</strong>. A check reading{" "}
-                <code>mock</code> means that dependency is simulated — the platform is up,
-                but that path is not exercising the real provider.
+                Environment <strong>{health.environment}</strong>.
               </p>
             </>
           ) : (

@@ -73,6 +73,14 @@ const testSplitSchema = z.object({
   test_calls: z.number(),
   test_profiles: z.number(),
   test_cost_per_profile_inr: z.string().nullable(),
+  /**
+   * The third population (#2554, API #2604): spend and completed profiles whose worker row no
+   * longer exists, or calls that never named one. OPTIONAL for the rolling-deploy reason the
+   * whole split is — an older API sends none, and that must not fail the dashboard read.
+   */
+  deleted_or_unattributed_cost_inr: z.string().optional(),
+  deleted_or_unattributed_calls: z.number().optional(),
+  deleted_or_unattributed_profiles: z.number().optional(),
 });
 export type TestSplit = z.infer<typeof testSplitSchema>;
 

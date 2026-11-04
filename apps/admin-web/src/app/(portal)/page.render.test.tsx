@@ -11,7 +11,12 @@ import { renderToStaticMarkup } from "react-dom/server";
  *
  * The four data seams are mocked; the page and its components are real.
  */
-const stub = vi.hoisted(() => ({ metrics: null as unknown }));
+const stub = vi.hoisted(() => ({
+  metrics: null as unknown,
+  /** The window each read was asked for, in call order (#2572). */
+  metricsWindows: [] as (number | undefined)[],
+  summaryWindows: [] as (number | undefined)[],
+}));
 
 vi.mock("../../lib/auth", () => ({
   requireSession: async () => ({
@@ -22,7 +27,10 @@ vi.mock("../../lib/auth", () => ({
 }));
 
 vi.mock("../../lib/events", () => ({
-  getMetrics: async () => stub.metrics,
+  getMetrics: async (windowDays?: number) => {
+    stub.metricsWindows.push(windowDays);
+    return stub.metrics;
+  },
   getHealth: async () => ({
     status: "ok",
     service: "api",
@@ -36,7 +44,8 @@ vi.mock("../../lib/events", () => ({
 // The summary read FAILS throughout: its failure state is what this file asserts, and the two
 // panels it would otherwise feed have their own render tests.
 vi.mock("../../lib/dashboard", () => ({
-  getDashboardSummary: async () => {
+  getDashboardSummary: async (windowDays?: number) => {
+    stub.summaryWindows.push(windowDays);
     throw new TypeError("fetch failed");
   },
 }));
@@ -55,6 +64,8 @@ const metrics = (breaches: { key: string; count: number }[]) => ({
 
 beforeEach(() => {
   stub.metrics = metrics([]);
+  stub.metricsWindows = [];
+  stub.summaryWindows = [];
 });
 
 const render = async (searchParams: Record<string, string | undefined> = {}) =>
@@ -100,5 +111,51 @@ describe("one link to the whole events log", () => {
     expect(out).toContain("3 cap breaches");
     expect(eventsLinks(out)).toBe(1);
     expect(out.split(">View events<").length - 1).toBe(1);
+  });
+});
+
+describe("the 7 / 30 / 90-day window (#2572)", () => {
+  /** The segment the control marks as chosen. */
+  const current = (out: string) =>
+    /<a [^>]*class="seg__option"[^>]*aria-current="page"[^>]*>([^<]*)<\/a>/.exec(out)?.[1] ??
+    /<a [^>]*aria-current="page"[^>]*class="seg__option"[^>]*>([^<]*)<\/a>/.exec(out)?.[1];
+
+  it("defaults to 30 days — both APIs' own default, so `/` reads the same numbers", async () => {
+    const out = await render();
+    expect(current(out)).toBe("30 days");
+    expect(stub.metricsWindows).toEqual([30]);
+    expect(stub.summaryWindows).toEqual([30]);
+  });
+
+  it("sends the chosen window to BOTH reads", async () => {
+    const out = await render({ window: "90" });
+    expect(current(out)).toBe("90 days");
+    expect(stub.metricsWindows).toEqual([90]);
+    expect(stub.summaryWindows).toEqual([90]);
+  });
+
+  it("ignores a window it does not offer, rather than forwarding it", async () => {
+    await render({ window: "13" });
+    expect(stub.metricsWindows).toEqual([30]);
+  });
+
+  it("replaces the 'Window' tile — the period is a choice, not a figure", async () => {
+    const out = await render();
+    expect(out).toContain('aria-label="Reporting window"');
+    expect(out).not.toMatch(/stat__label">Window</);
+    expect(out).toContain('href="/?window=7"');
+    expect(out).toContain('href="/?window=90"');
+  });
+
+  it("keeps the window and the denied notice in Retry", async () => {
+    const out = await render({ window: "7", denied: "manage_admins" });
+    expect(out).toMatch(/href="\/\?window=7&amp;denied=manage_admins">(<i [^>]*><\/i>)?Retry<\/a>/);
+  });
+});
+
+describe("a simulated dependency is announced once (#2572)", () => {
+  it("the health panel no longer repeats the mock explanation", async () => {
+    const out = await render();
+    expect(out).not.toContain("means that dependency is simulated");
   });
 });

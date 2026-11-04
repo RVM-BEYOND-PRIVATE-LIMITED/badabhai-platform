@@ -33,31 +33,76 @@ export function VolumePanel({ volume }: { volume: VolumeSummary }) {
         </p>
       </div>
 
-      <div className="stats">
-        <Stat label="Workers" value={formatCount(volume.workers.total)} />
-        <Stat
-          label="Workers with a profile"
-          value={formatCount(volume.worker_profiles.workers_with_profile)}
-        />
-        <Stat label="Postings" value={formatCount(volume.job_postings.total)} />
-        <Stat label="Customers" value={formatCount(volume.payers.total)} />
-      </div>
+      {/* THREE GROUPS, NAMED (#2572): who is on the platform (Supply), who is hiring
+          (Demand), and what the two do with each other (Engagement). The same nine tiles as
+          before, regrouped so a reader is not left to sort them. */}
+      <div className="volume-groups">
+        <div className="volume-group">
+          <h3 className="volume-group__title" id="volume-supply">
+            Supply
+          </h3>
+          <div className="stats stats--compact" aria-labelledby="volume-supply" role="group">
+            <Stat label="Workers" value={formatCount(volume.workers.total)} {...count(volume.workers.total)} />
+            <Stat
+              label="Workers with a profile"
+              value={formatCount(volume.worker_profiles.workers_with_profile)}
+              {...count(volume.worker_profiles.workers_with_profile)}
+            />
+            <Stat
+              label="Resumes generated"
+              value={formatCount(volume.resumes.total)}
+              {...count(volume.resumes.total)}
+            />
+            <Stat
+              label="Deletions scheduled"
+              value={formatCount(volume.workers.pending_deletion)}
+              /* A DPDP erasure in flight is an operational fact with a clock on it, not a
+                 neutral counter — it reads as attention-worthy whenever it is non-zero. */
+              tone={volume.workers.pending_deletion > 0 ? "warn" : undefined}
+            />
+          </div>
+        </div>
 
-      <div className="stats stats--compact">
-        <Stat label="Applies" value={formatCount(volume.applications.applied)} />
-        <Stat
-          label="Posting decisions (applies + skips)"
-          value={formatCount(volume.applications.total)}
-        />
-        <Stat label="Contact unlocks" value={formatCount(volume.unlocks.issued)} />
-        <Stat label="Resumes generated" value={formatCount(volume.resumes.total)} />
-        <Stat
-          label="Deletions scheduled"
-          value={formatCount(volume.workers.pending_deletion)}
-          /* A DPDP erasure in flight is an operational fact with a clock on it, not a
-             neutral counter — it reads as attention-worthy whenever it is non-zero. */
-          tone={volume.workers.pending_deletion > 0 ? "warn" : undefined}
-        />
+        <div className="volume-group">
+          <h3 className="volume-group__title" id="volume-demand">
+            Demand
+          </h3>
+          <div className="stats stats--compact" aria-labelledby="volume-demand" role="group">
+            <Stat
+              label="Customers"
+              value={formatCount(volume.payers.total)}
+              {...count(volume.payers.total)}
+            />
+            <Stat
+              label="Postings"
+              value={formatCount(volume.job_postings.total)}
+              {...count(volume.job_postings.total)}
+            />
+            <Stat
+              label="Contact unlocks"
+              value={formatCount(volume.unlocks.issued)}
+              {...count(volume.unlocks.issued)}
+            />
+          </div>
+        </div>
+
+        <div className="volume-group">
+          <h3 className="volume-group__title" id="volume-engagement">
+            Engagement
+          </h3>
+          <div className="stats stats--compact" aria-labelledby="volume-engagement" role="group">
+            <Stat
+              label="Applies"
+              value={formatCount(volume.applications.applied)}
+              {...count(volume.applications.applied)}
+            />
+            <Stat
+              label="Posting decisions (applies + skips)"
+              value={formatCount(volume.applications.total)}
+              {...count(volume.applications.total)}
+            />
+          </div>
+        </div>
       </div>
 
       <div className="cols">
@@ -105,4 +150,9 @@ export function VolumePanel({ volume }: { volume: VolumeSummary }) {
       </div>
     </section>
   );
+}
+
+/** The count-up a volume tile runs on first render (#2572). */
+function count(n: number) {
+  return { countUp: { to: n, kind: "count" as const } };
 }

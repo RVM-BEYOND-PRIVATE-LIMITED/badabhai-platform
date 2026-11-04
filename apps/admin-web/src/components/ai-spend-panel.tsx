@@ -72,6 +72,15 @@ import { AboutData } from "./about-data";
  * for the nothing-accrued state — which is what keeps rule 2 above absolute here too, and what
  * stops a ₹0.00 average from rendering on a platform whose only spend so far is résumés.
  *
+ * ══ ONE BASIS, STATED ONCE (A2, #2572) ═══════════════════════════════════════════════════
+ * Rule 1 used to be held by repeating "since <date>" in every ₹ label and in a yellow banner —
+ * three copies of one fact, which read as alarm. The basis is now ONE chip at the head of the
+ * section ("Since 19 Aug 2026 ⓘ") that every figure below sits under, with the detail behind
+ * its ⓘ. The per-profile block carries its own chip ONLY when its bound differs from the
+ * section's, so a figure is still never shown under a window it does not have. The real-call
+ * share is a neutral fact, not a permanent warning. Spend on deleted accounts (#2554) is its
+ * own figure.
+ *
  * ══ LESS TEXT (A3, #2573) ═══════════════════════════════════════════════════════════════
  * The panel carried ~350 words of caveats in band. The CLAIMS stay on screen — the basis
  * headline in its warn banner, the date in every ₹ label, the per-profile basis headline, the
@@ -86,6 +95,13 @@ export function AiSpendPanel({ cost }: { cost: AiCostSummary }) {
   const perProfile = cost.per_profile;
   const perProfileState = describeCostPerProfile(cost);
   const testSplit = perProfileState.kind === "measured" ? perProfileState.view.testSplit : null;
+  const sectionWindow = basisInline(basis.headline);
+  // The per-profile block shares the section's chip unless its own bound differs (rule 5 in
+  // `describeCostPerProfile`): then it carries its own, so no figure sits under the wrong one.
+  const perProfileOwnWindow =
+    perProfileState.kind === "measured" && perProfileState.view.windowLabel !== sectionWindow
+      ? perProfileState.view.windowLabel
+      : null;
 
   return (
     <section className="panel" aria-labelledby="ai-spend-heading">
@@ -98,11 +114,10 @@ export function AiSpendPanel({ cost }: { cost: AiCostSummary }) {
         </p>
       </div>
 
-      {/* The basis headline rides ABOVE the numbers and is never collapsible: a partial figure
-          presented as authoritative is the defect this whole block was built to prevent. Its
-          explanation is one click away behind the ⓘ (#2573). */}
-      <div className="notice notice--warn notice--row" role="note">
-        <strong>{basis.headline}.</strong>
+      {/* THE BASIS, ONCE (#2572): one chip above every figure in the section, never
+          collapsible, with its explanation one click away behind the ⓘ. */}
+      <div className="spend-basis" role="note">
+        <span className="spend-basis__chip">{basis.headline}</span>
         <InfoPopover label="About this spend basis">
           <p>
             {basis.detail} {describeAiCostCaveat(cost.caveat)}
@@ -121,21 +136,19 @@ export function AiSpendPanel({ cost }: { cost: AiCostSummary }) {
         {measured ? (
           <>
             <Stat
-              /* The "since" is IN THE LABEL. A tile reading "Total AI spend" would be a
-                 different, wrong claim the moment it left this page. */
-              label={`Spend recorded ${basisInline(basis.headline)}`}
+              /* Under the section chip above — "Spend recorded", not "Total AI spend". */
+              label="Spend recorded"
               value={formatDisplayRupees(cost.total_cost_inr)}
               valueTitle={formatExactRupees(cost.total_cost_inr)}
+              countUp={{ to: Number(cost.total_cost_inr), kind: "rupees" }}
               wide
             />
-            <Stat label="Calls recorded" value={formatCount(cost.total_calls)} />
             <Stat
-              label="…that reached a real provider"
-              value={formatCount(cost.real_calls)}
-              /* Fewer real calls than recorded ones means part of this spend is the MOCK
-                 posture. Not broken — but not real money either, and a console that cannot
-                 tell them apart is how a mocked staging figure gets quoted as production. */
-              tone={cost.real_calls < cost.total_calls ? "warn" : undefined}
+              /* NEUTRAL, not a warning (#2572). The share of calls that reached a real
+                 provider is a fact about the posture; the rest were mocked. A dependency that
+                 is actually simulated is announced once, in Needs attention. */
+              label="Real-provider calls"
+              value={realCallsText(cost.real_calls, cost.total_calls)}
             />
           </>
         ) : null}
@@ -144,6 +157,7 @@ export function AiSpendPanel({ cost }: { cost: AiCostSummary }) {
         <Stat
           label={`Cap breaches (last ${breaches.window_days} days)`}
           value={formatCount(breaches.total)}
+          countUp={{ to: breaches.total, kind: "count" }}
           tone={breaches.total > 0 ? "warn" : undefined}
         />
       </div>
@@ -173,6 +187,11 @@ export function AiSpendPanel({ cost }: { cost: AiCostSummary }) {
           <h3 className="panel__title" id="ai-spend-per-profile">
             What a finished profile costs
           </h3>
+          {perProfileOwnWindow ? (
+            <div className="spend-basis" role="note">
+              <span className="spend-basis__chip">{basisHeadline(perProfileOwnWindow)}</span>
+            </div>
+          ) : null}
           {/* THE BASIS RIDES ABOVE THE FIGURES, exactly as it does for the section total —
               and here it is doing more work, because "cost per profile" and "cost per
               worker" are both plausible readings of the same tile and only one is true. */}
@@ -186,14 +205,16 @@ export function AiSpendPanel({ cost }: { cost: AiCostSummary }) {
                 the one `windowLabel`, which is derived from this block's own bound and
                 never from the section's; see rule 5 in `describeCostPerProfile`. */}
             <Stat
-              label={`Profiling spend ${perProfileState.view.windowLabel}`}
+              label="Profiling spend"
               value={formatDisplayRupees(perProfile.profiling_cost_inr)}
               valueTitle={formatExactRupees(perProfile.profiling_cost_inr)}
+              countUp={{ to: Number(perProfile.profiling_cost_inr), kind: "rupees" }}
               wide
             />
             <Stat
-              label={`Profiles completed ${perProfileState.view.windowLabel}`}
+              label="Profiles completed"
               value={formatCount(perProfile.profiles_extracted_or_confirmed)}
+              countUp={{ to: perProfile.profiles_extracted_or_confirmed, kind: "count" }}
             />
             <Stat
               label="Average per profile produced"
@@ -211,19 +232,29 @@ export function AiSpendPanel({ cost }: { cost: AiCostSummary }) {
             {testSplit?.kind === "measured" ? (
               <>
                 <Stat
-                  label={`Real accounts — average per profile ${perProfileState.view.windowLabel}`}
+                  label="Real accounts — average per profile"
                   value={testSplit.real.averageText}
                   valueTitle={testSplit.real.averageExactText ?? undefined}
                   absent={testSplit.real.averageIsAbsent}
                   wide
                 />
                 <Stat
-                  label={`Test accounts — average per profile ${perProfileState.view.windowLabel}`}
+                  label="Test accounts — average per profile"
                   value={testSplit.test.averageText}
                   valueTitle={testSplit.test.averageExactText ?? undefined}
                   absent={testSplit.test.averageIsAbsent}
                   wide
                 />
+                {/* #2554: deleted and worker-less spend is its own figure, never folded into
+                    the real leg — an older API sends none, and then no tile renders. */}
+                {testSplit.deleted ? (
+                  <Stat
+                    label="Spend on deleted accounts"
+                    value={testSplit.deleted.spendText}
+                    valueTitle={testSplit.deleted.spendExactText}
+                    wide
+                  />
+                ) : null}
               </>
             ) : null}
           </div>
@@ -247,7 +278,7 @@ export function AiSpendPanel({ cost }: { cost: AiCostSummary }) {
           {/* The mechanics behind the figures (#2573): the basis detail, the legs' numerators
               and denominators (so each average is auditable) with the convergence caveat, and
               the scope, window, erasure and posture sentences. */}
-          <AboutData>
+          <AboutData title="How this is computed">
             <p>{perProfileState.view.basisDetail}</p>
             {testSplit?.kind === "measured" ? (
               <p>
@@ -255,8 +286,16 @@ export function AiSpendPanel({ cost }: { cost: AiCostSummary }) {
                 over {formatCount(testSplit.real.profiles)} profiles (
                 {formatCount(testSplit.real.calls)} calls); test accounts recorded{" "}
                 {testSplit.test.spendText} over {formatCount(testSplit.test.profiles)} profiles (
-                {formatCount(testSplit.test.calls)} calls). {testSplit.caveatSentence} The
-                headline average above stays blended across both legs.
+                {formatCount(testSplit.test.calls)} calls)
+                {testSplit.deleted ? (
+                  <>
+                    ; deleted accounts and worker-less calls recorded {testSplit.deleted.spendText}{" "}
+                    over {formatCount(testSplit.deleted.profiles)} profiles (
+                    {formatCount(testSplit.deleted.calls)} calls)
+                  </>
+                ) : null}
+                . {testSplit.caveatSentence} The headline average above stays blended across
+                every leg.
               </p>
             ) : null}
             <p>
@@ -390,4 +429,18 @@ export function AiSpendPanel({ cost }: { cost: AiCostSummary }) {
       </div>
     </section>
   );
+}
+
+/** "Since 19 Aug 2026" from the inline form the view carries ("since 19 Aug 2026"). */
+function basisHeadline(inline: string): string {
+  return inline.charAt(0).toUpperCase() + inline.slice(1);
+}
+
+/**
+ * "5,602 / 6,187 (91%)". The share is FLOORED, so a posture with even one mocked call never
+ * reads 100%. No calls at all is "0 / 0" — a percentage of nothing is not a figure.
+ */
+export function realCallsText(real: number, total: number): string {
+  const base = `${formatCount(real)} / ${formatCount(total)}`;
+  return total > 0 ? `${base} (${Math.floor((real / total) * 100)}%)` : base;
 }
