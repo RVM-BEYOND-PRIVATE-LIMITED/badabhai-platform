@@ -252,6 +252,14 @@ describe("payments config (ADR-0010 §D5 / F-6 — mock credits in alpha)", () =
     expect(() => loadServerConfig({ ADMIN_ENGINE_VIEW_ALLOW_PHONES: "+1 555 0100" })).toThrow();
   });
 
+  it("the admin sign-in IP cap defaults to 200/hour (R73) and stays overridable", () => {
+    // ONE shared bucket for every admin sign-in while the API cannot see visitor addresses; the
+    // per-account lockouts (ADR-0060) carry brute force, so 20 only locked honest admins out.
+    expect(loadServerConfig({}).ADMIN_AUTH_MAX_PER_IP_PER_HOUR).toBe(200);
+    expect(loadServerConfig({ ADMIN_AUTH_MAX_PER_IP_PER_HOUR: "40" }).ADMIN_AUTH_MAX_PER_IP_PER_HOUR).toBe(40);
+    expect(() => loadServerConfig({ ADMIN_AUTH_MAX_PER_IP_PER_HOUR: "0" })).toThrow();
+  });
+
   it("the AI-TRACE decrypt caps are a THIRD budget (20/hour, 60/day) and REJECT an empty string", () => {
     // Sized in DISCLOSURES and deliberately small — a debugging session, not a corpus — and
     // genuinely independent of the other two budgets rather than an alias of either.

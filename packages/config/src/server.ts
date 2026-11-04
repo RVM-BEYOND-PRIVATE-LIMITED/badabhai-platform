@@ -1251,9 +1251,18 @@ export const serverEnvSchema = z.object({
   // MFA required but no issuer — fails closed at boot via assertAdminAuthConfig).
   ADMIN_TOTP_ISSUER: z.string().min(1).default("BadaBhai Admin"),
   // Per-IP hourly cap on the UNAUTHENTICATED admin auth endpoints (login request / verify /
-  // MFA) — the admin analogue of PAYER_AUTH_MAX_PER_IP_PER_HOUR (credential-stuffing /
-  // account-farming backstop). Fail-closed (a Redis outage rejects).
-  ADMIN_AUTH_MAX_PER_IP_PER_HOUR: z.coerce.number().int().positive().default(20),
+  // MFA / password / forgot / reset / invite accept). Fail-closed (a Redis outage rejects).
+  //
+  // WHY 200 (R73, owner ruling 2026-11-04; was 20). With TRUST_PROXY_HOP_COUNT=0 the API never
+  // sees a visitor's address: admin-web calls it server-to-server and public traffic arrives
+  // from nginx, so this "per-IP" bucket is ONE bucket for every admin sign-in on the platform.
+  // At 20, a sign-in costs 1–3 calls and a busy hour 429'd honest admins — and anyone could
+  // exhaust it on purpose. Brute force is no longer this cap's job: ADR-0060 locks each ACCOUNT
+  // after ADMIN_PASSWORD_MAX_ATTEMPTS wrong passwords and, separately, wrong TOTP codes; email
+  // codes keep their per-address cooldown and attempt cap. What this still bounds is raw request
+  // volume. The real fix is per-visitor addressing (trust the nginx hop + admin-web forwards the
+  // client address) — tracked with R73; lower this again once that lands.
+  ADMIN_AUTH_MAX_PER_IP_PER_HOUR: z.coerce.number().int().positive().default(200),
   // Admin password sign-in (migration 0144) — the per-ACCOUNT attempt throttle, the admin
   // analogue of PAYER_PASSWORD_MAX_ATTEMPTS / _LOCKOUT_SECONDS (the per-IP cap above is shared
   // and coarse behind NAT). N failed passwords inside the window lock that admin's password door
