@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
+import { columnHeaders } from "../../../../test/grid-markup";
 import type * as EntitiesModule from "../../../lib/entities";
 import type * as RowActionsModule from "./admin-row-actions";
 import { shortId } from "../../../lib/format";
@@ -86,7 +87,7 @@ function firstRowCells(html: string): string[] {
 describe("a super_admin, who holds read_identity", () => {
   it("renders the name column first, and keeps the id behind it", async () => {
     const out = await render();
-    expect(out).toContain('<th scope="col">Name</th>');
+    expect(columnHeaders(out)[0]).toBe("Name");
     expect(out).toContain("Divyanshu Sharma");
     expect(out).toContain(`<span class="mono" title="${ADMIN_ID}">aaaa…0001</span>`);
     // The full id is one click from the clipboard (#2572).
@@ -128,7 +129,7 @@ describe("a super_admin, who holds read_identity", () => {
   it("keeps header and row widths in step", async () => {
     stub.directory = { admins: [NAMED, UNNAMED], active_super_admins: 2 };
     const out = await render();
-    const headers = (out.match(/<th scope="col">/g) ?? []).length;
+    const headers = columnHeaders(out).length;
     expect(headers).toBe(8);
     expect(firstRowCells(out)).toHaveLength(headers);
   });
@@ -188,7 +189,7 @@ describe("the capped posture on the one unpaginated route", () => {
 
   it("hides the Name column rather than dashing it", async () => {
     const out = await render();
-    expect(out).not.toContain('<th scope="col">Name</th>');
+    expect(columnHeaders(out)).not.toContain("Name");
     expect(out).not.toContain("No name on record");
   });
 
@@ -271,7 +272,7 @@ describe("the role chips keep a status narrowing (owner brief 2026-10-01)", () =
 
 /** The href of the link whose visible label (after any glyph) is exactly `label`. */
 const hrefOf = (out: string, label: string) =>
-  [...out.matchAll(/href="([^"]*)">(?:<i [^>]*><\/i>)?([^<]*)<\/a>/g)].find((m) => m[2] === label)?.[1];
+  [...out.matchAll(/href="([^"]*)">(?:<i [^>]*><\/i>)?([^<]*)(?:<span class="nav-pending" aria-hidden="true"><\/span>)?<\/a>/g)].find((m) => m[2] === label)?.[1];
 
 /**
  * A failed directory read, by the console's one rule (final re-sweep O-3). The directory is

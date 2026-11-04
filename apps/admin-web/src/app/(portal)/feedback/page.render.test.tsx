@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { renderToStaticMarkup } from "react-dom/server";
+import { columnHeaders } from "../../../../test/grid-markup";
 
 /**
  * What the Feedback screen actually RENDERS (#997).
@@ -200,9 +201,11 @@ describe("a row", () => {
 
   it("renders the message VERBATIM, in the cell that wraps", async () => {
     // The whole point of the screen. `cell--message` is the one cell exempted from the
-    // table's `white-space: nowrap`, so this is also what pins the message to that exemption.
+    // table's `white-space: nowrap`, so this is also what pins the message to that exemption —
+    // beside the grid's own wrapping class: a message is never cut with an ellipsis.
     const out = await render();
-    expect(out).toContain(`<td class="cell--message">${TAGGED.message}</td>`);
+    expect(out).toContain(`<td class="grid__cell--wrap cell--message">${TAGGED.message}</td>`);
+    expect(out).not.toMatch(/<td class="[^"]*grid__cell--truncate[^"]*cell--message/);
   });
 
   it("dates the row relatively, with the absolute instant kept in the title", async () => {
@@ -265,7 +268,7 @@ describe("a row", () => {
     // The class the stylesheet rule below is written against. Asserted HERE because nothing
     // in the toolchain links a className to a rule: the two are checked in separate tests and
     // this is the one that pins which name the markup actually emits.
-    expect(out).toContain('class="table__meta cell--screen"');
+    expect(out).toContain('class="grid__cell--wrap table__meta cell--screen"');
   });
 
   it("renders a missing screen as a dash — never a guessed route", async () => {
@@ -317,7 +320,9 @@ describe("what this screen refuses to offer", () => {
     // Category is a set of links precisely so this surface has no free-text input at all.
     stub.page = { items: [TAGGED], nextCursor: null };
     const out = await render();
-    expect(out).not.toContain("<input");
+    // The grid's column chooser draws checkboxes (a view preference); nothing here takes text.
+    expect(out).not.toMatch(/<input(?![^>]*type="checkbox")/);
+    expect(out).not.toContain("<textarea");
     expect(out).not.toContain("<form");
     expect(out).not.toContain('role="search"');
   });
@@ -440,7 +445,7 @@ describe("the worker narrowing", () => {
     // With the worker as the ONLY filter, the way out is the results head's one Clear filters —
     // not a second and third link to /feedback beside it.
     expect(out.split('href="/feedback"').length - 1).toBe(1);
-    expect(out).toMatch(/href="\/feedback">(<i [^>]*><\/i>)?Clear filters<\/a>/);
+    expect(out).toMatch(/href="\/feedback">(<i [^>]*><\/i>)?Clear filters(?:<span class="nav-pending" aria-hidden="true"><\/span>)?<\/a>/);
     expect(out).not.toContain("Show every worker");
     // …and it names the FILTERED worker, not whoever happens to be in the first row.
     expect(out).not.toContain("Showing only what worker <span class=\"mono\">abcd…0002");
@@ -618,7 +623,7 @@ describe("the two failures, which are also different claims", () => {
     const out = await render({ category: "nonsense", workerId: WORKER_ID, cursor: "c2" });
     const state = out.slice(out.indexOf('class="state state--error"'));
     expect(state).toContain(
-      'href="/feedback"><i class="ph-fill ph-funnel-x" aria-hidden="true"></i>Clear filters</a>',
+      'href="/feedback"><i class="ph-fill ph-funnel-x" aria-hidden="true"></i>Clear filters<span class="nav-pending" aria-hidden="true"></span></a>',
     );
     // ONE Clear filters on the screen — the results head does not repeat it.
     expect(out.split(">Clear filters<").length - 1).toBe(1);
@@ -783,7 +788,7 @@ describe("the images column (#1191)", () => {
   it("adds exactly one column to the header, between Screen and Message", async () => {
     stub.page = { items: [TAGGED], nextCursor: null };
     const html = await render();
-    const headers = [...html.matchAll(/<th scope="col">([^<]*)<\/th>/g)].map((m) => m[1]);
+    const headers = columnHeaders(html);
     expect(headers).toEqual(["When", "Worker", "Category", "Build", "Screen", "Images", "Message"]);
   });
 
@@ -810,7 +815,7 @@ describe("page height: the messages before the explanation (AW-08, #2573)", () =
   it("'About these messages' follows the table, collapsed", async () => {
     stub.page = { items: [TAGGED], nextCursor: null };
     const out = await render();
-    const table = out.indexOf('<div class="tablewrap">');
+    const table = out.indexOf('<div class="grid grid--prose"');
     expect(table).toBeGreaterThanOrEqual(0);
     const about = out.indexOf('<details class="about">');
     expect(about).toBeGreaterThan(table);

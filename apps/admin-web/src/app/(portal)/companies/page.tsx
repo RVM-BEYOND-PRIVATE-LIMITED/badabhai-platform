@@ -16,6 +16,7 @@ import { Pager } from "../../../components/pager";
 import { PayerFilterBar } from "../../../components/payer-filter-bar";
 import { FilterPanel } from "../../../components/filter-panel";
 import { PageHeader } from "../../../components/page-header";
+import { NavPendingCue } from "../../../components/nav-pending";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 import {
   CURSOR_REFUSAL,
@@ -82,6 +83,7 @@ export default async function CompaniesPage({
     <Link className="btn btn--ghost" href="/companies">
       <Icon name={ACTION_ICON.clearFilters} />
       Clear filters
+      <NavPendingCue message="Clearing the filters…" />
     </Link>
   ) : null;
 
@@ -92,7 +94,7 @@ export default async function CompaniesPage({
   );
 
   return (
-    <div className="page">
+    <div className="page page--list">
       <PageHeader
         title="Companies"
         description={
@@ -182,13 +184,19 @@ export default async function CompaniesPage({
             payers={page?.items ?? []}
             basePath="/companies"
             posture={posture}
+            pager={
+              <Pager
+                basePath="/companies"
+                params={{ status }}
+                cursor={cursor}
+                nextCursor={page?.nextCursor}
+              />
+            }
             emptyMessage={
               status ? "No companies match this filter." : "No companies registered yet."
             }
           />
         )}
-
-        <Pager basePath="/companies" params={{ status }} nextCursor={page?.nextCursor} />
       </section>
     </div>
   );

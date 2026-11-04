@@ -8,7 +8,7 @@ import {
   type ReadRefusal,
 } from "../../../lib/read-refusal";
 import { AI_CALL_OUTCOMES } from "../../../lib/list-filter-values";
-import { listAiTraces, type AiTracePage } from "../../../lib/ai-traces";
+import { listAiTraces, type AiTraceListItem, type AiTracePage } from "../../../lib/ai-traces";
 import { aiTraceErrorLabel, outcomeTone, realCallLabel } from "../../../lib/ai-trace-view";
 import { AI_TASK_TYPES, taskTypeLabel } from "../../../lib/ai-cost";
 import {
@@ -22,6 +22,8 @@ import { CopyId } from "../../../components/copy-id";
 import { StatusPill } from "../../../components/status-pill";
 import { Pager } from "../../../components/pager";
 import { PageHeader } from "../../../components/page-header";
+import { DataGrid, type GridColumn } from "../../../components/data-grid";
+import { NavPendingCue } from "../../../components/nav-pending";
 import { AboutData } from "../../../components/about-data";
 import { FirstPageAction, RetryActions } from "../../../components/retry-actions";
 import { AiCallFilterBar } from "./filter-bar";
@@ -57,16 +59,17 @@ const PAGE_SIZE = 25;
  * spoke, in which interview, when, and how much. An earlier build gated this page on
  * `read_entities` and matched an API that did the same; both moved together.
  *
- * ── THE ONE COLUMN THAT MOVES WITH THE SESSION ──────────────────────────────────────────
- * The Text column is still derived from the capability rather than assumed, and that is NOT
+ * ── THE ONE LINK THAT MOVES WITH THE SESSION ────────────────────────────────────────────
+ * Each row opens the call's text (A4, #2574: the row is one link, through its task) only for a
+ * session that may read it — derived from the capability rather than assumed, and that is NOT
  * redundant with the page gate: the two are the same value today and the reason each exists is
- * different. The page gate mirrors the route; the column mirrors what the DETAIL screen will
+ * different. The page gate mirrors the route; the link mirrors what the DETAIL screen will
  * accept. The day an owner reopens the list to ops, the page gate moves and this one does not —
- * so a control that read `mayReadText = true` because "we got here" would silently start
- * offering three roles a link to a 404. The COLUMN is dropped, not filled with dashes: a "Text"
- * heading over em dashes would say these calls have no text stored, which is the opposite of
- * true and is exactly what the two character counts beside it disprove. (The Workers roster
- * makes the identical ruling about its Name column.)
+ * so a row that linked because "we got here" would silently start offering three roles a link
+ * to a 404. Without it the rows simply do not link — and there is no "Text" heading over em
+ * dashes either, which would say these calls have no text stored: the opposite of true, and
+ * exactly what the two character counts beside it disprove. (The Workers roster makes the
+ * identical ruling about its Name column.)
  *
  * ── AND THERE IS NO SEARCH ──────────────────────────────────────────────────────────────
  * See `filter-bar.tsx`. Task, outcome and one worker id — all lookups, all narrowing a page the
@@ -145,6 +148,7 @@ export default async function AiCallsPage({
     <Link className="btn btn--ghost" href="/ai-calls">
       <Icon name={ACTION_ICON.clearFilters} />
       Clear filters
+      <NavPendingCue message="Clearing the filters…" />
     </Link>
   ) : null;
 
@@ -169,7 +173,7 @@ export default async function AiCallsPage({
   // looks like a successful reload — and offers `listHref()` itself as the first page.
 
   return (
-    <div className="page">
+    <div className="page page--list">
       <PageHeader
         title="AI calls"
         description="Every AI call the platform made on a worker's behalf, newest first."
@@ -225,6 +229,7 @@ export default async function AiCallsPage({
                 {" · "}
                 <Link className="link" href={listHref({ workerId: null })}>
                   Clear the worker filter
+                  <NavPendingCue message="Clearing the worker filter…" />
                 </Link>
               </>
             ) : null}
@@ -265,132 +270,38 @@ export default async function AiCallsPage({
             <RetryActions href={listHref()} cursor={cursor} />
           </div>
         ) : page && page.items.length > 0 ? (
-          <div className="tablewrap">
-            <table className="table">
-              <caption className="sr-only">AI calls, newest first</caption>
-              <thead>
-                <tr>
-                  <th scope="col">When</th>
-                  <th scope="col">Task</th>
-                  <th scope="col">Outcome</th>
-                  <th scope="col">Provider call</th>
-                  <th scope="col">Request</th>
-                  <th scope="col">Reply</th>
-                  <th scope="col">Worker</th>
-                  {/* Only for a session that may actually open one — see the page header for
-                      why the column is dropped rather than filled with dashes. */}
-                  {mayReadText && <th scope="col">Text</th>}
-                </tr>
-              </thead>
-              <tbody>
-                {page.items.map((t) => (
-                  <tr key={t.id}>
-                    <td>
-                      <time dateTime={t.created_at} title={timestampTitle(t.created_at)}>
-                        {formatRelative(t.created_at)}
-                      </time>
-                    </td>
-                    <td>
-                      {taskTypeLabel(t.task_type)}
-                      <br />
-                      {/* The model is the second thing an operator needs on a triage row and
-                          the first thing they compare across rows. Null when the metadata
-                          carried no label — shown as "model not labelled" rather than blank,
-                          because "we do not know which model" is a fact worth reading. */}
-                      <span className="table__meta mono">
-                        {t.model_name ?? "model not labelled"}
-                      </span>
-                    </td>
-                    <td>
-                      <StatusPill
-                        value={t.success ? "succeeded" : "failed"}
-                        tone={outcomeTone(t.success)}
-                      />
-                      {t.error_code ? (
-                        <>
-                          <br />
-                          <span className="table__meta" title={t.error_code}>
-                            {aiTraceErrorLabel(t.error_code)}
-                          </span>
-                        </>
-                      ) : null}
-                    </td>
-                    <td>
-                      {/* `real` reads ok and `mock` reads warn — the TD81 ruling this console
-                          already applies to money and to dependency health. Simulated work must
-                          never render in the same type as the real thing. */}
-                      <StatusPill
-                        value={realCallLabel(t.real_call)}
-                        tone={healthTone(realCallLabel(t.real_call))}
-                        title={
-                          t.real_call
-                            ? "A provider was really called for this."
-                            : "No provider was called — the mock adapter answered."
-                        }
-                      />
-                    </td>
-                    <td className="table__meta">
-                      <Chars value={t.prompt_chars} half="request" />
-                    </td>
-                    <td className="table__meta">
-                      <Chars value={t.response_chars} half="reply" />
-                    </td>
-                    <td>
-                      <Link
-                        className="link mono"
-                        href={`/workers/${t.worker_id}`}
-                        title={t.worker_id}
-                      >
-                        {shortId(t.worker_id)}
-                      </Link>
-                      <CopyId id={t.worker_id} label="worker id" />
-                      {t.session_id ? (
-                        <>
-                          <br />
-                          {/* The interview this call belongs to. A session id is globally
-                              unique but the route is nested under its worker, which is also
-                              the way back — and `worker_id` comes off THIS row, so the link
-                              cannot point at a session under somebody else's id. */}
-                          <Link
-                            className="link table__meta"
-                            href={`/workers/${t.worker_id}/journey/${t.session_id}`}
-                            title={`Interview session ${t.session_id}`}
-                          >
-                            Session
-                            {/* Every row's link says "Session"; this names WHICH one. */}
-                            <span className="sr-only"> {shortId(t.session_id)}</span>
-                          </Link>
-                        </>
-                      ) : (
-                        <>
-                          <br />
-                          {/* Not every call belongs to an interview: a résumé generation and a
-                              profile extraction are worker-owned with no chat session behind
-                              them. A dash here says "no session", not "session unknown". */}
-                          <span className="table__meta" title="This call was not part of an interview session.">
-                            no session
-                          </span>
-                        </>
-                      )}
-                    </td>
-                    {mayReadText && (
-                      <td>
-                        <Link className="link link--icon" href={`/ai-calls/${t.id}`}>
-                          <Icon name={ACTION_ICON.view} />
-                          <span>View</span>
-                          {/* Every row's link says "View"; this names WHICH call. */}
-                          <span className="sr-only">
-                            {" "}
-                            call {shortId(t.id)}, {taskTypeLabel(t.task_type)}
-                          </span>
-                        </Link>
-                      </td>
-                    )}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <DataGrid
+            id="ai-calls"
+            caption="AI calls, newest first"
+            columns={COLUMNS}
+            rows={page.items}
+            rowKey={(t) => t.id}
+            /* Only for a session that may actually open a call — see the page header for why the
+               rows do not link otherwise. */
+            rowLink={
+              mayReadText
+                ? {
+                    column: "task",
+                    href: (t) => `/ai-calls/${t.id}`,
+                    name: (t) => `the ${taskTypeLabel(t.task_type)} call`,
+                    // Every row of a task reads the same; this names WHICH call.
+                    label: (t) => `${taskTypeLabel(t.task_type)}, call ${shortId(t.id)}`,
+                  }
+                : undefined
+            }
+            pager={
+              <Pager
+                basePath="/ai-calls"
+                /* Every active filter travels with the cursor. A pager carrying only the task
+                   type would page a worker-narrowed view straight into everyone else's calls on
+                   the second page, with the line above still claiming one worker. */
+                params={{ taskType, success, workerId }}
+                cursor={cursor}
+                nextCursor={page.nextCursor}
+                note="Paging uses a keyset cursor, so calls completing mid-scan cannot make rows skip or repeat."
+              />
+            }
+          />
         ) : cursor ? (
           /* A page PAST the first that came back empty. "No AI calls recorded yet" would be a
              claim about the whole table made from its tail, and the tail is exactly where it is
@@ -449,16 +360,6 @@ export default async function AiCallsPage({
           </div>
         )}
 
-        <Pager
-          basePath="/ai-calls"
-          /* Every active filter travels with the cursor. A pager carrying only the task type
-             would page a worker-narrowed view straight into everyone else's calls on the second
-             page, with the line above still claiming one worker. */
-          params={{ taskType, success, workerId }}
-          nextCursor={page?.nextCursor}
-          note="Paging uses a keyset cursor, so calls completing mid-scan cannot make rows skip or repeat."
-        />
-
         {/* What a row is, and what it is not — the mechanics the one-sentence description leaves
             out, posture-conditional on whether this session may open a call's text — and the
             standing footnote that this is not every call. Both follow the rows (AW-08: above the
@@ -487,6 +388,125 @@ export default async function AiCallsPage({
     </div>
   );
 }
+
+/** The AI-call columns on the data grid (A4, #2574) — scalars only, see the page header. */
+const COLUMNS: readonly GridColumn<AiTraceListItem>[] = [
+  {
+    id: "when",
+    header: "When",
+    width: "date",
+    cell: (t) => (
+      <time dateTime={t.created_at} title={timestampTitle(t.created_at)}>
+        {formatRelative(t.created_at)}
+      </time>
+    ),
+  },
+  {
+    id: "task",
+    header: "Task",
+    cell: (t) => taskTypeLabel(t.task_type),
+    /* The model is the second thing an operator needs on a triage row and the first thing they
+       compare across rows. Null when the metadata carried no label — shown as "model not
+       labelled" rather than blank, because "we do not know which model" is a fact worth reading. */
+    trail: (t) => (
+      <>
+        <br />
+        <span className="table__meta mono">{t.model_name ?? "model not labelled"}</span>
+      </>
+    ),
+    title: (t) => `${taskTypeLabel(t.task_type)} · ${t.model_name ?? "model not labelled"}`,
+  },
+  {
+    id: "outcome",
+    header: "Outcome",
+    width: "short",
+    /* WRAPS: the failure reason is what an operator triaging failed calls reads down the column
+       ("Provider failed — code not recognised"), so it is never cut to an ellipsis. Its raw code
+       stays in the reason's title, for a log search. */
+    text: "wrap",
+    cell: (t) => (
+      <>
+        <StatusPill value={t.success ? "succeeded" : "failed"} tone={outcomeTone(t.success)} />
+        {t.error_code ? (
+          <>
+            <br />
+            <span className="table__meta" title={t.error_code}>
+              {aiTraceErrorLabel(t.error_code)}
+            </span>
+          </>
+        ) : null}
+      </>
+    ),
+  },
+  {
+    id: "provider",
+    header: "Provider call",
+    width: "status",
+    /* `real` reads ok and `mock` reads warn — the TD81 ruling this console already applies to
+       money and to dependency health. Simulated work must never render in the same type as the
+       real thing. */
+    cell: (t) => (
+      <StatusPill
+        value={realCallLabel(t.real_call)}
+        tone={healthTone(realCallLabel(t.real_call))}
+        title={
+          t.real_call
+            ? "A provider was really called for this."
+            : "No provider was called — the mock adapter answered."
+        }
+      />
+    ),
+  },
+  {
+    id: "request",
+    header: "Request",
+    width: "number",
+    className: "table__meta",
+    cell: (t) => <Chars value={t.prompt_chars} half="request" />,
+  },
+  {
+    id: "reply",
+    header: "Reply",
+    width: "number",
+    className: "table__meta",
+    cell: (t) => <Chars value={t.response_chars} half="reply" />,
+  },
+  {
+    id: "worker",
+    header: "Worker",
+    width: "id",
+    cell: (t) => (
+      <>
+        <Link className="link mono" href={`/workers/${t.worker_id}`} title={t.worker_id}>
+          {shortId(t.worker_id)}
+        </Link>
+        <CopyId id={t.worker_id} label="worker id" />
+        <br />
+        {t.session_id ? (
+          /* The interview this call belongs to. A session id is globally unique but the route is
+             nested under its worker, which is also the way back — and `worker_id` comes off THIS
+             row, so the link cannot point at a session under somebody else's id. */
+          <Link
+            className="link table__meta"
+            href={`/workers/${t.worker_id}/journey/${t.session_id}`}
+            title={`Interview session ${t.session_id}`}
+          >
+            Session
+            {/* Every row's link says "Session"; this names WHICH one. */}
+            <span className="sr-only"> {shortId(t.session_id)}</span>
+          </Link>
+        ) : (
+          /* Not every call belongs to an interview: a resume generation and a profile extraction
+             are worker-owned with no chat session behind them. "no session" says exactly that,
+             not "session unknown". */
+          <span className="table__meta" title="This call was not part of an interview session.">
+            no session
+          </span>
+        )}
+      </>
+    ),
+  },
+];
 
 /**
  * A character count, or an honest absence.

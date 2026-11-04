@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { requireCapability } from "../../../lib/auth";
-import { getFinanceSummary, listOrders } from "../../../lib/entities";
+import { getFinanceSummary, listOrders, type OrderRow } from "../../../lib/entities";
 import {
   formatCount,
   formatRelative,
@@ -14,6 +14,8 @@ import { CustomerLink } from "../../../components/customer-link";
 import { Pager } from "../../../components/pager";
 import { Stat } from "../../../components/stat";
 import { PageHeader } from "../../../components/page-header";
+import { DataGrid, type GridColumn } from "../../../components/data-grid";
+import { NavPendingCue } from "../../../components/nav-pending";
 import {
   CURSOR_REFUSAL,
   FirstPageAction,
@@ -106,6 +108,7 @@ export default async function TransactionsPage({
     <Link className="btn btn--ghost" href="/transactions">
       <Icon name={ACTION_ICON.clearFilters} />
       Clear filters
+      <NavPendingCue message="Clearing the filters…" />
     </Link>
   ) : null;
 
@@ -282,70 +285,89 @@ export default async function TransactionsPage({
             </div>
           )
         ) : (
-          <div className="tablewrap">
-            <table className="table">
-              <caption className="sr-only">Payment orders, newest first</caption>
-              <thead>
-                <tr>
-                  <th scope="col">When</th>
-                  <th scope="col">Customer</th>
-                  <th scope="col">Pack</th>
-                  <th scope="col">Amount</th>
-                  <th scope="col">Credits</th>
-                  <th scope="col">Status</th>
-                  <th scope="col">Provider</th>
-                </tr>
-              </thead>
-              <tbody>
-                {orders.items.map((o) => (
-                  <tr key={o.id}>
-                    <td>
-                      <time dateTime={o.created_at} title={timestampTitle(o.created_at)}>
-                        {formatRelative(o.created_at)}
-                      </time>
-                    </td>
-                    <td>
-                      <CustomerLink payerId={o.payer_id} payerRole={o.payer_role} />
-                    </td>
-                    <td>{packCodeLabel(o.pack_code)}</td>
-                    <td className="ui-num">{formatRupees(o.amount_inr)}</td>
-                    <td className="ui-num">{formatCount(o.credits_granted)}</td>
-                    <td>
-                      {/* The pill shows the REAL order status. `created` is toned warn, not
-                          neutral: an order stuck in checkout is a thing to look at, not a
-                          resting state. Toned explicitly rather than by borrowing another
-                          domain's value, which would have displayed "active" for a paid
-                          order and "rejected" for a failed one. */}
-                      <StatusPill
-                        value={o.status}
-                        label={
-                          o.status === "created"
-                            ? "unsettled"
-                            : o.status === "paid"
-                              ? "settled"
-                              : "failed"
-                        }
-                        tone={o.status === "paid" ? "ok" : o.status === "created" ? "warn" : "bad"}
-                        title={`order status: ${o.status}`}
-                      />
-                    </td>
-                    <td className="table__meta">
-                      {o.provider}
-                      {posture?.mode === "mock" && " (mock)"}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <DataGrid
+            id="payment-orders"
+            caption="Payment orders, newest first"
+            columns={orderColumns(posture?.mode === "mock")}
+            rows={orders.items}
+            rowKey={(o) => o.id}
+            pager={
+              <Pager
+                basePath="/transactions"
+                params={{ status, payerId }}
+                cursor={cursor}
+                nextCursor={orders.nextCursor}
+              />
+            }
+          />
         )}
-
-        <Pager
-          basePath="/transactions"
-          params={{ status, payerId }}
-          nextCursor={orders?.nextCursor}
-        />
       </section>
     </div>
   );
+}
+
+/**
+ * The payment-order columns on the data grid (A4, #2574). `mock` marks the provider while real
+ * payments are switched off, on every row, so a screenshot of one never passes for a real order.
+ */
+function orderColumns(mock: boolean): GridColumn<OrderRow>[] {
+  return [
+    {
+      id: "when",
+      header: "When",
+      width: "date",
+      cell: (o) => (
+        <time dateTime={o.created_at} title={timestampTitle(o.created_at)}>
+          {formatRelative(o.created_at)}
+        </time>
+      ),
+    },
+    {
+      id: "customer",
+      header: "Customer",
+      width: "customer",
+      cell: (o) => <CustomerLink payerId={o.payer_id} payerRole={o.payer_role} />,
+    },
+    { id: "pack", header: "Pack", cell: (o) => packCodeLabel(o.pack_code), title: (o) => packCodeLabel(o.pack_code) },
+    {
+      id: "amount",
+      header: "Amount",
+      width: "money",
+      className: "ui-num",
+      cell: (o) => formatRupees(o.amount_inr),
+    },
+    {
+      id: "credits",
+      header: "Credits",
+      width: "number",
+      className: "ui-num",
+      cell: (o) => formatCount(o.credits_granted),
+    },
+    {
+      id: "status",
+      header: "Status",
+      width: "status",
+      /* The pill shows the REAL order status. `created` is toned warn, not neutral: an order stuck
+         in checkout is a thing to look at, not a resting state. Toned explicitly rather than by
+         borrowing another domain's value, which would have displayed "active" for a paid order and
+         "rejected" for a failed one. */
+      cell: (o) => (
+        <StatusPill
+          value={o.status}
+          label={o.status === "created" ? "unsettled" : o.status === "paid" ? "settled" : "failed"}
+          tone={o.status === "paid" ? "ok" : o.status === "created" ? "warn" : "bad"}
+          title={`order status: ${o.status}`}
+        />
+      ),
+    },
+    {
+      id: "provider",
+      header: "Provider",
+      width: "short",
+      text: "truncate",
+      className: "table__meta",
+      cell: (o) => `${o.provider}${mock ? " (mock)" : ""}`,
+      title: (o) => `${o.provider}${mock ? " (mock)" : ""}`,
+    },
+  ];
 }

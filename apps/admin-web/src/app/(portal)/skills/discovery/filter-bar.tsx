@@ -203,7 +203,7 @@ export function SkillDiscoveryFilterBar({
           type="text"
           value={values.runId}
           onChange={(e) => set("runId", e.target.value)}
-          placeholder="sdr_…"
+          placeholder="e.g. sdr_20260826T120000Z_nightly"
         />
       </label>
 
@@ -214,8 +214,9 @@ export function SkillDiscoveryFilterBar({
           type="text"
           value={values.clusterKey}
           onChange={(e) => set("clusterKey", e.target.value)}
-          placeholder="only meaningful with a run id"
+          placeholder="e.g. arc welding"
         />
+        <span className="field__help">Only meaningful with a run id.</span>
       </label>
 
       <label className="field">

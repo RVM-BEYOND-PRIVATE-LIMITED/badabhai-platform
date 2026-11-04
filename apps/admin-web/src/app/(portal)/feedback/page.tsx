@@ -11,6 +11,7 @@ import {
   FEEDBACK_CATEGORIES,
   listFeedback,
   type FeedbackCategory,
+  type FeedbackItem,
   type FeedbackPage,
 } from "../../../lib/feedback";
 import { formatRelative, shortId, timestampTitle } from "../../../lib/format";
@@ -18,6 +19,8 @@ import { CopyId } from "../../../components/copy-id";
 import { StatusPill, type Tone } from "../../../components/status-pill";
 import { Pager } from "../../../components/pager";
 import { PageHeader } from "../../../components/page-header";
+import { DataGrid, type GridColumn } from "../../../components/data-grid";
+import { NavPendingCue } from "../../../components/nav-pending";
 import { AboutData } from "../../../components/about-data";
 import { FirstPageAction, RetryActions } from "../../../components/retry-actions";
 import { FilterChip } from "../../../components/filter-chip-link";
@@ -157,6 +160,7 @@ export default async function FeedbackPage({
     <Link className="btn btn--ghost" href="/feedback">
       <Icon name={ACTION_ICON.clearFilters} />
       Clear filters
+      <NavPendingCue message="Clearing the filters…" />
     </Link>
   ) : null;
 
@@ -194,7 +198,7 @@ export default async function FeedbackPage({
   // looks like a successful reload — and offers `listHref()` itself as the first page.
 
   return (
-    <div className="page">
+    <div className="page page--list">
       <PageHeader
         title="Feedback"
         description="What workers typed into the app's Feedback button, newest first."
@@ -264,6 +268,7 @@ export default async function FeedbackPage({
                 {" · "}
                 <Link className="link" href={listHref({ workerId: null })}>
                   Clear the worker filter
+                  <NavPendingCue message="Clearing the worker filter…" />
                 </Link>
               </>
             ) : null}
@@ -304,177 +309,30 @@ export default async function FeedbackPage({
             <RetryActions href={listHref()} cursor={cursor} />
           </div>
         ) : page && page.items.length > 0 ? (
-          <div className="tablewrap">
-            {/* `table--prose` widens the row rhythm for the message column — see the rule
-                in globals.css, and the `cell--message` note with it. */}
-            <table className="table table--prose">
-              <caption className="sr-only">Worker feedback, newest first</caption>
-              <thead>
-                <tr>
-                  <th scope="col">When</th>
-                  <th scope="col">Worker</th>
-                  <th scope="col">Category</th>
-                  <th scope="col">Build</th>
-                  <th scope="col">Screen</th>
-                  <th scope="col">Images</th>
-                  <th scope="col">Message</th>
-                </tr>
-              </thead>
-              <tbody>
-                {page.items.map((f) => (
-                  <tr key={f.id}>
-                    <td>
-                      <time dateTime={f.created_at} title={timestampTitle(f.created_at)}>
-                        {formatRelative(f.created_at)}
-                      </time>
-                    </td>
-                    <td>
-                      <Link
-                        className="link mono"
-                        href={`/workers/${f.worker_id}`}
-                        title={f.worker_id}
-                      >
-                        {shortId(f.worker_id)}
-                      </Link>
-                      <CopyId id={f.worker_id} label="worker id" />
-                      {mayOpenJourney ? (
-                        /* THE OTHER HALF OF THIS ROW. The message is what the worker said;
-                           the journey is what they did. Reading "the apply button does not
-                           work" without knowing whether they ever reached a job, or where
-                           the interview stopped, is guessing — and the alternative today is
-                           copying the id into another screen by hand. */
-                        <>
-                          <br />
-                          <Link
-                            className="link table__meta"
-                            href={`/workers/${f.worker_id}/journey`}
-                            title="What this worker completed, and where they stopped"
-                          >
-                            View journey
-                            {/* Every row's link says the same; this names WHOSE journey. */}
-                            <span className="sr-only"> of worker {shortId(f.worker_id)}</span>
-                          </Link>
-                        </>
-                      ) : null}
-                    </td>
-                    <td>
-                      {f.category ? (
-                        <StatusPill
-                          value={f.category}
-                          tone={CATEGORY[f.category].tone}
-                          title={CATEGORY[f.category].hint}
-                        />
-                      ) : (
-                        // UNTAGGED IS NOT "OTHER". The app omits the tag entirely when the
-                        // worker skips it, and rendering the third chip here would turn
-                        // "did not say" into "said neither" on a screen ops will count.
-                        <span className="table__meta" title="The worker did not tag this.">
-                          —
-                        </span>
-                      )}
-                    </td>
-                    <td className="table__meta">
-                      {f.app_build ? (
-                        <span className="mono" title={`x-app-build: ${f.app_build}`}>
-                          {f.app_build}
-                        </span>
-                      ) : (
-                        // The stamp was missing or malformed at submit time and the server
-                        // stored null rather than losing a worker's feedback over a header
-                        // nobody asked them for. "Unknown build" is the honest reading.
-                        <span title="No usable build stamp arrived with this submission.">—</span>
-                      )}
-                    </td>
-                    <td className="table__meta cell--screen">
-                      {f.screen_context ? (
-                        /* The tooltip may state the absolute now, because it is true now. The
-                           server matches the client's value against the app's own route table
-                           and stores one of ITS constants, so what an operator reads here came
-                           from our source rather than from a caller. This copy was previously
-                           hedged ("ids are replaced") for the honest reason that the old
-                           normalizer was a denylist and a hostile client could still park a
-                           token in the value. That is no longer the mechanism. */
-                        <span
-                          className="mono"
-                          title="Which screen of the worker app this is about. The server matches what the app sent against its list of screens and stores that name, so it says which SCREEN and never which job. It is a label, not a lookup key."
-                        >
-                          {f.screen_context}
-                        </span>
-                      ) : (
-                        // Three different causes — an app older than the field, a client that
-                        // sent nothing, and a value matching no known screen — and this page can
-                        // tell them apart from none of them. "We do not know which screen" is the
-                        // only claim the row supports, so it is the one made: the same dash the
-                        // untagged category renders, for the same reason.
-                        <span title="This submission arrived without a screen — an older app build, or a value that matched none of the app's screens.">
-                          —
-                        </span>
-                      )}
-                    </td>
-                    <td className="cell--images">
-                      {f.attachment_urls.length > 0 ? (
-                        /* Each thumbnail is its own link, opened in a new tab so the operator
-                           never loses the page of messages they are reading.
-
-                           `rel="noreferrer"` COVERS TWO THINGS AT ONCE and both matter here.
-                           It implies `noopener`, so the opened tab cannot reach back through
-                           `window.opener` and navigate this console somewhere else — and it
-                           suppresses the `Referer`, which on THIS surface would otherwise carry
-                           `?workerId=<uuid>` from the address bar to the storage origin. A
-                           filter value is not something to hand to a third party in a header
-                           nobody looks at.
-
-                           The `href` and the `src` are the SAME signed url. The server asks the
-                           storage origin for `Content-Disposition: attachment` on it, so a click
-                           downloads the file rather than rendering worker-supplied bytes on that
-                           origin; browsers ignore that header for `<img>`, so the thumbnail
-                           below still renders. */
-                        <span className="thumbs">
-                          {f.attachment_urls.map((url, i) => (
-                            <a
-                              className="thumb"
-                              href={url}
-                              key={url}
-                              rel="noreferrer"
-                              target="_blank"
-                              title="Open the full image in a new tab"
-                            >
-                              {/* A PLAIN img, NOT `next/image`, and that is a privacy decision rather
-                                  than a shortcut: the optimizer proxies the url through
-                                  /_next/image and caches by it, so a worker's private photograph
-                                  would keep being served after the signed url expired. A plain img
-                                  fetches it directly and stops working exactly when the credential
-                                  does, which is the behaviour this feature needs. */}
-                              <img
-                                alt={`Attachment ${i + 1} of ${f.attachment_urls.length}`}
-                                loading="lazy"
-                                src={url}
-                              />
-                            </a>
-                          ))}
-                        </span>
-                      ) : (
-                        /* EMPTY HAS FOUR CAUSES AND THIS PAGE CAN TELL THEM APART FROM NONE OF
-                           THEM — the worker attached nothing, the row predates the feature, the
-                           attachments bucket is not provisioned, or signing this row's images
-                           failed. All four mean "no images to show", so the same dash the
-                           untagged category and the unknown build render, for the same reason.
-                           Claiming any one of the four would be a guess an operator might act
-                           on. */
-                        <span
-                          className="table__meta"
-                          title="No images are shown for this submission."
-                        >
-                          —
-                        </span>
-                      )}
-                    </td>
-                    <td className="cell--message">{f.message}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          /* `prose`: the one grid on this console whose cells hold a sentence — rows top-aligned,
+             the message wrapping (see `.table--prose` and the `cell--message` note in globals.css).
+             No row link: a message has no page of its own; its worker and journey are linked in
+             the Worker cell. */
+          <DataGrid
+            id="feedback"
+            caption="Worker feedback, newest first"
+            variant="prose"
+            columns={feedbackColumns(mayOpenJourney)}
+            rows={page.items}
+            rowKey={(f) => f.id}
+            pager={
+              <Pager
+                basePath="/feedback"
+                /* Every active filter travels with the cursor. A pager that carried only the tag
+                   would page a worker-narrowed view straight into everyone else's messages on the
+                   second page, with the heading still claiming one worker. */
+                params={{ category, workerId }}
+                cursor={cursor}
+                nextCursor={page.nextCursor}
+                note="Paging uses a keyset cursor, so feedback arriving mid-scan cannot make rows skip or repeat."
+              />
+            }
+          />
         ) : cursor ? (
           /* A page PAST the first that came back empty. "No feedback submitted yet" would be a
              claim about the whole table made from its tail — and the tail is exactly where it is
@@ -525,6 +383,7 @@ export default async function FeedbackPage({
                 <Link className="btn btn--ghost" href={listHref({ category: null })}>
                   <Icon name={ACTION_ICON.clearFilters} />
                   Clear the tag filter
+                  <NavPendingCue message="Clearing the tag filter…" />
                 </Link>
               </div>
             ) : null}
@@ -551,16 +410,6 @@ export default async function FeedbackPage({
           </div>
         )}
 
-        <Pager
-          basePath="/feedback"
-          /* Every active filter travels with the cursor. A pager that carried only the tag
-             would page a worker-narrowed view straight into everyone else's messages on the
-             second page, with the heading still claiming one worker. */
-          params={{ category, workerId }}
-          nextCursor={page?.nextCursor}
-          note="Paging uses a keyset cursor, so feedback arriving mid-scan cannot make rows skip or repeat."
-        />
-
         {/* The mechanics the one-sentence description leaves out, collapsed (#2573). It follows
             the messages rather than preceding them (AW-08), and it renders only when there ARE
             messages: over an empty list or a failed read it describes rows that are not there. */}
@@ -580,4 +429,186 @@ export default async function FeedbackPage({
       </section>
     </div>
   );
+}
+
+/**
+ * The feedback columns on the data grid (A4, #2574). `mayOpenJourney` is passed per page — see
+ * the page — so the journey link moves with its capability rather than becoming a redirect.
+ */
+function feedbackColumns(mayOpenJourney: boolean): GridColumn<FeedbackItem>[] {
+  return [
+    {
+      id: "when",
+      header: "When",
+      width: "date",
+      cell: (f) => (
+        <time dateTime={f.created_at} title={timestampTitle(f.created_at)}>
+          {formatRelative(f.created_at)}
+        </time>
+      ),
+    },
+    {
+      id: "worker",
+      header: "Worker",
+      width: "id",
+      cell: (f) => (
+        <>
+          <Link className="link mono" href={`/workers/${f.worker_id}`} title={f.worker_id}>
+            {shortId(f.worker_id)}
+          </Link>
+          <CopyId id={f.worker_id} label="worker id" />
+          {mayOpenJourney ? (
+            /* THE OTHER HALF OF THIS ROW. The message is what the worker said; the journey is
+               what they did. Reading "the apply button does not work" without knowing whether
+               they ever reached a job, or where the interview stopped, is guessing — and the
+               alternative today is copying the id into another screen by hand. */
+            <>
+              <br />
+              <Link
+                className="link table__meta"
+                href={`/workers/${f.worker_id}/journey`}
+                title="What this worker completed, and where they stopped"
+              >
+                View journey
+                {/* Every row's link says the same; this names WHOSE journey. */}
+                <span className="sr-only"> of worker {shortId(f.worker_id)}</span>
+              </Link>
+            </>
+          ) : null}
+        </>
+      ),
+    },
+    {
+      id: "category",
+      header: "Category",
+      width: "status",
+      cell: (f) =>
+        f.category ? (
+          <StatusPill
+            value={f.category}
+            tone={CATEGORY[f.category].tone}
+            title={CATEGORY[f.category].hint}
+          />
+        ) : (
+          // UNTAGGED IS NOT "OTHER". The app omits the tag entirely when the worker skips it, and
+          // rendering the third chip here would turn "did not say" into "said neither" on a
+          // screen ops will count.
+          <span className="table__meta" title="The worker did not tag this.">
+            —
+          </span>
+        ),
+    },
+    {
+      id: "build",
+      header: "Build",
+      width: "number",
+      className: "table__meta",
+      cell: (f) =>
+        f.app_build ? (
+          <span className="mono" title={`x-app-build: ${f.app_build}`}>
+            {f.app_build}
+          </span>
+        ) : (
+          // The stamp was missing or malformed at submit time and the server stored null rather
+          // than losing a worker's feedback over a header nobody asked them for. "Unknown build"
+          // is the honest reading.
+          <span title="No usable build stamp arrived with this submission.">—</span>
+        ),
+    },
+    {
+      id: "screen",
+      header: "Screen",
+      width: "short",
+      text: "wrap",
+      className: "table__meta cell--screen",
+      cell: (f) =>
+        f.screen_context ? (
+          /* The tooltip may state the absolute now, because it is true now. The server matches
+             the client's value against the app's own route table and stores one of ITS
+             constants, so what an operator reads here came from our source rather than from a
+             caller. This copy was previously hedged ("ids are replaced") for the honest reason
+             that the old normalizer was a denylist and a hostile client could still park a token
+             in the value. That is no longer the mechanism. */
+          <span
+            className="mono"
+            title="Which screen of the worker app this is about. The server matches what the app sent against its list of screens and stores that name, so it says which SCREEN and never which job. It is a label, not a lookup key."
+          >
+            {f.screen_context}
+          </span>
+        ) : (
+          // Three different causes — an app older than the field, a client that sent nothing,
+          // and a value matching no known screen — and this page can tell them apart from none of
+          // them. "We do not know which screen" is the only claim the row supports, so it is the
+          // one made: the same dash the untagged category renders, for the same reason.
+          <span title="This submission arrived without a screen — an older app build, or a value that matched none of the app's screens.">
+            —
+          </span>
+        ),
+    },
+    {
+      id: "images",
+      header: "Images",
+      width: "short",
+      text: "wrap",
+      className: "cell--images",
+      cell: (f) =>
+        f.attachment_urls.length > 0 ? (
+          /* Each thumbnail is its own link, opened in a new tab so the operator never loses the
+             page of messages they are reading.
+
+             `rel="noreferrer"` COVERS TWO THINGS AT ONCE and both matter here. It implies
+             `noopener`, so the opened tab cannot reach back through `window.opener` and navigate
+             this console somewhere else — and it suppresses the `Referer`, which on THIS surface
+             would otherwise carry `?workerId=<uuid>` from the address bar to the storage origin. A
+             filter value is not something to hand to a third party in a header nobody looks at.
+
+             The `href` and the `src` are the SAME signed url. The server asks the storage origin
+             for `Content-Disposition: attachment` on it, so a click downloads the file rather than
+             rendering worker-supplied bytes on that origin; browsers ignore that header for
+             `<img>`, so the thumbnail below still renders. */
+          <span className="thumbs">
+            {f.attachment_urls.map((url, i) => (
+              <a
+                className="thumb"
+                href={url}
+                key={url}
+                rel="noreferrer"
+                target="_blank"
+                title="Open the full image in a new tab"
+              >
+                {/* A PLAIN img, NOT `next/image`, and that is a privacy decision rather than a
+                    shortcut: the optimizer proxies the url through /_next/image and caches by it,
+                    so a worker's private photograph would keep being served after the signed url
+                    expired. A plain img fetches it directly and stops working exactly when the
+                    credential does, which is the behaviour this feature needs. */}
+                <img
+                  alt={`Attachment ${i + 1} of ${f.attachment_urls.length}`}
+                  loading="lazy"
+                  src={url}
+                />
+              </a>
+            ))}
+          </span>
+        ) : (
+          /* EMPTY HAS FOUR CAUSES AND THIS PAGE CAN TELL THEM APART FROM NONE OF THEM — the worker
+             attached nothing, the row predates the feature, the attachments bucket is not
+             provisioned, or signing this row's images failed. All four mean "no images to show",
+             so the same dash the untagged category and the unknown build render, for the same
+             reason. Claiming any one of the four would be a guess an operator might act on. */
+          <span className="table__meta" title="No images are shown for this submission.">
+            —
+          </span>
+        ),
+    },
+    {
+      id: "message",
+      header: "Message",
+      /* Wraps, and is never clamped or cut: an ops console that hides the second half of a
+         worker's complaint behind an ellipsis is worse than a tall row (`.cell--message`). */
+      text: "wrap",
+      locked: true,
+      className: "cell--message",
+      cell: (f) => f.message,
+    },
+  ];
 }

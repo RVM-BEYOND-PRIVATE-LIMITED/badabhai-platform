@@ -84,6 +84,14 @@ export interface EventFilters {
   actorType?: string;
   subjectType?: string;
   correlationId?: string;
+  /**
+   * The occurred-at range, both ends inclusive (`occurred_at >= from`, `<= to`) — instants the
+   * server coerces to dates. The Events page sends only the bounds of real IST days
+   * (`lib/ist-day.ts`) and refuses anything else itself: the server's coercion would not
+   * (`new Date("2026-02-30")` is 2 March).
+   */
+  occurredFrom?: string;
+  occurredTo?: string;
   cursor?: string;
   limit?: number;
 }
@@ -96,6 +104,8 @@ function toQuery(filters: EventFilters): string {
   if (filters.actorType) q.set("actorType", filters.actorType);
   if (filters.subjectType) q.set("subjectType", filters.subjectType);
   if (filters.correlationId) q.set("correlationId", filters.correlationId);
+  if (filters.occurredFrom) q.set("occurredFrom", filters.occurredFrom);
+  if (filters.occurredTo) q.set("occurredTo", filters.occurredTo);
   if (filters.cursor) q.set("cursor", filters.cursor);
   if (filters.limit) q.set("limit", String(filters.limit));
   const s = q.toString();
@@ -113,6 +123,30 @@ export async function getEvent(id: string): Promise<EventDetail> {
 export async function getMetrics(windowDays?: number): Promise<EventMetrics> {
   const q = windowDays ? `?windowDays=${windowDays}` : "";
   return adminFetch(`/admin/events/metrics${q}`, { schema: metricsSchema });
+}
+
+/** The window the Events filter's name suggestions come from — the metrics route's own default. */
+export const EVENT_NAME_WINDOW_DAYS = 30;
+/** How long, in seconds, one admin's suggestion list is reused before it is read again. */
+export const EVENT_NAME_REVALIDATE_S = 300;
+
+/**
+ * The event names the spine recorded in the last {@link EVENT_NAME_WINDOW_DAYS} days, sorted:
+ * the Events filter's suggestions (A4, #2574). No admin route lists event names, and the 230 in
+ * the registry are not this app's to copy; the metrics aggregate's `by_event_name` is the one
+ * route that names them, behind the same `read_events` as the list.
+ *
+ * CACHED, unlike every other read in this file, for {@link EVENT_NAME_REVALIDATE_S}s: it is a
+ * GROUP BY over the window, and the Events page renders on every filter change. What is cached is
+ * counts by event name, day and actor type — no payload, no id, no person — and Next keys a cached
+ * fetch on its request headers, so each admin's bearer token keeps their copy their own.
+ */
+export async function listRecentEventNames(): Promise<string[]> {
+  const metrics = await adminFetch(`/admin/events/metrics?windowDays=${EVENT_NAME_WINDOW_DAYS}`, {
+    schema: metricsSchema,
+    revalidate: EVENT_NAME_REVALIDATE_S,
+  });
+  return metrics.by_event_name.map((b) => b.key).sort();
 }
 
 const traceSchema = z.object({

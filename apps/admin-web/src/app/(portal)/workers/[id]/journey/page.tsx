@@ -2,7 +2,11 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireCapability } from "../../../../../lib/auth";
 import { can } from "../../../../../lib/auth/capabilities";
-import { getWorkerJourney, listWorkerChatSessions } from "../../../../../lib/journey";
+import {
+  getWorkerJourney,
+  listWorkerChatSessions,
+  type ChatSessionListItem,
+} from "../../../../../lib/journey";
 import { isAdminRequestError } from "../../../../../lib/admin-http";
 import {
   formatCount,
@@ -18,6 +22,7 @@ import { JourneyFunnel } from "../../../../../components/journey-funnel";
 import { Pager } from "../../../../../components/pager";
 import { StatusPill } from "../../../../../components/status-pill";
 import { PageHeader } from "../../../../../components/page-header";
+import { DataGrid, type GridColumn } from "../../../../../components/data-grid";
 import { RetryActions } from "../../../../../components/retry-actions";
 import { queryHref } from "../../../../../lib/query-href";
 import { FilterChip } from "../../../../../components/filter-chip-link";
@@ -229,76 +234,102 @@ export default async function WorkerJourneyPage({
             {/* No clear link: the "All" chip just above is that control. */}
           </div>
         ) : (
-          <div className="tablewrap">
-            <table className="table">
-              <caption className="sr-only">Interview sessions for this worker</caption>
-              <thead>
-                <tr>
-                  <th scope="col">Started</th>
-                  <th scope="col">Status</th>
-                  <th scope="col">Messages</th>
-                  <th scope="col">Questions settled</th>
-                  <th scope="col">Idle since last word</th>
-                  <th scope="col">Pack</th>
-                </tr>
-              </thead>
-              <tbody>
-                {sessions.items.map((s) => (
-                  <tr key={s.id}>
-                    <th className="table__rowhead" scope="row">
-                      <Link className="link" href={`/workers/${id}/journey/${s.id}`}>
-                        <time dateTime={s.started_at} title={timestampTitle(s.started_at)}>
-                          {formatRelative(s.started_at)}
-                        </time>
-                      </Link>
-                      <br />
-                      <span className="table__meta mono" title={s.id}>
-                        {shortId(s.id)}
-                      </span>
-                      <CopyId id={s.id} label="session id" />
-                    </th>
-                    <td>
-                      <StatusPill
-                        value={s.status}
-                        tone={s.abandoned ? "warn" : s.status === "ended" ? "ok" : "muted"}
-                        title={
-                          s.abandoned
-                            ? "Closed by the system without a finished interview: the idle sweep, or an early finish the worker confirmed"
-                            : undefined
-                        }
-                      />
-                    </td>
-                    <td>{formatCount(s.message_count)}</td>
-                    <td>{formatCount(s.answer_count)}</td>
-                    <td className="table__meta">
-                      {s.idle_seconds === null ? (
-                        // NOT "0s". Null means the worker never spoke — the strongest
-                        // abandonment signal there is, and rendering it as zero would make
-                        // that worker look like they had just been active.
-                        <span title="This worker never sent a message in this session">
-                          never spoke
-                        </span>
-                      ) : (
-                        formatDuration(s.idle_seconds)
-                      )}
-                    </td>
-                    <td className="table__meta mono">
-                      {s.pack_id === null ? "—" : `${s.pack_id} v${s.pack_version ?? "?"}`}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <DataGrid
+            id="worker-sessions"
+            caption="Interview sessions for this worker"
+            columns={SESSION_COLUMNS}
+            rows={sessions.items}
+            rowKey={(s) => s.id}
+            rowLink={{
+              column: "started",
+              href: (s) => `/workers/${id}/journey/${s.id}`,
+              name: (s) => `the session ${shortId(s.id)}`,
+              label: (s) => `Session ${shortId(s.id)}, started ${formatRelative(s.started_at)}`,
+            }}
+            pager={
+              <Pager
+                basePath={`/workers/${id}/journey`}
+                params={{ status }}
+                cursor={cursor}
+                nextCursor={sessions.nextCursor}
+                note="Paging uses a keyset cursor on (started_at, id), so a session starting mid-scan cannot make rows skip or repeat."
+              />
+            }
+          />
         )}
-
-        <Pager
-          basePath={`/workers/${id}/journey`}
-          params={{ status }}
-          nextCursor={sessions?.nextCursor}
-          note="Paging uses a keyset cursor on (started_at, id), so a session starting mid-scan cannot make rows skip or repeat."
-        />
       </section>
     </div>
   );
 }
+
+/**
+ * The interview sessions on the data grid (A4, #2574). The start time labels each row (a row
+ * header) and is the row's link into the session's transcript.
+ */
+const SESSION_COLUMNS: readonly GridColumn<ChatSessionListItem>[] = [
+  {
+    id: "started",
+    header: "Started",
+    width: "id",
+    rowHeader: true,
+    cell: (s) => (
+      <time dateTime={s.started_at} title={timestampTitle(s.started_at)}>
+        {formatRelative(s.started_at)}
+      </time>
+    ),
+    trail: (s) => (
+      <>
+        <br />
+        <span className="table__meta mono" title={s.id}>
+          {shortId(s.id)}
+        </span>
+        <CopyId id={s.id} label="session id" />
+      </>
+    ),
+  },
+  {
+    id: "status",
+    header: "Status",
+    width: "status",
+    cell: (s) => (
+      <StatusPill
+        value={s.status}
+        tone={s.abandoned ? "warn" : s.status === "ended" ? "ok" : "muted"}
+        title={
+          s.abandoned
+            ? "Closed by the system without a finished interview: the idle sweep, or an early finish the worker confirmed"
+            : undefined
+        }
+      />
+    ),
+  },
+  { id: "messages", header: "Messages", width: "number", cell: (s) => formatCount(s.message_count) },
+  {
+    id: "settled",
+    header: "Questions settled",
+    width: "number",
+    cell: (s) => formatCount(s.answer_count),
+  },
+  {
+    id: "idle",
+    header: "Idle since last word",
+    width: "short",
+    className: "table__meta",
+    cell: (s) =>
+      s.idle_seconds === null ? (
+        // NOT "0s". Null means the worker never spoke — the strongest abandonment signal there
+        // is, and rendering it as zero would make that worker look like they had just been active.
+        <span title="This worker never sent a message in this session">never spoke</span>
+      ) : (
+        formatDuration(s.idle_seconds)
+      ),
+  },
+  {
+    id: "pack",
+    header: "Pack",
+    text: "truncate",
+    className: "table__meta mono",
+    cell: (s) => (s.pack_id === null ? "—" : `${s.pack_id} v${s.pack_version ?? "?"}`),
+    title: (s) => (s.pack_id === null ? undefined : `${s.pack_id} v${s.pack_version ?? "?"}`),
+  },
+];

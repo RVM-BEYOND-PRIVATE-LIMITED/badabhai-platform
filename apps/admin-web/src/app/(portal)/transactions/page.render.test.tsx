@@ -8,6 +8,7 @@ import {
   statTiles,
 } from "../../../../test/stat-tiles";
 import { customerCell } from "../../../../test/customer-cell";
+import { columnHeaders } from "../../../../test/grid-markup";
 import { formatCount, formatRupees } from "../../../lib/format";
 
 /**
@@ -179,8 +180,8 @@ describe("the status chips keep an account narrowing (owner brief 2026-10-01)", 
 describe("the orders table names the payer the console's way", () => {
   it("'Customer' — never 'Account', which is the payer's own settings page (sweep AW-12)", async () => {
     const out = await render();
-    expect(out).toContain('<th scope="col">Customer</th>');
-    expect(out).not.toContain('<th scope="col">Account</th>');
+    expect(columnHeaders(out)).toContain("Customer");
+    expect(columnHeaders(out)).not.toContain("Account");
   });
 });
 
@@ -225,7 +226,7 @@ describe("the orders table links the customer's own section", () => {
 
 /** The href of the link whose visible label (after any glyph) is exactly `label`. */
 const hrefOf = (out: string, label: string) =>
-  [...out.matchAll(/href="([^"]*)">(?:<i [^>]*><\/i>)?([^<]*)<\/a>/g)].find((m) => m[2] === label)?.[1];
+  [...out.matchAll(/href="([^"]*)">(?:<i [^>]*><\/i>)?([^<]*)(?:<span class="nav-pending" aria-hidden="true"><\/span>)?<\/a>/g)].find((m) => m[2] === label)?.[1];
 
 /**
  * A failed order read, by the console's one rule (final re-sweep O-3): the page read every
