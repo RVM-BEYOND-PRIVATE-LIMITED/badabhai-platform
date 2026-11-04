@@ -264,9 +264,10 @@ export type CandidateRecordStatus = CandidateRecordResult["status"];
  * ONLY A WORKER ID IS ASKED FOR. `id` comes from the address (`?c=`, the record route's path), and
  * anything that is not a uuid — the API's own check on `:id` — is no such candidate, with nothing
  * sent. That is not only a saved round trip: `encodeURIComponent` leaves "." and ".." as they are,
- * and fetch's URL parser resolves them away, so `?c=..` would have read `GET /admin/` and `?c=.`
- * the candidate LIST, spending the name budget and writing audit rows for a view nobody asked for.
- * (`adminFetch` refuses such a path too, for every caller; this keeps it from being built.)
+ * and fetch's URL parser resolves them away, so `?c=..` asked for `GET /admin/` and `?c=.` for
+ * `GET /admin/candidates/` — the candidate LIST once #2559 serves it, a read that spends the name
+ * budget and writes audit rows for a view nobody asked for. (`adminFetch` refuses such a path too,
+ * for every caller; this keeps it from being built.)
  *
  * `signal` is the caller's cancellation — the record route passes its incoming request's, so a
  * drawer that moved on cancels the API call if it has not reached the API yet. One that has is

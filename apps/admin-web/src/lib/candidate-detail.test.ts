@@ -50,8 +50,9 @@ describe("readCandidateRecord — the request", () => {
 
   /**
    * The id comes from the address. `encodeURIComponent` leaves "." and ".." alone and fetch's URL
-   * parser resolves them, so `?c=.` read the candidate LIST and `?c=..` read `/admin/` — name
-   * budget spent and audit rows written for a view nobody asked for. Not a uuid: nothing is sent.
+   * parser resolves them, so `?c=.` asked for `/admin/candidates/` (the list once #2559 serves it:
+   * name budget spent, audit rows written for a view nobody asked for) and `?c=..` for `/admin/`.
+   * Not a uuid: nothing is sent.
    */
   it.each([".", "..", "Ramesh Kumar", "", "%2e%2e", `${RECORD_WORKER_ID}/..`, `${RECORD_WORKER_ID} `])(
     "%j is no such candidate, and nothing is asked of the API",
