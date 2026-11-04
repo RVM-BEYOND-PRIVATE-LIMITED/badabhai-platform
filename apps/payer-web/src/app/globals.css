@@ -7949,7 +7949,7 @@ body:has(.invite-landing) .chrome-footer {
     transform var(--duration-fast) var(--ease-out);
 }
 .pshell .pshell__collapse .ph-fill {
-  transition: transform var(--duration-base) var(--ease-out);
+  transition: transform var(--duration-fast) var(--ease-out);
 }
 /* Hover motion only on devices that hover — a tap on a phone leaves nothing lifted. */
 @media (hover: hover) {
