@@ -4,7 +4,7 @@ import type { ReactElement } from "react";
 import { createHookHarness, type HookHarness } from "../../../../test/hook-harness";
 import { candidateRecord, RECORD_WORKER_ID } from "../../../../test/candidate-record";
 import type { CandidateRecordResult } from "../../../lib/candidate-detail";
-import { DRAWER_ENTRY_KEY } from "../../../components/drawer";
+import { drawerEntryState } from "../../../components/drawer";
 import type * as DrawerModel from "./candidate-drawer-model";
 
 /**
@@ -85,7 +85,7 @@ class FakeElement extends FakeNode {
 let listeners: ((e: unknown) => void)[] = [];
 let historyCalls: [string, unknown, unknown][] = [];
 const history = {
-  state: { [DRAWER_ENTRY_KEY]: "c" } as unknown,
+  state: drawerEntryState("c") as unknown,
   pushState: (data: unknown, _u: string, url?: string | null) => {
     historyCalls.push(["push", data, url]);
     history.state = data;
@@ -111,7 +111,7 @@ beforeEach(() => {
   read.calls = [];
   listeners = [];
   historyCalls = [];
-  history.state = { [DRAWER_ENTRY_KEY]: "c" };
+  history.state = drawerEntryState("c");
   Object.assign(panel, {
     contains: (n: unknown) => n === inside || n === panel,
     closest: (s: string) => (s === ".overlay" ? layer : null),
@@ -210,7 +210,7 @@ describe("↑ / ↓ move through the current page", () => {
     const e = key("ArrowDown");
     expect(e.defaultPrevented).toBe(true);
     expect(historyCalls).toEqual([
-      ["replace", { [DRAWER_ENTRY_KEY]: "c" }, `/candidates?status=active&c=${W3}`],
+      ["replace", drawerEntryState("c"), `/candidates?status=active&c=${W3}`],
     ]);
   });
 
@@ -374,3 +374,4 @@ describe("closing", () => {
     expect(closing.props.title).toBe("Ramesh Kumar");
   });
 });
+

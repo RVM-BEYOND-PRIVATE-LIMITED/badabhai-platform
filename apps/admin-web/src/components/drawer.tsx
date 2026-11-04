@@ -46,6 +46,23 @@ export function drawerHref(
  */
 export const DRAWER_ENTRY_KEY = "bbDrawer";
 
+/**
+ * The key of the DOCUMENT that pushed it (A7, #2577). History state outlives a reload — Next
+ * carries the entry's state into the reloaded page — but the entry under a push made before the
+ * reload holds a page this document's router never rendered, so popping back to it makes Next
+ * fetch that page from the server: on Candidates, the list again, 50 names of the admin's hourly
+ * budget. A close pops only an entry THIS document pushed; any other closes in place.
+ */
+export const DRAWER_DOCUMENT_KEY = "bbDrawerDoc";
+
+/** This document's token: made once per page load, never sent anywhere. */
+const DOCUMENT_TOKEN = `${Date.now().toString(36)}.${Math.random().toString(36).slice(2, 10)}`;
+
+/** The state a drawer leaves on an entry it pushes: whose drawer, and which document pushed it. */
+export function drawerEntryState(param: string): Record<string, string> {
+  return { [DRAWER_ENTRY_KEY]: param, [DRAWER_DOCUMENT_KEY]: DOCUMENT_TOKEN };
+}
+
 /** The narrow history surface the entries below use — `window.history` in the browser. */
 export interface DrawerHistory {
   readonly state: unknown;
@@ -56,14 +73,12 @@ export interface DrawerHistory {
 
 const browserHistory = (): DrawerHistory => window.history;
 
-/** Was the current history entry pushed by opening the `param` drawer? */
+/** Was the current history entry pushed by opening the `param` drawer — in THIS document? */
 function pushedFor(history: DrawerHistory, param: string): boolean {
   const state = history.state;
-  return (
-    typeof state === "object" &&
-    state !== null &&
-    (state as Record<string, unknown>)[DRAWER_ENTRY_KEY] === param
-  );
+  if (typeof state !== "object" || state === null) return false;
+  const mark = state as Record<string, unknown>;
+  return mark[DRAWER_ENTRY_KEY] === param && mark[DRAWER_DOCUMENT_KEY] === DOCUMENT_TOKEN;
 }
 
 /**
@@ -79,7 +94,7 @@ export function openDrawerEntry(
   param: string,
   history: DrawerHistory = browserHistory(),
 ): void {
-  history.pushState({ [DRAWER_ENTRY_KEY]: param }, "", href);
+  history.pushState(drawerEntryState(param), "", href);
 }
 
 /** MOVE (another record in the same drawer): the current entry, rewritten — never a new one. */
@@ -88,13 +103,14 @@ export function moveDrawerEntry(
   param: string,
   history: DrawerHistory = browserHistory(),
 ): void {
-  history.replaceState(pushedFor(history, param) ? { [DRAWER_ENTRY_KEY]: param } : null, "", href);
+  history.replaceState(pushedFor(history, param) ? drawerEntryState(param) : null, "", href);
 }
 
 /**
  * CLOSE. The entry the drawer pushed is popped — exactly what Back does — so closing leaves no
  * duplicate of the list behind it for Back to land on. A drawer that came with the page (a
- * reload, a pasted link) has no entry of its own: its param is replaced away instead.
+ * pasted link, or a reload — even of an entry a row pushed before it: see DRAWER_DOCUMENT_KEY)
+ * has no entry of its own here: its param is replaced away instead, and nothing is re-read.
  */
 export function closeDrawerEntry(
   closedHref: string,
