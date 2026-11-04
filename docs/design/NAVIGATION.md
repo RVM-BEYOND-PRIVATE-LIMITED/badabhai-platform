@@ -108,9 +108,16 @@ and a `?c=` in the address is ignored.
   history entry), ↑/↓ and the footer's Previous/Next move through the current page (the same
   entry, rewritten), Escape / the scrim / Close / Back close it (Close pops the entry the row
   pushed, so Back never lands on a duplicate of the list). "Open full page" links `/candidates/[id]`.
-- **Shallow, so the list is never re-read.** `useUrlDrawer` (`components/drawer.tsx`) changes the
-  param with the history API, which Next syncs into `useSearchParams` without re-rendering the
-  page — on Candidates a re-render re-reads 50 names against the admin's hourly name budget. The
+  Closing hands focus to the row the drawer is ON — after ↑/↓ the row it moved to, not the one
+  that opened it — so a keyboard scan resumes where it stopped (`drawerRowLink`).
+- **Shallow, so opening, moving and closing never re-read the list.** `useUrlDrawer`
+  (`components/drawer.tsx`) changes the param with the history API, which Next syncs into
+  `useSearchParams` without re-rendering the page — on Candidates a re-render re-reads 50 names
+  against the admin's hourly name budget. Close pops only an entry pushed in THIS page load: history
+  state survives a reload, but the entry under a pre-reload push holds a page the reloaded router
+  never rendered, so popping to it would make Next fetch the list again — after a reload Close
+  replaces the param away instead, as for a pasted link. (The browser's own Back after a reload is
+  Next's to serve, and it does fetch that page.) The
   page reads the open record on the server when it loads with `?c=`; every later open or move reads
   it from the browser through the same-origin route `/candidates/[id]/record` (a route handler, not
   a page — a server action's pending state would be discarded by a URL change and followed by a
@@ -128,12 +135,18 @@ and a `?c=` in the address is ignored.
 - **Phone reveal.** The record never carries a phone. A session holding `reveal_pii` reveals it
   through the existing reason-gated `POST /admin/workers/:id/reveal-contact` behind the T2 confirm
   (the API's closed reasons, an explanation the API checks and does not store); every neutral 404
-  reads as one sentence. The phone lives in the drawer's state only.
-- **States and motion.** A skeleton (1.4s sheen) while loading; not found; a role that may not read
-  records; a session that ended; an error with Retry. The drawer slides in over 220ms (A5); a move
-  fades the content in over 140ms with no slide. All of it is zero under reduced motion.
+  reads as one sentence. The phone lives in the drawer's state only. A success closes the confirm
+  (it is not unmounted with the Reveal button the phone replaces) and puts focus on the revealed
+  phone's Copy button.
+- **States and motion.** A skeleton (1.4s sheen) while loading, announced by a status line outside
+  it (the skeleton is aria-hidden, the view aria-busy and remounted per move); not found; a role
+  that may not read records; a session that ended; an error with Retry. The drawer slides in over
+  220ms (A5); a move fades the content in over 140ms with no slide. All of it is zero under reduced
+  motion.
 - **Overlays stack.** The reveal's confirm opens over the drawer; only the topmost overlay answers
-  Escape and Tab (`components/overlay-focus.ts`), so Escape closes the confirm alone.
+  Escape and Tab (`components/overlay-focus.ts`), so Escape closes the confirm alone. An overlay
+  that outlives its trigger names where focus goes on close (`returnFocus`, asked as it closes);
+  otherwise focus returns to the trigger.
 
 ### Redirects (old addresses)
 
