@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'core/auth/payer_account_deleted_signal.dart';
@@ -10,6 +11,7 @@ import 'core/observability/crash_route_observer.dart';
 import 'core/session/app_session.dart';
 import 'core/session/app_session_cubit.dart';
 import 'core/theme/app_page_transitions.dart';
+import 'core/theme/app_system_ui.dart';
 import 'core/theme/app_theme.dart';
 import 'core/widgets/bb_alert_dialog.dart';
 import 'features/auth/presentation/login_screen.dart';
@@ -44,14 +46,22 @@ class PayerApp extends StatelessWidget {
               child: content,
             );
           }
-          // Hard-lock text scale to 1.0x, ignoring the OS accessibility font-size
-          // setting entirely — every size on screen is controlled only from code
-          // (explicit product decision, superseding the earlier 1.3x clamp that
-          // mirrored the worker app, #1072/#1088).
-          return MediaQuery(
-            data: MediaQuery.of(context).copyWith(textScaler: TextScaler.noScaling),
-            // Zero-duration routes when the OS disables animations (#2591).
-            child: BbRouteMotionScope(child: content),
+          // #2590 — app-wide status-bar fallback: a route with no region of its
+          // own (every pushed page sits on the light canvas) gets dark icons
+          // instead of keeping the previous surface's style. The inner header
+          // regions (Home, Login, Sign-up) still win.
+          return AnnotatedRegion<SystemUiOverlayStyle>(
+            value: AppSystemUi.onLight,
+            // Hard-lock text scale to 1.0x, ignoring the OS accessibility
+            // font-size setting entirely — every size on screen is controlled
+            // only from code (explicit product decision, superseding the earlier
+            // 1.3x clamp that mirrored the worker app, #1072/#1088).
+            child: MediaQuery(
+              data: MediaQuery.of(context)
+                  .copyWith(textScaler: TextScaler.noScaling),
+              // Zero-duration routes when the OS disables animations (#2591).
+              child: BbRouteMotionScope(child: content),
+            ),
           );
         },
       ),
