@@ -115,10 +115,11 @@ export const payers = pgTable(
      */
     passwordRevokedAt: timestamp("password_revoked_at", { withTimezone: true }),
     /**
-     * #2563 — sessions minted at or before this instant are dead. Admin issue/revoke
-     * stamps it and ends every session; a self-service password set stamps it for the
-     * OTHER sessions only and keeps the caller's. NULL (every payer on deploy) leaves
-     * sessions unaffected.
+     * #2563 - sessions created at or before this instant are dead. An admin issue/revoke
+     * stamps it and ends every session. A self-service password set does NOT stamp it: that
+     * would reject the caller's own live session, so it revokes the OTHER sessions through
+     * the session index instead and keeps the caller signed in. NULL (every payer on deploy)
+     * leaves sessions unaffected.
      */
     sessionsValidAfter: timestamp("sessions_valid_after", { withTimezone: true }),
     /** #2563 — last successful payer sign-in (OTP or password). */

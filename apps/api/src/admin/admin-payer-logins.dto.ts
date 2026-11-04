@@ -20,8 +20,8 @@ import type { AdminPage } from "./admin-entities.dto";
 export const AdminPayerRoleSchema = z.enum(["employer", "agent"]);
 export type AdminPayerRole = z.infer<typeof AdminPayerRoleSchema>;
 
-/** The org role a team member holds — mirrors `db.OrgRole`. */
-export const AdminOrgRoleSchema = z.enum(["owner", "recruiter"]);
+/** The org role a team member holds — the founder stays the sole owner (existing tenancy rule). */
+export const AdminOrgRoleSchema = z.enum(["recruiter"]);
 export type AdminOrgRole = z.infer<typeof AdminOrgRoleSchema>;
 
 /**
@@ -113,7 +113,9 @@ export const AdminAccountsQuerySchema = z
     limit: z.coerce.number().int().positive().max(50).optional().default(25),
     role: AdminPayerRoleSchema.optional(),
     status: z.enum(["pending", "active", "suspended"]).optional(),
-    password_state: z.enum(["none", "set", "temporary_pending", "revoked"]).optional(),
+    password_state: z
+      .enum(["none", "set", "temporary_pending", "temporary_expired", "revoked"])
+      .optional(),
     org_id: z.string().uuid().optional(),
   })
   .strict();
@@ -123,7 +125,12 @@ export type AdminAccountsQueryDto = z.infer<typeof AdminAccountsQuerySchema>;
 export type AdminAccountType = "company_owner" | "agency_owner" | "team_member";
 
 /** Password state, in the order the list resolves it. */
-export type AdminAccountPasswordState = "none" | "set" | "temporary_pending" | "revoked";
+export type AdminAccountPasswordState =
+  | "none"
+  | "set"
+  | "temporary_pending"
+  | "temporary_expired"
+  | "revoked";
 
 export interface AdminAccountListItem {
   id: string;

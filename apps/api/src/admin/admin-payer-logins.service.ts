@@ -1,6 +1,8 @@
-import { ConflictException, Injectable, NotFoundException } from "@nestjs/common";
+import { ConflictException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import type { PayloadInputOf } from "@badabhai/event-schema";
+import type { ServerConfig } from "@badabhai/config";
 import { type Database, type PayerRole } from "@badabhai/db";
+import { SERVER_CONFIG } from "../config/config.module";
 import type { RequestContext } from "../common/request-context";
 import {
   CURRENT_PASSWORD_PEPPER_VERSION,
@@ -14,6 +16,7 @@ import { PayersRepository } from "../payers/payers.repository";
 import { PayerOrgsRepository } from "../payers/payer-orgs.repository";
 import { PayerSessionService } from "../payers/payer-session.service";
 import { PayerPasswordStateService } from "../payers/payer-password-state.service";
+import { PayerSecurityNoticeService } from "../payers/payer-security-notice.service";
 import type { AuthenticatedAdmin } from "./admin-auth.guard";
 import { ADMIN_ACTION_CODES } from "./admin-actions.service";
 import { AdminIdentityService } from "./admin-identity.service";
@@ -57,6 +60,7 @@ import type {
 @Injectable()
 export class AdminPayerLoginsService {
   constructor(
+    @Inject(SERVER_CONFIG) private readonly config: ServerConfig,
     private readonly repo: AdminPayerLoginsRepository,
     private readonly payers: PayersRepository,
     private readonly orgs: PayerOrgsRepository,
@@ -66,6 +70,7 @@ export class AdminPayerLoginsService {
     private readonly events: EventsService,
     private readonly pii: PiiCryptoService,
     private readonly freeTier: FreeTierService,
+    private readonly notice: PayerSecurityNoticeService,
   ) {}
 
   // ---------------------------------------------------------------------------
@@ -94,6 +99,9 @@ export class AdminPayerLoginsService {
       status: query.status,
       passwordState: query.password_state,
       orgId: query.org_id,
+      tempPasswordCutoff: new Date(
+        Date.now() - this.config.PAYER_TEMP_PASSWORD_TTL_HOURS * 3_600_000,
+      ),
     });
 
     const ids = rows.map((row) => row.id);
@@ -145,7 +153,7 @@ export class AdminPayerLoginsService {
         role: row.role,
         status: row.status,
         last_login_at: row.lastLoginAt,
-        password_state: AdminPayerLoginsService.passwordState(row),
+        password_state: this.passwordState(row),
         password_set_at: row.passwordSetAt,
         locked: lockStates.get(row.id) ?? null,
       };
@@ -158,13 +166,19 @@ export class AdminPayerLoginsService {
   }
 
   /** Password state, resolved in the order the contract promises. */
-  private static passwordState(row: {
+  private passwordState(row: {
     mustChangePassword: boolean;
     passwordRevokedAt: Date | null;
     passwordSetAt: Date | null;
     hasPassword: boolean;
   }): AdminAccountListItem["password_state"] {
-    if (row.mustChangePassword) return "temporary_pending";
+    if (row.mustChangePassword) {
+      const ttlMs = this.config.PAYER_TEMP_PASSWORD_TTL_HOURS * 3_600_000;
+      if (row.passwordSetAt === null || Date.now() - row.passwordSetAt.getTime() > ttlMs) {
+        return "temporary_expired";
+      }
+      return "temporary_pending";
+    }
     if (
       row.passwordRevokedAt !== null &&
       (row.passwordSetAt === null || row.passwordRevokedAt >= row.passwordSetAt)
@@ -191,6 +205,12 @@ export class AdminPayerLoginsService {
    * and silently resetting someone's password from a "create" form would be a destructive
    * surprise. A concurrent insert is caught the same way: `createOrGet` returns `created:false`
    * and the transaction rolls back before any credential or event exists.
+   *
+   * KNOWN BEHAVIOUR: the transaction commits BEFORE the live-session sweep. If the session
+   * store is unavailable at that point the admin receives a 500 and the temporary password is
+   * not returned. The account exists with an unknown temporary password; the admin recovers by
+   * calling the issue route (safe to retry, it replaces the credential) — never by re-running
+   * create, which 409s.
    */
   async createLogin(
     admin: AuthenticatedAdmin,
@@ -202,104 +222,140 @@ export class AdminPayerLoginsService {
     const loginId = dto.email ?? dto.phone!;
 
     let payerId = "";
+    let conflictPayerId: string | null = null;
     let createdRole: PayerRole = dto.role ?? "employer";
 
-    await this.repo.withTransaction(async (tx) => {
-      // The login ID must be free on BOTH channels: email has a unique index, phone does not
-      // (historical rows may share one), and `createOrGet` keys on email when both are supplied.
-      // Without these reads a phone that already has an account would get a SECOND one under a
-      // new email. The unique index still closes the email race; the phone race is closed by
-      // `createOrGetByPhone`'s advisory lock on the phone-only path.
-      if (dto.email !== undefined && (await this.payers.findByEmail(dto.email)) !== undefined) {
-        throw new ConflictException("A login with this email or phone already exists");
-      }
-      if (dto.phone !== undefined && (await this.payers.findByPhone(dto.phone)).length > 0) {
-        throw new ConflictException("A login with this email or phone already exists");
-      }
-
-      let orgId: string | null = null;
-      let createInput: CreatePayerInput;
-
-      if (dto.member_of_org_id !== undefined) {
-        const org = await this.orgs.findOrgById(dto.member_of_org_id);
-        if (!org) throw new NotFoundException("Organisation not found");
-        if (org.status !== "active") {
-          throw new ConflictException("Organisation is suspended");
+    try {
+      await this.repo.withTransaction(async (tx) => {
+        // The login ID must be free on BOTH channels: email has a unique index, phone does not
+        // (historical rows may share one), and `createOrGet` keys on email when both are supplied.
+        // Without these reads a phone that already has an account would get a SECOND one under a
+        // new email. The unique index still closes the email race; the phone race is closed by
+        // `createOrGetByPhone`'s advisory lock on the phone-only path.
+        if (dto.email !== undefined) {
+          const existing = await this.payers.findByEmail(dto.email);
+          if (existing !== undefined) {
+            conflictPayerId = existing.id;
+            throw new ConflictException("A login with this email or phone already exists");
+          }
         }
-        const root = await this.payers.findById(org.rootPayerId);
-        if (!root) throw new NotFoundException("Organisation not found");
-        createdRole = root.role;
-        orgId = org.id;
-        createInput = {
-          role: root.role,
-          email: dto.email,
-          phone: dto.phone,
-          // Copy the tenant's ciphertext: no admin-side decrypt, and no exact-name login hash
-          // for a member (they sign in by email/phone, never by the company name).
-          orgNameEnc: org.nameEnc ?? root.orgNameEnc,
-        };
-      } else {
-        createInput = {
-          role: dto.role!,
-          email: dto.email,
-          phone: dto.phone,
-          orgName: dto.org_name!,
-        };
-      }
+        if (dto.phone !== undefined) {
+          const matches = await this.payers.findByPhone(dto.phone);
+          if (matches.length > 0) {
+            conflictPayerId = matches[0]!.id;
+            throw new ConflictException("A login with this email or phone already exists");
+          }
+        }
 
-      const created = await this.payers.createOrGet(createInput, tx);
-      if (!created.created) {
-        throw new ConflictException("A login with this email or phone already exists");
-      }
-      payerId = created.id;
+        let orgId: string | null = null;
+        let createInput: CreatePayerInput;
 
-      if (orgId !== null) {
-        const row = await this.payers.findById(created.id, tx);
-        if (!row) throw new Error("payer created but not readable in the same transaction");
-        await this.orgs.createActiveMember(
-          {
-            orgId,
-            memberPayerId: created.id,
-            emailEnc: row.emailEnc,
-            emailHash: row.emailHash,
-            orgRole: dto.org_role ?? "recruiter",
-          },
+        if (dto.member_of_org_id !== undefined) {
+          const org = await this.orgs.findOrgById(dto.member_of_org_id);
+          if (!org) throw new NotFoundException("Organisation not found");
+          if (org.status !== "active") {
+            throw new ConflictException("Organisation is suspended");
+          }
+          const root = await this.payers.findById(org.rootPayerId);
+          if (!root) throw new NotFoundException("Organisation not found");
+          createdRole = root.role;
+          orgId = org.id;
+          createInput = {
+            role: root.role,
+            email: dto.email,
+            phone: dto.phone,
+            // Copy the tenant's ciphertext: no admin-side decrypt, and no exact-name login hash
+            // for a member (they sign in by email/phone, never by the company name).
+            orgNameEnc: org.nameEnc ?? root.orgNameEnc,
+          };
+        } else {
+          createInput = {
+            role: dto.role!,
+            email: dto.email,
+            phone: dto.phone,
+            orgName: dto.org_name!,
+          };
+        }
+
+        const created = await this.payers.createOrGet(createInput, tx);
+        if (!created.created) {
+          conflictPayerId = created.id;
+          throw new ConflictException("A login with this email or phone already exists");
+        }
+        payerId = created.id;
+
+        if (orgId !== null) {
+          const row = await this.payers.findById(created.id, tx);
+          if (!row) throw new Error("payer created but not readable in the same transaction");
+          await this.orgs.createActiveMember(
+            {
+              orgId,
+              memberPayerId: created.id,
+              emailEnc: row.emailEnc,
+              emailHash: row.emailHash,
+              // The founder stays the sole owner of the org (existing tenancy rule); an admin
+              // can only add a recruiter, never a co-owner.
+              orgRole: dto.org_role ?? "recruiter",
+            },
+            tx,
+          );
+        } else {
+          await this.orgs.ensureSoloOrg(created.id, tx);
+        }
+
+        // BLOCKER #2563 review: `payers.status` defaults to `pending`. An admin just proved the
+        // contact and issued the credential, so the account is ACTIVE immediately; leaving it
+        // pending made both sign-in doors refuse the very login this route created.
+        const activated = await this.payers.activate(created.id, tx);
+        if (activated) {
+          await this.emitActivated(tx, admin.id, created.id, ctx);
+        }
+
+        await this.payers.setTemporaryPassword(
+          created.id,
+          { hash, pepperVersion: CURRENT_PASSWORD_PEPPER_VERSION },
           tx,
         );
-      } else {
-        await this.orgs.ensureSoloOrg(created.id, tx);
+        await this.repo.writeAuditReason(tx, {
+          adminId: admin.id,
+          payerId: created.id,
+          action: ADMIN_ACTION_CODES.payer_login_created,
+          reasonCode: dto.reason_code,
+          reasonText: dto.reason_text,
+        });
+        await this.emitAction(
+          tx,
+          admin.id,
+          ADMIN_ACTION_CODES.payer_login_created,
+          created.id,
+          ctx,
+        );
+        // The domain fact that an account exists. Admin-created logins are password logins;
+        // `payer.created` carries no contact PII, only the opaque id and the role.
+        await this.events.emit({
+          event_name: "payer.created",
+          actor: { actor_type: "payer", actor_id: created.id },
+          subject: { subject_type: "payer", subject_id: created.id },
+          payload: {
+            payer_id: created.id,
+            role: createdRole,
+            method: "password",
+          } satisfies PayloadInputOf<"payer.created">,
+          correlationId: ctx.correlationId,
+          requestId: ctx.requestId,
+          idempotencyKey: `payer.created:${created.id}`,
+          tx,
+        });
+      });
+    } catch (err) {
+      // The 409 transaction rolled back, so the existence check would leave no trace. Write a
+      // SEPARATE, value-free audit row OUTSIDE it: admin id, action and the existing payer id
+      // only — no email, no phone, no reason text.
+      if (err instanceof ConflictException && conflictPayerId !== null) {
+        await this.repo.writeConflictAudit(admin.id, conflictPayerId).catch(() => undefined);
       }
-
-      await this.payers.setTemporaryPassword(
-        created.id,
-        { hash, pepperVersion: CURRENT_PASSWORD_PEPPER_VERSION },
-        tx,
-      );
-      await this.repo.writeAuditReason(tx, {
-        adminId: admin.id,
-        payerId: created.id,
-        action: ADMIN_ACTION_CODES.payer_login_created,
-        reasonCode: dto.reason_code,
-        reasonText: dto.reason_text,
-      });
-      await this.emitAction(tx, admin.id, ADMIN_ACTION_CODES.payer_login_created, created.id, ctx);
-      // The domain fact that an account exists. Admin-created logins are password logins;
-      // `payer.created` carries no contact PII, only the opaque id and the role.
-      await this.events.emit({
-        event_name: "payer.created",
-        actor: { actor_type: "payer", actor_id: created.id },
-        subject: { subject_type: "payer", subject_id: created.id },
-        payload: {
-          payer_id: created.id,
-          role: createdRole,
-          method: "password",
-        } satisfies PayloadInputOf<"payer.created">,
-        correlationId: ctx.correlationId,
-        requestId: ctx.requestId,
-        idempotencyKey: `payer.created:${created.id}`,
-        tx,
-      });
-    });
+      throw err;
+    }
 
     // After commit. The free tier belongs to the OWNER account, exactly as signup grants it;
     // a team member spends the org's existing credits. `grantQuietly` never fails the creation.
@@ -307,6 +363,7 @@ export class AdminPayerLoginsService {
     // No sessions exist for a just-created account, but the contract is "issue ends every
     // session" and this keeps that true if a retry races a login.
     await this.sessions.revokeAllForPayer(payerId);
+    await this.notice.notify(payerId, "reset");
 
     return {
       payer_id: payerId,
@@ -320,6 +377,10 @@ export class AdminPayerLoginsService {
    * POST /admin/payers/:id/password/temporary — replace the password with a new temporary one.
    * Every existing session ends: the old credential is gone, so a device still holding a
    * session must re-prove the new one.
+   *
+   * SAFE TO RETRY. The transaction replaces the credential and the lockout clear is idempotent;
+   * a retry after a post-commit session-store failure issues a fresh temporary password and
+   * sweeps again. The previous temporary password is invalid either way.
    */
   async issueTemporaryPassword(
     admin: AuthenticatedAdmin,
@@ -333,6 +394,15 @@ export class AdminPayerLoginsService {
     await this.repo.withTransaction(async (tx) => {
       const row = await this.payers.findById(payerId, tx);
       if (!row) throw new NotFoundException("Payer not found");
+      if (row.status === "suspended") {
+        throw new ConflictException("Account is suspended");
+      }
+      // An admin vouches for a pending self-signup by issuing its first credential; leaving it
+      // pending would make the new temporary password unusable at both sign-in doors.
+      const activated = await this.payers.activate(payerId, tx);
+      if (activated) {
+        await this.emitActivated(tx, admin.id, payerId, ctx);
+      }
       await this.payers.setTemporaryPassword(
         payerId,
         { hash, pepperVersion: CURRENT_PASSWORD_PEPPER_VERSION },
@@ -348,14 +418,19 @@ export class AdminPayerLoginsService {
       await this.emitAction(tx, admin.id, ADMIN_ACTION_CODES.payer_password_issued, payerId, ctx);
     });
 
+    // The admin's new credential must be usable at once even if the payer was locked out on
+    // the OLD one. Best-effort: the issue is safe to retry, which retries this clear too.
+    await this.lockStates.clear(payerId);
     await this.sessions.revokeAllForPayer(payerId);
+    await this.notice.notify(payerId, "reset");
     return { payer_id: payerId, temporary_password: temporaryPassword, must_change_password: true };
   }
 
   /**
    * POST /admin/payers/:id/password/revoke — close password sign-in. The email-code door stays
    * open, which is what lets the payer recover the account without an admin re-issuing a
-   * credential. Idempotent: already revoked → no write, no event, `changed:false`.
+   * credential. Idempotent in the write/event half: already revoked → `changed:false`; the
+   * live-session sweep still runs so a retry closes any session that appeared in between.
    */
   async revokePassword(
     admin: AuthenticatedAdmin,
@@ -380,8 +455,34 @@ export class AdminPayerLoginsService {
       await this.emitAction(tx, admin.id, ADMIN_ACTION_CODES.payer_password_revoked, payerId, ctx);
     });
 
-    if (changed) await this.sessions.revokeAllForPayer(payerId);
+    // Idempotent in the SESSION half too: a retry on an already-revoked account still sweeps
+    // every live session. The write/event half stays a no-op.
+    await this.sessions.revokeAllForPayer(payerId);
+    if (changed) await this.notice.notify(payerId, "revoked");
     return { payer_id: payerId, changed };
+  }
+
+  /** One value-free `admin.action_performed` on the caller's transaction. */
+  private emitActivated(
+    tx: Database,
+    adminId: string,
+    payerId: string,
+    ctx: RequestContext,
+  ): Promise<unknown> {
+    return this.events.emit({
+      event_name: "payer.activated",
+      actor: { actor_type: "admin", actor_id: adminId },
+      subject: { subject_type: "payer", subject_id: payerId },
+      payload: {
+        payer_id: payerId,
+        previous_status: "pending",
+        new_status: "active",
+      } satisfies PayloadInputOf<"payer.activated">,
+      correlationId: ctx.correlationId,
+      requestId: ctx.requestId,
+      idempotencyKey: `payer.activated:${payerId}:admin:${ctx.requestId}`,
+      tx,
+    });
   }
 
   /** One value-free `admin.action_performed` on the caller's transaction. */

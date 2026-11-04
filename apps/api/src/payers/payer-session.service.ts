@@ -97,11 +97,17 @@ export interface ValidatedPayerSession {
   org: PayerSessionOrgClaim | null;
   /**
    * #2563 — the token's `iat` in SECONDS, or 0 when the claim is absent (treated as "older than
-   * any watermark", i.e. fail closed). The guard compares it against the payer's
-   * `sessions_valid_after` so a token minted before an admin issue/revoke stops working even if
-   * the Redis revocation was missed.
+   * any watermark", i.e. fail closed). Used only as the fallback for a legacy session record
+   * that predates the millisecond creation stamp.
    */
   issuedAtSeconds: number;
+  /**
+   * #2563 — the session record's creation time in MILLISECONDS. This is the value the guard
+   * compares with `sessions_valid_after`, so two credentials minted in the same second are
+   * still ordered correctly. `null` only for a legacy record written before this field existed;
+   * the guard then falls back to {@link issuedAtSeconds}.
+   */
+  createdAtMs: number | null;
 }
 
 @Injectable()
@@ -160,10 +166,11 @@ export class PayerSessionService {
   ): Promise<PayerSessionToken> {
     const sid = randomUUID();
     const ttl = this.ttlSeconds();
+    const createdAtMs = Date.now();
     const redis = await this.client();
     await redis.set(
       PayerSessionService.sessionKey(sid),
-      JSON.stringify({ payer_id: payerId, ...(role ? { role } : {}) }),
+      JSON.stringify({ payer_id: payerId, ...(role ? { role } : {}), created_at_ms: createdAtMs }),
       "EX",
       ttl,
     );
@@ -216,6 +223,7 @@ export class PayerSessionService {
         role,
         org,
         issuedAtSeconds: typeof claims.iat === "number" ? claims.iat : 0,
+        createdAtMs: PayerSessionService.readCreatedAtMs(raw),
       };
     } catch (err) {
       this.logger.error(
@@ -283,6 +291,24 @@ export class PayerSessionService {
     try {
       const blob = JSON.parse(raw) as { role?: unknown };
       return blob.role === "employer" || blob.role === "agent" ? blob.role : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * #2563 — the millisecond creation stamp, or null for a legacy blob written before it
+   * existed. A non-finite / non-positive value is treated as absent (fail-safe to the `iat`
+   * fallback) rather than trusted.
+   */
+  private static readCreatedAtMs(raw: string): number | null {
+    try {
+      const blob = JSON.parse(raw) as { created_at_ms?: unknown };
+      return typeof blob.created_at_ms === "number" &&
+        Number.isFinite(blob.created_at_ms) &&
+        blob.created_at_ms > 0
+        ? blob.created_at_ms
+        : null;
     } catch {
       return null;
     }

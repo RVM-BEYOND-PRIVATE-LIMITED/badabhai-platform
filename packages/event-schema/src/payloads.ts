@@ -2399,9 +2399,11 @@ export type PayerTestLoginPayload = z.infer<typeof PayerTestLoginPayload>;
  * recorded by `admin.action_performed` with their own action codes, so the spine can tell
  * "the payer changed it" from "an admin changed it" without a payload flag.
  */
-export const PayerPasswordSetPayload = z.object({
-  payer_id: uuidSchema,
-});
+export const PayerPasswordSetPayload = z
+  .object({
+    payer_id: uuidSchema,
+  })
+  .strict();
 export type PayerPasswordSetPayload = z.infer<typeof PayerPasswordSetPayload>;
 
 /** A member's role within a payer org (ADR-0027 / B5). Enum-only → no PII. */

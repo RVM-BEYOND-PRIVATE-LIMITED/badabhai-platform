@@ -7,6 +7,7 @@ import type { RequestContext } from "../common/request-context";
 import type { AuthenticatedAdmin } from "./admin-auth.guard";
 import { ADMIN_ACTION_CODES } from "./admin-actions.service";
 import { AdminPayerLoginsService } from "./admin-payer-logins.service";
+import { AdminCreatePayerLoginSchema } from "./admin-payer-logins.dto";
 
 const CTX: RequestContext = {
   correlationId: "11111111-1111-4111-8111-111111111111",
@@ -40,6 +41,7 @@ function setup() {
     })),
     setTemporaryPassword: vi.fn(async () => ({})),
     revokePassword: vi.fn(async () => ({})),
+    activate: vi.fn(async () => ({ id: "p1" })),
     recordLogin: vi.fn(async () => undefined),
   };
   const orgs = {
@@ -55,6 +57,7 @@ function setup() {
   const sessions = { revokeAllForPayer: vi.fn(async () => 0) };
   const lockStates = {
     lockStates: vi.fn(async (ids: string[]) => new Map(ids.map((id) => [id, false]))),
+    clear: vi.fn(async () => undefined),
   };
   const identity = {
     resolve: vi.fn(async (_admin: AuthenticatedAdmin, surface: string, ids: string[]) => {
@@ -67,6 +70,8 @@ function setup() {
   const events = { emit: vi.fn(async () => undefined) };
   const pii = { hashPassword: (v: string) => `hash<${v}>` };
   const freeTier = { grantQuietly: vi.fn(async () => undefined) };
+  const notice = { notify: vi.fn(async () => undefined) };
+  const config = { PAYER_TEMP_PASSWORD_TTL_HOURS: 168 } as never;
   const repo = {
     withTransaction: vi.fn(async (work: (tx: unknown) => Promise<unknown>) => work({})),
     listAccounts: vi.fn(async () => ({ rows: [], nextCursor: null })),
@@ -74,8 +79,10 @@ function setup() {
     orgsByRootPayer: vi.fn(async () => []),
     orgsByIds: vi.fn(async () => []),
     writeAuditReason: vi.fn(async () => undefined),
+    writeConflictAudit: vi.fn(async () => undefined),
   };
   const svc = new AdminPayerLoginsService(
+    config as never,
     repo as never,
     payers as never,
     orgs as never,
@@ -85,8 +92,9 @@ function setup() {
     events as never,
     pii as never,
     freeTier as never,
+    notice as never,
   );
-  return { svc, repo, payers, orgs, sessions, lockStates, identity, events, pii, freeTier };
+  return { svc, repo, payers, orgs, sessions, lockStates, identity, events, pii, freeTier, notice };
 }
 
 function actionEvents(events: { emit: { mock: { calls: unknown[][] } } }) {
@@ -103,7 +111,36 @@ function actionEvents(events: { emit: { mock: { calls: unknown[][] } } }) {
     .filter((e) => e.event_name === "admin.action_performed");
 }
 
+function eventNamed(events: { emit: { mock: { calls: unknown[][] } } }, name: string) {
+  return events.emit.mock.calls
+    .map(
+      (c) =>
+        c[0] as {
+          event_name: string;
+          payload: Record<string, unknown>;
+          actor: { actor_type: string; actor_id?: string };
+        },
+    )
+    .filter((e) => e.event_name === name);
+}
+
 describe("AdminPayerLoginsService — create (#2563)", () => {
+  it("rejects a co-owner: the only team-member org_role is `recruiter`", () => {
+    const base = {
+      email: "member@example.com",
+      member_of_org_id: "11111111-1111-4111-8111-111111111111",
+      reason_code: "login_created",
+      reason_text: "Added to the client's recruiting team",
+    };
+    expect(AdminCreatePayerLoginSchema.safeParse(base).success).toBe(true);
+    expect(AdminCreatePayerLoginSchema.safeParse({ ...base, org_role: "recruiter" }).success).toBe(
+      true,
+    );
+    expect(AdminCreatePayerLoginSchema.safeParse({ ...base, org_role: "owner" }).success).toBe(
+      false,
+    );
+  });
+
   it("creates an owner login with a policy-valid 14-character temporary password, in one transaction", async () => {
     const d = setup();
     const res = await d.svc.createLogin(
@@ -126,6 +163,12 @@ describe("AdminPayerLoginsService — create (#2563)", () => {
       {},
     );
     expect(d.orgs.ensureSoloOrg).toHaveBeenCalledWith("p1", {});
+    // BLOCKER review fix — the schema default is `pending`; the admin create ACTIVATES it.
+    expect(d.payers.activate).toHaveBeenCalledWith("p1", {});
+    expect(eventNamed(d.events, "payer.activated")[0]).toMatchObject({
+      actor: { actor_type: "admin", actor_id: ADMIN.id },
+      payload: { payer_id: "p1", previous_status: "pending", new_status: "active" },
+    });
     expect(d.payers.setTemporaryPassword).toHaveBeenCalledWith(
       "p1",
       { hash: `hash<${res.temporary_password}>`, pepperVersion: 1 },
@@ -149,6 +192,7 @@ describe("AdminPayerLoginsService — create (#2563)", () => {
     });
     expect(d.freeTier.grantQuietly).toHaveBeenCalledWith("p1");
     expect(d.sessions.revokeAllForPayer).toHaveBeenCalledWith("p1");
+    expect(d.notice.notify).toHaveBeenCalledWith("p1", "reset");
   });
 
   it("409 when the email/phone already exists — no credential, no audit row, no event", async () => {
@@ -166,6 +210,8 @@ describe("AdminPayerLoginsService — create (#2563)", () => {
     expect(d.payers.setTemporaryPassword).not.toHaveBeenCalled();
     expect(d.repo.writeAuditReason).not.toHaveBeenCalled();
     expect(d.events.emit).not.toHaveBeenCalled();
+    // Review fix 11 — the rolled-back check still leaves a value-free audit trace.
+    expect(d.repo.writeConflictAudit).toHaveBeenCalledWith(ADMIN.id, "p1");
   });
 
   it("a team member gets an ACTIVE membership with no invite token, no solo org and no free-tier grant", async () => {
@@ -262,6 +308,60 @@ describe("AdminPayerLoginsService — issue / revoke (#2563)", () => {
     );
     expect(actionEvents(d.events)[0]?.payload.action_code).toBe("payer_password_issued");
     expect(d.sessions.revokeAllForPayer).toHaveBeenCalledWith("p1");
+    expect(d.lockStates.clear).toHaveBeenCalledWith("p1");
+    expect(d.notice.notify).toHaveBeenCalledWith("p1", "reset");
+  });
+
+  it("activates a PENDING self-signup and emits payer.activated with the admin as actor", async () => {
+    const d = setup();
+    d.payers.findById.mockResolvedValueOnce({
+      id: "p1",
+      status: "pending",
+      passwordSetAt: null,
+      passwordRevokedAt: null,
+      mustChangePassword: false,
+    } as never);
+
+    await d.svc.issueTemporaryPassword(
+      ADMIN,
+      "p1",
+      {
+        reason_code: "password_issued",
+        reason_text: "Admin vouched for this self-signup",
+      } as never,
+      CTX,
+    );
+
+    expect(d.payers.activate).toHaveBeenCalledWith("p1", {});
+    expect(eventNamed(d.events, "payer.activated")[0]).toMatchObject({
+      actor: { actor_type: "admin", actor_id: ADMIN.id },
+      payload: { payer_id: "p1", previous_status: "pending", new_status: "active" },
+    });
+  });
+
+  it("refuses to issue on a SUSPENDED account (reinstate first)", async () => {
+    const d = setup();
+    d.payers.findById.mockResolvedValueOnce({
+      id: "p1",
+      status: "suspended",
+      passwordSetAt: null,
+      passwordRevokedAt: null,
+      mustChangePassword: false,
+    } as never);
+
+    await expect(
+      d.svc.issueTemporaryPassword(
+        ADMIN,
+        "p1",
+        {
+          reason_code: "password_issued",
+          reason_text: "Admin tried to reset a suspended login",
+        } as never,
+        CTX,
+      ),
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect(d.payers.setTemporaryPassword).not.toHaveBeenCalled();
+    expect(d.payers.activate).not.toHaveBeenCalled();
   });
 
   it("revokes password sign-in, audits the reason, emits the action, and ends every session", async () => {
@@ -284,6 +384,7 @@ describe("AdminPayerLoginsService — issue / revoke (#2563)", () => {
     expect(d.payers.revokePassword).toHaveBeenCalledWith("p1", {});
     expect(actionEvents(d.events)[0]?.payload.action_code).toBe("payer_password_revoked");
     expect(d.sessions.revokeAllForPayer).toHaveBeenCalledWith("p1");
+    expect(d.notice.notify).toHaveBeenCalledWith("p1", "revoked");
   });
 
   it("is idempotent when the password is already revoked: no write, no event", async () => {
@@ -305,7 +406,8 @@ describe("AdminPayerLoginsService — issue / revoke (#2563)", () => {
 
     expect(d.payers.revokePassword).not.toHaveBeenCalled();
     expect(d.events.emit).not.toHaveBeenCalled();
-    expect(d.sessions.revokeAllForPayer).not.toHaveBeenCalled();
+    // Review fix 12 — the session sweep is idempotent and STILL runs on a retry.
+    expect(d.sessions.revokeAllForPayer).toHaveBeenCalledWith("p1");
   });
 
   it("404 for an unknown payer", async () => {
@@ -443,5 +545,29 @@ describe("AdminPayerLoginsService — accounts list (#2563)", () => {
     expect(page.items[0]).not.toHaveProperty("login_id");
     expect(page.items[0]).not.toHaveProperty("organisation");
     expect(page.items[0]).toMatchObject({ type: "agency_owner", password_state: "none" });
+  });
+
+  it("marks a temporary password past the TTL as temporary_expired", async () => {
+    const d = setup();
+    d.repo.listAccounts.mockResolvedValueOnce({
+      rows: [
+        {
+          id: "owner-1",
+          role: "employer",
+          status: "active",
+          createdAt: new Date(),
+          lastLoginAt: null,
+          passwordSetAt: new Date(Date.now() - 169 * 3_600_000),
+          passwordRevokedAt: null,
+          mustChangePassword: true,
+          hasPassword: true,
+        },
+      ],
+      nextCursor: null,
+    } as never);
+    d.identity.resolve.mockResolvedValue(null as never);
+
+    const page = await d.svc.listAccounts(ADMIN, { limit: 25 } as never, CTX);
+    expect(page.items[0]).toMatchObject({ password_state: "temporary_expired" });
   });
 });

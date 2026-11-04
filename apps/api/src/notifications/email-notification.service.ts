@@ -22,7 +22,14 @@ export type EmailPrincipal = "worker" | "payer" | "agency" | "admin";
 // onboarding link did not arrive — a different incident from a payer teammate invite.
 // `password_reset` (migration 0144) is likewise NOT folded into `login_code`: a reset code that
 // failed to arrive is a locked-out admin, and a burst of them is someone probing the forgot door.
-export type EmailPurpose = "login_code" | "team_invite" | "admin_invite" | "password_reset";
+// `security_notice` (#2563) is the payer credential-change notice: it carries no code, no link
+// and no password, and a burst of them is a signal that someone is cycling payer credentials.
+export type EmailPurpose =
+  | "login_code"
+  | "team_invite"
+  | "admin_invite"
+  | "password_reset"
+  | "security_notice";
 
 export interface EmailMessage {
   /** The recipient address. Used to send and to derive a log hash — never logged raw. */

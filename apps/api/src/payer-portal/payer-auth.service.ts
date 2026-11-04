@@ -28,6 +28,7 @@ import { PayersRepository, CURRENT_PASSWORD_PEPPER_VERSION } from "../payers/pay
 import { PayerOrgsRepository, type ResolvedOrg } from "../payers/payer-orgs.repository";
 import { PayerSessionService } from "../payers/payer-session.service";
 import { payerPasswordAttemptsKey } from "../payers/payer-password-lockout";
+import { PayerSecurityNoticeService } from "../payers/payer-security-notice.service";
 import { resolveSessionOrgClaim } from "../payers/payer-session-org-claim";
 import { PayerTenantScopeService } from "../payers/payer-tenant-scope.service";
 import { PayerOtpService, type PayerOtpIssued } from "../payers/payer-otp.service";
@@ -95,6 +96,8 @@ export class PayerAuthService {
     // Password-attempt lockout counter (per payer id) — reuse BullMQ's existing Redis
     // connection, do NOT add a second client (same rule as IpRateLimit / PayerOtpService).
     @InjectQueue(RESUME_RENDER_QUEUE) private readonly queue: Queue,
+    // #2563 — the credential-change security notice (best-effort, after commit).
+    private readonly notice: PayerSecurityNoticeService,
   ) {}
 
   private get method(): PayerLoginMethodEnum {
@@ -546,6 +549,7 @@ export class PayerAuthService {
     // revokeAllForPayerExcept) rather than reporting a completed change that left other
     // devices signed in — the retry is the same idempotent write plus a fresh revoke.
     await this.sessions.revokeAllForPayerExcept(payerId, currentSid);
+    await this.notice.notify(payerId, "changed");
   }
 
   /**
@@ -605,6 +609,14 @@ export class PayerAuthService {
     }
     await this.clearPasswordFailures(account.id);
 
+    // #2563 (owner ruling 2026-11-04) — a TEMPORARY password expires. After the configured
+    // TTL it is treated exactly like a wrong password: one full KDF, the same neutral 401,
+    // and no forced-change prompt (an expired credential must not remain a way in).
+    if (account.mustChangePassword && this.temporaryPasswordExpired(account.passwordSetAt)) {
+      this.pii.verifyPassword(password, DUMMY_PASSWORD_HASH);
+      throw new UnauthorizedException("Incorrect identifier or password");
+    }
+
     if (account.status === "suspended") {
       throw new ForbiddenException("Account is suspended");
     }
@@ -626,19 +638,34 @@ export class PayerAuthService {
       if (newPassword === password) {
         throw new BadRequestException("Choose a new password - it cannot be the temporary one");
       }
-      await this.storeOwnPassword(account.id, newPassword!, ctx);
+      const replaced = await this.replaceTemporaryPassword(
+        account.id,
+        newPassword!,
+        account.passwordHash!,
+        ctx,
+      );
+      // Lost a concurrent forced-change race: the other request already stored its password,
+      // so this one has no business minting a session on a credential it no longer holds.
+      if (!replaced) throw new UnauthorizedException("Incorrect identifier or password");
       // No caller session exists yet: every session that does exist belongs to an earlier
       // credential and must end. A failure THROWS before a new session is minted.
       await this.sessions.revokeAllForPayer(account.id);
+      await this.notice.notify(account.id, "changed");
     }
 
     // Lazy org-hash fill for pre-#2493 rows (best-effort — never fails a good login).
+    // #2563 — ONLY for an org ROOT. Writing the founder's company-name hash onto a team
+    // member's row would make their login resolve the founder's company name and collide with
+    // the founder's own company-name sign-in.
     if (!account.orgNameLookupHash) {
-      await this.payers.ensureOrgLookupHash(account).catch((err: unknown) => {
-        this.logger.warn(
-          `payer org lookup backfill failed payer=${account.id.slice(0, 8)}… reason=${err instanceof Error ? err.message : String(err)}`,
-        );
-      });
+      const isRoot = await this.orgs.isRootPayer(account.id).catch(() => false);
+      if (isRoot) {
+        await this.payers.ensureOrgLookupHash(account).catch((err: unknown) => {
+          this.logger.warn(
+            `payer org lookup backfill failed payer=${account.id.slice(0, 8)}… reason=${err instanceof Error ? err.message : String(err)}`,
+          );
+        });
+      }
     }
 
     const org = await this.resolveOrEnsureOrg(account.id);
@@ -668,10 +695,53 @@ export class PayerAuthService {
   }
 
   /**
+   * #2563 — true when a temporary password is past its TTL. A missing timestamp fails closed:
+   * a temporary credential with no provenance is not a way in.
+   */
+  private temporaryPasswordExpired(passwordSetAt: Date | null): boolean {
+    if (passwordSetAt === null) return true;
+    return Date.now() - passwordSetAt.getTime() > this.config.PAYER_TEMP_PASSWORD_TTL_HOURS * 3_600_000;
+  }
+
+  /**
+   * #2563 — the CONDITIONAL forced-change write. Only a row that still requires a change AND
+   * still holds the exact temporary hash just verified is updated. Two concurrent requests
+   * can both pass the password check; exactly one UPDATE matches, and the loser gets `false`.
+   * The `payer.password_set` event commits on the same transaction.
+   */
+  private async replaceTemporaryPassword(
+    payerId: string,
+    newPassword: string,
+    expectedTemporaryHash: string,
+    ctx: RequestContext,
+  ): Promise<boolean> {
+    const hash = this.pii.hashPassword(newPassword);
+    return this.payers.withTransaction(async (tx) => {
+      const updated = await this.payers.replaceTemporaryPassword(
+        payerId,
+        { hash, pepperVersion: CURRENT_PASSWORD_PEPPER_VERSION },
+        expectedTemporaryHash,
+        tx,
+      );
+      if (!updated) return false;
+      await this.events.emit({
+        event_name: "payer.password_set",
+        actor: { actor_type: "payer", actor_id: payerId },
+        subject: { subject_type: "payer", subject_id: payerId },
+        payload: { payer_id: payerId },
+        correlationId: ctx.correlationId,
+        requestId: ctx.requestId,
+        tx,
+      });
+      return true;
+    });
+  }
+
+  /**
    * #2563 — store the payer's own replacement password and emit `payer.password_set` in ONE
-   * transaction. Shared by the self-service route and the forced-change step of the password
-   * door, so both produce the same credential state and the same spine fact. The RAW password
-   * never reaches this method — the caller has already hashed it into `hash`.
+   * transaction. Used by the self-service route; the forced-change step uses the CONDITIONAL
+   * `replaceTemporaryPassword` instead, because it must lose a concurrent race. The RAW
+   * password never reaches this method — the caller has already hashed it into `hash`.
    */
   private async storeOwnPassword(
     payerId: string,

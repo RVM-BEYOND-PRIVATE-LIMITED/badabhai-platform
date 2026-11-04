@@ -251,13 +251,20 @@ export class PayersRepository {
   async findAuthFacts(
     id: string,
   ): Promise<
-    { role: PayerRole; status: PayerStatus; sessionsValidAfter: Date | null } | undefined
+    | {
+        role: PayerRole;
+        status: PayerStatus;
+        sessionsValidAfter: Date | null;
+        mustChangePassword: boolean;
+      }
+    | undefined
   > {
     const [row] = await this.db
       .select({
         role: payers.role,
         status: payers.status,
         sessionsValidAfter: payers.sessionsValidAfter,
+        mustChangePassword: payers.mustChangePassword,
       })
       .from(payers)
       .where(eq(payers.id, id))
@@ -278,8 +285,8 @@ export class PayersRepository {
    * Returns the row ONLY when it actually moved, so the caller emits `payer.activated`
    * exactly once per payer and every subsequent login is a silent no-op.
    */
-  async activate(id: string): Promise<{ id: string } | undefined> {
-    const [row] = await this.db
+  async activate(id: string, tx?: Database): Promise<{ id: string } | undefined> {
+    const [row] = await (tx ?? this.db)
       .update(payers)
       .set({ status: "active", updatedAt: new Date() })
       .where(and(eq(payers.id, id), eq(payers.status, "pending")))
@@ -404,6 +411,44 @@ export class PayersRepository {
         updatedAt: new Date(),
       })
       .where(eq(payers.id, id))
+      .returning();
+    return row;
+  }
+
+  /**
+   * #2563 — store the payer's own replacement password ONLY if the row still holds the exact
+   * temporary credential that was just verified and still requires a change.
+   *
+   * The conditional WHERE is what makes two concurrent forced-change requests safe: both may
+   * verify the same temporary password, but only the first UPDATE matches. The loser gets zero
+   * rows and must answer the neutral 401 rather than overwrite the winner's password (which
+   * would leave the payer holding a password nobody chose). Clears the temporary/revocation
+   * state in the same write.
+   */
+  async replaceTemporaryPassword(
+    id: string,
+    password: { hash: string; pepperVersion: number },
+    expectedTemporaryHash: string,
+    tx?: Database,
+  ): Promise<Payer | undefined> {
+    const now = new Date();
+    const [row] = await (tx ?? this.db)
+      .update(payers)
+      .set({
+        passwordHash: password.hash,
+        passwordPepperVersion: password.pepperVersion,
+        passwordSetAt: now,
+        mustChangePassword: false,
+        passwordRevokedAt: null,
+        updatedAt: now,
+      })
+      .where(
+        and(
+          eq(payers.id, id),
+          eq(payers.mustChangePassword, true),
+          eq(payers.passwordHash, expectedTemporaryHash),
+        ),
+      )
       .returning();
     return row;
   }

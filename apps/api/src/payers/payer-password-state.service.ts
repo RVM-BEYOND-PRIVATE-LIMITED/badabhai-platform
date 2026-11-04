@@ -9,10 +9,12 @@ import { payerPasswordAttemptsKey } from "./payer-password-lockout";
 /** Minimal typed view of the raw Redis commands the lock-state read needs. */
 interface RedisStateClient {
   get(key: string): Promise<string | null>;
+  del(...keys: string[]): Promise<number>;
 }
 
 /**
- * #2563 — a READ-ONLY view of the payer password-attempt counter for the admin accounts list.
+ * #2563 — a READ view of the payer password-attempt counter (plus the admin's clear) for the
+ * admin accounts surface.
  *
  * The counter itself stays owned by `PayerAuthService` (the sign-in door is the only writer).
  * This service exists so the admin module does not reach into the auth service or duplicate
@@ -71,5 +73,24 @@ export class PayerPasswordStateService {
       }),
     );
     return out;
+  }
+
+  /**
+   * #2563 — clear the payer's failed-attempt counter after an admin issues a fresh temporary
+   * password. A new credential the payer cannot use because the OLD one was locked out is a
+   * support dead end. BEST-EFFORT: the credential change has already committed; a Redis
+   * failure is logged and the admin can safely issue again (which retries this clear).
+   */
+  async clear(payerId: string): Promise<void> {
+    try {
+      const redis = (await this.queue.client) as unknown as RedisStateClient;
+      await redis.del(payerPasswordAttemptsKey(payerId));
+    } catch (err) {
+      this.logger.warn(
+        `payer password lockout clear failed payer=${payerId.slice(0, 8)}… reason=${
+          err instanceof Error ? err.name : "unknown"
+        }`,
+      );
+    }
   }
 }

@@ -696,8 +696,7 @@ describe("identity reads — one reader, one decrypter, and no name search", () 
     // It is one id-keyed lookup per table, and each of those tables carries something worse than
     // a name next to it: `phone_e164`/`phone_hash` on workers, the two keyed hashes on payers,
     // and `mfa_secret_enc` — the TOTP seed — on admin_users. The login-ID projection (#2563) is
-    // the one deliberate exception: it coalesces `email_enc`/`phone_enc` into `nameCipher`, so
-    // those two ciphertext columns appear in the source while the hashes stay out.
+    // the one deliberate exception, narrowed by the next test to that ONE method.
     const src = code(IDENTITY_REPO);
     for (const forbidden of [
       "phoneE164",
@@ -709,6 +708,25 @@ describe("identity reads — one reader, one decrypter, and no name search", () 
       expect(src, `admin-identity.repository must not project ${forbidden}`).not.toContain(
         forbidden,
       );
+    }
+  });
+
+  it("emailEnc/phoneEnc appear ONLY inside the payerLoginIds projection (#2563)", () => {
+    // The User accounts screen may show a payer login ID (owner ruling 2026-11-04), but that is
+    // ONE projection. The exception must not become a file-wide allowance that lets the next
+    // method read contact ciphertext.
+    const src = code(IDENTITY_REPO);
+    const start = src.indexOf("async payerLoginIds(");
+    expect(start, "payerLoginIds projection is missing").toBeGreaterThan(-1);
+    const end = src.indexOf("\n  }", start);
+    expect(end, "payerLoginIds projection has no end").toBeGreaterThan(start);
+    const method = src.slice(start, end);
+    expect(method).toContain("payers.emailEnc");
+    expect(method).toContain("payers.phoneEnc");
+
+    const outside = src.slice(0, start) + src.slice(end);
+    for (const forbidden of ["emailEnc", "phoneEnc"]) {
+      expect(outside, `only payerLoginIds may project ${forbidden}`).not.toContain(forbidden);
     }
   });
 
@@ -925,7 +943,46 @@ describe("identity reads — one reader, one decrypter, and no name search", () 
   });
 });
 
-describe("#997 feedback route — guarded, read-only, and read_entities-scoped", () => {
+describe("#2563 payer-login routes - guarded + exactly one `manage_payer_credentials` capability", () => {
+  const proto = AdminPayerLoginsController.prototype as unknown as Record<string, unknown>;
+  const routeMethods = Object.getOwnPropertyNames(AdminPayerLoginsController.prototype).filter(
+    (m) =>
+      m !== "constructor" &&
+      typeof proto[m] === "function" &&
+      Reflect.getMetadata("path", proto[m] as object) !== undefined,
+  );
+
+  it("discovers the four routes (no route silently dropped)", () => {
+    expect(routeMethods.sort()).toEqual(
+      ["listAccounts", "createLogin", "issueTemporaryPassword", "revokePassword"].sort(),
+    );
+  });
+
+  it("EVERY route carries AdminAuthGuard AND AdminRolesGuard", () => {
+    for (const method of routeMethods) {
+      const guards = effectiveGuards(AdminPayerLoginsController, method);
+      expect(guards, `${method} must be behind AdminAuthGuard`).toContain(AdminAuthGuard.name);
+      expect(guards, `${method} must be behind AdminRolesGuard`).toContain(AdminRolesGuard.name);
+    }
+  });
+
+  it("EVERY route declares EXACTLY ONE method-level @RequireAdminRole('manage_payer_credentials')", () => {
+    const onClass = Reflect.getMetadata(ADMIN_CAPABILITY_KEY, AdminPayerLoginsController) as
+      | AdminCapability
+      | undefined;
+    expect(onClass, "AdminPayerLoginsController must NOT declare a class-level capability").toBeUndefined();
+    for (const method of routeMethods) {
+      const onMethod = Reflect.getMetadata(ADMIN_CAPABILITY_KEY, proto[method] as object) as
+        | AdminCapability
+        | undefined;
+      expect(onMethod, `${method} must declare a method-level @RequireAdminRole`).toBe(
+        "manage_payer_credentials",
+      );
+    }
+  });
+});
+
+describe("#997 feedback route - guarded, read-only, and read_entities-scoped", () => {
   const proto = AdminFeedbackController.prototype as unknown as Record<string, unknown>;
   const routeMethods = Object.getOwnPropertyNames(AdminFeedbackController.prototype).filter(
     (m) =>

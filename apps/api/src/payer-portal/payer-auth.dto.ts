@@ -74,7 +74,8 @@ export const PayerPasswordLoginSchema = z.object({
   /**
    * #2563 — only consumed on the must-change step (a temporary password): the payer's own new
    * password, policy-checked. Absent → the response is `password_change_required` with no
-   * session. Present on an ordinary account → treated as a change of the verified password.
+   * session. On an ordinary account it is IGNORED; changing a normal password happens through
+   * `POST /payer/password/set`.
    */
   new_password: PasswordPolicySchema.optional(),
 });

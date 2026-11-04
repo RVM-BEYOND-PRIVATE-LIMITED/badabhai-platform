@@ -100,7 +100,11 @@ describe("PayerSessionService — role (ADR-0022)", () => {
     const { token } = await svc.create("payer-1", "agent" as PayerRole);
     // The stored blob carries the role (server-side authority).
     const [, raw] = [...redis.store.entries()][0]!;
-    expect(JSON.parse(raw)).toEqual({ payer_id: "payer-1", role: "agent" });
+    expect(JSON.parse(raw)).toEqual({
+      payer_id: "payer-1",
+      role: "agent",
+      created_at_ms: expect.any(Number),
+    });
 
     const validated = await svc.validateAndTouch(token);
     expect(validated).not.toBeNull();
@@ -112,7 +116,10 @@ describe("PayerSessionService — role (ADR-0022)", () => {
     const { svc, redis } = setup();
     const { token } = await svc.create("payer-1");
     const [, raw] = [...redis.store.entries()][0]!;
-    expect(JSON.parse(raw)).toEqual({ payer_id: "payer-1" }); // pre-ADR-0022 shape
+    expect(JSON.parse(raw)).toEqual({
+      payer_id: "payer-1",
+      created_at_ms: expect.any(Number),
+    }); // pre-ADR-0022 shape plus the #2563 creation stamp
 
     const validated = await svc.validateAndTouch(token);
     // null = "unknown, resolve from the row" — NOT a privileged default.
@@ -178,7 +185,11 @@ describe("PayerSessionService — org claim (#2079)", () => {
     const { svc, redis } = setup();
     await svc.create("payer-1", "employer", { orgId: ORG, orgRole: "owner" });
     const [, raw] = [...redis.store.entries()][0]!;
-    expect(JSON.parse(raw)).toEqual({ payer_id: "payer-1", role: "employer" });
+    expect(JSON.parse(raw)).toEqual({
+      payer_id: "payer-1",
+      role: "employer",
+      created_at_ms: expect.any(Number),
+    });
   });
 
   it("BACKWARD-COMPAT: a legacy token without the claim still validates, org:null (least privilege)", async () => {
@@ -330,5 +341,24 @@ describe("PayerSessionService.validateAndTouch — issuedAtSeconds (#2563)", () 
     const { token } = await svc.create("payer-1", "employer" as PayerRole);
     const validated = await svc.validateAndTouch(token);
     expect(validated?.issuedAtSeconds).toBe(claimsOf(token).iat);
+  });
+
+  it("also exposes the Redis record's millisecond creation stamp", async () => {
+    const { svc } = setup();
+    const before = Date.now();
+    const { token } = await svc.create("payer-1", "employer" as PayerRole);
+    const validated = await svc.validateAndTouch(token);
+    expect(validated?.createdAtMs).toBeGreaterThanOrEqual(before);
+    expect(validated?.createdAtMs).toBeLessThanOrEqual(Date.now());
+  });
+
+  it("a rolling mint reuses the sid and does NOT move the creation stamp", async () => {
+    const { svc } = setup();
+    const created = await svc.create("payer-1", "employer" as PayerRole);
+    const original = await svc.validateAndTouch(created.token);
+    await svc.mint("payer-1", original!.sid, "employer" as PayerRole);
+    const refreshed = await svc.validateAndTouch(created.token);
+    expect(refreshed?.sid).toBe(original!.sid);
+    expect(refreshed?.createdAtMs).toBe(original!.createdAtMs);
   });
 });

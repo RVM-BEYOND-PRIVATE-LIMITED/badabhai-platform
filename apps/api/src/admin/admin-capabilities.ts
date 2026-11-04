@@ -171,6 +171,13 @@ export const ADMIN_CAPABILITIES = [
    * The route capability is the FLOOR. Login IDs and organisation names on the accounts list are
    * still gated by `read_identity` inside `AdminIdentityService`, so a holder without that row
    * gets the faceless account state and no contact identity.
+   *
+   * ── THE FIRST ADMIN DECRYPT OF PAYER EMAIL/PHONE (owner ruling 2026-11-04) ───────────────
+   * A payer login ID is the account's email, else its phone. `super_admin`, `ops_admin` and
+   * `support` may see it — but ONLY on the User accounts surface (`payer_logins`), through
+   * `AdminIdentityService` (capability check, name budget charged, `admin.identity_viewed`
+   * committed before decrypt). It is never disclosed by the entity lists, the payer detail, the
+   * directory or any event. A holder without `read_identity` never receives it.
    */
   "manage_payer_credentials",
   "toggle_kill_switch",

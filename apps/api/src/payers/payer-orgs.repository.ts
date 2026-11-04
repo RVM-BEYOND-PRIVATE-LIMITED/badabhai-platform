@@ -144,7 +144,17 @@ export class PayerOrgsRepository {
     return tx ? ensurePhoneOwner(tx) : this.db.transaction(ensurePhoneOwner);
   }
 
-  /** #2563 — the org a team member is being attached to, or undefined. */
+  /** #2563 — is this payer the ROOT of an org (a founder), not a member of someone else's? */
+  async isRootPayer(payerId: string): Promise<boolean> {
+    const [row] = await this.db
+      .select({ id: payerOrgs.id })
+      .from(payerOrgs)
+      .where(eq(payerOrgs.rootPayerId, payerId))
+      .limit(1);
+    return row !== undefined;
+  }
+
+  /** #2563 - the org a team member is being attached to, or undefined. */
   async findOrgById(
     orgId: string,
   ): Promise<

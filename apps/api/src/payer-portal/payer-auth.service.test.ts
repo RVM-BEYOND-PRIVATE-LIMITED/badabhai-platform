@@ -38,6 +38,7 @@ function setup(over: { method?: "email_otp" | "whatsapp" | "supabase" } = {}) {
     OTP_RESEND_COOLDOWN_SECONDS: 30,
     PAYER_PASSWORD_MAX_ATTEMPTS: 5,
     PAYER_PASSWORD_LOCKOUT_SECONDS: 900,
+    PAYER_TEMP_PASSWORD_TTL_HOURS: 168,
   } as unknown as ServerConfig;
 
   const account: Record<string, unknown> = {
@@ -47,6 +48,7 @@ function setup(over: { method?: "email_otp" | "whatsapp" | "supabase" } = {}) {
     // #2563 — defaults for every fixture: an ordinary, non-revoked, self-set password.
     mustChangePassword: false,
     passwordRevokedAt: null,
+    passwordSetAt: new Date(),
   };
   const payers = {
     createOrGet: vi.fn(async () => ({ id: PAYER_ID, created: true })),
@@ -54,6 +56,9 @@ function setup(over: { method?: "email_otp" | "whatsapp" | "supabase" } = {}) {
     findByPhone: vi.fn(async (): Promise<Record<string, unknown>[]> => []),
     findByOrgName: vi.fn(async (): Promise<Record<string, unknown>[]> => []),
     setPassword: vi.fn(async () => ({})),
+    replaceTemporaryPassword: vi.fn(
+      async (): Promise<Record<string, unknown> | undefined> => ({}),
+    ),
     setTemporaryPassword: vi.fn(async () => ({})),
     revokePassword: vi.fn(async () => ({})),
     recordLogin: vi.fn(async () => undefined),
@@ -81,6 +86,8 @@ function setup(over: { method?: "email_otp" | "whatsapp" | "supabase" } = {}) {
   };
   const orgs = {
     ensureSoloOrg: vi.fn(async () => ({ orgId: "org-1", orgRole: "owner" })),
+    // #2563 — the lazy company-name hash backfill runs only for an org ROOT.
+    isRootPayer: vi.fn(async () => true),
   };
   // ADR-0053 — the acting-org choice. `resolveActingOrg` serves refresh (no heal); login asks
   // `ensureActingOrg`, the ONE place a missing org is repaired (the real heal is exercised by
@@ -110,6 +117,7 @@ function setup(over: { method?: "email_otp" | "whatsapp" | "supabase" } = {}) {
     verifyPassword: (v: string, t: string) => t === pwHashFor(v),
   };
   const freeTier = { grantQuietly: vi.fn().mockResolvedValue(undefined) };
+  const notice = { notify: vi.fn(async () => undefined) };
   // Per-account password-attempt lockout (Redis). Defaults: no lockout recorded.
   const redis = {
     incr: vi.fn(async () => 1),
@@ -131,8 +139,9 @@ function setup(over: { method?: "email_otp" | "whatsapp" | "supabase" } = {}) {
     freeTier as never,
     tenancy as never,
     queue as never,
+    notice as never,
   );
-  return { svc, payers, orgs, tenancy, otp, sessions, events, freeTier, queue, redis, pii };
+  return { svc, payers, orgs, tenancy, otp, sessions, events, freeTier, queue, redis, pii, notice };
 }
 
 /** Every string the raw contact PII could be — must NEVER appear in an emitted event. */
@@ -515,6 +524,7 @@ describe("PayerAuthService.setPassword (#2497)", () => {
     );
     // #2563: the caller stays signed in; only the OTHER sessions end.
     expect(d.sessions.revokeAllForPayerExcept).toHaveBeenCalledWith(PAYER_ID, "sid-1");
+    expect(d.notice.notify).toHaveBeenCalledWith(PAYER_ID, "changed");
     const blob = JSON.stringify([d.payers.setPassword.mock.calls, d.events.emit.mock.calls]);
     expect(blob).not.toContain("CorrectHorse9");
   });
@@ -532,6 +542,7 @@ describe("PayerAuthService.loginWithPassword (#2497)", () => {
     passwordPepperVersion: 1,
     mustChangePassword: false,
     passwordRevokedAt: null,
+    passwordSetAt: new Date(),
     ...over,
   });
 
@@ -726,6 +737,7 @@ describe("PayerAuthService — #2563 forced change, revoke and last sign-in", ()
     passwordPepperVersion: 1,
     mustChangePassword: false,
     passwordRevokedAt: null,
+    passwordSetAt: new Date(),
     ...over,
   });
 
@@ -750,10 +762,11 @@ describe("PayerAuthService — #2563 forced change, revoke and last sign-in", ()
     const res = await d.svc.loginWithPassword(EMAIL, PW, CTX, NEW_PW);
 
     expect(res).toMatchObject({ payer_id: PAYER_ID, role: "employer" });
-    expect(d.payers.setPassword).toHaveBeenCalledWith(
+    expect(d.payers.replaceTemporaryPassword).toHaveBeenCalledWith(
       PAYER_ID,
       { hash: pwHashFor(NEW_PW), pepperVersion: 1 },
-      { tx: {} },
+      pwHashFor(PW),
+      {},
     );
     expect(d.events.emit).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -765,6 +778,73 @@ describe("PayerAuthService — #2563 forced change, revoke and last sign-in", ()
     expect(d.sessions.revokeAllForPayer).toHaveBeenCalledWith(PAYER_ID);
     expect(d.sessions.create).toHaveBeenCalledTimes(1);
     expect(d.payers.recordLogin).toHaveBeenCalledWith(PAYER_ID);
+    // Review fix 5 — the payer is emailed that the password changed.
+    expect(d.notice.notify).toHaveBeenCalledWith(PAYER_ID, "changed");
+  });
+
+  it("a temporary password is valid just BEFORE the 7-day TTL", async () => {
+    const d = setup();
+    d.payers.findByEmail.mockResolvedValueOnce(
+      pwAccount({
+        mustChangePassword: true,
+        passwordSetAt: new Date(Date.now() - (168 * 3600_000 - 60_000)),
+      }),
+    );
+    await expect(d.svc.loginWithPassword(EMAIL, PW, CTX)).resolves.toEqual({
+      status: "password_change_required",
+    });
+  });
+
+  it("a temporary password is a neutral 401 just AFTER the 7-day TTL", async () => {
+    const d = setup();
+    d.payers.findByEmail.mockResolvedValueOnce(
+      pwAccount({
+        mustChangePassword: true,
+        passwordSetAt: new Date(Date.now() - (168 * 3600_000 + 60_000)),
+      }),
+    );
+    await expect(d.svc.loginWithPassword(EMAIL, PW, CTX)).rejects.toBeInstanceOf(
+      UnauthorizedException,
+    );
+    expect(d.sessions.create).not.toHaveBeenCalled();
+  });
+
+  it("two concurrent forced-change requests: exactly one wins", async () => {
+    const d = setup();
+    d.payers.findByEmail.mockResolvedValue(pwAccount({ mustChangePassword: true }));
+    d.payers.replaceTemporaryPassword
+      .mockResolvedValueOnce({})
+      .mockResolvedValueOnce(undefined);
+
+    const results = await Promise.allSettled([
+      d.svc.loginWithPassword(EMAIL, PW, CTX, NEW_PW),
+      d.svc.loginWithPassword(EMAIL, PW, CTX, NEW_PW),
+    ]);
+
+    const fulfilled = results.filter((r) => r.status === "fulfilled");
+    const rejected = results.filter((r) => r.status === "rejected");
+    expect(fulfilled).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+    expect((rejected[0] as PromiseRejectedResult).reason).toBeInstanceOf(UnauthorizedException);
+    expect(d.sessions.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("never writes the founder's company-name hash onto a team-member row", async () => {
+    const d = setup();
+    d.orgs.isRootPayer.mockResolvedValueOnce(false);
+    d.payers.findByEmail.mockResolvedValueOnce(pwAccount({ orgNameLookupHash: null }));
+
+    await d.svc.loginWithPassword(EMAIL, PW, CTX);
+
+    expect(d.orgs.isRootPayer).toHaveBeenCalledWith(PAYER_ID);
+    expect(d.payers.ensureOrgLookupHash).not.toHaveBeenCalled();
+
+    // ...and the ROOT still gets the lazy backfill.
+    const root = setup();
+    root.orgs.isRootPayer.mockResolvedValueOnce(true);
+    root.payers.findByEmail.mockResolvedValueOnce(pwAccount({ orgNameLookupHash: null }));
+    await root.svc.loginWithPassword(EMAIL, PW, CTX);
+    expect(root.payers.ensureOrgLookupHash).toHaveBeenCalledTimes(1);
   });
 
   it("rejects a new_password equal to the temporary one", async () => {
@@ -774,7 +854,7 @@ describe("PayerAuthService — #2563 forced change, revoke and last sign-in", ()
     await expect(d.svc.loginWithPassword(EMAIL, PW, CTX, PW)).rejects.toBeInstanceOf(
       BadRequestException,
     );
-    expect(d.payers.setPassword).not.toHaveBeenCalled();
+    expect(d.payers.replaceTemporaryPassword).not.toHaveBeenCalled();
     expect(d.sessions.create).not.toHaveBeenCalled();
   });
 
@@ -866,6 +946,7 @@ describe("login heals a missing org ONCE, through the resolver (ADR-0053 R4; rev
       {
         PAYER_LOGIN_METHOD: "email_otp",
         OTP_RESEND_COOLDOWN_SECONDS: 30,
+        PAYER_TEMP_PASSWORD_TTL_HOURS: 168,
       } as unknown as ServerConfig,
       d.payers as never,
       r.orgs as never,
@@ -876,6 +957,7 @@ describe("login heals a missing org ONCE, through the resolver (ADR-0053 R4; rev
       d.freeTier as never,
       r.tenancy,
       d.queue as never,
+      d.notice as never,
     );
     return { svc, d };
   }

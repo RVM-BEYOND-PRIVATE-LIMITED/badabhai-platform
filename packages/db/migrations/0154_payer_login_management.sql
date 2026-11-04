@@ -12,10 +12,11 @@
 --   * password_revoked_at - nullable, no default. When an admin revoked password sign-in.
 --     A non-NULL value with no newer `password_set_at` means the password door is off;
 --     email-code sign-in still works. Cleared when a new password is stored.
---   * sessions_valid_after - nullable, no default. Sessions minted at or before this
---     instant are dead. An admin issue/revoke stamps it and ends every session; a
---     self-service password set stamps it for the OTHER sessions only and keeps the
---     caller's. NULL (every payer on deploy) leaves existing sessions unaffected.
+--   * sessions_valid_after - nullable, no default. Sessions created at or before this
+--     instant are dead. An admin issue/revoke stamps it and ends every session. A
+--     self-service password set does NOT stamp it (that would reject the caller's own
+--     session); it revokes the OTHER sessions through the session index. NULL (every payer
+--     on deploy) leaves existing sessions unaffected.
 --   * last_login_at - nullable, no default. Last successful payer sign-in (OTP or password).
 --
 -- APPLY-BEFORE-DEPLOY. Manual apply BEFORE the build that reads these columns deploys (code
@@ -36,7 +37,7 @@
 --   ALTER TABLE "payers" DROP COLUMN IF EXISTS "password_revoked_at";
 --   ALTER TABLE "payers" DROP COLUMN IF EXISTS "must_change_password";
 -- only AFTER rolling the API back to a build that does not name them. Dropping them loses
--- the login timestamps and the session-invalidation watermark (sessions minted before a
+-- the login timestamps and the session-invalidation watermark (sessions created before a
 -- rollback become valid again), and turns every temporary-password account back into an
 -- ordinary password account.
 SET lock_timeout='3s';--> statement-breakpoint

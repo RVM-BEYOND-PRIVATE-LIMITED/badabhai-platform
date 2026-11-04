@@ -46,6 +46,8 @@ export interface AdminAccountListInput {
   status?: PayerStatus;
   passwordState?: AdminAccountPasswordState;
   orgId?: string;
+  /** `now - PAYER_TEMP_PASSWORD_TTL_HOURS`; rows at or before it are `temporary_expired`. */
+  tempPasswordCutoff: Date;
 }
 
 export interface AdminAccountListResult {
@@ -90,7 +92,23 @@ export class AdminPayerLoginsRepository {
     if (input.status) conditions.push(eq(payers.status, input.status));
 
     if (input.passwordState === "temporary_pending") {
-      conditions.push(eq(payers.mustChangePassword, true));
+      conditions.push(
+        and(
+          eq(payers.mustChangePassword, true),
+          sql`${payers.passwordSetAt} is not null`,
+          sql`${payers.passwordSetAt} > ${input.tempPasswordCutoff}`,
+        )!,
+      );
+    } else if (input.passwordState === "temporary_expired") {
+      conditions.push(
+        and(
+          eq(payers.mustChangePassword, true),
+          or(
+            sql`${payers.passwordSetAt} is null`,
+            sql`${payers.passwordSetAt} <= ${input.tempPasswordCutoff}`,
+          )!,
+        )!,
+      );
     } else if (input.passwordState === "revoked") {
       conditions.push(
         and(
@@ -234,6 +252,22 @@ export class AdminPayerLoginsRepository {
         reason_code: input.reasonCode,
         reason_text: input.reasonText,
       },
+    });
+  }
+
+  /**
+   * #2563 review — a create that 409s because the login already exists still leaves a trace.
+   * Written OUTSIDE the rolled-back transaction, value-free: admin id, action code and the
+   * EXISTING payer id only. No email, no phone, no attempted name and no reason text.
+   */
+  async writeConflictAudit(adminId: string, payerId: string): Promise<void> {
+    await this.db.insert(auditLogs).values({
+      actorType: "admin",
+      actorId: adminId,
+      action: "payer_login_create_conflict",
+      entityType: "payer",
+      entityId: payerId,
+      metadata: {},
     });
   }
 }
