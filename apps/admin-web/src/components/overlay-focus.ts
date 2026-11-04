@@ -11,7 +11,20 @@ import { focusableIn, trapTab, type Focusable, type FocusRoot } from "./drawer-f
  *
  * Tab / Shift+Tab wrap inside the overlay and Escape calls `onEscape`. Written against the narrow
  * surface it uses so the node test env drives it with stand-ins (overlay-focus.test.ts).
+ *
+ * OVERLAYS STACK (A7, #2577): a confirm can open OVER a drawer (the phone reveal's reason). Every
+ * hold listens on the same window, so only the TOPMOST one — the last still held — answers a
+ * key: Escape closes the confirm and leaves the drawer open, and Tab cycles the confirm's
+ * controls instead of being pulled back into the drawer under it. Releasing the top hands the
+ * keys back to the one beneath.
  */
+const held: object[] = [];
+
+/** Is this hold the topmost one still held — the overlay a key press belongs to? */
+function isTopHold(token: object): boolean {
+  return held[held.length - 1] === token;
+}
+
 export function holdFocus<T extends Focusable>({
   container,
   keyTarget,
@@ -27,9 +40,13 @@ export function holdFocus<T extends Focusable>({
   initial?: { focus(): void } | null;
   returnTo?: { focus(): void } | null;
 }): () => void {
+  const token = {};
+  held.push(token);
   (initial ?? focusableIn(container)[0] ?? container).focus();
 
   const onKey = (event: Event) => {
+    // Another overlay opened over this one: its hold answers the key, not this.
+    if (!isTopHold(token)) return;
     const { key, shiftKey } = event as KeyboardEvent;
     if (key === "Escape") {
       event.preventDefault();
@@ -47,6 +64,8 @@ export function holdFocus<T extends Focusable>({
   keyTarget.addEventListener("keydown", onKey);
   return () => {
     keyTarget.removeEventListener("keydown", onKey);
+    const at = held.indexOf(token);
+    if (at >= 0) held.splice(at, 1);
     returnTo?.focus();
   };
 }

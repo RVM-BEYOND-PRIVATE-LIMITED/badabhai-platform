@@ -1,6 +1,6 @@
 "use client";
 
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { OverlayFrame, type DialogProps } from "./dialog";
 
 /** The search param a drawer is addressed by unless the caller names another. */
@@ -40,22 +40,89 @@ export function drawerHref(
 }
 
 /**
+ * The key a drawer leaves on the history entry it PUSHED (its value is the drawer's param). Next
+ * copies its own router state in beside it (its patched `pushState` / `replaceState`), so the
+ * entry stays a normal Next entry that Back and Forward restore.
+ */
+export const DRAWER_ENTRY_KEY = "bbDrawer";
+
+/** The narrow history surface the entries below use — `window.history` in the browser. */
+export interface DrawerHistory {
+  readonly state: unknown;
+  pushState(data: unknown, unused: string, url?: string | null): void;
+  replaceState(data: unknown, unused: string, url?: string | null): void;
+  back(): void;
+}
+
+const browserHistory = (): DrawerHistory => window.history;
+
+/** Was the current history entry pushed by opening the `param` drawer? */
+function pushedFor(history: DrawerHistory, param: string): boolean {
+  const state = history.state;
+  return (
+    typeof state === "object" &&
+    state !== null &&
+    (state as Record<string, unknown>)[DRAWER_ENTRY_KEY] === param
+  );
+}
+
+/**
+ * OPEN: a new history entry at `href`, marked as the `param` drawer's — so Back closes it.
+ *
+ * SHALLOW, deliberately: the history API, not the router. Next syncs a `pushState` into
+ * `usePathname` / `useSearchParams` (the drawer opens) WITHOUT re-rendering the page under it, so
+ * the list a drawer sits on is not fetched again — on Candidates that re-read would spend 50 names
+ * of the admin's hourly budget per open. The drawer loads its own content.
+ */
+export function openDrawerEntry(
+  href: string,
+  param: string,
+  history: DrawerHistory = browserHistory(),
+): void {
+  history.pushState({ [DRAWER_ENTRY_KEY]: param }, "", href);
+}
+
+/** MOVE (another record in the same drawer): the current entry, rewritten — never a new one. */
+export function moveDrawerEntry(
+  href: string,
+  param: string,
+  history: DrawerHistory = browserHistory(),
+): void {
+  history.replaceState(pushedFor(history, param) ? { [DRAWER_ENTRY_KEY]: param } : null, "", href);
+}
+
+/**
+ * CLOSE. The entry the drawer pushed is popped — exactly what Back does — so closing leaves no
+ * duplicate of the list behind it for Back to land on. A drawer that came with the page (a
+ * reload, a pasted link) has no entry of its own: its param is replaced away instead.
+ */
+export function closeDrawerEntry(
+  closedHref: string,
+  param: string,
+  history: DrawerHistory = browserHistory(),
+): void {
+  if (pushedFor(history, param)) history.back();
+  else history.replaceState(null, "", closedHref);
+}
+
+/**
  * A drawer ADDRESSABLE BY URL: it is open while `?<param>=<value>` is in the address bar, so the
  * view can be linked, reloaded and closed with Back. `open(value)` pushes the param (a new
- * history entry); `close()` replaces it away; `href(value)` is the link that opens it.
+ * history entry), `move(value)` rewrites it in place, `close()` takes it away (popping the entry
+ * `open` pushed); `href(value)` is the link that opens it. All shallow — see `openDrawerEntry`.
  */
 export function useUrlDrawer(param: string = DRAWER_PARAM) {
-  const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
   const search = params.toString();
   const value = params.get(param);
+  const href = (next: string | null) => drawerHref(pathname, search, param, next);
   return {
     value,
     isOpen: value !== null && value !== "",
-    href: (next: string) => drawerHref(pathname, search, param, next),
-    open: (next: string) =>
-      router.push(drawerHref(pathname, search, param, next), { scroll: false }),
-    close: () => router.replace(drawerHref(pathname, search, param, null), { scroll: false }),
+    href: (next: string) => href(next),
+    open: (next: string) => openDrawerEntry(href(next), param),
+    move: (next: string) => moveDrawerEntry(href(next), param),
+    close: () => closeDrawerEntry(href(null), param),
   };
 }

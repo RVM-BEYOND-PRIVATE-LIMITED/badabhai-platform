@@ -14,6 +14,7 @@ import {
 import { Icon } from "@badabhai/icons";
 import { NavPendingCue } from "./nav-pending";
 import { pendingNavigation, subscribeNavigation } from "./nav-pending-store";
+import { openDrawerEntry } from "./drawer";
 import { GridViewControls } from "./grid-view-controls";
 import { useColumnChoices, useDensityChanges, useGridDensity } from "./grid-preferences";
 import {
@@ -48,6 +49,8 @@ export interface DataGridViewProps {
   rows: readonly GridViewRow[];
   /** The column holding each row's link, when the rows link to a page of their own. */
   linkColumn?: string;
+  /** The search param of the drawer each row opens over this list, instead of a page (A7). */
+  linkDrawer?: string;
   pager?: ReactNode;
   variant?: "prose";
   viewControls: boolean;
@@ -76,6 +79,7 @@ export function DataGridView({
   columns,
   rows,
   linkColumn,
+  linkDrawer,
   pager,
   variant,
   viewControls,
@@ -166,7 +170,7 @@ export function DataGridView({
                         className={cellClass(c, true)}
                         scope={c.rowHeader ? "row" : undefined}
                       >
-                        <RowLink row={row} href={row.href} title={title}>
+                        <RowLink row={row} href={row.href} title={title} drawer={linkDrawer}>
                           {content}
                         </RowLink>
                         {trail}
@@ -232,21 +236,46 @@ function RowLink({
   row,
   href,
   title,
+  drawer,
   children,
 }: {
   row: GridViewRow;
   href: string;
   title: string | undefined;
+  /** The drawer this row opens over the list (its search param), when it opens one. */
+  drawer?: string;
   children: ReactNode;
 }) {
   return (
-    <Link className="grid__link" href={href} aria-label={row.label}>
+    <Link
+      className="grid__link"
+      href={href}
+      aria-label={row.label}
+      onNavigate={drawer ? (event) => openRowDrawer(event, href, drawer) : undefined}
+    >
       <span className="grid__link-text" title={title}>
         {children}
       </span>
       <NavPendingCue message={`Opening ${row.name ?? "the row"}…`} />
     </Link>
   );
+}
+
+/**
+ * A row that opens a drawer over its list (A7, #2577): Next was about to navigate to the row's
+ * `?<drawer>=<id>` address — stop it, and take the address in place instead (`openDrawerEntry`),
+ * so the drawer opens at once over a list that is neither re-read nor scrolled. Next calls this
+ * only for a plain click it would handle itself; a new-tab or modified click never gets here and
+ * follows the href, where the drawer opens with the page.
+ */
+export function openRowDrawer(
+  event: { preventDefault(): void },
+  href: string,
+  drawer: string,
+  open: (href: string, param: string) => void = openDrawerEntry,
+): void {
+  event.preventDefault();
+  open(href, drawer);
 }
 
 /** What in a row is a control of its own: a click on one is that control's, never the row's. */
