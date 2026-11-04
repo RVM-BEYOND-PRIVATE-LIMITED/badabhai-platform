@@ -131,9 +131,13 @@ class AgencyJobsCubit extends Cubit<AgencyJobsState> {
       }
       // Any other validation 400 names the field the server refused (e.g.
       // "Job title: Must not contain a company name."), instead of the old
-      // "check the details" that left the agent guessing.
+      // "check the details" that left the agent guessing — and hands every
+      // issue on by field, so the edit screen can show each AT its box.
       if (e.validationMessage != null && e.validationMessage!.isNotEmpty) {
-        return JobActionResult.fail(e.validationMessage!);
+        return JobActionResult.fail(
+          e.validationMessage!,
+          fieldErrors: e.fieldErrors,
+        );
       }
       return JobActionResult.fail(
         e.isNotFound
@@ -151,11 +155,20 @@ class AgencyJobsCubit extends Cubit<AgencyJobsState> {
 /// The outcome of a one-shot agency My-jobs action — a success/neutral flag + a
 /// human message the screen shows as a toast. Never carries PII.
 class JobActionResult {
-  const JobActionResult.ok(this.message) : success = true;
-  const JobActionResult.fail(this.message) : success = false;
+  const JobActionResult.ok(this.message)
+      : success = true,
+        fieldErrors = const <String, String>{};
+  const JobActionResult.fail(
+    this.message, {
+    this.fieldErrors = const <String, String>{},
+  }) : success = false;
 
   final bool success;
   final String message;
+
+  /// #2595 — a refused edit's issues by wire field
+  /// ([PayerApiException.fieldErrors]); empty otherwise.
+  final Map<String, String> fieldErrors;
 }
 
 enum AgencyJobsStatus { initial, loading, ready, error }

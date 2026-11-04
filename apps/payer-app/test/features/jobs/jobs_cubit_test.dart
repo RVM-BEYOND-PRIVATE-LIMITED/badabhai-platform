@@ -188,6 +188,26 @@ void main() {
       expect(result.message, 'Job title: Must not contain a company name.');
     });
 
+    test('#2595 — a validation 400 hands every issue on by its field',
+        () async {
+      api.throwOnUpdate = const PayerApiException(
+        400,
+        validationMessage: 'Title must not contain a company name',
+        fieldErrors: <String, String>{
+          'role_title': 'Title must not contain a company name.',
+          'description': 'Must not contain links.',
+        },
+      );
+
+      final JobActionResult result = await cubit.editJob('j1', roleTitle: 'x');
+
+      expect(result.success, isFalse);
+      expect(result.fieldErrors, <String, String>{
+        'role_title': 'Title must not contain a company name.',
+        'description': 'Must not contain links.',
+      });
+    });
+
     test('any other 400 keeps the neutral retry copy', () async {
       api.throwOnUpdate = const PayerApiException(400);
 
