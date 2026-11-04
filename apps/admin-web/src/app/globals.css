@@ -4558,13 +4558,13 @@ a.pager__step:hover {
   }
 }
 
-/* ==================================================================
- * A5 (#2575) — OVERLAYS: Dialog, Drawer, Toast, the T2/T3 confirm, the armed pulse and the
- * primary button's press edge. Every duration is a motion token, so all of it is 0 under
- * prefers-reduced-motion (tokens.css); only opacity and transform move, and never by more than
- * 6px. Enter on --ease-enter over --duration-base, leave on --ease-exit over --duration-fast —
- * the token `usePresence` (components/presence.ts) waits for before it unmounts.
- * ================================================================== */
+/* ══ A5 (#2575) — OVERLAYS: Dialog, Drawer, Toast, the T2/T3 confirm, the armed pulse and the
+   primary button's press edge ══
+   Its own block, marked "══" like A2 and A4, so the block before it ends here (data-grid.css.test.ts
+   reads A4's up to the next "══" marker). Every duration is a motion token, so all of it is 0 under
+   prefers-reduced-motion (tokens.css); only opacity and transform move, and never by more than
+   6px. Enter on --ease-enter over --duration-base, leave on --ease-exit over --duration-fast —
+   the token `usePresence` (components/presence.ts) waits for before it unmounts. */
 .overlay {
   position: fixed;
   inset: 0;
