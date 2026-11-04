@@ -59,11 +59,7 @@ export function AcceptInvite({ token }: { token: string }) {
           <p className="alert__body">{result.message}</p>
         </div>
         <div className="alert__actions">
-          <PortalLink
-            className="bb-btn bb-btn--primary"
-            href="/dashboard"
-            pendingLabel="Dashboard"
-          >
+          <PortalLink className="bb-btn bb-btn--primary" href="/dashboard" pendingLabel="Dashboard">
             <span>Go to your dashboard</span>
             <Icon name={ACTION_ICON.next} />
           </PortalLink>

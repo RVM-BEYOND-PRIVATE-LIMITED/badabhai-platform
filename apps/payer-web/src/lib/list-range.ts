@@ -21,7 +21,10 @@ const MAX_START = 1_000_000;
  * `from` says — a whole number of at least 2, since a cursor never points at the first row — and
  * anything else there is unknown (null).
  */
-export function pageStart(raw: string | string[] | undefined, cursor: string | null): number | null {
+export function pageStart(
+  raw: string | string[] | undefined,
+  cursor: string | null,
+): number | null {
   if (cursor === null) return 1;
   if (typeof raw !== "string" || !/^[1-9]\d{0,6}$/.test(raw)) return null;
   const start = Number(raw);
@@ -41,7 +44,11 @@ export interface ListRange {
  * Null when the start is unknown, the page is empty, or the range runs past the total — a link that
  * outlived the list it counted (the pool shrank since) is not a position worth printing.
  */
-export function listRange(start: number | null, rows: number, total: number | null): ListRange | null {
+export function listRange(
+  start: number | null,
+  rows: number,
+  total: number | null,
+): ListRange | null {
   if (start === null || rows < 1) return null;
   const last = start + rows - 1;
   if (total !== null && last > total) return null;

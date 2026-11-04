@@ -63,11 +63,13 @@ describe("DS fields — an auto id is stable across renders and shared by its pa
     expect(ids[0]).toBe("email");
     expect(values(out, "for")).toEqual(["email", ids[1]]);
     expect(ids[1]).toMatch(/^bb-input-/);
-    expect(renderToString(
-      <form>
-        <Input id="email" label="Work email" />
-        <Input label="Phone" />
-      </form>,
-    )).toBe(out);
+    expect(
+      renderToString(
+        <form>
+          <Input id="email" label="Work email" />
+          <Input label="Phone" />
+        </form>,
+      ),
+    ).toBe(out);
   });
 });

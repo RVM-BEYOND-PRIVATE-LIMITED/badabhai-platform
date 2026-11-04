@@ -94,7 +94,9 @@ describe("the markup — six labelled boxes in a labelled group", () => {
   it("a visible label names the group; each box names its place", () => {
     const out = html({ value: "12" });
     expect(out).toContain(`<span class="otp-code__label" id=":otp:">${LABEL}</span>`);
-    expect(out).toContain('<div class="bb-otp otp-code__boxes" role="group" aria-labelledby=":otp:">');
+    expect(out).toContain(
+      '<div class="bb-otp otp-code__boxes" role="group" aria-labelledby=":otp:">',
+    );
     const all = boxes(out);
     expect(all).toHaveLength(6);
     all.forEach((box, i) => expect(box).toContain(`aria-label="Digit ${i + 1} of 6"`));
@@ -134,7 +136,9 @@ describe("the markup — six labelled boxes in a labelled group", () => {
       expect(box).not.toMatch(/disabled/i);
     }
     // Decorative (aria-hidden): the caller announces the outcome.
-    expect(out).toContain('<i class="ph-fill ph-check-circle bb-icon--md otp-code__check" aria-hidden="true"></i>');
+    expect(out).toContain(
+      '<i class="ph-fill ph-check-circle bb-icon--md otp-code__check" aria-hidden="true"></i>',
+    );
   });
 
   it("before success the boxes are editable and the root carries no success class", () => {
@@ -218,7 +222,9 @@ describe("typing — the sixth digit completes the code (auto-submit)", () => {
     m.change(5, "6");
     expect(m.onChange).toHaveBeenCalledExactlyOnceWith("123456");
     expect(m.onComplete).toHaveBeenCalledExactlyOnceWith("123456");
-    expect(m.onChange.mock.invocationCallOrder[0]).toBeLessThan(m.onComplete.mock.invocationCallOrder[0]!);
+    expect(m.onChange.mock.invocationCallOrder[0]).toBeLessThan(
+      m.onComplete.mock.invocationCallOrder[0]!,
+    );
     expect(m.focused()).toBe(5);
     // The box is selected, so the next keystroke replaces its digit.
     expect(m.boxes[5]!.select).toHaveBeenCalled();

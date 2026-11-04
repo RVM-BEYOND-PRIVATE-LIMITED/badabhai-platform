@@ -33,24 +33,32 @@ describe("CandidatesPager", () => {
     }) as El;
     expect(nav.type).toBe("nav");
     const kids = (nav.props.children as ReactNode[]).filter(Boolean) as El[];
-    expect(kids[0]).toMatchObject({ type: "p", props: { className: "candidates-pager__range", children: "Showing 21–40 of 57" } });
-    expect(links(nav).map((l) => l.props.href)).toEqual(["/candidates", "/candidates?cursor=abc&from=41"]);
+    expect(kids[0]).toMatchObject({
+      type: "p",
+      props: { className: "candidates-pager__range", children: "Showing 21–40 of 57" },
+    });
+    expect(links(nav).map((l) => l.props.href)).toEqual([
+      "/candidates",
+      "/candidates?cursor=abc&from=41",
+    ]);
   });
 
   it("no range when this page's start is unknown; nothing at all for a one-page list", () => {
     const nav = CandidatesPager({ firstPage: null, nextPage: "/candidates?cursor=abc" }) as El;
     expect(elements(nav).some((e) => e.props?.className === "candidates-pager__range")).toBe(false);
-    expect(CandidatesPager({ firstPage: null, nextPage: null, range: "Showing 1–12 of 12" })).toBeNull();
+    expect(
+      CandidatesPager({ firstPage: null, nextPage: null, range: "Showing 1–12 of 12" }),
+    ).toBeNull();
   });
 });
 
 describe("the states' First page is a PagerLink too (paging back in focuses the list heading)", () => {
   it("an outage on a later page, and a refused cursor", () => {
-    expect(links(LoadErrorState({ firstPage: "/candidates", body: "x" })).map((l) => l.props.href)).toEqual([
-      "/candidates",
-    ]);
-    expect(links(CursorRefusedState({ firstPage: "/candidates?city=Pune" })).map((l) => l.props.href)).toEqual([
-      "/candidates?city=Pune",
-    ]);
+    expect(
+      links(LoadErrorState({ firstPage: "/candidates", body: "x" })).map((l) => l.props.href),
+    ).toEqual(["/candidates"]);
+    expect(
+      links(CursorRefusedState({ firstPage: "/candidates?city=Pune" })).map((l) => l.props.href),
+    ).toEqual(["/candidates?city=Pune"]);
   });
 });

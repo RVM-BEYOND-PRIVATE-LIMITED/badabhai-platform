@@ -26,11 +26,17 @@ function onPage(address: string) {
   return frames;
 }
 const heading = (isConnected = true) =>
-  ({ isConnected, focus: vi.fn() }) as unknown as HTMLHeadingElement & { focus: ReturnType<typeof vi.fn> };
+  ({ isConnected, focus: vi.fn() }) as unknown as HTMLHeadingElement & {
+    focus: ReturnType<typeof vi.fn>;
+  };
 
 describe("PagedListHeading — the list's h2, focusable by script only", () => {
   it("renders an h2 with tabindex=-1 (never a tab stop) and the caller's class", () => {
-    expect(renderToStaticMarkup(<PagedListHeading className="candidate-search__count">57 candidates</PagedListHeading>)).toBe(
+    expect(
+      renderToStaticMarkup(
+        <PagedListHeading className="candidate-search__count">57 candidates</PagedListHeading>,
+      ),
+    ).toBe(
       '<h2 tabindex="-1" class="paged-list-heading candidate-search__count">57 candidates</h2>',
     );
     expect(renderToStaticMarkup(<PagedListHeading>Showing 21–40</PagedListHeading>)).toBe(
@@ -111,7 +117,11 @@ describe("PagerLink — a PortalLink whose plain click asks for the move", () =>
   it("is the portal's link, with its pending cue and every prop it was given", () => {
     const el = link();
     expect(el.type).toBe(PortalLink);
-    expect(el.props).toMatchObject({ href: HREF, pendingLabel: "Next page", className: "bb-btn bb-btn--secondary" });
+    expect(el.props).toMatchObject({
+      href: HREF,
+      pendingLabel: "Next page",
+      className: "bb-btn bb-btn--secondary",
+    });
   });
 
   it("a plain click asks for focus on the address it opens; the caller's handler still runs", () => {

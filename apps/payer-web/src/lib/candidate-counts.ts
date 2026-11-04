@@ -31,7 +31,9 @@ export interface CountSummary {
  * definite non-matches and nothing else (Decisions 2 and 4), so it lists the matches plus the
  * unrecorded. Both numbers come from the same response as the rows.
  */
-export function listedCount(c: Pick<SearchCounts, "total" | "matched" | "unrecorded" | "strict">): number {
+export function listedCount(
+  c: Pick<SearchCounts, "total" | "matched" | "unrecorded" | "strict">,
+): number {
   return c.strict ? c.matched + c.unrecorded : c.total;
 }
 

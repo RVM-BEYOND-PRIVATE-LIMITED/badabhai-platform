@@ -20,7 +20,19 @@ describe("pageStart — 1 on the first page; the pager's `from` on a later one",
   });
 
   it("anything else is unknown — never a guess", () => {
-    for (const raw of [undefined, "", "1", "0", "-21", "21.5", "2e3", " 21", "021", "abc", "99999999"]) {
+    for (const raw of [
+      undefined,
+      "",
+      "1",
+      "0",
+      "-21",
+      "21.5",
+      "2e3",
+      " 21",
+      "021",
+      "abc",
+      "99999999",
+    ]) {
       expect(pageStart(raw, CURSOR), String(raw)).toBeNull();
     }
     expect(pageStart(["21", "41"], CURSOR)).toBeNull();

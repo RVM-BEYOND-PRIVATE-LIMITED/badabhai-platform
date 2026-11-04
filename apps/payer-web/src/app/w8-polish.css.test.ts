@@ -24,7 +24,10 @@ const W8: Rule[] = parseRules(stripComments(RAW.slice(RAW.lastIndexOf("/*", RAW.
 const PHONE = "@media (max-width: 600px)";
 const BELOW_DESKTOP = "@media (max-width: 1023px)";
 const TOKENS = stripComments(
-  readFileSync(join(here, "..", "..", "..", "..", "packages", "design-tokens", "tokens.css"), "utf8"),
+  readFileSync(
+    join(here, "..", "..", "..", "..", "packages", "design-tokens", "tokens.css"),
+    "utf8",
+  ),
 );
 
 /** A token's px value (px, or rem at the 16px root). */
@@ -41,7 +44,8 @@ function base(selector: string, at = ""): Rule {
   return found!;
 }
 /** Where `r` sits in the file — a later rule wins over an earlier one at equal specificity. */
-const order = (r: Rule) => RULES.findIndex((x) => x.selector === r.selector && x.at === r.at && x.body === r.body);
+const order = (r: Rule) =>
+  RULES.findIndex((x) => x.selector === r.selector && x.at === r.at && x.body === r.body);
 
 /** The ONE rule for exactly `selector` under `at` ("" = top level), in `rules`. */
 function rule(selector: string, at = "", rules: Rule[] = RULES): Rule {
@@ -151,7 +155,9 @@ describe("the table scroll box — only at ≥1024px (no scroll trap on a phone 
     expect(decl(base, "overscroll-behavior")).toBe("contain");
     // No other rule caps it at a narrower width.
     expect(
-      RULES.filter((r) => r.selector === ".tablewrap" && decl(r, "max-block-size") !== null).map((r) => r.at),
+      RULES.filter((r) => r.selector === ".tablewrap" && decl(r, "max-block-size") !== null).map(
+        (r) => r.at,
+      ),
     ).toEqual(["", BELOW_DESKTOP]);
   });
 });
@@ -186,9 +192,7 @@ describe("the OTP code input — motion, success, one row", () => {
 
   it("nothing moves under reduced motion: the durations are tokens (0 there) and the pop's scale is 1", () => {
     expect(decl(rule(".otp-code", REDUCED, W8), "--otp-pop-scale")).toBe("1");
-    const reducedRoot = parseRules(TOKENS).find(
-      (r) => r.at === REDUCED && r.selector === ":root",
-    )!;
+    const reducedRoot = parseRules(TOKENS).find((r) => r.at === REDUCED && r.selector === ":root")!;
     for (const t of ["--duration-press", "--duration-base", "--duration-fast"]) {
       expect(decl(reducedRoot, t), t).toBe("0ms");
     }
@@ -199,10 +203,11 @@ describe("the OTP code input — motion, success, one row", () => {
     expect(decl(ok, "border-color")).toBe("var(--success)");
     expect(decl(ok, "background")).toBe("var(--success-tint)");
     expect(decl(ok, "color")).toBe("var(--text-primary)");
-    expect(W8.filter((r) => r.selector.includes("otp-code") && decl(r, "opacity") !== null).map((r) => r.selector)).toEqual([
-      ".otp-code__check",
-      ".otp-code--success .otp-code__check",
-    ]);
+    expect(
+      W8.filter((r) => r.selector.includes("otp-code") && decl(r, "opacity") !== null).map(
+        (r) => r.selector,
+      ),
+    ).toEqual([".otp-code__check", ".otp-code--success .otp-code__check"]);
   });
 
   it("the boxes are ONE row at every width: zero-minimum tracks capped at the DS box width", () => {

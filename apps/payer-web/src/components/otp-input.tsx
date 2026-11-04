@@ -88,7 +88,8 @@ export function otpWrite(value: string, length: number, index: number, digits: s
  * Null when there is nothing to clear.
  */
 export function otpBackspace(value: string, index: number): OtpEdit | null {
-  if (index < value.length) return { value: value.slice(0, index) + value.slice(index + 1), focus: index };
+  if (index < value.length)
+    return { value: value.slice(0, index) + value.slice(index + 1), focus: index };
   if (value.length === 0) return null;
   return { value: value.slice(0, -1), focus: value.length - 1 };
 }
@@ -99,7 +100,12 @@ export function otpFocusable(value: string, length: number, index: number): numb
 }
 
 /** The box a navigation key moves focus to from box `index` (clamped as above); null for any other key. */
-export function otpKeyTarget(key: string, value: string, length: number, index: number): number | null {
+export function otpKeyTarget(
+  key: string,
+  value: string,
+  length: number,
+  index: number,
+): number | null {
   switch (key) {
     case "ArrowLeft":
       return otpFocusable(value, length, index - 1);

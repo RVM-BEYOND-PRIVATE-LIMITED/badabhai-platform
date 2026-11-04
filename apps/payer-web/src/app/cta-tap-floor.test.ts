@@ -62,7 +62,9 @@ describe("#2588 · no hand-rolled CTA below the tap floor", () => {
     expect(smallCtaClasses("className={`bb-btn bb-btn--success bb-btn--sm ${x}`}")).toHaveLength(1);
     expect(smallCtaClasses(`<a className="bb-btn bb-btn--primary">`)).toEqual([]);
     expect(smallCtaClasses(`<a className="bb-btn bb-btn--secondary bb-btn--sm">`)).toEqual([]);
-    expect(smallCtaClasses(`<a className="bb-btn bb-btn--primary bb-btn--small-print">`)).toEqual([]);
+    expect(smallCtaClasses(`<a className="bb-btn bb-btn--primary bb-btn--small-print">`)).toEqual(
+      [],
+    );
   });
 
   it("no source pairs bb-btn--primary / --success / --danger with bb-btn--sm", () => {
@@ -74,13 +76,18 @@ describe("#2588 · no hand-rolled CTA below the tap floor", () => {
 
   it("the size every one of them now takes is the 44px floor (md), and sm is not", () => {
     const tokens = stripComments(
-      readFileSync(join(here, "..", "..", "..", "..", "packages", "design-tokens", "tokens.css"), "utf8"),
+      readFileSync(
+        join(here, "..", "..", "..", "..", "packages", "design-tokens", "tokens.css"),
+        "utf8",
+      ),
     );
     const ds = parseRules(
       stripComments(readFileSync(join(here, "..", "styles", "ds-components.css"), "utf8")),
     );
     const base = ds.find((r) => r.at === "" && r.selector === ".bb-btn")!;
-    const small = ds.find((r) => r.at === "" && r.selector.includes(".bb-btn--sm") && decl(r, "height"))!;
+    const small = ds.find(
+      (r) => r.at === "" && r.selector.includes(".bb-btn--sm") && decl(r, "height"),
+    )!;
     expect(decl(base, "height")).toBe("var(--control-md)");
     expect(decl(base, "min-height")).toBe("var(--control-md)");
     expect(tokenValue(tokens, "--control-md")).toBe("44px");
