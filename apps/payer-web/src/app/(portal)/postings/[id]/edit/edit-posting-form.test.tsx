@@ -480,6 +480,22 @@ describe("EditPostingForm — #2645: the role is the job's trade, one of the 16"
   const TRADE_MSG = "Pick one of the 16 trades";
   /** The posting as saved, with a role. */
   const STORED = { ...INITIAL, roleKind: "cnc_turner" };
+  /** What an older payer-app's flat picker (or the old web fallback) stored on the row. */
+  const HAND_PICKED = {
+    matchSkillIds: ["mskill_delivery_rider", "mskill_vmc_operating"],
+    untickedRelatedIds: ["mskill_cnc_turning"],
+  };
+  const skill = (skill_id: string, label: string) => ({
+    skill_id,
+    label,
+    industry_id: "ind_x",
+    related_skill_ids: [],
+  });
+  const VOCABULARY = [
+    skill("mskill_cnc_turner", "CNC Turning"),
+    skill("mskill_delivery_rider", "Delivery Rider"),
+    skill("mskill_vmc_operating", "VMC Operating"),
+  ];
 
   beforeEach(() => tradeFieldsProps.mockClear());
 
@@ -623,22 +639,6 @@ describe("EditPostingForm — #2645: the role is the job's trade, one of the 16"
       description: "Run two lathes.",
     };
     const CHIPS = { requirements: ["Fanuc"], benefits: ["PF"] };
-    /** What an older payer-app's flat picker (or the old web fallback) stored on the row. */
-    const HAND_PICKED = {
-      matchSkillIds: ["mskill_delivery_rider", "mskill_vmc_operating"],
-      untickedRelatedIds: ["mskill_cnc_turning"],
-    };
-    const skill = (skill_id: string, label: string) => ({
-      skill_id,
-      label,
-      industry_id: "ind_x",
-      related_skill_ids: [],
-    });
-    const VOCABULARY = [
-      skill("mskill_cnc_turner", "CNC Turning"),
-      skill("mskill_delivery_rider", "Delivery Rider"),
-      skill("mskill_vmc_operating", "VMC Operating"),
-    ];
     /** The real trade seed runs (OWN_SEED): it starts from the stored set, as on the page. */
     const draftTree = (initial: EditPostingInitial = { ...INITIAL, roleKind: "cnc_turner" }) =>
       render(FULL, "draft", CHIPS, OWN_SEED, {}, {
@@ -689,6 +689,39 @@ describe("EditPostingForm — #2645: the role is the job's trade, one of the 16"
       const input = updatePostingAction.mock.calls[0]![0] as Record<string, unknown>;
       expect(input.tradeAnswers).toBeUndefined();
       expect(input.publish).toBeUndefined();
+    });
+  });
+
+  describe("a LIVE job from before the trade form (no trade fields): its panel stays hidden", () => {
+    /** Open, one of the 16, no stored trade fields; the real trade seed runs (OWN_SEED). */
+    const liveTree = (stored: { matchSkillIds: string[]; untickedRelatedIds: string[] }) =>
+      render(
+        { roleKind: "cnc_turner" },
+        "open",
+        {},
+        OWN_SEED,
+        {},
+        { initial: STORED, matchSelection: stored, matchSkills: VOCABULARY },
+      );
+    const skillsOnRail = (tree: ReactElement) => {
+      const { facts } = railOf(tree).props as unknown as {
+        facts: Array<{ label: string; value: unknown }>;
+      };
+      return facts.find((f) => f.label === "Skills")?.value;
+    };
+    const panelShown = (tree: ReactElement) =>
+      hosts(tree).some((e) => e.props.className === "trade-fields-stub");
+
+    it("the rail's Skills is its STORED set: what it matches on until an edit rebuilds it", () => {
+      const tree = liveTree(HAND_PICKED);
+      expect(panelShown(tree)).toBe(false);
+      expect(skillsOnRail(tree)).toBe("Delivery Rider, VMC Operating");
+    });
+
+    it("…and with an empty stored set, its trade's own skill (never 'Not set')", () => {
+      const tree = liveTree({ matchSkillIds: [], untickedRelatedIds: [] });
+      expect(panelShown(tree)).toBe(false);
+      expect(skillsOnRail(tree)).toBe("CNC Turning");
     });
   });
 
