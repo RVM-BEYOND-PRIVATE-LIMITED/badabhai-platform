@@ -74,8 +74,8 @@ class WholeNumberInputFormatter extends TextInputFormatter {
     // Keep the caret after the same digit: count the digits before it in what
     // was typed, less any leading zeros that fell away.
     final int dropped = digits.length - plain.length;
-    final int digitsBefore =
-        (_digitCount(typed.substring(0, caret)) - dropped).clamp(0, plain.length);
+    final int digitsBefore = (_digitCount(typed.substring(0, caret)) - dropped)
+        .clamp(0, plain.length);
     return TextEditingValue(
       text: text,
       selection: TextSelection.collapsed(
