@@ -111,12 +111,27 @@ kept, but matching runs only for the 16:
   the panel previews, never those skills. A `400 reason: posting_trade_required` on
   `PATCH /payer/job-postings/:id` is read by its `reason` (never the message) and shown AT the
   picker; a create whose publish is refused that way opens the draft's edit page there
-  (`?trade=required`), with focus on the picker even when the 16 did not load. The panel's
-  "Matched as:" line names skills from the catalogue when the match vocabulary did not load,
-  never by raw id. The postings list has no Publish of its own (a draft publishes from Edit),
-  so no list path can meet the refusal. The company reach preview (live and post-publish) sends
-  `role_kind`; the agency one sends none. The AI chat refuses a publish without one of the 16
-  before anything is sent. Agency jobs are unchanged.
+  (`?trade=required`), with focus on the picker even when the 16 did not load. If a Retry then
+  brings the 16 back, focus moves to the select only when it was lost with the Retry button,
+  never off a control the payer moved on to. The panel's "Matched as:" line names skills from
+  the catalogue when the match vocabulary did not load, never by raw id. The postings list has
+  no Publish of its own (a draft publishes from Edit), so no list path can meet the refusal. The
+  company reach preview (live and post-publish) sends `role_kind`; the agency one sends none. The
+  AI chat refuses a publish without one of the 16 before anything is sent. Agency jobs are
+  unchanged.
+- **On the current API the `posting_trade_required` handling is defensive.** The API checks the
+  trade form before its 16-trade gate: `PostingTradesService.normalizeSelection` runs on the
+  create and in `updateForPayer` ahead of the gate. A request carrying trade fields
+  (`trade_level` / `trade_answers`) for a role outside the 16 therefore gets a 400 with no
+  `reason` and no field `issues` ("trade fields are only available for a postable role"), never
+  `posting_trade_required`. Every web path to the gate sends those fields first: the create's
+  POST (its publish follows only a create the API accepted), Edit's Publish, and an Edit that
+  moves the role. So the web's `posting_trade_required` handling and the `?trade=required`
+  landing cannot run until Backend moves the 16-trade check ahead of the trade-form check. The
+  web also refuses, before sending, any role outside the 16 it was served, so that 400 needs the
+  served catalogue and the API to disagree. When it does come, Edit's Publish says "The server
+  refused to publish this posting. Nothing was changed: it is still a draft." A plain Save keeps
+  "No changes to save.".
 
 ### Payer app (Flutter)
 
