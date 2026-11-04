@@ -1,3 +1,5 @@
+import 'dart:io' show SocketException;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -11,6 +13,7 @@ import 'package:payer_app/core/session/app_session.dart';
 import 'package:payer_app/core/session/app_session_cubit.dart';
 import 'package:payer_app/core/theme/app_motion.dart';
 import 'package:payer_app/core/widgets/bb_action_bar.dart';
+import 'package:payer_app/core/widgets/bb_button.dart';
 import 'package:payer_app/core/widgets/bb_shake.dart';
 import 'package:payer_app/core/widgets/bb_step_progress.dart';
 import 'package:payer_app/features/jobs/presentation/post_job_screen.dart';
@@ -26,9 +29,32 @@ import 'package:payer_app/features/jobs/presentation/post_job_screen.dart';
 /// fabricated text, the untouched-form test sees a real create call, and the
 /// wiring test sees `description: null`.
 
+/// One of the 16 postable trades, as `GET /payer/posting-trades` serves it —
+/// no rung or chips, so picking it seeds just the trade's own match skill.
+const PostingTradeForm _welder = PostingTradeForm(
+  roleKind: 'welder',
+  roleLabel: 'Welder',
+  packId: 'qp_welding_trade',
+  matchSkillId: 'mskill_welder',
+);
+
+/// The catalogue a company form is served (#2635 — a company job cannot be
+/// posted without one of the 16 trades).
+const List<PostingTradeForm> _companyTrades = <PostingTradeForm>[_welder];
+
 /// Captures every create call so the test can assert what actually rides the
 /// wire (the mock base returns a canned draft posting).
 class _SpyApi extends MockPayerApiClient {
+  _SpyApi({this.trades = const <PostingTradeForm>[]});
+
+  /// The 16-trade catalogue this server answers with. EMPTY by default — the
+  /// agency form's trade-less fallback; company tests are served
+  /// [_companyTrades] (see `pump`).
+  final List<PostingTradeForm> trades;
+
+  /// When set, the NEXT catalogue read throws it (a Retry then succeeds).
+  Object? throwOnTradesOnce;
+
   final List<
       ({
         String org,
@@ -87,6 +113,12 @@ class _SpyApi extends MockPayerApiClient {
   String? companyShift;
   String? companyNeededBy;
 
+  /// The trade half of the last COMPANY create (#2635).
+  String? companyRoleKind;
+  String? companyTradeLevel;
+  Map<String, List<String>>? companyTradeAnswers;
+  List<String>? companyMatchSkillIds;
+
   /// When set, every [updateJob] throws it — the partial-save path.
   Object? throwOnUpdate;
 
@@ -94,16 +126,20 @@ class _SpyApi extends MockPayerApiClient {
   /// refusing the post.
   Object? throwOnCreate;
 
-  // These #357 tests assert the LEGACY free-text skills flow, so present
-  // Matching V1 and the trade catalogue as unavailable (routes off) — the
-  // screen degrades to the free-text path. The 16-trade form is exercised
-  // against a real backend.
+  // Matching V1's flat vocabulary is off on this server (the route answers
+  // nothing); [_V1SpyApi] turns it on.
   @override
   Future<List<MatchSkill>> fetchMatchSkills() async => const <MatchSkill>[];
 
   @override
-  Future<List<PostingTradeForm>> fetchPostingTrades() async =>
-      const <PostingTradeForm>[];
+  Future<List<PostingTradeForm>> fetchPostingTrades() async {
+    final Object? error = throwOnTradesOnce;
+    if (error != null) {
+      throwOnTradesOnce = null;
+      throw error;
+    }
+    return trades;
+  }
 
   @override
   Future<JobPosting> createCompanyJob({
@@ -142,6 +178,10 @@ class _SpyApi extends MockPayerApiClient {
     companyPayMax = payMax;
     companyShift = shift;
     companyNeededBy = neededBy;
+    companyRoleKind = roleKind;
+    companyTradeLevel = tradeLevel;
+    companyTradeAnswers = tradeAnswers;
+    companyMatchSkillIds = matchSkillIds;
     if (throwOnCreate != null) throw throwOnCreate!;
     return super.createCompanyJob(
       orgLabel: orgLabel,
@@ -291,10 +331,12 @@ class _SpyApi extends MockPayerApiClient {
   }
 }
 
-/// The same spy with Matching V1 LIVE, so the company path renders the demand
-/// skill picker + the structured Shift / Needed-by selects — the inputs whose
-/// values `POST /payer/job-postings` silently strips.
+/// The same spy with Matching V1 LIVE: the agency form renders the flat demand
+/// skill picker, and the company form sends its trade's match skills — the
+/// values `POST /payer/job-postings` once silently stripped.
 class _V1SpyApi extends _SpyApi {
+  _V1SpyApi({super.trades = const <PostingTradeForm>[]});
+
   @override
   Future<List<MatchSkill>> fetchMatchSkills() async => const <MatchSkill>[
         MatchSkill(
@@ -327,6 +369,8 @@ class _V1SpyApi extends _SpyApi {
 /// own API checkout can still be on that build, so the post flow's repair PATCH
 /// has to keep working against it — this spy is what pins that.
 class _OldRouteSpyApi extends _V1SpyApi {
+  _OldRouteSpyApi() : super(trades: _companyTrades);
+
   @override
   Future<JobPosting> createCompanyJob({
     required String orgLabel,
@@ -412,7 +456,14 @@ void main() {
     Size size = const Size(1000, 4000),
   }) async {
     await GetIt.instance.reset();
-    api = spy ?? _SpyApi();
+    // A company form is served the 16-trade catalogue (it cannot post without
+    // one, #2635); the agency default keeps its trade-less fallback.
+    api = spy ??
+        _SpyApi(
+          trades: role == PayerRole.company
+              ? _companyTrades
+              : const <PostingTradeForm>[],
+        );
     backs = 0;
     setupLocator(apiClient: api, secureStore: InMemoryKeyValueStore());
     locator<AppSessionCubit>().signIn(role);
@@ -465,6 +516,20 @@ void main() {
     await tester.tap(find.text(label).last);
     await tester.pumpAndSettle();
   }
+
+  /// Pick the company job's trade from the 16-trade role picker (#2635).
+  Future<void> pickTrade(WidgetTester tester, [String label = 'Welder']) async {
+    await tester.tap(find.text('— pick the role —'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(label).last);
+    await tester.pumpAndSettle();
+  }
+
+  /// [text] shown AT the company trade picker (inside the role's anchor).
+  Finder atTradePicker(String text) => find.descendant(
+        of: find.ancestor(of: find.text('Role'), matching: find.byType(BbShake)),
+        matching: find.text(text),
+      );
 
   /// Add one chip through the '+ Add …' prompt (the only way in — there is no
   /// placeholder chip to edit).
@@ -538,6 +603,7 @@ void main() {
       await pump(tester, PayerRole.company);
 
       await typeInto(tester, 'Job title', 'CNC Operator');
+      await pickTrade(tester);
       // Both selectors must EXIST with the picker off — they are on the
       // Pay, experience & timing card, not inside the V1 branch.
       await fillCardContent(tester, city: 'Nashik');
@@ -582,10 +648,16 @@ void main() {
       expect(find.text('Chakan'), findsNothing);
     });
 
-    testWidgets('company form asks for the worker-card role illustration',
+    // #2635 — the company form's role is the TRADE, from the 16-trade
+    // catalogue; the free 27-role "illustration" select and the optional free
+    // trade list are gone (a job posted with them could never go live).
+    testWidgets('company form asks for the trade from the 16-trade catalogue',
         (WidgetTester tester) async {
       await pump(tester, PayerRole.company);
-      expect(find.text('Role (card illustration)'), findsOneWidget);
+      expect(find.text('Role'), findsOneWidget);
+      expect(find.text('— pick the role —'), findsOneWidget);
+      expect(find.text('Role (card illustration)'), findsNothing);
+      expect(find.text('Trade (optional)'), findsNothing);
     });
 
     testWidgets('agency form asks for the worker-card role illustration',
@@ -618,14 +690,17 @@ void main() {
   });
 
   group('#357 — collected inputs reach the create call', () {
-    testWidgets('trade, pay, experience and skills ride `description`', (
-      WidgetTester tester,
-    ) async {
+    // #2635 — the trade now rides its own fields (`role_kind` + the trade
+    // form), so nothing is folded into the description any more: it is the
+    // payer's own words, exactly.
+    testWidgets('the trade rides role_kind + its trade form, not `description`',
+        (WidgetTester tester) async {
       await pump(tester, PayerRole.company);
 
       await typeInto(tester, 'Job title', 'VMC Operator');
       await typeInto(tester, 'Location note (optional, not shown to workers)',
           'Nashik MIDC');
+      await pickTrade(tester);
       await fillCardContent(
         tester,
         city: 'Nashik',
@@ -635,20 +710,6 @@ void main() {
         expMax: '6',
         description: 'Setting and running VMC machines.',
       );
-
-      // Trade is a deliberate pick — it starts unset so nothing lands in the
-      // description the payer did not choose. The ROLE dropdown also starts at
-      // 'Not specified', and the trade is the first of the two on the form.
-      await tester.tap(find.text('Not specified').first);
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Quality Inspector').last);
-      await tester.pumpAndSettle();
-
-      await tester.tap(find.text('+ Add skill'));
-      await tester.pumpAndSettle();
-      await tester.enterText(find.byKey(const Key('add-skill-field')), 'Fanuc');
-      await tester.tap(find.text('Add'));
-      await tester.pumpAndSettle();
 
       await tapPost(tester);
 
@@ -661,17 +722,14 @@ void main() {
       expect(api.companyCity, 'Nashik');
       expect(created.org, 'Kalyani Industries');
 
-      // The description now folds ONLY what still has no column of its own:
-      // the trade, and the free-text skills on the V1-off path. Pay and
-      // experience are real fields since #1645/#1646, so repeating them in the
-      // prose would print the same fact twice on the worker's card.
-      final String description = created.description!;
-      // The payer's OWN words lead; the fold only adds what has no column.
-      expect(description, contains('Setting and running VMC machines.'));
-      expect(description, contains('Trade: Quality Inspector'));
-      expect(description, contains('Key skills: Fanuc'));
-      expect(description, isNot(contains('Monthly pay')));
-      expect(description, isNot(contains('Experience:')));
+      // One of the 16 trades, and its trade form — untouched, so `{}`: the
+      // server derives the match set from the trade, never a client list.
+      expect(api.companyRoleKind, 'welder');
+      expect(api.companyTradeAnswers, <String, List<String>>{});
+      expect(api.companyTradeLevel, isNull);
+
+      // The payer's own words, and nothing folded in beside them.
+      expect(created.description, 'Setting and running VMC machines.');
     });
 
     testWidgets('a blank description is refused — the card renders one', (
@@ -797,12 +855,11 @@ void main() {
 
   group('company — an OLD server that drops the display fields is repaired',
       () {
-    /// Fill the V1 company form: title + location + pay band + a demand skill +
-    /// shift + needed-by.
+    /// Fill the V1 company form: title + the trade (which seeds its own match
+    /// skill, #2635) + pay band + shift + needed-by.
     Future<void> fillV1Form(WidgetTester tester) async {
       await typeInto(tester, 'Job title', 'VMC Operator');
-      await tester.tap(find.text('CNC operating'));
-      await tester.pumpAndSettle();
+      await pickTrade(tester);
       await fillCardContent(
         tester,
         city: 'Nashik',
@@ -829,7 +886,7 @@ void main() {
       expect(patch.payMax, 28000);
       expect(patch.shift, 'day');
       expect(patch.neededBy, 'immediate');
-      expect(patch.matchSkillIds, <String>['mskill_cnc_operate']);
+      expect(patch.matchSkillIds, <String>['mskill_welder']);
     });
 
     testWidgets('a failed PATCH is reported, and the draft is NOT re-created', (
@@ -859,13 +916,16 @@ void main() {
       // The company form had NO city input: `_submit` reused the free-text
       // Location box, so "Plot 42, MIDC Chakan" was stored as the city and a
       // blank one published a posting with none at all.
-      await pump(tester, PayerRole.company, spy: _V1SpyApi());
+      await pump(
+        tester,
+        PayerRole.company,
+        spy: _V1SpyApi(trades: _companyTrades),
+      );
 
       await typeInto(tester, 'Job title', 'Fitter');
       await typeInto(tester, 'Location note (optional, not shown to workers)',
           'Plot 42, MIDC Chakan');
-      await tester.tap(find.text('CNC operating'));
-      await tester.pumpAndSettle();
+      await pickTrade(tester);
       await fillCardContent(tester, city: 'Pune');
       await tapPost(tester);
 
@@ -880,7 +940,11 @@ void main() {
       // The mock client is faithful to the published route since #1653: the
       // create persists the content + match blocks and echoes them on the 201.
       // The repair is driven off that returned draft, so it must stay silent.
-      await pump(tester, PayerRole.company, spy: _V1SpyApi());
+      await pump(
+        tester,
+        PayerRole.company,
+        spy: _V1SpyApi(trades: _companyTrades),
+      );
       await fillV1Form(tester);
       await tapPost(tester);
 
@@ -1011,33 +1075,37 @@ void main() {
     });
   });
 
-  group('#357 — Add skill prompts instead of inserting a placeholder', () {
-    testWidgets('adds the typed phrase, never "Skill 1"', (
+  // #357 — a chip is only ever a phrase the payer typed (the old '+ Add skill'
+  // inserted the placeholder 'Skill N'). The company form's free-text "Key
+  // skills" are gone (#2635 — its skills come from its trade), so the shared
+  // prompt is pinned on the Benefits row it still serves.
+  group('#357 — a chip prompt asks for the real phrase', () {
+    testWidgets('adds the typed phrase, never a placeholder', (
       WidgetTester tester,
     ) async {
       await pump(tester, PayerRole.company);
 
-      await tester.tap(find.text('+ Add skill'));
+      await tester.tap(find.text('+ Add benefit'));
       await tester.pumpAndSettle();
       await tester.enterText(
-        find.byKey(const Key('add-skill-field')),
-        'Fanuc Oi-MF',
+        find.byKey(const Key('add-benefit-field')),
+        'Canteen on site',
       );
       await tester.tap(find.text('Add'));
       await tester.pumpAndSettle();
 
-      expect(find.text('Fanuc Oi-MF'), findsOneWidget);
-      expect(find.text('Skill 1'), findsNothing);
+      expect(find.text('Canteen on site'), findsOneWidget);
+      expect(find.text('Benefit 1'), findsNothing);
     });
 
-    testWidgets('a phone-shaped skill is refused at entry (no PII on the wire)',
+    testWidgets('a phone-shaped phrase is refused at entry (no PII on the wire)',
         (WidgetTester tester) async {
       await pump(tester, PayerRole.company);
 
-      await tester.tap(find.text('+ Add skill'));
+      await tester.tap(find.text('+ Add benefit'));
       await tester.pumpAndSettle();
       await tester.enterText(
-        find.byKey(const Key('add-skill-field')),
+        find.byKey(const Key('add-benefit-field')),
         'call 98765 43210',
       );
       await tester.tap(find.text('Add'));
@@ -1159,6 +1227,7 @@ void main() {
       await pump(tester, PayerRole.company, size: const Size(400, 800));
       // The top of the form is fine; the pay band (mid-form) is the first gap.
       await typeInto(tester, 'Job title', 'Fitter');
+      await pickTrade(tester);
       await typeInto(tester, 'City', 'Pune');
       // Scroll to the very end of the form.
       await tester.drag(
@@ -1280,6 +1349,7 @@ void main() {
     ) async {
       await pump(tester, PayerRole.company);
       await typeInto(tester, 'Job title', 'Setter at Acme Pvt Ltd');
+      await pickTrade(tester);
       await fillCardContent(tester);
       api.throwOnCreate = const PayerApiException(
         400,
@@ -1368,6 +1438,7 @@ void main() {
 
       // The grouped value still posts as a whole number.
       await typeInto(tester, 'Job title', 'Fitter');
+      await pickTrade(tester);
       await fillCardContent(tester, payMin: '18000', payMax: '125000');
       await tapPost(tester);
       expect(api.companyPayMin, 18000);
@@ -1451,10 +1522,15 @@ void main() {
       WidgetTester tester,
     ) async {
       await pump(tester, PayerRole.company);
-      // The skill picker is off on this server, so its section has nothing
-      // required — done from the start; the other three are not.
+      // Nothing is done on an untouched form: the skills section is the
+      // picked trade's own form, so it waits for the trade (#2635).
+      expect(find.text('0 of 4 sections done'), findsOneWidget);
+
+      // Picking the trade completes it (the trade carries its own skill)…
+      await pickTrade(tester);
       expect(find.text('1 of 4 sections done'), findsOneWidget);
 
+      // …and the title + city complete the first.
       await typeInto(tester, 'Job title', 'Fitter');
       await typeInto(tester, 'City', 'Pune');
       expect(find.text('2 of 4 sections done'), findsOneWidget);
@@ -1551,9 +1627,13 @@ void main() {
     });
 
     testWidgets(
-        'with the skill picker live, Post is not a dead button — a missing '
-        'skill is named at its section', (WidgetTester tester) async {
-      await pump(tester, PayerRole.company, spy: _V1SpyApi());
+        'Post is not a dead button — a company job with no trade is refused '
+        'AT the trade picker (#2635)', (WidgetTester tester) async {
+      await pump(
+        tester,
+        PayerRole.company,
+        spy: _V1SpyApi(trades: _companyTrades),
+      );
       final FilledButton post = tester.widget<FilledButton>(find.ancestor(
         of: find.text('Post job'),
         matching: find.byType(FilledButton),
@@ -1563,14 +1643,116 @@ void main() {
       await typeInto(tester, 'Job title', 'Fitter');
       await fillCardContent(tester);
       await tapPost(tester);
-      expect(api.created, isEmpty);
-      expect(find.text('Pick at least one skill'), findsOneWidget);
-
-      await tester.tap(find.text('CNC operating'));
       await tester.pumpAndSettle();
-      expect(find.text('Pick at least one skill'), findsNothing);
+      expect(api.created, isEmpty);
+      expect(atTradePicker('Pick one of the 16 trades'), findsOneWidget);
+      expect(find.byType(SnackBar), findsNothing);
+
+      await pickTrade(tester);
+      expect(find.text('Pick one of the 16 trades'), findsNothing);
       await tapPost(tester);
       expect(api.created, hasLength(1));
+      expect(api.companyRoleKind, 'welder');
+      // The trade's own skill, derived from its (untouched) trade form.
+      expect(api.companyMatchSkillIds, <String>['mskill_welder']);
+      expect(api.companyTradeAnswers, <String, List<String>>{});
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // #2635 — company jobs match only within the 16 postable trades. The company
+  // form never posts without one of them and never falls back to a free role
+  // list, the flat skill picker or free-text skills; its reach preview names
+  // the trade so the count scopes as publish will.
+  // ---------------------------------------------------------------------------
+  group('#2635 — a company job is always one of the 16 trades', () {
+    testWidgets(
+        'trades that fail to load say why and refuse the post at the trade — '
+        'never a free list', (WidgetTester tester) async {
+      final _V1SpyApi spy = _V1SpyApi(trades: _companyTrades)
+        ..throwOnTradesOnce = const SocketException('offline');
+      await pump(tester, PayerRole.company, spy: spy);
+
+      expect(
+        atTradePicker(
+          'The 16 trades did not load. Check your internet connection and '
+          'try again.',
+        ),
+        findsOneWidget,
+      );
+      // None of the old fallbacks: a free role list, an optional free trade,
+      // the flat skill picker (live on this server) or free-text skills.
+      expect(find.text('Role (card illustration)'), findsNothing);
+      expect(find.text('Trade (optional)'), findsNothing);
+      expect(find.text('Skills this role needs'), findsNothing);
+      expect(find.text('CNC operating'), findsNothing);
+      expect(find.text('Key skills'), findsNothing);
+      expect(find.text('+ Add skill'), findsNothing);
+
+      await typeInto(tester, 'Job title', 'Fitter');
+      await fillCardContent(tester);
+      await tapPost(tester);
+      await tester.pumpAndSettle();
+      expect(api.created, isEmpty);
+      expect(atTradePicker('Pick one of the 16 trades'), findsOneWidget);
+
+      // Retry brings the 16 back; picking one posts.
+      await tester.tap(find.widgetWithText(BbButton, 'Retry'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('did not load'), findsNothing);
+      await pickTrade(tester);
+      await tapPost(tester);
+      expect(api.created, hasLength(1));
+      expect(api.companyRoleKind, 'welder');
+    });
+
+    testWidgets('a catalogue with no trades says so — the post is refused', (
+      WidgetTester tester,
+    ) async {
+      await pump(tester, PayerRole.company, spy: _SpyApi());
+
+      expect(
+        atTradePicker(
+          'No trades are open for posting right now. Try again in a moment.',
+        ),
+        findsOneWidget,
+      );
+      await typeInto(tester, 'Job title', 'Fitter');
+      await fillCardContent(tester);
+      await tapPost(tester);
+      await tester.pumpAndSettle();
+      expect(api.created, isEmpty);
+      expect(atTradePicker('Pick one of the 16 trades'), findsOneWidget);
+    });
+
+    testWidgets("the company reach preview carries the job's trade", (
+      WidgetTester tester,
+    ) async {
+      final _V1SpyApi spy = _V1SpyApi(trades: _companyTrades);
+      await pump(tester, PayerRole.company, spy: spy);
+
+      await pickTrade(tester);
+      // Past the 350ms debounce.
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pumpAndSettle();
+
+      expect(spy.reachRoleKinds, isNotEmpty);
+      expect(spy.reachRoleKinds.last, 'welder');
+      expect(find.text('Reaches 12 workers'), findsOneWidget);
+    });
+
+    testWidgets('the agency reach preview stays unscoped (not in #2635)', (
+      WidgetTester tester,
+    ) async {
+      final _V1SpyApi spy = _V1SpyApi();
+      await pump(tester, PayerRole.agency, spy: spy);
+
+      await tester.tap(find.text('CNC operating'));
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pumpAndSettle();
+
+      expect(spy.reachRoleKinds, isNotEmpty);
+      expect(spy.reachRoleKinds.last, isNull);
     });
   });
 }

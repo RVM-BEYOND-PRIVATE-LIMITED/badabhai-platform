@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import '../../../core/data/models.dart';
 import '../../../core/data/payer_api_client.dart';
 import '../../../core/di/locator.dart';
+import '../../../core/error/payer_failure.dart';
 import '../../../core/session/app_session.dart';
 import '../../../core/session/app_session_cubit.dart';
 import '../../../core/theme/app_colors.dart';
@@ -32,29 +33,36 @@ import 'widgets/job_form_rules.dart';
 import 'widgets/match_skill_picker.dart';
 import 'widgets/trade_posting_fields.dart';
 
-/// Availability of the Matching-V1 demand-skill picker, resolved once at load.
+/// Availability of the Matching-V1 demand-skill vocabulary, resolved once at
+/// load.
 ///
 ///  - [loading]     — `fetchMatchSkills()` in flight; Post is held until known.
-///  - [available]   — the route answered with skills; show the picker + reach
-///    meter and gate Post on at least one skill picked (a zero reach preview is
-///    informational — reach is dynamic, so it does not block posting).
+///  - [available]   — the route answered with skills. The AGENCY form shows
+///    the picker + reach meter; the company form sends its trade's derived
+///    match skills alongside the trade form.
 ///  - [unavailable] — the route is off server-side (`MATCH_V1_ENABLED` false →
-///    404/error) or returned nothing; HIDE the picker and fall back to the
-///    existing free-text skills flow so posting still works.
+///    404/error) or returned nothing; the agency form hides the picker, and
+///    the company form sends no `match_skill_ids` (the server still derives
+///    them from the trade form).
 enum _MatchV1 { loading, available, unavailable }
 
 /// Post a job — role-branched on [AppSession.role].
 ///
 ///  - COMPANY: `POST /payer/job-postings` (201 draft; publish it later from
 ///    My-jobs) accepts `org_label`, `role_title`, optional `location_label`,
-///    free-text `description`, EXACTLY ONE of `vacancy_band | vacancies`, and —
-///    since #1646/#1648 — the worker-visible content columns: `city`, `area`,
+///    the typed `description`, EXACTLY ONE of `vacancy_band | vacancies`, the
+///    worker-visible content columns since #1646/#1648 (`city`, `area`,
 ///    `pay_min`/`pay_max`/`pay_type`, `min_experience_years`/
-///    `max_experience_years`, `shift`, `needed_by`, `benefits`, `requirements`.
-///    It still has NO trade column, so only the trade (and the V1-off free-text
-///    skills) is folded into `description` — see
-///    [_PostJobScreenState._companyDescription]. Nothing is prefilled: every
-///    free-text input starts empty (#357).
+///    `max_experience_years`, `shift`, `needed_by`, `benefits`,
+///    `requirements`), and the TRADE: `role_kind` plus its trade form
+///    (`trade_level` / `trade_answers`, migration 0141), from which the server
+///    derives the match skills. #2635 — a company job matches only within the
+///    16 postable trades and cannot be published without one (the server drops
+///    any skill outside the trade), so the trade is REQUIRED and is always
+///    picked from the 16-trade catalogue: if that does not load, the form says
+///    why and offers Retry — it never falls back to a free role list, the flat
+///    skill picker or free-text skills. Nothing is prefilled: every free-text
+///    input starts empty (#357).
 ///  - AGENCY: sends the faceless demand attributes the agent route accepts —
 ///    `trade_key`, `title`, `city`, optional `area`, `pay_min`/`pay_max`,
 ///    `pay_type`, `min_experience_years`/`max_experience_years`, `needed_by`,
@@ -123,26 +131,13 @@ class _PostJobScreenState extends State<PostJobScreen> {
   // --- Worker-visible content (BOTH branches now) ---------------------------
   // `description` / `shift` / `benefits` / `requirements` — the fields the
   // WORKER's job card renders verbatim. The agency create always accepted them;
-  // #1646 gave the company create `benefits`/`requirements` as real columns too
-  // (its description is still composed — see [_companyDescription]). Shift
-  // reuses the shared [_shift]; one branch is ever mounted, like the pay bands.
-  // #357: nothing is prefilled, an untouched input sends nothing, and a chip is
-  // only ever a phrase the payer typed.
+  // #1646 gave the company create `benefits`/`requirements` as real columns too.
+  // Shift reuses the shared [_shift]; one branch is ever mounted, like the pay
+  // bands. #357: nothing is prefilled, an untouched input sends nothing, and a
+  // chip is only ever a phrase the payer typed.
   final TextEditingController _description = TextEditingController();
   final List<String> _benefits = <String>[];
   final List<String> _requirements = <String>[];
-
-  /// LEGACY fallback only: when an older server has no `/payer/posting-trades`
-  /// catalogue, the company form keeps its old optional trade dropdown and the
-  /// flat match picker. The 16-trade path above is the current one.
-  static const List<String> _trades = <String>[
-    'CNC Setter',
-    'VMC Setter',
-    'CNC Operator',
-    'Quality Inspector',
-    'Welder / Fabricator',
-    'Fitter',
-  ];
 
   /// The server's `vacancy_band` enum — exact values the route accepts.
   static const List<String> _bands = <String>[
@@ -153,16 +148,10 @@ class _PostJobScreenState extends State<PostJobScreen> {
     '25+'
   ];
 
-  /// Server bound on skill phrases (`skillsInput`: <=10 phrases, 1..80 chars).
-  /// Mirrored here so the chip row cannot outgrow what the contract allows.
-  static const int _maxSkills = 10;
-  static const int _maxSkillChars = 80;
-
-  String? _trade;
-
-  /// The declared role kind (`role_kind`) — DISPLAY ONLY, but it is what picks
-  /// the role illustration on the worker's job card. Null = no role stated, so
-  /// the card draws the generic art rather than guessing one.
+  /// The declared role kind (`role_kind`). For a COMPANY job it is the TRADE —
+  /// one of the 16 the catalogue lists, required (#2635): the server builds the
+  /// job's match skills from it. For an agency job it picks the worker card's
+  /// role illustration. Null = not picked yet.
   String? _roleKind;
   String _band = '2-5';
   // Agency `trade_key` enum + coarse `needed_by` timing (server-accepted
@@ -173,10 +162,6 @@ class _PostJobScreenState extends State<PostJobScreen> {
   // at submit, like every other field the card renders.
   String? _tradeKey;
   String? _neededBy;
-  // #357 — starts empty; '+ Add skill' prompts for a real phrase instead of
-  // inserting the literal placeholder 'Skill N'. Used ONLY on the V1-off
-  // fallback path (when the demand-skill picker is unavailable).
-  final List<String> _skills = <String>[];
   bool _submitting = false;
 
   // --- #2595 (M7) — inline errors, keyboard flow, the leave guard -----------
@@ -210,9 +195,9 @@ class _PostJobScreenState extends State<PostJobScreen> {
     message: 'What you have filled in here will be lost.',
   );
 
-  // --- Matching V1 (COMPANY posting only) -----------------------------------
-  // The demand-skill picker + live reach meter. All additive: if the route is
-  // off server-side we degrade to the free-text skills flow (see [_MatchV1]).
+  // --- Matching V1 ------------------------------------------------------------
+  // The demand-skill vocabulary + live reach meter. All additive: see
+  // [_MatchV1] for what each branch does when the route is off.
 
   /// Fallback cap until a reach preview reports the server's real
   /// `max_skills_per_posting`. Kept small so we never overshoot the contract.
@@ -236,6 +221,10 @@ class _PostJobScreenState extends State<PostJobScreen> {
   // --- Migration 0141 — the role-specific trade form -------------------------
   List<PostingTradeForm> _postingTrades = const <PostingTradeForm>[];
   bool _postingTradesLoading = true;
+
+  /// Why the last catalogue load failed (said at the company trade picker),
+  /// or null.
+  PayerFailure? _postingTradesFailure;
   String _tradeLevel = '';
   Map<String, List<String>> _tradeAnswers = const <String, List<String>>{};
 
@@ -293,14 +282,14 @@ class _PostJobScreenState extends State<PostJobScreen> {
     _inputs = Listenable.merge(_textBoxes);
     _inputs.addListener(_onInputChanged);
     _pristine = _snapshot();
-    // Both branches offer the closed-taxonomy picker now (ADR-0050: a V1 twin is
-    // served only on skills the agent picked). Load it lazily and fail soft: any
-    // error (route disabled, network) drops to `unavailable` — the COMPANY branch
-    // then reveals its free-text fallback, while the AGENCY branch simply hides
-    // the section (its skills can only ride `match_skill_ids`; #1960/#1957).
+    // The closed-taxonomy vocabulary (ADR-0050: a V1 twin is served only on
+    // skills the agent picked). Load it lazily and fail soft: any error (route
+    // disabled, network) drops to `unavailable` — the AGENCY branch then hides
+    // its picker (its skills can only ride `match_skill_ids`; #1960/#1957).
     // ignore: discarded_futures — fire-and-forget load; state updates on done.
     _loadMatchSkills();
-    // ignore: discarded_futures — the 16-trade form catalogue.
+    // ignore: discarded_futures — the 16-trade form catalogue. The company
+    // form cannot post without it (#2635), so its failure is said, not hidden.
     _loadPostingTrades();
   }
 
@@ -342,21 +331,26 @@ class _PostJobScreenState extends State<PostJobScreen> {
     }
   }
 
-  /// Load the 16-trade posting catalogue. A failure degrades to the legacy
-  /// match picker (the section simply hides the trade fields), never a crash.
+  /// Load — or, from Retry, reload — the 16-trade posting catalogue. Never a
+  /// crash. #2635 — a failure no longer degrades the COMPANY form to a free
+  /// role list and the flat skill picker (a job posted that way could never go
+  /// live): its trade picker names the cause and offers Retry, and Post is
+  /// refused at it. The agency form keeps its trade-less fallback.
   Future<void> _loadPostingTrades() async {
+    if (!_postingTradesLoading) setState(() => _postingTradesLoading = true);
+    List<PostingTradeForm> trades = const <PostingTradeForm>[];
+    PayerFailure? failure;
     try {
-      final List<PostingTradeForm> trades =
-          await locator<PayerApiClient>().fetchPostingTrades();
-      if (!mounted) return;
-      setState(() {
-        _postingTrades = trades;
-        _postingTradesLoading = false;
-      });
-    } catch (_) {
-      if (!mounted) return;
-      setState(() => _postingTradesLoading = false);
+      trades = await locator<PayerApiClient>().fetchPostingTrades();
+    } catch (error) {
+      failure = PayerFailure.from(error);
     }
+    if (!mounted) return;
+    setState(() {
+      _postingTrades = trades;
+      _postingTradesFailure = failure;
+      _postingTradesLoading = false;
+    });
   }
 
   PostingTradeForm? _formForKind(String? kind) {
@@ -371,25 +365,39 @@ class _PostJobScreenState extends State<PostJobScreen> {
 
   /// The role picker is the single entry point to every trade field. Selecting a
   /// role resets the previous role's answers and seeds the base match skill.
+  ///
+  /// #2635 — for a company job this is the TRADE picker, and it is always on
+  /// the form: while the catalogue loads, or if it did not, the same spot says
+  /// so (with a Retry) and carries the role's inline error, so a post refused
+  /// for want of a trade is told why where the trade goes.
   Widget _roleField() {
-    if (_postingTradesLoading) {
-      return Text(
-        'Loading roles…',
-        style: AppTypography.body(
-          size: AppTypography.sizeSm,
-          color: AppColors.textMuted,
-        ),
-      );
-    }
-    if (_postingTrades.isEmpty) {
-      return Text(
-        'Trade fields are unavailable right now. Reload the screen before '
-        'posting.',
-        style: AppTypography.body(
-          size: AppTypography.sizeSm,
-          color: AppColors.warning,
-          height: 1.4,
-        ),
+    if (_postingTradesLoading || _postingTrades.isEmpty) {
+      return ListBody(
+        children: <Widget>[
+          Text(
+            'Role',
+            style: AppTypography.body(
+              size: AppTypography.sizeSm,
+              weight: FontWeight.w700,
+              color: AppColors.textPrimary,
+            ),
+          ),
+          const SizedBox(height: AppSpacing.s2),
+          if (_postingTradesLoading)
+            Text(
+              kPostingTradesLoadingLabel,
+              style: AppTypography.body(
+                size: AppTypography.sizeSm,
+                color: AppColors.textMuted,
+              ),
+            )
+          else
+            PostingTradesUnavailable(
+              failure: _postingTradesFailure,
+              onRetry: _loadPostingTrades,
+            ),
+          BbFieldError(text: _form[JobFormField.role]),
+        ],
       );
     }
     return BbSelect<String?>(
@@ -552,6 +560,10 @@ class _PostJobScreenState extends State<PostJobScreen> {
       final ReachPreview preview = await locator<PayerApiClient>().reachPreview(
         matchSkillIds: ids,
         untickedRelatedIds: _untickedRelatedIds.toList(growable: false),
+        // #2635 — a company job's trade, so "reaches N workers" scopes the
+        // posted skills exactly as its publish will. Agency jobs are not
+        // scoped by trade, so their preview stays as it was.
+        roleKind: _isAgency ? null : _roleKind,
       );
       if (!mounted || seq != _reachSeq) return;
       setState(() {
@@ -572,34 +584,17 @@ class _PostJobScreenState extends State<PostJobScreen> {
     }
   }
 
-  /// Whether the company skills section is complete: never while V1 is
-  /// [loading], and — once it is live — only with at least one demand skill
-  /// picked (so the job is matchable). It does NOT require a non-zero reach
-  /// preview: reach is dynamic — the backend links workers who join later to an
-  /// existing open posting — so a zero-reach-today job is still worth posting.
-  /// The agency path and the V1-off fallback need no skill.
+  /// Whether the company skills section is complete: a trade is picked from
+  /// the catalogue, which seeds its own match skill (#2635 — a company job's
+  /// match set comes from its trade). It does NOT require a non-zero reach
+  /// preview: reach is dynamic — the backend's `reconcileReachForWorker` links
+  /// workers who join later to an existing open posting — so a zero-reach-today
+  /// job is still worth posting.
   ///
-  /// #2595 — Post is no longer held disabled on a missing skill (a dead button
-  /// never said why): it stays tappable once V1 has loaded, and the missing
-  /// skill is an inline error at the section ([_validate]); this getter now
-  /// drives the progress bar.
-  bool get _companyCanPost {
-    switch (_matchV1) {
-      case _MatchV1.loading:
-        return false;
-      case _MatchV1.unavailable:
-        return true;
-      case _MatchV1.available:
-        // DYNAMIC REACH: a company job's reach is NOT frozen at post time. The
-        // backend's `reconcileReachForWorker` links a worker who joins/updates
-        // LATER to an already-open matching posting, so a job that reaches no one
-        // today can reach someone next week (and the server create never rejected
-        // a zero-reach post). So Post only needs at least one skill — enough for
-        // the job to be matchable now or in future; a zero reach PREVIEW is
-        // informational, not a blocker (was the old E13 hard gate).
-        return _pickedSkillIds.isNotEmpty;
-    }
-  }
+  /// #2595 — Post is never held disabled on a missing pick (a dead button never
+  /// said why): the missing trade is an inline error at the role ([_validate]);
+  /// this getter drives the progress bar.
+  bool get _companyCanPost => _tradeForm != null && _pickedSkillIds.isNotEmpty;
 
   /// A pay/experience box → int, or null when it is empty. The boxes take
   /// digits only (#2595) — the pay ones show Indian grouping ("18,000"), which
@@ -619,9 +614,14 @@ class _PostJobScreenState extends State<PostJobScreen> {
       if (agency && _tradeKey == null) JobFormField.tradeKey: 'Pick the trade',
       if (!agency && _org.text.trim().isEmpty)
         JobFormField.org: 'Add the company name',
-      // Migration 0141 — the role is mandatory when the catalogue drives the
-      // form: it selects the trade fields.
-      if (_postingTrades.isNotEmpty && _roleKind == null)
+      // #2635 — a company job matches only within the 16 trades, so it is
+      // never posted without one — even when the catalogue did not load (its
+      // picker then says why and retries).
+      if (!agency && _tradeForm == null)
+        JobFormField.role: kPostingTradeRequiredMessage,
+      // Migration 0141 — the agency role is mandatory when the catalogue
+      // drives the form: it selects the trade fields.
+      if (agency && _postingTrades.isNotEmpty && _roleKind == null)
         JobFormField.role: 'Pick the role',
       if (_title.text.trim().isEmpty) JobFormField.title: 'Add the job title',
       ...jobContentErrors(
@@ -639,14 +639,8 @@ class _PostJobScreenState extends State<PostJobScreen> {
         requirements: _requirements,
         benefits: _benefits,
       ),
-      // Matching V1 (company): the job needs at least one demand skill so it
-      // can be matched to workers (now, or as they join — reach is dynamic). A
-      // role not yet picked is named at the role instead: picking it seeds one.
-      if (!agency &&
-          _matchV1 == _MatchV1.available &&
-          _pickedSkillIds.isEmpty &&
-          (_postingTrades.isEmpty || _roleKind != null))
-        JobFormField.skills: 'Pick at least one skill',
+      // No separate "pick a skill" rule for the company: its picked trade
+      // always carries its own match skill, and the trade is required above.
     };
   }
 
@@ -709,8 +703,8 @@ class _PostJobScreenState extends State<PostJobScreen> {
       ..._validate().keys,
       ..._form.refusals.keys,
     };
-    // The company skills section cannot be done before the picker has loaded
-    // and said what it needs.
+    // The company skills section is its trade's form: not done before a trade
+    // is picked (#2635).
     if (!_isAgency && !_companyCanPost) open.add(JobFormField.skills);
     return _sections
         .where((Set<JobFormField> section) => section.intersection(open).isEmpty)
@@ -742,7 +736,6 @@ class _PostJobScreenState extends State<PostJobScreen> {
   List<Object?> _snapshot() => <Object?>[
         for (final TextEditingController box in _textBoxes) box.text.trim(),
         _band,
-        _trade,
         _roleKind,
         _tradeKey,
         _neededBy,
@@ -750,7 +743,6 @@ class _PostJobScreenState extends State<PostJobScreen> {
         _companyNeededBy,
         _payType,
         _tradeLevel,
-        listSnapshotKey(_skills),
         listSnapshotKey(_benefits),
         listSnapshotKey(_requirements),
         setSnapshotKey(_pickedSkillIds),
@@ -764,9 +756,7 @@ class _PostJobScreenState extends State<PostJobScreen> {
       !_posted && !listEquals(_snapshot(), _pristine);
 
   /// What [field] holds now. A server refusal is pinned to it
-  /// ([BbFormErrors.refuse]) and stands until it changes. The company
-  /// description is the text the create SENT, folds included
-  /// ([_companyDescription]), so changing a folded skill counts too.
+  /// ([BbFormErrors.refuse]) and stands until it changes.
   Object? _valueOf(JobFormField field) => switch (field) {
         JobFormField.org => _org.text.trim(),
         JobFormField.tradeKey => _tradeKey,
@@ -783,8 +773,7 @@ class _PostJobScreenState extends State<PostJobScreen> {
         JobFormField.shift => _shift,
         JobFormField.neededBy => _isAgency ? _neededBy : _companyNeededBy,
         JobFormField.skills => setSnapshotKey(_pickedSkillIds),
-        JobFormField.description =>
-          _isAgency ? _description.text.trim() : _companyDescription(),
+        JobFormField.description => _description.text.trim(),
         JobFormField.benefits => listSnapshotKey(_benefits),
         JobFormField.requirements => listSnapshotKey(_requirements),
       };
@@ -797,36 +786,17 @@ class _PostJobScreenState extends State<PostJobScreen> {
         leave: widget.onBack,
       );
 
-  /// FOLD ONLY WHAT HAS NO COLUMN. `description` is the company posting's one
-  /// free-text field, and #357 used it to carry every input the create route had
-  /// no column for — trade, the pay band, the experience window and the
-  /// free-text skills — because those were rendered and then silently discarded.
+  /// The company posting's `description`: the payer's OWN words, nothing else.
   ///
-  /// #1646/#1648 gave the route REAL columns for the pay band, its pay type and
-  /// the experience window, and they are now sent as such. Folding them here as
-  /// well would print the same numbers twice on the worker's card: once as its
-  /// own pay/experience chips, once inside the description blob. So the fold is
-  /// down to the two things that STILL have no column of their own:
-  ///
-  ///  - the trade (no `trade_key` on the company contract — that is the agency
-  ///    route's field), and
-  ///  - the free-text "Key skills" of the V1-off fallback path (`skills` is
-  ///    canonicalized server-side and never shown back verbatim; [_skills] is
-  ///    only ever non-empty when the demand-skill picker is unavailable).
-  ///
-  /// Nothing is invented: an untouched form sends NO description (null), never a
-  /// filler string.
+  /// #357 once folded every input the create route had no column for into it
+  /// (trade, pay, experience, free-text skills). #1646/#1648 gave pay and
+  /// experience real columns, and #2635 retired the last two folds: the trade
+  /// rides `role_kind` + its trade form, and the free-text "Key skills"
+  /// fallback is gone (a company job's skills come from its trade). An
+  /// untouched box sends NO description (null), never a filler string.
   String? _companyDescription() {
-    final List<String> lines = <String>[];
-    // The payer's OWN words first — the company form now has the same typed
-    // description the agency form has, because the worker card renders one and
-    // a composed "Trade: X" line is not a description of the work.
     final String typed = _description.text.trim();
-    if (typed.isNotEmpty) lines.add(typed);
-    final String? trade = _trade;
-    if (trade != null) lines.add('Trade: $trade');
-    if (_skills.isNotEmpty) lines.add('Key skills: ${_skills.join(', ')}');
-    return lines.isEmpty ? null : lines.join('\n');
+    return typed.isEmpty ? null : typed;
   }
 
   Future<void> _submit() async {
@@ -847,8 +817,8 @@ class _PostJobScreenState extends State<PostJobScreen> {
 
   /// COMPANY create — `POST /payer/job-postings` (+ the old-server repair).
   /// Reached only once [_validate] passes: the basics are there, the bands are
-  /// ordered, every card field is set, the description is screened, and — with
-  /// the demand-skill picker live — a skill is picked.
+  /// ordered, every card field is set, the description is screened, and one
+  /// of the 16 trades is picked (#2635).
   Future<void> _submitCompany() async {
     final String org = _org.text.trim();
     final String title = _title.text.trim();
@@ -894,11 +864,11 @@ class _PostJobScreenState extends State<PostJobScreen> {
         orgLabel: org,
         roleTitle: title,
         locationLabel: location.isEmpty ? null : location,
-        // #357 — carries the trade/pay/experience/skills the payer entered.
         description: _companyDescription(),
         vacancyBand: _band,
-        // Matching V1 (additive) — only sent when the picker is live, so a
-        // V1-off server never receives fields it does not understand.
+        // Matching V1 (additive) — the trade's derived set, only sent when the
+        // vocabulary is live, so a V1-off server never receives fields it does
+        // not understand. The server derives the same set from the trade form.
         matchSkillIds: matchSkillIds.isEmpty ? null : matchSkillIds,
         untickedRelatedIds:
             untickedRelatedIds.isEmpty ? null : untickedRelatedIds,
@@ -915,17 +885,17 @@ class _PostJobScreenState extends State<PostJobScreen> {
         maxExperienceYears: expMax,
         shift: shift,
         neededBy: neededBy,
+        // #2635 — one of the 16 trades, always ([_validate] refuses without).
         roleKind: _roleKind,
         // Untouched lists send NOTHING (there is nothing stored to clear).
         benefits: benefits.isEmpty ? null : benefits,
         requirements: requirements.isEmpty ? null : requirements,
-        // Migration 0141 — the trade-specific form. The server re-validates the
-        // answers and derives match_skill_ids from them. On the legacy fallback
-        // path these stay null, so the client omits them.
-        tradeLevel: _postingTrades.isNotEmpty && _tradeLevel.isNotEmpty
-            ? _tradeLevel
-            : null,
-        tradeAnswers: _postingTrades.isNotEmpty ? _tradeAnswers : null,
+        // Migration 0141 — the trade-specific form, ALWAYS sent (an untouched
+        // one as `{}`): it is what makes the server derive the match skills
+        // from the trade's chips rather than read a client list (#2635). The
+        // rung is display-only and omitted until picked.
+        tradeLevel: _tradeLevel.isEmpty ? null : _tradeLevel,
+        tradeAnswers: _tradeAnswers,
       );
 
       // …and land whatever the create route dropped (see [_landDisplayFields]).
@@ -1220,18 +1190,6 @@ class _PostJobScreenState extends State<PostJobScreen> {
     }
   }
 
-  /// #357 — '+ Add skill' used to insert the literal placeholder 'Skill N', so
-  /// the chip row was decorative. It now prompts for the real phrase, bounded to
-  /// the server's `skillsInput` limits and screened for contact details.
-  Future<void> _addSkill() => _addPhrase(
-        into: _skills,
-        noun: 'skill',
-        maxChars: _maxSkillChars,
-        dialogTitle: 'Add a skill',
-        hint: 'e.g. Fanuc, VMC setting',
-        fieldKey: const Key('add-skill-field'),
-      );
-
   /// One worker-visible benefit chip (agency `benefits[]`, <=80 chars each).
   Future<void> _addBenefit() => _addPhrase(
         into: _benefits,
@@ -1297,12 +1255,15 @@ class _PostJobScreenState extends State<PostJobScreen> {
             iconLeft: Icons.send_rounded,
             block: true,
             loading: _submitting,
-            // Held only while the company's demand-skill picker is still
-            // loading (what the post needs is not known yet). Everything else —
-            // including a skill not yet picked — is an inline error on tap
-            // (#2595), never a dead button that does not say why.
-            onPressed:
-                (_isAgency || _matchV1 != _MatchV1.loading) ? _submit : null,
+            // Held only while the company form's trade catalogue or match
+            // vocabulary is still loading (what the post needs is not known
+            // yet). Everything else — including a trade not yet picked, or a
+            // catalogue that did not load — is an inline error on tap (#2595),
+            // never a dead button that does not say why.
+            onPressed: (_isAgency ||
+                    (!_postingTradesLoading && _matchV1 != _MatchV1.loading))
+                ? _submit
+                : null,
           ),
         ),
         body: Column(
@@ -1597,11 +1558,10 @@ class _PostJobScreenState extends State<PostJobScreen> {
   /// net-vs-gross, and "kitna haath me aayega" is the worker's first question.
   static String _payTypeLabel(String? v) => jobPayTypeLabel(v) ?? 'Not stated';
 
-  /// COMPANY posting inputs. #357: every input here now reaches
-  /// `POST /payer/job-postings` — org/title/location/vacancy band as their own
-  /// columns, and trade + pay + experience + skills folded into the free-text
-  /// `description` (see [_companyDescription]), because that route has no typed
-  /// column for them. Nothing on this form is prefilled and nothing is dropped.
+  /// COMPANY posting inputs. #357: every input here reaches
+  /// `POST /payer/job-postings` as its own column — org/title/location/vacancy
+  /// band, the worker-card content, and the trade (`role_kind` + its trade
+  /// form, #2635). Nothing on this form is prefilled and nothing is dropped.
   List<Widget> _companyFields() => <Widget>[
         _sectionCard('Company & role', <Widget>[
           _anchored(
@@ -1619,34 +1579,12 @@ class _PostJobScreenState extends State<PostJobScreen> {
           const SizedBox(height: AppSpacing.s4),
           _titleField(hint: 'e.g. CNC Setter'),
           const SizedBox(height: AppSpacing.s4),
-          // Migration 0141 — the ROLE is mandatory and it selects the trade form.
-          // On an older server without the catalogue, the legacy trade dropdown
-          // remains so posting still works.
-          if (_postingTrades.isNotEmpty)
-            _anchored(JobFormField.role, _roleField())
-          else
-            BbSelect<String?>(
-              label: 'Trade (optional)',
-              value: _trade,
-              items: <String?>[null, ..._trades],
-              labelOf: (String? t) => t ?? 'Not specified',
-              onChanged: (String? v) => setState(() => _trade = v),
-            ),
+          // Migration 0141 — the ROLE is mandatory and it selects the trade
+          // form. #2635 — it is one of the 16 trades, always: there is no free
+          // trade or role list to fall back on (a job posted that way could
+          // never go live), so the picker says why when it cannot load.
+          _anchored(JobFormField.role, _roleField()),
           const SizedBox(height: AppSpacing.s4),
-          // The worker card's role illustration is picked by `role_kind`, not by
-          // the free-text trade above. When the 16-trade catalogue drives the
-          // form, its own role picker above already sets it.
-          if (_postingTrades.isEmpty) ...<Widget>[
-            BbSelect<String?>(
-              label: 'Role (card illustration)',
-              value: _roleKind,
-              items: <String?>[null, ...kJobRoleKinds],
-              labelOf: (String? v) =>
-                  v == null ? 'Not specified' : (jobRoleLabel(v) ?? v),
-              onChanged: (String? v) => setState(() => _roleKind = v),
-            ),
-            const SizedBox(height: AppSpacing.s4),
-          ],
           // THE CARD'S PLACE ROW. Its own input since #1725 — the submit used
           // to reuse the free-text Location below, which is `location_label`
           // and never reaches a worker.
@@ -1709,9 +1647,9 @@ class _PostJobScreenState extends State<PostJobScreen> {
           ),
         ]),
         const SizedBox(height: AppSpacing.s4),
-        // Matching V1: the demand-skill picker + reach meter when the route is
-        // live; the free-text skills flow otherwise (see [_companySkillsSection]).
-        // #2595 — a job with no skill picked says so here, inline.
+        // The picked trade's own form (rung + chips) and its reach line — see
+        // [_companySkillsSection]. A server refusal of the skills (the cap)
+        // lands here, inline (#2595).
         _sectionCard('Skills & matching', <Widget>[
           _anchored(
             JobFormField.skills,
@@ -1794,41 +1732,16 @@ class _PostJobScreenState extends State<PostJobScreen> {
         // of any kind in the app (those live on payer-web only).
       ];
 
-  /// The COMPANY skills area, branched on Matching-V1 availability:
-  ///  - [_MatchV1.loading]     — a small placeholder while `fetchMatchSkills()`
-  ///    resolves (Post is held disabled meanwhile).
-  ///  - [_MatchV1.available]   — the closed-taxonomy picker + live reach meter.
-  ///    (Shift / Needed-by are NOT here: they are display columns, offered on
-  ///    the Pay & timing card regardless of V1.)
-  ///  - [_MatchV1.unavailable] — the pre-existing free-text "Key skills" flow,
-  ///    so posting still works when the route is off (`MATCH_V1_ENABLED` false).
-  List<Widget> _companySkillsSection() {
-    // Migration 0141 — when the trade catalogue is available, the role's own
-    // chips replace the flat vocabulary picker. The legacy picker remains the
-    // fallback for a server that has not shipped the catalogue.
-    if (_postingTrades.isNotEmpty) return <Widget>[_tradeSection()];
-    switch (_matchV1) {
-      case _MatchV1.loading:
-        return <Widget>[_skillsLoading()];
-      case _MatchV1.unavailable:
-        return _freeTextSkills();
-      case _MatchV1.available:
-        return <Widget>[
-          MatchSkillPicker(
-            skills: _matchSkills,
-            pickedIds: _pickedSkillIds,
-            untickedRelatedIds: _untickedRelatedIds,
-            reach: _reach,
-            reachLoading: _reachLoading,
-            reachFailed: _reachFailed,
-            onRetryReach: _loadReach,
-            maxSkills: _maxSkillsPerPosting,
-            onToggleSkill: _onToggleSkill,
-            onToggleRelated: _onToggleRelated,
-          ),
-        ];
-    }
-  }
+  /// The COMPANY skills area: the picked trade's own form ([_tradeSection]) —
+  /// its rung and chips — with the live reach line.
+  ///
+  /// #2635 — a company job's match skills come from its trade: the server
+  /// keeps the trade's own skill plus the chips that trade owns and DROPS any
+  /// other id. So the flat vocabulary picker and the free-text "Key skills"
+  /// (both of which could name another trade's skills — the 2026-11-03 Welder
+  /// job that matched CNC grinding) are no longer offered here. (Shift /
+  /// Needed-by are display columns on the Pay & timing card.)
+  List<Widget> _companySkillsSection() => <Widget>[_tradeSection()];
 
   /// The AGENCY demand-skill area (ADR-0050). Unlike the company branch there is
   /// NO free-text fallback: an agency job's skills only ever ride the closed
@@ -1892,18 +1805,6 @@ class _PostJobScreenState extends State<PostJobScreen> {
           ],
         ),
       );
-
-  /// The V1-off fallback — the pre-existing free-text "Key skills" chips. These
-  /// ride the create call folded into `description` (see [_companyDescription]).
-  List<Widget> _freeTextSkills() => <Widget>[
-        _chipListField(
-          label: 'Key skills',
-          values: _skills,
-          maxItems: _maxSkills,
-          addLabel: '+ Add skill',
-          onAdd: _addSkill,
-        ),
-      ];
 
   /// One payer-typed chip list, bound to this screen's state (the widget itself
   /// is shared with the edit screens — see [JobChipListField]).
