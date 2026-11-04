@@ -3627,6 +3627,7 @@ textarea.field__input {
 
 /* The subtitle row: the one-line description and the ⓘ beside it. */
 .page__subrow {
+  position: relative;
   display: flex;
   align-items: flex-start;
   gap: var(--space-2);
@@ -3637,17 +3638,19 @@ textarea.field__input {
 }
 /* A one-line notice with its ⓘ: the claim in band, the explanation one click away. */
 .notice--row {
+  position: relative;
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: var(--space-2);
 }
 
-/* The ⓘ and its note. The note fades in and scales 0.98 → 1 over --duration-fast with its
-   origin at the ⓘ; opacity and transform only, and tokens.css zeroes the duration under reduced
-   motion. */
+/* The ⓘ and its note. The note fades in and scales 0.98 → 1 over --duration-fast; opacity and
+   transform only, and tokens.css zeroes the duration under reduced motion. The note is anchored
+   to the ROW it sits in (the subtitle row or the notice), not to the ⓘ: at the end of a 375px
+   row a note left-anchored at the ⓘ would run off the screen. */
 .infopop {
-  position: relative;
+  position: static;
   display: inline-block;
   flex: none;
 }
@@ -3674,9 +3677,10 @@ textarea.field__input {
 .infopop__body {
   position: absolute;
   inset-block-start: calc(100% + var(--space-1));
-  inset-inline-start: 0;
+  inset-inline: 0;
   z-index: var(--z-tooltip);
-  inline-size: min(22rem, calc(100vw - var(--space-8)));
+  inline-size: auto;
+  max-inline-size: 22rem;
   padding: var(--space-3) var(--space-4);
   border: var(--border-hairline) solid var(--border-subtle);
   border-radius: var(--radius-md);
@@ -3695,6 +3699,11 @@ textarea.field__input {
 }
 .infopop__body > p + p {
   margin-block-start: var(--space-2);
+}
+/* In the subtitle row the ⓘ ends the row, so the note sits flush right, under it. */
+.page__subrow > .infopop > .infopop__body {
+  margin-inline-start: auto;
+  transform-origin: top right;
 }
 @keyframes infopop-in {
   from {

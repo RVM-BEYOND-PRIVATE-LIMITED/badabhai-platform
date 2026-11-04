@@ -30,6 +30,22 @@ describe("InfoPopover motion", () => {
   });
 });
 
+describe("InfoPopover placement", () => {
+  it("anchors the note to its row, not to the ⓘ, so it never runs off a 375px screen", () => {
+    expect(decl(own(".page__subrow"), "position")).toBe("relative");
+    expect(decl(own(".notice--row"), "position")).toBe("relative");
+    expect(decl(own(".infopop"), "position")).toBe("static");
+    const body = own(".infopop__body");
+    expect(decl(body, "inset-inline")).toBe("0");
+    expect(decl(body, "inline-size")).toBe("auto");
+    expect(decl(body, "max-inline-size")).toBe("22rem");
+    expect(decl(body, "inset-inline-start")).toBeNull();
+    expect(decl(own(".page__subrow > .infopop > .infopop__body"), "margin-inline-start")).toBe(
+      "auto",
+    );
+  });
+});
+
 describe("About this data motion", () => {
   it("expands height + opacity over --duration-base (220ms)", () => {
     expect(decl(own(".about::details-content"), "transition")).toContain(
