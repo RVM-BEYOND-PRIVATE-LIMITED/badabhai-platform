@@ -14,6 +14,7 @@ import { renderToStaticMarkup } from "react-dom/server";
  */
 const stub = vi.hoisted(() => ({
   events: [] as unknown[],
+  names: [] as string[],
 }));
 
 vi.mock("next/navigation", () => ({
@@ -29,6 +30,7 @@ vi.mock("../../lib/auth", () => ({
 vi.mock("../../lib/admin-http", () => ({ isAdminRequestError: () => false }));
 vi.mock("../../lib/events", () => ({
   listEvents: async () => ({ events: stub.events, nextCursor: null }),
+  listRecentEventNames: async () => stub.names,
 }));
 vi.mock("../../lib/entities", () => ({
   listPayers: async () => ({ items: [], nextCursor: null }),
@@ -66,6 +68,7 @@ const EVENT = {
 
 beforeEach(() => {
   stub.events = [EVENT];
+  stub.names = [];
 });
 
 type Page = (p: { searchParams: Promise<Record<string, string>> }) => Promise<ReactElement>;
@@ -195,8 +198,27 @@ describe("the fields show the URL's values (a fresh render)", () => {
       eventName: "worker.registered",
       correlationId: CORRELATION,
     });
-    expect(inputValue(out, "e.g. worker.profile_confirmed")).toBe("worker.registered");
+    expect(inputValue(out, "e.g. profile.confirmed")).toBe("worker.registered");
     expect(inputValue(out, UUID_EXAMPLE)).toBe(CORRELATION);
+  });
+
+  it("/events: the event name is a combobox over the names the spine recorded lately", async () => {
+    stub.names = ["profile.confirmed", "worker.created"];
+    const out = await html(EventsPage as Page, {});
+    const input = (out.match(/<input[^>]*>/g) ?? []).find((t) => t.includes('placeholder="e.g. profile.confirmed"'))!;
+    const list = /list="([^"]+)"/.exec(input)?.[1];
+    expect(list).toBeTruthy();
+    expect(out).toContain(
+      `<datalist id="${list}"><option value="profile.confirmed"></option><option value="worker.created"></option></datalist>`,
+    );
+  });
+
+  it("/events: with no names to suggest, the same free-text field — no empty list", async () => {
+    stub.names = [];
+    const out = await html(EventsPage as Page, {});
+    const input = (out.match(/<input[^>]*>/g) ?? []).find((t) => t.includes('placeholder="e.g. profile.confirmed"'))!;
+    expect(input).not.toContain("list=");
+    expect(out).not.toContain("<datalist");
   });
 
   it("/events: the date range, as the IST days in the address", async () => {

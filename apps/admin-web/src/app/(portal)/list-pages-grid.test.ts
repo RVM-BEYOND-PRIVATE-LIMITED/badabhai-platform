@@ -109,6 +109,22 @@ describe("the filter bars (A4)", () => {
     for (const [file, text] of placeholders) expect(text, file).toMatch(/^e\.g\. \S/);
   });
 
+  it("the event-name example is an event the spine can hold — typed as shown, it finds something", () => {
+    // It read "e.g. worker.profile_confirmed", which no event is called: an operator who typed the
+    // example got "No events match these filters". The registry is read as SOURCE (admin-web takes
+    // no dependency on @badabhai/event-schema), like lib/list-filter-values.test.ts does.
+    const example = /placeholder="e\.g\. ([^"]+)"/.exec(code("app/(portal)/events/filter-bar.tsx"))?.[1];
+    expect(example).toBeTruthy();
+    const registry = readFileSync(join(src, "..", "..", "..", "packages", "event-schema", "src", "registry.ts"), "utf8");
+    expect(registry).toContain(`"${example}": {`);
+  });
+
+  it("the event name is a combobox: free text, suggesting the names the page read", () => {
+    const events = code("app/(portal)/events/filter-bar.tsx");
+    expect(events).toMatch(/list=\{eventNames\.length > 0 \? namesId : undefined\}/);
+    expect(events).toMatch(/<datalist id=\{namesId\}>/);
+  });
+
   it("a field with a fixed set of values is a select: the events' actor and subject types", () => {
     const events = code("app/(portal)/events/filter-bar.tsx");
     expect(events).toMatch(/value=\{values\.actorType\}[^>]*>\s*\{typeOptions\(values\.actorType, EVENT_ACTOR_TYPES\)\}/);

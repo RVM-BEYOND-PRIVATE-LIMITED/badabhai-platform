@@ -22,6 +22,10 @@ const stub = vi.hoisted(() => {
     page: { events: [] as unknown[], nextCursor: null as string | null },
     /** What the page asked the API for, last. */
     asked: null as Record<string, unknown> | null,
+    /** The event-name suggestions' read: a list, or a failure to throw. */
+    names: ["profile.confirmed", "worker.created"] as string[] | Error,
+    /** What the page handed its filter bar, last. */
+    barProps: null as Record<string, unknown> | null,
   };
 });
 
@@ -43,10 +47,20 @@ vi.mock("../../../lib/events", () => ({
     if (stub.failure) throw stub.failure;
     return stub.page;
   },
+  listRecentEventNames: async () => {
+    if (stub.names instanceof Error) throw stub.names;
+    return stub.names;
+  },
 }));
 
-// `useRouter` needs an app-router context this renderer does not provide.
-vi.mock("./filter-bar", () => ({ EventFilterBar: () => null }));
+// `useRouter` needs an app-router context this renderer does not provide; the stand-in keeps
+// what the page handed the bar.
+vi.mock("./filter-bar", () => ({
+  EventFilterBar: (props: Record<string, unknown>) => {
+    stub.barProps = props;
+    return null;
+  },
+}));
 
 const { default: EventsPage } = await import("./page");
 
@@ -54,6 +68,8 @@ beforeEach(() => {
   stub.failure = null;
   stub.page = { events: [], nextCursor: null };
   stub.asked = null;
+  stub.names = ["profile.confirmed", "worker.created"];
+  stub.barProps = null;
 });
 
 const render = async (searchParams: Record<string, string | undefined> = {}) =>
@@ -207,12 +223,22 @@ describe("the date range", () => {
     expect(out).toContain('href="/events?occurredFrom=2026-11-01&amp;occurredTo=2026-11-03&amp;cursor=c2"');
   });
 
-  it("a day that is not on the calendar travels as it stands — and its 400 is the operator's to fix", async () => {
-    stub.failure = new stub.RequestError(400);
-    const out = await render({ occurredTo: "2026-02-30" });
-    expect(stub.asked?.occurredTo).toBe("2026-02-30");
-    expect(out).toContain("The server rejected these filters");
-    expect(out).toContain("a date must be a real calendar day");
+  it("a day that is not on the calendar is refused HERE, before any read, and named", async () => {
+    // It used to travel as it stood, on the premise that the API refuses it. It does not: the API
+    // coerces it (`new Date("2026-02-30")` is 2 March), so the list showed a range nobody asked
+    // for under a To field the date input drew blank.
+    for (const occurredTo of ["2026-02-30", "2026-2-3", "yesterday"]) {
+      stub.asked = null;
+      const out = await render({ occurredFrom: "2026-02-01", occurredTo });
+      expect(stub.asked, occurredTo).toBeNull();
+      expect(out).toContain("That date is not on the calendar");
+      expect(out).toContain(`“${occurredTo}” is not a day on the calendar`);
+      expect(out).toContain("A date in the filters is not a calendar day.");
+      expect(out).not.toContain("The server rejected");
+      // Its way out is Clear filters — once on the screen — never a Retry that repeats it.
+      expect(out.split(">Clear filters<").length - 1).toBe(1);
+      expect(out).not.toContain(">Retry<");
+    }
   });
 
   it("valid days beside an over-long cursor: the CURSOR was refused, not the range", async () => {
@@ -251,5 +277,30 @@ describe("the list", () => {
     );
     // The version follows the link; it is not part of its name.
     expect(out).toContain('</a><span class="table__meta">v2</span>');
+  });
+});
+
+/**
+ * The event-name field's suggestions (A4, #2574): the names the spine recorded lately, read beside
+ * the list. A read the page can do without — so it never fails or empties the page.
+ */
+describe("the event-name suggestions", () => {
+  it("hands the filter bar the names the spine recorded lately", async () => {
+    await render();
+    expect(stub.barProps?.eventNames).toEqual(["profile.confirmed", "worker.created"]);
+  });
+
+  it("are still offered beside a refused date — the bar is how the operator corrects it", async () => {
+    await render({ occurredTo: "2026-02-30" });
+    expect(stub.barProps?.eventNames).toEqual(["profile.confirmed", "worker.created"]);
+  });
+
+  it("a failed read leaves the field unsuggested and the list untouched", async () => {
+    stub.names = new Error("metrics are down");
+    const out = await render();
+    expect(stub.barProps?.eventNames).toEqual([]);
+    expect(stub.asked).not.toBeNull();
+    expect(out).not.toContain("Events are unavailable");
+    expect(out).toContain("No events recorded yet");
   });
 });

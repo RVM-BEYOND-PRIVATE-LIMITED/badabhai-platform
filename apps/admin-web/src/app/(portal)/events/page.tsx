@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { requireCapability } from "../../../lib/auth";
-import { listEvents, type EventFilters } from "../../../lib/events";
+import { listEvents, listRecentEventNames, type EventFilters } from "../../../lib/events";
+import { withinBudget } from "../../../lib/within-budget";
 import {
   isMalformedUuid,
   isOverLength,
@@ -27,6 +28,14 @@ export const dynamic = "force-dynamic";
 export const metadata = { title: "Events" };
 
 /**
+ * How long the page waits on the event-name suggestions before rendering without them. They are
+ * cached per admin once read (`listRecentEventNames`), so this only ever bites a first read, or a
+ * metrics route that is slow or down — which must never slow the list.
+ */
+const EVENT_NAME_BUDGET_MS = 800;
+const NO_NAMES: readonly string[] = [];
+
+/**
  * The events viewer — filtered, keyset-paginated search over the audit spine.
  *
  * Filters live in the URL, not component state. That makes every view of this screen
@@ -39,7 +48,12 @@ export const metadata = { title: "Events" };
  *
  * The date range (A4, #2574) is two IST days in the address (`occurredFrom=2026-11-01`), both
  * inclusive; the API compares instants, so a day becomes its first or last IST instant here. A
- * value that is not a calendar day travels as it stands, so the API — not this page — refuses it.
+ * value that is not a calendar day is refused HERE, before any read, and named: the format is
+ * this page's own, and the API would not refuse it — it coerces whatever it gets into a date
+ * (`2026-02-30` is 2 March), so it would list a range nobody asked for.
+ *
+ * The event-name field suggests the names the spine recorded lately (`listRecentEventNames`) — a
+ * read the page can do without, so it runs beside the list's and never holds it up.
  */
 export default async function EventsPage({
   searchParams,
@@ -53,15 +67,20 @@ export default async function EventsPage({
   const one = (v: string | string[] | undefined) =>
     (Array.isArray(v) ? v[0] : v)?.trim() || undefined;
 
+  // Started first, so it runs beside the list's read; it never fails or holds the page.
+  const suggestions = withinBudget(listRecentEventNames(), EVENT_NAME_BUDGET_MS, NO_NAMES);
+
   const occurredFrom = one(sp.occurredFrom);
   const occurredTo = one(sp.occurredTo);
+  /** A date in the address that is not a calendar day — refused before any read (see above). */
+  const notADay = [occurredFrom, occurredTo].find((d) => d !== undefined && !isCalendarDay(d));
   const filters: EventFilters = {
     eventName: one(sp.eventName),
     actorType: one(sp.actorType),
     subjectType: one(sp.subjectType),
     correlationId: one(sp.correlationId),
-    occurredFrom: isCalendarDay(occurredFrom) ? istDayStart(occurredFrom) : occurredFrom,
-    occurredTo: isCalendarDay(occurredTo) ? istDayEnd(occurredTo) : occurredTo,
+    occurredFrom: isCalendarDay(occurredFrom) ? istDayStart(occurredFrom) : undefined,
+    occurredTo: isCalendarDay(occurredTo) ? istDayEnd(occurredTo) : undefined,
     cursor: one(sp.cursor),
     limit: 50,
   };
@@ -84,26 +103,31 @@ export default async function EventsPage({
     isOverLength(filters.eventName, EVENT_FILTER_MAX_LENGTH.eventName) ||
     isOverLength(filters.actorType, EVENT_FILTER_MAX_LENGTH.actorType) ||
     isOverLength(filters.subjectType, EVENT_FILTER_MAX_LENGTH.subjectType) ||
-    isMalformedUuid(filters.correlationId) ||
-    (occurredFrom !== undefined && !isCalendarDay(occurredFrom)) ||
-    (occurredTo !== undefined && !isCalendarDay(occurredTo));
+    isMalformedUuid(filters.correlationId);
   let refusal: ReadRefusal = null;
-  try {
-    page = await listEvents(filters);
-  } catch (err) {
-    // Rendered inline either way, instead of tripping the error boundary. A bad filter value
-    // (e.g. a malformed correlation uuid) 400s — the operator's to correct. Anything else is
-    // our fault, and "correct the value above" over an outage blames a filter that is fine.
+  if (notADay !== undefined) {
+    // This page's own refusal: nothing is read, and the state below names the value.
     failed = true;
-    // A 400 is the operator's address only when the address holds something to refuse — a
-    // filter, or a page cursor. With neither, it cannot be theirs: that is an outage too. The
-    // console's one rule, `readRefusal` — and only a filter value the server does not accept
-    // counts as refusable: a valid one beside an over-long cursor leaves the CURSOR refused.
-    refusal = readRefusal(err, { filtered: refusable, cursor: filters.cursor });
+    refusal = "filters";
+  } else {
+    try {
+      page = await listEvents(filters);
+    } catch (err) {
+      // Rendered inline either way, instead of tripping the error boundary. A bad filter value
+      // (e.g. a malformed correlation uuid) 400s — the operator's to correct. Anything else is
+      // our fault, and "correct the value above" over an outage blames a filter that is fine.
+      failed = true;
+      // A 400 is the operator's address only when the address holds something to refuse — a
+      // filter, or a page cursor. With neither, it cannot be theirs: that is an outage too. The
+      // console's one rule, `readRefusal` — and only a filter value the server does not accept
+      // counts as refusable: a valid one beside an over-long cursor leaves the CURSOR refused.
+      refusal = readRefusal(err, { filtered: refusable, cursor: filters.cursor });
+    }
   }
   const refused = refusal !== null;
   /** The filters were refused — not the page cursor beside them. */
   const filtersRefused = refusal === "filters";
+  const eventNames = await suggestions;
 
   /** The current query without the cursor — what the recoveries below repeat. */
   const listHref = queryHref("/events", Object.fromEntries(active));
@@ -139,6 +163,7 @@ export default async function EventsPage({
               correlationId={filters.correlationId ?? ""}
               occurredFrom={occurredFrom ?? ""}
               occurredTo={occurredTo ?? ""}
+              eventNames={eventNames}
             />
           </FilterPanel>
         }
@@ -152,9 +177,11 @@ export default async function EventsPage({
             </h2>
             <p className="panel__sub">
               {failed
-                ? filtersRefused
-                  ? "That filter combination was rejected."
-                  : "Nothing was fetched."
+                ? notADay !== undefined
+                  ? "A date in the filters is not a calendar day."
+                  : filtersRefused
+                    ? "That filter combination was rejected."
+                    : "Nothing was fetched."
                 : `${page?.events.length ?? 0} event${page?.events.length === 1 ? "" : "s"} on this page.`}
             </p>
           </div>
@@ -164,12 +191,18 @@ export default async function EventsPage({
         {refused ? (
           <div className="state state--error">
             <h3 className="state__title">
-              {filtersRefused ? "The server rejected these filters" : CURSOR_REFUSAL.title}
+              {notADay !== undefined
+                ? "That date is not on the calendar"
+                : filtersRefused
+                  ? "The server rejected these filters"
+                  : CURSOR_REFUSAL.title}
             </h3>
             <p className="state__body">
-              {filtersRefused
-                ? "Nothing was fetched. A correlation id must be a full UUID — the short id shown in the table is only the first segment — and a date must be a real calendar day. Correct the value above, or clear the filters and start again."
-                : CURSOR_REFUSAL.body}
+              {notADay !== undefined
+                ? `Nothing was fetched: “${notADay}” is not a day on the calendar. Pick the date again above, or clear the filters and start again.`
+                : filtersRefused
+                  ? "Nothing was fetched. A correlation id must be a full UUID — the short id shown in the table is only the first segment. Correct the value above, or clear the filters and start again."
+                  : CURSOR_REFUSAL.body}
             </p>
             {/* Repeating a refused request cannot succeed, so there is no Retry. With a filter
                 value the server does not accept in the address, that value is what was refused —

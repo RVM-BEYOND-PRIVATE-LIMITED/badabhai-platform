@@ -1,5 +1,6 @@
 "use client";
 
+import { useId } from "react";
 import { SubmitPendingCue, usePendingPush } from "../../../components/nav-pending";
 import { useUrlState } from "../../../components/use-url-state";
 import { EVENT_ACTOR_TYPES, EVENT_SUBJECT_TYPES } from "../../../lib/list-filter-values";
@@ -27,10 +28,16 @@ export type EventFilterValues = {
  *
  * A4 (#2574): the actor and subject types are SELECTS — the event schema's closed sets
  * (`lib/list-filter-values.ts`) — and the date range is two IST days, both inclusive. The event
- * name stays free text: 230 names, growing with every feature, and the API matches any string, so
- * a pinned copy would go stale in the very release that adds an event. Placeholders are examples.
+ * name is a COMBOBOX: free text (the API matches any string, and an event that has not fired
+ * lately is still a name to search), suggesting the names the spine recorded lately — the page
+ * reads them (`eventNames`), since the registry's 230, growing with every feature, are not this
+ * app's to copy. Without them it is the same field, unsuggested. Placeholders are examples.
  */
-export function EventFilterBar(initial: EventFilterValues) {
+export function EventFilterBar({
+  eventNames = [],
+  ...initial
+}: EventFilterValues & { eventNames?: readonly string[] }) {
+  const namesId = useId();
   // Navigates in a transition, so Apply can show that the new list is on its way — the same
   // signal a link gives, with no loading boundary (components/nav-pending.tsx).
   const [pending, push] = usePendingPush();
@@ -66,10 +73,18 @@ export function EventFilterBar(initial: EventFilterValues) {
           className="field__input"
           value={values.eventName}
           onChange={set("eventName")}
-          placeholder="e.g. worker.profile_confirmed"
+          placeholder="e.g. profile.confirmed"
           spellCheck={false}
           autoComplete="off"
+          list={eventNames.length > 0 ? namesId : undefined}
         />
+        {eventNames.length > 0 ? (
+          <datalist id={namesId}>
+            {eventNames.map((name) => (
+              <option key={name} value={name} />
+            ))}
+          </datalist>
+        ) : null}
       </label>
       <label className="field">
         <span className="field__label">Actor type</span>
