@@ -8,7 +8,7 @@ import type { AdminOtpService } from "./admin-otp.service";
  * ADR-0038 — THE UNBLOCK, end to end.
  *
  * Before this pair of changes the admin surface was complete and unreachable: `admin_users`
- * rows could only be created by an authenticated admin, and `issueAndSend` reserved a code
+ * rows could only be created by an authenticated admin, and the login send reserved a code
  * and logged "delivery deferred" rather than sending it. Two separate stoppages, either of
  * which alone is enough to make the Admin Portal unusable.
  *
@@ -28,6 +28,7 @@ function setup(account: { status: string } | undefined) {
 
   const otp = {
     issueAndSend: vi.fn(async () => ({ resendInSeconds: 30 })),
+    issueAndDispatch: vi.fn(async () => ({ resendInSeconds: 30 })),
     issueWithoutDelivery: vi.fn(async () => ({ resendInSeconds: 30 })),
   } as unknown as AdminOtpService;
 
@@ -52,10 +53,12 @@ describe("admin login chain (ADR-0038) — the request reaches a real sender", (
     const { svc, otp } = setup({ status: "active" });
     await svc.requestLogin({ email: EMAIL } as never);
 
-    expect(otp.issueAndSend).toHaveBeenCalledTimes(1);
+    expect(otp.issueAndDispatch).toHaveBeenCalledTimes(1);
     // The RAW address must reach the sender — `emailHash` is the lookup key, not a
     // deliverable. Passing only the hash is exactly how this silently sends nowhere.
-    expect(otp.issueAndSend).toHaveBeenCalledWith(EMAIL_HASH, EMAIL);
+    // R73: dispatched off the request path (never the awaited `issueAndSend`).
+    expect(otp.issueAndDispatch).toHaveBeenCalledWith(EMAIL_HASH, EMAIL, "login");
+    expect(otp.issueAndSend).not.toHaveBeenCalled();
     expect(otp.issueWithoutDelivery).not.toHaveBeenCalled();
   });
 
@@ -66,6 +69,7 @@ describe("admin login chain (ADR-0038) — the request reaches a real sender", (
       const { svc, otp } = setup({ status });
       await svc.requestLogin({ email: EMAIL } as never);
 
+      expect(otp.issueAndDispatch).not.toHaveBeenCalled();
       expect(otp.issueAndSend).not.toHaveBeenCalled();
       expect(otp.issueWithoutDelivery).toHaveBeenCalledTimes(1);
     });
@@ -74,6 +78,7 @@ describe("admin login chain (ADR-0038) — the request reaches a real sender", (
   it("an UNKNOWN email still reserves, so the response and its 429s match a known one", async () => {
     const { svc, otp } = setup(undefined);
     await svc.requestLogin({ email: EMAIL } as never);
+    expect(otp.issueAndDispatch).not.toHaveBeenCalled();
     expect(otp.issueAndSend).not.toHaveBeenCalled();
     expect(otp.issueWithoutDelivery).toHaveBeenCalledTimes(1);
   });

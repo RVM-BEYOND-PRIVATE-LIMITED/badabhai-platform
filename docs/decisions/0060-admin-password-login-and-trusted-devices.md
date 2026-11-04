@@ -61,7 +61,7 @@ Onboarding a second admin was also blocked. The invite accept link comes back as
 - **Temporary passwords.** An account created with a temporary password cannot sign in by emailed code (409). It must use the password door, which forces the change.
 - **Residuals** are logged in the risks register:
   - R72 (accepted): a stolen session can set a first password and turn on two-step.
-  - R73 (open): pre-existing email-timing and shared rate-limit issues on admin sign-in.
+  - R73 (open): pre-existing email-timing and shared rate-limit issues on admin sign-in. The timing half was fixed on 2026-11-04: the login code email is now also sent after the response. The shared rate-limit half is #2542.
 - **Events.** Each action emits `admin.action_performed` with a new code: `admin_created`, `admin_password_set`, `admin_password_reset`, `admin_device_trusted`, `admin_mfa_enabled` or `admin_mfa_disabled`. `action_code` is a free string, so the event schema is unchanged. `admin.session_started` still marks every sign-in.
 
 ## 4. Consequences
