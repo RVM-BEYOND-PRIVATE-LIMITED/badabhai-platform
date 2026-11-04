@@ -155,18 +155,20 @@ describe("W2 #2582 — active nav", () => {
 });
 
 describe("W2 #2582 — hover", () => {
-  const STATIC = [
-    ".panel",
-    ".posting-card",
-    ".applicant",
-    ".credit-pack",
-    ".capacity-tier",
-    ".agency-job",
+  // Literal patterns (no dynamic RegExp): `.<class>` not followed by a
+  // word/hyphen char, then `:hover` within the same compound selector.
+  const STATIC: readonly RegExp[] = [
+    /\.panel(?![\w-])[^ ]*:hover/,
+    /\.posting-card(?![\w-])[^ ]*:hover/,
+    /\.applicant(?![\w-])[^ ]*:hover/,
+    /\.credit-pack(?![\w-])[^ ]*:hover/,
+    /\.capacity-tier(?![\w-])[^ ]*:hover/,
+    /\.agency-job(?![\w-])[^ ]*:hover/,
   ];
 
   it("static containers have no hover lift", () => {
     const offenders = RULES.filter((r) => r.selector.includes(":hover"))
-      .filter((r) => STATIC.some((c) => new RegExp(`\\${c}(?![\\w-])[^ ]*:hover`).test(r.selector)))
+      .filter((r) => STATIC.some((re) => re.test(r.selector)))
       .map((r) => r.selector);
     expect(offenders).toEqual([]);
   });
