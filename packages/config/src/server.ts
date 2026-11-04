@@ -748,6 +748,12 @@ export const serverEnvSchema = z.object({
   // must be an explicit code change, not an env value. NOT the same knob as the
   // POST-erasure re-registration cool-down above.
   ACCOUNT_DELETION_GRACE_DAYS: z.coerce.number().int().positive().default(7),
+  // #2541 (CEO pack v1 A4 #9) — the sign-up age gate. On, `POST /consent/accept` REQUIRES the
+  // worker's 18+ answer (`age_18_plus`): a missing answer is a 400 and nothing is written. Off
+  // (the default) keeps today's contract for app builds that do not send it yet. An explicit
+  // under-18 answer is refused WHATEVER this says — the flag only decides whether a missing
+  // answer still passes. Arm only once the worker-app release that sends the answer is live.
+  SIGNUP_AGE_GATE_ENABLED: booleanFromString,
   // Cadence (hours) of the deletion sweep that erases overdue rows. The DB marker is
   // authoritative — a missed run only delays erasure until the next sweep. Fractional
   // hours allowed for tests/staging (cadence precedent: PACE_WAVE_INTERVAL_HOURS).

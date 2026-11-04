@@ -416,6 +416,12 @@ services:
       # 0134's table. Turn on only after 0134 is applied. `:-false` because this bool rejects "".
       PAYER_APPLICANT_STAGES_ENABLED: ${PAYER_APPLICANT_STAGES_ENABLED:-false}
 
+      # THE SIGN-UP AGE GATE (#2541, CEO pack v1 A4 #9). Off is today's POST /consent/accept: a
+      # missing 18+ answer still passes (an explicit under-18 answer is refused either way). On,
+      # a missing answer is a 400. Turn on only once the worker-app release that sends
+      # `age_18_plus` is live. No migration. `:-false` because this bool rejects "".
+      SIGNUP_AGE_GATE_ENABLED: ${SIGNUP_AGE_GATE_ENABLED:-false}
+
       # ---- THE REFERRAL RESOLVER'S DESTINATION (#1800).
       #
       # `GET /r/<code>` 302s to `<this>/i/<code>`, so this must be the origin that SERVES payer-web's

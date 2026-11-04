@@ -671,6 +671,30 @@ export const ConsentPurposesWithdrawnPayload = z.object({
   withdrawn_purposes: z.array(z.string().min(1).max(64)).min(1).max(20),
 });
 
+/**
+ * #2541 (CEO pack v1 A4 #9) — the worker's answer to the sign-up age question, given with
+ * `POST /consent/accept`. THIS IS THE RECORD OF THE DECLARATION; no table holds it.
+ *
+ * `age_18_plus: true` → consent was recorded and `consent_id` names that row.
+ * `age_18_plus: false` → nothing was recorded (no consent row, so nothing may be processed) and
+ * `consent_id` is null. The refine pins that pairing so a "minor with a consent row" can never
+ * be written to the spine.
+ *
+ * PII-free: a self-declared yes/no only — never a birth year or a date of birth (owner ruling
+ * 2026-11-04). `.strict()` keeps a later "helpful" field from carrying one.
+ */
+export const ConsentAgeDeclaredPayload = z
+  .object({
+    worker_id: uuidSchema,
+    age_18_plus: z.boolean(),
+    consent_id: uuidSchema.nullable(),
+  })
+  .strict()
+  .refine((v) => v.age_18_plus === (v.consent_id !== null), {
+    message: "consent_id is set exactly when age_18_plus is true",
+  });
+export type ConsentAgeDeclaredPayload = z.infer<typeof ConsentAgeDeclaredPayload>;
+
 // ---------------------------------------------------------------------------
 // chat.*
 // ---------------------------------------------------------------------------

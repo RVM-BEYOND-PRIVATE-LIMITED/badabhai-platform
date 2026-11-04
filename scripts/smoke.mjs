@@ -99,6 +99,8 @@ async function main() {
     worker_id: workerId,
     consent_version: CONSENT_VERSION,
     purposes: PURPOSES,
+    // #2541 — the sign-up 18+ answer; required once SIGNUP_AGE_GATE_ENABLED is on.
+    age_18_plus: true,
   });
   if (consent.status !== 201 || !consent.body?.consent_id) {
     throw new Error(`${step} -> ${consent.status} (${consent.text})`);

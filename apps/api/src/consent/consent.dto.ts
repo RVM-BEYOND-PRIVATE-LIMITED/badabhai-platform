@@ -20,6 +20,15 @@ import { consentPurposesSchema } from "@badabhai/validators";
 export const AcceptConsentSchema = z.object({
   consent_version: z.string().min(1).max(32),
   purposes: consentPurposesSchema,
+  /**
+   * #2541 (CEO pack v1 A4 #9) — the worker's answer to "Are you 18 or older?". ADDITIVE and
+   * OPTIONAL on the wire, so app builds that predate the question keep working while
+   * `SIGNUP_AGE_GATE_ENABLED` is off; with it on, a missing answer is a 400
+   * (`AGE_CONFIRMATION_REQUIRED`). `false` is refused whatever the flag says (403
+   * `AGE_BELOW_MINIMUM`, no consent row, sessions revoked). A real boolean only — no coercion
+   * from "true"/"yes", so a malformed client cannot answer by accident.
+   */
+  age_18_plus: z.boolean().optional(),
 });
 export type AcceptConsentDto = z.infer<typeof AcceptConsentSchema>;
 

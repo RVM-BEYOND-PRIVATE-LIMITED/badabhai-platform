@@ -1,11 +1,14 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
+import { Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
+import type { ServerConfig } from "@badabhai/config";
 import type { RequestContext } from "../common/request-context";
 import { PiiCryptoService } from "../common/pii-crypto.service";
+import { SERVER_CONFIG } from "../config/config.module";
 import { EventsService } from "../events/events.service";
 import { SessionService } from "../auth/session.service";
 import { WorkersRepository } from "../workers/workers.repository";
 import { ConsentRepository } from "./consent.repository";
 import type { AcceptConsentDto, MyConsentState } from "./consent.dto";
+import { AgeBelowMinimumException, AgeConfirmationRequiredException } from "./age-gate";
 
 /**
  * The two employer-contact purposes the E0 C-2 exit removes — ONE switch, not two. A
@@ -16,18 +19,30 @@ const EMPLOYER_CONTACT_PURPOSES = ["employer_sharing", "employer_messaging"] as 
 
 @Injectable()
 export class ConsentService {
+  private readonly logger = new Logger(ConsentService.name);
+
   constructor(
     private readonly consents: ConsentRepository,
     private readonly workers: WorkersRepository,
     private readonly events: EventsService,
     private readonly pii: PiiCryptoService,
     private readonly sessions: SessionService,
+    @Inject(SERVER_CONFIG) private readonly config: ServerConfig,
   ) {}
 
   /**
    * Record consent for `workerId` — which the CONTROLLER takes from the verified
    * session, never from the request body (XB-A). The signature makes that
    * structural: there is no worker id on `dto` to reach for by mistake.
+   *
+   * #2541 — THE SIGN-UP AGE GATE runs here, before any write (owner rulings 2026-11-04 on
+   * CEO pack v1 A4 #9: every sign-up, a yes/no self-declaration, under-18 stops):
+   *   - `age_18_plus: false` → {@link refuseUnderage}: no consent row (and any live one is
+   *     withdrawn), so ConsentGuard keeps every processing route closed; 403. Whatever the flag
+   *     says.
+   *   - answer missing + `SIGNUP_AGE_GATE_ENABLED` → 400, nothing written or emitted.
+   *   - answer missing + flag off → today's behaviour exactly (no age event).
+   *   - `age_18_plus: true` → today's consent, plus `consent.age_declared` naming the row.
    */
   async accept(
     workerId: string,
@@ -41,6 +56,11 @@ export class ConsentService {
     // row — deletion revokes sessions), but kept: the alternative is writing a
     // consent row against a worker that no longer exists.
     if (!worker) throw new NotFoundException(`Worker ${workerId} not found`);
+
+    if (dto.age_18_plus === false) return this.refuseUnderage(workerId, ctx);
+    if (dto.age_18_plus === undefined && this.config.SIGNUP_AGE_GATE_ENABLED) {
+      throw new AgeConfirmationRequiredException();
+    }
 
     const acceptedAt = new Date();
     const consent = await this.consents.create({
@@ -68,7 +88,55 @@ export class ConsentService {
       requestId: ctx.requestId,
     });
 
+    if (dto.age_18_plus === true) {
+      await this.events.emit({
+        event_name: "consent.age_declared",
+        actor: { actor_type: "worker", actor_id: workerId },
+        subject: { subject_type: "worker", subject_id: workerId },
+        payload: { worker_id: workerId, age_18_plus: true, consent_id: consent.id },
+        idempotencyKey: `consent.age_declared:${consent.id}`,
+        correlationId: ctx.correlationId,
+        requestId: ctx.requestId,
+      });
+    }
+
     return { consent_id: consent.id, accepted_at: acceptedAt.toISOString() };
+  }
+
+  /**
+   * #2541 — the worker said they are under 18. The owner ruling is "stop, keep the account
+   * dormant": NO consent row is written (so nothing may be processed — ConsentGuard and every
+   * consent read already treat "no row" as "no"), and the worker row stays exactly as any
+   * never-consented sign-up's does. The APP signs the worker out on the 403; they can come back
+   * at 18 and answer again.
+   *
+   * A LIVE CONSENT FROM BEFORE THIS ANSWER MUST NOT OUTLIVE IT. The shipped app never shows the
+   * consent screen to a consented worker, but a direct call (or a future re-consent flow) could
+   * answer "under 18" while a live row exists — and leaving it would keep a declared minor
+   * profiled and visible to employers. So that row is withdrawn through {@link withdraw}, the
+   * one consent-exit path (row stamped, sessions revoked, `consent.revoked`). It runs FIRST and
+   * FAILS CLOSED: a failed stamp throws before anything is recorded.
+   *
+   * No sessions are revoked in the common case (no prior consent). `revokeAll` would push
+   * "logged out everywhere" to a minor's phone, and a never-consented session reaches no
+   * processing route anyway. The event carries no idempotency key: each refusal is its own fact.
+   * Returns `never` — it always ends in the 403.
+   */
+  private async refuseUnderage(workerId: string, ctx: RequestContext): Promise<never> {
+    const latest = await this.consents.findLatestByWorker(workerId);
+    if (latest && latest.revokedAt === null) {
+      this.logger.warn("under-18 answer from a worker with live consent: withdrawing it");
+      await this.withdraw(workerId, ctx);
+    }
+    await this.events.emit({
+      event_name: "consent.age_declared",
+      actor: { actor_type: "worker", actor_id: workerId },
+      subject: { subject_type: "worker", subject_id: workerId },
+      payload: { worker_id: workerId, age_18_plus: false, consent_id: null },
+      correlationId: ctx.correlationId,
+      requestId: ctx.requestId,
+    });
+    throw new AgeBelowMinimumException();
   }
 
   async withdraw(workerId: string, ctx: RequestContext): Promise<{ ok: true }> {
