@@ -240,7 +240,7 @@ describe("R9 §6 rule 4 — the Verdict Line compresses adjacent axes", () => {
       years: 8,
       tools: ["Fanuc", "Siemens", "Mitsubishi"],
       city: "Faridabad",
-      availability: "15 days",
+      availability: { label: "15 days", start: { kind: "in_days", days: 15 } },
       salary: null,
       axes: ["3-axis", "4-axis"],
     });
