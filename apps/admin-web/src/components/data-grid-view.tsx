@@ -81,6 +81,14 @@ export function DataGridView({
   const tableRef = useRef<HTMLTableElement>(null);
   const fits = useFits(scrollRef, tableRef);
 
+  // A new set of rows (a filter, a page) starts at its first row. In the fill layout the grid's
+  // own body is what was scrolled, and a navigation resets only the window — so "Next page" from
+  // the bottom of page 1 would otherwise open page 2 at its last rows. Instant: a scroll position
+  // is never animated.
+  useEffect(() => {
+    if (scrollRef.current) scrollRef.current.scrollTop = 0;
+  }, [rows]);
+
   const shown = visibleColumns(
     columns.map((column, index) => ({ ...column, index })),
     choices,

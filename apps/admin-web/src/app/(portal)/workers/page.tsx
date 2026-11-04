@@ -157,7 +157,8 @@ export default async function WorkersPage({
     {
       id: "language",
       header: "Language",
-      width: "short",
+      // A language code ("hi", "mr"): the narrow kind, cut (with its title) if one is ever longer.
+      width: "number",
       text: "truncate",
       cell: (w) => w.preferred_language ?? "—",
       title: (w) => w.preferred_language ?? undefined,

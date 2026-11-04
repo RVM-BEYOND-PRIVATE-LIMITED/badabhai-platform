@@ -101,7 +101,7 @@ describe("whether the table fits its box — measured", () => {
     const table = { offsetWidth: 900 };
     h.refs[0]!.current = box; // the scroller
     h.refs[1]!.current = table; // the table
-    const cleanup = h.effects.at(-1)!() as () => void;
+    const cleanup = h.effects[0]!() as () => void; // the measurement (the first effect)
     expect(observed).toHaveLength(1);
     expect(observed[0]!.targets).toEqual([box, table]);
 
@@ -122,8 +122,19 @@ describe("whether the table fits its box — measured", () => {
     draw();
     h.refs[0]!.current = { clientWidth: 1000 };
     h.refs[1]!.current = { offsetWidth: 10 };
-    h.effects.at(-1)!();
+    h.effects[0]!();
     expect(root(draw()).props["data-fit"]).toBe("false");
+  });
+});
+
+describe("a new set of rows", () => {
+  it("starts at its first row — the fill layout's scroller is reset, instantly, never animated", () => {
+    draw();
+    const box = { clientWidth: 1000, scrollTop: 1840 };
+    h.refs[0]!.current = box;
+    // The second effect, re-run by React whenever the rows change.
+    h.effects[1]!();
+    expect(box.scrollTop).toBe(0);
   });
 });
 
