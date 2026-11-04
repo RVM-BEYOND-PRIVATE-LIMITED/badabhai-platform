@@ -228,3 +228,34 @@ describe("the OTP code input — motion, success, one row", () => {
     expect(cell).toBeGreaterThanOrEqual(36);
   });
 });
+
+/** A token's colour as #rrggbb, its `var()` chain followed through the light ramp. */
+function hex(name: string): string {
+  let v = tokenValue(TOKENS, name);
+  for (let hop = 0; v?.startsWith("var(") && hop < 4; hop += 1) {
+    v = tokenValue(TOKENS, v.slice(4, -1).trim());
+  }
+  expect(v, name).toMatch(/^#[0-9a-f]{6}$/i);
+  return v!;
+}
+/** The WCAG 2 contrast ratio of two #rrggbb colours. */
+function contrast(a: string, b: string): number {
+  const channel = (h: string, at: number) => {
+    const c = parseInt(h.slice(at, at + 2), 16) / 255;
+    return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  };
+  const lum = (h: string) =>
+    0.2126 * channel(h, 1) + 0.7152 * channel(h, 3) + 0.0722 * channel(h, 5);
+  const [la, lb] = [lum(a), lum(b)] as const;
+  return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
+}
+
+describe("the dashboard's posting views — AA on their sunken track (axe: color-contrast)", () => {
+  it("an inactive view reads in the secondary text colour: ≥ 4.5:1 on the track at 12px", () => {
+    expect(decl(rule(".dash-tabs"), "background")).toBe("var(--surface-sunken)");
+    expect(decl(rule(".dash-tab"), "color")).toBe("var(--text-secondary)");
+    expect(contrast(hex("--text-secondary"), hex("--surface-sunken"))).toBeGreaterThanOrEqual(4.5);
+    // Why not muted: the very pairing axe flagged (4.22:1).
+    expect(contrast(hex("--text-muted"), hex("--surface-sunken"))).toBeLessThan(4.5);
+  });
+});

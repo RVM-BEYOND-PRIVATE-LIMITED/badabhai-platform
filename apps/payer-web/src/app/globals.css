@@ -9003,7 +9003,8 @@ body:has(.invite-landing) .chrome-footer {
   border-radius: var(--radius-pill);
   font-size: var(--ui-caption-size);
   font-weight: var(--weight-medium);
-  color: var(--text-muted);
+  /* Secondary, not muted: on the sunken track muted text is 4.22:1 at 12px, under AA (#2588). */
+  color: var(--text-secondary);
   white-space: nowrap;
 }
 .dash-tab:hover {
