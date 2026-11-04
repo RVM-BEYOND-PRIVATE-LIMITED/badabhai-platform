@@ -1,6 +1,14 @@
 import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { isSampleWorkerId, workforceIdLikePattern, workforceUuid } from "./sample-workers";
+import {
+  PAYER_DEMO_ID_PREFIX,
+  WORKFORCE_ID_PREFIX,
+  isSampleWorkerId,
+  payerDemoIdLikePattern,
+  payerDemoUuid,
+  workforceIdLikePattern,
+  workforceUuid,
+} from "./sample-workers";
 
 /**
  * R74 — the API badges and refuses to unlock a worker because of WHICH id he has, so the test that
@@ -36,5 +44,30 @@ describe("sample-workers — the synthetic-workforce id namespace", () => {
   it("keeps the namespace production holds, and the SQL pattern matches the same ids", () => {
     expect(workforceUuid("worker", 0)).toBe("face2000-0000-4000-8000-000000000000");
     expect(workforceIdLikePattern("worker")).toBe("face2000-0000-4000-8000-%");
+  });
+});
+
+describe("sample-workers — the payer-demo id namespace (#2651)", () => {
+  it("every worker id the payer-demo seed can mint is a sample", () => {
+    for (const i of [0, 1, 29, 479, 480, 0xffff]) {
+      expect(isSampleWorkerId(payerDemoUuid("worker", i)), String(i)).toBe(true);
+    }
+    expect(isSampleWorkerId(payerDemoUuid("worker", 3).toUpperCase())).toBe(true);
+  });
+
+  it("its profile and consent ids are not sample WORKERS", () => {
+    for (const kind of ["profile", "consent"] as const) {
+      expect(isSampleWorkerId(payerDemoUuid(kind, 1)), kind).toBe(false);
+    }
+  });
+
+  it("keeps the namespace production holds, and the SQL pattern matches the same ids", () => {
+    expect(payerDemoUuid("worker", 0)).toBe("be162000-0000-4000-8000-000000000000");
+    expect(payerDemoIdLikePattern("worker")).toBe("be162000-0000-4000-8000-%");
+  });
+
+  it("the two cohorts never share an id", () => {
+    expect(PAYER_DEMO_ID_PREFIX).not.toBe(WORKFORCE_ID_PREFIX);
+    expect(payerDemoUuid("worker", 7)).not.toBe(workforceUuid("worker", 7));
   });
 });
