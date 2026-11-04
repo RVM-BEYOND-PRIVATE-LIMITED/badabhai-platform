@@ -25,6 +25,12 @@ export interface ResolveReachSetInput {
   relatedDefault: "on" | "off";
   /** Client-supplied unticks. VALIDATED here; never trusted. */
   untickedIds?: readonly string[];
+  /**
+   * #2635 — when given, related expansion stays INSIDE this set: a related skill outside it is
+   * neither suggested nor reached. The posted skills are never filtered here (the caller scopes
+   * those to the posting's trade first). Omitted → the unscoped curated relation, as before.
+   */
+  scopeSkillIds?: readonly string[];
 }
 
 export interface ReachSet {
@@ -55,8 +61,11 @@ export function resolveReachSet(input: ResolveReachSetInput): ReachSet {
   const posted = sortedUnique(input.postedSkillIds.filter(isMatchSkillId));
 
   const postedSet = new Set<MatchSkillId>(posted);
+  const scope = input.scopeSkillIds === undefined ? null : new Set<string>(input.scopeSkillIds);
   const suggested = sortedUnique(
-    posted.flatMap((p) => relatedMatchSkills(p).filter((r) => !postedSet.has(r))),
+    posted.flatMap((p) =>
+      relatedMatchSkills(p).filter((r) => !postedSet.has(r) && (scope === null || scope.has(r))),
+    ),
   );
 
   const suggestedSet = new Set<MatchSkillId>(suggested);

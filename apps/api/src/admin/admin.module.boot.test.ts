@@ -15,8 +15,11 @@ import { AdminDashboardController } from "./admin-dashboard.controller";
 import { AdminWorkerJourneyController } from "./admin-worker-journey.controller";
 import { AdminAiTracesController } from "./admin-ai-traces.controller";
 import { AdminSkillDiscoveryController } from "./admin-skill-discovery.controller";
+import { AdminCandidateDetailController } from "./admin-candidate-detail.controller";
 import { DatabaseModule } from "../database/database.module";
 import { EventsModule } from "../events/events.module";
+import { MatchModule } from "../match/match.module";
+import { WorkersModule } from "../workers/workers.module";
 
 /**
  * DI WIRING REGRESSION GUARD (ADR-0025 ADMIN-1) — mirrors the PayerPortalModule boot guard.
@@ -135,6 +138,35 @@ describe("AdminModule wiring (DI regression guard)", () => {
     const tokens = providerTokens();
     expect(tokens).toContain("AdminSkillDiscoveryService");
     expect(tokens).toContain("AdminSkillDiscoveryRepository");
+  });
+
+  it("declares the #2560 candidate full-detail controller + EVERY provider its service injects", () => {
+    // `AdminCandidateDetailService` takes eleven constructor dependencies. Four come from imported
+    // modules (`WorkersRepository` from WorkersModule, `WorkerSkillsRepository` from MatchModule,
+    // `EventsService` from EventsModule) or are already provided here (`AdminEntitiesRepository`,
+    // `AdminIdentityService`); the other six must be registered HERE — five of them are non-admin
+    // repositories provided directly (the `ResumeDisclosureModule` pattern) rather than imported
+    // with their modules. A dropped one is a BOOT failure that typecheck and every hand-built unit
+    // test miss.
+    expect(getMeta("controllers", AdminModule)).toContain(AdminCandidateDetailController);
+    const tokens = providerTokens();
+    for (const name of [
+      "AdminCandidateDetailService",
+      "AdminCandidateDetailRepository",
+      "WorkerAttributesRepository",
+      "WorkerQualificationsRepository",
+      "WorkerLanguagesRepository",
+      "WorkerOccupationsRepository",
+      "CandidateSearchRepository",
+      "AdminEntitiesRepository",
+      "AdminIdentityService",
+    ]) {
+      expect(tokens, name).toContain(name);
+    }
+    // ...and the two imported modules whose EXPORTS it relies on.
+    const imports = getMeta("imports", AdminModule);
+    expect(imports).toContain(WorkersModule);
+    expect(imports).toContain(MatchModule);
   });
 
   it("the cap service can reach the Redis queue it is constructed with", () => {

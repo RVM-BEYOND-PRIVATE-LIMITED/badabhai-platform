@@ -4,6 +4,14 @@ import 'job_posting_chat_models.dart';
 import 'models.dart';
 import 'payer_api_client.dart';
 
+/// What a refused job write says (see `_jobWriteRejection`): a typed [code],
+/// the first issue as a labelled sentence, and every issue by its field.
+typedef _JobWriteRejection = ({
+  String? code,
+  String? validationMessage,
+  Map<String, String> fieldErrors,
+});
+
 /// REAL HTTP-backed [PayerApiClient]. EVERY method here talks to a live
 /// `/payer/*` route — this class holds no canned data and composes no mock.
 ///
@@ -144,7 +152,9 @@ class HttpPayerApiClient implements PayerApiClient {
     };
     final PayerResponse res =
         await _http.send(PayerMethod.post, '/payer/job-postings', body: body);
-    if (!res.isSuccess) throw PayerApiException(res.statusCode);
+    // #2595 — a refused create names its fields the way an edit's 400 does, so
+    // the Post form can show each reason AT its box.
+    if (!res.isSuccess) throw _jobWriteFailure(res);
     return _jobFromRow(res.body);
   }
 
@@ -227,15 +237,7 @@ class HttpPayerApiClient implements PayerApiClient {
     final PayerResponse res = await _http
         .send(PayerMethod.patch, '/payer/job-postings/$id', body: body);
     // 400 no-op / 409 closed or illegal transition surface as a typed error.
-    if (!res.isSuccess) {
-      final ({String? code, String? validationMessage}) rejection =
-          _jobEditRejection(res);
-      throw PayerApiException(
-        res.statusCode,
-        code: rejection.code,
-        validationMessage: rejection.validationMessage,
-      );
-    }
+    if (!res.isSuccess) throw _jobWriteFailure(res);
     return _jobFromRow(res.body);
   }
 
@@ -257,7 +259,19 @@ class HttpPayerApiClient implements PayerApiClient {
     body['clear'] = clear;
   }
 
-  /// The typed code + field-level message for a failed job-edit PATCH.
+  /// The typed failure of a job WRITE — a create or an edit, on either
+  /// contract — from its non-2xx response ([_jobWriteRejection] reads a 400).
+  static PayerApiException _jobWriteFailure(PayerResponse res) {
+    final _JobWriteRejection rejection = _jobWriteRejection(res);
+    return PayerApiException(
+      res.statusCode,
+      code: rejection.code,
+      validationMessage: rejection.validationMessage,
+      fieldErrors: rejection.fieldErrors,
+    );
+  }
+
+  /// The typed code + field-level messages for a failed job write.
   ///
   /// [kJobEditSetAndClearedCode] when the 400 is the server's `clear` rejection
   /// — a validation issue on the `clear` path, inside the global
@@ -275,41 +289,63 @@ class HttpPayerApiClient implements PayerApiClient {
   ///
   /// EVERY OTHER validation 400 carries its first issue as a human-readable
   /// [PayerApiException.validationMessage] naming the field, so the edit screen
-  /// can say WHICH box is wrong instead of "check the details".
-  static ({String? code, String? validationMessage}) _jobEditRejection(
-    PayerResponse res,
-  ) {
+  /// can say WHICH box is wrong instead of "check the details" — and (#2595)
+  /// all of its issues as [PayerApiException.fieldErrors], so a form can show
+  /// each AT its box. A CREATE's 400 is only ever that last kind: the three
+  /// codes above are edit-only refusals.
+  static _JobWriteRejection _jobWriteRejection(PayerResponse res) {
+    const Map<String, String> noFields = <String, String>{};
     if (res.statusCode != 400) {
-      return (code: null, validationMessage: null);
+      return (code: null, validationMessage: null, fieldErrors: noFields);
     }
     final Object? error = res.body['error'];
     final Object? issues = error is Map ? error['issues'] : null;
     if (issues is List) {
       for (final Object? issue in issues) {
         if (issue is Map && issue['path'] == 'clear') {
-          return (code: kJobEditSetAndClearedCode, validationMessage: null);
+          return (
+            code: kJobEditSetAndClearedCode,
+            validationMessage: null,
+            fieldErrors: noFields,
+          );
         }
       }
       final String? fieldMessage = _firstValidationMessage(issues);
       if (fieldMessage != null) {
-        return (code: null, validationMessage: fieldMessage);
+        return (
+          code: null,
+          validationMessage: fieldMessage,
+          fieldErrors: _fieldErrors(issues),
+        );
       }
     }
     final Object? message =
         error is Map ? error['message'] : res.body['message'];
     if (message is String) {
       if (message == 'no effective changes to apply') {
-        return (code: kJobEditNoChangesCode, validationMessage: null);
+        return (
+          code: kJobEditNoChangesCode,
+          validationMessage: null,
+          fieldErrors: noFields,
+        );
       }
       if (message == 'Job is closed and cannot be edited') {
-        return (code: kJobEditClosedCode, validationMessage: null);
+        return (
+          code: kJobEditClosedCode,
+          validationMessage: null,
+          fieldErrors: noFields,
+        );
       }
       final String? fromMessage = _messageToFieldText(message);
       if (fromMessage != null) {
-        return (code: null, validationMessage: fromMessage);
+        return (
+          code: null,
+          validationMessage: fromMessage,
+          fieldErrors: noFields,
+        );
       }
     }
-    return (code: null, validationMessage: null);
+    return (code: null, validationMessage: null, fieldErrors: noFields);
   }
 
   /// A service-thrown 400 (cross-field order, skill cap, skill vocabulary, …) has
@@ -369,31 +405,67 @@ class HttpPayerApiClient implements PayerApiClient {
     for (final Object? issue in issues) {
       if (issue is! Map) continue;
       final Object? rawMessage = issue['message'];
-      if (rawMessage is! String || rawMessage.trim().isEmpty) continue;
+      if (rawMessage is! String) continue;
       final Object? rawPath = issue['path'];
       final String path = rawPath is String ? rawPath : '';
-      final String subject = path.split('.').last;
-      String text = rawMessage.trim();
-      // The server's field-screen messages start with the field's own subject
-      // ("title must not contain a company name"); strip it so the label is not
-      // duplicated. Numeric Zod ceilings get a plain phrase instead of raw Zod.
-      if (subject.isNotEmpty && text.toLowerCase().startsWith('$subject ')) {
-        text = text.substring(subject.length + 1).trim();
-      }
-      if (text.startsWith('Too big: expected number to be <=')) {
-        text =
-            'must be ${text.substring('Too big: expected number to be <='.length).trim()} or less';
-      } else if (text.startsWith('Too small: expected number to be >=')) {
-        text =
-            'must be ${text.substring('Too small: expected number to be >='.length).trim()} or more';
-      }
-      if (text.isEmpty) continue;
-      text = text[0].toUpperCase() + text.substring(1);
+      final String? text =
+          _issueReason(rawMessage, subject: path.split('.').last);
+      if (text == null) continue;
       final String? label = _fieldLabels[path];
       return label == null ? text : '$label: $text.';
     }
     return null;
   }
+
+  /// #2595 — EVERY validation issue, keyed by the wire field at the head of its
+  /// path (`benefits.2` → `benefits`), the first per field winning — the same
+  /// routing payer-web's `mapPostingIssues` does. Each reason is phrased to sit
+  /// AT its field: no label, and the field's own leading name dropped
+  /// ("description must not contain links" → "Must not contain links.").
+  static Map<String, String> _fieldErrors(List<dynamic> issues) {
+    final Map<String, String> errors = <String, String>{};
+    for (final Object? issue in issues) {
+      if (issue is! Map) continue;
+      final Object? rawMessage = issue['message'];
+      final Object? rawPath = issue['path'];
+      if (rawMessage is! String || rawPath is! String) continue;
+      final String field = rawPath.split('.').first;
+      if (field.isEmpty || errors.containsKey(field)) continue;
+      final String? reason = _issueReason(rawMessage, subject: field);
+      if (reason != null) errors[field] = _sentence(reason);
+    }
+    return errors;
+  }
+
+  /// One validation issue's reason, readable — or null when nothing is left.
+  /// The server's field-screen messages open with the field's own [subject]
+  /// ("title must not contain a company name"); that is dropped so a label is
+  /// not doubled. Zod's ceilings get a plain phrase instead of raw Zod. The
+  /// first letter is capitalised; no stop is added.
+  static String? _issueReason(String rawMessage, {required String subject}) {
+    String text = rawMessage.trim();
+    if (subject.isNotEmpty && text.toLowerCase().startsWith('$subject ')) {
+      text = text.substring(subject.length + 1).trim();
+    }
+    if (text.startsWith(_zodNumberMax)) {
+      text = 'must be ${text.substring(_zodNumberMax.length).trim()} or less';
+    } else if (text.startsWith(_zodNumberMin)) {
+      text = 'must be ${text.substring(_zodNumberMin.length).trim()} or more';
+    } else if (_zodTextMax.firstMatch(text) case final RegExpMatch cap) {
+      // The text boxes carry no length cap of their own, so this one is real.
+      text = 'must be ${cap.group(1)} characters or fewer';
+    }
+    if (text.isEmpty) return null;
+    return text[0].toUpperCase() + text.substring(1);
+  }
+
+  static const String _zodNumberMax = 'Too big: expected number to be <=';
+  static const String _zodNumberMin = 'Too small: expected number to be >=';
+
+  /// Zod's text length ceiling: "Too big: expected string to have <=200
+  /// characters".
+  static final RegExp _zodTextMax =
+      RegExp(r'^Too big: expected string to have <=(\d+) characters$');
 
   @override
   Future<JobPosting> closeJob(String id) => _lifecycle(id, 'close');
@@ -941,7 +1013,8 @@ class HttpPayerApiClient implements PayerApiClient {
     };
     final PayerResponse res =
         await _http.send(PayerMethod.post, '/payer/agency/jobs', body: body);
-    if (!res.isSuccess) throw PayerApiException(res.statusCode);
+    // #2595 — field-named, like the company create.
+    if (!res.isSuccess) throw _jobWriteFailure(res);
     return AgencyJobView.fromJson(res.body);
   }
 
@@ -1033,15 +1106,7 @@ class HttpPayerApiClient implements PayerApiClient {
     }
     final PayerResponse res = await _http
         .send(PayerMethod.patch, '/payer/agency/jobs/$id', body: body);
-    if (!res.isSuccess) {
-      final ({String? code, String? validationMessage}) rejection =
-          _jobEditRejection(res);
-      throw PayerApiException(
-        res.statusCode,
-        code: rejection.code,
-        validationMessage: rejection.validationMessage,
-      );
-    }
+    if (!res.isSuccess) throw _jobWriteFailure(res);
     return AgencyJobView.fromJson(res.body);
   }
 

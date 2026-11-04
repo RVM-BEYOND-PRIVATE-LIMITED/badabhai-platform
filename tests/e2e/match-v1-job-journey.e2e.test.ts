@@ -230,6 +230,8 @@ describe.skipIf(!RUN)("Matching V1 job journey (e2e, ADR-0036 moments ③-⑥)",
         role_title: "VMC Operator (journey e2e)",
         vacancy_band: "1",
         description: "Journey fixture. Fanuc VMC operate karna.",
+        // #2635 — a company can publish only a 16-trade posting.
+        role_kind: "vmc_milling",
       },
     });
     expect(r.status).toBe(201);
@@ -270,15 +272,18 @@ describe.skipIf(!RUN)("Matching V1 job journey (e2e, ADR-0036 moments ③-⑥)",
     // published_at is FIRST-OPEN stamped; the reach set is posted ∪ related.
     expect(posting.publishedAt).not.toBeNull();
     // SUPERSET check, deliberately not exact set-equality: `mskill_vmc_operator` today has
-    // THREE related skills in `MATCH_SKILL_RELATION_PAIRS` (@badabhai/taxonomy) — SETTER,
-    // TURNER, HMC — not one, so the reach set is wider than {posted, related}. Asserting
-    // exact equality here pins the CURRENT corpus size and breaks the next time the
-    // taxonomy grows a relation, which is not what this test is meant to guard.
+    // more than one related skill in `MATCH_SKILL_RELATION_PAIRS` (@badabhai/taxonomy), so the
+    // reach set is wider than {posted, related}. Asserting exact equality here pins the
+    // CURRENT corpus size and breaks the next time the taxonomy grows a relation, which is
+    // not what this test is meant to guard.
     const reachIds = new Set(posting.reachSkillIds as string[]);
     expect(reachIds.has(SKILL_POSTED), "reach set must contain the posted skill").toBe(true);
     expect(reachIds.has(SKILL_RELATED), "reach set must contain the curated related skill").toBe(
       true,
     );
+    // #2635 — a 16-trade job's related reach stays inside the 16: the CNC setter-operator
+    // relation belongs to no postable trade, so it is trimmed.
+    expect(reachIds.has("mskill_cnc_setter_operator")).toBe(false);
   });
 
   it("WORKER FEED shows the posting to the tier-1 worker with V1 card fields + feed.shown_v2", async () => {

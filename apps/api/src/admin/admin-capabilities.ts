@@ -158,6 +158,25 @@ export const ADMIN_CAPABILITIES = [
   "toggle_kill_switch",
   "reveal_pii",
   "manage_admins",
+  /**
+   * READ one candidate's FULL record — every field employers and the résumé read, where each
+   * value came from, the résumé versions and the account state (`GET /admin/candidates/:id`,
+   * ADR-0062 §3.8, #2560). All four roles: it is the Candidates surface's read floor.
+   *
+   * ── WHY IT IS NOT `read_entities` ──────────────────────────────────────────────────────
+   * `read_entities` promises ids, enums, timestamps and counts. This read returns the profile's
+   * VALUES — city, trade, skills, salary, work history — which is a different data class, and
+   * the correction capability beside it (`edit_candidates`, #2561) narrows from this one, not
+   * from the entity floor. Folding it into `read_entities` would make the entity row describe a
+   * grant it no longer makes.
+   *
+   * NAMES ARE NOT PART OF IT. The name on the same response is gated by `read_identity` inside
+   * `AdminIdentityService` (an analyst gets the record with `name: null` and no error), and the
+   * phone is never on this surface at all.
+   *
+   * APPENDED AT THE TAIL so no existing row of `capabilitiesFor` moves.
+   */
+  "read_candidates",
 ] as const;
 
 export type AdminCapability = (typeof ADMIN_CAPABILITIES)[number];
@@ -215,6 +234,9 @@ export const ADMIN_CAPABILITY_MATRIX: Record<AdminCapability, readonly AdminRole
   toggle_kill_switch: ["super_admin"],
   reveal_pii: ["super_admin", "support"],
   manage_admins: ["super_admin"],
+  // ADR-0062 §3.8 (signed 2026-11-04) — the Candidates read floor, all four roles. Names on the
+  // same response stay behind `read_identity`, so `analyst` reads the record faceless.
+  read_candidates: ["super_admin", "ops_admin", "support", "analyst"],
 } as const;
 
 /**

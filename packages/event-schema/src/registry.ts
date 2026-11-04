@@ -801,6 +801,13 @@ export const EVENT_REGISTRY = {
     domain: "job_posting",
     payload: p.JobPostingReachAlertPayload,
   },
+  // #2635 — the server dropped requested match skills a 16-trade job's trade does not own.
+  // Emitted only when something was dropped. IDS ONLY. v1.
+  "job_posting.match_skills_scoped": {
+    version: 1,
+    domain: "job_posting",
+    payload: p.JobPostingMatchSkillsScopedPayload,
+  },
   // POLICY 27 — an ops human WIDENED a reach set. Narrowing is structurally
   // impossible on that path (the service appends, never removes). v1.
   "job_posting.reach_widened": {
@@ -1535,6 +1542,16 @@ export const EVENT_REGISTRY = {
     version: 1,
     domain: "consent",
     payload: p.ConsentPurposesGrantedPayload,
+  },
+
+  // ADR-0062 §3.9 (#2560) — an admin opened one candidate's full-detail record
+  // (GET /admin/candidates/:id). Emitted after the 404 and BEFORE any data is read or a name is
+  // decrypted, awaited and fail-closed, like `admin.worker_journey_viewed`. Subject is the worker.
+  // PII-free: the opaque admin and worker ids ONLY. Appended at the tail per protocol. v1.
+  "admin.candidate_viewed": {
+    version: 1,
+    domain: "admin",
+    payload: p.AdminCandidateViewedPayload,
   },
 } as const satisfies Record<string, EventDefinition>;
 

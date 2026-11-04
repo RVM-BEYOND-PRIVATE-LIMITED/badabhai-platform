@@ -256,3 +256,176 @@ export const EDUCATION_PRECEDENCE = {
   scalars: "worker_attributes.education_*",
   draft: "worker_profiles.resume_profile.education_level",
 } as const;
+
+// ═══ PROVENANCE — WHICH SOURCE WON, FOR THE ADMIN CANDIDATE READ (ADR-0062, #2560) ═══
+//
+// The `...WithSource` variants below answer the same question as the resolver each one is named
+// after AND say which input supplied the winning value. THEY DO NOT RESTATE ANY RULE: each one
+// calls the existing resolver for the value and only works out which input it came from, so a
+// change to a winner above changes these too, and the employer-facing reads keep calling the
+// originals untouched.
+//
+// The SOURCE of each input is decided by the caller (it is a fact about how a row was written,
+// which this pure file cannot see) and passed in.
+
+/**
+ * WHERE A FIELD'S VALUE CAME FROM — a closed vocabulary of what the stored rows can actually tell.
+ *
+ *   interview      the AI profiling interview: a chat-road profile row, a chat/chip pack answer, or
+ *                  an attribute the extraction's LLM parse wrote.
+ *   form           the trade form or the general form: a form-road profile row, a `form` pack
+ *                  answer, or a general-form attribute.
+ *   resume_import  a CV the worker uploaded and accepted (a profile seeded from the import, or a
+ *                  `resume` pack answer).
+ *   worker_edit    a first-party worker answer through a worker-route writer — the onboarding
+ *                  name/location screen, the profile-edit pages, the finishing form's preferences
+ *                  write, or a Bada Bhai chat edit the worker confirmed. These writers stamp no
+ *                  marker that tells them apart, so they share one value.
+ *   ops            an operator-authored row (`worker_skill.source = 'ops'`, a pack answer with
+ *                  `source = 'ops'`). #2561's admin corrections report here too.
+ *   derived        computed by the platform, not stated by anyone: the match derivation
+ *                  (`worker_skill`, `worker_industry_tenure`), the occupation matcher, a default.
+ *   none           no value is stored.
+ *   unknown        a value is stored but nothing on its row says which writer put it there.
+ *
+ * NO `chat` MEMBER, deliberately: a confirmed Bada Bhai chat edit lands through the same writers
+ * as the profile-edit screens and carries no marker of its own, so the code cannot tell it apart
+ * — claiming `chat` would be a guess. It reads as `worker_edit`.
+ */
+export const FIELD_SOURCES = [
+  "interview",
+  "form",
+  "resume_import",
+  "worker_edit",
+  "ops",
+  "derived",
+  "none",
+  "unknown",
+] as const;
+export type FieldSource = (typeof FIELD_SOURCES)[number];
+
+/** A resolved value and the source that supplied it. */
+export interface Sourced<T> {
+  readonly value: T;
+  readonly source: FieldSource;
+}
+
+/**
+ * One source for a value assembled from several inputs: the shared source when every input that
+ * contributed agrees, `none` when none contributed, `unknown` when they disagree — a value built
+ * from two writers has no single answer, and picking one would be a guess.
+ */
+export function combineSources(sources: readonly FieldSource[]): FieldSource {
+  const present = [...new Set(sources.filter((s) => s !== "none"))];
+  if (present.length === 0) return "none";
+  return present.length === 1 ? (present[0] as FieldSource) : "unknown";
+}
+
+/**
+ * {@link resolveCityForSummary} plus which level won: the worker's own column, or the profile's
+ * extraction (its `current_city`, else its first preferred city — both the profile's).
+ */
+export function resolveCityForSummaryWithSource(
+  input: Parameters<typeof resolveCityForSummary>[0],
+  sources: { readonly workersColumn: FieldSource; readonly profile: FieldSource },
+): Sourced<string | null> {
+  const value = resolveCityForSummary(input);
+  if (value === null) return { value, source: "none" };
+  // The first level alone, through the SAME resolver: if it already yields a city, the worker's
+  // column won; otherwise a profile level did.
+  const own = resolveCityForSummary({
+    workersColumn: input.workersColumn,
+    profileCurrentCity: null,
+    profilePreferredCities: null,
+  });
+  return { value, source: own !== null ? sources.workersColumn : sources.profile };
+}
+
+/**
+ * The expected-salary band with its source — the SALARY ×3 rule in this file's header: the
+ * extraction CONTAINER (`salary_expectation.amount_min/amount_max`) wins outright when it holds a
+ * figure; otherwise the attribute pair composes the band. Both halves go through
+ * {@link resolveSalaryBand}, so the never-derive-the-upper-end rule is the shipped one.
+ */
+export function resolveSalaryBandWithSource(input: {
+  readonly container: {
+    readonly amountMin: number | null | undefined;
+    readonly amountMax: number | null | undefined;
+  };
+  readonly containerSource: FieldSource;
+  readonly attributes: {
+    readonly expected: number | null | undefined;
+    readonly expectedMax: number | null | undefined;
+  };
+  readonly attributeSources: { readonly expected: FieldSource; readonly expectedMax: FieldSource };
+}): Sourced<{ low: number; high: number | null } | null> {
+  const fromContainer = resolveSalaryBand({
+    expected: input.container.amountMin,
+    expectedMax: input.container.amountMax,
+  });
+  if (fromContainer !== null) return { value: fromContainer, source: input.containerSource };
+  const value = resolveSalaryBand(input.attributes);
+  if (value === null) return { value, source: "none" };
+  const contributed: FieldSource[] = [];
+  if (typeof input.attributes.expected === "number") {
+    contributed.push(input.attributeSources.expected);
+  }
+  if (typeof input.attributes.expectedMax === "number") {
+    contributed.push(input.attributeSources.expectedMax);
+  }
+  return { value, source: combineSources(contributed) };
+}
+
+/**
+ * {@link resolveSalaryPeriod} with its source. An unanswered period is still `month` — the
+ * meaning every salary key had before the field existed — and that default is the platform's,
+ * so it reads as `derived`, never as a stated answer.
+ */
+export function resolveSalaryPeriodWithSource(
+  period: string | null | undefined,
+  source: FieldSource,
+): Sourced<SalaryPeriod> {
+  const value = resolveSalaryPeriod(period);
+  const stated = period === "month" || period === "day" || period === "year";
+  return { value, source: stated ? source : "derived" };
+}
+
+/** {@link resolveWorkTypes} with its source: the multi when it won, else the single. */
+export function resolveWorkTypesWithSource(
+  workTypes: readonly string[] | null | undefined,
+  jobType: string | null | undefined,
+  sources: { readonly workTypes: FieldSource; readonly jobType: FieldSource },
+): Sourced<readonly string[]> {
+  const value = resolveWorkTypes(workTypes, jobType);
+  if (value.length === 0) return { value, source: "none" };
+  const multiWon = resolveWorkTypes(workTypes, null).length > 0;
+  return { value, source: multiWon ? sources.workTypes : sources.jobType };
+}
+
+/**
+ * {@link resolveAvailabilityState} with its source: the worker's structured answer when it
+ * supplied any part, else the extraction's legacy status. `available_from` and
+ * `notice_period_days` only ever come from the structured answer.
+ */
+export function resolveAvailabilityStateWithSource(
+  input: Parameters<typeof resolveAvailabilityState>[0],
+  sources: { readonly workerAnswer: FieldSource; readonly legacy: FieldSource },
+): Sourced<ReturnType<typeof resolveAvailabilityState>> {
+  const value = resolveAvailabilityState(input);
+  const fromAnswer = resolveAvailabilityState({
+    workerAnswer: input.workerAnswer,
+    legacyStatus: null,
+  });
+  const answeredDates = fromAnswer.availableFrom !== null || fromAnswer.noticePeriodDays !== null;
+  if (fromAnswer.status !== null) return { value, source: sources.workerAnswer };
+  if (value.status !== null) {
+    // The status is the extraction's; a date or notice beside it is the worker's answer.
+    return {
+      value,
+      source: answeredDates
+        ? combineSources([sources.workerAnswer, sources.legacy])
+        : sources.legacy,
+    };
+  }
+  return { value, source: answeredDates ? sources.workerAnswer : "none" };
+}

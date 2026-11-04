@@ -3147,6 +3147,35 @@ export const AdminIdentityCapExceededPayload = z
 export type AdminIdentityCapExceededPayload = z.infer<typeof AdminIdentityCapExceededPayload>;
 
 /**
+ * An admin OPENED one candidate's full-detail record (ADR-0062 §3.9, #2560) —
+ * `GET /admin/candidates/:id`: every field employers and the résumé read, where each came from,
+ * the résumé versions and the account state.
+ *
+ * WHY A READ IS AUDITED. It is the largest single-worker read on the admin surface — the whole
+ * profile in one response, on `read_candidates`, which all four roles hold. Broad access is
+ * exactly why looking must leave a trail naming who looked and at whom: the
+ * `admin.worker_journey_viewed` argument, at a higher granularity.
+ *
+ * EMITTED AFTER THE 404 CHECK AND BEFORE ANY DATA IS READ OR A NAME IS DECRYPTED, awaited and
+ * fail-closed: an unknown id leaves no row (no enumeration oracle) and a failed emit returns
+ * nothing. The NAME on the same response is audited separately by `admin.identity_viewed`, whose
+ * budget and capability it rides; this event records the view, not the disclosure.
+ *
+ * SUBJECT IS THE WORKER (the path parameter, structurally one worker), the journey precedent.
+ *
+ * PII-FREE BY CONSTRUCTION: the opaque admin id and the opaque worker id ONLY — never a field
+ * value, a field key, a source, a name or a phone. WHICH fields were shown is the same for every
+ * view and belongs in the response contract, not on the spine. `.strict()` is the backstop.
+ */
+export const AdminCandidateViewedPayload = z
+  .object({
+    admin_id: uuidSchema,
+    worker_id: uuidSchema,
+  })
+  .strict();
+export type AdminCandidateViewedPayload = z.infer<typeof AdminCandidateViewedPayload>;
+
+/**
  * The CLOSED SET of failure codes an `ai_call_traces` row may carry (migration 0083).
  *
  * ── WHY A CLOSED SET, AND NOT "the provider's error_code, bounded to 64 chars" ────────────
@@ -3597,6 +3626,32 @@ export const JobPostingReachAlertPayload = z
   })
   .strict();
 export type JobPostingReachAlertPayload = z.infer<typeof JobPostingReachAlertPayload>;
+
+/**
+ * #2635 — matching runs only for the 16 postable trades. The server SCOPED a 16-trade job's
+ * requested match skills to that trade: it kept the trade's own skill plus every requested id
+ * the trade owns, and DROPPED the rest (a Welder job asking for CNC grinding, a Grinding job
+ * asking for delivery riders). Emitted ONLY when something was dropped, on the write that
+ * dropped it — so the audit trail records every time the server overrode a company's ask.
+ *
+ * IDS ONLY — closed-vocabulary `mskill_*` ids and the role slug; no org label, no title.
+ */
+export const JobPostingMatchSkillsScopedPayload = z
+  .object({
+    job_posting_id: uuidSchema,
+    /** The posting's trade — always one of the 16 (a non-16 posting is never scoped). */
+    role_kind: z.enum(TRADE_FORM_KINDS_ALL),
+    /** Which write did the scoping. */
+    trigger: z.enum(["create", "publish", "edit", "unpause"]),
+    /** The match set that was stored. Always includes the trade's own skill. */
+    kept_skill_ids: z.array(matchSkillIdSchema).min(1),
+    /** The requested ids the trade does not own. Never empty — no drop, no event. */
+    dropped_skill_ids: z.array(matchSkillIdSchema).min(1),
+  })
+  .strict();
+export type JobPostingMatchSkillsScopedPayload = z.infer<
+  typeof JobPostingMatchSkillsScopedPayload
+>;
 
 /**
  * POLICY 27 — "Ops may widen a reach set, never narrow one. Expiring, audited, evented."
