@@ -349,6 +349,76 @@ void main() {
       expect(form.currentState!.scroll.offset, 0);
       expect(maxShake, greaterThan(0));
     });
+
+    testWidgets(
+        "refuse: the server's error stays until ITS field changes, and never "
+        'refuses a submit by itself', (WidgetTester tester) async {
+      const String refused = 'Must not contain a company name.';
+      final Map<String, Object?> values = <String, Object?>{
+        'a': 'Tata Motors Pvt Ltd',
+        'b': 'Pune',
+      };
+      final BbFormErrors<String> errors = BbFormErrors<String>();
+
+      expect(
+        errors.refuse(
+          <String, String>{'a': refused},
+          valueOf: (String field) => values[field],
+        ),
+        isTrue,
+      );
+      expect(errors['a'], refused);
+      expect(errors.refusals, <String, String>{'a': refused});
+
+      // An edit elsewhere, with every rule passing, leaves it on show…
+      values['b'] = 'Chakan';
+      expect(errors.settle(const <String, String>{}), isFalse);
+      expect(errors['a'], refused);
+      // …a resubmit the rules pass is not refused for it (the server judges)…
+      expect(errors.show(const <String, String>{}), isFalse);
+      expect(errors['a'], refused);
+      // …and a submit the rules refuse shows it beside their errors.
+      expect(errors.show(<String, String>{'b': 'Add B'}), isTrue);
+      expect(errors.current, <String, String>{'a': refused, 'b': 'Add B'});
+
+      // Changing THAT field is what clears it, for good.
+      values['a'] = 'CNC Setter';
+      expect(errors.settle(<String, String>{'b': 'Add B'}), isTrue);
+      expect(errors.current, <String, String>{'b': 'Add B'});
+      expect(errors.refusals, isEmpty);
+      await tester.pump();
+    });
+
+    testWidgets('refuse reveals the topmost refused field like show does', (
+      WidgetTester tester,
+    ) async {
+      tester.view.physicalSize = const Size(400, 600);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+
+      final BbFormErrors<String> errors = BbFormErrors<String>();
+      final GlobalKey<_FormHarnessState> form = GlobalKey<_FormHarnessState>();
+      await tester.pumpWidget(host(_FormHarness(key: form, errors: errors)));
+      expect(errors.hasAnchor('b'), isTrue);
+      expect(errors.hasAnchor('z'), isFalse);
+
+      final ScrollController scroll = form.currentState!.scroll;
+      scroll.jumpTo(scroll.position.maxScrollExtent);
+      await tester.pump();
+
+      form.currentState!.refuse(<String, String>{'b': 'Server B'});
+      double maxShake = 0;
+      for (int i = 0; i < 60; i++) {
+        await tester.pump(const Duration(milliseconds: 10));
+        maxShake = _max(maxShake, _shakeOf(tester, 'Field B'));
+      }
+      final Rect b = tester.getRect(find.text('Field B'));
+      expect(b.top, greaterThanOrEqualTo(0));
+      expect(b.bottom, lessThanOrEqualTo(600));
+      expect(find.text('Server B'), findsOneWidget);
+      expect(maxShake, closeTo(AppMotion.shakeTravel, 0.6));
+      expect(haptics, <String>[light, light]);
+    });
   });
 
   group('BbStepProgress', () {
@@ -697,6 +767,11 @@ class _FormHarnessState extends State<_FormHarness> {
 
   void reject(Map<String, String> errors) =>
       setState(() => widget.errors.show(errors));
+
+  /// The server refusing a submit; every field reads as unchanged.
+  void refuse(Map<String, String> errors) => setState(
+        () => widget.errors.refuse(errors, valueOf: (String _) => null),
+      );
 
   @override
   void dispose() {

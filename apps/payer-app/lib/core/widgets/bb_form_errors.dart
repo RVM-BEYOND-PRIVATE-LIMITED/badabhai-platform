@@ -19,6 +19,8 @@ import 'bb_shake.dart';
 ///  - [settle] runs on every edit: an error disappears the moment its control
 ///    is fixed, but a NEW one waits for the next submit — no nagging while the
 ///    payer is still filling the form in.
+///  - [refuse] does what [show] does for the SERVER's refusal of a submit
+///    that passed the rules.
 ///
 /// Wrap each validated control in `BbShake(key: errors.anchor(field), …)`.
 /// "First" is decided by where the controls actually sit on screen (top to
@@ -28,6 +30,14 @@ class BbFormErrors<F extends Object> {
   Map<F, String> _errors = <F, String>{};
   final Map<F, GlobalKey<BbShakeState>> _anchors =
       <F, GlobalKey<BbShakeState>>{};
+
+  /// The server's refusal of the last submit, each message with the value its
+  /// control held then — see [refuse].
+  Map<F, ({String message, Object? value})> _refusals =
+      <F, ({String message, Object? value})>{};
+
+  /// Reads a control's current value, for [_refusals].
+  Object? Function(F field)? _valueOf;
 
   /// The error on show at [field], or null.
   String? operator [](F field) => _errors[field];
@@ -45,12 +55,18 @@ class BbFormErrors<F extends Object> {
         () => GlobalKey<BbShakeState>(debugLabel: 'field:$field'),
       );
 
-  /// Puts [errors] on show (replacing any). When there are some, the first is
+  /// True when [field]'s control is built under its [anchor] — the only place
+  /// an error for it can show.
+  bool hasAnchor(F field) => _anchors[field]?.currentState?.mounted ?? false;
+
+  /// Puts [errors] on show (replacing any), with any server refusal still
+  /// standing ([refusals]) beside them. When there are some, the first is
   /// revealed after the frame that paints them — call inside `setState`.
-  /// Returns true when the form was refused (there were errors).
+  /// Returns true when the form was refused (there were errors); a standing
+  /// refusal alone never refuses it.
   bool show(Map<F, String> errors) {
-    _errors = Map<F, String>.of(errors);
-    if (_errors.isEmpty) return false;
+    _errors = <F, String>{...refusals, ...errors};
+    if (errors.isEmpty) return false;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       // ignore: discarded_futures — the reveal runs on its own.
       revealFirst();
@@ -58,14 +74,52 @@ class BbFormErrors<F extends Object> {
     return true;
   }
 
+  /// Puts the SERVER's refusal of a submit on show (#2595) — each message AT
+  /// its control, the first revealed — as [show] does for the form's own
+  /// rules.
+  ///
+  /// The device cannot tell when such an error is fixed, so each is pinned to
+  /// what its control holds now ([valueOf] reads a control's current value):
+  /// it stays on show until the payer changes THAT control, however much else
+  /// they edit. It never refuses a submit by itself — the server judges the
+  /// next one.
+  bool refuse(
+    Map<F, String> errors, {
+    required Object? Function(F field) valueOf,
+  }) {
+    _valueOf = valueOf;
+    _refusals = <F, ({String message, Object? value})>{
+      for (final MapEntry<F, String> error in errors.entries)
+        error.key: (message: error.value, value: valueOf(error.key)),
+    };
+    return show(errors);
+  }
+
+  /// The server's refusals still standing: those whose control still holds
+  /// the value it was refused for. Count them wherever the form's own errors
+  /// count (a progress bar).
+  Map<F, String> get refusals {
+    final Object? Function(F field)? valueOf = _valueOf;
+    if (valueOf == null || _refusals.isEmpty) return <F, String>{};
+    return <F, String>{
+      for (final MapEntry<F, ({String message, Object? value})> refusal
+          in _refusals.entries)
+        if (valueOf(refusal.key) == refusal.value.value)
+          refusal.key: refusal.value.message,
+    };
+  }
+
   /// Re-checks the errors on show against [fresh] (the rules run again): a
   /// fixed control's error drops, one still failing keeps its CURRENT message,
-  /// and nothing new is added. Returns true when what is on show changed.
+  /// and nothing new is added. A server refusal stays while its control holds
+  /// the refused value. Returns true when what is on show changed.
   bool settle(Map<F, String> fresh) {
     if (_errors.isEmpty) return false;
+    final Map<F, String> standing = refusals;
     final Map<F, String> next = <F, String>{
       for (final F field in _errors.keys)
-        if (fresh[field] case final String message) field: message,
+        if (fresh[field] ?? standing[field] case final String message)
+          field: message,
     };
     if (mapEquals(next, _errors)) return false;
     _errors = next;

@@ -234,6 +234,48 @@ class _EditCompanyJobScreenState extends State<EditCompanyJobScreen> {
   /// True when leaving would throw an edit away.
   bool get _hasUnsavedChanges => !listEquals(_snapshot(), _pristine);
 
+  /// What [field] holds now — a server refusal stands until it changes
+  /// ([BbFormErrors.refuse]).
+  Object? _valueOf(JobFormField field) => switch (field) {
+        // No control on this form, so no refusal is ever placed there.
+        JobFormField.org || JobFormField.tradeKey || JobFormField.skills =>
+          null,
+        JobFormField.role => _roleKind,
+        JobFormField.title => _title.text.trim(),
+        JobFormField.location => _location.text.trim(),
+        JobFormField.city => _city.text.trim(),
+        JobFormField.area => _area.text.trim(),
+        JobFormField.payMin => _intOrNull(_payMin.text),
+        JobFormField.payMax => _intOrNull(_payMax.text),
+        JobFormField.payType => _payType,
+        JobFormField.expMin => _intOrNull(_expMin.text),
+        JobFormField.expMax => _intOrNull(_expMax.text),
+        JobFormField.shift => _shift,
+        JobFormField.neededBy => _neededBy,
+        JobFormField.description => _description.text.trim(),
+        JobFormField.benefits => listSnapshotKey(_benefits),
+        JobFormField.requirements => listSnapshotKey(_requirements),
+      };
+
+  /// #2595 — a refused save's field errors AT their boxes (scroll, shake and
+  /// haptic, like the form's own), and a toast for any reason no box here
+  /// holds. False when none had a box: the caller toasts the whole message.
+  bool _showRefusal(Map<String, String> fieldErrors) {
+    final ({Map<JobFormField, String> placed, List<String> rest}) placement =
+        placeServerErrors(fieldErrors, isShown: _form.hasAnchor);
+    if (placement.placed.isEmpty) return false;
+    setState(() => _form.refuse(placement.placed, valueOf: _valueOf));
+    if (placement.rest.isNotEmpty) {
+      showBbToast(
+        context,
+        title: 'Not now',
+        message: placement.rest.join(' '),
+        icon: Icons.info_rounded,
+      );
+    }
+    return true;
+  }
+
   /// Every reason the form cannot be saved, keyed by the control to change —
   /// the title plus the worker-visible content every posting form insists on
   /// ([jobContentErrors]). Checked against the FORM state, which is the
@@ -488,6 +530,10 @@ class _EditCompanyJobScreenState extends State<EditCompanyJobScreen> {
       clear: clear.isEmpty ? null : clear,
     );
     if (!mounted) return;
+    if (!result.success && _showRefusal(result.fieldErrors)) {
+      setState(() => _saving = false);
+      return;
+    }
     showBbToast(
       context,
       title: result.success ? 'Saved' : 'Not now',
@@ -699,11 +745,15 @@ class _EditCompanyJobScreenState extends State<EditCompanyJobScreen> {
                     ),
                     const SizedBox(height: AppSpacing.s4),
                   ],
-                  BbField(
-                    label: 'Location',
-                    controller: _location,
-                    hint: 'optional',
-                    flow: _chain[JobFormField.location],
+                  _anchored(
+                    JobFormField.location,
+                    BbField(
+                      label: 'Location',
+                      controller: _location,
+                      hint: 'optional',
+                      errorText: _form[JobFormField.location],
+                      flow: _chain[JobFormField.location],
+                    ),
                   ),
                   const SizedBox(height: AppSpacing.s4),
                   Row(
@@ -725,11 +775,16 @@ class _EditCompanyJobScreenState extends State<EditCompanyJobScreen> {
                       Expanded(
                         // COARSE locality bucket — never an address, and kept
                         // apart from the free-text Location above on purpose.
-                        child: BbField(
-                          label: 'Area (optional)',
-                          controller: _area,
-                          hint: 'e.g. Chakan',
-                          flow: _chain[JobFormField.area],
+                        // Worker-visible, so the server screens it.
+                        child: _anchored(
+                          JobFormField.area,
+                          BbField(
+                            label: 'Area (optional)',
+                            controller: _area,
+                            hint: 'e.g. Chakan',
+                            errorText: _form[JobFormField.area],
+                            flow: _chain[JobFormField.area],
+                          ),
                         ),
                       ),
                     ],

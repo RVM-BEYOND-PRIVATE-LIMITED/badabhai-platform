@@ -175,4 +175,45 @@ void main() {
           isNull);
     });
   });
+
+  group('placeServerErrors — a server refusal, at the controls', () {
+    test('both contracts name their controls', () {
+      // The company posting's own names…
+      expect(jobFormFieldOfWire('org_label'), JobFormField.org);
+      expect(jobFormFieldOfWire('role_title'), JobFormField.title);
+      expect(jobFormFieldOfWire('location_label'), JobFormField.location);
+      // …the agency job's…
+      expect(jobFormFieldOfWire('title'), JobFormField.title);
+      expect(jobFormFieldOfWire('trade_key'), JobFormField.tradeKey);
+      // …and the shared worker-visible content.
+      expect(jobFormFieldOfWire('area'), JobFormField.area);
+      expect(jobFormFieldOfWire('min_experience_years'), JobFormField.expMin);
+      expect(jobFormFieldOfWire('match_skill_ids'), JobFormField.skills);
+      // No control holds these.
+      expect(jobFormFieldOfWire('vacancy_band'), isNull);
+      expect(jobFormFieldOfWire('trade_answers'), isNull);
+    });
+
+    test('a field the form shows is placed; the rest are left to say', () {
+      final ({Map<JobFormField, String> placed, List<String> rest}) placement =
+          placeServerErrors(
+        const <String, String>{
+          'description': 'Must not contain links.',
+          'area': 'Must not contain a company name.',
+          // Mapped, but this form shows no Location box.
+          'location_label': 'Must be 200 characters or fewer.',
+          'trade_level': 'Invalid option.',
+        },
+        isShown: (JobFormField field) => field != JobFormField.location,
+      );
+      expect(placement.placed, <JobFormField, String>{
+        JobFormField.description: 'Must not contain links.',
+        JobFormField.area: 'Must not contain a company name.',
+      });
+      expect(placement.rest, <String>[
+        'Must be 200 characters or fewer.',
+        'Invalid option.',
+      ]);
+    });
+  });
 }

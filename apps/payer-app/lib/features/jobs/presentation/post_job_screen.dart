@@ -699,7 +699,11 @@ class _PostJobScreenState extends State<PostJobScreen> {
 
   /// How many of [_sections] are complete right now.
   int _sectionsDone() {
-    final Set<JobFormField> open = _validate().keys.toSet();
+    // A box the server refused is not done either, until it is changed.
+    final Set<JobFormField> open = <JobFormField>{
+      ..._validate().keys,
+      ..._form.refusals.keys,
+    };
     // The company skills section cannot be done before the picker has loaded
     // and said what it needs.
     if (!_isAgency && !_companyCanPost) open.add(JobFormField.skills);
@@ -753,6 +757,32 @@ class _PostJobScreenState extends State<PostJobScreen> {
   /// opened, until the post goes through.
   bool get _hasUnsavedChanges =>
       !_posted && !listEquals(_snapshot(), _pristine);
+
+  /// What [field] holds now. A server refusal is pinned to it
+  /// ([BbFormErrors.refuse]) and stands until it changes. The company
+  /// description is the text the create SENT, folds included
+  /// ([_companyDescription]), so changing a folded skill counts too.
+  Object? _valueOf(JobFormField field) => switch (field) {
+        JobFormField.org => _org.text.trim(),
+        JobFormField.tradeKey => _tradeKey,
+        JobFormField.role => _roleKind,
+        JobFormField.title => _title.text.trim(),
+        JobFormField.location => _location.text.trim(),
+        JobFormField.city => _city.text.trim(),
+        JobFormField.area => _area.text.trim(),
+        JobFormField.payMin => _intOrNull(_payMin.text),
+        JobFormField.payMax => _intOrNull(_payMax.text),
+        JobFormField.payType => _payType,
+        JobFormField.expMin => _intOrNull(_expMin.text),
+        JobFormField.expMax => _intOrNull(_expMax.text),
+        JobFormField.shift => _shift,
+        JobFormField.neededBy => _isAgency ? _neededBy : _companyNeededBy,
+        JobFormField.skills => setSnapshotKey(_pickedSkillIds),
+        JobFormField.description =>
+          _isAgency ? _description.text.trim() : _companyDescription(),
+        JobFormField.benefits => listSnapshotKey(_benefits),
+        JobFormField.requirements => listSnapshotKey(_requirements),
+      };
 
   /// The in-screen back arrow: leaves at once when nothing was entered, and
   /// asks first otherwise (the shell asks the same for the system Back).
@@ -1063,20 +1093,45 @@ class _PostJobScreenState extends State<PostJobScreen> {
     }
   }
 
-  /// Name the real reason where we know it: a 400 on either route means the
-  /// server rejected the DETAILS themselves, which "check your connection" would
-  /// misdescribe. The worker-visible free text is screened fail-closed on three
-  /// things — contact details, a company name, and links — so the message names
-  /// all three instead of only the first.
+  /// A refused post. The server's field errors go AT their boxes — scrolled
+  /// to, shaken, with the error haptic — exactly like the form's own (#2595);
+  /// a toast says only what no box here holds. The device mirrors only the
+  /// phone and email screens, so this is where a company name or a link in
+  /// the worker-visible text is caught.
+  ///
+  /// A refusal naming no field still names the real reason where the server
+  /// gave one. A bare 400 on either route means the server rejected the
+  /// DETAILS themselves, which "check your connection" would misdescribe: that
+  /// text is screened fail-closed on three things — contact details, a
+  /// company name, and links — so the message names all three.
   void _showPostFailure(Object error) {
+    if (error is PayerApiException) {
+      final ({Map<JobFormField, String> placed, List<String> rest}) placement =
+          placeServerErrors(error.fieldErrors, isShown: _form.hasAnchor);
+      if (placement.placed.isNotEmpty) {
+        setState(() => _form.refuse(placement.placed, valueOf: _valueOf));
+        if (placement.rest.isNotEmpty) {
+          showBbToast(
+            context,
+            title: 'Could not post',
+            message: placement.rest.join(' '),
+            icon: Icons.info_rounded,
+          );
+        }
+        return;
+      }
+    }
     final bool rejected = error is PayerApiException && error.isBadRequest;
+    final String? reason =
+        error is PayerApiException ? error.validationMessage : null;
     showBbToast(
       context,
       title: 'Could not post',
-      message: rejected
-          ? 'The server rejected these details. Take out any phone number, '
-              'email address, company name or link.'
-          : 'Something went wrong. Please try again.',
+      message: reason ??
+          (rejected
+              ? 'The server rejected these details. Take out any phone '
+                  'number, email address, company name or link.'
+              : 'Something went wrong. Please try again.'),
       icon: Icons.info_rounded,
     );
   }
@@ -1463,12 +1518,17 @@ class _PostJobScreenState extends State<PostJobScreen> {
           Expanded(
             // COARSE locality bucket, typed by the payer — deliberately NOT
             // derived from the company form's Location: the server keeps `area`
-            // and the free-text `location_label` apart on purpose.
-            child: BbField(
-              label: 'Area (optional)',
-              controller: _area,
-              hint: areaHint,
-              flow: _chain[JobFormField.area],
+            // and the free-text `location_label` apart on purpose. Optional,
+            // but worker-visible, so the server screens it: anchored for that.
+            child: _anchored(
+              JobFormField.area,
+              BbField(
+                label: 'Area (optional)',
+                controller: _area,
+                hint: areaHint,
+                errorText: _form[JobFormField.area],
+                flow: _chain[JobFormField.area],
+              ),
             ),
           ),
         ],
@@ -1577,12 +1637,17 @@ class _PostJobScreenState extends State<PostJobScreen> {
           const SizedBox(height: AppSpacing.s4),
           // `location_label` — your own wording for the site. Kept optional and
           // said plainly to be internal: the worker feed never reads it, so it
-          // can hold the detail the coarse city/area buckets may not.
-          BbField(
-            label: 'Location note (optional, not shown to workers)',
-            controller: _location,
-            hint: 'e.g. near Chakan MIDC Phase 2',
-            flow: _chain[JobFormField.location],
+          // can hold the detail the coarse city/area buckets may not. Anchored
+          // for the server's length cap.
+          _anchored(
+            JobFormField.location,
+            BbField(
+              label: 'Location note (optional, not shown to workers)',
+              controller: _location,
+              hint: 'e.g. near Chakan MIDC Phase 2',
+              errorText: _form[JobFormField.location],
+              flow: _chain[JobFormField.location],
+            ),
           ),
           const SizedBox(height: AppSpacing.s4),
           BbChipSelect<String>(

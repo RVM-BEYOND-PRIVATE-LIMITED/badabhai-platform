@@ -39,6 +39,56 @@ JobFormField jobFormFieldOf(WorkerCardField field) => switch (field) {
       WorkerCardField.benefits => JobFormField.benefits,
     };
 
+/// The control a SERVER validation issue names (#2595): the wire field at the
+/// head of its path → the control holding it. One table for both contracts —
+/// the company posting's `org_label` / `role_title` / `location_label` and
+/// the agency job's `trade_key` / `title` — because a create and an edit name
+/// the same fields; payer-web routes them the same way (`mapPostingIssues`).
+/// Null for a field no control holds (the vacancy band, the trade rung and
+/// answers, the unticked related skills).
+JobFormField? jobFormFieldOfWire(String wire) => switch (wire) {
+      'org_label' => JobFormField.org,
+      'trade_key' => JobFormField.tradeKey,
+      'role_kind' => JobFormField.role,
+      'role_title' || 'title' => JobFormField.title,
+      'location_label' => JobFormField.location,
+      'city' => JobFormField.city,
+      'area' => JobFormField.area,
+      'pay_min' => JobFormField.payMin,
+      'pay_max' => JobFormField.payMax,
+      'pay_type' => JobFormField.payType,
+      'min_experience_years' => JobFormField.expMin,
+      'max_experience_years' => JobFormField.expMax,
+      'shift' => JobFormField.shift,
+      'needed_by' => JobFormField.neededBy,
+      'match_skill_ids' => JobFormField.skills,
+      'description' => JobFormField.description,
+      'benefits' => JobFormField.benefits,
+      'requirements' => JobFormField.requirements,
+      _ => null,
+    };
+
+/// A server refusal's field errors (`PayerApiException.fieldErrors`, by wire
+/// field) placed on one form: [placed] at the controls it shows ([isShown]),
+/// and [rest] — the reasons with no control here — for the caller to say
+/// another way.
+({Map<JobFormField, String> placed, List<String> rest}) placeServerErrors(
+  Map<String, String> fieldErrors, {
+  required bool Function(JobFormField field) isShown,
+}) {
+  final Map<JobFormField, String> placed = <JobFormField, String>{};
+  final List<String> rest = <String>[];
+  for (final MapEntry<String, String> error in fieldErrors.entries) {
+    final JobFormField? field = jobFormFieldOfWire(error.key);
+    if (field != null && isShown(field)) {
+      placed.putIfAbsent(field, () => error.value);
+    } else if (!rest.contains(error.value)) {
+      rest.add(error.value);
+    }
+  }
+  return (placed: placed, rest: rest);
+}
+
 /// The inline errors for "Max pay" below "Min pay" and its experience twin.
 const String kPayBandOrderError = 'Max pay must be at least the min.';
 const String kExperienceOrderError = 'Max experience must be at least the min.';
