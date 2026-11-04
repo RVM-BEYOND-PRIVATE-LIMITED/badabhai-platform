@@ -16,6 +16,12 @@ describe("reachAfterPublish", () => {
     expect(previewReach).toHaveBeenCalledWith(SELECTION);
   });
 
+  it("#2635 — a company job's trade scopes the read as it scoped the publish", async () => {
+    previewReach.mockResolvedValueOnce({ reach_total: 9, zero_reach: false });
+    await expect(reachAfterPublish(SELECTION, "cnc_turner")).resolves.toBe(9);
+    expect(previewReach).toHaveBeenCalledWith({ ...SELECTION, roleKind: "cnc_turner" });
+  });
+
   it("a failed read is null — the posting is live, the confirmation just shows no count", async () => {
     previewReach.mockRejectedValueOnce(new Error("503"));
     await expect(reachAfterPublish(SELECTION)).resolves.toBeNull();

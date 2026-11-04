@@ -1773,9 +1773,10 @@ export async function listMatchSkills(): Promise<MatchSkillWire[]> {
 /**
  * GET /payer/posting-trades — the 16-trade posting-form catalogue (migration 0141).
  *
- * Fetched SERVER-side so the Bearer never reaches the browser. A failure is returned as an
- * empty list by the caller: the legacy role picker + match picker stay usable rather than
- * turning a taxonomy outage into "you cannot post".
+ * Fetched SERVER-side so the Bearer never reaches the browser. The company pages read it through
+ * `readPostingTrades` (posting-trades.server.ts): a failure is named at the trade picker with a
+ * Retry, and the form refuses to post — a company job must name one of the 16 (#2635), so there
+ * is no free role list or flat skill picker to fall back on any more.
  */
 export async function listPostingTrades(): Promise<PostingTradeFormWire[]> {
   const wire = await payerFetch("/payer/posting-trades", { schema: postingTradeListWireSchema });
@@ -1792,13 +1793,20 @@ export async function listPostingTrades(): Promise<PostingTradeFormWire[]> {
  *
  * Reach is a property of WORKER SUPPLY, identical for every payer, so no payer id is
  * sent or needed and there is no tenancy surface here to get wrong.
+ *
+ * `roleKind` (#2635, optional) is a COMPANY job's trade: one of the 16 scopes the posted ids
+ * exactly as publish scopes them, so the figure is the one publish will reach. An agency job
+ * sends none (the API scopes only company jobs by trade); absent, the key is not sent.
  */
-export async function previewReach(input: MatchSelectionInput): Promise<ReachPreview> {
+export async function previewReach(
+  input: MatchSelectionInput & { roleKind?: string },
+): Promise<ReachPreview> {
   return payerFetch("/payer/match/reach-preview", {
     method: "POST",
     body: {
       match_skill_ids: input.matchSkillIds,
       unticked_related_ids: input.untickedRelatedIds,
+      ...(input.roleKind ? { role_kind: input.roleKind } : {}),
     },
     schema: reachPreviewWireSchema,
   });
