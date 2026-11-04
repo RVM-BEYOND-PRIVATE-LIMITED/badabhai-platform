@@ -19,7 +19,7 @@ import {
  * alias spelling lands on the canonical key, and null prices Lower.
  */
 describe("trade-level crosswalk", () => {
-  it("covers the four v1 trades plus the CAD trades, the fitter, the electrician, the welder, the conventional machinist, the sheet-metal operator, the assembly technician, the QC inspector, the tool & die maker, the press-shop operator, the painter / coater, the maintenance technician, the PLC / automation technician and the EDM / wire-cut operator, each with its skill and level key", () => {
+  it("covers the four v1 trades plus the CAD trades, the fitter, the electrician, the welder, the conventional machinist, the sheet-metal operator, the assembly technician, the QC inspector, the tool & die maker, the press-shop operator, the painter / coater, the maintenance technician, the PLC / automation technician, the EDM / wire-cut operator and the injection-moulding operator, each with its skill and level key", () => {
     expect(TRADE_LEVEL_PACKS).toEqual({
       qp_cnc_turning: { skillId: "mskill_cnc_turner", levelKey: "turning_level" },
       qp_vmc_milling: { skillId: "mskill_vmc_operator", levelKey: "milling_level" },
@@ -53,6 +53,7 @@ describe("trade-level crosswalk", () => {
       },
       qp_plc_automation: { skillId: "mskill_plc_automation_tech", levelKey: "plc_level" },
       qp_edm_wirecut: { skillId: "mskill_edm_wirecut_operator", levelKey: "edm_level" },
+      qp_injection_moulding: { skillId: "mskill_imm_operator", levelKey: "moulding_level" },
     });
   });
 
@@ -1089,6 +1090,30 @@ describe("trade-level crosswalk", () => {
     expect(edm("setter_cum_programmer", program("other"))).toEqual(row("setter_programmer", false));
     // Supervisor: no confirm item, rung rule (confirmed).
     expect(edm("supervisor", setting("other"))).toEqual(row("supervisor", true));
+  });
+
+  it("wires the two injection-moulding confirms, one per rung (CEO Launch Plan Pack v1, Phase 2 #9)", () => {
+    const imm = (level: string, confirm: { attributeKey: string; value: unknown } | null) =>
+      tradeLevelEntriesForPackAnswers(
+        "qp_injection_moulding@1",
+        confirm === null
+          ? [{ attributeKey: "moulding_level", value: level }]
+          : [{ attributeKey: "moulding_level", value: level }, confirm],
+      );
+    const setting = (value: string) => ({ attributeKey: "moulding_setting_confirm", value });
+    const senior = (value: string) => ({ attributeKey: "moulding_senior_confirm", value });
+    const row = (tradeLevel: string, levelConfirmed: boolean) => [
+      { skillId: "mskill_imm_operator", tradeLevel, levelConfirmed },
+    ];
+    expect(imm("trainee", null)).toEqual(row("trainee", false));
+    expect(imm("operator", null)).toEqual(row("operator", false));
+    expect(imm("setter", null)).toEqual(row("setter", true));
+    expect(imm("setter", setting("self"))).toEqual(row("setter", true));
+    expect(imm("setter", setting("other"))).toEqual(row("setter", false));
+    expect(imm("senior", senior("self"))).toEqual(row("senior", true));
+    expect(imm("senior", senior("other"))).toEqual(row("senior", false));
+    // Supervisor: no confirm item, rung rule (confirmed).
+    expect(imm("supervisor", senior("other"))).toEqual(row("supervisor", true));
   });
 
   it("prints the 2D trade's own rung words (CEO Launch Plan Pack v1, Track A #5)", () => {

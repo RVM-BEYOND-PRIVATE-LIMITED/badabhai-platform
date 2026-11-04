@@ -559,7 +559,8 @@ describe("the match-skill wall", () => {
     // produced. A further change here needs its own ruling.
     // + 1: Phase 2 #6 (CEO Launch Plan Pack v1, sheet 14, 2026-11-03) minted the PLC trade.
     // + 1: Phase 2 #7 (sheet 16, 2026-11-03) minted the EDM / wire-cut trade.
-    expect(MATCH_SKILLS).toHaveLength(18 + 8 + 5);
+    // + 1: Phase 2 #9 (sheet 22, 2026-11-04) minted the injection-moulding trade.
+    expect(MATCH_SKILLS).toHaveLength(18 + 8 + 6);
     expect(SKILL_CORPUS.length).toBeGreaterThan(0);
     for (const s of MATCH_SKILLS) expect(s.skillId.startsWith("mskill_")).toBe(true);
   });

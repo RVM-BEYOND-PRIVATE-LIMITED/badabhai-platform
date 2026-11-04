@@ -94,7 +94,8 @@ describe("the pack is structurally sound", () => {
     // mskill_welder. Q1 dispositions still validate against the Q1-era 18 alone.
     // + 1: Phase 2 #6 (CEO Launch Plan Pack v1, sheet 14, 2026-11-03) minted the PLC trade.
     // + 1: Phase 2 #7 (sheet 16, 2026-11-03) minted the EDM / wire-cut trade.
-    expect(VALID.size).toBe(Q1_ERA_MATCH_SKILLS + MINTED_FOR_2022 + 5);
+    // + 1: Phase 2 #9 (sheet 22, 2026-11-04) minted the injection-moulding trade.
+    expect(VALID.size).toBe(Q1_ERA_MATCH_SKILLS + MINTED_FOR_2022 + 6);
     expect(VALID_AT_Q1.size).toBe(Q1_ERA_MATCH_SKILLS);
     for (const r of Q1_TRIAGE) {
       for (const c of r.candidates) expect(VALID_AT_Q1, `${r.skillId} -> ${c}`).toContain(c);
@@ -271,7 +272,8 @@ describe("what was applied, and what was not", () => {
     // +2: the CEO-pack reconcile minted mskill_cad_designer_3d + mskill_welder.
     // + 1: Phase 2 #6 (CEO Launch Plan Pack v1, sheet 14, 2026-11-03) minted the PLC trade.
     // + 1: Phase 2 #7 (sheet 16, 2026-11-03) minted the EDM / wire-cut trade.
-    expect(MATCH_SKILLS).toHaveLength(Q1_ERA_MATCH_SKILLS + MINTED_FOR_2022 + 5);
+    // + 1: Phase 2 #9 (sheet 22, 2026-11-04) minted the injection-moulding trade.
+    expect(MATCH_SKILLS).toHaveLength(Q1_ERA_MATCH_SKILLS + MINTED_FOR_2022 + 6);
     expect(SKILL_CORPUS).toHaveLength(49);
   });
 

@@ -787,3 +787,13 @@
 {"kind":"binding","family_id":"fam_plc_automation","job_domain_id":"jd_nco_7412_0101"}
 {"kind":"family","family_id":"fam_edm_wirecut","label_en":"EDM / Wire-cut Operator","label_hi":"ईडीएम / वायर-कट ऑपरेटर","industry_id":"ind_industrial_manufacturing"}
 {"kind":"binding","family_id":"fam_edm_wirecut","job_domain_id":"jd_nco_7223_2800"}
+# PHASE 2 #9 (CEO Launch Plan Pack v1, sheet 22): Injection Moulding, the first pack for the
+# declared kind injection_moulding_operator. The four NCO plastic-moulding occupations leave
+# fam_rubber_plastic (minor 814) at job-domain specificity 50. 8142.0502 'Moulding Operator' is a
+# footwear PU / injection-moulding QP, bound with eyes open: it owns the sheet word 'moulding
+# operator'. Compression (0600), blow (0700), extrusion (0300/0400) and every rubber code stay put.
+{"kind":"family","family_id":"fam_injection_moulding","label_en":"Injection Moulding Operator","label_hi":"इंजेक्शन मोल्डिंग ऑपरेटर","industry_id":"ind_industrial_manufacturing"}
+{"kind":"binding","family_id":"fam_injection_moulding","job_domain_id":"jd_nco_8142_0501"}
+{"kind":"binding","family_id":"fam_injection_moulding","job_domain_id":"jd_nco_8142_0502"}
+{"kind":"binding","family_id":"fam_injection_moulding","job_domain_id":"jd_nco_8142_1300"}
+{"kind":"binding","family_id":"fam_injection_moulding","job_domain_id":"jd_nco_8142_1301"}

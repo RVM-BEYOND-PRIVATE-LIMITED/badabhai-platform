@@ -275,7 +275,8 @@ describe("the tripwire itself still decides nothing", () => {
     // trade's permanent ID) and the mskill_welder umbrella — same carve-out, not batch fit.
     // + 1: Phase 2 #6 (CEO Launch Plan Pack v1, sheet 14, 2026-11-03) minted the PLC trade.
     // + 1: Phase 2 #7 (sheet 16, 2026-11-03) minted the EDM / wire-cut trade.
-    expect(MATCH_SKILLS).toHaveLength(18 + 8 + 5);
+    // + 1: Phase 2 #9 (sheet 22, 2026-11-04) minted the injection-moulding trade.
+    expect(MATCH_SKILLS).toHaveLength(18 + 8 + 6);
     expect(artifact.match_vocabulary_size).toBe(18);
   });
 

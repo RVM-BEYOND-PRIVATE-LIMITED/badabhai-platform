@@ -195,6 +195,8 @@ export const FAMILY_CHIP_LABELS: Readonly<Record<string, string>> = Object.freez
   fam_plc_automation: "PLC / automation",
   // Phase 2 #7. Formless, like PLC: a pin keeps talking.
   fam_edm_wirecut: "EDM / wire-cut",
+  // Phase 2 #9. The Latin reading of `label_hi`'s trade words. Formless, like EDM.
+  fam_injection_moulding: "injection moulding",
 });
 
 /**

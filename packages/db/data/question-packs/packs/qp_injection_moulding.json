@@ -1,0 +1,515 @@
+{
+  "_why": "Role track for INJECTION MOULDING, a new pack for an already-declared kind (CEO Launch Plan Pack v1, Phase 2 #9, sheet 22). `injection_moulding_operator` was declared in Batch 3 for its vocabulary; this is its first pack. fam_injection_moulding binds the four NCO plastic-moulding occupations (8142.0501 Injection Moulding Machine Operator, 8142.0502 Moulding Operator, 8142.1300 Mould Setter, 8142.1301 Plastic Moulding Technician or Operator) at job-domain specificity 50; every other 814 code stays on fam_rubber_plastic.",
+  "_scope": "THE MOULDING MACHINE, NOT THE TOOL ROOM. A man who builds the mould (core, cavity, spotting, tryout) is a Tool & Die Maker; this trade runs, sets and optimises the injection moulding machine the mould is hung on. 'mould ka kaam / die ka kaam' stays an ask-first disambiguation (A3), never a route.",
+  "_depth": "THE TIER GATE IS moulding_experience, asked FIRST (the descriptor's tenureQuestionKey). Its options carry value_number ONLY: pack-registry.service.ts resolves valueText ?? valueNumber, and a value_text would turn every gte below into a string compare that is false forever (the #776 defect).",
+  "_budget": "MAX_ENGINE_ASKS is 28 and qp_universal spends 8. Easy is 2 trade items + at most 1 confirm; Medium adds 2 (brand, tonnage); Advanced adds 4 (material, process work, defects, training). Worst case 2 + 1 + 2 + 4 = 9 trade asks.",
+  "_sheet": "READ OFF CEO LAUNCH PLAN PACK v1 SHEET 22 (no ratified page). Section title 'Moulding, machines & capability'. Its rows are Brands, Tonnage, Materials, Work, Defects and Training, and every row has exactly one question here.",
+  "pack_id": "qp_injection_moulding",
+  "version": 1,
+  "family_id": "fam_injection_moulding",
+  "locale": "hi-IN",
+  "status": "active",
+  "review_note": "v1 (CEO Launch Plan Pack v1, Phase 2 #9): first pack for the declared kind injection_moulding_operator. Easy/Medium/Advanced tiers; 6-band experience; sheet-22 level ladder (Trainee/Operator/Setter/Senior (process technician)/Supervisor, mandatory); 2 separating confirms, both the sheet's questions verbatim: setter, and senior; supervisor by rule. Medium Q6 machine brand, Q7 tonnage; Advanced Q9 materials, Q10 process depth, Q11 defects handled, Q12 the ITI/CIPET training row (tool-room institute-row precedent), depth rows gated years OR rung. Deviations recorded: tonnage is a single 'up to' band (press-shop precedent); the sheet's 'Other' chips are the 'Inme se koi nahi' escape; no fresher items and no shared ITI block beyond Q12 (new-trade precedent). Drafted for owner review (Prakash).",
+  "items": [
+    {
+      "question_key": "moulding_experience",
+      "min_tier": "easy",
+      "prompt_text": "Injection moulding ka kitna tajurba hai?",
+      "why_text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "moulding_experience",
+      "answer_type": "single_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "fresher",
+          "label_text": "Fresher",
+          "value_number": 0
+        },
+        {
+          "option_key": "below_one",
+          "label_text": "1 saal se kam",
+          "value_number": 0
+        },
+        {
+          "option_key": "one_to_three",
+          "label_text": "1 se 3 saal",
+          "value_number": 2
+        },
+        {
+          "option_key": "three_to_five",
+          "label_text": "3 se 5 saal",
+          "value_number": 4
+        },
+        {
+          "option_key": "five_to_ten",
+          "label_text": "5 se 10 saal",
+          "value_number": 7
+        },
+        {
+          "option_key": "above_ten",
+          "label_text": "10 saal se zyada",
+          "value_number": 12
+        }
+      ],
+      "retry_text": "Lagbhag kitne saal moulding machine pe kaam kiya hai?",
+      "is_mandatory": true
+    },
+    {
+      "question_key": "moulding_level",
+      "min_tier": "easy",
+      "prompt_text": "Machine pe aap kya karte hain?",
+      "why_text": "Level ke hisaab se sahi sawaal poochhe jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "moulding_level",
+      "answer_type": "single_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "helper",
+          "label_text": "Helper/Trainee",
+          "value_text": "trainee"
+        },
+        {
+          "option_key": "operator",
+          "label_text": "Operator",
+          "value_text": "operator"
+        },
+        {
+          "option_key": "setter",
+          "label_text": "Setter",
+          "value_text": "setter"
+        },
+        {
+          "option_key": "senior",
+          "label_text": "Senior / Process technician",
+          "value_text": "senior"
+        },
+        {
+          "option_key": "supervisor",
+          "label_text": "Supervisor",
+          "value_text": "supervisor"
+        }
+      ],
+      "retry_text": "Machine par helper, operator ya setter hain?",
+      "is_mandatory": true
+    },
+    {
+      "question_key": "moulding_setting_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Mould change aur parameter setting aap khud karte ho?",
+      "why_text": "Mould change aur setting khud karne wale setter ko alag kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "moulding_setting_confirm",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "moulding_level"
+        },
+        "right": {
+          "const": ["setter"]
+        }
+      },
+      "options": [
+        {
+          "option_key": "self_confirm",
+          "label_text": "Haan, khud karta hoon",
+          "value_text": "self"
+        },
+        {
+          "option_key": "other_confirm",
+          "label_text": "Nahi, koi aur karta hai",
+          "value_text": "other"
+        }
+      ]
+    },
+    {
+      "question_key": "moulding_senior_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Naya mould trial aur process optimisation aap lead karte ho?",
+      "why_text": "Mould trial lead karne wale process technician ki alag maang hai.",
+      "target_kind": "attribute",
+      "target_field": "moulding_senior_confirm",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "moulding_level"
+        },
+        "right": {
+          "const": ["senior"]
+        }
+      },
+      "options": [
+        {
+          "option_key": "self_lead",
+          "label_text": "Haan, main lead karta hoon",
+          "value_text": "self"
+        },
+        {
+          "option_key": "other_lead",
+          "label_text": "Nahi, doosre karte hain",
+          "value_text": "other"
+        }
+      ]
+    },
+    {
+      "question_key": "moulding_machine_brand",
+      "min_tier": "medium",
+      "prompt_text": "Kaunse brand ki machine chalayi hai?",
+      "why_text": "Brand jaanne wale operator ko jaldi kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "moulding_machine_brand",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "ferromatik_milacron",
+          "label_text": "Ferromatik / Milacron",
+          "value_text": "ferromatik_milacron"
+        },
+        {
+          "option_key": "windsor",
+          "label_text": "Windsor",
+          "value_text": "windsor"
+        },
+        {
+          "option_key": "jsw",
+          "label_text": "JSW",
+          "value_text": "jsw"
+        },
+        {
+          "option_key": "toshiba",
+          "label_text": "Toshiba",
+          "value_text": "toshiba"
+        },
+        {
+          "option_key": "haitian",
+          "label_text": "Haitian",
+          "value_text": "haitian"
+        },
+        {
+          "option_key": "engel",
+          "label_text": "Engel",
+          "value_text": "engel"
+        },
+        {
+          "option_key": "arburg",
+          "label_text": "Arburg",
+          "value_text": "arburg"
+        },
+        {
+          "option_key": "larsen_toubro",
+          "label_text": "L&T",
+          "value_text": "larsen_toubro"
+        },
+        {
+          "option_key": "other_brand",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "is_mandatory": true
+    },
+    {
+      "question_key": "moulding_tonnage",
+      "min_tier": "medium",
+      "prompt_text": "Kitne ton tak ki machine chalayi hai?",
+      "why_text": "Badi machine chalane wale ko bade job ka kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "moulding_tonnage",
+      "answer_type": "single_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "upto_hundred",
+          "label_text": "100 ton tak",
+          "value_text": "upto_hundred"
+        },
+        {
+          "option_key": "hundred_to_threehundred",
+          "label_text": "100 se 300 ton",
+          "value_text": "hundred_to_threehundred"
+        },
+        {
+          "option_key": "threehundred_to_eighthundred",
+          "label_text": "300 se 800 ton",
+          "value_text": "threehundred_to_eighthundred"
+        },
+        {
+          "option_key": "over_eighthundred",
+          "label_text": "800 ton se zyada",
+          "value_text": "over_eighthundred"
+        },
+        {
+          "option_key": "unknown_tonnage",
+          "label_text": "Pata nahi",
+          "value_text": "unknown"
+        }
+      ]
+    },
+    {
+      "question_key": "moulding_material",
+      "min_tier": "hard",
+      "prompt_text": "Kaunse plastic material ki moulding ki hai?",
+      "why_text": "Material ki samajh se mushkil job ka kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "moulding_material",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "pp",
+          "label_text": "PP",
+          "value_text": "pp"
+        },
+        {
+          "option_key": "abs",
+          "label_text": "ABS",
+          "value_text": "abs"
+        },
+        {
+          "option_key": "nylon",
+          "label_text": "PA / Nylon",
+          "value_text": "nylon"
+        },
+        {
+          "option_key": "pc",
+          "label_text": "PC",
+          "value_text": "pc"
+        },
+        {
+          "option_key": "pvc",
+          "label_text": "PVC",
+          "value_text": "pvc"
+        },
+        {
+          "option_key": "pom",
+          "label_text": "POM / Acetal",
+          "value_text": "pom"
+        },
+        {
+          "option_key": "glass_filled",
+          "label_text": "Glass-filled",
+          "value_text": "glass_filled"
+        },
+        {
+          "option_key": "other_material",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "moulding_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "moulding_level"
+            },
+            "right": {
+              "const": ["setter", "senior", "supervisor"]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "moulding_process_work",
+      "min_tier": "hard",
+      "prompt_text": "Moulding machine pe kaunsa kaam khud karte hain?",
+      "why_text": "Setting aur process ka kaam jaanne wale ki alag maang hai.",
+      "target_kind": "attribute",
+      "target_field": "moulding_process_work",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "mould_change",
+          "label_text": "Mould change",
+          "value_text": "mould_change"
+        },
+        {
+          "option_key": "parameter_setting",
+          "label_text": "Parameter setting",
+          "value_text": "parameter_setting"
+        },
+        {
+          "option_key": "hot_runner",
+          "label_text": "Hot runner",
+          "value_text": "hot_runner"
+        },
+        {
+          "option_key": "robot_pick_place",
+          "label_text": "Robot / pick-and-place",
+          "value_text": "robot_pick_place"
+        },
+        {
+          "option_key": "mtc_dryer",
+          "label_text": "MTC aur dryer",
+          "value_text": "mtc_dryer"
+        },
+        {
+          "option_key": "two_shot",
+          "label_text": "Two-shot moulding",
+          "value_text": "two_shot"
+        },
+        {
+          "option_key": "no_work",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "moulding_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "moulding_level"
+            },
+            "right": {
+              "const": ["setter", "senior", "supervisor"]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "moulding_defects",
+      "min_tier": "hard",
+      "prompt_text": "Kaunse defect khud theek kar lete hain?",
+      "why_text": "Defect theek karna aana setter ka sabse bada hunar hai.",
+      "target_kind": "attribute",
+      "target_field": "moulding_defects",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "short_shot",
+          "label_text": "Short shot",
+          "value_text": "short_shot"
+        },
+        {
+          "option_key": "flash",
+          "label_text": "Flash",
+          "value_text": "flash"
+        },
+        {
+          "option_key": "sink_mark",
+          "label_text": "Sink mark",
+          "value_text": "sink_mark"
+        },
+        {
+          "option_key": "warpage",
+          "label_text": "Warpage",
+          "value_text": "warpage"
+        },
+        {
+          "option_key": "silver_streak",
+          "label_text": "Silver streaks",
+          "value_text": "silver_streak"
+        },
+        {
+          "option_key": "no_defect",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "moulding_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "moulding_level"
+            },
+            "right": {
+              "const": ["setter", "senior", "supervisor"]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "_why": "CEO Launch Plan Pack v1 sheet 22 Q12 (the CIPET block): ITI (Plastic Processing Operator) is the trade block; CIPET is the institute certificate a plastics employer asks after. Multi-select, the tool-room institute-row precedent: an ITI pass-out may add a CIPET course, and multi-selects stay out of the lookahead's single-select-only contract.",
+      "question_key": "moulding_training_institute",
+      "min_tier": "hard",
+      "prompt_text": "Moulding ka course ya training kahan se kiya?",
+      "why_text": "Achhe institute ka certificate badi plastic company me kaam dilata hai.",
+      "target_kind": "attribute",
+      "target_field": "moulding_training_institute",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "iti_plastic_processing",
+          "label_text": "ITI (Plastic Processing Operator)",
+          "value_text": "iti_plastic_processing"
+        },
+        {
+          "option_key": "cipet",
+          "label_text": "CIPET",
+          "value_text": "cipet"
+        },
+        {
+          "option_key": "diploma",
+          "label_text": "Diploma",
+          "value_text": "diploma"
+        },
+        {
+          "option_key": "no_institute",
+          "label_text": "Kahin nahi, kaam pe seekha",
+          "value_text": "none"
+        }
+      ]
+    }
+  ]
+}

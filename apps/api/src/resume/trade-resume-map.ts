@@ -3860,6 +3860,110 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
       },
     ],
   },
+  // ══ PHASE 2 #9 — INJECTION-MOULDING OPERATOR / SETTER (CEO Launch Plan Pack v1, sheet 22) ══
+  //
+  // A NEW PACK WITH NO RATIFIED PAGE: sheet 22's headline ("Injection-Moulding Setter · Setter ·
+  // 5 years · Ferromatik + Haitian 100–300 t · PP/ABS · Bawal · 15 days") is the parity
+  // reference. Machine brands and tonnage lead (the hire is for the machine), then the materials,
+  // the process work and the defects the worker corrects. Every `values` key is the STORED value;
+  // the negative claims (`unknown`, `none`) have no entry, so they print nothing.
+  {
+    pack_id: "qp_injection_moulding",
+    section_title: "Moulding, machines & capability",
+    tier_section_titles: { easy: "Machines" },
+    capability: [
+      {
+        from: "moulding_machine_brand",
+        rank: 21,
+        inHeadline: true,
+        maxValues: 4,
+        label: "Machines",
+        kind: "chips",
+        values: {
+          ferromatik_milacron: "Ferromatik / Milacron",
+          windsor: "Windsor",
+          jsw: "JSW",
+          toshiba: "Toshiba",
+          haitian: "Haitian",
+          engel: "Engel",
+          arburg: "Arburg",
+          larsen_toubro: "L&T",
+        },
+      },
+      {
+        from: "moulding_tonnage",
+        // Beside the machines, as the press shop's tonnage: what the MACHINE can do. The pack
+        // asks the largest machine run, so the row reads "Up to", never a lower bound.
+        rank: 22,
+        inHeadline: true,
+        label: "Tonnage worked",
+        kind: "fact",
+        values: {
+          upto_hundred: "Up to 100 T machines",
+          hundred_to_threehundred: "100–300 T machines",
+          threehundred_to_eighthundred: "300–800 T machines",
+          over_eighthundred: "Over 800 T machines",
+        },
+      },
+      {
+        from: "moulding_material",
+        rank: 23,
+        inHeadline: true,
+        maxValues: 4,
+        label: "Materials",
+        kind: "chips",
+        values: {
+          pp: "PP",
+          abs: "ABS",
+          nylon: "PA / Nylon",
+          pc: "PC",
+          pvc: "PVC",
+          pom: "POM / Acetal",
+          glass_filled: "Glass-filled grades",
+        },
+      },
+      {
+        from: "moulding_process_work",
+        rank: 41,
+        label: "Work",
+        kind: "chips",
+        values: {
+          mould_change: "Mould change",
+          parameter_setting: "Parameter setting",
+          hot_runner: "Hot runner",
+          robot_pick_place: "Robot / pick-and-place",
+          mtc_dryer: "MTC & dryer",
+          two_shot: "Two-shot moulding",
+        },
+      },
+      {
+        from: "moulding_defects",
+        rank: 42,
+        label: "Defects corrected",
+        kind: "chips",
+        values: {
+          short_shot: "Short shot",
+          flash: "Flash",
+          sink_mark: "Sink mark",
+          warpage: "Warpage",
+          silver_streak: "Silver streaks",
+        },
+      },
+      {
+        from: "moulding_training_institute",
+        rank: 63,
+        label: "Training institute",
+        kind: "fact",
+        // Sheet-22 Q12, the ITI/CIPET block. A credential row like the tool room's — `none`
+        // ("Kahin nahi") has no entry, same rule.
+        values: {
+          iti_plastic_processing: "ITI (Plastic Processing Operator)",
+          cipet: "CIPET",
+          diploma: "Diploma",
+        },
+      },
+    ],
+  },
 ];
 
 export function tradeResumeMapFor(packId: string | null | undefined): TradeResumeMap | undefined {
