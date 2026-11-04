@@ -11,17 +11,22 @@
  * saved revision for an edit). A draft whose base no longer matches the form's (the posting was
  * saved since, here or on another device) is stale and is dropped, never restored over newer data.
  *
+ * A draft belongs to ONE payer: its key carries the session's opaque `payerId`, and sign-out
+ * removes every draft on the device. A shared office or cyber-café browser therefore never hands
+ * one company's unpublished posting to the next company that signs in.
+ *
  * LEAVE GUARD: while the form holds changes nobody saved, an in-app link click and a tab close /
  * reload ask first.
  */
 
 const PREFIX = "bb:posting-draft:";
 
-/** The storage key of the new-posting draft, or of one posting's edit draft. */
+/** The storage key of a payer's new-posting draft, or of one of their postings' edit draft. */
 export function postingDraftKey(
-  scope: { kind: "new" } | { kind: "edit"; postingId: string },
+  scope: { kind: "new"; payerId: string } | { kind: "edit"; payerId: string; postingId: string },
 ): string {
-  return scope.kind === "new" ? `${PREFIX}new` : `${PREFIX}edit:${scope.postingId}`;
+  const own = `${PREFIX}${scope.payerId}:`;
+  return scope.kind === "new" ? `${own}new` : `${own}edit:${scope.postingId}`;
 }
 
 export interface StoredDraft<T> {
@@ -68,6 +73,22 @@ export function loadDraft<T>(key: string, base: string, store = storage()): T | 
 export function clearDraft(key: string, store = storage()): void {
   try {
     store?.removeItem(key);
+  } catch {
+    // Nothing to clear when storage is unavailable.
+  }
+}
+
+/** Removes every posting draft on this device, whoever's — sign-out runs it. */
+export function clearAllPostingDrafts(store = storage()): void {
+  if (store === undefined) return;
+  try {
+    // Collected first: removing while walking the keys would shift the indexes under the walk.
+    const keys: string[] = [];
+    for (let i = 0; i < store.length; i += 1) {
+      const key = store.key(i);
+      if (key !== null && key.startsWith(PREFIX)) keys.push(key);
+    }
+    for (const key of keys) store.removeItem(key);
   } catch {
     // Nothing to clear when storage is unavailable.
   }

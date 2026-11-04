@@ -31,6 +31,7 @@ import {
 import { focusControl, focusStepHeading, revealWholeControl } from "../../../../lib/form-focus";
 import { postingDraftKey } from "../../../../lib/posting-draft";
 import { usePostingDraft } from "../../../../components/use-posting-draft";
+import { DraftRestoredNotice } from "../../../../components/draft-restored-notice";
 import { companyPostingFacts } from "../../../../lib/posting-facts";
 import { workerCardGap, type WorkerCardGap } from "../../../../lib/worker-card-gap";
 import { bandForVacancies, baseApplicantQuotaForBand } from "../../../../lib/pricing-config";
@@ -62,7 +63,6 @@ import { TradePostingFields, derivedMatchSkills, type TradeFormValue } from "../
 const ROLE_GROUPS = roleOptionGroups();
 const FORM_ID = "posting-form";
 const BLANK_TRADE: TradeFormValue = { tradeLevel: "", answers: {} };
-const DRAFT_KEY = postingDraftKey({ kind: "new" });
 /** A new posting starts from nothing — the base its local draft is checked against. */
 const DRAFT_BASE = "new";
 /** The heading a step change moves focus to (W4). */
@@ -169,12 +169,15 @@ function validate(fields: FormFields): FieldErrors {
 }
 
 export function PostingForm({
+  payerId,
   quotaStep = null,
   matchSkills = [],
   postingTrades = [],
   lead,
   free = true,
 }: {
+  /** The signed-in payer (the session's opaque id) — the local draft is kept per payer (W4). */
+  payerId: string;
   quotaStep?: number | null;
   matchSkills?: MatchSkillWire[];
   /** The 16-trade posting catalogue (migration 0141). Empty ⇒ the legacy fields still work. */
@@ -183,7 +186,7 @@ export function PostingForm({
   lead?: ReactNode;
   /** The "free through launch" notice (sourced from the page's config flag). */
   free?: boolean;
-} = {}) {
+}) {
   // useState call order (mirrored positionally by posting-form.test.tsx): fields, fieldErrors,
   // error, navigating, selection, preview, requirements, benefits, reqDraft, benDraft, gap,
   // revealed. NEW state is APPENDED, never inserted, so the positional seeding keeps working.
@@ -225,7 +228,7 @@ export function PostingForm({
     trade,
   };
   const draft = usePostingDraft<NewPostingDraft>({
-    storageKey: DRAFT_KEY,
+    storageKey: postingDraftKey({ kind: "new", payerId }),
     base: DRAFT_BASE,
     payload: draftPayload,
     dirty: isNewPostingDirty(draftPayload),
@@ -245,6 +248,24 @@ export function PostingForm({
   function goToStep(n: number) {
     setStep(n);
     focusStepHeading(stepHeadingId(n));
+  }
+
+  /** The payer dropped the changes restored from this device: a fresh form from step 1 (W4). */
+  function discardRestored() {
+    draft.discard();
+    setFields(BLANK);
+    setFieldErrors({});
+    setError(null);
+    setSelection({ matchSkillIds: [], untickedRelatedIds: [] });
+    setPreview(null);
+    setRequirements([]);
+    setBenefits([]);
+    setReqDraft("");
+    setBenDraft("");
+    setGap(null);
+    setRevealed({});
+    setTrade({ ...BLANK_TRADE, matchSkillIds: [] });
+    goToStep(1);
   }
 
   // THE ONE READ — the preview, the inline errors, the gap rule and the submit all use it.
@@ -549,6 +570,7 @@ export function PostingForm({
           >
             <Icon name="check-circle" /> Draft saved on this device
           </p>
+          {draft.restored ? <DraftRestoredNotice onDiscard={discardRestored} /> : null}
 
           <section className="mw-card" hidden={step !== 1}>
             <div className="mw-card__head">

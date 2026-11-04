@@ -55,6 +55,11 @@ vi.mock("react", async () => {
 // real server round-trip (parity with how layout.test mocks ./logout-button).
 const logoutAction = vi.fn();
 vi.mock("./logout-action", () => ({ logoutAction: () => logoutAction() }));
+// The posting drafts' sign-out sweep (its storage rules are lib/posting-draft.test.ts's).
+const clearAllPostingDrafts = vi.fn();
+vi.mock("../../lib/posting-draft", () => ({
+  clearAllPostingDrafts: () => clearAllPostingDrafts(),
+}));
 vi.mock("next/link", () => ({
   default: ({ children, ...rest }: { children: ReactNode; href: string }) => ({
     type: "a",
@@ -137,6 +142,7 @@ beforeEach(() => {
   useState.mockClear();
   startTransition.mockClear();
   logoutAction.mockClear();
+  clearAllPostingDrafts.mockClear();
   resetNavigationForTests();
 });
 
@@ -267,6 +273,15 @@ describe("AccountMenu — Sign out menu item", () => {
     (signOut!["onClick"] as () => void)();
     expect(startTransition).toHaveBeenCalledTimes(1);
     expect(logoutAction).toHaveBeenCalledTimes(1);
+  });
+
+  it("drops every posting draft on this device BEFORE the logout action (a shared browser)", () => {
+    const signOut = signOutItem(menuitems());
+    (signOut!["onClick"] as () => void)();
+    expect(clearAllPostingDrafts).toHaveBeenCalledTimes(1);
+    expect(clearAllPostingDrafts.mock.invocationCallOrder[0]!).toBeLessThan(
+      logoutAction.mock.invocationCallOrder[0]!,
+    );
   });
 
   it("while signing out — the action ends in redirect('/login') — the shell says 'Opening Sign in…'", () => {

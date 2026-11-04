@@ -7,11 +7,14 @@ import { clearDraft, installLeaveGuard, loadDraft, saveDraft } from "../lib/post
  * W4 (#2584) — a posting form's local DRAFT and LEAVE GUARD (lib/posting-draft.ts holds the
  * rules; this wires them to the form's lifecycle).
  *
- *  - On mount, a draft stored from the same `base` is handed to `onRestore` once.
+ *  - On mount, a draft stored from the same `base` is handed to `onRestore` once, and `restored`
+ *    turns true (the form's "Restored unsaved changes from this device · Discard" line).
  *  - While `dirty`, the payload is saved a moment after the payer stops typing, and `saved` turns
  *    true for a short while (the form's "Draft saved" cue).
+ *  - When the form is back to its seed (cleared or reverted by hand), the stored draft is removed:
+ *    a change the payer undid must never come back on the next visit.
  *  - While `dirty`, an in-app link and a tab close / reload ask first.
- *  - `off` (a save succeeded and the page is leaving) stops both; `discard()` drops the draft.
+ *  - `off` (a save succeeded and the page is leaving) stops all of it; `discard()` drops the draft.
  */
 
 const SAVE_AFTER_MS = 600;
@@ -30,7 +33,9 @@ export interface PostingDraftOptions<T> {
 export interface PostingDraft {
   /** True briefly after each save — drives the "Draft saved" cue. */
   saved: boolean;
-  /** Drop the stored draft (the posting was saved to the server). */
+  /** True from a restore on mount until the form is discarded or back to its seed. */
+  restored: boolean;
+  /** Drop the stored draft (the posting was saved to the server, or the payer discarded it). */
   discard: () => void;
 }
 
@@ -43,26 +48,47 @@ export function usePostingDraft<T>({
   onRestore,
 }: PostingDraftOptions<T>): PostingDraft {
   const [saved, setSaved] = useState(false);
+  const [restored, setRestored] = useState(false);
   const guarding = useRef(false);
   guarding.current = dirty && !off;
   const restore = useRef(onRestore);
   restore.current = onRestore;
-  const restored = useRef(false);
+  const loaded = useRef(false);
+  // `dirty` as of the previous save pass. It starts false, so the mount pass — which runs before a
+  // restored draft's state lands — never reads as "back to the seed" and wipes that draft.
+  const wasDirty = useRef(false);
+  // The save waiting out the typing pause, so a discard can stop it writing the draft back.
+  const pendingSave = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const serialized = JSON.stringify(payload);
 
   useEffect(() => {
-    if (restored.current) return;
-    restored.current = true;
+    if (loaded.current) return;
+    loaded.current = true;
     const draft = loadDraft<T>(storageKey, base);
-    if (draft !== null) restore.current(draft);
+    if (draft === null) return;
+    restore.current(draft);
+    setRestored(true);
   }, [storageKey, base]);
 
   useEffect(() => {
-    if (off || !dirty) return;
+    const backToSeed = wasDirty.current && !dirty;
+    wasDirty.current = dirty;
+    if (off) return;
+    if (backToSeed) {
+      clearDraft(storageKey);
+      setRestored(false);
+      return;
+    }
+    if (!dirty) return;
     const timer = setTimeout(() => {
+      pendingSave.current = undefined;
       if (saveDraft(storageKey, base, JSON.parse(serialized) as T)) setSaved(true);
     }, SAVE_AFTER_MS);
-    return () => clearTimeout(timer);
+    pendingSave.current = timer;
+    return () => {
+      clearTimeout(timer);
+      pendingSave.current = undefined;
+    };
   }, [storageKey, base, serialized, dirty, off]);
 
   useEffect(() => {
@@ -80,5 +106,14 @@ export function usePostingDraft<T>({
     [],
   );
 
-  return { saved, discard: () => clearDraft(storageKey) };
+  return {
+    saved,
+    restored,
+    discard: () => {
+      clearTimeout(pendingSave.current);
+      pendingSave.current = undefined;
+      clearDraft(storageKey);
+      setRestored(false);
+    },
+  };
 }

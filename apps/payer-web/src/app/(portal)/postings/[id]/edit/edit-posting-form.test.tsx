@@ -39,10 +39,15 @@ const useState = vi.fn((initial: unknown) => {
   return [seeded, setter] as [unknown, (v: unknown) => void];
 });
 // W4 — the local draft + leave guard runs effects (a real hook outside a render); its rules are
-// lib/posting-draft.test.ts's. Here it is idle: nothing restored, nothing saved yet.
+// lib/posting-draft.test.ts's and components/use-posting-draft.test.ts's. Here it is idle (nothing
+// saved yet; restored only when a test says so) and keeps the options the form called it with.
 const discardDraft = vi.fn();
+const draftHook = { restored: false, storageKey: "" };
 vi.mock("../../../../../components/use-posting-draft", () => ({
-  usePostingDraft: () => ({ saved: false, discard: discardDraft }),
+  usePostingDraft: (options: { storageKey: string }) => {
+    draftHook.storageKey = options.storageKey;
+    return { saved: false, restored: draftHook.restored, discard: discardDraft };
+  },
 }));
 vi.mock("react", async () => {
   const actual = await vi.importActual<typeof ReactModule>("react");
@@ -65,6 +70,8 @@ const SAVED = { roleTitle: "CNC Machinist" };
 const LANDING = { pendingLabel: "CNC Machinist", refresh: true };
 
 const POSTING_ID = "bbbb2222-0000-4000-8000-000000000001";
+/** The signed-in payer (the page passes the session's opaque id). */
+const PAYER_ID = "11111111-1111-4111-8111-111111111111";
 const INITIAL = {
   roleTitle: "CNC Machinist",
   vacanciesHint: 26,
@@ -149,7 +156,12 @@ function render(
   ];
   stateCursor = 0;
   setters = [];
-  return EditPostingForm({ postingId: POSTING_ID, status, initial: INITIAL }) as ReactElement;
+  return EditPostingForm({
+    payerId: PAYER_ID,
+    postingId: POSTING_ID,
+    status,
+    initial: INITIAL,
+  }) as ReactElement;
 }
 
 async function submit(tree: ReactElement) {
@@ -161,6 +173,7 @@ async function submit(tree: ReactElement) {
 beforeEach(() => {
   updatePostingAction.mockReset().mockResolvedValue({ ok: true, posting: SAVED });
   navigate.mockReset();
+  draftHook.restored = false;
 });
 
 describe("EditPostingForm — the band-downgrade guard (vacancies omission)", () => {
@@ -592,6 +605,38 @@ describe("EditPostingForm — W4: one spinner per action", () => {
     discardDraft.mockClear();
     await submit(render({}));
     expect(discardDraft).toHaveBeenCalledTimes(1);
+  });
+
+  it("the draft is kept under the signed-in payer's own key for this posting", () => {
+    render({});
+    expect(draftHook.storageKey).toBe(`bb:posting-draft:${PAYER_ID}:edit:${POSTING_ID}`);
+  });
+
+  it("no restored draft, no 'Restored' line", () => {
+    expect(hosts(render({})).some((e) => e.props.className === "mw-draft-restored")).toBe(false);
+  });
+
+  it("a restored draft is said, and Discard drops it and reseeds the saved posting", () => {
+    draftHook.restored = true;
+    discardDraft.mockClear();
+    const tree = render({ payMin: "18000" }, "open", { requirements: ["ITI"] });
+    const notice = hosts(tree).find((e) => e.props.className === "mw-draft-restored")!;
+    expect(notice.props.role).toBe("status");
+    expect(textOf(hosts(notice))).toContain("Restored unsaved changes from this device");
+    const discard = hosts(notice).find((e) => e.type === "button")!;
+    expect(textOf(hosts(discard.props.children as ReactNode)).trim()).toBe("Discard");
+
+    (discard.props.onClick as () => void)();
+    expect(discardDraft).toHaveBeenCalledTimes(1);
+    expect(setters[0]).toHaveBeenCalledWith(BLANK_FIELDS); // fields — the saved posting's
+    expect(setters[1]).toHaveBeenCalledWith([]); // requirements
+    expect(setters[6]).toHaveBeenCalledWith({
+      tradeLevel: "",
+      answers: {},
+      matchSkillIds: [],
+      dirty: false,
+    });
+    expect(setters[13]).toHaveBeenCalledWith({ matchSkillIds: [], untickedRelatedIds: [] });
   });
 });
 

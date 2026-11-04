@@ -6,6 +6,7 @@ import { ACTION_ICON, Icon } from "@badabhai/icons";
 import { Avatar, Badge } from "../../components/ds";
 import { useNavigationCue } from "../../components/nav-pending";
 import { PortalLink } from "../../components/portal-link";
+import { clearAllPostingDrafts } from "../../lib/posting-draft";
 import { logoutAction } from "./logout-action";
 
 /**
@@ -163,6 +164,9 @@ export function AccountMenu({ orgName, email, role, status }: AccountMenuProps) 
           disabled={signingOut}
           onClick={() => {
             close(false);
+            // A shared browser must not hand this payer's unpublished posting drafts to whoever
+            // signs in next (lib/posting-draft.ts — the drafts are kept per payer, on this device).
+            clearAllPostingDrafts();
             startSignOut(() => logoutAction());
           }}
         >

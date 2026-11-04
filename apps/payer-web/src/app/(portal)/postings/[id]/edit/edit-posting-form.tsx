@@ -47,6 +47,7 @@ import { withPublishedReach } from "../../../../../lib/published-reach";
 import { usePortalNavigation } from "../../../../../components/portal-navigation";
 import { postingDraftKey } from "../../../../../lib/posting-draft";
 import { usePostingDraft } from "../../../../../components/use-posting-draft";
+import { DraftRestoredNotice } from "../../../../../components/draft-restored-notice";
 
 /**
  * Edit a posting (EMPLOYER self-serve; LIVE `PATCH /payer/job-postings/:id`). Every card field +
@@ -142,6 +143,7 @@ export function isEditPostingDirty(
 }
 
 export function EditPostingForm({
+  payerId,
   postingId,
   status,
   initial,
@@ -150,6 +152,8 @@ export function EditPostingForm({
   postingTrades = [],
   lead,
 }: {
+  /** The signed-in payer (the session's opaque id) — the local draft is kept per payer (W4). */
+  payerId: string;
   postingId: string;
   status: string;
   initial: EditPostingInitial;
@@ -175,7 +179,7 @@ export function EditPostingForm({
   const storedTradeSeed =
     (initial.tradeLevel ?? null) !== null || (initial.tradeAnswers ?? null) !== null;
   const initialTradeForm = postingTrades.find((form) => form.role_kind === initial.roleKind);
-  const [trade, setTrade] = useState<TradeFormValue & { matchSkillIds: string[]; dirty: boolean }>({
+  const seedTrade = (): TradeFormValue & { matchSkillIds: string[]; dirty: boolean } => ({
     tradeLevel: initial.tradeLevel ?? "",
     answers: initial.tradeAnswers ?? {},
     matchSkillIds:
@@ -184,6 +188,9 @@ export function EditPostingForm({
         : (matchSelection?.matchSkillIds ?? []),
     dirty: false,
   });
+  const [trade, setTrade] = useState<TradeFormValue & { matchSkillIds: string[]; dirty: boolean }>(
+    seedTrade(),
+  );
   const [preview, setPreview] = useState<ReachPreview | null>(null);
   const [revealed, setRevealed] = useState<RevealedNumbers>({});
   // Set the moment a save succeeds: the buttons stay disabled through the navigation and the
@@ -219,7 +226,7 @@ export function EditPostingForm({
     legacySelection,
   };
   const draft = usePostingDraft<EditPostingDraft>({
-    storageKey: postingDraftKey({ kind: "edit", postingId }),
+    storageKey: postingDraftKey({ kind: "edit", payerId, postingId }),
     base: JSON.stringify({ status, initial, matchSelection: matchSelection ?? null }),
     payload: draftPayload,
     dirty: isEditPostingDirty(draftPayload, initial, matchSelection),
@@ -234,6 +241,23 @@ export function EditPostingForm({
       if (saved.legacySelection) setLegacySelection(saved.legacySelection);
     },
   });
+
+  /** The payer dropped the changes restored from this device: the saved posting again (W4). */
+  function discardRestored() {
+    draft.discard();
+    setFields(seedFields(initial));
+    setRequirements(initial.requirements ?? []);
+    setBenefits(initial.benefits ?? []);
+    setReqDraft("");
+    setBenDraft("");
+    setError(null);
+    setTrade(seedTrade());
+    setPreview(null);
+    setRevealed({});
+    setProblem(null);
+    setServerFieldErrors({});
+    setLegacySelection(matchSelection ?? { matchSkillIds: [], untickedRelatedIds: [] });
+  }
 
   const isDraft = status === "draft";
   const tradeMode = postingTrades.length > 0;
@@ -521,6 +545,7 @@ export function EditPostingForm({
           >
             <Icon name="check-circle" /> Draft saved on this device
           </p>
+          {draft.restored ? <DraftRestoredNotice onDiscard={discardRestored} /> : null}
           <div className="form__section">
             <p className="form__legend">The role</p>
             <Select

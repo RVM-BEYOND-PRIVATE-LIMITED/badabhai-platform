@@ -115,10 +115,15 @@ const useState = vi.fn((initial: unknown) => {
 const useTransition = vi.fn((): [boolean, (cb: () => void) => void] => [false, (cb) => cb()]);
 
 // W4 — the local draft + leave guard runs effects (a real hook outside a render); its rules are
-// lib/posting-draft.test.ts's. Here it is idle: nothing restored, nothing saved yet.
+// lib/posting-draft.test.ts's and components/use-posting-draft.test.ts's. Here it is idle (nothing
+// saved yet; restored only when a test says so) and keeps the options the form called it with.
 const discardDraft = vi.fn();
+const draftHook = { restored: false, storageKey: "" };
 vi.mock("../../../../components/use-posting-draft", () => ({
-  usePostingDraft: () => ({ saved: false, discard: discardDraft }),
+  usePostingDraft: (options: { storageKey: string }) => {
+    draftHook.storageKey = options.storageKey;
+    return { saved: false, restored: draftHook.restored, discard: discardDraft };
+  },
 }));
 vi.mock("react", async () => {
   const actual = await vi.importActual<typeof ReactModule>("react");
@@ -155,6 +160,9 @@ vi.mock("./match-skill-picker", () => ({
 
 const { PostingForm } = await import("./posting-form");
 const { observeDockHeight } = await import("../../../../lib/dock-reserve");
+
+/** The signed-in payer (the page passes the session's opaque id). */
+const PAYER_ID = "11111111-1111-4111-8111-111111111111";
 
 const MSKILL = {
   skill_id: "mskill_cnc_turning",
@@ -202,6 +210,7 @@ function render(seed: {
   setters = [];
   stateCursor = 0;
   return PostingForm({
+    payerId: PAYER_ID,
     quotaStep: seed.quotaStep ?? null,
     matchSkills: (seed.matchSkills ?? [MSKILL]) as never,
   }) as ReactElement;
@@ -289,6 +298,7 @@ beforeEach(() => {
   useTransition.mockClear();
   createPostingAction.mockClear();
   navigate.mockClear();
+  draftHook.restored = false;
 });
 
 describe("PostingForm render — the role picker and the card fields are present", () => {
@@ -796,6 +806,36 @@ describe("PostingForm — W4: steps, the phone publish bar and the draft", () =>
     findForm(tree)!.props.onSubmit({ preventDefault: () => undefined });
     await vi.waitFor(() => expect(navigate).toHaveBeenCalledTimes(1));
     expect(discardDraft).toHaveBeenCalledTimes(1);
+  });
+
+  it("the draft is kept under the signed-in payer's own key (a shared browser never mixes them)", () => {
+    render({ fields: BLANK_FIELDS, fieldErrors: {} });
+    expect(draftHook.storageKey).toBe(`bb:posting-draft:${PAYER_ID}:new`);
+  });
+
+  it("no restored draft, no 'Restored' line", () => {
+    const tree = render({ fields: BLANK_FIELDS, fieldErrors: {} });
+    expect(hosts(tree).some((el) => el.props.className === "mw-draft-restored")).toBe(false);
+  });
+
+  it("a restored draft is said, and Discard drops it and reseeds a fresh form from step 1", () => {
+    draftHook.restored = true;
+    discardDraft.mockClear();
+    const tree = render({ fields: FULL_FIELDS, fieldErrors: {} });
+    const notice = hosts(tree).find((el) => el.props.className === "mw-draft-restored")!;
+    expect(notice.props.role).toBe("status");
+    expect(textOf(notice)).toContain("Restored unsaved changes from this device");
+    const discard = hosts(notice).find((el) => el.type === "button")!;
+    expect(textOf(discard).trim()).toBe("Discard");
+
+    (discard.props.onClick as () => void)();
+    expect(discardDraft).toHaveBeenCalledTimes(1);
+    expect(setters[0]).toHaveBeenCalledWith(BLANK_FIELDS); // fields
+    expect(setters[4]).toHaveBeenCalledWith({ matchSkillIds: [], untickedRelatedIds: [] });
+    expect(setters[6]).toHaveBeenCalledWith([]); // requirements
+    expect(setters[7]).toHaveBeenCalledWith([]); // benefits
+    expect(setters[12]).toHaveBeenCalledWith(1); // step
+    expect(setters[13]).toHaveBeenCalledWith({ tradeLevel: "", answers: {}, matchSkillIds: [] });
   });
 });
 

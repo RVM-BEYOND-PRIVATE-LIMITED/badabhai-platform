@@ -7964,6 +7964,16 @@ body:has(.invite-landing) .chrome-footer {
   opacity: 1;
   transition-timing-function: var(--ease-enter);
 }
+/* The form opened with changes kept on this device: said plainly, with Discard beside it. */
+.mw-draft-restored {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+  margin: 0;
+  font-size: var(--ui-caption-size);
+  color: var(--text-muted);
+}
 
 @media (prefers-reduced-motion: reduce) {
   .mw-layout > .posting-dock[data-mw-hidden],

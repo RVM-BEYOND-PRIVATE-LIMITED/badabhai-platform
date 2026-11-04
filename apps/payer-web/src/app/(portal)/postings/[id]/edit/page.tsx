@@ -83,6 +83,7 @@ export default async function EditPostingPage({ params }: { params: Promise<{ id
       // page restored by Back after a save, a refresh after a concurrent edit) remounts from the
       // current one instead of keeping stale values — and a stale `initial` for the clear diff.
       key={detail.updatedAt}
+      payerId={session.payerId}
       postingId={id}
       status={summary.status}
       matchSkills={matchSkills}

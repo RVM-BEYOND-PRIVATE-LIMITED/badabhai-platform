@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   LEAVE_CONFIRM,
+  clearAllPostingDrafts,
   clearDraft,
   installLeaveGuard,
   leavingHref,
@@ -29,14 +30,57 @@ function memoryStore(): Storage {
   };
 }
 
+const PAYER_A = "11111111-1111-4111-8111-111111111111";
+const PAYER_B = "22222222-2222-4222-8222-222222222222";
+
 describe("the draft store", () => {
   it("keys a new posting and each edit apart", () => {
-    expect(postingDraftKey({ kind: "new" })).not.toBe(
-      postingDraftKey({ kind: "edit", postingId: "p1" }),
+    expect(postingDraftKey({ kind: "new", payerId: PAYER_A })).not.toBe(
+      postingDraftKey({ kind: "edit", payerId: PAYER_A, postingId: "p1" }),
     );
-    expect(postingDraftKey({ kind: "edit", postingId: "p1" })).not.toBe(
-      postingDraftKey({ kind: "edit", postingId: "p2" }),
+    expect(postingDraftKey({ kind: "edit", payerId: PAYER_A, postingId: "p1" })).not.toBe(
+      postingDraftKey({ kind: "edit", payerId: PAYER_A, postingId: "p2" }),
     );
+  });
+
+  it("keys every draft by the signed-in payer — company B never reads company A's", () => {
+    expect(postingDraftKey({ kind: "new", payerId: PAYER_A })).toBe(
+      `bb:posting-draft:${PAYER_A}:new`,
+    );
+    expect(postingDraftKey({ kind: "edit", payerId: PAYER_A, postingId: "p1" })).toBe(
+      `bb:posting-draft:${PAYER_A}:edit:p1`,
+    );
+    expect(postingDraftKey({ kind: "new", payerId: PAYER_A })).not.toBe(
+      postingDraftKey({ kind: "new", payerId: PAYER_B }),
+    );
+    expect(postingDraftKey({ kind: "edit", payerId: PAYER_A, postingId: "p1" })).not.toBe(
+      postingDraftKey({ kind: "edit", payerId: PAYER_B, postingId: "p1" }),
+    );
+
+    const store = memoryStore();
+    saveDraft(postingDraftKey({ kind: "new", payerId: PAYER_A }), "new", { city: "Pune" }, store);
+    expect(loadDraft(postingDraftKey({ kind: "new", payerId: PAYER_B }), "new", store)).toBeNull();
+  });
+
+  it("sign-out's sweep removes every payer's posting drafts and nothing else", () => {
+    const store = memoryStore();
+    saveDraft(postingDraftKey({ kind: "new", payerId: PAYER_A }), "new", { city: "Pune" }, store);
+    saveDraft(postingDraftKey({ kind: "edit", payerId: PAYER_A, postingId: "p1" }), "b", {}, store);
+    saveDraft(postingDraftKey({ kind: "new", payerId: PAYER_B }), "new", { city: "Nashik" }, store);
+    store.setItem("bb:theme", "dark");
+
+    clearAllPostingDrafts(store);
+
+    expect(store.length).toBe(1);
+    expect(store.getItem("bb:theme")).toBe("dark");
+    // Blocked or missing storage is a no-op, never an error.
+    const blocked = {
+      get length(): number {
+        throw new Error("SecurityError");
+      },
+    } as unknown as Storage;
+    expect(() => clearAllPostingDrafts(blocked)).not.toThrow();
+    expect(() => clearAllPostingDrafts(undefined)).not.toThrow();
   });
 
   it("a saved draft comes back from the same base", () => {
