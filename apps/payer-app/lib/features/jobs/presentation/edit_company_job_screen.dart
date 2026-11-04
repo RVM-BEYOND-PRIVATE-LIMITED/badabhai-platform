@@ -268,7 +268,7 @@ class _EditCompanyJobScreenState extends State<EditCompanyJobScreen> {
         context,
         title: 'Add the basics',
         message: 'A job title is needed.',
-        icon: Icons.info_outline,
+        icon: Icons.info_rounded,
       );
       return;
     }
@@ -283,7 +283,7 @@ class _EditCompanyJobScreenState extends State<EditCompanyJobScreen> {
         context,
         title: 'Check the bands',
         message: 'Max pay must be at least the min.',
-        icon: Icons.info_outline,
+        icon: Icons.info_rounded,
       );
       return;
     }
@@ -292,7 +292,7 @@ class _EditCompanyJobScreenState extends State<EditCompanyJobScreen> {
         context,
         title: 'Check the bands',
         message: 'Max experience must be at least the min.',
-        icon: Icons.info_outline,
+        icon: Icons.info_rounded,
       );
       return;
     }
@@ -305,7 +305,7 @@ class _EditCompanyJobScreenState extends State<EditCompanyJobScreen> {
         context,
         title: 'Check the description',
         message: descriptionError,
-        icon: Icons.info_outline,
+        icon: Icons.info_rounded,
       );
       return;
     }
@@ -333,7 +333,7 @@ class _EditCompanyJobScreenState extends State<EditCompanyJobScreen> {
         context,
         title: gap.title,
         message: gap.message,
-        icon: Icons.info_outline,
+        icon: Icons.info_rounded,
       );
       return;
     }
@@ -410,7 +410,7 @@ class _EditCompanyJobScreenState extends State<EditCompanyJobScreen> {
         context,
         title: 'Nothing to save',
         message: 'Change a field first — nothing on this form is different.',
-        icon: Icons.info_outline,
+        icon: Icons.info_rounded,
       );
       return;
     }
@@ -450,7 +450,7 @@ class _EditCompanyJobScreenState extends State<EditCompanyJobScreen> {
       context,
       title: result.success ? 'Saved' : 'Not now',
       message: result.message,
-      icon: result.success ? Icons.check_circle : Icons.info_outline,
+      icon: result.success ? Icons.check_circle_rounded : Icons.info_rounded,
     );
     if (result.success) {
       Navigator.of(context).pop();
@@ -596,7 +596,7 @@ class _EditCompanyJobScreenState extends State<EditCompanyJobScreen> {
             Row(
               children: <Widget>[
                 BbIconButton(
-                  icon: Icons.arrow_back,
+                  icon: Icons.arrow_back_rounded,
                   semanticLabel: 'Back',
                   onPressed: () => Navigator.of(context).pop(),
                 ),
@@ -823,7 +823,7 @@ class _EditCompanyJobScreenState extends State<EditCompanyJobScreen> {
             const SizedBox(height: AppSpacing.s5),
             BbButton(
               label: 'Save changes',
-              iconLeft: Icons.check,
+              iconLeft: Icons.check_rounded,
               block: true,
               loading: _saving,
               onPressed: _save,

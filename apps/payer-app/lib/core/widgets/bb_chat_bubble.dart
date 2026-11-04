@@ -84,7 +84,7 @@ class BbChatBubble extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: <Widget>[
                 const Icon(
-                  Icons.error_outline,
+                  Icons.error_rounded,
                   size: 16,
                   color: AppColors.dangerPress,
                 ),

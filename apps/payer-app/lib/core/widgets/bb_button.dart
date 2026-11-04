@@ -8,7 +8,7 @@ import '../theme/app_typography.dart';
 
 /// Visual style of a [BbButton]. Mirrors the JUL31 kit's `BBButtonKind`
 /// (primary · navy · success · outline) plus the payer-app's own quiet
-/// variants. Label voice is the normal UI face (Roboto) and a light haptic
+/// variants. Label voice is the normal UI face (Inter) and a light haptic
 /// fires on press — the kit's two button laws.
 ///
 ///  - [primary]  — haldi action CTA, deep-blue label (the ONE main action).
@@ -104,7 +104,7 @@ class BbButton extends StatelessWidget {
 
     final Size minSize = Size(block ? double.infinity : 64, _height);
     // Buttons live below the header, so they speak in the normal UI face
-    // (Roboto). The button's own foregroundColor still resolves the label colour
+    // (Inter). The button's own foregroundColor still resolves the label colour
     // (Material copies it over this style), so each variant keeps its correct
     // on-face colour.
     final TextStyle labelStyle = AppTypography.heading(

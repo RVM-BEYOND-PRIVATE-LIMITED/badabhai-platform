@@ -148,7 +148,7 @@ class AuthEyeToggle extends StatelessWidget {
     return IconButton(
       onPressed: onPressed,
       icon: Icon(
-        obscured ? Icons.visibility_outlined : Icons.visibility_off_outlined,
+        obscured ? Icons.visibility_rounded : Icons.visibility_off_rounded,
         size: 20,
         color: AppColors.textMuted,
       ),
@@ -165,7 +165,7 @@ class AuthTrustLine extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: <Widget>[
-        const Icon(Icons.verified_user, size: 16, color: AppColors.success),
+        const Icon(Icons.verified_user_rounded, size: 16, color: AppColors.success),
         const SizedBox(width: AppSpacing.s2),
         Expanded(
           child: Text(
@@ -204,7 +204,7 @@ class AuthErrorLine extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          const Icon(Icons.error_outline, size: 16, color: AppColors.danger),
+          const Icon(Icons.error_rounded, size: 16, color: AppColors.danger),
           const SizedBox(width: AppSpacing.s2),
           Expanded(
             child: Text(

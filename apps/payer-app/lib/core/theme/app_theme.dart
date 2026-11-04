@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'app_colors.dart';
 import 'app_spacing.dart';
+import 'app_system_ui.dart';
 import 'app_typography.dart';
 
 /// The BadaBhai **JUL31 "JOSH"** theme, assembled from the design tokens
@@ -87,6 +88,8 @@ class AppTheme {
         centerTitle: true,
         titleTextStyle: textTheme.titleLarge,
         iconTheme: const IconThemeData(color: AppColors.ink700),
+        // #2590 — app bars sit on the light canvas: dark status-bar icons.
+        systemOverlayStyle: AppSystemUi.onLight,
       ),
 
       // Primary CTA — HALDI button, deep-blue label, flat.

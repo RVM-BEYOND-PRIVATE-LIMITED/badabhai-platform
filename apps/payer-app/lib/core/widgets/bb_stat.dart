@@ -35,9 +35,9 @@ class BbStat extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final (Color deltaColor, IconData deltaIcon) = switch (delta) {
-      BbStatDelta.up => (AppColors.success, Icons.trending_up),
-      BbStatDelta.down => (AppColors.danger, Icons.trending_down),
-      BbStatDelta.flat => (AppColors.textMuted, Icons.remove),
+      BbStatDelta.up => (AppColors.success, Icons.trending_up_rounded),
+      BbStatDelta.down => (AppColors.danger, Icons.trending_down_rounded),
+      BbStatDelta.flat => (AppColors.textMuted, Icons.remove_rounded),
     };
 
     final Widget deltaRow = Row(
@@ -106,7 +106,7 @@ class BbStat extends StatelessWidget {
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: <Widget>[
-                      const Icon(Icons.add, size: 14, color: AppColors.success),
+                      const Icon(Icons.add_rounded, size: 14, color: AppColors.success),
                       const SizedBox(width: 4),
                       Text(
                         deltaText,

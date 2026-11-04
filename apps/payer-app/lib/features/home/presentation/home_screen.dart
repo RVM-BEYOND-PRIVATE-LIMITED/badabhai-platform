@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../core/di/locator.dart';
@@ -6,6 +7,7 @@ import '../../../core/session/app_session.dart';
 import '../../../core/session/credits_cubit.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
+import '../../../core/theme/app_system_ui.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/bb_avatar.dart';
 import '../../../core/widgets/bb_button.dart';
@@ -73,7 +75,7 @@ class HomeScreen extends StatelessWidget {
                     // The ONE haldi CTA on Home.
                     child: BbButton(
                       label: 'Post a job',
-                      iconLeft: Icons.add_circle_outline,
+                      iconLeft: Icons.add_circle_rounded,
                       onPressed: onPost,
                     ),
                   ),
@@ -82,7 +84,7 @@ class HomeScreen extends StatelessWidget {
                     child: BbButton(
                       label: 'Browse',
                       variant: BbButtonVariant.secondary,
-                      iconLeft: Icons.search,
+                      iconLeft: Icons.search_rounded,
                       onPressed: onBrowse,
                     ),
                   ),
@@ -127,48 +129,54 @@ class _Header extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      color: AppColors.blue,
-      padding: const EdgeInsets.fromLTRB(
-        AppSpacing.gutter,
-        AppSpacing.s5,
-        AppSpacing.gutter,
-        AppSpacing.s5,
-      ),
-      child: Row(
-        children: <Widget>[
-          BbAvatar(initials: acct.initials, size: 48),
-          const SizedBox(width: AppSpacing.s3),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Text(
-                  acct.name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppTypography.header(
-                    size: AppTypography.sizeMd,
-                    weight: FontWeight.w700,
-                    color: AppColors.onBlue,
+    // #2590 — the band is drawn BEHIND the status bar (the shell gives Home no
+    // top inset), so it pads itself by that inset and asks for light icons.
+    final double topInset = MediaQuery.paddingOf(context).top;
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: AppSystemUi.onDark,
+      child: Container(
+        width: double.infinity,
+        color: AppColors.blue,
+        padding: EdgeInsets.fromLTRB(
+          AppSpacing.gutter,
+          AppSpacing.s5 + topInset,
+          AppSpacing.gutter,
+          AppSpacing.s5,
+        ),
+        child: Row(
+          children: <Widget>[
+            BbAvatar(initials: acct.initials, size: 48),
+            const SizedBox(width: AppSpacing.s3),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Text(
+                    acct.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppTypography.header(
+                      size: AppTypography.sizeMd,
+                      weight: FontWeight.w700,
+                      color: AppColors.onBlue,
+                    ),
                   ),
-                ),
-                Text(
-                  acct.plan,
-                  style: AppTypography.body(
-                    size: AppTypography.sizeXs,
-                    color: AppColors.onBlueMuted,
+                  Text(
+                    acct.plan,
+                    style: AppTypography.body(
+                      size: AppTypography.sizeXs,
+                      color: AppColors.onBlueMuted,
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-          const SizedBox(width: AppSpacing.s3),
-          // The unmissable role cue — COMPANY vs AGENCY — so the payer always
-          // knows which portal they are in.
-          PayerRoleBadge(role: role, onDark: true),
-        ],
+            const SizedBox(width: AppSpacing.s3),
+            // The unmissable role cue — COMPANY vs AGENCY — so the payer always
+            // knows which portal they are in.
+            PayerRoleBadge(role: role, onDark: true),
+          ],
+        ),
       ),
     );
   }
@@ -188,7 +196,7 @@ class _AgencyHubCard extends StatelessWidget {
       onTap: onTap,
       child: Row(
         children: <Widget>[
-          const Icon(Icons.campaign_outlined, size: 24, color: AppColors.blue),
+          const Icon(Icons.campaign_rounded, size: 24, color: AppColors.blue),
           const SizedBox(width: AppSpacing.s3),
           Expanded(
             child: Column(
@@ -214,7 +222,8 @@ class _AgencyHubCard extends StatelessWidget {
             ),
           ),
           const SizedBox(width: AppSpacing.s2),
-          const Icon(Icons.chevron_right, size: 20, color: AppColors.textFaint),
+          const Icon(Icons.chevron_right_rounded,
+              size: 20, color: AppColors.textFaint),
         ],
       ),
     );
@@ -238,7 +247,7 @@ class _CreditBalanceCard extends StatelessWidget {
           // A failed refresh renders an honest '—', never a fabricated 0
           // (#189 fast-follow); the retry affordance re-loads server truth.
           value: credits.error ? '—' : '${credits.balance ?? '—'}',
-          icon: Icons.lock_open,
+          icon: Icons.lock_open_rounded,
           deltaText: credits.error ? 'Retry' : 'View ledger',
           onDeltaTap: credits.error
               ? () => locator<CreditsCubit>().load()

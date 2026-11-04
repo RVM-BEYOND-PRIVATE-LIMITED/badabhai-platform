@@ -8,7 +8,8 @@ import 'package:payer_app/core/theme/app_typography.dart';
 ///
 /// The brand face (Kilimanjaro Sans) belongs to the app header and the upper
 /// part of a screen ONLY. Everything below the header — section/card headings,
-/// body, UI labels — uses the old normal face (Roboto). These tests pin both
+/// body, UI labels — uses the normal UI face, Inter (#2590: bundled, it replaced
+/// Roboto fetched at runtime). These tests pin both
 /// halves of that boundary so a future "make it consistent" change cannot
 /// quietly make the whole app bold again.
 void main() {
@@ -21,20 +22,14 @@ void main() {
   });
 
   tearDown(() {
-    // Restore the SHIPPED state — every other test in the app reads it.
-    AppTypography.bundledBrandFonts = false;
     GoogleFonts.config.allowRuntimeFetching = false;
   });
 
   group('header() — the brand face, header/upper part only', () {
-    test('is Kilimanjaro Sans with the brand fallback chain on both branches',
-        () {
-      for (final bool bundled in <bool>[false, true]) {
-        AppTypography.bundledBrandFonts = bundled;
-        final TextStyle style = AppTypography.header();
-        expect(style.fontFamily, 'Kilimanjaro Sans');
-        expect(style.fontFamilyFallback, contains('Baloo 2'));
-      }
+    test('is Kilimanjaro Sans with the brand fallback chain', () {
+      final TextStyle style = AppTypography.header();
+      expect(style.fontFamily, 'Kilimanjaro Sans');
+      expect(style.fontFamilyFallback, contains('Baloo 2'));
     });
 
     test('carries the full type scale through, not just the family', () {
@@ -54,60 +49,38 @@ void main() {
     });
   });
 
-  group('body()/heading()/eyebrow() — the old normal face below the header',
+  group('body()/heading()/eyebrow() — Inter below the header (#2590)', () {
+    test('name the bundled Inter family directly, with Devanagari fallback',
         () {
-    test('ships on the fetch branch (bundledBrandFonts = false)', () {
-      expect(AppTypography.bundledBrandFonts, isFalse);
-    });
-
-    testWidgets('resolve to Roboto through google_fonts on the shipped branch',
-        (WidgetTester tester) async {
-      AppTypography.bundledBrandFonts = false;
-
       for (final TextStyle Function() call in <TextStyle Function()>[
         () => AppTypography.body(),
         () => AppTypography.heading(),
         () => AppTypography.eyebrow(),
       ]) {
         final TextStyle style = call();
-        expect(style.fontFamily, contains('Roboto'));
-        expect(style.fontFamily, isNot('Kilimanjaro Sans'));
-        expect(
-          style.fontFamilyFallback,
-          contains('Noto Sans Devanagari'),
-        );
+        // Exact family, not a google_fonts `Inter_regular` alias: the face
+        // resolves off the bundled asset.
+        expect(style.fontFamily, 'Inter');
+        expect(style.fontFamily, isNot(contains('Roboto')));
+        expect(style.fontFamilyFallback, contains('Mukta'));
+        expect(style.fontFamilyFallback, contains('Noto Sans Devanagari'));
       }
     });
 
-    testWidgets('do not force the runtime-fetch config off on the fetch branch',
-        (WidgetTester tester) async {
-      AppTypography.bundledBrandFonts = false;
+    test('force runtime font fetching OFF — no face is ever downloaded', () {
+      // Even if something re-enabled it, building any style closes the door.
       GoogleFonts.config.allowRuntimeFetching = true;
-
       AppTypography.body();
-      AppTypography.heading();
-      AppTypography.eyebrow();
+      expect(GoogleFonts.config.allowRuntimeFetching, isFalse);
 
-      // Only ever tighten. Forcing this false while on the fetch branch would
-      // hand EVERY payer fallback glyphs, online ones included.
-      expect(GoogleFonts.config.allowRuntimeFetching, isTrue);
-    });
-
-    test('with bundledBrandFonts = true, name the Roboto family directly', () {
-      AppTypography.bundledBrandFonts = true;
-
-      for (final TextStyle Function() call in <TextStyle Function()>[
-        () => AppTypography.body(),
-        () => AppTypography.heading(),
-        () => AppTypography.eyebrow(),
-      ]) {
-        expect(call().fontFamily, 'Roboto');
-      }
+      GoogleFonts.config.allowRuntimeFetching = true;
+      AppTypography.header();
+      expect(GoogleFonts.config.allowRuntimeFetching, isFalse);
     });
   });
 
   group('textTheme()', () {
-    testWidgets('header slots are Kilimanjaro; every slot below is Roboto',
+    testWidgets('header slots are Kilimanjaro; every slot below is Inter',
         (WidgetTester tester) async {
       final TextTheme t = AppTypography.textTheme();
 
@@ -135,15 +108,12 @@ void main() {
         t.labelSmall,
       ];
       for (final TextStyle? s in normalSlots) {
-        expect(s!.fontFamily, isNot('Kilimanjaro Sans'));
+        expect(s!.fontFamily, 'Inter');
       }
     });
   });
 
-  test('mono stays self-hosted regardless of the brand-font switch', () {
-    for (final bool bundled in <bool>[false, true]) {
-      AppTypography.bundledBrandFonts = bundled;
-      expect(AppTypography.mono().fontFamily, 'Roboto Mono');
-    }
+  test('mono stays the self-hosted Roboto Mono', () {
+    expect(AppTypography.mono().fontFamily, 'Roboto Mono');
   });
 }

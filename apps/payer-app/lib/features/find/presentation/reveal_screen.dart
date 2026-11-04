@@ -115,7 +115,7 @@ class _RealReveal extends StatelessWidget {
         context,
         title: 'Limit reached for now',
         message: 'Résumé limit reached for now — try again later.',
-        icon: Icons.hourglass_bottom,
+        icon: Icons.hourglass_bottom_rounded,
       );
       return;
     }
@@ -126,7 +126,7 @@ class _RealReveal extends StatelessWidget {
         context,
         title: 'Something went wrong',
         message: 'Could not fetch the résumé — try again.',
-        icon: Icons.refresh,
+        icon: Icons.refresh_rounded,
       );
       return;
     }
@@ -135,7 +135,7 @@ class _RealReveal extends StatelessWidget {
         context,
         title: 'Résumé unavailable',
         message: 'This masked résumé is not available right now.',
-        icon: Icons.info_outline,
+        icon: Icons.info_rounded,
       );
       return;
     }
@@ -162,7 +162,7 @@ class _RealReveal extends StatelessWidget {
         context,
         title: 'No app to open the résumé',
         message: 'Install a browser, then tap Masked résumé again.',
-        icon: Icons.info_outline,
+        icon: Icons.info_rounded,
       );
       return;
     }
@@ -202,7 +202,7 @@ class _RealReveal extends StatelessWidget {
             // relay/résumé actions beneath it.
             if (state.status == RevealStatus.ready)
               const Positioned.fill(
-                child: BbStampCelebration(icon: Icons.lock_open),
+                child: BbStampCelebration(icon: Icons.lock_open_rounded),
               ),
           ],
         );
@@ -214,7 +214,7 @@ class _RealReveal extends StatelessWidget {
     return Row(
       children: <Widget>[
         BbIconButton(
-          icon: Icons.arrow_back,
+          icon: Icons.arrow_back_rounded,
           semanticLabel: 'Back',
           onPressed: onBack,
         ),
@@ -227,7 +227,7 @@ class _RealReveal extends StatelessWidget {
           ),
         ),
         const Spacer(),
-        const BbBadge('Unlocked', tone: BbBadgeTone.success, icon: Icons.lock_open),
+        const BbBadge('Unlocked', tone: BbBadgeTone.success, icon: Icons.lock_open_rounded),
       ],
     );
   }
@@ -299,7 +299,7 @@ class _RealReveal extends StatelessWidget {
       card = BbCard(
         child: Row(
           children: <Widget>[
-            const Icon(Icons.info_outline, color: AppColors.textMuted),
+            const Icon(Icons.info_rounded, color: AppColors.textMuted),
             const SizedBox(width: AppSpacing.s3),
             Expanded(
               child: Text(
@@ -352,7 +352,7 @@ class _RealReveal extends StatelessWidget {
             const SizedBox(height: AppSpacing.s4),
             BbButton(
               label: 'Contact via relay',
-              iconLeft: Icons.chat_bubble_outline,
+              iconLeft: Icons.chat_bubble_rounded,
               block: true,
               onPressed: () => _contactViaRelay(context, handle),
             ),
@@ -385,7 +385,7 @@ class _RealReveal extends StatelessWidget {
               color: AppColors.brandTint,
               borderRadius: BorderRadius.circular(AppRadii.md),
             ),
-            child: const Icon(Icons.description,
+            child: const Icon(Icons.description_rounded,
                 size: 24, color: AppColors.brandPress),
           ),
           const SizedBox(width: AppSpacing.s3),
@@ -426,7 +426,7 @@ class _RealReveal extends StatelessWidget {
               child: CircularProgressIndicator(strokeWidth: 2),
             )
           else
-            const Icon(Icons.download, size: 22, color: AppColors.textMuted),
+            const Icon(Icons.download_rounded, size: 22, color: AppColors.textMuted),
         ],
       ),
     );
@@ -461,7 +461,7 @@ class _MockReveal extends StatelessWidget {
         Row(
           children: <Widget>[
             BbIconButton(
-              icon: Icons.arrow_back,
+              icon: Icons.arrow_back_rounded,
               semanticLabel: 'Back',
               onPressed: onBack,
             ),
@@ -477,7 +477,7 @@ class _MockReveal extends StatelessWidget {
             const BbBadge(
               'Unlocked',
               tone: BbBadgeTone.success,
-              icon: Icons.lock_open,
+              icon: Icons.lock_open_rounded,
             ),
           ],
         ),
@@ -522,7 +522,7 @@ class _MockReveal extends StatelessWidget {
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: <Widget>[
-                    const Icon(Icons.phone, size: 16, color: AppColors.success),
+                    const Icon(Icons.phone_rounded, size: 16, color: AppColors.success),
                     const SizedBox(width: 6),
                     Text(
                       candidate.phone,
@@ -591,7 +591,7 @@ class _MockReveal extends StatelessWidget {
                   color: AppColors.brandTint,
                   borderRadius: BorderRadius.circular(AppRadii.md),
                 ),
-                child: const Icon(Icons.description,
+                child: const Icon(Icons.description_rounded,
                     size: 24, color: AppColors.brandPress),
               ),
               const SizedBox(width: AppSpacing.s3),
@@ -616,14 +616,14 @@ class _MockReveal extends StatelessWidget {
                   ],
                 ),
               ),
-              const Icon(Icons.download, size: 22, color: AppColors.textMuted),
+              const Icon(Icons.download_rounded, size: 22, color: AppColors.textMuted),
             ],
           ),
         ),
         const SizedBox(height: AppSpacing.s4),
         BbButton(
           label: 'Contact on WhatsApp',
-          iconLeft: Icons.chat,
+          iconLeft: Icons.chat_rounded,
           block: true,
           onPressed: () {},
         ),

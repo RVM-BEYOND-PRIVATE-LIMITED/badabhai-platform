@@ -122,14 +122,14 @@ class CandidateCard extends StatelessWidget {
                   BbBadge(
                     related,
                     tone: BbBadgeTone.warning,
-                    icon: Icons.hub,
+                    icon: Icons.hub_rounded,
                   ),
                 ],
                 const SizedBox(height: AppSpacing.gap6),
                 _Fact(text: candidateExperienceLine(row), strong: true),
                 if (industry != null) _Fact(text: industry),
                 if (row.city != null)
-                  _Fact(text: row.city!, icon: Icons.location_on),
+                  _Fact(text: row.city!, icon: Icons.location_on_rounded),
                 if (rung != null || others.isNotEmpty) ...<Widget>[
                   const SizedBox(height: AppSpacing.gap6),
                   Wrap(
@@ -142,7 +142,7 @@ class CandidateCard extends StatelessWidget {
                         BbBadge(
                           rung.tradeLevelLabel,
                           tone: BbBadgeTone.info,
-                          icon: Icons.military_tech,
+                          icon: Icons.military_tech_rounded,
                         ),
                       for (final LabelledId role in others)
                         BbBadge(role.label, tone: BbBadgeTone.neutral),
@@ -157,7 +157,7 @@ class CandidateCard extends StatelessWidget {
             BbButton(
               label: 'View',
               size: BbButtonSize.md,
-              iconLeft: Icons.chat_bubble_outline,
+              iconLeft: Icons.chat_bubble_rounded,
               onPressed: onView,
             )
           else

@@ -293,26 +293,26 @@ class _ChatViewState extends State<_ChatView> {
             state.unmappedFields,
             unsetCardFields: state.unsetCardFields,
           ),
-          Icons.check_circle,
+          Icons.check_circle_rounded,
         ),
       PublishOutcome.incomplete => (
           'Not yet',
           'A few required details are still missing — keep chatting.',
-          Icons.info_outline,
+          Icons.info_rounded,
         ),
       // A 409 means "already published" OR "not ready yet" — the wire does not
       // distinguish them, so this copy must not claim either.
       PublishOutcome.conflict => (
           'Not posted',
           'This chat is either already posted, or the draft is not ready yet.',
-          Icons.info_outline,
+          Icons.info_rounded,
         ),
       PublishOutcome.failed => (
           'Not now',
           'Could not post right now. Please try again.',
-          Icons.info_outline,
+          Icons.info_rounded,
         ),
-      PublishOutcome.none => ('', '', Icons.info_outline),
+      PublishOutcome.none => ('', '', Icons.info_rounded),
     };
     if (title.isEmpty) return;
     showBbToast(context, title: title, message: message, icon: icon);
@@ -398,7 +398,7 @@ class _ChatViewState extends State<_ChatView> {
                 _followups(state.followups),
               if (state.lastReplyBlocked)
                 _notice(
-                  icon: Icons.error_outline,
+                  icon: Icons.error_rounded,
                   color: AppColors.dangerPress,
                   text: kJobChatBlockedNotice,
                 ),
@@ -432,7 +432,7 @@ class _ChatViewState extends State<_ChatView> {
       child: Row(
         children: <Widget>[
           BbIconButton(
-            icon: Icons.arrow_back,
+            icon: Icons.arrow_back_rounded,
             semanticLabel: 'Back',
             onPressed: widget.onBack,
           ),
@@ -474,7 +474,7 @@ class _ChatViewState extends State<_ChatView> {
       ),
       child: Row(
         children: <Widget>[
-          const Icon(Icons.cloud_off, size: 18, color: AppColors.dangerPress),
+          const Icon(Icons.cloud_off_rounded, size: 18, color: AppColors.dangerPress),
           const SizedBox(width: AppSpacing.s2),
           Flexible(
             child: Text(
@@ -532,7 +532,7 @@ class _ChatViewState extends State<_ChatView> {
       ),
       child: Row(
         children: <Widget>[
-          const Icon(Icons.more_horiz, size: 20, color: AppColors.brand),
+          const Icon(Icons.more_horiz_rounded, size: 20, color: AppColors.brand),
           const SizedBox(width: AppSpacing.s2),
           Flexible(
             child: Text(

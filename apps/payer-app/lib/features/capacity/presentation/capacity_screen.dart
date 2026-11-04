@@ -64,7 +64,7 @@ class _CapacityView extends StatelessWidget {
     }
     if (state.status == CapacityStatus.error && state.capacity == null) {
       return BbStatusView(
-        icon: Icons.wifi_off,
+        icon: Icons.wifi_off_rounded,
         title: 'Could not load capacity',
         subtitle: state.error,
         action: BbButton(
@@ -108,7 +108,7 @@ class _Header extends StatelessWidget {
       child: Row(
         children: <Widget>[
           BbIconButton(
-            icon: Icons.arrow_back,
+            icon: Icons.arrow_back_rounded,
             semanticLabel: 'Back',
             onPressed: onBack,
           ),
@@ -205,7 +205,7 @@ class _DetailsCard extends StatelessWidget {
       child: Column(
         children: <Widget>[
           _InfoRow(
-            icon: Icons.workspace_premium_outlined,
+            icon: Icons.workspace_premium_rounded,
             label: 'Current tier',
             child: BbBadge(
               capacityTierLabel(cap.sourceTier),
@@ -215,7 +215,7 @@ class _DetailsCard extends StatelessWidget {
             ),
           ),
           _InfoRow(
-            icon: Icons.event_outlined,
+            icon: Icons.event_rounded,
             label: 'Renews / expires',
             value: _dateLabel(cap.expiresAt),
             showBorder: false,

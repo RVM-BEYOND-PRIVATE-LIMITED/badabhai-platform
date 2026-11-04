@@ -137,7 +137,7 @@ class _BatchInviteViewState extends State<_BatchInviteView> {
                       if (state.status == BatchInviteStatus.ready &&
                           state.invites.isNotEmpty)
                         const Positioned.fill(
-                          child: BbStampCelebration(icon: Icons.qr_code_2),
+                          child: BbStampCelebration(icon: Icons.qr_code_2_rounded),
                         ),
                     ],
                   );
@@ -220,7 +220,7 @@ class _Form extends StatelessWidget {
               final bool valid = _isCountValid(value.text.trim());
               return BbButton(
                 label: submitting ? 'Creating…' : 'Create invites',
-                iconLeft: Icons.qr_code_2,
+                iconLeft: Icons.qr_code_2_rounded,
                 block: true,
                 loading: submitting,
                 onPressed: valid && !submitting ? onSubmit : null,
@@ -253,7 +253,7 @@ class _StatusBanner extends StatelessWidget {
     switch (state.status) {
       case BatchInviteStatus.rateLimited:
         return _Banner(
-          icon: Icons.hourglass_empty,
+          icon: Icons.hourglass_empty_rounded,
           tint: AppColors.infoTint,
           iconColor: AppColors.info,
           title: 'Just a moment',
@@ -265,7 +265,7 @@ class _StatusBanner extends StatelessWidget {
         );
       case BatchInviteStatus.forbidden:
         return const _Banner(
-          icon: Icons.lock_outline,
+          icon: Icons.lock_rounded,
           tint: AppColors.surfaceSunken,
           iconColor: AppColors.textMuted,
           title: 'Agency accounts only',
@@ -274,7 +274,7 @@ class _StatusBanner extends StatelessWidget {
         );
       case BatchInviteStatus.error:
         return _Banner(
-          icon: Icons.wifi_off,
+          icon: Icons.wifi_off_rounded,
           tint: AppColors.dangerTint,
           iconColor: AppColors.danger,
           title: 'Could not create invites',
@@ -402,7 +402,7 @@ class _ResultsHeader extends StatelessWidget {
           label: 'Copy all',
           variant: BbButtonVariant.ghost,
           size: BbButtonSize.sm,
-          iconLeft: Icons.copy_all,
+          iconLeft: Icons.copy_all_rounded,
           onPressed: () => _copyAll(context),
         ),
       ],
@@ -500,7 +500,7 @@ class _InviteCard extends StatelessWidget {
             label: 'Copy link',
             variant: BbButtonVariant.secondary,
             size: BbButtonSize.md,
-            iconLeft: Icons.copy,
+            iconLeft: Icons.copy_rounded,
             block: true,
             onPressed: url.isEmpty ? null : () => _copy(context, url),
           ),
@@ -527,7 +527,7 @@ class _Header extends StatelessWidget {
       child: Row(
         children: <Widget>[
           BbIconButton(
-            icon: Icons.arrow_back,
+            icon: Icons.arrow_back_rounded,
             semanticLabel: 'Back',
             onPressed: onBack,
           ),

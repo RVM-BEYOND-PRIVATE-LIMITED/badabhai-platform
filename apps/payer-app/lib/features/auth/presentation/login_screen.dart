@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../core/auth/payer_auth_api.dart';
@@ -7,10 +8,12 @@ import '../../../core/di/locator.dart';
 import '../../../core/session/app_session_cubit.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
+import '../../../core/theme/app_system_ui.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/bb_animated_switcher.dart';
 import '../../../core/widgets/bb_button.dart';
 import '../../../core/widgets/bb_field.dart';
+import '../../../core/widgets/bb_logo.dart';
 import 'signup_screen.dart';
 import 'widgets/auth_form_support.dart';
 
@@ -245,7 +248,7 @@ class _LoginScreenState extends State<LoginScreen> {
           label: 'Email, phone or company name',
           controller: _identifier,
           fieldKey: const Key('login_identifier'),
-          icon: Icons.person_outline,
+          icon: Icons.person_rounded,
           keyboardType: TextInputType.emailAddress,
           suppressSuggestions: true,
         ),
@@ -254,7 +257,7 @@ class _LoginScreenState extends State<LoginScreen> {
           label: 'Password',
           controller: _password,
           fieldKey: const Key('login_password'),
-          icon: Icons.lock_outline,
+          icon: Icons.lock_rounded,
           obscureText: _obscurePassword,
           suppressSuggestions: true,
           suffixIcon: AuthEyeToggle(
@@ -267,7 +270,7 @@ class _LoginScreenState extends State<LoginScreen> {
         BbButton(
           label: 'Sign in',
           buttonKey: const Key('login_button'),
-          iconRight: Icons.arrow_forward,
+          iconRight: Icons.arrow_forward_rounded,
           block: true,
           loading: _busy,
           onPressed: _signIn,
@@ -313,14 +316,14 @@ class _LoginScreenState extends State<LoginScreen> {
           label: 'Work email or phone',
           controller: _otpContact,
           fieldKey: const Key('otp_contact_field'),
-          icon: Icons.mail_outline,
+          icon: Icons.mail_rounded,
           keyboardType: TextInputType.emailAddress,
         ),
         const SizedBox(height: AppSpacing.s5),
         BbButton(
           label: 'Get OTP',
           buttonKey: const Key('otp_get_code'),
-          iconRight: Icons.arrow_forward,
+          iconRight: Icons.arrow_forward_rounded,
           block: true,
           loading: _busy,
           onPressed: _requestOtp,
@@ -357,7 +360,7 @@ class _LoginScreenState extends State<LoginScreen> {
           label: 'OTP code',
           controller: _code,
           fieldKey: const Key('otp_code_field'),
-          icon: Icons.lock_outline,
+          icon: Icons.lock_rounded,
           keyboardType: TextInputType.number,
           mono: true,
           autofillHints: const <String>[AutofillHints.oneTimeCode],
@@ -366,7 +369,7 @@ class _LoginScreenState extends State<LoginScreen> {
         BbButton(
           label: 'Verify & continue',
           buttonKey: const Key('otp_verify'),
-          iconRight: Icons.arrow_forward,
+          iconRight: Icons.arrow_forward_rounded,
           block: true,
           loading: _busy,
           onPressed: _verifyOtp,
@@ -389,46 +392,39 @@ class _BrandHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      color: AppColors.blue,
-      child: SafeArea(
-        bottom: false,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(
-            AppSpacing.gutter,
-            AppSpacing.s5,
-            AppSpacing.gutter,
-            AppSpacing.s5,
-          ),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: <Widget>[
-              Container(
-                width: AppSpacing.brandMark,
-                height: AppSpacing.brandMark,
-                decoration: BoxDecoration(
-                  color: AppColors.haldi,
-                  borderRadius: BorderRadius.circular(AppRadii.xl),
-                ),
-                child: const Icon(
-                  Icons.handshake,
-                  color: AppColors.onHaldi,
-                  size: 30,
-                ),
-              ),
-              const SizedBox(width: AppSpacing.s4),
-              Expanded(
-                child: Text(
-                  'Hire faster,\nbada bhai ke saath.',
-                  style: AppTypography.header(
-                    size: AppTypography.sizeXl,
-                    weight: FontWeight.w800,
-                    color: AppColors.onBlue,
+    // #2590 — the blue band runs under the status bar: light icons on it.
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: AppSystemUi.onDark,
+      child: Container(
+        width: double.infinity,
+        color: AppColors.blue,
+        child: SafeArea(
+          bottom: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.gutter,
+              AppSpacing.s5,
+              AppSpacing.gutter,
+              AppSpacing.s5,
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: <Widget>[
+                // #2590 — the real BadaBhai mark, not a stock handshake icon.
+                const BbLogo.onBlue(size: AppSpacing.brandMark),
+                const SizedBox(width: AppSpacing.s4),
+                Expanded(
+                  child: Text(
+                    'Hire faster,\nbada bhai ke saath.',
+                    style: AppTypography.header(
+                      size: AppTypography.sizeXl,
+                      weight: FontWeight.w800,
+                      color: AppColors.onBlue,
+                    ),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),

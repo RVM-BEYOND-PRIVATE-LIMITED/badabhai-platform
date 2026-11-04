@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../core/di/locator.dart';
@@ -8,6 +9,7 @@ import '../../../core/session/app_session_cubit.dart';
 import '../../../core/session/credits_cubit.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
+import '../../../core/theme/app_system_ui.dart';
 import '../../../core/widgets/bb_bottom_nav.dart';
 import '../../credits/presentation/credits_screen.dart';
 import '../../find/presentation/find_screen.dart';
@@ -34,6 +36,10 @@ class AppShell extends StatefulWidget {
   const AppShell({super.key, required this.session});
 
   final AppSession session;
+
+  /// The full-bleed blue strip behind the status bar on a bare Home (#2590).
+  @visibleForTesting
+  static const Key statusBarStripKey = Key('app_shell_status_bar_strip');
 
   @override
   State<AppShell> createState() => _AppShellState();
@@ -81,32 +87,32 @@ class _AppShellState extends State<AppShell> {
     BbNavTab(
       id: 'home',
       label: 'Home',
-      iconInactive: Icons.home_outlined,
-      iconActive: Icons.home,
+      iconInactive: Icons.home_rounded,
+      iconActive: Icons.home_rounded,
     ),
     BbNavTab(
       id: 'find',
       label: 'Find',
-      iconInactive: Icons.search,
-      iconActive: Icons.search,
+      iconInactive: Icons.search_rounded,
+      iconActive: Icons.search_rounded,
     ),
     BbNavTab(
       id: 'jobs',
       label: 'Jobs',
-      iconInactive: Icons.work_outline,
-      iconActive: Icons.work,
+      iconInactive: Icons.work_rounded,
+      iconActive: Icons.work_rounded,
     ),
     BbNavTab(
       id: 'credits',
       label: 'Credits',
-      iconInactive: Icons.lock_open_outlined,
-      iconActive: Icons.lock_open,
+      iconInactive: Icons.lock_open_rounded,
+      iconActive: Icons.lock_open_rounded,
     ),
     BbNavTab(
       id: 'account',
       label: 'Account',
-      iconInactive: Icons.person_outline,
-      iconActive: Icons.person,
+      iconInactive: Icons.person_rounded,
+      iconActive: Icons.person_rounded,
     ),
   ];
 
@@ -175,34 +181,41 @@ class _AppShellState extends State<AppShell> {
     // `create` runs the screen's load — the "latest data on every return" rule.
     return KeyedSubtree(
       key: ValueKey<String>('$id:${_epochOf(id)}'),
-      child: switch (id) {
-        'home' => HomeScreen(
-            session: widget.session,
-            onPost: () => _openSub('post'),
-            onBrowse: () => _selectTab('find'),
-            onOpenCredits: () => _selectTab('credits'),
-            // Agency-only: the Home supply hub. Null for a company session, so the
-            // Home agency section never renders for a company.
-            onOpenReferral: widget.session.isAgency ? _openReferral : null,
-          ),
-        'find' => FindScreen(onReveal: _openReveal, initialView: _findView),
-        'jobs' => JobsScreen(
-            onPost: () => _openSub('post'),
-            onAiPost: _openAiPost,
-            // Both session kinds see their candidates on the shared Find tab —
-            // a job card's "Applicants" button lands on the Applicants view
-            // (the per-job feed, unchanged: it opens on the first open job).
-            onApplicants: () =>
-                _selectTab('find', findView: FindView.applicants),
-          ),
-        'credits' => CreditsScreen(onBack: () => _selectTab('home')),
-        'account' => AccountScreen(
-            session: widget.session,
-            onSignOut: () => context.read<AppSessionCubit>().signOut(),
-          ),
-        _ => const SizedBox.shrink(),
-      },
+      // #2590 — Home draws its blue identity header BEHIND the status bar (it
+      // pads itself by the top inset); every other branch keeps the top inset.
+      child: id == 'home'
+          ? _tabScreen(id)
+          : SafeArea(bottom: false, child: _tabScreen(id)),
     );
+  }
+
+  Widget _tabScreen(String id) {
+    return switch (id) {
+      'home' => HomeScreen(
+          session: widget.session,
+          onPost: () => _openSub('post'),
+          onBrowse: () => _selectTab('find'),
+          onOpenCredits: () => _selectTab('credits'),
+          // Agency-only: the Home supply hub. Null for a company session, so the
+          // Home agency section never renders for a company.
+          onOpenReferral: widget.session.isAgency ? _openReferral : null,
+        ),
+      'find' => FindScreen(onReveal: _openReveal, initialView: _findView),
+      'jobs' => JobsScreen(
+          onPost: () => _openSub('post'),
+          onAiPost: _openAiPost,
+          // Both session kinds see their candidates on the shared Find tab —
+          // a job card's "Applicants" button lands on the Applicants view
+          // (the per-job feed, unchanged: it opens on the first open job).
+          onApplicants: () => _selectTab('find', findView: FindView.applicants),
+        ),
+      'credits' => CreditsScreen(onBack: () => _selectTab('home')),
+      'account' => AccountScreen(
+          session: widget.session,
+          onSignOut: () => context.read<AppSessionCubit>().signOut(),
+        ),
+      _ => const SizedBox.shrink(),
+    };
   }
 
   Widget _buildBody() {
@@ -226,32 +239,58 @@ class _AppShellState extends State<AppShell> {
         // The overlay slot. Unlike a tab this one is deliberately rebuilt from
         // scratch on open/dismiss: Post must open on a blank form, and Reveal
         // is bound to the [RevealArgs] of the card that opened it.
-        switch (sub) {
-          'post' => PostJobScreen(onBack: _back),
-          'aiPost' => JobPostingChatScreen(
-              // A fresh chat and a resumed one are different conversations —
-              // key on the session so reopening never reuses the old bloc.
-              key: ValueKey<String>('aiPost:${_resumeChatId ?? 'new'}'),
-              onBack: _back,
-              resumeSessionId: _resumeChatId,
-              onPublished: () => setState(() {
-                _tabEpochs['jobs'] = _epochOf('jobs') + 1;
-              }),
-            ),
-          'credits' => CreditsScreen(onBack: _back),
-          'reveal' => RevealScreen(args: _revealed!, onBack: _back),
-          _ => const SizedBox.shrink(),
-        },
+        SafeArea(
+            bottom: false,
+            child: switch (sub) {
+              'post' => PostJobScreen(onBack: _back),
+              'aiPost' => JobPostingChatScreen(
+                  // A fresh chat and a resumed one are different conversations —
+                  // key on the session so reopening never reuses the old bloc.
+                  key: ValueKey<String>('aiPost:${_resumeChatId ?? 'new'}'),
+                  onBack: _back,
+                  resumeSessionId: _resumeChatId,
+                  onPublished: () => setState(() {
+                    _tabEpochs['jobs'] = _epochOf('jobs') + 1;
+                  }),
+                ),
+              'credits' => CreditsScreen(onBack: _back),
+              'reveal' => RevealScreen(args: _revealed!, onBack: _back),
+              _ => const SizedBox.shrink(),
+            }),
       ],
     );
     // #1087 — cap the content column on tablets/foldables so it never stretches
     // to an unreadable line length. The page background stays full-bleed (the
     // Scaffold canvas shows outside the cap); only the content is centred.
-    return Center(
+    final Widget capped = Center(
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: AppSpacing.appMax),
         child: stack,
       ),
+    );
+    // #2590 — Home's blue header runs under the status bar and asks for light
+    // icons, but the column is capped at appMax. On a wider screen the bar
+    // corners (clock, battery) would show the light canvas, so a full-bleed
+    // blue strip of the status-bar height sits behind the capped column. The
+    // Stack is always present (only the strip toggles) so switching tabs never
+    // reparents — and so never remounts — the IndexedStack branches (#382).
+    final bool bareHome = sub == null && _tab == 'home';
+    return Stack(
+      children: <Widget>[
+        Positioned(
+          top: 0,
+          left: 0,
+          right: 0,
+          height: MediaQuery.paddingOf(context).top,
+          child: bareHome
+              ? const ColoredBox(
+                  key: AppShell.statusBarStripKey,
+                  color: AppColors.blue,
+                )
+              : const SizedBox.shrink(),
+        ),
+        capped,
+      ],
     );
   }
 
@@ -283,7 +322,12 @@ class _AppShellState extends State<AppShell> {
       },
       child: Scaffold(
         backgroundColor: AppColors.surfacePage,
-        body: SafeArea(bottom: false, child: _buildBody()),
+        // #2590 — the top inset is applied per branch (see _tabBody) so Home's
+        // header can run under the status bar; the canvas gets dark icons.
+        body: AnnotatedRegion<SystemUiOverlayStyle>(
+          value: AppSystemUi.onLight,
+          child: SafeArea(top: false, bottom: false, child: _buildBody()),
+        ),
         bottomNavigationBar: BbBottomNav(
           tabs: _tabs,
           currentId: navId,

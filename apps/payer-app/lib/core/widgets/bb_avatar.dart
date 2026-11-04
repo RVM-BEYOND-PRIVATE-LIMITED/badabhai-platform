@@ -71,7 +71,7 @@ class BbAvatar extends StatelessWidget {
                   shape: BoxShape.circle,
                 ),
                 child: Icon(
-                  Icons.verified,
+                  Icons.verified_rounded,
                   size: size * 0.30,
                   color: AppColors.success,
                 ),

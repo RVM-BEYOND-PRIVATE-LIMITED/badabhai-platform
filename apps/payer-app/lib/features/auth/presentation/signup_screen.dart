@@ -270,7 +270,7 @@ class _SignupScreenState extends State<SignupScreen> {
             Expanded(
               child: AuthRolePick(
                 pickKey: const Key('pick_company'),
-                icon: Icons.apartment,
+                icon: Icons.apartment_rounded,
                 title: 'Company',
                 subtitle: 'Hire for your plant',
                 selected: _role == PayerRole.company,
@@ -281,7 +281,7 @@ class _SignupScreenState extends State<SignupScreen> {
             Expanded(
               child: AuthRolePick(
                 pickKey: const Key('pick_agency'),
-                icon: Icons.groups,
+                icon: Icons.groups_rounded,
                 title: 'Agency',
                 subtitle: 'Hire + earn on supply',
                 selected: _role == PayerRole.agency,
@@ -295,7 +295,7 @@ class _SignupScreenState extends State<SignupScreen> {
           label: _role == PayerRole.agency ? 'Agency name' : 'Company name',
           controller: _org,
           fieldKey: const Key('org_field'),
-          icon: Icons.apartment,
+          icon: Icons.apartment_rounded,
           keyboardType: TextInputType.text,
           suppressSuggestions: true,
         ),
@@ -304,14 +304,14 @@ class _SignupScreenState extends State<SignupScreen> {
           label: 'Work email or phone',
           controller: _contact,
           fieldKey: const Key('contact_field'),
-          icon: Icons.mail_outline,
+          icon: Icons.mail_rounded,
           keyboardType: TextInputType.emailAddress,
         ),
         const SizedBox(height: AppSpacing.s5),
         BbButton(
           label: 'Get OTP',
           buttonKey: const Key('get_otp'),
-          iconRight: Icons.arrow_forward,
+          iconRight: Icons.arrow_forward_rounded,
           block: true,
           loading: _busy,
           onPressed: _requestOtp,
@@ -339,7 +339,7 @@ class _SignupScreenState extends State<SignupScreen> {
           label: 'OTP code',
           controller: _code,
           fieldKey: const Key('code_field'),
-          icon: Icons.lock_outline,
+          icon: Icons.lock_rounded,
           keyboardType: TextInputType.number,
           mono: true,
           autofillHints: const <String>[AutofillHints.oneTimeCode],
@@ -348,7 +348,7 @@ class _SignupScreenState extends State<SignupScreen> {
         BbButton(
           label: 'Verify code',
           buttonKey: const Key('verify_otp'),
-          iconRight: Icons.arrow_forward,
+          iconRight: Icons.arrow_forward_rounded,
           block: true,
           loading: _busy,
           onPressed: _verifyOtp,
@@ -385,7 +385,7 @@ class _SignupScreenState extends State<SignupScreen> {
           label: 'Password',
           controller: _password,
           fieldKey: const Key('signup_password'),
-          icon: Icons.lock_outline,
+          icon: Icons.lock_rounded,
           obscureText: _obscurePassword,
           suppressSuggestions: true,
           suffixIcon: AuthEyeToggle(
@@ -399,7 +399,7 @@ class _SignupScreenState extends State<SignupScreen> {
           label: 'Confirm password',
           controller: _confirm,
           fieldKey: const Key('signup_confirm'),
-          icon: Icons.lock_outline,
+          icon: Icons.lock_rounded,
           obscureText: _obscureConfirm,
           suppressSuggestions: true,
           suffixIcon: AuthEyeToggle(
@@ -411,7 +411,7 @@ class _SignupScreenState extends State<SignupScreen> {
         BbButton(
           label: 'Create profile',
           buttonKey: const Key('create_profile'),
-          iconRight: Icons.check,
+          iconRight: Icons.check_rounded,
           block: true,
           loading: _busy,
           onPressed: _createProfile,
@@ -443,7 +443,7 @@ class _SignupTopBar extends StatelessWidget {
             children: <Widget>[
               IconButton(
                 onPressed: onBack,
-                icon: const Icon(Icons.arrow_back, color: AppColors.onBlue),
+                icon: const Icon(Icons.arrow_back_rounded, color: AppColors.onBlue),
                 tooltip: 'Back',
               ),
               const SizedBox(width: AppSpacing.s1),

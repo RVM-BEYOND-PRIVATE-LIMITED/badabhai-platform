@@ -35,7 +35,7 @@ class BbChip extends StatelessWidget {
     final Color foreground =
         selected ? AppColors.onHaldi : AppColors.textPrimary;
 
-    // Selected and unselected chips both speak in the normal UI face (Roboto).
+    // Selected and unselected chips both speak in the normal UI face (Inter).
     final TextStyle labelStyle = selected
         ? AppTypography.heading(
             size: AppTypography.sizeSm,

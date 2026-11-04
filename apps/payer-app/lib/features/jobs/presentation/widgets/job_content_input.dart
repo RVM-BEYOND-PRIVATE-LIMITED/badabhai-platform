@@ -90,7 +90,7 @@ Future<String?> promptForPostingPhrase(
       context,
       title: 'Too long',
       message: 'Keep a $noun under $maxChars characters.',
-      icon: Icons.info_outline,
+      icon: Icons.info_rounded,
     );
     return null;
   }
@@ -99,7 +99,7 @@ Future<String?> promptForPostingPhrase(
       context,
       title: 'Not a $noun',
       message: 'Leave phone numbers and email addresses out of a posting.',
-      icon: Icons.info_outline,
+      icon: Icons.info_rounded,
     );
     return null;
   }
@@ -145,7 +145,7 @@ class JobDescriptionField extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: <Widget>[
                   const Icon(
-                    Icons.error_outline,
+                    Icons.error_rounded,
                     size: 16,
                     color: AppColors.danger,
                   ),
@@ -218,7 +218,7 @@ class JobChipListField extends StatelessWidget {
               BbChip(
                 label: value,
                 selected: true,
-                icon: Icons.close,
+                icon: Icons.close_rounded,
                 onTap: () => onRemove(value),
               ),
             if (values.length < maxItems)
