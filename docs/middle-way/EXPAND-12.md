@@ -345,7 +345,10 @@ senior_programmer`; P5 crosswalk already handles). Role `levelTerms` += rung
 > HRC (QC's instrument words), bare furnace / melting (the foundry's). Fixes gas nitriding
 > (reached CNC grinding) and salt bath / pit / vacuum furnace (reached a furnace-car driver).
 >
-> PHASE 2 #9 — INJECTION-MOULDING OPERATOR / SETTER (NEW PACK) ✅ CODE DONE (`feat/mw-imm`).
+> PHASE 2 #9 — INJECTION-MOULDING OPERATOR / SETTER (NEW PACK) ✅ CODE DONE (`feat/mw-imm`, PR #2547, merged).
+> LIVE on production 2026-11-04 (build c225248): seed:domains → normalize (11 aliases + the
+> retirement) → seed:packs → seed:match:vocabulary (+1); verify:packs, verify:domains (curated
+> 590/590) and verify:match-v1 all PASS.
 > NO MIGRATION and no kind bump: `injection_moulding_operator` was already a declared
 > (formless) kind; this is its first pack. New `mskill_imm_operator` (unpaired, like EDM;
 > domain `fabrication`), `fam_injection_moulding` bound to NCO 8142.0501 / 0502 / 1300 / 1301
@@ -359,6 +362,24 @@ senior_programmer`; P5 crosswalk already handles). Role `levelTerms` += rung
 > "Injection Moulding Operator" (it keeps "rubber injection moulding operator"). Bare `imm`
 > held out (3 letters; would become the chip label). Off the demo skip list (own demo row).
 > Seeds after merge (+ seed:match:vocabulary).
+>
+> PHASE 2 #10 — PRODUCTION SUPERVISOR (NEW BUILD, CROSS-TRADE) ✅ CODE DONE (`feat/mw-production-supervisor`).
+> New 26th declared kind `production_supervisor` (formless, `production` cluster) with
+> migrations 0149 + 0150 — APPLY BOTH BEFORE MERGE (Foundry takes 27 / 0151-0152 after it, by
+> agreement with that session). New `mskill_production_supervisor` (unpaired; the
+> `general-machining` occupation-anchor domain), `fam_production_supervisor` bound to the
+> CROSS-TRADE 3122 codes only (owner ruling 2026-11-04): 3122.9900 / .1900 / .0601 / .6503; every
+> trade-specific supervisor code stays (sheet 23: a trade supervisor keeps his trade). New
+> `qp_production_supervisor@1`: the sheet's level chips (Line Leader = senior / Supervisor /
+> Production In-charge = lead, mandatory); confirmed FROM supervisor (new per-pack
+> `unconfirmedRungs` leaves Line Leader unconfirmed); the sheet's two-question separating
+> prompt split along its rows (owner ruling 2026-11-04): "Shift report aap banate ho?" is the
+> confirm (supervisor + in-charge by the standing rule), people / machines are Medium Q7 as two
+> banded rows; Medium area; Advanced systems, industry (shared sector_worked), own trade.
+> Aliases: production supervisor, shift / plant / floor / production in-charge (3 spellings
+> where used), production team leader (+Hi) -> 3122.9900; line in-charge -> 3122.0601; foreman
+> (+Hi) -> 3122.1900. Bare `supervisor` stays unrouted (A3). Demo row weight 2 (measured).
+> Seeds after migrations + merge (+ seed:match:vocabulary).
 
 | #   | Trade (kind)                                      | Pack                           | Level Q today                       | Notes                                                                                                                                                                     |
 | --- | ------------------------------------------------- | ------------------------------ | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

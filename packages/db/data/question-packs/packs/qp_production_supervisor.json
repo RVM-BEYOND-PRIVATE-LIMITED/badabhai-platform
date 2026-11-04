@@ -1,0 +1,486 @@
+{
+  "_why": "Role track for PRODUCTION SUPERVISOR, a new trade (CEO Launch Plan Pack v1, Phase 2 #10, sheet 23). fam_production_supervisor binds the cross-trade NCO supervisor codes (3122.9900 Manufacturing Supervisors Other, 3122.1900 Machine Tool Operations, 3122.0601 Assembly Line Supervisor, 3122.6503 Planning Supervisor) at job-domain specificity 50; every trade-specific 3122 code stays where it is (owner ruling 2026-11-04).",
+  "_scope": "SUPERVISION ACROSS TRADES OR LINES. Sheet 23's rule: a worker who picks supervisor on his own trade keeps that trade (VMC · Supervisor). This pack is for the man whose job IS the shift, the section or the line, and who does not identify with one machine trade. Bare 'supervisor' routes nowhere (A3: ask the department first).",
+  "_depth": "THE TIER GATE IS supervision_experience, asked FIRST. Its options carry value_number ONLY: pack-registry.service.ts resolves valueText ?? valueNumber, and a value_text would turn every gte below into a string compare that is false forever (the #776 defect).",
+  "_budget": "MAX_ENGINE_ASKS is 28 and qp_universal spends 8. Easy is 2 trade items + at most 1 confirm; Medium adds 3 (area, team size, machines); Advanced adds 3 (systems, industry, own trade). Worst case 2 + 1 + 3 + 3 = 9 trade asks.",
+  "_sheet": "READ OFF CEO LAUNCH PLAN PACK v1 SHEET 23 (a new trade, no ratified page). Section title 'Supervision, team & systems'. Its rows are Areas, Team, Machines, Systems, Sector and Trade background, and every row has exactly one question here.",
+  "pack_id": "qp_production_supervisor",
+  "version": 1,
+  "family_id": "fam_production_supervisor",
+  "locale": "hi-IN",
+  "status": "active",
+  "review_note": "v1 (CEO Launch Plan Pack v1, Phase 2 #10): new trade. Easy/Medium/Advanced tiers; 6-band experience; sheet-23 level ladder (Line Leader = senior / Supervisor / Production In-charge = lead, mandatory; the sheet's own chips); confirmed from supervisor: Line Leader is NOT confirmed in this trade (a per-pack override of the shared senior rung rule). The sheet's two-question separating prompt is split along its own rows (owner ruling 2026-11-04, the runtime refuses two question marks): 'Shift report aap banate ho?' is the self/other confirm, asked of supervisor and, by the standing owner rule of 2026-11-03, of production in-charge; 'Kitne log / kitni machines aapke under?' is Medium Q7 as two banded rows (team size from the sheet's own 5-15 / 15-50 / 50+ ladder bands). Medium Q6 area; Advanced Q9 systems, Q10 industry (shared sector_worked key), Q11 own trade background, gated years OR rung. Deviations recorded: Q11 asks the trade only, not its years (one more ask for a figure the experience row already bounds); Q12 is the shared qp_universal education block (new-trade precedent). Drafted for owner review (Prakash).",
+  "items": [
+    {
+      "question_key": "supervision_experience",
+      "min_tier": "easy",
+      "prompt_text": "Production ka kitna tajurba hai?",
+      "why_text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "supervision_experience",
+      "answer_type": "single_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "fresher",
+          "label_text": "Fresher",
+          "value_number": 0
+        },
+        {
+          "option_key": "below_one",
+          "label_text": "1 saal se kam",
+          "value_number": 0
+        },
+        {
+          "option_key": "one_to_three",
+          "label_text": "1 se 3 saal",
+          "value_number": 2
+        },
+        {
+          "option_key": "three_to_five",
+          "label_text": "3 se 5 saal",
+          "value_number": 4
+        },
+        {
+          "option_key": "five_to_ten",
+          "label_text": "5 se 10 saal",
+          "value_number": 7
+        },
+        {
+          "option_key": "above_ten",
+          "label_text": "10 saal se zyada",
+          "value_number": 12
+        }
+      ],
+      "retry_text": "Lagbhag kitne saal production mein kaam kiya hai?",
+      "is_mandatory": true
+    },
+    {
+      "question_key": "supervision_level",
+      "min_tier": "easy",
+      "prompt_text": "Production mein aap kis level par kaam karte hain?",
+      "why_text": "Level ke hisaab se sahi sawaal poochhe jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "supervision_level",
+      "answer_type": "single_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "line_leader",
+          "label_text": "Line Leader",
+          "value_text": "senior"
+        },
+        {
+          "option_key": "supervisor",
+          "label_text": "Supervisor",
+          "value_text": "supervisor"
+        },
+        {
+          "option_key": "production_incharge",
+          "label_text": "Production In-charge",
+          "value_text": "lead"
+        }
+      ],
+      "retry_text": "Line leader, supervisor ya production in-charge hain?",
+      "is_mandatory": true
+    },
+    {
+      "_why": "CEO Launch Plan Pack v1 sheet 23: the supervisor's separating question is 'Kitne log aur kitni machines aapke under? Shift report aap banate ho?'. The runtime refuses a prompt with two question marks, so it is split along the sheet's own rows (owner ruling 2026-11-04): the shift-report half is this self/other confirm, and the people/machines half is Medium Q7 (supervision_team_size + supervision_machines). Asked of Production In-charge too, by the standing owner rule of 2026-11-03 (the sheet writes no question for lead).",
+      "question_key": "supervision_report_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Shift report aap banate ho?",
+      "why_text": "Shift report khud banane wale supervisor ko alag kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "supervision_report_confirm",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "supervision_level"
+        },
+        "right": {
+          "const": ["supervisor", "lead"]
+        }
+      },
+      "options": [
+        {
+          "option_key": "self_report",
+          "label_text": "Haan, main banata hoon",
+          "value_text": "self"
+        },
+        {
+          "option_key": "other_report",
+          "label_text": "Nahi, koi aur banata hai",
+          "value_text": "other"
+        }
+      ]
+    },
+    {
+      "question_key": "supervision_area",
+      "min_tier": "medium",
+      "prompt_text": "Kis department ki supervision karte hain?",
+      "why_text": "Department ke hisaab se sahi plant ka kaam dikhaya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "supervision_area",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "machine_shop",
+          "label_text": "Machine shop",
+          "value_text": "machine_shop"
+        },
+        {
+          "option_key": "assembly",
+          "label_text": "Assembly",
+          "value_text": "assembly"
+        },
+        {
+          "option_key": "press_sheet_metal",
+          "label_text": "Press / sheet metal",
+          "value_text": "press_sheet_metal"
+        },
+        {
+          "option_key": "fabrication_welding",
+          "label_text": "Fabrication / welding",
+          "value_text": "fabrication_welding"
+        },
+        {
+          "option_key": "moulding",
+          "label_text": "Moulding",
+          "value_text": "moulding"
+        },
+        {
+          "option_key": "paint_shop",
+          "label_text": "Paint shop",
+          "value_text": "paint_shop"
+        },
+        {
+          "option_key": "packaging",
+          "label_text": "Packaging",
+          "value_text": "packaging"
+        },
+        {
+          "option_key": "other_area",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "is_mandatory": true
+    },
+    {
+      "question_key": "supervision_team_size",
+      "min_tier": "medium",
+      "prompt_text": "Kitne log aapke under hain?",
+      "why_text": "Team ke size se aapki zimmedari saaf pata chalti hai.",
+      "target_kind": "attribute",
+      "target_field": "supervision_team_size",
+      "answer_type": "single_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "below_five",
+          "label_text": "5 se kam",
+          "value_text": "below_five"
+        },
+        {
+          "option_key": "five_to_fifteen",
+          "label_text": "5 se 15 log",
+          "value_text": "five_to_fifteen"
+        },
+        {
+          "option_key": "fifteen_to_fifty",
+          "label_text": "15 se 50 log",
+          "value_text": "fifteen_to_fifty"
+        },
+        {
+          "option_key": "above_fifty",
+          "label_text": "50 se zyada log",
+          "value_text": "above_fifty"
+        },
+        {
+          "option_key": "unknown_team",
+          "label_text": "Pata nahi",
+          "value_text": "unknown"
+        }
+      ]
+    },
+    {
+      "question_key": "supervision_machines",
+      "min_tier": "medium",
+      "prompt_text": "Kitni machines aapke under hain?",
+      "why_text": "Machines ki ginti se aapki zimmedari saaf pata chalti hai.",
+      "target_kind": "attribute",
+      "target_field": "supervision_machines",
+      "answer_type": "single_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "no_machines",
+          "label_text": "Koi machine nahi",
+          "value_text": "none"
+        },
+        {
+          "option_key": "upto_five",
+          "label_text": "5 tak",
+          "value_text": "upto_five"
+        },
+        {
+          "option_key": "five_to_twenty",
+          "label_text": "5 se 20",
+          "value_text": "five_to_twenty"
+        },
+        {
+          "option_key": "twenty_to_fifty",
+          "label_text": "20 se 50",
+          "value_text": "twenty_to_fifty"
+        },
+        {
+          "option_key": "above_fifty",
+          "label_text": "50 se zyada",
+          "value_text": "above_fifty"
+        }
+      ]
+    },
+    {
+      "question_key": "supervision_systems",
+      "min_tier": "hard",
+      "prompt_text": "Supervision mein kya kya sambhalte hain?",
+      "why_text": "Planning aur quality sambhalne wale supervisor ki alag maang hai.",
+      "target_kind": "attribute",
+      "target_field": "supervision_systems",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "production_planning",
+          "label_text": "Daily production planning",
+          "value_text": "production_planning"
+        },
+        {
+          "option_key": "manpower_shift",
+          "label_text": "Manpower / shift planning",
+          "value_text": "manpower_shift"
+        },
+        {
+          "option_key": "quality_ppm",
+          "label_text": "Quality, rejection aur PPM",
+          "value_text": "quality_ppm"
+        },
+        {
+          "option_key": "five_s_kaizen",
+          "label_text": "5S, kaizen, TPM",
+          "value_text": "five_s_kaizen"
+        },
+        {
+          "option_key": "erp_sap",
+          "label_text": "ERP / SAP entry",
+          "value_text": "erp_sap"
+        },
+        {
+          "option_key": "safety",
+          "label_text": "Safety",
+          "value_text": "safety"
+        },
+        {
+          "option_key": "no_system",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "supervision_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "supervision_level"
+            },
+            "right": {
+              "const": ["senior", "supervisor", "lead"]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "sector_worked",
+      "min_tier": "hard",
+      "prompt_text": "Kis industry ke plant mein supervision ki hai?",
+      "why_text": "Industry ke hisaab se sahi plant ka kaam dikhaya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "sector_worked",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "automotive",
+          "label_text": "Automotive ya auto parts",
+          "value_text": "automotive"
+        },
+        {
+          "option_key": "general_engg",
+          "label_text": "General engineering, job shop",
+          "value_text": "general_engg"
+        },
+        {
+          "option_key": "electrical_parts",
+          "label_text": "Electrical ya electronics parts",
+          "value_text": "electrical_parts"
+        },
+        {
+          "option_key": "white_goods",
+          "label_text": "White goods ya ghar ka saamaan",
+          "value_text": "white_goods"
+        },
+        {
+          "option_key": "plastics",
+          "label_text": "Plastics",
+          "value_text": "plastics"
+        },
+        {
+          "option_key": "packaging",
+          "label_text": "Packaging",
+          "value_text": "packaging"
+        },
+        {
+          "option_key": "other_sector",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "supervision_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "supervision_level"
+            },
+            "right": {
+              "const": ["senior", "supervisor", "lead"]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "supervision_trade_background",
+      "min_tier": "hard",
+      "prompt_text": "Supervisor banne se pehle kya kaam karte the?",
+      "why_text": "Apne trade ka kaam jaanne wale supervisor par team bharosa karti hai.",
+      "target_kind": "attribute",
+      "target_field": "supervision_trade_background",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "cnc_vmc",
+          "label_text": "CNC / VMC operator",
+          "value_text": "cnc_vmc"
+        },
+        {
+          "option_key": "conventional_machinist",
+          "label_text": "Conventional machinist",
+          "value_text": "conventional_machinist"
+        },
+        {
+          "option_key": "fitter",
+          "label_text": "Fitter",
+          "value_text": "fitter"
+        },
+        {
+          "option_key": "welder",
+          "label_text": "Welder",
+          "value_text": "welder"
+        },
+        {
+          "option_key": "electrician",
+          "label_text": "Electrician",
+          "value_text": "electrician"
+        },
+        {
+          "option_key": "assembly",
+          "label_text": "Assembly",
+          "value_text": "assembly"
+        },
+        {
+          "option_key": "press_sheet_metal",
+          "label_text": "Press / sheet metal",
+          "value_text": "press_sheet_metal"
+        },
+        {
+          "option_key": "moulding",
+          "label_text": "Moulding",
+          "value_text": "moulding"
+        },
+        {
+          "option_key": "quality",
+          "label_text": "QC / quality",
+          "value_text": "quality"
+        },
+        {
+          "option_key": "other_trade",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "supervision_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "supervision_level"
+            },
+            "right": {
+              "const": ["senior", "supervisor", "lead"]
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

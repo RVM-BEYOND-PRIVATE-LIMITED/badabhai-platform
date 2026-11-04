@@ -42,6 +42,7 @@ import { PAINTER_COATING } from "./painter-coating.role";
 import { PLASTIC_PROCESS_TECHNICIAN } from "./plastic-process-technician.role";
 import { PRESS_OPERATOR } from "./press-operator.role";
 import { QUALITY_INSPECTOR } from "./quality-inspector.role";
+import { PRODUCTION_SUPERVISOR } from "./production-supervisor.role";
 import { RUBBER_MOULDING_OPERATOR } from "./rubber-moulding-operator.role";
 import { SHEET_METAL_WORKER } from "./sheet-metal-worker.role";
 import { TOOL_DIE_MAKER } from "./tool-die-maker.role";
@@ -85,6 +86,8 @@ const DECLARED = [
   // ── production ───────────────────────────────────────────────────────────────────────────────
   ASSEMBLY_LINE_WORKER,
   QUALITY_INSPECTOR,
+  // Phase 2 #10 (CEO Launch Plan Pack v1, sheet 23) — formless, like EDM; cross-trade.
+  PRODUCTION_SUPERVISOR,
   // ── polymer ──────────────────────────────────────────────────────────────────────────────────
   INJECTION_MOULDING_OPERATOR,
   MOULD_DIE_MAKER,

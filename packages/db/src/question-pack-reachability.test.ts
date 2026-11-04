@@ -2122,3 +2122,72 @@ describe("Phase 2 #8 — heat treatment, a new family on four 8121 codes (CEO La
     }
   });
 });
+
+describe("Phase 2 #10 — production supervisor, a new family on the cross-trade 3122 codes (CEO Launch Plan Pack v1)", () => {
+  const offline = resolveJobDomainCorpus();
+  const parents = new Set(
+    offline.filter((d) => d.selectable && d.parentJobDomainId).map((d) => d.parentJobDomainId),
+  );
+  const live = offline.filter(
+    (d) => d.selectable && !(d.source === "isco08" && parents.has(d.jobDomainId)),
+  );
+  const liveClaimants = (phrase: string) => {
+    const norm = normalizeOccupationText(phrase);
+    return live
+      .filter((d) => d.aliases.some((a) => normalizeOccupationText(a.text) === norm))
+      .map((d) => d.jobDomainId)
+      .sort();
+  };
+
+  it("binds exactly the four cross-trade supervisor codes (owner ruling 2026-11-04)", () => {
+    const codes = corpus.bindings
+      .filter((b) => b.family_id === "fam_production_supervisor")
+      .map((b) => b.job_domain_id);
+    expect(codes).toEqual([
+      "jd_nco_3122_9900",
+      "jd_nco_3122_1900",
+      "jd_nco_3122_0601",
+      "jd_nco_3122_6503",
+    ]);
+  });
+
+  it("reaches the family on the sheet's words, each the ONLY claimant in production", () => {
+    for (const [phrase, code] of [
+      ["production supervisor", "jd_nco_3122_9900"],
+      ["production in-charge", "jd_nco_3122_9900"],
+      ["production incharge", "jd_nco_3122_9900"],
+      ["production in charge", "jd_nco_3122_9900"],
+      ["plant in-charge", "jd_nco_3122_9900"],
+      ["shift in-charge", "jd_nco_3122_9900"],
+      ["shift incharge", "jd_nco_3122_9900"],
+      ["shift in charge", "jd_nco_3122_9900"],
+      ["floor incharge", "jd_nco_3122_9900"],
+      ["production team leader", "jd_nco_3122_9900"],
+      ["प्रोडक्शन सुपरवाइजर", "jd_nco_3122_9900"],
+      ["शिफ्ट इंचार्ज", "jd_nco_3122_9900"],
+      ["line in-charge", "jd_nco_3122_0601"],
+      ["line incharge", "jd_nco_3122_0601"],
+      ["foreman", "jd_nco_3122_1900"],
+      ["फोरमैन", "jd_nco_3122_1900"],
+    ] as const) {
+      expect(familyFor(phrase), phrase).toBe("fam_production_supervisor");
+      expect(liveClaimants(phrase), phrase).toEqual([code]);
+    }
+    expect(familyFor("Assembly Line Supervisor")).toBe("fam_production_supervisor");
+    expect(familyFor("Planning Supervisor")).toBe("fam_production_supervisor");
+  });
+
+  it("routes bare 'supervisor' nowhere, and leaves the trade supervisors where they were", () => {
+    // A3: bare supervisor is every trade's top rung; the interview asks the department first.
+    expect(familyFor("supervisor")).toBeNull();
+    // Sheet 23: a trade supervisor keeps his trade — these codes are untouched by this change.
+    for (const phrase of [
+      "Press Shop Supervisor",
+      "Welding Supervisor",
+      "Plastic Moulding Shop Supervisor",
+      "Forging Shop Supervisor",
+    ]) {
+      expect(familyFor(phrase), phrase).not.toBe("fam_production_supervisor");
+    }
+  });
+});

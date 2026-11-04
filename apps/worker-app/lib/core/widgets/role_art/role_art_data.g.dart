@@ -52,6 +52,7 @@ const List<String> kRoleArtKinds = <String>[
   'plc_automation_technician',
   'edm_wirecut_operator',
   'heat_treatment_technician',
+  'production_supervisor',
   'generic',
 ];
 
@@ -1375,6 +1376,67 @@ const Map<String, RoleArtDef> _kRoleArt = <String, RoleArtDef>{
         shapes: <RoleArtShape>[
           RoleArtShape(colour: RoleArtColour.accent, opacity: 1.0, strokeWidth: 9.0, ops: <double>[0.0, 84.0, 60.0, 3.0, 120.0, 62.0, 150.0, 58.0]),
           RoleArtShape(colour: RoleArtColour.surface, opacity: 1.0, strokeWidth: 5.0, ops: <double>[0.0, 150.0, 58.0, 1.0, 170.0, 58.0]),
+        ],
+      ),
+    ],
+  ),
+  'production_supervisor': RoleArtDef(
+    loopSeconds: 3.0,
+    parts: <RoleArtPart>[
+      RoleArtPart(
+        name: 'scene',
+        motion: null,
+        shapes: <RoleArtShape>[
+          RoleArtShape(colour: RoleArtColour.primary, opacity: 1.0, strokeWidth: 0.0, ops: <double>[0.0, 0.0, 0.0, 1.0, 300.0, 0.0, 1.0, 300.0, 100.0, 1.0, 0.0, 100.0, 5.0]),
+          RoleArtShape(colour: RoleArtColour.surface, opacity: 0.4, strokeWidth: 0.0, ops: <double>[0.0, 220.0, 24.0, 4.0, 32.0, 32.0, 0.0, 1.0, 1.0, 284.0, 24.0, 4.0, 32.0, 32.0, 0.0, 1.0, 1.0, 220.0, 24.0, 5.0]),
+          RoleArtShape(colour: RoleArtColour.surface, opacity: 0.4, strokeWidth: 0.0, ops: <double>[0.0, 0.0, 84.0, 1.0, 300.0, 84.0, 1.0, 300.0, 100.0, 1.0, 0.0, 100.0, 5.0]),
+        ],
+      ),
+      RoleArtPart(
+        name: 'stations',
+        motion: null,
+        shapes: <RoleArtShape>[
+          RoleArtShape(colour: RoleArtColour.surface, opacity: 0.6, strokeWidth: 0.0, ops: <double>[0.0, 210.0, 48.0, 1.0, 232.0, 48.0, 4.0, 6.0, 6.0, 0.0, 0.0, 1.0, 238.0, 54.0, 1.0, 238.0, 78.0, 4.0, 6.0, 6.0, 0.0, 0.0, 1.0, 232.0, 84.0, 1.0, 210.0, 84.0, 4.0, 6.0, 6.0, 0.0, 0.0, 1.0, 204.0, 78.0, 1.0, 204.0, 54.0, 4.0, 6.0, 6.0, 0.0, 0.0, 1.0, 210.0, 48.0, 5.0]),
+          RoleArtShape(colour: RoleArtColour.surface, opacity: 0.8, strokeWidth: 0.0, ops: <double>[0.0, 252.0, 40.0, 1.0, 280.0, 40.0, 4.0, 6.0, 6.0, 0.0, 0.0, 1.0, 286.0, 46.0, 1.0, 286.0, 78.0, 4.0, 6.0, 6.0, 0.0, 0.0, 1.0, 280.0, 84.0, 1.0, 252.0, 84.0, 4.0, 6.0, 6.0, 0.0, 0.0, 1.0, 246.0, 78.0, 1.0, 246.0, 46.0, 4.0, 6.0, 6.0, 0.0, 0.0, 1.0, 252.0, 40.0, 5.0]),
+          RoleArtShape(colour: RoleArtColour.primary, opacity: 0.6, strokeWidth: 0.0, ops: <double>[0.0, 215.0, 56.0, 1.0, 227.0, 56.0, 4.0, 3.0, 3.0, 0.0, 0.0, 1.0, 230.0, 59.0, 1.0, 230.0, 63.0, 4.0, 3.0, 3.0, 0.0, 0.0, 1.0, 227.0, 66.0, 1.0, 215.0, 66.0, 4.0, 3.0, 3.0, 0.0, 0.0, 1.0, 212.0, 63.0, 1.0, 212.0, 59.0, 4.0, 3.0, 3.0, 0.0, 0.0, 1.0, 215.0, 56.0, 5.0]),
+          RoleArtShape(colour: RoleArtColour.primary, opacity: 0.6, strokeWidth: 0.0, ops: <double>[0.0, 259.0, 50.0, 1.0, 273.0, 50.0, 4.0, 3.0, 3.0, 0.0, 0.0, 1.0, 276.0, 53.0, 1.0, 276.0, 59.0, 4.0, 3.0, 3.0, 0.0, 0.0, 1.0, 273.0, 62.0, 1.0, 259.0, 62.0, 4.0, 3.0, 3.0, 0.0, 0.0, 1.0, 256.0, 59.0, 1.0, 256.0, 53.0, 4.0, 3.0, 3.0, 0.0, 0.0, 1.0, 259.0, 50.0, 5.0]),
+        ],
+      ),
+      RoleArtPart(
+        name: 'team',
+        motion: null,
+        shapes: <RoleArtShape>[
+          RoleArtShape(colour: RoleArtColour.surface, opacity: 0.6, strokeWidth: 0.0, ops: <double>[0.0, 146.0, 84.0, 1.0, 146.0, 76.0, 4.0, 12.0, 12.0, 0.0, 0.0, 1.0, 170.0, 76.0, 1.0, 170.0, 84.0, 5.0]),
+          RoleArtShape(colour: RoleArtColour.surface, opacity: 0.6, strokeWidth: 0.0, ops: <double>[0.0, 150.0, 60.0, 4.0, 8.0, 8.0, 0.0, 1.0, 1.0, 166.0, 60.0, 4.0, 8.0, 8.0, 0.0, 1.0, 1.0, 150.0, 60.0, 5.0]),
+          RoleArtShape(colour: RoleArtColour.surface, opacity: 0.6, strokeWidth: 0.0, ops: <double>[0.0, 176.0, 84.0, 1.0, 176.0, 76.0, 4.0, 12.0, 12.0, 0.0, 0.0, 1.0, 200.0, 76.0, 1.0, 200.0, 84.0, 5.0]),
+          RoleArtShape(colour: RoleArtColour.surface, opacity: 0.6, strokeWidth: 0.0, ops: <double>[0.0, 180.0, 60.0, 4.0, 8.0, 8.0, 0.0, 1.0, 1.0, 196.0, 60.0, 4.0, 8.0, 8.0, 0.0, 1.0, 1.0, 180.0, 60.0, 5.0]),
+        ],
+      ),
+      RoleArtPart(
+        name: 'figure',
+        motion: null,
+        shapes: <RoleArtShape>[
+          RoleArtShape(colour: RoleArtColour.accent, opacity: 1.0, strokeWidth: 0.0, ops: <double>[0.0, 48.0, 84.0, 1.0, 48.0, 70.0, 4.0, 22.0, 22.0, 0.0, 0.0, 1.0, 92.0, 70.0, 1.0, 92.0, 84.0, 5.0]),
+          RoleArtShape(colour: RoleArtColour.accent, opacity: 1.0, strokeWidth: 0.0, ops: <double>[0.0, 57.0, 40.0, 4.0, 13.0, 13.0, 0.0, 0.0, 1.0, 83.0, 40.0, 1.0, 83.0, 41.0, 4.0, 3.0, 3.0, 0.0, 0.0, 1.0, 80.0, 44.0, 1.0, 60.0, 44.0, 4.0, 3.0, 3.0, 0.0, 0.0, 1.0, 57.0, 41.0, 5.0]),
+        ],
+      ),
+      RoleArtPart(
+        name: 'board',
+        motion: RoleArtMotion(type: 'nod', amp: 4.0, ox: 84.0, oy: 60.0, rate: 1, phase: 0.0),
+        shapes: <RoleArtShape>[
+          RoleArtShape(colour: RoleArtColour.accent, opacity: 1.0, strokeWidth: 9.0, ops: <double>[0.0, 84.0, 60.0, 3.0, 98.0, 58.0, 108.0, 54.0]),
+          RoleArtShape(colour: RoleArtColour.surface, opacity: 1.0, strokeWidth: 0.0, ops: <double>[0.0, 110.0, 34.0, 1.0, 126.0, 34.0, 4.0, 4.0, 4.0, 0.0, 0.0, 1.0, 130.0, 38.0, 1.0, 130.0, 60.0, 4.0, 4.0, 4.0, 0.0, 0.0, 1.0, 126.0, 64.0, 1.0, 110.0, 64.0, 4.0, 4.0, 4.0, 0.0, 0.0, 1.0, 106.0, 60.0, 1.0, 106.0, 38.0, 4.0, 4.0, 4.0, 0.0, 0.0, 1.0, 110.0, 34.0, 5.0]),
+          RoleArtShape(colour: RoleArtColour.surface, opacity: 0.6, strokeWidth: 0.0, ops: <double>[0.0, 114.0, 30.0, 1.0, 122.0, 30.0, 4.0, 2.0, 2.0, 0.0, 0.0, 1.0, 124.0, 32.0, 1.0, 124.0, 34.0, 4.0, 2.0, 2.0, 0.0, 0.0, 1.0, 122.0, 36.0, 1.0, 114.0, 36.0, 4.0, 2.0, 2.0, 0.0, 0.0, 1.0, 112.0, 34.0, 1.0, 112.0, 32.0, 4.0, 2.0, 2.0, 0.0, 0.0, 1.0, 114.0, 30.0, 5.0]),
+          RoleArtShape(colour: RoleArtColour.primary, opacity: 0.6, strokeWidth: 0.0, ops: <double>[0.0, 112.0, 42.0, 1.0, 124.0, 42.0, 4.0, 1.0, 1.0, 0.0, 0.0, 1.0, 125.0, 43.0, 1.0, 125.0, 44.0, 4.0, 1.0, 1.0, 0.0, 0.0, 1.0, 124.0, 45.0, 1.0, 112.0, 45.0, 4.0, 1.0, 1.0, 0.0, 0.0, 1.0, 111.0, 44.0, 1.0, 111.0, 43.0, 4.0, 1.0, 1.0, 0.0, 0.0, 1.0, 112.0, 42.0, 5.0]),
+          RoleArtShape(colour: RoleArtColour.primary, opacity: 0.6, strokeWidth: 0.0, ops: <double>[0.0, 112.0, 49.0, 1.0, 124.0, 49.0, 4.0, 1.0, 1.0, 0.0, 0.0, 1.0, 125.0, 50.0, 1.0, 125.0, 51.0, 4.0, 1.0, 1.0, 0.0, 0.0, 1.0, 124.0, 52.0, 1.0, 112.0, 52.0, 4.0, 1.0, 1.0, 0.0, 0.0, 1.0, 111.0, 51.0, 1.0, 111.0, 50.0, 4.0, 1.0, 1.0, 0.0, 0.0, 1.0, 112.0, 49.0, 5.0]),
+          RoleArtShape(colour: RoleArtColour.primary, opacity: 0.6, strokeWidth: 0.0, ops: <double>[0.0, 112.0, 56.0, 1.0, 119.0, 56.0, 4.0, 1.0, 1.0, 0.0, 0.0, 1.0, 120.0, 57.0, 1.0, 120.0, 58.0, 4.0, 1.0, 1.0, 0.0, 0.0, 1.0, 119.0, 59.0, 1.0, 112.0, 59.0, 4.0, 1.0, 1.0, 0.0, 0.0, 1.0, 111.0, 58.0, 1.0, 111.0, 57.0, 4.0, 1.0, 1.0, 0.0, 0.0, 1.0, 112.0, 56.0, 5.0]),
+        ],
+      ),
+      RoleArtPart(
+        name: 'light',
+        motion: RoleArtMotion(type: 'blink', amp: 0.6, ox: 266.0, oy: 32.0, rate: 1, phase: 0.3),
+        shapes: <RoleArtShape>[
+          RoleArtShape(colour: RoleArtColour.accent, opacity: 1.0, strokeWidth: 0.0, ops: <double>[0.0, 261.0, 32.0, 4.0, 5.0, 5.0, 0.0, 1.0, 1.0, 271.0, 32.0, 4.0, 5.0, 5.0, 0.0, 1.0, 1.0, 261.0, 32.0, 5.0]),
         ],
       ),
     ],

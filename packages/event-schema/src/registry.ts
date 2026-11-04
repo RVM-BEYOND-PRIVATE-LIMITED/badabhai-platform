@@ -1527,6 +1527,15 @@ export const EVENT_REGISTRY = {
     domain: "consent",
     payload: p.ConsentAgeDeclaredPayload,
   },
+  // 2026-11-04 (E4 items 6-7) — an existing worker opted in to the approved employer-sharing
+  // notice: a NEW consent row adding `employer_sharing` + `employer_messaging`. The mirror of
+  // `consent.purposes_withdrawn`; distinct from `consent.accepted` (onboarding), so the funnel
+  // never counts a re-grant as a new worker. Appended at the tail per protocol. v1.
+  "consent.purposes_granted": {
+    version: 1,
+    domain: "consent",
+    payload: p.ConsentPurposesGrantedPayload,
+  },
 } as const satisfies Record<string, EventDefinition>;
 
 /** Union of all known event names. */

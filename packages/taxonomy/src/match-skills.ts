@@ -452,6 +452,20 @@ export const MATCH_SKILLS = [
     source: "rvm",
     status: "active",
   },
+  {
+    // CEO Launch Plan Pack v1, Phase 2 #10 (sheet 23): the Production Supervisor — the shift,
+    // section or line across trades. APPENDED, never inserted. Filed under the
+    // `general-machining` OCCUPATION ANCHOR domain: supervision is an occupation, not a bench
+    // technique, and no supervision domain exists. UNPAIRED: the sheet relates it to every
+    // trade, and a relation pair changes who sees whom — an owner call.
+    skillId: "mskill_production_supervisor",
+    labelEn: "Production Supervisor",
+    labelHi: null,
+    industryId: "ind_industrial_manufacturing",
+    domainId: "general-machining",
+    source: "rvm",
+    status: "active",
+  },
 ] as const satisfies readonly MatchSkillSeed[];
 
 export type MatchSkillId = (typeof MATCH_SKILLS)[number]["skillId"];

@@ -60,10 +60,18 @@ class ConsentCubit extends Cubit<ConsentState> {
   /// `voice_processing` added 2026-08-28 (#1270, approved in #1269) alongside
   /// the DPDP voice notice copy landing in `consent_screen.dart` — the purpose
   /// is only requested once the worker has actually been shown what it means.
+  ///
+  /// `employer_sharing` + `employer_messaging` added 2026-11-04 on the same
+  /// rule: the approved employer-sharing notice
+  /// (`docs/product/employer-sharing-consent-notice.md`) is now a card on the
+  /// same screen, under the same one tick. They ride with `kConsentVersion`
+  /// 2026-11-04 — the server rejects them paired with any other version.
   static const List<String> _purposes = <String>[
     'profiling',
     'resume_generation',
     'voice_processing',
+    'employer_sharing',
+    'employer_messaging',
   ];
 
   void setAccepted(bool accepted) => emit(state.copyWith(accepted: accepted));

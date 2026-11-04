@@ -167,12 +167,18 @@ export function TradePostingFields({
 
       <div className="panel__body trade-fields">
         <fieldset className="trade-fields__group">
-          <legend className="trade-fields__legend">Rung</legend>
+          <legend className="trade-fields__legend">Level needed</legend>
           <p className="trade-fields__hint">
-            Display only — the worker reads it as the role&rsquo;s level. It does not change who the
-            posting reaches.
+            Optional — it never blocks publishing. A level means that level and above (e.g. Setter
+            and above). Pick Any level to leave it open.
           </p>
-          <div className="trade-fields__chips" role="group" aria-label="Rung">
+          <div className="trade-fields__chips" role="group" aria-label="Level needed">
+            <Chip
+              selected={value.tradeLevel === ""}
+              onClick={() => commit({ ...value, tradeLevel: "" })}
+            >
+              Any level
+            </Chip>
             {trade.ladder.map((rung) => (
               <Chip
                 key={rung.rung}

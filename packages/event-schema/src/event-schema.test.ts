@@ -768,7 +768,7 @@ describe("job_posting events (ops-created, vacancy-banded, PII-free)", () => {
     }
   });
 
-  it("carries job_posting.created role_kind as one of the 25 declared kinds, or null (0131)", () => {
+  it("carries job_posting.created role_kind as one of the 26 declared kinds, or null (0131)", () => {
     const base = {
       ...workerCreatedEvent(),
       event_name: "job_posting.created",
@@ -1552,7 +1552,7 @@ describe("job entity + agency_invite events (ADR-0022 — FACELESS, ids/enums/ba
       expect(result.event.payload.role_kind).toBeNull();
       // No field could carry an employer name / address / worker id — opaque ids +
       // coarse bands + closed enums only (the city label is the only non-id string,
-      // capped + coarse; `role_kind` is a closed 25-slug enum).
+      // capped + coarse; `role_kind` is a closed 26-slug enum).
       expect(Object.keys(result.event.payload).sort()).toEqual(
         [
           "city",
@@ -1570,7 +1570,7 @@ describe("job entity + agency_invite events (ADR-0022 — FACELESS, ids/enums/ba
     }
   });
 
-  it("carries job.created role_kind as one of the 25 declared kinds, or null (0131)", () => {
+  it("carries job.created role_kind as one of the 26 declared kinds, or null (0131)", () => {
     const payload = {
       job_id: UUID_A,
       payer_id: UUID_B,
@@ -3211,10 +3211,12 @@ describe("chat.session_abandoned (idle sweep — COUNTS ONLY, no transcript)", (
 });
 
 describe("registry", () => {
-  it("exposes all 240 event names (179 prior + the two trade-form offer steps + Layer A + resume.edited + resume-identity + resume-autofill + profile.viewed_v2 + E0's relay trio + the C-2 consent exit + the ADR-0043 resume-update answer + its erasure backfill + the four tiered-profiling events + the ADR-0044 companion turn + the five ADR-0045 general-road events + the #1318 safe-field resume.edited_v2 + the #1801 resume.skin_changed + the #1800 profile.qr_scanned + the four ADR-0046 companion-v2 Phase 1 events + the ADR-0046 P2 faltu strike + the ADR-0046 P3 career answer + the E4 match-skill wants event + the ADR-0048 identity-intake step + the six TD150/WP8 companion versions + the two ADR-0051 free-chat events + the ADR-0050 job_posting.twin_synced + the ADR-0051 Release 2 summary fold + the ADR-0054 live-news request + the 2026-10-07 payer.applicant_stage_changed + the ADR-0051 §11 reply-language change + the ADR-0055 companion turn v4 + the #2297 companion summary fold + the ADR-0057 turn understood + its three edit-gate events + the #2409 typed-answer review + the two Middle-Way optional-depth offer steps + the 2026-11-03 payer.candidate_search_performed + the #2541 consent.age_declared)", () => {
-    expect(EVENT_NAMES).toHaveLength(240);
+  it("exposes all 241 event names (179 prior + the two trade-form offer steps + Layer A + resume.edited + resume-identity + resume-autofill + profile.viewed_v2 + E0's relay trio + the C-2 consent exit + the ADR-0043 resume-update answer + its erasure backfill + the four tiered-profiling events + the ADR-0044 companion turn + the five ADR-0045 general-road events + the #1318 safe-field resume.edited_v2 + the #1801 resume.skin_changed + the #1800 profile.qr_scanned + the four ADR-0046 companion-v2 Phase 1 events + the ADR-0046 P2 faltu strike + the ADR-0046 P3 career answer + the E4 match-skill wants event + the ADR-0048 identity-intake step + the six TD150/WP8 companion versions + the two ADR-0051 free-chat events + the ADR-0050 job_posting.twin_synced + the ADR-0051 Release 2 summary fold + the ADR-0054 live-news request + the 2026-10-07 payer.applicant_stage_changed + the ADR-0051 §11 reply-language change + the ADR-0055 companion turn v4 + the #2297 companion summary fold + the ADR-0057 turn understood + its three edit-gate events + the #2409 typed-answer review + the two Middle-Way optional-depth offer steps + the 2026-11-03 payer.candidate_search_performed + the #2541 consent.age_declared + the 2026-11-04 consent.purposes_granted)", () => {
+    expect(EVENT_NAMES).toHaveLength(241);
     // #2541 — the sign-up 18+ answer (a new name; consent.accepted v1 not mutated).
     expect(isEventName("consent.age_declared")).toBe(true);
+    // 2026-11-04 (E4 items 6-7) — an existing worker opted in to the employer notice (a new name).
+    expect(isEventName("consent.purposes_granted")).toBe(true);
     // 2026-11-03 (ADR-0040, E2) — one page of the payer's all-candidates search (a new name).
     expect(isEventName("payer.candidate_search_performed")).toBe(true);
     // #2409 — a typed "Koi aur" answer's review settled (a new name; no schema mutated).

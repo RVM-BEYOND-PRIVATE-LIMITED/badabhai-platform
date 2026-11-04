@@ -7,7 +7,12 @@ import {
   type AuthenticatedWorker,
 } from "../auth/worker-auth.guard";
 import { ConsentService } from "./consent.service";
-import { AcceptConsentSchema, type AcceptConsentDto } from "./consent.dto";
+import {
+  AcceptConsentSchema,
+  GrantEmployerContactSchema,
+  type AcceptConsentDto,
+  type GrantEmployerContactDto,
+} from "./consent.dto";
 
 @Controller("consent")
 export class ConsentController {
@@ -64,6 +69,25 @@ export class ConsentController {
     @Ctx() ctx: RequestContext,
   ) {
     return this.consent.withdrawEmployerContact(worker.id, ip, userAgent, ctx);
+  }
+
+  /**
+   * 2026-11-04 — the opt-in mirror of the route above: the worker was shown the approved
+   * employer-sharing notice and agreed. Worker-authed only (no ConsentGuard), the same posture as
+   * the withdrawal: it writes his OWN consent record. The body carries the notice version and no
+   * purposes — the service derives the row from his latest one.
+   */
+  @Post("employer-contact/grant")
+  @HttpCode(200)
+  @UseGuards(WorkerAuthGuard)
+  async grantEmployerContact(
+    @CurrentWorker() worker: AuthenticatedWorker,
+    @Body(new ZodValidationPipe(GrantEmployerContactSchema)) dto: GrantEmployerContactDto,
+    @Ip() ip: string,
+    @Headers("user-agent") userAgent: string | undefined,
+    @Ctx() ctx: RequestContext,
+  ) {
+    return this.consent.grantEmployerContact(worker.id, dto.consent_version, ip, userAgent, ctx);
   }
 
   /**

@@ -501,13 +501,24 @@ class _ApplicantCard extends StatelessWidget {
                     color: AppColors.textSecondary,
                   ),
                 ),
-                if (tierBadge != null || signals.isNotEmpty) ...<Widget>[
+                if (tierBadge != null ||
+                    applicant.levelFit == 'not_confirmed' ||
+                    signals.isNotEmpty) ...<Widget>[
                   const SizedBox(height: AppSpacing.gap6),
                   Wrap(
                     spacing: AppSpacing.gap6,
                     runSpacing: AppSpacing.gap6,
                     children: <Widget>[
                       if (tierBadge != null) tierBadge,
+                      // #2548 — the ONLY level-fit tag shown. `meets` needs no
+                      // explanation, `below` stays quiet, and null/absent means
+                      // there is no level sort. The list order is the server's.
+                      if (applicant.levelFit == 'not_confirmed')
+                        const BbBadge(
+                          'Level not confirmed',
+                          tone: BbBadgeTone.warning,
+                          icon: Icons.help_outline,
+                        ),
                       for (final String s in signals)
                         BbBadge(s, tone: BbBadgeTone.neutral),
                     ],

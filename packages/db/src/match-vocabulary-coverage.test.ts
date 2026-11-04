@@ -277,7 +277,8 @@ describe("the tripwire itself still decides nothing", () => {
     // + 1: Phase 2 #7 (sheet 16, 2026-11-03) minted the EDM / wire-cut trade.
     // + 1: Phase 2 #9 (sheet 22, 2026-11-04) minted the injection-moulding trade.
     // + 1: Phase 2 #8 (sheet 17, 2026-11-04) minted the heat-treatment trade.
-    expect(MATCH_SKILLS).toHaveLength(18 + 8 + 7);
+    // + 1: Phase 2 #10 (sheet 23, 2026-11-04) minted the production supervisor.
+    expect(MATCH_SKILLS).toHaveLength(18 + 8 + 8);
     expect(artifact.match_vocabulary_size).toBe(18);
   });
 

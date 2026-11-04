@@ -695,6 +695,25 @@ export const ConsentAgeDeclaredPayload = z
   });
 export type ConsentAgeDeclaredPayload = z.infer<typeof ConsentAgeDeclaredPayload>;
 
+/**
+ * `consent.purposes_granted` v1 (2026-11-04) — the mirror of `consent.purposes_withdrawn`: an existing
+ * worker, shown the approved employer-sharing notice, opted in, and the server wrote a NEW consent
+ * row adding the employer-contact purposes to everything his latest row already held. The two
+ * purposes are a CLOSED set (a grant can add nothing else), and `consent_version` is the notice
+ * version he was shown. `.strict()`: no name, phone or purpose list beyond the grant rides along.
+ */
+export const ConsentPurposesGrantedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    consent_id: uuidSchema,
+    consent_version: z.string().min(1).max(32),
+    granted_purposes: z
+      .array(z.enum(["employer_sharing", "employer_messaging"]))
+      .min(1)
+      .max(2),
+  })
+  .strict();
+
 // ---------------------------------------------------------------------------
 // chat.*
 // ---------------------------------------------------------------------------

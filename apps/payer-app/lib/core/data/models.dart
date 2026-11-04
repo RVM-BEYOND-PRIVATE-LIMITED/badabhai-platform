@@ -388,6 +388,7 @@ class Applicant extends Equatable {
     this.industryMonths,
     this.matchedSkillLabel,
     this.lastWorkedAt,
+    this.levelFit,
     this.unlocked = false,
     this.unlockId,
   });
@@ -428,6 +429,11 @@ class Applicant extends Equatable {
   /// ISO timestamp / coarse "last worked" marker for the matched skill.
   final String? lastWorkedAt;
 
+  /// "Level needed" fit (#2548, ADR-0061): `meets | not_confirmed | below`, or
+  /// null when the list has no level sort (flag off, "Any level", or a trade
+  /// outside the 4). Display only — the server's order is authoritative.
+  final String? levelFit;
+
   final bool unlocked;
 
   /// The granted unlock id (set once a paid unlock succeeds) — carried so the
@@ -467,6 +473,7 @@ class Applicant extends Equatable {
         industryMonths: industryMonths,
         matchedSkillLabel: matchedSkillLabel,
         lastWorkedAt: lastWorkedAt,
+        levelFit: levelFit,
         unlocked: unlocked ?? this.unlocked,
         unlockId: unlockId ?? this.unlockId,
       );
@@ -488,6 +495,7 @@ class Applicant extends Equatable {
         industryMonths,
         matchedSkillLabel,
         lastWorkedAt,
+        levelFit,
         unlocked,
         unlockId,
       ];

@@ -33,6 +33,18 @@ export const AcceptConsentSchema = z.object({
 export type AcceptConsentDto = z.infer<typeof AcceptConsentSchema>;
 
 /**
+ * `POST /consent/employer-contact/grant` (2026-11-04) — the notice version the client just SHOWED
+ * the worker, and nothing else. There is deliberately no `purposes` field: the server derives the
+ * new row from the latest one (`ConsentService.grantEmployerContact`), so a screen bug can never
+ * drop a purpose from an append-only ledger. `.strict()` because this route is new — there is no
+ * older client to stay lenient for, and an unexpected `purposes` key should fail loudly.
+ */
+export const GrantEmployerContactSchema = z
+  .object({ consent_version: z.string().min(1).max(32) })
+  .strict();
+export type GrantEmployerContactDto = z.infer<typeof GrantEmployerContactSchema>;
+
+/**
  * `GET /consent/me` (#1637) — the caller's LATEST consent row, as the worker's own screen
  * needs it: purposes + revocation only.
  *

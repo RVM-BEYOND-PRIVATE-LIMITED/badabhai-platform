@@ -25,4 +25,9 @@ abstract interface class ConsentRepository {
   /// /consent/employer-contact/withdraw, E0 C-2). Unlike [withdrawConsent] this
   /// does NOT revoke sessions and keeps profiling/resume/voice. Idempotent.
   Future<void> withdrawEmployerContact();
+
+  /// The way back IN (POST /consent/employer-contact/grant), certifying the
+  /// current notice version. The server derives the purposes; idempotent.
+  /// Throws a [Failure] on error (400 stale version, 404 no live row).
+  Future<void> grantEmployerContact();
 }

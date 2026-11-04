@@ -105,7 +105,10 @@ describe("Matching V1 — the mskill_* vocabulary", () => {
     // Phase 2 #9 (sheet 22) appended the injection-moulding trade after it.
     expect(MATCH_SKILLS[31]?.skillId).toBe("mskill_imm_operator");
     // Phase 2 #8 (sheet 17) appended the heat-treatment trade after it.
-    expect(MATCH_SKILLS.at(-1)?.skillId).toBe("mskill_heat_treatment_tech");
+    expect(MATCH_SKILLS[32]?.skillId).toBe("mskill_heat_treatment_tech");
+    // Phase 2 #10 (sheet 23) appended the production supervisor after it.
+    expect(MATCH_SKILLS.at(-1)?.skillId).toBe("mskill_production_supervisor");
+    expect(getMatchSkill("mskill_production_supervisor")?.domainId).toBe("general-machining");
     expect(matchSkillLabel("mskill_plc_automation_tech")).toBe("PLC / Automation Technician");
     expect(matchSkillLabel("mskill_imm_operator")).toBe("Injection Moulding Operator");
     for (const id of [
@@ -116,6 +119,7 @@ describe("Matching V1 — the mskill_* vocabulary", () => {
       "mskill_edm_wirecut_operator",
       "mskill_imm_operator",
       "mskill_heat_treatment_tech",
+      "mskill_production_supervisor",
     ] as const) {
       expect(matchSkillIndustry(id), id).toBe("ind_industrial_manufacturing");
     }
@@ -486,8 +490,10 @@ describe("bridge — ATTRIBUTE_TO_MATCH_SKILLS", () => {
     // re-dispositioned any promotable skill (the five-mapping pin above still
     // holds), and no promotable skill reaches a #2022 skill. Phase 2 #6 (2026-11-03)
     // minted one more: the PLC / automation trade, a new CEO-pack trade. Phase 2 #7 minted
-    // the EDM trade and Phase 2 #9 (sheet 22) the injection-moulding trade the same way.
-    expect(MATCH_SKILLS).toHaveLength(18 + MINTED_FOR_2022.length + 7);
+    // the EDM trade and Phase 2 #9 (sheet 22) the injection-moulding trade the same way, then
+    // Phase 2 #8 (sheet 17) the heat-treatment trade and Phase 2 #10 (sheet 23) the production
+    // supervisor.
+    expect(MATCH_SKILLS).toHaveLength(18 + MINTED_FOR_2022.length + 8);
     for (const id of PROMOTABLE_SKILL_IDS) {
       for (const m of ATTRIBUTE_TO_MATCH_SKILLS[id] ?? []) {
         expect(MINTED_FOR_2022 as readonly string[], `${id} -> ${m}`).not.toContain(m);

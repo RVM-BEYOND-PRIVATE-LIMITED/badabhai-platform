@@ -36,6 +36,7 @@ describe("seed-synthetic-workforce — the cohort definition", () => {
         "mskill_painter_coater",
         "mskill_plc_automation_tech",
         "mskill_plumber",
+        "mskill_production_supervisor",
       ].sort(),
     );
   });

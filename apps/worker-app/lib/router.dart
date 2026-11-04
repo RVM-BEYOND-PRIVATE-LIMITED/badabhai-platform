@@ -18,7 +18,9 @@ import 'features/auth/presentation/enter_pin_screen.dart';
 import 'features/auth/presentation/set_pin_screen.dart';
 import 'features/auth/presentation/forgot_pin_screen.dart';
 import 'features/auth/presentation/devices_screen.dart';
+import 'features/consent/domain/employer_sharing_prompt_gate.dart';
 import 'features/consent/presentation/consent_screen.dart';
+import 'features/consent/presentation/employer_sharing_prompt_screen.dart';
 import 'features/name/presentation/name_screen.dart';
 import 'features/chat/presentation/chat_profiling_screen.dart';
 import 'features/resume_import/domain/resume_upload_intent.dart';
@@ -76,6 +78,11 @@ class Routes {
   static const String devices = '/profile/settings/devices';
 
   static const String consent = '/consent';
+
+  /// The employer-sharing notice prompt (2026-11-04) — opened once by the home
+  /// shell for an existing worker, and pushed by the Settings switch to turn
+  /// employer contact back ON. Full-screen; pops `true` when granted.
+  static const String employerSharing = '/employer-sharing';
   static const String name =
       '/name'; // "Your name" step (after consent, before chat)
 
@@ -523,6 +530,10 @@ GoRouter _buildRouter() {
         builder: (_, GoRouterState state) =>
             ConsentScreen.fromExtra(state.extra),
       ),
+      GoRoute(
+        path: Routes.employerSharing,
+        builder: (_, __) => const EmployerSharingPromptScreen(),
+      ),
       GoRoute(path: Routes.name, builder: (_, __) => const NameScreen()),
       GoRoute(
         path: Routes.resumeUpload,
@@ -893,6 +904,24 @@ class _ShellScaffoldState extends State<_ShellScaffold>
     WidgetsBinding.instance.addObserver(this);
     _refreshBadge();
     _startPoll();
+    // HERE, not on any onboarding or auth route: the shell only mounts for a
+    // signed-in worker past onboarding, so the prompt can never interrupt
+    // consent -> chat profiling or the PIN screens.
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => unawaited(_maybePromptEmployerSharing()),
+    );
+  }
+
+  /// The one-time employer-sharing prompt for an existing worker (2026-11-04).
+  /// The gate answers yes at most once per launch and fails quiet; the prompt
+  /// opens only while the shell itself is on top, never over a screen the
+  /// worker opened while the check was in flight.
+  Future<void> _maybePromptEmployerSharing() async {
+    if (!locator.isRegistered<EmployerSharingPromptGate>()) return;
+    final bool due = await locator<EmployerSharingPromptGate>().claim();
+    if (!due || !mounted) return;
+    if (ModalRoute.isCurrentOf(context) == false) return;
+    unawaited(GoRouter.of(context).push<bool>(Routes.employerSharing));
   }
 
   @override

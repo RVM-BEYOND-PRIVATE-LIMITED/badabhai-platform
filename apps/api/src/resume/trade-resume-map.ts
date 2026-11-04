@@ -4035,6 +4035,110 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
       },
     ],
   },
+  // ══ PHASE 2 #10 — PRODUCTION SUPERVISOR (CEO Launch Plan Pack v1, sheet 23) ══
+  //
+  // A NEW TRADE WITH NO RATIFIED PAGE: sheet 23's headline ("Production Supervisor · Supervisor
+  // · 10 years · Machine shop · 30 people / 18 CNC · Faridabad · 30 days") is the parity
+  // reference. The area and the size of the charge lead (people, then machines), then what he
+  // runs and the trade he came up through. No row is a Machines line: the machines here are a
+  // COUNT under his charge, not machines he operates. Every `values` key is the STORED value;
+  // the negative claims (`unknown`, `none`) have no entry, so they print nothing.
+  {
+    pack_id: "qp_production_supervisor",
+    section_title: "Supervision, team & systems",
+    tier_section_titles: { easy: "Supervision" },
+    capability: [
+      {
+        from: "supervision_area",
+        rank: 21,
+        inHeadline: true,
+        maxValues: 3,
+        label: "Areas supervised",
+        kind: "chips",
+        values: {
+          machine_shop: "Machine shop",
+          assembly: "Assembly",
+          press_sheet_metal: "Press / sheet metal",
+          fabrication_welding: "Fabrication / welding",
+          moulding: "Moulding",
+          paint_shop: "Paint shop",
+          packaging: "Packaging",
+        },
+      },
+      {
+        from: "supervision_team_size",
+        rank: 22,
+        inHeadline: true,
+        label: "Team size",
+        kind: "fact",
+        values: {
+          below_five: "Under 5 people",
+          five_to_fifteen: "5–15 people",
+          fifteen_to_fifty: "15–50 people",
+          above_fifty: "50+ people",
+        },
+      },
+      {
+        from: "supervision_machines",
+        rank: 23,
+        inHeadline: true,
+        label: "Machines under charge",
+        kind: "fact",
+        values: {
+          upto_five: "Up to 5 machines",
+          five_to_twenty: "5–20 machines",
+          twenty_to_fifty: "20–50 machines",
+          above_fifty: "50+ machines",
+        },
+      },
+      {
+        from: "supervision_systems",
+        rank: 41,
+        label: "Responsibilities",
+        kind: "chips",
+        values: {
+          production_planning: "Daily production planning",
+          manpower_shift: "Manpower & shift planning",
+          quality_ppm: "Quality (rejection, PPM)",
+          five_s_kaizen: "5S / kaizen / TPM",
+          erp_sap: "ERP / SAP entries",
+          safety: "Safety",
+        },
+      },
+      {
+        from: "supervision_trade_background",
+        rank: 42,
+        label: "Trade background",
+        kind: "chips",
+        values: {
+          cnc_vmc: "CNC / VMC operator",
+          conventional_machinist: "Conventional machinist",
+          fitter: "Fitter",
+          welder: "Welder",
+          electrician: "Electrician",
+          assembly: "Assembly",
+          press_sheet_metal: "Press / sheet metal",
+          moulding: "Moulding",
+          quality: "QC / quality",
+        },
+      },
+      {
+        from: "sector_worked",
+        rank: 81,
+        label: "Sector worked",
+        kind: "fact",
+        join: ", ",
+        values: {
+          automotive: "Automotive components",
+          general_engg: "General engineering / job shop",
+          electrical_parts: "Electrical / electronics parts",
+          white_goods: "White goods",
+          plastics: "Plastics",
+          packaging: "Packaging",
+        },
+      },
+    ],
+  },
 ];
 
 export function tradeResumeMapFor(packId: string | null | undefined): TradeResumeMap | undefined {

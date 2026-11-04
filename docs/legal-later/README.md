@@ -19,6 +19,13 @@ copy, privacy-policy text, and terms a worker/payer reads before consenting.
 - Terms of service text
 - Legal review/sign-off on all of the above
 
+## Owner-approved notices shipped so far
+
+- Voice recording (`voice_processing`) — `docs/product/voice-consent-notice.DRAFT.md`, #1269, 2026-08-28.
+- Employer sharing + in-app messaging (`employer_sharing`, `employer_messaging`) —
+  `docs/product/employer-sharing-consent-notice.md`, approved by the owner 2026-11-04 (he chose to
+  ship it rather than hold it for a separate legal review). Consent version `2026-11-04`.
+
 ## Status
 
 Open — launch gate. This file exists so the citing docs (`README.md`,

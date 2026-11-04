@@ -101,6 +101,7 @@ const PLC_AUTOMATION_TECH = ["mskill_plc_automation_tech"] as const;
 const EDM_WIRECUT_OPERATOR = ["mskill_edm_wirecut_operator"] as const;
 const HEAT_TREATMENT_TECH = ["mskill_heat_treatment_tech"] as const;
 const IMM_OPERATOR = ["mskill_imm_operator"] as const;
+const PRODUCTION_SUPERVISOR = ["mskill_production_supervisor"] as const;
 const INDUSTRIAL_ELECTRICIAN = ["mskill_industrial_electrician"] as const;
 const ASSEMBLY_LINE_WORKER = ["mskill_assembly_line_worker"] as const;
 
@@ -350,6 +351,22 @@ export const PACK_ANSWER_SKILLS: Readonly<Record<string, PackMap>> = {
   // INDUSTRIAL Electrician, and those chips do not claim the plant. "Kaunse electrical equipment
   // par kaam karte hain?" — MCC/PCC panels, VFDs, starters and induction motors are plant
   // equipment. `dg_set` is left out: a DG set is run by an operator as often as by an electrician.
+  // ══ PRODUCTION SUPERVISOR (Phase 2 #10) ═════════════════════════════════════════════════
+  // "Kis department ki supervision karte hain?" — every named department is the trade's claim:
+  // the answer says he supervises a production area, which is the job. The none-of-above
+  // escape ("unknown") claims nothing.
+  qp_production_supervisor: {
+    supervision_area: {
+      machine_shop: PRODUCTION_SUPERVISOR,
+      assembly: PRODUCTION_SUPERVISOR,
+      press_sheet_metal: PRODUCTION_SUPERVISOR,
+      fabrication_welding: PRODUCTION_SUPERVISOR,
+      moulding: PRODUCTION_SUPERVISOR,
+      paint_shop: PRODUCTION_SUPERVISOR,
+      packaging: PRODUCTION_SUPERVISOR,
+    },
+  },
+
   // ══ INJECTION MOULDING (Phase 2 #9) ═════════════════════════════════════════════════════
   // "Kaunse brand ki machine chalayi hai?" — every named moulding-machine brand is the trade's
   // claim (the brand IS the injection moulding machine). The tool room's mould chips

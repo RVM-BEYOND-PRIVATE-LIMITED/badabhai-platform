@@ -28,9 +28,10 @@ import 'package:payer_app/features/find/presentation/find_screen.dart';
 /// scroll/window tests that follow are behaviour guards on the conversion (the
 /// header must stay index 0, the rows must stay addressable and in order).
 class _BigFeedApi extends MockPayerApiClient {
-  _BigFeedApi(this.total);
+  _BigFeedApi(this.total, {this.levelFit});
 
   final int total;
+  final String? levelFit;
 
   static const JobPosting _job = JobPosting(
     id: 'job-1',
@@ -72,6 +73,7 @@ class _BigFeedApi extends MockPayerApiClient {
           tradeLabel: 'CNC Setter',
           cityLabel: 'Pune',
           experienceBand: '3–5 yrs',
+          levelFit: levelFit,
         ),
       );
 
@@ -172,6 +174,30 @@ void main() {
       expect(built, lessThan(_total ~/ 3),
           reason: 'expected a lazily built window, got $built of $_total cards');
       expect(find.text(_BigFeedApi.labelFor(_total - 1)), findsNothing);
+    });
+
+    testWidgets('tags only levelFit "not_confirmed" (#2548)', (
+      WidgetTester tester,
+    ) async {
+      await GetIt.instance.reset();
+      setupLocator(
+        apiClient: _BigFeedApi(1, levelFit: 'not_confirmed'),
+        secureStore: InMemoryKeyValueStore(),
+      );
+      locator.unregister<FindCubit>();
+      locator.registerFactory<FindCubit>(
+        () => FindCubit(locator<PayerApiClient>(), useRealFeed: true),
+      );
+
+      await pump(tester);
+      expect(find.text('Level not confirmed'), findsOneWidget);
+    });
+
+    testWidgets('an absent levelFit shows no level tag (#2548)', (
+      WidgetTester tester,
+    ) async {
+      await pump(tester);
+      expect(find.text('Level not confirmed'), findsNothing);
     });
 
     testWidgets('scrolling to the end builds the last card', (

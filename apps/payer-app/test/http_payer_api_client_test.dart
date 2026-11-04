@@ -235,6 +235,7 @@ void main() {
               'lastWorkedAt': '2026-05-01T00:00:00Z',
               'matchedSkillLabel': 'MIG Welding',
               'engineVersion': 'match_v1',
+              'levelFit': 'not_confirmed',
             },
           ],
         }),
@@ -250,6 +251,7 @@ void main() {
       expect(a.industryMonths, 72);
       expect(a.matchedSkillLabel, 'MIG Welding');
       expect(a.lastWorkedAt, '2026-05-01T00:00:00Z');
+      expect(a.levelFit, 'not_confirmed');
       expect(a.viaRelated, isTrue);
       // V1 carries no weights: score/hot are structural placeholders and no
       // signal list is fabricated, so the card shows the tier badge alone.

@@ -78,6 +78,8 @@ describe("pack-answer bridge — every id rides an existing bridge or is a pack-
       // Phase 2 #6: the new PLC trade's own ID, pack-only like the #2022 mints.
       "mskill_plc_automation_tech",
       "mskill_press_operator",
+      // Phase 2 #10: the new production supervisor's own ID.
+      "mskill_production_supervisor",
       "mskill_sheet_metal_worker",
       "mskill_tool_die_maker",
     ]);
@@ -161,6 +163,8 @@ describe("the reachable set per pack — pinned exactly", () => {
     qp_heat_treatment: ["mskill_heat_treatment_tech"],
     // Phase 2 #9: a named moulding-machine brand reaches the new trade.
     qp_injection_moulding: ["mskill_imm_operator"],
+    // Phase 2 #10: a named production department reaches the new trade.
+    qp_production_supervisor: ["mskill_production_supervisor"],
     qp_industrial_electrician: ["mskill_industrial_electrician"],
     qp_assembly_line: ["mskill_assembly_line_worker"],
   };
