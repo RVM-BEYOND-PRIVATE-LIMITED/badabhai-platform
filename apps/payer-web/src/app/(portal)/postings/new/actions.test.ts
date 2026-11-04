@@ -89,10 +89,11 @@ describe("createPostingAction — #2645: a company job is always one of the 16 t
 
   it("the create always carries the trade form — {} when no chip was picked", async () => {
     await createPostingAction(INPUT);
-    expect(createPosting.mock.calls[0]![0]).toMatchObject({
-      roleKind: "cnc_turner",
-      tradeAnswers: {},
-    });
+    const created = createPosting.mock.calls[0]![0] as { roleKind?: unknown; tradeAnswers?: unknown };
+    expect(created.roleKind).toBe("cnc_turner");
+    // Strictly `{}`: `toMatchObject({ tradeAnswers: {} })` also passes for a key holding undefined —
+    // and a create without trade answers takes the API's pre-0141 path (the client's skill ids).
+    expect(created.tradeAnswers).toStrictEqual({});
     await createPostingAction({ ...INPUT, tradeLevel: "setter", tradeAnswers: { x_y: ["a_b"] } });
     expect(createPosting.mock.calls[1]![0]).toMatchObject({
       tradeLevel: "setter",
