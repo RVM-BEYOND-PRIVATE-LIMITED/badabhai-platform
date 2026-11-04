@@ -365,19 +365,8 @@ export function JobPostingChat({
     <div className="ai-chat">
       <div className="ai-chat__convo">
         <Card variant="flat" className="ai-chat__thread">
-          <ul className="ai-chat__lines" aria-live="polite" aria-label="Conversation">
-            {convo.lines.map((line, i) => (
-              <li
-                key={`${convo.sessionId}:${i}`}
-                className={
-                  line.role === "payer" ? "ai-chat__line ai-chat__line--payer" : "ai-chat__line"
-                }
-              >
-                <span className="ai-chat__who">{line.role === "payer" ? "You" : "BadaBhai"}</span>
-                <span className="ai-chat__text">{line.text}</span>
-              </li>
-            ))}
-          </ul>
+          {/* Keyed on the session: a transcript mounts with the lines it opens on (W6). */}
+          <ChatTranscript key={convo.sessionId} lines={convo.lines} typing={spins("send")} />
 
           {convo.suggestions.length > 0 ? (
             <div className="ai-chat__chips" aria-label="Suggested answers">
@@ -464,4 +453,104 @@ export function JobPostingChat({
       </aside>
     </div>
   );
+}
+
+/* ── The transcript (W6 #2586): new bubbles rise in, the typing dots, the scroll ─── */
+
+interface ChatTranscriptProps {
+  /** Append-only, so a line's index is its identity. */
+  lines: readonly ChatLine[];
+  /** A reply is awaited — the payer's turn is in flight. */
+  typing: boolean;
+}
+
+/**
+ * The conversation as a polite live list.
+ *
+ * W6 (#2586). A line added after the transcript MOUNTED (the payer's answer, then the reply) rises
+ * in once, 180ms (`ai-chat__line--new`, globals.css W6 block). The lines it mounted with — a new
+ * chat's opener, a resumed conversation — arrive settled: no rise and no scroll. While a reply is
+ * awaited, a typing bubble closes the list. Its dots pulse (the only looping motion here, and only
+ * while it is drawn), and the whole bubble is `aria-hidden`, so the live list never announces it.
+ * The pulse is CSS only and changes nothing in the DOM.
+ *
+ * The latest stays in view. The payer's own line and the typing bubble scroll themselves into view
+ * as they attach ({@link revealLine}): they are the payer's send, made from the composer just under
+ * them. The reply lands later, so it follows only a payer still at the end of the thread
+ * ({@link revealReply}). A payer who scrolled away while it was awaited stays where they are, up
+ * at an earlier answer or, in one column, down at the draft.
+ */
+function ChatTranscript({ lines, typing }: ChatTranscriptProps) {
+  // How many lines it mounted with. React keeps the first value, and the parent keys this on the
+  // session, so a different conversation mounts afresh.
+  const [settled] = useState(lines.length);
+  return (
+    <ul className="ai-chat__lines" aria-live="polite" aria-label="Conversation">
+      {lines.map((line, i) => {
+        const added = i >= settled;
+        const reveal = line.role === "payer" ? revealLine : revealReply;
+        return (
+          <li
+            key={i}
+            ref={added ? reveal : undefined}
+            className={[
+              "ai-chat__line",
+              line.role === "payer" ? "ai-chat__line--payer" : "",
+              added ? "ai-chat__line--new" : "",
+            ]
+              .filter(Boolean)
+              .join(" ")}
+          >
+            <span className="ai-chat__who">{line.role === "payer" ? "You" : "BadaBhai"}</span>
+            <span className="ai-chat__text">{line.text}</span>
+          </li>
+        );
+      })}
+      {typing ? (
+        <li ref={revealLine} className="ai-chat__line ai-chat__line--new" aria-hidden="true">
+          <span className="ai-chat__who">BadaBhai</span>
+          <span className="ai-chat__dots">
+            <span className="ai-chat__dot" />
+            <span className="ai-chat__dot" />
+            <span className="ai-chat__dot" />
+          </span>
+        </li>
+      ) : null}
+    </ul>
+  );
+}
+
+/**
+ * Scrolls a transcript line into view as it attaches (W6 #2586). It is the ref of the payer's own
+ * new line and of the typing bubble, and {@link revealReply} uses it. `nearest`, so a line already
+ * in view moves nothing; smooth, or at once under reduced motion. Defined at module level, so its
+ * identity never changes and React calls it only when a line attaches, never on a re-render. A
+ * detaching line (`null`) is ignored.
+ */
+export function revealLine(line: Element | null): void {
+  if (line === null) return;
+  const reduce =
+    typeof window !== "undefined" &&
+    window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
+  line.scrollIntoView?.({ block: "nearest", behavior: reduce ? "auto" : "smooth" });
+}
+
+/**
+ * A reply's ref (W6 #2586). It runs {@link revealLine} only while the payer is still at the end of
+ * the thread, which means the reply or the line before it is on screen as the reply lands. A payer
+ * who scrolled away while the reply was awaited is not pulled back.
+ */
+export function revealReply(line: Element | null): void {
+  if (line !== null && (onScreen(line) || onScreen(line.previousElementSibling))) revealLine(line);
+}
+
+/**
+ * Some of `el` is inside the viewport. The page itself is the scroller here, because the
+ * transcript is no scroll box. A detached or hidden element measures 0×0 at the origin, so it
+ * counts as off screen.
+ */
+function onScreen(el: Element | null): boolean {
+  if (el === null || typeof window === "undefined") return false;
+  const { top, bottom } = el.getBoundingClientRect();
+  return bottom > 0 && top < window.innerHeight;
 }

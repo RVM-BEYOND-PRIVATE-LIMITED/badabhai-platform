@@ -15,15 +15,22 @@ import {
 /**
  * #2586 (W6) — page transitions and list motion: the stylesheet half (node env, no layout engine,
  * so the DECLARED motion is fenced). The behaviour half is (portal)/route-content.test.tsx (the
- * path-keyed column, first-render-only lists) and (portal)/sidebar-nav.test.tsx (the marker moves
- * on the press).
+ * path-keyed column, first-render-only lists), (portal)/sidebar-nav.test.tsx (the marker moves
+ * on the press) and (portal)/postings/ai/new/job-posting-chat.test.tsx (which chat lines rise,
+ * when the typing dots are drawn, the scroll).
  *
- * Acceptance: router-stall measurement unchanged (no boundary — app/no-suspense-above-a-page.test.ts
- * still scans every source) · nothing moves under reduced motion. The motion itself:
+ * Acceptance:
+ *  - router stall: fenced statically, not re-measured. W6 adds no boundary (a key is not one), and
+ *    app/no-suspense-above-a-page.test.ts still scans every source. The production-build click
+ *    re-measure described in that test runs in a browser, outside this suite.
+ *  - nothing moves under reduced motion.
+ *
+ * The motion itself:
  *  - route change: the content fades in with a 6px rise over 200ms, no exit animation;
  *  - lists: the first 8 items rise in 30ms apart, on first render only;
  *  - the rail marker glides 320ms; the drawer scrim fades both ways in 220ms, no backdrop blur;
- *  - row arrows nudge 4px only on hover or focus (they looped forever).
+ *  - row arrows nudge 4px only on hover or focus (they looped forever);
+ *  - AI chat: each new bubble rises 180ms; the typing dots pulse only while a reply is awaited.
  */
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -112,15 +119,16 @@ describe("W6 · one marked block", () => {
     expect(RAW.split(CLOSE)).toHaveLength(2);
     expect(RAW.indexOf(CLOSE)).toBeGreaterThan(RAW.indexOf(OPEN));
     expect(W6.length).toBeGreaterThanOrEqual(15);
-    for (const name of ["page-enter", "list-enter"]) {
+    for (const name of ["page-enter", "list-enter", "chat-line-enter", "chat-typing-pulse"]) {
       expect(
         W6.some((r) => r.selector === `@keyframes ${name}`),
         name,
       ).toBe(true);
+      keyframes(name); // …and nowhere else in the file.
     }
   });
 
-  it("the keyframes the column waits for are exactly the two entrances this block runs", () => {
+  it("the keyframes the column waits for are exactly the route and list entrances — never a chat line's", () => {
     expect([...ENTRANCE_ANIMATIONS].sort()).toEqual(["list-enter", "page-enter"]);
   });
 });
@@ -429,8 +437,9 @@ describe("W6 · 4 — row arrows nudge 4px only on hover or focus; nothing loops
     const looping = ALL.filter((r) =>
       ["animation", "animation-iteration-count"].some((p) => /\binfinite\b/.test(decl(r, p) ?? "")),
     ).flatMap(selectors);
+    // …the AI chat's typing dots among them (W6 · 6), drawn only while a reply is awaited.
     expect([...new Set(looping)].sort()).toEqual(
-      [".bb-btn__spinner", ".bb-spinner", ".nav-pending--on"].sort(),
+      [".bb-btn__spinner", ".bb-spinner", ".nav-pending--on", ".ai-chat__dot"].sort(),
     );
     expect(GLOBALS).not.toContain("arrow-nudge");
   });
@@ -472,6 +481,86 @@ describe("W6 · 4 — row arrows nudge 4px only on hover or focus; nothing loops
   });
 });
 
+describe("W6 · 6 — AI chat: each new bubble rises 180ms; the typing dots pulse only while a reply is awaited", () => {
+  const NEW_LINE = ".ai-chat__line--new";
+  const DOT = ".ai-chat__dot";
+
+  it("a new line fades in with a --motion-rise lift over 2 × --duration-press (180ms), easing in — once", () => {
+    expect(ms("--duration-press") * 2).toBe(180);
+    const animation = decl(rule(NEW_LINE), "animation");
+    expect(animation).toBe("chat-line-enter calc(var(--duration-press) * 2) var(--ease-enter)");
+    expect(animation).not.toMatch(/\b(infinite|alternate|backwards|forwards|both)\b/);
+    expect(keyframes("chat-line-enter")).toBe(
+      "from{opacity:0;transform:translateY(var(--motion-rise));}",
+    );
+    expect(keyframeProps("chat-line-enter")).toEqual(["opacity", "transform"]);
+  });
+
+  it("only that class moves a chat line: a line without it (the opener, a resumed transcript) never moves", () => {
+    // The component puts the class on the lines added after the transcript mounted, and on the
+    // typing bubble (job-posting-chat.test.tsx). Every other chat-line rule is still.
+    const moving = ALL.filter(
+      (r) =>
+        r.selector.includes("ai-chat__line") &&
+        ["animation", "transition", "transform"].some((p) => (decl(r, p) ?? "none") !== "none"),
+    );
+    expect(moving.map((r) => `${r.at || "top"} ${r.selector}`)).toEqual([`top ${NEW_LINE}`]);
+    const runs = G.filter((r) => (decl(r, "animation") ?? "").startsWith("chat-line-enter"));
+    expect(runs.flatMap(selectors)).toEqual([NEW_LINE]);
+  });
+
+  it("the typing dots pulse on opacity alone, on the nav cue's beat — --duration-slower each way", () => {
+    expect(decl(rule(DOT), "animation")).toBe(
+      "chat-typing-pulse var(--duration-slower) var(--ease-in-out) infinite alternate",
+    );
+    expect(keyframes("chat-typing-pulse")).toBe("to{opacity:0.4;}");
+    expect(keyframeProps("chat-typing-pulse")).toEqual(["opacity"]);
+    // The portal's other "still working" pulse (the link's pending dot) keeps the same beat.
+    expect(decl(rule(".nav-pending--on", "", G), "animation")!.replace(/\s+/g, " ")).toContain(
+      "nav-pending-pulse var(--duration-slower) var(--ease-in-out)",
+    );
+    // They loop, but only while they are drawn: the one rule that runs the pulse styles a dot,
+    // and the dots are rendered only while a reply is awaited (job-posting-chat.test.tsx).
+    const pulses = G.filter((r) => (decl(r, "animation") ?? "").startsWith("chat-typing-pulse"));
+    expect(pulses.flatMap(selectors)).toEqual([DOT]);
+  });
+
+  it("each dot runs a fifth of a cycle behind the one before", () => {
+    expect(decl(rule(`${DOT}:nth-child(2)`), "animation-delay")).toBe(
+      "calc(var(--duration-slower) * 0.4)",
+    );
+    expect(decl(rule(`${DOT}:nth-child(3)`), "animation-delay")).toBe(
+      "calc(var(--duration-slower) * 0.8)",
+    );
+    // One cycle is out and back (alternate): 2 × 480ms; a fifth of it is 192ms.
+    const cycle = 2 * ms("--duration-slower");
+    expect(0.4 * ms("--duration-slower")).toBeCloseTo(cycle / 5);
+  });
+
+  it("the dots are round, one --space-2 across, in an existing token's colour (no new colour)", () => {
+    const dot = rule(DOT);
+    expect(decl(dot, "inline-size")).toBe("var(--space-2)");
+    expect(decl(dot, "block-size")).toBe("var(--space-2)");
+    expect(decl(dot, "border-radius")).toBe("var(--radius-round)");
+    expect(decl(dot, "background")).toBe("var(--text-muted)");
+    expect(hexOf(decl(dot, "background")!)).toBe(hexOf("var(--ink-500)"));
+    // Nothing the chat adds to the block names a raw colour.
+    for (const r of W6.filter((x) => x.selector.includes("ai-chat"))) {
+      expect(r.body, r.selector).not.toMatch(/#[0-9a-f]{3,8}\b|rgba?\(|hsla?\(/i);
+    }
+  });
+
+  it("the dots' row is one text line tall (the line's own leading), so the reply that replaces the bubble keeps its height", () => {
+    expect(decl(rule(".ai-chat__dots"), "block-size")).toBe("calc(var(--leading-normal) * 1em)");
+    expect(decl(rule(".ai-chat__line", "", G), "line-height")).toBe("var(--leading-normal)");
+  });
+
+  it("a line scrolled into view lands below the sticky header", () => {
+    expect(decl(rule(".ai-chat__lines > li"), "scroll-margin-top")).toBe("var(--posting-rail-top)");
+    expect(tokenValue(GLOBALS, "--posting-rail-top")).toContain("var(--shell-header-h)");
+  });
+});
+
 describe("W6 · reduced motion — nothing moves", () => {
   const reducedRules = W6.filter((r) => r.at === REDUCED);
   /** Is `selector` switched to `value` for `prop` by a reduced-motion rule AFTER rule index `after`? */
@@ -503,8 +592,9 @@ describe("W6 · reduced motion — nothing moves", () => {
         }
       }
     });
-    // The column, the list items, the marker, both scrim states, the arrow and its two nudges.
-    expect(checked).toBe(8);
+    // The column, the list items, the marker, both scrim states, the arrow and its two nudges, the
+    // chat's new line and its typing dots.
+    expect(checked).toBe(10);
   });
 
   it("and the tokens it names collapse to zero there (durations, the rise, the stagger)", () => {
@@ -514,11 +604,26 @@ describe("W6 · reduced motion — nothing moves", () => {
       "--duration-base",
       "--duration-slow",
       "--duration-fast",
+      "--duration-press",
+      "--duration-slower",
       "--stagger-step",
     ]) {
       expect(decl(reduced, token), token).toBe("0ms");
     }
     expect(decl(reduced, "--motion-rise")).toBe("0px");
+  });
+
+  it("the AI chat: a new line lands at once, and the typing dots stand still at full strength", () => {
+    for (const s of [".ai-chat__line--new", ".ai-chat__dot"]) {
+      expect(zeroedAfter(s, "animation", "none", -1), s).toBe(true);
+    }
+    // Still, a dot is its resting self: fully opaque (only the pulse dims it).
+    expect(decl(rule(".ai-chat__dot"), "opacity")).toBeNull();
+    for (const r of reducedRules) {
+      for (const s of selectors(r).filter((x) => x.includes("ai-chat"))) {
+        expect(decl(r, "animation"), s).toBe("none");
+      }
+    }
   });
 
   it("the marker's placement transform is not motion: with its transition off it lands at once", () => {

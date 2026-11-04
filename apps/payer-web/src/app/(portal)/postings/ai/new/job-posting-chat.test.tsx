@@ -26,6 +26,11 @@ import type {
  *     card gaps are named.
  *  4. RULE A: nothing in this UI asks for the payer's company/org name.
  *  5. The inline turn screen mirrors the manual form's `looksLikePii` description check.
+ *  6. W6 (#2586): only a line added after the transcript mounted rises in (never the opener or a
+ *     resumed transcript); the typing dots are drawn only while the send is in flight, and are
+ *     aria-hidden; the payer's send scrolls into view, and the reply that follows scrolls only for
+ *     a payer still at the end of the thread. The stylesheet half is
+ *     app/w6-transitions.css.test.ts.
  */
 
 const startJobPostingChatAction = vi.fn();
@@ -63,12 +68,18 @@ let stateQueue: unknown[] = [];
 let stateCursor = 0;
 // Setters are kept by state index so a test can see what a handler set.
 let setters: Array<ReturnType<typeof vi.fn>> = [];
+/**
+ * State a test does NOT seed (the transcript's own — W6: how many lines it mounted with), kept per
+ * MOUNTED chat by call order, as React keeps it: `render` mounts afresh, `rerender` keeps it.
+ */
+let mountedState: unknown[] = [];
 const useState = vi.fn((initial: unknown) => {
   const i = stateCursor++;
-  const seeded = i < stateQueue.length ? stateQueue[i] : initial;
+  if (i >= stateQueue.length && !(i in mountedState)) mountedState[i] = initial;
+  const value = i < stateQueue.length ? stateQueue[i] : mountedState[i];
   const setter = vi.fn();
   setters[i] = setter;
-  return [seeded, setter] as [unknown, (v: unknown) => void];
+  return [value, setter] as [unknown, (v: unknown) => void];
 });
 const useTransition = vi.fn((): [boolean, (cb: () => void) => void] => [false, (cb) => cb()]);
 
@@ -85,7 +96,9 @@ vi.mock("react", async () => {
   };
 });
 
-const { JobPostingChat, validateTurn } = await import("./job-posting-chat");
+const { JobPostingChat, revealLine, revealReply, validateTurn } = await import(
+  "./job-posting-chat"
+);
 
 /* ── fixtures ───────────────────────────────────────────────────────────────────── */
 
@@ -174,6 +187,19 @@ interface Collected {
   ariaLiveCount: number;
   /** Every anchor rendered (the mocked next/link renders a native `a`). */
   links: Array<{ href: string; text: string }>;
+  /** W6 — the transcript's items (`li.ai-chat__line`), in order. */
+  lines: Array<{
+    key: string | null;
+    className: string;
+    text: string;
+    /** It, or an ancestor, is `aria-hidden`. */
+    hidden: boolean;
+    ref: unknown;
+  }>;
+  /** W6 — every typing dot, and whether an `aria-hidden` ancestor hides it. */
+  dots: Array<{ hidden: boolean }>;
+  /** W6 — the key of each transcript rendered (the conversation it belongs to). */
+  transcripts: Array<string | null>;
 }
 
 function textOf(node: ReactNode): string {
@@ -188,22 +214,36 @@ function textOf(node: ReactNode): string {
   return el.props && "children" in el.props ? textOf(el.props.children) : "";
 }
 
-function walk(node: ReactNode, acc: Collected): void {
+function walk(node: ReactNode, acc: Collected, hidden = false): void {
   if (node === null || node === undefined || typeof node === "boolean") return;
   if (typeof node === "string" || typeof node === "number") {
     acc.texts.push(String(node));
     return;
   }
   if (Array.isArray(node)) {
-    for (const c of node) walk(c, acc);
+    for (const c of node) walk(c, acc, hidden);
     return;
   }
   const el = node as ReactElement<Record<string, unknown> & { children?: ReactNode }>;
   if (typeof el.type === "function") {
     const fn = el.type as (props: unknown) => ReactNode;
-    walk(fn(el.props), acc);
+    if (fn.name === "ChatTranscript") acc.transcripts.push(el.key);
+    walk(fn(el.props), acc, hidden);
     return;
   }
+  const hides = hidden || el.props["aria-hidden"] === true || el.props["aria-hidden"] === "true";
+  const classes = typeof el.props.className === "string" ? el.props.className.split(" ") : [];
+  if (el.type === "li" && classes.includes("ai-chat__line")) {
+    acc.lines.push({
+      key: el.key,
+      className: el.props.className as string,
+      text: textOf(el.props.children),
+      hidden: hides,
+      // React 19: a host element's ref is one of its props.
+      ref: el.props.ref,
+    });
+  }
+  if (el.type === "span" && classes.includes("ai-chat__dot")) acc.dots.push({ hidden: hides });
   if (el.type === "button") {
     acc.buttons.push({
       text: textOf(el.props.children).trim(),
@@ -221,10 +261,10 @@ function walk(node: ReactNode, acc: Collected): void {
     acc.links.push({ href: String(el.props.href), text: textOf(el.props.children).trim() });
   }
   if (el.props["aria-live"] === "polite") acc.ariaLiveCount += 1;
-  walk(el.props.children, acc);
+  walk(el.props.children, acc, hides);
 }
 
-function render(seed: {
+interface Seed {
   convo?: Convo | null;
   text?: string;
   error?: string | null;
@@ -241,9 +281,19 @@ function render(seed: {
   /** #2645 — the 16-trade catalogue the page served (default: two trades). */
   postingTrades?: Array<ReturnType<typeof tradeRow>>;
   postingTradesProblem?: unknown;
-}): Collected {
+}
+
+/** A freshly MOUNTED chat in the seeded state. */
+function render(seed: Seed): Collected {
+  mountedState = [];
+  return rerender(seed);
+}
+
+/** The SAME mounted chat re-rendered in the seeded state: its unseeded state is kept (W6). */
+function rerender(seed: Seed): Collected {
   // useState order in the source: convo, text, error, navigating, roleKind, area, areaTouched,
-  // acting, tradeRefusedFor.
+  // acting, tradeRefusedFor — then the transcript's own (unseeded: kept per mount, see
+  // `mountedState`).
   stateQueue = [
     seed.convo ?? null,
     seed.text ?? "",
@@ -263,7 +313,16 @@ function render(seed: {
     postingTrades: (seed.postingTrades ?? TRADES) as never,
     postingTradesProblem: (seed.postingTradesProblem ?? null) as never,
   }) as ReactElement;
-  const acc: Collected = { buttons: [], texts: [], fields: [], ariaLiveCount: 0, links: [] };
+  const acc: Collected = {
+    buttons: [],
+    texts: [],
+    fields: [],
+    ariaLiveCount: 0,
+    links: [],
+    lines: [],
+    dots: [],
+    transcripts: [],
+  };
   walk(tree, acc);
   return acc;
 }
@@ -720,5 +779,193 @@ describe("W4 — the chat's buttons", () => {
     expect(resuming.buttons.every((b) => b.disabled)).toBe(true);
     const starting = render({ resumable: [RESUMABLE], acting: "start" });
     expect(spinning(starting)).toEqual(["Start a new chat"]);
+  });
+});
+
+/* ── W6 (#2586): the transcript — new bubbles rise, the typing dots, the scroll ─── */
+
+describe("W6 — AI chat: each new bubble rises, the typing dots, auto-scroll to the latest", () => {
+  const RISES = "ai-chat__line--new";
+  const rises = (acc: Collected) => acc.lines.map((l) => l.className.split(" ").includes(RISES));
+  const ANSWER = { role: "payer" as const, text: "Night shift" };
+  const REPLY = { role: "assistant" as const, text: "What is the monthly pay?" };
+  /** The chat mounted on CONVO (the payer just sent ANSWER), then re-rendered while the turn runs. */
+  const sending = () => {
+    render({ convo: CONVO });
+    return rerender({
+      convo: { ...CONVO, lines: [...CONVO.lines, ANSWER], suggestions: [] },
+      acting: "send",
+    });
+  };
+  /** …and once the reply has landed (the turn is over). */
+  const replied = () => rerender({ convo: { ...CONVO, lines: [...CONVO.lines, ANSWER, REPLY] } });
+
+  it("a new chat's opener arrives settled: no rise, no scroll", () => {
+    const acc = render({ convo: { ...CONVO, lines: [CONVO.lines[0]!] } });
+    expect(acc.lines).toHaveLength(1);
+    expect(rises(acc)).toEqual([false]);
+    expect(acc.lines[0]!.ref).toBeUndefined();
+  });
+
+  it("a resumed transcript arrives settled too, however long — none of its lines rise or scroll", () => {
+    const acc = render({ convo: { ...CONVO, lines: [...CONVO.lines, REPLY, ANSWER, REPLY] } });
+    expect(rises(acc)).toEqual([false, false, false, false, false]);
+    expect(acc.lines.every((l) => l.ref === undefined)).toBe(true);
+  });
+
+  it("only a line added after the transcript mounted gets the rise class (and the reveal ref)", () => {
+    render({ convo: CONVO });
+    const acc = rerender({ convo: { ...CONVO, lines: [...CONVO.lines, REPLY] } });
+    expect(rises(acc)).toEqual([false, false, true]);
+    // A reply's reveal follows only a payer still at the end of the thread (below).
+    expect(acc.lines.map((l) => l.ref)).toEqual([undefined, undefined, revealReply]);
+    // The payer's colour class is untouched beside it.
+    expect(acc.lines[1]!.className).toBe("ai-chat__line ai-chat__line--payer");
+    const answered = rerender({ convo: { ...CONVO, lines: [...CONVO.lines, REPLY, ANSWER] } });
+    expect(answered.lines.at(-1)!.className).toBe(`ai-chat__line ai-chat__line--payer ${RISES}`);
+    // The payer's own line always comes into view: it is their send.
+    expect(answered.lines.map((l) => l.ref)).toEqual([
+      undefined,
+      undefined,
+      revealReply,
+      revealLine,
+    ]);
+  });
+
+  it("while the send is in flight, the payer's answer rises in and a typing bubble closes the list", () => {
+    const acc = sending();
+    expect(rises(acc)).toEqual([false, false, true, true]);
+    const typing = acc.lines.at(-1)!;
+    expect(typing.className).toBe(`ai-chat__line ${RISES}`);
+    expect(typing.text).toBe("BadaBhai");
+    expect(acc.dots).toHaveLength(3);
+  });
+
+  it("the reply then takes the bubble's place: the dots are gone and the reply rises in", () => {
+    sending();
+    const acc = replied();
+    expect(acc.dots).toEqual([]);
+    expect(rises(acc)).toEqual([false, false, true, true]);
+    expect(acc.lines.at(-1)!.text).toContain(REPLY.text);
+    expect(acc.lines.every((l) => !l.hidden)).toBe(true);
+  });
+
+  it("the typing dots are drawn ONLY while the send is in flight — never at rest or for another action", () => {
+    const dotsAt = (seed: Seed) => render({ convo: CONVO, ...seed }).dots.length;
+    expect(dotsAt({ acting: "send" })).toBe(3);
+    expect(dotsAt({})).toBe(0);
+    expect(dotsAt({ error: "Could not send that — try again." })).toBe(0); // a failed turn
+    const ready = { ...CONVO, draftReady: true };
+    expect(dotsAt({ convo: ready, acting: "publish" })).toBe(0);
+    expect(dotsAt({ convo: ready, navigating: true })).toBe(0);
+  });
+
+  it("the dots are aria-hidden: the live list never announces them, and keeps every line it had", () => {
+    render({ convo: CONVO });
+    const idle = rerender({ convo: CONVO });
+    const waiting = rerender({ convo: CONVO, acting: "send" });
+    // The whole typing bubble is hidden, so every dot is too…
+    expect(waiting.dots.map((d) => d.hidden)).toEqual([true, true, true]);
+    expect(waiting.lines.filter((l) => l.hidden)).toEqual([waiting.lines.at(-1)]);
+    // …and what the polite list exposes is exactly what it exposed before: the same lines, same
+    // keys, so nothing in it is re-mounted (or re-announced) while the dots wait.
+    const exposed = (acc: Collected) =>
+      acc.lines.filter((l) => !l.hidden).map((l) => [l.key, l.className, l.text]);
+    expect(exposed(waiting)).toEqual(exposed(idle));
+    expect(waiting.ariaLiveCount).toBe(idle.ariaLiveCount);
+    // The payer typing on while it waits re-renders the chat, and changes nothing in the list.
+    const typingOn = rerender({ convo: CONVO, acting: "send", text: "and PF" });
+    expect(typingOn.lines).toEqual(waiting.lines);
+  });
+
+  it("auto-scroll targets the last line: the payer's send with its typing bubble, then the reply", () => {
+    // Each added line scrolls itself into view as it attaches, so the last one in is the one in
+    // view; a line already attached keeps the SAME ref, which React does not call again.
+    const waiting = sending();
+    expect(waiting.lines.slice(-2).map((l) => l.ref)).toEqual([revealLine, revealLine]);
+    const landed = replied();
+    expect(landed.lines.at(-1)!.ref).toBe(revealReply);
+    expect(landed.lines.at(-1)!.text).toContain(REPLY.text);
+    const later = rerender({
+      convo: { ...CONVO, lines: [...CONVO.lines, ANSWER, REPLY] },
+      text: "20000",
+    });
+    expect(later.lines.map((l) => l.ref)).toEqual(landed.lines.map((l) => l.ref));
+  });
+
+  it("the payer's send scrolls into view as it attaches — nearest, smoothly", () => {
+    const line = { scrollIntoView: vi.fn() };
+    revealLine(line as unknown as Element);
+    expect(line.scrollIntoView).toHaveBeenCalledWith({ block: "nearest", behavior: "smooth" });
+    // A detaching line (React hands the ref null) is ignored.
+    expect(() => revealLine(null)).not.toThrow();
+  });
+
+  /** A line at `top`..`bottom` in the viewport, after `before` (the line before it, if any). */
+  const lineAt = (top: number, bottom: number, before: Element | null = null) => ({
+    scrollIntoView: vi.fn(),
+    getBoundingClientRect: () => ({ top, bottom }),
+    previousElementSibling: before,
+  });
+  const lineBefore = (top: number, bottom: number) => lineAt(top, bottom) as unknown as Element;
+
+  it("a reply follows only a payer still at the end of the thread — one who scrolled away stays put", () => {
+    vi.stubGlobal("window", { innerHeight: 800, matchMedia: () => ({ matches: false }) });
+    try {
+      const scrolls = (reply: ReturnType<typeof lineAt>) => {
+        revealReply(reply as unknown as Element);
+        return reply.scrollIntoView.mock.calls.length > 0;
+      };
+      // At the end: the reply lands where the typing bubble was, on screen…
+      const followed = lineAt(700, 860, lineBefore(560, 690));
+      expect(scrolls(followed)).toBe(true);
+      expect(followed.scrollIntoView).toHaveBeenCalledWith({ block: "nearest", behavior: "smooth" });
+      // …or just under the fold, with the payer's answer above it still in view.
+      expect(scrolls(lineAt(812, 900, lineBefore(700, 802)))).toBe(true);
+      // Scrolled up to re-read an earlier answer: both are below the viewport.
+      expect(scrolls(lineAt(1500, 1600, lineBefore(1400, 1490)))).toBe(false);
+      // One column, scrolled down to the draft under the thread: both are above it.
+      expect(scrolls(lineAt(-300, -200, lineBefore(-420, -310)))).toBe(false);
+      // Touching an edge is not on screen.
+      expect(scrolls(lineAt(800, 900, lineBefore(-100, 0)))).toBe(false);
+      // With no line before it, the reply follows its own place.
+      expect(scrolls(lineAt(100, 200))).toBe(true);
+      expect(scrolls(lineAt(900, 1000))).toBe(false);
+      // Detached or hidden, a line measures 0×0 at the origin, so it is off screen.
+      expect(scrolls(lineAt(0, 0, lineBefore(0, 0)))).toBe(false);
+      // A detaching reply (React hands the ref null) is ignored.
+      expect(() => revealReply(null)).not.toThrow();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("under reduced motion the scroll lands at once — no smooth behaviour", () => {
+    for (const reduce of [true, false]) {
+      vi.stubGlobal("window", {
+        innerHeight: 800,
+        matchMedia: (q: string) => ({
+          matches: reduce && q === "(prefers-reduced-motion: reduce)",
+        }),
+      });
+      try {
+        // The payer's send, and a reply the payer is still at the end for.
+        for (const reveal of [revealLine, revealReply]) {
+          const line = lineAt(700, 760);
+          reveal(line as unknown as Element);
+          expect(line.scrollIntoView, reveal.name).toHaveBeenCalledWith({
+            block: "nearest",
+            behavior: reduce ? "auto" : "smooth",
+          });
+        }
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    }
+  });
+
+  it("the transcript is keyed on its conversation, so another one mounts afresh (settled)", () => {
+    expect(render({ convo: CONVO }).transcripts).toEqual([SESSION_ID]);
+    expect(render({ resumable: [RESUMABLE] }).transcripts).toEqual([]);
   });
 });

@@ -8072,13 +8072,15 @@ body:has(.invite-landing) .chrome-footer {
 }
 
 /* ===== W6 #2586 — page transitions + list motion ===== */
-/* The route entrance, the list entrance, the rail's gliding marker, the drawer scrim and the row
-   arrows. Durations and curves are the #2570 motion tokens only. It animates opacity and transform
-   only, enters with --ease-enter and leaves with --ease-exit, never loops, and never holds input
-   (nothing here delays a control or blocks the pointer). Travel is --motion-rise (6px) at most —
-   the rail marker is the one indicator, and it glides between rows. ALL of it is zero under
-   prefers-reduced-motion: the tokens collapse to 0 there, and the block's reduced-motion rule
-   (its last) switches each animation and transition off, so nothing even jumps a 0ms keyframe. */
+/* The route entrance, the list entrance, the rail's gliding marker, the drawer scrim, the row
+   arrows, and the AI chat's new bubbles and typing dots. Durations and curves are the #2570 motion
+   tokens only. It animates opacity and transform only, enters with --ease-enter and leaves with
+   --ease-exit, and never holds input (nothing here delays a control or blocks the pointer). Nothing
+   loops except the typing dots, a progress cue drawn only while a reply is awaited. Travel is
+   --motion-rise (6px) at most — the rail marker is the one indicator, and it glides between rows.
+   ALL of it is zero under prefers-reduced-motion: the tokens collapse to 0 there, and the block's
+   reduced-motion rule (its last) switches each animation and transition off, so nothing even jumps
+   a 0ms keyframe. */
 
 /* 1 · ROUTE CHANGE. The content column is keyed on the PATH ((portal)/route-content.tsx), so a
    route change mounts a fresh one and this plays: the content fades in with a --motion-rise rise
@@ -8246,10 +8248,63 @@ body:has(.invite-landing) .chrome-footer {
   transform: translateX(4px);
 }
 
-/* Reduced motion: nothing above moves — no entrance, no stagger, no glide, no fade, no nudge. */
+/* 6 · THE AI CHAT ((portal)/postings/ai/new/job-posting-chat.tsx). A line added after the
+   transcript mounted rises in once (`ai-chat__line--new`): the payer's answer, the reply, and the
+   typing bubble. It fades in with a --motion-rise lift over 2 × --duration-press (180ms) on
+   --ease-enter; 180ms has no token of its own, and admin-web's nav groups name it the same way.
+   The lines a transcript mounts with (a new chat's opener, a resumed conversation) never get the
+   class, so they never move. The typing bubble is drawn only while a reply is awaited. Its three
+   dots pulse on the nav cue's beat (opacity only, --duration-slower each way), each dot a fifth of
+   a cycle behind the one before. They are the one loop here, and they stop when the bubble goes.
+   The payer's send (their line, the typing bubble) scrolls itself into view (`nearest`). The reply
+   does too, but only while the payer is still at the end of the thread. The scroll margin lands
+   each line below the sticky header. */
+.ai-chat__lines > li {
+  scroll-margin-top: var(--posting-rail-top);
+}
+.ai-chat__line--new {
+  animation: chat-line-enter calc(var(--duration-press) * 2) var(--ease-enter);
+}
+@keyframes chat-line-enter {
+  from {
+    opacity: 0;
+    transform: translateY(var(--motion-rise));
+  }
+}
+/* One text line tall (the line's own leading), so the reply that replaces the bubble keeps its
+   height. */
+.ai-chat__dots {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  block-size: calc(var(--leading-normal) * 1em);
+}
+.ai-chat__dot {
+  inline-size: var(--space-2);
+  block-size: var(--space-2);
+  border-radius: var(--radius-round);
+  background: var(--text-muted);
+  animation: chat-typing-pulse var(--duration-slower) var(--ease-in-out) infinite alternate;
+}
+.ai-chat__dot:nth-child(2) {
+  animation-delay: calc(var(--duration-slower) * 0.4);
+}
+.ai-chat__dot:nth-child(3) {
+  animation-delay: calc(var(--duration-slower) * 0.8);
+}
+@keyframes chat-typing-pulse {
+  to {
+    opacity: 0.4;
+  }
+}
+
+/* Reduced motion: nothing above moves — no entrance, no stagger, no glide, no fade, no nudge, no
+   rise, no pulse (the dots stand still at full strength). */
 @media (prefers-reduced-motion: reduce) {
   .pshell__main > .pshell__content,
-  .pshell__content[data-entering] :is(.attention__list, .dash-postings, .dash-candlist, .postings-list, .agency-jobs__list, .applicants-list) > * {
+  .pshell__content[data-entering] :is(.attention__list, .dash-postings, .dash-candlist, .postings-list, .agency-jobs__list, .applicants-list) > *,
+  .ai-chat__line--new,
+  .ai-chat__dot {
     animation: none;
   }
   .pnav[data-marker] .pnav__marker,
