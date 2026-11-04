@@ -403,7 +403,7 @@ const REASON_COLUMNS: readonly GridColumn<ReasonBucket>[] = [
     id: "net",
     header: "Net credits",
     width: "number",
-    className: "mono ui-num",
+    className: "ui-num",
     cell: (b) => formatDelta(b.credits_delta),
   },
   {
@@ -434,7 +434,7 @@ const BALANCE_COLUMNS: readonly GridColumn<TopBalance>[] = [
     id: "balance",
     header: "Balance",
     width: "number",
-    className: "mono ui-num",
+    className: "ui-num",
     cell: (b) => formatCount(b.balance),
   },
 ];
@@ -477,7 +477,7 @@ const LEDGER_COLUMNS: readonly GridColumn<LedgerRow>[] = [
     id: "credits",
     header: "Credits",
     width: "number",
-    className: "mono ui-num",
+    className: "ui-num",
     cell: (row) => formatDelta(row.delta),
   },
   {

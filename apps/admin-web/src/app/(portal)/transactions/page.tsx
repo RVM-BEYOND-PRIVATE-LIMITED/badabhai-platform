@@ -333,14 +333,14 @@ function orderColumns(mock: boolean): GridColumn<OrderRow>[] {
       id: "amount",
       header: "Amount",
       width: "money",
-      className: "mono ui-num",
+      className: "ui-num",
       cell: (o) => formatRupees(o.amount_inr),
     },
     {
       id: "credits",
       header: "Credits",
       width: "number",
-      className: "mono ui-num",
+      className: "ui-num",
       cell: (o) => formatCount(o.credits_granted),
     },
     {
