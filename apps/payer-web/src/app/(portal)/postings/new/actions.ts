@@ -32,9 +32,11 @@ import { workerCardGap } from "../../../../lib/worker-card-gap";
  * after the publish; null when unpublished or when that read failed (the confirmation then shows
  * no count, never a guessed one).
  *
- * #2645 — A COMPANY JOB IS ALWAYS ONE OF THE 16 TRADES (#2635). The role is REQUIRED here too (the
- * form's check is UX; this is the boundary), and the trade form always rides the create (`{}` when
- * no chip was picked), so the server derives the match set from the trade. A publish the API
+ * #2645 — A COMPANY JOB IS ALWAYS ONE OF THE 16 TRADES (#2635). This action refuses a MISSING role,
+ * a presence-only backstop: the form checks the pick against the 16 the API served, this app keeps
+ * no copy of that list, and which roles are postable is the API's call (it refuses any other role
+ * with a 400). The trade form always rides the create (`{}` when no chip was picked), so the
+ * server derives the match set from the trade. A publish the API
  * refuses with `posting_trade_required` leaves the created draft: `tradeRequired` tells the form to
  * open that draft's edit page at its trade picker.
  */
@@ -77,7 +79,8 @@ export async function createPostingAction(input: {
   matchSkillIds: string[];
   untickedRelatedIds: string[];
 }): Promise<CreatePostingResult> {
-  // #2645 — refused BEFORE anything is created: a job without a trade could never go live.
+  // #2645 — no role is refused BEFORE anything is created: a job without a trade could never go
+  // live. Presence only (see above); the API decides whether a given role is one of the 16.
   if (!input.roleKind) {
     return {
       ok: false,

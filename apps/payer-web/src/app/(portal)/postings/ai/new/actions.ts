@@ -114,7 +114,9 @@ export async function resumeJobPostingChatAction(input: {
  * `roleKind` (#2490) is the publish-step role pick — the same closed set the manual form
  * re-validates. REQUIRED since #2645: it is the draft's trade, and a company job that names none
  * of the 16 can never go live (#2635), so a publish without one is refused here, before anything
- * is sent (the chat checks it against the 16 the API served first). It also picks the card art.
+ * is sent. That check is presence only, a backstop: the chat checks the pick against the 16 the
+ * API served first, and which roles are postable is the API's call (a draft created with any other
+ * role is refused when it is published, at Edit's trade picker). It also picks the card art.
  *
  * `area` (#2493) is the COARSE locality bucket — prefilled from the interview draft and
  * editable at publish. OPTIONAL: absent stores NULL, so the worker card shows the city alone.
