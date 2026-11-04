@@ -89,6 +89,16 @@ void main() {
         .any((MethodCall call) => call.method == 'SystemNavigator.pop');
   }
 
+  /// [systemBack] without settling — for asserting a transition mid-flight.
+  Future<void> systemBackNoSettle(WidgetTester tester) async {
+    await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
+      'flutter/navigation',
+      const JSONMethodCodec().encodeMethodCall(const MethodCall('popRoute')),
+      (ByteData? _) {},
+    );
+    await tester.pump();
+  }
+
   /// Taps a bottom-nav destination by label. Scoped to [BbBottomNav] because a
   /// mounted-but-hidden tab can carry the same word in its own body.
   Future<void> tapNav(WidgetTester tester, String label) async {
@@ -224,6 +234,36 @@ void main() {
             first, tester.widget<PostJobScreen>(find.byType(PostJobScreen))),
         isFalse,
       );
+    });
+  });
+
+  group('#2591 — in-shell overlays animate in and out', () {
+    testWidgets('Post fades + slides over Home, then back out',
+        (WidgetTester tester) async {
+      await pumpShell(tester);
+      await tester.tap(find.descendant(
+        of: find.byType(HomeScreen),
+        matching: find.text('Post a job'),
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      // Mid-transition both are on stage: the overlay no longer hard-cuts.
+      expect(find.byType(PostJobScreen), findsOneWidget);
+      expect(find.byType(HomeScreen), findsOneWidget);
+
+      await tester.pumpAndSettle();
+      // Fully open: Home stays mounted but offstage (its state survives).
+      expect(find.byType(HomeScreen), findsNothing);
+      expect(find.byType(HomeScreen, skipOffstage: false), findsOneWidget);
+
+      await systemBackNoSettle(tester);
+      await tester.pump(const Duration(milliseconds: 100));
+      // Mid-exit: Post is still painted while Home is back on stage.
+      expect(find.byType(PostJobScreen), findsOneWidget);
+      expect(find.byType(HomeScreen), findsOneWidget);
+
+      await tester.pumpAndSettle();
+      expect(find.byType(PostJobScreen, skipOffstage: false), findsNothing);
     });
   });
 }

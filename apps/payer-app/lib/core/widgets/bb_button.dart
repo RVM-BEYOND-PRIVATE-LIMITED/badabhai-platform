@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart' show HapticFeedback;
 
 import '../theme/app_colors.dart';
+import '../theme/app_haptics.dart';
 import '../theme/app_spacing.dart';
 import '../theme/app_theme.dart';
 import '../theme/app_typography.dart';
+import 'bb_pressable.dart';
 
 /// Visual style of a [BbButton]. Mirrors the JUL31 kit's `BBButtonKind`
 /// (primary · navy · success · outline) plus the payer-app's own quiet
@@ -79,7 +80,7 @@ class BbButton extends StatelessWidget {
     final VoidCallback? effectiveOnPressed = (loading || onPressed == null)
         ? null
         : () {
-            HapticFeedback.lightImpact();
+            AppHaptics.tap();
             onPressed!();
           };
 
@@ -202,7 +203,19 @@ class BbButton extends StatelessWidget {
         ),
     };
 
-    return block ? SizedBox(width: double.infinity, child: button) : button;
+    // #2591 — every button presses down to 0.97; the ONE primary CTA also
+    // carries the 3px navy edge that collapses on press. The Material button
+    // keeps its own tap + haptic, so the press is read passively.
+    final Widget pressable = BbPressable.passive(
+      enabled: effectiveOnPressed != null,
+      edge: variant == BbButtonVariant.primary,
+      borderRadius: BorderRadius.circular(AppRadii.md),
+      child: button,
+    );
+
+    return block
+        ? SizedBox(width: double.infinity, child: pressable)
+        : pressable;
   }
 }
 

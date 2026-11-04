@@ -7,6 +7,7 @@ import '../../../core/util/phone_format.dart';
 import '../../../core/di/locator.dart';
 import '../../../core/session/app_session.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/app_motion.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/bb_alert_dialog.dart';
@@ -209,6 +210,7 @@ class _AccountView extends StatelessWidget {
     final AccountCubit cubit = context.read<AccountCubit>();
     await showModalBottomSheet<void>(
       context: context,
+      sheetAnimationStyle: AppMotion.sheetStyle(context),
       isScrollControlled: true,
       backgroundColor: AppColors.surfaceCard,
       shape: const RoundedRectangleBorder(

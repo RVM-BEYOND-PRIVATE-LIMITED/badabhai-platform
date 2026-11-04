@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_spacing.dart';
 import '../theme/app_typography.dart';
+import 'bb_pressable.dart';
 
 /// Trend direction of a [BbStat] delta — `.bb-stat__delta--*`.
 enum BbStatDelta { up, down, flat }
@@ -94,7 +95,9 @@ class BbStat extends StatelessWidget {
           ),
           const SizedBox(height: AppSpacing.s1),
           if (onDeltaTap != null)
-            InkWell(
+            // #2591 — BbPressable brings its own Material, so the ripple paints
+            // above the tile's white fill instead of under it (it was invisible).
+            BbPressable(
               onTap: onDeltaTap,
               borderRadius: BorderRadius.circular(AppRadii.xs),
               // A visually-small delta link ("View ledger") must still meet the

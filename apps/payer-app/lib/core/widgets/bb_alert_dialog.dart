@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../theme/app_colors.dart';
+import '../theme/app_haptics.dart';
 import '../theme/app_spacing.dart';
 import '../theme/app_typography.dart';
 import 'bb_button.dart';
@@ -20,6 +21,9 @@ Future<void> showBbAlert(
   required String message,
   String okLabel = 'Theek hai',
 }) {
+  // #2591 — this alert carries a terminal error (e.g. the account is gone):
+  // the double error tick lands as it appears.
+  AppHaptics.error();
   return showDialog<void>(
     context: context,
     barrierDismissible: false,
@@ -163,7 +167,11 @@ Future<bool> showBbConfirm(
                         ? BbButtonVariant.danger
                         : BbButtonVariant.primary,
                     size: BbButtonSize.md,
-                    onPressed: () => Navigator.of(dialogContext).pop(true),
+                    onPressed: () {
+                      // #2591 — medium haptic on a confirmed choice.
+                      AppHaptics.confirm();
+                      Navigator.of(dialogContext).pop(true);
+                    },
                   ),
                 ),
               ],
