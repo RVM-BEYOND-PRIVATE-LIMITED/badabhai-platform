@@ -17,13 +17,29 @@ export interface NavMarker {
  * The marker's place over the active row, or null when there is no row to mark: no active item
  * (a page off the nav), or its group is collapsed (the row is not rendered). Measured from the
  * DOM, so it is right whatever the row heights are (a coarse pointer's 44px rows, a wrapped
- * label) and wherever the nav has scrolled to.
+ * label) and wherever the sidebar has scrolled to.
+ *
+ * It reads the LAYOUT boxes (`offsetTop`, `offsetHeight`), never where the row is drawn: a group
+ * that has just opened is still sliding down into place (`nav-group-in`), so a client rect taken
+ * then is up to --motion-rise short — and nothing measures again once it settles, since a
+ * transform resizes nothing. The offsets are summed up the whole offset-parent chain to the nav
+ * (its positioning box): a row's `li` is positioned, and while that slide runs the browser makes
+ * the transformed list the `li`'s offset parent too, so one step up would land on the list, not
+ * the nav. A chain that never reaches the nav (no stylesheet) has nothing to mark.
  */
 export function measureMarker(nav: HTMLElement): NavMarker | null {
   const row = nav.querySelector<HTMLElement>(".sidebar__link.is-active");
   if (!row || row.getClientRects().length === 0) return null;
-  const box = row.getBoundingClientRect();
-  return { top: box.top - nav.getBoundingClientRect().top, height: box.height };
+  let top = 0;
+  let box: HTMLElement | null = row;
+  while (box && box !== nav) {
+    top += box.offsetTop;
+    const parent = box.offsetParent as HTMLElement | null;
+    // An offset is measured to its parent's padding edge: a parent's own border is a step too.
+    if (parent && parent !== nav) top += parent.clientTop;
+    box = parent;
+  }
+  return box === nav ? { top, height: row.offsetHeight } : null;
 }
 
 /**

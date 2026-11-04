@@ -150,19 +150,34 @@ describe("a group opens and closes from its title", () => {
 });
 
 describe("the active marker", () => {
-  /** A stand-in nav whose active row sits `top` px down, `height` tall. */
+  /**
+   * A stand-in nav whose active row sits `top` px down it, `height` tall: its layout (the link in
+   * a positioned `li`, the `li` in the nav), and where it is DRAWN — its client rect, `slide` px
+   * short while its group's list is still sliding open (a transform moves paint, never layout).
+   * `rendered: false` is the row inside a closed group: no box at all.
+   */
   function standInNav(top: number, height: number) {
-    const row = {
-      getBoundingClientRect: () => ({ top: 100 + top, height }),
-      getClientRects: () => ({ length: 1 }),
-    };
-    return {
+    const nav = {
+      offsetTop: 0,
+      clientTop: 0,
+      offsetParent: null,
+      rendered: true,
+      slide: 0,
       getBoundingClientRect: () => ({ top: 100, height: 600 }),
       querySelector: () => row,
       move(nextTop: number) {
-        row.getBoundingClientRect = () => ({ top: 100 + nextTop, height });
+        li.offsetTop = nextTop;
       },
     };
+    const li = { offsetTop: top, clientTop: 0, offsetParent: nav };
+    const row = {
+      offsetTop: 0,
+      offsetHeight: height,
+      offsetParent: li,
+      getClientRects: () => ({ length: nav.rendered ? 1 : 0 }),
+      getBoundingClientRect: () => ({ top: 100 + li.offsetTop - nav.slide, height }),
+    };
+    return nav;
   }
   const markerEffect = () =>
     h.effects.find((e) => e.deps?.includes("/jobs") || e.deps?.includes("/credits"));
@@ -225,6 +240,32 @@ describe("the active marker", () => {
     expect(h.harness!.slots.find((v) => v && typeof v === "object" && "top" in v)).toBe(placed);
     (cleanup as () => void)();
     expect(disconnect).toHaveBeenCalled();
+  });
+
+  it("re-opening the active row's own group puts it ON the row — not where the slide begins", () => {
+    // The A6 review's marker finding: the effect (and the ResizeObserver's first call) measure in the frame the
+    // group opens, when nav-group-in still holds its list 6px up; nothing measures again after,
+    // since a transform resizes nothing. A reading of where the row was DRAWN stuck 6px high.
+    const nav = standInNav(144, 36);
+    h.nav = nav;
+    render();
+    markerEffect()!.run();
+    // The operator closes Directory, the page's own group: no row, so no marker.
+    click(toggleOf(render(), "Directory"));
+    nav.rendered = false;
+    render();
+    markerEffect()!.run();
+    expect(byClass(render(), "sidebar__marker")).toEqual([]);
+    // …and opens it again, measured mid-slide.
+    click(toggleOf(render(), "Directory"));
+    nav.rendered = true;
+    nav.slide = 6;
+    render();
+    markerEffect()!.run();
+    expect(byClass(render(), "sidebar__marker")[0]!.props.style).toEqual({
+      "--nav-marker-y": "144px",
+      "--nav-marker-h": "36px",
+    });
   });
 
   it("is removed when there is no row to mark, and the rows draw their own wash again", () => {

@@ -129,33 +129,79 @@ describe("SidebarNav — the active marker before it is measured", () => {
 });
 
 describe("measureMarker", () => {
-  const rect = (top: number, height: number) => ({ top, height }) as DOMRect;
-  const navAt = (top: number, row: unknown) =>
-    ({
-      getBoundingClientRect: () => rect(top, 400),
+  /** A box in the offset-parent chain: its layout offset, its top border, its offset parent. */
+  type Box = { offsetTop: number; clientTop: number; offsetParent: Box | null };
+  const box = (offsetTop: number, offsetParent: Box | null, clientTop = 0): Box => ({
+    offsetTop,
+    clientTop,
+    offsetParent,
+  });
+  /** The nav (drawn `offsetTop` px down the page), holding `row` — its active link — inside. */
+  const navWith = (row: unknown, nav: Box = box(100, null)) =>
+    Object.assign(nav, {
+      getBoundingClientRect: () => ({ top: nav.offsetTop, height: 400 }) as DOMRect,
       querySelector: (selector: string) => {
         expect(selector).toBe(".sidebar__link.is-active");
         return row;
       },
     }) as unknown as HTMLElement;
-  const rowAt = (top: number, height: number, rendered = true) => ({
-    getBoundingClientRect: () => rect(top, height),
+  /**
+   * The active link inside its positioned `li` (the link's offset parent); `drawnAt` is where it
+   * is PAINTED — its client rect, which a transform moves and the layout offsets do not.
+   */
+  const rowIn = (li: Box, height: number, drawnAt = 0, rendered = true) => ({
+    ...box(0, li),
+    offsetHeight: height,
     getClientRects: () => ({ length: rendered ? 1 : 0 }),
+    getBoundingClientRect: () => ({ top: drawnAt, height }) as DOMRect,
   });
 
-  it("is the active row's offset from the nav's top, and its height", async () => {
+  it("is the active row's layout offset in the nav, and its height", async () => {
     const { measureMarker } = await import("./nav");
-    expect(measureMarker(navAt(100, rowAt(244, 36)))).toEqual({ top: 144, height: 36 });
+    const nav = box(100, null);
+    expect(measureMarker(navWith(rowIn(box(144, nav), 36), nav))).toEqual({
+      top: 144,
+      height: 36,
+    });
+  });
+
+  it("is where the row SETTLES while its group is still sliding open, not where it is drawn", async () => {
+    // Re-opening the active row's own group: its list runs nav-group-in from 6px up. Mid-slide the
+    // browser makes the transformed list the li's offset parent, and the row is DRAWN 6px short
+    // (100 + 128 on the page) — a client-rect reading parked the marker there for good.
+    const { measureMarker } = await import("./nav");
+    const nav = box(100, null);
+    const list = box(98, nav);
+    const li = box(36, list);
+    expect(measureMarker(navWith(rowIn(li, 36, 100 + 128), nav))).toEqual({
+      top: 134,
+      height: 36,
+    });
+  });
+
+  it("counts every positioned box's border on the way up — an offset ends at a padding edge", async () => {
+    const { measureMarker } = await import("./nav");
+    const nav = box(100, null);
+    const li = box(140, nav, 2);
+    expect(measureMarker(navWith(rowIn(li, 36), nav))).toEqual({ top: 142, height: 36 });
   });
 
   it("follows the row's own height (a 44px touch row)", async () => {
     const { measureMarker } = await import("./nav");
-    expect(measureMarker(navAt(0, rowAt(48, 44)))).toEqual({ top: 48, height: 44 });
+    const nav = box(0, null);
+    expect(measureMarker(navWith(rowIn(box(48, nav), 44), nav))).toEqual({ top: 48, height: 44 });
   });
 
   it("is null with no active row, or with the row in a closed group (not rendered)", async () => {
     const { measureMarker } = await import("./nav");
-    expect(measureMarker(navAt(0, null))).toBeNull();
-    expect(measureMarker(navAt(0, rowAt(48, 36, false)))).toBeNull();
+    const nav = box(0, null);
+    expect(measureMarker(navWith(null, nav))).toBeNull();
+    expect(measureMarker(navWith(rowIn(box(48, nav), 36, 0, false), nav))).toBeNull();
+  });
+
+  it("is null when the chain never reaches the nav (no stylesheet: nothing is positioned)", async () => {
+    const { measureMarker } = await import("./nav");
+    const body = box(0, null);
+    expect(measureMarker(navWith(rowIn(box(48, body), 36)))).toBeNull();
   });
 });
