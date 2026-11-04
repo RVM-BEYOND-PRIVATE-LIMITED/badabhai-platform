@@ -1,5 +1,5 @@
 {
-  "$comment": "THE PAYER ALL-CANDIDATES SEARCH CONTRACT (ADR-0040, phase E2; owner rulings 2026-11-03). One wire example per route, consumed by three parsers that must agree: the API (apps/api/src/candidates/candidate-search.contract.test.ts parses every request with CandidateSearchSchema and checks the response/filters examples carry exactly the DTO's keys), payer-web (apps/payer-web/src/lib/candidate-search.contract.test.ts parses them with its own Zod wire schemas) and the payer app (apps/payer-app/test/core/data/candidate_search_contract_test.dart parses them with fromJson). Request bodies are snake_case and responses camelCase, matching the routes beside them. Every value is synthetic: the workerIds are the synthetic-workforce seed's face… namespace and the cursor is a real server-minted one. A MASKED candidate carries no name, phone, photo, employer, salary, address or free text — if a key is added here, all three parsers must learn it in the same change.",
+  "$comment": "THE PAYER ALL-CANDIDATES SEARCH CONTRACT (ADR-0040, phase E2; owner rulings 2026-11-03). One wire example per route, consumed by three parsers that must agree: the API (apps/api/src/candidates/candidate-search.contract.test.ts parses every request with CandidateSearchSchema and checks the response/filters examples carry exactly the DTO's keys), payer-web (apps/payer-web/src/lib/candidate-search.contract.test.ts parses them with its own Zod wire schemas) and the payer app (apps/payer-app/test/core/data/candidate_search_contract_test.dart parses them with fromJson). Request bodies are snake_case and responses camelCase, matching the routes beside them. Every value is synthetic: the first workerId is a random v4 id (a real-shaped worker, isSample false), the second is the synthetic-workforce seed's face… namespace (isSample true — R74, badged 'Sample candidate', never unlockable), and the cursor is a real server-minted one. A MASKED candidate carries no name, phone, photo, employer, salary, address or free text — if a key is added here, all three parsers must learn it in the same change.",
   "version": 1,
   "routes": {
     "search": { "method": "POST", "path": "/payer/candidates/search" },
@@ -29,7 +29,7 @@
     "strict": false,
     "candidates": [
       {
-        "workerId": "face2000-0000-4000-8000-000000000003",
+        "workerId": "3f6c1a2e-9b4d-4c7e-8a1f-2d5e6b7c8a90",
         "matchesFilters": true,
         "matchTier": 1,
         "role": { "id": "mskill_cnc_turner", "label": "CNC Turner" },
@@ -46,7 +46,8 @@
             "tradeLevelLabel": "Setter",
             "levelConfirmed": true
           }
-        ]
+        ],
+        "isSample": false
       },
       {
         "workerId": "face2000-0000-4000-8000-000000000007",
@@ -58,7 +59,8 @@
         "industry": { "id": "ind_industrial_manufacturing", "label": "Industrial Manufacturing" },
         "industryMonths": null,
         "city": null,
-        "tradeLevels": []
+        "tradeLevels": [],
+        "isSample": true
       }
     ],
     "nextCursor": "eyJ2IjoxLCJmIjoiS3RVNlZSbElVLUY1bUFWaWJTUUd5bSIsInciOiJmYWNlMjAwMC0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDAwMDciLCJvIjoyMH0"

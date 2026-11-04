@@ -11,6 +11,7 @@ import type { WorkersRepository } from "../workers/workers.repository";
 import type { PiiCryptoService } from "../common/pii-crypto.service";
 import { DEFAULT_CATALOG } from "@badabhai/pricing";
 import { DEFAULT_MATCH_CONFIG } from "@badabhai/match-engine";
+import { workforceUuid } from "@badabhai/db";
 import { UnlockService } from "./unlocks.service";
 import type { UnlocksRepository } from "./unlocks.repository";
 import type { PricingService } from "../pricing/pricing.service";
@@ -1147,6 +1148,36 @@ describe("UnlockService — reveal ownership (XB-A: payer-self path, ADR-0019)",
     const out = await r.svc.reveal("unlock-1", CTX); // ops path — no expectedPayerId
     expect(out).toMatchObject({ channel: "in_app_relay" });
     expect(emitted(r.events)).toContain("contact.revealed");
+  });
+});
+
+// ---- R74 (owner ruling 2026-11-04): a SAMPLE candidate is never unlocked ----
+
+describe("UnlockService — R74 sample candidates (seeded workers) are never unlocked", () => {
+  const SAMPLE = workforceUuid("worker", 7);
+
+  it("a consented sample worker → the neutral body; no tx, no debit, no deny row", async () => {
+    const t = setup({ balance: 5, consentPurposes: ["employer_sharing"] });
+    const out = await t.svc.requestUnlock({ payerId: PAYER, workerId: SAMPLE, jobId: null }, CTX);
+    expect(JSON.stringify(out)).toBe(JSON.stringify(neutralUnavailable()));
+    expect(t.repo.withTransaction).not.toHaveBeenCalled();
+    expect(t.txMethods.tryDebit).not.toHaveBeenCalled();
+    expect(t.txMethods.recordDeny).not.toHaveBeenCalled();
+    expect(emitted(t.events)).toEqual(["unlock.requested"]);
+  });
+
+  it("the SAME setup with a real worker id is granted (the gate is the id, nothing else)", async () => {
+    const t = setup({ balance: 5, consentPurposes: ["employer_sharing"] });
+    const out = await t.svc.requestUnlock({ payerId: PAYER, workerId: WORKER, jobId: null }, CTX);
+    expect(JSON.stringify(out)).not.toBe(JSON.stringify(neutralUnavailable()));
+    expect(t.txMethods.tryDebit).toHaveBeenCalled();
+  });
+
+  it("runs AFTER the credit precondition: a zero-balance payer gets the usual no-credit path", async () => {
+    const t = setup({ balance: 0, consentPurposes: ["employer_sharing"] });
+    const out = await t.svc.requestUnlock({ payerId: PAYER, workerId: SAMPLE, jobId: null }, CTX);
+    expect(JSON.stringify(out)).toBe(JSON.stringify(neutralUnavailable()));
+    expect(emitted(t.events)).toEqual(["unlock.requested", "payment.failed"]);
   });
 });
 

@@ -103,6 +103,10 @@ void main() {
           isTrue);
       expect(rows.any((CandidateSearchRow r) => !r.matchesFilters), isTrue);
       expect(rows.any((CandidateSearchRow r) => r.matchTier == 2), isTrue);
+      // R74: one real-shaped row and one sample, so a parser that ignores
+      // the flag (always false) fails the field-for-field check above.
+      expect(rows.any((CandidateSearchRow r) => r.isSample), isTrue);
+      expect(rows.any((CandidateSearchRow r) => !r.isSample), isTrue);
     });
   });
 
@@ -195,6 +199,7 @@ const Set<String> _rowKeys = <String>{
   'industryMonths',
   'city',
   'tradeLevels',
+  'isSample',
 };
 
 const Set<String> _levelKeys = <String>{
@@ -244,6 +249,8 @@ void _expectRow(CandidateSearchRow r, Map<String, dynamic> w) {
   expect(r.industry, _labelled(w['industry']));
   expect(r.industryMonths, w['industryMonths']);
   expect(r.city, w['city']);
+  expect(w['isSample'], isA<bool>(), reason: 'always present on the wire');
+  expect(r.isSample, w['isSample']);
   final List<Map<String, dynamic>> levels =
       (w['tradeLevels'] as List<dynamic>).cast<Map<String, dynamic>>();
   expect(r.tradeLevels, hasLength(levels.length));

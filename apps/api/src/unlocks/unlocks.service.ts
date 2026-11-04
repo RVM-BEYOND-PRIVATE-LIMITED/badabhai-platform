@@ -3,6 +3,7 @@ import { InjectQueue } from "@nestjs/bullmq";
 import { Queue } from "bullmq";
 import { getRazorpayCredentials, type ServerConfig } from "@badabhai/config";
 import {
+  isSampleWorkerId,
   UNLOCK_WINDOW_DAYS,
   type UnlockDenyReason,
   type UnlockRouting,
@@ -284,6 +285,16 @@ export class UnlockService {
     // accrue no new rows keyed on them — unlock.requested (above) already audits the
     // attempt on the spine.
     if (await this.isPendingDeletion(workerId)) return neutralUnavailable();
+
+    // ---- R74 (owner ruling 2026-11-04) — a SAMPLE candidate is never unlocked ---------------
+    // The synthetic-workforce seed's workers hold `employer_sharing` so payers can see the pool,
+    // but they are not people: an unlock would spend a credit on a relay that reaches no one and a
+    // résumé that does not exist. Their cards say "Sample candidate" and offer no unlock; this is
+    // the server's half of that. A pure id test (no read), AFTER the credit precondition so a
+    // zero-balance payer still learns nothing from the worker id, and BEFORE the transaction, so
+    // nothing is debited or written. Same shape as the pending-deletion gate above: the neutral
+    // body, no deny row and no new deny reason (`unlock.requested` already audits the attempt).
+    if (isSampleWorkerId(workerId)) return neutralUnavailable();
 
     // From here, ALL deny branches return the same neutral body (F-3). The single
     // atomic transaction holds the advisory lock so caps cannot be raced (F-2) and the
