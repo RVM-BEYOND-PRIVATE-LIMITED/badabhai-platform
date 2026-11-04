@@ -9,13 +9,20 @@ import { createHookHarness, type HookHarness } from "../../test/hook-harness";
  * setState from a handler seen by the next render), effects are collected to be run by hand,
  * and its one ref is a stand-in nav element. What renders is read off the element tree.
  */
-type Effect = { run: () => void | (() => void); deps: readonly unknown[] | undefined };
+type Effect = {
+  run: () => void | (() => void);
+  deps: readonly unknown[] | undefined;
+  /** A layout effect: run by React before the browser paints. */
+  layout: boolean;
+};
 
 const h = vi.hoisted(() => ({
   harness: null as HookHarness | null,
   effects: [] as Effect[],
   pathname: "/jobs",
   nav: null as unknown,
+  /** How many times flushSync was asked to apply an update at once. */
+  flushed: 0,
 }));
 
 vi.mock("react", async (importOriginal) => {
@@ -26,10 +33,19 @@ vi.mock("react", async (importOriginal) => {
     useId: () => h.harness!.useId(),
     useRef: () => ({ current: h.nav }),
     useEffect: (run: Effect["run"], deps?: readonly unknown[]) => {
-      h.effects.push({ run, deps });
+      h.effects.push({ run, deps, layout: false });
+    },
+    useLayoutEffect: (run: Effect["run"], deps?: readonly unknown[]) => {
+      h.effects.push({ run, deps, layout: true });
     },
   };
 });
+vi.mock("react-dom", () => ({
+  flushSync: <T,>(fn: () => T): T => {
+    h.flushed++;
+    return fn();
+  },
+}));
 vi.mock("next/navigation", () => ({ usePathname: () => h.pathname }));
 
 const { SidebarNav } = await import("./nav");
@@ -82,6 +98,7 @@ beforeEach(() => {
   h.harness = createHookHarness();
   h.pathname = "/jobs";
   h.nav = null;
+  h.flushed = 0;
 });
 
 afterEach(() => {
@@ -154,7 +171,8 @@ describe("the active marker", () => {
    * A stand-in nav whose active row sits `top` px down it, `height` tall: its layout (the link in
    * a positioned `li`, the `li` in the nav), and where it is DRAWN — its client rect, `slide` px
    * short while its group's list is still sliding open (a transform moves paint, never layout).
-   * `rendered: false` is the row inside a closed group: no box at all.
+   * `rendered: false` is the row inside a closed group: no box at all; `closing: true`, its list
+   * already `hidden` but still laid out while its exit plays. `groups` are the nav's groups.
    */
   function standInNav(top: number, height: number) {
     const nav = {
@@ -162,9 +180,12 @@ describe("the active marker", () => {
       clientTop: 0,
       offsetParent: null,
       rendered: true,
+      closing: false,
       slide: 0,
+      groups: [{ group: "Home" }, { group: "Directory" }, { group: "Finance" }],
       getBoundingClientRect: () => ({ top: 100, height: 600 }),
       querySelector: () => row,
+      querySelectorAll: (selector: string) => (selector === ".sidebar__group" ? nav.groups : []),
       move(nextTop: number) {
         li.offsetTop = nextTop;
       },
@@ -174,17 +195,43 @@ describe("the active marker", () => {
       offsetTop: 0,
       offsetHeight: height,
       offsetParent: li,
+      closest: (selector: string) => (selector === "[hidden]" && nav.closing ? {} : null),
       getClientRects: () => ({ length: nav.rendered ? 1 : 0 }),
       getBoundingClientRect: () => ({ top: 100 + li.offsetTop - nav.slide, height }),
     };
     return nav;
   }
+  /** A ResizeObserver stand-in: the callback the last one was made with, and what it watches. */
+  function stubResizeObserver() {
+    const seen = {
+      resized: null as (() => void) | null,
+      observed: [] as unknown[],
+      disconnect: vi.fn(),
+    };
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(cb: () => void) {
+          seen.resized = cb;
+          seen.observed = [];
+        }
+        observe(target: unknown) {
+          seen.observed.push(target);
+        }
+        disconnect = seen.disconnect;
+      },
+    );
+    return seen;
+  }
+  const markerOf = (tree: ReactElement<Props>) => byClass(tree, "sidebar__marker")[0];
   const markerEffect = () =>
     h.effects.find((e) => e.deps?.includes("/jobs") || e.deps?.includes("/credits"));
 
   it("is measured after the render and drawn over the active row; the nav hands it the wash", () => {
     h.nav = standInNav(144, 36);
     render();
+    // In a LAYOUT effect: placed before the browser paints, never a frame behind the rows.
+    expect(markerEffect()!.layout).toBe(true);
     markerEffect()!.run();
     const tree = render();
     expect(tree.props["data-marker"]).toBe("");
@@ -211,35 +258,71 @@ describe("the active marker", () => {
     });
   });
 
-  it("follows the rows when the nav resizes (a group above it closing), and lets go on unmount", () => {
-    let resized: (() => void) | null = null;
-    const disconnect = vi.fn();
-    vi.stubGlobal(
-      "ResizeObserver",
-      class {
-        constructor(cb: () => void) {
-          resized = cb;
-        }
-        observe() {}
-        disconnect = disconnect;
-      },
-    );
+  it("follows the rows when a group above it opens or closes, and lets go on unmount", () => {
+    const ro = stubResizeObserver();
     const nav = standInNav(144, 36);
     h.nav = nav;
     render();
     const cleanup = markerEffect()!.run();
+    // The nav AND every group: on a tall screen the nav is stretched to fill the sidebar and
+    // never resizes — only the group that opened or closed does (a closing one once it has gone).
+    expect(ro.observed).toEqual([nav, ...nav.groups]);
     nav.move(100);
-    resized!();
+    ro.resized!();
+    // Applied at once (flushSync): the observer runs after layout, before paint — a scheduled
+    // update would let one frame show the rows moved and the marker not.
+    expect(h.flushed).toBe(1);
     expect(byClass(render(), "sidebar__marker")[0]!.props.style).toEqual({
       "--nav-marker-y": "100px",
       "--nav-marker-h": "36px",
     });
     // A resize that moved nothing keeps the very same marker state: no re-render.
     const placed = h.harness!.slots.find((v) => v && typeof v === "object" && "top" in v);
-    resized!();
+    ro.resized!();
     expect(h.harness!.slots.find((v) => v && typeof v === "object" && "top" in v)).toBe(placed);
     (cleanup as () => void)();
-    expect(disconnect).toHaveBeenCalled();
+    expect(ro.disconnect).toHaveBeenCalled();
+  });
+
+  it("glides only to a NEW active row; the same row moved by the rows around it moves in step", () => {
+    const ro = stubResizeObserver();
+    const nav = standInNav(144, 36);
+    h.nav = nav;
+    render();
+    markerEffect()!.run();
+    // Placed on load: there is nothing to glide from.
+    expect(markerOf(render())!.props["data-snap"]).toBe("");
+    // A new route: the active row changed, so the CSS glides it there (no data-snap).
+    h.pathname = "/credits";
+    nav.move(260);
+    render();
+    markerEffect()!.run();
+    expect(markerOf(render())!.props["data-snap"]).toBeUndefined();
+    // Then a group above closes: the SAME row moves up, and the marker with it — a glide here
+    // would trail the wash across other rows for 220ms.
+    nav.move(144);
+    ro.resized!();
+    const marker = markerOf(render())!;
+    expect(marker.props["data-snap"]).toBe("");
+    expect(marker.props.style).toEqual({ "--nav-marker-y": "144px", "--nav-marker-h": "36px" });
+  });
+
+  it("closing the active row's own group takes the marker away at once — not where the row was", () => {
+    // The closing list is `hidden` at once but keeps its box while its rows fade (a discrete
+    // `display` exit), so the row still has client rects; it has gone all the same. The nav
+    // hands the wash back to the row, which fades out with it.
+    const nav = standInNav(144, 36);
+    h.nav = nav;
+    render();
+    markerEffect()!.run();
+    expect(byClass(render(), "sidebar__marker")).toHaveLength(1);
+    click(toggleOf(render(), "Directory"));
+    nav.closing = true;
+    render();
+    markerEffect()!.run();
+    const tree = render();
+    expect(byClass(tree, "sidebar__marker")).toEqual([]);
+    expect(tree.props["data-marker"]).toBeUndefined();
   });
 
   it("re-opening the active row's own group puts it ON the row — not where the slide begins", () => {

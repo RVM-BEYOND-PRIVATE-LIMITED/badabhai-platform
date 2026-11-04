@@ -54,7 +54,10 @@ current page is never hidden; only a group the operator toggled animates (180ms)
 on a page load. **The active marker glides**: the active row's wash and spine are one element under
 the rows, moved by `transform` (220ms, `--ease-glide`); without JS each active row draws its own.
 It is placed from the row's layout box (offsets summed up to the nav), never where the row is
-drawn, so a group still sliding open cannot leave it off its row.
+drawn, so a group still sliding open cannot leave it off its row, and before the browser paints.
+Only a new active row is glided to: when a group above it opens or closes, the marker moves in step
+with its row (each group is watched; the nav itself is stretched on a tall screen and never
+resizes), and a closing group hands the wash back to its row, which fades out with it.
 
 ### Detail and child pages
 

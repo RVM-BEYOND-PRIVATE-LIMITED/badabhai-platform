@@ -3931,6 +3931,11 @@ textarea.field__input {
   transition: transform var(--duration-base) var(--ease-glide);
   pointer-events: none;
 }
+/* Only a NEW active row is glided to. When the rows move under the same one (a group above it
+   opening or closing), the marker moves in step with them: a glide would trail across other rows. */
+.sidebar__marker[data-snap] {
+  transition: none;
+}
 .sidebar__nav[data-marker] .sidebar__link.is-active {
   background: transparent;
   box-shadow: none;

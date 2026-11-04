@@ -155,10 +155,12 @@ describe("measureMarker", () => {
   /**
    * The active link inside its positioned `li` (the link's offset parent); `drawnAt` is where it
    * is PAINTED — its client rect, which a transform moves and the layout offsets do not.
+   * `closing`: its list is `hidden` already, but still laid out while its exit plays.
    */
-  const rowIn = (li: Box, height: number, drawnAt = 0, rendered = true) => ({
+  const rowIn = (li: Box, height: number, drawnAt = 0, rendered = true, closing = false) => ({
     ...box(0, li),
     offsetHeight: height,
+    closest: (selector: string) => (selector === "[hidden]" && closing ? {} : null),
     getClientRects: () => ({ length: rendered ? 1 : 0 }),
     getBoundingClientRect: () => ({ top: drawnAt, height }) as DOMRect,
   });
@@ -204,6 +206,14 @@ describe("measureMarker", () => {
     const nav = box(0, null);
     expect(measureMarker(navWith(null, nav))).toBeNull();
     expect(measureMarker(navWith(rowIn(box(48, nav), 36, 0, false), nav))).toBeNull();
+  });
+
+  it("is null while the row's group is CLOSING — hidden at once, though laid out until it has gone", async () => {
+    // The exit holds the list's box (a discrete `display` transition) while its rows fade; the
+    // row's own wash fades with them, instead of the marker lingering where the row was.
+    const { measureMarker } = await import("./nav");
+    const nav = box(0, null);
+    expect(measureMarker(navWith(rowIn(box(48, nav), 36, 48, true, true), nav))).toBeNull();
   });
 
   it("is null when the chain never reaches the nav (no stylesheet: nothing is positioned)", async () => {

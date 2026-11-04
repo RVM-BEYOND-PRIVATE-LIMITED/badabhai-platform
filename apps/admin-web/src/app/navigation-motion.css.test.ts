@@ -72,6 +72,15 @@ describe("the active marker glides 220ms between rows", () => {
     expect(token("--duration-base")).toBe("220ms");
   });
 
+  it("glides only to a new row: the same row moved by the rows around it is followed in step", () => {
+    // A group above the active row opening or closing moves that row at once; a 220ms glide after
+    // it would trail the wash across other rows (nav.tsx sets data-snap for that move).
+    expect(decl(top(".sidebar__marker[data-snap]")!.body, "transition")).toBe("none");
+    expect(decl(top(".sidebar__marker")!.body, "transition")).toBe(
+      "transform var(--duration-base) var(--ease-glide)",
+    );
+  });
+
   it("is the active row's wash and spine, drawn once — the row hands them over", () => {
     const marker = top(".sidebar__marker")!;
     expect(decl(marker.body, "background")).toBe("var(--surface-ink-active)");
@@ -169,10 +178,11 @@ describe("opacity and transform only — and zero under reduced motion", () => {
     }
   });
 
-  it("every transition in the block moves opacity, transform or a discrete display — or is the shared control token", () => {
+  it("every transition in the block moves opacity, transform or a discrete display — or none, or is the shared control token", () => {
     for (const r of ALL) {
       const t = decl(r.body, "transition");
-      if (t === null || t === "var(--transition-control)") continue;
+      // `none` moves nothing (the marker following its own row in step).
+      if (t === null || t === "none" || t === "var(--transition-control)") continue;
       for (const item of t.split(/,(?![^(]*\))/)) {
         const prop = item.trim().split(/\s+/)[0]!;
         expect(["opacity", "transform", "display"], `${r.selector}: ${item}`).toContain(prop);
