@@ -1790,11 +1790,15 @@ class _PostJobScreenState extends State<PostJobScreen> {
               ),
             ),
             const SizedBox(width: AppSpacing.s2),
-            Text(
-              'Loading matching skills…',
-              style: AppTypography.body(
-                size: AppTypography.sizeSm,
-                color: AppColors.textSecondary,
+            // Flexible: at a large text scale on a narrow phone the line wraps
+            // instead of overflowing the card.
+            Flexible(
+              child: Text(
+                'Loading matching skills…',
+                style: AppTypography.body(
+                  size: AppTypography.sizeSm,
+                  color: AppColors.textSecondary,
+                ),
               ),
             ),
           ],
