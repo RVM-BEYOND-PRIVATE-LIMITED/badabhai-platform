@@ -255,11 +255,11 @@ describe.skipIf(!RUN)("Matching V1 — the E16 snapshot freeze, against Postgres
     // the stored values.
     const first: RankSnapshot = {
       matchTier: 1, skillMonths: BASE_MONTHS, industryMonths: BASE_MONTHS,
-      lastWorkedAt: null, engineVersion: "v1.0",
+      lastWorkedAt: null, engineVersion: "v1.0", tradeLevel: "operator", levelConfirmed: false,
     };
     const second: RankSnapshot = {
       matchTier: 2, skillMonths: EDITED_MONTHS, industryMonths: EDITED_MONTHS,
-      lastWorkedAt: null, engineVersion: "v9.9",
+      lastWorkedAt: null, engineVersion: "v9.9", tradeLevel: "programmer", levelConfirmed: true,
     };
 
     const [a, b] = await Promise.all([

@@ -53,7 +53,7 @@ green before push, PR with checks, squash-merge, verify on `main`.
 ## 4. Hard locks (spec §3 — break the build before breaking these)
 
 - One ID per trade; level is a field, never an ID. Never rename keys (snapshot test).
-- `trade_level` never affects visibility/ranking (ORDER BY + service tests).
+- `trade_level` never affects visibility (reach). Ranking: **superseded for "Level needed" posts only** by the CEO ruling of 30 Oct 2026 (ADR-0061, engine v1.1): a 4-CNC-trade company posting that names a rung sorts its applicants meets → not confirmed → below inside each trade group, from the rung frozen on the application at apply (migration 0153), behind `LEVEL_NEEDED_SORT_ENABLED`. "Any level" posts and the live `worker_profile_skill` rung still never move anyone (ORDER BY + service + parity tests).
 - `null` = not stated, never guessed; unclear = decline, never re-ask.
 - Free text filling two slots fills both; `nahi pata` closes, never re-asks.
 - TURNER `turn-mill` veto, CAM-package non-corroboration, `turning karta hoon`+pin → turner: all pinned with rationale comments. Do not "fix" without re-reading them.

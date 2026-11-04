@@ -1,9 +1,20 @@
-import { Injectable } from "@nestjs/common";
+import { Inject, Injectable } from "@nestjs/common";
 import { effectiveTier, type RankInputs } from "@badabhai/match-engine";
-import { matchSkillLabel, TRADE_LEVEL_LABELS, type TradeLevel } from "@badabhai/taxonomy";
+import {
+  LEVEL_FIT_ORDER,
+  levelFitFor,
+  levelNeededSpec,
+  matchSkillLabel,
+  TRADE_LEVEL_LABELS,
+  type LevelFit,
+  type LevelNeededSpec,
+  type TradeLevel,
+} from "@badabhai/taxonomy";
 import { MatchConfigService } from "./match-config.service";
-import { MatchFeedRepository, type CandidateRow } from "./match-feed.repository";
+import { MatchFeedRepository, type CandidateRow, type LevelSorts } from "./match-feed.repository";
+import { levelNeededSortEnabled, type LevelNeededSortConfig } from "./level-needed-sort.flag";
 import { OPS_LIST_CAP } from "../common/pagination";
+import { SERVER_CONFIG } from "../config/config.module";
 import type { TenantKey } from "../payers/payer-tenant-scope";
 
 /**
@@ -44,6 +55,15 @@ export interface MatchCandidateRowDto {
    * API hands over every rung with both labels resolved so the card never does.
    */
   tradeLevels: TradeLevelBadge[];
+  /**
+   * Engine v1.1 "Level needed" (CEO ruling 30 Oct 2026, ADR-0061) — where his rung, FROZEN at
+   * apply, puts him against the posting's minimum rung: `meets` (sorted first), `not_confirmed`
+   * (middle; the card tags it "Level not confirmed"), `below` (last). NULL when the list has no
+   * level sort — "Any level", a trade the sort is not on for, or `LEVEL_NEEDED_SORT_ENABLED` off.
+   * Labels the order the SQL produced; nothing here sorts. ADDITIVE: absent from older clients'
+   * schemas, always present (possibly null) on this one.
+   */
+  levelFit: LevelFit | null;
 }
 
 /** One rung on the candidate's card — closed vocabularies, both resolved server-side. */
@@ -91,18 +111,50 @@ export class MatchCandidatesService {
   constructor(
     private readonly repo: MatchFeedRepository,
     private readonly config: MatchConfigService,
+    // Engine v1.1 — `LEVEL_NEEDED_SORT_ENABLED`. Optional only so a hand-built instance (a unit
+    // test) without it fails closed to today's list; Nest always injects the global config.
+    @Inject(SERVER_CONFIG) private readonly serverConfig?: LevelNeededSortConfig,
   ) {}
 
   async listForPosting(jobPostingId: string): Promise<MatchCandidateListDto> {
     const cfg = await this.config.get();
-    const rows = await this.repo.listCandidates(jobPostingId, cfg.tierFloorMonths, OPS_LIST_CAP);
+    const levelSorts = await this.levelSortsFor([jobPostingId]);
+    // One posting, so at most one spec. Read back by value, not by the route's spelling of the id
+    // (the map is keyed by the id as Postgres prints it).
+    const spec = levelSorts.values().next().value ?? null;
+    const rows = await this.repo.listCandidates(
+      jobPostingId,
+      cfg.tierFloorMonths,
+      OPS_LIST_CAP,
+      levelSorts,
+    );
 
     return {
       jobId: jobPostingId,
       applicants: rows.map((row, index) =>
-        toMatchCandidateRowDto(row, index + 1, cfg.tierFloorMonths),
+        toMatchCandidateRowDto(row, index + 1, cfg.tierFloorMonths, spec),
       ),
     };
+  }
+
+  /**
+   * The "Level needed" sort of each named posting (engine v1.1, ADR-0061), keyed by posting id as
+   * Postgres prints it. EMPTY — and NO QUERY — while `LEVEL_NEEDED_SORT_ENABLED` is off, so the
+   * flag-off list is the v1.0 list query for query. A posting appears only when its trade is one of
+   * `LEVEL_SORT_TRADE_KINDS` AND it names a rung that trade's ladder knows; every other posting —
+   * "Any level" included — keeps the v1.0 order (`levelNeededSpec` returns null for it).
+   *
+   * The DECISION lives here, not in SQL: which trades, which rung, which groups. The repository
+   * only applies the groups it is handed.
+   */
+  private async levelSortsFor(postingIds: readonly string[]): Promise<Map<string, LevelNeededSpec>> {
+    const sorts = new Map<string, LevelNeededSpec>();
+    if (!levelNeededSortEnabled(this.serverConfig) || postingIds.length === 0) return sorts;
+    for (const posting of await this.repo.listPostingLevels(postingIds)) {
+      const spec = levelNeededSpec(posting.roleKind, posting.tradeLevel);
+      if (spec !== null) sorts.set(posting.id, spec);
+    }
+    return sorts;
   }
 
   /**
@@ -122,16 +174,24 @@ export class MatchCandidatesService {
   ): Promise<Map<string, MatchCandidateRowDto>> {
     if (refs.length === 0) return new Map();
     const cfg = await this.config.get();
+    const postingIds = [...new Set(refs.map((r) => r.postingId))];
+    const levelSorts: LevelSorts = await this.levelSortsFor(postingIds);
     const rows = await this.repo.listRankedCandidatesByApplication(
       tenant,
-      [...new Set(refs.map((r) => r.postingId))],
+      postingIds,
       refs.map((r) => r.applicationId),
       cfg.tierFloorMonths,
+      levelSorts,
     );
     return new Map(
       rows.map((row) => [
         row.applicationId,
-        toMatchCandidateRowDto(row, row.rank, cfg.tierFloorMonths),
+        toMatchCandidateRowDto(
+          row,
+          row.rank,
+          cfg.tierFloorMonths,
+          levelSorts.get(row.jobPostingId) ?? null,
+        ),
       ]),
     );
   }
@@ -144,8 +204,15 @@ export class MatchCandidatesService {
    *
    * The mapping pins the null semantics that the SQL's `COALESCE(x, -1)` encodes: a NULL
    * month count is UNKNOWN, and unknown sorts below a real 0 rather than tying with it.
+   *
+   * Engine v1.1: with the posting's level `spec`, every row carries `levelOrder` from the FROZEN
+   * rung — the same `levelFitFor` that labels `levelFit` — and without one no row does, so the
+   * comparator is v1.0's.
    */
-  static toRankInputs(rows: readonly CandidateRow[]): RankInputs[] {
+  static toRankInputs(
+    rows: readonly CandidateRow[],
+    spec: LevelNeededSpec | null = null,
+  ): RankInputs[] {
     return rows.map((row) => ({
       matchTier: row.matchTier === 1 ? 1 : 2,
       skillMonths: row.skillMonths ?? -1,
@@ -153,6 +220,12 @@ export class MatchCandidatesService {
       lastWorkedAt: row.lastWorkedAt,
       lastActiveAt: row.createdAt.toISOString(),
       id: row.applicationId,
+      ...(spec === null
+        ? {}
+        : {
+            levelOrder:
+              LEVEL_FIT_ORDER[levelFitFor(spec, row.frozenTradeLevel, row.frozenLevelConfirmed)],
+          }),
     }));
   }
 }
@@ -168,6 +241,7 @@ export function toMatchCandidateRowDto(
   row: CandidateRow,
   rank: number,
   tierFloorMonths: number,
+  levelSpec: LevelNeededSpec | null = null,
 ): MatchCandidateRowDto {
   return {
     workerId: row.workerId,
@@ -185,6 +259,10 @@ export function toMatchCandidateRowDto(
       row.matchedSkillId === null ? null : (matchSkillLabel(row.matchedSkillId) ?? null),
     engineVersion: row.engineVersion,
     tradeLevels: row.tradeLevels.map(toTradeLevelBadge),
+    levelFit:
+      levelSpec === null
+        ? null
+        : levelFitFor(levelSpec, row.frozenTradeLevel, row.frozenLevelConfirmed),
   };
 }
 

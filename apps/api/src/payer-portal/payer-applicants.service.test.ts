@@ -94,6 +94,7 @@ function candidates(postingId: string): MatchCandidateListDto {
         matchedSkillLabel: null,
         engineVersion: null,
         tradeLevels: [],
+        levelFit: null,
       },
     ],
   };

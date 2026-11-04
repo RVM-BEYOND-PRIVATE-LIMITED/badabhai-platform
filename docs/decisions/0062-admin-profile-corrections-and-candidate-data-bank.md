@@ -1,4 +1,4 @@
-# ADR-0061: Admin profile corrections and the candidate data bank
+# ADR-0062: Admin profile corrections and the candidate data bank
 
 - **Status:** Accepted — owner sign-off by Prakash Kantumutchu, 2026-11-04, including the security review amendments.
 - **Date:** 2026-11-04

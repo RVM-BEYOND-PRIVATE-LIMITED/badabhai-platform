@@ -1178,7 +1178,9 @@ describe("Batch 2 part two — industrial electrician", () => {
     // it is the PLC / automation family's own code now (see the Phase 2 #6 block at the end).
     for (const p of [
       "fitter-electrical and electronic assembly", // 7412.0201 — panels and electronics
-      "mechanical fitter", // 7412.0202 — the alias every mechanical fitter says
+      // "mechanical fitter" LEFT this list in the CEO-pack sheet-word audit (2026-11-04): sheet 6
+      // gives it to the Fitter, so the Bench Fitter code 7233.0200 now carries it too and wins the
+      // tie. The control-panel code 7412.0202 itself stays here, unbound (pinned in the fitter block).
       "iron and steel fitter electrical assembly", // 7412.0203 — machine assembly
       "adjuster relays", // 7412.0300
       "armature winder", // 7412.0400 — the winding trade
@@ -1284,10 +1286,11 @@ describe("Batch 2 part two — press / machine operator", () => {
     expect(familyFor("press operator")).toBe("fam_press_operation");
     expect(familyFor("प्रेस ऑपरेटर")).toBe("fam_press_operation");
     expect(familyFor("machine operator")).toBeNull();
-    // The struck "press ka kaam" still reaches nothing, and "press tool setter" folds to the tile
-    // setter at L1 ("tool setter" ~ "tile setter").
+    // The struck "press ka kaam" still reaches nothing. "press tool setter" folded to the tile
+    // setter at L1 ("tool setter" ~ "tile setter") until the CEO-pack sheet-word audit
+    // (2026-11-04) gave it a row on the Tool Setter, Press code.
     expect(familyFor("press ka kaam")).toBeNull();
-    expect(familyFor("press tool setter")).toBe("fam_building_finishing");
+    expect(familyFor("press tool setter")).toBe("fam_press_operation");
     // The helper code's title matches only WITH its slash; without it the one span left is
     // "shop assistant", which is retail.
     expect(familyFor("press shop assistant helper")).toBe("fam_retail");
@@ -1380,13 +1383,13 @@ describe("Batch 2 part two — assembly line", () => {
     }
   });
 
-  it("PINS THE IMPRECISION IT KNOWINGLY LEAVES — bare English 'assembler'", () => {
-    // Two claimants share the span: 8211.1300's published split alias "Assembler" and 8219.0100's
-    // rvm row. 8211.1300 ("Assembler, Motor Cycle" — batch OR line) is a rejected neighbour and is
-    // the first claimant, so the word lands on the generic pack. The Devanagari has one claimant
-    // and comes here. This goes red, deliberately, when a retirement path removes the split alias.
-    expect(resolveOccupation(occupationIndex, "assembler")?.jobDomainId).toBe("jd_nco_8211_1300");
-    expect(familyFor("assembler")).toBe("fam_assemblers_other");
+  it("bare English 'assembler' reaches the Assembly Technician since the split alias retired", () => {
+    // Two claimants shared the span: 8211.1300's published split alias "Assembler" and 8219.0100's
+    // rvm row, and the rejected neighbour 8211.1300 won it. The CEO-pack sheet-word audit
+    // (2026-11-04, sheet 11 "assembler" -> Trade: Assembly Technician) retired that split alias;
+    // 8211.1300 keeps its published title "Assembler, Motor Cycle".
+    expect(resolveOccupation(occupationIndex, "assembler")?.jobDomainId).toBe("jd_nco_8219_0100");
+    expect(familyFor("assembler")).toBe("fam_assembly_line");
     expect(familyFor("असेंबलर")).toBe("fam_assembly_line");
   });
 
@@ -1486,7 +1489,9 @@ describe("Batch 2 part two — fitter", () => {
       "fitter construction": "fam_sheet_metal",
       "boiler fitter": "fam_sheet_metal",
       // Other trades whose title carries the word.
-      "mechanical fitter": "fam_electrical_equipment",
+      // Sheet 6 gives the phrase to the Fitter (CEO-pack sheet-word audit, 2026-11-04): the Bench
+      // Fitter code carries it now. The control-panel code 7412.0202 stays unbound.
+      "mechanical fitter": "fam_fitter",
       "electrical fitter": "fam_industrial_electrician", // the industrial electrician binds 7412.0200
       "pipe fitter": "fam_plumbing",
       "pipe fitting": "fam_plumbing",
@@ -2275,3 +2280,67 @@ describe("Phase 2 #11 — foundry / forging, a new family on the casting and for
     }
   });
 });
+
+describe("CEO Launch Plan Pack v1 — sheet-word audit (2026-11-04)", () => {
+  // Every word a sheet routes to its trade was run through this resolver. These had reached
+  // another trade, mostly on one stray token matched loosely ("die" -> street sales, "threading"
+  // -> beauty, "seal" -> tailoring, "coat" -> 3D CAD). Each now has a full-phrase row on its own
+  // trade's code, or the stray split alias that beat it was retired.
+  it("sends each sheet word to its own trade", () => {
+    const expected: Record<string, string> = {
+      "die fitting": "fam_tool_die_making",
+      "die repair": "fam_tool_die_making",
+      "die maintenance": "fam_tool_die_making",
+      "die assembly": "fam_tool_die_making",
+      "progressive die": "fam_tool_die_making",
+      "blanking die": "fam_tool_die_making",
+      "forming die": "fam_tool_die_making",
+      "press tool": "fam_tool_die_making",
+      "core cavity": "fam_tool_die_making",
+      "die casting die": "fam_tool_die_making",
+      "hand finishing": "fam_tool_die_making",
+      "ladder logic": "fam_plc_automation",
+      "instrument mechanic": "fam_plc_automation",
+      grinder: "fam_cnc_grinding",
+      "cylindrical grinder": "fam_cnc_grinding",
+      "diamond dresser": "fam_cnc_grinding",
+      "die sinking": "fam_edm_wirecut",
+      "copper electrode": "fam_edm_wirecut",
+      "taper cutting": "fam_edm_wirecut",
+      "wire threading": "fam_edm_wirecut",
+      "super drill": "fam_edm_wirecut",
+      "coil feeder": "fam_press_operation",
+      "press tool setter": "fam_press_operation",
+      "powder coat": "fam_powder_coating",
+      "spray painting": "fam_powder_coating",
+      "ed coating": "fam_powder_coating",
+      "salt spray test": "fam_powder_coating",
+      "seal change": "fam_maintenance_tech",
+      "manual lathe": "fam_conventional_machining",
+      "conventional lathe": "fam_conventional_machining",
+      "body banata hoon": "fam_sheet_metal_fab",
+      "cad engineer": "fam_cad_design_3d",
+      "mechanical fitter": "fam_fitter",
+      "electrical technician": "fam_industrial_electrician",
+      assembler: "fam_assembly_line",
+    };
+    const got = Object.fromEntries(Object.keys(expected).map((p) => [p, familyFor(p)]));
+    expect(got).toEqual(expected);
+  }, 30_000); // 35 phrases through the full chain — CI runs every file at once.
+
+  it("leaves the words held out on purpose where they were", () => {
+    // Owner ruling A2: the generic electrician words stay on the house wireman.
+    expect(familyFor("electrician")).toBe("fam_electrical");
+    expect(familyFor("wireman")).toBe("fam_electrical");
+    // The draughting ROUTER keeps the generic drawing-office words (see the role-pack block).
+    expect(familyFor("draftsman")).toBe("fam_draughting");
+    // Sheet A3: plain "designer" asks the software first, so it routes nowhere now.
+    expect(familyFor("designer")).toBeNull();
+    // The sheets say ask "CNC ya manual?" for a bare lathe word.
+    expect(familyFor("kharad")).toBe("fam_cnc_turning");
+    // Bare "furnace" is the melt shop's; "painter" stays with building painting.
+    expect(familyFor("furnace")).toBe("fam_metal_processing");
+    expect(familyFor("painter")).toBe("fam_painting");
+  });
+});
+

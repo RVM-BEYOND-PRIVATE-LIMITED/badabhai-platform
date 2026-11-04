@@ -53,7 +53,7 @@ const NAME = "seed:match:vocabulary";
  * the typed defaults, so old rows keep working unchanged.
  */
 export const MATCH_CONFIG_V1 = {
-  engine_version: "v1.0",
+  engine_version: "v1.1",
   month_bucket: 6,
   max_skills_per_posting: 3,
   related_skills_default: "on",

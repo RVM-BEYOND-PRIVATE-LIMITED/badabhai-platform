@@ -1073,6 +1073,13 @@
       "when": 1793776337424,
       "tag": "0152_wri_role_kind_foundry",
       "breakpoints": true
+    },
+    {
+      "idx": 153,
+      "version": "7",
+      "when": 1793778470731,
+      "tag": "0153_application_trade_level",
+      "breakpoints": true
     }
   ]
 }

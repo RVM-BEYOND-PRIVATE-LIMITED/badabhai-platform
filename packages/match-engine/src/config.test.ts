@@ -4,7 +4,7 @@ import { DEFAULT_MATCH_CONFIG, MatchConfigSchema, parseMatchConfig } from "./con
 describe("MatchConfig", () => {
   it("ships the ratified V1 defaults", () => {
     expect(DEFAULT_MATCH_CONFIG).toEqual({
-      engineVersion: "v1.0",
+      engineVersion: "v1.1",
       monthBucket: 6,
       maxSkillsPerPosting: 3,
       relatedSkillsDefault: "on",
@@ -26,7 +26,7 @@ describe("MatchConfig", () => {
     expect(parsed.tierFloorMonths).toBe(24);
     expect(parsed.relatedSkillsDefault).toBe("off");
     expect(parsed.monthBucket).toBe(6);
-    expect(parsed.engineVersion).toBe("v1.0");
+    expect(parsed.engineVersion).toBe("v1.1");
   });
 
   it("strips unknown keys rather than rejecting the whole config", () => {

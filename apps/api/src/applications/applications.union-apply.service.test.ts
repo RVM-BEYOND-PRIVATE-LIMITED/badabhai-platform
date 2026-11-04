@@ -33,6 +33,8 @@ const SNAPSHOT: RankSnapshot = {
   industryMonths: 60,
   lastWorkedAt: null,
   engineVersion: "v1.0",
+  tradeLevel: null,
+  levelConfirmed: null,
 };
 
 function setup(

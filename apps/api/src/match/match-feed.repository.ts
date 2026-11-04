@@ -1,6 +1,7 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { sql as dsql } from "drizzle-orm";
 import type { Database } from "@badabhai/db";
+import type { LevelNeededSpec } from "@badabhai/taxonomy";
 import { DATABASE } from "../database/database.module";
 import type { TenantKey } from "../payers/payer-tenant-scope";
 
@@ -116,6 +117,28 @@ export interface CandidateRow {
    * input, and a worker with no rung still appears (empty array, not absence).
    */
   tradeLevels: readonly TradeLevelRow[];
+  /**
+   * Engine v1.1 "Level needed" (ADR-0061): the rung and confirm bit FROZEN on the application
+   * at apply time (migration 0153) — the rank input, unlike the live `tradeLevels` badge above.
+   * Null on an application from before 0153, or when the worker stated no rung.
+   */
+  frozenTradeLevel: string | null;
+  frozenLevelConfirmed: boolean | null;
+}
+
+/**
+ * Per-posting "Level needed" sorts, keyed by the posting id AS POSTGRES PRINTS IT (lower-case
+ * text) — the SQL looks a row's spec up by `a.job_posting_id::text`. A posting absent from the
+ * map has no level step: every one of its rows ties on it.
+ */
+export type LevelSorts = ReadonlyMap<string, LevelNeededSpec>;
+
+/** A posting's level-sort inputs (engine v1.1): its trade and its "Level needed" rung. */
+export interface PostingLevelRow {
+  /** The posting id as Postgres prints it — the {@link LevelSorts} key. */
+  id: string;
+  roleKind: string | null;
+  tradeLevel: string | null;
 }
 
 /** One stated rung, as the candidate query carries it. */
@@ -344,6 +367,10 @@ export class MatchFeedRepository {
    *          last_worked_at DESC NULLS LAST, created_at DESC, id ASC
    * ```
    *
+   * ENGINE v1.1 (ADR-0061): with a non-empty `levelSorts`, one more key sits between the tier
+   * `CASE` and `skill_months` — the "Level needed" group from the FROZEN rung (see
+   * {@link levelSortKey}). Without one the ORDER BY above is exact, text and binds.
+   *
    * The `CASE` is the owner's tier-with-floor ruling (2026-07-31, Part 9 #1 option b):
    * a related-skill worker enters tier-1 ordering once his months on that skill clear
    * `match_config.tier_floor_months`. It is a THRESHOLD, not a weight — there is nothing
@@ -376,10 +403,12 @@ export class MatchFeedRepository {
     jobPostingId: string,
     tierFloorMonths: number,
     limit: number,
+    levelSorts?: LevelSorts,
   ): Promise<CandidateRow[]> {
     const rows = await this.db.execute<CandidateSqlRow>(dsql`
       SELECT a.id, a.worker_id, a.match_tier, a.skill_months, a.industry_months,
              a.last_worked_at, a.created_at, a.engine_version,
+             a.trade_level AS frozen_trade_level, a.level_confirmed AS frozen_level_confirmed,
              jr.matched_skill_id,
              ${tradeLevelsColumn("a.worker_id")} AS trade_levels
       FROM applications a
@@ -394,7 +423,7 @@ export class MatchFeedRepository {
       WHERE a.job_posting_id = ${jobPostingId}::uuid
         AND a.action = 'applied'
         AND w.deletion_scheduled_at IS NULL
-      ORDER BY ${candidateRankKeys(tierFloorMonths)}
+      ORDER BY ${candidateRankKeys(tierFloorMonths, levelSorts)}
       LIMIT ${limit}
     `);
 
@@ -430,19 +459,22 @@ export class MatchFeedRepository {
     jobPostingIds: readonly string[],
     applicationIds: readonly string[],
     tierFloorMonths: number,
+    levelSorts?: LevelSorts,
   ): Promise<RankedCandidateRow[]> {
     if (jobPostingIds.length === 0 || applicationIds.length === 0) return [];
     const rows = await this.db.execute<CandidateSqlRow & RankedSqlColumns>(dsql`
       SELECT r.id, r.worker_id, r.job_posting_id, r.match_tier, r.skill_months,
              r.industry_months, r.last_worked_at, r.created_at, r.engine_version,
+             r.frozen_trade_level, r.frozen_level_confirmed,
              r.matched_skill_id, ${tradeLevelsColumn("r.worker_id")} AS trade_levels,
              r.candidate_rank
       FROM (
         SELECT a.id, a.worker_id, a.job_posting_id, a.match_tier, a.skill_months,
                a.industry_months, a.last_worked_at, a.created_at, a.engine_version,
+               a.trade_level AS frozen_trade_level, a.level_confirmed AS frozen_level_confirmed,
                jr.matched_skill_id,
                (row_number() OVER (PARTITION BY a.job_posting_id
-                                   ORDER BY ${candidateRankKeys(tierFloorMonths)}))::int
+                                   ORDER BY ${candidateRankKeys(tierFloorMonths, levelSorts)}))::int
                  AS candidate_rank
         FROM applications a
         INNER JOIN job_postings jp ON jp.id = a.job_posting_id
@@ -463,6 +495,27 @@ export class MatchFeedRepository {
       rank: Number(r.candidate_rank),
     }));
   }
+
+  /**
+   * The level-sort inputs of some postings (engine v1.1, ADR-0061): `role_kind` and the "Level
+   * needed" rung (`trade_level`, migration 0141). Read ONLY while `LEVEL_NEEDED_SORT_ENABLED` is
+   * on — the caller gates it — so with the flag off the applicant list issues exactly the queries
+   * it did before. No ownership predicate: the caller passes only postings its own owner-scoped
+   * read already returned, and this returns no worker or employer data.
+   */
+  async listPostingLevels(postingIds: readonly string[]): Promise<PostingLevelRow[]> {
+    if (postingIds.length === 0) return [];
+    const rows = (await this.db.execute<{
+      id: string;
+      role_kind: string | null;
+      trade_level: string | null;
+    }>(dsql`
+      SELECT jp.id::text AS id, jp.role_kind, jp.trade_level
+      FROM job_postings jp
+      WHERE jp.id = ANY(${dsql.param([...postingIds])}::uuid[])
+    `)) as unknown as { id: string; role_kind: string | null; trade_level: string | null }[];
+    return rows.map((r) => ({ id: r.id, roleKind: r.role_kind, tradeLevel: r.trade_level }));
+  }
 }
 
 /** One candidate row as `pg` hands it back (dates may arrive as strings over the wire). */
@@ -475,6 +528,8 @@ type CandidateSqlRow = {
   last_worked_at: string | Date | null;
   created_at: Date | string;
   engine_version: string | null;
+  frozen_trade_level: string | null;
+  frozen_level_confirmed: boolean | null;
   matched_skill_id: string | null;
   trade_levels: unknown;
 };
@@ -529,17 +584,57 @@ export interface RankedCandidateRow extends CandidateRow {
  * `rank-parity.test.ts`. See {@link MatchFeedRepository.listCandidates} for why each key is
  * where it is; change it there, in the ruling, never here alone.
  */
-export function candidateRankKeys(tierFloorMonths: number) {
+export function candidateRankKeys(tierFloorMonths: number, levelSorts?: LevelSorts) {
   return dsql`CASE
                  WHEN a.match_tier > 1 AND COALESCE(a.skill_months, 0) >= ${tierFloorMonths}::int
                    THEN 1
                  ELSE COALESCE(a.match_tier, 2)
                END ASC,
-               COALESCE(a.skill_months, -1) DESC,
+               ${levelSortKey(levelSorts)}COALESCE(a.skill_months, -1) DESC,
                COALESCE(a.industry_months, -1) DESC,
                a.last_worked_at DESC NULLS LAST,
                a.created_at DESC,
                a.id ASC`;
+}
+
+/**
+ * ENGINE v1.1 — "LEVEL NEEDED" (CEO ruling 30 Oct 2026, ADR-0061): the one key v1.1 adds, INSIDE
+ * the tier group and before months. `levelFitFor` in `@badabhai/taxonomy` is the other half,
+ * pinned to this one by `rank-parity.test.ts`; the three tests run in the same order there:
+ *
+ *   below               → 2   (his frozen rung is under the posting's)
+ *   meets               → 0   (at or above, no separating question on that rung)
+ *   meets if confirmed  → 0   (at or above, separating question answered "khud")
+ *   anything else       → 1   (no rung, an unknown rung, or a "koi aur" upper rung)
+ *
+ * It reads the FROZEN rung (`a.trade_level`, migration 0153), never the live profile, so a worker
+ * who edits his level after applying cannot move. A NULL rung makes every `@>` NULL, so he falls
+ * to 1 — "level not confirmed". A posting absent from the map makes every row 1: a constant, so it
+ * orders nothing.
+ *
+ * NO LEVEL SORTS, NO KEY: the empty fragment leaves the v1.0 ORDER BY as it was, binds and all —
+ * "Any level" and the flag being off are exactly today's list (ruling Q2, DoD §8.5).
+ */
+function levelSortKey(levelSorts: LevelSorts | undefined) {
+  if (levelSorts === undefined || levelSorts.size === 0) return dsql``;
+  const map = JSON.stringify(
+    Object.fromEntries(
+      [...levelSorts].map(([postingId, spec]) => [
+        postingId,
+        { below: spec.below, meets: spec.meets, meets_if_confirmed: spec.meetsIfConfirmed },
+      ]),
+    ),
+  );
+  const keys = (group: "below" | "meets" | "meets_if_confirmed") =>
+    dsql`(${map}::jsonb -> a.job_posting_id::text -> ${dsql.raw(`'${group}'`)})`;
+  return dsql`CASE
+                 WHEN ${keys("below")} @> to_jsonb(a.trade_level) THEN 2
+                 WHEN ${keys("meets")} @> to_jsonb(a.trade_level) THEN 0
+                 WHEN a.level_confirmed IS TRUE
+                  AND ${keys("meets_if_confirmed")} @> to_jsonb(a.trade_level) THEN 0
+                 ELSE 1
+               END ASC,
+               `;
 }
 
 /** The candidate row mapping, shared by both reads so a row means one thing on both. */
@@ -560,6 +655,9 @@ function toCandidateRow(r: CandidateSqlRow): CandidateRow {
     engineVersion: r.engine_version,
     matchedSkillId: r.matched_skill_id,
     tradeLevels: parseTradeLevels(r.trade_levels),
+    frozenTradeLevel: typeof r.frozen_trade_level === "string" ? r.frozen_trade_level : null,
+    frozenLevelConfirmed:
+      typeof r.frozen_level_confirmed === "boolean" ? r.frozen_level_confirmed : null,
   };
 }
 
