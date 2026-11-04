@@ -73,10 +73,18 @@ class _BbFadeSlideTransitionState extends State<BbFadeSlideTransition> {
 /// the swipe, so the page fades and slides away under the finger (and snaps
 /// back on cancel). Needs `android:enableOnBackInvokedCallback="true"`.
 class BbPageTransitionsBuilder extends PageTransitionsBuilder {
-  const BbPageTransitionsBuilder();
+  const BbPageTransitionsBuilder({this.reduced = false});
+
+  /// True when animations are disabled: the route's controller runs for
+  /// [Duration.zero] both ways, so a pop removes the page at once instead of
+  /// holding it (and blocking input) for [AppMotion.page].
+  final bool reduced;
 
   @override
-  Duration get transitionDuration => AppMotion.page;
+  Duration get transitionDuration => reduced ? Duration.zero : AppMotion.page;
+
+  @override
+  Duration get reverseTransitionDuration => transitionDuration;
 
   @override
   Widget buildTransitions<T>(
@@ -103,6 +111,39 @@ class BbPageTransitionsBuilder extends PageTransitionsBuilder {
       TargetPlatform.windows: BbPageTransitionsBuilder(),
     },
   );
+
+  /// [theme] with animations disabled: zero-duration routes on every platform.
+  static const PageTransitionsTheme reducedTheme = PageTransitionsTheme(
+    builders: <TargetPlatform, PageTransitionsBuilder>{
+      TargetPlatform.android: BbPageTransitionsBuilder(reduced: true),
+      TargetPlatform.iOS: BbPageTransitionsBuilder(reduced: true),
+      TargetPlatform.fuchsia: BbPageTransitionsBuilder(reduced: true),
+      TargetPlatform.linux: BbPageTransitionsBuilder(reduced: true),
+      TargetPlatform.macOS: BbPageTransitionsBuilder(reduced: true),
+      TargetPlatform.windows: BbPageTransitionsBuilder(reduced: true),
+    },
+  );
+}
+
+/// Picks [BbPageTransitionsBuilder.theme] or its reduced twin from the OS
+/// "remove animations" setting. Place it ABOVE the Navigator (in
+/// `MaterialApp.builder`, below the MediaQuery): routes read their duration
+/// from the navigator's context.
+class BbRouteMotionScope extends StatelessWidget {
+  const BbRouteMotionScope({super.key, required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final PageTransitionsTheme routes = AppMotion.reduced(context)
+        ? BbPageTransitionsBuilder.reducedTheme
+        : BbPageTransitionsBuilder.theme;
+    return Theme(
+      data: Theme.of(context).copyWith(pageTransitionsTheme: routes),
+      child: child,
+    );
+  }
 }
 
 /// Forwards Android predictive-back events to [route] so its animation tracks

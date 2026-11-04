@@ -50,7 +50,8 @@ class PayerApp extends StatelessWidget {
           // mirrored the worker app, #1072/#1088).
           return MediaQuery(
             data: MediaQuery.of(context).copyWith(textScaler: TextScaler.noScaling),
-            child: content,
+            // Zero-duration routes when the OS disables animations (#2591).
+            child: BbRouteMotionScope(child: content),
           );
         },
       ),

@@ -48,7 +48,7 @@ void main() {
         // Above the Navigator, so pushed routes see the setting too.
         builder: (BuildContext context, Widget? app) => MediaQuery(
           data: MediaQuery.of(context).copyWith(disableAnimations: reduced),
-          child: app!,
+          child: BbRouteMotionScope(child: app!),
         ),
         home: Scaffold(body: Center(child: child)),
       );
@@ -395,6 +395,19 @@ void main() {
         findsNothing,
       );
       await tester.pumpAndSettle();
+    });
+
+    testWidgets('with animations disabled push + pop take zero time',
+        (WidgetTester tester) async {
+      await pushPage(tester, reduced: true);
+      final ModalRoute<dynamic> route =
+          ModalRoute.of(tester.element(find.text('Next page')))!;
+      expect(route.transitionDuration, Duration.zero);
+      expect(route.reverseTransitionDuration, Duration.zero);
+      Navigator.of(tester.element(find.text('Next page'))).pop();
+      await tester.pump();
+      expect(find.text('Next page'), findsNothing);
+      expect(find.text('open'), findsOneWidget);
     });
 
     testWidgets('Android predictive back drives the route with the swipe',
