@@ -11,7 +11,8 @@ export type DrawerProps = DialogProps;
 /**
  * A right-side modal drawer (A5, #2575): min(960px, 62vw) wide, the full viewport on a phone
  * (globals.css `.overlay--drawer`). Same focus contract as Dialog — trapped while open, Escape and
- * the scrim close it, focus returns to the trigger.
+ * the scrim close it, focus returns to the trigger, or to `returnFocus` when that names a place by
+ * then (a drawer moved down a list hands focus to the row it is on, not the one that opened it).
  *
  * Motion: slides in from the right edge (6px of travel, with the fade) over --duration-base while
  * the scrim fades; leaves over --duration-fast. Zero under prefers-reduced-motion.

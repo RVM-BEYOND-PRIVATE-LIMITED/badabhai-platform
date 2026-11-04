@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 import { ConfirmDialog } from "../../../components/confirm-dialog";
 import { CopyId } from "../../../components/copy-id";
@@ -31,10 +31,17 @@ export const REVEAL_REASON_CATEGORIES = PII_REVEAL_REASON_CODES.map((value) => (
  * another candidate or closes (the panel is keyed by worker), and nothing persists, logs or
  * caches it. `canReveal` hides the control for a role without the capability — an affordance;
  * the API refuses the reveal for every other role regardless.
+ *
+ * A success REPLACES the button that opened the confirm with the revealed phone. So the confirm
+ * is rendered beside both states, never inside the hidden one: a success CLOSES it (its exit
+ * motion, focus handed back) rather than unmounting it with its trigger, and the focus it hands
+ * back goes to the revealed phone's Copy button — not to the detached Reveal button, which would
+ * drop it on the page body.
  */
 export function PhoneField({ workerId, canReveal }: { workerId: string; canReveal: boolean }) {
   const [phone, setPhone] = useState<string | null>(null);
   const [asking, setAsking] = useState(false);
+  const revealedRef = useRef<HTMLSpanElement>(null);
 
   async function reveal(reason: ConfirmReason): Promise<AdminActionOutcome> {
     const outcome = await revealCandidatePhoneAction(workerId, reason.category, reason.text);
@@ -43,49 +50,56 @@ export function PhoneField({ workerId, canReveal }: { workerId: string; canRevea
     return { ok: true, changed: true, message: "Phone revealed." };
   }
 
-  if (phone !== null) {
-    return (
-      <span className="cfield">
-        <span className="cfield__value">
-          <span className="mono">{phone}</span>
-          <CopyId id={phone} label="phone" />
-        </span>
-        <LockedTag why={LOCK_REASONS.phone} />
-        <span className="cfield__note" role="status">
-          Revealed to you. The reveal is recorded with your reason.
-        </span>
-      </span>
-    );
-  }
-
   return (
     <span className="cfield">
-      <span className="cfield__value">
-        <span className="table__meta">Hidden</span>
-      </span>
-      <LockedTag why={LOCK_REASONS.phone} />
-      {canReveal ? (
+      {phone !== null ? (
         <>
-          <button type="button" className="btn btn--ghost btn--sm" onClick={() => setAsking(true)}>
-            <Icon name={ACTION_ICON.unlock} />
-            Reveal phone
-          </button>
-          <ConfirmDialog
-            open={asking}
-            onClose={() => setAsking(false)}
-            tier="consequential"
-            title="Reveal this worker's phone"
-            description="The phone is decrypted for you alone. The reason you choose is recorded with the reveal; your explanation is checked for contact details and not stored."
-            changes={[{ label: "Phone", before: "Hidden", after: "Shown to you" }]}
-            confirmLabel="Reveal phone"
-            icon={ACTION_ICON.unlock}
-            categories={REVEAL_REASON_CATEGORIES}
-            onConfirm={reveal}
-          />
+          <span className="cfield__value" ref={revealedRef}>
+            <span className="mono">{phone}</span>
+            <CopyId id={phone} label="phone" />
+          </span>
+          <LockedTag why={LOCK_REASONS.phone} />
+          <span className="cfield__note" role="status">
+            Revealed to you. The reveal is recorded with your reason.
+          </span>
         </>
       ) : (
-        <span className="cfield__note">Your role cannot reveal contact details.</span>
+        <>
+          <span className="cfield__value">
+            <span className="table__meta">Hidden</span>
+          </span>
+          <LockedTag why={LOCK_REASONS.phone} />
+          {canReveal ? (
+            <button
+              type="button"
+              className="btn btn--ghost btn--sm"
+              onClick={() => setAsking(true)}
+            >
+              <Icon name={ACTION_ICON.unlock} />
+              Reveal phone
+            </button>
+          ) : (
+            <span className="cfield__note">Your role cannot reveal contact details.</span>
+          )}
+        </>
       )}
+      {canReveal ? (
+        <ConfirmDialog
+          open={asking}
+          onClose={() => setAsking(false)}
+          tier="consequential"
+          title="Reveal this worker's phone"
+          description="The phone is decrypted for you alone. The reason you choose is recorded with the reveal; your explanation is checked for contact details and not stored."
+          changes={[{ label: "Phone", before: "Hidden", after: "Shown to you" }]}
+          confirmLabel="Reveal phone"
+          icon={ACTION_ICON.unlock}
+          categories={REVEAL_REASON_CATEGORIES}
+          onConfirm={reveal}
+          // After a reveal: the phone's own control, its Copy button. Before one (a Cancel, a
+          // refusal): nothing better than the trigger, which is still there.
+          returnFocus={() => revealedRef.current?.querySelector<HTMLElement>("button") ?? null}
+        />
+      ) : null}
     </span>
   );
 }

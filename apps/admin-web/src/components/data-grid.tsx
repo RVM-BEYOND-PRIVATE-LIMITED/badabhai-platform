@@ -57,6 +57,8 @@ export interface GridRowLink<Row> {
    * drawer is addressed by (`"c"` — `href` then carries `?c=<id>` with the list's own query).
    * A plain click updates the address in place, shallow, so the list is not re-read and does not
    * move (`openDrawerEntry`); a new-tab click still follows `href`, which opens the drawer there.
+   * Each row link names the value it opens (`data-drawer-value`), so the drawer can hand focus
+   * back to the row it is ON when it closes (`drawerRowLink`).
    */
   drawer?: string;
 }

@@ -251,6 +251,7 @@ function RowLink({
       className="grid__link"
       href={href}
       aria-label={row.label}
+      data-drawer-value={drawer ? (drawerValueOf(href, drawer) ?? undefined) : undefined}
       onNavigate={drawer ? (event) => openRowDrawer(event, href, drawer) : undefined}
     >
       <span className="grid__link-text" title={title}>
@@ -276,6 +277,31 @@ export function openRowDrawer(
 ): void {
   event.preventDefault();
   open(href, drawer);
+}
+
+/** The value a drawer row's link opens its drawer at — its own href's `?<drawer>=`. */
+function drawerValueOf(href: string, drawer: string): string | null {
+  return new URL(href, "http://row.invalid").searchParams.get(drawer);
+}
+
+/** What `drawerRowLink` searches — the page (`document`) in the browser. */
+export interface RowLinkScope {
+  querySelectorAll(selectors: string): ArrayLike<HTMLElement>;
+}
+
+const pageScope: RowLinkScope = {
+  querySelectorAll: (selectors) => document.querySelectorAll<HTMLElement>(selectors),
+};
+
+/**
+ * The row link on this page that opens its drawer at `value` (A7, #2577), or null when that row
+ * is not on the page — where focus belongs when the drawer closes. After ↑/↓ that is the row the
+ * drawer was moved to, not the one that opened it: a keyboard scan resumes where it stopped.
+ * Each drawer row's link carries the value its own href opens (`data-drawer-value`).
+ */
+export function drawerRowLink(value: string, scope: RowLinkScope = pageScope): HTMLElement | null {
+  const links = Array.from(scope.querySelectorAll("a.grid__link[data-drawer-value]"));
+  return links.find((link) => link.dataset.drawerValue === value) ?? null;
 }
 
 /** What in a row is a control of its own: a click on one is that control's, never the row's. */

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useId, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
+import { drawerRowLink } from "../../../components/data-grid-view";
 import { Drawer, useUrlDrawer } from "../../../components/drawer";
 import type { CandidateRecordResult } from "../../../lib/candidate-detail";
 import { candidateIdTitle, candidateTitle } from "../../../lib/candidate-view";
@@ -46,7 +47,8 @@ export interface CandidateDrawerProps {
  *  - ADDRESSED BY URL: open while `?c=<worker id>` is in the address (`useUrlDrawer`), so it is
  *    linkable and survives a reload; the list's own filters and page cursor stay beside it. A row
  *    opens it (a new history entry), ↑/↓ and Previous/Next move it (the same entry), Escape, the
- *    scrim, Close and Back close it. All shallow — the list under it is never re-read.
+ *    scrim, Close and Back close it. All shallow — the list under it is not re-read. Closing
+ *    hands focus to the row it is ON (after a move, not the row that opened it).
  *  - ITS OWN READ: the page reads the record on the server when it loads with `?c=`; every later
  *    open or move reads it from the browser (`[id]/record`), aborting the read it replaces. A MOVE
  *    waits {@link RECORD_SETTLE_MS} for the next press first — each read is audited and spends a
@@ -116,6 +118,9 @@ export function CandidateDrawer({ rows, initial, entitled, canReveal }: Candidat
     <Drawer
       open={id !== null}
       onClose={drawer.close}
+      // Closing hands focus to the row the drawer is ON — after ↑/↓ not the row that opened it —
+      // so a keyboard scan resumes where it stopped. Not on this page: back to the trigger.
+      returnFocus={() => (viewId ? drawerRowLink(viewId) : null)}
       title={title}
       description={
         /* Text only: a control here would take the focus the drawer gives its Close button. */

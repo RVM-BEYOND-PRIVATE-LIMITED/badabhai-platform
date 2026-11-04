@@ -101,6 +101,15 @@ const panel = new FakeElement("DIV");
 const inside = new FakeElement("BUTTON");
 const layer = { id: "drawer-layer" };
 const body = new FakeElement("BODY");
+/** The list's row links, each naming the value it opens the drawer at (`data-drawer-value`). */
+const rowLinks = ROWS.map((r) => ({ row: r.id, dataset: { drawerValue: r.id } }));
+const linkOf = (id: string) => rowLinks.find((l) => l.row === id);
+/** The page: the drawer's own layer, and the grid's row links. */
+const page = (layers: unknown[] = [layer]) => ({
+  body,
+  querySelectorAll: (selector: string) =>
+    selector === ".overlay" ? layers : selector.startsWith("a.grid__link") ? rowLinks : [],
+});
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -118,7 +127,7 @@ beforeEach(() => {
   });
   vi.stubGlobal("Node", FakeNode);
   vi.stubGlobal("HTMLElement", FakeElement);
-  vi.stubGlobal("document", { body, querySelectorAll: () => [layer] });
+  vi.stubGlobal("document", page());
   vi.stubGlobal("window", {
     history,
     addEventListener: (_t: string, fn: (e: unknown) => void) => listeners.push(fn),
@@ -136,6 +145,7 @@ type DrawerEl = ReactElement<{
   open: boolean;
   title: string;
   onClose: () => void;
+  returnFocus: () => unknown;
   children: ReactElement;
 }>;
 
@@ -245,7 +255,7 @@ describe("↑ / ↓ move through the current page", () => {
   });
 
   it("…but not while another overlay sits on top of it", () => {
-    vi.stubGlobal("document", { body, querySelectorAll: () => [layer, { id: "confirm-layer" }] });
+    vi.stubGlobal("document", page([layer, { id: "confirm-layer" }]));
     draw();
     mountContent();
     key("ArrowDown", { target: body });
@@ -375,3 +385,34 @@ describe("closing", () => {
   });
 });
 
+/**
+ * The Overlay asks `returnFocus` as it closes (overlay.behaviour.test.tsx) and focuses what it
+ * names, else the trigger it captured when it OPENED — the row that opened the drawer. After ↑/↓
+ * that row is behind the user: focus (and the list's scroll) must come back to the row now open.
+ */
+describe("focus when it closes", () => {
+  it("goes to the row the drawer is ON — after ↓, the row it moved to, not the one that opened it", () => {
+    draw();
+    mountContent();
+    key("ArrowDown");
+    follow();
+    draw();
+    // Escape / Close / Back: the address loses ?c= and the drawer closes on W3.
+    h.search = "status=active";
+    const closing = draw();
+    expect(closing.props.open).toBe(false);
+    expect(closing.props.returnFocus()).toBe(linkOf(W3));
+  });
+
+  it("with no move, it is the row that was opened", () => {
+    draw();
+    h.search = "status=active";
+    expect(draw().props.returnFocus()).toBe(linkOf(W2));
+  });
+
+  it("a candidate not on this page has no row to go to: the trigger keeps it", () => {
+    h.search = "status=active&c=d4d4d4d4-0000-4000-8000-000000000004";
+    initial = null;
+    expect(draw().props.returnFocus()).toBeNull();
+  });
+});

@@ -110,6 +110,60 @@ describe("holdFocus — Escape closes, and focus returns to the trigger", () => 
 });
 
 /**
+ * A7 (#2577) — an overlay can OUTLIVE ITS TRIGGER: the candidate drawer moved down the list by
+ * ↑/↓ (its trigger is the row it was opened from), the phone reveal's confirm whose success put
+ * the revealed phone in place of the Reveal button (its trigger has left the page, and focusing
+ * it would drop focus on the page body). `returnFocus` is asked where focus belongs AT RELEASE.
+ */
+describe("holdFocus — returnFocus: where focus belongs now, asked at release", () => {
+  function held(returnFocus: () => { focus(): void; isConnected?: boolean } | null) {
+    const trigger = control("trigger");
+    const ask = vi.fn(returnFocus);
+    const release = holdFocus({
+      container: { focus: vi.fn(), querySelectorAll: () => [control("a")] },
+      keyTarget: new EventTarget(),
+      activeElement: () => null,
+      onEscape: vi.fn(),
+      returnTo: trigger,
+      returnFocus: ask,
+    });
+    return { trigger, ask, release };
+  }
+
+  it("is asked when the overlay is released — not when it opens — and gets focus instead of the trigger", () => {
+    const row = control("row now open");
+    const t = held(() => row);
+    expect(t.ask).not.toHaveBeenCalled();
+    t.release();
+    expect(t.ask).toHaveBeenCalledTimes(1);
+    expect(row.focus).toHaveBeenCalledTimes(1);
+    expect(t.trigger.focus).not.toHaveBeenCalled();
+  });
+
+  it("naming nothing, it leaves focus to the trigger", () => {
+    const t = held(() => null);
+    t.release();
+    expect(t.trigger.focus).toHaveBeenCalledTimes(1);
+  });
+
+  it("naming an element that has left the page, it leaves focus to the trigger", () => {
+    const gone = { focus: vi.fn(), isConnected: false };
+    const t = held(() => gone);
+    t.release();
+    expect(gone.focus).not.toHaveBeenCalled();
+    expect(t.trigger.focus).toHaveBeenCalledTimes(1);
+  });
+
+  it("an element still on the page (isConnected) is focused", () => {
+    const there = { focus: vi.fn(), isConnected: true };
+    const t = held(() => there);
+    t.release();
+    expect(there.focus).toHaveBeenCalledTimes(1);
+    expect(t.trigger.focus).not.toHaveBeenCalled();
+  });
+});
+
+/**
  * A7 (#2577) — a confirm opens OVER the candidate drawer (the phone reveal's reason). Both holds
  * listen on the same window, so before this only one key press ever belonged to the top one:
  * Escape closed the drawer under the confirm as well, and every Tab inside the confirm was pulled

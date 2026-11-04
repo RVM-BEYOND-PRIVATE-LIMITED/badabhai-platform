@@ -8,11 +8,13 @@ import { RECORD_WORKER_ID } from "../../../../test/candidate-record";
  * through the existing reason-gated route behind A5's T2 confirm, offered to `reveal_pii`.
  *
  * `useState` is seeded POSITIONALLY (source order: phone, asking) and its setters recorded; the
- * ConfirmDialog is a stand-in that records the props it was given.
+ * ConfirmDialog is a stand-in that records the props it was given. `useRef` hands out plain
+ * objects, recorded in call order: the field's own ref (the revealed value) is the first.
  */
 let seeded: unknown[] = [];
 let cursor = 0;
 let sets: [number, unknown][] = [];
+let refs: { current: unknown }[] = [];
 vi.mock("react", async () => {
   const actual = await vi.importActual<typeof ReactModule>("react");
   return {
@@ -20,6 +22,11 @@ vi.mock("react", async () => {
     useState: (initial: unknown) => {
       const i = cursor++;
       return [i < seeded.length ? seeded[i] : initial, (v: unknown) => sets.push([i, v])];
+    },
+    useRef: (initial: unknown) => {
+      const ref = { current: initial };
+      refs.push(ref);
+      return ref;
     },
   };
 });
@@ -34,6 +41,7 @@ interface ConfirmProps {
   categories: { value: string; label: string }[];
   onConfirm: (r: { category: string; text: string }) => Promise<unknown>;
   onClose: () => void;
+  returnFocus?: () => unknown;
 }
 let confirm: ConfirmProps | null = null;
 vi.mock("../../../components/confirm-dialog", () => ({
@@ -56,6 +64,7 @@ beforeEach(() => {
   seeded = [];
   cursor = 0;
   sets = [];
+  refs = [];
   confirm = null;
   reveal.mockReset();
 });
@@ -154,5 +163,44 @@ describe("after a reveal", () => {
     expect(out).toContain('class="lock-tag"');
     expect(out).toContain("Revealed to you. The reveal is recorded with your reason.");
     expect(out).not.toContain("Reveal phone");
+  });
+});
+
+/**
+ * The success REPLACES the button that opened the confirm. Were the confirm inside the hidden
+ * state, it would be unmounted with that button — no exit, and focus handed back to a detached
+ * button, which drops it on the page body. It is rendered beside both states instead, so it
+ * CLOSES, and the focus it hands back goes to the revealed phone's Copy button.
+ */
+describe("focus after a reveal", () => {
+  it("the confirm is still there once the phone is revealed — closed, so it closes rather than vanishes", () => {
+    seeded = ["+919800000001", false];
+    html(true);
+    expect(confirm).not.toBeNull();
+    expect(confirm!.open).toBe(false);
+  });
+
+  it("…and hands focus to the revealed phone's Copy button", () => {
+    seeded = ["+919800000001", false];
+    html(true);
+    const copy = { name: "Copy phone" };
+    // The revealed value, as React would have attached it: the phone, and its Copy button.
+    refs[0]!.current = { querySelector: (s: string) => (s === "button" ? copy : null) };
+    expect(confirm!.returnFocus!()).toBe(copy);
+  });
+
+  it("before a reveal (Cancel, a refusal) it names nothing — focus goes back to Reveal phone", () => {
+    html(true);
+    expect(refs[0]!.current).toBeNull();
+    expect(confirm!.returnFocus!()).toBeNull();
+  });
+
+  it("a role that cannot reveal still has no confirm, in either state", () => {
+    html(false);
+    expect(confirm).toBeNull();
+    seeded = ["+919800000001", false];
+    cursor = 0;
+    html(false);
+    expect(confirm).toBeNull();
   });
 });

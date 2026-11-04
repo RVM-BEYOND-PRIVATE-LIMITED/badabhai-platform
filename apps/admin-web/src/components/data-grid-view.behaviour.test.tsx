@@ -39,7 +39,8 @@ vi.mock("react", async (importOriginal) => {
   };
 });
 
-const { DataGridView, openRowDrawer, openRowFromCell } = await import("./data-grid-view");
+const { DataGridView, drawerRowLink, openRowDrawer, openRowFromCell } =
+  await import("./data-grid-view");
 const { resetGridPreferencesForTests, writeDensity } = await import("./grid-preferences");
 
 const PROPS: DataGridViewProps = {
@@ -275,6 +276,7 @@ describe("a row that opens a drawer over the list", () => {
     const render = el!.type as unknown as (p: RowLinkEl["props"]) => ReactElement<{
       href: string;
       onNavigate?: (e: { preventDefault(): void }) => void;
+      "data-drawer-value"?: string;
     }>;
     return { el: el!, link: render(el!.props) };
   }
@@ -309,5 +311,43 @@ describe("a row that opens a drawer over the list", () => {
       (href, param) => order.push(`open ${href} ${param}`),
     );
     expect(order).toEqual(["prevent", "open /candidates?c=w2 c"]);
+  });
+
+  it("its link names the value it opens the drawer at — read from its own href", () => {
+    expect(rowLink(linked("c")).link.props["data-drawer-value"]).toBe("w1");
+    // A row that opens a page names no drawer value.
+    expect(rowLink(linked()).link.props["data-drawer-value"]).toBeUndefined();
+  });
+});
+
+/**
+ * A7 (#2577): when the drawer closes, focus goes back to the row it is ON — after ↑/↓ the row it
+ * moved to, not the one that opened it — found by the value each drawer row link names.
+ */
+describe("drawerRowLink — the row a drawer is on", () => {
+  const link = (value: string) => ({ dataset: { drawerValue: value } }) as unknown as HTMLElement;
+  const scopeOf = (links: HTMLElement[]) => {
+    const asked: string[] = [];
+    return {
+      asked,
+      scope: {
+        querySelectorAll: (selector: string) => {
+          asked.push(selector);
+          return links;
+        },
+      },
+    };
+  };
+
+  it("finds the drawer row link whose value is the drawer's", () => {
+    const [w1, w2, w3] = [link("w1"), link("w2"), link("w3")];
+    const { scope, asked } = scopeOf([w1, w2, w3]);
+    expect(drawerRowLink("w3", scope)).toBe(w3);
+    expect(asked).toEqual(["a.grid__link[data-drawer-value]"]);
+  });
+
+  it("is null when that row is not on this page", () => {
+    expect(drawerRowLink("w9", scopeOf([link("w1")]).scope)).toBeNull();
+    expect(drawerRowLink("w1", scopeOf([]).scope)).toBeNull();
   });
 });

@@ -17,12 +17,27 @@ import { focusableIn, trapTab, type Focusable, type FocusRoot } from "./drawer-f
  * key: Escape closes the confirm and leaves the drawer open, and Tab cycles the confirm's
  * controls instead of being pulled back into the drawer under it. Releasing the top hands the
  * keys back to the one beneath.
+ *
+ * AN OVERLAY CAN OUTLIVE ITS TRIGGER (A7, #2577): a drawer that ↑/↓ moved on to another row, or a
+ * confirm whose success replaced the button that opened it. `returnFocus` is asked AT RELEASE
+ * where focus belongs now (the row the drawer is on, the value just revealed); when it names
+ * nothing still on the page, focus goes back to `returnTo` as before.
  */
 const held: object[] = [];
+
+/** Anything focus can be handed to. */
+interface FocusTarget {
+  focus(): void;
+}
 
 /** Is this hold the topmost one still held — the overlay a key press belongs to? */
 function isTopHold(token: object): boolean {
   return held[held.length - 1] === token;
+}
+
+/** Still in the document? Only an element known to have left it (`isConnected`) is not. */
+function onPage(target: FocusTarget): boolean {
+  return (target as { isConnected?: boolean }).isConnected !== false;
 }
 
 export function holdFocus<T extends Focusable>({
@@ -32,13 +47,17 @@ export function holdFocus<T extends Focusable>({
   onEscape,
   initial,
   returnTo,
+  returnFocus,
 }: {
   container: FocusRoot<T> & { focus(): void };
   keyTarget: Pick<EventTarget, "addEventListener" | "removeEventListener">;
   activeElement: () => unknown;
   onEscape: () => void;
-  initial?: { focus(): void } | null;
-  returnTo?: { focus(): void } | null;
+  initial?: FocusTarget | null;
+  /** The trigger: focused again on release, unless `returnFocus` names a better place. */
+  returnTo?: FocusTarget | null;
+  /** Where focus belongs on release, asked then — see "an overlay can outlive its trigger". */
+  returnFocus?: () => FocusTarget | null;
 }): () => void {
   const token = {};
   held.push(token);
@@ -66,6 +85,7 @@ export function holdFocus<T extends Focusable>({
     keyTarget.removeEventListener("keydown", onKey);
     const at = held.indexOf(token);
     if (at >= 0) held.splice(at, 1);
-    returnTo?.focus();
+    const preferred = returnFocus?.() ?? null;
+    (preferred && onPage(preferred) ? preferred : returnTo)?.focus();
   };
 }

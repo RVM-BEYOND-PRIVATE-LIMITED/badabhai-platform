@@ -16,6 +16,8 @@ export interface DialogProps {
   footer?: ReactNode;
   /** Where focus starts; the close button when omitted. */
   initialFocusRef?: RefObject<HTMLElement | null>;
+  /** Where focus goes on close when the trigger is no longer the place (`OverlayProps`). */
+  returnFocus?: () => HTMLElement | null;
 }
 
 /**
@@ -40,6 +42,7 @@ export function OverlayFrame({
   children,
   footer,
   initialFocusRef,
+  returnFocus,
 }: DialogProps & { kind: "dialog" | "drawer" }) {
   const id = useId();
   const titleId = `${id}-title`;
@@ -52,6 +55,7 @@ export function OverlayFrame({
       labelledBy={titleId}
       describedBy={descId}
       initialFocusRef={initialFocusRef}
+      returnFocus={returnFocus}
     >
       <OverlayHeader kind={kind} titleId={titleId} title={title} onClose={onClose}>
         {description ? (

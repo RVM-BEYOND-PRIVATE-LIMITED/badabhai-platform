@@ -37,6 +37,11 @@ interface ConfirmDialogBase {
   onConfirm: (reason: ConfirmReason) => Promise<AdminActionOutcome>;
   /** Every outcome, success or failure. A success also closes the dialog. */
   onSettled?: (outcome: AdminActionOutcome) => void;
+  /**
+   * Where focus goes when it closes, for a success that REPLACES the control that opened it (the
+   * revealed phone, in place of Reveal phone): asked as it closes; the trigger otherwise.
+   */
+  returnFocus?: () => HTMLElement | null;
 }
 
 export type ConfirmDialogProps =
@@ -72,6 +77,7 @@ export function ConfirmDialog(props: ConfirmDialogProps) {
     categories = REASON_CATEGORIES,
     onConfirm,
     onSettled,
+    returnFocus,
     tier,
     targetName,
   } = props;
@@ -114,6 +120,7 @@ export function ConfirmDialog(props: ConfirmDialogProps) {
       title={title}
       description={description}
       initialFocusRef={destructive ? cancelRef : undefined}
+      returnFocus={returnFocus}
       footer={
         <>
           {blockers.length > 0 ? (
