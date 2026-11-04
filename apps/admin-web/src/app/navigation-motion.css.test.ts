@@ -17,14 +17,21 @@ import {
  *   active marker glides 220ms · a group opens/closes in 180ms · the avatar menu fades and scales
  *   0.98 → 1 from the top-right in 140ms · the palette fades in with an 8px drop in 160ms, and its
  *   highlight moves instantly. Opacity and transform only; every duration a token, so all of it is
- *   zero under prefers-reduced-motion. And all of it lives in ONE block at the end of globals.css.
+ *   zero under prefers-reduced-motion. And all of it lives in ONE marked block of globals.css,
+ *   appended after A4's; a lane appended after it is that lane's block, never read as this one.
  */
 const here = dirname(fileURLToPath(import.meta.url));
 const RAW = readFileSync(join(here, "globals.css"), "utf8");
 const MARK = "══ A6 (#2576)";
 const TOKENS = tokensCss();
 
-const BLOCK = stripComments(RAW.slice(RAW.indexOf(MARK)));
+/** A6's block of a stylesheet: from its marker's comment to the next lane's "══" marker, or the end. */
+function a6Block(css: string): string {
+  const at = css.indexOf(MARK);
+  const next = css.indexOf("/* ══", at + MARK.length);
+  return css.slice(css.lastIndexOf("/*", at), next < 0 ? undefined : next);
+}
+const BLOCK = stripComments(a6Block(RAW));
 const ALL = rules(BLOCK, true);
 const top = (selector: string) =>
   ALL.find((r) => r.selector === selector && r.atRules.length === 0);
@@ -43,12 +50,15 @@ function reducedToken(name: string): string {
   throw new Error(`${name} is not zeroed under reduced motion`);
 }
 
-describe("the A6 styles are ONE block, at the end of globals.css", () => {
-  it("is marked once, and nothing follows it but its own rules", () => {
+describe("the A6 styles are ONE marked block of globals.css, after A4's", () => {
+  it("is marked once, lands after A4's block, and holds every A6 selector — none before it", () => {
     expect(RAW.split(MARK)).toHaveLength(2);
-    expect(RAW.indexOf(MARK)).toBeGreaterThan(RAW.length * 0.9);
+    // The lanes append their blocks in landing order: A4's grid landed first.
+    const a4 = RAW.indexOf("══ A4 (#2574)");
+    expect(a4).toBeGreaterThan(0);
+    expect(RAW.indexOf(MARK)).toBeGreaterThan(a4);
     // Every A6 selector lives in the block, none before it.
-    const before = stripComments(RAW.slice(0, RAW.indexOf(MARK)));
+    const before = stripComments(RAW.slice(0, RAW.lastIndexOf("/*", RAW.indexOf(MARK))));
     for (const cls of [
       ".sidebar__marker",
       ".sidebar__grouptoggle",
@@ -59,6 +69,20 @@ describe("the A6 styles are ONE block, at the end of globals.css", () => {
       expect(before.includes(cls), cls).toBe(false);
       expect(BLOCK.includes(cls), cls).toBe(true);
     }
+  });
+
+  it("ends at the next lane's marker: a block appended after it is never read as A6's", () => {
+    // What a later admin lane appends: its own marker, a fifth @keyframes and a colour transition —
+    // each would fail the motion checks below, were it read as part of this block.
+    const later = [
+      "/* ══ A LATER LANE ══ */",
+      "@keyframes later-in { from { opacity: 0; } }",
+      ".later { transition: color var(--duration-fast); }",
+    ];
+    const appended = [RAW, ...later].join("\n");
+    expect(rules(stripComments(a6Block(appended)), true)).toEqual(ALL);
+    // The block starts at its header's "/*", so the header is dropped whole, not left in a selector.
+    expect(ALL.filter((r) => /══|\*\//.test(r.selector)).map((r) => r.selector)).toEqual([]);
   });
 });
 

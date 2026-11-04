@@ -4500,7 +4500,7 @@ a.pager__step:hover {
 
 /* ══ A6 (#2576) — NAVIGATION: Directory groups, the gliding active marker, the topbar's quick
    jump, environment badge and avatar menu, and the Ctrl/⌘K palette ══
-   ONE block, at the end, so the parallel admin lanes rebase over it trivially. Brand tokens only,
+   ONE block, appended, so the parallel admin lanes rebase over it trivially. Brand tokens only,
    no new colours. Motion is opacity and transform only, nothing loops, and every duration is a
    token, so tokens.css zeroes all of it under prefers-reduced-motion:
      active marker   glides 220ms            --duration-base, --ease-glide
