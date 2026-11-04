@@ -36,9 +36,17 @@ export const CREATE_ADMIN_DESCRIPTION =
  * button, so it can be handed over without retyping it (`OneTimeSecret`). Both password fields
  * are cleared at that moment, and closing the dialog unmounts the form, so the value is gone for
  * good: there is no way to show it a second time. "Generate" fills both fields with a
- * policy-valid random password.
+ * policy-valid random password. `onPendingChange` lets the dialog refuse to close while the
+ * create is in flight, so the password cannot be dropped before it is shown.
  */
-export function CreateAdminForm({ mayReadEvents }: { mayReadEvents: boolean }) {
+export function CreateAdminForm({
+  mayReadEvents,
+  onPendingChange,
+}: {
+  mayReadEvents: boolean;
+  /** The create request going out (`true`) and settling (`false`) — see AdminActionButton. */
+  onPendingChange?: (pending: boolean) => void;
+}) {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
@@ -145,6 +153,7 @@ export function CreateAdminForm({ mayReadEvents }: { mayReadEvents: boolean }) {
             disabled={!ready}
             action={() => createAdminAction({ email, name, role, temporaryPassword: password })}
             onSettled={handleSettled}
+            onPendingChange={onPendingChange}
           />
         </div>
       </form>

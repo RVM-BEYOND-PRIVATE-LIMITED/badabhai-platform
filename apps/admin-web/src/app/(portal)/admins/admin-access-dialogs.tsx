@@ -13,41 +13,60 @@ import { INVITE_ADMIN_DESCRIPTION, InviteAdminForm } from "./invite-admin-form";
  * one-time accept link or temporary password shown in it cannot be shown again.
  */
 export function CreateAdminDialog({ mayReadEvents }: { mayReadEvents: boolean }) {
-  const [open, setOpen] = useState(false);
+  const dialog = useOneShotDialog();
   return (
     <>
-      <button type="button" className="btn btn--primary" onClick={() => setOpen(true)}>
+      <button type="button" className="btn btn--primary" onClick={dialog.show}>
         <Icon name="user-plus" />
         <span>Create an admin</span>
       </button>
       <Dialog
-        open={open}
-        onClose={() => setOpen(false)}
+        open={dialog.open}
+        onClose={dialog.close}
         title="Create an admin"
         description={CREATE_ADMIN_DESCRIPTION}
       >
-        <CreateAdminForm mayReadEvents={mayReadEvents} />
+        <CreateAdminForm mayReadEvents={mayReadEvents} onPendingChange={dialog.onPendingChange} />
       </Dialog>
     </>
   );
 }
 
 export function InviteAdminDialog({ mayReadEvents }: { mayReadEvents: boolean }) {
-  const [open, setOpen] = useState(false);
+  const dialog = useOneShotDialog();
   return (
     <>
-      <button type="button" className="btn btn--ghost" onClick={() => setOpen(true)}>
+      <button type="button" className="btn btn--ghost" onClick={dialog.show}>
         <Icon name={ACTION_ICON.send} />
         <span>Invite an admin</span>
       </button>
       <Dialog
-        open={open}
-        onClose={() => setOpen(false)}
+        open={dialog.open}
+        onClose={dialog.close}
         title="Invite an admin"
         description={INVITE_ADMIN_DESCRIPTION}
       >
-        <InviteAdminForm mayReadEvents={mayReadEvents} />
+        <InviteAdminForm mayReadEvents={mayReadEvents} onPendingChange={dialog.onPendingChange} />
       </Dialog>
     </>
   );
+}
+
+/**
+ * Open state for a dialog whose form returns a one-time secret. `close` — Escape, the scrim and
+ * the Close button alike — does nothing while the form's request is in flight: closing then would
+ * unmount the form before the secret it is about to show arrives, and it can never be fetched
+ * again (the admin is created, but its temporary password is lost).
+ */
+function useOneShotDialog() {
+  const [open, setOpen] = useState(false);
+  const [pending, setPending] = useState(false);
+  return {
+    open,
+    show: () => setOpen(true),
+    close: () => {
+      if (!pending) setOpen(false);
+    },
+    onPendingChange: setPending,
+  };
 }

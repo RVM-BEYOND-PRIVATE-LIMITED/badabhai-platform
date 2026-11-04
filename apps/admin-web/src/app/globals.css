@@ -4899,7 +4899,7 @@ a.pager__step:hover {
   border-radius: inherit;
   pointer-events: none;
   opacity: 0;
-  animation: armed-pulse var(--duration-slow) var(--ease-out) 1;
+  animation: armed-pulse var(--duration-base) var(--ease-out) 1;
 }
 .admin-action .btn--danger[data-armed] {
   --pulse-tone: var(--danger);

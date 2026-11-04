@@ -6,6 +6,8 @@ import { decl, globalsCss, resolveToken, rules, tokensCss } from "../../test/css
  *
  *  - Dialog, Drawer and Toast enter over --duration-base on --ease-enter and leave over
  *    --duration-fast on --ease-exit (the token `usePresence` waits for);
+ *  - every one of those animations, and the armed pulse, runs 90–300ms (the Undo bar is the
+ *    one progress indicator allowed longer);
  *  - their keyframes animate only opacity and transform, and travel at most 6px;
  *  - the tokens are 0 under prefers-reduced-motion, and the Undo bar (its duration set inline)
  *    stops too;
@@ -77,6 +79,28 @@ describe("enter and exit timing", () => {
     const animation = decl(body(".admin-action [data-armed]::after"), "animation")!;
     expect(animation).toMatch(/^armed-pulse var\(--duration-[a-z]+\) var\(--ease-out\) 1$/);
     expect(animation).not.toContain("infinite");
+  });
+
+  it("every one runs 90–300ms; only the Undo bar's window (toast-drain) runs longer", () => {
+    const timed = rules(CSS, true).flatMap((r) => {
+      const animation = decl(r.body, "animation");
+      const name = animation?.split(" ")[0];
+      return animation && name && name !== "toast-drain" && KEYFRAMES.includes(name)
+        ? [{ selector: r.selector, name, animation }]
+        : [];
+    });
+    expect(new Set(timed.map((t) => t.name))).toEqual(
+      new Set(KEYFRAMES.filter((k) => k !== "toast-drain")),
+    );
+    for (const { selector, animation } of timed) {
+      const token = /var\((--duration-[a-z]+)\)/.exec(animation)?.[1];
+      expect(token, `${selector} times its animation with a --duration-* token`).toBeDefined();
+      const value = resolveToken(TOKENS, token!);
+      expect(value, `${selector}: ${token}`).toMatch(/^\d+ms$/);
+      const ms = Number.parseFloat(value);
+      expect(ms, `${selector}: ${token} is ${value}`).toBeGreaterThanOrEqual(90);
+      expect(ms, `${selector}: ${token} is ${value}`).toBeLessThanOrEqual(300);
+    }
   });
 });
 

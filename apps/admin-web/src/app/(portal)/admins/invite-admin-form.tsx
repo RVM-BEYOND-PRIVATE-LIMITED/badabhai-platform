@@ -24,13 +24,17 @@ export const INVITE_ADMIN_DESCRIPTION =
  *
  * The body of the "Invite an admin" dialog (`AdminAccessDialogs`), which owns its title and
  * description; the result and the one-time link render inside it, and closing the dialog drops
- * them (the link cannot be fetched again).
+ * them (the link cannot be fetched again) — so `onPendingChange` lets the dialog refuse to close
+ * while the invite is in flight.
  */
 export function InviteAdminForm({
   mayReadEvents,
+  onPendingChange,
 }: {
   /** Whether the session may open `/events` (`read_events`) — the result banner's link. */
   mayReadEvents: boolean;
+  /** The invite request going out (`true`) and settling (`false`) — see AdminActionButton. */
+  onPendingChange?: (pending: boolean) => void;
 }) {
   const router = useRouter();
   const [email, setEmail] = useState("");
@@ -96,6 +100,7 @@ export function InviteAdminForm({
             disabled={!emailValid}
             action={() => inviteAdminAction({ email, role })}
             onSettled={handleSettled}
+            onPendingChange={onPendingChange}
           />
         </div>
       </form>

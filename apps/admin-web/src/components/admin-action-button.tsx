@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useTransition, type FocusEvent } from "react";
+import { useEffect, useRef, useState, useTransition, type FocusEvent } from "react";
 import { ACTION_ICON, Icon, type IconName } from "@badabhai/icons";
 import type { AdminActionOutcome } from "../lib/admin-action-result";
 
@@ -47,6 +47,12 @@ interface AdminActionButtonProps {
    * of its own — see the component doc for why there is exactly one owner of it.
    */
   onSettled?: (outcome: AdminActionOutcome) => void;
+  /**
+   * Called with `true` when the confirmed request goes out, and `false` once it settles (or if
+   * the button unmounts mid-request). For a host that must not close while the result is on its
+   * way — a dialog whose result is a one-time secret (A5, #2575).
+   */
+  onPendingChange?: (pending: boolean) => void;
 }
 
 /**
@@ -83,15 +89,24 @@ export function AdminActionButton({
   icon,
   subject,
   onSettled,
+  onPendingChange,
 }: AdminActionButtonProps) {
   const [armed, setArmed] = useState(false);
   const [pending, startTransition] = useTransition();
+  const onPendingChangeRef = useRef(onPendingChange);
+  onPendingChangeRef.current = onPendingChange;
 
   useEffect(() => {
     if (!armed || pending) return;
     const timer = setTimeout(() => setArmed(false), ARM_TIMEOUT_MS);
     return () => clearTimeout(timer);
   }, [armed, pending]);
+
+  useEffect(() => {
+    if (!pending) return;
+    onPendingChangeRef.current?.(true);
+    return () => onPendingChangeRef.current?.(false);
+  }, [pending]);
 
   function handleBlur(e: FocusEvent<HTMLSpanElement>) {
     if (armed && !pending && focusLeftCluster(e.currentTarget, e.relatedTarget)) setArmed(false);
