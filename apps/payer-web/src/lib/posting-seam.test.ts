@@ -193,12 +193,22 @@ describe("toPayerJobPostingPatchBody — card keys + clear diff + publish (PR-B)
     const clear = body.clear as string[];
     expect(clear).toContain("city");
     expect(clear).toContain("pay_min");
-    expect(clear).toContain("role_kind");
     expect(clear).toContain("requirements");
     // A field that IS set is never in clear (no set+clear contradiction).
     const body2 = toPayerJobPostingPatchBody({ roleTitle: "X", city: "Mumbai" }, INITIAL_FULL);
     expect(body2.clear as string[]).not.toContain("city");
     expect(body2.city).toBe("Mumbai");
+  });
+
+  it("#2645 — an absent role is UNTOUCHED, never cleared: neither sent nor in `clear`", () => {
+    // The edit form sends the role only when the payer moved it to another trade; a live job
+    // must name one of the 16, so a stored role is never unset from here.
+    const body = toPayerJobPostingPatchBody({ roleTitle: "CNC Machinist" }, INITIAL_FULL);
+    expect(body).not.toHaveProperty("role_kind");
+    expect(body.clear as string[]).not.toContain("role_kind");
+    // A moved role is sent as itself.
+    const moved = toPayerJobPostingPatchBody({ roleTitle: "X", roleKind: "fitter" }, INITIAL_FULL);
+    expect(moved.role_kind).toBe("fitter");
   });
 
   it("omits `clear` entirely when nothing was blanked (empty list would 400 server-side)", () => {

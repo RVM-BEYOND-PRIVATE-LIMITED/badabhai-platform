@@ -10744,3 +10744,12 @@ body:has(.invite-landing) .chrome-footer {
     --otp-pop-scale: 1;
   }
 }
+
+/* ══ #2645 16-trade posting — the trade picker's spot while the 16 trades are not there ══
+   The company trade picker (postings/trade-picker.tsx) stands an `.alert` (the real cause and a
+   Retry) inside its DS field shell when GET /payer/posting-trades did not load or listed nothing.
+   The field's own gap already spaces it from the label above and the refusal line below, so the
+   alert's block margin is dropped. Tokens only; no new colours. */
+.trade-picker__unavailable {
+  margin-bottom: 0;
+}

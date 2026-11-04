@@ -1666,7 +1666,10 @@ const CLEARABLE_POSTING_FIELDS = [
   ["needed_by", "neededBy"],
   ["benefits", "benefits"],
   ["requirements", "requirements"],
-  ["role_kind", "roleKind"],
+  // NOT `role_kind` (#2645), although the backend lets it be cleared: a company job's role is its
+  // trade, a live job must name one of the 16 (#2635) and a draft needs one to publish. The edit
+  // form sends the role only when the payer moved it to another trade, so an untouched role is
+  // ABSENT here — and absent must never read as "cleared".
   // Migration 0141 — both nullable, so both are clearable.
   ["trade_level", "tradeLevel"],
   ["trade_answers", "tradeAnswers"],
@@ -1773,9 +1776,10 @@ export async function listMatchSkills(): Promise<MatchSkillWire[]> {
 /**
  * GET /payer/posting-trades — the 16-trade posting-form catalogue (migration 0141).
  *
- * Fetched SERVER-side so the Bearer never reaches the browser. A failure is returned as an
- * empty list by the caller: the legacy role picker + match picker stay usable rather than
- * turning a taxonomy outage into "you cannot post".
+ * Fetched SERVER-side so the Bearer never reaches the browser. The company pages read it through
+ * `readPostingTrades` (posting-trades.server.ts): a failure is named at the trade picker with a
+ * Retry, and the form refuses to post — a company job must name one of the 16 (#2635), so there
+ * is no free role list or flat skill picker to fall back on any more.
  */
 export async function listPostingTrades(): Promise<PostingTradeFormWire[]> {
   const wire = await payerFetch("/payer/posting-trades", { schema: postingTradeListWireSchema });
@@ -1792,13 +1796,20 @@ export async function listPostingTrades(): Promise<PostingTradeFormWire[]> {
  *
  * Reach is a property of WORKER SUPPLY, identical for every payer, so no payer id is
  * sent or needed and there is no tenancy surface here to get wrong.
+ *
+ * `roleKind` (#2635, optional) is a COMPANY job's trade: one of the 16 scopes the posted ids
+ * exactly as publish scopes them, so the figure is the one publish will reach. An agency job
+ * sends none (the API scopes only company jobs by trade); absent, the key is not sent.
  */
-export async function previewReach(input: MatchSelectionInput): Promise<ReachPreview> {
+export async function previewReach(
+  input: MatchSelectionInput & { roleKind?: string },
+): Promise<ReachPreview> {
   return payerFetch("/payer/match/reach-preview", {
     method: "POST",
     body: {
       match_skill_ids: input.matchSkillIds,
       unticked_related_ids: input.untickedRelatedIds,
+      ...(input.roleKind ? { role_kind: input.roleKind } : {}),
     },
     schema: reachPreviewWireSchema,
   });
@@ -2150,9 +2161,10 @@ export async function getJobPostingChatTranscript(
  * job posting. The draft already lives server-side on the session row, the payer is the session
  * (XB-A), and the org name is auto-filled server-side (rule A).
  *
- * `roleKind` is the publish-step role pick (#2490): display/classification only, the same closed
- * 21-value set the manual form sends, never a match input. OPTIONAL — absent stays absent, so the
- * posting stores NULL and the worker card draws the generic art. Sent only when the payer picked.
+ * `roleKind` is the publish-step role pick (#2490) — the job's TRADE. The chat always sends it
+ * since #2645: one of the 16 the API served, checked before this call, because a company job that
+ * names none of them can never go live and its trade scopes who it reaches (#2635). The wire field
+ * itself stays optional (absent would store NULL), so the parameter does too; absent is not sent.
  *
  * `area` (#2493) is the COARSE locality bucket prefilled from the draft (or corrected at publish).
  * The server lets the body win over the draft. OPTIONAL — absent stores NULL; the card then shows

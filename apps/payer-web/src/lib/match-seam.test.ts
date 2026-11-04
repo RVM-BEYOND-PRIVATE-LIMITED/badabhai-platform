@@ -164,6 +164,25 @@ describe("POST /payer/match/reach-preview — the live counter", () => {
     expect(preview.max_skills_per_posting).toBe(3);
   });
 
+  it("#2635 — a company job's trade rides as role_kind; none is sent when the caller has none", async () => {
+    // A fresh Response per call — a body is read once.
+    fetchMock.mockImplementation(async () => jsonResponse(PREVIEW));
+    const { previewReach } = await import("./payer-api");
+    await previewReach({
+      matchSkillIds: ["mskill_cnc_turning"],
+      untickedRelatedIds: [],
+      roleKind: "cnc_turner",
+    });
+    expect(sentBody()).toEqual({
+      match_skill_ids: ["mskill_cnc_turning"],
+      unticked_related_ids: [],
+      role_kind: "cnc_turner",
+    });
+    // An agency form passes no role: the key is absent, never null.
+    await previewReach({ matchSkillIds: ["mskill_cnc_turning"], untickedRelatedIds: [] });
+    expect(sentBody(1)).not.toHaveProperty("role_kind");
+  });
+
   it("carries the zero_reach flag through untouched (E13 depends on it)", async () => {
     fetchMock.mockResolvedValue(
       jsonResponse({ ...PREVIEW, reach_total: 0, reach_tier1: 0, zero_reach: true }),

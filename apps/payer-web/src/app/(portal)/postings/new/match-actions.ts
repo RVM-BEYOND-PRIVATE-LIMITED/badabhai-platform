@@ -1,6 +1,7 @@
 "use server";
 
 import { matchSelectionInputSchema, type ReachPreview } from "../../../../lib/contracts";
+import { roleKindInputSchema } from "../../../../lib/job-roles";
 import { previewReach } from "../../../../lib/payer-api";
 
 /**
@@ -16,6 +17,9 @@ import { previewReach } from "../../../../lib/payer-api";
  * unticks that were actually honoured. Emitting per-preview would fill the audit spine
  * with drafts of a decision not yet taken.
  *
+ * `roleKind` (#2635) — a COMPANY form sends its job's trade, so the preview scopes the posted
+ * skills exactly as publish will; an agency form sends none. Re-validated here (the closed set).
+ *
  * FAIL-SOFT, NOT FAIL-SILENT. A failed preview returns an error the form renders next
  * to the counter; it never returns a fabricated count. Showing "0 workers" for a
  * network error would read as the E13 zero-reach warning and scare a payer off a
@@ -25,21 +29,35 @@ export type ReachPreviewResult =
   | { ok: true; preview: ReachPreview }
   | { ok: false; error: string };
 
+const FAILED = "Could not check reach right now. Please retry.";
+
 export async function previewReachAction(input: {
   matchSkillIds: string[];
   untickedRelatedIds: string[];
+  roleKind?: string;
 }): Promise<ReachPreviewResult> {
-  const parsed = matchSelectionInputSchema.safeParse(input);
+  const parsed = matchSelectionInputSchema.safeParse({
+    matchSkillIds: input.matchSkillIds,
+    untickedRelatedIds: input.untickedRelatedIds,
+  });
   if (!parsed.success) {
     return { ok: false, error: "Pick at least one skill to see how many workers it reaches." };
   }
+  const role =
+    input.roleKind === undefined ? undefined : roleKindInputSchema.safeParse(input.roleKind);
+  if (role !== undefined && !role.success) return { ok: false, error: FAILED };
   try {
-    return { ok: true, preview: await previewReach(parsed.data) };
+    return {
+      ok: true,
+      preview: await previewReach(
+        role === undefined ? parsed.data : { ...parsed.data, roleKind: role.data },
+      ),
+    };
   } catch {
     // A 400 from the cap check and a transport failure collapse to one retryable line:
     // the form already disables adding past the cap, so a 400 here is not a state the
     // payer can reach by clicking, and spelling out backend errors on a live counter
     // would leak more about the platform than it helps.
-    return { ok: false, error: "Could not check reach right now. Please retry." };
+    return { ok: false, error: FAILED };
   }
 }

@@ -6,9 +6,10 @@ import { HIRING_CAPACITY_HREF } from "../../../../lib/billing-routes";
 import { PortalLink } from "../../../../components/portal-link";
 import { getLiveCatalog } from "../../../../lib/live-catalog";
 import { applicantQuotaStep, postingIsFreeThroughLaunch } from "../../../../lib/pricing-config";
-import { getCapacity, listMatchSkills, listPostingTrades } from "../../../../lib/payer-api";
+import { getCapacity, listMatchSkills } from "../../../../lib/payer-api";
+import { readPostingTrades } from "../../../../lib/posting-trades.server";
 import { CachedPricingNote } from "../../../../components/cached-pricing-note";
-import type { MatchSkillWire, PostingTradeFormWire } from "../../../../lib/contracts";
+import type { MatchSkillWire } from "../../../../lib/contracts";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 import { PostingForm } from "./posting-form";
 
@@ -47,12 +48,9 @@ export default async function NewPostingPage() {
     atCapacity = false;
   }
 
-  // ADR-0036 — the closed match vocabulary, fetched SERVER-side so the Bearer never
-  // reaches the browser. Unlike the capacity read this failing is NOT swallowed into
-  // "carry on": a posting with no match skill reaches nobody, so the form renders an
-  // explicit reload prompt and keeps submit disabled rather than quietly producing an
-  // invisible job. `[]` is the signal for that, and it is distinguishable from a real
-  // empty vocabulary only because a real one is never empty (the seed is checked in).
+  // ADR-0036 — the closed match vocabulary, fetched SERVER-side so the Bearer never reaches
+  // the browser. Since #2645 it only LABELS the trade's match chips (the trade decides the match
+  // set), so a failed read degrades to unlabelled chips and never blocks posting.
   let matchSkills: MatchSkillWire[] = [];
   try {
     matchSkills = await listMatchSkills();
@@ -60,14 +58,10 @@ export default async function NewPostingPage() {
     matchSkills = [];
   }
 
-  // Migration 0141 — the 16-trade form catalogue. A fetch failure falls back to the legacy
-  // picker; the form then refuses to publish rather than inventing trade fields.
-  let postingTrades: PostingTradeFormWire[] = [];
-  try {
-    postingTrades = await listPostingTrades();
-  } catch {
-    postingTrades = [];
-  }
+  // Migration 0141 / #2645 — the 16-trade catalogue, the ONLY roles a company job can name. A
+  // failure is not swallowed into a free role list: the picker names the cause with a Retry and
+  // the form refuses to post without a trade.
+  const { trades: postingTrades, problem: postingTradesProblem } = await readPostingTrades();
 
   // The page head + notices lead the FORM column, so the card-preview rail beside it starts at
   // the top of the page: on a laptop the whole worker card and the publish button are on screen
@@ -127,6 +121,7 @@ export default async function NewPostingPage() {
       quotaStep={quotaStep}
       matchSkills={matchSkills}
       postingTrades={postingTrades}
+      postingTradesProblem={postingTradesProblem}
       lead={lead}
       free={free}
     />

@@ -44,7 +44,8 @@ const listMatchSkills = vi.fn();
 const getCapacity = vi.fn();
 const getJobPostingChatSessions = vi.fn();
 const getLiveCatalog = vi.fn();
-const READS = [getPostings, getPostingDetail, listMatchSkills, getCapacity, getJobPostingChatSessions, getLiveCatalog];
+const listPostingTrades = vi.fn();
+const READS = [getPostings, getPostingDetail, listMatchSkills, getCapacity, getJobPostingChatSessions, getLiveCatalog, listPostingTrades];
 
 vi.mock("../../../lib/auth", () => ({ requirePayer: () => requirePayer() }));
 vi.mock("../../../lib/config", async (importOriginal) => {
@@ -64,6 +65,7 @@ vi.mock("../../../lib/payer-api", () => ({
   listMatchSkills: () => listMatchSkills(),
   getCapacity: () => getCapacity(),
   getJobPostingChatSessions: () => getJobPostingChatSessions(),
+  listPostingTrades: () => listPostingTrades(),
 }));
 vi.mock("../../../lib/live-catalog", () => ({ getLiveCatalog: () => getLiveCatalog() }));
 vi.mock("./postings-manager", () => ({ PostingsManager: () => null }));
@@ -74,6 +76,8 @@ vi.mock("../../../components/job-card-preview", () => ({ JobCardPreview: () => n
 vi.mock("../../../components/retry-button", () => ({ RetryButton: () => null }));
 
 const { PageHeader } = await import("../../../components/page-header");
+const { PostingForm } = await import("./new/posting-form");
+const { JobPostingChat } = await import("./ai/new/job-posting-chat");
 const { PostingsManager } = await import("./postings-manager");
 const { quotaTopUpTier } = await import("../../../lib/pricing-config");
 const { formatInr } = await import("../../../lib/format");
@@ -115,6 +119,25 @@ const DETAIL = (status = "open") => ({
   untickedRelatedIds: [],
 });
 const params = (id: string) => ({ params: Promise.resolve({ id }) });
+/** One 16-trade catalogue row (#2645). */
+const TRADE = { role_kind: "cnc_turner", role_label: "CNC Turner" };
+
+/** The props of the first element of `type` in the page's tree. */
+function propsOf(tree: unknown, type: unknown): Record<string, unknown> {
+  let found: Record<string, unknown> | null = null;
+  (function walk(node: ReactNode): void {
+    if (found || node === null || node === undefined || typeof node !== "object") return;
+    if (Array.isArray(node)) return node.forEach(walk);
+    const el = node as ReactElement<Record<string, unknown> & { children?: ReactNode }>;
+    if (el.type === type) {
+      found = el.props;
+      return;
+    }
+    if (el.props && "children" in el.props) walk(el.props.children);
+  })(tree as ReactNode);
+  expect(found).not.toBeNull();
+  return found!;
+}
 
 /**
  * The page's PageHeader props — a direct child of the page's fragment / wrapper, or inside a
@@ -197,6 +220,7 @@ beforeEach(() => {
   });
   getJobPostingChatSessions.mockResolvedValue([]);
   getLiveCatalog.mockResolvedValue({ products: DEFAULT_CATALOG.products, live: true });
+  listPostingTrades.mockResolvedValue([TRADE]);
 });
 
 describe("New posting + Post with AI are COMPANY pages — an agent goes to its own form, before any read", () => {
@@ -494,4 +518,24 @@ describe("/postings — #2085: the slot offer is the charged price", () => {
     expect(offerOf(tree)).toEqual({ code: "topup_10", priceInr: 1000, additionalViews: 10 });
     expect(struck(tree)).toEqual([]);
   });
+});
+
+describe("#2645 — the company posting forms are handed the 16 trades, or why there are none", () => {
+  for (const [name, run, form] of [
+    ["/postings/new", () => create.default(), PostingForm],
+    ["/postings/ai/new", () => ai.default(), JobPostingChat],
+  ] as const) {
+    it(`${name}: the trades the API served, with no problem`, async () => {
+      const props = propsOf(await run(), form);
+      expect(props.postingTrades).toEqual([TRADE]);
+      expect(props.postingTradesProblem).toBeNull();
+    });
+
+    it(`${name}: a failed read is its cause — never a silent empty list`, async () => {
+      listPostingTrades.mockRejectedValueOnce(new Error("payer API /payer/posting-trades returned 429"));
+      const props = propsOf(await run(), form);
+      expect(props.postingTrades).toEqual([]);
+      expect(props.postingTradesProblem).toEqual({ kind: "rate-limited" });
+    });
+  }
 });

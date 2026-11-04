@@ -1,10 +1,9 @@
 import { RoleArt } from "@badabhai/role-art";
-import { Badge, Card, Input, Select } from "../../../../../components/ds";
+import { Badge, Card, Input } from "../../../../../components/ds";
 import { formatInr } from "../../../../../lib/format";
-import { roleOptionGroups } from "../../../../../lib/job-roles";
-import type { JobPostingDraft } from "../../../../../lib/contracts";
-
-const ROLE_GROUPS = roleOptionGroups();
+import type { JobPostingDraft, PostingTradeFormWire } from "../../../../../lib/contracts";
+import type { PostingTradesProblem } from "../../../../../lib/posting-trades";
+import { PostingTradePicker } from "../../trade-picker";
 
 /**
  * The STRUCTURED PREVIEW of the live `JobPostingDraft` (ADR-0035) — what the chat has
@@ -153,12 +152,19 @@ export interface DraftPreviewProps {
   /** The engine's deterministic readiness signal — never inferred from the fields here. */
   draftReady: boolean;
   /**
-   * The publish-step role pick (#2490) — `""` until the payer chooses one. It is the SAME
-   * closed 21-value set the manual form sends, drives the card illustration below, and rides
-   * the publish body as `role_kind`. Display only; never a match input.
+   * The publish-step role pick (#2490) — `""` until the payer chooses one. Since #2645 it is the
+   * draft's TRADE, picked only from the 16 the API serves (`trades`): a company job that names
+   * none of them can never go live (#2635), so publishing needs one. It drives the card
+   * illustration below and rides the publish body as `role_kind`.
    */
   roleKind: string;
   onRoleKindChange: (roleKind: string) => void;
+  /** The 16-trade catalogue the picker offers; empty ⇒ the cause and a Retry instead. */
+  trades: readonly PostingTradeFormWire[];
+  /** Why `trades` is empty. */
+  tradesProblem: PostingTradesProblem | null;
+  /** A publish refused for want of a trade — "Pick one of the 16 trades" at the picker. */
+  roleError?: string;
   /**
    * The publish-step area/locality (#2493) — prefilled from `draft.area`, editable
    * here. It rides the publish body as `area`. Optional: blank stays absent, so
@@ -173,6 +179,9 @@ export function DraftPreview({
   draftReady,
   roleKind,
   onRoleKindChange,
+  trades,
+  tradesProblem,
+  roleError,
   area,
   onAreaChange,
 }: DraftPreviewProps) {
@@ -190,24 +199,17 @@ export function DraftPreview({
           scene. The same `role_kind` rides the publish body, and the worker card draws this art. */}
       <RoleArt roleKind={roleKind || null} animated={false} className="ai-draft__art" />
 
-      <Select
+      {/* #2645 — the draft's trade, one of the 16 (no free role list, no "leave it blank"). */}
+      <PostingTradePicker
         id="chatRoleKind"
-        label="Role (card illustration)"
-        hint="Picks the illustration on the worker's card. Optional — leave it blank for the generic art."
+        label="Role"
+        hint="One of the 16 trades we match on — publishing needs one. It also picks the card's illustration."
+        trades={trades}
+        problem={tradesProblem}
         value={roleKind}
-        onChange={(e) => onRoleKindChange(e.target.value)}
-      >
-        <option value="">— pick the role —</option>
-        {ROLE_GROUPS.map((group) => (
-          <optgroup key={group.family} label={group.label}>
-            {group.options.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-          </optgroup>
-        ))}
-      </Select>
+        error={roleError}
+        onChange={onRoleKindChange}
+      />
 
       <Input
         id="chatArea"

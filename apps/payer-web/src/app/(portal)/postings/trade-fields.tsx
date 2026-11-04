@@ -48,6 +48,7 @@ export function TradePostingFields({
   onMatchSkillIdsChange,
   onPreviewChange,
   vocabulary,
+  reachRoleKind,
 }: {
   trades: readonly PostingTradeFormWire[];
   roleKind: string;
@@ -57,6 +58,12 @@ export function TradePostingFields({
   onMatchSkillIdsChange: (ids: string[]) => void;
   onPreviewChange?: (preview: ReachPreview | null) => void;
   vocabulary: readonly MatchSkillWire[];
+  /**
+   * #2635 — the trade the reach preview is scoped by: a COMPANY job passes its role, so "Reaches N
+   * workers" scopes the posted skills exactly as its publish will. An agency job passes none (the
+   * API scopes only company jobs by trade), and its preview is unchanged.
+   */
+  reachRoleKind?: string;
 }) {
   const trade = trades.find((t) => t.role_kind === roleKind);
   const [preview, setPreview] = useState<ReachPreview | null>(null);
@@ -69,7 +76,7 @@ export function TradePostingFields({
   const latest = useRef(0);
 
   const matchSkillIds = trade ? derivedMatchSkills(trade, value.answers) : [];
-  const matchKey = matchSkillIds.join(",");
+  const matchKey = [reachRoleKind ?? "", ...matchSkillIds].join(",");
 
   useEffect(() => {
     if (matchSkillIds.length === 0) {
@@ -83,6 +90,7 @@ export function TradePostingFields({
     void previewReachAction({
       matchSkillIds,
       untickedRelatedIds: [],
+      ...(reachRoleKind ? { roleKind: reachRoleKind } : {}),
     }).then((res) => {
       if (id !== latest.current) return;
       setLoading(false);
@@ -96,8 +104,8 @@ export function TradePostingFields({
         onPreviewChange?.(null);
       }
     });
-    // `matchKey` is the serialized derived set — the effect must re-run when the SELECTION
-    // changes, not when the parent re-renders with fresh array identities.
+    // `matchKey` is the serialized derived set (and the scoping trade) — the effect must re-run
+    // when the SELECTION changes, not when the parent re-renders with fresh array identities.
   }, [matchKey]);
 
   function commit(next: TradeFormValue) {
@@ -149,9 +157,7 @@ export function TradePostingFields({
     );
   }
 
-  const labels = matchSkillIds
-    .map((id) => vocabulary.find((skill) => skill.skill_id === id)?.label ?? id)
-    .join(", ");
+  const labels = matchedAsNames(trade, value.answers, vocabulary, matchSkillIds).join(", ");
 
   return (
     <section className="panel">
@@ -269,6 +275,42 @@ export function derivedMatchSkills(
     }
   }
   return [...out];
+}
+
+/**
+ * The "Matched as" names, in the derived set's order: each skill's vocabulary label, else the
+ * catalogue's own words for it — the trade's name for its own skill, or the label of the picked
+ * chip that adds it. So a failed `GET /payer/match/skills` (it no longer blocks posting since
+ * #2645) never prints a raw `mskill_*` id. A name two skills share is said once.
+ */
+function matchedAsNames(
+  trade: PostingTradeFormWire,
+  answers: Record<string, string[]>,
+  vocabulary: readonly MatchSkillWire[],
+  matchSkillIds: readonly string[],
+): string[] {
+  const names = matchSkillIds.map(
+    (id) =>
+      vocabulary.find((skill) => skill.skill_id === id)?.label ??
+      (id === trade.match_skill_id ? trade.role_label : pickedChipLabel(trade, answers, id)),
+  );
+  return [...new Set(names.filter((name): name is string => name !== undefined))];
+}
+
+/** The label of the first picked chip that adds match skill `id`, if any. */
+function pickedChipLabel(
+  trade: PostingTradeFormWire,
+  answers: Record<string, string[]>,
+  id: string,
+): string | undefined {
+  for (const question of trade.questions) {
+    const picked = answers[question.question_key] ?? [];
+    const chip = question.options.find(
+      (option) => picked.includes(option.option_key) && option.match_skill_ids.includes(id),
+    );
+    if (chip !== undefined) return chip.label;
+  }
+  return undefined;
 }
 
 /** `setter_programmer` → `Setter Programmer`; the wire key is a closed slug, never prose. */

@@ -107,6 +107,33 @@ export function isPayerValidationError(e: unknown): e is PayerValidationError {
 }
 
 /**
+ * A 400 the API refused with a machine-readable `reason` and no field `issues` (#2635:
+ * `posting_trade_required`). A {@link PayerHttpError} (status 400, the transport's historic
+ * message), so every 400 check still matches it — the same pattern as {@link PayerConflictError}.
+ * Only the `reason` is carried, a closed code a seam branches on; the API's message never is.
+ */
+export class PayerBadRequestError extends PayerHttpError {
+  readonly reason: string;
+
+  constructor(path: string, reason: string) {
+    super(path, 400);
+    this.name = "PayerBadRequestError";
+    this.reason = reason;
+  }
+}
+
+/**
+ * #2635 — the `reason` on the 400 a company gets when a write would leave a LIVE job outside the
+ * 16 postable trades: publishing one that names none of them, or moving a live one off them.
+ */
+export const POSTING_TRADE_REQUIRED_REASON = "posting_trade_required";
+
+/** Was a company job refused for want of one of the 16 trades? Read by `reason`, never the message. */
+export function isPostingTradeRequired(e: unknown): boolean {
+  return e instanceof PayerBadRequestError && e.reason === POSTING_TRADE_REQUIRED_REASON;
+}
+
+/**
  * A 409 the API refused with, other than a price mismatch. A {@link PayerHttpError} (status 409,
  * the transport's historic `payer API <path> returned 409` message), so every 409 check still
  * matches it. Neither field is ever rendered:

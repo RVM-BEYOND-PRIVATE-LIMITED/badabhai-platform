@@ -20,9 +20,10 @@ import type {
  *     id (XB-A — the client never passes a payer id).
  *  2. The chat renders the transcript, the DETERMINISTIC engine's suggested-answer chips,
  *     and the live structured draft (banded vacancies, never a raw count).
- *  3. PUBLISH is gated on the ENGINE's `draftReady`, sends the session id plus the OPTIONAL
- *     publish-step role pick (#2490), and routes to the posting's EDIT page so remaining card
- *     gaps are named.
+ *  3. PUBLISH is gated on the ENGINE's `draftReady` AND (#2645) on the draft's trade — one of
+ *     the 16 the API served, refused AT the picker otherwise with nothing sent — sends the
+ *     session id plus that role pick (#2490), and routes to the posting's EDIT page so remaining
+ *     card gaps are named.
  *  4. RULE A: nothing in this UI asks for the payer's company/org name.
  *  5. The inline turn screen mirrors the manual form's `looksLikePii` description check.
  */
@@ -53,13 +54,21 @@ vi.mock("./actions", () => ({
   resumeJobPostingChatAction: (i: unknown) => resumeJobPostingChatAction(i),
   publishJobPostingChatAction: (i: unknown) => publishJobPostingChatAction(i),
 }));
+// #2645 — the trade picker's Retry re-reads on the server (`router.refresh`); its own suite.
+vi.mock("../../../../../components/retry-button", () => ({
+  RetryButton: () => ({ type: "button", props: { type: "button", children: "Retry" } }),
+}));
 
 let stateQueue: unknown[] = [];
 let stateCursor = 0;
+// Setters are kept by state index so a test can see what a handler set.
+let setters: Array<ReturnType<typeof vi.fn>> = [];
 const useState = vi.fn((initial: unknown) => {
   const i = stateCursor++;
   const seeded = i < stateQueue.length ? stateQueue[i] : initial;
-  return [seeded, vi.fn()] as [unknown, (v: unknown) => void];
+  const setter = vi.fn();
+  setters[i] = setter;
+  return [seeded, setter] as [unknown, (v: unknown) => void];
 });
 const useTransition = vi.fn((): [boolean, (cb: () => void) => void] => [false, (cb) => cb()]);
 
@@ -124,6 +133,18 @@ interface Convo {
   draftReady: boolean;
   suggestions: string[];
 }
+
+/** One 16-trade catalogue row (`GET /payer/posting-trades`). */
+const tradeRow = (roleKind: string, roleLabel: string) => ({
+  role_kind: roleKind,
+  role_label: roleLabel,
+  pack_id: `qp_${roleKind}`,
+  match_skill_id: `mskill_${roleKind}`,
+  ladder: [],
+  questions: [],
+});
+/** The catalogue the page served (#2645) — two of the 16. */
+const TRADES = [tradeRow("cnc_turner", "CNC Turner"), tradeRow("fitter", "Fitter")];
 
 const CONVO: Convo = {
   sessionId: SESSION_ID,
@@ -213,11 +234,16 @@ function render(seed: {
   areaTouched?: boolean;
   /** W4 — the action in flight (index 7). */
   acting?: string | null;
+  /** #2645 — the conversation whose Publish was refused for want of a trade (index 8). */
+  tradeRefusedFor?: string | null;
   resumable?: JobPostingChatSessionSummary[];
   loadFailed?: boolean;
+  /** #2645 — the 16-trade catalogue the page served (default: two trades). */
+  postingTrades?: Array<ReturnType<typeof tradeRow>>;
+  postingTradesProblem?: unknown;
 }): Collected {
   // useState order in the source: convo, text, error, navigating, roleKind, area, areaTouched,
-  // acting.
+  // acting, tradeRefusedFor.
   stateQueue = [
     seed.convo ?? null,
     seed.text ?? "",
@@ -227,11 +253,15 @@ function render(seed: {
     seed.area ?? "",
     seed.areaTouched ?? false,
     seed.acting ?? null,
+    seed.tradeRefusedFor ?? null,
   ];
   stateCursor = 0;
+  setters = [];
   const tree = JobPostingChat({
     resumable: seed.resumable ?? [],
     loadFailed: seed.loadFailed ?? false,
+    postingTrades: (seed.postingTrades ?? TRADES) as never,
+    postingTradesProblem: (seed.postingTradesProblem ?? null) as never,
   }) as ReactElement;
   const acc: Collected = { buttons: [], texts: [], fields: [], ariaLiveCount: 0, links: [] };
   walk(tree, acc);
@@ -438,9 +468,9 @@ describe("publish — gated on the ENGINE's readiness, routes to the existing de
     expect(allText(render({ convo: CONVO }))).toContain("publish unlocks once");
   });
 
-  it("prefills the draft area and sends it even when no role is picked (#2493)", async () => {
+  it("prefills the draft area and sends it with the picked trade (#2493)", async () => {
     publishJobPostingChatAction.mockResolvedValue({ ok: true, postingId: POSTING_ID });
-    const acc = render({ convo: { ...CONVO, draftReady: true } });
+    const acc = render({ convo: { ...CONVO, draftReady: true }, roleKind: "cnc_turner" });
     const publish = button(acc, "Publish");
     expect(publish?.disabled).toBe(false);
     // The area control is on the publish step, prefilled from the interview draft.
@@ -451,10 +481,11 @@ describe("publish — gated on the ENGINE's readiness, routes to the existing de
     await flush();
     expect(publishJobPostingChatAction).toHaveBeenCalledWith({
       sessionId: SESSION_ID,
+      roleKind: "cnc_turner",
       area: "Chakan",
     });
     const arg = publishJobPostingChatAction.mock.calls[0]?.[0] as Record<string, unknown>;
-    expect(Object.keys(arg).sort()).toEqual(["area", "sessionId"]);
+    expect(Object.keys(arg).sort()).toEqual(["area", "roleKind", "sessionId"]);
   });
 
   it("a payer-edited area wins over the draft; an emptied area is omitted (#2493)", async () => {
@@ -463,6 +494,7 @@ describe("publish — gated on the ENGINE's readiness, routes to the existing de
     // Edited value.
     const edited = render({
       convo: { ...CONVO, draftReady: true },
+      roleKind: "fitter",
       area: "Bhosari",
       areaTouched: true,
     });
@@ -470,18 +502,23 @@ describe("publish — gated on the ENGINE's readiness, routes to the existing de
     await flush();
     expect(publishJobPostingChatAction).toHaveBeenLastCalledWith({
       sessionId: SESSION_ID,
+      roleKind: "fitter",
       area: "Bhosari",
     });
 
     // Cleared by the payer → absent, so the posting stores NULL (city-only card).
     const cleared = render({
       convo: { ...CONVO, draftReady: true },
+      roleKind: "fitter",
       area: "",
       areaTouched: true,
     });
     button(cleared, "Publish")?.onClick?.();
     await flush();
-    expect(publishJobPostingChatAction).toHaveBeenLastCalledWith({ sessionId: SESSION_ID });
+    expect(publishJobPostingChatAction).toHaveBeenLastCalledWith({
+      sessionId: SESSION_ID,
+      roleKind: "fitter",
+    });
   });
 
   it("carries the publish-step role pick as role_kind (#2490)", async () => {
@@ -507,7 +544,8 @@ describe("publish — gated on the ENGINE's readiness, routes to the existing de
       postingId: POSTING_ID,
       unsetCardFields: [],
     });
-    button(render({ convo: { ...CONVO, draftReady: true } }), "Publish")?.onClick?.();
+    button(render({ convo: { ...CONVO, draftReady: true }, roleKind: "cnc_turner" }), "Publish")
+      ?.onClick?.();
     await flush();
     // PR-B: publish still leaves the card columns the interview does not collect (area, match
     // skills) NULL/+unset, so the chat routes to /edit (where workerCardGaps are highlighted),
@@ -539,9 +577,71 @@ describe("publish — gated on the ENGINE's readiness, routes to the existing de
 
   it("surfaces a publish failure as retryable copy, and does not navigate", async () => {
     publishJobPostingChatAction.mockResolvedValue({ ok: false, error: "Could not publish" });
-    button(render({ convo: { ...CONVO, draftReady: true } }), "Publish")?.onClick?.();
+    button(render({ convo: { ...CONVO, draftReady: true }, roleKind: "cnc_turner" }), "Publish")
+      ?.onClick?.();
     await flush();
+    expect(publishJobPostingChatAction).toHaveBeenCalledTimes(1);
     expect(navigate).not.toHaveBeenCalled();
+  });
+});
+
+/* ── 3b. #2645 — the draft's trade is one of the 16 ─────────────────────────────── */
+
+describe("publish — #2645: the draft must name one of the 16 trades", () => {
+  const TRADE_MSG = "Pick one of the 16 trades";
+  const READY = { ...CONVO, draftReady: true };
+
+  it("Publish without a trade is refused AT the picker and sends nothing (index 8)", async () => {
+    const acc = render({ convo: READY });
+    button(acc, "Publish")?.onClick?.();
+    await flush();
+    expect(publishJobPostingChatAction).not.toHaveBeenCalled();
+    expect(navigate).not.toHaveBeenCalled();
+    expect(setters[8]).toHaveBeenCalledWith(SESSION_ID);
+  });
+
+  it("…and so is a role the catalogue did not list", async () => {
+    const acc = render({ convo: READY, roleKind: "production_supervisor" });
+    button(acc, "Publish")?.onClick?.();
+    await flush();
+    expect(publishJobPostingChatAction).not.toHaveBeenCalled();
+    expect(setters[8]).toHaveBeenCalledWith(SESSION_ID);
+  });
+
+  it("the refusal shows at the picker in the app's words — and ends once a trade is picked", () => {
+    const refused = render({ convo: READY, tradeRefusedFor: SESSION_ID });
+    expect(allText(refused)).toContain(TRADE_MSG);
+    const fixed = render({ convo: READY, tradeRefusedFor: SESSION_ID, roleKind: "fitter" });
+    expect(allText(fixed)).not.toContain(TRADE_MSG);
+    // Another conversation's refusal is not this one's.
+    expect(allText(render({ convo: READY, tradeRefusedFor: "other" }))).not.toContain(TRADE_MSG);
+  });
+
+  it("the picker offers ONLY the trades the API served — no free role list, no 'leave it blank'", () => {
+    const acc = render({ convo: READY });
+    expect(acc.fields.some((f) => f.tag === "select" && f.id === "chatRoleKind")).toBe(true);
+    const text = allText(acc);
+    expect(text).toContain("CNC Turner");
+    expect(text).toContain("Fitter");
+    expect(text).not.toContain("Injection Moulding Operator");
+    expect(text).not.toContain("generic art");
+  });
+
+  it("the 16 trades did not load: the cause and Retry stand in for the picker; publish is refused", async () => {
+    const acc = render({
+      convo: READY,
+      roleKind: "cnc_turner",
+      postingTrades: [],
+      postingTradesProblem: { kind: "rate-limited" },
+    });
+    expect(acc.fields.some((f) => f.tag === "select" && f.id === "chatRoleKind")).toBe(false);
+    expect(allText(acc)).toContain(
+      "The 16 trades did not load: too many requests just now. Wait a minute, then retry.",
+    );
+    expect(button(acc, "Retry")).toBeDefined();
+    button(acc, "Publish")?.onClick?.();
+    await flush();
+    expect(publishJobPostingChatAction).not.toHaveBeenCalled();
   });
 });
 

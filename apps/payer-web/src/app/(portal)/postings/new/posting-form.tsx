@@ -12,7 +12,12 @@ import {
   type PostingTradeFormWire,
   type ReachPreview,
 } from "../../../../lib/contracts";
-import { roleOptionGroups } from "../../../../lib/job-roles";
+import {
+  POSTING_TRADE_REQUIRED_MESSAGE,
+  isPostingTrade,
+  withTradeRequired,
+  type PostingTradesProblem,
+} from "../../../../lib/posting-trades";
 import { neededByLabel, payTypeLabel, shiftLabel } from "../../../../lib/job-card-view";
 import {
   CARD_NUMBER_FIELDS,
@@ -28,7 +33,12 @@ import {
   type CardNumberPair,
   type RevealedNumbers,
 } from "../../../../lib/job-card-form";
-import { focusControl, focusStepHeading, revealWholeControl } from "../../../../lib/form-focus";
+import {
+  focusControl,
+  focusControlOnNextFrame,
+  focusStepHeading,
+  revealWholeControl,
+} from "../../../../lib/form-focus";
 import { postingDraftKey } from "../../../../lib/posting-draft";
 import { usePostingDraft } from "../../../../components/use-posting-draft";
 import { DraftRestoredNotice } from "../../../../components/draft-restored-notice";
@@ -46,12 +56,16 @@ import {
 import { createPostingAction } from "./actions";
 import { withPublishedReach } from "../../../../lib/published-reach";
 import { usePortalNavigation } from "../../../../components/portal-navigation";
-import { MatchSkillPicker, type MatchSelection } from "./match-skill-picker";
+import type { MatchSelection } from "./match-skill-picker";
 import { TradePostingFields, derivedMatchSkills, type TradeFormValue } from "../trade-fields";
+import { PostingTradePicker } from "../trade-picker";
 
 /**
  * New posting (EMPLOYER self-serve) — the posting form is the TRACEABLE SOURCE of every Job Card
- * field. The role leads (all 21 roles, grouped), then every card field, then the skill picker.
+ * field. The role leads — REQUIRED, one of the 16 trades the API serves (#2645: a company job
+ * matches only within them, #2635) — then every card field, then the trade's own fields, from
+ * which the server derives the match skills. There is no free role list, no flat skill picker:
+ * when the 16 trades did not load, the picker says why with a Retry and posting is refused.
  * Beside it, the {@link PostingPreviewRail}: the worker's card built LIVE from the SAME
  * `readCardForm` values the submit sends, the facts the card does not show, and the publish
  * button — together on screen. NO mock data; the session payer is stamped server-side (XB-A) and
@@ -60,7 +74,6 @@ import { TradePostingFields, derivedMatchSkills, type TradeFormValue } from "../
  * PUBLISH (owner ruling).
  */
 
-const ROLE_GROUPS = roleOptionGroups();
 const FORM_ID = "posting-form";
 const BLANK_TRADE: TradeFormValue = { tradeLevel: "", answers: {} };
 /** A new posting starts from nothing — the base its local draft is checked against. */
@@ -133,7 +146,11 @@ interface NewPostingDraft {
   trade: TradeFormValue & { matchSkillIds: string[] };
 }
 
-/** True once the payer has entered anything — the form then differs from a blank one. */
+/**
+ * True once the payer has entered anything — the form then differs from a blank one. Not the old
+ * flat pick (`selection`): no control sets it since #2645 and it is never sent, so a pick restored
+ * from an older draft is no change to lose.
+ */
 export function isNewPostingDirty(d: NewPostingDraft): boolean {
   return (
     Object.values(d.fields).some((v) => v.trim() !== "") ||
@@ -141,10 +158,25 @@ export function isNewPostingDirty(d: NewPostingDraft): boolean {
     d.benefits.length > 0 ||
     d.reqDraft.trim() !== "" ||
     d.benDraft.trim() !== "" ||
-    d.selection.matchSkillIds.length > 0 ||
     d.trade.tradeLevel !== "" ||
     Object.keys(d.trade.answers).length > 0
   );
+}
+
+/**
+ * A draft kept on this device as the form restores it (W4): what `onRestore` applies, and what
+ * `isDirty` judges before restoring. A part an older draft lacks starts blank.
+ */
+function restoredNewPostingDraft(saved: Partial<NewPostingDraft>): NewPostingDraft {
+  return {
+    fields: { ...BLANK, ...saved.fields },
+    requirements: saved.requirements ?? [],
+    benefits: saved.benefits ?? [],
+    reqDraft: saved.reqDraft ?? "",
+    benDraft: saved.benDraft ?? "",
+    selection: saved.selection ?? { matchSkillIds: [], untickedRelatedIds: [] },
+    trade: saved.trade ?? { ...BLANK_TRADE, matchSkillIds: [] },
+  };
 }
 
 /** The openings box as a whole number ≥ 1, or null. */
@@ -173,15 +205,19 @@ export function PostingForm({
   quotaStep = null,
   matchSkills = [],
   postingTrades = [],
+  postingTradesProblem = null,
   lead,
   free = true,
 }: {
   /** The signed-in payer (the session's opaque id) — the local draft is kept per payer (W4). */
   payerId: string;
   quotaStep?: number | null;
+  /** The match vocabulary — labels only here; the trade decides the match set (#2635). */
   matchSkills?: MatchSkillWire[];
-  /** The 16-trade posting catalogue (migration 0141). Empty ⇒ the legacy fields still work. */
+  /** The 16-trade posting catalogue (migration 0141) — the ONLY roles a company job can name. */
   postingTrades?: PostingTradeFormWire[];
+  /** Why `postingTrades` is empty (#2645) — said at the picker, with a Retry. */
+  postingTradesProblem?: PostingTradesProblem | null;
   /** The page head + notices, drawn at the top of the form column (the rail starts beside it). */
   lead?: ReactNode;
   /** The "free through launch" notice (sourced from the page's config flag). */
@@ -194,6 +230,8 @@ export function PostingForm({
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [error, setError] = useState<string | null>(null);
   const [navigating, setNavigating] = useState(false);
+  // No flat skill picker since #2645 (the trade owns the match set); kept for the positional
+  // state order and the stored draft's shape (W4).
   const [selection, setSelection] = useState<MatchSelection>({
     matchSkillIds: [],
     untickedRelatedIds: [],
@@ -232,15 +270,18 @@ export function PostingForm({
     base: DRAFT_BASE,
     payload: draftPayload,
     dirty: isNewPostingDirty(draftPayload),
+    // #2645 — a draft whose one change is the old flat pick restores as a blank form: dropped.
+    isDirty: (saved) => isNewPostingDirty(restoredNewPostingDraft(saved)),
     off: navigating,
     onRestore: (saved) => {
-      setFields({ ...BLANK, ...saved.fields });
-      setRequirements(saved.requirements ?? []);
-      setBenefits(saved.benefits ?? []);
-      setReqDraft(saved.reqDraft ?? "");
-      setBenDraft(saved.benDraft ?? "");
-      if (saved.selection) setSelection(saved.selection);
-      if (saved.trade) setTrade(saved.trade);
+      const restored = restoredNewPostingDraft(saved);
+      setFields(restored.fields);
+      setRequirements(restored.requirements);
+      setBenefits(restored.benefits);
+      setReqDraft(restored.reqDraft);
+      setBenDraft(restored.benDraft);
+      setSelection(restored.selection);
+      setTrade(restored.trade);
     },
   });
 
@@ -274,8 +315,10 @@ export function PostingForm({
     { requirements, benefits, reqDraft, benDraft },
   );
   const hasCardIssue = Object.keys(read.issues).length > 0;
-  const tradeMode = postingTrades.length > 0;
-  const activeMatchSkillIds = tradeMode ? trade.matchSkillIds : selection.matchSkillIds;
+  // #2645 — the picked trade's form, or undefined until one of the 16 is picked. Its match set
+  // (base skill + match chips) is derived from the catalogue, never kept apart from it.
+  const tradeForm = postingTrades.find((form) => form.role_kind === fields.roleKind);
+  const activeMatchSkillIds = tradeForm ? derivedMatchSkills(tradeForm, trade.answers) : [];
 
   function set<K extends keyof FormFields>(key: K, value: string) {
     setFields((prev) => ({ ...prev, [key]: value }));
@@ -322,7 +365,9 @@ export function PostingForm({
   function validateStep(which: 1 | 2): FieldErrors {
     const errs: FieldErrors = {};
     if (which === 1) {
-      if (fields.roleKind.trim() === "") errs.roleKind = "Pick the role from the list.";
+      if (!isPostingTrade(postingTrades, fields.roleKind)) {
+        errs.roleKind = POSTING_TRADE_REQUIRED_MESSAGE;
+      }
       const title = fields.roleTitle.trim();
       if (title.length < 2 || title.length > 120) {
         errs.roleTitle = "Role title must be 2–120 characters.";
@@ -405,13 +450,22 @@ export function PostingForm({
     setReqDraft("");
     setBenDraft("");
 
-    const errs = validate(fields);
+    // #2645 — a company job is always one of the 16 trades: refused AT the picker, before anything
+    // is sent. It leads the form, so it is the first control focus goes to.
+    const errs: FieldErrors = {
+      ...(tradeForm === undefined ? { roleKind: POSTING_TRADE_REQUIRED_MESSAGE } : {}),
+      ...validate(fields),
+    };
     setFieldErrors(errs);
     if (hasCardIssue) setRevealed(ALL_NUMBERS_REVEALED);
     const firstBad =
       (Object.keys(errs) as FieldKey[])[0] ?? CARD_NUMBER_FIELDS.find((f) => read.issues[f]);
     if (firstBad !== undefined) {
-      focusControl(firstBad);
+      if (firstBad === "roleKind" && step !== 1) {
+        // The picker leads step 1: show that step, then land on the picker once it is drawn.
+        setStep(1);
+        focusControlOnNextFrame(firstBad);
+      } else focusControl(firstBad);
       return;
     }
 
@@ -424,19 +478,8 @@ export function PostingForm({
       return;
     }
 
-    // A posting with no skill reaches NOBODY (the server refuses it too). The button stays
-    // clickable so this is said out loud and the picker is brought into view — a disabled
-    // button here produced exactly the "clicked Publish and nothing happened" report.
-    if (activeMatchSkillIds.length === 0) {
-      setError("Pick at least one skill — a posting needs one so workers can find it.");
-      if (typeof document !== "undefined") {
-        document
-          .getElementById("match-skills")
-          ?.scrollIntoView?.({ behavior: "smooth", block: "center" });
-      }
-      return;
-    }
-
+    // No separate "pick a skill" refusal: the picked trade always carries its own match skill
+    // (`derivedMatchSkills`), and the trade is required above (#2645).
     const v = read.values;
     startTransition(async () => {
       const res = await createPostingAction({
@@ -456,18 +499,25 @@ export function PostingForm({
         neededBy: v.neededBy,
         requirements: v.requirements,
         benefits: v.benefits,
-        ...(tradeMode
-          ? {
-              tradeLevel: trade.tradeLevel || undefined,
-              tradeAnswers: trade.answers,
-            }
-          : {}),
+        // ALWAYS the trade form (#2645) — `{}` when no chip is picked — so the server derives the
+        // match set from the trade; the rung only when one is picked (it is display-only).
+        tradeLevel: trade.tradeLevel || undefined,
+        tradeAnswers: trade.answers,
         matchSkillIds: activeMatchSkillIds,
-        untickedRelatedIds: tradeMode ? [] : selection.untickedRelatedIds,
+        untickedRelatedIds: [],
       });
       if (res.ok) {
         setNavigating(true);
         draft.discard();
+        if (res.tradeRequired) {
+          // #2645 — created, but the API would not put it live without one of the 16 trades:
+          // open the new draft's edit page refused AT its trade picker.
+          navigate(withTradeRequired(`/postings/${res.postingId}/edit`), {
+            pendingLabel: "Edit posting",
+            refresh: true,
+          });
+          return;
+        }
         navigate(withPublishedReach(`/postings/${res.postingId}/applicants`, res.reached), {
           pendingLabel: "Applicants",
           refresh: true,
@@ -481,9 +531,9 @@ export function PostingForm({
     });
   }
 
-  // Only a request in flight (or a page with no vocabulary to pick from) disables the CTA.
-  // Validation is surfaced by onSubmit, not by a dead button.
-  const submitDisabled = pending || navigating || matchSkills.length === 0;
+  // Only a request in flight disables the CTA. Validation — the missing trade included, even when
+  // the 16 trades did not load — is surfaced by onSubmit, not by a dead button.
+  const submitDisabled = pending || navigating;
 
   const openings = openingsOf(fields.vacancies);
   const derivedBand = openings !== null ? bandForVacancies(openings) : null;
@@ -518,18 +568,14 @@ export function PostingForm({
   ) : null;
 
   const STEP_TITLES = ["Role & Worksite", "Pay & Openings", "Skills & Perks"];
-  const roleGroups =
-    postingTrades.length > 0
-      ? roleOptionGroups(postingTrades.map((tradeForm) => tradeForm.role_kind))
-      : ROLE_GROUPS;
   const locationText = [fields.area.trim(), fields.city.trim()].filter(Boolean).join(", ");
   const facts = companyPostingFacts({
     roleKind: read.values.roleKind ?? null,
     openings: fields.vacancies,
     locationNote: fields.locationLabel,
-    tradeLevel: tradeMode ? trade.tradeLevel || null : null,
-    tradeAnswers: tradeMode ? trade.answers : null,
-    postingTrades: tradeMode ? postingTrades : [],
+    tradeLevel: trade.tradeLevel || null,
+    tradeAnswers: trade.answers,
+    postingTrades,
     matchSkills: { ids: activeMatchSkillIds, vocabulary: matchSkills },
     description: fields.description,
   });
@@ -584,26 +630,16 @@ export function PostingForm({
               </div>
             </div>
             <div className="mw-card__body">
-              <Select
+              <PostingTradePicker
                 id="roleKind"
                 label="Role Category"
+                hint="One of the 16 trades we match on — it decides which workers see this posting."
+                trades={postingTrades}
+                problem={postingTradesProblem}
                 value={fields.roleKind}
                 error={errorOf("roleKind")}
-                aria-invalid={errorOf("roleKind") ? true : undefined}
-                hint="Helps match our vetted operator pool by core technical trade."
-                onChange={(e) => set("roleKind", e.target.value)}
-              >
-                <option value="">— pick the role category —</option>
-                {roleGroups.map((group) => (
-                  <optgroup key={group.family} label={group.label}>
-                    {group.options.map((o) => (
-                      <option key={o.value} value={o.value}>
-                        {o.label}
-                      </option>
-                    ))}
-                  </optgroup>
-                ))}
-              </Select>
+                onChange={(value) => set("roleKind", value)}
+              />
 
               <Input
                 id="roleTitle"
@@ -850,7 +886,8 @@ export function PostingForm({
               </div>
 
               <div id="match-skills">
-              {tradeMode ? (
+                {/* The trade's own fields — the ONLY match input of a company job (#2645): no
+                    flat skill picker, no "could not load the skill list" fallback. */}
                 <TradePostingFields
                   trades={postingTrades}
                   roleKind={fields.roleKind}
@@ -865,29 +902,8 @@ export function PostingForm({
                   onMatchSkillIdsChange={() => undefined}
                   onPreviewChange={setPreview}
                   vocabulary={matchSkills}
+                  reachRoleKind={fields.roleKind || undefined}
                 />
-              ) : matchSkills.length > 0 ? (
-                <MatchSkillPicker
-                  vocabulary={matchSkills}
-                  selection={selection}
-                  onChange={setSelection}
-                  onPreviewChange={setPreview}
-                />
-              ) : (
-                <div className="alert alert--danger">
-                  <Icon name="warning-circle" className="alert__icon" />
-                  <div className="alert__text">
-                    <p className="alert__title">Could not load the skill list</p>
-                    <p className="alert__body">
-                      Reload the page — a posting needs at least one skill before workers can find
-                      it.
-                    </p>
-                  </div>
-                </div>
-              )}
-              {activeMatchSkillIds.length === 0 && error !== null ? (
-                <p className="match-picker__error">{error}</p>
-              ) : null}
               </div>
 
               <div className="form__section">

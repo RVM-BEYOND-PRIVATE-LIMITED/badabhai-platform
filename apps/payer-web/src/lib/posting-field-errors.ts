@@ -1,4 +1,5 @@
 import type { ApiFieldIssue } from "./payer-errors";
+import { POSTING_TRADE_REQUIRED_MESSAGE } from "./posting-trades";
 
 /**
  * Map a posting validation 400's `issues[].path` (the server's snake_case schema
@@ -39,6 +40,14 @@ export interface MappedPostingIssues {
   fieldErrors: Record<string, string>;
   /** Messages with no form field to attach to — the caller shows these as a banner. */
   rest: string[];
+}
+
+/**
+ * #2645 — a company job refused for want of one of the 16 trades (`posting_trade_required`, a 400
+ * with no `issues`) belongs to the TRADE picker (`role_kind`), in the app's own words.
+ */
+export function postingTradeRequiredFieldErrors(): Record<string, string> {
+  return { roleKind: POSTING_TRADE_REQUIRED_MESSAGE };
 }
 
 export function mapPostingIssues(issues: readonly ApiFieldIssue[]): MappedPostingIssues {
