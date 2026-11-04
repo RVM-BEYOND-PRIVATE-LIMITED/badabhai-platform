@@ -403,6 +403,8 @@ describe("the four Phase-9 flags, as they reach the box", () => {
     ["AGENCY_TWIN_SYNC_ENABLED", "false"],
     // Owner ruling 2026-10-07 — off is today's applicant feeds and no stage route, byte for byte.
     ["PAYER_APPLICANT_STAGES_ENABLED", "false"],
+    // ADR-0061 — off is today's applicant list: the v1.0 ORDER BY, no level read, levelFit null.
+    ["LEVEL_NEEDED_SORT_ENABLED", "false"],
     // ADR-0053 — off keys every payer read to the login: the pre-ADR behaviour, byte for byte.
     ["PAYER_ORG_TENANCY_MODE", "off"],
     // #2509 — the zod default: 20/hour/IP until the secret (or a box export) says otherwise.

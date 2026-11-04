@@ -8,6 +8,7 @@ import {
   uuid,
   text,
   integer,
+  boolean,
   smallint,
   timestamp,
   date,
@@ -230,9 +231,11 @@ export const jobPostings = pgTable(
     // frozen record. PII-free: a closed enum of occupation slugs.
     roleKind: text("role_kind").$type<TradeFormKindName>(),
     // ── The trade-specific posting form (migration 0141, 16 live trades) ──
-    // `trade_level` is ONE display-only rung from the role's CEO launch-pack ladder. It is
-    // NEVER a match or rank input (the `trade-levels.ts` contract): a "Setter" posting must
-    // still reach every worker the match skills reach.
+    // `trade_level` is ONE rung from the role's CEO launch-pack ladder ("Level needed"). It is
+    // NEVER a match/reach input: a "Setter" posting must still reach every worker the match
+    // skills reach. Since engine v1.1 (ADR-0061, CEO ruling 30 Oct 2026) it ORDERS the
+    // applicant list of a 4-CNC-trade posting (meets → not confirmed → below, inside each trade
+    // group) while `LEVEL_NEEDED_SORT_ENABLED` is on — sort only, never hide.
     //
     // `trade_answers` is the poster's selected chips, keyed by the role pack's question_key
     // and valued by option_key: `{ "controller_brand": ["fanuc"], … }`. The API validates
@@ -759,6 +762,14 @@ export const applications = pgTable(
     // Which rank rule produced the numbers above (match_config.engine_version, "v1.0").
     // Without it, a v2 reader silently re-interprets v1 rows under v2 semantics.
     engineVersion: text("engine_version"),
+    // ── ENGINE v1.1 "LEVEL NEEDED" (migration 0153, CEO ruling 30 Oct 2026, ADR-0061) ─────
+    // The worker's Middle-Way rung on the skill he was reached through, and its confirm bit,
+    // AS OF this apply — frozen with the rest of the snapshot, so a worker who edits his level
+    // later never moves on a list the company already saw (E16). NULL = no rung stated, or an
+    // application from before 0153 — both sort as "level not confirmed" on a level post.
+    // PII-free: a closed rung key and a boolean.
+    tradeLevel: text("trade_level"),
+    levelConfirmed: boolean("level_confirmed"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },

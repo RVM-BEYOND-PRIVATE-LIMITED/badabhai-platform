@@ -60,10 +60,12 @@ export type TradeLevel =
  * how a stored answer normalises to a `TradeLevel`, which rungs count as confirmed,
  * and which price tier a rung prices at.
  *
- * WHAT THIS IS NOT. It is never read by the match engine — `PACK_ANSWER_SKILLS` is
- * the only table the derive path reads, and nothing here is imported by it. Writing
- * a level row changes zero reach rows and zero rank positions (P5 DoD §7.7/8): the
- * rows are display-only, same contract as P1's columns.
+ * WHAT THIS IS NOT. It is never read by the match engine's derive path —
+ * `PACK_ANSWER_SKILLS` is the only table the derive path reads, and nothing here is
+ * imported by it. Writing a level row changes zero reach rows and zero rank positions
+ * (P5 DoD §7.7/8). Engine v1.1 (ADR-0061) freezes the stated rung onto each NEW
+ * application at apply time, and only that frozen copy sorts a "Level needed" list — so
+ * a later write here still moves nobody already on a list.
  *
  * KEY CANONICALISATION. Packs author `option_key: setter_cum_programmer` but store
  * `value_text: setter_programmer` (qp_cnc_turning@3); either spelling — and the
