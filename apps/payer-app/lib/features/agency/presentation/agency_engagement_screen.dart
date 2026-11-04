@@ -11,6 +11,7 @@ import '../../../core/widgets/bb_badge.dart';
 import '../../../core/widgets/bb_button.dart';
 import '../../../core/widgets/bb_card.dart';
 import '../../../core/widgets/bb_icon_button.dart';
+import '../../../core/widgets/bb_skeleton.dart';
 import '../../../core/widgets/bb_status_view.dart';
 import 'cubit/agency_engagement_cubit.dart';
 
@@ -47,8 +48,16 @@ class _EngagementView extends StatelessWidget {
             _Header(onBack: () => Navigator.of(context).pop()),
             Expanded(
               child: BlocBuilder<AgencyEngagementCubit, AgencyEngagementState>(
+                // #2592 — worker-card skeletons while it loads, cross-fading
+                // out.
                 builder: (BuildContext context, AgencyEngagementState state) =>
-                    _body(context, state),
+                    BbLoadSwitcher(
+                  loading: state.resolvedStatus ==
+                          AgencyEngagementStatus.initial ||
+                      state.resolvedStatus == AgencyEngagementStatus.loading,
+                  skeleton: _skeleton,
+                  child: _body(context, state),
+                ),
               ),
             ),
           ],
@@ -57,13 +66,18 @@ class _EngagementView extends StatelessWidget {
     );
   }
 
+  static const Widget _skeleton = BbSkeletonList(
+    row: BbSkeletonListRow(),
+    semanticLabel: 'Loading workers…',
+  );
+
   Widget _body(BuildContext context, AgencyEngagementState state) {
     void reload() => context.read<AgencyEngagementCubit>().load();
 
     switch (state.resolvedStatus) {
       case AgencyEngagementStatus.initial:
       case AgencyEngagementStatus.loading:
-        return const BbStatusView.loading(caption: 'Loading workers…');
+        return _skeleton;
       case AgencyEngagementStatus.empty:
         return BbStatusView(
           icon: Icons.groups_rounded,

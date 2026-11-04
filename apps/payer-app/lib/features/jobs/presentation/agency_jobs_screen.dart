@@ -9,7 +9,10 @@ import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/bb_badge.dart';
 import '../../../core/widgets/bb_button.dart';
 import '../../../core/widgets/bb_new_item_highlight.dart';
+import '../../../core/widgets/bb_refresh.dart';
+import '../../../core/widgets/bb_skeleton.dart';
 import '../../../core/widgets/bb_status_view.dart';
+import '../../../core/widgets/bb_tab_scope.dart';
 import 'cubit/agency_jobs_cubit.dart';
 import 'edit_agency_job_screen.dart';
 import 'widgets/job_card_actions.dart';
@@ -52,10 +55,14 @@ class AgencyJobsView extends StatelessWidget {
   Widget build(BuildContext context) {
     return BlocProvider<AgencyJobsCubit>(
       create: (_) => locator<AgencyJobsCubit>()..load(),
-      child: _AgencyJobsBody(
-        onPost: onPost,
-        onApplicants: onApplicants,
-        highlight: highlight,
+      // #2592 — a return to the tab re-reads the postings quietly.
+      child: BbTabRefreshListener(
+        onRefresh: _AgencyJobsBody.refreshQuietly,
+        child: _AgencyJobsBody(
+          onPost: onPost,
+          onApplicants: onApplicants,
+          highlight: highlight,
+        ),
       ),
     );
   }
@@ -72,14 +79,26 @@ class _AgencyJobsBody extends StatelessWidget {
   final VoidCallback? onApplicants;
   final BbHighlightRequest? highlight;
 
+  /// #2592 — the quiet re-read behind pull-to-refresh and a return to the
+  /// tab: the postings stay on screen, and a failure says why in a toast.
+  static Future<void> refreshQuietly(BuildContext context) =>
+      refreshWithToast(context, context.read<AgencyJobsCubit>().refresh);
+
   @override
   Widget build(BuildContext context) {
-    return BlocBuilder<AgencyJobsCubit, AgencyJobsState>(
+    // #2592 — job-card skeletons while the postings load; the list
+    // cross-fades in over them.
+    return BbLoadingBuilder<AgencyJobsCubit, AgencyJobsState>(
+      isLoading: (AgencyJobsState s) =>
+          s.status == AgencyJobsStatus.loading ||
+          s.status == AgencyJobsStatus.initial,
+      skeleton: const BbSkeletonList(
+        header: BbSkeletonHeader(),
+        row: BbSkeletonJobRow(),
+        count: 3,
+        semanticLabel: 'Loading your jobs',
+      ),
       builder: (BuildContext context, AgencyJobsState state) {
-        if (state.status == AgencyJobsStatus.loading ||
-            state.status == AgencyJobsStatus.initial) {
-          return const BbStatusView.loading();
-        }
         if (state.status == AgencyJobsStatus.error) {
           return BbStatusView(
             icon: Icons.wifi_off_rounded,
@@ -92,10 +111,17 @@ class _AgencyJobsBody extends StatelessWidget {
         }
 
         // A new account has no postings: say what the tab is for and offer
-        // the next step (#2594).
-        if (state.jobs.isEmpty) return JobsEmptyState(onPost: onPost);
+        // the next step (#2594). #2592 — it pulls to refresh too.
+        if (state.jobs.isEmpty) {
+          return BbRefreshIndicator(
+            onRefresh: () => refreshQuietly(context),
+            child: JobsEmptyState(onPost: onPost),
+          );
+        }
 
-        return ListView.builder(
+        final Widget list = ListView.builder(
+          // Over-scrolls even when short, so pull-to-refresh always works.
+          physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.fromLTRB(
             AppSpacing.gutter,
             AppSpacing.s2,
@@ -160,6 +186,10 @@ class _AgencyJobsBody extends StatelessWidget {
               ],
             );
           },
+        );
+        return BbRefreshIndicator(
+          onRefresh: () => refreshQuietly(context),
+          child: list,
         );
       },
     );

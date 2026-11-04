@@ -26,6 +26,9 @@ class JobsEmptyState extends StatelessWidget {
     return LayoutBuilder(
       builder: (BuildContext context, BoxConstraints constraints) {
         return SingleChildScrollView(
+          // #2592 — over-scrolls even when it fits, so the empty list still
+          // pulls to refresh.
+          physics: const AlwaysScrollableScrollPhysics(),
           child: ConstrainedBox(
             constraints: BoxConstraints(
               minHeight:

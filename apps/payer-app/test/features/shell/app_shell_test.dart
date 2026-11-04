@@ -177,8 +177,8 @@ void main() {
       expect(api.candidateLoads, 1);
 
       await tapNav(tester, 'Credits');
-      // The branch stays mounted while hidden, but it is rebuilt with a fresh
-      // cubit — and therefore a fresh API read — when its tab is selected again.
+      // The branch stays mounted while hidden — and #2592: selecting its tab
+      // again re-reads the API QUIETLY on the same cubit, rows kept on screen.
       expect(find.byType(FindScreen, skipOffstage: false), findsOneWidget);
       expect(find.byType(FindScreen), findsNothing);
 
@@ -463,8 +463,9 @@ void main() {
 
 /// Counts the Find tab's load in the mock seam, so a test can prove the tab's
 /// cubit was NOT recreated on a tab switch (#382). Find opens on All candidates
-/// (2026-11-03 rulings), whose load is the search's first page; the Applicants
-/// view's mock list is counted too, should a test open it.
+/// (2026-11-03 rulings), whose load is the search's FIRST page — an automatic
+/// "load more" (#2592) is not a load; the Applicants view's mock list is
+/// counted too, should a test open it.
 class _CountingPayerApi extends MockPayerApiClient {
   int candidateLoads = 0;
 
@@ -476,7 +477,7 @@ class _CountingPayerApi extends MockPayerApiClient {
 
   @override
   Future<CandidateSearchPage> searchCandidates(CandidateSearchQuery query) {
-    candidateLoads++;
+    if (query.cursor == null) candidateLoads++;
     return super.searchCandidates(query);
   }
 }

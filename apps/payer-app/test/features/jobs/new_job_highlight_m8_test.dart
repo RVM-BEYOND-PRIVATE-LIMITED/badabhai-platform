@@ -382,7 +382,16 @@ void main() {
 
       await tapNav(tester, 'Home');
       await tapNav(tester, 'Jobs');
-      expect(find.byKey(BbNewItemHighlight.tintKey), findsNothing);
+      // #2592 — a later visit re-reads the KEPT list in place, so the faded
+      // scope may still be in the tree; what matters is that nothing is
+      // tinted again.
+      expect(
+        tester
+            .widgetList<BbCardSurfaceTint>(
+                find.byKey(BbNewItemHighlight.tintKey))
+            .where((BbCardSurfaceTint t) => t.color != null),
+        isEmpty,
+      );
     });
 
     testWidgets(
@@ -420,14 +429,22 @@ void main() {
 
     testWidgets('an AI-chat publish lands the same way',
         (WidgetTester tester) async {
+      // #2592 — Jobs keeps its list across the chat, so the new posting is
+      // listed only once it is published (as the server would list it).
+      api.jobs = _list.where((JobPosting j) => j.id != _newId).toList();
       await pumpShell(tester);
       await tapNav(tester, 'Jobs');
       await tester.tap(find.text(kAiPostLabel));
       await tester.pumpAndSettle();
 
+      api.jobs = List<JobPosting>.of(_list);
       tester
           .widget<JobPostingChatScreen>(find.byType(JobPostingChatScreen))
           .onPostedJob!(_newId);
+      // #2592 — Jobs was already open: the landing re-reads its kept list
+      // quietly, a frame after the return signal; then the new card claims
+      // the highlight and scrolls into view.
+      await tester.pump();
       await tester.pump();
       await tester.pump();
       await tester.pump();

@@ -124,4 +124,20 @@ class AppMotion {
     final Duration d = resolve(context, sheet);
     return AnimationStyle(duration: d, reverseDuration: d);
   }
+
+  // ---- #2592 (M4) loading & refresh --------------------------------------
+
+  /// One sweep of the skeleton shimmer. The shimmer is a progress indicator —
+  /// the one kind of loop the rules allow — and stops under reduced motion.
+  static const Duration shimmer = Duration(milliseconds: 1200);
+
+  /// Real content cross-fading in over its skeleton.
+  static const Duration contentFade = Duration(milliseconds: 200);
+
+  /// The load-more row fading in at the end of a paged list.
+  static const Duration loadMoreFade = Duration(milliseconds: 160);
+
+  /// The opacity the rows on screen dim to while a job or filter change loads
+  /// their replacement (the dim itself eases over [fast]).
+  static const double staleOpacity = 0.6;
 }

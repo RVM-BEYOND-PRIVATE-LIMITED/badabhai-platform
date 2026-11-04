@@ -4,6 +4,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../../core/data/models.dart';
 import '../../../../core/data/payer_api_client.dart';
 import '../../../../core/error/payer_failure.dart';
+import '../../../../core/util/read_order.dart';
 
 /// Loads the signed-in payer's job postings for the My-jobs screen and drives
 /// the per-row lifecycle (publish / pause / resume / close) actions. Each action
@@ -25,6 +26,10 @@ class JobsCubit extends Cubit<JobsState> {
 
   final PayerApiClient _api;
 
+  /// #2592 — a quiet [refresh] and the re-read after an action can be in
+  /// flight together; the one sent later wins ([ReadOrder]).
+  final ReadOrder _reads = ReadOrder();
+
   Future<void> load() async {
     emit(state.copyWith(status: JobsStatus.loading));
     await _refresh();
@@ -32,20 +37,53 @@ class JobsCubit extends Cubit<JobsState> {
 
   /// Fetches the list WITHOUT flipping to [JobsStatus.loading] — the refetch
   /// after an action (#2594), so the list stays on screen and the changed card
-  /// settles in place instead of the whole tab flashing to a spinner.
+  /// settles in place instead of the whole tab flashing to a spinner. #2592 —
+  /// ordered against a quiet [refresh] in flight ([ReadOrder]).
   Future<void> _refresh() async {
+    final int read = _reads.start();
     try {
       final List<JobPosting> jobs = await _api.fetchJobs();
       if (isClosed) {
         return; // screen popped mid-load — emit would throw StateError
       }
+      if (!_reads.claim(read)) return; // a newer read already landed
       emit(JobsState(status: JobsStatus.ready, jobs: jobs));
     } catch (e) {
-      if (isClosed) return;
+      if (isClosed || !_reads.isLatest(read)) return;
+      // The error replaces the list on screen: a refresh sent before the
+      // action must not land after it and paint the old pills back.
+      _reads.settle(read);
       emit(state.copyWith(
         status: JobsStatus.error,
         failure: PayerFailure.from(e),
       ));
+    }
+  }
+
+  /// #2592 — pull-to-refresh and a return to the tab: re-reads the postings
+  /// with the list staying on screen. A failure KEEPS the list and comes back
+  /// to the caller to say why; null on success. With nothing on screen yet it
+  /// is the normal [load].
+  Future<PayerFailure?> refresh() async {
+    if (state.status == JobsStatus.initial ||
+        state.status == JobsStatus.loading) {
+      return null; // the first load is already in flight
+    }
+    if (state.status == JobsStatus.error) {
+      await load();
+      return null;
+    }
+    final int read = _reads.start();
+    try {
+      final List<JobPosting> jobs = await _api.fetchJobs();
+      if (isClosed) return null;
+      if (_reads.claim(read)) {
+        emit(JobsState(status: JobsStatus.ready, jobs: jobs));
+      }
+      return null;
+    } catch (e) {
+      if (isClosed || !_reads.isLatest(read)) return null;
+      return PayerFailure.from(e);
     }
   }
 

@@ -15,6 +15,7 @@ import '../../../core/widgets/bb_button.dart';
 import '../../../core/widgets/bb_card.dart';
 import '../../../core/widgets/bb_count_up.dart';
 import '../../../core/widgets/bb_pressable.dart';
+import '../../../core/widgets/bb_refresh.dart';
 import '../../../core/widgets/payer_role_badge.dart';
 
 /// Home — the identity header, the REAL credit balance, and the two real
@@ -57,52 +58,59 @@ class HomeScreen extends StatelessWidget {
       children: <Widget>[
         _Header(acct: session.account, role: session.role),
         Expanded(
-          child: ListView(
-            padding: const EdgeInsets.fromLTRB(
-              AppSpacing.gutter,
-              AppSpacing.s5,
-              AppSpacing.gutter,
-              AppSpacing.s6,
-            ),
-            children: <Widget>[
-              _SectionLabel('OVERVIEW'),
-              const SizedBox(height: AppSpacing.s2),
-              _CreditBalanceCard(onOpenCredits: onOpenCredits),
-              const SizedBox(height: AppSpacing.s5),
-              _SectionLabel('QUICK ACTIONS'),
-              const SizedBox(height: AppSpacing.s2),
-              Row(
-                children: <Widget>[
-                  Expanded(
-                    // The ONE haldi CTA on Home.
-                    child: BbButton(
-                      label: 'Post a job',
-                      iconLeft: Icons.add_circle_rounded,
-                      onPressed: onPost,
-                    ),
-                  ),
-                  const SizedBox(width: AppSpacing.s3),
-                  Expanded(
-                    child: BbButton(
-                      label: 'Browse',
-                      variant: BbButtonVariant.secondary,
-                      iconLeft: Icons.search_rounded,
-                      onPressed: onBrowse,
-                    ),
-                  ),
-                ],
+          // #2592 — pull-to-refresh re-reads the server-truth balance (the one
+          // live figure here); the card keeps its number while it does.
+          child: BbRefreshIndicator(
+            onRefresh: () => locator<CreditsCubit>().load(),
+            child: ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.gutter,
+                AppSpacing.s5,
+                AppSpacing.gutter,
+                AppSpacing.s6,
               ),
-              // Agency-only supply hub — makes the agency dashboard distinct and
-              // surfaces the agent-gated Refer-&-earn (funnel + referred workers
-              // + bulk invites) that a company session never sees. Renders only
-              // for an agency session (onOpenReferral is null for a company).
-              if (session.role.isAgency && onOpenReferral != null) ...<Widget>[
-                const SizedBox(height: AppSpacing.s5),
-                _SectionLabel('AGENCY'),
+              children: <Widget>[
+                _SectionLabel('OVERVIEW'),
                 const SizedBox(height: AppSpacing.s2),
-                _AgencyHubCard(onTap: onOpenReferral!),
+                _CreditBalanceCard(onOpenCredits: onOpenCredits),
+                const SizedBox(height: AppSpacing.s5),
+                _SectionLabel('QUICK ACTIONS'),
+                const SizedBox(height: AppSpacing.s2),
+                Row(
+                  children: <Widget>[
+                    Expanded(
+                      // The ONE haldi CTA on Home.
+                      child: BbButton(
+                        label: 'Post a job',
+                        iconLeft: Icons.add_circle_rounded,
+                        onPressed: onPost,
+                      ),
+                    ),
+                    const SizedBox(width: AppSpacing.s3),
+                    Expanded(
+                      child: BbButton(
+                        label: 'Browse',
+                        variant: BbButtonVariant.secondary,
+                        iconLeft: Icons.search_rounded,
+                        onPressed: onBrowse,
+                      ),
+                    ),
+                  ],
+                ),
+                // Agency-only supply hub — makes the agency dashboard distinct and
+                // surfaces the agent-gated Refer-&-earn (funnel + referred workers
+                // + bulk invites) that a company session never sees. Renders only
+                // for an agency session (onOpenReferral is null for a company).
+                if (session.role.isAgency &&
+                    onOpenReferral != null) ...<Widget>[
+                  const SizedBox(height: AppSpacing.s5),
+                  _SectionLabel('AGENCY'),
+                  const SizedBox(height: AppSpacing.s2),
+                  _AgencyHubCard(onTap: onOpenReferral!),
+                ],
               ],
-            ],
+            ),
           ),
         ),
       ],

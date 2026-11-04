@@ -10,6 +10,7 @@ import '../../../core/widgets/bb_badge.dart';
 import '../../../core/widgets/bb_button.dart';
 import '../../../core/widgets/bb_card.dart';
 import '../../../core/widgets/bb_icon_button.dart';
+import '../../../core/widgets/bb_skeleton.dart';
 import '../../../core/widgets/bb_status_view.dart';
 import 'cubit/reveal_cubit.dart';
 
@@ -73,8 +74,15 @@ class _DisclosureHistoryView extends StatelessWidget {
                 buildWhen: (RevealState a, RevealState b) =>
                     a.historyStatus != b.historyStatus ||
                     a.disclosures != b.disclosures,
+                // #2592 — row skeletons while it loads, cross-fading out.
                 builder: (BuildContext context, RevealState state) =>
-                    _body(context, state),
+                    BbLoadSwitcher(
+                  loading: state.historyStatus ==
+                          DisclosureHistoryStatus.idle ||
+                      state.historyStatus == DisclosureHistoryStatus.loading,
+                  skeleton: _skeleton,
+                  child: _body(context, state),
+                ),
               ),
             ),
           ],
@@ -83,11 +91,16 @@ class _DisclosureHistoryView extends StatelessWidget {
     );
   }
 
+  static const Widget _skeleton = BbSkeletonList(
+    row: BbSkeletonListRow(),
+    semanticLabel: 'Loading history…',
+  );
+
   Widget _body(BuildContext context, RevealState state) {
     switch (state.historyStatus) {
       case DisclosureHistoryStatus.idle:
       case DisclosureHistoryStatus.loading:
-        return const BbStatusView.loading(caption: 'Loading history…');
+        return _skeleton;
       case DisclosureHistoryStatus.error:
         return BbStatusView(
           icon: Icons.wifi_off_rounded,

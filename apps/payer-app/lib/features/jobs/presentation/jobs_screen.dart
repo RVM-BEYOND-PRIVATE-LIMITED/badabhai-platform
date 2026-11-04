@@ -14,7 +14,10 @@ import '../../../core/widgets/bb_card.dart';
 import '../../../core/widgets/bb_new_item_highlight.dart';
 import '../../../core/widgets/bb_progress.dart';
 import '../../../core/error/payer_failure.dart';
+import '../../../core/widgets/bb_refresh.dart';
+import '../../../core/widgets/bb_skeleton.dart';
 import '../../../core/widgets/bb_status_view.dart';
+import '../../../core/widgets/bb_tab_scope.dart';
 import '../../job_posting_chat/presentation/cubit/chat_sessions_cubit.dart';
 import 'agency_jobs_screen.dart';
 import 'cubit/jobs_cubit.dart';
@@ -100,11 +103,15 @@ class JobsScreen extends StatelessWidget {
       // is already on screen when the tab opens.
       child: BlocProvider<ChatSessionsCubit>(
         create: (_) => locator<ChatSessionsCubit>()..load(),
-        child: _JobsView(
-          onPost: onPost,
-          onAiPost: onAiPost,
-          onApplicants: onApplicants,
-          highlight: highlight,
+        // #2592 — a return to the tab re-reads both quietly.
+        child: BbTabRefreshListener(
+          onRefresh: _JobsView.refreshQuietly,
+          child: _JobsView(
+            onPost: onPost,
+            onAiPost: onAiPost,
+            onApplicants: onApplicants,
+            highlight: highlight,
+          ),
         ),
       ),
     );
@@ -124,14 +131,28 @@ class _JobsView extends StatelessWidget {
   final VoidCallback? onApplicants;
   final BbHighlightRequest? highlight;
 
+  /// #2592 — the quiet re-read behind pull-to-refresh and a return to the
+  /// tab: the postings stay on screen, and a failure says why in a toast. The
+  /// resume card re-reads too (it degrades silently by design).
+  static Future<void> refreshQuietly(BuildContext context) {
+    context.read<ChatSessionsCubit>().load();
+    return refreshWithToast(context, context.read<JobsCubit>().refresh);
+  }
+
   @override
   Widget build(BuildContext context) {
-    return BlocBuilder<JobsCubit, JobsState>(
+    // #2592 — job-card skeletons while the postings load; the list
+    // cross-fades in over them.
+    return BbLoadingBuilder<JobsCubit, JobsState>(
+      isLoading: (JobsState s) =>
+          s.status == JobsStatus.loading || s.status == JobsStatus.initial,
+      skeleton: const BbSkeletonList(
+        header: BbSkeletonHeader(),
+        row: BbSkeletonJobRow(),
+        count: 3,
+        semanticLabel: 'Loading your jobs',
+      ),
       builder: (BuildContext context, JobsState state) {
-        if (state.status == JobsStatus.loading ||
-            state.status == JobsStatus.initial) {
-          return const BbStatusView.loading();
-        }
         if (state.status == JobsStatus.error) {
           final PayerFailure failure =
               state.failure ?? const PayerFailure(PayerFailureKind.unknown);
@@ -147,15 +168,22 @@ class _JobsView extends StatelessWidget {
         }
 
         // A new account has no postings: say what the tab is for and offer
-        // the next step (#2594) — the AI path too, when it is wired.
+        // the next step (#2594) — the AI path too, when it is wired. #2592 —
+        // it pulls to refresh too (a job posted from the web portal).
         if (state.jobs.isEmpty) {
-          return JobsEmptyState(
-            onPost: onPost,
-            footer: onAiPost == null ? null : _AiPostPath(onAiPost: onAiPost!),
+          return BbRefreshIndicator(
+            onRefresh: () => refreshQuietly(context),
+            child: JobsEmptyState(
+              onPost: onPost,
+              footer:
+                  onAiPost == null ? null : _AiPostPath(onAiPost: onAiPost!),
+            ),
           );
         }
 
-        return ListView.builder(
+        final Widget list = ListView.builder(
+          // Over-scrolls even when short, so pull-to-refresh always works.
+          physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.fromLTRB(
             AppSpacing.gutter,
             AppSpacing.s2,
@@ -227,6 +255,10 @@ class _JobsView extends StatelessWidget {
               ],
             );
           },
+        );
+        return BbRefreshIndicator(
+          onRefresh: () => refreshQuietly(context),
+          child: list,
         );
       },
     );

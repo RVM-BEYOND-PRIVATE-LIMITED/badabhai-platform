@@ -4,6 +4,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../../core/data/models.dart';
 import '../../../../core/data/payer_api_client.dart';
 import '../../../../core/error/payer_failure.dart';
+import '../../../../core/util/read_order.dart';
 
 /// Loads the Credits screen: the REAL balance (`GET /payer/credits`), the REAL
 /// credit ledger (`GET /payer/credits/ledger`), and the per-unlock history
@@ -19,35 +20,69 @@ class CreditsScreenCubit extends Cubit<CreditsScreenState> {
 
   final PayerApiClient _api;
 
+  /// #2592 — a return to the tab and a pull can re-read together; the one
+  /// sent later wins ([ReadOrder]).
+  final ReadOrder _reads = ReadOrder();
+
   Future<void> load() async {
+    final int read = _reads.start();
     emit(state.copyWith(status: CreditsScreenStatus.loading));
     try {
-      // The three reads are independent, so fire them CONCURRENTLY — on a 2G/3G
-      // link this bounds first paint by one round trip instead of three in
-      // series. balance + ledger are primary (a throw fails the screen via
-      // Future.wait); the per-unlock history (`GET /payer/unlocks`) is
-      // best-effort — a blip there falls back to empty without blanking the screen.
-      final List<Object> results = await Future.wait(<Future<Object>>[
-        _api.fetchCreditBalance(),
-        _api.fetchCreditLedger(),
-        _api.fetchLedger().onError((_, __) => const <LedgerEntry>[]),
-      ]);
+      final CreditsScreenState ready = await _read();
       if (isClosed) return; // screen popped mid-load — emit would throw StateError
-      emit(
-        CreditsScreenState(
-          status: CreditsScreenStatus.ready,
-          balance: results[0] as int,
-          ledger: results[1] as List<LedgerEntry>,
-          unlockLedger: results[2] as List<LedgerEntry>,
-        ),
-      );
+      if (_reads.claim(read)) emit(ready);
     } catch (e) {
-      if (isClosed) return;
+      if (isClosed || !_reads.isLatest(read)) return;
+      _reads.settle(read); // the error is what the screen shows now
       emit(state.copyWith(
         status: CreditsScreenStatus.error,
         failure: PayerFailure.from(e),
       ));
     }
+  }
+
+  /// #2592 — pull-to-refresh and a return to the tab: re-reads the balance
+  /// and both ledgers with the current ones staying on screen. A failure KEEPS
+  /// them and comes back to the caller to say why; null on success. With
+  /// nothing on screen yet it is the normal [load].
+  Future<PayerFailure?> refresh() async {
+    if (state.status == CreditsScreenStatus.initial ||
+        state.status == CreditsScreenStatus.loading) {
+      return null; // the first load is already in flight
+    }
+    if (state.status == CreditsScreenStatus.error) {
+      await load();
+      return null;
+    }
+    final int read = _reads.start();
+    try {
+      final CreditsScreenState ready = await _read();
+      if (isClosed) return null;
+      if (_reads.claim(read)) emit(ready);
+      return null;
+    } catch (e) {
+      if (isClosed || !_reads.isLatest(read)) return null;
+      return PayerFailure.from(e);
+    }
+  }
+
+  /// The three reads are independent, so fire them CONCURRENTLY — on a 2G/3G
+  /// link this bounds first paint by one round trip instead of three in
+  /// series. balance + ledger are primary (a throw fails the read via
+  /// Future.wait); the per-unlock history (`GET /payer/unlocks`) is
+  /// best-effort — a blip there falls back to empty without blanking the screen.
+  Future<CreditsScreenState> _read() async {
+    final List<Object> results = await Future.wait(<Future<Object>>[
+      _api.fetchCreditBalance(),
+      _api.fetchCreditLedger(),
+      _api.fetchLedger().onError((_, __) => const <LedgerEntry>[]),
+    ]);
+    return CreditsScreenState(
+      status: CreditsScreenStatus.ready,
+      balance: results[0] as int,
+      ledger: results[1] as List<LedgerEntry>,
+      unlockLedger: results[2] as List<LedgerEntry>,
+    );
   }
 }
 

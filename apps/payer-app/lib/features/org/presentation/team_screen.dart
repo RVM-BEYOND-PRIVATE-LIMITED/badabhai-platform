@@ -13,6 +13,7 @@ import '../../../core/widgets/bb_button.dart';
 import '../../../core/widgets/bb_card.dart';
 import '../../../core/widgets/bb_field.dart';
 import '../../../core/widgets/bb_icon_button.dart';
+import '../../../core/widgets/bb_skeleton.dart';
 import '../../../core/widgets/bb_status_view.dart';
 import '../../../core/widgets/bb_toast.dart';
 import 'cubit/org_cubit.dart';
@@ -48,7 +49,16 @@ class _TeamView extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
                 _Header(onBack: () => Navigator.of(context).pop()),
-                Expanded(child: _body(context, state)),
+                // #2592 — member-row skeletons while it loads, cross-fading
+                // out.
+                Expanded(
+                  child: BbLoadSwitcher(
+                    loading: state.status == OrgStatus.loading ||
+                        state.status == OrgStatus.initial,
+                    skeleton: _skeleton,
+                    child: _body(context, state),
+                  ),
+                ),
               ],
             );
           },
@@ -57,9 +67,14 @@ class _TeamView extends StatelessWidget {
     );
   }
 
+  static const Widget _skeleton = BbSkeletonList(
+    row: BbSkeletonListRow(),
+    semanticLabel: 'Loading your team',
+  );
+
   Widget _body(BuildContext context, OrgState state) {
     if (state.status == OrgStatus.loading || state.status == OrgStatus.initial) {
-      return const BbStatusView.loading();
+      return _skeleton;
     }
     if (state.status == OrgStatus.error && state.members.isEmpty) {
       return BbStatusView(
