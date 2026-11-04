@@ -4174,12 +4174,16 @@ textarea.field__input {
 /* A row SHOWING an overlay of its own — the "Copied" toast, a control's tooltip, an open menu — is
    raised above the other rows and the column header, which would otherwise bury the first row's
    toast under the header and a menu under the row below (each row is its own stacking context,
-   see ROWS). The sticky footer bar (z 2, later in the page) still covers it. While raised its
-   stretch leaves the hit test, because WebKit draws it down over the rows below; a click on the
-   row itself still opens it (DataGridView). A menu or a confirmation a row opens belongs in the
-   top layer (`popover`, a dialog) all the same: nothing inside a scroller escapes its clip. */
+   see ROWS). It drops its transform for as long, so it is no stacking context at all: WebKit
+   ignores a z-index on a table row (it takes none as positioned), so only that lets the overlay
+   out there — measured in WebKitGTK 2.52 and Chrome, toast and menu both on top. The sticky
+   footer bar (z 2, later in the page) still covers it. While raised its stretch leaves the hit
+   test — without the transform WebKit would draw it over the whole grid; a click on the row
+   itself still opens it (DataGridView). A menu or a confirmation a row opens belongs in the top
+   layer (`popover`, a dialog) all the same: nothing inside a scroller escapes its clip. */
 .grid__table tbody tr:has(.copy-id__toast--on, .iconbtn:is(:hover, :focus-visible), [aria-expanded="true"]) {
   z-index: 2;
+  transform: none;
 }
 .grid__table
   tbody

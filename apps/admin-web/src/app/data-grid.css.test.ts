@@ -200,6 +200,10 @@ describe("the row as one link", () => {
     const showing = ".grid__table tbody tr:has(.copy-id__toast--on, .iconbtn:is(:hover, :focus-visible), [aria-expanded=\"true\"])";
     // Above `.table th`'s z-index 1 (the sticky header) — the first row's toast showed under it.
     expect(Number(decl(top(showing).body, "z-index"))).toBeGreaterThan(1);
+    // …and no stacking context while it is: WebKit ignores a table row's z-index, so dropping the
+    // transform is what lets the overlay out there (WebKitGTK 2.52: the toast stayed under the
+    // header with the z-index alone).
+    expect(decl(top(showing).body, "transform")).toBe("none");
     // WebKit draws a row's stretch down over the rows below: raised, it would take their clicks.
     expect(decl(top(`${showing} .grid__link::after`).body, "pointer-events")).toBe("none");
     // …and the sticky footer bar still covers a raised row (same z, later in the page).
