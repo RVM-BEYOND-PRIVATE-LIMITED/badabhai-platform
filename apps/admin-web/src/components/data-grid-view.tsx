@@ -7,6 +7,7 @@ import {
   useState,
   useSyncExternalStore,
   type CSSProperties,
+  type MouseEvent as ReactMouseEvent,
   type ReactNode,
   type RefObject,
 } from "react";
@@ -134,7 +135,7 @@ export function DataGridView({
           {/* Keyed on the density: a density change re-enters the rows with their 140ms fade —
               the brief's "row height animates" done in opacity, the only property (with
               transform) this console animates. The height itself snaps. */}
-          <tbody key={density}>
+          <tbody key={density} onClick={linked ? openRowFromCell : undefined}>
             {rows.map((row) => (
               <tr key={row.key}>
                 {shown.map((c) => {
@@ -156,14 +157,22 @@ export function DataGridView({
                       </Cell>
                     );
                   }
+                  // A cut cell's full text rides on its TEXT, not the cell: the cell sits under the
+                  // row's stretched link, its text above it (globals.css), so only there can the
+                  // title ever show on hover.
                   return (
                     <Cell
                       key={c.id}
                       className={cellClass(c, false)}
                       scope={c.rowHeader ? "row" : undefined}
-                      title={title}
                     >
-                      {content}
+                      {title !== undefined ? (
+                        <span className="grid__cell-text" title={title}>
+                          {content}
+                        </span>
+                      ) : (
+                        content
+                      )}
                       {trail}
                     </Cell>
                   );
@@ -198,9 +207,10 @@ export function DataGridView({
 /**
  * The row's ONE link: the name in its own cell, its `::after` stretched over the whole row
  * (globals.css), so the row is a single click target and a single tab stop. The other controls in
- * the row (a copy button, a customer link) sit above the stretch and keep their own targets. The
- * cue announces "Opening {name}…" after the console's delay — which is also what dims the rest of
- * the grid while this row stays bright.
+ * the row (a copy button, a customer link) sit above the stretch and keep their own targets; so
+ * does a cell's title-bearing text, whose plain click `openRowFromCell` hands back to this link.
+ * The cue announces "Opening {name}…" after the console's delay — which is also what dims the
+ * rest of the grid while this row stays bright.
  */
 function RowLink({
   row,
@@ -221,6 +231,30 @@ function RowLink({
       <NavPendingCue message={`Opening ${row.name ?? "the row"}…`} />
     </Link>
   );
+}
+
+/** What in a row is a control of its own: a click on one is that control's, never the row's. */
+const ROW_CONTROLS = "a, button, input, select, textarea, summary, label, [role='button']";
+
+/**
+ * A click that lands in a linked row but not on its link: on a cell's own text — lifted above the
+ * stretched link so its `title` shows (an exact instant, a full id, a cut name) and it can be
+ * selected — or anywhere in a row whose stretch is out of the hit test while it shows an overlay
+ * (globals.css). A plain primary click there still opens the row: it is handed to the row's
+ * link, so the navigation, its pending cue and the client router stay the link's own. Left alone:
+ * a click on a control of its own (a copy button, a customer link), one with a modifier or
+ * another button (the link itself takes those), and one that ends a text selection.
+ */
+export function openRowFromCell(event: ReactMouseEvent<HTMLElement>): void {
+  if (event.defaultPrevented || event.button !== 0) return;
+  if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+  const target = event.target as Element | null;
+  if (!target || typeof target.closest !== "function" || target.closest(ROW_CONTROLS)) return;
+  const link = target.closest("tr")?.querySelector<HTMLAnchorElement>("a.grid__link");
+  if (!link) return;
+  const selection = typeof window === "undefined" ? null : window.getSelection();
+  if (selection && !selection.isCollapsed && selection.toString().trim() !== "") return;
+  link.click();
 }
 
 /** A column header — plain text, or the link that orders the list by this column. */

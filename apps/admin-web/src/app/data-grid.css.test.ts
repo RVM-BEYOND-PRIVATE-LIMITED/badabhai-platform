@@ -88,8 +88,16 @@ describe("the sticky header", () => {
 
   it("a grid that fits clips instead of scrolling — no scroll container stands between its header and the window", () => {
     const fit = top('.grid[data-fit="true"] .grid__scroll');
-    expect(decl(fit.body, "overflow-x")).toBe("clip");
-    expect(decl(fit.body, "overflow-y")).toBe("visible");
+    expect(decl(fit.body, "overflow")).toBe("clip");
+  });
+
+  it("…on BOTH axes: WebKit draws a row's stretch down to the table's foot, and it must not leave the box", () => {
+    // Measured in WebKitGTK 2.52: with the block axis open (`overflow-y: visible`), a click below
+    // the grid — on whatever follows it — landed on the LAST row's link.
+    const fit = top('.grid[data-fit="true"] .grid__scroll');
+    expect(decl(fit.body, "overflow-x")).toBeNull();
+    expect(decl(fit.body, "overflow-y")).toBeNull();
+    expect(decl(top(".grid__scroll").body, "overflow-y")).toBe("hidden");
   });
 });
 
@@ -135,6 +143,8 @@ describe("the row as one link", () => {
     expect(decl(after.body, "inset")).toBe("0");
     const row = top(".grid__table tbody tr");
     expect(decl(row.body, "position")).toBe("relative");
+    // NOT droppable: WebKit takes no relative table row as a containing block (WebKitGTK 2.52 —
+    // without it every row's stretch covered the whole grid, and every click opened the last row).
     expect(decl(row.body, "transform")).toBe("scale(1)");
   });
 
@@ -143,6 +153,32 @@ describe("the row as one link", () => {
     expect(decl(lifted.body, "position")).toBe("relative");
     expect(Number(decl(lifted.body, "z-index"))).toBeGreaterThan(
       Number(decl(top(".grid__link::after").body, "z-index")),
+    );
+  });
+
+  it("so does a cell's title-bearing text — under the stretch no title could ever show on hover", () => {
+    // Measured in Chrome before this rule: hovering Postings' Created, Published as and Location
+    // hit the row's link, so the exact instant and the cut names never showed.
+    const lifted = top(".grid__table tbody :is(.grid__cell-text, [title])");
+    expect(decl(lifted.body, "position")).toBe("relative");
+    expect(Number(decl(lifted.body, "z-index"))).toBeGreaterThan(
+      Number(decl(top(".grid__link::after").body, "z-index")),
+    );
+    // A plain click on it still opens the row (DataGridView), so a linked row keeps its pointer.
+    expect(decl(top(".grid__table tbody tr:has(.grid__link) :is(.grid__cell-text, [title])").body, "cursor")).toBe(
+      "pointer",
+    );
+  });
+
+  it("a row showing an overlay of its own rises above the rows and the header, its stretch out of the hit test", () => {
+    const showing = ".grid__table tbody tr:has(.copy-id__toast--on, .iconbtn:is(:hover, :focus-visible), [aria-expanded=\"true\"])";
+    // Above `.table th`'s z-index 1 (the sticky header) — the first row's toast showed under it.
+    expect(Number(decl(top(showing).body, "z-index"))).toBeGreaterThan(1);
+    // WebKit draws a row's stretch down over the rows below: raised, it would take their clicks.
+    expect(decl(top(`${showing} .grid__link::after`).body, "pointer-events")).toBe("none");
+    // …and the sticky footer bar still covers a raised row (same z, later in the page).
+    expect(Number(decl(top(".grid__footer").body, "z-index"))).toBeGreaterThanOrEqual(
+      Number(decl(top(showing).body, "z-index")),
     );
   });
 

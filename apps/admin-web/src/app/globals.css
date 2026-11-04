@@ -3955,10 +3955,13 @@ textarea.field__input {
   border-radius: var(--radius-md);
 }
 /* A grid that FITS its box clips instead of scrolling, so it is no scroll container at all and its
-   header sticks to the window. `clip` creates no scroller; the corners still clip to the radius. */
+   header sticks to the window. `clip` creates no scroller; the corners still clip to the radius.
+   BOTH axes: nothing a row draws may escape the box. WebKit draws a row's stretched link (below)
+   from that row down to the TABLE's full height — measured in WebKitGTK 2.52, every row's 2286px
+   on a 50-row list — so with the block axis open, the last rows' links covered whatever followed
+   the grid (an About section, the next panel) and a click there opened the last row. */
 .grid[data-fit="true"] .grid__scroll {
-  overflow-x: clip;
-  overflow-y: visible;
+  overflow: clip;
 }
 
 /* The table: fixed layout — the columns take their KIND's width (`.grid__col--*` below) and the
@@ -4049,11 +4052,14 @@ textarea.field__input {
 }
 
 /* ROWS. Each row is the containing block of its link's stretch: `position: relative` names the
-   intent, `transform` makes it hold in every engine (WebKit does not take a relative table row as
-   a containing block). Hover tints over --duration-fast (the 120ms the brief asks for has no token;
-   140ms is the nearest). New rows fade in over --duration-fast, staggered --stagger-step for the
-   first eight and then together (--stagger-max); `backwards`, so once in, a row's opacity is the
-   cascade's again (the pending dim below). */
+   intent, `transform` makes it hold in every engine — WebKit does not take a relative table row as
+   a containing block (WebKitGTK 2.52: without the transform every row's stretch covered the whole
+   grid, so every click opened the last row). The transform also makes each row its own stacking
+   context; the raise rule below is the answer to that. Hover tints over --duration-fast (the
+   120ms the brief asks for has no token; 140ms is the nearest). New rows fade in over
+   --duration-fast, staggered --stagger-step for the first eight and then together
+   (--stagger-max); `backwards`, so once in, a row's opacity is the cascade's again (the pending
+   dim below). */
 .grid__table tbody tr {
   position: relative;
   transform: scale(1);
@@ -4117,6 +4123,34 @@ textarea.field__input {
 .grid__table tbody :is(a, button, input, select, textarea, summary):not(.grid__link) {
   position: relative;
   z-index: 1;
+}
+/* A cell's title-bearing text sits above the stretch too — a cut cell's full value
+   (`.grid__cell-text`), a `<time>`'s exact instant, a full id, a pill's meaning — so its `title`
+   shows on hover and it can be selected. Under the stretch nothing could ever show it. A plain
+   click on it still opens the row (DataGridView hands it to the link), so in a linked row it keeps
+   the row's pointer. */
+.grid__table tbody :is(.grid__cell-text, [title]) {
+  position: relative;
+  z-index: 1;
+}
+.grid__table tbody tr:has(.grid__link) :is(.grid__cell-text, [title]) {
+  cursor: pointer;
+}
+/* A row SHOWING an overlay of its own — the "Copied" toast, a control's tooltip, an open menu — is
+   raised above the other rows and the column header, which would otherwise bury the first row's
+   toast under the header and a menu under the row below (each row is its own stacking context,
+   see ROWS). The sticky footer bar (z 2, later in the page) still covers it. While raised its
+   stretch leaves the hit test, because WebKit draws it down over the rows below; a click on the
+   row itself still opens it (DataGridView). A menu or a confirmation a row opens belongs in the
+   top layer (`popover`, a dialog) all the same: nothing inside a scroller escapes its clip. */
+.grid__table tbody tr:has(.copy-id__toast--on, .iconbtn:is(:hover, :focus-visible), [aria-expanded="true"]) {
+  z-index: 2;
+}
+.grid__table
+  tbody
+  tr:has(.copy-id__toast--on, .iconbtn:is(:hover, :focus-visible), [aria-expanded="true"])
+  .grid__link::after {
+  pointer-events: none;
 }
 .grid__link:focus-visible {
   outline: none;

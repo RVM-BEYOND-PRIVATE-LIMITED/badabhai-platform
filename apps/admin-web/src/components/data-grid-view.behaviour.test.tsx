@@ -39,7 +39,7 @@ vi.mock("react", async (importOriginal) => {
   };
 });
 
-const { DataGridView } = await import("./data-grid-view");
+const { DataGridView, openRowFromCell } = await import("./data-grid-view");
 const { resetGridPreferencesForTests, writeDensity } = await import("./grid-preferences");
 
 const PROPS: DataGridViewProps = {
@@ -147,5 +147,93 @@ describe("density", () => {
     const after = draw();
     expect(root(after).props["data-density"]).toBe("compact");
     expect(body(after).key).not.toBe(before);
+  });
+});
+
+/**
+ * A click on a cell's own text (lifted above the row's stretched link so its title shows) is
+ * handed to the row's link — the node env has no DOM, so the row is a duck-typed stand-in that
+ * answers exactly the two lookups the handler makes.
+ */
+describe("a plain click on a cell's text still opens the row", () => {
+  const ROW_CONTROLS = "a, button, input, select, textarea, summary, label, [role='button']";
+
+  function scene({ insideControl = false, rowLinks = true } = {}) {
+    const link = { click: vi.fn() };
+    const row = {
+      querySelector: (selector: string) => (selector === "a.grid__link" && rowLinks ? link : null),
+    };
+    const text = {
+      closest: (selector: string) =>
+        selector === "tr" ? row : selector === ROW_CONTROLS && insideControl ? {} : null,
+    };
+    return { link, text };
+  }
+  const click = (target: unknown, over: Record<string, unknown> = {}) =>
+    ({
+      target,
+      button: 0,
+      defaultPrevented: false,
+      metaKey: false,
+      ctrlKey: false,
+      shiftKey: false,
+      altKey: false,
+      ...over,
+    }) as unknown as Parameters<typeof openRowFromCell>[0];
+  const selection = (text: string) =>
+    vi.stubGlobal("window", { getSelection: () => ({ isCollapsed: text === "", toString: () => text }) });
+
+  beforeEach(() => selection(""));
+
+  it("hands a plain primary click to the row's link — its navigation, its pending cue", () => {
+    const { link, text } = scene();
+    openRowFromCell(click(text));
+    expect(link.click).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves a click with a modifier or another button alone", () => {
+    const { link, text } = scene();
+    for (const over of [{ metaKey: true }, { ctrlKey: true }, { shiftKey: true }, { altKey: true }, { button: 1 }]) {
+      openRowFromCell(click(text, over));
+    }
+    expect(link.click).not.toHaveBeenCalled();
+  });
+
+  it("leaves a click on a control of its own alone — a copy button, a customer link, the link itself", () => {
+    const { link, text } = scene({ insideControl: true });
+    openRowFromCell(click(text));
+    expect(link.click).not.toHaveBeenCalled();
+  });
+
+  it("leaves a click that ends a text selection alone — the text was being copied", () => {
+    selection("Chakan MIDC");
+    const { link, text } = scene();
+    openRowFromCell(click(text));
+    expect(link.click).not.toHaveBeenCalled();
+  });
+
+  it("does nothing in a row with no link, or for a click something already handled", () => {
+    const unlinked = scene({ rowLinks: false });
+    expect(() => openRowFromCell(click(unlinked.text))).not.toThrow();
+    expect(unlinked.link.click).not.toHaveBeenCalled();
+    const handled = scene();
+    openRowFromCell(click(handled.text, { defaultPrevented: true }));
+    expect(handled.link.click).not.toHaveBeenCalled();
+  });
+
+  it("is wired to the body of a grid whose rows link — and only there", () => {
+    const body = (tree: ReactNode) => elements(tree).find((e) => e.type === "tbody")!;
+    const props = (tree: ReactNode) => body(tree).props as { onClick?: unknown };
+    expect(props(draw()).onClick).toBeUndefined();
+    const linked = {
+      ...PROPS,
+      linkColumn: "a",
+      rows: [{ ...PROPS.rows[0]!, href: "/workers/1", name: "one" }],
+    };
+    const tree = harness().render(() => {
+      h.refCalls = 0;
+      return DataGridView(linked);
+    });
+    expect(props(tree).onClick).toBe(openRowFromCell);
   });
 });

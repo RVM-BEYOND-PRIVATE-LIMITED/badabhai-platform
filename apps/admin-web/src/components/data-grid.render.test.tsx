@@ -111,7 +111,25 @@ describe("columns", () => {
 
   it("a text column cuts with an ellipsis and keeps the whole value in its title", () => {
     const out = grid({ rowLink: undefined });
-    expect(out).toContain('<td class="grid__cell--truncate table__meta" title="Chakan MIDC">Chakan MIDC</td>');
+    expect(out).toContain(
+      '<td class="grid__cell--truncate table__meta"><span class="grid__cell-text" title="Chakan MIDC">Chakan MIDC</span></td>',
+    );
+  });
+
+  it("the title rides on the cell's TEXT, never the cell — the cell sits under the row's link", () => {
+    // In a linked row the stretched link covers every cell; only the text is lifted above it
+    // (globals.css), so a title on the <td> could never show on hover.
+    for (const row of bodyRows(grid())) {
+      expect(row).not.toMatch(/<t[dh][^>]* title=/);
+    }
+    expect(bodyRows(grid())[1]).toContain(
+      '<td class="grid__cell--truncate table__meta"><span class="grid__cell-text" title="Chakan MIDC">Chakan MIDC</span></td>',
+    );
+  });
+
+  it("a cell with no full text to give is drawn as it stands — no wrapper", () => {
+    const [row] = bodyRows(grid());
+    expect(row).toContain("<td>active</td>");
   });
 
   it("is a sticky-header table on the console's table styles, never narrower than its columns", () => {
