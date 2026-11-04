@@ -9,6 +9,17 @@ export function focusControl(id: string): void {
 }
 
 /**
+ * {@link focusControl} for a control the same click is about to SHOW (a step switch): on the next
+ * frame, after React has drawn it. A no-op outside a browser.
+ */
+export function focusControlOnNextFrame(id: string): void {
+  if (typeof window === "undefined") return;
+  if (typeof window.requestAnimationFrame === "function") {
+    window.requestAnimationFrame(() => focusControl(id));
+  } else focusControl(id);
+}
+
+/**
  * A multi-line control is shown WHOLE when it takes focus. Chrome scrolls only the caret's line of
  * a focused textarea into view, which left the description's lower lines (and its hint) under the
  * fold. `nearest` keeps the scroll minimal and honours the fields' scroll margins (the sticky
