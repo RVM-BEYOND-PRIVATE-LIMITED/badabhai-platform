@@ -8,11 +8,12 @@ import {
   workerAiCostTotals,
   workerProfiles,
   workers,
+  type Database,
   type DbClient,
 } from "@badabhai/db";
 import { AiSpendCapExceededPayload } from "@badabhai/event-schema";
 
-import { AiCostTotalsRepository } from "../ai/ai-cost-totals.repository";
+import { AiCostTotalsRepository, type AiCostAccrual } from "../ai/ai-cost-totals.repository";
 import { AdminDashboardRepository } from "./admin-dashboard.repository";
 import { AdminDashboardService } from "./admin-dashboard.service";
 import { AdminEventsRepository } from "./admin-events.repository";
@@ -127,6 +128,18 @@ const PROFILE_REINTERVIEW_SECOND = uuid(0xbb64);
 const PROFILE_PREDATES = uuid(0xbb65);
 const PROFILE_OUTAGE_REAL = uuid(0xbb66);
 const PROFILE_OUTAGE_PLACEHOLDER = uuid(0xbb67);
+/** The live completion used by the composed `summary()` assertion. */
+const PROFILE_SUMMARY_LIVE = uuid(0xbb68);
+/** The live profiling call used by the composed `summary()` assertion. */
+const CALL_SUMMARY_LIVE = uuid(0xbb90);
+
+/** The deletion fixture: one real account and one test account, both completed and billed. */
+const WORKER_DELETED_REAL = uuid(0xbba0);
+const WORKER_DELETED_TEST = uuid(0xbba1);
+const PROFILE_DELETED_REAL = uuid(0xbba8);
+const PROFILE_DELETED_TEST = uuid(0xbba9);
+const CALL_DELETED_REAL = uuid(0xbbaa);
+const CALL_DELETED_TEST = uuid(0xbbab);
 
 /**
  * The accrual bound these tests measure against — a fixed instant, because the fixtures'
@@ -180,6 +193,9 @@ describe.skipIf(!RUN)("admin dashboard reads (BP-5) against a real database", ()
     for (const id of [WORKER_REINTERVIEWED, WORKER_PREDATES, WORKER_OUTAGE]) {
       await client.db.delete(workers).where(eq(workers.id, id));
     }
+    for (const id of [WORKER_DELETED_REAL, WORKER_DELETED_TEST]) {
+      await client.db.delete(workers).where(eq(workers.id, id));
+    }
     // BY PREFIX, not by this run's exact labels: the platform table has no cascade and no
     // worker to erase, so a crashed run's rows would otherwise be permanent (the ai/ suite
     // learned this the hard way).
@@ -204,6 +220,16 @@ describe.skipIf(!RUN)("admin dashboard reads (BP-5) against a real database", ()
       .values({ id: WORKER, phoneE164: "v1.bp5", phoneHash: uuid(0xbb51), status: "active" });
   });
 
+  /**
+   * Both legs the recorder writes, in the same order, for fixtures that are not exercising the
+   * recorder itself. The dashboard reads the platform table for the overall section and the
+   * event spine for the profiling split, so a fixture that needs both writes both.
+   */
+  async function accrueBoth(tx: Database, input: AiCostAccrual): Promise<void> {
+    await writer.accruePlatform(input, tx);
+    await writer.accrueOwned(input, tx);
+  }
+
   afterAll(async () => {
     if (!client) return;
     await cleanup();
@@ -224,30 +250,24 @@ describe.skipIf(!RUN)("admin dashboard reads (BP-5) against a real database", ()
 
     await writer.withTransaction(async (tx) => {
       // (a) a worker-attributed call — lands in BOTH tables.
-      await writer.accrue(
-        {
-          workerId: WORKER,
-          sessionId: null,
-          provider: PROVIDER_WORKER_SIDE,
-          taskType: "profiling_chat_turn",
-          costInr: WORKER_SIDE_COST,
-          realCall: true,
-        },
-        tx,
-      );
+      await accrueBoth(tx, {
+        workerId: WORKER,
+        sessionId: null,
+        provider: PROVIDER_WORKER_SIDE,
+        taskType: "profiling_chat_turn",
+        costInr: WORKER_SIDE_COST,
+        realCall: true,
+      });
       // (b) a PAYER-SIDE call — no worker, no session. `skill_embedding` on a posting write is
       // exactly this shape. It lands in the platform table ONLY.
-      await writer.accrue(
-        {
-          workerId: null,
-          sessionId: null,
-          provider: PROVIDER_PAYER_SIDE,
-          taskType: "skill_embedding",
-          costInr: PAYER_SIDE_COST,
-          realCall: true,
-        },
-        tx,
-      );
+      await accrueBoth(tx, {
+        workerId: null,
+        sessionId: null,
+        provider: PROVIDER_PAYER_SIDE,
+        taskType: "skill_embedding",
+        costInr: PAYER_SIDE_COST,
+        realCall: true,
+      });
     });
 
     const afterPlatform = await repo.platformCostTotals();
@@ -349,31 +369,25 @@ describe.skipIf(!RUN)("admin dashboard reads (BP-5) against a real database", ()
     const beforeTotal = await repo.platformCostTotals();
 
     await writer.withTransaction(async (tx) => {
-      // (a) profiling spend — an interview turn. IN the numerator.
-      await writer.accrue(
-        {
-          workerId: WORKER,
-          sessionId: null,
-          provider: PROVIDER_PROFILING,
-          taskType: "profiling_chat_turn",
-          costInr: PROFILING_COST,
-          realCall: true,
-        },
-        tx,
-      );
+      // (a) profiling spend — an interview turn. IN the profiling window.
+      await accrueBoth(tx, {
+        workerId: WORKER,
+        sessionId: null,
+        provider: PROVIDER_PROFILING,
+        taskType: "profiling_chat_turn",
+        costInr: PROFILING_COST,
+        realCall: true,
+      });
       // (b) a résumé rendered FROM a profile that already exists. In the platform total, and
-      // NOT in the numerator — this is the ₹5.629-of-₹77.4583 case, at test scale.
-      await writer.accrue(
-        {
-          workerId: WORKER,
-          sessionId: null,
-          provider: PROVIDER_RESUME,
-          taskType: "resume_generation",
-          costInr: RESUME_COST,
-          realCall: true,
-        },
-        tx,
-      );
+      // NOT in the profiling slice — this is the ₹5.629-of-₹77.4583 case, at test scale.
+      await accrueBoth(tx, {
+        workerId: WORKER,
+        sessionId: null,
+        provider: PROVIDER_RESUME,
+        taskType: "resume_generation",
+        costInr: RESUME_COST,
+        realCall: true,
+      });
     });
 
     const afterSubtotal = await repo.profilingCostSubtotal(PROFILING_TASK_TYPES);
@@ -409,9 +423,9 @@ describe.skipIf(!RUN)("admin dashboard reads (BP-5) against a real database", ()
 
   // ── cost per profile: the denominator ────────────────────────────────────────────────────
 
-  /** The count under test, at the shared bound. */
-  const completedSince = (since: Date) =>
-    repo.countCurrentProfilesCompletedSince(since, PROFILE_COMPLETED_STATUSES);
+  /** The completion count under test, at the shared bound. */
+  const profilesSince = (since: Date) =>
+    eventsRepo.profilingProfilesCompletedSince(since, PROFILE_COMPLETED_STATUSES);
 
   async function insertWorker(id: string, suffix: string, hash: number): Promise<void> {
     await client.db
@@ -419,97 +433,301 @@ describe.skipIf(!RUN)("admin dashboard reads (BP-5) against a real database", ()
       .values({ id, phoneE164: `v1.bp5-${suffix}`, phoneHash: uuid(hash), status: "active" });
   }
 
-  it("a RE-INTERVIEWED worker counts ONCE, not once per worker_profiles row", async () => {
-    const before = await completedSince(ACCRUAL_BOUND);
-    await insertWorker(WORKER_REINTERVIEWED, "reint", 0xbb57);
-    await client.db.insert(workerProfiles).values([
-      {
-        id: PROFILE_REINTERVIEW_FIRST,
-        workerId: WORKER_REINTERVIEWED,
-        profileStatus: "extracted",
-        createdAt: new Date("2026-08-20T00:00:00.000Z"),
+  /** One `profile.extraction_completed` spine row — the denominator's only source. */
+  async function insertCompletionEvent(
+    workerId: string,
+    profileId: string,
+    status: "extracted" | "confirmed" | "draft",
+    occurredAt: Date,
+  ): Promise<void> {
+    await client.db.insert(events).values({
+      eventName: "profile.extraction_completed",
+      eventVersion: 1,
+      occurredAt,
+      actorType: "ai_service",
+      subjectType: "profile",
+      subjectId: profileId,
+      correlationId: CORRELATION,
+      payload: {
+        worker_id: workerId,
+        profile_id: profileId,
+        ai_job_id: profileId,
+        profile_status: status,
       },
-      // A second interview, a second row — both inside the window, both `extracted`.
-      {
-        id: PROFILE_REINTERVIEW_SECOND,
-        workerId: WORKER_REINTERVIEWED,
-        profileStatus: "extracted",
-        createdAt: new Date("2026-08-25T00:00:00.000Z"),
-      },
-    ]);
-    const after = await completedSince(ACCRUAL_BOUND);
+    });
+  }
 
-    // TWO ROWS, ONE WORKER, ONE PROFILE. Counting rows instead would put 2 in the denominator
-    // and HALVE the reported cost per profile for every worker who was interviewed twice.
-    expect(after - before).toBe(1);
+  it("a RE-INTERVIEWED worker counts ONCE, not once per completion event", async () => {
+    const before = await profilesSince(ACCRUAL_BOUND);
+    await insertWorker(WORKER_REINTERVIEWED, "reint", 0xbb57);
+    await insertCompletionEvent(
+      WORKER_REINTERVIEWED,
+      PROFILE_REINTERVIEW_FIRST,
+      "extracted",
+      new Date("2026-08-20T00:00:00.000Z"),
+    );
+    // A second interview, a second event — both inside the window, both `extracted`.
+    await insertCompletionEvent(
+      WORKER_REINTERVIEWED,
+      PROFILE_REINTERVIEW_SECOND,
+      "extracted",
+      new Date("2026-08-25T00:00:00.000Z"),
+    );
+    const after = await profilesSince(ACCRUAL_BOUND);
+
+    // TWO EVENTS, ONE WORKER, ONE PROFILE. Counting events instead would put 2 in the
+    // denominator and HALVE the reported cost per profile for every re-interviewed worker.
+    expect(after.totalProfiles - before.totalProfiles).toBe(1);
+    expect(after.byPopulation.real - before.byPopulation.real).toBe(1);
+    expect(after.byPopulation.deleted_or_unattributed).toBe(
+      before.byPopulation.deleted_or_unattributed,
+    );
   });
 
-  it("a profile created BEFORE the accrual bound is EXCLUDED from the denominator", async () => {
-    const before = await completedSince(ACCRUAL_BOUND);
-    const beforeAllTime = await completedSince(BOUND_BEFORE_EVERYTHING);
+  it("a profile completed BEFORE the accrual bound is EXCLUDED from the denominator", async () => {
+    const before = await profilesSince(ACCRUAL_BOUND);
+    const beforeAllTime = await profilesSince(BOUND_BEFORE_EVERYTHING);
 
     await insertWorker(WORKER_PREDATES, "predates", 0xbb58);
-    await client.db.insert(workerProfiles).values({
-      id: PROFILE_PREDATES,
-      workerId: WORKER_PREDATES,
-      profileStatus: "extracted",
+    await insertCompletionEvent(
+      WORKER_PREDATES,
+      PROFILE_PREDATES,
+      "extracted",
       // Nine days before the bound: a real, completed profile the spend never paid for,
       // because `platform_ai_cost_totals` had not started accruing yet.
-      createdAt: new Date("2026-08-01T00:00:00.000Z"),
-    });
+      new Date("2026-08-01T00:00:00.000Z"),
+    );
 
-    const after = await completedSince(ACCRUAL_BOUND);
-    const afterAllTime = await completedSince(BOUND_BEFORE_EVERYTHING);
+    const after = await profilesSince(ACCRUAL_BOUND);
+    const afterAllTime = await profilesSince(BOUND_BEFORE_EVERYTHING);
 
     // Excluded at the accrual bound — a profile that predates the spend must not be divided
     // into it, or the average reads LOWER than it is by exactly these workers.
-    expect(after - before).toBe(0);
-    // …AND THE GUARD THAT STOPS THAT BEING VACUOUS. The row is real and this query does see it;
-    // a method that always returned 0, or a filter that dropped every row, would pass the line
-    // above and fail this one.
-    expect(afterAllTime - beforeAllTime).toBe(1);
+    expect(after.totalProfiles - before.totalProfiles).toBe(0);
+    // …AND THE GUARD THAT STOPS THAT BEING VACUOUS. The event is real and this query does see
+    // it; a method that always returned 0, or a filter that dropped every row, would pass the
+    // line above and fail this one.
+    expect(afterAllTime.totalProfiles - beforeAllTime.totalProfiles).toBe(1);
   });
 
-  it("an in-window OUTAGE PLACEHOLDER does not promote itself to the worker's profile", async () => {
-    const before = await completedSince(ACCRUAL_BOUND);
-    const beforeAllTime = await completedSince(BOUND_BEFORE_EVERYTHING);
+  it("an in-window OUTAGE PLACEHOLDER does not count as a produced profile", async () => {
+    const before = await profilesSince(ACCRUAL_BOUND);
+    const beforeAllTime = await profilesSince(BOUND_BEFORE_EVERYTHING);
 
     await insertWorker(WORKER_OUTAGE, "outage", 0xbb59);
-    await client.db.insert(workerProfiles).values([
-      // The worker's real profile — produced BEFORE the accrual bound.
-      {
-        id: PROFILE_OUTAGE_REAL,
-        workerId: WORKER_OUTAGE,
-        profileStatus: "extracted",
-        createdAt: new Date("2026-08-02T00:00:00.000Z"),
-      },
-      // What an ai-service outage writes: newer, empty, inside the window.
-      {
-        id: PROFILE_OUTAGE_PLACEHOLDER,
-        workerId: WORKER_OUTAGE,
-        profileStatus: "draft",
-        createdAt: new Date("2026-08-22T00:00:00.000Z"),
-      },
-    ]);
+    // The worker's real profile — produced BEFORE the accrual bound.
+    await insertCompletionEvent(
+      WORKER_OUTAGE,
+      PROFILE_OUTAGE_REAL,
+      "extracted",
+      new Date("2026-08-02T00:00:00.000Z"),
+    );
+    // What an ai-service outage writes: newer, empty, inside the window.
+    await insertCompletionEvent(
+      WORKER_OUTAGE,
+      PROFILE_OUTAGE_PLACEHOLDER,
+      "draft",
+      new Date("2026-08-22T00:00:00.000Z"),
+    );
 
-    const after = await completedSince(ACCRUAL_BOUND);
-    const afterAllTime = await completedSince(BOUND_BEFORE_EVERYTHING);
+    const after = await profilesSince(ACCRUAL_BOUND);
+    const afterAllTime = await profilesSince(BOUND_BEFORE_EVERYTHING);
 
-    // THE OUTCOME IS THE ASSERTION, and only the outcome. `CURRENT_PROFILE_ORDER` resolves this
-    // worker to the older EXTRACTED row (content beats recency) and the date filter then puts
-    // them outside the window, so the placeholder adds nothing to the denominator.
-    //
-    // WHAT THIS TEST CANNOT SEE, stated so nobody reads more into it than it proves: moving the
-    // date filter INSIDE the `DISTINCT ON` was measured against this whole file and changed
-    // nothing. It cannot, while `PROFILE_COMPLETED_STATUSES` stays a subset of the non-draft
-    // statuses — an in-window non-draft row can never be outranked by an out-of-window one. The
-    // placement is pinned by the SQL-shape test instead; see the repository header.
-    expect(after - before).toBe(0);
+    // The placeholder is a `draft` completion event, and the positive status set excludes it.
+    // The real profile is outside the window, so the worker contributes nothing at the bound.
+    expect(after.totalProfiles - before.totalProfiles).toBe(0);
     // Not vacuous: at an all-time bound the worker DOES count, once, under the real profile.
-    expect(afterAllTime - beforeAllTime).toBe(1);
+    expect(afterAllTime.totalProfiles - beforeAllTime.totalProfiles).toBe(1);
   });
 
-  it("the ratio reaches the response, scoped to the bound its own NUMERATOR begins at", async () => {
+  it("deleting real AND test workers leaves the headline and average unchanged", async () => {
+    /*
+     * THE DEFECT THIS CLOSES, end to end: deleting a worker used to remove their
+     * `worker_profiles` row (the denominator) while the spend stayed in the platform total
+     * (the numerator), so the average only ever climbed. Both halves now come from events that
+     * survive the delete, and the spend/profile move into their own deleted bucket.
+     */
+    let baseline = await service.summary(DTO);
+    if (baseline.ai_cost.per_profile === null) {
+      // An isolated `-t` run may not have accrued a profiling total yet; establish the window.
+      await writer.withTransaction(async (tx) => {
+        await accrueBoth(tx, {
+          workerId: null,
+          sessionId: null,
+          provider: `bp5-window-${process.pid}`,
+          taskType: "profiling_chat_turn",
+          costInr: 0,
+          realCall: false,
+        });
+      });
+      baseline = await service.summary(DTO);
+    }
+    expect(baseline.ai_cost.per_profile).not.toBeNull();
+
+    const REAL_COST = 0.3;
+    const TEST_COST = 0.2;
+
+    await client.db.insert(workers).values([
+      {
+        id: WORKER_DELETED_REAL,
+        phoneE164: "v1.bp5-del-real",
+        phoneHash: uuid(0xbba2),
+        status: "active",
+      },
+      {
+        id: WORKER_DELETED_TEST,
+        phoneE164: "v1.bp5-del-test",
+        phoneHash: uuid(0xbba3),
+        status: "active",
+        isTestAccount: true,
+      },
+    ]);
+    await insertEvent(
+      "profile.extraction_completed",
+      {
+        worker_id: WORKER_DELETED_REAL,
+        profile_id: PROFILE_DELETED_REAL,
+        ai_job_id: PROFILE_DELETED_REAL,
+        profile_status: "extracted",
+      },
+      new Date(),
+    );
+    await insertEvent(
+      "profile.extraction_completed",
+      {
+        worker_id: WORKER_DELETED_TEST,
+        profile_id: PROFILE_DELETED_TEST,
+        ai_job_id: PROFILE_DELETED_TEST,
+        profile_status: "confirmed",
+      },
+      new Date(),
+    );
+    await insertEvent(
+      "ai.cost_recorded",
+      {
+        ai_call_id: CALL_DELETED_REAL,
+        ai_job_id: null,
+        worker_id: WORKER_DELETED_REAL,
+        session_id: null,
+        task_type: "profiling_chat_turn",
+        provider: `bp5-del-real-${process.pid}`,
+        real_call: true,
+        estimated_cost_inr: REAL_COST,
+      },
+      new Date(),
+    );
+    await insertEvent(
+      "ai.cost_recorded",
+      {
+        ai_call_id: CALL_DELETED_TEST,
+        ai_job_id: null,
+        worker_id: WORKER_DELETED_TEST,
+        session_id: null,
+        task_type: "profiling_chat_turn",
+        provider: `bp5-del-test-${process.pid}`,
+        real_call: true,
+        estimated_cost_inr: TEST_COST,
+      },
+      new Date(),
+    );
+
+    const whilePresent = await service.summary(DTO);
+    const present = whilePresent.ai_cost.per_profile!;
+    const presentSplit = present.test_split;
+
+    // The two workers are live, so their spend sits in the real/test legs.
+    expect(
+      present.profiles_extracted_or_confirmed -
+        baseline.ai_cost.per_profile!.profiles_extracted_or_confirmed,
+    ).toBe(2);
+    expect(
+      presentSplit.real_profiles - baseline.ai_cost.per_profile!.test_split.real_profiles,
+    ).toBe(1);
+    expect(
+      presentSplit.test_profiles - baseline.ai_cost.per_profile!.test_split.test_profiles,
+    ).toBe(1);
+    expect(
+      Number(presentSplit.real_cost_inr) -
+        Number(baseline.ai_cost.per_profile!.test_split.real_cost_inr),
+    ).toBeCloseTo(REAL_COST, 10);
+    expect(
+      Number(presentSplit.test_cost_inr) -
+        Number(baseline.ai_cost.per_profile!.test_split.test_cost_inr),
+    ).toBeCloseTo(TEST_COST, 10);
+
+    // DPDP erase both. The events remain; the worker rows are gone.
+    await client.db
+      .delete(workers)
+      .where(inArray(workers.id, [WORKER_DELETED_REAL, WORKER_DELETED_TEST]));
+
+    const after = await service.summary(DTO);
+    const afterPerProfile = after.ai_cost.per_profile!;
+    const afterSplit = afterPerProfile.test_split;
+
+    // NEITHER HALF MOVED: same completed-profile count, same spend, same average.
+    expect(afterPerProfile.profiles_extracted_or_confirmed).toBe(
+      present.profiles_extracted_or_confirmed,
+    );
+    expect(afterPerProfile.profiling_cost_inr).toBe(present.profiling_cost_inr);
+    expect(afterPerProfile.cost_per_profile_inr).toBe(present.cost_per_profile_inr);
+
+    // The real and test legs are back where they started — deleted spend is NOT folded in.
+    expect(afterSplit.real_profiles).toBe(baseline.ai_cost.per_profile!.test_split.real_profiles);
+    expect(afterSplit.test_profiles).toBe(baseline.ai_cost.per_profile!.test_split.test_profiles);
+    expect(afterSplit.real_cost_inr).toBe(baseline.ai_cost.per_profile!.test_split.real_cost_inr);
+    expect(afterSplit.test_cost_inr).toBe(baseline.ai_cost.per_profile!.test_split.test_cost_inr);
+
+    // …and both accounts are visible in their own bucket, spend and profiles together.
+    expect(
+      Number(afterSplit.deleted_or_unattributed_cost_inr) -
+        Number(baseline.ai_cost.per_profile!.test_split.deleted_or_unattributed_cost_inr),
+    ).toBeCloseTo(REAL_COST + TEST_COST, 10);
+    expect(
+      afterSplit.deleted_or_unattributed_profiles -
+        baseline.ai_cost.per_profile!.test_split.deleted_or_unattributed_profiles,
+    ).toBe(2);
+
+    // THE ACCEPTANCE INVARIANT: the three legs are the headline, not three estimates beside it.
+    expect(
+      Number(afterSplit.real_cost_inr) +
+        Number(afterSplit.test_cost_inr) +
+        Number(afterSplit.deleted_or_unattributed_cost_inr),
+    ).toBeCloseTo(Number(afterPerProfile.profiling_cost_inr), 10);
+    expect(
+      afterSplit.real_profiles +
+        afterSplit.test_profiles +
+        afterSplit.deleted_or_unattributed_profiles,
+    ).toBe(afterPerProfile.profiles_extracted_or_confirmed);
+  });
+
+  it("the ratio reaches the response, scoped to the profiling accrual window", async () => {
+    // One live completion and one live profiling call, dated now so they sit inside the
+    // platform accrual window this database established earlier in the run.
+    await insertEvent(
+      "profile.extraction_completed",
+      {
+        worker_id: WORKER,
+        profile_id: PROFILE_SUMMARY_LIVE,
+        ai_job_id: PROFILE_SUMMARY_LIVE,
+        profile_status: "extracted",
+      },
+      new Date(),
+    );
+    await insertEvent(
+      "ai.cost_recorded",
+      {
+        ai_call_id: CALL_SUMMARY_LIVE,
+        ai_job_id: null,
+        worker_id: WORKER,
+        session_id: null,
+        task_type: "profiling_chat_turn",
+        provider: `bp5-summary-${process.pid}`,
+        real_call: true,
+        estimated_cost_inr: 0.2,
+      },
+      new Date(),
+    );
+
     const summary = await service.summary({ windowDays: ADMIN_DASHBOARD_WINDOW_DAYS_DEFAULT });
     const perProfile = summary.ai_cost.per_profile;
 
@@ -522,10 +740,10 @@ describe.skipIf(!RUN)("admin dashboard reads (BP-5) against a real database", ()
      *
      * The earlier version of this test asserted `perProfile.since === accruing_since`, which
      * was the defect written down as a contract. `accruing_since` is `min(first_recorded_at)`
-     * over EVERY task type; the numerator is filtered, so the window it covers starts at the
-     * first PROFILING accrual. Those differ whenever a résumé or a payer-side embedding was paid
-     * for first — which is the state this very database is in, its oldest row being a
-     * `resume_generation` one. Read from Postgres here rather than trusted from the response.
+     * over EVERY task type; the profiling window starts at the first PROFILING accrual. Those
+     * differ whenever a résumé or a payer-side embedding was paid for first — which is the
+     * state this very database is in, its oldest row being a `resume_generation` one. Read
+     * from Postgres here rather than trusted from the response.
      */
     const profilingMin = await client.db
       .select({ m: sql<Date | null>`min(${platformAiCostTotals.firstRecordedAt})` })
@@ -542,13 +760,12 @@ describe.skipIf(!RUN)("admin dashboard reads (BP-5) against a real database", ()
 
     // AND THE DENOMINATOR WAS FILTERED BY THAT SAME INSTANT — recomputed independently, so a
     // response that reported one bound while counting from another would fail here.
-    const countAtReportedBound = await repo.countCurrentProfilesCompletedSince(
-      perProfile!.since,
-      PROFILE_COMPLETED_STATUSES,
-    );
-    expect(perProfile!.profiles_extracted_or_confirmed).toBe(countAtReportedBound);
+    const countAtReportedBound = await profilesSince(perProfile!.since);
+    expect(perProfile!.profiles_extracted_or_confirmed).toBe(countAtReportedBound.totalProfiles);
 
-    // The numerator is the profiling slice, never the headline.
+    // The numerator is the profiling slice, never the headline — and the live call above is
+    // inside it.
+    expect(Number(perProfile!.profiling_cost_inr)).toBeGreaterThanOrEqual(0.2);
     expect(Number(perProfile!.profiling_cost_inr)).toBeLessThanOrEqual(
       Number(summary.ai_cost.total_cost_inr),
     );
