@@ -240,18 +240,31 @@ User accounts and Companies tabs (#2577–#2579) are built on it. A source fence
   worker's journey) — the page itself is the one scroller: the grid never caps its height, its
   column header sticks under the topbar and its footer bar to the bottom of the window. Opening a
   list's "About this data" hands it back to the page scroller. A grid too wide for its box scrolls
-  sideways in its own box, never the page; whether it fits is measured, not guessed.
+  sideways in its own box, never the page; whether it fits is measured, not guessed. The 860px
+  floor is measured: a list's header and filters take 320–500px, so filling a laptop window
+  (1366×657, 1536×730 inside the browser) would leave 0–3 rows to scroll.
 - **Columns by kind.** A column names its KIND (`GridColumnWidth`): `id` (10ch and its copy
   button), `customer`, `typed-id`, `status` (10ch), `date` (12ch), `number`, `money`, `short`,
   `actions`, or `fill` — a text column that shares what is left and cuts a long value with an
-  ellipsis, the whole value in its `title`. Postings' nine columns fit a 1440px window beside the
-  full sidebar.
+  ellipsis, the whole value in its `title` (or `text: "wrap"`: every line). A fixed kind is never
+  drawn narrower than its HEADER (`headerWidthRem`, an estimate pinned to the widths Chrome draws
+  with Inter), so a long label over a short value is never cut; a squeezed text column's label
+  wraps onto a second line, and one that can still be cut carries its full label in a `title`.
+  Postings' nine columns fit a 1440px window beside the full sidebar.
 - **The row is one link.** Where a row has a page of its own (`rowLink`), its NAME is the link —
   a person's or organisation's name in the `named` posture, the short id otherwise, a posting's
   role title, an event's name — stretched over the whole row: one click target, one tab stop, an
   end chevron, the focus ring around the row. Other controls in the row (copy, a customer link,
-  row actions) keep their own targets above it. A row with no page (a ledger movement, a payment
+  row actions) keep their own targets above it, and so does a cell's title-bearing text — an
+  exact instant, a full id, a cut name — so its `title` shows on hover and it can be selected; a
+  plain click on that text still opens the row. A row with no page (a ledger movement, a payment
   order, an admin account, a feedback message) does not link, and has no chevron.
+- **Overlays in a row.** Each row is its own stacking context (WebKit takes a table row as the
+  stretch's containing block only through a `transform`), so a row showing an overlay — the
+  "Copied" toast, a tooltip, a control with `aria-expanded="true"` — is raised above the rows and
+  the header while it does. A MENU or a confirmation a row opens (#2578's row menu) belongs in the
+  top layer all the same (`popover`, a dialog): nothing inside the grid's scroller escapes its
+  clip.
 - **Paging.** Every admin list API is keyset-paged with no total, so the footer bar's `Pager` offers
   "First page" past page one and "Next page" while there is one; why there are no numbers is one
   click away behind its ⓘ. A list whose API answers an exact total pages with `NumberedPager` —
@@ -264,10 +277,15 @@ User accounts and Companies tabs (#2577–#2579) are built on it. A source fence
   when the columns are) and its "Compact rows" toggle (44px or 36px rows; 44px on touch, where it
   is not drawn) are the viewer's own preferences, kept in their browser's localStorage — per list
   for columns, one density for every list — and read defensively: without storage the grid renders
-  its defaults and holds a choice for the page's life. A row link's column is always shown.
+  its defaults and holds a choice for the page's life. A row link's column is always shown. A
+  density change replays the rows' fade without remounting them, so a row's own state (a role
+  being chosen) survives it.
 - **Filters.** A filter with a fixed set of values is a select (Events' actor and subject types,
-  pinned to the event schema); a placeholder is an example and starts "e.g."; Events takes a date
-  range — two IST days, both inclusive.
+  pinned to the event schema); Events' event name is a combobox — free text suggesting the names
+  the spine recorded in the last 30 days (the metrics route's `by_event_name`, cached per admin for
+  five minutes and never allowed to hold the list up); a placeholder is an example and starts
+  "e.g."; Events takes a date range — two IST days, both inclusive, and a value that is not a
+  calendar day is refused on the page, by name, before any read.
 
 ## Payer (Company + Agency)
 
