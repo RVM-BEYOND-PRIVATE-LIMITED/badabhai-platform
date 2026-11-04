@@ -5,6 +5,8 @@ import {
   normalizeTradeLevelKey,
   priceTierForLevels,
   priceTierForTradeLevel,
+  priceTierForTradeRows,
+  priceTierForTradeSkill,
   TRADE_LEVEL_LABELS,
   TRADE_LEVEL_PACKS,
   tradeLevelEntriesForPackAnswers,
@@ -51,7 +53,11 @@ describe("trade-level crosswalk", () => {
         skillId: "mskill_maintenance_technician",
         levelKey: "maintenance_level",
       },
-      qp_plc_automation: { skillId: "mskill_plc_automation_tech", levelKey: "plc_level" },
+      qp_plc_automation: {
+        skillId: "mskill_plc_automation_tech",
+        levelKey: "plc_level",
+        tierOverrides: { technician: "higher" },
+      },
       qp_edm_wirecut: { skillId: "mskill_edm_wirecut_operator", levelKey: "edm_level" },
       qp_heat_treatment: { skillId: "mskill_heat_treatment_tech", levelKey: "heat_level" },
       qp_foundry_forging: { skillId: "mskill_foundry_forging_operator", levelKey: "foundry_level" },
@@ -187,6 +193,89 @@ describe("trade-level crosswalk", () => {
     ] as const) {
       expect(priceTierForTradeLevel(rung), rung).toBe("higher");
     }
+  });
+
+  describe("A4 item 8 — every trade's tiers follow its OWN sheet (CEO Launch Plan Pack v1)", () => {
+    // Each sheet's Tier column / "Tiers:" line, transcribed rung by rung. The shared rule is
+    // right for 22 sheets; PLC's "technician+ Higher" is the one per-pack override.
+    const L = "lower" as const;
+    const H = "higher" as const;
+    const SHEET_TIERS: Readonly<Record<string, Readonly<Record<string, "lower" | "higher">>>> = {
+      qp_cnc_turning: { trainee: L, operator: L, setter: H, setter_programmer: H, programmer: H, supervisor: H }, // sheet 1
+      qp_vmc_milling: { trainee: L, operator: L, setter: H, setter_programmer: H, programmer: H, supervisor: H }, // 2
+      qp_cam_programming: { trainee: L, programmer: H, senior: H, lead: H, supervisor: H }, // 3
+      qp_cad_design_3d: { trainee: L, designer: L, senior_designer: H, lead: H, supervisor: H }, // 4
+      qp_cad_drafting: { trainee: L, designer: L, senior_designer: H, lead: H, supervisor: H }, // 5
+      qp_fitter: { trainee: L, operator: L, fitter: L, skilled: H, senior: H, senior_fitter: H, supervisor: H }, // 6
+      qp_industrial_electrician: { trainee: L, technician: L, electrician: L, senior_technician: H, senior: H, supervisor: H }, // 7
+      qp_welding_trade: { trainee: L, operator: L, welder: L, skilled: H, senior: H, supervisor: H }, // 8
+      qp_conventional_machining: { trainee: L, operator: L, skilled: H, senior: H, supervisor: H }, // 9
+      qp_sheet_metal_fab: { trainee: L, operator: L, skilled: H, senior: H, supervisor: H }, // 10
+      qp_assembly_line: { trainee: L, operator: L, skilled: H, senior: H, supervisor: H }, // 11
+      qp_quality_inspection: { trainee: L, inspector: L, senior_inspector: H, qc_engineer: H, supervisor: H }, // 12
+      qp_tool_die_making: { trainee: L, operator: L, skilled: H, senior: H, supervisor: H }, // 13
+      qp_plc_automation: { trainee: L, technician: H, senior_technician: H, lead: H, supervisor: H }, // 14
+      qp_cnc_grinding: { trainee: L, operator: L, setter: H, setter_programmer: H, supervisor: H }, // 15
+      qp_edm_wirecut: { trainee: L, operator: L, setter: H, setter_programmer: H, supervisor: H }, // 16
+      qp_heat_treatment: { trainee: L, operator: L, skilled: H, senior: H, supervisor: H }, // 17
+      qp_press_operation: { trainee: L, operator: L, setter: H, senior: H, supervisor: H }, // 18
+      qp_foundry_forging: { trainee: L, operator: L, skilled: H, senior: H, supervisor: H }, // 19
+      qp_powder_coating: { trainee: L, operator: L, skilled: H, senior: H, supervisor: H }, // 20
+      qp_maintenance_tech: { trainee: L, technician: L, senior_technician: H, supervisor: H }, // 21
+      qp_injection_moulding: { trainee: L, operator: L, setter: H, senior: H, supervisor: H }, // 22
+      qp_production_supervisor: { senior: H, supervisor: H, lead: H }, // 23 — "all Higher"
+    };
+
+    it("covers exactly the crosswalk's trades, one trade skill per pack", () => {
+      expect(Object.keys(SHEET_TIERS).sort()).toEqual(Object.keys(TRADE_LEVEL_PACKS).sort());
+      const skills = Object.values(TRADE_LEVEL_PACKS).map((p) => p.skillId);
+      expect(new Set(skills).size).toBe(skills.length);
+    });
+
+    it.each(Object.entries(SHEET_TIERS))("%s prices every rung as its sheet does", (pack, tiers) => {
+      const skillId = TRADE_LEVEL_PACKS[pack]!.skillId;
+      for (const [rung, tier] of Object.entries(tiers)) {
+        const level = normalizeTradeLevelKey(rung);
+        expect(level, `${pack}:${rung} is a TradeLevel`).not.toBeNull();
+        expect(priceTierForTradeSkill(skillId, level), `${pack}:${rung}`).toBe(tier);
+        // Supervisor is Confirmed + Higher in every trade (Q4).
+        if (rung === "supervisor") expect(tier).toBe("higher");
+      }
+    });
+
+    it("the same key prices by its trade: technician is Higher on PLC, Lower on the electrician and maintenance sheets", () => {
+      expect(priceTierForTradeSkill("mskill_plc_automation_tech", "technician")).toBe("higher");
+      expect(priceTierForTradeSkill("mskill_industrial_electrician", "technician")).toBe("lower");
+      expect(priceTierForTradeSkill("mskill_maintenance_technician", "technician")).toBe("lower");
+      // A skill outside the crosswalk (a legacy row) and the trade-blind function keep the
+      // shared rule; null never prices up.
+      expect(priceTierForTradeSkill("mskill_cnc_operator_general", "technician")).toBe("lower");
+      expect(priceTierForTradeSkill(null, "technician")).toBe("lower");
+      expect(priceTierForTradeLevel("technician")).toBe("lower");
+      expect(priceTierForTradeSkill("mskill_plc_automation_tech", null)).toBe("lower");
+    });
+
+    it("prices a worker's rows Higher if ANY row prices Higher on its own sheet, else Lower", () => {
+      expect(priceTierForTradeRows([])).toBe("lower");
+      expect(priceTierForTradeRows([{ skillId: "mskill_plc_automation_tech", tradeLevel: null }])).toBe(
+        "lower",
+      );
+      expect(
+        priceTierForTradeRows([{ skillId: "mskill_plc_automation_tech", tradeLevel: "technician" }]),
+      ).toBe("higher");
+      expect(
+        priceTierForTradeRows([
+          { skillId: "mskill_industrial_electrician", tradeLevel: "technician" },
+          { skillId: "mskill_cnc_turner", tradeLevel: "operator" },
+        ]),
+      ).toBe("lower");
+      expect(
+        priceTierForTradeRows([
+          { skillId: "mskill_industrial_electrician", tradeLevel: "technician" },
+          { skillId: "mskill_plc_automation_tech", tradeLevel: "technician" },
+        ]),
+      ).toBe("higher");
+    });
   });
 
   it("prices a worker Higher if ANY rung prices Higher, else Lower", () => {
