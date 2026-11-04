@@ -303,6 +303,14 @@ class _LoginScreenState extends State<LoginScreen> {
         _error = message;
       });
 
+  /// #2595 — back from the code step to change the contact. A new code will
+  /// be sent, so its boxes start empty: digits left from this one would
+  /// auto-submit mixed with the new code's and waste an attempt.
+  void _changeOtpContact() {
+    _code.clear();
+    _openOtpLogin();
+  }
+
   Future<void> _storeAndSignIn(PayerLoginResult result) async {
     await _tokens.save(
       accessToken: result.accessToken,
@@ -560,7 +568,7 @@ class _LoginScreenState extends State<LoginScreen> {
           variant: BbButtonVariant.ghost,
           size: BbButtonSize.md,
           block: true,
-          onPressed: _busy ? null : _openOtpLogin,
+          onPressed: _busy ? null : _changeOtpContact,
         ),
       ];
 }

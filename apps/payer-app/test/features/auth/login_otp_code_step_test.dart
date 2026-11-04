@@ -284,4 +284,25 @@ void main() {
     expect(find.text('That code did not work. Try again.'), findsOneWidget);
     expect(_boxesText(tester), isEmpty);
   });
+
+  testWidgets('the code for a changed contact starts in empty boxes',
+      (WidgetTester tester) async {
+    final _ScriptedVerifyApi auth = _ScriptedVerifyApi(<Object>[_kSession]);
+    await _boot(tester, auth);
+    await _openCodeStep(tester);
+    await _enterCode(tester, '427');
+
+    await _tap(tester, const Key('otp_change_contact'));
+    expect(find.byKey(_kCodeField), findsNothing);
+    await tester.enterText(find.byKey(_kContactField), 'ops@acme.in');
+    await _tap(tester, const Key('otp_get_code'));
+
+    // Nothing of the last code is left to mix into the new one.
+    expect(_boxesText(tester), isEmpty);
+    await _enterCode(tester, '815302');
+    expect(auth.verifyCalls, <_VerifyCall>[
+      (email: 'ops@acme.in', phone: null, code: '815302'),
+    ]);
+    expect(_shell, findsOneWidget);
+  });
 }
