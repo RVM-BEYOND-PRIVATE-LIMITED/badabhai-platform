@@ -5,8 +5,13 @@ import { revalidatePath } from "next/cache";
 import { updatePosting, type PostingEditInitial } from "../../../../../lib/payer-api";
 import { matchSelectionInputSchema, updatePostingInputSchema } from "../../../../../lib/contracts";
 import type { PostingSummary } from "../../../../../lib/contracts";
-import { isPayerStatus, isPayerValidationError } from "../../../../../lib/payer-errors";
+import {
+  isPayerStatus,
+  isPayerValidationError,
+  isPostingTradeRequired,
+} from "../../../../../lib/payer-errors";
 import { mapPostingIssues } from "../../../../../lib/posting-field-errors";
+import { POSTING_TRADE_REQUIRED_MESSAGE } from "../../../../../lib/posting-trades";
 import { workerCardGap } from "../../../../../lib/worker-card-gap";
 import { reachAfterPublish } from "../../../../../lib/published-reach.server";
 
@@ -22,6 +27,11 @@ import { reachAfterPublish } from "../../../../../lib/published-reach.server";
  *
  * XB-A: the client supplies the posting id + fields + the prior `initial` (for the clear diff) —
  * never a payer id. Input is re-validated here with the SAME schema the form used.
+ *
+ * #2645 — THE ROLE IS THE JOB'S TRADE (#2635). A role equal to the stored one is never forwarded, and
+ * the seam never clears one, so a save that does not move the role cannot touch it. The API's
+ * `posting_trade_required` 400 (a publish, or a live job moved off the 16) is read by its `reason`
+ * and returned as `tradeRequired` with the app's own copy — never the server's message.
  */
 
 /**
@@ -35,6 +45,8 @@ export type EditPostingActionResult =
       error: string;
       /** Per-field messages from a server validation 400 (#1912), keyed by form field. */
       fieldErrors?: Record<string, string>;
+      /** The API refused for want of one of the 16 trades (#2635): said at the trade picker. */
+      tradeRequired?: true;
     };
 
 const postingIdSchema = z.string().uuid();
@@ -75,7 +87,10 @@ export async function updatePostingAction(
   const parsed = updatePostingInputSchema.safeParse({
     roleTitle: input.roleTitle,
     ...(input.vacancies !== undefined ? { vacancies: input.vacancies } : {}),
-    ...(input.roleKind ? { roleKind: input.roleKind } : {}),
+    // #2645 — only a MOVED role is sent; the stored one is left exactly as it is.
+    ...(input.roleKind && input.roleKind !== input.initial.roleKind
+      ? { roleKind: input.roleKind }
+      : {}),
     ...(input.locationLabel ? { locationLabel: input.locationLabel } : {}),
     ...(input.description ? { description: input.description } : {}),
     ...(input.city ? { city: input.city } : {}),
@@ -105,11 +120,14 @@ export async function updatePostingAction(
     };
   }
 
+  // The job's role once this edit applies: the moved one, else the stored one (an untouched role
+  // is not in the PATCH — #2645 — but the job still has it).
+  const roleKind = parsed.data.roleKind ?? input.initial.roleKind ?? undefined;
   let publish: { matchSkillIds: string[]; untickedRelatedIds: string[] } | undefined;
   if (input.publish) {
     // PUBLISH — gap BLOCKS (a live posting must trace to a full card) + ≥1 skill required.
     const gap = workerCardGap({
-      roleKind: parsed.data.roleKind ?? null,
+      roleKind: roleKind ?? null,
       city: parsed.data.city ?? "",
       payMin: parsed.data.payMin ?? null,
       payMax: parsed.data.payMax ?? null,
@@ -138,9 +156,15 @@ export async function updatePostingAction(
     if (!posting) return { ok: false, error: "That posting could not be found." };
     revalidatePath("/postings");
     revalidatePath(`/postings/${input.postingId}`);
-    const reached = publish && posting.status === "open" ? await reachAfterPublish(publish) : null;
+    // The confirmation's read is scoped by the job's trade, as the publish was (#2635).
+    const reached =
+      publish && posting.status === "open" ? await reachAfterPublish(publish, roleKind) : null;
     return { ok: true, posting, reached };
   } catch (e) {
+    // #2635 — read by `reason`, never the message, and BEFORE the generic 400 copy below.
+    if (isPostingTradeRequired(e)) {
+      return { ok: false, error: POSTING_TRADE_REQUIRED_MESSAGE, tradeRequired: true };
+    }
     // #1912 — a validation 400 carries per-field issues; route each to its input.
     // A plain 400 (no issues) stays the existing "No changes to save." copy.
     if (isPayerValidationError(e)) {

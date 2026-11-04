@@ -9,9 +9,11 @@ import type { ReactElement, ReactNode } from "react";
  */
 
 const getPostingDetail = vi.fn();
+const listPostingTrades = vi.fn(async (): Promise<unknown[]> => []);
 vi.mock("../../../../../lib/payer-api", () => ({
   getPostingDetail: (id: string) => getPostingDetail(id),
   listMatchSkills: async () => [],
+  listPostingTrades: () => listPostingTrades(),
 }));
 vi.mock("../../../../../lib/auth", () => ({ requirePayer: async () => ({ payerId: "p" }) }));
 vi.mock("next/navigation", () => ({
@@ -63,11 +65,23 @@ function detail(updatedAt: string) {
   };
 }
 
-async function formElement(updatedAt: string) {
+async function formElement(
+  updatedAt: string,
+  query?: Record<string, string | string[] | undefined>,
+) {
   getPostingDetail.mockResolvedValueOnce(detail(updatedAt));
-  const el = (await EditPostingPage({ params: Promise.resolve({ id: ID }) })) as ReactElement;
+  const el = (await EditPostingPage({
+    params: Promise.resolve({ id: ID }),
+    ...(query ? { searchParams: Promise.resolve(query) } : {}),
+  })) as ReactElement;
   expect(el.type).toBe(EditPostingFormStub);
-  return el as ReactElement<{ lead: ReactNode; status: string }>;
+  return el as ReactElement<{
+    lead: ReactNode;
+    status: string;
+    postingTrades: unknown[];
+    postingTradesProblem: unknown;
+    tradeRequired: boolean;
+  }>;
 }
 
 describe("EditPostingPage — the form is keyed on the saved revision", () => {
@@ -86,5 +100,27 @@ describe("EditPostingPage — the form is keyed on the saved revision", () => {
     expect(text).toMatch(/the card preview updates as you edit\./i);
     expect(text).not.toContain("worker’s card as you edit");
     expect(text).not.toContain("worker&rsquo;s card as you edit");
+  });
+});
+
+describe("EditPostingPage — #2645: the 16 trades and the trade-required flag", () => {
+  const TRADE = { role_kind: "cnc_turner", role_label: "CNC Turner" };
+
+  it("hands the form the 16 trades, or why there are none (never a silent empty list)", async () => {
+    listPostingTrades.mockResolvedValueOnce([TRADE]);
+    const ok = await formElement("2026-11-04T10:00:00.000Z");
+    expect(ok.props.postingTrades).toEqual([TRADE]);
+    expect(ok.props.postingTradesProblem).toBeNull();
+
+    listPostingTrades.mockRejectedValueOnce(new Error("payer API /payer/posting-trades returned 503"));
+    const failed = await formElement("2026-11-04T10:00:00.000Z");
+    expect(failed.props.postingTrades).toEqual([]);
+    expect(failed.props.postingTradesProblem).toEqual({ kind: "http", status: 503 });
+  });
+
+  it("?trade=required opens the form refused at its trade picker; anything else does not", async () => {
+    expect((await formElement("t", { trade: "required" })).props.tradeRequired).toBe(true);
+    expect((await formElement("t", { trade: "yes" })).props.tradeRequired).toBe(false);
+    expect((await formElement("t")).props.tradeRequired).toBe(false);
   });
 });

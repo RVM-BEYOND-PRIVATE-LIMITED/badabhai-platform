@@ -1666,7 +1666,10 @@ const CLEARABLE_POSTING_FIELDS = [
   ["needed_by", "neededBy"],
   ["benefits", "benefits"],
   ["requirements", "requirements"],
-  ["role_kind", "roleKind"],
+  // NOT `role_kind` (#2645), although the backend lets it be cleared: a company job's role is its
+  // trade, a live job must name one of the 16 (#2635) and a draft needs one to publish. The edit
+  // form sends the role only when the payer moved it to another trade, so an untouched role is
+  // ABSENT here — and absent must never read as "cleared".
   // Migration 0141 — both nullable, so both are clearable.
   ["trade_level", "tradeLevel"],
   ["trade_answers", "tradeAnswers"],

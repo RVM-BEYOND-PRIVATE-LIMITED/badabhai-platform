@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { PostingSummary } from "../../../../../lib/contracts";
 import type { PostingEditInitial } from "../../../../../lib/payer-api";
-import { PayerValidationError } from "../../../../../lib/payer-errors";
+import { PayerBadRequestError, PayerValidationError } from "../../../../../lib/payer-errors";
 import type { UpdatePostingActionInput } from "./actions";
 
 /**
@@ -262,10 +262,45 @@ describe("updatePostingAction — outcome mapping", () => {
   });
 });
 
+describe("updatePostingAction — #2645: the role is the job's trade (#2635)", () => {
+  it("posting_trade_required is read by its reason: the app's copy at the picker, not 'No changes'", async () => {
+    updatePosting.mockRejectedValueOnce(
+      new PayerBadRequestError("/payer/job-postings/x", "posting_trade_required"),
+    );
+    const res = await updatePostingAction({
+      postingId: ID,
+      roleTitle: "CNC Machinist",
+      ...FULL_CARD,
+      initial: INITIAL,
+      publish: { matchSkillIds: ["mskill_cnc_turner"], untickedRelatedIds: [] },
+    });
+    expect(res).toEqual({ ok: false, error: "Pick one of the 16 trades", tradeRequired: true });
+  });
+
+  it("another reason on a 400 keeps the existing copy — the reason decides, not the status", async () => {
+    updatePosting.mockRejectedValueOnce(new PayerBadRequestError("/payer/job-postings/x", "other"));
+    const res = await updatePostingAction({ postingId: ID, roleTitle: "CNC", initial: INITIAL });
+    expect(res).toEqual({ ok: false, error: "No changes to save." });
+  });
+
+  it("a role equal to the stored one is never forwarded; a moved one is", async () => {
+    const stored = { ...INITIAL, roleKind: "cnc_turner" };
+    await updatePostingAction({
+      postingId: ID,
+      roleTitle: "CNC Machinist",
+      roleKind: "cnc_turner",
+      initial: stored,
+    });
+    expect(updatePosting.mock.calls[0]![1]).not.toHaveProperty("roleKind");
+    await updatePostingAction({ postingId: ID, roleTitle: "CNC Machinist", roleKind: "welder", initial: stored });
+    expect(updatePosting.mock.calls[1]![1]).toMatchObject({ roleKind: "welder" });
+  });
+});
+
 describe("updatePostingAction — Reached N workers (post-publish reach)", () => {
   const PUBLISH = { matchSkillIds: ["mskill_cnc_turning"], untickedRelatedIds: [] as string[] };
 
-  it("a PUBLISH that lands open reads reach-preview with the SAME selection and returns it", async () => {
+  it("a PUBLISH that lands open reads reach-preview with the SAME selection, scoped by its trade", async () => {
     const res = await updatePostingAction({
       postingId: ID,
       roleTitle: "CNC Machinist",
@@ -273,8 +308,22 @@ describe("updatePostingAction — Reached N workers (post-publish reach)", () =>
       initial: INITIAL,
       publish: PUBLISH,
     });
-    expect(previewReach).toHaveBeenCalledWith(PUBLISH);
+    // #2635 — the confirmation's read scopes the posted skills by the job's trade, as publish did.
+    expect(previewReach).toHaveBeenCalledWith({ ...PUBLISH, roleKind: "cnc_turner" });
     expect(res).toEqual({ ok: true, posting: POSTING, reached: 42 });
+  });
+
+  it("…the STORED trade when the publish did not move the role", async () => {
+    const stored = { ...INITIAL, roleKind: "welder" };
+    await updatePostingAction({
+      postingId: ID,
+      roleTitle: "CNC Machinist",
+      ...FULL_CARD,
+      roleKind: undefined,
+      initial: stored,
+      publish: PUBLISH,
+    });
+    expect(previewReach).toHaveBeenCalledWith({ ...PUBLISH, roleKind: "welder" });
   });
 
   it("a plain SAVE never reads reach (reached: null)", async () => {
