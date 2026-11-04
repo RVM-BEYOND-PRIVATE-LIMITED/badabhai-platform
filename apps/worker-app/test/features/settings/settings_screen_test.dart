@@ -259,4 +259,140 @@ void main() {
       );
     });
   });
+  // 2026-11-04 — the employer-contact switch is visible again (the approved
+  // notice promises "Settings me jaakar yeh band kar sakte hain") and two-way.
+  group('employer contact switch (2026-11-04)', () {
+    const String title = 'Companies ko profile dikhayein';
+    const String onSubtitle = 'Companies aapki profile dekh sakti hain';
+    const String offSubtitle = 'Band hai — companies aapko nahi dekh paati';
+    late List<String> purposes;
+
+    setUp(() {
+      purposes = <String>['profiling', 'employer_sharing', 'employer_messaging'];
+      when(() => api.getConsentState(authToken: any(named: 'authToken')))
+          .thenAnswer((_) async => ConsentStateDto(
+                consentId: 'c1',
+                consentVersion: '2026-11-04',
+                purposes: List<String>.of(purposes),
+              ));
+    });
+
+    /// Settings under a router whose prompt route is a stand-in that pops the
+    /// worker's answer — the real prompt has its own suite.
+    Future<GoRouter> pumpRouted(WidgetTester tester) async {
+      final GoRouter router = GoRouter(
+        initialLocation: '/',
+        routes: <RouteBase>[
+          GoRoute(path: '/', builder: (_, __) => const SettingsScreen()),
+          GoRoute(
+            path: Routes.employerSharing,
+            builder: (BuildContext context, __) => Scaffold(
+              body: Column(
+                children: <Widget>[
+                  const Text('EMPLOYER NOTICE'),
+                  TextButton(
+                    onPressed: () => context.pop(true),
+                    child: const Text('GRANT'),
+                  ),
+                  TextButton(
+                    onPressed: () => context.pop(false),
+                    child: const Text('DECLINE'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      );
+      await tester.pumpWidget(
+        MaterialApp.router(theme: AppTheme.light(), routerConfig: router),
+      );
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+        find.text(title),
+        200,
+        scrollable: find.byType(Scrollable),
+      );
+      await tester.pumpAndSettle();
+      return router;
+    }
+
+    testWidgets('the row is visible with its new title and ON subtitle', (
+      WidgetTester tester,
+    ) async {
+      await pumpRouted(tester);
+      expect(find.text(title), findsOneWidget);
+      expect(find.text(onSubtitle), findsOneWidget);
+      expect(find.text('Employer contact band karein'), findsNothing);
+    });
+
+    testWidgets('ON -> OFF confirms with the new message, then withdraws', (
+      WidgetTester tester,
+    ) async {
+      when(() => api.withdrawEmployerContact(authToken: any(named: 'authToken')))
+          .thenAnswer((_) async {
+        purposes = <String>['profiling'];
+        return const EmployerContactWithdrawDto(ok: true);
+      });
+      await pumpRouted(tester);
+
+      await tester.tap(find.text(title));
+      await tester.pumpAndSettle();
+      expect(find.text('Employer contact band karein?'), findsOneWidget);
+      expect(
+        find.text(
+          'Iske baad companies aapko dhoondh ya message nahi kar paayengi. '
+          'Aapka profile, resume aur login waisa hi rahega — aap logout nahi '
+          'honge.',
+        ),
+        findsOneWidget,
+      );
+      await tester.tap(find.text('Haan, band karein'));
+      await tester.pumpAndSettle();
+
+      verify(() => api.withdrawEmployerContact(authToken: any(named: 'authToken')))
+          .called(1);
+      expect(find.text(offSubtitle), findsOneWidget);
+      expect(find.text('EMPLOYER NOTICE'), findsNothing);
+    });
+
+    testWidgets('OFF -> ON opens the notice, reloads on true, never grants '
+        'from the switch', (WidgetTester tester) async {
+      purposes = <String>['profiling'];
+      await pumpRouted(tester);
+      expect(find.text(offSubtitle), findsOneWidget);
+
+      await tester.tap(find.text(title));
+      await tester.pumpAndSettle();
+      expect(find.text('EMPLOYER NOTICE'), findsOneWidget,
+          reason: 'the worker must SEE the notice before granting');
+
+      // The prompt granted server-side; Settings re-reads the truth.
+      purposes = <String>['profiling', 'employer_sharing', 'employer_messaging'];
+      await tester.tap(find.text('GRANT'));
+      await tester.pumpAndSettle();
+
+      verify(() => api.getConsentState(authToken: any(named: 'authToken')))
+          .called(2);
+      verifyNever(
+          () => api.grantEmployerContact(authToken: any(named: 'authToken')));
+      expect(find.text(onSubtitle), findsOneWidget);
+    });
+
+    testWidgets('OFF -> ON declined leaves it OFF with no reload', (
+      WidgetTester tester,
+    ) async {
+      purposes = <String>['profiling'];
+      await pumpRouted(tester);
+
+      await tester.tap(find.text(title));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('DECLINE'));
+      await tester.pumpAndSettle();
+
+      verify(() => api.getConsentState(authToken: any(named: 'authToken')))
+          .called(1);
+      expect(find.text(offSubtitle), findsOneWidget);
+    });
+  });
 }

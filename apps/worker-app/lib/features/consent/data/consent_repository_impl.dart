@@ -89,6 +89,19 @@ class ConsentRepositoryImpl implements ConsentRepository {
     }
   }
 
+  @override
+  Future<void> grantEmployerContact() async {
+    // The bearer is the subject; the version is the notice the app just
+    // showed (ApiClient's default, kConsentVersion). No purposes are sent.
+    final String? token = _session.sessionToken;
+    if (token == null || token.isEmpty) throw const UnauthorizedFailure();
+    try {
+      await _api.grantEmployerContact(authToken: token);
+    } catch (error) {
+      throw mapError(error);
+    }
+  }
+
   /// Consumes a pending referral code (captured from a deep link) exactly once
   /// and posts it to the consent-gated `/referrals/attribute` route. Best-effort:
   /// swallows any error so a failed side-signal never surfaces to the worker.

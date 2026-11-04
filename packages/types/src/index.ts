@@ -575,8 +575,10 @@ export const CONSENT_PURPOSES = [
   // disclosure purpose: it gates whether a worker's routed contact may be disclosed
   // to a paying party. It is DISTINCT from `profiling` — a worker may have profiling
   // consent but NOT this, and is then undiscoverable for unlock (neutral "unavailable").
-  // The fail-closed gate keys on this exact string. Production DPDP notice copy +
-  // lawful-basis wording remain a human/legal launch gate (CLAUDE.md §8).
+  // The fail-closed gate keys on this exact string. REQUESTED FROM THE WORKER APP since
+  // 2026-11-04, when the owner approved its notice copy
+  // (docs/product/employer-sharing-consent-notice.md) — only ever paired with a notice
+  // version in EMPLOYER_CONTACT_NOTICE_VERSIONS below.
   "employer_sharing",
   // Phase-2 WhatsApp invite funnel + re-engagement (ADR-0020). A SEPARATE, explicit
   // DPDP basis for messaging a worker over WhatsApp — the worker's phone leaves to a
@@ -638,10 +640,10 @@ export const CONSENT_PURPOSES = [
   // decision taken deliberately a second time.
   //
   // Dormant on arrival, and that is the house pattern rather than an exception: a purpose no
-  // client requests fails closed for every worker, so the relay routes stay shut until E4's
-  // notice copy ships and workers opt in. `employer_sharing`, `whatsapp_messaging`,
-  // `agent_activity_visibility` and `voice_processing` all held exactly this posture.
-  // Requesting it from a client is E4's work and must not happen before the copy.
+  // client requests fails closed for every worker, so the relay routes stayed shut until E4's
+  // notice copy shipped. That copy was APPROVED 2026-11-04
+  // (docs/product/employer-sharing-consent-notice.md); the worker app now requests this purpose
+  // together with `employer_sharing`, always at a version in EMPLOYER_CONTACT_NOTICE_VERSIONS.
   "employer_messaging",
 ] as const;
 export type ConsentPurpose = (typeof CONSENT_PURPOSES)[number];
@@ -663,8 +665,25 @@ export type ConsentPurpose = (typeof CONSENT_PURPOSES)[number];
  * `whatsapp_messaging` already hold.
  *
  * Bump this when the NOTICE COPY changes, together with the client that renders it.
+ *
+ * 2026-11-04 — BUMPED, with the copy: the owner approved the employer-sharing notice
+ * (docs/product/employer-sharing-consent-notice.md, E4 items 6-7) and the worker app renders it
+ * on the consent screen and the one-time prompt in the same change.
  */
-export const CURRENT_CONSENT_VERSION = "2026-08-28" as const;
+export const CURRENT_CONSENT_VERSION = "2026-11-04" as const;
+
+/** The two purposes the employer-sharing notice asks for — granted and withdrawn together. */
+export const EMPLOYER_CONTACT_PURPOSES = ["employer_sharing", "employer_messaging"] as const satisfies readonly ConsentPurpose[];
+
+/**
+ * The notice versions whose screen SHOWED the employer-sharing copy. A consent row may carry
+ * an {@link EMPLOYER_CONTACT_PURPOSES} member only at one of these versions: recording
+ * `employer_sharing` against an older notice would claim a worker agreed to a sentence he was
+ * never shown (E4_BUILD, "copy first, version bump with it, purpose requested last"), and
+ * consent rows are append-only, so the mistake could not be undone. Append a version here when
+ * the employer copy is re-approved; never remove one (old rows stay valid).
+ */
+export const EMPLOYER_CONTACT_NOTICE_VERSIONS: readonly string[] = ["2026-11-04"];
 
 // ---- Chat ----
 /**
@@ -1026,6 +1045,9 @@ export const WORKER_APP_SCREEN_TEMPLATES = Object.freeze([
   "/inbox", // Routes.inbox
   "/inbox/:id", // GoRoute(path: '/inbox/:unlockId')
   "/feedback", // Routes.feedback
+  // 2026-11-04 — the employer-sharing notice prompt: shown once to an existing worker on app
+  // open, and pushed from the Settings switch's ON direction.
+  "/employer-sharing", // Routes.employerSharing
   // The referral deep link. Declared inline in the route tree rather than as a `Routes`
   // constant, because nothing in the app navigates to it — the platform delivers it.
   "/i/:id", // GoRoute(path: '/i/:code')

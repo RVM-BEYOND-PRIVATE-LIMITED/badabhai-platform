@@ -210,6 +210,8 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Haan, 18+ hoon'));
     await tester.pump();
+    // The tick sits below BOTH notices now (employer sharing, 2026-11-04) —
+    // scroll to it first, as a worker does.
     await tester.ensureVisible(find.text('I agree'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('I agree'));

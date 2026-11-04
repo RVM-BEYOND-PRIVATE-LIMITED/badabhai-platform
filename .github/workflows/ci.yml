@@ -275,6 +275,8 @@ jobs:
               # the app's topics table does not map — such a key silently leaves that trade's
               # Technical Skills walk. A PR that edits only a pack must still run that guard.
               - 'packages/db/data/question-packs/**'
+              # Read by employer_sharing_notice_test.dart.
+              - 'docs/product/employer-sharing-consent-notice.md'
             payer-app:
               - 'apps/payer-app/**'
               - '.github/workflows/payer-app.yml'

@@ -20,7 +20,11 @@ export 'api_models.dart';
 /// 2026-08-28: bumped alongside the voice consent notice copy landing in
 /// `consent_screen.dart` (#1270, approved in #1269) — the version bump and
 /// the words it certifies move together, never separately.
-const String kConsentVersion = '2026-08-28';
+///
+/// 2026-11-04: bumped alongside the employer-sharing notice
+/// (`docs/product/employer-sharing-consent-notice.md`, approved 2026-11-04) —
+/// the server rejects the employer purposes paired with any other version.
+const String kConsentVersion = '2026-11-04';
 
 /// Hard ceiling on any single HTTP request.
 ///
@@ -325,6 +329,27 @@ class ApiClient {
       authToken: authToken,
     );
     return EmployerContactWithdrawDto.fromJson(json);
+  }
+
+  /// The way back IN to employer contact (POST
+  /// /consent/employer-contact/grant — WorkerAuthGuard).
+  ///
+  /// [consentVersion] is the version of the notice the app just SHOWED; the
+  /// server rejects (400) anything but its current one. No purpose list is
+  /// sent — the server derives it (latest row plus `employer_sharing` and
+  /// `employer_messaging`). Idempotent: a row already carrying both returns
+  /// `{ok:true, consent_id:null, granted:[]}` and writes nothing. 404 when the
+  /// worker has no live consent row.
+  Future<EmployerContactGrantDto> grantEmployerContact({
+    required String authToken,
+    String consentVersion = kConsentVersion,
+  }) async {
+    final Map<String, dynamic> json = await _post(
+      '/consent/employer-contact/grant',
+      <String, dynamic>{'consent_version': consentVersion},
+      authToken: authToken,
+    );
+    return EmployerContactGrantDto.fromJson(json);
   }
 
   /// The worker's match skills and their on/off state (GET

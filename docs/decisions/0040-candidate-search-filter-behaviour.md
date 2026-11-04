@@ -262,6 +262,28 @@ moved to "Applied") and the payer app's Find tab. How each decision landed:
   search hands out every consented worker id, and the employer copy prints the phone), and a new
   `payer.candidate_search_performed` v1 records the shape of each page (never a worker id).
 
+### 2026-11-04 — real workers enter the pool
+
+At 2026-11-03 only the seeded cohort met §6: no worker app had ever REQUESTED `employer_sharing`,
+because its DPDP notice copy was held (E4 items 6-7). The owner approved that copy on 2026-11-04
+(`docs/product/employer-sharing-consent-notice.md`) and `CURRENT_CONSENT_VERSION` moved to
+`2026-11-04` with it. The pool WHERE is unchanged — real workers arrive only through a recorded
+consent:
+
+- **New workers** — the onboarding consent screen shows the employer card and its one "I agree"
+  grants `employer_sharing` + `employer_messaging` with the other three purposes.
+- **Existing workers** — a one-time prompt on the next app open, and the Settings switch's new ON
+  direction, call `POST /consent/employer-contact/grant`: a NEW consent row derived server-side
+  (latest row ∪ the two purposes, stamped with the shown notice version; idempotent; 404 with no
+  live row) and `consent.purposes_granted` v1. `withdraw` remains the OFF direction.
+- **Fail-closed on the version** — the API records an employer purpose (accept or grant) only at a
+  notice version in `EMPLOYER_CONTACT_NOTICE_VERSIONS`; anything older is a 400, because consent
+  rows are append-only and an employer purpose at an older version would claim a worker agreed to
+  words he was never shown.
+- `candidate-search.db.test.ts` runs the road end to end against Postgres: an onboarded,
+  profiled worker without the purposes is not served; after the grant he is; after the Settings
+  exit he is not.
+
 ## Alternatives considered
 
 **Pure reorder-and-count, no strict mode (R7 option (a) alone).** Rejected: on a pool of any

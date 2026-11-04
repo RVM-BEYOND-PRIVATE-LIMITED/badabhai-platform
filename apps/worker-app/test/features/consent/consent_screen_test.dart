@@ -24,10 +24,20 @@ import 'package:badabhai_worker_app/features/auth/domain/auth_session_manager.da
 import 'package:badabhai_worker_app/features/consent/domain/consent_repository.dart';
 import 'package:badabhai_worker_app/features/consent/presentation/consent_screen.dart';
 import 'package:badabhai_worker_app/features/consent/presentation/cubit/consent_cubit.dart';
+import 'package:badabhai_worker_app/features/consent/presentation/widgets/employer_sharing_notice.dart';
 
 class _MockConsentRepository extends Mock implements ConsentRepository {}
 
 class _MockAuthSessionManager extends Mock implements AuthSessionManager {}
+
+/// What the screen's one tick grants (2026-11-04).
+const List<String> _kPurposes = <String>[
+  'profiling',
+  'resume_generation',
+  'voice_processing',
+  'employer_sharing',
+  'employer_messaging',
+];
 
 void main() {
   late _MockConsentRepository repo;
@@ -166,11 +176,7 @@ void main() {
       );
       verify(
         () => repo.acceptConsent(
-          purposes: <String>[
-            'profiling',
-            'resume_generation',
-            'voice_processing',
-          ],
+          purposes: _kPurposes,
           age18Plus: true,
         ),
       ).called(1);
@@ -220,11 +226,7 @@ void main() {
         // changes where the worker LANDS, never whether consent was given.
         verify(
           () => repo.acceptConsent(
-            purposes: <String>[
-              'profiling',
-              'resume_generation',
-              'voice_processing',
-            ],
+            purposes: _kPurposes,
             age18Plus: true,
           ),
         ).called(1);
@@ -325,11 +327,7 @@ void main() {
         expect(find.text('Aage Badhein'), findsNothing);
         verify(
           () => repo.acceptConsent(
-            purposes: <String>[
-              'profiling',
-              'resume_generation',
-              'voice_processing',
-            ],
+            purposes: _kPurposes,
             age18Plus: false,
           ),
         ).called(1);
@@ -339,5 +337,108 @@ void main() {
         verify(() => auth.discardSession()).called(1);
       },
     );
+  });
+
+  // 2026-11-04 — the employer-sharing notice is its own card, and the ONE tick
+  // below both cards grants both.
+  group('the employer-sharing card (approved 2026-11-04)', () {
+    testWidgets('renders the approved heading and key bold claims verbatim', (
+      WidgetTester tester,
+    ) async {
+      await pump(tester, recovery: false);
+
+      expect(find.byType(EmployerSharingNotice), findsOneWidget);
+      expect(
+        find.text('Companies aapki profile dekh sakti hain'),
+        findsOneWidget,
+      );
+      for (final String claim in <String>[
+        'Aapka naam, phone number aur photo nahi dikhta.',
+        'Agar koi company paise dekar aapki profile unlock karti hai, to 14 '
+            'din tak:',
+        'Woh aapko BadaBhai ke andar message kar sakti hai.',
+      ]) {
+        expect(find.text(claim, findRichText: true), findsOneWidget,
+            reason: claim);
+      }
+      // Full verbatim parity with the doc: employer_sharing_notice_test.dart.
+    });
+
+    testWidgets('sits between the shield and the voice card', (
+      WidgetTester tester,
+    ) async {
+      await pump(tester, recovery: false);
+      final double employer =
+          tester.getTopLeft(find.byType(EmployerSharingNotice)).dy;
+      final double voice = tester
+          .getTopLeft(find.text('Aapki awaaz record karne ki ijaazat'))
+          .dy;
+      final double shield = tester.getTopLeft(find.byIcon(Icons.shield_outlined)).dy;
+      expect(shield, lessThan(employer));
+      expect(employer, lessThan(voice));
+    });
+
+    testWidgets('the voice notice still renders, untouched', (
+      WidgetTester tester,
+    ) async {
+      await pump(tester, recovery: false);
+      expect(find.text('Aapki awaaz record karne ki ijaazat'), findsOneWidget);
+      for (final String line in <String>[
+        'Aapki awaaz record hoti hai aur humaare paas save rehti hai.',
+        'Us recording ko likhne ke liye hum use Sarvam naam ki ek doosri '
+            'company ko bhejte hain.',
+        'Recording hamesha ke liye save rehti hai — hum use apne aap nahi '
+            'hataate.',
+        'Aapki awaaz ka istemaal kisi AI ko sikhaane ke liye nahi kiya jaata.',
+        'Dhyaan dein: Agar aap ijaazat nahi dete, tab bhi aap poora interview '
+            'type karke de sakte hain. Kuch bhi kam nahi hota — sirf mic band '
+            'rehta hai.',
+      ]) {
+        expect(find.text(line, findRichText: true), findsOneWidget,
+            reason: line);
+      }
+    });
+
+    testWidgets('ONE tick (with the age answer) gates the submit, below both cards', (
+      WidgetTester tester,
+    ) async {
+      await pump(tester, recovery: false);
+
+      expect(find.byType(Checkbox), findsOneWidget);
+      expect(find.text('I agree'), findsOneWidget);
+      final double tick = tester.getTopLeft(find.byType(Checkbox)).dy;
+      final double voice = tester
+          .getTopLeft(find.text('Aapki awaaz record karne ki ijaazat'))
+          .dy;
+      expect(tick, greaterThan(voice), reason: 'the tick covers both cards');
+
+      // Age answered, tick untouched: the CTA does nothing and nothing is recorded.
+      await tester.ensureVisible(find.text('Haan, 18+ hoon'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Haan, 18+ hoon'));
+      await tester.pump();
+      await tester.ensureVisible(find.text('Aage Badhein'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Aage Badhein'));
+      await tester.pumpAndSettle();
+      verifyNever(
+        () => repo.acceptConsent(
+          purposes: any(named: 'purposes'),
+          age18Plus: any(named: 'age18Plus'),
+        ),
+      );
+      expect(find.text('CHAT STEP'), findsNothing);
+
+      // The 'I agree' label is a tap target too, and one tick covers both cards.
+      await tester.ensureVisible(find.text('I agree'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('I agree'));
+      await tester.pump();
+      await tester.tap(find.text('Aage Badhein'));
+      await tester.pumpAndSettle();
+      verify(() => repo.acceptConsent(purposes: _kPurposes, age18Plus: true))
+          .called(1);
+      expect(find.text('CHAT STEP'), findsOneWidget);
+    });
   });
 }

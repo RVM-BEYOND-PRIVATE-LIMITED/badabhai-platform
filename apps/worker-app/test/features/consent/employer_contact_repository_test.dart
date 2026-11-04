@@ -96,6 +96,70 @@ void main() {
     expect(captured.headers['authorization'], 'Bearer tok');
   });
 
+  test('carries the row id, version and revoked flag the prompt decides on',
+      () async {
+    final ConsentRepositoryImpl repo = _repo(MockClient(
+      (http.Request req) async => http.Response(
+        _state(purposes: const <String>['profiling']),
+        200,
+      ),
+    ));
+    final EmployerContactInfo info = await repo.employerContactState();
+    expect(info.consentId, 'c1');
+    expect(info.consentVersion, '2026-08-28');
+    expect(info.revoked, isFalse);
+    expect(info.hasLiveRow, isTrue);
+  });
+
+  test('a revoked row is not live', () async {
+    final ConsentRepositoryImpl repo = _repo(MockClient(
+      (http.Request req) async => http.Response(
+        jsonEncode(<String, dynamic>{
+          'consent_id': 'c1',
+          'consent_version': '2026-08-28',
+          'revoked_at': '2026-10-01T00:00:00.000Z',
+          'purposes': <String>['profiling'],
+        }),
+        200,
+      ),
+    ));
+    final EmployerContactInfo info = await repo.employerContactState();
+    expect(info.revoked, isTrue);
+    expect(info.hasLiveRow, isFalse);
+  });
+
+  test('grantEmployerContact POSTs the grant with the current version only',
+      () async {
+    late http.Request captured;
+    final ConsentRepositoryImpl repo = _repo(MockClient((http.Request req) async {
+      captured = req;
+      return http.Response(
+        jsonEncode(<String, dynamic>{
+          'ok': true,
+          'consent_id': 'c3',
+          'granted': <String>['employer_sharing', 'employer_messaging'],
+        }),
+        200,
+      );
+    }));
+
+    await repo.grantEmployerContact();
+
+    expect(captured.method, 'POST');
+    expect(captured.url.path, '/consent/employer-contact/grant');
+    expect(captured.headers['authorization'], 'Bearer tok');
+    expect(jsonDecode(captured.body), <String, dynamic>{
+      'consent_version': '2026-11-04',
+    });
+  });
+
+  test('a rejected grant (stale version) maps to a typed Failure', () {
+    final ConsentRepositoryImpl repo = _repo(MockClient(
+      (http.Request req) async => http.Response('{"error":"x"}', 400),
+    ));
+    expect(repo.grantEmployerContact(), throwsA(isA<InvalidRequestFailure>()));
+  });
+
   test('no session token fails closed with UnauthorizedFailure', () {
     final ConsentRepositoryImpl repo = _repo(
       MockClient((http.Request req) async => http.Response('{}', 200)),
@@ -103,6 +167,7 @@ void main() {
     );
     expect(repo.employerContactState(), throwsA(isA<UnauthorizedFailure>()));
     expect(repo.withdrawEmployerContact(), throwsA(isA<UnauthorizedFailure>()));
+    expect(repo.grantEmployerContact(), throwsA(isA<UnauthorizedFailure>()));
   });
 
   test('a server error maps to a typed Failure', () {
