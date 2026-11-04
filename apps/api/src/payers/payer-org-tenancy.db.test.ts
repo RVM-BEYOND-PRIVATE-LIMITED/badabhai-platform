@@ -676,7 +676,8 @@ describe.skipIf(!RUN)(
         {} as never, // AiCostRecorder — likewise
         {} as never, // AiTraceRecorder — likewise
         { materialize: async () => undefined } as never, // a publish materializes nothing here
-        {} as never, // MatchSkillsService — no match_skill_ids
+        // MatchSkillsService — only the #2635 pre-check of a 16-trade publish reaches it.
+        { resolveForPublish: async () => undefined } as never,
         {} as never, // PostingTradesService
         tenancy,
       );
@@ -898,7 +899,8 @@ describe.skipIf(!RUN)(
         await on.postings.updateForPayer(
           PL,
           ids.B,
-          UpdateJobPostingSchema.parse({ status: "open" }),
+          // #2635 — a company can publish only a 16-trade posting, so the publish names one.
+          UpdateJobPostingSchema.parse({ status: "open", role_kind: "vmc_milling" }),
           P2A_CTX,
         );
         expect((await on.postings.pauseForPayer(PL, ids.B, P2A_CTX)).status).toBe("paused");
