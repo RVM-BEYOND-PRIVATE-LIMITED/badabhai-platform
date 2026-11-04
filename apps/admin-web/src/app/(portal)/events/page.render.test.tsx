@@ -20,6 +20,8 @@ const stub = vi.hoisted(() => {
     RequestError,
     failure: null as unknown,
     page: { events: [] as unknown[], nextCursor: null as string | null },
+    /** What the page asked the API for, last. */
+    asked: null as Record<string, unknown> | null,
   };
 });
 
@@ -36,7 +38,8 @@ vi.mock("../../../lib/admin-http", () => ({
 }));
 
 vi.mock("../../../lib/events", () => ({
-  listEvents: async () => {
+  listEvents: async (filters: Record<string, unknown>) => {
+    stub.asked = filters;
     if (stub.failure) throw stub.failure;
     return stub.page;
   },
@@ -50,6 +53,7 @@ const { default: EventsPage } = await import("./page");
 beforeEach(() => {
   stub.failure = null;
   stub.page = { events: [], nextCursor: null };
+  stub.asked = null;
 });
 
 const render = async (searchParams: Record<string, string | undefined> = {}) =>
@@ -160,5 +164,92 @@ describe("valid filters with a refused cursor get the cursor's copy", () => {
     stub.failure = new stub.RequestError(400);
     const out = await render({ actorType: "x".repeat(65), cursor: "x".repeat(300) });
     expect(out).toContain("The server rejected these filters");
+  });
+});
+
+/**
+ * THE DATE RANGE (A4, #2574). The API takes `occurredFrom` / `occurredTo` as instants and compares
+ * them inclusively; the address holds two IST days, so "1 Nov to 3 Nov" reaches the API as the
+ * first instant of 1 Nov IST and the last of 3 Nov IST.
+ */
+describe("the date range", () => {
+  const EVENT = {
+    id: "5eeded00-0005-4a00-8000-000000000005",
+    event_name: "worker.registered",
+    event_version: 1,
+    actor_type: "system",
+    actor_id: null,
+    subject_type: "worker",
+    subject_id: "5eeded00-0001-4a00-8000-000000000001",
+    occurred_at: "2026-11-02T09:00:00.000Z",
+    correlation_id: "5eeded00-00c0-4a00-8000-0000000000c0",
+    causation_id: null,
+  };
+
+  it("asks the API for the whole of both IST days", async () => {
+    await render({ occurredFrom: "2026-11-01", occurredTo: "2026-11-03" });
+    expect(stub.asked).toMatchObject({
+      occurredFrom: "2026-11-01T00:00:00.000+05:30",
+      occurredTo: "2026-11-03T23:59:59.999+05:30",
+    });
+  });
+
+  it("one end alone is a range too", async () => {
+    await render({ occurredFrom: "2026-11-01" });
+    expect(stub.asked?.occurredFrom).toBe("2026-11-01T00:00:00.000+05:30");
+    expect(stub.asked?.occurredTo).toBeUndefined();
+  });
+
+  it("is a filter like any other: Clear filters, and the pager keeps the days, not the instants", async () => {
+    stub.page = { events: [EVENT], nextCursor: "c2" };
+    const out = await render({ occurredFrom: "2026-11-01", occurredTo: "2026-11-03" });
+    expect(out).toContain(">Clear filters<");
+    expect(out).toContain('href="/events?occurredFrom=2026-11-01&amp;occurredTo=2026-11-03&amp;cursor=c2"');
+  });
+
+  it("a day that is not on the calendar travels as it stands — and its 400 is the operator's to fix", async () => {
+    stub.failure = new stub.RequestError(400);
+    const out = await render({ occurredTo: "2026-02-30" });
+    expect(stub.asked?.occurredTo).toBe("2026-02-30");
+    expect(out).toContain("The server rejected these filters");
+    expect(out).toContain("a date must be a real calendar day");
+  });
+
+  it("valid days beside an over-long cursor: the CURSOR was refused, not the range", async () => {
+    stub.failure = new stub.RequestError(400);
+    const out = await render({ occurredFrom: "2026-11-01", cursor: "x".repeat(300) });
+    expect(out).toContain("The server rejected this page");
+    expect(out).not.toContain("The server rejected these filters");
+  });
+});
+
+/** The list itself draws on the data grid and fills a tall window (A4, #2574). */
+describe("the list", () => {
+  it("is a list page: its rows on the grid, each event's name the row's link to its page", async () => {
+    stub.page = {
+      events: [
+        {
+          id: "5eeded00-0005-4a00-8000-000000000005",
+          event_name: "payer.suspended",
+          event_version: 2,
+          actor_type: "admin",
+          actor_id: "5eeded00-0009-4a00-8000-000000000009",
+          subject_type: "payer",
+          subject_id: "5eeded00-0002-4a00-8000-000000000002",
+          occurred_at: "2026-11-02T09:00:00.000Z",
+          correlation_id: "5eeded00-00c0-4a00-8000-0000000000c0",
+          causation_id: null,
+        },
+      ],
+      nextCursor: null,
+    };
+    const out = await render();
+    expect(out).toContain('<div class="page page--list">');
+    expect(out).toContain('<div class="grid"');
+    expect(out).toMatch(
+      /<a class="grid__link" href="\/events\/5eeded00-0005-4a00-8000-000000000005"><span class="grid__link-text" title="payer\.suspended · v2">Customer · suspended<\/span>/,
+    );
+    // The version follows the link; it is not part of its name.
+    expect(out).toContain('</a><span class="table__meta">v2</span>');
   });
 });

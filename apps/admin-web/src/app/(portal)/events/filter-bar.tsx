@@ -5,7 +5,7 @@ import { useUrlState } from "../../../components/use-url-state";
 import { EVENT_ACTOR_TYPES, EVENT_SUBJECT_TYPES } from "../../../lib/list-filter-values";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 
-export interface EventFilterValues {
+export type EventFilterValues = {
   eventName: string;
   actorType: string;
   subjectType: string;
@@ -13,7 +13,7 @@ export interface EventFilterValues {
   /** IST days, `YYYY-MM-DD` — the page turns them into the instants the API compares. */
   occurredFrom: string;
   occurredTo: string;
-}
+};
 
 /**
  * Event filters.

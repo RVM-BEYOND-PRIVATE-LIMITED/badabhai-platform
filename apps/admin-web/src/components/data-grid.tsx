@@ -105,21 +105,7 @@ export function DataGrid<Row>({
   variant,
   viewControls = true,
 }: DataGridProps<Row>) {
-  const meta: GridColumnMeta[] = columns.map((c) => {
-    const width = c.width ?? "fill";
-    return {
-      id: c.id,
-      header: c.header,
-      width,
-      text: c.text ?? (width === "fill" ? "truncate" : undefined),
-      locked: c.locked === true || c.id === rowLink?.column,
-      defaultHidden: c.defaultHidden === true && c.id !== rowLink?.column,
-      ...(c.group ? { group: c.group } : {}),
-      ...(c.className ? { className: c.className } : {}),
-      ...(c.rowHeader ? { rowHeader: true } : {}),
-      ...(c.sort ? { sort: c.sort } : {}),
-    };
-  });
+  const meta = gridColumnMeta(columns, rowLink?.column);
 
   const viewRows: GridViewRow[] = rows.map((row) => {
     const label = rowLink?.label?.(row);
@@ -145,4 +131,30 @@ export function DataGrid<Row>({
       viewControls={viewControls}
     />
   );
+}
+
+/**
+ * A page's columns as the client view takes them: every default made explicit (a `fill` column
+ * truncates), the row link's column locked visible. Exported for tests that measure a real
+ * column set (the Postings 1440px fit).
+ */
+export function gridColumnMeta<Row>(
+  columns: readonly GridColumn<Row>[],
+  linkColumn?: string,
+): GridColumnMeta[] {
+  return columns.map((c) => {
+    const width = c.width ?? "fill";
+    return {
+      id: c.id,
+      header: c.header,
+      width,
+      text: c.text ?? (width === "fill" ? "truncate" : undefined),
+      locked: c.locked === true || c.id === linkColumn,
+      defaultHidden: c.defaultHidden === true && c.id !== linkColumn,
+      ...(c.group ? { group: c.group } : {}),
+      ...(c.className ? { className: c.className } : {}),
+      ...(c.rowHeader ? { rowHeader: true } : {}),
+      ...(c.sort ? { sort: c.sort } : {}),
+    };
+  });
 }
