@@ -48,6 +48,7 @@ export const ICON_NAMES = [
   "download-simple",
   "envelope",
   "eye",
+  "eye-slash",
   "file-dashed",
   "flag",
   "floppy-disk",

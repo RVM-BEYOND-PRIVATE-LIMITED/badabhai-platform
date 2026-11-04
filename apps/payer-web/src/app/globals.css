@@ -1466,6 +1466,175 @@ textarea.input {
   flex: none;
 }
 
+/* ------------------------------------------------------------------
+ * PASSWORD SIGN-IN (#2587) — the password row, the "Set a new password" step and its rule
+ * checklist, and the three motions the issue names. Tokens only; no new colour.
+ *
+ * MOTION, on the #2570 tokens: the eye morphs in 120ms, the step cross-fades in 160ms, and a
+ * refused sign-in shakes the form ONCE — 6px over 200ms. Every duration is a multiple of
+ * --duration-instant (80ms) and the travel is --motion-rise (6px), so all of it is 0 under
+ * prefers-reduced-motion in one place (tokens.css); the `animation: none` at the end is the belt
+ * to those braces. Opacity and transform only; nothing loops; no motion holds back input.
+ * ------------------------------------------------------------------ */
+
+/* The password field and its show/hide eye on one row. The DS field's label, input row and
+   feedback line join this grid (`display: contents` on the field shell — a plain div with no
+   role, so nothing leaves the accessibility tree), so the eye sits beside the INPUT whatever the
+   label's or the error's height. The eye is the DS IconButton at lg — the login input's height. */
+.login-secret {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-2);
+}
+.login-secret > .bb-field {
+  display: contents;
+}
+.login-secret .bb-field__label,
+.login-secret .bb-field__hint,
+.login-secret .bb-field__error {
+  grid-column: 1 / -1;
+}
+.login-secret .bb-input-wrap {
+  grid-column: 1;
+}
+.login-secret > .login-secret__toggle {
+  grid-column: 2;
+  grid-row: 2;
+  border-radius: var(--radius-sm);
+}
+/* The eye's glyph swap (eye ⇄ eye-slash) re-enters in 120ms. `data-morph` is set only by a
+   toggle, and alternates, so each toggle restarts it and arrival never animates. */
+.login-secret__toggle[data-morph="show"] .ph-fill {
+  animation: login-eye-morph-a calc(var(--duration-instant) * 1.5) var(--ease-enter);
+}
+.login-secret__toggle[data-morph="hide"] .ph-fill {
+  animation: login-eye-morph-b calc(var(--duration-instant) * 1.5) var(--ease-enter);
+}
+@keyframes login-eye-morph-a {
+  from {
+    opacity: 0;
+    transform: scale(0.7);
+  }
+}
+@keyframes login-eye-morph-b {
+  from {
+    opacity: 0;
+    transform: scale(0.7);
+  }
+}
+
+/* A refused sign-in: one shake. `shake.ts` alternates the two names so every refusal restarts
+   it without remounting the form (focus and typed values stay). */
+.login-form--shake-a {
+  animation: login-shake-a calc(var(--duration-instant) * 2.5) var(--ease-out);
+}
+.login-form--shake-b {
+  animation: login-shake-b calc(var(--duration-instant) * 2.5) var(--ease-out);
+}
+@keyframes login-shake-a {
+  20% {
+    transform: translateX(calc(-1 * var(--motion-rise)));
+  }
+  40% {
+    transform: translateX(var(--motion-rise));
+  }
+  60% {
+    transform: translateX(calc(-0.5 * var(--motion-rise)));
+  }
+  80% {
+    transform: translateX(calc(0.5 * var(--motion-rise)));
+  }
+}
+@keyframes login-shake-b {
+  20% {
+    transform: translateX(calc(-1 * var(--motion-rise)));
+  }
+  40% {
+    transform: translateX(var(--motion-rise));
+  }
+  60% {
+    transform: translateX(calc(-0.5 * var(--motion-rise)));
+  }
+  80% {
+    transform: translateX(calc(0.5 * var(--motion-rise)));
+  }
+}
+
+/* The "Set a new password" step replaces the sign-in form with a 160ms cross-fade in. */
+.login-step {
+  animation: login-step-in calc(var(--duration-instant) * 2) var(--ease-enter) both;
+}
+@keyframes login-step-in {
+  from {
+    opacity: 0;
+  }
+}
+.login-step__head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.login-step__title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--text-xl);
+  color: var(--text-heading);
+}
+/* Focused on arrival to anchor the screen reader (not a control) — as `.login-otp__sent`. */
+.login-step__title:focus {
+  outline: none;
+}
+.login-step__lead {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}
+.login-step__lead strong {
+  color: var(--text-primary);
+  font-weight: var(--weight-semibold);
+  word-break: break-word;
+}
+
+/* The rule checklist under the new password. The state is the glyph (✓ / ✕) AND a hidden word —
+   never colour alone; met steps up from the 60% secondary icon to full Shift Blue. */
+.login-rules {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-1);
+  color: var(--text-secondary);
+  font-size: var(--ui-caption-size);
+  line-height: var(--leading-normal);
+}
+.login-rule {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.login-rule .ph-fill {
+  flex: none;
+  font-size: var(--icon-size-sm);
+  color: var(--icon-secondary);
+}
+.login-rule--met {
+  color: var(--text-primary);
+}
+.login-rule--met .ph-fill {
+  color: var(--text-heading);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .login-step,
+  .login-form--shake-a,
+  .login-form--shake-b,
+  .login-secret__toggle[data-morph] .ph-fill {
+    animation: none;
+  }
+}
+
 /* PR-D2 — phones. Below the card's own max width (440px + the wrap inset) the card is the
    whole screen, so the insets tighten to hand the form the width. The top inset reserves the
    theme toggle's row (its offset + its 32px switch + a gap) so the toggle never sits on the

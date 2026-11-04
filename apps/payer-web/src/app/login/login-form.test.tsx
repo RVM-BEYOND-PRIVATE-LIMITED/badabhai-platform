@@ -61,7 +61,11 @@ const { LoginForm } = await import("./login-form");
 
 // useState call order in the source:
 // role, mode, step, email, orgName, phone, code, emailError, orgError, phoneError, codeError,
-// error, info, cooldown.
+// error, info, cooldown, succeeded, method (… identifier, change, arrival — left unseeded).
+//
+// #2587: password sign-in is now the DEFAULT sign-in view, so this suite — the email-code flow's —
+// seeds `method: "code"` to keep testing the email-code view it always tested. The password
+// method has its own suites (login-form.password.test.tsx, password-forms.test.tsx).
 function render(seed: {
   role?: "company" | "agency";
   mode?: "signin" | "signup";
@@ -77,6 +81,7 @@ function render(seed: {
   error?: string | null;
   info?: string | null;
   cooldown?: number;
+  method?: "password" | "code";
 }): ReactElement {
   stateQueue = [
     seed.role ?? "company",
@@ -93,6 +98,8 @@ function render(seed: {
     seed.error ?? null,
     seed.info ?? null,
     seed.cooldown ?? 0,
+    false, // succeeded
+    seed.method ?? "code",
   ];
   stateCursor = 0;
   return LoginForm() as ReactElement;
@@ -362,12 +369,15 @@ describe("AUTH-1 · guided 2-step flow affordances", () => {
     expect(findAll(tree, Tabs).length).toBe(1);
   });
 
-  it("shows truthful, passwordless trust microcopy near the CTA (no code, no secret)", () => {
-    const tree = render({ step: "entry", mode: "signin", email: "a@b.co" });
-    const txt = textOf(tree);
-    expect(txt).toContain("no passwords");
-    expect(txt).toContain("never share your details");
-    expect(txt).not.toMatch(/\b\d{4,8}\b/);
+  it("shows truthful trust microcopy near the CTA (no code, no secret)", () => {
+    // #2587: sign-in offers a password right above this line, so it no longer says "no passwords".
+    for (const mode of ["signin", "signup"] as const) {
+      const txt = textOf(render({ step: "entry", mode, email: "a@b.co" }));
+      expect(txt).toContain("Secure one-time-code sign-in.");
+      expect(txt).toContain("never share your details");
+      expect(txt).not.toContain("no passwords");
+      expect(txt).not.toMatch(/\b\d{4,8}\b/);
+    }
   });
 
   it("'use a different email' is wired to a handler that returns to the entry step", () => {
