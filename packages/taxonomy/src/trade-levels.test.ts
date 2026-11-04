@@ -19,7 +19,7 @@ import {
  * alias spelling lands on the canonical key, and null prices Lower.
  */
 describe("trade-level crosswalk", () => {
-  it("covers the four v1 trades plus the CAD trades, the fitter, the electrician, the welder, the conventional machinist, the sheet-metal operator, the assembly technician, the QC inspector, the tool & die maker, the press-shop operator, the painter / coater, the maintenance technician, the PLC / automation technician, the EDM / wire-cut operator and the injection-moulding operator, each with its skill and level key", () => {
+  it("covers the four v1 trades plus the CAD trades, the fitter, the electrician, the welder, the conventional machinist, the sheet-metal operator, the assembly technician, the QC inspector, the tool & die maker, the press-shop operator, the painter / coater, the maintenance technician, the PLC / automation technician, the EDM / wire-cut operator, the injection-moulding operator and the heat-treatment technician, each with its skill and level key", () => {
     expect(TRADE_LEVEL_PACKS).toEqual({
       qp_cnc_turning: { skillId: "mskill_cnc_turner", levelKey: "turning_level" },
       qp_vmc_milling: { skillId: "mskill_vmc_operator", levelKey: "milling_level" },
@@ -53,6 +53,7 @@ describe("trade-level crosswalk", () => {
       },
       qp_plc_automation: { skillId: "mskill_plc_automation_tech", levelKey: "plc_level" },
       qp_edm_wirecut: { skillId: "mskill_edm_wirecut_operator", levelKey: "edm_level" },
+      qp_heat_treatment: { skillId: "mskill_heat_treatment_tech", levelKey: "heat_level" },
       qp_injection_moulding: { skillId: "mskill_imm_operator", levelKey: "moulding_level" },
     });
   });
@@ -1090,6 +1091,28 @@ describe("trade-level crosswalk", () => {
     expect(edm("setter_cum_programmer", program("other"))).toEqual(row("setter_programmer", false));
     // Supervisor: no confirm item, rung rule (confirmed).
     expect(edm("supervisor", setting("other"))).toEqual(row("supervisor", true));
+  });
+
+  it("asks the one heat-treatment confirm of skilled AND senior (CEO Launch Plan Pack v1, Phase 2 #8)", () => {
+    const heat = (level: string, confirm: { attributeKey: string; value: unknown } | null) =>
+      tradeLevelEntriesForPackAnswers(
+        "qp_heat_treatment@1",
+        confirm === null
+          ? [{ attributeKey: "heat_level", value: level }]
+          : [{ attributeKey: "heat_level", value: level }, confirm],
+      );
+    const skilled = (value: string) => ({ attributeKey: "heat_skilled_confirm", value });
+    const row = (tradeLevel: string, levelConfirmed: boolean) => [
+      { skillId: "mskill_heat_treatment_tech", tradeLevel, levelConfirmed },
+    ];
+    expect(heat("trainee", null)).toEqual(row("trainee", false));
+    expect(heat("operator", null)).toEqual(row("operator", false));
+    expect(heat("skilled", null)).toEqual(row("skilled", true));
+    expect(heat("skilled", skilled("other"))).toEqual(row("skilled", false));
+    expect(heat("senior", skilled("self"))).toEqual(row("senior", true));
+    expect(heat("senior", skilled("other"))).toEqual(row("senior", false));
+    // Supervisor: no confirm item, rung rule (confirmed).
+    expect(heat("supervisor", skilled("other"))).toEqual(row("supervisor", true));
   });
 
   it("wires the two injection-moulding confirms, one per rung (CEO Launch Plan Pack v1, Phase 2 #9)", () => {

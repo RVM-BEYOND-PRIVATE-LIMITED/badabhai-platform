@@ -47,6 +47,7 @@ export const ROLE_ART_KINDS = [
   "cad_designer_3d",
   "plc_automation_technician",
   "edm_wirecut_operator",
+  "heat_treatment_technician",
   "generic",
 ] as const;
 
@@ -1326,6 +1327,52 @@ export const ROLE_ART_DATA: Readonly<Record<RoleArtKind, RoleArtDef>> = {
         motion: { type: "blink", amp: 0.6, ox: 186, oy: 50, rate: 1, phase: 0.2 },
         shapes: [
           { d: "M182 50A4 4 0 1 1 190 50A4 4 0 1 1 182 50Z", colour: "accent", opacity: 1, strokeWidth: 0 },
+        ],
+      },
+    ],
+  },
+  heat_treatment_technician: {
+    loop: 3,
+    parts: [
+      {
+        name: "scene",
+        motion: null,
+        shapes: [
+          { d: "M0 0L300 0L300 100L0 100Z", colour: "primary", opacity: 1, strokeWidth: 0 },
+          { d: "M8 24A32 32 0 1 1 72 24A32 32 0 1 1 8 24Z", colour: "surface", opacity: 0.4, strokeWidth: 0 },
+          { d: "M0 84L300 84L300 100L0 100Z", colour: "surface", opacity: 0.4, strokeWidth: 0 },
+        ],
+      },
+      {
+        name: "machine",
+        motion: null,
+        shapes: [
+          { d: "M170 22L250 22A6 6 0 0 1 256 28L256 78A6 6 0 0 1 250 84L170 84A6 6 0 0 1 164 78L164 28A6 6 0 0 1 170 22Z", colour: "surface", opacity: 1, strokeWidth: 0 },
+          { d: "M182 36L238 36A4 4 0 0 1 242 40L242 66A4 4 0 0 1 238 70L182 70A4 4 0 0 1 178 66L178 40A4 4 0 0 1 182 36Z", colour: "primary", opacity: 0.6, strokeWidth: 0 },
+          { d: "M202 12L218 12A2 2 0 0 1 220 14L220 20A2 2 0 0 1 218 22L202 22A2 2 0 0 1 200 20L200 14A2 2 0 0 1 202 12Z", colour: "surface", opacity: 0.6, strokeWidth: 0 },
+        ],
+      },
+      {
+        name: "glow",
+        motion: { type: "blink", amp: 0.5, ox: 210, oy: 53, rate: 1, phase: 0.1 },
+        shapes: [
+          { d: "M190 44L230 44A4 4 0 0 1 234 48L234 58A4 4 0 0 1 230 62L190 62A4 4 0 0 1 186 58L186 48A4 4 0 0 1 190 44Z", colour: "accent", opacity: 1, strokeWidth: 0 },
+        ],
+      },
+      {
+        name: "figure",
+        motion: null,
+        shapes: [
+          { d: "M48 84L48 70A22 22 0 0 1 92 70L92 84Z", colour: "accent", opacity: 1, strokeWidth: 0 },
+          { d: "M57 40A13 13 0 0 1 83 40L83 41A3 3 0 0 1 80 44L60 44A3 3 0 0 1 57 41Z", colour: "accent", opacity: 1, strokeWidth: 0 },
+        ],
+      },
+      {
+        name: "arm",
+        motion: { type: "nod", amp: -6, ox: 84, oy: 60, rate: 1, phase: 0 },
+        shapes: [
+          { d: "M84 60Q120 62 150 58", colour: "accent", opacity: 1, strokeWidth: 9 },
+          { d: "M150 58L170 58", colour: "surface", opacity: 1, strokeWidth: 5 },
         ],
       },
     ],

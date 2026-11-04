@@ -1031,6 +1031,20 @@
       "when": 1793766479922,
       "tag": "0146_wri_role_kind_edm",
       "breakpoints": true
+    },
+    {
+      "idx": 147,
+      "version": "7",
+      "when": 1793769806667,
+      "tag": "0147_job_role_kind_heat",
+      "breakpoints": true
+    },
+    {
+      "idx": 148,
+      "version": "7",
+      "when": 1793769811987,
+      "tag": "0148_wri_role_kind_heat",
+      "breakpoints": true
     }
   ]
 }

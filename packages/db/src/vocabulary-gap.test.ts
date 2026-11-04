@@ -57,11 +57,13 @@ describe("the demand surface is closed, and that is the whole argument", () => {
     // + 1: Phase 2 #6 (CEO Launch Plan Pack v1, sheet 14, 2026-11-03) minted the PLC trade.
     // + 1: Phase 2 #7 (sheet 16, 2026-11-03) minted the EDM / wire-cut trade.
     // + 1: Phase 2 #9 (sheet 22, 2026-11-04) minted the injection-moulding trade.
-    expect(MATCH_SKILLS).toHaveLength(AUDIT_ERA_MATCH_SKILLS + MINTED_FOR_2022 + 6);
+    // + 1: Phase 2 #8 (sheet 17, 2026-11-04) minted the heat-treatment trade.
+    expect(MATCH_SKILLS).toHaveLength(AUDIT_ERA_MATCH_SKILLS + MINTED_FOR_2022 + 7);
     // + 1: Phase 2 #6 (CEO Launch Plan Pack v1, sheet 14, 2026-11-03) minted the PLC trade.
     // + 1: Phase 2 #7 (sheet 16, 2026-11-03) minted the EDM / wire-cut trade.
     // + 1: Phase 2 #9 (sheet 22, 2026-11-04) minted the injection-moulding trade.
-    expect(unreachableMatchSkills()).toHaveLength(11 + MINTED_FOR_2022 + 6);
+    // + 1: Phase 2 #8 (sheet 17, 2026-11-04) minted the heat-treatment trade.
+    expect(unreachableMatchSkills()).toHaveLength(11 + MINTED_FOR_2022 + 7);
   });
 
   it("the unreachable eleven include the whole welding and plumbing vocabulary", () => {
@@ -187,7 +189,8 @@ describe("nothing was invented", () => {
     // + 1: Phase 2 #6 (CEO Launch Plan Pack v1, sheet 14, 2026-11-03) minted the PLC trade.
     // + 1: Phase 2 #7 (sheet 16, 2026-11-03) minted the EDM / wire-cut trade.
     // + 1: Phase 2 #9 (sheet 22, 2026-11-04) minted the injection-moulding trade.
-    expect(MATCH_SKILLS).toHaveLength(AUDIT_ERA_MATCH_SKILLS + MINTED_FOR_2022 + 6);
+    // + 1: Phase 2 #8 (sheet 17, 2026-11-04) minted the heat-treatment trade.
+    expect(MATCH_SKILLS).toHaveLength(AUDIT_ERA_MATCH_SKILLS + MINTED_FOR_2022 + 7);
     expect(art.match_skills_defined).toBe(AUDIT_ERA_MATCH_SKILLS);
   });
 

@@ -797,3 +797,8 @@
 {"kind":"binding","family_id":"fam_injection_moulding","job_domain_id":"jd_nco_8142_0502"}
 {"kind":"binding","family_id":"fam_injection_moulding","job_domain_id":"jd_nco_8142_1300"}
 {"kind":"binding","family_id":"fam_injection_moulding","job_domain_id":"jd_nco_8142_1301"}
+{"kind":"family","family_id":"fam_heat_treatment","label_en":"Heat-Treatment Technician","label_hi":"हीट ट्रीटमेंट टेक्नीशियन","industry_id":"ind_industrial_manufacturing"}
+{"kind":"binding","family_id":"fam_heat_treatment","job_domain_id":"jd_nco_8121_3701"}
+{"kind":"binding","family_id":"fam_heat_treatment","job_domain_id":"jd_nco_8121_4800"}
+{"kind":"binding","family_id":"fam_heat_treatment","job_domain_id":"jd_nco_8121_4900"}
+{"kind":"binding","family_id":"fam_heat_treatment","job_domain_id":"jd_nco_8121_4700"}

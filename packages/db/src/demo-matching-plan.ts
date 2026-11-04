@@ -571,6 +571,27 @@ export const DEMO_TRADES: readonly DemoTrade[] = [
     ],
     shiftWeights: [4, 5, 1],
   },
+  // Phase 2 #8 — the new heat-treatment trade posts under its own permanent ID. Weight 3, as for
+  // EDM: measured on a throwaway DB with the injection-moulding row in, it keeps the demo profile
+  // non-vacuous (the company interleave still changes a persona's top 10, and the boost still
+  // ranks above a fresher).
+  {
+    roleKind: "heat_treatment_technician",
+    skillId: "mskill_heat_treatment_tech",
+
+    weight: 3,
+    titles: ["Heat Treatment Operator", "HT Furnace Operator", "Heat Treatment Technician"],
+    pay: [15000, 30000],
+    minExp: [1, 5],
+    unit: PLANT,
+    requirements: [
+      "Hardening and tempering",
+      "Sealed quench furnace",
+      "Hardness testing (Rockwell)",
+      "Case carburising",
+    ],
+    shiftWeights: [5, 3, 2],
+  },
   // Phase 2 #7 — the new EDM / wire-cut trade posts under its own permanent ID. Weight 3 is
   // what keeps the demo profile non-vacuous (measured on a throwaway DB: 1 and 2 left no
   // persona whose top 10 the company interleave changes; 3, 4 and 5 all hold).

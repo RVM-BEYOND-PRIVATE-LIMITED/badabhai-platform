@@ -99,6 +99,7 @@ const PAINTER_COATER = ["mskill_painter_coater"] as const;
 const MAINTENANCE_TECHNICIAN = ["mskill_maintenance_technician"] as const;
 const PLC_AUTOMATION_TECH = ["mskill_plc_automation_tech"] as const;
 const EDM_WIRECUT_OPERATOR = ["mskill_edm_wirecut_operator"] as const;
+const HEAT_TREATMENT_TECH = ["mskill_heat_treatment_tech"] as const;
 const IMM_OPERATOR = ["mskill_imm_operator"] as const;
 const INDUSTRIAL_ELECTRICIAN = ["mskill_industrial_electrician"] as const;
 const ASSEMBLY_LINE_WORKER = ["mskill_assembly_line_worker"] as const;
@@ -363,6 +364,21 @@ export const PACK_ANSWER_SKILLS: Readonly<Record<string, PackMap>> = {
       engel: IMM_OPERATOR,
       arburg: IMM_OPERATOR,
       larsen_toubro: IMM_OPERATOR,
+    },
+  },
+
+  // ══ HEAT TREATMENT (Phase 2 #8) ══════════════════════════════════════════════════════════
+  // "Kaunsa heat treatment process karte hain?" — every named HT process is the trade's claim.
+  // Furnaces, testing and material are depth: Rockwell and hardness are QC's words too.
+  qp_heat_treatment: {
+    heat_process: {
+      hardening_tempering: HEAT_TREATMENT_TECH,
+      case_carburising: HEAT_TREATMENT_TECH,
+      nitriding: HEAT_TREATMENT_TECH,
+      induction_hardening: HEAT_TREATMENT_TECH,
+      annealing_normalising: HEAT_TREATMENT_TECH,
+      vacuum_heat_treatment: HEAT_TREATMENT_TECH,
+      salt_bath: HEAT_TREATMENT_TECH,
     },
   },
 

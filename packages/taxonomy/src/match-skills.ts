@@ -439,6 +439,19 @@ export const MATCH_SKILLS = [
     source: "rvm",
     status: "active",
   },
+  {
+    // CEO Launch Plan Pack v1, Phase 2 #8 (sheet 17): the Heat-Treatment Technician — hardening,
+    // carburising, nitriding, induction and annealing. APPENDED, never inserted. UNPAIRED for
+    // now, like PLC and EDM: the sheet relates it to Foundry/forging, the conventional machinist
+    // and QC, and a new relation pair changes who sees whom — an owner call, not a build default.
+    skillId: "mskill_heat_treatment_tech",
+    labelEn: "Heat-Treatment Technician",
+    labelHi: null,
+    industryId: "ind_industrial_manufacturing",
+    domainId: "fabrication",
+    source: "rvm",
+    status: "active",
+  },
 ] as const satisfies readonly MatchSkillSeed[];
 
 export type MatchSkillId = (typeof MATCH_SKILLS)[number]["skillId"];

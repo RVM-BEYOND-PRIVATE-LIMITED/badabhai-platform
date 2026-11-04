@@ -1550,3 +1550,41 @@ describe("Phase 2 #9 injection moulding — rungs and capture (CEO Launch Plan P
     },
   );
 });
+
+describe("Phase 2 #8 heat treatment — rungs and capture (CEO Launch Plan Pack v1, sheet 17)", () => {
+  // Formless (chat-only, like EDM): no form route to pin.
+  const heatLevel = loadItem("qp_heat_treatment.json", "heat_level");
+  it.each([
+    ["Helper/Trainee", "trainee"],
+    ["Operator", "operator"],
+    ["Skilled", "skilled"],
+    ["Senior", "senior"],
+    ["Supervisor", "supervisor"],
+  ])("heat_level: %s → %s", (text, expected) => {
+    expect(matchOptions(heatLevel as never, text as string)).toEqual([expected]);
+  });
+
+  it.each([
+    ["qp_heat_treatment.json", "heat_process", "Hardening & tempering", "hardening_tempering"],
+    ["qp_heat_treatment.json", "heat_process", "Case carburising", "case_carburising"],
+    ["qp_heat_treatment.json", "heat_process", "gas nitriding", "nitriding"],
+    ["qp_heat_treatment.json", "heat_process", "Induction hardening", "induction_hardening"],
+    ["qp_heat_treatment.json", "heat_process", "Salt bath", "salt_bath"],
+    ["qp_heat_treatment.json", "heat_furnace", "Sealed quench (SQF)", "sealed_quench"],
+    ["qp_heat_treatment.json", "heat_furnace", "Pit furnace", "pit_furnace"],
+    ["qp_heat_treatment.json", "heat_furnace", "Vacuum furnace", "vacuum_furnace"],
+    ["qp_heat_treatment.json", "heat_testing", "Rockwell (HRC)", "rockwell"],
+    ["qp_heat_treatment.json", "heat_testing", "Case depth", "case_depth"],
+    ["qp_heat_treatment.json", "heat_material", "EN8 / EN19 / EN24", "en_series"],
+    ["qp_heat_treatment.json", "heat_material", "Tool steel", "tool_steel"],
+    ["qp_heat_treatment.json", "heat_skilled_confirm", "Haan, khud karta hoon", "self"],
+    ["qp_heat_treatment.json", "heat_skilled_confirm", "Nahi, koi aur karta hai", "other"],
+  ] as ReadonlyArray<readonly [string, string, string, string | null]>)(
+    "%s %s: %s → %s",
+    (packFile, questionKey, text, expected) => {
+      expect(capturedOption(packFile, questionKey, text)).toEqual(
+        expected === null ? [] : [expected],
+      );
+    },
+  );
+});
