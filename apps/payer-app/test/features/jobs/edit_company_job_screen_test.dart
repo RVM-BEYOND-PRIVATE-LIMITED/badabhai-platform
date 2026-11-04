@@ -7,6 +7,8 @@ import 'package:payer_app/core/data/models.dart';
 import 'package:payer_app/core/di/locator.dart';
 import 'package:payer_app/core/auth/payer_token_store.dart';
 import 'package:payer_app/core/widgets/bb_action_bar.dart';
+import 'package:payer_app/core/widgets/bb_button.dart';
+import 'package:payer_app/core/widgets/bb_shake.dart';
 import 'package:payer_app/features/jobs/presentation/cubit/jobs_cubit.dart';
 import 'package:payer_app/features/jobs/presentation/edit_company_job_screen.dart';
 
@@ -43,6 +45,10 @@ class _ScriptedApi extends MockPayerApiClient {
   /// Every clearable field the last PATCH carried a VALUE for — so a test can
   /// assert no field ever rode both the body and `clear` (a server 400).
   Set<JobPostingClearField> lastValued = <JobPostingClearField>{};
+
+  /// When set, every [updateJob] throws it after recording the call — the
+  /// server refusing the save.
+  Object? throwOnUpdate;
 
   @override
   Future<List<JobPosting>> fetchJobs({String? status}) async =>
@@ -110,6 +116,7 @@ class _ScriptedApi extends MockPayerApiClient {
         .where((MapEntry<JobPostingClearField, Object?> e) => e.value != null)
         .map((MapEntry<JobPostingClearField, Object?> e) => e.key)
         .toSet();
+    if (throwOnUpdate != null) throw throwOnUpdate!;
     return _job;
   }
 }
@@ -587,6 +594,49 @@ void main() {
     expect(find.text('Add the city'), findsOneWidget);
     expect(find.text('Add the experience'), findsOneWidget);
     expect(find.byType(SnackBar), findsNothing);
+  });
+
+  testWidgets("the server's refusal shows at the box it names — no toast", (
+    WidgetTester tester,
+  ) async {
+    await open(tester);
+    // The server screens the worker-visible Area for a company name.
+    api.throwOnUpdate = const PayerApiException(
+      400,
+      validationMessage: 'Area: Must not contain a company name.',
+      fieldErrors: <String, String>{
+        'area': 'Must not contain a company name.',
+      },
+    );
+    await typeInto(tester, 'Area (optional)', 'Tata Motors Pvt Ltd');
+    await tapSave(tester);
+    await tester.pumpAndSettle();
+
+    expect(api.updated, hasLength(1));
+    expect(
+      find.descendant(
+        of: find.ancestor(
+          of: find.text('Area (optional)'),
+          matching: find.byType(BbShake),
+        ),
+        matching: find.text('Must not contain a company name.'),
+      ),
+      findsOneWidget,
+    );
+    expect(find.byType(SnackBar), findsNothing);
+    // Still on the form, and Save is live again.
+    expect(find.text('Edit job'), findsOneWidget);
+    expect(
+      tester
+          .widget<BbButton>(find.widgetWithText(BbButton, 'Save changes'))
+          .loading,
+      isFalse,
+    );
+
+    // Changing the area is what clears it.
+    await typeInto(tester, 'Area (optional)', 'Chakan MIDC');
+    await tester.pumpAndSettle();
+    expect(find.text('Must not contain a company name.'), findsNothing);
   });
 
   testWidgets('Back on an unedited job leaves at once', (

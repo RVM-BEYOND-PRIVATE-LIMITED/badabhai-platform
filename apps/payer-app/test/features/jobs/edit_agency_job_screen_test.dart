@@ -7,6 +7,7 @@ import 'package:payer_app/core/data/models.dart';
 import 'package:payer_app/core/di/locator.dart';
 import 'package:payer_app/core/auth/payer_token_store.dart';
 import 'package:payer_app/core/widgets/bb_action_bar.dart';
+import 'package:payer_app/core/widgets/bb_shake.dart';
 import 'package:payer_app/features/jobs/presentation/cubit/agency_jobs_cubit.dart';
 import 'package:payer_app/features/jobs/presentation/edit_agency_job_screen.dart';
 
@@ -39,6 +40,10 @@ class _ScriptedApi extends MockPayerApiClient {
   String? lastRoleKind;
   String? lastTradeLevel;
   Map<String, List<String>>? lastTradeAnswers;
+
+  /// When set, every [updateAgencyJob] throws it after recording the call —
+  /// the server refusing the save.
+  Object? throwOnUpdate;
 
   // The demand-skill vocabulary, so the picker section renders in the edit form.
   @override
@@ -90,6 +95,7 @@ class _ScriptedApi extends MockPayerApiClient {
     lastRoleKind = roleKind;
     lastTradeLevel = tradeLevel;
     lastTradeAnswers = tradeAnswers;
+    if (throwOnUpdate != null) throw throwOnUpdate!;
     return AgencyJobView(
       id: id,
       status: 'open',
@@ -597,6 +603,70 @@ void main() {
     expect(api.updated, isEmpty);
     expect(find.text('Add the job title'), findsOneWidget);
     expect(find.byType(SnackBar), findsNothing);
+  });
+
+  /// Edits the title (the first text box) and taps Save, pumping just far
+  /// enough for a toast to show.
+  Future<void> saveTitle(WidgetTester tester, String title) async {
+    await tester.enterText(find.byType(TextField).first, title);
+    await tester.pump();
+    await tester.tap(find.text('Save changes'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+  }
+
+  testWidgets("the server's refusal shows at the box it names — no toast", (
+    WidgetTester tester,
+  ) async {
+    // The server screens the worker-visible title for links.
+    final _ScriptedApi api = _ScriptedApi()
+      ..throwOnUpdate = const PayerApiException(
+        400,
+        validationMessage: 'Job title: Must not contain links.',
+        fieldErrors: <String, String>{'title': 'Must not contain links.'},
+      );
+    final AgencyJobsCubit cubit = AgencyJobsCubit(api);
+    addTearDown(cubit.close);
+    await open(tester, cubit);
+
+    await saveTitle(tester, 'Fitter, apply at acme.in');
+    await tester.pumpAndSettle();
+
+    expect(api.updated, <String>['a1']);
+    expect(
+      find.descendant(
+        of: find.ancestor(
+          of: find.text('Job title'),
+          matching: find.byType(BbShake),
+        ),
+        matching: find.text('Must not contain links.'),
+      ),
+      findsOneWidget,
+    );
+    expect(find.byType(SnackBar), findsNothing);
+    expect(find.text('Edit job'), findsOneWidget);
+  });
+
+  testWidgets('a refusal no box here holds is still said, in a toast', (
+    WidgetTester tester,
+  ) async {
+    const String reason = 'Invalid option: expected one of "helper"|"setter"';
+    final _ScriptedApi api = _ScriptedApi()
+      ..throwOnUpdate = const PayerApiException(
+        400,
+        validationMessage: reason,
+        fieldErrors: <String, String>{'trade_level': '$reason.'},
+      );
+    final AgencyJobsCubit cubit = AgencyJobsCubit(api);
+    addTearDown(cubit.close);
+    await open(tester, cubit);
+
+    await saveTitle(tester, 'Fitter II');
+
+    expect(
+      find.descendant(of: find.byType(SnackBar), matching: find.text(reason)),
+      findsOneWidget,
+    );
   });
 
   testWidgets('a match chip past the cap is refused under the chips', (

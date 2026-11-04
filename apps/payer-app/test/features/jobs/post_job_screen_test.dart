@@ -90,6 +90,10 @@ class _SpyApi extends MockPayerApiClient {
   /// When set, every [updateJob] throws it — the partial-save path.
   Object? throwOnUpdate;
 
+  /// When set, both creates throw it (after recording the call) — the server
+  /// refusing the post.
+  Object? throwOnCreate;
+
   // These #357 tests assert the LEGACY free-text skills flow, so present
   // Matching V1 and the trade catalogue as unavailable (routes off) — the
   // screen degrades to the free-text path. The 16-trade form is exercised
@@ -138,6 +142,7 @@ class _SpyApi extends MockPayerApiClient {
     companyPayMax = payMax;
     companyShift = shift;
     companyNeededBy = neededBy;
+    if (throwOnCreate != null) throw throwOnCreate!;
     return super.createCompanyJob(
       orgLabel: orgLabel,
       roleTitle: roleTitle,
@@ -197,6 +202,7 @@ class _SpyApi extends MockPayerApiClient {
     agencyBenefits = benefits;
     agencyRequirements = requirements;
     agencyMatchSkillIds = matchSkillIds;
+    if (throwOnCreate != null) throw throwOnCreate!;
     return super.createAgencyJob(
       tradeKey: tradeKey,
       title: title,
@@ -1192,6 +1198,144 @@ void main() {
       const String light = 'HapticFeedbackType.lightImpact';
       expect(haptics, <String>[light, light, light]);
       expect(api.created, isEmpty);
+    });
+
+    // The device screens only phone and email shapes; the server also refuses
+    // a company name and a link in the worker-visible text
+    // (`screenWorkerVisibleText`). Its 400 names each field.
+    Future<void> fillAgencyPost(WidgetTester tester) async {
+      await typeInto(tester, 'Job title', 'Lathe hand');
+      await tapChip(tester, 'CNC / VMC Setter');
+      await typeInto(tester, 'Area (optional)', 'Tata Motors Pvt Ltd');
+      await fillCardContent(
+        tester,
+        neededBy: 'Immediate',
+        description: 'Apply at tatamotors.com',
+      );
+    }
+
+    testWidgets(
+        "the server's refusal shows AT its fields and stays until that field "
+        'changes', (WidgetTester tester) async {
+      await pump(tester, PayerRole.agency);
+      await fillAgencyPost(tester);
+      api.throwOnCreate = const PayerApiException(
+        400,
+        validationMessage: 'Description: Must not contain links.',
+        fieldErrors: <String, String>{
+          'description': 'Must not contain links.',
+          'area': 'Must not contain a company name.',
+        },
+      );
+      haptics.clear();
+
+      await tapPost(tester);
+      await tester.pumpAndSettle();
+
+      expect(api.createdAgency, hasLength(1));
+      expect(find.text('Must not contain links.'), findsOneWidget);
+      expect(find.text('Must not contain a company name.'), findsOneWidget);
+      // Each at its own box, not a toast that names no field…
+      expect(
+        find.descendant(
+          of: find.ancestor(
+            of: find.text('Area (optional)'),
+            matching: find.byType(BbShake),
+          ),
+          matching: find.text('Must not contain a company name.'),
+        ),
+        findsOneWidget,
+      );
+      expect(find.byType(SnackBar), findsNothing);
+      // …with the error double tick after the button's own.
+      const String light = 'HapticFeedbackType.lightImpact';
+      expect(haptics, <String>[light, light, light]);
+
+      // An edit elsewhere leaves both on show…
+      await typeInto(tester, 'Job title', 'Lathe operator');
+      await tester.pumpAndSettle();
+      expect(find.text('Must not contain links.'), findsOneWidget);
+      expect(find.text('Must not contain a company name.'), findsOneWidget);
+
+      // …changing THE field clears its own.
+      await typeInto(tester, 'Description', 'Turning work on Fanuc controls.');
+      await tester.pumpAndSettle();
+      expect(find.text('Must not contain links.'), findsNothing);
+      expect(find.text('Must not contain a company name.'), findsOneWidget);
+
+      // A standing refusal never blocks the next Post: the server judges it.
+      api.throwOnCreate = null;
+      await tapPost(tester);
+      expect(api.createdAgency, hasLength(2));
+    });
+
+    testWidgets("a company post's refused title shows at the title", (
+      WidgetTester tester,
+    ) async {
+      await pump(tester, PayerRole.company);
+      await typeInto(tester, 'Job title', 'Setter at Acme Pvt Ltd');
+      await fillCardContent(tester);
+      api.throwOnCreate = const PayerApiException(
+        400,
+        validationMessage: 'Title must not contain a company name',
+        fieldErrors: <String, String>{
+          'role_title': 'Title must not contain a company name.',
+        },
+      );
+
+      await tapPost(tester);
+      await tester.pumpAndSettle();
+
+      expect(api.created, hasLength(1));
+      expect(
+        find.descendant(
+          of: find.ancestor(
+            of: find.text('Job title'),
+            matching: find.byType(BbShake),
+          ),
+          matching: find.text('Title must not contain a company name.'),
+        ),
+        findsOneWidget,
+      );
+      expect(find.byType(SnackBar), findsNothing);
+    });
+
+    testWidgets('a refusal that names no box still says the real reason', (
+      WidgetTester tester,
+    ) async {
+      await pump(tester, PayerRole.agency);
+      await fillAgencyPost(tester);
+      // A service-thrown 400: a message, no field issue.
+      api.throwOnCreate = const PayerApiException(
+        400,
+        validationMessage: 'A posting may name at most 3 skills (got 4).',
+      );
+
+      await tapPost(tester);
+
+      expect(
+        find.descendant(
+          of: find.byType(SnackBar),
+          matching: find.text('A posting may name at most 3 skills (got 4).'),
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('a bare 400 names the three things the server screens', (
+      WidgetTester tester,
+    ) async {
+      await pump(tester, PayerRole.agency);
+      await fillAgencyPost(tester);
+      api.throwOnCreate = const PayerApiException(400);
+
+      await tapPost(tester);
+
+      expect(
+        find.text('The server rejected these details. Take out any phone '
+            'number, email address, company name or link.'),
+        findsOneWidget,
+      );
     });
 
     testWidgets('pay boxes: digits only, ₹ prefix, grouped; experience digits',
