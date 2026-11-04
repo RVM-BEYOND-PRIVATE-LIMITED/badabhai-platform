@@ -11,6 +11,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_system_ui.dart';
 import '../../../core/widgets/bb_bottom_nav.dart';
+import '../../../core/widgets/bb_overlay_host.dart';
 import '../../credits/presentation/credits_screen.dart';
 import '../../find/presentation/find_screen.dart';
 import '../../find/presentation/reveal_args.dart';
@@ -62,6 +63,11 @@ class _AppShellState extends State<AppShell> {
   final Map<String, int> _tabEpochs = <String, int>{};
 
   int _epochOf(String id) => _tabEpochs[id] ?? 0;
+
+  /// #2591 — bumped on every overlay open. The overlay animates OUT for
+  /// the page duration; keying each open on its own epoch guarantees a reopen
+  /// inside that window still mounts a fresh screen (a blank Post form).
+  int _overlayEpoch = 0;
 
   /// #382 — the tabs the payer has actually opened. The branches live in an
   /// [IndexedStack] so leaving a tab HIDES it instead of disposing it, but a
@@ -134,6 +140,7 @@ class _AppShellState extends State<AppShell> {
   }
 
   void _openSub(String id) => setState(() {
+        _overlayEpoch++;
         _sub = id;
         CrashReporter.setScreen('payer/$id');
       });
@@ -149,12 +156,14 @@ class _AppShellState extends State<AppShell> {
   /// picks an existing conversation back up — the mobile half of cross-device
   /// resume; null starts a new one.
   void _openAiPost(String? resumeSessionId) => setState(() {
+        _overlayEpoch++;
         _resumeChatId = resumeSessionId;
         _sub = 'aiPost';
         CrashReporter.setScreen('payer/aiPost');
       });
 
   void _openReveal(RevealArgs args) => setState(() {
+        _overlayEpoch++;
         _revealed = args;
         _sub = 'reveal';
         CrashReporter.setScreen('payer/reveal');
@@ -223,41 +232,51 @@ class _AppShellState extends State<AppShell> {
     // instead of tearing it down. Latest-on-switch is a deliberate follow-up:
     // `_selectTab` bumps THAT tab's epoch (see _tabBody), which rebuilds only
     // the selected branch with fresh cubits and a fresh API read. Hidden tabs
-    // keep their state; the overlay gets ONE extra slot past the tabs, so
-    // opening it hides the tabs instead of disposing them.
+    // keep their state.
     final String? sub = _sub;
     final int tabIndex = _tabs.indexWhere((BbNavTab t) => t.id == _tab);
-    final Widget stack = IndexedStack(
+    final Widget tabs = IndexedStack(
       // An unknown tab id falls back to the first branch — the old switch's
       // SizedBox default, minus the risk of an out-of-range stack index.
-      index: sub != null ? _tabs.length : (tabIndex < 0 ? 0 : tabIndex),
+      index: tabIndex < 0 ? 0 : tabIndex,
       // The body was previously the Scaffold's full-bleed child; the default
       // loose sizing would shrink-wrap it, so keep the tight fill.
       sizing: StackFit.expand,
       children: <Widget>[
         for (final BbNavTab tab in _tabs) _tabBody(tab.id),
-        // The overlay slot. Unlike a tab this one is deliberately rebuilt from
-        // scratch on open/dismiss: Post must open on a blank form, and Reveal
-        // is bound to the [RevealArgs] of the card that opened it.
-        SafeArea(
-            bottom: false,
-            child: switch (sub) {
-              'post' => PostJobScreen(onBack: _back),
-              'aiPost' => JobPostingChatScreen(
-                  // A fresh chat and a resumed one are different conversations —
-                  // key on the session so reopening never reuses the old bloc.
-                  key: ValueKey<String>('aiPost:${_resumeChatId ?? 'new'}'),
-                  onBack: _back,
-                  resumeSessionId: _resumeChatId,
-                  onPublished: () => setState(() {
-                    _tabEpochs['jobs'] = _epochOf('jobs') + 1;
-                  }),
-                ),
-              'credits' => CreditsScreen(onBack: _back),
-              'reveal' => RevealScreen(args: _revealed!, onBack: _back),
-              _ => const SizedBox.shrink(),
-            }),
       ],
+    );
+    // #2591 — the overlay sits ABOVE the tabs in a [BbOverlayHost], which
+    // animates it in and out (it used to hard-cut as an IndexedStack slot) and
+    // keeps the tabs mounted-but-offstage while it covers them. Unlike a tab
+    // the overlay is deliberately rebuilt from scratch on open/dismiss: Post
+    // must open on a blank form, and Reveal is bound to the [RevealArgs] of
+    // the card that opened it.
+    final Widget stack = BbOverlayHost(
+      base: tabs,
+      overlay: sub == null
+          ? null
+          : SafeArea(
+              key: ValueKey<int>(_overlayEpoch),
+              bottom: false,
+              child: switch (sub) {
+                'post' => PostJobScreen(onBack: _back),
+                'aiPost' => JobPostingChatScreen(
+                    // A fresh chat and a resumed one are different
+                    // conversations — key on the session so reopening never
+                    // reuses the old bloc.
+                    key: ValueKey<String>('aiPost:${_resumeChatId ?? 'new'}'),
+                    onBack: _back,
+                    resumeSessionId: _resumeChatId,
+                    onPublished: () => setState(() {
+                      _tabEpochs['jobs'] = _epochOf('jobs') + 1;
+                    }),
+                  ),
+                'credits' => CreditsScreen(onBack: _back),
+                'reveal' => RevealScreen(args: _revealed!, onBack: _back),
+                _ => const SizedBox.shrink(),
+              },
+            ),
     );
     // #1087 — cap the content column on tablets/foldables so it never stretches
     // to an unreadable line length. The page background stays full-bleed (the

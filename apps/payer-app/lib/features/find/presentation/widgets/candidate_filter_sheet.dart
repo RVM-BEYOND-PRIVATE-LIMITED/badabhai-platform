@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../../core/data/candidate_search_models.dart';
 import '../../../../core/theme/app_colors.dart';
+import '../../../../core/theme/app_motion.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/theme/app_typography.dart';
 import '../../../../core/widgets/bb_button.dart';
@@ -17,6 +18,7 @@ Future<CandidateSearchQuery?> showCandidateFilterSheet(
 }) {
   return showModalBottomSheet<CandidateSearchQuery>(
     context: context,
+    sheetAnimationStyle: AppMotion.sheetStyle(context),
     isScrollControlled: true,
     useSafeArea: true,
     showDragHandle: true,

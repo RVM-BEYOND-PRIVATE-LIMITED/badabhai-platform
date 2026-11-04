@@ -1,4 +1,4 @@
-import 'package:flutter/animation.dart';
+import 'package:flutter/widgets.dart';
 
 /// BadaBhai motion tokens — ported from `tokens/motion.css`.
 ///
@@ -21,4 +21,52 @@ class AppMotion {
   static const Duration base = Duration(milliseconds: 220);
   static const Duration slow = Duration(milliseconds: 320);
   static const Duration slower = Duration(milliseconds: 480);
+
+  // ---- #2591 (M3) motion foundation -------------------------------------
+  // Subtle + purposeful: 90–300ms, opacity/transform only, ≤6px of travel on
+  // in-place elements, and every duration collapses to zero under the OS
+  // "remove animations" setting (see [reduced] / [resolve]).
+
+  /// Emphasized enter curve — a fast start that settles softly (M3
+  /// emphasized-decelerate). Used for page routes, overlays and the tab
+  /// indicator.
+  static const Cubic emphasized = Cubic(0.05, 0.7, 0.1, 1);
+
+  /// Press feedback — scale to [pressScale] (and collapse the navy edge).
+  static const Duration press = Duration(milliseconds: 90);
+
+  /// Page routes and in-shell overlays — fade + [pageSlide] horizontal slide.
+  static const Duration page = Duration(milliseconds: 300);
+
+  /// Bottom sheets in and out.
+  static const Duration sheet = Duration(milliseconds: 280);
+
+  /// Bottom-nav tab indicator slide.
+  static const Duration tab = Duration(milliseconds: 220);
+
+  /// Delay between consecutive items of a staggered list entrance.
+  static const Duration stagger = Duration(milliseconds: 30);
+
+  /// The scale a tappable surface presses down to.
+  static const double pressScale = 0.97;
+
+  /// Horizontal slide of a page/overlay transition, as a fraction of its width.
+  static const double pageSlide = 0.08;
+
+  /// True when the OS asks for animations to be removed
+  /// ([MediaQueryData.disableAnimations]). Safe without a [MediaQuery].
+  static bool reduced(BuildContext context) =>
+      MediaQuery.maybeDisableAnimationsOf(context) ?? false;
+
+  /// [duration], or [Duration.zero] when animations are disabled — the one
+  /// gate every animated primitive reads its duration through.
+  static Duration resolve(BuildContext context, Duration duration) =>
+      reduced(context) ? Duration.zero : duration;
+
+  /// [AnimationStyle] for `showModalBottomSheet(sheetAnimationStyle: …)` —
+  /// [sheet] in and out, zero when animations are disabled.
+  static AnimationStyle sheetStyle(BuildContext context) {
+    final Duration d = resolve(context, sheet);
+    return AnimationStyle(duration: d, reverseDuration: d);
+  }
 }

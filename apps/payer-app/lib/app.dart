@@ -9,6 +9,7 @@ import 'core/di/locator.dart';
 import 'core/observability/crash_route_observer.dart';
 import 'core/session/app_session.dart';
 import 'core/session/app_session_cubit.dart';
+import 'core/theme/app_page_transitions.dart';
 import 'core/theme/app_theme.dart';
 import 'core/widgets/bb_alert_dialog.dart';
 import 'features/auth/presentation/login_screen.dart';
@@ -49,7 +50,8 @@ class PayerApp extends StatelessWidget {
           // mirrored the worker app, #1072/#1088).
           return MediaQuery(
             data: MediaQuery.of(context).copyWith(textScaler: TextScaler.noScaling),
-            child: content,
+            // Zero-duration routes when the OS disables animations (#2591).
+            child: BbRouteMotionScope(child: content),
           );
         },
       ),
@@ -133,18 +135,27 @@ class _RootState extends State<_Root> {
     return FutureBuilder<void>(
       future: _boot,
       builder: (BuildContext context, AsyncSnapshot<void> snap) {
-        if (snap.connectionState != ConnectionState.done) {
-          return const _SplashScreen();
-        }
+        final bool booted = snap.connectionState == ConnectionState.done;
         return BlocBuilder<AppSessionCubit, AppSession?>(
           builder: (BuildContext context, AppSession? session) {
-            if (session == null) {
-              return const LoginScreen();
+            // #2591 — ONE switcher for splash → login → app (and sign-out back
+            // to login), so every hop fades + slides instead of hard-cutting.
+            // Each state carries its own key so the switcher sees a new screen.
+            final Widget screen;
+            if (!booted) {
+              screen = const _SplashScreen(key: ValueKey<String>('root:splash'));
+            } else if (session == null) {
+              screen = const KeyedSubtree(
+                key: ValueKey<String>('root:login'),
+                child: LoginScreen(),
+              );
+            } else {
+              // Keyed by role so a fresh sign-in rebuilds the shell with the
+              // right nav.
+              screen = AppShell(
+                  key: ValueKey<PayerRole>(session.role), session: session);
             }
-            // Keyed by role so a fresh sign-in rebuilds the shell with the
-            // right nav.
-            return AppShell(
-                key: ValueKey<PayerRole>(session.role), session: session);
+            return BbFadeSlideSwitcher(child: screen);
           },
         );
       },
@@ -155,7 +166,7 @@ class _RootState extends State<_Root> {
 /// Neutral boot splash shown while [AppSessionCubit.bootstrap] resolves the
 /// persisted session on cold start.
 class _SplashScreen extends StatelessWidget {
-  const _SplashScreen();
+  const _SplashScreen({super.key});
 
   @override
   Widget build(BuildContext context) {

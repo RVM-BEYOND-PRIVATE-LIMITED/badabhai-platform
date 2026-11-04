@@ -17,12 +17,15 @@
          load() now also degrades a throwing store to "no session" — defense in
          depth, because a backup can still be restored from an older install made
          while this flag was still on. -->
+    <!-- #2591: enableOnBackInvokedCallback opts into Android 13+ predictive back;
+         the Flutter side animates it in core/theme/app_page_transitions.dart. -->
     <application
         android:label="payer_app"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:allowBackup="false"
-        android:fullBackupContent="false">
+        android:fullBackupContent="false"
+        android:enableOnBackInvokedCallback="true">
         <activity
             android:name=".MainActivity"
             android:exported="true"
