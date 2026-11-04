@@ -852,7 +852,7 @@ const Map<String, String> kAgencyTradeLabels = <String, String>{
 /// Label for a trade key — falls back to the raw key for an unknown value.
 String agencyTradeLabel(String key) => kAgencyTradeLabels[key] ?? key;
 
-/// The 21 declared job ROLE kinds (`role_kind`, migration 0131) — DISPLAY /
+/// The 23 declared job ROLE kinds (`role_kind`, migration 0131) — DISPLAY /
 /// CLASSIFICATION ONLY, never a match input. This is the value that picks the
 /// role illustration on the worker's job card; a posting without it still
 /// renders the generic art. Mirrors `TRADE_FORM_KINDS_ALL` in
@@ -880,6 +880,8 @@ const List<String> kJobRoleKinds = <String>[
   'blow_moulding_operator',
   'rubber_moulding_operator',
   'plastic_process_technician',
+  'cad_designer_3d',
+  'plc_automation_technician',
 ];
 
 /// Human labels for [kJobRoleKinds] (display only — the wire always carries the
@@ -894,21 +896,23 @@ const Map<String, String> kJobRoleLabels = <String, String>{
   'cad_draughtsman': 'CAD Designer / Draughtsman',
   'welder': 'Welder',
   'sheet_metal_worker': 'Sheet Metal Worker',
-  'press_operator': 'Press / Machine Operator',
-  'painter_coating': 'Painter / Powder Coating',
+  'press_operator': 'Press-shop Operator',
+  'painter_coating': 'Painter / Powder Coating / Plating',
   'fitter': 'Fitter',
   'maintenance_technician': 'Maintenance Technician',
   'industrial_electrician': 'Industrial Electrician',
-  'assembly_line_worker': 'Assembly Line Worker',
+  'assembly_line_worker': 'Assembly Technician',
   'quality_inspector': 'Quality Inspector / QC',
   'injection_moulding_operator': 'Injection Moulding Operator',
   'mould_die_maker': 'Mould / Die Maker (Plastics)',
   'blow_moulding_operator': 'Blow Moulding / Extrusion Operator',
   'rubber_moulding_operator': 'Rubber Moulding / Compression Operator',
   'plastic_process_technician': 'Plastic Process / Quality Technician',
+  'cad_designer_3d': '3D CAD Designer',
+  'plc_automation_technician': 'PLC / Automation Technician',
 };
 
-/// Label for a role kind — null when the value is not one of the 21.
+/// Label for a role kind — null when the value is not one of the 23.
 String? jobRoleLabel(String? kind) =>
     kind == null ? null : kJobRoleLabels[kind];
 
