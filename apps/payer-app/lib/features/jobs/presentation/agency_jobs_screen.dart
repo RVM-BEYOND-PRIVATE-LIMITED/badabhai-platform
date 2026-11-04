@@ -8,6 +8,7 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/bb_badge.dart';
 import '../../../core/widgets/bb_button.dart';
+import '../../../core/widgets/bb_new_item_highlight.dart';
 import '../../../core/widgets/bb_status_view.dart';
 import 'cubit/agency_jobs_cubit.dart';
 import 'edit_agency_job_screen.dart';
@@ -32,27 +33,44 @@ import 'widgets/trade_posting_fields.dart' show humaniseTradeKey;
 /// row (should the model carry one) renders a READ-ONLY pill and still offers
 /// Close only — never a Pause or Resume control.
 class AgencyJobsView extends StatelessWidget {
-  const AgencyJobsView({super.key, required this.onPost, this.onApplicants});
+  const AgencyJobsView({
+    super.key,
+    required this.onPost,
+    this.onApplicants,
+    this.highlight,
+  });
 
   final VoidCallback onPost;
 
   /// Opens the candidate/applicant feed (the Find tab), shared with company.
   final VoidCallback? onApplicants;
 
+  /// The posting just created (#2596) — scrolled into view and tinted, once.
+  final BbHighlightRequest? highlight;
+
   @override
   Widget build(BuildContext context) {
     return BlocProvider<AgencyJobsCubit>(
       create: (_) => locator<AgencyJobsCubit>()..load(),
-      child: _AgencyJobsBody(onPost: onPost, onApplicants: onApplicants),
+      child: _AgencyJobsBody(
+        onPost: onPost,
+        onApplicants: onApplicants,
+        highlight: highlight,
+      ),
     );
   }
 }
 
 class _AgencyJobsBody extends StatelessWidget {
-  const _AgencyJobsBody({required this.onPost, this.onApplicants});
+  const _AgencyJobsBody({
+    required this.onPost,
+    this.onApplicants,
+    this.highlight,
+  });
 
   final VoidCallback onPost;
   final VoidCallback? onApplicants;
+  final BbHighlightRequest? highlight;
 
   @override
   Widget build(BuildContext context) {
@@ -95,7 +113,11 @@ class _AgencyJobsBody extends StatelessWidget {
                 // and never hands its state to another row.
                 key: ValueKey<String>(job.id),
                 padding: const EdgeInsets.only(bottom: AppSpacing.s3),
-                child: _AgencyJobCard(job: job, onApplicants: onApplicants),
+                // #2596 — the just-posted card scrolls into view, tinted once.
+                child: BbNewItemHighlight(
+                  active: highlight?.claim(job.id) ?? false,
+                  child: _AgencyJobCard(job: job, onApplicants: onApplicants),
+                ),
               );
             }
             return Column(

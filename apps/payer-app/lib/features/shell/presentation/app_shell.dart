@@ -12,6 +12,7 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_system_ui.dart';
 import '../../../core/widgets/bb_bottom_nav.dart';
 import '../../../core/widgets/bb_leave_guard.dart';
+import '../../../core/widgets/bb_new_item_highlight.dart';
 import '../../../core/widgets/bb_overlay_host.dart';
 import '../../credits/presentation/credits_screen.dart';
 import '../../find/presentation/find_screen.dart';
@@ -95,6 +96,14 @@ class _AppShellState extends State<AppShell> {
   /// ([_onNavSelect]).
   static const Set<String> _fullScreenTasks = <String>{'post', 'aiPost'};
 
+  /// #2596 — the posting the payer just created, for Jobs to scroll to and
+  /// tint. One-shot ([BbHighlightRequest.claim]), so a later visit to Jobs —
+  /// which rebuilds the branch — never replays it. It also belongs to the
+  /// LANDING visit only: every tab switch or overlay open drops it, so a
+  /// request no row claimed (the list failed, or the payer left before it
+  /// loaded) can never tint a card minutes later.
+  BbHighlightRequest? _justPosted;
+
   @override
   void initState() {
     super.initState();
@@ -140,6 +149,7 @@ class _AppShellState extends State<AppShell> {
   void _selectTab(String id, {FindView findView = FindView.allCandidates}) {
     _leaveGuard.release();
     setState(() {
+      _justPosted = null;
       _tab = id;
       _sub = null;
       _findView = findView;
@@ -154,6 +164,7 @@ class _AppShellState extends State<AppShell> {
   }
 
   void _openSub(String id) => setState(() {
+        _justPosted = null;
         _overlayEpoch++;
         _sub = id;
         CrashReporter.setScreen('payer/$id');
@@ -181,13 +192,28 @@ class _AppShellState extends State<AppShell> {
   /// picks an existing conversation back up — the mobile half of cross-device
   /// resume; null starts a new one.
   void _openAiPost(String? resumeSessionId) => setState(() {
+        _justPosted = null;
         _overlayEpoch++;
         _resumeChatId = resumeSessionId;
         _sub = 'aiPost';
         CrashReporter.setScreen('payer/aiPost');
       });
 
+  /// After a post (the form or the AI chat): close the overlay and land on
+  /// Jobs — a fresh visit, so the list refetches — with the new card scrolled
+  /// into view and highlighted (#2596). [_selectTab] releases the overlay's
+  /// leave guard (a just-posted form never asks) and drops any older request;
+  /// the new one is set after it, for this visit only.
+  void _landOnPostedJob(String postingId) {
+    _selectTab('jobs');
+    setState(() {
+      _resumeChatId = null;
+      _justPosted = BbHighlightRequest(postingId);
+    });
+  }
+
   void _openReveal(RevealArgs args) => setState(() {
+        _justPosted = null;
         _overlayEpoch++;
         _revealed = args;
         _sub = 'reveal';
@@ -242,6 +268,7 @@ class _AppShellState extends State<AppShell> {
           // a job card's "Applicants" button lands on the Applicants view
           // (the per-job feed, unchanged: it opens on the first open job).
           onApplicants: () => _selectTab('find', findView: FindView.applicants),
+          highlight: _justPosted,
         ),
       // M9 (#2597): a tab root has no back arrow; the bottom nav is the way
       // out. The pushed Credits overlay below keeps its back.
@@ -287,7 +314,8 @@ class _AppShellState extends State<AppShell> {
               key: ValueKey<int>(_overlayEpoch),
               bottom: false,
               child: switch (sub) {
-                'post' => PostJobScreen(onBack: _back),
+                'post' =>
+                  PostJobScreen(onBack: _back, onPosted: _landOnPostedJob),
                 'aiPost' => JobPostingChatScreen(
                     // A fresh chat and a resumed one are different
                     // conversations — key on the session so reopening never
@@ -298,6 +326,7 @@ class _AppShellState extends State<AppShell> {
                     onPublished: () => setState(() {
                       _tabEpochs['jobs'] = _epochOf('jobs') + 1;
                     }),
+                    onPostedJob: _landOnPostedJob,
                   ),
                 'credits' => CreditsScreen(onBack: _back),
                 'reveal' => RevealScreen(args: _revealed!, onBack: _back),

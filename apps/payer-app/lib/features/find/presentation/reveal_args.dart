@@ -13,7 +13,7 @@ import '../../../core/data/models.dart';
 /// résumé, read through [workerId] / [title] / [facets] — never a fabricated
 /// name/phone (the backend returns none).
 class RevealArgs {
-  const RevealArgs.mock(Candidate this.candidate)
+  const RevealArgs.mock(Candidate this.candidate, {this.justUnlocked = false})
       : applicant = null,
         unlockId = null,
         jobId = null,
@@ -25,6 +25,7 @@ class RevealArgs {
     required Applicant this.applicant,
     required String this.unlockId,
     this.jobId,
+    this.justUnlocked = false,
   })  : candidate = null,
         _workerId = null,
         _title = null,
@@ -38,6 +39,7 @@ class RevealArgs {
     required String this.unlockId,
     required String title,
     List<String> facets = const <String>[],
+    this.justUnlocked = false,
   })  : candidate = null,
         applicant = null,
         jobId = null,
@@ -54,6 +56,11 @@ class RevealArgs {
 
   /// The owning job/posting, or null (always null for a search row).
   final String? jobId;
+
+  /// True ONLY when the unlock that granted this reveal has just happened —
+  /// the reveal then plays its one-shot success stamp (#2596). A "View" of an
+  /// earlier unlock leaves it false, so the stamp never replays for it.
+  final bool justUnlocked;
 
   final String? _workerId;
   final String? _title;

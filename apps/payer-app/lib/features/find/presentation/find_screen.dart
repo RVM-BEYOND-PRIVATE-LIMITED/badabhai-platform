@@ -137,12 +137,12 @@ class _FindView extends StatelessWidget {
     await credits.unlock(candidate.id);
     if (!context.mounted) return;
     context.read<FindCubit>().markUnlocked(candidate.id);
-    showBbToast(
-      context,
-      title: 'Unlocked!',
-      message: 'Contact details are now visible.',
-    );
-    onReveal(RevealArgs.mock(candidate.copyWith(unlocked: true)));
+    // #2596 — no "Unlocked!" toast: the reveal's one-shot stamp is the
+    // confirmation, and a toast on top of it said the same thing twice.
+    onReveal(RevealArgs.mock(
+      candidate.copyWith(unlocked: true),
+      justUnlocked: true,
+    ));
   }
 
   // --- REAL unlock (opaque worker UUID → POST /payer/unlocks) ----------------
@@ -192,15 +192,12 @@ class _FindView extends StatelessWidget {
     // Server-truth balance re-read after the grant.
     await credits.load();
     if (!context.mounted) return;
-    showBbToast(
-      context,
-      title: 'Unlocked!',
-      message: 'Contact via the in-app relay.',
-    );
+    // #2596 — the reveal's stamp confirms the unlock; no duplicate toast.
     onReveal(RevealArgs.real(
       applicant: applicant.copyWith(unlocked: true, unlockId: result.unlockId),
       unlockId: result.unlockId!,
       jobId: cubit.state.selectedJob?.id,
+      justUnlocked: true,
     ));
   }
 

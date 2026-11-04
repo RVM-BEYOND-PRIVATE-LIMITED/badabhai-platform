@@ -22,6 +22,39 @@ class AppMotion {
   static const Duration slow = Duration(milliseconds: 320);
   static const Duration slower = Duration(milliseconds: 480);
 
+  // ---- #2596 (M8) success moments ---------------------------------------
+  // Two kinds of token live here:
+  //  - MOTION ([stampLand], [countUp], [bubbleRise], [typingCycle]): the
+  //    movement itself goes to zero (or stands still) when the OS asks for
+  //    animations to be removed.
+  //  - HOLDS ([copiedHold], [highlightFade], and the stamp's on-screen
+  //    lifetime): how long a confirmation stays readable. They are NOT zeroed
+  //    under reduced motion. They keep their full length, then cut without
+  //    a fade, because the cue is the message.
+
+  /// The success stamp lands: scale 0.6 → 1.08 → 1, once.
+  static const Duration stampLand = Duration(milliseconds: 520);
+
+  /// A key figure counts up to its real value.
+  static const Duration countUp = Duration(milliseconds: 600);
+
+  /// The tint on a row the payer just created fades out over this long. A
+  /// hold under reduced motion: the tint stays this long, then cuts.
+  static const Duration highlightFade = Duration(milliseconds: 1500);
+
+  /// How long a copy button shows its check before turning back. A hold, not
+  /// motion: it is not zeroed under reduced motion (the check is the message).
+  static const Duration copiedHold = Duration(milliseconds: 1200);
+
+  /// A new chat bubble rises into place.
+  static const Duration bubbleRise = Duration(milliseconds: 180);
+
+  /// One full cycle of the typing dots while a reply is awaited.
+  static const Duration typingCycle = Duration(milliseconds: 1200);
+
+  /// Travel of an in-place entrance (a chat bubble's rise), in logical pixels.
+  static const double riseOffset = 6;
+
   // ---- #2591 (M3) motion foundation -------------------------------------
   // Subtle + purposeful: 90–300ms, opacity/transform only, ≤6px of travel on
   // in-place elements, and every duration collapses to zero under the OS

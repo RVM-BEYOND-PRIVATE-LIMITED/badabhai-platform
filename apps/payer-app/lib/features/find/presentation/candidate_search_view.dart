@@ -59,7 +59,14 @@ class CandidateSearchView extends StatelessWidget {
 
   /// The reveal for a search row: no Applicant and no job — a search unlock
   /// has no posting context, so the masked résumé goes out with no posting id.
-  static RevealArgs revealArgsFor(CandidateSearchRow row, String unlockId) =>
+  ///
+  /// [justUnlocked] is true only on the unlock that just granted it, so the
+  /// reveal plays its stamp for that and never for a later "View" (#2596).
+  static RevealArgs revealArgsFor(
+    CandidateSearchRow row,
+    String unlockId, {
+    bool justUnlocked = false,
+  }) =>
       RevealArgs.relay(
         workerId: row.workerId,
         unlockId: unlockId,
@@ -69,6 +76,7 @@ class CandidateSearchView extends StatelessWidget {
           candidateExperienceLine(row),
           if (row.city != null) row.city!,
         ],
+        justUnlocked: justUnlocked,
       );
 
   @override
@@ -186,12 +194,8 @@ class CandidateSearchView extends StatelessWidget {
     }
     await credits.load();
     if (!context.mounted) return;
-    showBbToast(
-      context,
-      title: 'Unlocked!',
-      message: 'Contact via the in-app relay.',
-    );
-    onReveal(revealArgsFor(row, result.unlockId!));
+    // #2596 — the reveal's stamp confirms the unlock; no duplicate toast.
+    onReveal(revealArgsFor(row, result.unlockId!, justUnlocked: true));
   }
 }
 
