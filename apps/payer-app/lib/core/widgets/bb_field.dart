@@ -61,6 +61,7 @@ class BbField extends StatelessWidget {
     this.onChanged,
     this.errorText,
     this.flow,
+    this.focusNode,
     this.textInputAction,
     this.onSubmitted,
   });
@@ -120,6 +121,10 @@ class BbField extends StatelessWidget {
   /// "next"/"done" key, and where that key goes. Null keeps the defaults.
   final BbFieldFlow? flow;
 
+  /// The input's own focus node when it is not in a [flow] chain — for a
+  /// caller that manages focus itself. A [flow]'s node wins when both are set.
+  final FocusNode? focusNode;
+
   /// The keyboard action key when the field is not in a [flow] chain (e.g.
   /// "done" on a one-field dialog, paired with [onSubmitted]).
   final TextInputAction? textInputAction;
@@ -149,7 +154,7 @@ class BbField extends StatelessWidget {
         TextField(
           key: fieldKey,
           controller: controller,
-          focusNode: flow?.focusNode,
+          focusNode: flow?.focusNode ?? focusNode,
           textInputAction: flow?.action ?? textInputAction,
           onEditingComplete: flow?.onAction,
           onSubmitted: flow == null ? onSubmitted : null,
