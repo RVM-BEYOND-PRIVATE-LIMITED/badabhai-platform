@@ -1,12 +1,12 @@
 {
   "schema_version": 1,
-  "clip_count": 1530,
+  "clip_count": 1552,
   "producers": {
-    "retry": 127,
-    "clarify": 559,
-    "prompt": 404,
+    "retry": 129,
+    "clarify": 568,
+    "prompt": 411,
     "constant": 97,
-    "why": 343
+    "why": 347
   },
   "clips": [
     {
@@ -38,6 +38,11 @@
       "id": "0087bdc1c5fff79d",
       "text": "Die setting khud karne wale setter ko alag kaam milta hai. Die setting aur shut height aap karte ho?",
       "producer": "clarify"
+    },
+    {
+      "id": "009de214fbfdbe8f",
+      "text": "Heat treatment ka kitna tajurba hai?",
+      "producer": "prompt"
     },
     {
       "id": "00e3bf3111a7ee05",
@@ -278,6 +283,11 @@
       "id": "08807e5d64ac3aca",
       "text": "Kya aap khambe par chadh kar kaam karte hain?",
       "producer": "prompt"
+    },
+    {
+      "id": "08b062ab56ce761d",
+      "text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain. Lagbhag kitne saal heat treatment ka kaam kiya hai?",
+      "producer": "clarify"
     },
     {
       "id": "08e58977bcae54ca",
@@ -1205,6 +1215,11 @@
       "producer": "clarify"
     },
     {
+      "id": "271399b93f455104",
+      "text": "Material jaanne se aapka kaam saaf pata chalta hai. Kaunse material ka heat treatment kiya hai?",
+      "producer": "clarify"
+    },
+    {
       "id": "27834fb75ccd1738",
       "text": "Isse pata chalta hai aap sirf drawing banate hain ya design bhi karte hain. Drawing banane ke liye aapko kya milta hai?",
       "producer": "clarify"
@@ -1555,6 +1570,11 @@
       "producer": "prompt"
     },
     {
+      "id": "3212a1e3fbdcbb6c",
+      "text": "Cycle aur hardness khud sambhalne wale ko alag kaam milta hai. Material aur spec dekh ke cycle khud set karte ho, hardness khud check karte ho?",
+      "producer": "clarify"
+    },
+    {
       "id": "323f7239bc422fdd",
       "text": "Plant me safety training zaroori hoti hai.",
       "producer": "why"
@@ -1603,6 +1623,11 @@
       "id": "33da497542cc2796",
       "text": "Company ke hisaab se sahi naukri milti hai. Kis type ki company me kaam kiya hai?",
       "producer": "clarify"
+    },
+    {
+      "id": "3442623810d71795",
+      "text": "Material jaanne se aapka kaam saaf pata chalta hai.",
+      "producer": "why"
     },
     {
       "id": "346f334612985ee9",
@@ -1665,6 +1690,11 @@
       "producer": "clarify"
     },
     {
+      "id": "36ed3cbdf72fe126",
+      "text": "Process ke hisaab se sahi kaam dikhaya jaata hai. Hardening, carburising ya induction, kaunsa process karte hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "36ee4b710b4fb63b",
       "text": "3D ya 5-axis programming khud karte ho?",
       "producer": "prompt"
@@ -1718,6 +1748,11 @@
       "id": "389663207a4a0c88",
       "text": "Furniture aur shuttering alag hai.",
       "producer": "why"
+    },
+    {
+      "id": "38e1bcd335a46b59",
+      "text": "Kaunse material ka heat treatment kiya hai?",
+      "producer": "prompt"
     },
     {
       "id": "38f97d38cef37c7f",
@@ -1920,6 +1955,11 @@
       "producer": "constant"
     },
     {
+      "id": "3fe85f3e85726664",
+      "text": "Hardening, carburising ya induction, kaunsa process karte hain?",
+      "producer": "retry"
+    },
+    {
       "id": "40341d5e9f9ab30a",
       "text": "Kis line ki drawing par padhai ki hai?",
       "producer": "prompt"
@@ -1928,6 +1968,11 @@
       "id": "404adc4a46b2f5ad",
       "text": "State se aapke paas ki naukri dhoondhi jaati hai. Aap kis state mein rehte hain?",
       "producer": "constant"
+    },
+    {
+      "id": "4062e153dcfe12f0",
+      "text": "Testing khud karne wale technician ki alag maang hai. Kaunsi testing khud karte hain?",
+      "producer": "clarify"
     },
     {
       "id": "40902f407ca58f58",
@@ -2295,6 +2340,11 @@
       "producer": "prompt"
     },
     {
+      "id": "4cb6e9af23f8677a",
+      "text": "Lagbhag kitne saal heat treatment ka kaam kiya hai?",
+      "producer": "retry"
+    },
+    {
       "id": "4ccf0812544d8179",
       "text": "Thoda sa aur. Bas 7 sawaal bache hain.",
       "producer": "constant"
@@ -2360,6 +2410,11 @@
       "producer": "prompt"
     },
     {
+      "id": "4e7de44b15121b35",
+      "text": "Process ke hisaab se sahi kaam dikhaya jaata hai. Kaunsa heat treatment process karte hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "4e83dcf832f5c32a",
       "text": "Design wale ka rate zyada hota hai.",
       "producer": "why"
@@ -2423,6 +2478,11 @@
       "id": "50d238b27d1713e6",
       "text": "Kya aap concrete ka grade jaante hain?",
       "producer": "prompt"
+    },
+    {
+      "id": "50e9d8dd0656fabb",
+      "text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain. Heat treatment ka kitna tajurba hai?",
+      "producer": "clarify"
     },
     {
       "id": "510c593cbc73ab73",
@@ -3115,6 +3175,11 @@
       "producer": "clarify"
     },
     {
+      "id": "663d646324388a14",
+      "text": "Cycle aur hardness khud sambhalne wale ko alag kaam milta hai.",
+      "producer": "why"
+    },
+    {
       "id": "668b392562f72b5b",
       "text": "Turning ka kitna tajurba hai?",
       "producer": "prompt"
@@ -3432,6 +3497,11 @@
     {
       "id": "6ffb4d760f47031b",
       "text": "Ghar aur hotel ka kaam alag hota hai.",
+      "producer": "why"
+    },
+    {
+      "id": "70162b3556c7ae6c",
+      "text": "Testing khud karne wale technician ki alag maang hai.",
       "producer": "why"
     },
     {
@@ -3930,6 +4000,11 @@
       "producer": "prompt"
     },
     {
+      "id": "821a2c9111a78271",
+      "text": "Kaunsi testing khud karte hain?",
+      "producer": "prompt"
+    },
+    {
       "id": "822b8c9616cef055",
       "text": "Aap kaunsi milling machine chalate hain?",
       "producer": "prompt"
@@ -4193,6 +4268,11 @@
       "id": "8888b2367632d1fe",
       "text": "Programming ka kaam kitna karte hain?",
       "producer": "prompt"
+    },
+    {
+      "id": "88aa202e902bc7a2",
+      "text": "Level se employer ko aapka darja saaf pata chalta hai. Heat treatment shop me aap kis level par kaam karte hain?",
+      "producer": "clarify"
     },
     {
       "id": "8934552a9f28e7b1",
@@ -6150,6 +6230,11 @@
       "producer": "clarify"
     },
     {
+      "id": "cbecfea7ef0b5f46",
+      "text": "Furnace ke hisaab se sahi plant ka kaam dikhaya jaata hai. Kaunsi furnace chalate hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "cc14b83a81bc5069",
       "text": "Licence bina gaadi ka kaam nahi milta. Aapke paas kaunsa licence hai?",
       "producer": "clarify"
@@ -6630,6 +6715,11 @@
       "producer": "prompt"
     },
     {
+      "id": "dbb9d461c36ab6d0",
+      "text": "Heat treatment shop me aap kis level par kaam karte hain?",
+      "producer": "prompt"
+    },
+    {
       "id": "dc0b7136d0cb519c",
       "text": "Development ka hisaab jaanne wale se galti kam hoti hai.",
       "producer": "why"
@@ -6643,6 +6733,11 @@
       "id": "dc5082e6735ddd8e",
       "text": "Kai station jaanne wale ko line par aage rakha jaata hai.",
       "producer": "why"
+    },
+    {
+      "id": "dc73ff4c6c7cd3f5",
+      "text": "Material aur spec dekh ke cycle khud set karte ho, hardness khud check karte ho?",
+      "producer": "prompt"
     },
     {
       "id": "dc78002e6b0e17d1",
@@ -6887,6 +6982,11 @@
     {
       "id": "e45f27d00bea0ded",
       "text": "Mushkil kaam karne wale machinist ki alag pehchaan hoti hai.",
+      "producer": "why"
+    },
+    {
+      "id": "e4c3fefc893355eb",
+      "text": "Furnace ke hisaab se sahi plant ka kaam dikhaya jaata hai.",
       "producer": "why"
     },
     {
@@ -7213,6 +7313,11 @@
       "id": "f040500c0ce5bcaf",
       "text": "Bending, punching, notching ya rolling, kaunsa kaam karte hain?",
       "producer": "retry"
+    },
+    {
+      "id": "f0979874936016bb",
+      "text": "Kaunsa heat treatment process karte hain?",
+      "producer": "prompt"
     },
     {
       "id": "f120df72675c0ea3",
@@ -7548,6 +7653,11 @@
       "id": "fc46f45c7efb0911",
       "text": "Khud nesting set karne wale skilled operator ko alag kaam milta hai.",
       "producer": "why"
+    },
+    {
+      "id": "fc48240ce07fb4e1",
+      "text": "Kaunsi furnace chalate hain?",
+      "producer": "prompt"
     },
     {
       "id": "fc98e7dc4a74fc46",

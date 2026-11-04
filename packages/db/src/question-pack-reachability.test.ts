@@ -2056,3 +2056,69 @@ describe("Phase 2 #9 — injection moulding, a new family on four 8142 codes (CE
     expect(familyFor("Bottle Blowing Machine Operator (Plastic)")).toBe("fam_rubber_plastic");
   });
 });
+
+describe("Phase 2 #8 — heat treatment, a new family on four 8121 codes (CEO Launch Plan Pack v1)", () => {
+  const offline = resolveJobDomainCorpus();
+  const parents = new Set(
+    offline.filter((d) => d.selectable && d.parentJobDomainId).map((d) => d.parentJobDomainId),
+  );
+  const live = offline.filter(
+    (d) => d.selectable && !(d.source === "isco08" && parents.has(d.jobDomainId)),
+  );
+  const liveClaimants = (phrase: string) => {
+    const norm = normalizeOccupationText(phrase);
+    return live
+      .filter((d) => d.aliases.some((a) => normalizeOccupationText(a.text) === norm))
+      .map((d) => d.jobDomainId)
+      .sort();
+  };
+
+  it("binds exactly the four codes", () => {
+    const codes = corpus.bindings
+      .filter((b) => b.family_id === "fam_heat_treatment")
+      .map((b) => b.job_domain_id)
+      .sort();
+    expect(codes).toEqual([
+      "jd_nco_8121_3701",
+      "jd_nco_8121_4700",
+      "jd_nco_8121_4800",
+      "jd_nco_8121_4900",
+    ]);
+  });
+
+  it("reaches the family on the trade's own words, each the ONLY claimant in production", () => {
+    for (const [phrase, code] of [
+      ["heat treatment", "jd_nco_8121_3701"],
+      ["heat treatment operator", "jd_nco_8121_3701"],
+      ["furnace operator", "jd_nco_8121_3701"],
+      ["हीट ट्रीटमेंट", "jd_nco_8121_3701"],
+      ["hardening", "jd_nco_8121_4800"],
+      ["case hardening", "jd_nco_8121_4800"],
+      ["induction hardening", "jd_nco_8121_4800"],
+      ["carburising", "jd_nco_8121_4800"],
+      ["nitriding", "jd_nco_8121_4800"],
+      ["gas nitriding", "jd_nco_8121_4800"],
+      ["quenching", "jd_nco_8121_4800"],
+      ["sealed quench", "jd_nco_8121_4800"],
+      ["pit furnace", "jd_nco_8121_4800"],
+      ["vacuum furnace", "jd_nco_8121_4800"],
+      ["salt bath", "jd_nco_8121_4800"],
+      ["ht job work", "jd_nco_8121_4800"],
+      ["tempering", "jd_nco_8121_4900"],
+      ["annealing", "jd_nco_8121_4700"],
+      ["normalising", "jd_nco_8121_4700"],
+    ] as const) {
+      expect(familyFor(phrase), phrase).toBe("fam_heat_treatment");
+      expect(liveClaimants(phrase), phrase).toEqual([code]);
+    }
+  }, 30_000); // 19 phrases, each scanned against the whole live corpus — CI runs every file at once.
+
+  it("leaves the melt shop's and the QC inspector's own words where they were", () => {
+    // Bare "furnace" is the foundry's (sheet 19) and stays on the metal-processing code;
+    // hardness and Rockwell are QC instrument words (sheet 12), capture chips only.
+    expect(familyFor("furnace")).toBe("fam_metal_processing");
+    for (const phrase of ["hardness testing", "rockwell", "quality inspector"]) {
+      expect(familyFor(phrase), phrase).not.toBe("fam_heat_treatment");
+    }
+  });
+});

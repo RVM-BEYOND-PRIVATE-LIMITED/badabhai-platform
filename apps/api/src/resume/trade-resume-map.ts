@@ -3964,6 +3964,77 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
       },
     ],
   },
+  // ══ PHASE 2 #8 — HEAT-TREATMENT TECHNICIAN (CEO Launch Plan Pack v1, sheet 17) ══
+  //
+  // A NEW TRADE WITH NO RATIFIED PAGE: sheet 17's headline ("Heat-Treatment Technician · Skilled ·
+  // 6 years · Sealed quench + induction · Case hardening · Ballabgarh · 15 days") is the parity
+  // reference. The furnaces lead (labelled Equipment, so they print on the Machines line), then
+  // the processes, the testing done and the materials. Every `values` key is the STORED value.
+  {
+    pack_id: "qp_heat_treatment",
+    section_title: "Heat treatment, processes & capability",
+    tier_section_titles: { easy: "Equipment" },
+    capability: [
+      {
+        from: "heat_furnace",
+        rank: 21,
+        inHeadline: true,
+        maxValues: 3,
+        label: "Equipment",
+        kind: "chips",
+        values: {
+          sealed_quench: "Sealed quench",
+          pit_furnace: "Pit furnace",
+          continuous_furnace: "Continuous furnace",
+          induction_machine: "Induction",
+          vacuum_furnace: "Vacuum furnace",
+          box_furnace: "Box furnace",
+        },
+      },
+      {
+        from: "heat_process",
+        rank: 22,
+        inHeadline: true,
+        maxValues: 3,
+        label: "Processes",
+        kind: "chips",
+        values: {
+          hardening_tempering: "Hardening & tempering",
+          case_carburising: "Case hardening",
+          nitriding: "Nitriding",
+          induction_hardening: "Induction hardening",
+          annealing_normalising: "Annealing & normalising",
+          vacuum_heat_treatment: "Vacuum heat treatment",
+          salt_bath: "Salt bath",
+        },
+      },
+      {
+        from: "heat_testing",
+        rank: 41,
+        label: "Testing",
+        kind: "chips",
+        values: {
+          rockwell: "Rockwell (HRC)",
+          brinell: "Brinell",
+          vickers: "Vickers",
+          micro_structure: "Micro-structure",
+          case_depth: "Case depth",
+        },
+      },
+      {
+        from: "heat_material",
+        rank: 42,
+        label: "Materials",
+        kind: "chips",
+        values: {
+          en_series: "EN8 / EN19 / EN24",
+          alloy_steel: "Alloy steel",
+          tool_steel: "Tool steel",
+          stainless_steel: "Stainless steel",
+        },
+      },
+    ],
+  },
 ];
 
 export function tradeResumeMapFor(packId: string | null | undefined): TradeResumeMap | undefined {

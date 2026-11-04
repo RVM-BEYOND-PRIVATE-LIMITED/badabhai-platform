@@ -318,7 +318,10 @@ senior_programmer`; P5 crosswalk already handles). Role `levelTerms` += rung
 > artifacts. Deviation: the sheet prices technician Higher, the shared key stays
 > Lower (per-pack tier override is a follow-up; the hook only logs).
 >
-> PHASE 2 #7 — EDM / WIRE-CUT OPERATOR (NEW BUILD) ✅ CODE DONE (`feat/mw-edm-wirecut`).
+> PHASE 2 #7 — EDM / WIRE-CUT OPERATOR (NEW BUILD) ✅ CODE DONE (`feat/mw-edm-wirecut`, PR #2539, merged).
+> LIVE on production 2026-11-04: migrations 0145 + 0146 applied by the owner before merge;
+> seed:domains → normalize → seed:packs → seed:match:vocabulary; verify:packs,
+> verify:domains and verify:match-v1 all PASS.
 > New 24th declared kind `edm_wirecut_operator` (formless, like PLC) with migrations
 > 0145 + 0146 (renumbered: #2538 took 0144) — APPLIED BEFORE MERGE. New `mskill_edm_wirecut_operator` (unpaired,
 > like PLC), `fam_edm_wirecut` bound to NCO 7223.2800 (left fam_machining), new
@@ -329,6 +332,18 @@ senior_programmer`; P5 crosswalk already handles). Role `levelTerms` += rung
 > wire cut operator / spark erosion (+Hi) -> 7223.2800. Role vocabulary names the JOB, not
 > the machine, so a tool maker who mentions his wire-cut keeps the Tool & Die form. Seeds
 > after migrations + merge (+ seed:match:vocabulary).
+>
+> PHASE 2 #8 — HEAT-TREATMENT TECHNICIAN (NEW BUILD) ✅ CODE DONE (`feat/mw-heat-treatment`).
+> New 25th declared kind `heat_treatment_technician` (formless, `fabrication`) with migrations
+> 0147 + 0148 — APPLY BOTH BEFORE MERGE. New `mskill_heat_treatment_tech` (unpaired, like PLC /
+> EDM), `fam_heat_treatment` bound to NCO 8121.3701 / .4800 / .4900 / .4700 (left
+> fam_metal_processing), new `qp_heat_treatment@1`: sheet-17 ladder (Trainee/Operator/Skilled/
+> Senior/Supervisor, mandatory) + 1 separating confirm (the sheet's question verbatim) asked of
+> skilled AND senior (standing rule); supervisor by rule; Medium process + furnace; Advanced
+> testing + material. Aliases spread over the four codes so each chip reads as the trade
+> (heat treatment / hardening / tempering / annealing). Held out: bare ht, hardness / Rockwell /
+> HRC (QC's instrument words), bare furnace / melting (the foundry's). Fixes gas nitriding
+> (reached CNC grinding) and salt bath / pit / vacuum furnace (reached a furnace-car driver).
 >
 > PHASE 2 #9 — INJECTION-MOULDING OPERATOR / SETTER (NEW PACK) ✅ CODE DONE (`feat/mw-imm`).
 > NO MIGRATION and no kind bump: `injection_moulding_operator` was already a declared

@@ -985,6 +985,37 @@
 {"kind":"alias","job_domain_id":"jd_nco_7223_2800","text":"wire cut operator","lang":"en"}
 {"kind":"alias","job_domain_id":"jd_nco_7223_2800","text":"spark erosion","lang":"en"}
 {"kind":"alias","job_domain_id":"jd_nco_7223_2800","text":"वायर कट","lang":"hi"}
+# PHASE 2 #8 (CEO Launch Plan Pack v1, sheet 17 "Words"): the heat-treatment trade, a new family
+# bound to four 8121 codes (3701 Heat Treating Furnace Operator, 4800 Hardener, 4900 Temperer,
+# 4700 Annealer). The process words are SPREAD across them on purpose: a code's chip label is its
+# shortest Latin alias, so 3701 reads "heat treatment", 4800 "hardening", 4900 "tempering" and
+# 4700 "annealing" — never "salt bath". NOT rows: bare "ht" (2 letters), "hardness testing",
+# "rockwell", "hrc" (the QC inspector's instrument words, sheet 12), "ipsen" (a brand), and bare
+# "furnace" / "melting" (the foundry's melt shop, sheet 19).
+{"kind":"alias","job_domain_id":"jd_nco_8121_3701","text":"heat treatment","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8121_3701","text":"heat treatment operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8121_3701","text":"heat treatment technician","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8121_3701","text":"furnace operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8121_3701","text":"हीट ट्रीटमेंट","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_8121_4800","text":"hardening","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8121_4800","text":"case hardening","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8121_4800","text":"induction hardening","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8121_4800","text":"carburising","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8121_4800","text":"carburizing","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8121_4800","text":"nitriding","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8121_4800","text":"gas nitriding","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8121_4800","text":"quenching","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8121_4800","text":"sealed quench","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8121_4800","text":"pit furnace","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8121_4800","text":"vacuum furnace","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8121_4800","text":"salt bath","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8121_4800","text":"ht job work","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8121_4800","text":"ht operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8121_4800","text":"हार्डनिंग","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_8121_4900","text":"tempering","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8121_4700","text":"annealing","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8121_4700","text":"normalising","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8121_4700","text":"normalizing","lang":"en"}
 # PHASE 2 #9 (CEO Launch Plan Pack v1, sheet 22 "Words"): Injection Moulding, bound to the
 # 8142 plastic-moulding codes. The rows name the trade. 'injection moulding operator' moves here
 # from the rubber code 8141.0713 (retired there, same change; that code keeps 'rubber injection

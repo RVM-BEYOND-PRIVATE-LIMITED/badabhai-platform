@@ -139,7 +139,13 @@ describe("the declared-role set", () => {
         "edm_wirecut_operator",
       ],
       design: ["cam_programmer", "cad_draughtsman", "cad_designer_3d"],
-      fabrication: ["welder", "sheet_metal_worker", "press_operator", "painter_coating"],
+      fabrication: [
+        "welder",
+        "sheet_metal_worker",
+        "press_operator",
+        "painter_coating",
+        "heat_treatment_technician",
+      ],
       maintenance: [
         "fitter",
         "maintenance_technician",

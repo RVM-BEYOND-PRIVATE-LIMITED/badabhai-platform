@@ -929,6 +929,22 @@ const QUESTION_TTS_TEXT: Readonly<Record<string, string>> = {
   "Moulding machine pe kaunsa kaam khud karte hain?": "मोल्डिंग मशीन पे कौनसा काम खुद करते हैं?",
   "Kaunse defect khud theek kar lete hain?": "कौनसे डिफेक्ट खुद ठीक कर लेते हैं?",
   "Moulding ka course ya training kahan se kiya?": "मोल्डिंग का कोर्स या ट्रेनिंग कहाँ से किया?",
+  // --- qp_heat_treatment@1 (Phase 2 #8, a new trade) — prompts and retries. "SQF" and "HRC"
+  // stay Latin (spelled letter by letter); "heat treatment" is Devanagari. The level retry and
+  // the tenure and level whys are shared and twinned above.
+  "Heat treatment ka kitna tajurba hai?": "हीट ट्रीटमेंट का कितना तजुर्बा है?",
+  "Lagbhag kitne saal heat treatment ka kaam kiya hai?":
+    "लगभग कितने साल हीट ट्रीटमेंट का काम किया है?",
+  "Heat treatment shop me aap kis level par kaam karte hain?":
+    "हीट ट्रीटमेंट शॉप में आप किस लेवल पर काम करते हैं?",
+  "Material aur spec dekh ke cycle khud set karte ho, hardness khud check karte ho?":
+    "मटीरियल और स्पेक देख के साइकिल खुद सेट करते हो, हार्डनेस खुद चेक करते हो?",
+  "Kaunsa heat treatment process karte hain?": "कौनसा हीट ट्रीटमेंट प्रोसेस करते हैं?",
+  "Hardening, carburising ya induction, kaunsa process karte hain?":
+    "हार्डनिंग, कार्बराइज़िंग या इंडक्शन, कौनसा प्रोसेस करते हैं?",
+  "Kaunsi furnace chalate hain?": "कौनसी फर्नेस चलाते हैं?",
+  "Kaunsi testing khud karte hain?": "कौनसी टेस्टिंग खुद करते हैं?",
+  "Kaunse material ka heat treatment kiya hai?": "कौनसे मटीरियल का हीट ट्रीटमेंट किया है?",
   // --- qp_edm_wirecut@1 (Phase 2 #7, a new trade) — prompts and retries. "EDM" and "CAM"
   // stay Latin (spelled letter by letter, as an operator says them); "wire-cut" is Devanagari.
   // The level prompt/retry and the tenure, level and machine whys are shared and twinned above.
@@ -1568,6 +1584,16 @@ const WHY_TTS_TEXT: Readonly<Record<string, string>> = {
     "डिफेक्ट ठीक करना आना सेटर का सबसे बड़ा हुनर है।",
   "Achhe institute ka certificate badi plastic company me kaam dilata hai.":
     "अच्छे इंस्टिट्यूट का सर्टिफिकेट बड़ी प्लास्टिक कंपनी में काम दिलाता है।",
+  // --- qp_heat_treatment@1 (Phase 2 #8) — why-texts. Filed HERE: `composeClarify` scans
+  // only this table.
+  "Cycle aur hardness khud sambhalne wale ko alag kaam milta hai.":
+    "साइकिल और हार्डनेस खुद संभालने वाले को अलग काम मिलता है।",
+  // "Process ke hisaab se sahi kaam dikhaya jaata hai." is shared and twinned above.
+  "Furnace ke hisaab se sahi plant ka kaam dikhaya jaata hai.":
+    "फर्नेस के हिसाब से सही प्लांट का काम दिखाया जाता है।",
+  "Testing khud karne wale technician ki alag maang hai.":
+    "टेस्टिंग खुद करने वाले टेक्नीशियन की अलग माँग है।",
+  "Material jaanne se aapka kaam saaf pata chalta hai.": "मटीरियल जानने से आपका काम साफ़ पता चलता है।",
   // --- qp_edm_wirecut@1 (Phase 2 #7) — why-texts. Filed HERE: `composeClarify` scans only
   // this table.
   "Alignment aur setting khud karne wale setter ko alag kaam milta hai.":

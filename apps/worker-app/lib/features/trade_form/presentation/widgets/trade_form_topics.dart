@@ -119,6 +119,11 @@ const Map<String, (String, String)> _kTopics = <String, (String, String)>{
   'moulding_machine_brand': _machines, 'moulding_tonnage': _capability,
   'moulding_material': _material, 'moulding_process_work': _operations,
   'moulding_defects': _trouble, 'moulding_training_institute': _training,
+  // Phase 2 #8 (qp_heat_treatment) — chat-only pack, like EDM below.
+  'heat_experience': _experience, 'heat_level': _level,
+  'heat_skilled_confirm': _level,
+  'heat_process': _process, 'heat_furnace': _equipment,
+  'heat_testing': _quality, 'heat_material': _material,
   // Phase 2 #7 (qp_edm_wirecut) — chat-only pack, like PLC below.
   'edm_experience': _experience, 'edm_level': _level,
   'edm_setting_confirm': _level, 'edm_program_confirm': _level,

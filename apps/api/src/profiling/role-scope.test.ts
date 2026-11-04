@@ -518,8 +518,8 @@ describe("classifyRoleScope", () => {
 });
 
 describe("the closed sets", () => {
-  it("DECLARED_FAMILY_IDS is exactly the 24 descriptors' families", () => {
-    expect(ROLE_FORM_DESCRIPTORS).toHaveLength(24);
+  it("DECLARED_FAMILY_IDS is exactly the 25 descriptors' families", () => {
+    expect(ROLE_FORM_DESCRIPTORS).toHaveLength(25);
     expect([...DECLARED_FAMILY_IDS].sort()).toEqual(
       ROLE_FORM_DESCRIPTORS.map((descriptor) => descriptor.familyId).sort(),
     );
