@@ -3921,7 +3921,9 @@ textarea.field__input {
 .grid[data-fit="true"] {
   --grid-head-top: var(--shell-header-h);
 }
-/* Density (the viewer's choice): 44px rows, or 36px — the token layer's two row rails. */
+/* Density (the viewer's choice): 44px rows, or 36px — the token layer's two row rails; each row
+   then draws its 1px divider below that box. A copy button (36px) fits either height: the
+   comfortable rows pad it by --space-1, the compact ones not at all. */
 .grid[data-density="compact"] {
   --grid-row-h: var(--row-h-compact);
 }
@@ -4025,8 +4027,9 @@ textarea.field__input {
   white-space: normal;
   overflow-wrap: anywhere;
 }
-/* A table of sentences (Feedback): the rows keep `.table td`'s reading rhythm. */
-.grid--prose .grid__table td {
+/* A table of sentences (Feedback): the rows keep `.table td`'s reading rhythm — the BODY rows
+   only; the header's shimmer track below must stay its 2px. */
+.grid--prose .grid__table tbody td {
   padding-block: var(--space-3);
 }
 
@@ -4160,7 +4163,8 @@ textarea.field__input {
 .grid__table[aria-busy="true"] tbody tr:has(.nav-pending--on) {
   opacity: 1;
 }
-.grid__progress-row > .grid__progress-cell {
+/* (0,3,0): no cell rule in the block — the prose rhythm, a density — can pad the 2px track. */
+.grid__table .grid__progress-row > .grid__progress-cell {
   position: sticky;
   top: calc(var(--grid-head-top) + var(--grid-row-h));
   z-index: 1;

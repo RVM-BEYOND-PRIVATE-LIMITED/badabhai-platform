@@ -163,13 +163,28 @@ describe("the pending state", () => {
   });
 
   it("a 2px shimmer runs under the header — the one looping motion, a progress indicator", () => {
-    const cell = top(".grid__progress-row > .grid__progress-cell");
+    const cell = top(".grid__table .grid__progress-row > .grid__progress-cell");
     expect(decl(cell.body, "height")).toBe("var(--border-bold)");
+    expect(decl(cell.body, "padding")).toBe("0");
     expect(decl(cell.body, "position")).toBe("sticky");
     expect(decl(cell.body, "top")).toBe("calc(var(--grid-head-top) + var(--grid-row-h))");
     expect(decl(top('.grid__table[aria-busy="true"] .grid__progress').body, "animation")).toBe(
       "grid-shimmer var(--duration-shimmer) var(--ease-in-out) infinite",
     );
+  });
+
+  it("no body-cell rhythm reaches the 2px track: the prose padding is the body rows' only", () => {
+    // It was `.grid--prose .grid__table td` (0,2,1), which outranked the track (0,2,0) and drew
+    // a 24px band under Feedback's header (measured in Chrome).
+    expect(ALL.some((r) => r.selector === ".grid--prose .grid__table td")).toBe(false);
+    expect(decl(top(".grid--prose .grid__table tbody td").body, "padding-block")).toBe("var(--space-3)");
+    const paddedCells = ALL.filter(
+      (r) => /\btd\b/.test(r.selector) && !r.selector.includes("tbody") && decl(r.body, "padding-block") !== null,
+    );
+    // Only the compact density, which zeroes it — the track keeps no padding either way.
+    expect(paddedCells.map((r) => r.selector)).toEqual([
+      '.grid[data-density="compact"] .grid__table th, .grid[data-density="compact"] .grid__table td',
+    ]);
   });
 
   it("under reduced motion the shimmer holds still as a solid bar", () => {
