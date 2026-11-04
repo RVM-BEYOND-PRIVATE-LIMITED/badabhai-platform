@@ -57,6 +57,9 @@ class _ScriptedApi extends MockPayerApiClient {
   Object? throwOnTradesOnce;
   int tradeLoads = 0;
 
+  /// When set, the catalogue answers with exactly these trades.
+  List<PostingTradeForm>? trades;
+
   @override
   Future<List<JobPosting>> fetchJobs({String? status}) async =>
       const <JobPosting>[];
@@ -69,7 +72,7 @@ class _ScriptedApi extends MockPayerApiClient {
       throwOnTradesOnce = null;
       throw error;
     }
-    return super.fetchPostingTrades();
+    return trades ?? super.fetchPostingTrades();
   }
 
   @override
@@ -271,8 +274,11 @@ void main() {
     double height = 4000,
     bool tradeRequired = false,
     Object? tradesError,
+    List<PostingTradeForm>? trades,
   }) async {
-    api = _ScriptedApi()..throwOnTradesOnce = tradesError;
+    api = _ScriptedApi()
+      ..throwOnTradesOnce = tradesError
+      ..trades = trades;
     cubit = JobsCubit(api);
     addTearDown(cubit.close);
 
@@ -793,16 +799,22 @@ void main() {
       fieldErrors: <String, String>{'role_kind': kPostingTradeRequiredMessage},
     );
 
-    testWidgets('the picker offers the catalogue trades — no free role list', (
+    testWidgets('a catalogue with no trades says so — never a free role list', (
       WidgetTester tester,
     ) async {
-      await open(tester);
+      await open(tester, trades: const <PostingTradeForm>[]);
 
-      expect(find.text('CNC Turner'), findsOneWidget);
-      expect(find.text('Welder'), findsOneWidget);
-      // The old fallback: every declared role, plus "no role".
+      expect(
+        atPicker(
+          'No trades are open for posting right now. Try again in a moment.',
+        ),
+        findsOneWidget,
+      );
+      // The old fallback: every declared role, plus "no role" — a pick that
+      // could move a live job off the 16 or clear its trade.
       expect(find.text('Role (card illustration)'), findsNothing);
       expect(find.text('Not specified'), findsNothing);
+      expect(find.widgetWithText(BbButton, 'Retry'), findsOneWidget);
     });
 
     testWidgets(
