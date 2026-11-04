@@ -50,6 +50,99 @@ describe("posting trade catalogue", () => {
     }
   });
 
+  it("offers each trade the CEO sheet's ladder — the one the worker answers (#2550)", () => {
+    // CEO Launch Plan Pack v1 sheets 1-3, 5-13, 15, 18, 20, 21 (30 Oct ruling Q2: the posting's
+    // level chips are the ladder the worker answers for that trade). Confirmed from the sheet's
+    // named rung upward, supervisor by rule; confirmed rungs price Higher.
+    const SHEETS: Record<string, { rungs: string[]; confirmedFrom: string }> = {
+      cnc_turner: {
+        rungs: ["trainee", "operator", "setter", "setter_programmer", "programmer", "supervisor"],
+        confirmedFrom: "setter",
+      },
+      vmc_milling: {
+        rungs: ["trainee", "operator", "setter", "setter_programmer", "programmer", "supervisor"],
+        confirmedFrom: "setter",
+      },
+      cnc_grinding: {
+        rungs: ["trainee", "operator", "setter", "setter_programmer", "supervisor"],
+        confirmedFrom: "setter",
+      },
+      cam_programmer: {
+        rungs: ["trainee", "programmer", "senior", "lead", "supervisor"],
+        confirmedFrom: "programmer",
+      },
+      cad_draughtsman: {
+        rungs: ["trainee", "designer", "senior_designer", "lead", "supervisor"],
+        confirmedFrom: "senior_designer",
+      },
+      conventional_machinist: {
+        rungs: ["trainee", "operator", "skilled", "senior", "supervisor"],
+        confirmedFrom: "skilled",
+      },
+      tool_die_maker: {
+        rungs: ["trainee", "operator", "skilled", "senior", "supervisor"],
+        confirmedFrom: "skilled",
+      },
+      welder: { rungs: ["trainee", "operator", "skilled", "senior", "supervisor"], confirmedFrom: "skilled" },
+      sheet_metal_worker: {
+        rungs: ["trainee", "operator", "skilled", "senior", "supervisor"],
+        confirmedFrom: "skilled",
+      },
+      press_operator: {
+        rungs: ["trainee", "operator", "setter", "senior", "supervisor"],
+        confirmedFrom: "setter",
+      },
+      painter_coating: {
+        rungs: ["trainee", "operator", "skilled", "senior", "supervisor"],
+        confirmedFrom: "skilled",
+      },
+      fitter: { rungs: ["trainee", "operator", "skilled", "senior", "supervisor"], confirmedFrom: "skilled" },
+      maintenance_technician: {
+        rungs: ["trainee", "technician", "senior_technician", "supervisor"],
+        confirmedFrom: "senior_technician",
+      },
+      industrial_electrician: {
+        rungs: ["trainee", "technician", "senior_technician", "supervisor"],
+        confirmedFrom: "senior_technician",
+      },
+      assembly_line_worker: {
+        rungs: ["trainee", "operator", "skilled", "senior", "supervisor"],
+        confirmedFrom: "skilled",
+      },
+      quality_inspector: {
+        rungs: ["trainee", "inspector", "senior_inspector", "qc_engineer", "supervisor"],
+        confirmedFrom: "senior_inspector",
+      },
+    };
+    expect(Object.keys(SHEETS).sort()).toEqual([...POSTING_TRADE_KINDS].sort());
+    for (const trade of POSTING_TRADES) {
+      const sheet = SHEETS[trade.roleKind]!;
+      expect(trade.ladder.map((r) => r.rung), trade.roleKind).toEqual(sheet.rungs);
+      const from = sheet.rungs.indexOf(sheet.confirmedFrom);
+      trade.ladder.forEach((rung, i) => {
+        expect(rung.confirmed, `${trade.roleKind}:${rung.rung}`).toBe(i >= from);
+        expect(rung.priceTier, `${trade.roleKind}:${rung.rung}`).toBe(i >= from ? "higher" : "lower");
+      });
+    }
+  });
+
+  it("keeps every dropped rung as a legacy key, never offered and never a ladder rung", () => {
+    for (const trade of POSTING_TRADES) {
+      const offered = new Set<string>(trade.ladder.map((r) => r.rung));
+      for (const legacy of trade.legacyRungs) {
+        expect(TRADE_LEVEL_LABELS[legacy], `${trade.roleKind}:${legacy}`).toBeTruthy();
+        expect(offered.has(legacy), `${trade.roleKind}:${legacy}`).toBe(false);
+      }
+    }
+    // The keys the old catalogue offered and existing postings may store (#2550).
+    expect(postingTradeFor("cam_programmer")?.legacyRungs).toEqual([
+      "junior_programmer",
+      "senior_programmer",
+    ]);
+    expect(postingTradeFor("press_operator")?.legacyRungs).toEqual(["helper", "skilled"]);
+    expect(postingTradeFor("quality_inspector")?.legacyRungs).toEqual(["lead"]);
+  });
+
   it("resolves only the 16 postable kinds", () => {
     for (const kind of POSTING_TRADE_KINDS) {
       expect(postingTradeFor(kind)?.roleKind).toBe(kind);

@@ -267,6 +267,34 @@ describe("posting trade form", () => {
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 
+  it("offers the sheet-3 CAM ladder, but still saves and prints a posting's legacy rung (#2550)", async () => {
+    const svc = new PostingTradesService(packs);
+    const cam = (await svc.listForms()).find((form) => form.role_kind === "cam_programmer")!;
+    expect(cam.ladder.map((rung) => rung.rung)).toEqual([
+      "trainee",
+      "programmer",
+      "senior",
+      "lead",
+      "supervisor",
+    ]);
+    // A posting made from the old catalogue keeps saving on edit, and keeps its label.
+    for (const legacy of ["senior_programmer", "junior_programmer"]) {
+      const saved = await svc.normalizeSelection("cam_programmer", legacy, {});
+      expect(saved.tradeLevel).toBe(legacy);
+      const shown = await svc.describeSelection("cam_programmer", legacy, {});
+      expect(shown.levelLabel, legacy).toBeTruthy();
+    }
+    // A legacy key of ANOTHER trade is still refused: the allowance is per trade.
+    await expect(svc.normalizeSelection("cnc_turner", "junior_programmer", {})).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+    // The old "helper" rung is no longer offered anywhere, but a stored one still saves.
+    for (const form of await svc.listForms()) {
+      expect(form.ladder.map((rung) => rung.rung), form.role_kind).not.toContain("helper");
+    }
+    expect((await svc.normalizeSelection("cnc_turner", "helper", {})).tradeLevel).toBe("helper");
+  });
+
   it("refuses trade fields for a non-postable role", async () => {
     const svc = new PostingTradesService(packs);
     await expect(

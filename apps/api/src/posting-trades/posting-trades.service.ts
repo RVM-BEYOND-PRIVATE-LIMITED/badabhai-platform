@@ -81,6 +81,17 @@ function isPostingQuestion(key: string): boolean {
 }
 
 /**
+ * Whether `level` is a rung a posting of this trade may STORE: one the form offers, or one of
+ * the trade's legacy rungs (#2550) an older catalogue offered and existing postings still carry.
+ */
+function isPostableRung(trade: PostingTrade, form: PostingTradeForm, level: string): boolean {
+  return (
+    form.ladder.some((rung) => rung.rung === level) ||
+    (trade.legacyRungs as readonly string[]).includes(level)
+  );
+}
+
+/**
  * The trade-specific posting form (owner ruling 2026-11-03, 16 live trades).
  *
  * THE PACK IS THE SOURCE. Question text, option labels and chip values come from the
@@ -137,7 +148,10 @@ export class PostingTradesService {
     const form = await this.buildForm(trade, now);
 
     const level = tradeLevel == null ? null : tradeLevel.trim();
-    if (level !== null && !form.ladder.some((rung) => rung.rung === level)) {
+    // A legacy rung (#2550: a key the CEO sheets dropped) is never offered, but a posting that
+    // already stores one must still save — an edit that fails on its own stored value is a 400
+    // the payer cannot fix.
+    if (level !== null && !isPostableRung(trade, form, level)) {
       throw new BadRequestException("unknown trade level for this role");
     }
 
@@ -193,9 +207,7 @@ export class PostingTradesService {
     if (!trade) return { levelLabel: null, facets: [] };
     const form = await this.buildForm(trade, now);
     const levelLabel =
-      tradeLevel == null
-        ? null
-        : (form.ladder.find((rung) => rung.rung === tradeLevel)?.rung ?? null);
+      tradeLevel == null || !isPostableRung(trade, form, tradeLevel) ? null : tradeLevel;
     const facets: TradeFacetDisplay[] = [];
     if (tradeAnswers) {
       for (const question of form.questions) {

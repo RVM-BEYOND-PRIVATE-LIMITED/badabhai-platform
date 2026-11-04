@@ -72,8 +72,8 @@ const CNC_MACHINE_LADDER: LevelSortLadder = {
  * The rung order per trade. Rungs are the CEO sheets' keys, in the sheets' order:
  *  - sheet 15 (CNC Grinding) stops at `setter_programmer` — there is no programmer rung;
  *  - sheet 3 (CAM) is `trainee → programmer → senior → lead → supervisor`. `qp_cam_programming@3`
- *    stored `junior_programmer` / `senior_programmer`, and the posting catalogue still offers
- *    them; the CEO reconciliation (2 Nov) rules bare "junior" a trainee claim, and sheet 3 labels
+ *    stored `junior_programmer` / `senior_programmer`, and the posting catalogue offered them
+ *    until #2550 (older postings still carry them, as legacy rungs); the CEO reconciliation (2 Nov) rules bare "junior" a trainee claim, and sheet 3 labels
  *    the `senior` rung "Senior Programmer".
  * A key on neither the ladder nor its aliases (a turner's `setter` on a CAM post) is never
  * guessed into a position: it sorts as "not confirmed".
