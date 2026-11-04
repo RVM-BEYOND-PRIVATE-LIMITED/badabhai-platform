@@ -10,6 +10,8 @@ import { ToastProvider } from "../../components/ds/toast-provider";
 import { SidebarNav } from "./sidebar-nav";
 import { NavSectionsProvider } from "./nav-context";
 import { openDrawer } from "./drawer-focus";
+import { RouteContent } from "./route-content";
+import { RailPressScope } from "./rail-press";
 import type { NavSection } from "./nav-model";
 
 /**
@@ -70,8 +72,8 @@ export function AppShell({
 
   // The open drawer's keyboard model: focus in, Tab contained, Escape / a link / leaving drawer
   // mode close it, focus back to the menu button on close. Whether the rail is a drawer right now
-  // is read from the scrim (drawn only for the open drawer below 1024px), so the breakpoint stays
-  // in the stylesheet.
+  // is read from the scrim (laid out only below 1024px — invisible while the drawer is closed, so
+  // it can fade both ways), so the breakpoint stays in the stylesheet.
   useEffect(() => {
     if (!drawerOpen) return undefined;
     const rail = railRef.current;
@@ -127,9 +129,13 @@ export function AppShell({
           aria-modal={drawerOpen ? true : undefined}
           aria-label={drawerOpen ? "Navigation" : undefined}
         >
-          <div className="pshell__brand">{brand}</div>
+          {/* One press scope for everything in the rail that goes to a rail destination: the rows,
+            and the lockup (→ Dashboard). A press on either marks its row at once (rail-press.tsx). */}
+          <RailPressScope>
+            <div className="pshell__brand">{brand}</div>
 
-          <SidebarNav sections={sections} />
+            <SidebarNav sections={sections} />
+          </RailPressScope>
 
           <div className="pshell__railfoot">
             {footer}
@@ -184,11 +190,14 @@ export function AppShell({
             {header}
           </header>
 
-          <main className="pshell__content" id="main">
+          {/* The content column (`<main class="pshell__content">`), keyed on the PATH: a route change
+            mounts a fresh one, so the new page enters; a query change keeps it (route-content.tsx,
+            W6 #2586). A key, not a loading boundary. */}
+          <RouteContent>
             {/* The same sections, for the content column's client pieces (the error boundary's
               way back up — nav-context.tsx). */}
             <NavSectionsProvider value={sections}>{children}</NavSectionsProvider>
-          </main>
+          </RouteContent>
         </div>
       </div>
     </ToastProvider>

@@ -11,8 +11,12 @@ import { AppShell } from "./app-shell";
 import { navSections } from "./nav-model";
 import { PortalBreadcrumb } from "./portal-breadcrumb";
 import { PageTitleHeading } from "./page-title-heading";
+import { RailPress } from "./rail-press";
 
 export const dynamic = "force-dynamic";
+
+/** The portal home, where the rail's brand lockup goes. */
+const HOME = "/dashboard";
 
 /**
  * Authenticated portal shell (IA-1 — rebuilt from a wrapping top nav onto a levelled left
@@ -74,7 +78,7 @@ export default async function PortalLayout({ children }: { children: ReactNode }
            the lockup takes its on-ink form; the persona is its caption. */
         <PortalLink
           className="pshell__brandlink"
-          href="/dashboard"
+          href={HOME}
           pendingLabel="Dashboard"
           aria-label="BadaBhai — go to dashboard"
         >
@@ -83,6 +87,9 @@ export default async function PortalLayout({ children }: { children: ReactNode }
             size={30}
             sub={`for ${isAgency ? "Agencies" : "Companies"}`}
           />
+          {/* A press on the lockup is a press on the rail's Dashboard row: the marker moves there
+              at once, not once the dashboard has rendered (W6 #2586, rail-press.tsx). */}
+          <RailPress href={HOME} />
         </PortalLink>
       }
       header={

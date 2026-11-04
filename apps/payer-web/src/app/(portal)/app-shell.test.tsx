@@ -57,6 +57,8 @@ vi.mock("next/link", async () => {
 });
 
 const { AppShell } = await import("./app-shell");
+const { RailPress } = await import("./rail-press");
+const { PortalLink } = await import("../../components/portal-link");
 
 const SECTIONS: NavSection[] = [
   {
@@ -71,13 +73,13 @@ const SECTIONS: NavSection[] = [
   },
 ];
 
-function render(): string {
+function render(brand: ReactNode = <span>brand</span>): string {
   cursor.i = 0;
   effects.length = 0;
   return renderToStaticMarkup(
     <AppShell
       sections={SECTIONS}
-      brand={<span>brand</span>}
+      brand={brand}
       header={<span>hdr</span>}
       footer={<span>foot</span>}
     >
@@ -307,5 +309,37 @@ describe("the navigation pending cue (components/nav-pending.tsx)", () => {
     // portal's one toast stack (#2583) — also outside the inert page, and empty until a toast.
     expect(html.match(/role="status"/g)).toHaveLength(2);
     expect(html.match(/class="bb-toast-viewport" role="status"/g)).toHaveLength(1);
+  });
+});
+
+/*
+ * W6 #2586 — the shell's own wiring of the motion pieces. Each piece is tested on its own
+ * (route-content.test.tsx, sidebar-nav.test.tsx); these pin that the shell actually uses them, so
+ * un-wiring one cannot leave the suite green.
+ */
+describe("W6 (#2586) — the shell wires in the route entrance and the rail's press", () => {
+  it("the content column is the path-keyed one: a fresh `<main>` that enters (its lists stagger only then)", () => {
+    // Only route-content.tsx's ContentColumn renders `data-entering`: a plain persistent <main>
+    // would play its entrance on the first load only, and never stagger a list.
+    const main = element(render(), "div", "pshell__main");
+    expect(main.whole).toContain('<main class="pshell__content" id="main" data-entering="">');
+    expect(main.whole.match(/<main\b/g)).toHaveLength(1);
+  });
+
+  it("one press scope holds the rail's lockup and its nav: every rail link reports to the same rail", () => {
+    // The lockup goes to Dashboard, a rail destination: its press must move the same marker the
+    // rows do. A lockup outside the scope reports to nothing (no onPress); two scopes would hand
+    // the lockup and the rows different ones.
+    render(
+      <PortalLink className="pshell__brandlink" href="/dashboard" pendingLabel="Dashboard">
+        <RailPress href="/dashboard" />
+      </PortalLink>,
+    );
+    // [pending, href, by, onPress, onRelease]: the lockup's report first, then the Dashboard row's.
+    const reports = effects.filter((e) => e.deps?.length === 5);
+    expect(reports.map((e) => e.deps![1])).toEqual(["/dashboard", "/dashboard"]);
+    const onPress = new Set(reports.map((e) => e.deps![3]));
+    expect(onPress.size).toBe(1);
+    expect(typeof [...onPress][0]).toBe("function");
   });
 });

@@ -542,15 +542,7 @@ body {
   padding: var(--space-4) var(--gutter-web) var(--space-6);
   flex: 1;
   min-width: 0;
-  /* Restrained entrance — a short, low-travel fade so route changes feel composed, not
-     jumpy. Collapses to nothing under prefers-reduced-motion (token durations → 0ms). */
-  animation: portal-fade var(--duration-base) var(--ease-out);
-}
-@keyframes portal-fade {
-  from {
-    opacity: 0;
-    transform: translateY(4px);
-  }
+  /* Its entrance on every route change: the W6 #2586 block (after the sidebar polish). */
 }
 
 /* ---- scrim (drawer only) ---- */
@@ -5309,25 +5301,8 @@ img.agency-qr__code,
   }
 }
 
-/* ---- "View" card action — tonal pill with a CONTINUOUSLY nudging arrow ---- */
-.dash-view__arrow {
-  animation: arrow-nudge calc(var(--duration-count) * 2) var(--ease-in-out) infinite;
-  will-change: transform;
-}
-@keyframes arrow-nudge {
-  0%,
-  100% {
-    transform: translateX(0);
-  }
-  50% {
-    transform: translateX(4px);
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .dash-view__arrow {
-    animation: none;
-  }
-}
+/* ---- "View" card action arrow — it nudges only on hover or keyboard focus of its card (the
+   W6 #2586 block, after the sidebar polish); it no longer loops forever. ---- */
 
 /* ---- Post-job CTA — an "exciting" brand button: a slow shine sweep + a rocket lift ---- */
 .posting-cta {
@@ -8073,7 +8048,8 @@ body:has(.invite-landing) .chrome-footer {
 
 /* ============================================================
    SIDEBAR — hover on the rail (inactive rows only). The active row's plate is painted in
-   place by `.pnav__link--active` above; nothing measures or slides it.
+   place by `.pnav__link--active` above; once scripts run, the W6 marker (below) carries it
+   from row to row.
    ============================================================ */
 .pshell .pnav__link:not(.pnav__link--active):hover {
   background: var(--surface-ink-hover);
@@ -8088,23 +8064,206 @@ body:has(.invite-landing) .chrome-footer {
   .pshell .pnav__link:not(.pnav__link--active):hover .pnav__icon { transform: scale(1.12); }
 }
 
-/* The drawer scrim settles in rather than snapping. */
-@media (max-width: 1023px) {
-  .pshell--drawer-open .pshell__scrim {
-    backdrop-filter: blur(3px);
-    animation: pnav-scrim-in var(--duration-base) var(--ease-enter) both;
-  }
-  @keyframes pnav-scrim-in {
-    from { opacity: 0; }
-    to { opacity: 1; }
-  }
-}
+/* (The drawer scrim's fade — both ways, no backdrop blur — is in the W6 #2586 block below.) */
 
 @media (prefers-reduced-motion: reduce) {
   .pshell .pnav__link:not(.pnav__link--active):hover,
   .pshell .pnav__link:not(.pnav__link--active):hover .pnav__icon { transform: none; }
-  .pshell--drawer-open .pshell__scrim { animation: none; }
 }
+
+/* ===== W6 #2586 — page transitions + list motion ===== */
+/* The route entrance, the list entrance, the rail's gliding marker, the drawer scrim and the row
+   arrows. Durations and curves are the #2570 motion tokens only. It animates opacity and transform
+   only, enters with --ease-enter and leaves with --ease-exit, never loops, and never holds input
+   (nothing here delays a control or blocks the pointer). Travel is --motion-rise (6px) at most —
+   the rail marker is the one indicator, and it glides between rows. ALL of it is zero under
+   prefers-reduced-motion: the tokens collapse to 0 there, and the block's reduced-motion rule
+   (its last) switches each animation and transition off, so nothing even jumps a 0ms keyframe. */
+
+/* 1 · ROUTE CHANGE. The content column is keyed on the PATH ((portal)/route-content.tsx), so a
+   route change mounts a fresh one and this plays: the content fades in with a --motion-rise rise
+   over --duration-page (200ms). No exit animation — the old page simply goes. A query-only change
+   (?reached=, the candidates pager) keeps the column, so nothing replays. A key, not a loading
+   boundary (app/no-suspense-above-a-page.test.ts). */
+.pshell__main > .pshell__content {
+  animation: page-enter var(--duration-page) var(--ease-enter);
+}
+@keyframes page-enter {
+  from {
+    opacity: 0;
+    transform: translateY(var(--motion-rise));
+  }
+}
+
+/* 5 · LISTS, ON FIRST RENDER ONLY. While the fresh column carries `data-entering` (from its mount
+   until its entrance has played — route-content.tsx), a list's first --stagger-max (8) items rise
+   in --stagger-step (30ms) apart, each over --duration-page; the rest enter together with the 8th.
+   Keyed on that attribute, so a list that changes later on the same page (the next page of
+   candidates, a row a save adds) never replays it. `backwards` holds an item at its start only
+   while it waits its turn; nothing stays transformed after. The lists: the dashboard's needs-you
+   band, posting rows and recent unlocks; Postings and agency Postings; every candidates and
+   applicants feed. (Tables are not staggered: their rows stay put.) */
+.pshell__content[data-entering] :is(.attention__list, .dash-postings, .dash-candlist, .postings-list, .agency-jobs__list, .applicants-list) > * {
+  animation: list-enter var(--duration-page) var(--ease-enter) backwards;
+}
+.pshell__content[data-entering] :is(.attention__list, .dash-postings, .dash-candlist, .postings-list, .agency-jobs__list, .applicants-list) > :nth-child(2) {
+  animation-delay: var(--stagger-step);
+}
+.pshell__content[data-entering] :is(.attention__list, .dash-postings, .dash-candlist, .postings-list, .agency-jobs__list, .applicants-list) > :nth-child(3) {
+  animation-delay: calc(var(--stagger-step) * 2);
+}
+.pshell__content[data-entering] :is(.attention__list, .dash-postings, .dash-candlist, .postings-list, .agency-jobs__list, .applicants-list) > :nth-child(4) {
+  animation-delay: calc(var(--stagger-step) * 3);
+}
+.pshell__content[data-entering] :is(.attention__list, .dash-postings, .dash-candlist, .postings-list, .agency-jobs__list, .applicants-list) > :nth-child(5) {
+  animation-delay: calc(var(--stagger-step) * 4);
+}
+.pshell__content[data-entering] :is(.attention__list, .dash-postings, .dash-candlist, .postings-list, .agency-jobs__list, .applicants-list) > :nth-child(6) {
+  animation-delay: calc(var(--stagger-step) * 5);
+}
+.pshell__content[data-entering] :is(.attention__list, .dash-postings, .dash-candlist, .postings-list, .agency-jobs__list, .applicants-list) > :nth-child(7) {
+  animation-delay: calc(var(--stagger-step) * 6);
+}
+.pshell__content[data-entering] :is(.attention__list, .dash-postings, .dash-candlist, .postings-list, .agency-jobs__list, .applicants-list) > :nth-child(n + 8) {
+  animation-delay: calc(var(--stagger-step) * (var(--stagger-max) - 1));
+}
+@keyframes list-enter {
+  from {
+    opacity: 0;
+    transform: translateY(var(--motion-rise));
+  }
+}
+
+/* 2 · THE RAIL MARKER. The active row's plate as one element ((portal)/rail-marker.ts places it)
+   that glides — transform only, --duration-slow (320ms), --ease-glide — to the row a press is
+   taking the payer to, the moment that link's navigation starts ((portal)/rail-press.tsx moves the
+   active row on the link's pending status, a rail row's or the brand lockup's), not once the next
+   page has rendered. Until it is
+   placed it is not drawn and the active row paints its own static plate (W2 #2582): readable before
+   scripts and with them off, and never sliding in from the top — it appears from `display: none`,
+   with nothing to slide from. Once placed (`.pnav[data-marker]`) the row hands its plate over, and
+   the navy ink goes with the plate (below). The marker sits BEHIND every row: the nav isolates, and the
+   marker is one step below the base. So a row's label, icon and focus ring paint over it whatever
+   positions that row (the `:has()` anchor) and whether or not its group is mid-entrance (a
+   transform). That holds under reduced motion and without `:has()` too. It is rendered after the
+   groups, so their entrance stagger (`.pnav__group:nth-child`) still counts groups only. */
+.pnav {
+  position: relative;
+  isolation: isolate;
+}
+.pnav__marker {
+  display: none;
+}
+.pnav[data-marker] .pnav__marker {
+  display: block;
+  position: absolute;
+  z-index: calc(var(--z-base) - 1);
+  top: 0;
+  left: 0;
+  width: var(--pnav-marker-w);
+  height: var(--pnav-marker-h);
+  border-radius: var(--radius-md);
+  background: var(--vermilion-500);
+  transform: translate(var(--pnav-marker-x), var(--pnav-marker-y));
+  transition: transform var(--duration-slow) var(--ease-glide);
+  pointer-events: none;
+}
+.pnav[data-marker] .pnav__link--active {
+  background: transparent;
+}
+/* …AND THE INK FOLLOWS THE PLATE. Once the marker is placed, a row wears the active navy only while
+   the plate is under it (`[data-on-plate]`, which rail-marker.ts sets on the rows the plate covers
+   by half or more as it travels), not from the moment the class moves. The pressed row keeps the
+   rail's on-ink text until the plate reaches it, and the row being left takes the light ink as
+   soon as the plate is off it. So each label reads on what is under it, the yellow or the rail,
+   throughout the glide. The same tokens as the static active row (W2). */
+.pnav[data-marker] .pnav__link--active:not([data-on-plate]),
+.pnav[data-marker] .pnav__link--active:not([data-on-plate]) .pnav__icon {
+  color: var(--text-on-ink);
+}
+.pnav[data-marker] .pnav__link--active:not([data-on-plate]) .pnav__soon {
+  color: var(--text-on-ink-muted);
+  border-color: var(--border-on-ink);
+}
+/* An inactive row under the pointer is the exception (`:not(:hover:not(.pnav__link--active))`: the
+   row is active, or not hovered): its hover background is opaque and hides the plate, so it keeps
+   its hover ink. */
+.pnav[data-marker] .pnav__link[data-on-plate]:not(:hover:not(.pnav__link--active)),
+.pnav[data-marker] .pnav__link[data-on-plate]:not(:hover:not(.pnav__link--active)) .pnav__icon {
+  color: var(--navy-900);
+}
+.pnav[data-marker] .pnav__link[data-on-plate]:not(:hover:not(.pnav__link--active)) .pnav__soon {
+  color: var(--navy-900);
+  border-color: rgb(var(--brand-primary-rgb) / 0.28);
+}
+/* While the plate travels (`[data-gliding]`), the ink changes at once: the rows' 140ms colour fade
+   would trail the plate. Only the colour leaves their transitions; hover's background and travel
+   keep theirs. It adds no motion (no duration of its own). */
+.pnav[data-gliding] :is(.pnav__link, .pnav__icon, .pnav__label) {
+  transition-property: background, transform;
+}
+
+/* 3 · THE DRAWER SCRIM fades both ways over --duration-base (220ms — the drawer's own slide): in
+   with --ease-enter, out with --ease-exit. No backdrop blur (removed with the old fade-in-only
+   animation). Below 1024px it stays laid out while the drawer is closed, so it has something to
+   fade out of — transparent and never a pointer target (a click during the fade-out reaches the
+   page), and still out of the reading and Tab order (app-shell.tsx: `aria-hidden` while closed,
+   `tabIndex={-1}` always). From 1024px it is not drawn at all, which is how the shell reads "the
+   rail is a drawer right now" (app-shell.tsx, drawer-focus.ts `isModal`). */
+@media (max-width: 1023px) {
+  .pshell__scrim {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: var(--z-overlay);
+    background: var(--scrim);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity var(--duration-base) var(--ease-exit);
+  }
+  .pshell--drawer-open .pshell__scrim {
+    opacity: 1;
+    pointer-events: auto;
+    transition: opacity var(--duration-base) var(--ease-enter);
+  }
+}
+
+/* 4 · ROW ARROWS. The "go" arrow on a whole-card link (a dashboard posting row, a linked unlock)
+   nudges 4px toward where the card goes — only while the card is hovered (on a device that hovers)
+   or keyboard-focused; it used to loop forever (`arrow-nudge … infinite`, removed). Out and back
+   over --duration-fast. */
+.bb-card--link .dash-view__arrow {
+  transition:
+    color var(--duration-fast) var(--ease-out),
+    transform var(--duration-fast) var(--ease-out);
+}
+@media (hover: hover) {
+  .bb-card--link:hover .dash-view__arrow {
+    transform: translateX(4px);
+  }
+}
+.bb-card--link:has(> .bb-stretched-link:focus-visible) .dash-view__arrow {
+  transform: translateX(4px);
+}
+
+/* Reduced motion: nothing above moves — no entrance, no stagger, no glide, no fade, no nudge. */
+@media (prefers-reduced-motion: reduce) {
+  .pshell__main > .pshell__content,
+  .pshell__content[data-entering] :is(.attention__list, .dash-postings, .dash-candlist, .postings-list, .agency-jobs__list, .applicants-list) > * {
+    animation: none;
+  }
+  .pnav[data-marker] .pnav__marker,
+  .pshell__scrim,
+  .pshell--drawer-open .pshell__scrim,
+  .bb-card--link .dash-view__arrow {
+    transition: none;
+  }
+  .bb-card--link:hover .dash-view__arrow,
+  .bb-card--link:has(> .bb-stretched-link:focus-visible) .dash-view__arrow {
+    transform: none;
+  }
+}
+/* ===== end W6 #2586 ===== */
 
 /* ============================================================
    APP-WIDE DESIGNER PATTERN — the new-posting visual language,
