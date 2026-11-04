@@ -16,6 +16,7 @@ import { Timestamp } from "./timestamp";
 import { Stat } from "./stat";
 import { InfoPopover } from "./info-popover";
 import { AboutData } from "./about-data";
+import { PanelSection } from "./panel-section";
 
 /**
  * Platform AI spend — total, by provider, by task type, and the cap breaches in the window.
@@ -115,52 +116,55 @@ export function AiSpendPanel({ cost }: { cost: AiCostSummary }) {
       </div>
 
       {/* THE BASIS, ONCE (#2572): one chip above every figure in the section, never
-          collapsible, with its explanation one click away behind the ⓘ. */}
-      <div className="spend-basis" role="note">
-        <span className="spend-basis__chip">{basis.headline}</span>
-        <InfoPopover label="About this spend basis">
-          <p>
-            {basis.detail} {describeAiCostCaveat(cost.caveat)}
-          </p>
-        </InfoPopover>
-      </div>
-
-      {measured ? null : (
-        <div className="state">
-          <h3 className="state__title">Nothing has accrued yet</h3>
-          <p className="state__body">{basis.detail}</p>
+          collapsible, with its explanation one click away behind the ⓘ. It opens the first
+          PanelSection (A1, #2571), so every block below it sits under it. */}
+      <PanelSection>
+        <div className="spend-basis" role="note">
+          <span className="spend-basis__chip">{basis.headline}</span>
+          <InfoPopover label="About this spend basis">
+            <p>
+              {basis.detail} {describeAiCostCaveat(cost.caveat)}
+            </p>
+          </InfoPopover>
         </div>
-      )}
 
-      <div className="stats">
-        {measured ? (
-          <>
-            <Stat
-              /* Under the section chip above — "Spend recorded", not "Total AI spend". */
-              label="Spend recorded"
-              value={formatDisplayRupees(cost.total_cost_inr)}
-              valueTitle={formatExactRupees(cost.total_cost_inr)}
-              countUp={{ to: Number(cost.total_cost_inr), kind: "rupees" }}
-              wide
-            />
-            <Stat
-              /* NEUTRAL, not a warning (#2572). The share of calls that reached a real
-                 provider is a fact about the posture; the rest were mocked. A dependency that
-                 is actually simulated is announced once, in Needs attention. */
-              label="Real-provider calls"
-              value={realCallsText(cost.real_calls, cost.total_calls)}
-            />
-          </>
-        ) : null}
-        {/* OUTSIDE `measured` — see rule 2. This count is off the event spine, so it stands
-            whether or not the cost table has ever been written to. */}
-        <Stat
-          label={`Cap breaches (last ${breaches.window_days} days)`}
-          value={formatCount(breaches.total)}
-          countUp={{ to: breaches.total, kind: "count" }}
-          tone={breaches.total > 0 ? "warn" : undefined}
-        />
-      </div>
+        {measured ? null : (
+          <div className="state">
+            <h3 className="state__title">Nothing has accrued yet</h3>
+            <p className="state__body">{basis.detail}</p>
+          </div>
+        )}
+
+        <div className="stats">
+          {measured ? (
+            <>
+              <Stat
+                /* Under the section chip above — "Spend recorded", not "Total AI spend". */
+                label="Spend recorded"
+                value={formatDisplayRupees(cost.total_cost_inr)}
+                valueTitle={formatExactRupees(cost.total_cost_inr)}
+                countUp={{ to: Number(cost.total_cost_inr), kind: "rupees" }}
+                wide
+              />
+              <Stat
+                /* NEUTRAL, not a warning (#2572). The share of calls that reached a real
+                   provider is a fact about the posture; the rest were mocked. A dependency
+                   that is actually simulated is announced once, in Needs attention. */
+                label="Real-provider calls"
+                value={realCallsText(cost.real_calls, cost.total_calls)}
+              />
+            </>
+          ) : null}
+          {/* OUTSIDE `measured` — see rule 2. This count is off the event spine, so it stands
+              whether or not the cost table has ever been written to. */}
+          <Stat
+            label={`Cap breaches (last ${breaches.window_days} days)`}
+            value={formatCount(breaches.total)}
+            countUp={{ to: breaches.total, kind: "count" }}
+            tone={breaches.total > 0 ? "warn" : undefined}
+          />
+        </div>
+      </PanelSection>
 
       {/* ── WHAT A FINISHED PROFILE COSTS ────────────────────────────────────────────────
           Sits directly ABOVE "By task type" on purpose: the numerator is some of that
@@ -170,23 +174,17 @@ export function AiSpendPanel({ cost }: { cost: AiCostSummary }) {
           no ratio), `unsupported` renders the version-skew sentence and no ₹ anywhere, and
           only `measured` renders figures. */}
       {perProfileState.kind === "unsupported" ? (
-        <div>
-          <h3 className="panel__title" id="ai-spend-per-profile">
-            What a finished profile costs
-          </h3>
+        <PanelSection title="What a finished profile costs" titleId="ai-spend-per-profile">
           {/* NOT SILENTLY DROPPED. An absent block is pixel-identical to "no profiling
               spend has accrued", which would be a false claim about a spending platform. */}
           <p className="notice notice--warn" role="note">
             {perProfileState.sentence}
           </p>
-        </div>
+        </PanelSection>
       ) : null}
 
       {perProfileState.kind === "measured" && perProfile ? (
-        <div>
-          <h3 className="panel__title" id="ai-spend-per-profile">
-            What a finished profile costs
-          </h3>
+        <PanelSection title="What a finished profile costs" titleId="ai-spend-per-profile">
           {perProfileOwnWindow ? (
             <div className="spend-basis" role="note">
               <span className="spend-basis__chip">{basisHeadline(perProfileOwnWindow)}</span>
@@ -312,95 +310,88 @@ export function AiSpendPanel({ cost }: { cost: AiCostSummary }) {
               ) : null}
             </p>
           </AboutData>
-        </div>
+        </PanelSection>
       ) : null}
 
       {measured ? (
-        <div className="cols">
-          <div>
-            <h3 className="panel__title" id="ai-spend-provider">
-              By provider
-            </h3>
-            <p className="panel__sub">
-              The raw stored label, biggest spender first. No remapping is applied.
-            </p>
-            {cost.by_provider.length === 0 ? (
-              <p className="empty">No provider has recorded a call yet.</p>
-            ) : (
-              <ul className="funnel" aria-labelledby="ai-spend-provider">
-                {cost.by_provider.map((p) => {
-                  const note = providerNote(p.provider);
-                  return (
-                    <li className="funnel__row" key={p.provider}>
-                      <span className="funnel__label">
-                        {providerLabel(p.provider)}
-                        {note ? (
-                          <>
-                            <br />
-                            <span className="funnel__events">{note}</span>
-                          </>
-                        ) : null}
-                      </span>
+        <PanelSection>
+          <div className="cols">
+            <PanelSection title="By provider" titleId="ai-spend-provider">
+              <p className="panel__sub">
+                The raw stored label, biggest spender first. No remapping is applied.
+              </p>
+              {cost.by_provider.length === 0 ? (
+                <p className="empty">No provider has recorded a call yet.</p>
+              ) : (
+                <ul className="funnel" aria-labelledby="ai-spend-provider">
+                  {cost.by_provider.map((p) => {
+                    const note = providerNote(p.provider);
+                    return (
+                      <li className="funnel__row" key={p.provider}>
+                        <span className="funnel__label">
+                          {providerLabel(p.provider)}
+                          {note ? (
+                            <>
+                              <br />
+                              <span className="funnel__events">{note}</span>
+                            </>
+                          ) : null}
+                        </span>
+                        <span className="funnel__nums">
+                          <span
+                            className="funnel__distinct"
+                            title={formatExactRupees(p.total_cost_inr)}
+                          >
+                            {formatDisplayRupees(p.total_cost_inr)}
+                          </span>
+                          <span className="funnel__events">
+                            {formatCount(p.call_count)} calls · {formatCount(p.real_call_count)}{" "}
+                            real · since <Timestamp iso={p.first_recorded_at} dateOnly />
+                          </span>
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </PanelSection>
+
+            <PanelSection title="By task type" titleId="ai-spend-task">
+              <p className="panel__sub">
+                The other half of the cost table&rsquo;s key — and what makes the &ldquo;unknown
+                provider&rdquo; row readable.
+              </p>
+              {cost.by_task_type.length === 0 ? (
+                <p className="empty">No task type has recorded a call yet.</p>
+              ) : (
+                <ul className="funnel" aria-labelledby="ai-spend-task">
+                  {cost.by_task_type.map((t) => (
+                    <li className="funnel__row" key={t.task_type}>
+                      <span className="funnel__label">{taskTypeLabel(t.task_type)}</span>
                       <span className="funnel__nums">
                         <span
                           className="funnel__distinct"
-                          title={formatExactRupees(p.total_cost_inr)}
+                          title={formatExactRupees(t.total_cost_inr)}
                         >
-                          {formatDisplayRupees(p.total_cost_inr)}
+                          {formatDisplayRupees(t.total_cost_inr)}
                         </span>
                         <span className="funnel__events">
-                          {formatCount(p.call_count)} calls · {formatCount(p.real_call_count)} real
-                          · since <Timestamp iso={p.first_recorded_at} dateOnly />
+                          {formatCount(t.call_count)} calls · {formatCount(t.real_call_count)} real
                         </span>
                       </span>
                     </li>
-                  );
-                })}
-              </ul>
-            )}
+                  ))}
+                </ul>
+              )}
+            </PanelSection>
           </div>
-
-          <div>
-            <h3 className="panel__title" id="ai-spend-task">
-              By task type
-            </h3>
-            <p className="panel__sub">
-              The other half of the cost table&rsquo;s key — and what makes the &ldquo;unknown
-              provider&rdquo; row readable.
-            </p>
-            {cost.by_task_type.length === 0 ? (
-              <p className="empty">No task type has recorded a call yet.</p>
-            ) : (
-              <ul className="funnel" aria-labelledby="ai-spend-task">
-                {cost.by_task_type.map((t) => (
-                  <li className="funnel__row" key={t.task_type}>
-                    <span className="funnel__label">{taskTypeLabel(t.task_type)}</span>
-                    <span className="funnel__nums">
-                      <span
-                        className="funnel__distinct"
-                        title={formatExactRupees(t.total_cost_inr)}
-                      >
-                        {formatDisplayRupees(t.total_cost_inr)}
-                      </span>
-                      <span className="funnel__events">
-                        {formatCount(t.call_count)} calls · {formatCount(t.real_call_count)} real
-                      </span>
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        </div>
+        </PanelSection>
       ) : null}
 
       {/* NOT GATED ON `measured` — see rule 2. Its numbers come off the event spine, so an
           empty cost table cannot suppress them, and the scope sentence the API put in band
           ships with the count either way. */}
-      <div>
-        <h3 className="panel__title" id="ai-spend-breaches">
-          Spend-cap breaches
-        </h3>
+      <PanelSection title="Spend-cap breaches" titleId="ai-spend-breaches">
         {/* THE SCOPE SHIPS WITH THE NUMBER, always — a bare `0` reads as "no surface
             anywhere hit a cap", and exactly one surface emits this event today. */}
         <p className="panel__sub">{describeCapBreachScope(breaches.scope)}</p>
@@ -426,7 +417,7 @@ export function AiSpendPanel({ cost }: { cost: AiCostSummary }) {
             ))}
           </ul>
         )}
-      </div>
+      </PanelSection>
     </section>
   );
 }

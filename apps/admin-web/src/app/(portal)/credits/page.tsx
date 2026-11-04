@@ -215,7 +215,7 @@ export default async function CreditsPage({
                         <tr key={b.reason}>
                           <td>{creditReasonLabel(b.reason)}</td>
                           <td className="ui-num">{formatCount(b.movements)}</td>
-                          <td className="mono ui-num">{formatDelta(b.credits_delta)}</td>
+                          <td className="ui-num">{formatDelta(b.credits_delta)}</td>
                           <td className="table__meta ui-num">
                             {/* Only purchases carry a stamped price; a debit or a grant has
                                 no rupee amount, and showing ₹0 would claim one. */}
@@ -271,7 +271,7 @@ export default async function CreditsPage({
                                 address that redirects an agency on, and names no persona. */}
                             <CustomerLink payerId={b.payer_id} payerRole={b.payer_role} />
                           </td>
-                          <td className="mono ui-num">{formatCount(b.balance)}</td>
+                          <td className="ui-num">{formatCount(b.balance)}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -429,7 +429,7 @@ export default async function CreditsPage({
                         title={`${row.reason} · ${row.delta < 0 ? "spends" : "adds"} credits`}
                       />
                     </td>
-                    <td className="mono ui-num">{formatDelta(row.delta)}</td>
+                    <td className="ui-num">{formatDelta(row.delta)}</td>
                     <td className="table__meta ui-num">
                       {/* A null price is a legacy row or a non-purchase. Rendering the
                           current catalog price here would retroactively rewrite what a past

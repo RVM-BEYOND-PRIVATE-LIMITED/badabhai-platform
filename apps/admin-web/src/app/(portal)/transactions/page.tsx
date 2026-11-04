@@ -308,8 +308,8 @@ export default async function TransactionsPage({
                       <CustomerLink payerId={o.payer_id} payerRole={o.payer_role} />
                     </td>
                     <td>{packCodeLabel(o.pack_code)}</td>
-                    <td className="mono ui-num">{formatRupees(o.amount_inr)}</td>
-                    <td className="mono ui-num">{formatCount(o.credits_granted)}</td>
+                    <td className="ui-num">{formatRupees(o.amount_inr)}</td>
+                    <td className="ui-num">{formatCount(o.credits_granted)}</td>
                     <td>
                       {/* The pill shows the REAL order status. `created` is toned warn, not
                           neutral: an order stuck in checkout is a thing to look at, not a
