@@ -65,21 +65,34 @@ export function PayerDetailView({
     titleMono: orgName === null,
     description: (
       <>
-        One {noun} — what it has posted and
-        spent{orgName === null ? ", not who registered it" : ""} —{" "}
+        One {noun}
         {postings === null ? (
           /* The postings read FAILED (the panel below says so). "No postings yet" would be a
              claim about the account made from a read that never arrived. */
-          <>its postings could not be loaded, so no self-declared label is shown.</>
+          <> — its postings could not be loaded, so no self-declared label is shown.</>
         ) : labels.length > 0 ? (
           <>
-            publishing as <strong>{labels.slice(0, 3).join(", ")}</strong>
-            {labels.length > 3 && ` and ${labels.length - 3} more`}, self-declared on its
-            postings and not a verified name.
+            , publishing as <strong>{labels[0]}</strong>
+            {labels.length > 1 && ` and ${labels.length - 1} more`}.
           </>
         ) : (
-          <>with no postings yet, so no self-declared label identifies it.</>
+          <> with no postings yet, so no self-declared label identifies it.</>
         )}
+      </>
+    ),
+    info: (
+      <>
+        <p>
+          What this {noun} has posted and spent
+          {orgName === null ? ", not who registered it" : ""}.
+        </p>
+        {labels.length > 0 ? (
+          <p>
+            Publishing as {labels.slice(0, 3).join(", ")}
+            {labels.length > 3 && ` and ${labels.length - 3} more`} — self-declared on its
+            postings and not a verified name.
+          </p>
+        ) : null}
       </>
     ),
   };

@@ -76,8 +76,9 @@ export default async function ChatSessionDetailPage({
         titleMono
         description={
           <>
-            One AI profiling interview — what was asked, what settled and where it stopped —
-            started {formatRelative(session.started_at)} (<Timestamp iso={session.started_at} />).
+            One AI profiling interview, started {formatRelative(session.started_at)} (
+            <Timestamp iso={session.started_at} />
+            ).
           </>
         }
         secondaryActions={

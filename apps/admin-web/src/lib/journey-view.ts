@@ -217,7 +217,7 @@ export function describeJourneyCaveat(code: string): CaveatView {
     case "no_conversation_state":
       return {
         title: "This session saved no interview state",
-        body: "A v1 model-driven interview, or one that never reached the deterministic engine. Without `ask_counts` there is nothing to derive a stuck question from.",
+        body: "A v1 model-driven interview, or one that never reached the deterministic engine. Without its ask counts there is nothing to derive a stuck question from.",
       };
     case "pack_version_retired":
       return {

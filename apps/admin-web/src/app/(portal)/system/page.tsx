@@ -6,6 +6,7 @@ import { getKillSwitchStatus } from "../../../lib/entities";
 import { healthTone } from "../../../lib/format";
 import { StatusPill } from "../../../components/status-pill";
 import { PageHeader } from "../../../components/page-header";
+import { InfoPopover } from "../../../components/info-popover";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 
 export const dynamic = "force-dynamic";
@@ -61,14 +62,20 @@ export default async function SystemPage() {
       />
 
       {mocked.length > 0 && (
-        <section className="notice notice--warn" role="status">
-          <strong>
-            {mocked.length} dependenc{mocked.length === 1 ? "y is" : "ies are"} simulated.
-          </strong>{" "}
-          The platform is up, but {mocked.map(([k]) => k.replace(/_/g, " ")).join(", ")}{" "}
-          {mocked.length === 1 ? "is" : "are"} not exercising a real provider. A green
-          overall status with a mocked dependency behind it is how a staging environment
-          looks healthy for weeks while proving nothing.
+        <section className="notice notice--warn notice--row" role="status">
+          <span>
+            <strong>
+              {mocked.length} dependenc{mocked.length === 1 ? "y is" : "ies are"} simulated.
+            </strong>{" "}
+            The platform is up, but {mocked.map(([k]) => k.replace(/_/g, " ")).join(", ")}{" "}
+            {mocked.length === 1 ? "is" : "are"} not exercising a real provider.
+          </span>
+          <InfoPopover label="About simulated dependencies">
+            <p>
+              A green overall status with a mocked dependency behind it is how a staging
+              environment looks healthy for weeks while proving nothing.
+            </p>
+          </InfoPopover>
         </section>
       )}
 

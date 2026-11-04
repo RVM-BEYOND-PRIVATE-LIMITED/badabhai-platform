@@ -14,6 +14,8 @@ import {
 import { formatCount, formatDisplayRupees, formatExactRupees } from "../lib/format";
 import { Timestamp } from "./timestamp";
 import { Stat } from "./stat";
+import { InfoPopover } from "./info-popover";
+import { AboutData } from "./about-data";
 
 /**
  * Platform AI spend — total, by provider, by task type, and the cap breaches in the window.
@@ -69,6 +71,13 @@ import { Stat } from "./stat";
  * this block's tiles are dated from the former, and `describeCostPerProfile` returns `absent`
  * for the nothing-accrued state — which is what keeps rule 2 above absolute here too, and what
  * stops a ₹0.00 average from rendering on a platform whose only spend so far is résumés.
+ *
+ * ══ LESS TEXT (A3, #2573) ═══════════════════════════════════════════════════════════════
+ * The panel carried ~350 words of caveats in band. The CLAIMS stay on screen — the basis
+ * headline in its warn banner, the date in every ₹ label, the per-profile basis headline, the
+ * breach scope beside its count, and any self-contradiction warning — while the explanations
+ * behind them sit one click away: the basis detail behind the banner's ⓘ, the per-profile
+ * mechanics and the real-vs-test totals in that block's "About this data".
  */
 export function AiSpendPanel({ cost }: { cost: AiCostSummary }) {
   const basis = describeAiCostBasis(cost);
@@ -85,16 +94,21 @@ export function AiSpendPanel({ cost }: { cost: AiCostSummary }) {
           AI spend
         </h2>
         <p className="panel__sub">
-          What the platform has paid providers, split by who was called and what for.{" "}
-          {basis.headline}.
+          What the platform has paid providers, split by who was called and what for.
         </p>
       </div>
 
-      {/* The basis rides ABOVE the numbers and is never collapsible: a partial figure
-          presented as authoritative is the defect this whole block was built to prevent. */}
-      <p className="notice notice--warn" role="note">
-        <strong>{basis.headline}.</strong> {basis.detail} {describeAiCostCaveat(cost.caveat)}
-      </p>
+      {/* The basis headline rides ABOVE the numbers and is never collapsible: a partial figure
+          presented as authoritative is the defect this whole block was built to prevent. Its
+          explanation is one click away behind the ⓘ (#2573). */}
+      <div className="notice notice--warn notice--row" role="note">
+        <strong>{basis.headline}.</strong>
+        <InfoPopover label="About this spend basis">
+          <p>
+            {basis.detail} {describeAiCostCaveat(cost.caveat)}
+          </p>
+        </InfoPopover>
+      </div>
 
       {measured ? null : (
         <div className="state">
@@ -163,8 +177,7 @@ export function AiSpendPanel({ cost }: { cost: AiCostSummary }) {
               and here it is doing more work, because "cost per profile" and "cost per
               worker" are both plausible readings of the same tile and only one is true. */}
           <p className="panel__sub">
-            <strong>{perProfileState.view.basisHeadline}.</strong>{" "}
-            {perProfileState.view.basisDetail}
+            <strong>{perProfileState.view.basisHeadline}.</strong>
           </p>
 
           <div className="stats stats--compact">
@@ -215,49 +228,51 @@ export function AiSpendPanel({ cost }: { cost: AiCostSummary }) {
             ) : null}
           </div>
 
-          {/* The legs' numerators and denominators, so each average is auditable — and the
-              convergence caveat, in band, because the split is not a clean room: a test
-              account's spend before its first marked login still reads as real. */}
+          {/* Not a clean split: an older API sent none, and the sentence says so in band. */}
           {testSplit?.kind === "unsupported" ? (
             <p className="notice notice--warn" role="note">
               {testSplit.sentence}
             </p>
-          ) : testSplit?.kind === "measured" ? (
-            <p className="notice" role="note">
-              <strong>Real vs test.</strong> Real accounts recorded {testSplit.real.spendText} over{" "}
-              {formatCount(testSplit.real.profiles)} profiles ({formatCount(testSplit.real.calls)}{" "}
-              calls); test accounts recorded {testSplit.test.spendText} over{" "}
-              {formatCount(testSplit.test.profiles)} profiles ({formatCount(testSplit.test.calls)}{" "}
-              calls). {testSplit.caveatSentence} The headline average above stays blended across
-              both legs.
+          ) : null}
+
+          {/* Only reachable if the server contradicts itself about the bound, or sends one that
+              will not parse. In band and bolded, because the ratio above it is then not a ratio
+              of anything. */}
+          {perProfileState.view.windowMismatchSentence ? (
+            <p className="notice notice--warn" role="note">
+              <strong>{perProfileState.view.windowMismatchSentence}</strong>
             </p>
           ) : null}
 
-          <p
-            className={`notice${perProfileState.view.windowMismatchSentence ? " notice--warn" : ""}`}
-            role="note"
-          >
-            {perProfileState.view.scopeSentence} {perProfileState.view.completedSentence}{" "}
-            {perProfileState.view.windowSentence} {perProfileState.view.erasureSentence}
-            {perProfileState.view.sectionBoundSentence ? (
-              <> {perProfileState.view.sectionBoundSentence}</>
+          {/* The mechanics behind the figures (#2573): the basis detail, the legs' numerators
+              and denominators (so each average is auditable) with the convergence caveat, and
+              the scope, window, erasure and posture sentences. */}
+          <AboutData>
+            <p>{perProfileState.view.basisDetail}</p>
+            {testSplit?.kind === "measured" ? (
+              <p>
+                <strong>Real vs test.</strong> Real accounts recorded {testSplit.real.spendText}{" "}
+                over {formatCount(testSplit.real.profiles)} profiles (
+                {formatCount(testSplit.real.calls)} calls); test accounts recorded{" "}
+                {testSplit.test.spendText} over {formatCount(testSplit.test.profiles)} profiles (
+                {formatCount(testSplit.test.calls)} calls). {testSplit.caveatSentence} The
+                headline average above stays blended across both legs.
+              </p>
             ) : null}
-            {perProfileState.view.averageAbsentSentence ? (
-              <> {perProfileState.view.averageAbsentSentence}</>
-            ) : null}
-            {perProfileState.view.mockPostureSentence ? (
-              <> {perProfileState.view.mockPostureSentence}</>
-            ) : null}
-            {/* Only reachable if the server contradicts itself about the bound, or sends
-                one that will not parse. Bolded because the ratio above it is then not a
-                ratio of anything. */}
-            {perProfileState.view.windowMismatchSentence ? (
-              <>
-                {" "}
-                <strong>{perProfileState.view.windowMismatchSentence}</strong>
-              </>
-            ) : null}
-          </p>
+            <p>
+              {perProfileState.view.scopeSentence} {perProfileState.view.completedSentence}{" "}
+              {perProfileState.view.windowSentence} {perProfileState.view.erasureSentence}
+              {perProfileState.view.sectionBoundSentence ? (
+                <> {perProfileState.view.sectionBoundSentence}</>
+              ) : null}
+              {perProfileState.view.averageAbsentSentence ? (
+                <> {perProfileState.view.averageAbsentSentence}</>
+              ) : null}
+              {perProfileState.view.mockPostureSentence ? (
+                <> {perProfileState.view.mockPostureSentence}</>
+              ) : null}
+            </p>
+          </AboutData>
         </div>
       ) : null}
 

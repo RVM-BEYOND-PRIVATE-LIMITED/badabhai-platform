@@ -119,17 +119,19 @@ export default async function WorkersPage({
       <PageHeader
         title="Workers"
         description={
-          <>
-            {/* THREE-VALUED, like the detail page's panel subs: "names are shown" directly
-                above the notice saying they are withheld would contradict it. */}
-            {posture === "faceless"
-              ? "Workers are identified by id here — your role does not include name access"
-              : posture === "capped"
-                ? "Workers are identified by id while names are withheld (see below)"
-                : "Names are shown to your role, and each name read is capped and audited"}
-            ; contact details are never listed, and revealing one worker&apos;s contact is a
+          /* THREE-VALUED, like the detail page's panel subs: "names are shown" directly above
+             the notice saying they are withheld would contradict it. */
+          posture === "faceless"
+            ? "Workers, identified by id — your role does not include name access."
+            : posture === "capped"
+              ? "Workers, identified by id while names are withheld (see below)."
+              : "Names are shown to your role, and each name read is capped and audited."
+        }
+        info={
+          <p>
+            Contact details are never listed, and revealing one worker&apos;s contact is a
             separate, reason-gated action.
-          </>
+          </p>
         }
         filters={
           /* Folds behind a "Filters (n)" toggle on a phone (AW-08); unchanged above it. */

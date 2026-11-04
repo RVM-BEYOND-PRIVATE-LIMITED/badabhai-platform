@@ -22,6 +22,7 @@ import { CopyId } from "../../../components/copy-id";
 import { StatusPill } from "../../../components/status-pill";
 import { Pager } from "../../../components/pager";
 import { PageHeader } from "../../../components/page-header";
+import { AboutData } from "../../../components/about-data";
 import { FirstPageAction, RetryActions } from "../../../components/retry-actions";
 import { AiCallFilterBar } from "./filter-bar";
 import { FilterPanel } from "../../../components/filter-panel";
@@ -251,12 +252,13 @@ export default async function AiCallsPage({
             )}
           </div>
         ) : failed ? (
-          <div className="state state--error">
-            <h3 className="state__title">AI calls are unavailable</h3>
+          /* ONE line (#2573): the icon, what happened, and Retry beside it. */
+          <div className="state state--error state--row" role="alert">
+            <span className="state__icon">
+              <Icon name="warning-circle" />
+            </span>
             <p className="state__body">
-              The list did not load, and that is a fault on our side rather than anything in the
-              filters. Nothing has been lost: AI calls are recorded as they complete and will all
-              be here once the read succeeds.
+              <strong>AI calls are unavailable</strong> — a fault on our side, not the filters.
             </p>
             {/* The SAME query. A retry pointed at the bare route silently drops the filters and
                 the cursor, returning an operator to page one while claiming to retry. */}
@@ -458,39 +460,29 @@ export default async function AiCallsPage({
         />
 
         {/* What a row is, and what it is not — the mechanics the one-sentence description leaves
-            out, posture-conditional on whether this session may open a call's text. A standing
-            statement about how to read every row, so it follows the rows with the other standing
-            footnote below (AW-08): above the list it put the first call 818px down at 375. */}
-        <div className="alert alert--info">
-          <div className="alert__text">
-            <p className="alert__title">Measurements, not text</p>
-            <p className="alert__body">
-              Each row says what the call was for, which model answered, whether a provider was
-              really called, and how long the request and the reply were. The two counts are
-              characters, not the characters themselves.{" "}
-              {mayReadText
-                ? "The text of each call is stored encrypted; opening one is a separate read, capped and recorded."
-                : "The text of each call is stored encrypted and cannot be read from your role — what is on this page are its measurements."}
-            </p>
-          </div>
-        </div>
-
-        {/* A standing footnote rather than a banner: it is true on every render, and a warning
-            at the top of every page load is how an operator learns to skip the one that matters.
-            It belongs on the page all the same — every count made from this table is a count of
-            SOME calls, and the two exclusions below are both systematic. */}
-        <div className="alert alert--info">
-          <div className="alert__text">
-            <p className="alert__title">This is not every AI call</p>
-            <p className="alert__body">
-              A call that never reached a provider — the mock adapter, a spend cap, an unreachable
-              AI service — leaves nothing here, because there was no provider call to record. And
-              a call with no worker behind it is dropped on purpose: the customer posting chat and
-              the skill embedding run on a posting write are both traced nowhere, because a record
-              that cannot be attributed to a worker also cannot be erased with them.
-            </p>
-          </div>
-        </div>
+            out, posture-conditional on whether this session may open a call's text — and the
+            standing footnote that this is not every call. Both follow the rows (AW-08: above the
+            list they put the first call 818px down at 375), and since #2573 they are one
+            collapsed "About these calls", still on every render: every count made from this
+            table is a count of SOME calls, and the two exclusions are both systematic. */}
+        <AboutData title="About these calls">
+          <p>
+            <strong>Measurements, not text.</strong> Each row says what the call was for, which
+            model answered, whether a provider was really called, and how long the request and the
+            reply were. The two counts are characters, not the characters themselves.{" "}
+            {mayReadText
+              ? "The text of each call is stored encrypted; opening one is a separate read, capped and recorded."
+              : "The text of each call is stored encrypted and cannot be read from your role — what is on this page are its measurements."}
+          </p>
+          <p>
+            <strong>This is not every AI call.</strong> A call that never reached a provider — the
+            mock adapter, a spend cap, an unreachable AI service — leaves nothing here, because
+            there was no provider call to record. And a call with no worker behind it is dropped
+            on purpose: the customer posting chat and the skill embedding run on a posting write
+            are both traced nowhere, because a record that cannot be attributed to a worker also
+            cannot be erased with them.
+          </p>
+        </AboutData>
       </section>
     </div>
   );

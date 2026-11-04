@@ -352,8 +352,12 @@ describe("the category chips", () => {
     const out = await render();
     for (const label of ["Suggestions", "Problems", "Other"]) expect(out).toContain(label);
     expect(out).not.toContain("btn--primary");
-    expect(out).not.toContain("btn--selected");
-    expect(out).not.toContain('aria-current="true"');
+    // The only selected chip is "All" (#2573): the unfiltered view is a scope too.
+    for (const category of ["suggestion", "problem", "other"] as const) {
+      expect(chip(out, category)).not.toContain("btn--selected");
+      expect(chip(out, category)).not.toContain('aria-current="true"');
+    }
+    expect((out.match(/aria-current="true"/g) ?? []).length).toBe(1);
   });
 
   it("marks the active chip for assistive tech, not by colour alone", async () => {
@@ -799,21 +803,42 @@ function escapeHtml(value: string): string {
 
 /**
  * PAGE HEIGHT (final sweep AW-08): the 288px "A worker's own words" band stood between the
- * header and the first message at 375px. It is a standing statement about how to read the
- * screen, so it follows the messages now, inside the same panel.
+ * header and the first message at 375px. It follows the messages, inside the same panel — and
+ * since #2573 it is a collapsed "About these messages", shown only when there are messages.
  */
-describe("page height: the messages before the explanation (AW-08)", () => {
-  it("'A worker's own words' follows the table", async () => {
+describe("page height: the messages before the explanation (AW-08, #2573)", () => {
+  it("'About these messages' follows the table, collapsed", async () => {
     stub.page = { items: [TAGGED], nextCursor: null };
     const out = await render();
     const table = out.indexOf('<div class="tablewrap">');
     expect(table).toBeGreaterThanOrEqual(0);
-    expect(out.indexOf("A worker&#x27;s own words")).toBeGreaterThan(table);
+    const about = out.indexOf('<details class="about">');
+    expect(about).toBeGreaterThan(table);
+    expect(out.slice(about)).toContain("About these messages");
+    // Closed by default, and the caveat is still in the DOM for a screen reader once opened.
+    expect(out.slice(about, out.indexOf(">", about) + 1)).not.toContain("open");
+    expect(out.slice(about)).toContain("the one screen here that shows a worker&#x27;s own words");
   });
 
-  it("is still there when nothing was fetched — it describes the screen, not the rows", async () => {
+  it("is hidden when the list is empty or nothing was fetched — it would describe no rows", async () => {
+    stub.page = { items: [], nextCursor: null };
+    expect(await render()).not.toContain("About these messages");
+    stub.failure = new TypeError("fetch failed");
+    expect(await render()).not.toContain("About these messages");
+  });
+});
+
+describe("the All chip (#2573)", () => {
+  it("is selected, as text, when no tag is applied", async () => {
+    stub.page = { items: [TAGGED], nextCursor: null };
     const out = await render();
-    expect(out).toContain("A worker&#x27;s own words");
+    expect(out).toMatch(/<span aria-current="true" class="[^"]*btn--selected[^"]*">All<\/span>/);
+  });
+
+  it("links the untagged view and keeps a worker narrowing", async () => {
+    stub.page = { items: [TAGGED], nextCursor: null };
+    const out = await render({ category: "problem", workerId: WORKER_ID });
+    expect(out).toContain(`href="/feedback?workerId=${WORKER_ID}">All`);
   });
 });
 

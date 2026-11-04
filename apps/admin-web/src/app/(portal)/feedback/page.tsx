@@ -18,6 +18,7 @@ import { CopyId } from "../../../components/copy-id";
 import { StatusPill, type Tone } from "../../../components/status-pill";
 import { Pager } from "../../../components/pager";
 import { PageHeader } from "../../../components/page-header";
+import { AboutData } from "../../../components/about-data";
 import { FirstPageAction, RetryActions } from "../../../components/retry-actions";
 import { FilterChip } from "../../../components/filter-chip-link";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
@@ -215,6 +216,11 @@ export default async function FeedbackPage({
         </div>
 
         <div className="filters filters--inline">
+          {/* "All" (#2573): the unfiltered tag view as a chip of its own, so the row always
+              shows which tag scope is applied. KEEPS a worker narrowing, like every chip. */}
+          <FilterChip cursor={cursor} selected={!category} href={listHref({ category: null })}>
+            All
+          </FilterChip>
           {FEEDBACK_CATEGORIES.map((c) => (
             <FilterChip
               cursor={cursor}
@@ -555,14 +561,12 @@ export default async function FeedbackPage({
           note="Paging uses a keyset cursor, so feedback arriving mid-scan cannot make rows skip or repeat."
         />
 
-        {/* The mechanics the one-sentence description leaves out. A standing statement about how
-            to read the screen, which is what `.alert--info` is the primitive for — and, being
-            standing, it follows the messages rather than preceding them: above the list it put
-            the first message 618px down at 375 (AW-08). */}
-        <div className="alert alert--info">
-          <div className="alert__text">
-            <p className="alert__title">A worker&apos;s own words</p>
-            <p className="alert__body">
+        {/* The mechanics the one-sentence description leaves out, collapsed (#2573). It follows
+            the messages rather than preceding them (AW-08), and it renders only when there ARE
+            messages: over an empty list or a failed read it describes rows that are not there. */}
+        {page && page.items.length > 0 ? (
+          <AboutData title="About these messages">
+            <p>
               This is the one screen here that shows a worker&apos;s own words, so a message may
               contain details they chose to include about themselves — and, since they may attach
               photos of what they are reporting, so may an image. Nothing else on the row is
@@ -571,8 +575,8 @@ export default async function FeedbackPage({
               it says where the worker was rather than what they were looking at. Image links
               expire after a few minutes; reload the page to get working ones.
             </p>
-          </div>
-        </div>
+          </AboutData>
+        ) : null}
       </section>
     </div>
   );

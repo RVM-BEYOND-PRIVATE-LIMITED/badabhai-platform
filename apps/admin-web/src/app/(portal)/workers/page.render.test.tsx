@@ -145,6 +145,13 @@ describe("an admin who holds read_identity", () => {
     expect(out).not.toContain("Names are withheld on this page");
   });
 
+  it("keeps the contact caveat one click away, behind the subtitle's ⓘ (#2573)", async () => {
+    const out = await render();
+    const info = out.slice(out.indexOf('<details class="infopop">'));
+    expect(out.indexOf('<details class="infopop">')).toBeGreaterThan(out.indexOf('class="page__sub"'));
+    expect(info).toContain("revealing one worker&#x27;s contact is a separate, reason-gated action");
+  });
+
   it("still offers no search box of any kind", async () => {
     // The ruling reversed "the roster is anonymous". It did not reverse "the roster is not a
     // lookup tool" — a field that turns a name into a row is what makes this bulk queryable by

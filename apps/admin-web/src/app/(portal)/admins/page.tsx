@@ -143,10 +143,16 @@ export default async function AdminsPage({
            shown to your role" sat directly above the notice saying they are withheld. */
         description={
           posture === "faceless"
-            ? "Who holds access to this portal, by id — the handle on every audit event; names are not served to your role, and emails stay encrypted and are served to no role at all."
+            ? "Who holds access to this portal, by id — names are not served to your role."
             : posture === "capped"
-              ? "Who holds access to this portal, by id while names are withheld (see below) — the handle on every audit event; emails stay encrypted and are served to no role at all."
-              : "Who holds access to this portal — names are shown to your role and every read of one is audited, emails stay encrypted and are served to no role at all, and the id is the handle on every audit event."
+              ? "Who holds access to this portal, by id while names are withheld (see below)."
+              : "Who holds access — names are shown to your role and every read of one is audited."
+        }
+        info={
+          <>
+            <p>The id is the handle on every audit event.</p>
+            <p>Admin emails stay encrypted and are served to no role at all.</p>
+          </>
         }
         /* The page's own actions, first, as on every other page. The forms themselves stay at
            the foot of the page, under the directory they add to; these are the way to them.

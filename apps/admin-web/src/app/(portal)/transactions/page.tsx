@@ -113,7 +113,8 @@ export default async function TransactionsPage({
     <div className="page">
       <PageHeader
         title="Payment orders"
-        description="Credit-pack checkouts, with amounts and credits stamped at order creation so a later price change never rewrites a past order."
+        description="Credit-pack checkouts, with the amount and credits stamped on each order."
+        info={<p>Both are stamped at order creation, so a later price change never rewrites a past order.</p>}
       />
 
       {posture && <PaymentsPostureBanner posture={posture} />}

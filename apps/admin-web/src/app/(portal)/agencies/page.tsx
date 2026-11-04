@@ -97,15 +97,21 @@ export default async function AgenciesPage({
       <PageHeader
         title="Agencies"
         description={
+          /* THREE-VALUED, like the detail panel's sub: "named by the organisation" directly
+             above the notice saying names are withheld would contradict it. */
+          posture === "faceless"
+            ? "Agencies, identified by id — your role does not include name access."
+            : posture === "capped"
+              ? "Agencies, identified by id while names are withheld (see below)."
+              : "Agencies, named by the organisation they registered as."
+        }
+        info={
           <>
-            {/* THREE-VALUED, like the detail panel's sub: "named by the organisation" directly
-                above the notice saying names are withheld would contradict it. */}
-            {posture === "faceless"
-              ? "Agencies, identified by id — your role does not include name access, so find one through its postings"
-              : posture === "capped"
-                ? "Agencies, identified by id while names are withheld (see below)"
-                : "Agencies, named by the organisation they registered as — self-declared at signup, not a verified legal name"}
-            ; email, phone and KYC details stay encrypted at rest and are served to no one.
+            {posture === "faceless" ? <p>Find one through its postings.</p> : null}
+            {posture === "named" ? (
+              <p>The organisation name is self-declared at signup, not a verified legal name.</p>
+            ) : null}
+            <p>Email, phone and KYC details stay encrypted at rest and are served to no one.</p>
           </>
         }
         filters={
