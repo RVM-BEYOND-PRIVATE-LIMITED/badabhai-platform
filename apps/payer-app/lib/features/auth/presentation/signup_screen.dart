@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../core/auth/payer_auth_api.dart';
@@ -8,6 +9,7 @@ import '../../../core/session/app_session.dart';
 import '../../../core/session/app_session_cubit.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
+import '../../../core/theme/app_system_ui.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/bb_animated_switcher.dart';
 import '../../../core/widgets/bb_button.dart';
@@ -427,35 +429,41 @@ class _SignupTopBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      color: AppColors.blue,
-      child: SafeArea(
-        bottom: false,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(
-            AppSpacing.s2,
-            AppSpacing.s2,
-            AppSpacing.gutter,
-            AppSpacing.s2,
-          ),
-          child: Row(
-            children: <Widget>[
-              IconButton(
-                onPressed: onBack,
-                icon: const Icon(Icons.arrow_back_rounded, color: AppColors.onBlue),
-                tooltip: 'Back',
-              ),
-              const SizedBox(width: AppSpacing.s1),
-              Text(
-                'Sign up',
-                style: AppTypography.header(
-                  size: AppTypography.sizeLg,
-                  weight: FontWeight.w800,
-                  color: AppColors.onBlue,
+    // #2590 — the blue bar runs under the status bar: light icons on it (the
+    // app-wide fallback would otherwise give it the light canvas's dark icons).
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: AppSystemUi.onDark,
+      child: Container(
+        width: double.infinity,
+        color: AppColors.blue,
+        child: SafeArea(
+          bottom: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.s2,
+              AppSpacing.s2,
+              AppSpacing.gutter,
+              AppSpacing.s2,
+            ),
+            child: Row(
+              children: <Widget>[
+                IconButton(
+                  onPressed: onBack,
+                  icon: const Icon(Icons.arrow_back_rounded,
+                      color: AppColors.onBlue),
+                  tooltip: 'Back',
                 ),
-              ),
-            ],
+                const SizedBox(width: AppSpacing.s1),
+                Text(
+                  'Sign up',
+                  style: AppTypography.header(
+                    size: AppTypography.sizeLg,
+                    weight: FontWeight.w800,
+                    color: AppColors.onBlue,
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
