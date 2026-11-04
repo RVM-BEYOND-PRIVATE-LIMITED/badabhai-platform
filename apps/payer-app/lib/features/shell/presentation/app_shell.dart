@@ -87,11 +87,13 @@ class _AppShellState extends State<AppShell> {
   /// shell asks it before its own system Back or a nav tap leaves the overlay.
   final BbLeaveGuardController _leaveGuard = BbLeaveGuardController();
 
-  /// #2595 — overlays that are full-screen TASKS with their own pinned action
-  /// bar: the app's bottom nav hides under them (it used to stack as a second
-  /// bar under Post's). The AI chat keeps the nav — its composer is part of the
-  /// conversation, and a nav tap there is guarded instead.
-  static const Set<String> _fullScreenTasks = <String>{'post'};
+  /// #2595 — overlays that are full-screen TASKS with their own pinned bar:
+  /// the app's bottom nav hides under them (it stacked as a second bar under
+  /// Post's action bar and the AI chat's composer). Leaving one is its back
+  /// arrow or the system Back, which its leave guard asks about; a nav tap
+  /// that leaves any other overlay still goes through the guard
+  /// ([_onNavSelect]).
+  static const Set<String> _fullScreenTasks = <String>{'post', 'aiPost'};
 
   @override
   void initState() {

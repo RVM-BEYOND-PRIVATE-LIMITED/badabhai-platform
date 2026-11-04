@@ -269,9 +269,9 @@ void main() {
     });
   });
 
-  // #2595 (M7) — the bottom nav steps aside under Post (one pinned bar, not
-  // two), and leaving an overlay that holds unsaved input — by the system
-  // Back or a nav tap — asks first.
+  // #2595 (M7) — the bottom nav steps aside under the full-screen tasks, Post
+  // and the AI chat (one pinned bar, not two), and leaving one that holds
+  // unsaved input — by the system Back or its own back arrow — asks first.
   group('#2595 — full-screen tasks and the unsaved-changes guard', () {
     Future<void> openPost(WidgetTester tester) async {
       await tester.tap(find.descendant(
@@ -355,47 +355,85 @@ void main() {
       expect(navId(tester), 'home');
     });
 
-    testWidgets('a nav tap on the AI chat with an unsent message asks first', (
+    /// The chat's own composer box.
+    Finder composer() => find.descendant(
+          of: find.byType(JobPostingChatScreen),
+          matching: find.byType(TextField),
+        );
+
+    /// The chat header's back arrow.
+    Finder chatBack() => find.descendant(
+          of: find.byType(JobPostingChatScreen),
+          matching: find.byIcon(Icons.arrow_back_rounded),
+        );
+
+    testWidgets('the bottom nav hides under the AI chat and comes back after',
+        (WidgetTester tester) async {
+      await pumpShell(tester);
+      await openAiChat(tester);
+      // The chat pins its own composer — the nav no longer stacks under it.
+      expect(find.byType(BbBottomNav), findsNothing);
+
+      await systemBack(tester);
+      expect(find.byType(BbBottomNav), findsOneWidget);
+      expect(navId(tester), 'jobs');
+    });
+
+    testWidgets('with the nav gone, the composer clears the gesture inset', (
+      WidgetTester tester,
+    ) async {
+      // A gesture-navigation handset: a 48px system inset at the bottom —
+      // larger than the composer's own gap, so sitting in it would show.
+      const double inset = 48;
+      final double dpr = tester.view.devicePixelRatio;
+      tester.view.padding = FakeViewPadding(bottom: inset * dpr);
+      tester.view.viewPadding = FakeViewPadding(bottom: inset * dpr);
+      addTearDown(tester.view.reset);
+      await pumpShell(tester);
+      await openAiChat(tester);
+
+      final double screenBottom = tester.view.physicalSize.height / dpr;
+      expect(
+        tester.getRect(composer()).bottom,
+        lessThanOrEqualTo(screenBottom - inset),
+      );
+    });
+
+    testWidgets("the chat's back arrow asks first when a message is unsent", (
       WidgetTester tester,
     ) async {
       await pumpShell(tester);
       await openAiChat(tester);
-      // The AI chat keeps the nav — a tap on it is the leave to guard.
-      expect(find.byType(BbBottomNav), findsOneWidget);
-
-      await tester.enterText(
-        find.descendant(
-          of: find.byType(JobPostingChatScreen),
-          matching: find.byType(TextField),
-        ),
-        'CNC operators for the night shift',
-      );
+      await tester.enterText(composer(), 'CNC operators for the night shift');
       await tester.pump();
 
-      await tapNav(tester, 'Home');
+      await tester.tap(chatBack());
+      await tester.pumpAndSettle();
       expect(find.text('Leave this chat?'), findsOneWidget);
       await tester.tap(find.text('Keep chatting'));
       await tester.pumpAndSettle();
       expect(find.byType(JobPostingChatScreen), findsOneWidget);
 
-      await tapNav(tester, 'Home');
+      await tester.tap(chatBack());
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Leave'));
       await tester.pumpAndSettle();
       expect(find.byType(JobPostingChatScreen, skipOffstage: false),
           findsNothing);
-      expect(navId(tester), 'home');
+      expect(navId(tester), 'jobs');
     });
 
-    testWidgets('a nav tap on a chat with nothing unsent leaves at once', (
+    testWidgets("an untouched chat's back arrow leaves at once", (
       WidgetTester tester,
     ) async {
       await pumpShell(tester);
       await openAiChat(tester);
-      await tapNav(tester, 'Home');
+      await tester.tap(chatBack());
+      await tester.pumpAndSettle();
       expect(find.text('Leave this chat?'), findsNothing);
       expect(find.byType(JobPostingChatScreen, skipOffstage: false),
           findsNothing);
-      expect(navId(tester), 'home');
+      expect(navId(tester), 'jobs');
     });
 
     testWidgets('system Back on the chat with an unsent message asks first', (

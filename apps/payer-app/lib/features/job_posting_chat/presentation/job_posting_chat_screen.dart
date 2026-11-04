@@ -251,7 +251,7 @@ class _ChatViewState extends State<_ChatView> {
   }
 
   /// The header's back arrow: leaves at once unless something would be lost,
-  /// and asks first then (the shell asks the same for system Back / a nav tap).
+  /// and asks first then (the shell asks the same for the system Back).
   void _leave() => _leavePrompt.guard(
         context,
         dirty: _hasUnsavedChanges,
@@ -444,8 +444,14 @@ class _ChatViewState extends State<_ChatView> {
                   color: AppColors.dangerPress,
                   text: kJobChatBlockedNotice,
                 ),
-              _inputBar(),
-              const SizedBox(height: AppSpacing.s2),
+              // #2595 — the app's bottom nav no longer sits under the chat (a
+              // full-screen task, like Post), so the composer clears the
+              // system gesture inset itself; with no inset, the old gap stays.
+              SafeArea(
+                top: false,
+                minimum: const EdgeInsets.only(bottom: AppSpacing.s2),
+                child: _inputBar(),
+              ),
             ],
           );
         },
