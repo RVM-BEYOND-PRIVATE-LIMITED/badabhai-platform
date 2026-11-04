@@ -4118,6 +4118,17 @@ textarea.field__input {
     opacity: 0;
   }
 }
+/* A DENSITY change replays that fade on the rows as they are (DataGridView flips `data-replay` on
+   each change): a new animation name restarts an animation, so the two names take turns — the
+   same fade, never a remount. */
+.grid[data-replay="odd"] .grid__table tbody tr {
+  animation-name: grid-row-in-again;
+}
+@keyframes grid-row-in-again {
+  from {
+    opacity: 0;
+  }
+}
 
 /* THE ROW AS ONE LINK. The name cell's link stretches over the whole row (`::after`), so the row is
    one click target and one tab stop. The link's text sits above the stretch (its `title` shows on

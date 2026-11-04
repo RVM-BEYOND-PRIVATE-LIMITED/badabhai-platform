@@ -15,7 +15,7 @@ import { Icon } from "@badabhai/icons";
 import { NavPendingCue } from "./nav-pending";
 import { pendingNavigation, subscribeNavigation } from "./nav-pending-store";
 import { GridViewControls } from "./grid-view-controls";
-import { useColumnChoices, useGridDensity } from "./grid-preferences";
+import { useColumnChoices, useDensityChanges, useGridDensity } from "./grid-preferences";
 import {
   gridMinWidthRem,
   headerMayCut,
@@ -82,6 +82,7 @@ export function DataGridView({
 }: DataGridViewProps) {
   const pending = useSyncExternalStore(subscribeNavigation, pendingNavigation, pendingNavigation);
   const density = useGridDensity();
+  const densityChanges = useDensityChanges();
   const choices = useColumnChoices(gridId);
 
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -108,6 +109,12 @@ export function DataGridView({
     <div
       className={variant === "prose" ? "grid grid--prose" : "grid"}
       data-density={density}
+      // A density change re-enters the rows with their 140ms fade — the brief's "row height
+      // animates" done in opacity, the only property (with transform) this console animates; the
+      // height itself snaps. Each change swaps the fade's keyframes (globals.css), which restarts
+      // it on the rows as they are: nothing remounts, so a row's own state — a role being chosen,
+      // an action's outcome — survives. The density a page loads with is no change.
+      data-replay={densityChanges > 0 ? (densityChanges % 2 === 1 ? "odd" : "even") : undefined}
       data-fit={fits ? "true" : "false"}
     >
       <div className="grid__scroll" ref={scrollRef}>
@@ -144,10 +151,7 @@ export function DataGridView({
               </td>
             </tr>
           </thead>
-          {/* Keyed on the density: a density change re-enters the rows with their 140ms fade —
-              the brief's "row height animates" done in opacity, the only property (with
-              transform) this console animates. The height itself snaps. */}
-          <tbody key={density} onClick={linked ? openRowFromCell : undefined}>
+          <tbody onClick={linked ? openRowFromCell : undefined}>
             {rows.map((row) => (
               <tr key={row.key}>
                 {shown.map((c) => {

@@ -269,9 +269,19 @@ describe("motion: subtle, tokened, opacity and transform only", () => {
     );
   });
 
+  it("a density change replays the rows' fade by swapping to an identical keyframes — never a remount", () => {
+    const replay = top('.grid[data-replay="odd"] .grid__table tbody tr');
+    expect(decl(replay.body, "animation-name")).toBe("grid-row-in-again");
+    // Only the name: the duration, the curve, the stagger and `backwards` stay the fade's own.
+    expect(decl(replay.body, "animation")).toBeNull();
+    const body = (name: string) =>
+      /\{([\s\S]*?\})\s*\}/.exec(BLOCK.slice(BLOCK.indexOf(`@keyframes ${name}`)))![1]!.replace(/\s+/g, "");
+    expect(body("grid-row-in-again")).toBe(body("grid-row-in"));
+  });
+
   it("every keyframe of the block animates only opacity and transform", () => {
     const frames = [...BLOCK.matchAll(/@keyframes\s+([\w-]+)\s*\{([\s\S]*?\})\s*\}/g)];
-    expect(frames.map((m) => m[1])).toEqual(["grid-row-in", "grid-shimmer"]);
+    expect(frames.map((m) => m[1])).toEqual(["grid-row-in", "grid-row-in-again", "grid-shimmer"]);
     for (const [, name, body] of frames) {
       const props = [...body!.matchAll(/([a-z-]+)\s*:/g)].map((m) => m[1]);
       expect(props.every((p) => p === "opacity" || p === "transform"), name).toBe(true);

@@ -29,6 +29,12 @@ export const DEFAULT_DENSITY: GridDensity = "comfortable";
 /** Raw stored strings, by key: `null` is "nothing stored". Filled on first read. */
 const cache = new Map<string, string | null>();
 const listeners = new Set<() => void>();
+/**
+ * How many times the density has CHANGED in this page's life — by the viewer here, or by another
+ * tab. Not stored: it only tells a grid that a change happened (to replay its rows' fade), so the
+ * density a page merely loads with, applied right after hydration, is never mistaken for one.
+ */
+let densityChanges = 0;
 
 function storage(): Storage | null {
   try {
@@ -74,6 +80,7 @@ function onStorage(event: StorageEvent): void {
   if (event.key === null) cache.clear();
   else if (event.key.startsWith(PREFIX)) cache.delete(event.key);
   else return;
+  if (event.key === null || event.key === DENSITY_KEY) densityChanges++;
   emit();
 }
 
@@ -97,7 +104,13 @@ export function readDensity(): GridDensity {
 
 /** Choosing the default removes the key, so a viewer who never deviates stores nothing. */
 export function writeDensity(density: GridDensity): void {
+  densityChanges++;
   write(DENSITY_KEY, density === DEFAULT_DENSITY ? null : density);
+}
+
+/** How many density changes this page has seen (see `densityChanges`). */
+export function readDensityChanges(): number {
+  return densityChanges;
 }
 
 /** The RAW stored column choices for `gridId` — a stable string, as a store snapshot must be. */
@@ -116,6 +129,11 @@ export function useGridDensity(): GridDensity {
   return useSyncExternalStore(subscribeGridPreferences, readDensity, serverDensity);
 }
 
+/** The density changes this page has seen — none on the server and while hydrating. */
+export function useDensityChanges(): number {
+  return useSyncExternalStore(subscribeGridPreferences, readDensityChanges, serverDensityChanges);
+}
+
 /** The viewer's column choices for `gridId` — none on the server and while hydrating. */
 export function useColumnChoices(gridId: string): ColumnChoices {
   const raw = useSyncExternalStore(
@@ -127,10 +145,12 @@ export function useColumnChoices(gridId: string): ColumnChoices {
 }
 
 const serverDensity = (): GridDensity => DEFAULT_DENSITY;
+const serverDensityChanges = (): number => 0;
 const serverChoices = (): string | null => null;
 
 /** Tests only: forget every cached preference and subscriber. */
 export function resetGridPreferencesForTests(): void {
   cache.clear();
   listeners.clear();
+  densityChanges = 0;
 }

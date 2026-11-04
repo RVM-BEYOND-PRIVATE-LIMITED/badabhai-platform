@@ -3,6 +3,7 @@ import {
   DEFAULT_DENSITY,
   readColumnChoices,
   readDensity,
+  readDensityChanges,
   resetGridPreferencesForTests,
   subscribeGridPreferences,
   writeColumnChoices,
@@ -187,5 +188,31 @@ describe("another tab changed a preference (the storage event)", () => {
     expect(win.listeners.size).toBe(1);
     b();
     expect(win.listeners.size).toBe(0);
+  });
+});
+
+describe("density CHANGES — what replays a grid's fade, never a density merely loaded", () => {
+  it("counts each change the viewer makes here, and none for the density a page loads with", () => {
+    const storage = new MemoryStorage();
+    storage.setItem("bb-admin:grid:density", "compact"); // chosen on an earlier visit
+    vi.stubGlobal("window", fakeWindow(storage).window);
+    expect(readDensity()).toBe("compact");
+    expect(readDensityChanges()).toBe(0);
+    writeDensity("comfortable");
+    writeDensity("compact");
+    expect(readDensityChanges()).toBe(2);
+  });
+
+  it("counts another tab's density change, or a cleared storage — not another key, not a column choice", () => {
+    const win = fakeWindow(new MemoryStorage());
+    vi.stubGlobal("window", win.window);
+    subscribeGridPreferences(() => undefined);
+    win.fire("some-other-app");
+    win.fire("bb-admin:grid:columns:workers");
+    writeColumnChoices("workers", { status: false });
+    expect(readDensityChanges()).toBe(0);
+    win.fire("bb-admin:grid:density");
+    win.fire(null);
+    expect(readDensityChanges()).toBe(2);
   });
 });

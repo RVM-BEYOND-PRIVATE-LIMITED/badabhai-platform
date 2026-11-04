@@ -139,14 +139,25 @@ describe("a new set of rows", () => {
 });
 
 describe("density", () => {
-  it("re-enters the rows when it changes — their fade replays (opacity, never height)", () => {
-    const body = (tree: ReactNode) => elements(tree).find((e) => e.type === "tbody")!;
+  it("replays the rows' fade when it changes (opacity, never height) — each change flips the keyframes", () => {
     expect(root(draw()).props["data-density"]).toBe("comfortable");
-    const before = body(draw()).key;
+    // The density a page LOADS with is no change: nothing replays on hydration.
+    expect(root(draw()).props["data-replay"]).toBeUndefined();
     writeDensity("compact");
-    const after = draw();
-    expect(root(after).props["data-density"]).toBe("compact");
-    expect(body(after).key).not.toBe(before);
+    expect(root(draw()).props["data-density"]).toBe("compact");
+    expect(root(draw()).props["data-replay"]).toBe("odd");
+    writeDensity("comfortable");
+    expect(root(draw()).props["data-replay"]).toBe("even");
+  });
+
+  it("never remounts the rows to do it — a row's own state (a role being chosen) survives", () => {
+    // It used to key the body on the density, which threw away every row's client state.
+    const body = (tree: ReactNode) => elements(tree).find((e) => e.type === "tbody")!;
+    const before = body(draw());
+    writeDensity("compact");
+    const after = body(draw());
+    expect(before.key).toBeNull();
+    expect(after.key).toBeNull();
   });
 });
 
