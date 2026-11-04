@@ -11,11 +11,12 @@ import {
   formatExperienceBand,
   formatPayBand,
   formatRelative,
-  formatTimestamp,
   matchTierLabel,
   payTypeLabel,
   shortId,
+  timestampTitle,
 } from "../../../../lib/format";
+import { CopyId } from "../../../../components/copy-id";
 import { StatusPill } from "../../../../components/status-pill";
 import { CustomerLink } from "../../../../components/customer-link";
 import { DetailList } from "../../../../components/detail-list";
@@ -220,7 +221,7 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
               {
                 label: "Published",
                 value: job.published_at ? (
-                  <time dateTime={job.published_at} title={formatTimestamp(job.published_at)}>
+                  <time dateTime={job.published_at} title={timestampTitle(job.published_at)}>
                     {formatRelative(job.published_at)}
                   </time>
                 ) : (
@@ -230,7 +231,7 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
               {
                 label: "Boosted until",
                 value: job.boosted_until ? (
-                  <time dateTime={job.boosted_until} title={formatTimestamp(job.boosted_until)}>
+                  <time dateTime={job.boosted_until} title={timestampTitle(job.boosted_until)}>
                     {formatRelative(job.boosted_until)}
                   </time>
                 ) : (
@@ -240,7 +241,7 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
               {
                 label: "Closed",
                 value: job.closed_at ? (
-                  <time dateTime={job.closed_at} title={formatTimestamp(job.closed_at)}>
+                  <time dateTime={job.closed_at} title={timestampTitle(job.closed_at)}>
                     {formatRelative(job.closed_at)}
                   </time>
                 ) : (
@@ -306,7 +307,7 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
                 {decisions.items.map((a) => (
                   <tr key={a.id}>
                     <td>
-                      <time dateTime={a.created_at} title={formatTimestamp(a.created_at)}>
+                      <time dateTime={a.created_at} title={timestampTitle(a.created_at)}>
                         {formatRelative(a.created_at)}
                       </time>
                     </td>
@@ -314,6 +315,7 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
                       <Link className="link mono" href={`/workers/${a.worker_id}`}>
                         {shortId(a.worker_id)}
                       </Link>
+                      <CopyId id={a.worker_id} label="worker id" />
                     </td>
                     <td>
                       <StatusPill value={a.action} />

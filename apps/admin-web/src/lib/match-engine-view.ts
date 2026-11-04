@@ -1,4 +1,4 @@
-import { formatTimestamp } from "./format";
+import { formatClock, formatDate } from "./format";
 
 /**
  * The ENGINE VIEW's client-safe shapes and presenters. Pure, so every rule is testable in the
@@ -149,16 +149,14 @@ export function roleKindLabel(kind: string | null): string {
   return kind ? deSnake(kind) : "Role";
 }
 
-/** `2026-09-30T10:12:00Z` → `2026-09-30`. The picker's created date. */
+/** `2026-09-30T10:12:00Z` → `30 Sep 2026` (IST). The picker's created date. */
 export function dateOnly(iso: string): string {
-  const ts = formatTimestamp(iso);
-  return ts === "—" ? ts : ts.slice(0, 10);
+  return formatDate(iso);
 }
 
-/** `2026-09-30T10:12:03.456Z` → `10:12:03 UTC`. The live indicator's last-updated time. */
+/** `2026-09-30T10:12:03.456Z` → `15:42:03 IST`. The live indicator's last-updated time. */
 export function clockTime(iso: string): string {
-  const ts = formatTimestamp(iso);
-  return ts === "—" ? ts : `${ts.slice(11, 19)} UTC`;
+  return formatClock(iso);
 }
 
 function deSnake(s: string): string {

@@ -14,7 +14,8 @@ import {
   realCallLabel,
 } from "../../../../lib/ai-trace-view";
 import { taskTypeLabel } from "../../../../lib/ai-cost";
-import { formatCount, formatTimestamp, healthTone } from "../../../../lib/format";
+import { formatCount, healthTone } from "../../../../lib/format";
+import { Timestamp } from "../../../../components/timestamp";
 import { DetailList } from "../../../../components/detail-list";
 import { StatusPill } from "../../../../components/status-pill";
 import { PageHeader } from "../../../../components/page-header";
@@ -120,7 +121,7 @@ export default async function AiCallDetailPage({
         description={
           <>
             One AI call in full — what this API sent to the AI service and what came back —
-            recorded <time dateTime={trace.created_at}>{formatTimestamp(trace.created_at)}</time>.
+            recorded <Timestamp iso={trace.created_at} />.
           </>
         }
       />

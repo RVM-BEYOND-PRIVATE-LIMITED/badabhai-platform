@@ -4,7 +4,15 @@ import { requireCapability } from "../../../../../lib/auth";
 import { can } from "../../../../../lib/auth/capabilities";
 import { getWorkerJourney, listWorkerChatSessions } from "../../../../../lib/journey";
 import { isAdminRequestError } from "../../../../../lib/admin-http";
-import { formatCount, formatDuration, formatRelative, formatTimestamp, shortId } from "../../../../../lib/format";
+import {
+  formatCount,
+  formatDuration,
+  formatRelative,
+  formatTimestamp,
+  shortId,
+  timestampTitle,
+} from "../../../../../lib/format";
+import { CopyId } from "../../../../../components/copy-id";
 import { CaveatList } from "../../../../../components/caveat-list";
 import { JourneyFunnel } from "../../../../../components/journey-funnel";
 import { Pager } from "../../../../../components/pager";
@@ -236,12 +244,15 @@ export default async function WorkerJourneyPage({
                   <tr key={s.id}>
                     <th className="table__rowhead" scope="row">
                       <Link className="link" href={`/workers/${id}/journey/${s.id}`}>
-                        <time dateTime={s.started_at} title={formatTimestamp(s.started_at)}>
+                        <time dateTime={s.started_at} title={timestampTitle(s.started_at)}>
                           {formatRelative(s.started_at)}
                         </time>
                       </Link>
                       <br />
-                      <span className="table__meta mono">{shortId(s.id)}</span>
+                      <span className="table__meta mono" title={s.id}>
+                        {shortId(s.id)}
+                      </span>
+                      <CopyId id={s.id} label="session id" />
                     </th>
                     <td>
                       <StatusPill

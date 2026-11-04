@@ -5,8 +5,8 @@ import {
   formatCount,
   formatRelative,
   formatRupees,
-  formatTimestamp,
   packCodeLabel,
+  timestampTitle,
 } from "../../../lib/format";
 import { PaymentsPostureBanner, MockMoneyTag } from "../../../components/payments-posture";
 import { StatusPill } from "../../../components/status-pill";
@@ -299,7 +299,7 @@ export default async function TransactionsPage({
                 {orders.items.map((o) => (
                   <tr key={o.id}>
                     <td>
-                      <time dateTime={o.created_at} title={formatTimestamp(o.created_at)}>
+                      <time dateTime={o.created_at} title={timestampTitle(o.created_at)}>
                         {formatRelative(o.created_at)}
                       </time>
                     </td>

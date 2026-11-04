@@ -195,7 +195,7 @@ describe("a row", () => {
     const out = await render();
     expect(out).toContain(`href="/workers/${WORKER_ID}"`);
     expect(out).toContain(`title="${WORKER_ID}"`);
-    expect(out).toContain("5eeded00…");
+    expect(out).toContain("5eed…0001");
   });
 
   it("renders the message VERBATIM, in the cell that wraps", async () => {
@@ -214,7 +214,7 @@ describe("a row", () => {
     // some match exists — and it keeps semgrep's detect-non-literal-regexp satisfied.
     const stamped = out.match(/<time[^>]*datetime="([^"]+)"/i);
     expect(stamped?.[1]).toBe(TAGGED.created_at);
-    expect(out).toContain('title="2026-08-19 09:00:00Z"');
+    expect(out).toContain('title="19 Aug 2026, 14:30 IST · 2026-08-19 09:00:00 UTC"');
   });
 
   it("shows the build stamp in full — the column exists to compare builds", async () => {
@@ -432,14 +432,14 @@ describe("the worker narrowing", () => {
     // A narrowing an operator cannot see is one URL away from being read as the whole list.
     const out = await render({ workerId: WORKER_ID });
     expect(out).toContain("Showing only what worker");
-    expect(out).toContain("5eeded00…");
+    expect(out).toContain("5eed…0001");
     // With the worker as the ONLY filter, the way out is the results head's one Clear filters —
     // not a second and third link to /feedback beside it.
     expect(out.split('href="/feedback"').length - 1).toBe(1);
     expect(out).toMatch(/href="\/feedback">(<i [^>]*><\/i>)?Clear filters<\/a>/);
     expect(out).not.toContain("Show every worker");
     // …and it names the FILTERED worker, not whoever happens to be in the first row.
-    expect(out).not.toContain("Showing only what worker <span class=\"mono\">abcde000…");
+    expect(out).not.toContain("Showing only what worker <span class=\"mono\">abcd…0002");
   });
 
   it("links from the narrowing to that worker's journey", async () => {

@@ -10,7 +10,8 @@ import {
 import { WORKER_STATUSES } from "@badabhai/types";
 import { queryHref } from "../../../lib/query-href";
 import { identityPosture } from "../../../lib/identity";
-import { formatRelative, formatTimestamp, shortId } from "../../../lib/format";
+import { formatRelative, shortId, timestampTitle } from "../../../lib/format";
+import { CopyId } from "../../../components/copy-id";
 import { StatusPill } from "../../../components/status-pill";
 import { NameCell } from "../../../components/name-cell";
 import { IdentityCapNotice } from "../../../components/identity-notice";
@@ -230,6 +231,7 @@ export default async function WorkersPage({
                       <Link className="link mono" href={`/workers/${w.id}`} title={w.id}>
                         {shortId(w.id)}
                       </Link>
+                      <CopyId id={w.id} label="worker id" />
                     </td>
                     <td>
                       <StatusPill value={w.status} />
@@ -245,7 +247,7 @@ export default async function WorkersPage({
                         // it is reversible, but only until it runs.
                         <span
                           className="pill pill--bad"
-                          title={`Hard delete due ${formatTimestamp(w.deletion_scheduled_at)}`}
+                          title={`Hard delete due ${timestampTitle(w.deletion_scheduled_at)}`}
                         >
                           due {formatRelative(w.deletion_scheduled_at)}
                         </span>
@@ -254,7 +256,7 @@ export default async function WorkersPage({
                       )}
                     </td>
                     <td>
-                      <time dateTime={w.created_at} title={formatTimestamp(w.created_at)}>
+                      <time dateTime={w.created_at} title={timestampTitle(w.created_at)}>
                         {formatRelative(w.created_at)}
                       </time>
                     </td>

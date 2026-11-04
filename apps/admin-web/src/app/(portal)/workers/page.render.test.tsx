@@ -108,7 +108,8 @@ describe("an admin who holds read_identity", () => {
     const out = await render();
     expect(out).toContain(`href="/workers/${WORKER_ID}"`);
     expect(out).toContain(`title="${WORKER_ID}"`);
-    expect(out).toContain("5eeded00…");
+    expect(out).toContain("5eed…0001");
+    expect(out).toContain('aria-label="Copy worker id"');
   });
 
   it("renders a NULL name as a dash that says what a dash means", async () => {

@@ -84,7 +84,9 @@ describe("a super_admin, who holds read_identity", () => {
     const out = await render();
     expect(out).toContain('<th scope="col">Name</th>');
     expect(out).toContain("Divyanshu Sharma");
-    expect(out).toContain(`<span class="mono" title="${ADMIN_ID}">aaaaaaaa…</span>`);
+    expect(out).toContain(`<span class="mono" title="${ADMIN_ID}">aaaa…0001</span>`);
+    // The full id is one click from the clipboard (#2572).
+    expect(out).toContain('aria-label="Copy admin id"');
   });
 
   it("does not link a row's id to EVERY admin's events (owner brief 2026-10-01)", async () => {
