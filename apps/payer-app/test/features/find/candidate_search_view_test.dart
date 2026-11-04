@@ -506,6 +506,40 @@ void main() {
       expect(find.text('CNC Turner'), findsOneWidget, reason: 'rows kept');
     });
 
+    testWidgets(
+        'a failed refresh after a failed page still waits for Retry — the '
+        'page is not re-asked by itself', (WidgetTester tester) async {
+      bool outage = false;
+      api.onSearch = (CandidateSearchQuery q) async {
+        if (q.cursor != null || outage) throw const PayerApiException(503);
+        return _page(<CandidateSearchRow>[_turner], next: 'cursor-1');
+      };
+      await pumpFind(tester);
+      expect(
+        api.searches.map((CandidateSearchQuery q) => q.cursor),
+        <String?>[null, 'cursor-1'],
+      );
+
+      // A pull (or a tab return) while the outage lasts fails too.
+      outage = true;
+      // ignore: discarded_futures
+      CandidateSearchView.refreshQuietly(
+        tester.element(find.byType(CandidateSearchView)),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        api.searches.map((CandidateSearchQuery q) => q.cursor),
+        <String?>[null, 'cursor-1', null],
+        reason: 'one request per failed refresh — the failed page waits for '
+            'a tap (an automatic retry would hammer the hourly cap)',
+      );
+      await tester.ensureVisible(
+          find.byKey(const Key('candidate_load_more_retry')));
+      expect(find.byKey(const Key('candidate_load_more_retry')), findsOneWidget);
+      expect(find.text('CNC Turner'), findsOneWidget, reason: 'rows kept');
+    });
+
     testWidgets('a page that adds nobody new stops the automatic load-more',
         (WidgetTester tester) async {
       api.onSearch = (CandidateSearchQuery q) async =>

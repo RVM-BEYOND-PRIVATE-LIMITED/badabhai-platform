@@ -99,10 +99,12 @@ class CandidateSearchCubit extends Cubit<CandidateSearchState> {
       return null;
     }
     final int generation = ++_generation;
+    // A failed "Load more" stays recorded until a fresh first page replaces
+    // the rows: a refresh that fails too keeps the Retry, so automatic
+    // load-more never re-asks the failed page by itself.
     emit(state.copyWith(
       reload: CandidateSearchReload.quiet,
       loadingMore: false,
-      loadMoreFailure: null,
     ));
     try {
       final CandidateSearchPage page =
@@ -115,6 +117,7 @@ class CandidateSearchCubit extends Cubit<CandidateSearchState> {
         page: page,
         rows: page.candidates,
         reload: CandidateSearchReload.none,
+        loadMoreFailure: null,
         notice: null,
         pagingStalled: false,
       ));

@@ -369,6 +369,38 @@ void main() {
       await tester.pump();
       expect(reads, 2, reason: 'later returns re-read as usual');
     });
+
+    testWidgets(
+        'a return that re-shows a view which missed one re-reads it once',
+        (WidgetTester tester) async {
+      final BbTabSignals signals = BbTabSignals();
+      addTearDown(signals.dispose);
+      int reads = 0;
+      final GlobalKey<_ShowsOnReturnState> screen =
+          GlobalKey<_ShowsOnReturnState>();
+      await tester.pumpWidget(app(BbTabScope(
+        signals: signals,
+        child: _ShowsOnReturn(key: screen, onRefresh: () => reads++),
+      )));
+      await tester.pump();
+
+      signals.refresh();
+      await tester.pump();
+      await tester.pump();
+      expect(reads, 0, reason: 'hidden: it only notes the missed return');
+
+      // The next return switches the screen to it (Find opening All
+      // candidates) — the same return its own listener hears.
+      screen.currentState!.showOnReturn = true;
+      signals.refresh();
+      await tester.pump();
+      await tester.pump();
+      expect(reads, 1, reason: 'one return, one re-read');
+
+      signals.refresh();
+      await tester.pump();
+      expect(reads, 2, reason: 'on screen, each return re-reads once');
+    });
   });
 
   group('automatic load-more', () {
@@ -416,4 +448,33 @@ void main() {
       await tester.pumpWidget(const SizedBox.shrink());
     });
   });
+}
+
+/// A tab screen that, like Find, switches to its hidden view when it hears a
+/// return ([showOnReturn]); the view's listener hears that same return.
+class _ShowsOnReturn extends StatefulWidget {
+  const _ShowsOnReturn({super.key, required this.onRefresh});
+
+  final VoidCallback onRefresh;
+
+  @override
+  State<_ShowsOnReturn> createState() => _ShowsOnReturnState();
+}
+
+class _ShowsOnReturnState extends State<_ShowsOnReturn>
+    with BbTabReturnMixin<_ShowsOnReturn> {
+  bool showOnReturn = false;
+  bool _shown = false;
+
+  @override
+  void onTabReturn() {
+    if (showOnReturn && !_shown) setState(() => _shown = true);
+  }
+
+  @override
+  Widget build(BuildContext context) => BbTabRefreshListener(
+        enabled: _shown,
+        onRefresh: (_) => widget.onRefresh(),
+        child: const SizedBox.shrink(),
+      );
 }

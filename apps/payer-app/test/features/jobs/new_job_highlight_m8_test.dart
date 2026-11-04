@@ -329,7 +329,10 @@ void main() {
     );
 
     // Default surface: the Post form's own header is not this issue's (M7).
-    Future<void> pumpShell(WidgetTester tester) async {
+    Future<void> pumpShell(
+      WidgetTester tester, {
+      AppSession shellSession = session,
+    }) async {
       await tester.pumpWidget(
         MaterialApp(
           builder: (BuildContext context, Widget? app) => MediaQuery(
@@ -338,7 +341,7 @@ void main() {
           ),
           home: BlocProvider<AppSessionCubit>.value(
             value: locator<AppSessionCubit>(),
-            child: const AppShell(session: session),
+            child: AppShell(session: shellSession),
           ),
         ),
       );
@@ -457,5 +460,82 @@ void main() {
       expect(_tinted('CNC Setter (new)'), findsOneWidget);
       await tester.pumpAndSettle();
     });
+
+    // #2592 — Jobs keeps its list AND its scroll across visits. The server
+    // lists postings newest first, so a post made after scrolling My jobs
+    // down must still land on the new card at the top: a lazy list left
+    // scrolled down never builds that row, so nothing claims the highlight.
+    for (final PayerRole role in PayerRole.values) {
+      testWidgets(
+          '${role.name}: My jobs scrolled down, then Post a job from Home → '
+          'the new card is in view and tinted', (WidgetTester tester) async {
+        if (role.isAgency) {
+          locator<AppSessionCubit>().signIn(PayerRole.agency);
+          for (int i = 0; i < 12; i++) {
+            await api.createAgencyJob(
+              tradeKey: 'cnc_operator',
+              title: 'Agency posting $i',
+              city: 'Pune',
+            );
+          }
+        } else {
+          api.jobs = <JobPosting>[
+            for (int i = 0; i < 12; i++) _job('job-$i', 'Posting $i'),
+          ];
+        }
+        await pumpShell(
+          tester,
+          shellSession: AppSession(role: role, account: session.account),
+        );
+        await tapNav(tester, 'Jobs');
+        final ScrollableState list = tester.state<ScrollableState>(find
+            .descendant(
+              of: find.byType(JobsScreen),
+              matching: find.byType(Scrollable),
+            )
+            .first);
+        list.position.jumpTo(list.position.maxScrollExtent);
+        await tester.pumpAndSettle();
+        expect(list.position.pixels, greaterThan(600),
+            reason: 'the top of the list is scrolled out of the cache');
+
+        await tapNav(tester, 'Home');
+        await tester.tap(find.descendant(
+          of: find.byType(HomeScreen),
+          matching: find.text('Post a job'),
+        ));
+        await tester.pumpAndSettle();
+
+        // The new posting, listed first — as the server lists it.
+        final String newTitle;
+        final String newId;
+        if (role.isAgency) {
+          newTitle = 'Lathe hand (new)';
+          newId = (await api.createAgencyJob(
+            tradeKey: 'cnc_vmc_setter',
+            title: newTitle,
+            city: 'Pune',
+          ))
+              .id;
+        } else {
+          newTitle = 'CNC Setter (new)';
+          newId = _newId;
+          api.jobs = <JobPosting>[_job(_newId, newTitle), ...api.jobs];
+        }
+        tester
+            .widget<PostJobScreen>(find.byType(PostJobScreen))
+            .onPosted!(newId);
+        await tester.pump(); // lands on Jobs, the kept list back at its top
+        await tester.pump(); // the quiet re-read is sent
+        await tester.pump(); // the fresh rows: the new card claims the tint
+        await tester.pump(); // its post-frame scroll into view
+
+        expect(navId(tester), 'jobs');
+        expect(_tinted(newTitle), findsOneWidget);
+        expect(find.byKey(BbNewItemHighlight.tintKey), findsOneWidget);
+        expect(fullyOnScreen(tester, cardOf(newTitle)), isTrue);
+        await tester.pumpAndSettle();
+      });
+    }
   });
 }

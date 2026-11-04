@@ -123,6 +123,9 @@ class _BbTabRefreshListenerState extends State<BbTabRefreshListener>
   /// A return arrived while this view was hidden: it re-reads when shown.
   bool _missedReturn = false;
 
+  /// An after-frame check ([_checkAfterFrame]) is already on its way.
+  bool _checkScheduled = false;
+
   @override
   void initState() {
     super.initState();
@@ -132,8 +135,28 @@ class _BbTabRefreshListenerState extends State<BbTabRefreshListener>
   @override
   void onTabReturn() {
     if (_justBuilt) return;
+    _checkAfterFrame();
+  }
+
+  @override
+  void didUpdateWidget(BbTabRefreshListener oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (_missedReturn && widget.enabled && !oldWidget.enabled) {
+      _checkAfterFrame();
+    }
+  }
+
+  /// After this frame — never during build — re-reads if this view is shown,
+  /// else notes the missed return. A return and a catch-up share ONE check:
+  /// the return that re-shows a view which missed an earlier one (Find
+  /// opening All candidates after a Jobs card's "Applicants") hits both
+  /// paths in the same frame, and must still re-read only once.
+  void _checkAfterFrame() {
+    if (_checkScheduled) return;
+    _checkScheduled = true;
     SchedulerBinding.instance
       ..addPostFrameCallback((_) {
+        _checkScheduled = false;
         if (!mounted) return;
         if (widget.enabled) {
           _missedReturn = false;
@@ -143,18 +166,6 @@ class _BbTabRefreshListenerState extends State<BbTabRefreshListener>
         }
       })
       ..ensureVisualUpdate();
-  }
-
-  @override
-  void didUpdateWidget(BbTabRefreshListener oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (_missedReturn && widget.enabled && !oldWidget.enabled) {
-      _missedReturn = false;
-      // After this frame — never during build.
-      SchedulerBinding.instance.addPostFrameCallback((_) {
-        if (mounted) widget.onRefresh(context);
-      });
-    }
   }
 
   @override
