@@ -36,7 +36,9 @@ const html = (el: React.ReactElement) => renderToStaticMarkup(el);
  * correctly, and every assertion built on it would keep passing.
  */
 const statValues = (out: string) =>
-  [...out.matchAll(/<span class="stat__value[^"]*">([^<]*)<\/span>/g)].map((m) => m[1]!);
+  [...out.matchAll(/<span class="stat__value[^"]*"(?: title="[^"]*")?>([^<]*)<\/span>/g)].map(
+    (m) => m[1]!,
+  );
 
 const rupeeTiles = (out: string) => statValues(out).filter((v) => v.includes("₹"));
 
@@ -149,7 +151,7 @@ describe("AI spend — no ₹ figure is ever rendered without its basis", () => 
      * row's own `first_recorded_at`. A test that passes while the headline lies is worse than
      * no test, since it reads as coverage. Pinning the tile LABEL is what makes it fail.
      */
-    expect(out).toContain("Spend recorded since 2026-08-17");
+    expect(out).toContain("Spend recorded since 17 Aug 2026");
   });
 
   it("never labels a partial figure a total", () => {
@@ -326,8 +328,8 @@ describe("AI spend — what a finished profile costs", () => {
 
   it("puts the window in BOTH new tile labels — neither figure travels period-less", () => {
     const out = html(<AiSpendPanel cost={COST} />);
-    expect(out).toContain("Profiling spend since 2026-08-17");
-    expect(out).toContain("Profiles completed since 2026-08-17");
+    expect(out).toContain("Profiling spend since 17 Aug 2026");
+    expect(out).toContain("Profiles completed since 17 Aug 2026");
   });
 
   it("says it is cost per finished profile INCLUDING abandoned interviews", () => {
@@ -384,7 +386,7 @@ describe("AI spend — what a finished profile costs", () => {
     expect(out).toContain("cuts both ways");
     // The EXACT bound, not just the day the tile labels carry — the same paragraph argues the
     // skew is material over a window this short, and then must not round the bound away.
-    expect(out).toContain("2026-08-17 01:00:00Z");
+    expect(out).toContain("17 Aug 2026, 06:30 IST");
   });
 
   it("discloses that DPDP erasure biases the average upward and never washes out", () => {
@@ -493,8 +495,8 @@ describe("AI spend — what a finished profile costs", () => {
     expect(warnBanners(out)).toBe(1);
     expect(out).toContain("start earlier");
     // BOTH of this block's tiles still carry ITS bound, never the section's.
-    expect(out).toContain("Profiling spend since 2026-08-17");
-    expect(out).toContain("Profiles completed since 2026-08-17");
+    expect(out).toContain("Profiling spend since 17 Aug 2026");
+    expect(out).toContain("Profiles completed since 17 Aug 2026");
     expect(out).not.toContain("Profiling spend since 2026-06-01");
   });
 
@@ -506,7 +508,7 @@ describe("AI spend — what a finished profile costs", () => {
      * the entire reason the lifetime branch is handled at all.
      */
     const out = html(<AiSpendPanel cost={{ ...COST, is_lifetime_total: true }} />);
-    expect(out).toContain("Profiles completed since 2026-08-17");
+    expect(out).toContain("Profiles completed since 17 Aug 2026");
     expect(out).not.toContain("Profiles completed all time");
     expect(out).not.toContain("Profiling spend all time");
   });
@@ -530,13 +532,15 @@ describe("AI spend — what a finished profile costs", () => {
 });
 
 describe("AI spend — the real/test split sits BESIDE the headline", () => {
-  it("renders both leg averages with exact rupees, dated from the block's own window", () => {
+  it("renders both leg averages at display precision, dated from the block's own window", () => {
     const out = html(<AiSpendPanel cost={COST} />);
-    expect(out).toContain("Real accounts — average per profile since 2026-08-17");
-    expect(out).toContain("Test accounts — average per profile since 2026-08-17");
-    // Six-place source strings survive to the DOM, not rounded to whole rupees.
-    expect(statValues(out)).toContain("₹0.833333");
-    expect(statValues(out)).toContain("₹0.678571");
+    expect(out).toContain("Real accounts — average per profile since 17 Aug 2026");
+    expect(out).toContain("Test accounts — average per profile since 17 Aug 2026");
+    // Two places on screen (#2572); the six-place source string survives in the hover.
+    expect(statValues(out)).toContain("₹0.83");
+    expect(out).toContain('title="₹0.833333"');
+    expect(statValues(out)).toContain("₹0.68");
+    expect(out).toContain('title="₹0.678571"');
   });
 
   it("NEVER replaces the headline average with a leg", () => {
@@ -580,7 +584,9 @@ describe("AI spend — the real/test split sits BESIDE the headline", () => {
     expect(out).toContain("No test profile finished yet");
     expect(out).toContain("stat__value--absent");
     // The real leg is still a measurement, and the headline is untouched.
-    expect(statValues(out)).toContain("₹0.833333");
+    expect(statValues(out)).toContain("₹0.83");
+    // The exact figure is one hover away, not gone (#2572).
+    expect(out).toContain('title="₹0.833333"');
     expect(statValues(out)).toContain("₹0.79");
     expect(rupeeTiles(out)).not.toContain("₹0.00");
   });
@@ -597,9 +603,21 @@ describe("AI spend — the real/test split sits BESIDE the headline", () => {
 });
 
 describe("AI spend — sub-paisa amounts are not rounded away", () => {
-  it("keeps all six places rather than collapsing to ₹0.00", () => {
+  it("shows '<₹0.01' rather than ₹0.00, with all six places kept in the hover (#2572)", () => {
     // "We spent a fraction of a paisa" and "we spent nothing" are different facts.
     const out = html(<AiSpendPanel cost={{ ...COST, total_cost_inr: "0.000012" }} />);
-    expect(out).toContain("₹0.000012");
+    expect(statValues(out)).toContain("&lt;₹0.01");
+    expect(statValues(out)).not.toContain("₹0.00");
+    expect(out).toContain('title="₹0.000012"');
+  });
+});
+
+describe("AI spend — no ₹ figure shows more than two decimals (#2572)", () => {
+  it("every rendered ₹ on the panel stops at two places; the exact value rides in a title", () => {
+    const out = html(<AiSpendPanel cost={{ ...COST, total_cost_inr: "870.765100" }} />);
+    expect(statValues(out)).toContain("₹871");
+    expect(out).toContain('title="₹870.7651"');
+    const visible = out.replace(/title="[^"]*"/g, "");
+    expect(visible).not.toMatch(/₹[\d,]+\.\d{3,}/);
   });
 });

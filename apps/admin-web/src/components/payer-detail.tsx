@@ -1,7 +1,7 @@
 import Link from "next/link";
 import type { JobPostingListItem, PayerDetail } from "../lib/entities";
 import { NAME_UNREADABLE, displayName, identityPosture } from "../lib/identity";
-import { formatCount, formatRelative, formatTimestamp, shortId } from "../lib/format";
+import { formatCount, formatRelative, shortId, timestampTitle } from "../lib/format";
 import { can, type AdminCapability } from "../lib/auth/capabilities";
 import { CUSTOMER_KIND_LABELS } from "../lib/customer";
 import { StatusPill } from "./status-pill";
@@ -149,7 +149,7 @@ export function PayerDetailView({
               {
                 label: "Registered",
                 value: (
-                  <time dateTime={payer.created_at} title={formatTimestamp(payer.created_at)}>
+                  <time dateTime={payer.created_at} title={timestampTitle(payer.created_at)}>
                     {formatRelative(payer.created_at)}
                   </time>
                 ),
@@ -157,7 +157,7 @@ export function PayerDetailView({
               {
                 label: "Last updated",
                 value: (
-                  <time dateTime={payer.updated_at} title={formatTimestamp(payer.updated_at)}>
+                  <time dateTime={payer.updated_at} title={timestampTitle(payer.updated_at)}>
                     {formatRelative(payer.updated_at)}
                   </time>
                 ),
@@ -257,7 +257,7 @@ export function PayerDetailView({
                       <StatusPill value={j.status} />
                     </td>
                     <td>
-                      <time dateTime={j.created_at} title={formatTimestamp(j.created_at)}>
+                      <time dateTime={j.created_at} title={timestampTitle(j.created_at)}>
                         {formatRelative(j.created_at)}
                       </time>
                     </td>

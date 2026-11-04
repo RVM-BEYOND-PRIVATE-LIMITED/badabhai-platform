@@ -30,6 +30,9 @@ import type { ReactNode } from "react";
  * On the shared `.stats` grid (A1, #2571) a tile is at least --stat-min wide — on a phone, the
  * whole row — which holds a realistic ₹ figure on that one line. Split between digits, a figure
  * reads as two numbers.
+ *
+ * `valueTitle` is the hover text on the figure — the EXACT ₹ amount behind a rounded display
+ * figure (#2572), so the precision is one hover away rather than gone.
  */
 export function Stat({
   label,
@@ -38,6 +41,7 @@ export function Stat({
   absent,
   adornment,
   wide,
+  valueTitle,
 }: {
   label: string;
   value: string;
@@ -45,10 +49,11 @@ export function Stat({
   absent?: boolean;
   adornment?: ReactNode;
   wide?: boolean;
+  valueTitle?: string;
 }) {
   return (
     <div className={`stat${tone ? ` stat--${tone}` : ""}${wide ? " stat--wide" : ""}`}>
-      <span className={`stat__value${absent ? " stat__value--absent" : ""}`}>
+      <span className={`stat__value${absent ? " stat__value--absent" : ""}`} title={valueTitle}>
         {value}
         {adornment === undefined ? null : <> {adornment}</>}
       </span>

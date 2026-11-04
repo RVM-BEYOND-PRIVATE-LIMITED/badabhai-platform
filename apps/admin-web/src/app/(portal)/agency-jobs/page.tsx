@@ -6,7 +6,8 @@ import { CustomerLink } from "../../../components/customer-link";
 import { PageHeader } from "../../../components/page-header";
 import { StatusPill } from "../../../components/status-pill";
 import { RetryActions } from "../../../components/retry-actions";
-import { formatRelative, shortId } from "../../../lib/format";
+import { formatRelative, shortId, timestampTitle } from "../../../lib/format";
+import { CopyId } from "../../../components/copy-id";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Agency match skills" };
@@ -69,7 +70,10 @@ export default async function AgencyJobsPage() {
                       >
                         {job.title}
                       </Link>
-                      <div className="table__meta mono">{shortId(job.job_id)}</div>
+                      <div className="table__meta mono">
+                        <span title={job.job_id}>{shortId(job.job_id)}</span>
+                        <CopyId id={job.job_id} label="posting id" />
+                      </div>
                     </td>
                     {/* Agency-owned by construction (the API inner-joins
                         payers.role = 'agent'), so the persona is stated. */}
@@ -82,7 +86,9 @@ export default async function AgencyJobsPage() {
                     </td>
                     <td>{job.match_skill_ids.length}</td>
                     <td>
-                      <time dateTime={job.updated_at}>{formatRelative(job.updated_at)}</time>
+                      <time dateTime={job.updated_at} title={timestampTitle(job.updated_at)}>
+                        {formatRelative(job.updated_at)}
+                      </time>
                     </td>
                   </tr>
                 ))}

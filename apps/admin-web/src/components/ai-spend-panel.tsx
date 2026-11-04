@@ -1,5 +1,6 @@
 import type { AiCostSummary } from "../lib/dashboard";
 import {
+  basisInline,
   capBreachReasonLabel,
   describeAiCostBasis,
   describeAiCostCaveat,
@@ -10,7 +11,8 @@ import {
   providerNote,
   taskTypeLabel,
 } from "../lib/ai-cost";
-import { formatCount, formatExactRupees, formatTimestamp } from "../lib/format";
+import { formatCount, formatDisplayRupees, formatExactRupees } from "../lib/format";
+import { Timestamp } from "./timestamp";
 import { Stat } from "./stat";
 
 /**
@@ -107,9 +109,9 @@ export function AiSpendPanel({ cost }: { cost: AiCostSummary }) {
             <Stat
               /* The "since" is IN THE LABEL. A tile reading "Total AI spend" would be a
                  different, wrong claim the moment it left this page. */
-              label={`Spend recorded ${basis.headline.toLowerCase()}`}
-              value={formatExactRupees(cost.total_cost_inr)}
-              /* Six exact places — a half-width phone tile would split it mid-number. */
+              label={`Spend recorded ${basisInline(basis.headline)}`}
+              value={formatDisplayRupees(cost.total_cost_inr)}
+              valueTitle={formatExactRupees(cost.total_cost_inr)}
               wide
             />
             <Stat label="Calls recorded" value={formatCount(cost.total_calls)} />
@@ -172,7 +174,8 @@ export function AiSpendPanel({ cost }: { cost: AiCostSummary }) {
                 never from the section's; see rule 5 in `describeCostPerProfile`. */}
             <Stat
               label={`Profiling spend ${perProfileState.view.windowLabel}`}
-              value={formatExactRupees(perProfile.profiling_cost_inr)}
+              value={formatDisplayRupees(perProfile.profiling_cost_inr)}
+              valueTitle={formatExactRupees(perProfile.profiling_cost_inr)}
               wide
             />
             <Stat
@@ -184,6 +187,7 @@ export function AiSpendPanel({ cost }: { cost: AiCostSummary }) {
               /* `averageText` is either an exact ₹ amount or the ABSENCE, and `absent`
                  stops the second from being set in the KPI face like the first. */
               value={perProfileState.view.averageText}
+              valueTitle={perProfileState.view.averageExactText ?? undefined}
               absent={perProfileState.view.averageIsAbsent}
               wide
             />
@@ -196,12 +200,14 @@ export function AiSpendPanel({ cost }: { cost: AiCostSummary }) {
                 <Stat
                   label={`Real accounts — average per profile ${perProfileState.view.windowLabel}`}
                   value={testSplit.real.averageText}
+                  valueTitle={testSplit.real.averageExactText ?? undefined}
                   absent={testSplit.real.averageIsAbsent}
                   wide
                 />
                 <Stat
                   label={`Test accounts — average per profile ${perProfileState.view.windowLabel}`}
                   value={testSplit.test.averageText}
+                  valueTitle={testSplit.test.averageExactText ?? undefined}
                   absent={testSplit.test.averageIsAbsent}
                   wide
                 />
@@ -282,15 +288,15 @@ export function AiSpendPanel({ cost }: { cost: AiCostSummary }) {
                         ) : null}
                       </span>
                       <span className="funnel__nums">
-                        <span className="funnel__distinct">
-                          {formatExactRupees(p.total_cost_inr)}
+                        <span
+                          className="funnel__distinct"
+                          title={formatExactRupees(p.total_cost_inr)}
+                        >
+                          {formatDisplayRupees(p.total_cost_inr)}
                         </span>
                         <span className="funnel__events">
                           {formatCount(p.call_count)} calls · {formatCount(p.real_call_count)} real
-                          · since{" "}
-                          <time dateTime={p.first_recorded_at}>
-                            {formatTimestamp(p.first_recorded_at).slice(0, 10)}
-                          </time>
+                          · since <Timestamp iso={p.first_recorded_at} dateOnly />
                         </span>
                       </span>
                     </li>
@@ -316,8 +322,11 @@ export function AiSpendPanel({ cost }: { cost: AiCostSummary }) {
                   <li className="funnel__row" key={t.task_type}>
                     <span className="funnel__label">{taskTypeLabel(t.task_type)}</span>
                     <span className="funnel__nums">
-                      <span className="funnel__distinct">
-                        {formatExactRupees(t.total_cost_inr)}
+                      <span
+                        className="funnel__distinct"
+                        title={formatExactRupees(t.total_cost_inr)}
+                      >
+                        {formatDisplayRupees(t.total_cost_inr)}
                       </span>
                       <span className="funnel__events">
                         {formatCount(t.call_count)} calls · {formatCount(t.real_call_count)} real

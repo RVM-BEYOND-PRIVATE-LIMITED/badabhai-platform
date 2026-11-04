@@ -1,4 +1,10 @@
-import { formatCount, formatExactRupees, formatTimestamp } from "./format";
+import {
+  formatCount,
+  formatDate,
+  formatDisplayRupees,
+  formatExactRupees,
+  formatTimestamp,
+} from "./format";
 
 /**
  * How AI spend is ALLOWED to be described. Pure, so the rule is testable without a DOM.
@@ -75,12 +81,20 @@ export function describeAiCostBasis(input: AiCostBasisInput): AiCostBasis {
   return {
     kind: "since",
     sinceIso: input.accruing_since,
-    headline: `Since ${formatTimestamp(input.accruing_since).slice(0, 10)}`,
+    headline: `Since ${formatDate(input.accruing_since)}`,
     detail:
       `Not a lifetime total. These figures accrue from ${formatTimestamp(input.accruing_since)} ` +
       "forward (migration 0077) and nothing before that was backfilled, so real spend from " +
       "earlier is missing from every number in this section.",
   };
+}
+
+/**
+ * The basis headline set mid-sentence: only its first letter is lowered, so a month name in it
+ * ("Since 17 Aug 2026" → "since 17 Aug 2026") keeps its capital.
+ */
+export function basisInline(headline: string): string {
+  return headline.charAt(0).toLowerCase() + headline.slice(1);
 }
 
 /**
@@ -144,12 +158,14 @@ export interface CostTestSplitInput {
 
 /** One leg of the split — its own money, its own denominators, its own ratio (or absence). */
 export interface CostTestSplitLegView {
-  /** Pre-formatted exact ₹ over the leg's own calls and profiles. */
+  /** Pre-formatted display ₹ (#2572 rounding) over the leg's own calls and profiles. */
   spendText: string;
   calls: number;
   profiles: number;
-  /** Either an exact ₹ amount or the stated ABSENCE. Never "₹0.00" for a null ratio. */
+  /** Either a display ₹ amount or the stated ABSENCE. Never "₹0.00" for a null ratio. */
   averageText: string;
+  /** The exact ₹ behind `averageText`, for its hover. Null exactly when the average is absent. */
+  averageExactText: string | null;
   averageIsAbsent: boolean;
 }
 
@@ -219,8 +235,10 @@ export interface CostPerProfileView {
   windowSentence: string;
   /** What DPDP erasure does to it — permanent, one-directional, and it accumulates. */
   erasureSentence: string;
-  /** Pre-formatted — either an exact ₹ amount or the stated ABSENCE. Never "₹0.00" for null. */
+  /** Pre-formatted — either a display ₹ amount or the stated ABSENCE. Never "₹0.00" for null. */
   averageText: string;
+  /** The exact ₹ behind `averageText`, for its hover. Null exactly when the average is absent. */
+  averageExactText: string | null;
   /** True ⇒ `averageText` is a statement, not a number, and must not be styled as one. */
   averageIsAbsent: boolean;
   averageAbsentSentence: string | null;
@@ -294,7 +312,7 @@ function describeTestSplit(perProfile: CostPerProfileInput): CostTestSplitState 
     profiles: number,
     averageInr: string | null,
   ): CostTestSplitLegView => ({
-    spendText: formatExactRupees(costInr),
+    spendText: formatDisplayRupees(costInr),
     calls,
     profiles,
     // A null ratio is the ABSENCE of a measurement, exactly like the headline average — a
@@ -304,7 +322,8 @@ function describeTestSplit(perProfile: CostPerProfileInput): CostTestSplitState 
         ? name === "real"
           ? NO_REAL_AVERAGE_TEXT
           : NO_TEST_AVERAGE_TEXT
-        : formatExactRupees(averageInr),
+        : formatDisplayRupees(averageInr),
+    averageExactText: averageInr === null ? null : formatExactRupees(averageInr),
     averageIsAbsent: averageInr === null,
   });
 
@@ -414,9 +433,7 @@ export function describeCostPerProfile(
   // ONE BOUND, ONE SOURCE, BOTH TILES — and never a bare em dash in a tile label: an
   // unreadable bound produces a neutral phrase plus the alarm below, not a figure captioned
   // with a dash the reader has to interpret.
-  const windowLabel = boundReadable
-    ? `since ${formatTimestamp(perProfile.since).slice(0, 10)}`
-    : "in this period";
+  const windowLabel = boundReadable ? `since ${formatDate(perProfile.since)}` : "in this period";
 
   const knownBasis = perProfile.basis === COST_PER_PROFILE_BASIS_INCLUDES_ABANDONED;
   const knownWindowCaveat = perProfile.window_caveat === COST_PER_PROFILE_WINDOW_EDGE_SKEW;
@@ -491,10 +508,13 @@ export function describeCostPerProfile(
         "drifts upward with every erasure, permanently, and that drift only accumulates."
       : `The server reports an erasure caveat this portal does not recognise: ${perProfile.erasure_caveat}`,
 
-    // Rule 3. `formatExactRupees` is never reached with a null, so a ₹0.00 is unreachable
-    // rather than merely avoided.
+    // Rule 3. No ₹ formatter is ever reached with a null, so a ₹0.00 is unreachable rather
+    // than merely avoided.
     averageText: averageIsAbsent
       ? NO_AVERAGE_TEXT
+      : formatDisplayRupees(perProfile.cost_per_profile_inr as string),
+    averageExactText: averageIsAbsent
+      ? null
       : formatExactRupees(perProfile.cost_per_profile_inr as string),
     averageIsAbsent,
     averageAbsentSentence: averageIsAbsent
@@ -533,7 +553,7 @@ export function describeCostPerProfile(
     // Plain copy, not a warning: a subset's minimum is never earlier than the whole table's, so
     // this is the expected shape whenever the platform spent on something else first.
     sectionBoundSentence: sectionStartsEarlier
-      ? `The section's ₹ figures above start earlier (${basis.headline.toLowerCase()}) because ` +
+      ? `The section's ₹ figures above start earlier (${basisInline(basis.headline)}) because ` +
         "spend that is not profiling — a resume, a customer-side embedding — accrued first. This " +
         "block deliberately starts later, at the first profiling call."
       : null,

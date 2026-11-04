@@ -10,7 +10,7 @@ import {
 } from "../../../lib/read-refusal";
 import { JOB_POSTING_STATUSES, JOB_POSTING_VERIFICATION_STATUSES } from "@badabhai/types";
 import { queryHref } from "../../../lib/query-href";
-import { formatPayBand, formatRelative, formatTimestamp } from "../../../lib/format";
+import { formatPayBand, formatRelative, timestampTitle } from "../../../lib/format";
 import { StatusPill } from "../../../components/status-pill";
 import { CustomerLink } from "../../../components/customer-link";
 import { Pager } from "../../../components/pager";
@@ -208,7 +208,7 @@ export default async function JobsPage({
                       )}
                     </td>
                     <td>
-                      <time dateTime={j.created_at} title={formatTimestamp(j.created_at)}>
+                      <time dateTime={j.created_at} title={timestampTitle(j.created_at)}>
                         {formatRelative(j.created_at)}
                       </time>
                     </td>

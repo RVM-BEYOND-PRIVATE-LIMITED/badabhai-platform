@@ -23,7 +23,9 @@ import {
   isTerminalSkillStatus,
   relationLabel,
 } from "../../../../../lib/skill-discovery-vocabulary";
-import { formatRelative, formatTimestamp, shortId } from "../../../../../lib/format";
+import { formatRelative, shortId, timestampTitle } from "../../../../../lib/format";
+import { CopyId } from "../../../../../components/copy-id";
+import { Timestamp } from "../../../../../components/timestamp";
 import { StatusPill } from "../../../../../components/status-pill";
 import { DetailList } from "../../../../../components/detail-list";
 import { PageHeader } from "../../../../../components/page-header";
@@ -117,7 +119,7 @@ export default async function SkillDiscoveryDetailPage({
         description={
           <>
             One discovery claim — its evidence, matches and decision — recorded{" "}
-            {formatRelative(candidate.created_at)} ({formatTimestamp(candidate.created_at)}).
+            {formatRelative(candidate.created_at)} (<Timestamp iso={candidate.created_at} />).
           </>
         }
         primaryAction={
@@ -389,12 +391,15 @@ function AuditTrailPanel({ audit }: { audit: SkillCandidateAudit | null }) {
                   {audit.entries.map((e) => (
                     <tr key={e.event_id}>
                       <td>
-                        <time dateTime={e.occurred_at} title={formatTimestamp(e.occurred_at)}>
+                        <time dateTime={e.occurred_at} title={timestampTitle(e.occurred_at)}>
                           {formatRelative(e.occurred_at)}
                         </time>
                       </td>
                       <td className="table__meta">{auditActionLabel(e.action_code)}</td>
-                      <td className="mono table__meta">{shortId(e.admin_id)}</td>
+                      <td className="mono table__meta">
+                        <span title={e.admin_id ?? undefined}>{shortId(e.admin_id)}</span>
+                        {e.admin_id ? <CopyId id={e.admin_id} label="admin id" /> : null}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -433,7 +438,7 @@ function AuditTrailPanel({ audit }: { audit: SkillCandidateAudit | null }) {
                 value: audit.current.reviewed_at ? (
                   <time
                     dateTime={audit.current.reviewed_at}
-                    title={formatTimestamp(audit.current.reviewed_at)}
+                    title={timestampTitle(audit.current.reviewed_at)}
                   >
                     {formatRelative(audit.current.reviewed_at)}
                   </time>
@@ -488,7 +493,7 @@ function TerminalRecordPanel({ candidate }: { candidate: SkillDiscoveryDetail })
     {
       label: "Reviewed",
       value: candidate.reviewed_at ? (
-        <time dateTime={candidate.reviewed_at} title={formatTimestamp(candidate.reviewed_at)}>
+        <time dateTime={candidate.reviewed_at} title={timestampTitle(candidate.reviewed_at)}>
           {formatRelative(candidate.reviewed_at)}
         </time>
       ) : (
@@ -564,7 +569,7 @@ function HeldRecordPanel({ candidate }: { candidate: SkillDiscoveryDetail }) {
         {candidate.reviewed_at && (
           <>
             {" "}
-            ({formatRelative(candidate.reviewed_at)}, {formatTimestamp(candidate.reviewed_at)})
+            ({formatRelative(candidate.reviewed_at)}, <Timestamp iso={candidate.reviewed_at} />)
           </>
         )}
         .

@@ -3558,3 +3558,41 @@ textarea.field__input {
     --switch-h: var(--control-md);
   }
 }
+
+/* #2572 — the copy button that travels with a shortened id (`CopyId`). It sits beside the id,
+   never inside its link. The "Copied" toast fades up 4px above the button over --duration-fast;
+   opacity and transform only, and tokens.css zeroes the duration under reduced motion. */
+.copy-id {
+  position: relative;
+  display: inline-flex;
+  vertical-align: middle;
+  margin-inline-start: var(--space-1);
+}
+.copy-id__toast {
+  position: absolute;
+  inset-block-end: 100%;
+  inset-inline-start: 50%;
+  z-index: var(--z-toast);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-pill);
+  background: var(--surface-ink);
+  color: var(--text-on-ink);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transform: translate(-50%, 4px);
+  transition:
+    opacity var(--duration-fast) var(--ease-exit),
+    transform var(--duration-fast) var(--ease-exit);
+}
+.copy-id__toast:empty {
+  padding: 0;
+}
+.copy-id__toast--on {
+  opacity: 1;
+  transform: translate(-50%, 0);
+  transition:
+    opacity var(--duration-fast) var(--ease-enter),
+    transform var(--duration-fast) var(--ease-enter);
+}

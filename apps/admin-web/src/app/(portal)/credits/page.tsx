@@ -7,9 +7,9 @@ import {
   formatDelta,
   formatRelative,
   formatRupees,
-  formatTimestamp,
   packCodeLabel,
   shortId,
+  timestampTitle,
 } from "../../../lib/format";
 import { PaymentsPostureBanner, MockMoneyTag } from "../../../components/payments-posture";
 import { StatusPill } from "../../../components/status-pill";
@@ -410,7 +410,7 @@ export default async function CreditsPage({
                 {ledger.items.map((row) => (
                   <tr key={row.id}>
                     <td>
-                      <time dateTime={row.created_at} title={formatTimestamp(row.created_at)}>
+                      <time dateTime={row.created_at} title={timestampTitle(row.created_at)}>
                         {formatRelative(row.created_at)}
                       </time>
                     </td>

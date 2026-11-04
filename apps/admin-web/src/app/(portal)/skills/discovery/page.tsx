@@ -23,7 +23,13 @@ import {
   basisMarkerLabel,
   type AdminSkillReviewTier,
 } from "../../../../lib/skill-discovery-vocabulary";
-import { formatCount, formatRelative, formatTimestamp, shortId } from "../../../../lib/format";
+import {
+  formatCount,
+  formatRelative,
+  formatTimestamp,
+  shortId,
+  timestampTitle,
+} from "../../../../lib/format";
 import { StatusPill } from "../../../../components/status-pill";
 import { Pager } from "../../../../components/pager";
 import { Stat } from "../../../../components/stat";
@@ -818,7 +824,7 @@ function FlatRow({ item }: { item: SkillDiscoveryListItem }) {
   return (
     <tr>
       <td>
-        <time dateTime={item.created_at} title={formatTimestamp(item.created_at)}>
+        <time dateTime={item.created_at} title={timestampTitle(item.created_at)}>
           {formatRelative(item.created_at)}
         </time>
       </td>

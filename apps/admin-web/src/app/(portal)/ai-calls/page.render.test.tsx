@@ -195,7 +195,7 @@ describe("a row", () => {
     const out = await render();
     const stamped = out.match(/<time[^>]*datetime="([^"]+)"/i);
     expect(stamped?.[1]).toBe(OK_ROW.created_at);
-    expect(out).toContain('title="2026-08-19 09:00:00Z"');
+    expect(out).toContain('title="19 Aug 2026, 14:30 IST · 2026-08-19 09:00:00 UTC"');
   });
 
   it("names the task and the model", async () => {
@@ -258,7 +258,7 @@ describe("a row", () => {
     const out = await render();
     expect(out).toContain(`href="/workers/${WORKER_ID}"`);
     expect(out).toContain(`href="/workers/${WORKER_ID}/journey/${SESSION_ID}"`);
-    expect(out).toContain("5eeded00…");
+    expect(out).toContain("5eed…0001");
   });
 
   it("says `no session` rather than nothing when a call belongs to no interview", async () => {
@@ -434,7 +434,7 @@ describe("the worker narrowing", () => {
     stub.page = { items: [OTHERS_ROW], nextCursor: null };
     const out = await render({ workerId: WORKER_ID });
     expect(out).toContain("Showing only the calls made for worker");
-    expect(out).toContain("5eeded00…");
+    expect(out).toContain("5eed…0001");
     // With the worker as the ONLY filter, the way out is the results head's one Clear filters.
     expect(out).toMatch(/href="\/ai-calls">(<i [^>]*><\/i>)?Clear filters<\/a>/);
     expect(out).not.toContain("Show every worker");

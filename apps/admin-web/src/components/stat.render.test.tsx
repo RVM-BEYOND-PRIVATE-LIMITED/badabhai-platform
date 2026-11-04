@@ -113,4 +113,15 @@ describe("Stat", () => {
       expect(out).not.toContain("stat--wide");
     }
   });
+
+  it("carries the exact ₹ behind a rounded figure in the value's title (#2572)", () => {
+    expect(
+      renderToStaticMarkup(<Stat label="Spend" value="₹871" valueTitle="₹870.7651" wide />),
+    ).toBe(
+      '<div class="stat stat--wide"><span class="stat__value" title="₹870.7651">₹871</span>' +
+        '<span class="stat__label">Spend</span></div>',
+    );
+    // No title attribute at all when none is given.
+    expect(renderToStaticMarkup(<Stat label="Calls" value="156" />)).not.toContain("title=");
+  });
 });

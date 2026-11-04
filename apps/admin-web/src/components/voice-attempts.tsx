@@ -1,6 +1,6 @@
 import type { SessionVoiceAnswer } from "../lib/journey";
 import { describeVoiceAttempt, summariseVoiceAttempts } from "../lib/journey-view";
-import { formatCount, formatDuration, formatRelative, formatTimestamp } from "../lib/format";
+import { formatCount, formatDuration, formatRelative, timestampTitle } from "../lib/format";
 import { StatusPill } from "./status-pill";
 import { Stat } from "./stat";
 
@@ -104,7 +104,7 @@ export function VoiceAttempts({ rows }: { rows: readonly SessionVoiceAnswer[] })
                       : formatDuration(row.duration_seconds)}
                   </td>
                   <td className="table__meta">
-                    <time dateTime={row.created_at} title={formatTimestamp(row.created_at)}>
+                    <time dateTime={row.created_at} title={timestampTitle(row.created_at)}>
                       {formatRelative(row.created_at)}
                     </time>
                     {row.purged_at ? (

@@ -8,10 +8,12 @@ import { identityPosture, displayName } from "../../../../lib/identity";
 import {
   formatCount,
   formatRelative,
-  formatTimestamp,
   matchTierLabel,
   shortId,
+  timestampTitle,
 } from "../../../../lib/format";
+import { CopyId } from "../../../../components/copy-id";
+import { Timestamp } from "../../../../components/timestamp";
 import { StatusPill } from "../../../../components/status-pill";
 import { NameCell } from "../../../../components/name-cell";
 import { IdentityCapNotice } from "../../../../components/identity-notice";
@@ -86,7 +88,7 @@ export default async function WorkerDetailPage({
         {name === null
           ? "One worker account as this portal sees it — what they did"
           : "One worker account as this portal sees it — what they did, and who they are"}
-        , registered {formatRelative(worker.created_at)} ({formatTimestamp(worker.created_at)}).
+        , registered {formatRelative(worker.created_at)} (<Timestamp iso={worker.created_at} />).
       </>
     ),
   };
@@ -116,7 +118,7 @@ export default async function WorkerDetailPage({
         <section className="notice notice--bad" role="status">
           <strong>Deletion scheduled.</strong> This worker requested account deletion; the
           hard delete runs {formatRelative(worker.deletion_scheduled_at)} (
-          {formatTimestamp(worker.deletion_scheduled_at)}). It is cancellable by the worker
+          <Timestamp iso={worker.deletion_scheduled_at} />). It is cancellable by the worker
           until then, and irreversible afterwards.
         </section>
       )}
@@ -157,7 +159,13 @@ export default async function WorkerDetailPage({
                     {worker.profile_updated_at && (
                       <span className="table__meta">
                         {" "}
-                        updated {formatRelative(worker.profile_updated_at)}
+                        updated{" "}
+                        <time
+                          dateTime={worker.profile_updated_at}
+                          title={timestampTitle(worker.profile_updated_at)}
+                        >
+                          {formatRelative(worker.profile_updated_at)}
+                        </time>
                       </span>
                     )}
                   </>
@@ -169,7 +177,7 @@ export default async function WorkerDetailPage({
               {
                 label: "Last updated",
                 value: (
-                  <time dateTime={worker.updated_at} title={formatTimestamp(worker.updated_at)}>
+                  <time dateTime={worker.updated_at} title={timestampTitle(worker.updated_at)}>
                     {formatRelative(worker.updated_at)}
                   </time>
                 ),
@@ -258,7 +266,7 @@ export default async function WorkerDetailPage({
                 {apps.items.map((a) => (
                   <tr key={a.id}>
                     <td>
-                      <time dateTime={a.created_at} title={formatTimestamp(a.created_at)}>
+                      <time dateTime={a.created_at} title={timestampTitle(a.created_at)}>
                         {formatRelative(a.created_at)}
                       </time>
                     </td>
@@ -267,15 +275,21 @@ export default async function WorkerDetailPage({
                     </td>
                     <td>
                       {a.job_posting_id ? (
-                        <Link className="link mono" href={`/jobs/${a.job_posting_id}`}>
-                          {shortId(a.job_posting_id)}
-                        </Link>
+                        <>
+                          <Link className="link mono" href={`/jobs/${a.job_posting_id}`}>
+                            {shortId(a.job_posting_id)}
+                          </Link>
+                          <CopyId id={a.job_posting_id} label="posting id" />
+                        </>
                       ) : (
                         // A pre-V1 decision points at the legacy `jobs` table, which has no
                         // portal screen. Saying so is better than a dead link.
-                        <span className="mono" title="Legacy job (pre-Matching-V1)">
-                          {shortId(a.job_id)}
-                        </span>
+                        <>
+                          <span className="mono" title="Legacy job (pre-Matching-V1)">
+                            {shortId(a.job_id)}
+                          </span>
+                          {a.job_id ? <CopyId id={a.job_id} label="job id" /> : null}
+                        </>
                       )}
                     </td>
                     <td className="table__meta">{a.reason?.replace(/_/g, " ") ?? "—"}</td>

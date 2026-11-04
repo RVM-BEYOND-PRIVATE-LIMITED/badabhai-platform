@@ -57,7 +57,7 @@ describe("inviteAdminAction", () => {
     expect(res).toEqual({
       ok: true,
       changed: true,
-      message: "Invited 22222222… as Analyst.",
+      message: "Invited 2222…2222 as Analyst.",
     });
   });
 
@@ -106,7 +106,7 @@ describe("createAdminAction (ADR-0060 A6)", () => {
     const res = await createAdminAction(input);
     expect(res).toMatchObject({ ok: true, changed: true });
     if (!res.ok) throw new Error("expected success");
-    expect(res.message).toContain("Created 33333333… as Support.");
+    expect(res.message).toContain("Created 3333…3333 as Support.");
     expect(res.message).toContain("privately");
     expect(res.message).toContain("first sign-in");
     expect(JSON.stringify(res)).not.toContain("Temp1234x");

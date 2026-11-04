@@ -1,7 +1,8 @@
 import Link from "next/link";
 import type { PayerListItem } from "../lib/entities";
 import { NAME_UNREADABLE, type IdentityPosture } from "../lib/identity";
-import { formatRelative, formatTimestamp, shortId } from "../lib/format";
+import { formatRelative, shortId, timestampTitle } from "../lib/format";
+import { CopyId } from "./copy-id";
 import { StatusPill } from "./status-pill";
 import { NameCell } from "./name-cell";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
@@ -89,6 +90,7 @@ export function PayerList({
                 <Link className="link mono" href={`${basePath}/${p.id}`} title={p.id}>
                   {shortId(p.id)}
                 </Link>
+                <CopyId id={p.id} />
               </td>
               <td>
                 <StatusPill value={p.status} />
@@ -99,12 +101,12 @@ export function PayerList({
                 )}
               </td>
               <td>
-                <time dateTime={p.created_at} title={formatTimestamp(p.created_at)}>
+                <time dateTime={p.created_at} title={timestampTitle(p.created_at)}>
                   {formatRelative(p.created_at)}
                 </time>
               </td>
               <td>
-                <time dateTime={p.updated_at} title={formatTimestamp(p.updated_at)}>
+                <time dateTime={p.updated_at} title={timestampTitle(p.updated_at)}>
                   {formatRelative(p.updated_at)}
                 </time>
               </td>
