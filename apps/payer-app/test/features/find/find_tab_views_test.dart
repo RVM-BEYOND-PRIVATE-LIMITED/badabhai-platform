@@ -63,7 +63,9 @@ void main() {
     await tapNav(tester, 'Find');
 
     expect(selected(tester), FindView.allCandidates);
-    expect(find.text('ALL CANDIDATES'), findsOneWidget);
+    // The All-candidates view is on stage (its filters; #2593 dropped the
+    // "ALL CANDIDATES" eyebrow that repeated the switch).
+    expect(find.byKey(const Key('candidate_filters_open')), findsOneWidget);
   });
 
   testWidgets('a Jobs card\'s "Applicants" lands on the Applicants view; the '

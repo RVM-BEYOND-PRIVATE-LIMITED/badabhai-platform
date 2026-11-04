@@ -17,10 +17,11 @@ import '../../../core/widgets/bb_status_view.dart';
 import '../../../core/widgets/bb_toast.dart';
 import '../../../core/widgets/bb_unlock_dialog.dart';
 import 'cubit/candidate_search_cubit.dart';
-import 'disclosure_history_screen.dart';
 import 'reveal_args.dart';
 import 'widgets/candidate_card.dart';
 import 'widgets/candidate_filter_sheet.dart';
+import 'widgets/find_pinned_list.dart';
+import 'widgets/unlock_button.dart';
 
 // The copy below matches payer-web's Candidates tab word for word where the two
 // surfaces say the same thing — one brand on the web and the phone.
@@ -54,6 +55,10 @@ const String kStrictNoteWithUnrecorded = 'Only matches are shown, plus anyone '
 /// confirm dialog, the same 1-credit `POST /payer/unlocks` (with no job), and
 /// the same reveal — the relay handle and the masked résumé, never a name or
 /// phone.
+///
+/// #2593 — the filters and the counts are PINNED above the list
+/// ([FindPinnedList]); the page title lives once, on [FindScreen], above the
+/// view switch.
 class CandidateSearchView extends StatelessWidget {
   const CandidateSearchView({super.key, required this.onReveal});
 
@@ -111,15 +116,15 @@ class CandidateSearchView extends StatelessWidget {
           physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.fromLTRB(
             AppSpacing.gutter,
-            AppSpacing.s2,
+            0,
             AppSpacing.gutter,
             AppSpacing.s6,
           ),
           itemCount: _itemCount(state),
-          // #2592 — the header stays put; below it, the skeleton gives way to
-          // rows that fade in, and a filter change dims the old rows until the
-          // new page replaces them.
-          itemBuilder: (BuildContext _, int index) => index == 0 || loading
+          // #2592 — the skeleton gives way to rows that fade in, and a filter
+          // change dims the old rows until the new page replaces them. The
+          // header is pinned above the list (#2593) and never dims.
+          itemBuilder: (BuildContext _, int index) => loading
               ? _item(context, state, index)
               : BbRevealFade(
                   child: BbDim(
@@ -128,30 +133,32 @@ class CandidateSearchView extends StatelessWidget {
                   ),
                 ),
         );
-        return BbStaleFrame(
-          busy: state.switchingFilters,
-          child: BbRefreshIndicator(
-            onRefresh: () => refreshQuietly(context),
-            child: BbRowsReveal(loading: loading, child: list),
+        return FindPinnedList(
+          header: _Header(state: state),
+          list: BbStaleFrame(
+            busy: state.switchingFilters,
+            child: BbRefreshIndicator(
+              onRefresh: () => refreshQuietly(context),
+              child: BbRowsReveal(loading: loading, child: list),
+            ),
           ),
         );
       },
     );
   }
 
-  /// Header at index 0, then either ONE status block or the rows (+ the
-  /// "Other candidates" line) and a footer. Lazy: a card is built only as it
+  /// Either ONE status block, or the rows (+ the "Other candidates" line) and
+  /// a footer — under the pinned [_Header]. Lazy: a card is built only as it
   /// scrolls in (the #364 rule for an unbounded server-fed list).
   static int _itemCount(CandidateSearchState state) {
     if (state.status != CandidateSearchStatus.ready || state.rows.isEmpty) {
-      return 2;
+      return 1;
     }
     final int divider = state.otherCandidatesIndex >= 0 ? 1 : 0;
-    return 1 + state.rows.length + divider + 1;
+    return state.rows.length + divider + 1;
   }
 
   Widget _item(BuildContext context, CandidateSearchState state, int index) {
-    if (index == 0) return _Header(state: state);
     switch (state.status) {
       case CandidateSearchStatus.initial:
       case CandidateSearchStatus.loading:
@@ -171,7 +178,7 @@ class CandidateSearchView extends StatelessWidget {
     }
     if (state.rows.isEmpty) return _NoMatches(state: state);
 
-    int row = index - 1;
+    int row = index;
     final int divider = state.otherCandidatesIndex;
     if (divider >= 0) {
       if (row == divider) return const _OtherCandidatesLine();
@@ -198,8 +205,13 @@ class CandidateSearchView extends StatelessWidget {
   /// The applicant card's unlock flow, unchanged in every step the payer sees:
   /// the same confirm dialog (1 credit · N left), the same three outcomes
   /// (#348 outage → retry toast · neutral deny · grant → balance re-read →
-  /// reveal), and never a fabricated reason.
-  Future<void> _unlock(BuildContext context, CandidateSearchRow row) async {
+  /// reveal), and never a fabricated reason. The list stays on screen through
+  /// every one of them (#2593); the outcome tells the card's [UnlockButton]
+  /// whether to nudge.
+  Future<UnlockOutcome> _unlock(
+    BuildContext context,
+    CandidateSearchRow row,
+  ) async {
     final CandidateSearchCubit cubit = context.read<CandidateSearchCubit>();
     final CreditsCubit credits = locator<CreditsCubit>();
     final bool? confirmed = await showUnlockDialog(
@@ -207,39 +219,45 @@ class CandidateSearchView extends StatelessWidget {
       shownName: row.maskedLabel,
       creditsAfter: credits.state.afterOneUnlock,
     );
-    if (confirmed != true || !context.mounted) return;
+    if (confirmed != true || !context.mounted) return UnlockOutcome.cancelled;
 
     final UnlockResult result;
     try {
       result = await cubit.unlock(row);
     } catch (_) {
-      if (!context.mounted) return;
-      showBbToast(
-        context,
-        title: 'Something went wrong',
-        message: "Couldn't complete the unlock — please try again.",
-        icon: Icons.refresh_rounded,
-      );
-      return;
+      if (context.mounted) {
+        showBbToast(
+          context,
+          title: 'Something went wrong',
+          message: "Couldn't complete the unlock — please try again.",
+          icon: Icons.refresh_rounded,
+        );
+      }
+      return UnlockOutcome.failed;
     }
-    if (!context.mounted) return;
-
     if (!result.granted) {
-      showBbToast(
-        context,
-        title: "Couldn't unlock",
-        message: 'This candidate is not available to unlock right now.',
-        icon: Icons.info_rounded,
-      );
-      return;
+      if (context.mounted) {
+        showBbToast(
+          context,
+          title: "Couldn't unlock",
+          message: 'This candidate is not available to unlock right now.',
+          icon: Icons.info_rounded,
+        );
+      }
+      return UnlockOutcome.denied;
     }
     await credits.load();
-    if (!context.mounted) return;
     // #2596 — the reveal's stamp confirms the unlock; no duplicate toast.
-    onReveal(revealArgsFor(row, result.unlockId!, justUnlocked: true));
+    if (context.mounted) {
+      onReveal(revealArgsFor(row, result.unlockId!, justUnlocked: true));
+    }
+    return UnlockOutcome.granted;
   }
 }
 
+/// The PINNED block above the list (#2593): the filters, a calm notice, and
+/// the counts. No eyebrow or title — the view switch above already names the
+/// view, and the page title sits over the switch, once.
 class _Header extends StatelessWidget {
   const _Header({required this.state});
 
@@ -247,45 +265,32 @@ class _Header extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final bool counts = state.status == CandidateSearchStatus.ready;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: <Widget>[
-        Text(
-          'ALL CANDIDATES',
-          style: AppTypography.eyebrow(color: AppColors.textMuted),
-        ),
-        const SizedBox(height: AppSpacing.gap2),
-        Row(
-          children: <Widget>[
-            Expanded(
-              child: Text(
-                'Browse & unlock',
-                style: AppTypography.header(
-                  size: AppTypography.sizeXl,
-                  weight: FontWeight.w800,
-                ),
-              ),
-            ),
-            const DisclosureHistoryButton(),
+    final List<Widget> blocks = <Widget>[
+      // An empty POOL has nothing to filter; every other state keeps the
+      // filters in reach — a payer whose search failed can still change it.
+      if (state.status != CandidateSearchStatus.empty) _FilterBar(state: state),
+      if (state.notice == CandidateSearchNotice.cursorRefused)
+        const _Notice(text: kCursorRefusedMessage),
+      if (state.status == CandidateSearchStatus.ready)
+        CandidateCountBadge(state: state),
+    ];
+    if (blocks.isEmpty) return const SizedBox(height: AppSpacing.s3);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.gutter,
+        AppSpacing.s3,
+        AppSpacing.gutter,
+        AppSpacing.s3,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          for (int i = 0; i < blocks.length; i++) ...<Widget>[
+            if (i > 0) const SizedBox(height: AppSpacing.s3),
+            blocks[i],
           ],
-        ),
-        // An empty POOL has nothing to filter; every other state keeps the
-        // filters in reach — a payer whose search failed can still change it.
-        if (state.status != CandidateSearchStatus.empty) ...<Widget>[
-          const SizedBox(height: AppSpacing.s3),
-          _FilterBar(state: state),
         ],
-        if (state.notice == CandidateSearchNotice.cursorRefused) ...<Widget>[
-          const SizedBox(height: AppSpacing.s3),
-          const _Notice(text: kCursorRefusedMessage),
-        ],
-        if (counts) ...<Widget>[
-          const SizedBox(height: AppSpacing.s3),
-          CandidateCountBadge(state: state),
-        ],
-        const SizedBox(height: AppSpacing.s3),
-      ],
+      ),
     );
   }
 }

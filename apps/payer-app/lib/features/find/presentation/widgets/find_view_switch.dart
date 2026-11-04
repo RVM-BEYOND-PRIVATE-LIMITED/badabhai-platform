@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_colors.dart';
+import '../../../../core/theme/app_motion.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/theme/app_typography.dart';
 
@@ -17,9 +18,14 @@ enum FindView {
 /// Find's segmented control: "All candidates" | "Applicants".
 ///
 /// Structural navigation, so the selected segment is deep blue (the bottom
-/// nav's active colour), never haldi: haldi is the 1-credit unlock CTA on every card
+/// nav's active colour), never haldi: haldi is the unlock CTA on every card
 /// below, and a second haldi block would compete with it. Each segment clears
 /// the 48px tap floor and is announced as a selectable button.
+///
+/// #2593 — the blue THUMB slides between the two halves ([AppMotion.tab],
+/// [AppMotion.emphasized]; transform only, zero under reduced motion) instead
+/// of the selection jumping. The labels swap colour at once, as the bottom
+/// nav's do under its sliding indicator.
 class FindViewSwitch extends StatelessWidget {
   const FindViewSwitch({
     super.key,
@@ -30,8 +36,13 @@ class FindViewSwitch extends StatelessWidget {
   final FindView selected;
   final ValueChanged<FindView> onChanged;
 
+  /// Key of the sliding thumb (for widget tests).
+  @visibleForTesting
+  static const Key thumbKey = Key('find_view_thumb');
+
   @override
   Widget build(BuildContext context) {
+    final bool rtl = Directionality.of(context) == TextDirection.rtl;
     return Container(
       padding: const EdgeInsets.all(AppSpacing.s1),
       decoration: BoxDecoration(
@@ -39,26 +50,48 @@ class FindViewSwitch extends StatelessWidget {
         borderRadius: BorderRadius.circular(AppRadii.xl),
         border: Border.all(color: AppColors.border),
       ),
-      child: Row(
+      child: Stack(
         children: <Widget>[
-          Expanded(
-            child: _Segment(
-              key: const Key('find_view_all'),
-              label: 'All candidates',
-              icon: Icons.groups_rounded,
-              selected: selected == FindView.allCandidates,
-              onTap: () => onChanged(FindView.allCandidates),
+          // Half the track, translated by whole halves — never a relayout.
+          Positioned.fill(
+            child: FractionallySizedBox(
+              alignment: AlignmentDirectional.centerStart,
+              widthFactor: 1 / FindView.values.length,
+              child: AnimatedSlide(
+                key: thumbKey,
+                offset: Offset((rtl ? -1 : 1) * selected.index.toDouble(), 0),
+                duration: AppMotion.resolve(context, AppMotion.tab),
+                curve: AppMotion.emphasized,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: AppColors.blue,
+                    borderRadius: BorderRadius.circular(AppRadii.md),
+                  ),
+                ),
+              ),
             ),
           ),
-          const SizedBox(width: AppSpacing.s1),
-          Expanded(
-            child: _Segment(
-              key: const Key('find_view_applicants'),
-              label: 'Applicants',
-              icon: Icons.assignment_ind_rounded,
-              selected: selected == FindView.applicants,
-              onTap: () => onChanged(FindView.applicants),
-            ),
+          Row(
+            children: <Widget>[
+              Expanded(
+                child: _Segment(
+                  key: const Key('find_view_all'),
+                  label: 'All candidates',
+                  icon: Icons.groups_rounded,
+                  selected: selected == FindView.allCandidates,
+                  onTap: () => onChanged(FindView.allCandidates),
+                ),
+              ),
+              Expanded(
+                child: _Segment(
+                  key: const Key('find_view_applicants'),
+                  label: 'Applicants',
+                  icon: Icons.assignment_ind_rounded,
+                  selected: selected == FindView.applicants,
+                  onTap: () => onChanged(FindView.applicants),
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -86,8 +119,9 @@ class _Segment extends StatelessWidget {
     return Semantics(
       button: true,
       selected: selected,
+      // Transparent: the thumb behind the row is the selected fill.
       child: Material(
-        color: selected ? AppColors.blue : Colors.transparent,
+        color: Colors.transparent,
         borderRadius: BorderRadius.circular(AppRadii.md),
         child: InkWell(
           onTap: onTap,

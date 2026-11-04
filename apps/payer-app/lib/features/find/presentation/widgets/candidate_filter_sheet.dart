@@ -8,6 +8,7 @@ import '../../../../core/theme/app_typography.dart';
 import '../../../../core/widgets/bb_button.dart';
 import '../../../../core/widgets/bb_chip.dart';
 import '../../../../core/widgets/bb_field.dart';
+import '../../../../core/widgets/bb_searchable_dropdown_field.dart';
 
 /// Opens the all-candidates filter sheet over [filters], starting from
 /// [current]. Resolves to the query to run, or null when dismissed.
@@ -34,6 +35,10 @@ Future<CandidateSearchQuery?> showCandidateFilterSheet(
 /// Industry, Years in industry, City, and the explicit opt-in "Only show
 /// matches". Every option comes from `GET /payer/candidates/filters` — the app
 /// keeps no copy of the vocabulary. One Role at most (a single select).
+///
+/// #2593 — the Role list is long, so it is SEARCHABLE (the worker app's
+/// dropdown, ported: [BbSearchableDropdownField]); and the "Show candidates"
+/// row clears the system gesture bar instead of sitting under it.
 ///
 /// Filters REORDER by default — matches lead, nobody is removed — so the
 /// strict switch says plainly what it does, and that an unrecorded detail never
@@ -138,6 +143,8 @@ class _CandidateFilterSheetState extends State<CandidateFilterSheet> {
                     key: const Key('filter_role'),
                     label: 'Role',
                     anyLabel: 'Any role',
+                    searchHint: 'Search roles',
+                    emptyHint: 'No role matches. Try another word.',
                     value: _role,
                     options: <LabelledId>[
                       for (final CandidateRoleOption r in f.roles)
@@ -202,19 +209,24 @@ class _CandidateFilterSheetState extends State<CandidateFilterSheet> {
               ),
             ),
           ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(
-              AppSpacing.gutter,
-              AppSpacing.s2,
-              AppSpacing.gutter,
-              AppSpacing.s4,
-            ),
-            child: BbButton(
-              key: const Key('filters_apply'),
-              label: 'Show candidates',
-              iconLeft: Icons.search_rounded,
-              block: true,
-              onPressed: () => Navigator.of(context).pop(_query),
+          // The sheet's safe area leaves the bottom inset alone, so this row
+          // clears the gesture bar itself.
+          SafeArea(
+            top: false,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.gutter,
+                AppSpacing.s2,
+                AppSpacing.gutter,
+                AppSpacing.s4,
+              ),
+              child: BbButton(
+                key: const Key('filters_apply'),
+                label: 'Show candidates',
+                iconLeft: Icons.search_rounded,
+                block: true,
+                onPressed: () => Navigator.of(context).pop(_query),
+              ),
             ),
           ),
         ],
@@ -230,6 +242,8 @@ class _CandidateFilterSheetState extends State<CandidateFilterSheet> {
 /// new value instead of the stale one. A value missing from [options] (a city
 /// that left the pool since the last read) stays listed under its own name —
 /// reopening the sheet never silently drops a filter the payer set.
+///
+/// With a [searchHint] it is SEARCHABLE ([BbSearchableDropdownField], #2593).
 class _OptionSelect extends StatelessWidget {
   const _OptionSelect({
     super.key,
@@ -238,6 +252,8 @@ class _OptionSelect extends StatelessWidget {
     required this.value,
     required this.options,
     required this.onChanged,
+    this.searchHint,
+    this.emptyHint,
   });
 
   final String label;
@@ -245,6 +261,12 @@ class _OptionSelect extends StatelessWidget {
   final String? value;
   final List<LabelledId> options;
   final ValueChanged<String?> onChanged;
+
+  /// The search box's hint; non-null makes the select searchable.
+  final String? searchHint;
+
+  /// What the searchable list says when nothing matches.
+  final String? emptyHint;
 
   /// The "Any …" sentinel — every real option id is non-empty.
   static const String _any = '';
@@ -260,12 +282,26 @@ class _OptionSelect extends StatelessWidget {
       ...labels.keys,
       if (current != _any && !labels.containsKey(current)) current,
     ];
+    String labelOf(String id) => id == _any ? anyLabel : (labels[id] ?? id);
+    final String? hint = searchHint;
+    if (hint != null) {
+      // Stateless: it reads [current] on every build, so it needs no key.
+      return BbSearchableDropdownField<String>(
+        label: label,
+        value: current,
+        options: ids,
+        labelOf: labelOf,
+        searchHint: hint,
+        emptyHint: emptyHint ?? BbSearchableDropdownField.defaultEmptyHint,
+        onSelected: (String id) => onChanged(id == _any ? null : id),
+      );
+    }
     return BbSelect<String>(
       key: ValueKey<String>(current),
       label: label,
       value: current,
       items: ids,
-      labelOf: (String id) => id == _any ? anyLabel : (labels[id] ?? id),
+      labelOf: labelOf,
       onChanged: (String? id) =>
           onChanged(id == null || id == _any ? null : id),
     );

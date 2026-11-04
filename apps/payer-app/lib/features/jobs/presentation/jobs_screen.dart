@@ -75,9 +75,10 @@ class JobsScreen extends StatelessWidget {
   /// view and briefly tinted, once. Null on an ordinary visit.
   final BbHighlightRequest? highlight;
 
-  /// Opens the candidate/applicant feed (the Find tab). Optional so existing
+  /// Opens the candidate/applicant feed (the Find tab) on the tapped job — its
+  /// id, or null for a MOCK row, which has none (#2593). Optional so existing
   /// mounts and tests keep working; the shell wires it for both sessions.
-  final VoidCallback? onApplicants;
+  final ValueChanged<String?>? onApplicants;
 
   /// Opens the AI-assisted chat. A non-null argument RESUMES that session
   /// (cross-device pickup); null starts a fresh one. Optional so existing
@@ -128,7 +129,7 @@ class _JobsView extends StatelessWidget {
 
   final VoidCallback onPost;
   final void Function(String? resumeSessionId)? onAiPost;
-  final VoidCallback? onApplicants;
+  final ValueChanged<String?>? onApplicants;
   final BbHighlightRequest? highlight;
 
   /// #2592 — the quiet re-read behind pull-to-refresh and a return to the
@@ -370,7 +371,7 @@ class _RealJobCard extends StatefulWidget {
   const _RealJobCard({required this.job, this.onApplicants});
 
   final JobPosting job;
-  final VoidCallback? onApplicants;
+  final ValueChanged<String?>? onApplicants;
 
   @override
   State<_RealJobCard> createState() => _RealJobCardState();
@@ -618,14 +619,16 @@ class _RealJobCardState extends State<_RealJobCard> {
 
   Widget _mainAction(bool idle) {
     return switch (_wire) {
-      // Opens the Find tab's Applicants view (the shell wires it). Navigation
-      // only, so it stays live while a sheet action runs.
+      // Opens the Find tab's Applicants view on THIS job (the shell wires
+      // it). Navigation only, so it stays live while a sheet action runs.
       'open' => BbButton(
           label: 'Applicants',
           variant: BbButtonVariant.navy,
           size: BbButtonSize.md,
           iconLeft: Icons.groups_rounded,
-          onPressed: widget.onApplicants,
+          onPressed: widget.onApplicants == null
+              ? null
+              : () => widget.onApplicants!(job.id),
         ),
       'paused' => BbButton(
           label: 'Resume',
@@ -660,7 +663,7 @@ class _JobCard extends StatelessWidget {
   const _JobCard({required this.job, this.onApplicants});
 
   final JobPosting job;
-  final VoidCallback? onApplicants;
+  final ValueChanged<String?>? onApplicants;
 
   @override
   Widget build(BuildContext context) {
@@ -739,7 +742,7 @@ class _JobCard extends StatelessWidget {
             size: BbButtonSize.sm,
             iconLeft: Icons.groups_rounded,
             block: true,
-            onPressed: onApplicants,
+            onPressed: onApplicants == null ? null : () => onApplicants!(job.id),
           ),
         ],
       ),

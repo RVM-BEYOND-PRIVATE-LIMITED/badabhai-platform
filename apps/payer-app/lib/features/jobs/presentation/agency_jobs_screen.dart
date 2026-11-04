@@ -45,8 +45,9 @@ class AgencyJobsView extends StatelessWidget {
 
   final VoidCallback onPost;
 
-  /// Opens the candidate/applicant feed (the Find tab), shared with company.
-  final VoidCallback? onApplicants;
+  /// Opens the candidate/applicant feed (the Find tab), shared with company,
+  /// on the tapped job's id (#2593).
+  final ValueChanged<String?>? onApplicants;
 
   /// The posting just created (#2596) — scrolled into view and tinted, once.
   final BbHighlightRequest? highlight;
@@ -76,7 +77,7 @@ class _AgencyJobsBody extends StatelessWidget {
   });
 
   final VoidCallback onPost;
-  final VoidCallback? onApplicants;
+  final ValueChanged<String?>? onApplicants;
   final BbHighlightRequest? highlight;
 
   /// #2592 — the quiet re-read behind pull-to-refresh and a return to the
@@ -200,7 +201,7 @@ class _AgencyJobCard extends StatefulWidget {
   const _AgencyJobCard({required this.job, this.onApplicants});
 
   final AgencyJobView job;
-  final VoidCallback? onApplicants;
+  final ValueChanged<String?>? onApplicants;
 
   @override
   State<_AgencyJobCard> createState() => _AgencyJobCardState();
@@ -359,7 +360,9 @@ class _AgencyJobCardState extends State<_AgencyJobCard> {
         variant: BbButtonVariant.navy,
         size: BbButtonSize.md,
         iconLeft: Icons.groups_rounded,
-        onPressed: widget.onApplicants,
+        onPressed: widget.onApplicants == null
+            ? null
+            : () => widget.onApplicants!(job.id),
       ),
       jobTitle: job.title,
       moreBusy: _closing,

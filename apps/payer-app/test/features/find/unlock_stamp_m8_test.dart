@@ -17,6 +17,7 @@ import 'package:payer_app/core/widgets/bb_stamp_celebration.dart';
 import 'package:payer_app/core/widgets/bb_success_stamp.dart';
 import 'package:payer_app/features/find/presentation/reveal_args.dart';
 import 'package:payer_app/features/find/presentation/reveal_screen.dart';
+import 'package:payer_app/features/find/presentation/widgets/unlock_button.dart';
 import 'package:payer_app/features/shell/presentation/app_shell.dart';
 
 /// #2596 (M8) — the unlock success moment.
@@ -469,7 +470,7 @@ void main() {
         'unlock → NO stamp', (WidgetTester tester) async {
       await pumpShell(tester);
 
-      await tester.tap(find.text('1 credit').first);
+      await tester.tap(find.text(kUnlockLabel).first);
       await tester.pumpAndSettle();
       haptics.clear();
       await tester.tap(find.text('Unlock for 1 credit'));

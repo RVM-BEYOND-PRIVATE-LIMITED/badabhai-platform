@@ -19,6 +19,7 @@ import 'package:payer_app/features/find/presentation/cubit/candidate_search_cubi
 import 'package:payer_app/features/find/presentation/cubit/find_cubit.dart';
 import 'package:payer_app/features/find/presentation/find_screen.dart';
 import 'package:payer_app/features/find/presentation/reveal_args.dart';
+import 'package:payer_app/features/find/presentation/widgets/unlock_button.dart';
 
 /// #2592 (M4) on Find: both views keep their rows while they refresh, a job
 /// or filter change dims the old rows under a thin bar instead of blanking
@@ -533,7 +534,7 @@ void main() {
       await tester.tap(find.text('VMC Operator'));
       await tester.pump();
       // The dimmed row from job A is still tappable (motion never blocks input).
-      await tester.tap(find.text('1 credit').first);
+      await tester.tap(find.text(kUnlockLabel).first);
       await tester.pump();
       await tester.pump();
       expect(find.text('Unlock for 1 credit'), findsOneWidget);

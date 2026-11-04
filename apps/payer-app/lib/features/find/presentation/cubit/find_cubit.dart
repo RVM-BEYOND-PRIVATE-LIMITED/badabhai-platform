@@ -9,7 +9,7 @@ import '../../../../core/error/payer_failure.dart';
 /// Loads the Find feed. Two shapes behind one cubit:
 ///
 ///  - MOCK feed ([kUseMocks] true) — the rich global candidate list; an unlock
-///    flips the card locally from "1 credit" to "View" without a refetch.
+///    flips the card locally from "Unlock" to "View" without a refetch.
 ///  - REAL feed — the payer's OPEN postings drive a per-job, FACELESS applicant
 ///    list (`GET /payer/reach/jobs/:jobId/applicants`). With >1 open job a
 ///    selector is shown; with none, an empty state ("post a job").
@@ -37,7 +37,23 @@ class FindCubit extends Cubit<FindState> {
   /// so a slow job switch never lands over the one the payer tapped after it.
   int _generation = 0;
 
-  Future<void> load() async {
+  /// The job the REAL feed opens on (#2593): the one a Jobs card's
+  /// "Applicants" was tapped on, then whichever the selector picked last. Null
+  /// = the first open job.
+  String? _wantedJobId;
+
+  /// One request per worker (#2593): a second unlock while one is in flight
+  /// joins it, never a second spend.
+  final Map<String, Future<UnlockResult>> _unlocksInFlight =
+      <String, Future<UnlockResult>>{};
+
+  /// Loads the feed. [jobId] is the posting a Jobs card's "Applicants" was
+  /// tapped on (#2593): the feed opens on THAT job when it is one of the
+  /// payer's open postings — it used to open on the first one whatever was
+  /// tapped — else on the first. Null keeps the job asked for last, so the
+  /// error state's Retry stays on the tapped job.
+  Future<void> load({String? jobId}) async {
+    if (jobId != null) _wantedJobId = jobId;
     final int generation = ++_generation;
     emit(state.copyWith(status: FindStatus.loading));
     try {
@@ -69,7 +85,13 @@ class FindCubit extends Cubit<FindState> {
       emit(const FindState(status: FindStatus.empty));
       return;
     }
-    await _loadApplicants(owned.first, owned, generation);
+    // A tapped job that is no longer open (closed since the Jobs list loaded)
+    // falls back to the first; the header and the selector name the job shown.
+    final JobPosting job = owned.firstWhere(
+      (JobPosting j) => j.id == _wantedJobId,
+      orElse: () => owned.first,
+    );
+    await _loadApplicants(job, owned, generation);
   }
 
   /// The session's OWN open jobs: company postings or agency `jobs` rows.
@@ -146,6 +168,8 @@ class FindCubit extends Cubit<FindState> {
         jobs: owned,
         selectedJob: job,
         applicants: applicants,
+        // An unlock still in flight keeps its spinner across a refresh.
+        unlocking: state.unlocking,
       ));
       return null;
     } catch (e) {
@@ -163,6 +187,7 @@ class FindCubit extends Cubit<FindState> {
   Future<void> selectJob(JobPosting job) async {
     // Re-picking the job on screen, or the one already loading, is a no-op.
     if (job.id == (state.switchingJobId ?? state.selectedJob?.id)) return;
+    _wantedJobId = job.id;
     final int generation = ++_generation;
     emit(state.copyWith(switchingJobId: job.id));
     try {
@@ -173,6 +198,8 @@ class FindCubit extends Cubit<FindState> {
         jobs: state.jobs,
         selectedJob: job,
         applicants: applicants,
+        // An unlock still in flight keeps its spinner across a job switch.
+        unlocking: state.unlocking,
       ));
     } catch (e) {
       if (isClosed || generation != _generation) return;
@@ -182,6 +209,7 @@ class FindCubit extends Cubit<FindState> {
         selectedJob: state.selectedJob,
         applicants: state.applicants,
         failure: PayerFailure.from(e),
+        unlocking: state.unlocking,
       ));
     }
   }
@@ -198,6 +226,8 @@ class FindCubit extends Cubit<FindState> {
       jobs: jobs,
       selectedJob: job,
       applicants: applicants,
+      // An unlock still in flight keeps its spinner across a job switch.
+      unlocking: state.unlocking,
     ));
   }
 
@@ -206,12 +236,15 @@ class FindCubit extends Cubit<FindState> {
   /// reveal without re-unlocking. Returns the typed result for the caller to
   /// route (reveal on grant, neutral toast on `unavailable`).
   ///
-  /// #348 — an OUTAGE surfaces as an error state AND rethrows. Both matter: the
-  /// state keeps this cubit consistent with its siblings ([load]/[selectJob],
-  /// which already emit [FindStatus.error]), and the rethrow lets the tap
-  /// handler show a retry toast. It must NOT be swallowed into
-  /// `UnlockResult.unavailable()` — that is the neutral DENY, and conflating an
-  /// outage with a deny is exactly the bug #346 fixed one layer down.
+  /// #2593 — ONE REQUEST PER WORKER: while it is in flight the worker is in
+  /// [FindState.unlocking] (the card's button shows progress), and a second
+  /// call joins the first instead of spending again.
+  ///
+  /// #348 / #2593 — an OUTAGE rethrows, so the tap handler shows a retry toast,
+  /// and the LIST STAYS: one failed unlock used to swap the whole feed for an
+  /// error page. It must NOT be swallowed into `UnlockResult.unavailable()` —
+  /// that is the neutral DENY, and conflating an outage with a deny is exactly
+  /// the bug #346 fixed one layer down.
   ///
   /// #2592 — [jobId] is the job whose feed the tapped row came from, bound at
   /// the TAP: a job switch can land while the confirm dialog is open, and the
@@ -221,35 +254,45 @@ class FindCubit extends Cubit<FindState> {
   Future<UnlockResult> unlockApplicant(
     Applicant applicant, {
     String? jobId,
-  }) async {
-    final String? job = jobId ?? state.selectedJob?.id;
+  }) {
+    final String workerId = applicant.workerId;
+    // A BLOCK body on purpose: `=> remove(...)` would return the removed value
+    // — this very future — and `whenComplete` would wait on itself forever.
+    return _unlocksInFlight[workerId] ??=
+        _unlockApplicant(workerId, jobId ?? state.selectedJob?.id)
+            .whenComplete(() {
+      _unlocksInFlight.remove(workerId);
+    });
+  }
+
+  Future<UnlockResult> _unlockApplicant(String workerId, String? jobId) async {
+    if (!isClosed) {
+      emit(state.copyWith(unlocking: <String>{...state.unlocking, workerId}));
+    }
     final UnlockResult result;
     try {
-      result = await _api.unlock(
-        workerId: applicant.workerId,
-        jobId: job,
-      );
-    } catch (e) {
-      // Keep the rethrow (the tap handler shows a retry toast) but never emit into
-      // a closed cubit if the screen was popped during the unlock round-trip.
+      result = await _api.unlock(workerId: workerId, jobId: jobId);
+    } catch (_) {
+      // Never emit into a closed cubit (the screen popped mid-request).
       if (!isClosed) {
         emit(state.copyWith(
-          status: FindStatus.error,
-          failure: PayerFailure.from(e),
+          unlocking: state.unlocking.difference(<String>{workerId}),
         ));
       }
       rethrow;
     }
     if (isClosed) return result;
-    if (result.granted && state.selectedJob?.id == job) {
-      emit(state.copyWith(
-        applicants: state.applicants
-            .map((Applicant a) => a.workerId == applicant.workerId
-                ? a.copyWith(unlocked: true, unlockId: result.unlockId)
-                : a)
-            .toList(growable: false),
-      ));
-    }
+    final bool onScreen = state.selectedJob?.id == jobId;
+    emit(state.copyWith(
+      unlocking: state.unlocking.difference(<String>{workerId}),
+      applicants: result.granted && onScreen
+          ? state.applicants
+              .map((Applicant a) => a.workerId == workerId
+                  ? a.copyWith(unlocked: true, unlockId: result.unlockId)
+                  : a)
+              .toList(growable: false)
+          : null,
+    ));
     return result;
   }
 
@@ -279,6 +322,7 @@ class FindState extends Equatable {
     this.applicants = const <Applicant>[],
     this.failure,
     this.switchingJobId,
+    this.unlocking = const <String>{},
   });
 
   final FindStatus status;
@@ -304,8 +348,14 @@ class FindState extends Equatable {
   /// Null when no switch is in flight.
   final String? switchingJobId;
 
+  /// REAL feed — workers with an unlock in flight (their button shows
+  /// progress and takes no tap, #2593).
+  final Set<String> unlocking;
+
   /// True when rendering the REAL per-job feed (a job is selected).
   bool get isRealFeed => selectedJob != null;
+
+  bool isUnlocking(String workerId) => unlocking.contains(workerId);
 
   FindState copyWith({
     FindStatus? status,
@@ -315,6 +365,7 @@ class FindState extends Equatable {
     List<Applicant>? applicants,
     PayerFailure? failure,
     String? switchingJobId,
+    Set<String>? unlocking,
   }) {
     return FindState(
       status: status ?? this.status,
@@ -324,6 +375,7 @@ class FindState extends Equatable {
       applicants: applicants ?? this.applicants,
       failure: failure ?? this.failure,
       switchingJobId: switchingJobId ?? this.switchingJobId,
+      unlocking: unlocking ?? this.unlocking,
     );
   }
 
@@ -336,5 +388,6 @@ class FindState extends Equatable {
         applicants,
         failure,
         switchingJobId,
+        unlocking,
       ];
 }

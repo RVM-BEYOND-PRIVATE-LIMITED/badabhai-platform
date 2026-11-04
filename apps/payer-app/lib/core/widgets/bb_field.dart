@@ -64,6 +64,7 @@ class BbField extends StatelessWidget {
     this.focusNode,
     this.textInputAction,
     this.onSubmitted,
+    this.autofocus = false,
   });
 
   final String? label;
@@ -132,6 +133,9 @@ class BbField extends StatelessWidget {
   /// Fires when the keyboard action key is pressed (outside a [flow] chain).
   final ValueChanged<String>? onSubmitted;
 
+  /// Focus the input as it appears (a search box opened to be typed in).
+  final bool autofocus;
+
   @override
   Widget build(BuildContext context) {
     final BbFieldFlow? flow = this.flow;
@@ -158,6 +162,7 @@ class BbField extends StatelessWidget {
           textInputAction: flow?.action ?? textInputAction,
           onEditingComplete: flow?.onAction,
           onSubmitted: flow == null ? onSubmitted : null,
+          autofocus: autofocus,
           readOnly: readOnly,
           keyboardType: keyboardType,
           minLines: minLines,
