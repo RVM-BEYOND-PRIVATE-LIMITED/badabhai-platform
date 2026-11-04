@@ -134,8 +134,8 @@ export function JobPostingChat({
   // Keep the publish CTA disabled across the success→navigation window so it can never be
   // re-clicked (no double publish) — the same latch the manual posting form uses.
   const [navigating, setNavigating] = useState(false);
-  // The publish-step role pick (#2490) — `""` until the payer chooses one. Optional: blank
-  // publishes with `role_kind` absent, so the worker card keeps the generic art.
+  // The publish-step role pick (#2490) — `""` until the payer chooses one. REQUIRED since #2645:
+  // it is the draft's trade, and Publish is refused at the picker until it is one of the 16.
   const [roleKind, setRoleKind] = useState("");
   // The publish-step area/locality (#2493). Until the payer edits it, the input follows the
   // interview draft (`draft.area`); once edited, the payer's value wins and rides the body.
@@ -258,7 +258,7 @@ export function JobPostingChat({
     begin("publish", async () => {
       const res = await publishJobPostingChatAction({
         sessionId,
-        ...(pickedRole ? { roleKind: pickedRole } : {}),
+        roleKind: pickedRole,
         ...(pickedArea ? { area: pickedArea } : {}),
       });
       if (!res.ok) {

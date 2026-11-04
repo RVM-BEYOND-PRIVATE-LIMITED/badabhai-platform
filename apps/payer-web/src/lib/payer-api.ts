@@ -2161,9 +2161,10 @@ export async function getJobPostingChatTranscript(
  * job posting. The draft already lives server-side on the session row, the payer is the session
  * (XB-A), and the org name is auto-filled server-side (rule A).
  *
- * `roleKind` is the publish-step role pick (#2490): display/classification only, the same closed
- * 21-value set the manual form sends, never a match input. OPTIONAL — absent stays absent, so the
- * posting stores NULL and the worker card draws the generic art. Sent only when the payer picked.
+ * `roleKind` is the publish-step role pick (#2490) — the job's TRADE. The chat always sends it
+ * since #2645: one of the 16 the API served, checked before this call, because a company job that
+ * names none of them can never go live and its trade scopes who it reaches (#2635). The wire field
+ * itself stays optional (absent would store NULL), so the parameter does too; absent is not sent.
  *
  * `area` (#2493) is the COARSE locality bucket prefilled from the draft (or corrected at publish).
  * The server lets the body win over the draft. OPTIONAL — absent stores NULL; the card then shows
