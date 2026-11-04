@@ -2,9 +2,10 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 
 /**
- * What the agency-jobs list RENDERS (route `/agency-jobs`): the gate, one row
- * per posting with its agency + skill count + detail link, the empty state,
- * and the outage recovery (never a 500).
+ * What the Agency postings list RENDERS (route `/jobs/agency`, was `/agency-jobs`
+ * until A6 #2576): the gate, the way back to Postings, one row per posting with
+ * its agency + skill count + a link to the posting, the empty state, and the
+ * outage recovery (never a 500).
  */
 const stub = vi.hoisted(() => ({
   gates: [] as string[],
@@ -12,21 +13,21 @@ const stub = vi.hoisted(() => ({
   failure: null as unknown,
 }));
 
-vi.mock("../../../lib/auth", () => ({
+vi.mock("../../../../lib/auth", () => ({
   requireCapability: async (capability: string) => {
     stub.gates.push(capability);
     return { adminId: "a-1", role: "super_admin", capabilities: ["manage_agency_match_skills"] };
   },
 }));
 
-vi.mock("../../../lib/agency-jobs", () => ({
+vi.mock("../../../../lib/agency-jobs", () => ({
   listAgencyJobs: async () => {
     if (stub.failure) throw stub.failure;
     return stub.jobs;
   },
 }));
 
-const { default: AgencyJobsPage } = await import("./page");
+const { default: AgencyPostingsPage } = await import("./page");
 
 const JOB = {
   job_id: "11111111-1111-4111-8111-111111111111",
@@ -44,12 +45,23 @@ beforeEach(() => {
   stub.failure = null;
 });
 
-const render = async () => renderToStaticMarkup(await AgencyJobsPage());
+const render = async () => renderToStaticMarkup(await AgencyPostingsPage());
 
 describe("the gate", () => {
   it("is manage_agency_match_skills", async () => {
     await render();
     expect(stub.gates).toEqual(["manage_agency_match_skills"]);
+  });
+});
+
+describe("the header", () => {
+  it("is a view of Postings: titled Agency postings, with the back link to /jobs", async () => {
+    const html = await render();
+    expect(html).toContain('<h1 class="page__title">Agency postings</h1>');
+    expect(html).toContain(
+      '<p class="page__back"><a class="backlink" href="/jobs"><i class="ph-fill ph-arrow-left" aria-hidden="true"></i><span>Postings</span></a></p>',
+    );
+    expect(html).not.toContain("Agency match skills");
   });
 });
 
@@ -59,7 +71,9 @@ describe("the table", () => {
     expect(html).toContain("CNC Turner");
     expect(html).toContain("Ludhiana");
     expect(html).toContain("Live");
-    expect(html).toContain("/agency-jobs/11111111-1111-4111-8111-111111111111");
+    // The row opens the posting (its Overview tab), filed under Postings.
+    expect(html).toContain('href="/jobs/agency/11111111-1111-4111-8111-111111111111"');
+    expect(html).not.toContain("/agency-jobs");
     // The skill COUNT, not the ids (ids live on the detail screen).
     expect(html).toContain(">2<");
     // Agency persona is stated beside the id (agent-owned by construction).
@@ -72,11 +86,11 @@ describe("the table", () => {
     expect(html).toContain("No agency jobs yet.");
   });
 
-  it("a failed read offers retry, never a 500", async () => {
+  it("a failed read offers retry of this list, never a 500", async () => {
     stub.failure = new Error("outage");
     stub.jobs = null;
     const html = await render();
-    expect(html).toContain("Retry");
+    expect(html).toMatch(/href="\/jobs\/agency">(<i [^>]*><\/i>)?Retry<\/a>/);
     expect(html).not.toContain("CNC Turner");
   });
 });

@@ -2,11 +2,13 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 
 /**
- * What the agency-job detail RENDERS (route `/agency-jobs/:jobId`): the gate,
- * the posting facts, the current selection with labels, and exactly one of —
- * the editor, the closed notice, or the vocabulary-unavailable notice. The
- * client form itself is stubbed (its rendering is pinned in
- * `match-skill-form.render.test.tsx`); 404/400 read as not-found.
+ * What an agency posting's Match skills tab RENDERS (route
+ * `/jobs/agency/:jobId/match-skills`, was `/agency-jobs/:jobId` until A6 #2576):
+ * the gate, the posting's header and tab row, the current selection with
+ * labels, and exactly one of — the editor, the closed notice, or the
+ * vocabulary-unavailable notice. The client form itself is stubbed (its
+ * rendering is pinned in `match-skill-form.render.test.tsx`); 404/400 read as
+ * not-found.
  */
 const stub = vi.hoisted(() => {
   class RequestError extends Error {
@@ -23,18 +25,18 @@ const stub = vi.hoisted(() => {
   };
 });
 
-vi.mock("../../../../lib/auth", () => ({
+vi.mock("../../../../../../lib/auth", () => ({
   requireCapability: async (capability: string) => {
     stub.gates.push(capability);
     return { adminId: "a-1", role: "super_admin", capabilities: ["manage_agency_match_skills"] };
   },
 }));
 
-vi.mock("../../../../lib/admin-http", () => ({
+vi.mock("../../../../../../lib/admin-http", () => ({
   isAdminRequestError: (err: unknown) => err instanceof stub.RequestError,
 }));
 
-vi.mock("../../../../lib/agency-jobs", () => ({
+vi.mock("../../../../../../lib/agency-jobs", () => ({
   getAgencyJobMatchSkills: async () => {
     if (stub.failure) throw stub.failure;
     return stub.job;
@@ -52,7 +54,7 @@ vi.mock("./match-skill-form", () => ({
   MatchSkillForm: () => null,
 }));
 
-const { default: AgencyJobDetailPage } = await import("./page");
+const { default: MatchSkillsTab } = await import("./page");
 
 const JOB = {
   job_id: "11111111-1111-4111-8111-111111111111",
@@ -86,7 +88,7 @@ beforeEach(() => {
 });
 
 const render = async () =>
-  renderToStaticMarkup(await AgencyJobDetailPage({ params: Promise.resolve(params) }));
+  renderToStaticMarkup(await MatchSkillsTab({ params: Promise.resolve(params) }));
 
 describe("the gate", () => {
   it("is manage_agency_match_skills", async () => {
@@ -96,13 +98,21 @@ describe("the gate", () => {
 });
 
 describe("the detail", () => {
-  it("renders the posting facts and the current selection with labels", async () => {
+  it("renders the posting's header and the current selection with labels", async () => {
     const html = await render();
-    expect(html).toContain("CNC Turner");
-    expect(html).toContain("Ludhiana");
-    expect(html).toContain("Live");
+    expect(html).toContain('<h1 class="page__title">CNC Turner</h1>');
+    expect(html).toContain("Agency posting · Ludhiana");
     expect(html).toContain("CNC operating");
     expect(html).toContain("mskill_cnc_operate");
+  });
+
+  it("is a tab on the posting: Match skills is current, Overview links the posting", async () => {
+    const html = await render();
+    const tabs = html.slice(html.indexOf('aria-label="Agency posting"'));
+    expect(tabs).toContain('<span aria-current="true" class="btn btn--sm btn--selected">Match skills</span>');
+    expect(tabs).toContain(`href="/jobs/agency/${JOB.job_id}">Overview`);
+    // The back link is the posting's list, one level up from both tabs.
+    expect(html).toContain('<a class="backlink" href="/jobs/agency">');
   });
 
   it("a closed posting shows the terminal notice and no editor", async () => {
@@ -120,8 +130,8 @@ describe("the detail", () => {
 
   it("an unknown id reads as not-found", async () => {
     stub.failure = new stub.RequestError(404);
-    const { default: AgencyJobDetailPageFn } = await import("./page");
-    const err = await AgencyJobDetailPageFn({
+    const { default: MatchSkillsTabFn } = await import("./page");
+    const err = await MatchSkillsTabFn({
       params: Promise.resolve(params),
     }).then(
       () => {
@@ -134,8 +144,8 @@ describe("the detail", () => {
 
   it("a malformed id reads as not-found, not an outage", async () => {
     stub.failure = new stub.RequestError(400);
-    const { default: AgencyJobDetailPageFn } = await import("./page");
-    const err = await AgencyJobDetailPageFn({
+    const { default: MatchSkillsTabFn } = await import("./page");
+    const err = await MatchSkillsTabFn({
       params: Promise.resolve(params),
     }).then(
       () => {

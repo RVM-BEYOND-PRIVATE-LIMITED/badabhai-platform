@@ -3,12 +3,12 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
-import { AdminActionButton } from "../../../../components/admin-action-button";
+import { AdminActionButton } from "../../../../../../components/admin-action-button";
 import {
   AdminActionResultBanner,
-} from "../../../../components/admin-action-result-banner";
-import type { AdminActionOutcome } from "../../../../lib/admin-action-result";
-import type { MatchSkillVocabulary } from "../../../../lib/agency-jobs";
+} from "../../../../../../components/admin-action-result-banner";
+import type { AdminActionOutcome } from "../../../../../../lib/admin-action-result";
+import type { MatchSkillVocabulary } from "../../../../../../lib/agency-jobs";
 import { setAgencyJobMatchSkillsAction } from "./actions";
 
 /**

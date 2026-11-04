@@ -81,6 +81,30 @@ describe("the gate", () => {
   });
 });
 
+/**
+ * Agency postings (A6, #2576): the old "Agency match skills" section is a view of Postings now,
+ * opened from this header — and only for a session whose role can read agency jobs at all
+ * (`manage_agency_match_skills`, the gate on every agency-job read). The page's own gate is not
+ * moved by it.
+ */
+describe("the way to Agency postings", () => {
+  const link = '<a class="btn btn--ghost" href="/jobs/agency"><i class="ph-fill ph-tag" aria-hidden="true"></i>Agency postings</a>';
+
+  it("is a header action for a session that may open it", async () => {
+    stub.capabilities = ["read_entities", "manage_agency_match_skills"];
+    const out = await render();
+    expect(out).toContain(link);
+    expect(out.indexOf(link)).toBeLessThan(out.indexOf("</header>"));
+    expect(stub.gates).toEqual(["read_entities"]);
+  });
+
+  it("is absent for one that may not — no door to a refusal", async () => {
+    const out = await render();
+    expect(out).not.toContain("/jobs/agency");
+    expect(out).not.toContain("Agency postings");
+  });
+});
+
 describe("the names (owner ruling 2026-10-01)", () => {
   it("calls the page Postings and the headcount Openings", async () => {
     const out = await render();

@@ -20,7 +20,7 @@ class FakeRequestError extends Error {
   }
 }
 
-vi.mock("../../../../lib/admin-http", () => ({
+vi.mock("../../../../../../lib/admin-http", () => ({
   adminFetch: (...a: unknown[]) => adminFetch(...a),
   isAdminRequestError: (e: unknown) => e instanceof FakeRequestError,
   isAdminUnauthorized: (e: unknown) => e instanceof FakeRequestError && e.status === 401,

@@ -10,6 +10,7 @@ import {
 } from "../../../lib/read-refusal";
 import { JOB_POSTING_STATUSES, JOB_POSTING_VERIFICATION_STATUSES } from "@badabhai/types";
 import { queryHref } from "../../../lib/query-href";
+import { AGENCY_POSTINGS_HREF } from "../../../lib/agency-posting-href";
 import { formatPayBand, formatRelative, timestampTitle } from "../../../lib/format";
 import { StatusPill } from "../../../components/status-pill";
 import { CustomerLink } from "../../../components/customer-link";
@@ -43,6 +44,9 @@ export default async function JobsPage({
 }) {
   const session = await requireCapability("read_entities");
   const mayReadEvents = can(session.capabilities, "read_events");
+  // Agency postings (A6, #2576 — the old "Agency match skills" section) are a view of this one,
+  // offered only where it opens: every agency-job read sits on `manage_agency_match_skills`.
+  const mayOpenAgencyPostings = can(session.capabilities, "manage_agency_match_skills");
 
   const sp = await searchParams;
   const one = (v: string | string[] | undefined) =>
@@ -101,6 +105,14 @@ export default async function JobsPage({
         description="Every posting on the platform, as workers see it in the feed."
         info={
           <p>Company and role text are shown exactly as the poster typed them.</p>
+        }
+        secondaryActions={
+          mayOpenAgencyPostings ? (
+            <Link className="btn btn--ghost" href={AGENCY_POSTINGS_HREF}>
+              <Icon name="tag" />
+              Agency postings
+            </Link>
+          ) : null
         }
         filters={
           /* Folds behind a "Filters (n)" toggle on a phone (AW-08); unchanged above it. */

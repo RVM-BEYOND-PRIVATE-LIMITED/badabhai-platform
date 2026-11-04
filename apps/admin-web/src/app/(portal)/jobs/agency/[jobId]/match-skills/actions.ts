@@ -2,14 +2,14 @@
 
 import { z } from "zod";
 
-import { adminFetch } from "../../../../lib/admin-http";
-import { describeAdminActionError } from "../../../../lib/describe-admin-error";
+import { adminFetch } from "../../../../../../lib/admin-http";
+import { describeAdminActionError } from "../../../../../../lib/describe-admin-error";
 import {
   matchSkillVocabularySchema,
   setAgencyJobMatchSkillsResultSchema,
   type MatchSkillVocabulary,
-} from "../../../../lib/agency-jobs";
-import type { AdminActionOutcome } from "../../../../lib/admin-action-result";
+} from "../../../../../../lib/agency-jobs";
+import type { AdminActionOutcome } from "../../../../../../lib/admin-action-result";
 
 /**
  * GET /admin/match/skills — the picker vocabulary (backend #2207).
