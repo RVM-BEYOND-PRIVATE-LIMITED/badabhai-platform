@@ -19,6 +19,7 @@ import {
   candidateSearchHref,
   countSummary,
   inboxRedirectHref,
+  listedCount,
   parseCandidateSearchAddress,
   pickedRoleLabel,
   resolveCandidateSearch,
@@ -26,6 +27,14 @@ import {
   type CandidateSearchQuery,
   type ResolvedSearch,
 } from "../../../lib/candidate-search";
+import {
+  FROM_PARAM,
+  listRange,
+  nextStart,
+  pageStart,
+  rangeLabel,
+  type ListRange,
+} from "../../../lib/list-range";
 import { Card } from "../../../components/ds";
 import { PageHeader } from "../../../components/page-header";
 import { PortalLink } from "../../../components/portal-link";
@@ -71,7 +80,9 @@ export const dynamic = "force-dynamic";
  * the rows (ADR-0040 Decision 3) and the screen is never empty without saying why: an empty pool
  * is a calm "No candidates to show yet" (no zero shouted); a strict search that matches nobody
  * shows its counts and the way back to everyone (strict dropped, filters kept); a later page with
- * nothing left says so. Paging is keyset: "Next page" carries `nextCursor` and the filters.
+ * nothing left says so. Paging is keyset: "Next page" carries `nextCursor` and the filters, and
+ * where its page starts (`from`), so the pager says "Showing 21–40 of 57" — N being the list's own
+ * size (`listedCount`) — and paging moves focus to the list's heading (#2588).
  *
  * LOADING: no route `loading.tsx`, no Suspense, no `next/dynamic` here — a navigation keeps the
  * current page on screen until this one has rendered (app/no-suspense-above-a-page.test.ts); every
@@ -123,6 +134,8 @@ export default async function CandidatesPage({
     readBalance(),
     readUnlocks(),
   ]);
+  // Where this page starts — 1 without a cursor (a dropped filter drops the cursor too).
+  const start = pageStart(params[FROM_PARAM], query.cursor);
 
   const header = {
     ...HEAD,
@@ -164,7 +177,11 @@ export default async function CandidatesPage({
             Date.now(),
           )}
         />
-        <Pager query={query} nextCursor={read.page.nextCursor} />
+        <Pager
+          query={query}
+          nextCursor={read.page.nextCursor}
+          range={listRange(start, rows.length, listedCount(read.page))}
+        />
       </div>
     );
   }
@@ -192,8 +209,10 @@ export default async function CandidatesPage({
         // answer the API gives; if it ever were, it reads as calmly as an empty pool.
         <EmptyPoolState />
       )}
-      {/* Paging follows a page the SERVER answered. */}
-      {read.kind === "ok" ? <Pager query={query} nextCursor={read.page.nextCursor} /> : null}
+      {/* Paging follows a page the SERVER answered (with no rows on it, there is no range). */}
+      {read.kind === "ok" ? (
+        <Pager query={query} nextCursor={read.page.nextCursor} range={null} />
+      ) : null}
     </div>
   );
 }
@@ -241,12 +260,28 @@ async function readUnlocks(): Promise<UnlockHistoryItem[]> {
   }
 }
 
-/** "Next page" (the server's cursor, filters kept) and "First page" (filters kept, no cursor). */
-function Pager({ query, nextCursor }: { query: CandidateSearchQuery; nextCursor: string | null }) {
+/**
+ * "Next page" (the server's cursor, filters kept, and where that page starts when this one's start
+ * is known) and "First page" (filters kept, no cursor) — after the rows on screen.
+ */
+function Pager({
+  query,
+  nextCursor,
+  range,
+}: {
+  query: CandidateSearchQuery;
+  nextCursor: string | null;
+  range: ListRange | null;
+}) {
   return (
     <CandidatesPager
+      range={range ? rangeLabel(range) : null}
       firstPage={query.cursor ? candidateSearchHref({ ...query, cursor: null }) : null}
-      nextPage={nextCursor ? candidateSearchHref({ ...query, cursor: nextCursor }) : null}
+      nextPage={
+        nextCursor
+          ? candidateSearchHref({ ...query, cursor: nextCursor }, range ? nextStart(range) : null)
+          : null
+      }
     />
   );
 }

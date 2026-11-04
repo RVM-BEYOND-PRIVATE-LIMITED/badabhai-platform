@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
+import { columnHeaders } from "../../../../test/grid-markup";
 
 /**
  * The customers roster — Directory › Companies (`/companies`) — and what it computes and hands to
@@ -170,7 +171,7 @@ describe("the Kind filter (A6)", () => {
     const out = await render({ kind: "agency" });
     expect(out.split(">Clear filters<").length - 1).toBe(1);
     expect(out).toContain(
-      '<a class="btn btn--ghost" href="/companies"><i class="ph-fill ph-funnel-x" aria-hidden="true"></i>Clear filters</a>',
+      '<a class="btn btn--ghost" href="/companies"><i class="ph-fill ph-funnel-x" aria-hidden="true"></i>Clear filters<span class="nav-pending" aria-hidden="true"></span></a>',
     );
   });
 
@@ -216,7 +217,7 @@ describe("the roster reads the posture off org_name, in every view", () => {
     // The copy-paste bug this exists for: asking about `full_name` here yields `capped` for a
     // fully disclosed page, and the column silently vanishes.
     const out = await render({ kind });
-    expect(out).toContain('<th scope="col">Organisation</th>');
+    expect(columnHeaders(out)).toContain("Organisation");
     expect(out).toContain("Acme Fabrication Pvt Ltd");
     expect(out).not.toContain("Names are withheld on this page");
   });
@@ -226,7 +227,7 @@ describe("the roster reads the posture off org_name, in every view", () => {
     const out = await render({ kind });
     expect(out).toContain("Names are withheld on this page");
     expect(out).toContain("hourly name budget");
-    expect(out).not.toContain('<th scope="col">Organisation</th>');
+    expect(columnHeaders(out)).not.toContain("Organisation");
     expect(out).not.toContain("No name on record");
   });
 
@@ -249,7 +250,7 @@ describe("the roster reads the posture off org_name, in every view", () => {
       stub.page = { items: [FACELESS], nextCursor: null };
       const out = await render({ kind });
       expect(out).toContain("your role does not include name access");
-      expect(out).not.toContain('<th scope="col">Organisation</th>');
+      expect(columnHeaders(out)).not.toContain("Organisation");
       expect(out).not.toContain("Names are withheld on this page");
       expect(out).toContain(`title="${PAYER_ID}"`);
     },
@@ -346,7 +347,7 @@ describe("a refused filter is cleared from the refusal itself, in every view", (
     stub.failure = new stub.RequestError(400);
     const out = await render({ kind, status: "nonsense", cursor: "c2" });
     expect(stateOf(out)).toContain(
-      `href="/companies"><i class="ph-fill ph-funnel-x" aria-hidden="true"></i>Clear filters</a>`,
+      `href="/companies"><i class="ph-fill ph-funnel-x" aria-hidden="true"></i>Clear filters<span class="nav-pending" aria-hidden="true"></span></a>`,
     );
     expect(out.split(">Clear filters<").length - 1).toBe(1);
     expect(out).not.toContain("Back to the first page");

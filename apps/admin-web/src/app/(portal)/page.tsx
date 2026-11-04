@@ -342,6 +342,10 @@ export default async function DashboardPage({
                  action here would be a duplicate link with an identical accessible name
                  inside one panel. */
               emptyBody="The audit spine fills as the platform is used. Recent activity will appear here."
+              /* A panel on the dashboard, not a list page: its own column set, no view controls,
+                 no pager — "View events" in the head opens the list. */
+              gridId="dashboard-events"
+              viewControls={false}
             />
           ) : (
             <p className="empty">The event feed is unavailable right now.</p>

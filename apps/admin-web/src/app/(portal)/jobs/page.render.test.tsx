@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
+import { columnHeaders } from "../../../../test/grid-markup";
 import { customerCell } from "../../../../test/customer-cell";
 
 /**
@@ -116,13 +117,14 @@ describe("the names (owner ruling 2026-10-01)", () => {
 
   it("names the columns for what they hold", async () => {
     const out = await render();
-    expect(out).toContain('<th scope="col">Role title</th>');
-    expect(out).toContain('<th scope="col">Trust review</th>');
+    const headers = columnHeaders(out);
+    expect(headers).toContain("Role title");
+    expect(headers).toContain("Trust review");
     // The customer who published it: "Customer", never "Owner account" (owner ruling
     // 2026-10-01 — "Account" is the payer's own settings page).
-    expect(out).toContain('<th scope="col">Customer</th>');
+    expect(headers).toContain("Customer");
     expect(out).not.toContain("Owner account");
-    expect(out).not.toContain('<th scope="col">Role</th>');
+    expect(headers).not.toContain("Role");
   });
 });
 
@@ -147,7 +149,7 @@ describe("the empty list", () => {
     const out = await render({ status: "closed" });
     expect(out).toContain("No postings match these filters");
     expect(out.split(">Clear filters<").length - 1).toBe(1);
-    expect(out).toMatch(/href="\/jobs">(<i [^>]*><\/i>)?Clear filters<\/a>/);
+    expect(out).toMatch(/href="\/jobs">(<i [^>]*><\/i>)?Clear filters(?:<span class="nav-pending" aria-hidden="true"><\/span>)?<\/a>/);
   });
 });
 
@@ -212,7 +214,7 @@ describe("a failed read is told apart by its cause", () => {
     expect(out.split(">Clear filters<").length - 1).toBe(1);
     // …and that one Clear filters is IN the refusal, where the way out belongs.
     const state = out.slice(out.indexOf('class="state state--error"'));
-    expect(state).toMatch(/href="\/jobs">(<i [^>]*><\/i>)?Clear filters<\/a>/);
+    expect(state).toMatch(/href="\/jobs">(<i [^>]*><\/i>)?Clear filters(?:<span class="nav-pending" aria-hidden="true"><\/span>)?<\/a>/);
   });
 
   it("a 400 with filters past page one: Clear filters — not a first page that keeps the refused filters", async () => {

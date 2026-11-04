@@ -104,7 +104,15 @@ const SKILLS_EMPTY = {
 const BARS: Array<[string, () => ReactNode]> = [
   [
     "events",
-    () => EventFilterBar({ eventName: "", actorType: "", subjectType: "", correlationId: "" }),
+    () =>
+      EventFilterBar({
+        eventName: "",
+        actorType: "",
+        subjectType: "",
+        correlationId: "",
+        occurredFrom: "",
+        occurredTo: "",
+      }),
   ],
   ["ai-calls", () => AiCallFilterBar({ taskType: "", success: "", workerId: "" })],
   ["jobs", () => JobFilterBar({ status: "", verificationStatus: "", payerId: "" })],

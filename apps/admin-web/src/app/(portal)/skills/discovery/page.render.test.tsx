@@ -645,7 +645,7 @@ describe("error states", () => {
     stub.groupsFailure = new stub.RequestError(400, "Invalid enum value.");
     const out = await render({ tradeFamily: "Welders" });
     expect(out).toContain("The server rejected this request");
-    expect(out).toMatch(/href="\/skills\/discovery"><i [^>]*><\/i>Clear filters<\/a>/);
+    expect(out).toMatch(/href="\/skills\/discovery"><i [^>]*><\/i>Clear filters(?:<span class="nav-pending" aria-hidden="true"><\/span>)?<\/a>/);
   });
 
   it("anything else (grouped) is our fault, with a retry that repeats the same query", async () => {
@@ -798,7 +798,7 @@ describe("hierarchy and rhythm", () => {
     stub.page = { items: [ROW], nextCursor: null };
     const out = await render({ view: "flat" });
     expect(out).not.toContain('aria-label="Batch order"');
-    expectFilterBarClosesTheStack(out, '<div class="tablewrap">');
+    expectFilterBarClosesTheStack(out, '<div class="grid"');
   });
 
   it("the grouped view's trailing captions sit in a foot block after the batch list", async () => {
@@ -957,7 +957,9 @@ describe("the queue comes first (AW-02)", () => {
     stub.page = { items: [ROW], nextCursor: null };
     const flat = await render({ view: "flat" });
     const flatFoot = flat.indexOf('<div class="queue-notes queue-notes--foot">');
-    expect(flatFoot).toBeGreaterThan(flat.indexOf('<div class="tablewrap">'));
+    const flatGrid = flat.indexOf('<div class="grid"');
+    expect(flatGrid).toBeGreaterThanOrEqual(0);
+    expect(flatFoot).toBeGreaterThan(flatGrid);
     for (const note of ["One row per candidate", "Direct candidates are the highest yield"]) {
       expect(flat.indexOf(note), note).toBeGreaterThan(flatFoot);
     }

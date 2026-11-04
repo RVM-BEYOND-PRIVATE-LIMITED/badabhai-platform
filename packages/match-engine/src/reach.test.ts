@@ -96,6 +96,45 @@ describe("resolveReachSet", () => {
   });
 });
 
+describe("resolveReachSet — scopeSkillIds (#2635)", () => {
+  it("drops a related skill outside the scope from both the suggestions and the reach", () => {
+    const reach = resolveReachSet({
+      postedSkillIds: [VMC],
+      relatedDefault: "on",
+      scopeSkillIds: [VMC, TURNER, HMC],
+    });
+    expect(reach.suggestedRelatedIds).toEqual([TURNER, HMC].sort());
+    expect(reach.reachSkillIds).toEqual([VMC, TURNER, HMC].sort());
+    expect(reach.reachSkillIds).not.toContain(SETTER);
+  });
+
+  it("never filters a POSTED skill, even one outside the scope", () => {
+    const reach = resolveReachSet({
+      postedSkillIds: [RIDER],
+      relatedDefault: "on",
+      scopeSkillIds: [VMC],
+    });
+    expect(reach.postedSkillIds).toEqual([RIDER]);
+    expect(reach.reachSkillIds).toEqual([RIDER]);
+  });
+
+  it("ignores an untick of a skill the scope already removed", () => {
+    const reach = resolveReachSet({
+      postedSkillIds: [VMC],
+      relatedDefault: "on",
+      untickedIds: [SETTER],
+      scopeSkillIds: [VMC, TURNER, HMC],
+    });
+    expect(reach.appliedUntickedIds).toEqual([]);
+    expect(reach.reachSkillIds).toEqual([VMC, TURNER, HMC].sort());
+  });
+
+  it("an omitted scope is the unscoped relation, exactly as before", () => {
+    const scoped = resolveReachSet({ postedSkillIds: [VMC], relatedDefault: "on" });
+    expect(scoped.reachSkillIds).toEqual([VMC, SETTER, TURNER, HMC].sort());
+  });
+});
+
 describe("wantedSkillIds", () => {
   it("returns only the rows the worker wants, sorted and deduped", () => {
     const rows = [row(TURNER), row(VMC, { wants: false }), row(TURNER, { industryId: "ind_quick_commerce" })];

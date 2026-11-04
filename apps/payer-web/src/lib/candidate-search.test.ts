@@ -7,6 +7,7 @@ import {
   candidateSearchHref,
   countSummary,
   inboxRedirectHref,
+  listedCount,
   NO_SEARCH_FILTERS,
   parseCandidateSearchAddress,
   pickedRoleLabel,
@@ -186,6 +187,16 @@ describe("candidateSearchHref — the pager's and the states' links", () => {
   it("a city is encoded, never spliced", () => {
     expect(candidateSearchHref({ city: "Navi Mumbai & Thane" })).toBe("/candidates?city=Navi+Mumbai+%26+Thane");
   });
+
+  it("#2588: where the cursor's page starts (`from`) rides with the cursor, and only with it", () => {
+    expect(candidateSearchHref({ city: "Pune", cursor: CURSOR }, 21)).toBe(
+      `/candidates?city=Pune&cursor=${CURSOR}&from=21`,
+    );
+    // The first page has no cursor, so no start either; an unknown start is left out.
+    expect(candidateSearchHref({ city: "Pune", cursor: null }, 21)).toBe("/candidates?city=Pune");
+    expect(candidateSearchHref({ cursor: CURSOR }, null)).toBe(`/candidates?cursor=${CURSOR}`);
+    expect(candidateSearchHref({ cursor: CURSOR })).toBe(`/candidates?cursor=${CURSOR}`);
+  });
 });
 
 describe("searchFiltersKey — a new selection is a new key; paging is not", () => {
@@ -260,5 +271,18 @@ describe("countSummary — three numbers, never folded (ADR-0040 §1/§4)", () =
 
   it("an empty pool has no count line at all (its state says so, with no zero shouted)", () => {
     expect(countSummary(c({ total: 0, matched: 0, unrecorded: 0 }))).toBeNull();
+  });
+});
+
+describe("listedCount — the N of the pager's 'Showing 21–40 of N' (#2588)", () => {
+  it("filters reorder, so without strict the list is the whole pool", () => {
+    expect(listedCount({ total: 62, matched: 14, unrecorded: 9, strict: false })).toBe(62);
+  });
+
+  it("strict lists the matches plus the unrecorded — it drops only the definite no's", () => {
+    expect(listedCount({ total: 62, matched: 14, unrecorded: 9, strict: true })).toBe(23);
+    expect(listedCount({ total: 62, matched: 14, unrecorded: 0, strict: true })).toBe(14);
+    // Strict with no filter: everyone matches.
+    expect(listedCount({ total: 62, matched: 62, unrecorded: 0, strict: true })).toBe(62);
   });
 });

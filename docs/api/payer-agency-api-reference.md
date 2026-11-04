@@ -303,6 +303,13 @@ Conventions: request fields use the casing the endpoint expects (auth/unlock/pos
   - Clearing a field that is already NULL is not a change; if nothing else changed you get the usual `400 no effective changes`.
   - `org_label` / `role_title` / `vacancy_band` / `status` and the skill sets are **not clearable** — the closed set is what keeps `clear` away from a NOT NULL column or the server-resolved reach set.
 - **Mobile gotchas:** Lifecycle: `draft→open` publish only; `closed` is terminal (editing a closed posting → `400`/conflict). No-op edits rejected. Closing is a **separate** endpoint.
+- **#2635 (2026-11-04) — matching runs only for the 16 postable trades.**
+  - **A live job needs a trade.** `status: 'open'` on a posting whose `role_kind` (stored, or set in the same PATCH) is not one of the 16, or changing / clearing the `role_kind` of a posting that is already `open` or `paused` to a non-16 value, is a `400` with `reason: "posting_trade_required"` (message `"a live job must name one of the 16 trades"`), nested under `error`. Nothing is written. Branch on `reason`. A draft may change its role freely; an edit that leaves the role alone is never refused.
+  - **A 16-trade posting's skills come from its trade.** On create, edit, publish and unpause the server keeps the trade's own `mskill_*` (always) plus every sent id that trade owns, and **drops** the rest — never a `400`. A sent id outside the closed vocabulary is still a `400`. `max_skills_per_posting` counts the ids the client sent (the base skill the server adds is free) and is checked before the write.
+  - **Related reach stays inside the 16.** A Fitter job never reaches plumbers; a VMC job never reaches CNC setter / general operators.
+  - **Events:** `job_posting.match_skills_scoped` v1 (ids only: `role_kind`, `trigger`, `kept_skill_ids`, `dropped_skill_ids` = requested ids the trade does not own), emitted only when something was dropped.
+  - **Ops routes:** the publish / live-role gate is company-only, but an ops posting with a 16-trade `role_kind` is scoped the same way. Ops / agency postings with no 16-trade role resolve exactly as before.
+  - **`POST /payer/match/reach-preview`** keeps related reach inside the 16 and takes an optional `role_kind`; send it so the preview scopes the posted ids exactly as publish will.
 
 #### `POST /payer/job-postings/:id/close`
 
@@ -700,11 +707,13 @@ Owner rulings 2026-11-03: payer-web's **Candidates** opens on **All candidates**
                     skillMonths,                                          // bucketed to 6
                     industry: {id,label}, industryMonths: number|null,    // floored to 6; null = not recorded
                     city: string|null,                                    // gazetteer-recognised only
-                    tradeLevels: [ TradeLevelBadge ] } ],
+                    tradeLevels: [ TradeLevelBadge ],
+                    isSample: boolean } ],                                // R74: a seeded demo profile
     nextCursor: string|null }
   ```
 
   `workerId` is the id `POST /payer/unlocks` takes (`job_id: null` for a search row). **Masked:** no name, phone, photo, employer, salary, address or free text — identity is only released by an unlock.
+- **Sample candidates (R74, 2026-11-04):** `isSample: true` marks a synthetic-workforce seed row shown for demos, not a person. Clients badge the card "Sample candidate" and offer no unlock. `POST /payer/unlocks` for a sample worker returns the normal neutral `unavailable` body with **no credit debited and no unlock row written** (only `unlock.requested` is recorded). Sample rows are ranked and counted like any other candidate.
 - **Cursor:** opaque base64url of `{ v: 1, f: <search fingerprint>, w: <last worker served>, o: <rows served> }` — it names who you were last shown, never a sort key. Bound to its search: reused under different filters or `strict` → `400`. The next page resumes after that worker's current position (or, if he has left the pool, at position `o`).
 - **Events:** one `payer.candidate_search_performed` v1 per page — the shape (closed role ids, which filters were engaged as booleans, strict, first page, page size, the three counts); never a worker id or a city.
 - **Errors:** `400` bad body / unknown role / malformed or foreign cursor; `401` no session; `429` cap or Redis down; a DB failure is a `5xx`.

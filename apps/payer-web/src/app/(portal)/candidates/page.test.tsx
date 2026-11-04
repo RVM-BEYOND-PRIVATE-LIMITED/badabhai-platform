@@ -131,6 +131,7 @@ const row = (workerId: string, over: Partial<CandidateSearchRow> = {}): Candidat
   industryMonths: 54,
   city: "Pune",
   tradeLevels: [],
+  isSample: false,
   ...over,
 });
 
@@ -208,8 +209,11 @@ const optionsOf = (markup: string, name: string) =>
   );
 const selectedOf = (markup: string, name: string) =>
   /<option value="([^"]*)" selected="">/.exec(selectsOf(markup).get(name) ?? "")?.[1] ?? null;
+/** The count line — the list's heading (#2588: where focus lands after paging). */
 const count = (markup: string) =>
-  /<p class="candidate-search__count">([^<]*)<\/p>/.exec(markup)?.[1]?.replace(/&#x27;/g, "'") ?? null;
+  /<h2 tabindex="-1" class="paged-list-heading candidate-search__count">([^<]*)<\/h2>/
+    .exec(markup)?.[1]
+    ?.replace(/&#x27;/g, "'") ?? null;
 /** The props the page hands the ONE card list (they ride the RSC payload). */
 async function listProps(query: Query = {}): Promise<Record<string, unknown>> {
   const t = (await tree(query)) as ReactElement<{ children: ReactNode[] }>;
@@ -629,6 +633,20 @@ describe("all candidates — the list and its counts (ADR-0040 Decision 3)", () 
     expect(card).not.toContain("Related");
   });
 
+  it("R74: a SAMPLE card wears the neutral 'Sample candidate' badge and offers no Unlock", async () => {
+    searchCandidates.mockResolvedValueOnce(
+      page({ candidates: [row(W1), row(W2, { isSample: true })] }),
+    );
+    const out = cardsOf(await html());
+    const badge = '<span class="bb-badge bb-badge--neutral">Sample candidate</span>';
+    expect(out.split(badge)).toHaveLength(2); // exactly one — on the sample card only
+    expect(out).toContain('<p class="applicant__neutral">Sample profile — can’t be unlocked</p>');
+    // One Unlock (the real card's), and it comes BEFORE the sample card's badge.
+    expect(unlockButtons(out)).toHaveLength(1);
+    expect(out.indexOf("Unlock contact (1 credit)")).toBeLessThan(out.indexOf(badge));
+    expect(textOf(out)).toContain("Worker ••0002"); // the masked handle stays
+  });
+
   it("FACELESS: no phone/email-shaped run and never a full worker id in the visible text", async () => {
     const text = textOf(await html());
     expect(text).not.toMatch(/\d{10,}/);
@@ -780,7 +798,8 @@ describe("all candidates — keyset paging and the pending cue", () => {
     searchCandidates.mockResolvedValueOnce(page({ filtered: true, matched: 9, nextCursor: NEXT }));
     const out = await html({ role: "mskill_cnc_turner", strict: "1" });
     expect(out).toContain('<nav class="candidates-pager" aria-label="Candidate pages">');
-    expect(hrefsIn(out)).toContain(`/candidates?role=mskill_cnc_turner&strict=1&cursor=${NEXT}`);
+    // …and where that page starts: this one showed rows 1–2.
+    expect(hrefsIn(out)).toContain(`/candidates?role=mskill_cnc_turner&strict=1&cursor=${NEXT}&from=3`);
     expect(textOf(out)).not.toContain("First page");
   });
 
@@ -803,5 +822,66 @@ describe("all candidates — keyset paging and the pending cue", () => {
     expect(links.size).toBeGreaterThan(3);
     expect([...links].filter(([, cued]) => !cued)).toEqual([]);
     expect(linkCue('<a href="/candidates">x</a>').get("/candidates")).toBe(false);
+  });
+});
+
+describe("#2588 · the pager says which rows are on screen; the count line is the list's heading", () => {
+  /** The pager's "Showing …" line, or null when it draws none. */
+  const rangeOf = (markup: string) =>
+    /<p class="candidates-pager__range">([^<]*)<\/p>/.exec(markup)?.[1] ?? null;
+  const HEADING = '<h2 tabindex="-1" class="paged-list-heading candidate-search__count">';
+
+  it("the count line is the list's ONE heading before the cards — focusable by script, not a tab stop", async () => {
+    const out = await html();
+    expect(out.split(HEADING)).toHaveLength(2);
+    expect(count(out)).toBe("62 candidates");
+    expect(out.indexOf(HEADING)).toBeLessThan(out.indexOf('<div class="applicants-list">'));
+  });
+
+  it("the first page of several: 'Showing 1–2 of 62', and Next page carries where its page starts", async () => {
+    searchCandidates.mockResolvedValueOnce(page({ nextCursor: NEXT }));
+    const out = await html();
+    expect(rangeOf(out)).toBe("Showing 1–2 of 62");
+    expect(hrefsIn(out)).toContain(`/candidates?cursor=${NEXT}&from=3`);
+  });
+
+  it("a later page reached by Next: 'Showing 21–22 of 62'; First page drops the cursor AND the start", async () => {
+    searchCandidates.mockResolvedValueOnce(page({ nextCursor: NEXT }));
+    const out = await html({ city: "Pune", cursor: CURSOR, from: "21" });
+    // The start is the portal's own count: it is never sent to the API.
+    expect(searchCandidates).toHaveBeenCalledWith({ city: "Pune", cursor: CURSOR });
+    expect(rangeOf(out)).toBe("Showing 21–22 of 62");
+    expect(hrefsIn(out)).toContain(`/candidates?city=Pune&cursor=${NEXT}&from=23`);
+    expect(hrefsIn(out)).toContain("/candidates?city=Pune");
+    expect(hrefsIn(out).filter((h) => h.startsWith("/candidates?city=Pune") && !h.includes("cursor"))).toEqual([
+      "/candidates?city=Pune",
+    ]);
+  });
+
+  it("STRICT counts the list it pages — the matches plus the not-recorded, not the whole pool", async () => {
+    searchCandidates.mockResolvedValueOnce(
+      page({ filtered: true, strict: true, matched: 9, unrecorded: 3, nextCursor: NEXT }),
+    );
+    const out = await html({ role: "mskill_cnc_turner", strict: "1" });
+    expect(rangeOf(out)).toBe("Showing 1–2 of 12");
+  });
+
+  it("a later page whose start is unknown (an old link) says no range — and its Next carries none", async () => {
+    searchCandidates.mockResolvedValueOnce(page({ nextCursor: NEXT }));
+    const out = await html({ cursor: CURSOR });
+    expect(out).toContain('<nav class="candidates-pager" aria-label="Candidate pages">');
+    expect(rangeOf(out)).toBeNull();
+    expect(hrefsIn(out)).toContain(`/candidates?cursor=${NEXT}`);
+    expect(hrefsIn(out).some((h) => h.includes("from="))).toBe(false);
+  });
+
+  it("a start the list no longer reaches (it shrank since) is not printed", async () => {
+    expect(rangeOf(await html({ cursor: CURSOR, from: "61" }))).toBe("Showing 61–62 of 62");
+    expect(rangeOf(await html({ cursor: CURSOR, from: "62" }))).toBeNull();
+  });
+
+  it("one page: no pager and no range (the count line already says how many)", async () => {
+    const out = await html();
+    expect(out).not.toContain("candidates-pager");
   });
 });

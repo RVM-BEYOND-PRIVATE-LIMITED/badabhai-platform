@@ -25,3 +25,51 @@ export const AI_CALL_OUTCOMES = ["true", "false"] as const;
 
 /** `AdminEventsQuerySchema`: free text, accepted up to these lengths. */
 export const EVENT_FILTER_MAX_LENGTH = { eventName: 128, actorType: 64, subjectType: 64 } as const;
+
+/**
+ * The actor and subject types an event can carry — `ACTOR_TYPES` and `SUBJECT_TYPES` in
+ * @badabhai/event-schema (the envelope validates every event against them), which admin-web takes
+ * no dependency on: copied here and pinned to that source by list-filter-values.test.ts. They make
+ * the Events filter bar's two type fields SELECTS (A4, #2574). The API itself takes any string up
+ * to 64 characters (`EVENT_FILTER_MAX_LENGTH`), so a value outside these is still forwarded and
+ * still matches nothing; the select shows it as it stands rather than pretending it is "Any".
+ */
+export const EVENT_ACTOR_TYPES = [
+  "worker",
+  "payer",
+  "agent",
+  "ops",
+  "system",
+  "ai_service",
+  "admin",
+] as const;
+
+export const EVENT_SUBJECT_TYPES = [
+  "worker",
+  "consent",
+  "chat_session",
+  "chat_message",
+  "voice_note",
+  "profile",
+  "resume",
+  "interview_kit",
+  "ai_job",
+  "job",
+  "job_posting",
+  "unlock",
+  "pricing_plan",
+  "posting_plan",
+  "invite",
+  "payer",
+  "agency_invite",
+  "agency_payout_request",
+  "admin_session",
+  "kill_switch",
+  "skill_phrase",
+  "occupation_phrase",
+  "payer_job_posting_chat_session",
+  "payer_job_posting_chat_message",
+  "referral_bonus",
+  "referral_link",
+  "skill_candidate",
+] as const;

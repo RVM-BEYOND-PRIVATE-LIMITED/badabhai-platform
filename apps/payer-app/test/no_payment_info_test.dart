@@ -93,6 +93,10 @@ void main() {
     // The credit / unlock surfaces. Pay-band screens (post / edit job, the
     // posting chat draft) are deliberately NOT here: salary stays.
     const List<String> creditSurfaces = <String>[
+      // The API clients build every credit-history label and amount; the
+      // ledger wire carries `price_inr`, which must never reach a row.
+      'lib/core/data/http_payer_api_client.dart',
+      'lib/core/data/mock_payer_api_client.dart',
       'lib/core/widgets/bb_unlock_dialog.dart',
       'lib/features/credits/presentation/credits_screen.dart',
       'lib/features/credits/presentation/cubit/credits_screen_cubit.dart',

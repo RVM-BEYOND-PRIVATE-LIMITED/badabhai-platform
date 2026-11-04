@@ -75,7 +75,7 @@ export function JobFilterBar({
           className="field__input mono"
           value={values.payerId}
           onChange={(e) => setValues((v) => ({ ...v, payerId: e.target.value }))}
-          placeholder="full UUID"
+          placeholder="e.g. 0b7c5d2e-1f3a-4c8e-9d61-2a4f6b8c0e13"
           spellCheck={false}
           autoComplete="off"
         />

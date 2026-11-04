@@ -18,4 +18,16 @@ describe("PanelSection", () => {
       '<section class="panel__section">body</section>',
     );
   });
+
+  it("gives the heading its id, so a list or table can name itself by it", () => {
+    expect(
+      renderToStaticMarkup(
+        <PanelSection title="By provider" titleId="ai-spend-provider">
+          body
+        </PanelSection>,
+      ),
+    ).toBe(
+      '<section class="panel__section"><h3 class="panel__section-title" id="ai-spend-provider">By provider</h3>body</section>',
+    );
+  });
 });

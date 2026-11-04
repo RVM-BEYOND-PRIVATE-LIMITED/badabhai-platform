@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { requireCapability } from "../../../lib/auth";
 import { can } from "../../../lib/auth/capabilities";
-import { listWorkers } from "../../../lib/entities";
+import { listWorkers, type WorkerListItem } from "../../../lib/entities";
 import {
   isUnknownValue,
   readRefusal,
@@ -9,7 +9,7 @@ import {
 } from "../../../lib/read-refusal";
 import { WORKER_STATUSES } from "@badabhai/types";
 import { queryHref } from "../../../lib/query-href";
-import { identityPosture } from "../../../lib/identity";
+import { displayName, identityPosture } from "../../../lib/identity";
 import { formatRelative, shortId, timestampTitle } from "../../../lib/format";
 import { CopyId } from "../../../components/copy-id";
 import { StatusPill } from "../../../components/status-pill";
@@ -17,6 +17,8 @@ import { NameCell } from "../../../components/name-cell";
 import { IdentityCapNotice } from "../../../components/identity-notice";
 import { Pager } from "../../../components/pager";
 import { PageHeader } from "../../../components/page-header";
+import { DataGrid, type GridColumn } from "../../../components/data-grid";
+import { NavPendingCue } from "../../../components/nav-pending";
 import { WorkerFilterBar } from "./filter-bar";
 import { FilterPanel } from "../../../components/filter-panel";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
@@ -106,6 +108,7 @@ export default async function CandidatesPage({
     <Link className="btn btn--ghost" href="/candidates">
       <Icon name={ACTION_ICON.clearFilters} />
       Clear filters
+      <NavPendingCue message="Clearing the filters…" />
     </Link>
   ) : null;
   const mayReadEvents = can(session.capabilities, "read_events");
@@ -115,9 +118,94 @@ export default async function CandidatesPage({
     "full_name",
     can(session.capabilities, "read_identity"),
   );
+  const named = posture === "named";
+
+  /**
+   * The roster's columns (A4, #2574). The row's link is its NAME — in the `named` posture the Name
+   * column, otherwise the id, which is then the only handle the row has. Only in the `named`
+   * posture is there a Name column at all: a Name heading over dashes would state that these
+   * workers have no name on record, which is what a dash MEANS here.
+   */
+  const columns: GridColumn<WorkerListItem>[] = [
+    ...(named
+      ? [
+          {
+            id: "name",
+            header: "Name",
+            cell: (w: WorkerListItem) => <NameCell value={w.full_name} />,
+            title: (w: WorkerListItem) => displayName(w.full_name) ?? undefined,
+          },
+        ]
+      : []),
+    /* The id column stays even when a name is beside it: it is the join key onto the audit
+       spine, the value an operator copies into a query, and the only stable handle for a worker
+       who has never given us a name. */
+    {
+      id: "worker",
+      header: "Worker",
+      width: "id",
+      cell: (w) =>
+        named ? (
+          <span className="mono" title={w.id}>
+            {shortId(w.id)}
+          </span>
+        ) : (
+          <span className="mono">{shortId(w.id)}</span>
+        ),
+      title: named ? undefined : (w) => w.id,
+      trail: (w) => <CopyId id={w.id} label="worker id" />,
+    },
+    { id: "status", header: "Status", width: "status", cell: (w) => <StatusPill value={w.status} /> },
+    {
+      id: "language",
+      header: "Language",
+      // A language code ("hi", "mr"): the narrow kind, cut (with its title) if one is ever longer.
+      width: "number",
+      text: "truncate",
+      cell: (w) => w.preferred_language ?? "—",
+      title: (w) => w.preferred_language ?? undefined,
+    },
+    {
+      id: "resume",
+      header: "Resume prefs",
+      width: "short",
+      text: "truncate",
+      className: "table__meta",
+      cell: (w) => resumePrefs(w),
+      title: (w) => resumePrefs(w),
+    },
+    {
+      id: "deletion",
+      header: "Deletion",
+      width: "short",
+      cell: (w) =>
+        w.deletion_scheduled_at ? (
+          // A scheduled hard delete is the highest-urgency thing on this row: it is reversible,
+          // but only until it runs.
+          <span
+            className="pill pill--bad"
+            title={`Hard delete due ${timestampTitle(w.deletion_scheduled_at)}`}
+          >
+            due {formatRelative(w.deletion_scheduled_at)}
+          </span>
+        ) : (
+          <span className="table__meta">—</span>
+        ),
+    },
+    {
+      id: "registered",
+      header: "Registered",
+      width: "date",
+      cell: (w) => (
+        <time dateTime={w.created_at} title={timestampTitle(w.created_at)}>
+          {formatRelative(w.created_at)}
+        </time>
+      ),
+    },
+  ];
 
   return (
-    <div className="page">
+    <div className="page page--list">
       <PageHeader
         title="Candidates"
         description={
@@ -204,71 +292,32 @@ export default async function CandidatesPage({
             <RetryActions href={listHref} cursor={cursor} />
           </div>
         ) : page && page.items.length > 0 ? (
-          <div className="tablewrap">
-            <table className="table">
-              <caption className="sr-only">Workers, newest first</caption>
-              <thead>
-                <tr>
-                  {/* Only in the `named` posture. A Name heading over dashes would state that
-                      these workers have no name on record, which is what a dash MEANS here. */}
-                  {posture === "named" && <th scope="col">Name</th>}
-                  <th scope="col">Worker</th>
-                  <th scope="col">Status</th>
-                  <th scope="col">Language</th>
-                  <th scope="col">Resume prefs</th>
-                  <th scope="col">Deletion</th>
-                  <th scope="col">Registered</th>
-                </tr>
-              </thead>
-              <tbody>
-                {page.items.map((w) => (
-                  <tr key={w.id}>
-                    {posture === "named" && (
-                      <td>
-                        <NameCell value={w.full_name} />
-                      </td>
-                    )}
-                    {/* The id column stays even when a name is beside it: it is the join key
-                        onto the audit spine, the value an operator copies into a query, and
-                        the only stable handle for a worker who has never given us a name. */}
-                    <td>
-                      <Link className="link mono" href={`/candidates/${w.id}`} title={w.id}>
-                        {shortId(w.id)}
-                      </Link>
-                      <CopyId id={w.id} label="worker id" />
-                    </td>
-                    <td>
-                      <StatusPill value={w.status} />
-                    </td>
-                    <td>{w.preferred_language ?? "—"}</td>
-                    <td className="table__meta">
-                      {w.has_photo ? "photo" : "no photo"}
-                      {w.resume_night_shift_ready ? " · night shift" : ""}
-                    </td>
-                    <td>
-                      {w.deletion_scheduled_at ? (
-                        // A scheduled hard delete is the highest-urgency thing on this row:
-                        // it is reversible, but only until it runs.
-                        <span
-                          className="pill pill--bad"
-                          title={`Hard delete due ${timestampTitle(w.deletion_scheduled_at)}`}
-                        >
-                          due {formatRelative(w.deletion_scheduled_at)}
-                        </span>
-                      ) : (
-                        <span className="table__meta">—</span>
-                      )}
-                    </td>
-                    <td>
-                      <time dateTime={w.created_at} title={timestampTitle(w.created_at)}>
-                        {formatRelative(w.created_at)}
-                      </time>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <DataGrid
+            id="workers"
+            caption="Workers, newest first"
+            columns={columns}
+            rows={page.items}
+            rowKey={(w) => w.id}
+            rowLink={{
+              column: named ? "name" : "worker",
+              href: (w) => `/candidates/${w.id}`,
+              name: (w) =>
+                (named ? displayName(w.full_name) : null) ?? `worker ${shortId(w.id)}`,
+              // A dash says "no name on record"; as a link's whole name it would say nothing.
+              label: (w) =>
+                named && displayName(w.full_name) === null
+                  ? `Worker ${shortId(w.id)}, no name on record`
+                  : undefined,
+            }}
+            pager={
+              <Pager
+                basePath="/candidates"
+                params={{ status, pendingDeletion: pendingDeletion ? "true" : undefined }}
+                cursor={cursor}
+                nextCursor={page.nextCursor}
+              />
+            }
+          />
         ) : filtered ? (
           <div className="state">
             <h3 className="state__title">No workers match these filters</h3>
@@ -296,13 +345,12 @@ export default async function CandidatesPage({
             ) : null}
           </div>
         )}
-
-        <Pager
-          basePath="/candidates"
-          params={{ status, pendingDeletion: pendingDeletion ? "true" : undefined }}
-          nextCursor={page?.nextCursor}
-        />
       </section>
     </div>
   );
+}
+
+/** The worker's resume preferences in a few words: "no photo · night shift". */
+function resumePrefs(w: WorkerListItem): string {
+  return `${w.has_photo ? "photo" : "no photo"}${w.resume_night_shift_ready ? " · night shift" : ""}`;
 }

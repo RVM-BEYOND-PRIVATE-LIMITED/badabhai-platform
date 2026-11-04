@@ -352,7 +352,7 @@ describe("the axes segment (§6.2's fourth — wired on both branches in R16 §1
       years: 6,
       tools: ["Fanuc"],
       city: "Faridabad",
-      availability: "Immediate",
+      availability: { label: "Immediate", start: { kind: "immediate" as const } },
       salary: null,
     };
     const withAxes = buildVerdictLine({ ...facts, axes: ["3-axis", "4-axis"] });

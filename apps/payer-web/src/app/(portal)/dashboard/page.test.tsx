@@ -919,4 +919,82 @@ describe("#2581 — no invented figures or dead controls on the dashboard", () =
       }
     }
   });
+
+  it("the empty recent-unlocks panel promises no direct phone, email or WhatsApp (contact is routed)", async () => {
+    const panel = findByClass(await render({ unlocks: [] }), "dash-panel").find((el) =>
+      textOf(el).includes("Recent unlocks"),
+    );
+    expect(panel).toBeDefined();
+    const txt = textOf(panel!);
+    expect(txt).toContain("No contacts unlocked yet");
+    expect(txt).not.toMatch(/direct|phone|email|whatsapp|lifetime/i);
+  });
+
+  it("the empty postings panel names each door as its destination does (one label per destination)", async () => {
+    const panel = findByClass(await render({ postings: [], unlocks: [] }), "dash-empty-panel")[0]!;
+    // Each link to `href` in the panel: its visible text, then the destination its cue names.
+    const labels = (href: string): string[] => {
+      const out: string[] = [];
+      (function walk(node: ReactNode): void {
+        if (node === null || node === undefined || typeof node !== "object") return;
+        if (Array.isArray(node)) return void node.forEach(walk);
+        const el = node as ReactElement<{
+          href?: unknown;
+          pendingLabel?: unknown;
+          children?: ReactNode;
+        }>;
+        if (el.props?.href === href) {
+          out.push(textOf(el.props.children).trim(), String(el.props.pendingLabel));
+        } else if (el.props && "children" in el.props) walk(el.props.children);
+      })(panel);
+      return out;
+    };
+    expect(labels("/postings/new")).toEqual(["New posting", "New posting"]);
+    expect(labels("/postings/ai/new")).toEqual(["Post with AI", "Post with AI"]);
+  });
+});
+
+describe("#2588 · the postings panel's views are a nav with the current one marked", () => {
+  /** The employer dashboard at `/dashboard?posting=<view>` (no view = All). */
+  async function atView(posting?: string): Promise<ReactElement> {
+    await render(); // seeds the session and the three reads
+    return (await DashboardPage({
+      searchParams: Promise.resolve(posting ? { posting } : {}),
+    })) as ReactElement;
+  }
+
+  it("a labelled <nav> of three links — not a tablist (no tab roles, no arrow-key panels)", async () => {
+    const [nav, ...more] = findByClass(await atView(), "dash-tabs");
+    expect(more).toEqual([]);
+    expect(nav!.type).toBe("nav");
+    expect(p(nav!)["aria-label"]).toBe("Posting status");
+    expect(p(nav!).role).toBeUndefined();
+    const links = findByClass(nav!, "dash-tab");
+    expect(links.map((l) => p(l).href)).toEqual([
+      "/dashboard",
+      "/dashboard?posting=drafts",
+      "/dashboard?posting=closed",
+    ]);
+    for (const l of links) expect(p(l).role).toBeUndefined();
+  });
+
+  it.each([
+    [undefined, "/dashboard"],
+    ["drafts", "/dashboard?posting=drafts"],
+    ["closed", "/dashboard?posting=closed"],
+    ["anything-else", "/dashboard"],
+  ])("view %s: exactly ONE link is aria-current=page — %s — and it wears the active look", async (view, href) => {
+    const links = findByClass(await atView(view), "dash-tab");
+    const current = links.filter((l) => p(l)["aria-current"] === "page");
+    expect(current.map((l) => p(l).href)).toEqual([href]);
+    expect(String(p(current[0]!).className).split(" ")).toContain("dash-tab--active");
+    for (const l of links.filter((x) => x !== current[0])) {
+      expect(p(l)["aria-current"]).toBeUndefined();
+      expect(String(p(l).className).split(" ")).not.toContain("dash-tab--active");
+    }
+  });
+
+  it("a FAILED postings read draws no views at all (there is nothing to filter)", async () => {
+    expect(findByClass(await render({ fail: ["postings"] }), "dash-tabs")).toEqual([]);
+  });
 });

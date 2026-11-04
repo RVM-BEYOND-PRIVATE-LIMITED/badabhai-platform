@@ -1,8 +1,8 @@
 import Link from "next/link";
 import { requireCapability } from "../../../lib/auth";
 import { ADMIN_ROLES, ROLE_LABELS, can } from "../../../lib/auth/capabilities";
-import { adminRowSchema, listAdmins } from "../../../lib/entities";
-import { identityPosture } from "../../../lib/identity";
+import { adminRowSchema, listAdmins, type AdminRow } from "../../../lib/entities";
+import { displayName, identityPosture } from "../../../lib/identity";
 import { isUnknownValue, readRefusal } from "../../../lib/read-refusal";
 import { formatCount, formatRelative, shortId, timestampTitle } from "../../../lib/format";
 import { CopyId } from "../../../components/copy-id";
@@ -14,6 +14,8 @@ import { InviteAdminForm } from "./invite-admin-form";
 import { CreateAdminForm } from "./create-admin-form";
 import { AdminRowActions } from "./admin-row-actions";
 import { PageHeader } from "../../../components/page-header";
+import { DataGrid, type GridColumn } from "../../../components/data-grid";
+import { NavPendingCue } from "../../../components/nav-pending";
 import { ALL_ADMIN_ACTIONS_LINK } from "../../../components/admin-action-result-banner";
 import { FilterChip } from "../../../components/filter-chip-link";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
@@ -119,6 +121,7 @@ export default async function AdminsPage({
     <Link className="btn btn--ghost" href="/admins">
       <Icon name={ACTION_ICON.clearFilters} />
       Clear filters
+      <NavPendingCue message="Clearing the filters…" />
     </Link>
   ) : null;
 
@@ -297,114 +300,13 @@ export default async function AdminsPage({
             </p>
           </div>
         ) : (
-          <div className="tablewrap">
-            <table className="table">
-              <caption className="sr-only">Admin accounts, oldest first</caption>
-              <thead>
-                <tr>
-                  {/* Named posture only. Here the dash is the ordinary case — an invited
-                      account nobody has named — which is exactly why it must not also be
-                      made to mean "withheld from you". */}
-                  {posture === "named" && <th scope="col">Name</th>}
-                  <th scope="col">Admin</th>
-                  <th scope="col">Admin role</th>
-                  <th scope="col">Status</th>
-                  <th scope="col">MFA</th>
-                  <th scope="col">Last sign-in</th>
-                  <th scope="col">Added</th>
-                  <th scope="col">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {admins.map((a) => (
-                  <tr key={a.id}>
-                    {posture === "named" && (
-                      <td>
-                        <NameCell value={a.name} />
-                        {/* "you" moves onto the name cell when there is one: it belongs
-                            beside whatever this row's primary label is. */}
-                        {a.is_self && <span className="table__meta">you</span>}
-                      </td>
-                    )}
-                    <td>
-                      {/* The id is TEXT, not a link. It used to link every row to the same
-                          `/events?subjectType=admin_session` — every admin's sessions, not this
-                          one's — because there is no per-admin timeline (`admin_session` is not
-                          in ADMIN_TIMELINE_SUBJECT_TYPES, so one would be a server 400) and
-                          `EventFilters` has no subject-id filter. A link whose label is THIS
-                          admin's id and whose target is everyone's is a false promise; the
-                          header's "View all admin actions" is the honest way into the log. */}
-                      <span className="mono" title={a.id}>
-                        {shortId(a.id)}
-                      </span>
-                      <CopyId id={a.id} label="admin id" />
-                      {a.is_self && posture !== "named" && (
-                        <span className="table__meta">you</span>
-                      )}
-                    </td>
-                    <td>
-                      {/* Explicit tone: super_admin is not a "good" state, it is the most
-                          privileged one, and it should read as something to notice. */}
-                      <StatusPill
-                        value={a.role}
-                        label={ROLE_LABELS[a.role]}
-                        tone={a.role === "super_admin" ? "warn" : "muted"}
-                        title={
-                          a.role === "super_admin"
-                            ? "Break-glass: every capability, including kill switches and admin management"
-                            : undefined
-                        }
-                      />
-                    </td>
-                    <td>
-                      <StatusPill value={a.status} />
-                    </td>
-                    <td>
-                      {a.mfa_enrolled ? (
-                        <StatusPill value="enrolled" label="enrolled" tone="ok" />
-                      ) : (
-                        // Only alarming for an account that can actually sign in; a pending
-                        // invite legitimately has no second factor yet.
-                        <StatusPill
-                          value="not enrolled"
-                          label="not enrolled"
-                          tone={a.status === "active" ? "bad" : "muted"}
-                        />
-                      )}
-                    </td>
-                    <td>
-                      {a.last_login_at ? (
-                        <time
-                          dateTime={a.last_login_at}
-                          title={timestampTitle(a.last_login_at)}
-                        >
-                          {formatRelative(a.last_login_at)}
-                        </time>
-                      ) : (
-                        <span className="table__meta">never</span>
-                      )}
-                    </td>
-                    <td>
-                      <time dateTime={a.created_at} title={timestampTitle(a.created_at)}>
-                        {formatRelative(a.created_at)}
-                      </time>
-                    </td>
-                    <td>
-                      <AdminRowActions
-                        mayReadEvents={mayReadEvents}
-                        admin={{
-                          id: a.id,
-                          role: a.role,
-                          status: a.status,
-                          is_self: a.is_self,
-                        }}
-                      />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <DataGrid
+            id="admins"
+            caption="Admin accounts, oldest first"
+            columns={adminColumns(posture === "named", mayReadEvents)}
+            rows={admins}
+            rowKey={(a) => a.id}
+          />
         )}
       </section>
 
@@ -415,4 +317,125 @@ export default async function AdminsPage({
       </div>
     </div>
   );
+}
+
+/**
+ * The directory's columns on the data grid (A4, #2574). No row link: an admin account has no page
+ * of its own here — its actions sit in the row, and its slice of the audit spine is reached from
+ * the header's "View all admin actions".
+ */
+function adminColumns(named: boolean, mayReadEvents: boolean): GridColumn<AdminRow>[] {
+  return [
+    /* Named posture only. Here the dash is the ordinary case — an invited account nobody has named
+       — which is exactly why it must not also be made to mean "withheld from you". */
+    ...(named
+      ? [
+          {
+            id: "name",
+            header: "Name",
+            cell: (a: AdminRow) => (
+              <>
+                <NameCell value={a.name} />
+                {/* "you" moves onto the name cell when there is one: it belongs beside whatever
+                    this row's primary label is. */}
+                {a.is_self && <span className="table__meta">you</span>}
+              </>
+            ),
+            title: (a: AdminRow) => displayName(a.name) ?? undefined,
+          },
+        ]
+      : []),
+    {
+      id: "admin",
+      header: "Admin",
+      width: "id",
+      /* The id is TEXT, not a link. It used to link every row to the same
+         `/events?subjectType=admin_session` — every admin's sessions, not this one's — because
+         there is no per-admin timeline (`admin_session` is not in ADMIN_TIMELINE_SUBJECT_TYPES, so
+         one would be a server 400) and `EventFilters` has no subject-id filter. A link whose label
+         is THIS admin's id and whose target is everyone's is a false promise; the header's "View
+         all admin actions" is the honest way into the log. */
+      cell: (a) => (
+        <>
+          <span className="mono" title={a.id}>
+            {shortId(a.id)}
+          </span>
+          <CopyId id={a.id} label="admin id" />
+          {a.is_self && !named && <span className="table__meta">you</span>}
+        </>
+      ),
+    },
+    {
+      id: "role",
+      header: "Admin role",
+      width: "short",
+      /* Explicit tone: super_admin is not a "good" state, it is the most privileged one, and it
+         should read as something to notice. */
+      cell: (a) => (
+        <StatusPill
+          value={a.role}
+          label={ROLE_LABELS[a.role]}
+          tone={a.role === "super_admin" ? "warn" : "muted"}
+          title={
+            a.role === "super_admin"
+              ? "Break-glass: every capability, including kill switches and admin management"
+              : undefined
+          }
+        />
+      ),
+    },
+    { id: "status", header: "Status", width: "status", cell: (a) => <StatusPill value={a.status} /> },
+    {
+      id: "mfa",
+      header: "MFA",
+      width: "short",
+      cell: (a) =>
+        a.mfa_enrolled ? (
+          <StatusPill value="enrolled" label="enrolled" tone="ok" />
+        ) : (
+          // Only alarming for an account that can actually sign in; a pending invite
+          // legitimately has no second factor yet.
+          <StatusPill
+            value="not enrolled"
+            label="not enrolled"
+            tone={a.status === "active" ? "bad" : "muted"}
+          />
+        ),
+    },
+    {
+      id: "last-sign-in",
+      header: "Last sign-in",
+      width: "date",
+      cell: (a) =>
+        a.last_login_at ? (
+          <time dateTime={a.last_login_at} title={timestampTitle(a.last_login_at)}>
+            {formatRelative(a.last_login_at)}
+          </time>
+        ) : (
+          <span className="table__meta">never</span>
+        ),
+    },
+    {
+      id: "added",
+      header: "Added",
+      width: "date",
+      cell: (a) => (
+        <time dateTime={a.created_at} title={timestampTitle(a.created_at)}>
+          {formatRelative(a.created_at)}
+        </time>
+      ),
+    },
+    {
+      id: "actions",
+      header: "Actions",
+      width: "actions",
+      locked: true,
+      cell: (a) => (
+        <AdminRowActions
+          mayReadEvents={mayReadEvents}
+          admin={{ id: a.id, role: a.role, status: a.status, is_self: a.is_self }}
+        />
+      ),
+    },
+  ];
 }

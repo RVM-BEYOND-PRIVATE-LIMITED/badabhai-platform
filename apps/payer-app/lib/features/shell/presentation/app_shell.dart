@@ -11,6 +11,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_system_ui.dart';
 import '../../../core/widgets/bb_bottom_nav.dart';
+import '../../../core/widgets/bb_leave_guard.dart';
 import '../../../core/widgets/bb_overlay_host.dart';
 import '../../credits/presentation/credits_screen.dart';
 import '../../find/presentation/find_screen.dart';
@@ -82,6 +83,18 @@ class _AppShellState extends State<AppShell> {
   /// when the Find branch is (re)built for a new epoch.
   FindView _findView = FindView.allCandidates;
 
+  /// #2595 — the open overlay's unsaved-changes guard (Post, the AI chat): the
+  /// shell asks it before its own system Back or a nav tap leaves the overlay.
+  final BbLeaveGuardController _leaveGuard = BbLeaveGuardController();
+
+  /// #2595 — overlays that are full-screen TASKS with their own pinned bar:
+  /// the app's bottom nav hides under them (it stacked as a second bar under
+  /// Post's action bar and the AI chat's composer). Leaving one is its back
+  /// arrow or the system Back, which its leave guard asks about; a nav tap
+  /// that leaves any other overlay still goes through the guard
+  /// ([_onNavSelect]).
+  static const Set<String> _fullScreenTasks = <String>{'post', 'aiPost'};
+
   @override
   void initState() {
     super.initState();
@@ -125,6 +138,7 @@ class _AppShellState extends State<AppShell> {
   /// [findView] picks the view a Find visit opens on; every other caller (the
   /// nav, Home's Browse) gets the default, All candidates.
   void _selectTab(String id, {FindView findView = FindView.allCandidates}) {
+    _leaveGuard.release();
     setState(() {
       _tab = id;
       _sub = null;
@@ -145,7 +159,18 @@ class _AppShellState extends State<AppShell> {
         CrashReporter.setScreen('payer/$id');
       });
 
+  /// A bottom-nav tap. With an overlay open it LEAVES that overlay, so one
+  /// holding unsaved input asks first (#2595).
+  void _onNavSelect(String id) {
+    if (_sub == null) {
+      _selectTab(id);
+    } else {
+      _leaveGuard.leaveThen(() => _selectTab(id));
+    }
+  }
+
   void _back() => setState(() {
+        _leaveGuard.release();
         _sub = null;
         _revealed = null;
         _resumeChatId = null;
@@ -218,7 +243,9 @@ class _AppShellState extends State<AppShell> {
           // (the per-job feed, unchanged: it opens on the first open job).
           onApplicants: () => _selectTab('find', findView: FindView.applicants),
         ),
-      'credits' => CreditsScreen(onBack: () => _selectTab('home')),
+      // M9 (#2597): a tab root has no back arrow; the bottom nav is the way
+      // out. The pushed Credits overlay below keeps its back.
+      'credits' => const CreditsScreen(),
       'account' => AccountScreen(
           session: widget.session,
           onSignOut: () => context.read<AppSessionCubit>().signOut(),
@@ -284,7 +311,9 @@ class _AppShellState extends State<AppShell> {
     final Widget capped = Center(
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: AppSpacing.appMax),
-        child: stack,
+        // #2595 — the open overlay's leave guard registers here (a tab never
+        // carries one; the shell only asks while an overlay is open).
+        child: BbLeaveGuardScope(controller: _leaveGuard, child: stack),
       ),
     );
     // #2590 — Home's blue header runs under the status bar and asks for light
@@ -334,7 +363,8 @@ class _AppShellState extends State<AppShell> {
       onPopInvokedWithResult: (bool didPop, Object? result) {
         if (didPop) return;
         if (_sub != null) {
-          _back();
+          // #2595 — an overlay holding unsaved input asks before it goes.
+          _leaveGuard.leaveThen(_back);
         } else if (_tab != 'home') {
           _selectTab('home');
         }
@@ -347,11 +377,13 @@ class _AppShellState extends State<AppShell> {
           value: AppSystemUi.onLight,
           child: SafeArea(top: false, bottom: false, child: _buildBody()),
         ),
-        bottomNavigationBar: BbBottomNav(
-          tabs: _tabs,
-          currentId: navId,
-          onSelect: _selectTab,
-        ),
+        bottomNavigationBar: _fullScreenTasks.contains(_sub)
+            ? null
+            : BbBottomNav(
+                tabs: _tabs,
+                currentId: navId,
+                onSelect: _onNavSelect,
+              ),
       ),
     );
   }

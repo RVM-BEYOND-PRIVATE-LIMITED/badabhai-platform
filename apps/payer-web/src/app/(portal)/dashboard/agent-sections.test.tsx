@@ -276,3 +276,38 @@ describe("agency dashboard — navigation pending cues", () => {
     expect([...cues].filter(([, labels]) => labels.length === 0)).toEqual([]);
   });
 });
+
+describe("#2581 — one label per destination, no unbacked claim", () => {
+  it("every door to the agency form reads New posting, with postings and when there are none", async () => {
+    for (const jobs of [[JOB], []]) {
+      listAgencyJobs.mockResolvedValueOnce(jobs);
+      const doors = findAll(await AgentSections(PROPS), PortalLink).filter(
+        (a) => p(a).href === "/agency/jobs/new",
+      );
+      expect(doors.length, `${jobs.length} jobs`).toBeGreaterThan(0);
+      for (const door of doors) {
+        expect(textOf(door).trim(), `${jobs.length} jobs`).toBe("New posting");
+      }
+    }
+  });
+
+  it("the pipeline foot claims no matching speed and offers no drafting help", async () => {
+    const text = textOf(await AgentSections(PROPS));
+    for (const gone of ["Learn how", "talent engine", "within minutes", "Need help drafting"]) {
+      expect(text).not.toContain(gone);
+    }
+  });
+
+  it("the unlock tile and the empty recent unlocks promise no direct phone, email or WhatsApp", async () => {
+    const tree = await AgentSections(PROPS);
+    const tile = findAll(tree, StatTile).find((t) => p(t).label === "Contacts unlocked");
+    expect(tile).toBeDefined();
+    // `textOf` walks children only, so the StatTile's `foot` prop is read on its own.
+    expect(textOf(p(tile!).foot as ReactNode)).not.toMatch(/phone|email/i);
+    const empty = findByClass(tree, "agency-empty-panel").find((el) =>
+      textOf(el).includes("No contacts unlocked yet"),
+    );
+    expect(empty).toBeDefined();
+    expect(textOf(empty!)).not.toMatch(/phone|email|mobile|whatsapp/i);
+  });
+});

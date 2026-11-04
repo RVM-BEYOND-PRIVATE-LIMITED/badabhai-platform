@@ -54,6 +54,58 @@ describe("buttons — 14px/600 at 40px, small 13px", () => {
   });
 });
 
+describe("a shared row — buttons and inputs one height at each tier", () => {
+  /** The cascaded top-level value: the last top-level rule for `selector` that declares `prop`. */
+  const cascaded = (selector: string, prop: string) => {
+    let value: string | null = null;
+    for (const r of rules(CSS)) if (r.selector === selector) value = decl(r.body, prop) ?? value;
+    return value;
+  };
+  /** A declared `var(--token)` resolved to its length. */
+  const length = (value: string | null) => {
+    expect(value).toMatch(/^var\(--[\w-]+\)$/);
+    return resolve(value!.slice("var(".length, -1));
+  };
+  /** Index of the last top-level rule for `selector` declaring `prop` — a touch rule of the same
+   *  specificity wins only by coming after it. */
+  const lastTopIndex = (selector: string, prop: string) =>
+    ALL.reduce(
+      (last, r, i) =>
+        r.atRules.length === 0 && r.selector === selector && decl(r.body, prop) !== null ? i : last,
+      -1,
+    );
+
+  it("draws a filter bar's inputs at the button's 40px for a mouse", () => {
+    const button = length(cascaded(".btn", "min-height"));
+    expect(button).toBe("40px");
+    expect(length(cascaded(".field__input", "min-height"))).toBe(button);
+    expect(length(cascaded(".field__input", "height"))).toBe(button);
+  });
+
+  it("lifts the inputs to the button's 44px on a touch screen", () => {
+    const button = length(decl(at(".btn:not(.btn--sm)", TOUCH)!.body, "min-height"));
+    expect(button).toBe("44px");
+    const input = at(".field__input", TOUCH);
+    expect(input, ".field__input in the touch block").toBeDefined();
+    expect(length(decl(input!.body, "min-height"))).toBe(button);
+    expect(length(decl(input!.body, "height"))).toBe(button);
+    expect(ALL.indexOf(input!)).toBeGreaterThan(lastTopIndex(".field__input", "height"));
+  });
+
+  it("keeps the password field's reveal toggle square at the input's height at both tiers", () => {
+    const toggle = ".password-input > .iconbtn";
+    for (const prop of ["inline-size", "block-size"]) {
+      expect(length(cascaded(toggle, prop)), prop).toBe(
+        length(cascaded(".field__input", "height")),
+      );
+      const touch = at(toggle, TOUCH);
+      expect(touch, `${toggle} in a touch block`).toBeDefined();
+      expect(length(decl(touch!.body, prop)), prop).toBe("44px");
+      expect(ALL.indexOf(touch!)).toBeGreaterThan(lastTopIndex(toggle, prop));
+    }
+  });
+});
+
 describe("disabled — the 40% brand tint with a readable label", () => {
   it("is a tint and a Shift Blue label, never a faded opacity", () => {
     const disabled = top(".btn:disabled");
@@ -177,6 +229,34 @@ describe("panel sub-sections", () => {
     expect(decl(next, "padding-block-start")).toBe("var(--space-6)");
     expect(decl(next, "border-block-start")).toBe("var(--border-hairline) solid var(--divider)");
     expect(resolve("--space-6")).toBe("24px");
+  });
+
+  it("lets sections side by side in a .cols grid sit level, with no divider over the second", () => {
+    const columns = top(".cols > .panel__section + .panel__section");
+    expect(decl(columns, "margin-block-start")).toBe("0");
+    expect(decl(columns, "padding-block-start")).toBe("0");
+    expect(decl(columns, "border-block-start")).toBe("0");
+  });
+
+  it("spaces a section's children by its gap alone, so a caption never adds its own margin", () => {
+    expect(decl(top(".panel__section"), "gap")).toBe("var(--space-3)");
+    const children = top(".panel__section > .panel__sub, .panel__section > .about");
+    expect(decl(children, "margin-block-start")).toBe("0");
+  });
+
+  it("wraps a section title the way it wraps a panel title", () => {
+    const selectors = (prop: string, value: string, media: string) =>
+      ALL.filter((r) => r.atRules.join() === media && decl(r.body, prop) === value).flatMap((r) =>
+        r.selector.split(",").map((s) => s.trim()),
+      );
+    for (const [prop, value, media] of [
+      ["text-wrap", "balance", ""],
+      ["overflow-wrap", "anywhere", PHONE],
+    ] as const) {
+      expect(selectors(prop, value, media), `${prop}: ${value}`).toEqual(
+        expect.arrayContaining([".panel__title", ".panel__section-title"]),
+      );
+    }
   });
 });
 

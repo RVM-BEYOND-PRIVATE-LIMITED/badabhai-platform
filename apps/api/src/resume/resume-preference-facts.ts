@@ -18,6 +18,7 @@ import {
   type SalaryPeriod,
 } from "../profiles/worker-field-precedence";
 import { MONTHS } from "./resume-employment-rows";
+import { startInDays, type SheetAvailability } from "./resume-sheet-rows";
 
 /**
  * The finishing form's answers, read off `worker_attributes` and printed in English (R6 §4).
@@ -306,26 +307,51 @@ export function formAvailabilityLabel(
   facts: Pick<ResumePreferenceFacts, "availabilityStatus" | "availableFrom" | "noticePeriodDays">,
   asOf: Date | null,
 ): string | null {
+  return formAvailability(facts, asOf)?.label ?? null;
+}
+
+/** "Within a week" / "Within a month" as a day count, for the Verdict Line (ruling 2026-11-04). */
+const WITHIN_DAYS: Readonly<Record<string, number>> = { within_week: 7, within_month: 30 };
+
+/**
+ * The worker's own availability answer (preferences page / résumé-menu walk) as the sheet's
+ * {@link SheetAvailability}, or null when he answered none of it — the caller then falls back to
+ * the interview's. Same rules, same label as {@link formAvailabilityLabel}; this adds the start the
+ * Verdict Line prints in days.
+ */
+export function formAvailability(
+  facts: Pick<ResumePreferenceFacts, "availabilityStatus" | "availableFrom" | "noticePeriodDays">,
+  asOf: Date | null,
+): SheetAvailability | null {
   const from = facts.availableFrom === null ? null : calendarDate(facts.availableFrom);
   const today = asOf === null ? null : indiaCalendarDay(asOf);
   const immediately = labelFor(AVAILABILITY_STATUSES, "immediate");
+  const immediate =
+    immediately === null ? null : ({ label: immediately, start: { kind: "immediate" } } as const);
   if (from !== null && today !== null) {
-    return from.iso > today
-      ? `From ${from.day} ${MONTHS[from.month - 1]} ${from.year}`
-      : immediately;
+    if (from.iso <= today) return immediate;
+    const date = `${from.day} ${MONTHS[from.month - 1]} ${from.year}`;
+    return { label: `From ${date}`, start: { kind: "from_date", date } };
   }
-  switch (facts.availabilityStatus) {
+  const status = facts.availabilityStatus;
+  switch (status) {
     case "immediate":
-      return immediately;
+      return immediate;
     case "serving_notice": {
       const label = labelFor(AVAILABILITY_STATUSES, "serving_notice");
+      if (label === null) return null;
       const days = facts.noticePeriodDays;
-      if (label === null || days === null || days <= 0) return label;
-      return `${label} (${days} ${days === 1 ? "day" : "days"})`;
+      if (days === null || days <= 0) return { label, start: { kind: "on_notice" } };
+      return {
+        label: `${label} (${days} ${days === 1 ? "day" : "days"})`,
+        start: startInDays(days),
+      };
     }
     case "within_week":
-    case "within_month":
-      return labelFor(AVAILABILITY_STATUSES, facts.availabilityStatus);
+    case "within_month": {
+      const label = labelFor(AVAILABILITY_STATUSES, status);
+      return label === null ? null : { label, start: startInDays(WITHIN_DAYS[status]!) };
+    }
     default:
       return null;
   }

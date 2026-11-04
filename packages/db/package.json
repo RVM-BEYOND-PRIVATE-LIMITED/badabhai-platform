@@ -75,6 +75,8 @@
     "db:unseed:demo-matching": "tsx src/seed-demo-matching.ts --unseed",
     "db:seed:synthetic-workforce": "tsx src/seed-synthetic-workforce.ts",
     "db:unseed:synthetic-workforce": "tsx src/seed-synthetic-workforce.ts --unseed",
+    "db:seed:payer-demo-candidates": "tsx src/seed-payer-demo-candidates.ts",
+    "db:unseed:payer-demo-candidates": "tsx src/seed-payer-demo-candidates.ts --unseed",
     "db:grant:free-tier": "tsx src/grant-free-tier.ts",
     "db:bootstrap:admin": "tsx src/bootstrap-admin.ts",
     "db:admin:reset-mfa": "tsx src/reset-admin-mfa.ts",

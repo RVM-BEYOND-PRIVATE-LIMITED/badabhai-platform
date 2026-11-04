@@ -1794,7 +1794,10 @@ describe("ADR-0045 — the general road on the sheet", () => {
       const input = build();
       expect(row(input, "Salary expected")).toBe("₹18,000 – ₹22,000 / month");
       expect(input.expectedSalary).toBe(18000);
-      expect(input.subheadLine).toBe("expects ₹18,000 – ₹22,000 / month");
+      // The header carries the form's own availability too (ruling 2026-11-04), as its row does.
+      expect(input.subheadLine).toBe(
+        "available from 12 Oct 2026 · expects ₹18,000 – ₹22,000 / month",
+      );
     });
 
     it("a min-only band prints the min, a max-only band the max — each his own number", () => {

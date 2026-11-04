@@ -56,6 +56,11 @@ export const ADMIN_CAPABILITIES = [
   "toggle_kill_switch",
   "reveal_pii",
   "manage_admins",
+  // READ one candidate's full record — every profile value and where it came from
+  // (`GET /admin/candidates/:id`, ADR-0062, #2560). All four roles on the server; the
+  // Candidates tab's read floor (#2577). Distinct from `read_entities` (ids, enums, counts),
+  // and names on that response stay behind `read_identity`. Tail-appended, like the API's.
+  "read_candidates",
 ] as const;
 
 export type AdminCapability = (typeof ADMIN_CAPABILITIES)[number];
@@ -96,6 +101,7 @@ export const CAPABILITY_LABELS: Record<AdminCapability, string> = {
   toggle_kill_switch: "View kill switch",
   reveal_pii: "Reveal contact details",
   manage_admins: "Manage admins",
+  read_candidates: "Read candidate records — every profile field and where it came from",
 };
 
 /** Narrow an unknown string to a known capability (anything else is dropped, not trusted). */

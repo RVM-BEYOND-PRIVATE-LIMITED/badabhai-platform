@@ -6291,7 +6291,8 @@ body:has(.invite-landing) .chrome-footer {
   /* Wide tables scroll INSIDE their container; the page body never scrolls sideways. The
      block cap also makes this the VERTICAL scroller, which is what makes the sticky header
      below actually stick — an uncapped `overflow-x: auto` box never scrolls, so a sticky
-     `top: 0` inside it pins to a rail that is always fully visible and never moves. */
+     `top: 0` inside it pins to a rail that is always fully visible and never moves.
+     Below 1024px the W8 block (end of file) drops the cap: no inner scroller to trap a swipe. */
   overflow: auto;
   max-block-size: calc(100dvh - 18rem);
   overscroll-behavior: contain;
@@ -8156,6 +8157,7 @@ body:has(.invite-landing) .chrome-footer {
 }
 .cred-muted { font-size: var(--ui-body-sm-size); color: var(--text-muted); }
 .cred-link { font-size: var(--ui-body-sm-size); color: var(--brand-strong, var(--navy-700)); font-weight: var(--weight-semibold); }
+/* Its track is the shared auto-fit floor since W8 (end of file): 3 → 2 → 1 as the room allows. */
 .cred-pack-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -8406,6 +8408,7 @@ body:has(.invite-landing) .chrome-footer {
 .capacity-tier__price s { font-size: var(--ui-caption-size); font-weight: var(--weight-regular); color: var(--text-disabled); }
 .plans-page .capacity-tier__allowance { margin: 0; font-size: var(--ui-caption-size); color: var(--text-muted); }
 .plans-page .capacity-tier .bb-btn { margin-top: var(--space-2); }
+/* Both grids below take one track on a phone (the W8 block, end of file). */
 .plans-quick { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-3); }
 .plans-quick__item {
   display: flex;
@@ -9000,7 +9003,8 @@ body:has(.invite-landing) .chrome-footer {
   border-radius: var(--radius-pill);
   font-size: var(--ui-caption-size);
   font-weight: var(--weight-medium);
-  color: var(--text-muted);
+  /* Secondary, not muted: on the sunken track muted text is 4.22:1 at 12px, under AA (#2588). */
+  color: var(--text-secondary);
   white-space: nowrap;
 }
 .dash-tab:hover {
@@ -10422,4 +10426,136 @@ body:has(.invite-landing) .chrome-footer {
   margin: 0;
   color: var(--danger);
   font-size: var(--text-sm);
+}
+
+/* ==================================================================
+ * W8 (#2588) — REMAINING POLISH: the Candidates pager, the list heading, the credit and plan
+ * grids, the table scroll box and the OTP code input. ONE block, last in the file on purpose:
+ * where it re-states an earlier rule (the grids, the table box) it wins by order at equal
+ * specificity, and the earlier rule says where it is overridden. Tokens only.
+ * ================================================================== */
+
+/* ---- The Candidates pager: which rows are on screen, then First page / Next page. The range
+   takes the row's free space on the left, so the links keep their right edge; on a phone (where the
+   links share the row as equal thumb targets) it is a centred line of its own above them. ---- */
+.candidates-pager__range {
+  margin: 0;
+  margin-inline-end: auto;
+  align-self: center;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+}
+@media (max-width: 600px) {
+  .candidates-pager__range {
+    flex: 1 1 100%;
+    text-align: center;
+  }
+}
+
+/* ---- A list's heading (components/paged-list.tsx) — the count line, or the inbox's range. It is
+   the line it replaced, typographically: an h2 only so it can be found, and focused after paging.
+   It hugs its text (so a keyboard focus ring does too) and lands clear of the sticky header. ---- */
+.paged-list-heading {
+  justify-self: start;
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+  letter-spacing: inherit;
+  scroll-margin-top: calc(var(--shell-header-h) + var(--space-4));
+}
+
+/* ---- /credits: the pack grid auto-fits on the shared tile floor. It was three fixed tracks that
+   dropped straight to ONE at 900px, so a tablet showed three packs as a tall single column; now the
+   packs stay three across down to ~730px, then two, then one — and never wider than the column
+   (`min(100%, …)`), so nothing overflows at 320. Re-states the earlier `.cred-pack-grid` (also its
+   ≤900px one-track rule): last, at equal specificity, it wins at every width. ---- */
+.cred-pack-grid {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--stat-min)), 1fr));
+}
+
+/* ---- /plans: the quick credit packs (three tracks) and the posting plans (two) collapse to one
+   track on a phone, where three ~80px tiles squeezed a price that cannot wrap. ---- */
+@media (max-width: 600px) {
+  .plans-quick,
+  .plans-planlist {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ---- The table scroll box is a desktop affordance. Below 1024px a capped, `contain`ed inner
+   scroller was a scroll trap: a vertical swipe that started on a table scrolled the table and never
+   the page. There the box only scrolls sideways (the page never does) and grows to its table; the
+   vertical cap and the contained overscroll stay at ≥1024px. ---- */
+@media (max-width: 1023px) {
+  .tablewrap {
+    overflow-x: auto;
+    overflow-y: hidden;
+    max-block-size: none;
+    overscroll-behavior-y: auto;
+  }
+}
+
+/* ---- The OTP code input (components/otp-input.tsx). The boxes are ONE row at every width — the DS
+   row wraps a six-digit code 4 + 2 on a phone, so here (as on the sign-in card) they are equal
+   zero-minimum tracks capped at the DS box width, and shrink instead. A digit pops as it lands;
+   on success the boxes take the success colours with the digits at full contrast, and a check
+   fades in by the label (out again a little faster). Opacity and transform only; every duration is
+   a token that is 0 under reduced motion, and the pop's scale is 1 there as well. ---- */
+.otp-code {
+  --otp-pop-scale: 1.04;
+  display: grid;
+  justify-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.otp-code__head {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.otp-code__label {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--text-primary);
+}
+.otp-code__check {
+  color: var(--success);
+  opacity: 0;
+  transition: opacity var(--duration-fast) var(--ease-exit);
+}
+.otp-code--success .otp-code__check {
+  opacity: 1;
+  transition: opacity var(--duration-base) var(--ease-enter);
+}
+.otp-code__boxes {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, var(--control-lg));
+  justify-content: center;
+  gap: var(--space-2);
+  width: 100%;
+  overflow: visible;
+}
+.otp-code__boxes > .bb-otp__cell {
+  width: 100%;
+  min-width: 0;
+}
+.otp-code .bb-otp__cell--filled {
+  animation: otp-code-pop var(--duration-press) var(--ease-out);
+}
+.otp-code--success .bb-otp__cell {
+  border-color: var(--success);
+  background: var(--success-tint);
+  color: var(--text-primary);
+}
+@keyframes otp-code-pop {
+  50% {
+    transform: scale(var(--otp-pop-scale));
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .otp-code {
+    --otp-pop-scale: 1;
+  }
 }

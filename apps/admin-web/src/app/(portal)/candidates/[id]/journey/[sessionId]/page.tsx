@@ -18,6 +18,7 @@ import { CopyId } from "../../../../../../components/copy-id";
 import { Timestamp } from "../../../../../../components/timestamp";
 import { CaveatList } from "../../../../../../components/caveat-list";
 import { DetailList } from "../../../../../../components/detail-list";
+import { PanelSection } from "../../../../../../components/panel-section";
 import { Stat } from "../../../../../../components/stat";
 import { StatusPill } from "../../../../../../components/status-pill";
 import { StuckPanel } from "../../../../../../components/stuck-panel";
@@ -198,105 +199,110 @@ export default async function ChatSessionDetailPage({
             </p>
           </div>
 
-          {session.ai_cost ? (
-            <>
-              <div className="stats stats--compact">
-                <Stat
-                  label={`Spend since ${formatDate(session.ai_cost.first_recorded_at)}`}
-                  value={formatDisplayRupees(session.ai_cost.total_cost_inr)}
-                  valueTitle={formatExactRupees(session.ai_cost.total_cost_inr)}
-                  wide
-                />
-                <Stat label="Calls" value={formatCount(session.ai_cost.call_count)} />
-                <Stat
-                  label="…that reached a real provider"
-                  value={formatCount(session.ai_cost.real_call_count)}
-                  tone={
-                    session.ai_cost.real_call_count < session.ai_cost.call_count
-                      ? "warn"
-                      : undefined
-                  }
-                />
+          {/* The cost and the jobs behind it are two PanelSections (A1, #2571): 24px apart,
+              behind a hairline divider. */}
+          <PanelSection>
+            {session.ai_cost ? (
+              <>
+                <div className="stats stats--compact">
+                  <Stat
+                    label={`Spend since ${formatDate(session.ai_cost.first_recorded_at)}`}
+                    value={formatDisplayRupees(session.ai_cost.total_cost_inr)}
+                    valueTitle={formatExactRupees(session.ai_cost.total_cost_inr)}
+                    wide
+                  />
+                  <Stat label="Calls" value={formatCount(session.ai_cost.call_count)} />
+                  <Stat
+                    label="…that reached a real provider"
+                    value={formatCount(session.ai_cost.real_call_count)}
+                    tone={
+                      session.ai_cost.real_call_count < session.ai_cost.call_count
+                        ? "warn"
+                        : undefined
+                    }
+                  />
+                </div>
+                <p className="field__help">
+                  Last updated {formatRelative(session.ai_cost.updated_at)} ·{" "}
+                  <Timestamp iso={session.ai_cost.updated_at} />.
+                </p>
+              </>
+            ) : (
+              /* NO ₹0 TILE. The totals accrue only from migration 0077 forward with no
+                 backfill, so a session with no row was never measured — which is a different
+                 fact from "it was free", and the caveat band above says so in full. */
+              <div className="state">
+                <h3 className="state__title">No cost was recorded for this session</h3>
+                <p className="state__body">
+                  Per-session spend is only recorded from migration 0077 forward, and nothing was
+                  backfilled. This session has no row — so this is an absent measurement, not a
+                  measured ₹0.
+                </p>
               </div>
-              <p className="field__help">
-                Last updated {formatRelative(session.ai_cost.updated_at)} ·{" "}
-                <Timestamp iso={session.ai_cost.updated_at} />.
-              </p>
-            </>
-          ) : (
-            /* NO ₹0 TILE. The totals accrue only from migration 0077 forward with no
-               backfill, so a session with no row was never measured — which is a different
-               fact from "it was free", and the caveat band above says so in full. */
-            <div className="state">
-              <h3 className="state__title">No cost was recorded for this session</h3>
-              <p className="state__body">
-                Per-session spend is only recorded from migration 0077 forward, and nothing was
-                backfilled. This session has no row — so this is an absent measurement, not a
-                measured ₹0.
-              </p>
-            </div>
-          )}
+            )}
+          </PanelSection>
 
-          <h3 className="panel__title" id="session-jobs">
-            Extraction jobs
-          </h3>
-          <p className="panel__sub">
-            Profile-extraction jobs correlated to this session. Error messages are not served —
-            they come from an external system.
-          </p>
-          {session.ai_jobs.length === 0 ? (
-            <p className="empty">No extraction job ran for this session.</p>
-          ) : (
-            <div className="tablewrap">
-              <table className="table" aria-labelledby="session-jobs">
-                <caption className="sr-only">Extraction jobs for this session</caption>
-                <thead>
-                  <tr>
-                    <th scope="col">Extraction job</th>
-                    <th scope="col">Status</th>
-                    <th scope="col">Model</th>
-                    <th scope="col">Tokens</th>
-                    <th scope="col">Cost</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {session.ai_jobs.map((job) => (
-                    <tr key={job.id}>
-                      <th className="table__rowhead mono" scope="row" title={job.id}>
-                        {shortId(job.id)}
-                        <CopyId id={job.id} label="AI job id" />
-                      </th>
-                      <td>
-                        <StatusPill
-                          value={job.status}
-                          tone={job.has_error ? "bad" : undefined}
-                          title={job.has_error ? "This job recorded an error" : undefined}
-                        />
-                      </td>
-                      <td className="table__meta">
-                        {job.model_name ?? "—"}
-                        {job.real_call === false ? (
-                          <span className="table__meta"> · mock, not a real provider call</span>
-                        ) : null}
-                      </td>
-                      <td className="table__meta">
-                        {job.total_tokens === null ? "—" : formatCount(job.total_tokens)}
-                      </td>
-                      <td
-                        className="table__meta mono"
-                        title={job.cost_inr === null ? undefined : `₹${job.cost_inr}`}
-                      >
-                        {/* `ai_jobs.cost_inr` is `double precision`, unlike every other ₹ on
-                            this surface — rounded for display (#2572), and the value exactly as
-                            the server sent it stays in the hover. */}
-                        {job.cost_inr === null ? "—" : formatDisplayRupeesFromNumber(job.cost_inr)}
-                      </td>
+          <PanelSection title="Extraction jobs" titleId="session-jobs">
+            <p className="panel__sub">
+              Profile-extraction jobs correlated to this session. Error messages are not served —
+              they come from an external system.
+            </p>
+            {session.ai_jobs.length === 0 ? (
+              <p className="empty">No extraction job ran for this session.</p>
+            ) : (
+              <div className="tablewrap">
+                <table className="table" aria-labelledby="session-jobs">
+                  <caption className="sr-only">Extraction jobs for this session</caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">Extraction job</th>
+                      <th scope="col">Status</th>
+                      <th scope="col">Model</th>
+                      <th scope="col">Tokens</th>
+                      <th scope="col">Cost</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+                  </thead>
+                  <tbody>
+                    {session.ai_jobs.map((job) => (
+                      <tr key={job.id}>
+                        <th className="table__rowhead mono" scope="row" title={job.id}>
+                          {shortId(job.id)}
+                          <CopyId id={job.id} label="AI job id" />
+                        </th>
+                        <td>
+                          <StatusPill
+                            value={job.status}
+                            tone={job.has_error ? "bad" : undefined}
+                            title={job.has_error ? "This job recorded an error" : undefined}
+                          />
+                        </td>
+                        <td className="table__meta">
+                          {job.model_name ?? "—"}
+                          {job.real_call === false ? (
+                            <span className="table__meta"> · mock, not a real provider call</span>
+                          ) : null}
+                        </td>
+                        <td className="table__meta">
+                          {job.total_tokens === null ? "—" : formatCount(job.total_tokens)}
+                        </td>
+                        <td
+                          className="table__meta ui-num"
+                          title={job.cost_inr === null ? undefined : `₹${job.cost_inr}`}
+                        >
+                          {/* `ai_jobs.cost_inr` is `double precision`, unlike every other ₹ on
+                              this surface — rounded for display (#2572), and the value exactly as
+                              the server sent it stays in the hover. */}
+                          {job.cost_inr === null
+                            ? "—"
+                            : formatDisplayRupeesFromNumber(job.cost_inr)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </PanelSection>
         </section>
       </div>
 

@@ -6,7 +6,9 @@ import ts from "typescript";
 import { WORKER_FEEDBACK_CATEGORIES } from "@badabhai/types";
 import {
   AI_CALL_OUTCOMES,
+  EVENT_ACTOR_TYPES,
   EVENT_FILTER_MAX_LENGTH,
+  EVENT_SUBJECT_TYPES,
   LEDGER_REASONS,
   ORDER_STATUSES,
   PAYER_STATUSES,
@@ -108,6 +110,20 @@ function maxOf(node: ts.Node): number {
 
 const sorted = (values: readonly string[]) => [...values].sort();
 
+/** The string literals of the first array literal inside `node`, in order. */
+function arrayStrings(node: ts.Node): string[] {
+  let found: string[] | undefined;
+  const visit = (n: ts.Node) => {
+    if (found) return;
+    if (ts.isArrayLiteralExpression(n)) {
+      found = n.elements.filter(ts.isStringLiteral).map((e) => e.text);
+    } else ts.forEachChild(n, visit);
+  };
+  visit(node);
+  expect(found, "an array literal").toBeDefined();
+  return found!;
+}
+
 describe("filter values taken from a shared package", () => {
   it("the feedback tags ARE @badabhai/types' WORKER_FEEDBACK_CATEGORIES — not a copy", () => {
     expect(FEEDBACK_CATEGORIES).toBe(WORKER_FEEDBACK_CATEGORIES);
@@ -158,6 +174,23 @@ describe("filter values admin-web keeps a copy of, pinned to the API's query DTO
     );
     const schema = parse(join(repo, "packages", "event-schema", "src", "payloads.ts"));
     expect(sorted(AI_TASK_TYPES)).toEqual(enumValues(declaration(schema, "aiTaskType")));
+  });
+
+  it("event actor and subject types — ACTOR_TYPES / SUBJECT_TYPES of @badabhai/event-schema (A4)", () => {
+    // The Events filter bar offers these as SELECTS. The envelope validates every event against
+    // them, so the source of truth is the event schema, not the (free-text) API DTO.
+    const enums = parse(join(repo, "packages", "event-schema", "src", "enums.ts"));
+    expect(sorted(EVENT_ACTOR_TYPES)).toEqual(sorted(arrayStrings(declaration(enums, "ACTOR_TYPES"))));
+    expect(sorted(EVENT_SUBJECT_TYPES)).toEqual(
+      sorted(arrayStrings(declaration(enums, "SUBJECT_TYPES"))),
+    );
+  });
+
+  it("the events' occurred-at range — eventFilterShape takes occurredFrom and occurredTo as dates (A4)", () => {
+    const shape = declaration(parse(join(DTO, "admin-events.dto.ts")), "eventFilterShape");
+    for (const key of ["occurredFrom", "occurredTo"]) {
+      expect(property(shape, key).getText(), key).toBe("z.coerce.date().optional()");
+    }
   });
 
   it("the events' free-text bounds — eventFilterShape and stringOrArray", () => {

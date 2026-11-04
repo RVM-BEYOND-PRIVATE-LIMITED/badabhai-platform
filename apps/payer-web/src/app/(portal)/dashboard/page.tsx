@@ -348,7 +348,10 @@ export default async function DashboardPage({
             </div>
             <div className="panel__actions dash-panel__actions">
               {postings !== null ? (
-                <div className="dash-tabs" role="tablist" aria-label="Posting status">
+                // Three LINKS to three addresses, so a nav with the current one marked — the
+                // Candidates views' pattern. It was a `tablist` of plain links: a tablist promises
+                // tabs, a selection and arrow-key panels, none of which is here.
+                <nav className="dash-tabs" aria-label="Posting status">
                   {POSTING_TABS.map((tab) => (
                     <PortalLink
                       key={tab.value}
@@ -356,12 +359,13 @@ export default async function DashboardPage({
                         postingFilter === tab.value ? "dash-tab dash-tab--active" : "dash-tab"
                       }
                       href={tab.href}
+                      aria-current={postingFilter === tab.value ? "page" : undefined}
                       pendingLabel={tab.label}
                     >
                       {tab.label}
                     </PortalLink>
                   ))}
-                </div>
+                </nav>
               ) : null}
               {/* The dashboard's ONE link to the Postings list, named as the rail item and the
                   list's H1 name it: one label per destination. */}
@@ -412,7 +416,7 @@ export default async function DashboardPage({
                     pendingLabel="Post with AI"
                   >
                     <Icon name="sparkle" />
-                    <span>Build with AI</span>
+                    <span>Post with AI</span>
                   </PortalLink>
                 </div>
                 <ul className="dash-perks">
@@ -501,9 +505,7 @@ export default async function DashboardPage({
                 <span className="dash-count">{recentUnlocks.length}</span>
               ) : null}
             </div>
-            <p className="panel__sub">
-              Direct contacts revealed. Masked until unlock.
-            </p>
+            <p className="panel__sub">Contacts you have unlocked. Masked until unlock.</p>
           </div>
         </div>
         <div className="panel__body">
@@ -519,16 +521,9 @@ export default async function DashboardPage({
               </span>
               <h3 className="state__title">No contacts unlocked yet</h3>
               <p className="state__body">
-                Open a posting&rsquo;s applicants and unlock any candidate to reveal their phone,
-                email, and resume.
+                Open a posting&rsquo;s applicants and unlock any candidate to get their masked
+                resume and a contact routed through BadaBhai.
               </p>
-              <div className="dash-callout">
-                <Icon name="check-circle" />
-                <span>
-                  Unlocks include direct WhatsApp number and lifetime candidate re-contact
-                  rights.
-                </span>
-              </div>
             </div>
           ) : (
             <div className="dash-candlist">

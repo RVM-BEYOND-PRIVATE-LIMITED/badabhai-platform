@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
+import { columnHeaders } from "../../test/grid-markup";
 import { PayerList } from "./payer-list";
 import type { PayerListItem } from "../lib/entities";
 import type { IdentityPosture } from "../lib/identity";
@@ -38,31 +39,43 @@ const render = (payers: PayerListItem[], posture: IdentityPosture) =>
     />,
   );
 
-/** The cells of the first body row, in order. */
+/**
+ * The DATA cells of the first body row, in order — the row link's end chevron (an aria-hidden
+ * cell with no header of its own, A4) is decoration, not a column.
+ */
 function firstRowCells(html: string): string[] {
   const body = html.slice(html.indexOf("<tbody>"));
-  return body.slice(0, body.indexOf("</tr>")).split("<td").slice(1);
+  return body
+    .slice(0, body.indexOf("</tr>"))
+    .split("<td")
+    .slice(1)
+    .filter((cell) => !cell.startsWith(' class="grid__end"'));
 }
 
 describe("the named posture", () => {
   it("renders an Organisation column, before the id", async () => {
     const out = render([NAMED], "named");
-    expect(out).toContain('<th scope="col">Organisation</th>');
+    expect(columnHeaders(out)[0]).toBe("Organisation");
     expect(out).toContain("Acme Fabrication Pvt Ltd");
-    expect(out.indexOf("Acme Fabrication")).toBeLessThan(out.indexOf(PAYER_ID));
+    expect(out.indexOf("Acme Fabrication")).toBeLessThan(out.indexOf(`title="${PAYER_ID}"`));
   });
 
   it("heads the id column Customer — never Account (owner ruling 2026-10-01; sweep AW-12)", () => {
     const out = render([NAMED], "named");
-    expect(out).toContain('<th scope="col">Customer</th>');
+    expect(columnHeaders(out)).toContain("Customer");
     expect(out).toContain('<caption class="sr-only">Customers, newest first</caption>');
-    expect(out).not.toContain('<th scope="col">Account</th>');
+    expect(columnHeaders(out)).not.toContain("Account");
   });
 
-  it("keeps the id link, which is where the detail page and the spine are reached", () => {
+  it("links the row through the organisation's NAME, and keeps the id beside it", () => {
+    // Since A4 the row's one link is its name, stretched over the row — the detail page and the
+    // spine are reached from anywhere on it. The id stays a cell of its own, its full value in
+    // its title.
     const out = render([NAMED], "named");
-    expect(out).toContain(`href="/companies/${PAYER_ID}"`);
-    expect(out).toContain(`title="${PAYER_ID}"`);
+    expect(out).toMatch(
+      new RegExp(`<a class="grid__link" href="/companies/${PAYER_ID}"><span class="grid__link-text" title="Acme Fabrication Pvt Ltd">`),
+    );
+    expect(out).toContain(`<span class="mono" title="${PAYER_ID}">`);
   });
 
   it("dashes an account whose organisation name did not come back", () => {
@@ -85,7 +98,7 @@ describe("the named posture", () => {
     // The off-by-one-column failure: every value after the missing cell shifts left, so
     // Registered reads as Status and the table still looks fine.
     const out = render([NAMED, UNNAMED], "named");
-    const headers = (out.match(/<th scope="col">/g) ?? []).length;
+    const headers = columnHeaders(out).length;
     expect(headers).toBe(5);
     expect(firstRowCells(out)).toHaveLength(headers);
   });
@@ -107,7 +120,7 @@ describe("the faceless posture", () => {
 
   it("is the pre-ruling table, unchanged", () => {
     const out = render([FACELESS], "faceless");
-    const headers = (out.match(/<th scope="col">/g) ?? []).length;
+    const headers = columnHeaders(out).length;
     expect(headers).toBe(4);
     expect(firstRowCells(out)).toHaveLength(4);
     expect(out).toContain(`href="/companies/${PAYER_ID}"`);

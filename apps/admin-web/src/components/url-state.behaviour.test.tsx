@@ -205,9 +205,30 @@ const BARS: Array<{
   {
     name: "events",
     render: (u) => EventFilterBar(u as Parameters<typeof EventFilterBar>[0]),
-    before: { eventName: "", actorType: "", subjectType: "", correlationId: "" },
-    after: { eventName: "", actorType: "", subjectType: "", correlationId: "5eeded00-00c0" },
-    shows: (u) => [u.eventName, u.actorType, u.subjectType, u.correlationId],
+    before: {
+      eventName: "",
+      actorType: "",
+      subjectType: "",
+      correlationId: "",
+      occurredFrom: "",
+      occurredTo: "",
+    },
+    after: {
+      eventName: "",
+      actorType: "",
+      subjectType: "",
+      correlationId: "5eeded00-00c0",
+      occurredFrom: "2026-10-01",
+      occurredTo: "",
+    },
+    shows: (u) => [
+      u.eventName,
+      u.actorType,
+      u.subjectType,
+      u.correlationId,
+      u.occurredFrom,
+      u.occurredTo,
+    ],
   },
   {
     name: "ai-calls",

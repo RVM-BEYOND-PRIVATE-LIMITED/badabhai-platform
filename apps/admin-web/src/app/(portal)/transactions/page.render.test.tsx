@@ -8,6 +8,8 @@ import {
   statTiles,
 } from "../../../../test/stat-tiles";
 import { customerCell } from "../../../../test/customer-cell";
+import { columnHeaders } from "../../../../test/grid-markup";
+import { formatCount, formatRupees } from "../../../lib/format";
 
 /**
  * The transactions page's simulated-money marking, asserted on the PAGE (#1856). The ₹ tile here
@@ -178,8 +180,8 @@ describe("the status chips keep an account narrowing (owner brief 2026-10-01)", 
 describe("the orders table names the payer the console's way", () => {
   it("'Customer' — never 'Account', which is the payer's own settings page (sweep AW-12)", async () => {
     const out = await render();
-    expect(out).toContain('<th scope="col">Customer</th>');
-    expect(out).not.toContain('<th scope="col">Account</th>');
+    expect(columnHeaders(out)).toContain("Customer");
+    expect(columnHeaders(out)).not.toContain("Account");
   });
 });
 
@@ -225,7 +227,7 @@ describe("the orders table links the customer's own section", () => {
 
 /** The href of the link whose visible label (after any glyph) is exactly `label`. */
 const hrefOf = (out: string, label: string) =>
-  [...out.matchAll(/href="([^"]*)">(?:<i [^>]*><\/i>)?([^<]*)<\/a>/g)].find((m) => m[2] === label)?.[1];
+  [...out.matchAll(/href="([^"]*)">(?:<i [^>]*><\/i>)?([^<]*)(?:<span class="nav-pending" aria-hidden="true"><\/span>)?<\/a>/g)].find((m) => m[2] === label)?.[1];
 
 /**
  * A failed order read, by the console's one rule (final re-sweep O-3): the page read every
@@ -322,5 +324,13 @@ describe("valid filters with a refused cursor get the cursor's copy", () => {
     const out = await renderWith({ status: "paid", payerId: PAYER });
     expect(out).toContain("Payment orders are unavailable");
     expect(out).not.toContain("rejected");
+  });
+});
+
+describe("the orders table sets its figures in the UI face (A1, #2571)", () => {
+  it("renders the ₹ amount and the credits granted with tabular figures, not mono", async () => {
+    const out = await render();
+    expect(out).toContain(`<td class="ui-num">${formatRupees(1500)}</td>`);
+    expect(out).toContain(`<td class="ui-num">${formatCount(100)}</td>`);
   });
 });

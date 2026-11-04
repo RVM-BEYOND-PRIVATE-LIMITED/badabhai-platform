@@ -10,6 +10,7 @@ import type { SkillCanonicalizationInput } from "@badabhai/ai-contracts";
 import { bandForCount } from "@badabhai/validators";
 import type { JobPosting, NewJobPosting } from "@badabhai/db";
 import type { JobPostingVerificationStatus } from "@badabhai/types";
+import { postingTradeFor, postingTradeSkillIds, scopePostingSkills } from "@badabhai/taxonomy";
 import type { RequestContext } from "../common/request-context";
 import { EventsService, type EmitParams } from "../events/events.service";
 import { AiService } from "../ai/ai.service";
@@ -36,6 +37,7 @@ import type {
   PayerCreateJobPostingDto,
   UpdateJobPostingDto,
 } from "./job-postings.dto";
+import { postingTradeRequired } from "./posting-trade-required";
 
 /**
  * TRANSITIONAL — the hardcoded LEGACY skill-domain slug every posting's skill
@@ -63,7 +65,8 @@ type JobPostingEventName =
   | "job_posting.closed"
   | "job_posting.paused"
   | "job_posting.resumed"
-  | "job_posting.verification_updated";
+  | "job_posting.verification_updated"
+  | "job_posting.match_skills_scoped";
 
 /** The validated PATCH the service derived from an edit DTO (column patch + changed KEYS). */
 interface PreparedUpdate {
@@ -244,6 +247,7 @@ export class JobPostingsService {
   // ----- OPS surface (ADR-0012, unchanged) ----------------------------------
 
   async create(dto: CreateJobPostingDto, ctx: RequestContext): Promise<JobPostingApi> {
+    const { content, droppedSkillIds } = await this.resolveCreateContent(dto);
     return this.insertAndEmit(
       {
         createdBy: dto.created_by,
@@ -258,10 +262,11 @@ export class JobPostingsService {
         // accepts `job_domain_id` (nothing in this module writes that column). Explicit
         // null -> the transitional legacy anchor, which is exactly today's behaviour.
         skillIds: await this.canonicalizeSkills(dto.skills, ctx, null),
-        ...(await this.resolveCreateContent(dto)),
+        ...content,
       },
       { actor_type: "ops", actor_id: dto.created_by },
       ctx,
+      droppedSkillIds,
     );
   }
 
@@ -279,7 +284,12 @@ export class JobPostingsService {
     const current = await this.getOne(id);
     // ADR-0050 §4.3 — a twin is written by its sync alone; every edit goes through the agency job.
     assertNotAgencyTwin(current.sync_source);
-    const prepared = this.prepareUpdate(current, await this.prepareTradeUpdate(current, dto));
+    // ONE prepared request for both the column patch and the reach rebuild: the rebuild used to
+    // read the RAW request, so a trade-derived skill change never reached it and a client's raw
+    // `match_skill_ids` did (#2635).
+    const tradeDto = await this.prepareTradeUpdate(current, dto);
+    await this.assertScopedSkillsValid(current, tradeDto);
+    const prepared = this.prepareUpdate(current, tradeDto);
     if (prepared.changedFields.includes("skills")) {
       // The posting's OWN canonical domain when it has one (null for every row today —
       // the column is unbackfilled), else the transitional legacy anchor.
@@ -302,7 +312,7 @@ export class JobPostingsService {
     await this.materializeIfNeeded(
       current,
       updated,
-      dto,
+      tradeDto,
       { actor_type: "ops", actor_id: updated.created_by },
       ctx,
     );
@@ -393,6 +403,7 @@ export class JobPostingsService {
     dto: PayerCreateJobPostingDto,
     ctx: RequestContext,
   ): Promise<JobPostingApi> {
+    const { content, droppedSkillIds } = await this.resolveCreateContent(dto);
     return this.insertAndEmit(
       {
         createdBy: scope.actorPayerId,
@@ -405,10 +416,11 @@ export class JobPostingsService {
         skillPhrases: dto.skills ?? [],
         // Same as the ops create: no domain exists at insert time. See the note there.
         skillIds: await this.canonicalizeSkills(dto.skills, ctx, null),
-        ...(await this.resolveCreateContent(dto)),
+        ...content,
       },
       payerActor(scope),
       ctx,
+      droppedSkillIds,
     );
   }
 
@@ -444,7 +456,19 @@ export class JobPostingsService {
   ): Promise<JobPostingApi> {
     const scope = await this.tenancy.resolve(actorPayerId);
     const current = await this.getOneInScope(id, scope); // no-oracle 404
-    const prepared = this.prepareUpdate(current, await this.prepareTradeUpdate(current, dto));
+    const tradeDto = await this.prepareTradeUpdate(current, dto);
+    // #2635 — matching runs only for the 16 postable trades, so a company may PUBLISH only a
+    // posting that names one, and may not move a live posting off one. Checked before any
+    // write; the ops surface is unchanged, and so is an edit that leaves the role alone.
+    const roleAfter = nextRoleKind(current, tradeDto);
+    const goesOrStaysLive =
+      isPublishing(current, tradeDto) ||
+      (current.status !== "draft" && roleAfter !== current.role_kind);
+    if (goesOrStaysLive && !postingTradeFor(roleAfter)) {
+      throw postingTradeRequired();
+    }
+    await this.assertScopedSkillsValid(current, tradeDto);
+    const prepared = this.prepareUpdate(current, tradeDto);
     if (prepared.changedFields.includes("skills")) {
       // Owner-scoped read, so the domain is the CALLER'S OWN posting's — never a
       // body-supplied id. Null for every row today; see the ops update above.
@@ -459,7 +483,7 @@ export class JobPostingsService {
     if (!updated) throw new NotFoundException("Job posting not found");
 
     await this.emitUpdated(updated, payerActor(scope), prepared, ctx);
-    await this.materializeIfNeeded(current, updated, dto, payerActor(scope), ctx);
+    await this.materializeIfNeeded(current, updated, tradeDto, payerActor(scope), ctx);
     return updated;
   }
 
@@ -566,13 +590,20 @@ export class JobPostingsService {
     ctx: RequestContext,
   ): Promise<void> {
     const publishing = before.status === "draft" && after.status === "open";
-    const skillsChanged = dto.match_skill_ids !== undefined;
+    // #2635 — a 16-trade posting's match set follows its trade, so moving an OPEN posting into
+    // or out of one is a reach change even when the edit carried no skill ids.
+    const tradeMoved =
+      before.role_kind !== after.role_kind &&
+      (postingTradeFor(before.role_kind) !== undefined ||
+        postingTradeFor(after.role_kind) !== undefined);
+    const skillsChanged = dto.match_skill_ids !== undefined || tradeMoved;
     if (!publishing && !skillsChanged) return;
     if (!publishing && after.status !== "open") return;
 
     // The skills to resolve from: the edit's, else what the posting already carries.
     const matchSkillIds = dto.match_skill_ids ?? after.match_skill_ids;
-    if (matchSkillIds.length === 0) {
+    // A 16-trade posting is never empty once scoped (its base skill is always kept).
+    if (matchSkillIds.length === 0 && postingTradeFor(after.role_kind) === undefined) {
       // Reaches nobody. Not a crash and not a guess — the E13 alert is the right
       // channel for it, and `materialize` emits it once the (empty) set is written.
       // Only do that on a PUBLISH; an unrelated edit should not raise a fresh alert.
@@ -624,7 +655,9 @@ export class JobPostingsService {
     // the reach silently widened past what the payer chose. A resume had the same problem
     // in a slower form — it must not re-widen a reach the payer deliberately narrowed.
     const unticked = untickedIds ?? posting.unticked_related_ids;
-    if (skills.length === 0 && trigger !== "publish") return;
+    // A 16-trade posting always has its base skill once scoped, so it never short-circuits here.
+    const sixteenTrade = postingTradeFor(posting.role_kind) !== undefined;
+    if (skills.length === 0 && trigger !== "publish" && !sixteenTrade) return;
     try {
       await this.publishReach.materialize(
         posting.id,
@@ -633,6 +666,9 @@ export class JobPostingsService {
           untickedIds: unticked,
           trigger,
           actor,
+          // #2635 — scope the match set to the posting's trade and keep related reach inside
+          // the 16. A non-16 posting (ops / agency) resolves exactly as before.
+          roleKind: posting.role_kind,
         },
         ctx,
       );
@@ -682,10 +718,14 @@ export class JobPostingsService {
    * reaches nobody; the reach set is resolved and materialized by `PublishReachService`
    * at publish (moment ③). Storing the posted ids now is what lets that resolution find
    * them — it is the input to the moment, never the result of it (Policy 10).
+   *
+   * #2635 — A 16-TRADE POSTING'S MATCH SET IS SCOPED TO ITS TRADE: its base skill always, plus
+   * every requested id that trade owns. Anything else is DROPPED (never rejected) and returned
+   * as `droppedSkillIds` so the create can record it. Any other posting keeps the old behaviour.
    */
   private async resolveCreateContent(
     dto: CreateJobPostingDto | PayerCreateJobPostingDto,
-  ): Promise<CreateContent> {
+  ): Promise<{ content: CreateContent; droppedSkillIds: string[] }> {
     // Migration 0141 — the trade form's chips are the match input. When the poster used
     // the trade form (even with no chips selected, which still names the role's base
     // skill), the server derives the set; a client cannot widen it by sending extra ids.
@@ -698,17 +738,37 @@ export class JobPostingsService {
             dto.trade_answers ?? null,
           )
         : null;
-    const matchSkillIds =
+    const requested =
       tradeSelection !== null ? tradeSelection.matchSkillIds : (dto.match_skill_ids ?? []);
+    const scoped = scopePostingSkills(dto.role_kind, requested);
 
-    if (matchSkillIds.length > 0) {
+    if (requested.length > 0 || scoped !== undefined) {
       // Closed-set + cap check. Throws a 400 naming the offending ids (public closed-set
       // values — no PII can appear, the DTO regex-constrains them). The resolved reach is
       // DISCARDED: a draft has none, and re-resolving at publish is what keeps the set
       // honest if the curated relations moved in between.
-      await this.matchSkills.resolveForPublish(matchSkillIds, dto.unticked_related_ids ?? []);
+      await this.matchSkills.resolveForPublish(requested, dto.unticked_related_ids ?? [], {
+        roleKind: dto.role_kind ?? null,
+      });
     }
-    return {
+    const matchSkillIds = scoped ? [...scoped.kept] : [...requested];
+    // What the client asked for that its trade does NOT own (the event's one meaning). On the
+    // trade-form path the chips own the set by design (0141), so the client's own list is never
+    // stored; of it, only the off-trade ids are recorded — an in-trade id the chips left out is
+    // the form working, not the server overriding a company.
+    const own = new Set<string>(postingTradeSkillIds(dto.role_kind) ?? []);
+    const droppedSkillIds =
+      scoped === undefined
+        ? []
+        : [
+            ...new Set([
+              ...scoped.dropped,
+              ...(tradeSelection !== null
+                ? (dto.match_skill_ids ?? []).filter((id) => !own.has(id))
+                : []),
+            ]),
+          ];
+    const content: CreateContent = {
       city: dto.city ?? null,
       area: dto.area ?? null,
       payMin: dto.pay_min ?? null,
@@ -722,16 +782,17 @@ export class JobPostingsService {
       // default precisely so "not stated" and "stated as empty" stay distinguishable.
       benefits: dto.benefits ?? null,
       requirements: dto.requirements ?? null,
-      // Migration 0131 — the payer's role pick, or NULL. DISPLAY ONLY: it is not handed to
-      // `matchSkills` above and nothing derives a skill or a domain from it.
+      // Migration 0131 — the payer's role pick, or NULL. Since #2635 it BOUNDS the match set
+      // of a 16-trade posting (see above); it still derives no domain and no rank key.
       roleKind: dto.role_kind ?? null,
       // Migration 0141 — the poster's ladder rung and chip answers. NULL means "not
       // stated"; the derived match set above is separate from this reviewable answer set.
       tradeLevel: tradeSelection?.tradeLevel ?? dto.trade_level ?? null,
       tradeAnswers: tradeSelection?.tradeAnswers ?? dto.trade_answers ?? null,
-      matchSkillIds: [...matchSkillIds],
+      matchSkillIds,
       untickedRelatedIds: dto.unticked_related_ids ? [...dto.unticked_related_ids] : [],
     };
+    return { content, droppedSkillIds };
   }
 
   /**
@@ -772,6 +833,7 @@ export class JobPostingsService {
     } & CreateContent,
     actor: JobPostingActor,
     ctx: RequestContext,
+    droppedSkillIds: readonly string[] = [],
   ): Promise<JobPostingApi> {
     return this.repo.withTransaction(async (tx) => {
       // status is ALWAYS draft on create — any client-supplied status is ignored.
@@ -791,6 +853,22 @@ export class JobPostingsService {
         ...this.emitParams("job_posting.created", row.id, actor, payload, ctx),
         tx,
       });
+      // #2635 — the server overrode part of the ask. Same transaction: a posting whose stored
+      // match set differs from the request never commits without the record of why.
+      if (droppedSkillIds.length > 0 && row.role_kind !== null) {
+        const scoped: PayloadInputOf<"job_posting.match_skills_scoped"> = {
+          job_posting_id: row.id,
+          role_kind: row.role_kind,
+          trigger: "create",
+          // The set this insert stored — read from the input, never re-derived.
+          kept_skill_ids: [...(input.matchSkillIds ?? [])],
+          dropped_skill_ids: [...droppedSkillIds],
+        };
+        await this.events.emit({
+          ...this.emitParams("job_posting.match_skills_scoped", row.id, actor, scoped, ctx),
+          tx,
+        });
+      }
       return row;
     });
   }
@@ -828,12 +906,41 @@ export class JobPostingsService {
     // sending it would rebuild thousands of reach rows for a display change. Send it only
     // when the derived set actually moved (which still covers a base-skill clear/import).
     const skillsUnchanged = sameStringList(selection.matchSkillIds, current.match_skill_ids);
+    // The chips OWN the match set on this path: a client's own `match_skill_ids` never rides
+    // along, not even when the derived set is unchanged (#2635 — it used to reach the rebuild).
+    const rest: UpdateJobPostingDto = { ...dto };
+    delete rest.match_skill_ids;
     return {
-      ...dto,
+      ...rest,
       ...(selection.tradeLevel !== null ? { trade_level: selection.tradeLevel } : {}),
       ...(selection.tradeAnswers !== null ? { trade_answers: selection.tradeAnswers } : {}),
       ...(skillsUnchanged ? {} : { match_skill_ids: selection.matchSkillIds }),
     };
+  }
+
+  /**
+   * #2635 — surface a 16-trade posting's skill-cap 400 BEFORE the write. The rebuild after a
+   * publish or skill edit never fails the request (it only logs), so a scoped set over
+   * `max_skills_per_posting` — the trade's base skill is added to what the client sent — would
+   * otherwise go live reaching nobody. Only 16-trade postings: their scoped set is never empty,
+   * so the cap is the only thing this can refuse. Other postings keep the old behaviour.
+   */
+  private async assertScopedSkillsValid(
+    current: JobPostingApi,
+    dto: UpdateJobPostingDto,
+  ): Promise<void> {
+    const roleKind = nextRoleKind(current, dto);
+    if (postingTradeFor(roleKind) === undefined) return;
+    const rebuildsOnWrite =
+      isPublishing(current, dto) ||
+      dto.match_skill_ids !== undefined ||
+      (current.status === "open" && roleKind !== current.role_kind);
+    if (!rebuildsOnWrite) return;
+    await this.matchSkills.resolveForPublish(
+      dto.match_skill_ids ?? current.match_skill_ids,
+      dto.unticked_related_ids ?? current.unticked_related_ids,
+      { roleKind },
+    );
   }
 
   /**
@@ -1164,6 +1271,17 @@ function payerActor(scope: PayerTenantScope): JobPostingActor {
 function sameStringList(next: readonly string[], current: string[] | null): boolean {
   if (current === null) return false;
   return next.length === current.length && next.every((v, i) => v === current[i]);
+}
+
+/** The posting's `role_kind` once this edit applies: the edit's, cleared, or the stored one. */
+function nextRoleKind(current: JobPostingApi, dto: UpdateJobPostingDto): string | null {
+  if (dto.role_kind !== undefined) return dto.role_kind;
+  return clearedSet(dto.clear).has("role_kind") ? null : current.role_kind;
+}
+
+/** Whether this edit is the publish transition (draft → open). */
+function isPublishing(current: JobPostingApi, dto: UpdateJobPostingDto): boolean {
+  return current.status === "draft" && dto.status === "open";
 }
 
 /**

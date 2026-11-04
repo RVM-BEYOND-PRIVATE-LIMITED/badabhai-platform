@@ -161,6 +161,12 @@ export interface CandidateSearchRowDto {
   city: string | null;
   /** The rungs he stated per trade (display-only, the applicant card's own badge source). */
   tradeLevels: TradeLevelBadge[];
+  /**
+   * R74 (owner ruling 2026-11-04) — a SAMPLE candidate: a synthetic-workforce seed row shown for
+   * demos, not a person. The clients badge the card "Sample candidate" and offer no unlock; the
+   * unlock route refuses one anyway (neutral body, no credit spent).
+   */
+  isSample: boolean;
 }
 
 export interface CandidateSearchResponseDto {

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import type { ReactNode } from "react";
 import { requireCapability } from "../../../../lib/auth";
 import { isAdminRequestError } from "../../../../lib/admin-http";
 import {
@@ -34,6 +35,8 @@ import { StatusPill } from "../../../../components/status-pill";
 import { Pager } from "../../../../components/pager";
 import { Stat } from "../../../../components/stat";
 import { PageHeader } from "../../../../components/page-header";
+import { DataGrid, type GridColumn, type GridSort } from "../../../../components/data-grid";
+import { NavPendingCue } from "../../../../components/nav-pending";
 import { AboutData } from "../../../../components/about-data";
 import {
   CURSOR_REFUSAL,
@@ -474,6 +477,7 @@ export default async function SkillDiscoveryPage({
                   <Link className="btn btn--ghost" href="/skills/discovery">
                     <Icon name={ACTION_ICON.clearFilters} />
                     Clear filters
+                    <NavPendingCue message="Clearing the filters…" />
                   </Link>
                 )}
               </div>
@@ -498,17 +502,25 @@ export default async function SkillDiscoveryPage({
         ) : view === "grouped" && groupsResult ? (
           <GroupedQueue groups={groupsResult.groups} sort={groupSort} />
         ) : view === "flat" && page ? (
-          <FlatQueue items={page.items} />
-        ) : null}
-
-        {view === "flat" && page && (
-          <Pager
-            basePath="/skills/discovery"
-            params={carry}
-            nextCursor={page.nextCursor}
-            note="Server-paged with a keyset cursor — this view never loads the whole queue at once."
+          <FlatQueue
+            items={page.items}
+            /* The header's link is the queue the other way round, from its first page. */
+            sort={
+              sort === "oldest"
+                ? { href: listHref({ sort: undefined }), direction: "ascending", label: "show newest first" }
+                : { href: listHref({ sort: "oldest" }), direction: "descending", label: "show oldest first" }
+            }
+            pager={
+              <Pager
+                basePath="/skills/discovery"
+                params={carry}
+                cursor={cursor}
+                nextCursor={page.nextCursor}
+                note="Server-paged with a keyset cursor — this view never loads the whole queue at once."
+              />
+            }
           />
-        )}
+        ) : null}
 
         {/* The queue's standing notes, after its results: the exhaustive totals and the grouping
             marker (grouped only), what this view is, and why Derived is sequenced behind Direct —
@@ -700,6 +712,7 @@ function EmptyQueueState({
         <Link className="btn btn--ghost" href="/skills/discovery">
           <Icon name={ACTION_ICON.clearFilters} />
           Clear filters
+          <NavPendingCue message="Clearing the filters…" />
         </Link>
       </div>
     </div>
@@ -805,58 +818,97 @@ function GroupedQueue({
   );
 }
 
-function FlatQueue({ items }: { items: SkillDiscoveryListItem[] }) {
-  return (
-    <div className="tablewrap">
-      <table className="table">
-        <caption className="sr-only">Skill discovery candidates</caption>
-        <thead>
-          <tr>
-            <th scope="col">When</th>
-            <th scope="col">Phrase</th>
-            <th scope="col">Proposed</th>
-            <th scope="col">Suggested action</th>
-            <th scope="col">Trade family</th>
-            <th scope="col">Tier</th>
-            <th scope="col">Band</th>
-            <th scope="col">Status</th>
-          </tr>
-        </thead>
-        <tbody>
-          {items.map((item) => (
-            <FlatRow key={item.id} item={item} />
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-function FlatRow({ item }: { item: SkillDiscoveryListItem }) {
-  return (
-    <tr>
-      <td>
+/**
+ * The flat queue on the data grid (A4, #2574): one row per candidate, a row opening its decision
+ * screen. Its "When" header is the queue's real order — the API's `sort=newest|oldest` — so it is
+ * the one sortable header here; a column the API cannot order by is never offered as one.
+ */
+function FlatQueue({
+  items,
+  sort,
+  pager,
+}: {
+  items: SkillDiscoveryListItem[];
+  sort: GridSort;
+  pager: ReactNode;
+}) {
+  const columns: GridColumn<SkillDiscoveryListItem>[] = [
+    {
+      id: "when",
+      header: "When",
+      width: "date",
+      sort,
+      cell: (item) => (
         <time dateTime={item.created_at} title={timestampTitle(item.created_at)}>
           {formatRelative(item.created_at)}
         </time>
-      </td>
-      <td>
-        <Link className="link" href={`/skills/discovery/${item.id}`}>
-          {item.normalized_phrase}
-        </Link>
-      </td>
-      <td className="table__meta">{item.proposed_skill_name ?? "—"}</td>
-      <td className="table__meta">{SKILL_CANDIDATE_ACTION_LABELS[item.proposed_action]}</td>
-      <td className="table__meta">{item.trade_family ?? "—"}</td>
-      <td className="table__meta">{ADMIN_SKILL_REVIEW_TIER_LABELS[item.review_tier]}</td>
-      <td className="table__meta">{item.confidence_band}</td>
-      <td>
+      ),
+    },
+    {
+      id: "phrase",
+      header: "Phrase",
+      cell: (item) => item.normalized_phrase,
+      title: (item) => item.normalized_phrase,
+    },
+    {
+      id: "proposed",
+      header: "Proposed",
+      className: "table__meta",
+      cell: (item) => item.proposed_skill_name ?? "—",
+      title: (item) => item.proposed_skill_name ?? undefined,
+    },
+    {
+      id: "action",
+      header: "Suggested action",
+      width: "short",
+      text: "truncate",
+      className: "table__meta",
+      cell: (item) => SKILL_CANDIDATE_ACTION_LABELS[item.proposed_action],
+      title: (item) => SKILL_CANDIDATE_ACTION_LABELS[item.proposed_action],
+    },
+    {
+      id: "family",
+      header: "Trade family",
+      className: "table__meta",
+      cell: (item) => item.trade_family ?? "—",
+      title: (item) => item.trade_family ?? undefined,
+    },
+    {
+      id: "tier",
+      header: "Tier",
+      width: "short",
+      text: "truncate",
+      className: "table__meta",
+      cell: (item) => ADMIN_SKILL_REVIEW_TIER_LABELS[item.review_tier],
+      title: (item) => ADMIN_SKILL_REVIEW_TIER_LABELS[item.review_tier],
+    },
+    { id: "band", header: "Band", width: "number", className: "table__meta", cell: (item) => item.confidence_band },
+    {
+      id: "status",
+      header: "Status",
+      width: "short",
+      cell: (item) => (
         <StatusPill
           value={item.status}
           label={SKILL_CANDIDATE_STATUS_LABELS[item.status]}
           tone={SKILL_CANDIDATE_STATUS_TONE[item.status]}
         />
-      </td>
-    </tr>
+      ),
+    },
+  ];
+  return (
+    <DataGrid
+      id="skill-discovery"
+      caption="Skill discovery candidates"
+      columns={columns}
+      rows={items}
+      rowKey={(item) => item.id}
+      rowLink={{
+        column: "phrase",
+        href: (item) => `/skills/discovery/${item.id}`,
+        name: (item) => item.normalized_phrase,
+      }}
+      pager={pager}
+    />
   );
 }

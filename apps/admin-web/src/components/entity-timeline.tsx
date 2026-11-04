@@ -11,7 +11,8 @@ import { RetryActions } from "./retry-actions";
  * not the generic `/admin/events` filter (which has no `subjectId` filter at all).
  *
  * A Server Component, like the screens it is composed from: it fetches and renders in one
- * pass, reusing `EventTable`/`Pager` rather than a second table implementation.
+ * pass, reusing `EventTable`/`Pager` rather than a second table implementation — so a timeline
+ * is a list page like the Events list, on the same data grid (A4, #2574), and shares its columns.
  */
 export async function EntityTimeline({
   type,
@@ -41,7 +42,7 @@ export async function EntityTimeline({
   }
 
   return (
-    <div className="page">
+    <div className="page page--list">
       <PageHeader
         back={back}
         title="Event timeline"
@@ -74,15 +75,17 @@ export async function EntityTimeline({
             events={page?.events ?? []}
             emptyMessage="No events recorded yet"
             emptyBody={`The audit spine fills as this ${subjectLabel} is used. Events will appear here as they are emitted.`}
+            pager={
+              <Pager
+                basePath={basePath}
+                params={{}}
+                cursor={cursor}
+                nextCursor={page?.nextCursor}
+                note="Paging uses a keyset cursor, so new events arriving mid-scan cannot make rows skip or repeat."
+              />
+            }
           />
         )}
-
-        <Pager
-          basePath={basePath}
-          params={{}}
-          nextCursor={page?.nextCursor}
-          note="Paging uses a keyset cursor, so new events arriving mid-scan cannot make rows skip or repeat."
-        />
       </section>
     </div>
   );

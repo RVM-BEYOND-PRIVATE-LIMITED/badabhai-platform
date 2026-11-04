@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { VolumePanel } from "./volume-panel";
 import { volumeSummarySchema, type VolumeSummary } from "../lib/dashboard";
+import { SECTION, childTags } from "../../test/panel-markup";
 
 /**
  * The volume panel speaks the console's names (owner ruling 2026-10-01), not the stored ones:
@@ -88,5 +89,41 @@ describe("volume grouped Supply / Demand / Engagement (#2572)", () => {
     expect(group(out, "Demand")).toContain("Contact unlocks");
     expect(group(out, "Engagement")).toContain("Applies");
     expect(group(out, "Engagement")).not.toContain("Contact unlocks");
+  });
+});
+
+describe("each block is a PanelSection (A1, #2571)", () => {
+  const ROOT = '<section class="panel" aria-labelledby="volume-heading">';
+
+  it("stacks the groups and the two breakdown rows as sibling sections under the head", () => {
+    // Siblings, so `.panel__section + .panel__section` sets 24px and a hairline between them.
+    expect(childTags(html(), ROOT)).toEqual([
+      '<div class="panel__head">',
+      SECTION,
+      SECTION,
+      SECTION,
+    ]);
+  });
+
+  it("lays each breakdown row's columns out as sections of its .cols grid", () => {
+    const out = html();
+    expect(childTags(out, '<div class="cols">')).toEqual([SECTION, SECTION]);
+    // The customer column stacks two sections of its own: by type, then by status.
+    expect(childTags(out, '<div class="cols">', 1)).toEqual([SECTION, "<div>"]);
+  });
+
+  it("titles every breakdown with a section heading that its list still names itself by", () => {
+    const out = html();
+    for (const [id, title] of [
+      ["volume-workers", "Workers by status"],
+      ["volume-profiles", "Profiles by status"],
+      ["volume-postings", "Postings by status"],
+      ["volume-payers-role", "Customers by type"],
+      ["volume-payers-status", "Customers by status"],
+    ] as const) {
+      expect(out).toContain(`<h3 class="panel__section-title" id="${id}">${title}</h3>`);
+      expect(out).toContain(`<ul class="funnel" aria-labelledby="${id}">`);
+    }
+    expect(out).not.toContain('<h3 class="panel__title"');
   });
 });

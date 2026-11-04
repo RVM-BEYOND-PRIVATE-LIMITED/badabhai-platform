@@ -100,6 +100,9 @@ const CLIENT_COMPONENTS = [
   "../app/(portal)/admins/admin-row-actions.tsx",
   "../app/(portal)/skills/discovery/filter-bar.tsx",
   "../app/(portal)/skills/discovery/[id]/decision-panel.tsx",
+  // A4 (#2574) — the data grid's client half and its view controls.
+  "data-grid-view.tsx",
+  "grid-view-controls.tsx",
 ];
 
 describe("interactive components stay on the client", () => {
@@ -118,6 +121,26 @@ describe("no client module imports the server-only transport", () => {
     const src = read(f);
     expect(src).not.toMatch(/from\s+["'].*admin-http["']/);
     expect(src).not.toMatch(/from\s+["'].*session-cookie["']/);
+  });
+});
+
+/**
+ * A4 (#2574) — the data grid is TWO halves on purpose. `data-grid.tsx` runs a page's cell
+ * renderers on the server (functions cannot cross to the client) and hands `data-grid-view.tsx`
+ * plain data. With a directive or a hook it would become a client module, and every page's
+ * column definitions — functions — would fail to serialize.
+ */
+describe("the data grid's server half stays server-safe", () => {
+  it("data-grid.tsx has no 'use client' directive and calls no hook", () => {
+    const src = read("data-grid.tsx");
+    expect(src).not.toMatch(/^\s*["']use client["']/m);
+    expect(src).not.toMatch(/\buse[A-Z]\w*\(/);
+  });
+
+  it("the column vocabulary is plain data, readable on both sides", () => {
+    const src = read("data-grid-model.ts");
+    expect(src).not.toMatch(/^\s*["']use client["']/m);
+    expect(src).not.toMatch(/from\s+["']react["']/);
   });
 });
 

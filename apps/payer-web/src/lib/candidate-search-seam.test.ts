@@ -66,6 +66,7 @@ const ROW = {
       levelConfirmed: true,
     },
   ],
+  isSample: false,
 };
 const PAGE = {
   total: 62,
@@ -151,8 +152,11 @@ describe("searchCandidates — the answer is the contract's", () => {
   it("a row missing a contract key, or carrying the wrong kind of value, fails the parse", async () => {
     const { searchCandidates } = await import("./payer-api");
     const { tradeLevels: _drop, ...noLevels } = ROW;
+    const { isSample: _dropSample, ...noSample } = ROW;
     for (const bad of [
       noLevels,
+      noSample, // R74: the sample flag is always sent — its absence is a contract break
+      { ...ROW, isSample: "true" },
       { ...ROW, matchTier: 3 },
       { ...ROW, skillMonths: "48" },
       { ...ROW, workerId: "not-a-uuid" },

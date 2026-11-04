@@ -6,6 +6,8 @@ import 'package:payer_app/core/data/mock_payer_api_client.dart';
 import 'package:payer_app/core/data/models.dart';
 import 'package:payer_app/core/di/locator.dart';
 import 'package:payer_app/core/auth/payer_token_store.dart';
+import 'package:payer_app/core/widgets/bb_action_bar.dart';
+import 'package:payer_app/core/widgets/bb_shake.dart';
 import 'package:payer_app/features/jobs/presentation/cubit/agency_jobs_cubit.dart';
 import 'package:payer_app/features/jobs/presentation/edit_agency_job_screen.dart';
 
@@ -38,6 +40,10 @@ class _ScriptedApi extends MockPayerApiClient {
   String? lastRoleKind;
   String? lastTradeLevel;
   Map<String, List<String>>? lastTradeAnswers;
+
+  /// When set, every [updateAgencyJob] throws it after recording the call —
+  /// the server refusing the save.
+  Object? throwOnUpdate;
 
   // The demand-skill vocabulary, so the picker section renders in the edit form.
   @override
@@ -89,6 +95,7 @@ class _ScriptedApi extends MockPayerApiClient {
     lastRoleKind = roleKind;
     lastTradeLevel = tradeLevel;
     lastTradeAnswers = tradeAnswers;
+    if (throwOnUpdate != null) throw throwOnUpdate!;
     return AgencyJobView(
       id: id,
       status: 'open',
@@ -152,6 +159,39 @@ const AgencyJobView _jobTrade = AgencyJobView(
     'controller_brand': <String>['fanuc'],
   },
 );
+
+/// A one-role trade catalogue whose five match chips, with the role's base
+/// skill, come to one more than the edit form's cap of five match skills.
+final PostingTradeForm _capTrade = PostingTradeForm(
+  roleKind: 'fitter',
+  roleLabel: 'Fitter',
+  packId: 'pack_fitter',
+  matchSkillId: 'mskill_fitting',
+  questions: <PostingTradeQuestion>[
+    PostingTradeQuestion(
+      questionKey: 'machines',
+      prompt: 'Machines run',
+      answerType: 'multi_select',
+      options: <PostingTradeOption>[
+        for (int i = 1; i <= 5; i++)
+          PostingTradeOption(
+            optionKey: 'm$i',
+            value: 'm$i',
+            label: 'Machine $i',
+            match: true,
+            matchSkillIds: <String>['mskill_m$i'],
+          ),
+      ],
+    ),
+  ],
+);
+
+/// [_ScriptedApi] serving [_capTrade] as the whole catalogue.
+class _CapTradeApi extends _ScriptedApi {
+  @override
+  Future<List<PostingTradeForm>> fetchPostingTrades() async =>
+      <PostingTradeForm>[_capTrade];
+}
 
 void main() {
   /// Push the edit screen under a route that can be popped back to, so the
@@ -513,6 +553,191 @@ void main() {
     expect(api.lastTradeAnswers, <String, List<String>>{
       'controller_brand': <String>['fanuc'],
     });
+  });
+
+  // --- #2595 (M7) -------------------------------------------------------------
+
+  testWidgets('Save sits in the shared pinned action bar', (
+    WidgetTester tester,
+  ) async {
+    final _ScriptedApi api = _ScriptedApi();
+    final AgencyJobsCubit cubit = AgencyJobsCubit(api);
+    addTearDown(cubit.close);
+    await open(tester, cubit);
+
+    final Scaffold scaffold = tester.widget<Scaffold>(find.descendant(
+      of: find.byType(EditAgencyJobScreen),
+      matching: find.byType(Scaffold),
+    ));
+    expect(scaffold.bottomNavigationBar, isA<BbActionBar>());
+  });
+
+  testWidgets('pay prefills grouped and saves as a whole number', (
+    WidgetTester tester,
+  ) async {
+    final _ScriptedApi api = _ScriptedApi();
+    final AgencyJobsCubit cubit = AgencyJobsCubit(api);
+    addTearDown(cubit.close);
+    await open(tester, cubit);
+
+    expect(find.widgetWithText(TextField, '18,000'), findsOneWidget);
+    expect(find.widgetWithText(TextField, '24,000'), findsOneWidget);
+    await save(tester);
+    expect(api.updated, <String>['a1']);
+  });
+
+  testWidgets('an emptied title is refused at its field', (
+    WidgetTester tester,
+  ) async {
+    final _ScriptedApi api = _ScriptedApi();
+    final AgencyJobsCubit cubit = AgencyJobsCubit(api);
+    addTearDown(cubit.close);
+    await open(tester, cubit);
+
+    await tester.enterText(find.byType(TextField).first, '');
+    await tester.pump();
+    await tester.tap(find.text('Save changes'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+
+    expect(api.updated, isEmpty);
+    expect(find.text('Add the job title'), findsOneWidget);
+    expect(find.byType(SnackBar), findsNothing);
+  });
+
+  /// Edits the title (the first text box) and taps Save, pumping just far
+  /// enough for a toast to show.
+  Future<void> saveTitle(WidgetTester tester, String title) async {
+    await tester.enterText(find.byType(TextField).first, title);
+    await tester.pump();
+    await tester.tap(find.text('Save changes'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+  }
+
+  testWidgets("the server's refusal shows at the box it names — no toast", (
+    WidgetTester tester,
+  ) async {
+    // The server screens the worker-visible title for links.
+    final _ScriptedApi api = _ScriptedApi()
+      ..throwOnUpdate = const PayerApiException(
+        400,
+        validationMessage: 'Job title: Must not contain links.',
+        fieldErrors: <String, String>{'title': 'Must not contain links.'},
+      );
+    final AgencyJobsCubit cubit = AgencyJobsCubit(api);
+    addTearDown(cubit.close);
+    await open(tester, cubit);
+
+    await saveTitle(tester, 'Fitter, apply at acme.in');
+    await tester.pumpAndSettle();
+
+    expect(api.updated, <String>['a1']);
+    expect(
+      find.descendant(
+        of: find.ancestor(
+          of: find.text('Job title'),
+          matching: find.byType(BbShake),
+        ),
+        matching: find.text('Must not contain links.'),
+      ),
+      findsOneWidget,
+    );
+    expect(find.byType(SnackBar), findsNothing);
+    expect(find.text('Edit job'), findsOneWidget);
+  });
+
+  testWidgets('a refusal no box here holds is still said, in a toast', (
+    WidgetTester tester,
+  ) async {
+    const String reason = 'Invalid option: expected one of "helper"|"setter"';
+    final _ScriptedApi api = _ScriptedApi()
+      ..throwOnUpdate = const PayerApiException(
+        400,
+        validationMessage: reason,
+        fieldErrors: <String, String>{'trade_level': '$reason.'},
+      );
+    final AgencyJobsCubit cubit = AgencyJobsCubit(api);
+    addTearDown(cubit.close);
+    await open(tester, cubit);
+
+    await saveTitle(tester, 'Fitter II');
+
+    expect(
+      find.descendant(of: find.byType(SnackBar), matching: find.text(reason)),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('a match chip past the cap is refused under the chips', (
+    WidgetTester tester,
+  ) async {
+    final _CapTradeApi api = _CapTradeApi();
+    final AgencyJobsCubit cubit = AgencyJobsCubit(api);
+    addTearDown(cubit.close);
+    await open(
+      tester,
+      cubit,
+      api: api,
+      height: 5000,
+      job: const AgencyJobView(
+        id: 'a1',
+        status: 'open',
+        tradeKey: 'fitter',
+        title: 'Fitter',
+        city: 'Pune',
+        payMin: 18000,
+        payMax: 24000,
+        payType: 'in_hand',
+        minExperienceYears: 1,
+        maxExperienceYears: 4,
+        neededBy: 'soon',
+        shift: 'day',
+        description: 'Fitting and assembly on site.',
+        benefits: <String>['PF + ESI'],
+        requirements: <String>['Fanuc control'],
+        applicantsReceived: 4,
+        roleKind: 'fitter',
+        tradeLevel: 'helper',
+      ),
+    );
+    for (int i = 1; i <= 5; i++) {
+      await tester.tap(find.text('Machine $i · Match'));
+      await tester.pumpAndSettle();
+    }
+    expect(
+      find.text(
+        'Pick up to 5 match skills — the rest are requirements and do not '
+        'change reach.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.byType(SnackBar), findsNothing);
+  });
+
+  testWidgets('system Back on an edited job asks; an unedited one just leaves',
+      (WidgetTester tester) async {
+    final _ScriptedApi api = _ScriptedApi();
+    final AgencyJobsCubit cubit = AgencyJobsCubit(api);
+    addTearDown(cubit.close);
+    await open(tester, cubit);
+
+    await tester.enterText(find.byType(TextField).first, 'Senior Fitter');
+    await tester.pump();
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(find.text('Discard your changes?'), findsOneWidget);
+    await tester.tap(find.text('Keep editing'));
+    await tester.pumpAndSettle();
+    expect(find.text('Edit job'), findsOneWidget);
+
+    // Put the title back: nothing is unsaved, so Back leaves at once.
+    await tester.enterText(find.byType(TextField).first, 'Fitter');
+    await tester.pump();
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(find.text('Discard your changes?'), findsNothing);
+    expect(find.text('Edit job'), findsNothing);
   });
 }
 

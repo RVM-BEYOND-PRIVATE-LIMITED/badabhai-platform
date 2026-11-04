@@ -75,6 +75,14 @@ import { AdminMatchEngineRepository } from "./admin-match-engine.repository";
 import { AdminEngineDemoGate } from "./admin-engine-demo-gate";
 import { AdminMatchEngineService } from "./admin-match-engine.service";
 import { AdminMatchEngineController } from "./admin-match-engine.controller";
+import { AdminCandidateDetailRepository } from "./admin-candidate-detail.repository";
+import { AdminCandidateDetailService } from "./admin-candidate-detail.service";
+import { AdminCandidateDetailController } from "./admin-candidate-detail.controller";
+import { CandidateSearchRepository } from "../candidates/candidate-search.repository";
+import { WorkerAttributesRepository } from "../profiles/worker-attributes.repository";
+import { WorkerLanguagesRepository } from "../profiles/worker-languages.repository";
+import { WorkerOccupationsRepository } from "../profiles/worker-occupations.repository";
+import { WorkerQualificationsRepository } from "../profiles/worker-qualifications.repository";
 
 /**
  * Admin Ops Portal — AUTH + RBAC + MFA foundation (ADR-0025 ADMIN-1). The 4th, highly-
@@ -203,6 +211,7 @@ import { AdminMatchEngineController } from "./admin-match-engine.controller";
     AdminAiTracesController,
     AdminSkillDiscoveryController,
     AdminMatchEngineController,
+    AdminCandidateDetailController,
   ],
   providers: [
     AdminRepository,
@@ -373,6 +382,19 @@ import { AdminMatchEngineController } from "./admin-match-engine.controller";
     AdminMatchEngineRepository,
     AdminEngineDemoGate,
     AdminMatchEngineService,
+    // ADR-0062 (#2560): the Candidates FULL-DETAIL read, `read_candidates` (all four roles). It
+    // reads through the repositories the employer-facing reads use, so the values cannot drift
+    // from them. The five non-admin ones below need only DATABASE and are PROVIDED here rather
+    // than imported with their modules — the `ResumeDisclosureModule` pattern — so this module's
+    // boot never depends on the profiles or candidates subtrees. Only their READ methods are
+    // called from this module (`admin-static-guards.test.ts` pins that).
+    AdminCandidateDetailRepository,
+    AdminCandidateDetailService,
+    WorkerAttributesRepository,
+    WorkerQualificationsRepository,
+    WorkerLanguagesRepository,
+    WorkerOccupationsRepository,
+    CandidateSearchRepository,
   ],
   exports: [AdminAuthGuard, AdminRolesGuard, AdminSessionService, AdminRepository],
 })

@@ -1243,6 +1243,10 @@ class MockPayerApiClient implements PayerApiClient {
 
   @override
   Future<UnlockResult> unlock({required String workerId, String? jobId}) async {
+    // R74: a sample worker gets the route's neutral deny, and no credit moves.
+    if (_kMockPool.any((_MockWorker w) => w.isSample && w.workerId == workerId)) {
+      return const UnlockResult.unavailable();
+    }
     // Canned grant — decrement the shared balance so the credits stat still
     // moves. A real backend is server-truth; here we just mint an unlock id.
     if (_credits > 0) _credits -= 1;
@@ -1529,6 +1533,7 @@ CandidateTradeLevel _mockLevel(LabelledId trade, String key, String label) =>
 
 /// One synthetic worker: his wanted roles (months each, most first), his
 /// industry tenure and city (either may be unrecorded) and stated rungs.
+/// [isSample] marks the rows the API flags as seed data (R74).
 class _MockWorker {
   const _MockWorker(
     this.n, {
@@ -1537,6 +1542,7 @@ class _MockWorker {
     this.industryMonths,
     this.city,
     this.levels = const <CandidateTradeLevel>[],
+    this.isSample = false,
   });
 
   final int n;
@@ -1545,6 +1551,7 @@ class _MockWorker {
   final int? industryMonths;
   final String? city;
   final List<CandidateTradeLevel> levels;
+  final bool isSample;
 
   String get workerId =>
       '00000000-0000-4000-8000-1000000000${n.toString().padLeft(2, '0')}';
@@ -1609,6 +1616,7 @@ class _MockWorker {
         industryMonths: industryMonths,
         city: city,
         tradeLevels: levels,
+        isSample: isSample,
       ),
     );
   }
@@ -1655,6 +1663,7 @@ final List<_MockWorker> _kMockPool = <_MockWorker>[
     2,
     roles: <(LabelledId, int)>[(_kMockVmc, 24)],
     industry: _kMockManufacturing,
+    isSample: true,
   ),
   _MockWorker(
     3,
@@ -1713,6 +1722,7 @@ final List<_MockWorker> _kMockPool = <_MockWorker>[
     industry: _kMockQuickCommerce,
     industryMonths: 6,
     city: 'Chennai',
+    isSample: true,
   ),
   _MockWorker(
     10,

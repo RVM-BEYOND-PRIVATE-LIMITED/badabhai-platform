@@ -14,6 +14,7 @@ import { renderToStaticMarkup } from "react-dom/server";
  */
 const stub = vi.hoisted(() => ({
   events: [] as unknown[],
+  names: [] as string[],
 }));
 
 vi.mock("next/navigation", () => ({
@@ -29,6 +30,7 @@ vi.mock("../../lib/auth", () => ({
 vi.mock("../../lib/admin-http", () => ({ isAdminRequestError: () => false }));
 vi.mock("../../lib/events", () => ({
   listEvents: async () => ({ events: stub.events, nextCursor: null }),
+  listRecentEventNames: async () => stub.names,
 }));
 vi.mock("../../lib/entities", () => ({
   listPayers: async () => ({ items: [], nextCursor: null }),
@@ -48,6 +50,8 @@ const { FilterPanel, filterSetKey } = await import("../../components/filter-pane
 
 const CORRELATION = "5eeded00-00c0-4a00-8000-0000000000c0";
 const UUID = "5eeded00-0002-4a00-8000-000000000002";
+/** The example every full-id field shows (placeholders read "e.g. …", A4). */
+const UUID_EXAMPLE = "e.g. 0b7c5d2e-1f3a-4c8e-9d61-2a4f6b8c0e13";
 const EVENT = {
   id: "5eeded00-0005-4a00-8000-000000000005",
   event_name: "worker.registered",
@@ -63,6 +67,7 @@ const EVENT = {
 
 beforeEach(() => {
   stub.events = [EVENT];
+  stub.names = [];
 });
 
 type Page = (p: { searchParams: Promise<Record<string, string>> }) => Promise<ReactElement>;
@@ -117,8 +122,10 @@ const PAGES: Array<[string, Page, Record<string, string>, number]> = [
       actorType: "system",
       subjectType: "worker",
       correlationId: CORRELATION,
+      occurredFrom: "2026-10-01",
+      occurredTo: "2026-10-31",
     },
-    4,
+    6,
   ],
   ["companies", CompaniesPage as Page, { status: "active" }, 1],
   ["jobs", JobsPage as Page, { status: "open", verificationStatus: "verified", payerId: UUID }, 3],
@@ -143,7 +150,7 @@ describe("/events — following a row's correlation-id link (review M1)", () => 
     const out = await html(EventsPage as Page, { correlationId: CORRELATION });
     expect(out).toContain('data-open="true"');
     expect(out).toContain(">Filters (1)</button>");
-    expect(inputValue(out, "full UUID")).toBe(CORRELATION);
+    expect(inputValue(out, UUID_EXAMPLE)).toBe(CORRELATION);
   });
 
   it("the link the row offers is the URL this test opens", async () => {
@@ -189,11 +196,41 @@ describe("the fields show the URL's values (a fresh render)", () => {
       eventName: "worker.registered",
       correlationId: CORRELATION,
     });
-    expect(inputValue(out, "worker.profile_confirmed")).toBe("worker.registered");
-    expect(inputValue(out, "full UUID")).toBe(CORRELATION);
+    expect(inputValue(out, "e.g. profile.confirmed")).toBe("worker.registered");
+    expect(inputValue(out, UUID_EXAMPLE)).toBe(CORRELATION);
+  });
+
+  it("/events: the event name is a combobox over the names the spine recorded lately", async () => {
+    stub.names = ["profile.confirmed", "worker.created"];
+    const out = await html(EventsPage as Page, {});
+    const input = (out.match(/<input[^>]*>/g) ?? []).find((t) => t.includes('placeholder="e.g. profile.confirmed"'))!;
+    const list = /list="([^"]+)"/.exec(input)?.[1];
+    expect(list).toBeTruthy();
+    expect(out).toContain(
+      `<datalist id="${list}"><option value="profile.confirmed"></option><option value="worker.created"></option></datalist>`,
+    );
+  });
+
+  it("/events: with no names to suggest, the same free-text field — no empty list", async () => {
+    stub.names = [];
+    const out = await html(EventsPage as Page, {});
+    const input = (out.match(/<input[^>]*>/g) ?? []).find((t) => t.includes('placeholder="e.g. profile.confirmed"'))!;
+    expect(input).not.toContain("list=");
+    expect(out).not.toContain("<datalist");
+  });
+
+  it("/events: the date range, as the IST days in the address", async () => {
+    const out = await html(EventsPage as Page, {
+      occurredFrom: "2026-10-01",
+      occurredTo: "2026-10-31",
+    });
+    const dates = (out.match(/<input[^>]*type="date"[^>]*>/g) ?? []).map(
+      (tag) => /value="([^"]*)"/.exec(tag)?.[1],
+    );
+    expect(dates).toEqual(["2026-10-01", "2026-10-31"]);
   });
 
   it("/jobs: the customer id", async () => {
-    expect(inputValue(await html(JobsPage as Page, { payerId: UUID }), "full UUID")).toBe(UUID);
+    expect(inputValue(await html(JobsPage as Page, { payerId: UUID }), UUID_EXAMPLE)).toBe(UUID);
   });
 });
