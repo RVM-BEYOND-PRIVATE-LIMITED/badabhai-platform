@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { focusControlOnNextFrame } from "./form-focus";
+import { focusControlOnNextFrame, focusIsLost } from "./form-focus";
 
 /**
  * #2645 — a refusal on a control the same click is about to SHOW (the trade picker on step 1,
@@ -24,5 +24,22 @@ describe("focusControlOnNextFrame", () => {
 
   it("is a no-op outside a browser", () => {
     expect(() => focusControlOnNextFrame("roleKind")).not.toThrow();
+  });
+});
+
+describe("focusIsLost — a form takes focus back only when no control holds it", () => {
+  it("is lost when focus sits on the page itself (its control was removed) or nowhere", () => {
+    const body = { tagName: "BODY" };
+    vi.stubGlobal("document", { body, activeElement: body });
+    expect(focusIsLost()).toBe(true);
+    vi.stubGlobal("document", { body, activeElement: null });
+    expect(focusIsLost()).toBe(true);
+  });
+
+  it("is not lost while a control holds it, and never outside a browser", () => {
+    vi.stubGlobal("document", { body: { tagName: "BODY" }, activeElement: { id: "description" } });
+    expect(focusIsLost()).toBe(false);
+    vi.unstubAllGlobals();
+    expect(focusIsLost()).toBe(false);
   });
 });

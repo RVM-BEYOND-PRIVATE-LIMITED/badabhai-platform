@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReactElement, ReactNode } from "react";
 import type * as ReactModule from "react";
 import { IconButtonBase } from "@badabhai/icons/button";
@@ -11,7 +11,8 @@ import type { EditPostingInitial } from "./edit-posting-form";
  * shared navigation helper, naming the posting for the shell's "Opening …" cue),
  * client validate() blocks. Env is node; state injected via mocked useState (source order: fields,
  * requirements, benefits, reqDraft, benDraft, error, trade, preview, revealed); useTransition
- * runs inline. The card fields reach the action through the shared `readCardForm` — the same read
+ * runs inline; refs live as long as one test (one mounted form, re-rendered by each `render`).
+ * The card fields reach the action through the shared `readCardForm` — the same read
  * the preview draws — so the liveness fixes are pinned here at the submit end.
  */
 
@@ -54,6 +55,11 @@ vi.mock("../../../../../lib/form-focus", async (importOriginal) => ({
 let effects: Array<{ run: () => void; deps: readonly unknown[] | undefined }> = [];
 const runEffects = () => effects.forEach((effect) => effect.run());
 
+/** The form's refs, in call order. React keeps a mounted form's refs across its renders; here
+ *  each TEST is one mounted form (`beforeEach` empties them) and each `render` one of its renders. */
+let refs: Array<{ current: unknown }> = [];
+let refCursor = 0;
+
 let stateQueue: unknown[] = [];
 let stateCursor = 0;
 let setters: Array<ReturnType<typeof vi.fn>> = [];
@@ -89,6 +95,11 @@ vi.mock("react", async () => {
     useTransition: () => [false, (fn: () => void) => fn()] as const,
     useEffect: (run: () => void, deps?: readonly unknown[]) => {
       effects.push({ run, deps });
+    },
+    useRef: (initial: unknown) => {
+      const i = refCursor++;
+      refs[i] ??= { current: initial };
+      return refs[i];
     },
   };
 });
@@ -214,6 +225,7 @@ function render(
     appended.submitting ?? null, // submitting (11)
   ];
   stateCursor = 0;
+  refCursor = 0;
   setters = [];
   effects = [];
   return EditPostingForm({
@@ -239,6 +251,7 @@ beforeEach(() => {
   updatePostingAction.mockReset().mockResolvedValue({ ok: true, posting: SAVED });
   navigate.mockReset();
   draftHook.restored = false;
+  refs = [];
 });
 
 describe("EditPostingForm — the band-downgrade guard (vacancies omission)", () => {
@@ -755,15 +768,51 @@ describe("EditPostingForm — #2645: the 16 trades did not load", () => {
       expect(focusControlOnNextFrame).toHaveBeenCalledWith("roleKind");
     });
 
-    it("a Retry that brings the 16 back re-runs that focus, onto the select now in the spot", () => {
-      open([]);
-      const before = effects.map((effect) => effect.deps);
-      open(TRADES);
-      // React re-runs an effect whose dependency list changed between two renders.
-      expect(effects.map((effect) => effect.deps)).not.toEqual(before);
-      focusControlOnNextFrame.mockClear();
-      runEffects();
-      expect(focusControlOnNextFrame).toHaveBeenCalledWith("roleKind");
+    describe("where focus is (`document.activeElement`) when it decides", () => {
+      const BODY = { tagName: "BODY" };
+      /** Focus on the page itself (the control that had it was removed), or on another control. */
+      const focusIs = (where: "lost" | "on another control") =>
+        vi.stubGlobal("document", {
+          body: BODY,
+          activeElement: where === "lost" ? BODY : { id: "description" },
+        });
+      afterEach(() => vi.unstubAllGlobals());
+
+      /** Opened refused with the 16 missing (focus taken on mount), then a Retry's re-read lands. */
+      function retryBringsThe16Back() {
+        open([]);
+        runEffects();
+        expect(focusControlOnNextFrame).toHaveBeenCalledWith("roleKind");
+        focusControlOnNextFrame.mockClear();
+        const before = effects.map((effect) => effect.deps);
+        open(TRADES);
+        // React re-runs an effect whose dependency list changed between two renders.
+        expect(effects.map((effect) => effect.deps)).not.toEqual(before);
+      }
+
+      it("on mount it takes focus wherever focus is: the page just opened refused", () => {
+        focusControlOnNextFrame.mockClear();
+        focusIs("on another control");
+        open([]);
+        runEffects();
+        expect(focusControlOnNextFrame).toHaveBeenCalledWith("roleKind");
+      });
+
+      it("after a Retry, focus lost with the Retry button is restored, onto the select now in the spot", () => {
+        focusControlOnNextFrame.mockClear();
+        retryBringsThe16Back();
+        focusIs("lost");
+        runEffects();
+        expect(focusControlOnNextFrame).toHaveBeenCalledWith("roleKind");
+      });
+
+      it("after a Retry, focus the payer moved to another control stays there (no type-ahead into the trade)", () => {
+        focusControlOnNextFrame.mockClear();
+        retryBringsThe16Back();
+        focusIs("on another control");
+        runEffects();
+        expect(focusControlOnNextFrame).not.toHaveBeenCalled();
+      });
     });
   });
 });
