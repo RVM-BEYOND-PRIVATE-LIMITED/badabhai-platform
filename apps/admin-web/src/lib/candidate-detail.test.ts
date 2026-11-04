@@ -39,14 +39,27 @@ beforeEach(() => {
 });
 
 describe("readCandidateRecord — the request", () => {
-  it("reads /admin/candidates/:id through the record schema, the id encoded", async () => {
+  it("reads /admin/candidates/:id through the record schema", async () => {
     http.adminFetch.mockResolvedValue(candidateRecord());
-    await readCandidateRecord("a/b c");
+    await readCandidateRecord(RECORD_WORKER_ID);
     expect(http.adminFetch).toHaveBeenCalledWith(
-      "/admin/candidates/a%2Fb%20c",
+      `/admin/candidates/${RECORD_WORKER_ID}`,
       expect.objectContaining({ schema: candidateDetailSchema }),
     );
   });
+
+  /**
+   * The id comes from the address. `encodeURIComponent` leaves "." and ".." alone and fetch's URL
+   * parser resolves them, so `?c=.` read the candidate LIST and `?c=..` read `/admin/` — name
+   * budget spent and audit rows written for a view nobody asked for. Not a uuid: nothing is sent.
+   */
+  it.each([".", "..", "Ramesh Kumar", "", "%2e%2e", `${RECORD_WORKER_ID}/..`, `${RECORD_WORKER_ID} `])(
+    "%j is no such candidate, and nothing is asked of the API",
+    async (id) => {
+      expect(await readCandidateRecord(id)).toEqual({ status: "not_found" });
+      expect(http.adminFetch).not.toHaveBeenCalled();
+    },
+  );
 
   it("is NEVER cached: no `revalidate`, so adminFetch stays on no-store (the body may carry a name)", async () => {
     http.adminFetch.mockResolvedValue(candidateRecord());

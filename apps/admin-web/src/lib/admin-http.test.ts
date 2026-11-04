@@ -409,3 +409,54 @@ describe("a malformed or unexpected 2xx body is narrowed, never rendered", () =>
     expect((thrown as Error).message).not.toContain("9876543210");
   });
 });
+
+// ---------------------------------------------------------------------------
+// 8. A request path is sent exactly as written, or not at all (A7 review, #2577).
+// ---------------------------------------------------------------------------
+
+/**
+ * fetch's URL parser RESOLVES dot segments before anything is sent, and `encodeURIComponent`
+ * leaves "." alone — so an interpolated id of ".." turned `/admin/candidates/${id}` into a request
+ * for `/admin/`, under the session's token. Every spelling the parser resolves is refused, with the
+ * 400 the API itself gives a malformed id, so every caller's existing handling applies.
+ */
+describe("a path the URL parser would rewrite is refused before anything is sent", () => {
+  it.each([
+    ["a '.' segment", "/admin/candidates/."],
+    ["a '..' segment", "/admin/candidates/.."],
+    ["a '..' in the middle", "/admin/workers/../reveal-contact"],
+    ["a percent-encoded '..'", "/admin/candidates/%2e%2E"],
+    ["a half-encoded '..'", "/admin/candidates/.%2e"],
+    ["a backslash, which separates segments as '/' does", "/admin/candidates/..\\me"],
+    ["a tab the parser drops", "/admin/candidates/.\t."],
+    ["a newline the parser drops", "/admin/candidates/.\n."],
+    ["a '..' before a query", "/admin/candidates/..?faceless=1"],
+  ])("%s (%j): a typed 400, static copy, and fetch is never called", async (_what, path) => {
+    let thrown: unknown;
+    try {
+      await adminFetch(path, { method: "POST", body: { reason_code: "dispute_resolution" } });
+    } catch (err) {
+      thrown = err;
+    }
+    expect(isAdminRequestError(thrown)).toBe(true);
+    expect((thrown as { status: number }).status).toBe(400);
+    expect(describeAdminActionError(thrown)).toBe(
+      "That id is not valid, so nothing was sent to the admin API.",
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    "/admin/me",
+    `/admin/candidates/${encodeURIComponent("a/b c")}`,
+    `/admin/candidates/${encodeURIComponent("O'Brien (2)")}`,
+    "/admin/events/evt.1",
+    "/admin/candidates/...",
+    "/admin/skills?q=../..",
+    "/admin/payers/p-1?faceless=1",
+  ])("a path the parser leaves alone is sent unchanged: %s", async (path) => {
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }));
+    await adminFetch(path);
+    expect(fetchMock).toHaveBeenCalledWith(`${INTERNAL_ORIGIN}${path}`, expect.anything());
+  });
+});

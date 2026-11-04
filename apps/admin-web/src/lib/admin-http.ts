@@ -171,7 +171,38 @@ interface RequestOptions<T> {
 /** How long to wait on the API before showing an honest timeout rather than hanging. */
 const REQUEST_TIMEOUT_MS = 15_000;
 
+/**
+ * The refusal of a request path that would not reach the API as written. A 400, the status the API
+ * itself answers for a malformed id, so every caller's existing handling applies unchanged (a
+ * detail page's not-found, the drawer's "No such candidate"); the copy is static, because the
+ * governed-mutation actions show a 4xx's message to the operator.
+ */
+const PATH_REFUSED_MESSAGE = "That id is not valid, so nothing was sent to the admin API.";
+
+/**
+ * Is this request path sent exactly as written? `fetch` runs the URL through the WHATWG parser,
+ * which RESOLVES "." and ".." segments before anything is sent: a worker id of ".." makes
+ * `/admin/candidates/${id}` a read of `/admin/`, another route under this session's token. And
+ * `encodeURIComponent` leaves "." as it is, so any interpolated id can be one. The parser has more
+ * spellings of the same thing ("%2e", "\" as a separator, a tab or newline it drops), so rather
+ * than list them the parser itself is asked: a path whose pathname it would change is refused.
+ *
+ * Only the path is compared — a query value may carry dots, and the parser never resolves those.
+ * No caller writes such a path: each is a literal, plus `encodeURIComponent` of an id, a closed
+ * value or a query string (`admin-http.test.ts` holds the legitimate shapes).
+ */
+function isSentAsWritten(path: string): boolean {
+  const written = path.split(/[?#]/, 1)[0];
+  try {
+    return new URL(path, "http://admin-api.invalid").pathname === written;
+  } catch {
+    return false;
+  }
+}
+
 export async function adminFetch<T>(path: string, opts: RequestOptions<T> = {}): Promise<T> {
+  // Before the cookie is read, before anything is sent: not even a request to the wrong route.
+  if (!isSentAsWritten(path)) throw new AdminRequestError(400, PATH_REFUSED_MESSAGE);
   const { apiBaseUrl } = adminServerConfig();
   const headers: Record<string, string> = {};
   if (opts.body !== undefined) headers["content-type"] = "application/json";

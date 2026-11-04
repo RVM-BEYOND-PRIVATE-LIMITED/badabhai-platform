@@ -1,5 +1,6 @@
 import "server-only";
 import { z } from "zod";
+import { uuidSchema } from "@badabhai/validators";
 import {
   adminFetch,
   isAdminForbidden,
@@ -243,7 +244,7 @@ export type CandidateCorrection = z.infer<typeof correctionSchema>;
 
 /**
  * The record read, as the drawer renders it — never a throw. Each failure is its own screen:
- *   not_found   — no such worker (404), or an id that is not one (400);
+ *   not_found   — no such worker (404), or an id that is not one (refused here, or a 400);
  *   forbidden   — the role may not read candidate records (403);
  *   signed_out  — the session is gone (401, or no cookie at all);
  *   error       — anything else (5xx, unreachable, an unexpected shape): our fault, so Retry.
@@ -257,8 +258,18 @@ export type CandidateRecordResult =
 
 export type CandidateRecordStatus = CandidateRecordResult["status"];
 
-/** `GET /admin/candidates/:id` (`read_candidates`), folded into {@link CandidateRecordResult}. */
+/**
+ * `GET /admin/candidates/:id` (`read_candidates`), folded into {@link CandidateRecordResult}.
+ *
+ * ONLY A WORKER ID IS ASKED FOR. `id` comes from the address (`?c=`, the record route's path), and
+ * anything that is not a uuid — the API's own check on `:id` — is no such candidate, with nothing
+ * sent. That is not only a saved round trip: `encodeURIComponent` leaves "." and ".." as they are,
+ * and fetch's URL parser resolves them away, so `?c=..` would have read `GET /admin/` and `?c=.`
+ * the candidate LIST, spending the name budget and writing audit rows for a view nobody asked for.
+ * (`adminFetch` refuses such a path too, for every caller; this keeps it from being built.)
+ */
 export async function readCandidateRecord(id: string): Promise<CandidateRecordResult> {
+  if (!uuidSchema.safeParse(id).success) return { status: "not_found" };
   try {
     const detail = await adminFetch(`/admin/candidates/${encodeURIComponent(id)}`, {
       schema: candidateDetailSchema,
