@@ -25,13 +25,37 @@ void main() {
     );
   });
 
-  Future<void> pump(WidgetTester tester) async {
+  Future<void> pump(WidgetTester tester, {VoidCallback? onBack}) async {
     // CreditsScreen is a tab body — the shell supplies the Scaffold/Material.
     await tester.pumpWidget(
-      MaterialApp(home: Scaffold(body: CreditsScreen(onBack: () {}))),
+      MaterialApp(
+        home: Scaffold(body: CreditsScreen(onBack: onBack ?? () {})),
+      ),
     );
     await tester.pumpAndSettle();
   }
+
+  // M9 (#2597) — as a bottom-nav TAB, Credits has no back arrow; pushed from
+  // Home it keeps one.
+  testWidgets('M9 — the Credits TAB has no back arrow', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(
+      const MaterialApp(home: Scaffold(body: CreditsScreen())),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Credits'), findsOneWidget);
+    expect(find.byIcon(Icons.arrow_back_rounded), findsNothing);
+  });
+
+  testWidgets('M9 — pushed Credits keeps its back arrow, and it works', (
+    WidgetTester tester,
+  ) async {
+    int backs = 0;
+    await pump(tester, onBack: () => backs++);
+    await tester.tap(find.byIcon(Icons.arrow_back_rounded));
+    expect(backs, 1);
+  });
 
   testWidgets(
       'reports the read-only balance + ledger with NO purchase surface and NO '

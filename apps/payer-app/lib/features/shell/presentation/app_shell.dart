@@ -209,7 +209,9 @@ class _AppShellState extends State<AppShell> {
           // (the per-job feed, unchanged: it opens on the first open job).
           onApplicants: () => _selectTab('find', findView: FindView.applicants),
         ),
-      'credits' => CreditsScreen(onBack: () => _selectTab('home')),
+      // M9 (#2597): a tab root has no back arrow; the bottom nav is the way
+      // out. The pushed Credits overlay below keeps its back.
+      'credits' => const CreditsScreen(),
       'account' => AccountScreen(
           session: widget.session,
           onSignOut: () => context.read<AppSessionCubit>().signOut(),

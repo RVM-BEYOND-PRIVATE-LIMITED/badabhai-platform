@@ -27,6 +27,11 @@ import 'cubit/account_cubit.dart';
 ///
 /// PII discipline: only `phoneLast4` is ever rendered or held — a full phone is
 /// accepted transiently in the edit sheet and handed straight to the PATCH.
+/// The sign-out confirm's body (M9, #2597). Public so a test can pin it.
+const String kSignOutConfirmMessage =
+    "You'll need your password, or a sign-in code sent to your work email or "
+    'phone, to sign back in.';
+
 class AccountScreen extends StatelessWidget {
   const AccountScreen({
     super.key,
@@ -198,7 +203,9 @@ class _AccountView extends StatelessWidget {
     final bool confirmed = await showBbConfirm(
       context,
       title: 'Sign out?',
-      message: "You'll need your phone number and OTP to sign back in.",
+      // M9 (#2597): the app signs in with a password or a one-time code sent
+      // to the work email or phone.
+      message: kSignOutConfirmMessage,
       confirmLabel: 'Sign out',
       destructive: true,
     );
