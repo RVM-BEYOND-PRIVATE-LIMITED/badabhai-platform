@@ -247,12 +247,48 @@ export async function listAuditEntries(
  * absent but `/health` still 200s, and the posture field is what makes "we are silently
  * running mocked AI" visible instead of looking healthy.
  */
-const healthSchema = z.object({
+/**
+ * `storage_config` is the one check that is an OBJECT (API #796), not a status word. It is a
+ * config-presence report for Storage — worker photos, resume downloads, voice notes — and
+ * `armed_without_credentials` is its alarm: something is switched on that cannot work.
+ */
+const storageConfigCheckSchema = z.object({
+  supabase: z.string(),
+  armed_without_credentials: z.boolean(),
+});
+
+/**
+ * One check as the word this console renders and tones (`healthTone`).
+ *
+ * A status word passes through. `storage_config` folds to `up`, `misconfigured` (armed without
+ * credentials — uploads and downloads fail) or `not configured` (Supabase unset, nothing armed).
+ * Any other shape renders as `unrecognised` rather than failing the parse: the probe used to
+ * require every check to be a string, so the moment `storage_config` became an object the WHOLE
+ * response failed validation and the dashboard and System page reported the probe
+ * unreachable on a healthy platform.
+ */
+export function summarizeHealthCheck(value: unknown): string {
+  if (typeof value === "string") return value;
+  const storage = storageConfigCheckSchema.safeParse(value);
+  if (storage.success) {
+    if (storage.data.armed_without_credentials) return "misconfigured";
+    return storage.data.supabase === "configured" ? "up" : "not configured";
+  }
+  return "unrecognised";
+}
+
+export const healthSchema = z.object({
   status: z.string(),
   service: z.string(),
   environment: z.string(),
   timestamp: z.string(),
-  checks: z.record(z.string(), z.string()),
+  checks: z
+    .record(z.string(), z.unknown())
+    .transform((checks) =>
+      Object.fromEntries(
+        Object.entries(checks).map(([name, value]) => [name, summarizeHealthCheck(value)]),
+      ),
+    ),
 });
 export type PlatformHealth = z.infer<typeof healthSchema>;
 

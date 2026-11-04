@@ -158,7 +158,9 @@ export function formatSuppressible(
 export function healthTone(value: string): "ok" | "warn" | "bad" {
   const v = value.toLowerCase();
   if (v === "up" || v === "ok" || v === "real") return "ok";
-  if (v === "down" || v === "error" || v === "fail") return "bad";
+  // `misconfigured` — something is switched on that cannot work (Storage armed with no
+  // credentials, see `summarizeHealthCheck`): the paths that rely on it are failing.
+  if (v === "down" || v === "error" || v === "fail" || v === "misconfigured") return "bad";
   // `mock`, `degraded`, `unknown` — not broken, but not the real thing either, and
   // saying so plainly is the entire point of TD81.
   return "warn";
