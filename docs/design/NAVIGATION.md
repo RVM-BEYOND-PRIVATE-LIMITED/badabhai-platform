@@ -145,12 +145,16 @@ and a `?c=` in the address is ignored.
   reads again, and the phone lost). The route makes the checks Next makes only for an action, each
   before anything is sent (`lib/same-origin-request.ts`): `Sec-Fetch-Site` same-origin and `Origin`
   the portal's own (the request's scheme and Host header — never `X-Forwarded-Host`) when the
-  browser sends them, an older browser that sends neither still being held by the SameSite=strict
-  cookie and the JSON-only body; a JSON body (415 otherwise) of at most 4 KB (413), exactly
-  `{ reason_code, note }`. Every answer is no-store, and its error is always one of the reveal's
-  own sentences. The phone lives in the drawer's state only, gone on a move or close. A success
-  closes the confirm (it is not unmounted with the Reveal button the phone replaces) and puts focus
-  on the revealed phone's Copy button.
+  browser sends them; a JSON body (415 otherwise) of at most 4 KB (413), exactly
+  `{ reason_code, note }`. An older browser that sends neither header is let through. The
+  SameSite=strict cookie withholds the session only from another SITE: a page on another
+  `localhost` port (or a sibling subdomain) is the same site and does carry it, and what stops that
+  page is the JSON-only body — no other origin can send JSON here without a CORS preflight the
+  portal never grants — and `Origin` whenever it is sent. So the JSON rule must not be loosened
+  (no `text/plain`, no form fallback) while an absent header is allowed. Every answer is no-store,
+  and its error is always one of the reveal's own sentences. The phone lives in the drawer's state
+  only, gone on a move or close. A success closes the confirm (it is not unmounted with the Reveal
+  button the phone replaces) and puts focus on the revealed phone's Copy button.
 - **States and motion.** A skeleton (1.4s sheen) while loading, announced by a status line outside
   it (the skeleton is aria-hidden, the view aria-busy and remounted per move); not found; a role
   that may not read records; a session that ended; an error with Retry. The drawer slides in over

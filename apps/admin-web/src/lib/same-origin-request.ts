@@ -24,21 +24,26 @@
  *     sets it, and a page cannot.
  *  2. `Origin`, when sent, IS the portal's own origin (above) — `null` (a sandboxed frame, a file),
  *     another host, port or scheme, or no Host to compare it with is refused.
- *  3. The body is `application/json` ({@link isJsonRequest}) — a type no other site can send here:
- *     a cross-site form posts only form encodings or `text/plain`, and a cross-site `fetch` with
- *     JSON needs a CORS preflight that this portal never grants.
+ *  3. The body is `application/json` ({@link isJsonRequest}) — a type no other ORIGIN can send
+ *     here: a cross-origin form or `no-cors` fetch can declare only a CORS-safelisted type (a form
+ *     encoding or `text/plain`), and a cross-origin `fetch` with JSON needs a CORS preflight that
+ *     this portal never grants (it sets no `Access-Control-Allow-Origin` anywhere).
  *
  * ── A HEADER THAT IS NOT SENT: ALLOWED, AND WHY ─────────────────────────────────────────
  * An older browser sends no `Sec-Fetch-Site` (Safari before 16.4, Firefox before 90, Chrome before
  * 76), and some send no `Origin` on a same-origin POST. Neither absence is refused — as Next's own
- * server-action check does not refuse a missing Origin — because neither opens anything:
- *  - the session cookie is SameSite=strict, so a request another site starts carries no session,
- *    and the route's `adminFetch` refuses before sending anything without one. Every engine shipped
- *    SameSite years before Sec-Fetch-Site, so a browser too old for one still enforces the other;
- *  - a cross-site request still cannot carry JSON (rule 3);
- *  - when Origin IS sent, rule 2 applies.
- * Refusing the absence would lock an operator on an older browser out of the action and close no
- * hole those leave open.
+ * server-action check does not refuse a missing Origin — because what is left still holds:
+ *  - the session cookie is SameSite=strict, which withholds it only from another SITE: a request
+ *    another site starts carries no session, and the route's `adminFetch` refuses before sending
+ *    anything without one. SameSite is per site, not per origin, so a page of the SAME site on
+ *    another origin — another `localhost` port (the portal is reached on loopback), a sibling
+ *    subdomain if it is ever exposed — DOES carry the cookie;
+ *  - that page is stopped by rule 3 (it cannot send JSON here), and by rule 2 whenever its browser
+ *    sends Origin. On a browser that sends neither header, rule 3 is ALL that stops it.
+ * So rule 3 must not be loosened — no `text/plain` for `sendBeacon`, no form fallback — while an
+ * absent header is allowed: that would let a page on another localhost port make an audited,
+ * cap-charged reveal with the operator's session. Refusing the absence would lock an operator on an
+ * older browser out of the action and close no hole these leave open.
  */
 
 /** Is this request from a page of this portal? Rules 1 and 2 above. */

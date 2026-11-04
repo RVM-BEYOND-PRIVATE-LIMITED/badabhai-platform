@@ -28,9 +28,14 @@ import {
  *  - Same as every portal read: the admin JWT is read from the httpOnly cookie and sent to the API
  *    server-side (`adminFetch`); it never reaches the browser. The API enforces `read_candidates`,
  *    names behind `read_identity` + the budget, and audits the view before it reads anything.
- *  - Cross-site forgery is ruled out by the cookie itself (SameSite=strict: a request started by
- *    another site carries no session). A request the browser marks as from ANOTHER site or a
- *    sibling one is refused here as well, before any read.
+ *  - The session cookie is SameSite=strict, so a request another SITE starts carries no session.
+ *    SameSite is per site, not per origin: a page on another `localhost` port (the portal is
+ *    reached on loopback) is the same site, and its request DOES carry the cookie. A browser marks
+ *    such a request `same-site` (another site's `cross-site`), and either is refused here before
+ *    any read. An older browser marks nothing, so such a page can make the read — never see its
+ *    answer (the portal grants no CORS), but for a worker id it already knows the API audits it
+ *    and spends a name. A GET has no body to hold to JSON, the rule that closes this gap for the
+ *    phone reveal (`lib/same-origin-request.ts`).
  *  - `Cache-Control: no-store`: the body may carry a decrypted name.
  *  - The body is the record or a bare status — never the API's error text.
  */

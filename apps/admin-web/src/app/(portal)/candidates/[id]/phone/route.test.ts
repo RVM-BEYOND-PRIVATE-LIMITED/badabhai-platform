@@ -191,12 +191,24 @@ describe("a request from anywhere but a page of this portal is refused before an
   });
 
   it.each(["text/plain;charset=UTF-8", "application/x-www-form-urlencoded", "multipart/form-data; boundary=x"])(
-    "a body declared %s — all a cross-site form can send — → 415",
+    "a body declared %s — all a cross-origin form can send — → 415",
     async (type) => {
       const res = await post({ headers: { ...DRAWER, "content-type": type } });
       await expectRefusedBeforeTheApi(res, 415, REVEAL_REFUSED);
     },
   );
+
+  /**
+   * The case the JSON rule ALONE holds, which is why it must not be loosened while an absent header
+   * is allowed. A page on another localhost port is the same SITE, so its request carries the
+   * SameSite=strict session; an older browser sends no Sec-Fetch-Site, and older Firefox no Origin
+   * on a form POST; and a `text/plain` form can post a body that parses as the drawer's JSON.
+   */
+  it("an older browser's text/plain form from a same-site page — session attached, no Sec-Fetch-Site, no Origin — → 415", async () => {
+    const form = '{"reason_code":"worker_support_callback","note":"="}\r\n';
+    const headers = { host: "admin.test:3003", "content-type": "text/plain" };
+    await expectRefusedBeforeTheApi(await post({ headers, body: form }), 415, REVEAL_REFUSED);
+  });
 
   it("JSON with a charset is JSON", async () => {
     http.adminFetch.mockResolvedValue({ worker_id: RECORD_WORKER_ID, phone: PHONE });

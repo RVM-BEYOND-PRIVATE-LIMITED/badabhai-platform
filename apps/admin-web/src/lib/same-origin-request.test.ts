@@ -23,7 +23,7 @@ describe("Sec-Fetch-Site — set by the browser, never by a page", () => {
     expect(isSameOriginRequest(at({ ...PORTAL, "sec-fetch-site": site }))).toBe(false);
   });
 
-  it("absent (an older browser) is not refused — SameSite=strict, JSON-only and Origin cover it", () => {
+  it("absent (an older browser) is not refused — the JSON-only body holds, and Origin whenever sent", () => {
     expect(isSameOriginRequest(at(PORTAL))).toBe(true);
   });
 });
@@ -101,7 +101,7 @@ describe("Origin — must be the portal's own, as the browser addressed it", () 
   });
 });
 
-describe("isJsonRequest — no other site can send JSON here", () => {
+describe("isJsonRequest — no other origin can send JSON here", () => {
   it.each(["application/json", "application/json; charset=utf-8", "Application/JSON"])(
     "%j is JSON",
     (type) => {
@@ -116,7 +116,7 @@ describe("isJsonRequest — no other site can send JSON here", () => {
     "multipart/form-data; boundary=x",
     "application/jsonp",
     "",
-  ])("%j — what a cross-site form or a simple request can send — is not", (type) => {
+  ])("%j — what a cross-origin form or a simple request can send — is not", (type) => {
     expect(isJsonRequest(at({ "content-type": type }))).toBe(false);
   });
 
