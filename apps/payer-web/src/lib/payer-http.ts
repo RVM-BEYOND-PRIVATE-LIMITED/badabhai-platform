@@ -3,6 +3,7 @@ import type { z } from "zod";
 import { payerServerConfig } from "./server-config";
 import { readApiToken } from "./auth/session-cookie";
 import {
+  PayerBadRequestError,
   PayerConflictError,
   PayerForbiddenError,
   PayerHttpError,
@@ -94,8 +95,11 @@ export async function payerFetch<T>(path: string, opts: RequestOptions<T>): Prom
     // can show the refused field inline; anything else stays a class-only error
     // (no-oracle / no PII, unchanged).
     if (res.status === 400) {
-      const issues = await readFieldIssues(res);
-      if (issues.length > 0) throw new PayerValidationError(path, issues);
+      const refusal = await readBadRequest(res);
+      if (refusal.issues.length > 0) throw new PayerValidationError(path, refusal.issues);
+      // #2635 — a refusal that names no field but a machine-readable `reason`
+      // (`posting_trade_required`). Only the code is carried, never the message.
+      if (refusal.reason !== null) throw new PayerBadRequestError(path, refusal.reason);
     }
     // 403 = a gated surface refusing this member: a company payer on a recruiter-only
     // surface (#2187), or a recruiter on an owner-only money surface (#2178, ADR-0053
@@ -153,27 +157,52 @@ async function readConflict(path: string, res: Response): Promise<Error> {
 }
 
 /**
- * Extract `issues: [{ path, message }]` from a 400 body, defensively.
+ * Read a 400 body ONCE, defensively: its field `issues` and its machine-readable `reason`.
+ * A malformed or unreadable body yields neither (the class-only 400, as before).
+ */
+async function readBadRequest(
+  res: Response,
+): Promise<{ issues: ApiFieldIssue[]; reason: string | null }> {
+  try {
+    const body: unknown = await res.json();
+    return { issues: fieldIssuesIn(body), reason: reasonIn(body) };
+  } catch {
+    return { issues: [], reason: null };
+  }
+}
+
+/**
+ * Extract `issues: [{ path, message }]` from a 400 body.
  *
  * The Nest exception filter wraps the pipe's payload as `{ error: { message, issues } }`;
  * both that nesting and a flat `{ issues }` are accepted so a filter change degrades to
  * the old class-only error rather than a parse crash. A malformed body yields `[]`.
  */
-async function readFieldIssues(res: Response): Promise<ApiFieldIssue[]> {
-  try {
-    const body: unknown = await res.json();
-    const record = body as { error?: { issues?: unknown }; issues?: unknown };
-    const raw = record.error?.issues ?? record.issues;
-    if (!Array.isArray(raw)) return [];
-    const issues: ApiFieldIssue[] = [];
-    for (const item of raw) {
-      if (typeof item !== "object" || item === null) continue;
-      const { path, message } = item as { path?: unknown; message?: unknown };
-      if (typeof message !== "string" || message.length === 0) continue;
-      issues.push({ path: typeof path === "string" ? path : "", message });
-    }
-    return issues;
-  } catch {
-    return [];
+function fieldIssuesIn(body: unknown): ApiFieldIssue[] {
+  if (typeof body !== "object" || body === null) return [];
+  const record = body as { error?: { issues?: unknown }; issues?: unknown };
+  const raw = record.error?.issues ?? record.issues;
+  if (!Array.isArray(raw)) return [];
+  const issues: ApiFieldIssue[] = [];
+  for (const item of raw) {
+    if (typeof item !== "object" || item === null) continue;
+    const { path, message } = item as { path?: unknown; message?: unknown };
+    if (typeof message !== "string" || message.length === 0) continue;
+    issues.push({ path: typeof path === "string" ? path : "", message });
   }
+  return issues;
+}
+
+/**
+ * The 400's `reason` (#2635 — nested under `error` by the exception filter; a flat body is read
+ * too), or null when it names none. The same reading as a 409's {@link readConflict}.
+ */
+function reasonIn(body: unknown): string | null {
+  if (typeof body !== "object" || body === null) return null;
+  const nested = (body as { error?: unknown }).error;
+  const fields = (typeof nested === "object" && nested !== null ? nested : body) as Record<
+    string,
+    unknown
+  >;
+  return typeof fields.reason === "string" && fields.reason.length > 0 ? fields.reason : null;
 }

@@ -25,6 +25,7 @@ const fetchMock = vi.fn<(url: string, init?: RequestInit) => Promise<Response>>(
 
 const { payerFetch } = await import("./payer-http");
 const {
+  PayerBadRequestError,
   PayerConflictError,
   PayerHttpError,
   PayerValidationError,
@@ -33,6 +34,7 @@ const {
   isPayerBadRequest,
   isPayerRateLimited,
   isPayerStatus,
+  isPostingTradeRequired,
 } = await import("./payer-errors");
 
 beforeEach(() => {
@@ -124,6 +126,78 @@ describe("a non-2xx is a PayerHttpError with its status TYPED — and the histor
     const e = await thrownFor(json({}, 429));
     expect(isPayerRateLimited(e)).toBe(true);
     expect(isPayerBadRequest(e)).toBe(false);
+  });
+});
+
+describe("a 400 that names a reason and no issues carries the reason (#2635 posting_trade_required)", () => {
+  /** The 400 exactly as the API's exception filter nests `postingTradeRequired()` (its wire test). */
+  const tradeRequired = (reason: unknown = "posting_trade_required") =>
+    json(
+      {
+        statusCode: 400,
+        requestId: "req-1",
+        path: "/payer/job-postings/x",
+        timestamp: "2026-11-04T09:00:00.000Z",
+        error: {
+          statusCode: 400,
+          error: "Bad Request",
+          message: "a live job must name one of the 16 trades",
+          reason,
+        },
+      },
+      400,
+    );
+
+  it("is a PayerBadRequestError with the reason — still a PayerHttpError 400, no message carried", async () => {
+    const e = await thrownFor(tradeRequired());
+    expect(e).toBeInstanceOf(PayerBadRequestError);
+    expect(e).toBeInstanceOf(PayerHttpError);
+    expect(e).not.toBeInstanceOf(PayerValidationError);
+    const err = e as InstanceType<typeof PayerBadRequestError>;
+    expect(err.reason).toBe("posting_trade_required");
+    expect(err.name).toBe("PayerBadRequestError");
+    // The historic message, byte for byte — the API's sentence never rides the error.
+    expect(err.message).toBe("payer API /payer/x returned 400");
+    expect(isPayerBadRequest(e)).toBe(true);
+    expect(isPostingTradeRequired(e)).toBe(true);
+  });
+
+  it("a flat body's reason is read too", async () => {
+    const e = await thrownFor(json({ reason: "posting_trade_required" }, 400));
+    expect(isPostingTradeRequired(e)).toBe(true);
+  });
+
+  it("another reason is carried but is not the trade refusal; an empty or non-string one is none", async () => {
+    const other = await thrownFor(tradeRequired("something_else"));
+    expect((other as InstanceType<typeof PayerBadRequestError>).reason).toBe("something_else");
+    expect(isPostingTradeRequired(other)).toBe(false);
+    for (const reason of ["", 7]) {
+      const e = await thrownFor(tradeRequired(reason));
+      expect(e).not.toBeInstanceOf(PayerBadRequestError);
+      expect(httpStatusOf(e)).toBe(400);
+    }
+  });
+
+  it("field issues still win: a body with both is a PayerValidationError", async () => {
+    const e = await thrownFor(
+      json(
+        {
+          error: {
+            reason: "posting_trade_required",
+            issues: [{ path: "role_title", message: "Too short" }],
+          },
+        },
+        400,
+      ),
+    );
+    expect(e).toBeInstanceOf(PayerValidationError);
+    expect(isPostingTradeRequired(e)).toBe(false);
+  });
+
+  it("the message never decides: a plain 400 with the trade sentence is not the refusal", async () => {
+    const e = await thrownFor(json({ message: "a live job must name one of the 16 trades" }, 400));
+    expect(isPostingTradeRequired(e)).toBe(false);
+    expect(isPostingTradeRequired(new Error("posting_trade_required"))).toBe(false);
   });
 });
 
