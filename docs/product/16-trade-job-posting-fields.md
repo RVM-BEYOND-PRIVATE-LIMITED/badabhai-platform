@@ -93,7 +93,7 @@ kept, but matching runs only for the 16:
   hidden, so a display-only rung edit cannot silently shrink its reach.
 - Agency new/edit forms render the same panel, with the same edit gate.
 - The edit forms send the trade fields only when edited or already stored, so an unrelated save
-  cannot trip the clear diff.
+  cannot trip the clear diff. Since #2645 a company draft's Publish always sends them (below).
 - Match chips respect the live `match_config.max_skills_per_posting` cap, learned from the
   reach preview (fallback 3 / 5 in the app); an over-cap tap is refused with the reason before
   publish.
@@ -106,10 +106,14 @@ kept, but matching runs only for the 16:
   refused there with "Pick one of the 16 trades". The create always sends `role_kind` plus the
   trade form (`trade_answers` `{}` when untouched), so the server derives the match set. Edit sends
   the role only when the payer moved it to another trade and never clears it (`role_kind` is out
-  of the client's `clear` diff). A `400 reason: posting_trade_required` on
+  of the client's `clear` diff). Edit's Publish always carries the trade form too (`{}` when
+  untouched), so a draft an older client saved with free skills publishes its trade's set, the one
+  the panel previews, never those skills. A `400 reason: posting_trade_required` on
   `PATCH /payer/job-postings/:id` is read by its `reason` (never the message) and shown AT the
   picker; a create whose publish is refused that way opens the draft's edit page there
-  (`?trade=required`). The postings list has no Publish of its own (a draft publishes from Edit),
+  (`?trade=required`), with focus on the picker even when the 16 did not load. The panel's
+  "Matched as:" line names skills from the catalogue when the match vocabulary did not load,
+  never by raw id. The postings list has no Publish of its own (a draft publishes from Edit),
   so no list path can meet the refusal. The company reach preview (live and post-publish) sends
   `role_kind`; the agency one sends none. The AI chat refuses a publish without one of the 16
   before anything is sent. Agency jobs are unchanged.
