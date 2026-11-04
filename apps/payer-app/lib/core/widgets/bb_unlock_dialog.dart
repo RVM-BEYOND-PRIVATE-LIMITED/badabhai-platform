@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import '../theme/app_colors.dart';
-import '../theme/app_haptics.dart';
 import '../theme/app_spacing.dart';
 import '../theme/app_typography.dart';
 import 'bb_button.dart';
@@ -136,11 +135,11 @@ class _UnlockDialog extends StatelessWidget {
                 label: 'Unlock for $kUnlockCreditLabel',
                 iconLeft: Icons.lock_open_rounded,
                 block: true,
-                onPressed: () {
-                  // #2591 — medium haptic: a credit is about to be spent.
-                  AppHaptics.confirm();
-                  Navigator.of(context).pop(true);
-                },
+                // #2596 — the press gets BbButton's light tap only: the unlock's
+                // ONE medium haptic (AppHaptics.confirm) lands with the success
+                // stamp once the server granted it, so a single unlock never
+                // buzzes twice (it was here, per #2591).
+                onPressed: () => Navigator.of(context).pop(true),
               ),
               const SizedBox(height: AppSpacing.s2),
               BbButton(

@@ -10,8 +10,10 @@ import '../../../core/widgets/bb_chat_bubble.dart';
 import '../../../core/widgets/bb_chip.dart';
 import '../../../core/widgets/bb_icon_button.dart';
 import '../../../core/widgets/bb_leave_guard.dart';
+import '../../../core/widgets/bb_rise_in.dart';
 import '../../../core/widgets/bb_status_view.dart';
 import '../../../core/widgets/bb_toast.dart';
+import '../../../core/widgets/bb_typing_dots.dart';
 import '../domain/chat_message.dart';
 import 'bloc/job_posting_chat_bloc.dart';
 import 'widgets/draft_preview.dart';
@@ -30,6 +32,10 @@ const String kJobChatBlockedNotice =
 const String kJobChatTypingLabel = 'Working on it…';
 
 const String kJobChatTitle = 'AI job posting';
+
+/// The composer's Send control — for widget tests (#2596: disabled while the
+/// input is empty).
+const Key kJobChatSendKey = Key('job_chat_send');
 
 /// The base success copy — byte-identical to the pre-notice behaviour, used
 /// whenever the whole draft mapped onto the live posting.
@@ -169,6 +175,7 @@ class JobPostingChatScreen extends StatelessWidget {
     required this.onBack,
     this.resumeSessionId,
     this.onPublished,
+    this.onPostedJob,
   });
 
   final VoidCallback onBack;
@@ -177,21 +184,31 @@ class JobPostingChatScreen extends StatelessWidget {
   /// Called after a posting is created, so the host can refresh My-jobs.
   final VoidCallback? onPublished;
 
+  /// Called with the created posting's id after a successful publish, IN PLACE
+  /// of [onPublished] + [onBack] — the host lands on Jobs with that card
+  /// highlighted (#2596). Unset (or no id on the result) keeps the old pair.
+  final ValueChanged<String>? onPostedJob;
+
   @override
   Widget build(BuildContext context) {
     return BlocProvider<JobPostingChatBloc>(
       create: (_) => locator<JobPostingChatBloc>()
         ..add(JobPostingChatStarted(resumeSessionId: resumeSessionId)),
-      child: _ChatView(onBack: onBack, onPublished: onPublished),
+      child: _ChatView(
+        onBack: onBack,
+        onPublished: onPublished,
+        onPostedJob: onPostedJob,
+      ),
     );
   }
 }
 
 class _ChatView extends StatefulWidget {
-  const _ChatView({required this.onBack, this.onPublished});
+  const _ChatView({required this.onBack, this.onPublished, this.onPostedJob});
 
   final VoidCallback onBack;
   final VoidCallback? onPublished;
+  final ValueChanged<String>? onPostedJob;
 
   @override
   State<_ChatView> createState() => _ChatViewState();
@@ -226,6 +243,15 @@ class _ChatViewState extends State<_ChatView> {
     leaveLabel: 'Leave',
     stayLabel: 'Keep chatting',
   );
+
+  /// #2596 — bubbles appended from here on rise in; the opener and a resumed
+  /// transcript (already on screen when the chat opens) do not. Set at the
+  /// payer's first send.
+  int? _riseFrom;
+
+  /// The highest bubble index already handed its entrance, so a bubble that
+  /// scrolls out of the lazy list and back is never risen twice.
+  int _risenThrough = -1;
 
   @override
   void dispose() {
@@ -272,7 +298,9 @@ class _ChatViewState extends State<_ChatView> {
   /// server-side question bank, not in this widget.
   void _sendText(String text) {
     if (text.trim().isEmpty) return;
-    context.read<JobPostingChatBloc>().add(JobPostingChatMessageSent(text));
+    final JobPostingChatBloc bloc = context.read<JobPostingChatBloc>();
+    _riseFrom ??= bloc.state.messages.length;
+    bloc.add(JobPostingChatMessageSent(text));
   }
 
   void _retry(int index) {
@@ -351,6 +379,12 @@ class _ChatViewState extends State<_ChatView> {
     if (title.isEmpty) return;
     showBbToast(context, title: title, message: message, icon: icon);
     if (state.publishOutcome == PublishOutcome.success) {
+      final String? jobId = state.publishedJobId;
+      final ValueChanged<String>? onPostedJob = widget.onPostedJob;
+      if (onPostedJob != null && jobId != null) {
+        onPostedJob(jobId);
+        return;
+      }
       widget.onPublished?.call();
       widget.onBack();
     }
@@ -461,11 +495,20 @@ class _ChatViewState extends State<_ChatView> {
 
   Widget _bubble(ChatMessage m, int i) {
     final bool failed = m.status == ChatSendStatus.failed;
-    return BbChatBubble(
-      text: m.text,
-      fromPayer: m.fromPayer,
-      failed: failed,
-      onRetry: failed ? () => _retry(i) : null,
+    // #2596 — a bubble new since the first send rises in once (180ms). The
+    // transcript is append-only, so the index is the bubble's identity.
+    final int? riseFrom = _riseFrom;
+    final bool rise = riseFrom != null && i >= riseFrom && i > _risenThrough;
+    if (i > _risenThrough) _risenThrough = i;
+    return BbRiseIn(
+      key: ValueKey<int>(i),
+      animate: rise,
+      child: BbChatBubble(
+        text: m.text,
+        fromPayer: m.fromPayer,
+        failed: failed,
+        onRetry: failed ? () => _retry(i) : null,
+      ),
     );
   }
 
@@ -567,9 +610,9 @@ class _ChatViewState extends State<_ChatView> {
     );
   }
 
-  /// Deliberately STATIC (a dots glyph, not a spinner): an indefinite animation
-  /// never lets `pumpAndSettle` settle, and the value here is the honest "still
-  /// working" cue, not motion.
+  /// Mounted ONLY while a reply is awaited (`state.sending`), so its dots —
+  /// a progress indicator, the one motion allowed to loop — pulse only then
+  /// (#2596). With animations disabled they stand still.
   Widget _typingIndicator() {
     return Padding(
       padding: const EdgeInsets.fromLTRB(
@@ -580,7 +623,7 @@ class _ChatViewState extends State<_ChatView> {
       ),
       child: Row(
         children: <Widget>[
-          const Icon(Icons.more_horiz_rounded, size: 20, color: AppColors.brand),
+          const BbTypingDots(),
           const SizedBox(width: AppSpacing.s2),
           Flexible(
             child: Text(
@@ -666,26 +709,38 @@ class _ChatViewState extends State<_ChatView> {
           const SizedBox(width: AppSpacing.s2),
           // Deep-blue send: the view's single haldi is the draft-panel Publish
           // CTA, so send is a navy action — and green stays money/WhatsApp only.
-          Semantics(
-            button: true,
-            label: 'Send',
-            child: Material(
-              color: AppColors.blue,
-              shape: const CircleBorder(),
-              child: InkWell(
-                customBorder: const CircleBorder(),
-                onTap: _send,
-                child: const SizedBox(
-                  width: AppSpacing.tap,
-                  height: AppSpacing.tap,
-                  child: Icon(
-                    Icons.send_rounded,
-                    color: AppColors.onBlue,
-                    size: 22,
+          // #2596 — disabled while the input is empty (the navy button's own
+          // disabled tokens), so an empty tap can never look like a send.
+          ValueListenableBuilder<TextEditingValue>(
+            valueListenable: _controller,
+            builder: (BuildContext context, TextEditingValue value, Widget? _) {
+              final bool canSend = value.text.trim().isNotEmpty;
+              return Semantics(
+                button: true,
+                enabled: canSend,
+                label: 'Send',
+                child: Material(
+                  key: kJobChatSendKey,
+                  color: canSend ? AppColors.blue : AppColors.disabled,
+                  shape: const CircleBorder(),
+                  child: InkWell(
+                    customBorder: const CircleBorder(),
+                    onTap: canSend ? _send : null,
+                    child: SizedBox(
+                      width: AppSpacing.tap,
+                      height: AppSpacing.tap,
+                      child: Icon(
+                        Icons.send_rounded,
+                        color: canSend
+                            ? AppColors.onBlue
+                            : AppColors.textSecondary,
+                        size: 22,
+                      ),
+                    ),
                   ),
                 ),
-              ),
-            ),
+              );
+            },
           ),
         ],
       ),

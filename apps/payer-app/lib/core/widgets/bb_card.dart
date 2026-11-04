@@ -48,7 +48,14 @@ class BbCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final Color background = ink ? AppColors.surfaceInk : AppColors.surfaceCard;
+    // #2596 — a host may repaint a default card's surface ([BbCardSurfaceTint]);
+    // ink and gradient surfaces keep their own, and nothing ON the card changes.
+    final BbCardSurfaceTint? tint = BbCardSurfaceTint._maybeOf(context);
+    final Color background =
+        ink ? AppColors.surfaceInk : (tint?.color ?? AppColors.surfaceCard);
+    // A card nested on a tinted one stays on its own surface.
+    final Widget body =
+        tint == null ? child : BbCardSurfaceTint(color: null, child: child);
 
     // JUL31: separation is a 1px hairline, never a shadow. Festive keeps its
     // 3px double-haldi hero border; ink / gradient surfaces carry their own edge.
@@ -103,12 +110,12 @@ class BbCard extends StatelessWidget {
                 left: BorderSide(color: AppColors.haldi, width: AppSpacing.s1),
               ),
             ),
-            child: child,
+            child: body,
           ),
         ),
       );
     } else {
-      content = paint(pad: padding, child: child);
+      content = paint(pad: padding, child: body);
     }
 
     if (tappable) {
@@ -131,4 +138,31 @@ class BbCard extends StatelessWidget {
     }
     return content;
   }
+}
+
+/// Repaints the surface of the [BbCard] directly below it — only the surface:
+/// text, icons, buttons, badges and the hairline on the card keep their exact
+/// tokens. The one way a list marks a single row without recolouring what is
+/// on it (#2596: the just-posted job, [AppColors.haldiTint] easing back to
+/// [AppColors.surfaceCard]).
+///
+/// Only a default (white) card reads it; an ink or gradient card keeps its
+/// surface. Keep the scope in the tree for the row's life and pass a null
+/// [color] when done, so the card's subtree is never re-parented.
+class BbCardSurfaceTint extends InheritedWidget {
+  const BbCardSurfaceTint({
+    super.key,
+    required this.color,
+    required super.child,
+  });
+
+  /// The card's surface colour; null leaves it on [AppColors.surfaceCard].
+  final Color? color;
+
+  static BbCardSurfaceTint? _maybeOf(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<BbCardSurfaceTint>();
+
+  @override
+  bool updateShouldNotify(BbCardSurfaceTint oldWidget) =>
+      color != oldWidget.color;
 }

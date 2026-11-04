@@ -71,9 +71,14 @@ enum _MatchV1 { loading, available, unavailable }
 /// the four sections done; and leaving with anything entered asks first
 /// ([BbLeaveGuard] — the shell asks the same for the system Back).
 class PostJobScreen extends StatefulWidget {
-  const PostJobScreen({super.key, required this.onBack});
+  const PostJobScreen({super.key, required this.onBack, this.onPosted});
 
   final VoidCallback onBack;
+
+  /// Called with the new posting's id after a successful post, IN PLACE of
+  /// [onBack] — the shell lands on Jobs with that card highlighted (#2596).
+  /// Null keeps the old hand-off: [onBack].
+  final ValueChanged<String>? onPosted;
 
   @override
   State<PostJobScreen> createState() => _PostJobScreenState();
@@ -957,11 +962,22 @@ class _PostJobScreenState extends State<PostJobScreen> {
                 'Open it from My jobs and edit to add them.',
         icon: landed ? Icons.check_circle_rounded : Icons.info_rounded,
       );
-      widget.onBack();
+      _leaveAfterPost(draft.id);
     } catch (error) {
       if (!mounted) return;
       setState(() => _submitting = false);
       _showPostFailure(error);
+    }
+  }
+
+  /// Hand off after a successful post: to [PostJobScreen.onPosted] with the new
+  /// posting's id when the host wired it (and the row has one), else [onBack].
+  void _leaveAfterPost(String? postingId) {
+    final ValueChanged<String>? onPosted = widget.onPosted;
+    if (onPosted != null && postingId != null) {
+      onPosted(postingId);
+    } else {
+      widget.onBack();
     }
   }
 
@@ -1155,7 +1171,8 @@ class _PostJobScreenState extends State<PostJobScreen> {
     setState(() => _submitting = true);
     try {
       final String area = _area.text.trim();
-      await locator<PayerApiClient>().createAgencyJob(
+      final AgencyJobView created =
+          await locator<PayerApiClient>().createAgencyJob(
         tradeKey: tradeKey,
         title: title,
         city: city,
@@ -1195,7 +1212,7 @@ class _PostJobScreenState extends State<PostJobScreen> {
         title: 'Job posted',
         message: 'Live now — see it under My jobs.',
       );
-      widget.onBack();
+      _leaveAfterPost(created.id);
     } catch (error) {
       if (!mounted) return;
       setState(() => _submitting = false);

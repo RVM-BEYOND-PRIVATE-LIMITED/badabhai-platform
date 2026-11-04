@@ -11,6 +11,7 @@ import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/bb_badge.dart';
 import '../../../core/widgets/bb_button.dart';
 import '../../../core/widgets/bb_card.dart';
+import '../../../core/widgets/bb_new_item_highlight.dart';
 import '../../../core/widgets/bb_progress.dart';
 import '../../../core/error/payer_failure.dart';
 import '../../../core/widgets/bb_status_view.dart';
@@ -62,9 +63,14 @@ class JobsScreen extends StatelessWidget {
     required this.onPost,
     this.onAiPost,
     this.onApplicants,
+    this.highlight,
   });
 
   final VoidCallback onPost;
+
+  /// The posting the payer just created (#2596): its card is scrolled into
+  /// view and briefly tinted, once. Null on an ordinary visit.
+  final BbHighlightRequest? highlight;
 
   /// Opens the candidate/applicant feed (the Find tab). Optional so existing
   /// mounts and tests keep working; the shell wires it for both sessions.
@@ -81,7 +87,11 @@ class JobsScreen extends StatelessWidget {
     // company never touches the agent-gated routes and vice-versa.
     final bool isAgency = locator<AppSessionCubit>().state?.isAgency ?? false;
     if (isAgency) {
-      return AgencyJobsView(onPost: onPost, onApplicants: onApplicants);
+      return AgencyJobsView(
+        onPost: onPost,
+        onApplicants: onApplicants,
+        highlight: highlight,
+      );
     }
     return BlocProvider<JobsCubit>(
       create: (_) => locator<JobsCubit>()..load(),
@@ -94,6 +104,7 @@ class JobsScreen extends StatelessWidget {
           onPost: onPost,
           onAiPost: onAiPost,
           onApplicants: onApplicants,
+          highlight: highlight,
         ),
       ),
     );
@@ -101,11 +112,17 @@ class JobsScreen extends StatelessWidget {
 }
 
 class _JobsView extends StatelessWidget {
-  const _JobsView({required this.onPost, this.onAiPost, this.onApplicants});
+  const _JobsView({
+    required this.onPost,
+    this.onAiPost,
+    this.onApplicants,
+    this.highlight,
+  });
 
   final VoidCallback onPost;
   final void Function(String? resumeSessionId)? onAiPost;
   final VoidCallback? onApplicants;
+  final BbHighlightRequest? highlight;
 
   @override
   Widget build(BuildContext context) {
@@ -157,9 +174,13 @@ class _JobsView extends StatelessWidget {
                 // another row.
                 key: job.id == null ? null : ValueKey<String>(job.id!),
                 padding: const EdgeInsets.only(bottom: AppSpacing.s3),
-                child: job.id == null
-                    ? _JobCard(job: job, onApplicants: onApplicants)
-                    : _RealJobCard(job: job, onApplicants: onApplicants),
+                // #2596 — the just-posted card scrolls into view, tinted once.
+                child: BbNewItemHighlight(
+                  active: highlight?.claim(job.id) ?? false,
+                  child: job.id == null
+                      ? _JobCard(job: job, onApplicants: onApplicants)
+                      : _RealJobCard(job: job, onApplicants: onApplicants),
+                ),
               );
             }
             return Column(
