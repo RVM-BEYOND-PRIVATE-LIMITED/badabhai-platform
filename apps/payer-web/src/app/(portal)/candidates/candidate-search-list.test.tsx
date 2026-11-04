@@ -2,8 +2,9 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import type { ReactElement, ReactNode } from "react";
 import type * as ReactModule from "react";
 import { IconButtonBase } from "@badabhai/icons/button";
-import { Button, Card } from "../../../components/ds";
+import { Badge, Button, Card } from "../../../components/ds";
 import type { CandidateSearchRow } from "../../../lib/contracts";
+import { workerHandle } from "../../../lib/masking";
 
 /**
  * ALL CANDIDATES — the card list's spend → reveal flow, DRIVEN (the applicant feed's harness:
@@ -17,7 +18,8 @@ import type { CandidateSearchRow } from "../../../lib/contracts";
  *  - the masked résumé is hidden until the card is unlocked, and asks `maskedResumeAction` with NO
  *    posting (→ `job_posting_id: null`); the reveal is the routed relay handle only;
  *  - a call that never arrives is a retryable inline error — never a stuck spinner;
- *  - faceless before and after: no phone / email / full id in the text.
+ *  - faceless before and after: no phone / email / full id in the text;
+ *  - a SAMPLE row (R74) is badged "Sample candidate" and offers no unlock.
  * Cells are positional: rows 0, confirmed 1, confirmWorker 2, result 3.
  */
 
@@ -79,26 +81,34 @@ const row = (workerId: string, over: Partial<CandidateSearchRow> = {}): Candidat
   industryMonths: 54,
   city: "Pune",
   tradeLevels: [],
+  isSample: false,
   ...over,
 });
 
+let mountedRows: CandidateSearchRow[] = [];
 function mount(
   candidates: CandidateSearchRow[],
   opts: { balance?: number; unlocked?: Record<string, { kind: "granted"; unlockId: string; expiresAt: string }> } = {},
 ) {
   cells = [];
+  mountedRows = candidates;
   renderFn = () => {
     cursor = 0;
     currentTree = CandidateSearchList({
       header: { title: "Candidates", description: "Everyone you can unlock." },
       counts: { total: 2, matched: 2, unrecorded: 0, filtered: false, strict: false },
-      candidates,
+      candidates: mountedRows,
       relatedTo: null,
       balance: opts.balance ?? 5,
       ...(opts.unlocked ? { unlocked: opts.unlocked } : {}),
     }) as ReactElement;
   };
   renderFn();
+}
+/** New rows, session state KEPT — a server refresh under an open dialog. */
+function rerender(candidates: CandidateSearchRow[]) {
+  mountedRows = candidates;
+  renderFn?.();
 }
 
 function textOf(node: ReactNode): string {
@@ -191,7 +201,7 @@ describe("the posting-less unlock (job_id null) — the same confirm-on-spend", 
     expect(cells[2]).toBe(W2);
     await confirm();
     expect(candidateUnlockAction).toHaveBeenCalledTimes(1);
-    expect(candidateUnlockAction.mock.calls[0]![0]).toStrictEqual({ workerId: W2 });
+    expect(candidateUnlockAction.mock.calls[0]![0]).toStrictEqual({ workerId: W2, isSample: false });
     expect(unlockAction).not.toHaveBeenCalled(); // never the posting-bound spend
     expect(cells[2]).toBeNull();
     // Granted: the card shows the reveal band; the other card still offers its own spend.
@@ -315,5 +325,51 @@ describe("the reveal and the masked résumé — no posting context", () => {
     check();
     await button(cards()[0]!, "Open routed contact")!.onClick!();
     check();
+  });
+});
+
+describe("a SAMPLE row (R74) — badged, never offered an unlock", () => {
+  const badges = (scope: ReactNode) =>
+    elements(scope)
+      .filter((el) => el.type === Badge)
+      .map((el) => textOf(el.props.children as ReactNode).trim());
+  const SAMPLE_LINE = "Sample profile — can’t be unlocked";
+
+  it("the sample card: the badge, the constant line, NO button; the real card beside it unchanged", () => {
+    mount([row(W1), row(W2, { isSample: true })]);
+    const [real, sample] = cards();
+    expect(badges(sample!)).toContain("Sample candidate");
+    expect(buttons(sample!)).toEqual([]);
+    expect(deepText(sample!)).toContain(SAMPLE_LINE);
+    expect(deepText(sample!)).toContain(workerHandle(W2)); // the masked handle stays
+    expect(badges(real!)).not.toContain("Sample candidate");
+    expect(buttons(real!).map((b) => b.text)).toEqual(["Unlock contact (1 credit)"]);
+    expect(deepText(real!)).not.toContain(SAMPLE_LINE);
+  });
+
+  it("a zero balance offers the sample card no Buy credits — only the real card gets it", () => {
+    mount([row(W1), row(W2, { isSample: true })], { balance: 0 });
+    const [real, sample] = cards();
+    expect(elements(sample!).some((el) => el.props?.href === "/credits")).toBe(false);
+    expect(deepText(sample!)).toContain(SAMPLE_LINE);
+    expect(elements(real!).some((el) => el.props?.href === "/credits")).toBe(true);
+  });
+
+  it("the action is told the row's CURRENT flag: a row that turned sample under an open dialog", async () => {
+    candidateUnlockAction.mockResolvedValue({ ok: true, view: { kind: "unavailable", message: "x" } });
+    mount([row(W1)]);
+    button(cards()[0]!, "Unlock contact (1 credit)")!.onClick!();
+    rerender([row(W1, { isSample: true })]);
+    await confirm();
+    expect(candidateUnlockAction.mock.calls[0]![0]).toStrictEqual({ workerId: W1, isSample: true });
+    expect(deepText(cards()[0]!)).toContain(SAMPLE_LINE);
+  });
+
+  it("a grant the payer already holds on a sample still shows (the server's grant)", () => {
+    const held = { [W1]: { kind: "granted" as const, unlockId: UNLOCK_ID, expiresAt: UNTIL } };
+    mount([row(W1, { isSample: true })], { unlocked: held });
+    expect(badges(cards()[0]!)).toContain("Sample candidate");
+    expect(buttons(cards()[0]!).map((b) => b.text)).toEqual(["Open routed contact", "View masked resume"]);
+    expect(deepText(cards()[0]!)).not.toContain(SAMPLE_LINE);
   });
 });

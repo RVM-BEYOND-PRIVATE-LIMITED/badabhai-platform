@@ -254,6 +254,7 @@ describe("the masked row (toCandidateRow — the only builder)", () => {
     "industryMonths",
     "city",
     "tradeLevels",
+    "isSample",
   ].sort();
 
   it("carries exactly the allowlisted keys, labelled from the closed vocabulary", () => {
@@ -286,7 +287,15 @@ describe("the masked row (toCandidateRow — the only builder)", () => {
           levelConfirmed: true,
         },
       ],
+      // W1 is in the synthetic-workforce namespace (face…), so the card is a SAMPLE (R74).
+      isSample: true,
     });
+  });
+
+  it("R74: isSample is true only for the seed's worker namespace", () => {
+    expect(toCandidateRow(poolRow(W1), false, [], []).isSample).toBe(true);
+    const real = "3f6c1a2e-9b4d-4c7e-8a1f-2d5e6b7c8a90";
+    expect(toCandidateRow(poolRow(real), false, [], []).isSample).toBe(false);
   });
 
   it("matchTier is null without a role filter, and for a worker holding neither role", () => {

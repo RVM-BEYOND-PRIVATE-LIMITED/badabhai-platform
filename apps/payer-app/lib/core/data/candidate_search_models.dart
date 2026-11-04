@@ -136,6 +136,7 @@ class CandidateSearchRow extends Equatable {
     required this.industryMonths,
     required this.city,
     required this.tradeLevels,
+    this.isSample = false,
   });
 
   /// The opaque worker id — the SAME id `POST /payer/unlocks` takes.
@@ -168,6 +169,11 @@ class CandidateSearchRow extends Equatable {
   final String? city;
 
   final List<CandidateTradeLevel> tradeLevels;
+
+  /// R74 (owner ruling 2026-11-04): a SYNTHETIC seed row, not a person. Shown
+  /// with a "Sample candidate" badge and never unlockable — the server refuses
+  /// the unlock (no credit spent); the app offers none.
+  final bool isSample;
 
   /// "Worker ••3f9a" — the same masked handle the applicant card shows.
   String get maskedLabel => NameMask.workerLabel(workerId);
@@ -219,6 +225,9 @@ class CandidateSearchRow extends Equatable {
             .map(CandidateTradeLevel.tryFromJson)
             .whereType<CandidateTradeLevel>(),
       ),
+      // Only a literal `true` marks a sample; absent or wrong-typed reads as a
+      // real worker (the server still refuses a sample's unlock).
+      isSample: json['isSample'] == true,
     );
   }
 
@@ -234,6 +243,7 @@ class CandidateSearchRow extends Equatable {
         industryMonths,
         city,
         tradeLevels,
+        isSample,
       ];
 }
 

@@ -8,7 +8,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  * `postingId: null` (the wire's `job_id: null` — payer-api.test.ts pins the body); the posting
  * unlock still sends ITS posting exactly as before; both validate before any network and collapse
  * a failure to one retryable error; the résumé asked with no posting reaches the seam with none
- * (→ `job_posting_id: null`).
+ * (→ `job_posting_id: null`). A SAMPLE row (R74) is refused before the seam.
  */
 
 const requestUnlock = vi.fn();
@@ -24,6 +24,7 @@ vi.mock("../../../../../lib/payer-api", () => ({
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
 const { candidateUnlockAction, maskedResumeAction, unlockAction } = await import("./actions");
+const { NEUTRAL_UNLOCK_MESSAGE } = await import("../../../../../lib/unlock-view");
 
 const P1 = "11111111-0000-4000-8000-000000000001";
 const W1 = "face2000-0000-4000-8000-000000000001";
@@ -37,7 +38,7 @@ beforeEach(() => {
 
 describe("candidateUnlockAction — a search row's unlock: no posting, job_id null", () => {
   it("reaches the seam with the worker id and postingId NULL — nothing else", async () => {
-    const res = await candidateUnlockAction({ workerId: W1 });
+    const res = await candidateUnlockAction({ workerId: W1, isSample: false });
     expect(requestUnlock).toHaveBeenCalledTimes(1);
     expect(requestUnlock.mock.calls[0]![0]).toStrictEqual({ postingId: null, workerId: W1 });
     expect(res).toEqual({
@@ -47,14 +48,13 @@ describe("candidateUnlockAction — a search row's unlock: no posting, job_id nu
   });
 
   it("never forwards anything else the client put in the call (XB-A: no payer id, no posting)", async () => {
-    await candidateUnlockAction({ workerId: W1, payer_id: "x", postingId: P1 } as unknown as {
-      workerId: string;
-    });
+    const smuggled = { workerId: W1, isSample: false, payer_id: "x", postingId: P1 };
+    await candidateUnlockAction(smuggled as unknown as { workerId: string; isSample: boolean });
     expect(requestUnlock.mock.calls[0]![0]).toStrictEqual({ postingId: null, workerId: W1 });
   });
 
   it("a worker id that is not a uuid never reaches the network", async () => {
-    expect(await candidateUnlockAction({ workerId: "not-a-uuid" })).toEqual({
+    expect(await candidateUnlockAction({ workerId: "not-a-uuid", isSample: false })).toEqual({
       ok: false,
       error: "Invalid request.",
     });
@@ -63,7 +63,7 @@ describe("candidateUnlockAction — a search row's unlock: no posting, job_id nu
 
   it("a failed call is ONE retryable error, never a cause", async () => {
     requestUnlock.mockRejectedValueOnce(new Error("payer API /payer/unlocks returned 503"));
-    expect(await candidateUnlockAction({ workerId: W1 })).toEqual({
+    expect(await candidateUnlockAction({ workerId: W1, isSample: false })).toEqual({
       ok: false,
       error: "Unlock failed (service unavailable). Please retry.",
     });
@@ -71,8 +71,25 @@ describe("candidateUnlockAction — a search row's unlock: no posting, job_id nu
 
   it("the neutral body maps to the ONE unavailable view (no-oracle)", async () => {
     requestUnlock.mockResolvedValueOnce({ status: "unavailable" });
-    const res = await candidateUnlockAction({ workerId: W1 });
+    const res = await candidateUnlockAction({ workerId: W1, isSample: false });
     expect(res.ok && res.view.kind).toBe("unavailable");
+  });
+
+  it("a SAMPLE row (R74) is refused before any network — the API's own neutral view", async () => {
+    const res = await candidateUnlockAction({ workerId: W1, isSample: true });
+    expect(requestUnlock).not.toHaveBeenCalled();
+    expect(res).toEqual({
+      ok: true,
+      view: { kind: "unavailable", message: NEUTRAL_UNLOCK_MESSAGE },
+    });
+  });
+
+  it("a missing or non-boolean sample flag is an invalid request, never a spend", async () => {
+    for (const isSample of [undefined, "false", 0]) {
+      const input = { workerId: W1, isSample } as unknown as { workerId: string; isSample: boolean };
+      expect(await candidateUnlockAction(input)).toEqual({ ok: false, error: "Invalid request." });
+    }
+    expect(requestUnlock).not.toHaveBeenCalled();
   });
 });
 

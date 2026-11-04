@@ -100,6 +100,7 @@ void main() {
           'tradeLevels': <dynamic>[
             <String, dynamic>{'tradeLevel': 'setter'},
           ],
+          'isSample': 'true',
         },
       );
 
@@ -111,6 +112,20 @@ void main() {
       expect(row.industryMonths, isNull);
       expect(row.city, isNull);
       expect(row.tradeLevels, isEmpty, reason: 'a rung with no trade is dropped');
+      expect(row.isSample, isFalse, reason: 'only a literal true marks a sample');
+    });
+
+    test('isSample (R74): true is a sample; absent reads as a real worker', () {
+      CandidateSearchRow? parse(Map<String, dynamic> extra) =>
+          CandidateSearchRow.tryFromJson(<String, dynamic>{
+            'workerId': 'w-1',
+            'role': <String, dynamic>{'id': 'r', 'label': 'R'},
+            ...extra,
+          });
+
+      expect(parse(<String, dynamic>{'isSample': true})!.isSample, isTrue);
+      expect(parse(<String, dynamic>{'isSample': false})!.isSample, isFalse);
+      expect(parse(const <String, dynamic>{})!.isSample, isFalse);
     });
 
     test('a row with no worker id or no role is dropped', () {

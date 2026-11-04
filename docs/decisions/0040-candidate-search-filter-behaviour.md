@@ -284,6 +284,15 @@ consent:
   profiled worker without the purposes is not served; after the grant he is; after the Settings
   exit he is not.
 
+### 2026-11-04 — sample candidates (R74)
+
+The 250 synthetic-workforce seed workers stay in the pool (the 2026-11-03 ruling wants them
+visible) but are not people. Owner ruling 2026-11-04: each card carries `isSample: true` and is
+badged "Sample candidate" with no unlock offered, and `POST /payer/unlocks` refuses a sample worker
+with the neutral body before any debit. "Sample" is the seed's worker-id namespace
+(`isSampleWorkerId`, `packages/db/src/sample-workers.ts`) — the seed and the API share that one
+definition. Ranking and counts are unchanged.
+
 ## Alternatives considered
 
 **Pure reorder-and-count, no strict mode (R7 option (a) alone).** Rejected: on a pool of any
