@@ -1,6 +1,5 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import { Icon } from "@badabhai/icons";
 import { PortalLink } from "../../components/portal-link";
@@ -19,57 +18,16 @@ import { isNavItemActive, type NavSection } from "./nav-model";
  * session (nav-model.ts: the nav follows the page gate), so there is no disabled state to draw;
  * a PARKED item is a real page that explains what is not built, badged "Soon".
  *
- * THE SELECTED PLATE SLIDES. One absolutely-positioned Safety Yellow plate is measured to the
- * active row and animates to the next one on a route change, so switching destinations reads as
- * one continuous move instead of a colour blink on two rows. The plate is the fill; the active
- * row only owns the navy text/icon (9.39:1 on the yellow).
+ * THE ACTIVE ROW IS PAINTED IN PLACE. The Safety Yellow plate is the active row's own CSS
+ * background (`.pnav__link--active` in globals.css), keyed off the class this component renders
+ * on the server — so the selected item is readable before scripts load (or with JS disabled)
+ * and never slides in from the top on first paint (W2 #2582).
  */
-/** Measure before paint on the client; fall back to useEffect during SSR (no warning). */
-const useIsomorphicLayoutEffect =
-  typeof window === "undefined" ? useEffect : useLayoutEffect;
-
 export function SidebarNav({ sections }: { sections: NavSection[] }) {
   const pathname = usePathname();
-  const navRef = useRef<HTMLElement>(null);
-  const [plate, setPlate] = useState<{ top: number; height: number } | null>(null);
-
-  useIsomorphicLayoutEffect(() => {
-    const nav = navRef.current;
-    if (nav === null) return undefined;
-
-    const measure = () => {
-      const active = nav.querySelector<HTMLElement>(".pnav__link--active");
-      if (active === null) {
-        setPlate(null);
-        return;
-      }
-      const navBox = nav.getBoundingClientRect();
-      const rowBox = active.getBoundingClientRect();
-      setPlate({ top: rowBox.top - navBox.top, height: rowBox.height });
-    };
-
-    measure();
-    const observer =
-      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
-    observer?.observe(nav);
-    window.addEventListener("resize", measure);
-    return () => {
-      observer?.disconnect();
-      window.removeEventListener("resize", measure);
-    };
-  }, [pathname, sections]);
 
   return (
-    <nav className="pnav" aria-label="Primary" ref={navRef}>
-      <span
-        className="pnav__plate"
-        aria-hidden="true"
-        style={{
-          transform: plate === null ? undefined : `translateY(${plate.top}px)`,
-          height: plate === null ? undefined : `${plate.height}px`,
-          opacity: plate === null ? 0 : 1,
-        }}
-      />
+    <nav className="pnav" aria-label="Primary">
       {sections.map((section, i) => (
         <div className="pnav__group" key={section.title ?? `lead-${i}`}>
           {section.title ? <h2 className="pnav__grouptitle">{section.title}</h2> : null}
