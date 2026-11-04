@@ -28,26 +28,6 @@
  * value resolves. Source of truth: docs/design/BadaBhai Design System/components/. */
 @import "../styles/ds-components.css";
 
-/* PAYER-WEB BRAND BLUE — the payer app's original theme blue, sampled from
-   designr/color_refe.jpeg (#0E1946). The shared token package stays untouched (admin-web and
-   marketing keep Shift Blue #05194C); this scoped ramp re-points EVERY payer-web surface,
-   heading, link, focus ring, shadow and alpha step at the reference blue. The lighter/darker
-   steps are derived from the same hue so hover, raised and muted states stay coherent. */
-:root {
-  --navy-950: #070d26;
-  --navy-900: #0e1946;
-  --navy-800: #162556;
-  --navy-700: #1e316b;
-  --navy-600: #2a4386;
-  --navy-500: #3a57a3;
-  --navy-400: #6178bd;
-  --navy-300: #91a2d4;
-  --navy-200: #bac6e5;
-  --navy-100: #dde2f1;
-  --navy-50: #eef1f8;
-  --brand-primary-rgb: 14 25 70;
-}
-
 /* UI-1 — `.form`, `.section` and `.req` USED to be defined in this legacy block. They are
  * now design-system primitives (see the UI-1 PAGE FURNITURE / FORM LAYOUT sections at the
  * foot of this file), so the legacy definitions were removed rather than left to collide:
@@ -1654,6 +1634,11 @@ textarea.input {
 @media (hover: hover) {
   .account-menu__link:hover .account-menu__link-arrow {
     transform: translateX(3px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .account-menu__link:hover .account-menu__link-arrow {
+    transform: none;
   }
 }
 
@@ -5318,6 +5303,11 @@ img.agency-qr__code,
     transform: translateX(3px);
   }
 }
+@media (prefers-reduced-motion: reduce) {
+  .dash-action:hover .ph-fill {
+    transform: none;
+  }
+}
 
 /* ---- "View" card action — tonal pill with a CONTINUOUSLY nudging arrow ---- */
 .dash-view__arrow {
@@ -5380,6 +5370,9 @@ img.agency-qr__code,
   .posting-cta::after {
     animation: none;
     display: none;
+  }
+  .posting-cta:hover .ph-fill {
+    transform: none;
   }
 }
 
@@ -7426,7 +7419,7 @@ body:has(.invite-landing) .chrome-footer {
   padding: var(--space-3) var(--space-4);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-lg);
-  background: linear-gradient(90deg, var(--navy-50), #f3eefe);
+  background: var(--navy-50);
 }
 .mw-ai__icon {
   display: inline-flex;
@@ -7949,7 +7942,7 @@ body:has(.invite-landing) .chrome-footer {
     transform var(--duration-fast) var(--ease-out);
 }
 .pshell .pshell__collapse .ph-fill {
-  transition: transform var(--duration-base) var(--ease-out);
+  transition: transform var(--duration-fast) var(--ease-out);
 }
 /* Hover motion only on devices that hover — a tap on a phone leaves nothing lifted. */
 @media (hover: hover) {
@@ -8939,6 +8932,11 @@ body:has(.invite-landing) .chrome-footer {
   .dash-quick-action:hover {
     box-shadow: var(--shadow-md);
     transform: translateY(-2px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dash-quick-action:hover {
+    transform: none;
   }
 }
 .dash-quick-action:focus-visible {
