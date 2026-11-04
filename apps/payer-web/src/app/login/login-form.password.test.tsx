@@ -47,7 +47,8 @@ vi.mock("./actions", () => ({
 const { LoginForm, loginFocusTarget } = await import("./login-form");
 const { PasswordSignInForm, IDENTIFIER_FIELD_ID, PASSWORD_FIELD_ID } = await import("./password-sign-in");
 const { SetNewPasswordStep, NEW_PASSWORD_HEADING_ID } = await import("./set-new-password");
-const { Button, Input, OtpInput, Tabs } = await import("../../components/ds");
+const { Button, Input, Tabs } = await import("../../components/ds");
+const { OtpCodeInput } = await import("../../components/otp-input");
 const { PASSWORD_SIGNIN_ERROR, TEMPORARY_PASSWORD_REQUIRED } = await import("./messages");
 
 const TEMPORARY = "Xk7mPq2rTn9wZa";
@@ -227,7 +228,7 @@ describe("the code door's temporary-password answer (#2628 409)", () => {
       usePassword: true,
     });
     const codeStep = render();
-    expect(findByType(codeStep, OtpInput)).toHaveLength(1);
+    expect(findByType(codeStep, OtpCodeInput)).toHaveLength(1);
     const form = findByType(codeStep, "form")[0]!;
     (propsOf(form).onSubmit as (e: { preventDefault: () => void }) => void)({ preventDefault: () => {} });
     await h.settle();
@@ -238,7 +239,7 @@ describe("the code door's temporary-password answer (#2628 409)", () => {
     "from %s: the password form, the email as login ID, the instruction shown — and no portal",
     async (mode) => {
       const tree = await verifyAnswered(mode);
-      expect(findByType(tree, OtpInput)).toHaveLength(0);
+      expect(findByType(tree, OtpCodeInput)).toHaveLength(0);
       expect(propsOf(passwordForm(tree)!)).toMatchObject({
         identifier: "owner@example.com",
         initialNotice: TEMPORARY_PASSWORD_REQUIRED,

@@ -1221,12 +1221,6 @@ textarea.input {
   align-items: center;
   gap: var(--space-2);
 }
-.login-otp__label {
-  align-self: flex-start;
-  font-size: var(--text-sm);
-  font-weight: var(--weight-semibold);
-  color: var(--text-primary);
-}
 /* PR-D2 — the code is ONE row at every width. The DS row is a wrapping inline-flex of fixed
    cells, which inside this card split a 6-digit code 4 + 2 on every phone (measured at 320,
    360 and 375px) — the one moment a payer is copying digits from another app. Here the cells
