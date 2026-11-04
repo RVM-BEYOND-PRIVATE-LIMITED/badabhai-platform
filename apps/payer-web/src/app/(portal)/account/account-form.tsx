@@ -3,9 +3,9 @@
 import { useState, useTransition } from "react";
 import type { FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import { Icon } from "@badabhai/icons";
 import { e164PhoneSchema } from "@badabhai/validators";
 import { Button, Input, Toast } from "../../../components/ds";
+import { useToast } from "../../../components/ds/toast-provider";
 import { updateAccountAction } from "./actions";
 import { ACCOUNT_SAVE_ERROR, ORG_NAME_ERROR, PHONE_ERROR, SAVED_CONFIRMATION } from "./messages";
 
@@ -58,12 +58,12 @@ function orgNameValid(value: string): boolean {
 export function AccountForm({ orgName, phoneLast4 }: AccountFormProps) {
   const router = useRouter();
   // useState order (mirrored by account-form.test.tsx): orgValue, phoneValue, fieldErrors,
-  // error, saved.
+  // error. A save is confirmed by the portal's one success toast (#2583), not by form state.
   const [orgValue, setOrgValue] = useState(orgName);
   const [phoneValue, setPhoneValue] = useState("");
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [error, setError] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
+  const toast = useToast();
   const [pending, startTransition] = useTransition();
 
   // What the user actually changed. Org is dirty when its trimmed value differs from the
@@ -84,7 +84,6 @@ export function AccountForm({ orgName, phoneLast4 }: AccountFormProps) {
   function onSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
-    setSaved(false);
 
     // Pristine guard (the button is also disabled): never send an empty body.
     if (!isDirty) return;
@@ -106,7 +105,7 @@ export function AccountForm({ orgName, phoneLast4 }: AccountFormProps) {
     startTransition(async () => {
       const res = await updateAccountAction(payload);
       if (res.ok) {
-        setSaved(true);
+        toast.show({ tone: "success", message: SAVED_CONFIRMATION });
         // Clear the one-shot new-phone input so it reflects "no pending change" post-save.
         setPhoneValue("");
         // Re-render the shell account-menu + /account with the new values (server-held).
@@ -133,7 +132,6 @@ export function AccountForm({ orgName, phoneLast4 }: AccountFormProps) {
           autoComplete="organization"
           onChange={(e) => {
             setOrgValue(e.target.value);
-            setSaved(false);
             if (fieldErrors.orgName) setFieldErrors((p) => ({ ...p, orgName: undefined }));
           }}
         />
@@ -161,7 +159,6 @@ export function AccountForm({ orgName, phoneLast4 }: AccountFormProps) {
           hint="Leave blank to keep your current number. Enter a full number to change it."
           onChange={(e) => {
             setPhoneValue(e.target.value);
-            setSaved(false);
             if (fieldErrors.phone) setFieldErrors((p) => ({ ...p, phone: undefined }));
           }}
         />
@@ -174,14 +171,6 @@ export function AccountForm({ orgName, phoneLast4 }: AccountFormProps) {
       </div>
 
       <div aria-live="polite" className="form-status">
-        {saved ? (
-          <div className="alert alert--success">
-            <Icon name="check-circle" className="alert__icon" />
-            <div className="alert__text">
-              <p className="alert__body">{SAVED_CONFIRMATION}</p>
-            </div>
-          </div>
-        ) : null}
         {error ? (
           <Toast tone="danger" title="Couldn’t save">
             {ACCOUNT_SAVE_ERROR}

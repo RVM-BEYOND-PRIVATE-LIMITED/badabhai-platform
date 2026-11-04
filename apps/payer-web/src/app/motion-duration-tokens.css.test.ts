@@ -109,7 +109,8 @@ describe("#2570 · every animation/transition in payer-web uses a duration token
       expect.arrayContaining([join("app", "globals.css"), join("styles", "ds-components.css")]),
     );
     expect(DECLS.length).toBeGreaterThan(50);
-    expect(DECLS.some((d) => d.v.startsWith("spinner-rotate var(--duration-count)"))).toBe(true);
+    // The one spinner (#2583 — the dead `.spinner` / spinner-rotate pair was removed).
+    expect(DECLS.some((d) => d.v.startsWith("bb-spin var(--duration-slower)"))).toBe(true);
   });
 
   it("the checker flags hard-coded durations and curves-only items, and passes token ones", () => {

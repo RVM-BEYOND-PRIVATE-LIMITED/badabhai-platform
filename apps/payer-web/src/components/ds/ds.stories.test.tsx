@@ -343,8 +343,8 @@ describe("DS0.2 · adherence — no raw hex / px literal in any wrapper source",
     .filter((f) => f.endsWith(".tsx") && !f.includes(".test.") && !f.includes(".stories."))
     .map((f) => ({ f, code: stripComments(readFileSync(new URL(f, import.meta.url), "utf8")) }));
 
-  it("covers the whole library (13 component modules — the swipe JobCard was removed in PR-B; IconButton moved to its own module)", () => {
-    expect(sources.length).toBe(13);
+  it("covers the whole library (15 component modules — the swipe JobCard was removed in PR-B; IconButton moved to its own module; ToastProvider and CountUp added in #2583)", () => {
+    expect(sources.length).toBe(15);
   });
 
   for (const { f } of sources) {

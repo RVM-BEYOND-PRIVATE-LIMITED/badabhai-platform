@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 import type { CreditPack } from "../../../lib/contracts";
 import { Button, Card, Dialog, Toast } from "../../../components/ds";
+import { CountUp } from "../../../components/ds/count-up";
+import { useToast } from "../../../components/ds/toast-provider";
 import { formatInr } from "../../../lib/format";
 import { earlierPurchaseMessage, priceChangedMessage } from "../../../lib/purchase-messages";
 import { createOrderAction, topUpAction, verifyPaymentAction } from "./actions";
@@ -39,15 +41,34 @@ import { loadCheckoutScript, openCheckout } from "./razorpay-checkout";
  * API with nothing bought: the panel says so in the neutral notice, refreshes the page so the new
  * price shows, and retires the purchase key (the next confirm is a new purchase). It never
  * retries on its own.
+ *
+ * ONE SUCCESS PATTERN (#2583): a completed purchase is announced as a toast from the portal's
+ * ToastProvider — once, dismissing itself — with the new balance counting up from the old one.
+ * The neutral notice and the error stay in this panel's own region: they are about this panel and
+ * must not vanish on a timer. Only the BEST-VALUE pack's Buy is the primary action; the others are
+ * secondary, so the screen has one primary.
  */
 export function CreditsPanel({ packs, real = false }: { packs: CreditPack[]; real?: boolean }) {
   const router = useRouter();
   const [pendingCode, setPendingCode] = useState<string | null>(null);
   const [pendingConfirm, setPendingConfirm] = useState<CreditPack | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [, startTransition] = useTransition();
+  const toast = useToast();
+
+  /** The purchase is DONE: a success toast, the balance counting up to the server's figure. */
+  function announcePurchase(lead: string, creditsAdded: number, balance: number): void {
+    toast.show({
+      tone: "success",
+      title: "Credits added",
+      message: (
+        <>
+          {lead}New balance: <CountUp from={balance - creditsAdded} to={balance} /> credits.
+        </>
+      ),
+    });
+  }
 
   // ONE idempotency key per PURCHASE, not per attempt (#1046). Minted when the payer COMMITS
   // (the confirm below), held across every retry of that SAME pack so the backend dedupes a
@@ -78,7 +99,6 @@ export function CreditsPanel({ packs, real = false }: { packs: CreditPack[]; rea
 
   function resetBanners(): void {
     setError(null);
-    setMessage(null);
     setNotice(null);
   }
 
@@ -125,7 +145,7 @@ export function CreditsPanel({ packs, real = false }: { packs: CreditPack[]; rea
       if (res.ok) {
         // TERMINAL success — the purchase is DONE. Drop the key so a genuine next buy mints a fresh one.
         purchaseKeyRef.current = null;
-        setMessage(`Added ${res.creditsAdded} credits. New balance: ${res.balance}.`);
+        announcePurchase(`Added ${res.creditsAdded} credits. `, res.creditsAdded, res.balance);
         router.refresh();
       } else if ("pending" in res) {
         // A 409 DUPLICATE-IN-FLIGHT (#1185): the FIRST attempt is still running and MAY STILL THROW —
@@ -212,10 +232,12 @@ export function CreditsPanel({ packs, real = false }: { packs: CreditPack[]; rea
           setError(verified.error);
           return;
         }
-        setMessage(
+        announcePurchase(
           verified.creditsAdded > 0
-            ? `Payment successful. Added ${verified.creditsAdded} credits. New balance: ${verified.balance}.`
-            : `Payment successful. Your balance is ${verified.balance} credits.`,
+            ? `Payment successful. Added ${verified.creditsAdded} credits. `
+            : "Payment successful. ",
+          verified.creditsAdded,
+          verified.balance,
         );
         router.refresh();
       } catch {
@@ -290,7 +312,7 @@ export function CreditsPanel({ packs, real = false }: { packs: CreditPack[]; rea
                   <span className="bb-mono">{formatInr(perUnlock)}</span> per contact unlock
                 </p>
                 <Button
-                  variant="primary"
+                  variant={best ? "primary" : "secondary"}
                   block
                   disabled={pendingCode !== null}
                   loading={pendingCode === p.code}
@@ -312,7 +334,6 @@ export function CreditsPanel({ packs, real = false }: { packs: CreditPack[]; rea
       )}
 
       <div aria-live="polite" className="credits-result">
-        {message ? <Toast tone="success">{message}</Toast> : null}
         {notice ? <Toast tone="neutral">{notice}</Toast> : null}
         {error ? <Toast tone="danger">{error}</Toast> : null}
       </div>

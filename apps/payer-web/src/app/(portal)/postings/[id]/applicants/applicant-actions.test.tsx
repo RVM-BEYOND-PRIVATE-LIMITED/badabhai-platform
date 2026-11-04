@@ -38,6 +38,11 @@ vi.mock("next/link", () => ({
 // this walk (it calls components outside a renderer) cannot run; its own behaviour is
 // components/nav-pending.render.test.tsx.
 vi.mock("../../../../../components/nav-pending", () => ({ NavPendingCue: () => null }));
+// The portal's ToastProvider (#2583): a granted unlock is announced through it.
+const toastShow = vi.fn();
+vi.mock("../../../../../components/ds/toast-provider", () => ({
+  useToast: () => ({ show: (t: unknown) => toastShow(t), dismiss: () => {} }),
+}));
 vi.mock("./actions", () => ({
   unlockAction: (i: unknown) => unlockAction(i),
   revealContactAction: (i: unknown) => revealContactAction(i),
@@ -64,6 +69,7 @@ vi.mock("react", async () => {
 
 const { ApplicantActions } = await import("./applicant-actions");
 const { PageHeader } = await import("../../../../../components/page-header");
+const { UNLOCK_GRANTED_TOAST } = await import("../../../../../components/unlock");
 
 /** The head text the page hands the feed (it names the posting from its own postings read). */
 const HEADER = {
@@ -255,6 +261,26 @@ describe("ApplicantActions — CONFIRM-ON-SPEND on the FIRST unlock per row (C11
     // XT5: ids only — no price/amount/credit number in the body.
     const arg = unlockAction.mock.calls[0]![0] as Record<string, unknown>;
     expect(Object.keys(arg).sort()).toEqual(["postingId", "workerId"]);
+  });
+
+  it("#2583: a GRANTED unlock is the portal's success toast; the neutral failure stays list state", async () => {
+    unlockAction.mockResolvedValueOnce({ ok: true, view: { kind: "granted", handle: "h", channel: "c" } });
+    toastShow.mockClear();
+    let { buttons } = collect(render({ confirmWorker: WORKER }));
+    buttons.find((b) => b.text.includes("Unlock · 1 credit"))!.onClick!();
+    await new Promise((r) => setTimeout(r, 0));
+    // `result` is setter index 5: cleared, never "granted"; the grant is ONE toast.
+    expect(setters[5]).toHaveBeenCalledWith(null);
+    expect(setters[5]).not.toHaveBeenCalledWith("granted");
+    expect(toastShow).toHaveBeenCalledTimes(1);
+    expect(toastShow).toHaveBeenCalledWith(UNLOCK_GRANTED_TOAST);
+
+    toastShow.mockClear();
+    ({ buttons } = collect(render({ confirmWorker: WORKER })));
+    buttons.find((b) => b.text.includes("Unlock · 1 credit"))!.onClick!();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(setters[5]).toHaveBeenCalledWith("unavailable");
+    expect(toastShow).not.toHaveBeenCalled();
   });
 
   it("a row already confirmed this session unlocks DIRECTLY with no dialog (fires once per row)", () => {

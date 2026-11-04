@@ -42,8 +42,13 @@ vi.mock("react", async () => {
 });
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }) }));
 vi.mock("./actions", () => ({ updateAccountAction: (...args: unknown[]) => updateAccountAction(...args) }));
+// The portal's ToastProvider (#2583): a completed save is confirmed through it.
+const toastShow = vi.fn();
+vi.mock("../../../components/ds/toast-provider", () => ({
+  useToast: () => ({ show: (t: unknown) => toastShow(t), dismiss: () => {} }),
+}));
 
-const { ACCOUNT_SAVE_ERROR, EMAIL_SUPPORT_HELPER } = await import("./messages");
+const { ACCOUNT_SAVE_ERROR, EMAIL_SUPPORT_HELPER, SAVED_CONFIRMATION } = await import("./messages");
 const { AccountForm } = await import("./account-form");
 
 interface FieldErrors {
@@ -59,14 +64,14 @@ const PROPS: {
   phoneLast4: "1234",
 };
 
-// useState call order in the source: orgValue, phoneValue, fieldErrors, error, saved.
+// useState call order in the source: orgValue, phoneValue, fieldErrors, error. (A save is a toast
+// now — #2583 — not a `saved` slot.)
 function render(
   seed: {
     orgValue?: string;
     phoneValue?: string;
     fieldErrors?: FieldErrors;
     error?: string | null;
-    saved?: boolean;
   },
   propsOver: Partial<typeof PROPS> = {},
 ): ReactElement {
@@ -75,7 +80,6 @@ function render(
     seed.phoneValue ?? "",
     seed.fieldErrors ?? {},
     seed.error ?? null,
-    seed.saved ?? false,
   ];
   stateCursor = 0;
   return AccountForm({ ...PROPS, ...propsOver }) as ReactElement;
@@ -117,8 +121,27 @@ beforeEach(() => {
   useTransition.mockClear();
   updateAccountAction.mockReset();
   updateAccountAction.mockResolvedValue({ ok: true });
+  toastShow.mockReset();
   // Provide a minimal `document` for the focus-first-invalid path (node env has none).
   (globalThis as { document?: unknown }).document = { getElementById: () => null };
+});
+
+describe("AccountForm — #2583: a save is the portal's one success toast", () => {
+  it("a completed save shows ONE success toast with the confirmation; no inline success alert", async () => {
+    const tree = render({ orgValue: "Acme Tools Pvt" });
+    submit(tree);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(toastShow).toHaveBeenCalledTimes(1);
+    expect(toastShow).toHaveBeenCalledWith({ tone: "success", message: SAVED_CONFIRMATION });
+    expect(textOf(render({}))).not.toContain(SAVED_CONFIRMATION);
+  });
+
+  it("a failed save shows no toast", async () => {
+    updateAccountAction.mockResolvedValue({ ok: false, error: ACCOUNT_SAVE_ERROR });
+    submit(render({ orgValue: "Acme Tools Pvt" }));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(toastShow).not.toHaveBeenCalled();
+  });
 });
 
 describe("AccountForm — edit affordances", () => {
