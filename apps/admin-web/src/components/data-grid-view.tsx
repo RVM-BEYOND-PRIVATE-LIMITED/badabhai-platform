@@ -123,7 +123,10 @@ export function DataGridView({
               </td>
             </tr>
           </thead>
-          <tbody>
+          {/* Keyed on the density: a density change re-enters the rows with their 140ms fade —
+              the brief's "row height animates" done in opacity, the only property (with
+              transform) this console animates. The height itself snaps. */}
+          <tbody key={density}>
             {rows.map((row) => (
               <tr key={row.key}>
                 {shown.map((c) => {
