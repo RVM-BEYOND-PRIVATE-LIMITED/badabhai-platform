@@ -1,10 +1,66 @@
 import 'package:flutter/material.dart';
 
 import '../../../../core/data/models.dart';
+import '../../../../core/error/payer_failure.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/theme/app_typography.dart';
+import '../../../../core/widgets/bb_button.dart';
 import '../../../../core/widgets/bb_chip.dart';
+
+/// Shown where a company form's trade picker goes while the 16-trade catalogue
+/// (`GET /payer/posting-trades`) loads.
+const String kPostingTradesLoadingLabel = 'Loading roles…';
+
+/// #2635 — what stands in for the trade picker when the 16-trade catalogue did
+/// not load: the real reason and a Retry.
+///
+/// A company job must name one of the 16 trades before it can go live, so a
+/// form never falls back to a free role list or the flat skill picker here — it
+/// says why it cannot offer the trades and lets the payer ask again. [failure]
+/// is null when the catalogue answered but listed no trade.
+class PostingTradesUnavailable extends StatelessWidget {
+  const PostingTradesUnavailable({
+    super.key,
+    required this.failure,
+    required this.onRetry,
+  });
+
+  final PayerFailure? failure;
+  final VoidCallback onRetry;
+
+  /// The line shown, naming the real cause.
+  static String messageFor(PayerFailure? failure) => failure == null
+      ? 'No trades are open for posting right now. Try again in a moment.'
+      : 'The 16 trades did not load. ${failure.message}';
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Text(
+          messageFor(failure),
+          style: AppTypography.body(
+            size: AppTypography.sizeSm,
+            color: AppColors.warning,
+            height: 1.4,
+          ),
+        ),
+        const SizedBox(height: AppSpacing.s2),
+        // The only way forward from here, so a full-size target (md, not the
+        // quiet 36px sm).
+        BbButton(
+          label: 'Retry',
+          variant: BbButtonVariant.secondary,
+          size: BbButtonSize.md,
+          iconLeft: Icons.refresh_rounded,
+          onPressed: onRetry,
+        ),
+      ],
+    );
+  }
+}
 
 /// The role-specific posting form (migration 0141).
 ///
