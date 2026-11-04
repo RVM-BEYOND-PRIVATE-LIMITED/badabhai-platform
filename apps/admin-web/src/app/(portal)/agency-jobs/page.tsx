@@ -6,7 +6,7 @@ import { CustomerLink } from "../../../components/customer-link";
 import { PageHeader } from "../../../components/page-header";
 import { StatusPill } from "../../../components/status-pill";
 import { RetryActions } from "../../../components/retry-actions";
-import { formatRelative, shortId } from "../../../lib/format";
+import { formatRelative, shortId, timestampTitle } from "../../../lib/format";
 import { CopyId } from "../../../components/copy-id";
 
 export const dynamic = "force-dynamic";
@@ -86,7 +86,9 @@ export default async function AgencyJobsPage() {
                     </td>
                     <td>{job.match_skill_ids.length}</td>
                     <td>
-                      <time dateTime={job.updated_at}>{formatRelative(job.updated_at)}</time>
+                      <time dateTime={job.updated_at} title={timestampTitle(job.updated_at)}>
+                        {formatRelative(job.updated_at)}
+                      </time>
                     </td>
                   </tr>
                 ))}

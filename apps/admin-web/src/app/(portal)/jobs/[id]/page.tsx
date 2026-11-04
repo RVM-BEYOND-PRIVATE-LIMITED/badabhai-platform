@@ -96,7 +96,10 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
         One posting&rsquo;s full content, reach and trust review — published as{" "}
         <strong>{job.org_label}</strong>
         {job.city || job.location_label ? ` · ${job.city ?? job.location_label}` : ""} · created{" "}
-        {formatRelative(job.created_at)}.
+        <time dateTime={job.created_at} title={timestampTitle(job.created_at)}>
+          {formatRelative(job.created_at)}
+        </time>
+        .
       </>
     ),
   };

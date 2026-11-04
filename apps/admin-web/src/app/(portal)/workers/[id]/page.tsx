@@ -159,7 +159,13 @@ export default async function WorkerDetailPage({
                     {worker.profile_updated_at && (
                       <span className="table__meta">
                         {" "}
-                        updated {formatRelative(worker.profile_updated_at)}
+                        updated{" "}
+                        <time
+                          dateTime={worker.profile_updated_at}
+                          title={timestampTitle(worker.profile_updated_at)}
+                        >
+                          {formatRelative(worker.profile_updated_at)}
+                        </time>
                       </span>
                     )}
                   </>
