@@ -985,6 +985,24 @@
 {"kind":"alias","job_domain_id":"jd_nco_7223_2800","text":"wire cut operator","lang":"en"}
 {"kind":"alias","job_domain_id":"jd_nco_7223_2800","text":"spark erosion","lang":"en"}
 {"kind":"alias","job_domain_id":"jd_nco_7223_2800","text":"वायर कट","lang":"hi"}
+# PHASE 2 #9 (CEO Launch Plan Pack v1, sheet 22 "Words"): Injection Moulding, bound to the
+# 8142 plastic-moulding codes. The rows name the trade. 'injection moulding operator' moves here
+# from the rubber code 8141.0713 (retired there, same change; that code keeps 'rubber injection
+# moulding operator'). Bare 'imm' (3 letters) is NOT a row, and 'imm operator' would become this
+# code's chip label (the shortest Latin alias). Brands, materials, 'mould change' and 'hot
+# runner' are capture chips and role machine terms; 'process technician' is a level term;
+# 'mould ka kaam' stays an ask-first disambiguation (A3).
+{"kind":"alias","job_domain_id":"jd_nco_8142_0501","text":"injection moulding","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8142_0501","text":"injection molding","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8142_0501","text":"injection moulding operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8142_0501","text":"injection molding operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8142_0501","text":"moulding machine operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8142_0501","text":"इंजेक्शन मोल्डिंग","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_8142_1300","text":"mould setter","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8142_1300","text":"moulding setter","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8142_1300","text":"injection moulding setter","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8142_1301","text":"plastic moulding","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8141_0713","text":"rubber injection moulding operator","lang":"en"}
 #
 # ── Press — NCO 7223.2300 (Power Press Operator, Metal) / 7223.3000 (Metal Stamper) — 20, 22 ─
 # "press ka kaam" (23) is struck — it is ironing clothes — and "machine operator" (24) routes

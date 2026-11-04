@@ -1994,3 +1994,65 @@ describe("Phase 2 #7 — EDM / wire-cut, a new family on 7223.2800 (CEO Launch P
     }
   });
 });
+
+describe("Phase 2 #9 — injection moulding, a new family on four 8142 codes (CEO Launch Plan Pack v1)", () => {
+  const offline = resolveJobDomainCorpus();
+  const parents = new Set(
+    offline.filter((d) => d.selectable && d.parentJobDomainId).map((d) => d.parentJobDomainId),
+  );
+  const live = offline.filter(
+    (d) => d.selectable && !(d.source === "isco08" && parents.has(d.jobDomainId)),
+  );
+  const liveClaimants = (phrase: string) => {
+    const norm = normalizeOccupationText(phrase);
+    return live
+      .filter((d) => d.aliases.some((a) => normalizeOccupationText(a.text) === norm))
+      .map((d) => d.jobDomainId)
+      .sort();
+  };
+
+  it("binds exactly the four plastic-moulding codes", () => {
+    const codes = corpus.bindings
+      .filter((b) => b.family_id === "fam_injection_moulding")
+      .map((b) => b.job_domain_id);
+    expect(codes).toEqual([
+      "jd_nco_8142_0501",
+      "jd_nco_8142_0502",
+      "jd_nco_8142_1300",
+      "jd_nco_8142_1301",
+    ]);
+  });
+
+  it("reaches the family on the trade's own words, each the ONLY claimant in production", () => {
+    for (const [phrase, code] of [
+      ["injection moulding", "jd_nco_8142_0501"],
+      ["injection molding", "jd_nco_8142_0501"],
+      ["injection moulding operator", "jd_nco_8142_0501"],
+      ["moulding machine operator", "jd_nco_8142_0501"],
+      ["इंजेक्शन मोल्डिंग", "jd_nco_8142_0501"],
+      ["moulding operator", "jd_nco_8142_0502"],
+      ["mould setter", "jd_nco_8142_1300"],
+      ["moulding setter", "jd_nco_8142_1300"],
+      ["injection moulding setter", "jd_nco_8142_1300"],
+      ["plastic moulding", "jd_nco_8142_1301"],
+    ] as const) {
+      expect(familyFor(phrase), phrase).toBe("fam_injection_moulding");
+      expect(liveClaimants(phrase), phrase).toEqual([code]);
+    }
+  });
+
+  it("moves 'injection moulding operator' off the rubber code, which keeps its own phrase", () => {
+    expect(liveClaimants("injection moulding operator")).not.toContain("jd_nco_8141_0713");
+    expect(liveClaimants("rubber injection moulding operator")).toEqual(["jd_nco_8141_0713"]);
+    expect(familyFor("rubber injection moulding operator")).toBe("fam_rubber_plastic");
+  });
+
+  it("leaves the tool room's mould words with the tool room, and the other plastics machines put", () => {
+    for (const phrase of ["mould maker", "tool maker", "tool room"]) {
+      expect(familyFor(phrase), phrase).not.toBe("fam_injection_moulding");
+    }
+    // Compression moulding and every other 814 code stay on the generic plastics pack.
+    expect(familyFor("Compression Moulding Machine Operator (Plastic)")).toBe("fam_rubber_plastic");
+    expect(familyFor("Bottle Blowing Machine Operator (Plastic)")).toBe("fam_rubber_plastic");
+  });
+});

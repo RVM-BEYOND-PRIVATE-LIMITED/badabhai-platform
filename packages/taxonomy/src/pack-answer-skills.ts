@@ -99,6 +99,7 @@ const PAINTER_COATER = ["mskill_painter_coater"] as const;
 const MAINTENANCE_TECHNICIAN = ["mskill_maintenance_technician"] as const;
 const PLC_AUTOMATION_TECH = ["mskill_plc_automation_tech"] as const;
 const EDM_WIRECUT_OPERATOR = ["mskill_edm_wirecut_operator"] as const;
+const IMM_OPERATOR = ["mskill_imm_operator"] as const;
 const INDUSTRIAL_ELECTRICIAN = ["mskill_industrial_electrician"] as const;
 const ASSEMBLY_LINE_WORKER = ["mskill_assembly_line_worker"] as const;
 
@@ -348,6 +349,23 @@ export const PACK_ANSWER_SKILLS: Readonly<Record<string, PackMap>> = {
   // INDUSTRIAL Electrician, and those chips do not claim the plant. "Kaunse electrical equipment
   // par kaam karte hain?" — MCC/PCC panels, VFDs, starters and induction motors are plant
   // equipment. `dg_set` is left out: a DG set is run by an operator as often as by an electrician.
+  // ══ INJECTION MOULDING (Phase 2 #9) ═════════════════════════════════════════════════════
+  // "Kaunse brand ki machine chalayi hai?" — every named moulding-machine brand is the trade's
+  // claim (the brand IS the injection moulding machine). The tool room's mould chips
+  // (qp_tool_die_making) stay the tool maker's: building the mould is not running it.
+  qp_injection_moulding: {
+    moulding_machine_brand: {
+      ferromatik_milacron: IMM_OPERATOR,
+      windsor: IMM_OPERATOR,
+      jsw: IMM_OPERATOR,
+      toshiba: IMM_OPERATOR,
+      haitian: IMM_OPERATOR,
+      engel: IMM_OPERATOR,
+      arburg: IMM_OPERATOR,
+      larsen_toubro: IMM_OPERATOR,
+    },
+  },
+
   // ══ EDM / WIRE-CUT (Phase 2 #7) ════════════════════════════════════════════════════════
   // "Kaunsi EDM machine chalate hain?" — every named EDM machine is the trade's claim. The
   // tool room's own EDM chips (qp_tool_die_making edm_work) stay the tool maker's.

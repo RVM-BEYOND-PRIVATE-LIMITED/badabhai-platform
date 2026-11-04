@@ -914,6 +914,21 @@ const QUESTION_TTS_TEXT: Readonly<Record<string, string>> = {
   // "Machine ki kaunsi dikkat aap sudhaar lete hain?" (the turner's) and "Kis machine ka poora
   // overhaul khud kar lete hain?" (the fitter's).
   "Maintenance ka kitna tajurba hai?": "मेंटेनेंस का कितना तजुर्बा है?",
+  // --- qp_injection_moulding@1 (Phase 2 #9, the first pack for the declared kind) — prompts and
+  // retries. The level prompt/retry, the brand prompt and the tenure, level, brand and tonnage
+  // whys are shared and twinned above.
+  "Injection moulding ka kitna tajurba hai?": "इंजेक्शन मोल्डिंग का कितना तजुर्बा है?",
+  "Lagbhag kitne saal moulding machine pe kaam kiya hai?":
+    "लगभग कितने साल मोल्डिंग मशीन पे काम किया है?",
+  "Mould change aur parameter setting aap khud karte ho?":
+    "मोल्ड चेंज और पैरामीटर सेटिंग आप खुद करते हो?",
+  "Naya mould trial aur process optimisation aap lead karte ho?":
+    "नया मोल्ड ट्रायल और प्रोसेस ऑप्टिमाइज़ेशन आप लीड करते हो?",
+  "Kitne ton tak ki machine chalayi hai?": "कितने टन तक की मशीन चलाई है?",
+  "Kaunse plastic material ki moulding ki hai?": "कौनसे प्लास्टिक मटीरियल की मोल्डिंग की है?",
+  "Moulding machine pe kaunsa kaam khud karte hain?": "मोल्डिंग मशीन पे कौनसा काम खुद करते हैं?",
+  "Kaunse defect khud theek kar lete hain?": "कौनसे डिफेक्ट खुद ठीक कर लेते हैं?",
+  "Moulding ka course ya training kahan se kiya?": "मोल्डिंग का कोर्स या ट्रेनिंग कहाँ से किया?",
   // --- qp_edm_wirecut@1 (Phase 2 #7, a new trade) — prompts and retries. "EDM" and "CAM"
   // stay Latin (spelled letter by letter, as an operator says them); "wire-cut" is Devanagari.
   // The level prompt/retry and the tenure, level and machine whys are shared and twinned above.
@@ -1539,6 +1554,20 @@ const WHY_TTS_TEXT: Readonly<Record<string, string>> = {
   // the three fresher ones) are shared verbatim with packs twinned above.
   "Kaam ki kism se sahi plant ka kaam dikhaya jaata hai.":
     "काम की किस्म से सही प्लांट का काम दिखाया जाता है।",
+  // --- qp_injection_moulding@1 (Phase 2 #9) — why-texts. Filed HERE: `composeClarify` scans
+  // only this table.
+  "Mould change aur setting khud karne wale setter ko alag kaam milta hai.":
+    "मोल्ड चेंज और सेटिंग खुद करने वाले सेटर को अलग काम मिलता है।",
+  "Mould trial lead karne wale process technician ki alag maang hai.":
+    "मोल्ड ट्रायल लीड करने वाले प्रोसेस टेक्नीशियन की अलग माँग है।",
+  "Material ki samajh se mushkil job ka kaam milta hai.":
+    "मटीरियल की समझ से मुश्किल जॉब का काम मिलता है।",
+  "Setting aur process ka kaam jaanne wale ki alag maang hai.":
+    "सेटिंग और प्रोसेस का काम जानने वाले की अलग माँग है।",
+  "Defect theek karna aana setter ka sabse bada hunar hai.":
+    "डिफेक्ट ठीक करना आना सेटर का सबसे बड़ा हुनर है।",
+  "Achhe institute ka certificate badi plastic company me kaam dilata hai.":
+    "अच्छे इंस्टिट्यूट का सर्टिफिकेट बड़ी प्लास्टिक कंपनी में काम दिलाता है।",
   // --- qp_edm_wirecut@1 (Phase 2 #7) — why-texts. Filed HERE: `composeClarify` scans only
   // this table.
   "Alignment aur setting khud karne wale setter ko alag kaam milta hai.":

@@ -329,6 +329,21 @@ senior_programmer`; P5 crosswalk already handles). Role `levelTerms` += rung
 > wire cut operator / spark erosion (+Hi) -> 7223.2800. Role vocabulary names the JOB, not
 > the machine, so a tool maker who mentions his wire-cut keeps the Tool & Die form. Seeds
 > after migrations + merge (+ seed:match:vocabulary).
+>
+> PHASE 2 #9 — INJECTION-MOULDING OPERATOR / SETTER (NEW PACK) ✅ CODE DONE (`feat/mw-imm`).
+> NO MIGRATION and no kind bump: `injection_moulding_operator` was already a declared
+> (formless) kind; this is its first pack. New `mskill_imm_operator` (unpaired, like EDM;
+> domain `fabrication`), `fam_injection_moulding` bound to NCO 8142.0501 / 0502 / 1300 / 1301
+> (left fam_rubber_plastic; compression, blow, extrusion and every rubber code stay), new
+> `qp_injection_moulding@1`: sheet-22 ladder (Trainee/Operator/Setter/Senior (process
+> technician)/Supervisor, mandatory) + 2 separating confirms (setter; senior — both the
+> sheet's questions verbatim); supervisor by rule; Medium brand + tonnage; Advanced materials,
+> process depth, defects, ITI/CIPET training row. Aliases: injection moulding/molding (+
+> operator), moulding machine operator, mould setter, moulding setter, injection moulding
+> setter, plastic moulding (+Hi) -> the 8142 codes. Retired: the rubber code 8141.0713's title
+> "Injection Moulding Operator" (it keeps "rubber injection moulding operator"). Bare `imm`
+> held out (3 letters; would become the chip label). Off the demo skip list (own demo row).
+> Seeds after merge (+ seed:match:vocabulary).
 
 | #   | Trade (kind)                                      | Pack                           | Level Q today                       | Notes                                                                                                                                                                     |
 | --- | ------------------------------------------------- | ------------------------------ | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

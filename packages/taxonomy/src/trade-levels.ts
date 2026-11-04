@@ -155,6 +155,10 @@ export const TRADE_LEVEL_PACKS: Readonly<Record<string, TradeLevelPack>> = {
   // Phase 2 #7 — the EDM / wire-cut operator (CEO Launch Plan Pack v1, sheet 16), a new
   // trade. No union extension: the CNC ladder's rungs are all members. Supervisor by rule.
   qp_edm_wirecut: { skillId: "mskill_edm_wirecut_operator", levelKey: "edm_level" },
+  // Phase 2 #9 — the injection-moulding operator / setter (CEO Launch Plan Pack v1, sheet 22),
+  // the first pack for the declared kind. No union extension: trainee, operator, setter,
+  // senior and supervisor are all members. Supervisor by rule.
+  qp_injection_moulding: { skillId: "mskill_imm_operator", levelKey: "moulding_level" },
 };
 
 /** Legacy/alias spellings that name a `TradeLevel` without being one. */
@@ -494,6 +498,13 @@ export const TRADE_LEVEL_CONFIRM_ITEMS: Readonly<
   qp_edm_wirecut: {
     setter: "edm_setting_confirm",
     setter_programmer: "edm_program_confirm",
+  },
+  // Phase 2 #9 — the injection-moulding confirms (CEO Launch Plan Pack v1, sheet 22).
+  // Confirmed from `setter`; the sheet writes a question for setter and one for senior
+  // (process technician), both verbatim. Supervisor by rule.
+  qp_injection_moulding: {
+    setter: "moulding_setting_confirm",
+    senior: "moulding_senior_confirm",
   },
 };
 
