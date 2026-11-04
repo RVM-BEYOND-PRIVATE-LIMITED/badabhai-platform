@@ -1,7 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { PostingSummary } from "../../../../../lib/contracts";
 import type { PostingEditInitial } from "../../../../../lib/payer-api";
-import { PayerBadRequestError, PayerValidationError } from "../../../../../lib/payer-errors";
+import {
+  PayerBadRequestError,
+  PayerHttpError,
+  PayerValidationError,
+} from "../../../../../lib/payer-errors";
 import type { UpdatePostingActionInput } from "./actions";
 
 /**
@@ -12,7 +16,8 @@ import type { UpdatePostingActionInput } from "./actions";
  *  - an OMITTED vacancies never reaches the PATCH (the band-downgrade guard);
  *  - `initial` is threaded to the seam (the clear diff), and publish carries the match half;
  *  - the workerCardGap rule BLOCKS a thin publish but NOT a save (owner ruling);
- *  - 400 → "No changes to save." / 409 → "no longer be edited" / other → retry copy.
+ *  - 400 → "No changes to save." on a save, the refused-publish copy on a publish /
+ *    409 → "no longer be edited" / other → retry copy.
  */
 
 const updatePosting = vi.fn();
@@ -281,6 +286,43 @@ describe("updatePostingAction — #2645: the role is the job's trade (#2635)", (
     updatePosting.mockRejectedValueOnce(new PayerBadRequestError("/payer/job-postings/x", "other"));
     const res = await updatePostingAction({ postingId: ID, roleTitle: "CNC", initial: INITIAL });
     expect(res).toEqual({ ok: false, error: "No changes to save." });
+  });
+
+  describe("a PUBLISH refused with a 400 this app cannot place (no field, no known reason)", () => {
+    const REFUSED =
+      "The server refused to publish this posting. Nothing was changed: it is still a draft.";
+    const publishFullCard = () =>
+      updatePostingAction({
+        postingId: ID,
+        roleTitle: "CNC Machinist",
+        ...FULL_CARD,
+        initial: INITIAL,
+        publish: { matchSkillIds: ["mskill_cnc_turner"], untickedRelatedIds: [] },
+      });
+
+    it("says the publish was refused and nothing changed: never 'No changes to save.', never the server's words", async () => {
+      for (const refusal of [
+        // Neither issues nor a reason: what today's API sends for trade fields on a role outside
+        // the 16 (its trade-form check runs before the 16-trade gate).
+        new PayerHttpError("/payer/job-postings/x", 400),
+        // A reason this app does not know.
+        new PayerBadRequestError("/payer/job-postings/x", "other"),
+        // Issues that name no form field (the match half).
+        new PayerValidationError("/payer/job-postings/x", [
+          { path: "match_skill_ids", message: "match_skill_ids exceeds the cap" },
+        ]),
+      ]) {
+        updatePosting.mockRejectedValueOnce(refusal);
+        expect(await publishFullCard()).toEqual({ ok: false, error: REFUSED });
+      }
+    });
+
+    it("…while the same 400 on a plain SAVE keeps 'No changes to save.'", async () => {
+      updatePosting.mockRejectedValueOnce(new PayerHttpError("/payer/job-postings/x", 400));
+      expect(
+        await updatePostingAction({ postingId: ID, roleTitle: "CNC", initial: INITIAL }),
+      ).toEqual({ ok: false, error: "No changes to save." });
+    });
   });
 
   it("a role equal to the stored one is never forwarded; a moved one is", async () => {

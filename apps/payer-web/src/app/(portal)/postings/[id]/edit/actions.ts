@@ -51,6 +51,15 @@ export type EditPostingActionResult =
 
 const postingIdSchema = z.string().uuid();
 
+/**
+ * A PUBLISH the API refused with a 400 that named no field we can show and no reason we know. All
+ * the client knows is said: the server would not put this draft live, and nothing was written (a
+ * 400 is refused before the write). Never "No changes to save." (a publish always changes the
+ * status) and never the server's own message.
+ */
+const PUBLISH_REFUSED_MESSAGE =
+  "The server refused to publish this posting. Nothing was changed: it is still a draft.";
+
 export interface UpdatePostingActionInput {
   postingId: string;
   roleKind?: string;
@@ -166,7 +175,8 @@ export async function updatePostingAction(
       return { ok: false, error: POSTING_TRADE_REQUIRED_MESSAGE, tradeRequired: true };
     }
     // #1912 — a validation 400 carries per-field issues; route each to its input.
-    // A plain 400 (no issues) stays the existing "No changes to save." copy.
+    // Any other 400 (no field to show it at, no reason we know) is the existing "No changes to
+    // save." on a SAVE, and the refused publish on a PUBLISH: the mode decides, never the message.
     if (isPayerValidationError(e)) {
       const { fieldErrors, rest } = mapPostingIssues(e.issues);
       if (Object.keys(fieldErrors).length > 0) {
@@ -178,7 +188,7 @@ export async function updatePostingAction(
       }
     }
     if (isPayerStatus(e, 400)) {
-      return { ok: false, error: "No changes to save." };
+      return { ok: false, error: publish ? PUBLISH_REFUSED_MESSAGE : "No changes to save." };
     }
     if (isPayerStatus(e, 409)) {
       return { ok: false, error: "This posting can no longer be edited." };
