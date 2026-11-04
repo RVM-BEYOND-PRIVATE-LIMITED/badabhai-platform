@@ -24,7 +24,7 @@ import { formatCount, formatPayBand, matchTierLabel, shortId } from "../../../li
 import { WORKER_FLAG_REASON_LABELS } from "../../../lib/admin-action-vocabulary";
 import { DetailList } from "../../../components/detail-list";
 import { PanelSection } from "../../../components/panel-section";
-import { StatusPill } from "../../../components/status-pill";
+import { StatusPill, type Tone } from "../../../components/status-pill";
 import { Timestamp } from "../../../components/timestamp";
 import { CopyId } from "../../../components/copy-id";
 import { NameCell } from "../../../components/name-cell";
@@ -605,7 +605,7 @@ function ResumePanel({ d }: { d: CandidateDetail }) {
                     {v.generation_source ? humanize(v.generation_source) : "—"}
                   </td>
                   <td>
-                    <StatusPill value={v.render_status} />{" "}
+                    <StatusPill value={v.render_status} tone={renderTone(v.render_status)} />{" "}
                     <span className="table__meta mono" title="Template">
                       {v.template_id}
                     </span>
@@ -633,13 +633,27 @@ function ResumePanel({ d }: { d: CandidateDetail }) {
   );
 }
 
+/**
+ * A resume render's tone: the pill map is the lifecycle one, where an unknown word is a warning —
+ * so a FINISHED render would read as one. Rendered is fine, failed is bad, anything else (queued,
+ * rendering) is still under way.
+ */
+function renderTone(status: string): Tone {
+  if (status === "rendered") return "ok";
+  if (status === "failed" || status === "error") return "bad";
+  return "warn";
+}
+
 // ---------------------------------------------------------------------------
 // Activity — the account: state, profile, consent, devices, flag
 // ---------------------------------------------------------------------------
 
+/** The console's quiet dash for a value the record does not hold. */
+const DASH = <span className="table__meta">—</span>;
+
 /** A timestamp, or a dash for "never". */
 function when(iso: string | null): ReactNode {
-  return iso ? <Timestamp iso={iso} /> : <span className="table__meta">—</span>;
+  return iso ? <Timestamp iso={iso} /> : DASH;
 }
 
 function ActivityPanel({ d }: { d: CandidateDetail }) {
@@ -700,7 +714,7 @@ function ActivityPanel({ d }: { d: CandidateDetail }) {
             { label: "Confirmed", value: when(acc.profile.confirmed_at) },
             {
               label: "Form level",
-              value: acc.profile.form_level ? humanize(acc.profile.form_level) : null,
+              value: acc.profile.form_level ? humanize(acc.profile.form_level) : DASH,
             },
           ]}
         />
@@ -714,10 +728,12 @@ function ActivityPanel({ d }: { d: CandidateDetail }) {
               label: "Version",
               value: acc.consent.consent_version ? (
                 <span className="mono">{acc.consent.consent_version}</span>
-              ) : null,
+              ) : (
+                DASH
+              ),
             },
             { label: "Given", value: when(acc.consent.accepted_at) },
-            { label: "Purposes", value: chips(acc.consent.purposes.map(humanize)) },
+            { label: "Purposes", value: chips(acc.consent.purposes.map(humanize)) ?? DASH },
             { label: "Shares with employers", value: yesNo(acc.consent.employer_sharing) },
           ]}
         />
@@ -731,7 +747,9 @@ function ActivityPanel({ d }: { d: CandidateDetail }) {
               label: "Latest app version",
               value: acc.devices.latest_app_version ? (
                 <span className="mono">{acc.devices.latest_app_version}</span>
-              ) : null,
+              ) : (
+                DASH
+              ),
             },
             { label: "Last seen", value: when(acc.devices.last_seen_at) },
           ]}
@@ -745,9 +763,9 @@ function ActivityPanel({ d }: { d: CandidateDetail }) {
             {
               label: "Reason",
               value: acc.flag.reason_code
-                ? (WORKER_FLAG_REASON_LABELS as Record<string, string>)[acc.flag.reason_code] ??
-                  humanize(acc.flag.reason_code)
-                : null,
+                ? ((WORKER_FLAG_REASON_LABELS as Record<string, string>)[acc.flag.reason_code] ??
+                  humanize(acc.flag.reason_code))
+                : DASH,
             },
             { label: "Flagged on", value: when(acc.flag.flagged_at) },
           ]}
