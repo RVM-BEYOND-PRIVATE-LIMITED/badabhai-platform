@@ -650,12 +650,14 @@ void main() {
 
     // #2635 — the company form's role is the TRADE, from the 16-trade
     // catalogue; the free 27-role "illustration" select and the optional free
-    // trade list are gone (a job posted with them could never go live).
-    testWidgets('company form asks for the trade from the 16-trade catalogue',
+    // trade list it fell back to are gone (a job posted with them could never
+    // go live) — even on a server whose catalogue answers nothing.
+    testWidgets('company form asks for the trade, never a free trade or role',
         (WidgetTester tester) async {
-      await pump(tester, PayerRole.company);
+      // A server whose catalogue answers nothing — where the old form fell
+      // back to both free lists.
+      await pump(tester, PayerRole.company, spy: _SpyApi());
       expect(find.text('Role'), findsOneWidget);
-      expect(find.text('— pick the role —'), findsOneWidget);
       expect(find.text('Role (card illustration)'), findsNothing);
       expect(find.text('Trade (optional)'), findsNothing);
     });
