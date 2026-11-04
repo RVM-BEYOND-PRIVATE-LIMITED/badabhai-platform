@@ -10,8 +10,7 @@ import { StatusPill } from "../../../components/status-pill";
 import { NameCell } from "../../../components/name-cell";
 import { IdentityCapNotice } from "../../../components/identity-notice";
 import { Stat } from "../../../components/stat";
-import { InviteAdminForm } from "./invite-admin-form";
-import { CreateAdminForm } from "./create-admin-form";
+import { CreateAdminDialog, InviteAdminDialog } from "./admin-access-dialogs";
 import { AdminRowActions } from "./admin-row-actions";
 import { PageHeader } from "../../../components/page-header";
 import { DataGrid, type GridColumn } from "../../../components/data-grid";
@@ -157,25 +156,16 @@ export default async function AdminsPage({
             <p>Admin emails stay encrypted and are served to no role at all.</p>
           </>
         }
-        /* The page's own actions, first, as on every other page. The forms themselves stay at
-           the foot of the page, under the directory they add to; these are the way to them.
-           Creating with a temporary password (ADR-0060 A6) is the primary one: it works with no
-           email delivery configured, which an invite link does not. */
-        primaryAction={
-          <a className="btn btn--primary" href="#ad-create">
-            <Icon name="user-plus" />
-            Create an admin
-          </a>
-        }
+        /* The page's own actions, first, as on every other page. Each opens its form in a
+           dialog (A5, #2575). Creating with a temporary password (ADR-0060 A6) is the primary
+           one: it works with no email delivery configured, which an invite link does not. */
+        primaryAction={<CreateAdminDialog mayReadEvents={mayReadEvents} />}
         /* Inviting stays, beside it. Then the way back to the audit spine: every governed admin
            action emits an `admin.action_performed`, and without this link the page states that
            fact and then offers no way to go and read them. */
         secondaryActions={
           <>
-            <a className="btn btn--ghost" href="#ad-invite">
-              <Icon name={ACTION_ICON.send} />
-              Invite an admin
-            </a>
+            <InviteAdminDialog mayReadEvents={mayReadEvents} />
             {mayReadEvents ? (
               <Link className="btn btn--ghost" href={ALL_ADMIN_ACTIONS_LINK.href}>
                 <Icon name={ACTION_ICON.timeline} />
@@ -309,12 +299,6 @@ export default async function AdminsPage({
           />
         )}
       </section>
-
-      {/* Side by side where there is room, stacked on a phone (`.cols`). */}
-      <div className="cols">
-        <CreateAdminForm mayReadEvents={mayReadEvents} />
-        <InviteAdminForm mayReadEvents={mayReadEvents} />
-      </div>
     </div>
   );
 }

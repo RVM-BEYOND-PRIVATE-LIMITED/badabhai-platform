@@ -44,8 +44,12 @@ vi.mock("../../../lib/entities", async (importOriginal) => ({
 }));
 
 // Client Components (useState / useTransition), stubbed so the page renders in this harness.
-vi.mock("./invite-admin-form", () => ({ InviteAdminForm: () => null }));
-vi.mock("./create-admin-form", () => ({ CreateAdminForm: () => null }));
+// The header's Create / Invite dialogs (A5, #2575) render their trigger buttons only — the dialog
+// itself is closed until clicked (admin-access-dialogs.render.test.tsx covers it).
+vi.mock("./admin-access-dialogs", () => ({
+  CreateAdminDialog: () => <button className="btn btn--primary">Create an admin</button>,
+  InviteAdminDialog: () => <button className="btn btn--ghost">Invite an admin</button>,
+}));
 vi.mock("./admin-row-actions", () => ({ AdminRowActions: () => null }));
 // The real row actions are rendered on their own below (`vi.importActual`); they refresh on settle.
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: () => undefined }) }));
@@ -223,14 +227,17 @@ describe("a directory read that failed", () => {
 });
 
 describe("the header (owner ruling 2026-10-01)", () => {
-  it("puts the page's own actions first: Create (primary), then Invite, to the forms at the foot", async () => {
+  it("puts the page's own actions first: Create (primary), then Invite, each opening a dialog", async () => {
     // ADR-0060 A6: creating with a temporary password works with no email delivery configured,
     // which an invite link does not — so it is the primary action, and inviting stays beside it.
     stub.capabilities = ["manage_admins", "read_events"];
     const out = await render();
     const actions = out.slice(out.indexOf('<div class="page__actions">'));
-    expect(actions).toMatch(/<a class="btn btn--primary" href="#ad-create">/);
-    expect(actions).toContain('href="#ad-invite"');
+    expect(actions).toContain('<button class="btn btn--primary">Create an admin</button>');
+    expect(actions).toContain('<button class="btn btn--ghost">Invite an admin</button>');
+    // A5 (#2575): the forms open in dialogs, not as panels at the foot the header links down to.
+    expect(out).not.toContain('href="#ad-create"');
+    expect(out).not.toContain('href="#ad-invite"');
     expect(actions.indexOf("Create an admin")).toBeLessThan(actions.indexOf("Invite an admin"));
     expect(actions.indexOf("Invite an admin")).toBeLessThan(
       actions.indexOf("View all admin actions"),

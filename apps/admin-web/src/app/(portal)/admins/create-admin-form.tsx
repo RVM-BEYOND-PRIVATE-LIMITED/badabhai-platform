@@ -9,6 +9,7 @@ import {
   AdminActionResultBanner,
 } from "../../../components/admin-action-result-banner";
 import { NewPasswordFields } from "../../../components/new-password-fields";
+import { OneTimeSecret } from "../../../components/one-time-secret";
 import { createAdminAction } from "./actions";
 import { ADMIN_ROLES, ROLE_LABELS, type AdminRole } from "../../../lib/auth/capabilities";
 import { looksLikeAdminEmail } from "../../../lib/email-shape";
@@ -18,6 +19,10 @@ import type { AdminActionOutcome } from "../../../lib/admin-action-result";
 /** The server's bound on a display name (`/admin/admins/direct`: 1..100, trimmed). */
 const NAME_MAX_CHARS = 100;
 
+/** What the create dialog says under its title. */
+export const CREATE_ADMIN_DESCRIPTION =
+  "Creates an active admin with a temporary password you share with them yourself. They must replace it at their first sign-in.";
+
 /**
  * Create an admin directly with a temporary password (ADR-0060 A6, `manage_admins`).
  *
@@ -25,13 +30,23 @@ const NAME_MAX_CHARS = 100;
  * at once, and the creator hands the temporary password over themselves. At first sign-in the
  * new admin must replace it; two-step verification starts off and is theirs to turn on.
  *
- * THE PASSWORD IS NEVER ECHOED BACK. The result banner names the new admin's id and role and
- * says how to hand over the password, but not the password: a banner is screenshotted, pasted
- * into chat and left on screen. Both password fields are cleared on success, so the value lives
- * only as long as the form needs it. "Generate" fills both fields with a policy-valid random
- * password and reveals nothing the creator would not see by pressing the field's own Show.
+ * THE PASSWORD IS SHOWN ONCE (A5, #2575). This is the body of the "Create an admin" dialog
+ * (`AdminAccessDialogs`). On success the result banner names the new admin's id and role — never
+ * the password — and the temporary password the creator set is shown once beneath it, with a copy
+ * button, so it can be handed over without retyping it (`OneTimeSecret`). Both password fields
+ * are cleared at that moment, and closing the dialog unmounts the form, so the value is gone for
+ * good: there is no way to show it a second time. "Generate" fills both fields with a
+ * policy-valid random password. `onPendingChange` lets the dialog refuse to close while the
+ * create is in flight, so the password cannot be dropped before it is shown.
  */
-export function CreateAdminForm({ mayReadEvents }: { mayReadEvents: boolean }) {
+export function CreateAdminForm({
+  mayReadEvents,
+  onPendingChange,
+}: {
+  mayReadEvents: boolean;
+  /** The create request going out (`true`) and settling (`false`) — see AdminActionButton. */
+  onPendingChange?: (pending: boolean) => void;
+}) {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
@@ -39,6 +54,7 @@ export function CreateAdminForm({ mayReadEvents }: { mayReadEvents: boolean }) {
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [outcome, setOutcome] = useState<AdminActionOutcome | null>(null);
+  const [issuedPassword, setIssuedPassword] = useState<string | null>(null);
   const ids = useId();
 
   const emailValid = looksLikeAdminEmail(email);
@@ -54,7 +70,8 @@ export function CreateAdminForm({ mayReadEvents }: { mayReadEvents: boolean }) {
   function handleSettled(o: AdminActionOutcome) {
     setOutcome(o);
     if (o.ok) {
-      router.refresh(); // the directory above gains the new row
+      router.refresh(); // the directory behind the dialog gains the new row
+      setIssuedPassword(password);
       setEmail("");
       setName("");
       setPassword("");
@@ -63,16 +80,7 @@ export function CreateAdminForm({ mayReadEvents }: { mayReadEvents: boolean }) {
   }
 
   return (
-    <section className="panel" aria-labelledby="ad-create">
-      <div className="panel__head">
-        <h2 className="panel__title" id="ad-create">
-          Create an admin
-        </h2>
-        <p className="panel__sub">
-          Creates an active admin with a temporary password you share with them yourself. They
-          must replace it at their first sign-in.
-        </p>
-      </div>
+    <>
       <form className="form" onSubmit={(e) => e.preventDefault()} noValidate>
         <div className="form-grid">
           <label className="field" htmlFor={`${ids}-email`}>
@@ -145,6 +153,7 @@ export function CreateAdminForm({ mayReadEvents }: { mayReadEvents: boolean }) {
             disabled={!ready}
             action={() => createAdminAction({ email, name, role, temporaryPassword: password })}
             onSettled={handleSettled}
+            onPendingChange={onPendingChange}
           />
         </div>
       </form>
@@ -154,6 +163,16 @@ export function CreateAdminForm({ mayReadEvents }: { mayReadEvents: boolean }) {
           eventsLink={mayReadEvents ? ALL_ADMIN_ACTIONS_LINK : null}
         />
       ) : null}
-    </section>
+      {outcome?.ok && issuedPassword ? (
+        <OneTimeSecret
+          title="Temporary password"
+          body="Shown once. Hand it to the new admin yourself; they must replace it at their first sign-in."
+          value={issuedPassword}
+          inputLabel="Temporary password for the new admin"
+          copyLabel="Copy password"
+          mono
+        />
+      ) : null}
+    </>
   );
 }
