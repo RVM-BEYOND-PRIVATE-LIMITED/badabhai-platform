@@ -46,6 +46,22 @@ body {
    matching scheme instead of an OS-dark dropdown opening inside a hard-light card. */
 :root {
   color-scheme: light dark;
+  /* A1 (#2571) — the console's layout rails, composed from existing tokens.
+     --admin-gutter: the ONE inline gutter the topbar and the content share (32px on desktop,
+     stepped down below 1024px in the responsive block), so the crumb and the page title start
+     on the same line. --admin-reading-max: the 1200px cap of a READING page (`.page--reading`);
+     a data page is fluid. Not --content-max: the token layer re-points that one to 1440px.
+     --admin-btn-h: the console button, 40px (--space-8) — the dense register the 14px UI is
+     written in; a touch screen still gets 44px (the touch block). */
+  --admin-gutter: var(--space-7);
+  --admin-reading-max: 75rem;
+  --admin-btn-h: var(--space-8);
+}
+
+/* A1 (#2571) — the scrollbar's space is reserved whether or not the page scrolls, so a short
+   page and a long one lay out at the same width and nothing jumps sideways between routes. */
+html {
+  scrollbar-gutter: stable;
 }
 
 body {
@@ -135,18 +151,24 @@ h3 {
   align-items: center;
   justify-content: center;
   gap: var(--icon-gap);
-  min-height: var(--control-md);
+  /* A1 (#2571) — 14px/600 at 40px, the console's own register (it was 18px inside a 14px UI). */
+  min-height: var(--admin-btn-h);
   padding: 0 var(--space-5);
   border-radius: var(--radius-md);
   border: var(--border-hairline) solid transparent;
   font-family: var(--font-sans);
-  font-size: var(--text-md);
+  font-size: var(--ui-body-size);
   font-weight: var(--weight-semibold);
   cursor: pointer;
   transition: var(--transition-control);
 }
+/* A1 (#2571) — DISABLED is the 40% Shift Blue tint with a Shift Blue label, not a faded copy of
+   the live button (opacity .55 washed the label out with the fill). The label measures ~6.7:1 on
+   the tint over a white card. (0,2,0) beats every variant's single-class fill. */
 .btn:disabled {
-  opacity: 0.55;
+  background: var(--color-brand-primary-40);
+  color: var(--text-on-brand);
+  border-color: transparent;
   cursor: not-allowed;
 }
 .btn--primary {
@@ -650,7 +672,8 @@ details[open] > summary > .disclosure__caret {
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  padding: var(--space-3) var(--space-5);
+  /* A1 (#2571) — on the content's own gutter, so the crumb lines up with the page title. */
+  padding: var(--space-3) var(--admin-gutter);
   border-bottom: var(--border-hairline) solid var(--divider);
   background: var(--surface-card);
   position: sticky;
@@ -674,15 +697,14 @@ details[open] > summary > .disclosure__caret {
   padding: 0;
 }
 
-/* UI-1 — `max-width` with no auto inline margin meant the console hugged the sidebar and
-   grew an ever-widening empty gutter on the right above ~1440px. Centring the rail inside
-   the main column is the whole fix; the fluid gutter keeps the edges proportional instead
-   of leaving a fixed 20px rim on a 27" display. */
+/* A1 (#2571) — a DATA page is fluid: the content fills the main column at one 32px gutter
+   (--admin-gutter, shared with the topbar). The old centred 1440px cap left ~400px of dead
+   space at 1920 and moved the page's left edge with the window. A READING page caps itself at
+   1200px (`.page--reading`, below) and stays on the same left edge, so moving between a data
+   page and a reading page never shifts the content sideways. */
 .content {
-  padding: var(--space-7) var(--gutter-web);
-  max-width: var(--content-max);
+  padding: var(--space-7) var(--admin-gutter);
   width: 100%;
-  margin-inline: auto;
 }
 
 /* ---- page furniture ------------------------------------------------------ */
@@ -691,6 +713,12 @@ details[open] > summary > .disclosure__caret {
   display: flex;
   flex-direction: column;
   gap: var(--space-6);
+}
+/* A reading page — a detail record or a settings form, read top to bottom rather than scanned
+   across — is capped at 1200px so its lines and key/value rows stay at a reading width on a
+   wide screen. Start-aligned: the left edge is every page's left edge. */
+.page--reading {
+  max-inline-size: var(--admin-reading-max);
 }
 .page__head {
   display: flex;
@@ -747,6 +775,25 @@ details[open] > summary > .disclosure__caret {
   color: var(--text-secondary);
   font-size: var(--text-sm);
   max-width: 60ch;
+}
+/* A1 (#2571) — a panel's SUB-SECTIONS (components/panel-section.tsx): 24px apart, each after
+   the first opened by a hairline divider, so a panel holding several blocks reads as one card
+   with parts rather than as blocks that happen to share a border. */
+.panel__section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.panel__section + .panel__section {
+  margin-block-start: var(--space-6);
+  padding-block-start: var(--space-6);
+  border-block-start: var(--border-hairline) solid var(--divider);
+}
+.panel__section-title {
+  font-size: var(--ui-h3-size);
+  line-height: var(--ui-h3-leading);
+  font-weight: var(--ui-h3-weight);
+  letter-spacing: var(--ui-h3-tracking);
 }
 
 .caplist {
@@ -925,6 +972,11 @@ details[open] > summary > .disclosure__caret {
 /* ---- responsive ---------------------------------------------------------- */
 
 @media (max-width: 1023px) {
+  /* A1 (#2571) — the shared gutter steps down to 16px for the drawer layout (topbar and content
+     together, so they stay aligned). */
+  :root {
+    --admin-gutter: var(--space-4);
+  }
   /* PR-D1 — below 1024px the drawer toggle is the only way to reach the navigation, and it
      is reached by touch on tablets as well as phones, so it takes the 44px target here rather
      than only at phone width. The bar's block padding steps down with it so a 44px button
@@ -976,7 +1028,71 @@ details[open] > summary > .disclosure__caret {
     cursor: pointer;
   }
   .content {
-    padding: var(--space-6) var(--space-4);
+    padding: var(--space-6) var(--admin-gutter);
+  }
+}
+
+/* A1 (#2571) — COLLAPSIBLE ICON RAIL, 1024–1439px. At these widths the 264px sidebar took a fifth
+   of the screen from the tables, so it rests as the --shell-nav-w-collapsed (76px) icon rail and
+   expands to its full width while a pointer is over it or keyboard focus is inside it.
+   - It expands OVER the page, never pushing it: the negative inline-end margin keeps its flex
+     footprint at the rail's width, so the content never moves when the rail opens or closes.
+   - Labels, group titles and the footer text fade (opacity) and stay in the accessibility tree,
+     so every link keeps its accessible name; the overflow is clipped while narrow.
+   - Motion: width over --duration-base (220ms) ease-out. Closing, the labels fade out first and
+     the width follows after --duration-fade; opening, the width goes first and the labels fade
+     in after it. Under reduced motion the width change is instant.
+   Keyboard: `:has(:focus-visible)`, not `:focus-within`, so a mouse click on a rail link does not
+   hold the rail open over the next page.
+   Hover-capable devices only: a tap neither hovers nor sets focus-visible, so on a touch tablet
+   or touch laptop at these widths the rail could never open — they keep the full sidebar. */
+@media (min-width: 1024px) and (max-width: 1439px) and (hover: hover) {
+  .sidebar {
+    flex: none;
+    width: var(--shell-nav-w-collapsed);
+    margin-inline-end: 0;
+    overflow-x: hidden;
+    z-index: var(--z-nav);
+    transition:
+      width var(--duration-base) var(--ease-out) var(--duration-fade),
+      margin-inline-end var(--duration-base) var(--ease-out) var(--duration-fade);
+  }
+  .sidebar:has(:focus-visible) {
+    width: var(--shell-nav-w);
+    margin-inline-end: calc(var(--shell-nav-w-collapsed) - var(--shell-nav-w));
+    transition:
+      width var(--duration-base) var(--ease-out),
+      margin-inline-end var(--duration-base) var(--ease-out);
+  }
+  .sidebar :is(.sidebar__label, .sidebar__grouptitle, .sidebar__soon, .bb-lockup__text, .whoami),
+  .sidebar__foot .btn > span {
+    opacity: 0;
+    white-space: nowrap;
+    transition: opacity var(--duration-fade) var(--ease-exit);
+  }
+  .sidebar:has(:focus-visible)
+    :is(.sidebar__label, .sidebar__grouptitle, .sidebar__soon, .bb-lockup__text, .whoami),
+  .sidebar:has(:focus-visible) .sidebar__foot .btn > span {
+    opacity: 1;
+    transition: opacity var(--duration-fade) var(--ease-enter) var(--duration-base);
+  }
+  /* Sign out keeps its glyph on the rail's icon column instead of centring a clipped label. */
+  .sidebar__foot .btn {
+    justify-content: flex-start;
+    padding-inline: var(--space-3);
+    white-space: nowrap;
+  }
+  .sidebar:hover {
+    width: var(--shell-nav-w);
+    margin-inline-end: calc(var(--shell-nav-w-collapsed) - var(--shell-nav-w));
+    transition:
+      width var(--duration-base) var(--ease-out),
+      margin-inline-end var(--duration-base) var(--ease-out);
+  }
+  .sidebar:hover :is(.sidebar__label, .sidebar__grouptitle, .sidebar__soon, .bb-lockup__text, .whoami),
+  .sidebar:hover .sidebar__foot .btn > span {
+    opacity: 1;
+    transition: opacity var(--duration-fade) var(--ease-enter) var(--duration-base);
   }
 }
 
@@ -1011,26 +1127,19 @@ details[open] > summary > .disclosure__caret {
   align-items: start;
 }
 
-/* PR-D1 — stat tiles sit in wrapping FLEX rows, not a grid. Each tile starts at an 11rem basis,
-   grows to share its row, and never shrinks below its own content minimum — which, for a ₹
-   value (`nowrap`, see `.stat--wide .stat__value`) or a count (no break opportunity inside
-   "1,23,456"), is the whole unbroken figure. Two things follow, both measured over every stat
-   grid at 320–1440px:
-     - a figure never splits and never overflows its tile: the tile widens to fit it instead;
-     - a row always fills: a lone last tile takes the row rather than stranding half-width
-       beside empty tracks.
-   A grid could do neither. Its fixed track minimum let a ₹ figure overflow or wrap between
-   digits, and every way of widening a ₹ tile (a full-row span, `span 2` behind a container
-   query) occupied the tracks `auto-fit` would otherwise collapse, stranding a sibling tile or
-   narrowing the counts until "1,23,456" split. The price: tiles in different rows no longer
-   line up in columns. */
+/* A1 (#2571) — stat tiles sit on ONE GRID: every `.stats` row, compact or not, lays its tiles
+   on the same auto-fill tracks at the shared --stat-min, with the same gap. Two rows in one
+   container therefore share their columns — the discovery metrics' 4-tile and 5-tile rows used to
+   size each tile to its own row (flex), so the columns of the two rows never lined up. `auto-fill`
+   (not `auto-fit`) keeps empty tracks, so a short row does not stretch its tiles wider than the
+   row above. The track minimum is capped at the container (`min(…, 100%)`), so a narrow column or
+   a phone drops to one tile per row instead of overflowing.
+
+   No tile is ever placed with a span: every span tried stranded a sibling tile (PR-D1). */
 .stats {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(var(--stat-min), 100%), 1fr));
   gap: var(--space-4);
-}
-.stats > .stat {
-  flex: 1 1 11rem;
 }
 .stat {
   background: var(--surface-card);
@@ -1054,27 +1163,35 @@ details[open] > summary > .disclosure__caret {
   color: var(--text-secondary);
 }
 .stat__value {
-  font-family: var(--font-mono);
+  /* A1 (#2571) — a KPI is a NUMBER, set in the UI face (Inter) with tabular figures (the type
+     role below); the mono face is for ids and codes only (`.mono`, e.g. the stuck panel's
+     question key). It fades in once as the tile mounts; a refresh re-renders the same node, so
+     the figure does not flash again. */
+  font-family: var(--font-sans);
+  animation: stat-value-in var(--duration-fade) var(--ease-enter) both;
   font-size: var(--text-xl);
   font-weight: var(--weight-bold);
   line-height: 1.1;
-  /* Inert for LAYOUT inside a `.stats` row (every tile today): `break-word` does not lower a
-     flex item's min-content, so in a row a tile widens to its unbroken figure rather than
-     wrapping it — a count or a ₹ value never splits. Kept, with `word-break: normal`, because
-     both override an inherited `overflow-wrap: anywhere` / `word-break: break-all` from any
-     ancestor (either would split "1,23,456"), and for a tile placed outside a row.
-     The trade-off: a figure wider than the whole row widens the TILE (fill and border) past the
-     row and scrolls the page sideways. AI spend is `numeric(16,6)` and prints every place
-     (`formatExactRupees`), so a ₹12-crore six-place total does that at 320px (measured);
-     realistic amounts (to ₹9,99,999.999999, and ₹99,99,999 for credits) fit at every width from
-     320px. A ₹ value (`Stat wide`) is also `nowrap` (see `.stat--wide .stat__value`): a money
-     figure split between digits reads as two numbers. */
+  /* `break-word` never splits a count ("1,23,456" has no break opportunity it would use), and
+     with `word-break: normal` both override an inherited `overflow-wrap: anywhere` /
+     `word-break: break-all` from any ancestor (either would split "1,23,456"). A ₹ value
+     (`Stat wide`) is also `nowrap` (see `.stat--wide .stat__value`): a money figure split
+     between digits reads as two numbers. On the A1 grid a tile is at least --stat-min wide
+     (or the whole row, below that), which holds realistic ₹ figures at the 22px step. */
   overflow-wrap: break-word;
   word-break: normal;
 }
 .stat__label {
   font-size: var(--text-sm);
   color: var(--text-secondary);
+}
+@keyframes stat-value-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 .funnel,
@@ -1105,7 +1222,9 @@ details[open] > summary > .disclosure__caret {
   gap: var(--space-4);
 }
 .funnel__distinct {
-  font-family: var(--font-mono);
+  /* A1 (#2571) — a count or ₹ figure is a KPI number: UI face with tabular figures, not mono. */
+  font-family: var(--font-sans);
+  font-variant-numeric: tabular-nums;
   font-weight: var(--weight-bold);
 }
 /* A withheld statistic must not look like a measured one. Italic + muted + a dotted
@@ -1274,6 +1393,10 @@ details[open] > summary > .disclosure__caret {
 .table tbody tr:last-child th {
   border-bottom: 0;
 }
+/* A1 (#2571) — every hover state eases in over --duration-fast (140ms); nothing else moves. */
+.table tbody tr {
+  transition: background-color var(--duration-fast) var(--ease-out);
+}
 .table tbody tr:hover {
   background: var(--surface-sunken);
 }
@@ -1297,10 +1420,14 @@ details[open] > summary > .disclosure__caret {
 }
 .link {
   color: var(--text-link);
-  text-decoration: none;
+  /* The underline is always laid out and only its colour changes on hover, so the hover can
+     ease in (A1, #2571) — a `none` → `underline` switch cannot transition. */
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  transition: text-decoration-color var(--duration-fast) var(--ease-out);
 }
 .link:hover {
-  text-decoration: underline;
+  text-decoration-color: currentColor;
 }
 /* A text link with a glyph before its label (the AI calls "View"): the glyph sits on the text's
    centre line at the shared gap, sized for the dense row, coloured by the link. */
@@ -1384,8 +1511,8 @@ details[open] > summary > .disclosure__caret {
   flex: 0 0 auto;
 }
 
-/* `.stats` used to collapse to one column here as well; the flex stat rows and the phone tier
-   at the end of this file own that now (two tiles per row at 375px, one at 320px). The single
+/* `.stats` used to collapse to one column here as well; the shared --stat-min grid owns that
+   now (one tile per row wherever two tracks do not fit). The single
    column is `minmax(0, 1fr)`, not `1fr`: a bare `1fr` keeps an `auto` minimum, so one long unbroken
    value (a select's widest option, an id) could still widen the track past the viewport. */
 @media (max-width: 560px) {
@@ -1427,10 +1554,12 @@ details[open] > summary > .disclosure__caret {
   font-size: var(--ui-body-sm-size);
   font-weight: var(--weight-semibold);
   line-height: var(--leading-snug);
-  text-decoration: none;
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  transition: text-decoration-color var(--duration-fast) var(--ease-out);
 }
 .backlink:hover {
-  text-decoration: underline;
+  text-decoration-color: currentColor;
 }
 .backlink .ph-fill {
   font-size: var(--icon-size-sm);
@@ -1442,16 +1571,8 @@ details[open] > summary > .disclosure__caret {
   flex-wrap: wrap;
 }
 
-/* Denser stat rows for detail sidebars, where four tiles share a narrow column. The smaller
-   basis only changes how many tiles START on a row; a ₹ tile still widens to its figure (the
-   session-spend tile holds ₹0.472316 in a 3-up row at 1280px, where a 7.5rem grid track ran it
-   through the tile's padding). */
-.stats--compact {
-  gap: var(--space-3);
-}
-.stats--compact > .stat {
-  flex-basis: 7.5rem;
-}
+/* Denser stat tiles for detail panels: tighter padding only. The TRACKS and the GAP stay the
+   `.stats` grid's (A1, #2571), so a compact row under a regular one shares its columns. */
 .stats--compact .stat {
   padding: var(--space-4);
 }
@@ -1638,6 +1759,7 @@ details[open] > summary > .disclosure__caret {
   min-inline-size: 9rem;
   background: var(--surface-card);
   box-shadow: inset calc(-1 * var(--border-hairline)) 0 0 var(--divider);
+  transition: background-color var(--duration-fast) var(--ease-out);
 }
 .table--matrix tbody tr:hover .table__rowhead {
   background: var(--surface-sunken);
@@ -1760,10 +1882,12 @@ details[open] > summary > .disclosure__caret {
 .crumb__link {
   color: var(--text-link);
   font-weight: var(--weight-semibold);
-  text-decoration: none;
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  transition: text-decoration-color var(--duration-fast) var(--ease-out);
 }
 .crumb__link:hover {
-  text-decoration: underline;
+  text-decoration-color: currentColor;
 }
 .crumb__step {
   display: inline-flex;
@@ -1843,9 +1967,7 @@ details[open] > summary > .disclosure__caret {
 /* PR-D1 — a WIDE value is a ₹ figure (`Stat wide`), and a money figure never breaks between
    digits at any width: "₹1,23,45,678" split over two lines reads as two numbers. So it stays on
    one line (`nowrap`), at the 22px KPI step everywhere — the 30px step is what made it too long
-   for an 11rem desktop tile in the first place. The unbroken figure is then the tile's minimum
-   width in the flex `.stats` row, so the tile widens to hold it (on a phone, to a row of its
-   own) instead of the figure spilling. An ABSENT value is a sentence, not a figure, and keeps
+   for an 11rem desktop tile in the first place. An ABSENT value is a sentence, not a figure, and keeps
    the wrapping sans rule above — hence the `:not()`. (0,3,0) beats the KPI role and the phone
    tier's (0,2,0) step wherever it sits.
 
@@ -2485,6 +2607,11 @@ textarea.field__input {
   .sidebar__link {
     min-height: var(--control-md);
   }
+  /* A1 (#2571) — the console button is drawn at 40px for a mouse; a finger keeps the 44px it had.
+     `:not(.btn--sm)`: a small button keeps its 36px drawing and grows its hit strip below. */
+  .btn:not(.btn--sm) {
+    min-height: var(--control-md);
+  }
   .btn--sm {
     position: relative;
     isolation: isolate;
@@ -2667,7 +2794,7 @@ textarea.field__input {
   /* Rhythm — every outer spacing steps down one notch, none to zero. The inline gutter stays
      at the <1024px value (16px) so a table keeps as much width as the viewport allows. */
   .content {
-    padding: var(--space-5) var(--space-4);
+    padding: var(--space-5) var(--admin-gutter);
   }
   .page {
     gap: var(--space-5);
@@ -2696,7 +2823,7 @@ textarea.field__input {
      too. */
   .topbar {
     gap: var(--space-2);
-    padding-inline: var(--space-4);
+    padding-inline: var(--admin-gutter);
   }
   /* Several crumbs plus the role pill truncated every segment to a few letters. The group name
      goes first once a section follows it — the drawer names it — so the linked section stays
@@ -2716,20 +2843,15 @@ textarea.field__input {
     overflow-wrap: anywhere;
   }
 
-  /* Stat rows — two tiles start per row at 375px, three near 600px, one on a 320px phone where
-     two 9rem bases no longer fit. Both variants take the same basis: at phone width the compact
-     one has no narrower column to fit into. A ₹ tile needs more than half a phone row for
-     "₹2,145.382716" or "₹1,23,45,678", so its unbroken figure (the tile's minimum width)
-     already gives it a row of its own — no placement rule is needed for that. */
+  /* Stat rows keep the shared --stat-min grid (A1, #2571): below two tracks' width a phone
+     shows one tile per row, so a ₹ figure ("₹2,145.382716", "₹1,23,45,678") always has the
+     whole row. Only the gap tightens. */
   .stats {
     gap: var(--space-3);
   }
   /* The discovery metrics' two tile rows stay one grid: row gap = tile gap. */
   .queue-metrics {
     gap: var(--space-3);
-  }
-  .stats > .stat {
-    flex-basis: 9rem;
   }
   .stat {
     padding: var(--space-4);

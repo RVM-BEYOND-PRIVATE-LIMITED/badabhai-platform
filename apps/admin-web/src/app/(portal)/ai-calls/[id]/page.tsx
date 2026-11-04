@@ -113,7 +113,7 @@ export default async function AiCallDetailPage({
   const reply = aiTraceHalf(trace.response, trace.response_chars);
 
   return (
-    <div className="page">
+    <div className="page page--reading">
       <PageHeader
         back={{ href: "/ai-calls", label: "AI calls" }}
         title={taskTypeLabel(trace.task_type)}
@@ -369,7 +369,7 @@ function Frame({
   back?: boolean;
 }) {
   return (
-    <div className="page">
+    <div className="page page--reading">
       <PageHeader
         back={back ? { href: "/ai-calls", label: "AI calls" } : undefined}
         title="AI call"

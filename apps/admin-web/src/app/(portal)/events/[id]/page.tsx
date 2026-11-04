@@ -52,7 +52,7 @@ export default async function EventDetailPage({
       : null;
 
   return (
-    <div className="page">
+    <div className="page page--reading">
       <PageHeader
         back={{ href: "/events", label: "Events" }}
         title={humanizeEventName(event.event_name)}

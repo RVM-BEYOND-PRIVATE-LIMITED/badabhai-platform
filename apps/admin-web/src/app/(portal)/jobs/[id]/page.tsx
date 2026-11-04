@@ -101,7 +101,7 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
   };
 
   return (
-    <div className="page">
+    <div className="page page--reading">
       <JobDetailHeader
         header={header}
         jobId={job.id}

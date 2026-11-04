@@ -85,7 +85,7 @@ export function PayerDetailView({
   };
 
   return (
-    <div className="page">
+    <div className="page page--reading">
       <PayerDetailHeader
         header={header}
         payerId={payer.id}

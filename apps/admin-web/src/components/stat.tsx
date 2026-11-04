@@ -26,10 +26,10 @@ import type { ReactNode } from "react";
  * is a slot beside the figure, not a second value: the figure itself stays a string.
  *
  * `wide` is for a figure that must never break mid-number — a ₹ amount. At every width its
- * value stays on one line at the 22px KPI step (the 30px step is too long for a desktop tile),
- * and because `.stats` rows are flex, that unbroken figure is the tile's minimum width: the
- * tile widens to hold it — on a phone, to a row of its own — rather than the figure wrapping
- * or spilling. Split between digits, a figure reads as two numbers.
+ * value stays on one line at the 22px KPI step (the 30px step is too long for a desktop tile).
+ * On the shared `.stats` grid (A1, #2571) a tile is at least --stat-min wide — on a phone, the
+ * whole row — which holds a realistic ₹ figure on that one line. Split between digits, a figure
+ * reads as two numbers.
  */
 export function Stat({
   label,

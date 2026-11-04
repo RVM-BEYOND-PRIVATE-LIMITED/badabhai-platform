@@ -33,7 +33,7 @@ export default async function AccountPage() {
   }
 
   return (
-    <div className="page">
+    <div className="page page--reading">
       <PageHeader
         title="Account"
         description="How you sign in to this portal: your password and two-step verification."

@@ -55,7 +55,7 @@ export default async function AgencyJobDetailPage({
     vocabulary?.skills.find((s) => s.skill_id === id)?.label ?? null;
 
   return (
-    <div className="page">
+    <div className="page page--reading">
       <PageHeader
         back={{ href: "/agency-jobs", label: "Agency match skills" }}
         title={job.title}

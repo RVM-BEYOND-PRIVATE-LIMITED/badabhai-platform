@@ -92,7 +92,7 @@ export default async function WorkerDetailPage({
   };
 
   return (
-    <div className="page">
+    <div className="page page--reading">
       <WorkerDetailHeader
         header={header}
         workerId={worker.id}
