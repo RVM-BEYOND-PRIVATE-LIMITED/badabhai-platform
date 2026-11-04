@@ -1052,6 +1052,23 @@ describe("Middle-Way required close (P3a) — the settled slots end the intervie
     expect(decision.completionReason).toBe("required_complete");
   });
 
+  it("foundry / forging closes on its Easy 5 too (Phase 2 #11) — process/metal/salary optional", () => {
+    const foundry: EnginePacks = {
+      occupation: pack("qp_foundry_forging", []),
+      universal: pack("pk_universal", []),
+    };
+    const easy5 = settledAnswers([
+      "primary_trade",
+      "foundry_experience",
+      "foundry_level",
+      "current_city",
+      "availability",
+    ]);
+    const decision = nextQuestion(state({ answers: easy5 }), foundry);
+    expect(decision.kind).toBe("close");
+    expect(decision.completionReason).toBe("required_complete");
+  });
+
   it("injection moulding closes on its Easy 5 too (Phase 2 #9) — brand/tonnage/salary optional", () => {
     const imm: EnginePacks = {
       occupation: pack("qp_injection_moulding", []),
@@ -1220,6 +1237,8 @@ describe("Middle-Way stop rule (P3b) — 14-turn focus, 20-turn stop, optional o
     expect(isMiddleWayPack("qp_injection_moulding")).toBe(true);
     // Phase 2 #10: the new production-supervisor pack is Middle-Way from v1.
     expect(isMiddleWayPack("qp_production_supervisor")).toBe(true);
+    // Phase 2 #11: the new foundry / forging pack is Middle-Way from v1.
+    expect(isMiddleWayPack("qp_foundry_forging")).toBe(true);
     expect(isMiddleWayPack(null)).toBe(false);
   });
 

@@ -4139,6 +4139,79 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
       },
     ],
   },
+  // ══ PHASE 2 #11 — FOUNDRY / FORGING OPERATOR (CEO Launch Plan Pack v1, sheet 19) ══
+  //
+  // A NEW TRADE WITH NO RATIFIED PAGE: sheet 19's headline ("Foundry/Forging Operator · Skilled ·
+  // 7 years · HPDC + sand · Aluminium · Naroda · 15 days") is the parity reference. The processes
+  // lead, then the metals; the equipment is labelled Equipment so it prints on the Machines line.
+  // Every `values` key is the STORED value.
+  {
+    pack_id: "qp_foundry_forging",
+    section_title: "Foundry / forging, processes & capability",
+    tier_section_titles: { easy: "Processes" },
+    capability: [
+      {
+        from: "foundry_process",
+        rank: 21,
+        inHeadline: true,
+        maxValues: 3,
+        label: "Processes",
+        kind: "chips",
+        values: {
+          sand_moulding: "Sand moulding",
+          shell_moulding: "Shell moulding",
+          die_casting: "Die casting (HPDC/GDC)",
+          investment_casting: "Investment casting",
+          hammer_forging: "Hammer forging",
+          press_forging: "Press forging",
+          upset_forging: "Upset forging",
+          melting: "Melting",
+          fettling: "Fettling",
+          core_making: "Core making",
+        },
+      },
+      {
+        from: "foundry_material",
+        rank: 22,
+        inHeadline: true,
+        maxValues: 3,
+        label: "Metals",
+        kind: "chips",
+        values: {
+          cast_iron: "Cast iron",
+          sg_iron: "SG iron",
+          aluminium: "Aluminium",
+          steel: "Steel",
+          brass_bronze: "Brass / bronze",
+          alloy_steel_forging: "Alloy steel forging",
+        },
+      },
+      {
+        from: "foundry_equipment",
+        rank: 41,
+        label: "Equipment",
+        kind: "chips",
+        values: {
+          induction_furnace: "Induction furnace",
+          cupola: "Cupola",
+          hpdc_machine: "HPDC machine",
+          forging_hammer: "Forging hammer",
+          forging_press: "Forging press",
+        },
+      },
+      {
+        from: "foundry_testing",
+        rank: 42,
+        label: "Testing",
+        kind: "chips",
+        values: {
+          spectro: "Spectro (chemistry)",
+          hardness: "Hardness testing",
+          dimensional: "Dimensional check",
+        },
+      },
+    ],
+  },
 ];
 
 export function tradeResumeMapFor(packId: string | null | undefined): TradeResumeMap | undefined {

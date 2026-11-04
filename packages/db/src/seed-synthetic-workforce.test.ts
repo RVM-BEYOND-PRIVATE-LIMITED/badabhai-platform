@@ -30,6 +30,7 @@ describe("seed-synthetic-workforce — the cohort definition", () => {
         "mskill_cad_designer_3d",
         "mskill_designer",
         "mskill_edm_wirecut_operator",
+        "mskill_foundry_forging_operator",
         "mskill_heat_treatment_tech",
         "mskill_imm_operator",
         "mskill_interior_designer",

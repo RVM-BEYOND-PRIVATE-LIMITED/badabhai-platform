@@ -1622,3 +1622,38 @@ describe("Phase 2 #10 production supervisor — rungs and capture (CEO Launch Pl
     },
   );
 });
+
+describe("Phase 2 #11 foundry / forging — rungs and capture (CEO Launch Plan Pack v1, sheet 19)", () => {
+  // Formless (chat-only, like heat treatment): no form route to pin.
+  const foundryLevel = loadItem("qp_foundry_forging.json", "foundry_level");
+  it.each([
+    ["Helper/Trainee", "trainee"],
+    ["Operator", "operator"],
+    ["Skilled", "skilled"],
+    ["Senior", "senior"],
+    ["Supervisor", "supervisor"],
+  ])("foundry_level: %s → %s", (text, expected) => {
+    expect(matchOptions(foundryLevel as never, text as string)).toEqual([expected]);
+  });
+
+  it.each([
+    ["qp_foundry_forging.json", "foundry_process", "Sand moulding", "sand_moulding"],
+    ["qp_foundry_forging.json", "foundry_process", "Die casting (HPDC/GDC)", "die_casting"],
+    ["qp_foundry_forging.json", "foundry_process", "Hammer forging", "hammer_forging"],
+    ["qp_foundry_forging.json", "foundry_process", "Core making", "core_making"],
+    ["qp_foundry_forging.json", "foundry_material", "SG iron", "sg_iron"],
+    ["qp_foundry_forging.json", "foundry_material", "Aluminium", "aluminium"],
+    ["qp_foundry_forging.json", "foundry_equipment", "Cupola", "cupola"],
+    ["qp_foundry_forging.json", "foundry_equipment", "HPDC machine", "hpdc_machine"],
+    ["qp_foundry_forging.json", "foundry_testing", "Spectro (chemistry)", "spectro"],
+    ["qp_foundry_forging.json", "foundry_skilled_confirm", "Haan, khud karta hoon", "self"],
+    ["qp_foundry_forging.json", "foundry_skilled_confirm", "Nahi, koi aur karta hai", "other"],
+  ] as ReadonlyArray<readonly [string, string, string, string | null]>)(
+    "%s %s: %s → %s",
+    (packFile, questionKey, text, expected) => {
+      expect(capturedOption(packFile, questionKey, text)).toEqual(
+        expected === null ? [] : [expected],
+      );
+    },
+  );
+});

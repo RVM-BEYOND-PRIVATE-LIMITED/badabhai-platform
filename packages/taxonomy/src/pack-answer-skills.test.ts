@@ -68,6 +68,8 @@ describe("pack-answer bridge — every id rides an existing bridge or is a pack-
       "mskill_conventional_machinist",
       // Phase 2 #7: the new EDM trade's own ID.
       "mskill_edm_wirecut_operator",
+      // Phase 2 #11: the new foundry / forging trade's own ID.
+      "mskill_foundry_forging_operator",
       // Phase 2 #8: the new heat-treatment trade's own ID.
       "mskill_heat_treatment_tech",
       // Phase 2 #9: the new injection-moulding trade's own ID.
@@ -161,6 +163,8 @@ describe("the reachable set per pack — pinned exactly", () => {
     qp_edm_wirecut: ["mskill_edm_wirecut_operator"],
     // Phase 2 #8: a named heat-treatment process reaches the new trade.
     qp_heat_treatment: ["mskill_heat_treatment_tech"],
+    // Phase 2 #11: a named casting or forging process reaches the new trade.
+    qp_foundry_forging: ["mskill_foundry_forging_operator"],
     // Phase 2 #9: a named moulding-machine brand reaches the new trade.
     qp_injection_moulding: ["mskill_imm_operator"],
     // Phase 2 #10: a named production department reaches the new trade.

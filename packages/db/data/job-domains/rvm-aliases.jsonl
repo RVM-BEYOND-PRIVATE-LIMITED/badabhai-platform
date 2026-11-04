@@ -1180,3 +1180,39 @@
 # Fitter-Mechanical, which goes to Maintenance Technician in the same change) to Bench Fitter,
 # where "फिटर" and "bench fitter" already are. The 0101 row is retired, not deleted.
 {"kind":"alias","job_domain_id":"jd_nco_7233_0200","text":"fitter","lang":"en"}
+# PHASE 2 #11 (CEO Launch Plan Pack v1, sheet 19 "Words"): Foundry / Forging. Spread over the
+# codes so each chip reads as its own shop: 7211.0201 "casting", 7211.0500 "core maker",
+# 8121.3801 "cupola" (the melt shop), 8121.3301 "fettling", 8121.4201 "hpdc", 7221.0301
+# "forging", 7221.0300 "power hammer". Before this, "die casting" reached street sales, "shell
+# moulding" tailoring, "core making" 3D CAD, "cupola" a cobbler and "power hammer" masonry.
+# NOT rows: bare "moulding" (plastics first), bare "hammer" (every trade's tool), bare "upset",
+# "trimming", "spectro", "sg iron" (capture chips), "gdc" (3 letters; "gravity die casting" is
+# the row), bare "furnace" (stays on 8121.0300), "toshiba machine" (a brand: a role term).
+{"kind":"alias","job_domain_id":"jd_nco_7211_0201","text":"foundry","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7211_0201","text":"casting","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7211_0201","text":"sand casting","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7211_0201","text":"sand moulding","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7211_0201","text":"shell moulding","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7211_0201","text":"investment casting","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7211_0201","text":"ci casting","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7211_0201","text":"aluminium casting","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7211_0201","text":"rajkot casting","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7211_0201","text":"फाउंड्री","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7211_0500","text":"core maker","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7211_0500","text":"core making","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8121_3801","text":"cupola","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8121_3801","text":"melting","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8121_3801","text":"pouring","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8121_3801","text":"induction furnace","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8121_3301","text":"fettling","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8121_4201","text":"hpdc","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8121_4201","text":"die casting","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8121_4201","text":"pressure die casting","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8121_4201","text":"gravity die casting","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7221_0301","text":"forging","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7221_0301","text":"hot forging","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7221_0301","text":"press forging","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7221_0301","text":"upset forging","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7221_0301","text":"फोर्जिंग","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7221_0300","text":"power hammer","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7221_0300","text":"hammer forging","lang":"en"}

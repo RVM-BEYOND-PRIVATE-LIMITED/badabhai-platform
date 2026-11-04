@@ -947,6 +947,21 @@ const QUESTION_TTS_TEXT: Readonly<Record<string, string>> = {
   "Moulding machine pe kaunsa kaam khud karte hain?": "मोल्डिंग मशीन पे कौनसा काम खुद करते हैं?",
   "Kaunse defect khud theek kar lete hain?": "कौनसे डिफेक्ट खुद ठीक कर लेते हैं?",
   "Moulding ka course ya training kahan se kiya?": "मोल्डिंग का कोर्स या ट्रेनिंग कहाँ से किया?",
+  // --- qp_foundry_forging@1 (Phase 2 #11, a new trade) — prompts and retries. "HPDC" and "GDC"
+  // stay Latin (spelled letter by letter); "foundry" and "forging" are Devanagari. The level
+  // retry, the tenure and level whys and the testing prompt are shared and twinned above.
+  "Foundry ya forging ka kitna tajurba hai?": "फाउंड्री या फोर्जिंग का कितना तजुर्बा है?",
+  "Lagbhag kitne saal foundry ya forging ka kaam kiya hai?":
+    "लगभग कितने साल फाउंड्री या फोर्जिंग का काम किया है?",
+  "Foundry ya forging shop me aap kis level par kaam karte hain?":
+    "फाउंड्री या फोर्जिंग शॉप में आप किस लेवल पर काम करते हैं?",
+  "Process setting (pattern/die/melt) aap khud karte ho?":
+    "प्रोसेस सेटिंग, पैटर्न, डाई या मेल्ट, आप खुद करते हो?",
+  "Foundry ya forging me kaunsa kaam karte hain?": "फाउंड्री या फोर्जिंग में कौनसा काम करते हैं?",
+  "Moulding, die casting ya forging, kaunsa kaam karte hain?":
+    "मोल्डिंग, डाई कास्टिंग या फोर्जिंग, कौनसा काम करते हैं?",
+  "Kaunse metal ka kaam kiya hai?": "कौनसे मेटल का काम किया है?",
+  "Kaunsi machine ya furnace chalayi hai?": "कौनसी मशीन या फर्नेस चलाई है?",
   // --- qp_heat_treatment@1 (Phase 2 #8, a new trade) — prompts and retries. "SQF" and "HRC"
   // stay Latin (spelled letter by letter); "heat treatment" is Devanagari. The level retry and
   // the tenure and level whys are shared and twinned above.
@@ -1618,6 +1633,14 @@ const WHY_TTS_TEXT: Readonly<Record<string, string>> = {
     "डिफेक्ट ठीक करना आना सेटर का सबसे बड़ा हुनर है।",
   "Achhe institute ka certificate badi plastic company me kaam dilata hai.":
     "अच्छे इंस्टिट्यूट का सर्टिफिकेट बड़ी प्लास्टिक कंपनी में काम दिलाता है।",
+  // --- qp_foundry_forging@1 (Phase 2 #11) — why-texts. Filed HERE: `composeClarify` scans
+  // only this table. The process and testing whys are shared and twinned above.
+  "Process setting khud karne wale ko alag kaam milta hai.":
+    "प्रोसेस सेटिंग खुद करने वाले को अलग काम मिलता है।",
+  "Metal ke hisaab se sahi foundry ka kaam dikhaya jaata hai.":
+    "मेटल के हिसाब से सही फाउंड्री का काम दिखाया जाता है।",
+  "Machine jaanne wale operator ko jaldi kaam milta hai.":
+    "मशीन जानने वाले ऑपरेटर को जल्दी काम मिलता है।",
   // --- qp_heat_treatment@1 (Phase 2 #8) — why-texts. Filed HERE: `composeClarify` scans
   // only this table.
   "Cycle aur hardness khud sambhalne wale ko alag kaam milta hai.":

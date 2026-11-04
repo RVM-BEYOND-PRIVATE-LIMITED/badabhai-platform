@@ -49,6 +49,7 @@ export const ROLE_ART_KINDS = [
   "edm_wirecut_operator",
   "heat_treatment_technician",
   "production_supervisor",
+  "foundry_forging_operator",
   "generic",
 ] as const;
 
@@ -1435,6 +1436,51 @@ export const ROLE_ART_DATA: Readonly<Record<RoleArtKind, RoleArtDef>> = {
         motion: { type: "blink", amp: 0.6, ox: 266, oy: 32, rate: 1, phase: 0.3 },
         shapes: [
           { d: "M261 32A5 5 0 1 1 271 32A5 5 0 1 1 261 32Z", colour: "accent", opacity: 1, strokeWidth: 0 },
+        ],
+      },
+    ],
+  },
+  foundry_forging_operator: {
+    loop: 3,
+    parts: [
+      {
+        name: "scene",
+        motion: null,
+        shapes: [
+          { d: "M0 0L300 0L300 100L0 100Z", colour: "primary", opacity: 1, strokeWidth: 0 },
+          { d: "M8 24A32 32 0 1 1 72 24A32 32 0 1 1 8 24Z", colour: "surface", opacity: 0.4, strokeWidth: 0 },
+          { d: "M0 84L300 84L300 100L0 100Z", colour: "surface", opacity: 0.4, strokeWidth: 0 },
+        ],
+      },
+      {
+        name: "machine",
+        motion: null,
+        shapes: [
+          { d: "M200 62L256 62A4 4 0 0 1 260 66L260 80A4 4 0 0 1 256 84L200 84A4 4 0 0 1 196 80L196 66A4 4 0 0 1 200 62Z", colour: "surface", opacity: 1, strokeWidth: 0 },
+          { d: "M210 54L246 54A2 2 0 0 1 248 56L248 60A2 2 0 0 1 246 62L210 62A2 2 0 0 1 208 60L208 56A2 2 0 0 1 210 54Z", colour: "surface", opacity: 0.6, strokeWidth: 0 },
+          { d: "M150 30L186 30L180 52L156 52Z", colour: "surface", opacity: 1, strokeWidth: 0 },
+        ],
+      },
+      {
+        name: "pour",
+        motion: { type: "blink", amp: 0.5, ox: 184, oy: 50, rate: 1, phase: 0.15 },
+        shapes: [
+          { d: "M182 40Q206 44 214 56", colour: "accent", opacity: 1, strokeWidth: 5 },
+        ],
+      },
+      {
+        name: "figure",
+        motion: null,
+        shapes: [
+          { d: "M48 84L48 70A22 22 0 0 1 92 70L92 84Z", colour: "accent", opacity: 1, strokeWidth: 0 },
+          { d: "M57 40A13 13 0 0 1 83 40L83 41A3 3 0 0 1 80 44L60 44A3 3 0 0 1 57 41Z", colour: "accent", opacity: 1, strokeWidth: 0 },
+        ],
+      },
+      {
+        name: "arm",
+        motion: { type: "nod", amp: -6, ox: 84, oy: 60, rate: 1, phase: 0 },
+        shapes: [
+          { d: "M84 60Q118 54 150 40", colour: "accent", opacity: 1, strokeWidth: 9 },
         ],
       },
     ],

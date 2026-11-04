@@ -813,3 +813,27 @@
 {"kind":"binding","family_id":"fam_production_supervisor","job_domain_id":"jd_nco_3122_1900"}
 {"kind":"binding","family_id":"fam_production_supervisor","job_domain_id":"jd_nco_3122_0601"}
 {"kind":"binding","family_id":"fam_production_supervisor","job_domain_id":"jd_nco_3122_6503"}
+# PHASE 2 #11 (CEO Launch Plan Pack v1, sheet 19): Foundry / Forging, a new family. The 7211
+# moulders and core makers (NOT 7211.0101/.0102, the press shop's), the 8121 casting codes,
+# the 7221 forging codes (NOT 7221.0100/.0200, the village blacksmith's), the drop-forging
+# setter and the four casting / forging shop supervisors (a trade supervisor keeps his trade).
+{"kind":"family","family_id":"fam_foundry_forging","label_en":"Foundry / Forging Operator","label_hi":"फाउंड्री / फोर्जिंग ऑपरेटर","industry_id":"ind_industrial_manufacturing"}
+{"kind":"binding","family_id":"fam_foundry_forging","job_domain_id":"jd_nco_7211_0100"}
+{"kind":"binding","family_id":"fam_foundry_forging","job_domain_id":"jd_nco_7211_0200"}
+{"kind":"binding","family_id":"fam_foundry_forging","job_domain_id":"jd_nco_7211_0201"}
+{"kind":"binding","family_id":"fam_foundry_forging","job_domain_id":"jd_nco_7211_0500"}
+{"kind":"binding","family_id":"fam_foundry_forging","job_domain_id":"jd_nco_8121_3301"}
+{"kind":"binding","family_id":"fam_foundry_forging","job_domain_id":"jd_nco_8121_3801"}
+{"kind":"binding","family_id":"fam_foundry_forging","job_domain_id":"jd_nco_8121_4200"}
+{"kind":"binding","family_id":"fam_foundry_forging","job_domain_id":"jd_nco_8121_4201"}
+{"kind":"binding","family_id":"fam_foundry_forging","job_domain_id":"jd_nco_8121_4300"}
+{"kind":"binding","family_id":"fam_foundry_forging","job_domain_id":"jd_nco_8121_4600"}
+{"kind":"binding","family_id":"fam_foundry_forging","job_domain_id":"jd_nco_7221_0300"}
+{"kind":"binding","family_id":"fam_foundry_forging","job_domain_id":"jd_nco_7221_0301"}
+{"kind":"binding","family_id":"fam_foundry_forging","job_domain_id":"jd_nco_7221_0400"}
+{"kind":"binding","family_id":"fam_foundry_forging","job_domain_id":"jd_nco_7221_0500"}
+{"kind":"binding","family_id":"fam_foundry_forging","job_domain_id":"jd_nco_7223_0300"}
+{"kind":"binding","family_id":"fam_foundry_forging","job_domain_id":"jd_nco_3122_4401"}
+{"kind":"binding","family_id":"fam_foundry_forging","job_domain_id":"jd_nco_3122_4402"}
+{"kind":"binding","family_id":"fam_foundry_forging","job_domain_id":"jd_nco_3122_4501"}
+{"kind":"binding","family_id":"fam_foundry_forging","job_domain_id":"jd_nco_3122_4502"}

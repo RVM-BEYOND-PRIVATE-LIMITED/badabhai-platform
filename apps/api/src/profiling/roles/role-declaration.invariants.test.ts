@@ -145,6 +145,7 @@ describe("the declared-role set", () => {
         "press_operator",
         "painter_coating",
         "heat_treatment_technician",
+        "foundry_forging_operator",
       ],
       maintenance: [
         "fitter",

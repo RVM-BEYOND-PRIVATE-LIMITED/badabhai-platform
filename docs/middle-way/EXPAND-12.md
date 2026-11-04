@@ -333,7 +333,10 @@ senior_programmer`; P5 crosswalk already handles). Role `levelTerms` += rung
 > the machine, so a tool maker who mentions his wire-cut keeps the Tool & Die form. Seeds
 > after migrations + merge (+ seed:match:vocabulary).
 >
-> PHASE 2 #8 — HEAT-TREATMENT TECHNICIAN (NEW BUILD) ✅ CODE DONE (`feat/mw-heat-treatment`).
+> PHASE 2 #8 — HEAT-TREATMENT TECHNICIAN (NEW BUILD) ✅ CODE DONE (`feat/mw-heat-treatment`, PR #2546, merged).
+> LIVE on production 2026-11-04: migrations 0147 + 0148 applied by the owner before merge;
+> seed:domains → normalize → seed:packs → seed:match:vocabulary; verify:packs,
+> verify:domains and verify:match-v1 all PASS.
 > New 25th declared kind `heat_treatment_technician` (formless, `fabrication`) with migrations
 > 0147 + 0148 — APPLY BOTH BEFORE MERGE. New `mskill_heat_treatment_tech` (unpaired, like PLC /
 > EDM), `fam_heat_treatment` bound to NCO 8121.3701 / .4800 / .4900 / .4700 (left
@@ -380,6 +383,19 @@ senior_programmer`; P5 crosswalk already handles). Role `levelTerms` += rung
 > where used), production team leader (+Hi) -> 3122.9900; line in-charge -> 3122.0601; foreman
 > (+Hi) -> 3122.1900. Bare `supervisor` stays unrouted (A3). Demo row weight 2 (measured).
 > Seeds after migrations + merge (+ seed:match:vocabulary).
+>
+> PHASE 2 #11 — FOUNDRY / FORGING OPERATOR (NEW BUILD) ✅ CODE DONE (`feat/mw-foundry-forging`).
+> New 27th declared kind `foundry_forging_operator` (formless, `fabrication`) with migrations
+> 0151 + 0152 (on the 26-kind list) — APPLY BOTH BEFORE MERGE. New
+> `mskill_foundry_forging_operator` (unpaired), `fam_foundry_forging` bound to 19 casting /
+> forging codes (7211 moulders and core makers minus the press shop's .0101/.0102; 8121 casting;
+> 7221 forging minus the village blacksmith; 7223.0300; the four 3122 casting / forging
+> supervisors). New `qp_foundry_forging@1`: sheet-19 ladder (Trainee/Operator/Skilled/Senior/
+> Supervisor, mandatory) + 1 separating confirm (verbatim) asked of skilled AND senior;
+> supervisor by rule; Medium process + metal; Advanced equipment + testing. Fixes "die
+> casting" (street sales), "shell moulding" (tailoring), "core making" (3D CAD), "cupola"
+> (cobbler), "power hammer" (masonry). Held out: bare moulding / hammer / upset / trimming /
+> furnace, gdc, spectro, sg iron.
 
 | #   | Trade (kind)                                      | Pack                           | Level Q today                       | Notes                                                                                                                                                                     |
 | --- | ------------------------------------------------- | ------------------------------ | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

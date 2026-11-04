@@ -416,9 +416,10 @@ export const jobPostings = pgTable(
     // Migration 0145 (Phase 2 #7): the 24th kind is `edm_wirecut_operator`.
     // Migration 0147 (Phase 2 #8): the 25th kind is `heat_treatment_technician`.
     // Migration 0149 (Phase 2 #10): the 26th kind is `production_supervisor`.
+    // Migration 0151 (Phase 2 #11): the 27th kind is `foundry_forging_operator`.
     check(
       "job_postings_role_kind_chk",
-      sql`${t.roleKind} IS NULL OR ${t.roleKind} IN ('cnc_turner', 'vmc_milling', 'cnc_grinding', 'cam_programmer', 'cad_draughtsman', 'conventional_machinist', 'tool_die_maker', 'welder', 'sheet_metal_worker', 'press_operator', 'painter_coating', 'fitter', 'maintenance_technician', 'industrial_electrician', 'assembly_line_worker', 'quality_inspector', 'injection_moulding_operator', 'mould_die_maker', 'blow_moulding_operator', 'rubber_moulding_operator', 'plastic_process_technician', 'cad_designer_3d', 'plc_automation_technician', 'edm_wirecut_operator', 'heat_treatment_technician', 'production_supervisor')`,
+      sql`${t.roleKind} IS NULL OR ${t.roleKind} IN ('cnc_turner', 'vmc_milling', 'cnc_grinding', 'cam_programmer', 'cad_draughtsman', 'conventional_machinist', 'tool_die_maker', 'welder', 'sheet_metal_worker', 'press_operator', 'painter_coating', 'fitter', 'maintenance_technician', 'industrial_electrician', 'assembly_line_worker', 'quality_inspector', 'injection_moulding_operator', 'mould_die_maker', 'blow_moulding_operator', 'rubber_moulding_operator', 'plastic_process_technician', 'cad_designer_3d', 'plc_automation_technician', 'edm_wirecut_operator', 'heat_treatment_technician', 'production_supervisor', 'foundry_forging_operator')`,
     ),
     // Migration 0133 (ADR-0050 §4.1) — the closed provenance set. NULL-tolerant: every native
     // posting and every D4 conversion is NULL.
@@ -681,9 +682,10 @@ export const jobs = pgTable(
     // Migration 0145 (Phase 2 #7): the 24th kind is `edm_wirecut_operator`.
     // Migration 0147 (Phase 2 #8): the 25th kind is `heat_treatment_technician`.
     // Migration 0149 (Phase 2 #10): the 26th kind is `production_supervisor`.
+    // Migration 0151 (Phase 2 #11): the 27th kind is `foundry_forging_operator`.
     check(
       "jobs_role_kind_chk",
-      sql`${t.roleKind} IS NULL OR ${t.roleKind} IN ('cnc_turner', 'vmc_milling', 'cnc_grinding', 'cam_programmer', 'cad_draughtsman', 'conventional_machinist', 'tool_die_maker', 'welder', 'sheet_metal_worker', 'press_operator', 'painter_coating', 'fitter', 'maintenance_technician', 'industrial_electrician', 'assembly_line_worker', 'quality_inspector', 'injection_moulding_operator', 'mould_die_maker', 'blow_moulding_operator', 'rubber_moulding_operator', 'plastic_process_technician', 'cad_designer_3d', 'plc_automation_technician', 'edm_wirecut_operator', 'heat_treatment_technician', 'production_supervisor')`,
+      sql`${t.roleKind} IS NULL OR ${t.roleKind} IN ('cnc_turner', 'vmc_milling', 'cnc_grinding', 'cam_programmer', 'cad_draughtsman', 'conventional_machinist', 'tool_die_maker', 'welder', 'sheet_metal_worker', 'press_operator', 'painter_coating', 'fitter', 'maintenance_technician', 'industrial_electrician', 'assembly_line_worker', 'quality_inspector', 'injection_moulding_operator', 'mould_die_maker', 'blow_moulding_operator', 'rubber_moulding_operator', 'plastic_process_technician', 'cad_designer_3d', 'plc_automation_technician', 'edm_wirecut_operator', 'heat_treatment_technician', 'production_supervisor', 'foundry_forging_operator')`,
     ),
     // Migration 0133 (ADR-0050 §4.1) — the column is always a JSON array (`[]` or ids), never
     // a scalar or object a careless write could store.

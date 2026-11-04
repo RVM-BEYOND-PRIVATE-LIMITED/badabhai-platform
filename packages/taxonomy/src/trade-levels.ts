@@ -167,6 +167,10 @@ export const TRADE_LEVEL_PACKS: Readonly<Record<string, TradeLevelPack>> = {
   // trade. No union extension: trainee, operator, skilled, senior and supervisor are all
   // members. Supervisor by rule.
   qp_heat_treatment: { skillId: "mskill_heat_treatment_tech", levelKey: "heat_level" },
+  // Phase 2 #11 — the foundry / forging operator (CEO Launch Plan Pack v1, sheet 19), a new
+  // trade. No union extension: trainee, operator, skilled, senior and supervisor are all
+  // members. Supervisor by rule.
+  qp_foundry_forging: { skillId: "mskill_foundry_forging_operator", levelKey: "foundry_level" },
   // Phase 2 #9 — the injection-moulding operator / setter (CEO Launch Plan Pack v1, sheet 22),
   // the first pack for the declared kind. No union extension: trainee, operator, setter,
   // senior and supervisor are all members. Supervisor by rule.
@@ -531,6 +535,13 @@ export const TRADE_LEVEL_CONFIRM_ITEMS: Readonly<
   qp_heat_treatment: {
     skilled: "heat_skilled_confirm",
     senior: "heat_skilled_confirm",
+  },
+  // Phase 2 #11 — the foundry / forging confirm (CEO Launch Plan Pack v1, sheet 19). Confirmed
+  // from `skilled`; the sheet writes one question, for skilled, and none for senior, so the
+  // owner's standing rule asks the same question of both. Supervisor by rule.
+  qp_foundry_forging: {
+    skilled: "foundry_skilled_confirm",
+    senior: "foundry_skilled_confirm",
   },
   // Phase 2 #9 — the injection-moulding confirms (CEO Launch Plan Pack v1, sheet 22).
   // Confirmed from `setter`; the sheet writes a question for setter and one for senior

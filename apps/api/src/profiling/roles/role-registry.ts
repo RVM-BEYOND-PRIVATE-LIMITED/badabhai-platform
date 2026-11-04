@@ -27,6 +27,7 @@ import { CAD_DESIGN_3D } from "./cad-design-3d.role";
 import { PLC_AUTOMATION } from "./plc-automation.role";
 import { EDM_WIRECUT } from "./edm-wirecut.role";
 import { HEAT_TREATMENT } from "./heat-treatment.role";
+import { FOUNDRY_FORGING } from "./foundry-forging.role";
 import { CAD_DRAUGHTSMAN } from "./cad-draughtsman.role";
 import { CAM_PROGRAMMER } from "./cam-programmer.role";
 import { CNC_GRINDING } from "./cnc-grinding.role";
@@ -77,6 +78,8 @@ const DECLARED = [
   PAINTER_COATING,
   // Phase 2 #8 (CEO Launch Plan Pack v1, sheet 17) — formless, like EDM.
   HEAT_TREATMENT,
+  // Phase 2 #11 (CEO Launch Plan Pack v1, sheet 19) — formless, like heat treatment.
+  FOUNDRY_FORGING,
   // ── maintenance ──────────────────────────────────────────────────────────────────────────────
   FITTER,
   MAINTENANCE_TECHNICIAN,
