@@ -6,6 +6,7 @@ import 'package:payer_app/core/auth/payer_token_store.dart';
 import 'package:payer_app/core/data/mock_payer_api_client.dart';
 import 'package:payer_app/core/di/locator.dart';
 import 'package:payer_app/core/widgets/bb_button.dart';
+import 'package:payer_app/core/widgets/bb_icon_button.dart';
 import 'package:payer_app/features/credits/presentation/credits_screen.dart';
 
 /// #1200 — the Credits screen is READ-ONLY. The in-app "Buy credits" pack
@@ -16,6 +17,11 @@ import 'package:payer_app/features/credits/presentation/credits_screen.dart';
 /// no payment information of any kind. What remains is the server balance +
 /// ledger, in credits only. These tests pin that no purchase surface or ₹ amount
 /// leaks back in, and that the screen still reports what it must.
+/// The header's back button, whatever glyph it draws.
+Finder get _backButton => find.byWidgetPredicate(
+      (Widget w) => w is BbIconButton && w.semanticLabel == 'Back',
+    );
+
 void main() {
   setUp(() async {
     await GetIt.instance.reset();
@@ -45,7 +51,7 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(find.text('Credits'), findsOneWidget);
-    expect(find.byIcon(Icons.arrow_back_rounded), findsNothing);
+    expect(_backButton, findsNothing);
   });
 
   testWidgets('M9 — pushed Credits keeps its back arrow, and it works', (
@@ -53,7 +59,7 @@ void main() {
   ) async {
     int backs = 0;
     await pump(tester, onBack: () => backs++);
-    await tester.tap(find.byIcon(Icons.arrow_back_rounded));
+    await tester.tap(_backButton);
     expect(backs, 1);
   });
 
