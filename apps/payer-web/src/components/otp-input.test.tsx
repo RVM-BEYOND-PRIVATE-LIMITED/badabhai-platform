@@ -7,21 +7,29 @@ import { renderToStaticMarkup } from "react-dom/server";
  * #2588 (W8) — the OTP code input. Node env: the edit rules are pure and tested as such; the
  * markup goes through React's server renderer; the handlers are driven on the element tree with
  * stand-in boxes (each records `focus` / `select`). `useId` and `useRef` answer outside a renderer
- * so the component can be called as a plain function.
+ * so the component can be called as a plain function — and `useRef` hands the same object to the
+ * same call on every render of one instance, as React does, so `mount` can re-render it with each
+ * new code the way a caller holding the code in state does (`fresh` starts a new instance).
  */
+const hooks = vi.hoisted(() => ({ refs: [] as Array<{ current: unknown }>, next: 0 }));
 vi.mock("react", async () => {
   const actual = await vi.importActual<typeof ReactModule>("react");
   return {
     ...actual,
     useId: () => ":otp:",
-    useRef: <T,>(current: T) => ({ current }),
+    useRef: <T,>(current: T) => (hooks.refs[hooks.next++] ??= { current }) as { current: T },
   };
 });
+const fresh = () => {
+  hooks.refs = [];
+  hooks.next = 0;
+};
 
 const {
   OtpCodeInput,
   isCompleteCode,
   otpBackspace,
+  otpDelete,
   otpFocusable,
   otpKeyTarget,
   otpWrite,
@@ -30,6 +38,13 @@ const {
 
 const LABEL = "Enter the 6-digit login code";
 const noop = () => {};
+/** An expected OtpEdit. */
+const edit = (value: string, focus: number, refill = 0, completes = false) => ({
+  value,
+  focus,
+  refill,
+  completes,
+});
 
 describe("the edit rules (pure)", () => {
   it("a code is complete when every box holds a digit", () => {
@@ -50,23 +65,64 @@ describe("the edit rules (pure)", () => {
   });
 
   it("otpWrite: never past the first empty box, so the code has no gaps", () => {
-    expect(otpWrite("12", 6, 5, "3")).toEqual({ value: "123", focus: 3 });
-    expect(otpWrite("12", 6, 2, "34")).toEqual({ value: "1234", focus: 4 });
+    expect(otpWrite("12", 6, 5, "3")).toEqual(edit("123", 3));
+    expect(otpWrite("12", 6, 2, "34")).toEqual(edit("1234", 4));
     // Over a held digit, in place.
-    expect(otpWrite("123456", 6, 2, "9")).toEqual({ value: "129456", focus: 3 });
-    expect(otpWrite("12", 6, 1, "")).toEqual({ value: "12", focus: 1 });
+    expect(otpWrite("1234", 6, 2, "9")).toEqual(edit("1294", 3));
+    expect(otpWrite("12", 6, 1, "")).toEqual(edit("12", 1));
   });
 
-  it("otpWrite: a whole code fills from the FIRST box, whichever box took the paste", () => {
-    expect(otpWrite("", 6, 3, "123456")).toEqual({ value: "123456", focus: 5 });
-    expect(otpWrite("999", 6, 2, "1234567")).toEqual({ value: "123456", focus: 5 });
+  it("otpWrite: a whole code replaces the code from the FIRST box, whichever box took it", () => {
+    expect(otpWrite("", 6, 3, "123456")).toEqual(edit("123456", 5, 0, true));
+    // Over a complete code too: a whole code is the payer saying "this one".
+    expect(otpWrite("654321", 6, 0, "123456")).toEqual(edit("123456", 5, 0, true));
+    // The same code again changes nothing, so there is nothing new to submit.
+    expect(otpWrite("123456", 6, 4, "123456")).toEqual(edit("123456", 5, 0, false));
   });
 
-  it("otpBackspace: a box loses its digit and keeps focus; an empty one clears the one before", () => {
-    expect(otpBackspace("123", 3)).toEqual({ value: "12", focus: 2 });
-    expect(otpBackspace("123", 5)).toEqual({ value: "12", focus: 2 });
-    expect(otpBackspace("123", 2)).toEqual({ value: "12", focus: 2 });
-    expect(otpBackspace("123", 0)).toEqual({ value: "23", focus: 0 });
+  it("otpWrite completes on the sixth digit — not on a digit typed over in a complete code", () => {
+    expect(otpWrite("12345", 6, 5, "6")).toEqual(edit("123456", 5, 0, true));
+    expect(otpWrite("123", 6, 3, "456")).toEqual(edit("123456", 5, 0, true));
+    // One digit of a correction is not the code: it waits for Verify.
+    expect(otpWrite("123456", 6, 2, "9")).toEqual(edit("129456", 3, 0, false));
+  });
+
+  it("otpWrite: digits that do not fit are dropped, and the write never completes", () => {
+    // A code copied with other digits around it ("Code (valid 10 min): 123456").
+    expect(otpWrite("", 6, 0, "10123456")).toEqual(edit("101234", 5, 0, false));
+    expect(otpWrite("999", 6, 2, "1234567")).toEqual(edit("123456", 5, 0, false));
+    // Part of a code that runs past the last box.
+    expect(otpWrite("123", 6, 3, "4567")).toEqual(edit("123456", 5, 0, false));
+  });
+
+  it("otpWrite with a refill: the digits put back go in AHEAD of the ones that moved up", () => {
+    // "123456" lost its 3 at box 2: the 9 goes back where the 3 was, the 4 back to box 3.
+    expect(otpWrite("12456", 6, 2, "9", 1)).toEqual(edit("129456", 3, 0, true));
+    // Two taken out: put back one at a time, the caret still ahead of the 5 after the first.
+    expect(otpWrite("1256", 6, 2, "7", 2)).toEqual(edit("12756", 3, 1));
+    expect(otpWrite("12756", 6, 3, "8", 1)).toEqual(edit("127856", 4, 0, true));
+    // Or both at once (a paste) — and digits beyond what was taken out are written over the next.
+    expect(otpWrite("1256", 6, 2, "78", 2)).toEqual(edit("127856", 4, 0, true));
+    expect(otpWrite("12456", 6, 2, "98", 1)).toEqual(edit("129856", 4, 0, true));
+    // Never more back than the code has room for.
+    expect(otpWrite("12456", 6, 2, "9", 3)).toEqual(edit("129456", 3, 0, true));
+  });
+
+  it("otpDelete: a box's digit goes, the later ones move up, and focus stays to put it back", () => {
+    expect(otpDelete("123456", 2)).toEqual(edit("12456", 2, 1));
+    expect(otpDelete("12456", 2, 1)).toEqual(edit("1256", 2, 2));
+    // The last digit: nothing moved up, so nothing to put back ahead of.
+    expect(otpDelete("123", 2)).toEqual(edit("12", 2));
+    expect(otpDelete("123", 3)).toBeNull();
+    expect(otpDelete("", 0)).toBeNull();
+  });
+
+  it("otpBackspace: a box loses its digit (otpDelete); an empty one clears the one before", () => {
+    expect(otpBackspace("123", 3)).toEqual(edit("12", 2));
+    expect(otpBackspace("123", 5)).toEqual(edit("12", 2));
+    expect(otpBackspace("123", 2)).toEqual(edit("12", 2));
+    expect(otpBackspace("123", 0)).toEqual(edit("23", 0, 1));
+    expect(otpBackspace("23", 0, 1)).toEqual(edit("3", 0, 2));
     expect(otpBackspace("", 0)).toBeNull();
   });
 
@@ -87,8 +143,10 @@ describe("the edit rules (pure)", () => {
 });
 
 describe("the markup — six labelled boxes in a labelled group", () => {
-  const html = (props: Partial<Parameters<typeof OtpCodeInput>[0]> = {}) =>
-    renderToStaticMarkup(<OtpCodeInput label={LABEL} value="" onChange={noop} {...props} />);
+  const html = (props: Partial<Parameters<typeof OtpCodeInput>[0]> = {}) => {
+    fresh();
+    return renderToStaticMarkup(<OtpCodeInput label={LABEL} value="" onChange={noop} {...props} />);
+  };
   const boxes = (out: string) => Array.from(out.matchAll(/<input\b[^>]*>/g), (m) => m[0]);
 
   it("a visible label names the group; each box names its place", () => {
@@ -169,7 +227,7 @@ describe("the markup — six labelled boxes in a labelled group", () => {
 type Input = ReactElement<{
   ref: (el: unknown) => void;
   autoFocus: boolean;
-  onChange: (e: unknown) => void;
+  onInput: (e: unknown) => void;
   onPaste: (e: unknown) => void;
   onKeyDown: (e: unknown) => void;
   onFocus: (e: unknown) => void;
@@ -187,21 +245,41 @@ function inputsOf(node: ReactNode, out: Input[] = []): Input[] {
   return out;
 }
 
+/**
+ * One instance, driven like a page holding the code in state: each event's handler runs on the
+ * render it was dispatched to; any new code it hands `onChange` is rendered once it returns.
+ */
 function mount(value: string, over: { success?: boolean; autoFocus?: boolean } = {}) {
+  fresh();
   const onChange = vi.fn();
   const onComplete = vi.fn();
-  const tree = OtpCodeInput({ label: LABEL, value, onChange, onComplete, ...over }) as ReactElement;
-  const inputs = inputsOf(tree);
+  let code = value;
+  let inputs: Input[] = [];
   // Like a browser's: `focus()` dispatches the box's focus event at once — while the edit that
   // moved it is still being handled, i.e. before the caller has re-rendered with the new code.
-  const boxes = inputs.map((input) => {
+  const boxes = Array.from({ length: 6 }, (_, i) => {
     const box = {
-      focus: vi.fn(() => input.props.onFocus({ target: box })),
+      focus: vi.fn(() => inputs[i]!.props.onFocus({ target: box })),
       select: vi.fn(),
     };
-    input.props.ref(box);
     return box;
   });
+  const render = () => {
+    hooks.next = 0;
+    const tree = OtpCodeInput({ label: LABEL, value: code, onChange, onComplete, ...over });
+    inputs = inputsOf(tree as ReactElement);
+    inputs.forEach((input, i) => input.props.ref(boxes[i]));
+  };
+  render();
+  const dispatch = <E,>(e: E, handle: (e: E) => void): E => {
+    const calls = onChange.mock.calls.length;
+    handle(e);
+    if (onChange.mock.calls.length > calls) {
+      code = onChange.mock.calls.at(-1)![0] as string;
+      render();
+    }
+    return e;
+  };
   /** The box that took focus last, by index (-1: none). */
   const focused = () => {
     let at = -1;
@@ -212,29 +290,37 @@ function mount(value: string, over: { success?: boolean; autoFocus?: boolean } =
     });
     return at;
   };
-  const change = (i: number, raw: string) => inputs[i]!.props.onChange({ target: { value: raw } });
-  const key = (i: number, k: string) => {
-    const e = { key: k, preventDefault: vi.fn() };
-    inputs[i]!.props.onKeyDown(e);
-    return e;
+  /** The box's value after the browser applied the keystroke (`raw`): the input event. */
+  const input = (i: number, raw: string) =>
+    dispatch({ currentTarget: { value: raw } }, (e) => inputs[i]!.props.onInput(e));
+  const key = (i: number, k: string) =>
+    dispatch({ key: k, preventDefault: vi.fn() }, (e) => inputs[i]!.props.onKeyDown(e));
+  const paste = (i: number, text: string) =>
+    dispatch({ clipboardData: { getData: () => text }, preventDefault: vi.fn() }, (e) =>
+      inputs[i]!.props.onPaste(e),
+    );
+  /** The payer focuses box `i` (a click, or Tab). */
+  const focus = (i: number) =>
+    dispatch({ target: { select: vi.fn() } }, (e) => inputs[i]!.props.onFocus(e)).target;
+  return {
+    get inputs() {
+      return inputs;
+    },
+    boxes,
+    onChange,
+    onComplete,
+    focused,
+    input,
+    key,
+    paste,
+    focus,
   };
-  const paste = (i: number, text: string) => {
-    const e = { clipboardData: { getData: () => text }, preventDefault: vi.fn() };
-    inputs[i]!.props.onPaste(e);
-    return e;
-  };
-  const focus = (i: number) => {
-    const target = { select: vi.fn() };
-    inputs[i]!.props.onFocus({ target });
-    return target;
-  };
-  return { inputs, boxes, onChange, onComplete, focused, change, key, paste, focus };
 }
 
 describe("typing — the sixth digit completes the code (auto-submit)", () => {
   it("the sixth digit: onChange with the code, then onComplete with it — once; focus stays on the last box", () => {
     const m = mount("12345");
-    m.change(5, "6");
+    m.input(5, "6");
     expect(m.onChange).toHaveBeenCalledExactlyOnceWith("123456");
     expect(m.onComplete).toHaveBeenCalledExactlyOnceWith("123456");
     expect(m.onChange.mock.invocationCallOrder[0]).toBeLessThan(
@@ -249,7 +335,7 @@ describe("typing — the sixth digit completes the code (auto-submit)", () => {
     // The next box's focus event fires inside the move, while this render still holds "12": it
     // must not read that stale code as "past the first empty box" and send focus back.
     const m = mount("12");
-    m.change(2, "3");
+    m.input(2, "3");
     expect(m.onChange).toHaveBeenCalledExactlyOnceWith("123");
     expect(m.focused()).toBe(3);
     expect(m.boxes[2]!.focus).not.toHaveBeenCalled();
@@ -257,7 +343,7 @@ describe("typing — the sixth digit completes the code (auto-submit)", () => {
 
   it("any digit before the sixth only changes the code, and moves on a box", () => {
     const m = mount("1234");
-    m.change(4, "5");
+    m.input(4, "5");
     expect(m.onChange).toHaveBeenCalledExactlyOnceWith("12345");
     expect(m.onComplete).not.toHaveBeenCalled();
     expect(m.focused()).toBe(5);
@@ -265,31 +351,54 @@ describe("typing — the sixth digit completes the code (auto-submit)", () => {
 
   it("the browser's autofill puts the whole code into the first box: it spreads, and completes", () => {
     const m = mount("");
-    m.change(0, "123456");
+    m.input(0, "123456");
     expect(m.onChange).toHaveBeenCalledExactlyOnceWith("123456");
     expect(m.onComplete).toHaveBeenCalledExactlyOnceWith("123456");
   });
 
-  it("a corrected digit in a complete code is a new code — submitted again", () => {
+  it("a digit typed over in a complete code changes it — and waits for Verify (one digit of a correction is not the code)", () => {
     const m = mount("123456");
-    m.change(2, "39");
+    m.input(2, "39");
     expect(m.onChange).toHaveBeenCalledExactlyOnceWith("129456");
-    expect(m.onComplete).toHaveBeenCalledExactlyOnceWith("129456");
+    expect(m.onComplete).not.toHaveBeenCalled();
+    m.input(3, "48");
+    expect(m.onChange).toHaveBeenLastCalledWith("129856");
+    expect(m.onComplete).not.toHaveBeenCalled();
   });
 
   it("a letter changes nothing; the same digit again submits nothing twice", () => {
     const m = mount("12");
-    m.change(2, "a");
+    m.input(2, "a");
     expect(m.onChange).not.toHaveBeenCalled();
     const full = mount("123456");
-    full.change(5, "66");
+    full.input(5, "66");
     expect(full.onChange).not.toHaveBeenCalled();
     expect(full.onComplete).not.toHaveBeenCalled();
   });
 
+  it("keystrokes are read from the input event: React's onChange drops one that leaves a box as it was", () => {
+    // A selected digit typed over with the same digit comes out unchanged, so React would never
+    // call onChange for it — the keystroke lost, focus left behind for the next digit to land on.
+    for (const box of mount("").inputs) {
+      expect(typeof box.props.onInput).toBe("function");
+      expect("onChange" in box.props).toBe(false);
+    }
+  });
+
+  it("the same digit typed over itself still moves on — so retyping a code over itself leaves it as it was", () => {
+    const m = mount("123456");
+    m.focus(0);
+    for (const [i, d] of [..."123456"].entries()) {
+      m.input(i, d); // the selected digit, replaced by itself
+      expect(m.focused()).toBe(Math.min(i + 1, 5));
+    }
+    expect(m.onChange).not.toHaveBeenCalled();
+    expect(m.onComplete).not.toHaveBeenCalled();
+  });
+
   it("a cut empties the box like Backspace", () => {
     const m = mount("123");
-    m.change(1, "");
+    m.input(1, "");
     expect(m.onChange).toHaveBeenCalledExactlyOnceWith("13");
   });
 });
@@ -302,6 +411,12 @@ describe("paste — a whole code lands across the boxes", () => {
     expect(m.onChange).toHaveBeenCalledExactlyOnceWith("123456");
     expect(m.onComplete).toHaveBeenCalledExactlyOnceWith("123456");
     expect(m.focused()).toBe(5);
+  });
+
+  it("a whole code pasted over a complete one is submitted — it is the payer's new code", () => {
+    const m = mount("654321");
+    m.paste(0, "123456");
+    expect(m.onComplete).toHaveBeenCalledExactlyOnceWith("123456");
   });
 
   it("part of a code fills from the first empty box — never leaving a gap", () => {
@@ -317,6 +432,22 @@ describe("paste — a whole code lands across the boxes", () => {
     const e = m.paste(2, "hello");
     expect(e.preventDefault).not.toHaveBeenCalled();
     expect(m.onChange).not.toHaveBeenCalled();
+  });
+
+  it("more digits than boxes fill them — but are never submitted for the payer: it was not this code as sent", () => {
+    const m = mount("");
+    m.paste(0, "Code (valid 10 min): 123456");
+    expect(m.onChange).toHaveBeenCalledExactlyOnceWith("101234");
+    expect(m.onComplete).not.toHaveBeenCalled();
+    // Nor when the browser's autofill brings them, or a paste runs past the last box.
+    const filled = mount("");
+    filled.input(0, "1234567");
+    expect(filled.onChange).toHaveBeenCalledExactlyOnceWith("123456");
+    expect(filled.onComplete).not.toHaveBeenCalled();
+    const tail = mount("123");
+    tail.paste(3, "4567");
+    expect(tail.onChange).toHaveBeenCalledExactlyOnceWith("123456");
+    expect(tail.onComplete).not.toHaveBeenCalled();
   });
 });
 
@@ -368,6 +499,81 @@ describe("Backspace, Delete and the arrows", () => {
   });
 });
 
+describe("a digit taken out, then the right one typed — it goes back where the old one was", () => {
+  // After Backspace or Delete, the box shows the digit that moved up. The browser puts the next
+  // keystroke beside it (caret after or before it) or over it (selected): each way, the typed digit
+  // goes in AHEAD of it, and the digits after move back to their boxes.
+  it.each(["49", "94", "9"])(
+    "Backspace on box 3 of 123456, then 9 (the box reads %j): 129456 — and that completes it",
+    (raw) => {
+      const m = mount("123456");
+      m.key(2, "Backspace");
+      expect(m.onChange).toHaveBeenLastCalledWith("12456");
+      m.input(2, raw);
+      expect(m.onChange).toHaveBeenLastCalledWith("129456");
+      expect(m.onComplete).toHaveBeenCalledExactlyOnceWith("129456");
+      expect(m.focused()).toBe(3);
+    },
+  );
+
+  it("Delete, or a cut, the same", () => {
+    const deleted = mount("123456");
+    deleted.key(2, "Delete");
+    deleted.input(2, "49");
+    expect(deleted.onChange).toHaveBeenLastCalledWith("129456");
+    expect(deleted.onComplete).toHaveBeenCalledExactlyOnceWith("129456");
+    const cut = mount("123456");
+    cut.input(2, "");
+    cut.input(2, "49");
+    expect(cut.onChange).toHaveBeenLastCalledWith("129456");
+  });
+
+  it("two taken out are put back in turn, and the code completes once", () => {
+    const m = mount("123456");
+    m.key(2, "Backspace");
+    m.key(2, "Backspace");
+    expect(m.onChange).toHaveBeenLastCalledWith("1256");
+    m.input(2, "57");
+    expect(m.onChange).toHaveBeenLastCalledWith("12756");
+    m.input(3, "58");
+    expect(m.onChange).toHaveBeenLastCalledWith("127856");
+    expect(m.onComplete).toHaveBeenCalledExactlyOnceWith("127856");
+  });
+
+  it("putting back the same digit that moved up loses nothing", () => {
+    const m = mount("123356");
+    m.key(2, "Backspace");
+    expect(m.onChange).toHaveBeenLastCalledWith("12356");
+    m.input(2, "3"); // the selected 3 that moved up, typed over with a 3
+    expect(m.onChange).toHaveBeenLastCalledWith("123356");
+    expect(m.onComplete).toHaveBeenCalledExactlyOnceWith("123356");
+  });
+
+  it("once what was taken out is back, typing replaces digits again", () => {
+    const m = mount("12345");
+    m.key(1, "Backspace");
+    m.input(1, "39");
+    expect(m.onChange).toHaveBeenLastCalledWith("19345");
+    m.input(2, "38");
+    expect(m.onChange).toHaveBeenLastCalledWith("19845");
+  });
+
+  it("a move of the payer's ends it: after the arrows, or a click, typing replaces the digit", () => {
+    const arrows = mount("123456");
+    arrows.key(2, "Backspace");
+    arrows.key(2, "ArrowLeft");
+    arrows.key(1, "ArrowRight");
+    arrows.input(2, "49");
+    expect(arrows.onChange).toHaveBeenLastCalledWith("12956");
+    const click = mount("123456");
+    click.key(2, "Backspace");
+    click.focus(1);
+    click.focus(2);
+    click.input(2, "49");
+    expect(click.onChange).toHaveBeenLastCalledWith("12956");
+  });
+});
+
 describe("focus — a click on an empty box lands on the first empty one", () => {
   it("a box past the first empty one hands focus back to it", () => {
     const m = mount("12");
@@ -397,7 +603,7 @@ describe("focus — a click on an empty box lands on the first empty one", () =>
 describe("success — the accepted code is locked, and still readable", () => {
   it("typing, pasting, Backspace and Delete change nothing, and nothing is submitted again", () => {
     const m = mount("123456", { success: true });
-    m.change(5, "7");
+    m.input(5, "7");
     m.paste(0, "654321");
     m.key(5, "Backspace");
     m.key(2, "Delete");
