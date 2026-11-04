@@ -10494,3 +10494,67 @@ body:has(.invite-landing) .chrome-footer {
     overscroll-behavior-y: auto;
   }
 }
+
+/* ---- The OTP code input (components/otp-input.tsx). The boxes are ONE row at every width — the DS
+   row wraps a six-digit code 4 + 2 on a phone, so here (as on the sign-in card) they are equal
+   zero-minimum tracks capped at the DS box width, and shrink instead. A digit pops as it lands;
+   on success the boxes take the success colours with the digits at full contrast, and a check
+   fades in by the label (out again a little faster). Opacity and transform only; every duration is
+   a token that is 0 under reduced motion, and the pop's scale is 1 there as well. ---- */
+.otp-code {
+  --otp-pop-scale: 1.04;
+  display: grid;
+  justify-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.otp-code__head {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.otp-code__label {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--text-primary);
+}
+.otp-code__check {
+  color: var(--success);
+  opacity: 0;
+  transition: opacity var(--duration-fast) var(--ease-exit);
+}
+.otp-code--success .otp-code__check {
+  opacity: 1;
+  transition: opacity var(--duration-base) var(--ease-enter);
+}
+.otp-code__boxes {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, var(--control-lg));
+  justify-content: center;
+  gap: var(--space-2);
+  width: 100%;
+  overflow: visible;
+}
+.otp-code__boxes > .bb-otp__cell {
+  width: 100%;
+  min-width: 0;
+}
+.otp-code .bb-otp__cell--filled {
+  animation: otp-code-pop var(--duration-press) var(--ease-out);
+}
+.otp-code--success .bb-otp__cell {
+  border-color: var(--success);
+  background: var(--success-tint);
+  color: var(--text-primary);
+}
+@keyframes otp-code-pop {
+  50% {
+    transform: scale(var(--otp-pop-scale));
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .otp-code {
+    --otp-pop-scale: 1;
+  }
+}
