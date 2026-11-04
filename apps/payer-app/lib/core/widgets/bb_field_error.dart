@@ -30,16 +30,23 @@ class BbFieldError extends StatefulWidget {
 
 class _BbFieldErrorState extends State<BbFieldError>
     with SingleTickerProviderStateMixin {
-  late final AnimationController _controller = AnimationController(
-    vsync: this,
-    duration: AppMotion.errorReveal,
-  )..addStatusListener(_onStatus);
+  // Created on the first error only: every BbField carries one of these, and a
+  // field that never shows an error should cost nothing.
+  AnimationController? _controllerOrNull;
+  CurvedAnimation? _curvedOrNull;
 
-  late final CurvedAnimation _curved = CurvedAnimation(
-    parent: _controller,
-    curve: AppMotion.easeOut,
-    reverseCurve: AppMotion.easeIn,
-  );
+  AnimationController get _controller => _controllerOrNull ??=
+      AnimationController(vsync: this, duration: _duration)
+        ..addStatusListener(_onStatus);
+
+  CurvedAnimation get _curved => _curvedOrNull ??= CurvedAnimation(
+        parent: _controller,
+        curve: AppMotion.easeOut,
+        reverseCurve: AppMotion.easeIn,
+      );
+
+  /// [AppMotion.errorReveal], or zero under reduced motion.
+  Duration _duration = AppMotion.errorReveal;
 
   /// The line on show — kept while a cleared error fades out.
   String? _shown;
@@ -48,7 +55,8 @@ class _BbFieldErrorState extends State<BbFieldError>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    _controller.duration = AppMotion.resolve(context, AppMotion.errorReveal);
+    _duration = AppMotion.resolve(context, AppMotion.errorReveal);
+    _controllerOrNull?.duration = _duration;
     if (!_started) {
       _started = true;
       // An error present on the first build still ENTERS (it just appeared).
@@ -64,13 +72,14 @@ class _BbFieldErrorState extends State<BbFieldError>
     super.didUpdateWidget(oldWidget);
     final String? next = widget.text;
     if (next != null) {
+      final AnimationStatus status = _controller.status;
       final bool appearing = _shown == null ||
-          _controller.status == AnimationStatus.reverse ||
-          _controller.status == AnimationStatus.dismissed;
+          status == AnimationStatus.reverse ||
+          status == AnimationStatus.dismissed;
       _shown = next;
       if (appearing) _controller.forward();
     } else if (_shown != null) {
-      if (_controller.duration == Duration.zero) {
+      if (_duration == Duration.zero) {
         // Reduced motion: gone at once (clear [_shown] first so the status
         // listener has nothing left to do mid-build).
         _shown = null;
@@ -92,8 +101,8 @@ class _BbFieldErrorState extends State<BbFieldError>
 
   @override
   void dispose() {
-    _curved.dispose();
-    _controller.dispose();
+    _curvedOrNull?.dispose();
+    _controllerOrNull?.dispose();
     super.dispose();
   }
 
