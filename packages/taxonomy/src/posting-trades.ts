@@ -78,11 +78,21 @@ export interface PostingTrade {
   readonly matchSkillId: string;
   /** Display-only ladder, lowest rung first. */
   readonly ladder: readonly PostingTradeLadderRung[];
+  /**
+   * Rung keys an older catalogue offered and the CEO sheets dropped (#2550). A posting that
+   * stored one still loads and saves; the form never offers it again.
+   */
+  readonly legacyRungs: readonly TradeLevel[];
 }
 
 /**
- * The catalogue. Ladder data is copied from the CEO Launch Pack v1 trade sheets
- * (2026-11-02, reconciled) exactly as the job-posting reference lists it.
+ * The catalogue. RUNGS are the CEO Launch Plan Pack v1 sheet ladders, the same ladder the
+ * worker answers (30 Oct ruling Q2; #2550): each trade's keys, order, confirmed rung and tier.
+ * A separate "Helper" rung is not a sheet rung (§2: helper -> trainee), so it is a legacy key.
+ * Months floors and evidence come from the 16-trade build reference (2026-11-03); a rung that
+ * reference lacks (CAM lead; the supervisor of 2D, sheet metal, press, painter and assembly)
+ * takes its evidence from the sheet and its months floor from the nearest analogue. Neither
+ * field is displayed today.
  */
 export const POSTING_TRADES: readonly PostingTrade[] = [
   {
@@ -91,13 +101,6 @@ export const POSTING_TRADES: readonly PostingTrade[] = [
     familyId: "fam_cnc_turning",
     matchSkillId: "mskill_cnc_turner",
     ladder: [
-      {
-        rung: "helper",
-        monthsFloor: "0-1",
-        evidence: "load/unload, deburr",
-        confirmed: false,
-        priceTier: "lower",
-      },
       {
         rung: "trainee",
         monthsFloor: "0-1",
@@ -141,6 +144,7 @@ export const POSTING_TRADES: readonly PostingTrade[] = [
         priceTier: "higher",
       },
     ],
+    legacyRungs: ["helper"],
   },
   {
     roleKind: "vmc_milling",
@@ -148,13 +152,6 @@ export const POSTING_TRADES: readonly PostingTrade[] = [
     familyId: "fam_vmc_milling",
     matchSkillId: "mskill_vmc_operator",
     ladder: [
-      {
-        rung: "helper",
-        monthsFloor: "0-1",
-        evidence: "load/unload",
-        confirmed: false,
-        priceTier: "lower",
-      },
       {
         rung: "trainee",
         monthsFloor: "0-1",
@@ -198,6 +195,7 @@ export const POSTING_TRADES: readonly PostingTrade[] = [
         priceTier: "higher",
       },
     ],
+    legacyRungs: ["helper"],
   },
   {
     roleKind: "cnc_grinding",
@@ -205,13 +203,6 @@ export const POSTING_TRADES: readonly PostingTrade[] = [
     familyId: "fam_cnc_grinding",
     matchSkillId: "mskill_cnc_grinding_operator",
     ladder: [
-      {
-        rung: "helper",
-        monthsFloor: "0-1",
-        evidence: "load/unload",
-        confirmed: false,
-        priceTier: "lower",
-      },
       {
         rung: "trainee",
         monthsFloor: "0-1",
@@ -248,6 +239,7 @@ export const POSTING_TRADES: readonly PostingTrade[] = [
         priceTier: "higher",
       },
     ],
+    legacyRungs: ["helper"],
   },
   {
     roleKind: "cam_programmer",
@@ -263,13 +255,6 @@ export const POSTING_TRADES: readonly PostingTrade[] = [
         priceTier: "lower",
       },
       {
-        rung: "junior_programmer",
-        monthsFloor: "1-2",
-        evidence: "assisted programming",
-        confirmed: false,
-        priceTier: "lower",
-      },
-      {
         rung: "programmer",
         monthsFloor: "2-3+",
         evidence: "independent G-code/CAM",
@@ -277,9 +262,16 @@ export const POSTING_TRADES: readonly PostingTrade[] = [
         priceTier: "higher",
       },
       {
-        rung: "senior_programmer",
+        rung: "senior",
         monthsFloor: "5+",
         evidence: "prove-out + optimisation",
+        confirmed: true,
+        priceTier: "higher",
+      },
+      {
+        rung: "lead",
+        monthsFloor: "7+",
+        evidence: "owns the CAM desk, trains programmers",
         confirmed: true,
         priceTier: "higher",
       },
@@ -291,6 +283,7 @@ export const POSTING_TRADES: readonly PostingTrade[] = [
         priceTier: "higher",
       },
     ],
+    legacyRungs: ["junior_programmer", "senior_programmer"],
   },
   {
     roleKind: "cad_draughtsman",
@@ -306,37 +299,16 @@ export const POSTING_TRADES: readonly PostingTrade[] = [
         priceTier: "lower",
       },
       {
-        rung: "draughtsman",
+        rung: "designer",
         monthsFloor: "1+",
         evidence: "2D drafting",
         confirmed: false,
         priceTier: "lower",
       },
       {
-        rung: "trainee_modeller",
-        monthsFloor: "1-2",
-        evidence: "3D assisting",
-        confirmed: false,
-        priceTier: "lower",
-      },
-      {
-        rung: "cad_designer",
-        monthsFloor: "2+",
-        evidence: "2D ownership",
-        confirmed: false,
-        priceTier: "lower",
-      },
-      {
-        rung: "senior_draughtsman",
+        rung: "senior_designer",
         monthsFloor: "4+",
         evidence: "checked drawings",
-        confirmed: true,
-        priceTier: "higher",
-      },
-      {
-        rung: "senior_designer",
-        monthsFloor: "5+",
-        evidence: "design ownership",
         confirmed: true,
         priceTier: "higher",
       },
@@ -347,7 +319,15 @@ export const POSTING_TRADES: readonly PostingTrade[] = [
         confirmed: true,
         priceTier: "higher",
       },
+      {
+        rung: "supervisor",
+        monthsFloor: "8+",
+        evidence: "drawing office head",
+        confirmed: true,
+        priceTier: "higher",
+      },
     ],
+    legacyRungs: ["draughtsman", "trainee_modeller", "cad_designer", "senior_draughtsman"],
   },
   {
     roleKind: "conventional_machinist",
@@ -355,13 +335,6 @@ export const POSTING_TRADES: readonly PostingTrade[] = [
     familyId: "fam_conventional_machining",
     matchSkillId: "mskill_conventional_machinist",
     ladder: [
-      {
-        rung: "helper",
-        monthsFloor: "0-1",
-        evidence: "load/unload",
-        confirmed: false,
-        priceTier: "lower",
-      },
       {
         rung: "trainee",
         monthsFloor: "0-1",
@@ -398,6 +371,7 @@ export const POSTING_TRADES: readonly PostingTrade[] = [
         priceTier: "higher",
       },
     ],
+    legacyRungs: ["helper"],
   },
   {
     roleKind: "tool_die_maker",
@@ -405,13 +379,6 @@ export const POSTING_TRADES: readonly PostingTrade[] = [
     familyId: "fam_tool_die_making",
     matchSkillId: "mskill_tool_die_maker",
     ladder: [
-      {
-        rung: "helper",
-        monthsFloor: "0-1",
-        evidence: "assist",
-        confirmed: false,
-        priceTier: "lower",
-      },
       {
         rung: "trainee",
         monthsFloor: "0-1",
@@ -448,6 +415,7 @@ export const POSTING_TRADES: readonly PostingTrade[] = [
         priceTier: "higher",
       },
     ],
+    legacyRungs: ["helper"],
   },
   {
     roleKind: "welder",
@@ -455,13 +423,6 @@ export const POSTING_TRADES: readonly PostingTrade[] = [
     familyId: "fam_welding_trade",
     matchSkillId: "mskill_welder",
     ladder: [
-      {
-        rung: "helper",
-        monthsFloor: "0-1",
-        evidence: "tack, grind, assist",
-        confirmed: false,
-        priceTier: "lower",
-      },
       {
         rung: "trainee",
         monthsFloor: "0-1",
@@ -498,6 +459,7 @@ export const POSTING_TRADES: readonly PostingTrade[] = [
         priceTier: "higher",
       },
     ],
+    legacyRungs: ["helper"],
   },
   {
     roleKind: "sheet_metal_worker",
@@ -505,13 +467,6 @@ export const POSTING_TRADES: readonly PostingTrade[] = [
     familyId: "fam_sheet_metal_fab",
     matchSkillId: "mskill_sheet_metal_worker",
     ladder: [
-      {
-        rung: "helper",
-        monthsFloor: "0-1",
-        evidence: "handle/stack",
-        confirmed: false,
-        priceTier: "lower",
-      },
       {
         rung: "trainee",
         monthsFloor: "0-1",
@@ -540,7 +495,15 @@ export const POSTING_TRADES: readonly PostingTrade[] = [
         confirmed: true,
         priceTier: "higher",
       },
+      {
+        rung: "supervisor",
+        monthsFloor: "8+",
+        evidence: "fabrication shop in-charge",
+        confirmed: true,
+        priceTier: "higher",
+      },
     ],
+    legacyRungs: ["helper"],
   },
   {
     roleKind: "press_operator",
@@ -548,13 +511,6 @@ export const POSTING_TRADES: readonly PostingTrade[] = [
     familyId: "fam_press_operation",
     matchSkillId: "mskill_press_operator",
     ladder: [
-      {
-        rung: "helper",
-        monthsFloor: "0-1",
-        evidence: "load/unload",
-        confirmed: false,
-        priceTier: "lower",
-      },
       {
         rung: "trainee",
         monthsFloor: "0-1",
@@ -570,7 +526,7 @@ export const POSTING_TRADES: readonly PostingTrade[] = [
         priceTier: "lower",
       },
       {
-        rung: "skilled",
+        rung: "setter",
         monthsFloor: "2-3+",
         evidence: "die setting, first piece",
         confirmed: true,
@@ -583,7 +539,15 @@ export const POSTING_TRADES: readonly PostingTrade[] = [
         confirmed: true,
         priceTier: "higher",
       },
+      {
+        rung: "supervisor",
+        monthsFloor: "8+",
+        evidence: "press shop in-charge",
+        confirmed: true,
+        priceTier: "higher",
+      },
     ],
+    legacyRungs: ["helper", "skilled"],
   },
   {
     roleKind: "painter_coating",
@@ -591,13 +555,6 @@ export const POSTING_TRADES: readonly PostingTrade[] = [
     familyId: "fam_powder_coating",
     matchSkillId: "mskill_painter_coater",
     ladder: [
-      {
-        rung: "helper",
-        monthsFloor: "0-1",
-        evidence: "mask/load",
-        confirmed: false,
-        priceTier: "lower",
-      },
       {
         rung: "trainee",
         monthsFloor: "0-1",
@@ -626,7 +583,15 @@ export const POSTING_TRADES: readonly PostingTrade[] = [
         confirmed: true,
         priceTier: "higher",
       },
+      {
+        rung: "supervisor",
+        monthsFloor: "8+",
+        evidence: "paint shop in-charge",
+        confirmed: true,
+        priceTier: "higher",
+      },
     ],
+    legacyRungs: ["helper"],
   },
   {
     roleKind: "fitter",
@@ -634,13 +599,6 @@ export const POSTING_TRADES: readonly PostingTrade[] = [
     familyId: "fam_fitter",
     matchSkillId: "mskill_fitter",
     ladder: [
-      {
-        rung: "helper",
-        monthsFloor: "0-1",
-        evidence: "assist",
-        confirmed: false,
-        priceTier: "lower",
-      },
       {
         rung: "trainee",
         monthsFloor: "0-1",
@@ -677,6 +635,7 @@ export const POSTING_TRADES: readonly PostingTrade[] = [
         priceTier: "higher",
       },
     ],
+    legacyRungs: ["helper"],
   },
   {
     roleKind: "maintenance_technician",
@@ -684,13 +643,6 @@ export const POSTING_TRADES: readonly PostingTrade[] = [
     familyId: "fam_maintenance_tech",
     matchSkillId: "mskill_maintenance_technician",
     ladder: [
-      {
-        rung: "helper",
-        monthsFloor: "0-1",
-        evidence: "assist",
-        confirmed: false,
-        priceTier: "lower",
-      },
       {
         rung: "trainee",
         monthsFloor: "0-1",
@@ -720,6 +672,7 @@ export const POSTING_TRADES: readonly PostingTrade[] = [
         priceTier: "higher",
       },
     ],
+    legacyRungs: ["helper"],
   },
   {
     roleKind: "industrial_electrician",
@@ -727,13 +680,6 @@ export const POSTING_TRADES: readonly PostingTrade[] = [
     familyId: "fam_industrial_electrician",
     matchSkillId: "mskill_industrial_electrician",
     ladder: [
-      {
-        rung: "helper",
-        monthsFloor: "0-1",
-        evidence: "assist",
-        confirmed: false,
-        priceTier: "lower",
-      },
       {
         rung: "trainee",
         monthsFloor: "0-1",
@@ -763,6 +709,7 @@ export const POSTING_TRADES: readonly PostingTrade[] = [
         priceTier: "higher",
       },
     ],
+    legacyRungs: ["helper"],
   },
   {
     roleKind: "assembly_line_worker",
@@ -770,13 +717,6 @@ export const POSTING_TRADES: readonly PostingTrade[] = [
     familyId: "fam_assembly_line",
     matchSkillId: "mskill_assembly_line_worker",
     ladder: [
-      {
-        rung: "helper",
-        monthsFloor: "0-1",
-        evidence: "line feeding",
-        confirmed: false,
-        priceTier: "lower",
-      },
       {
         rung: "trainee",
         monthsFloor: "0-1",
@@ -805,7 +745,15 @@ export const POSTING_TRADES: readonly PostingTrade[] = [
         confirmed: true,
         priceTier: "higher",
       },
+      {
+        rung: "supervisor",
+        monthsFloor: "8+",
+        evidence: "assembly in-charge / shift supervisor",
+        confirmed: true,
+        priceTier: "higher",
+      },
     ],
+    legacyRungs: ["helper"],
   },
   {
     roleKind: "quality_inspector",
@@ -842,13 +790,14 @@ export const POSTING_TRADES: readonly PostingTrade[] = [
         priceTier: "higher",
       },
       {
-        rung: "lead",
+        rung: "supervisor",
         monthsFloor: "7+",
         evidence: "QC lead",
         confirmed: true,
         priceTier: "higher",
       },
     ],
+    legacyRungs: ["lead"],
   },
 ] as const;
 
