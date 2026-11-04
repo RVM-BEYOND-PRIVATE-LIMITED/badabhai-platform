@@ -21,7 +21,9 @@ import 'bb_field_error.dart';
 ///  - **Backspace** removes the last digit and steps the active box back.
 ///  - [onCompleted] fires as the last digit lands (typed, pasted or
 ///    autofilled) — the caller's auto-submit. It fires again only for a
-///    DIFFERENT complete code, or after a digit was removed and re-entered.
+///    DIFFERENT complete code, or after a digit was removed and re-entered —
+///    including by the caller clearing [controller] after a failed verify, so
+///    the same code typed again retries.
 ///
 /// Each box pops as its digit lands: scale [AppMotion.popScale] (1.04) over
 /// [AppMotion.press] (90ms) — transform only, none under reduced motion.
@@ -92,7 +94,8 @@ class _BbOtpInputState extends State<BbOtpInput> {
       widget.focusNode ?? (_ownFocusNode ??= FocusNode(debugLabel: 'otp'));
 
   /// The last complete code handed to [BbOtpInput.onCompleted]; cleared when
-  /// the code becomes incomplete again.
+  /// the code becomes incomplete again — by the payer, or by the caller
+  /// clearing the [BbOtpInput.controller] for a retry.
   String? _completed;
 
   @override
@@ -125,7 +128,13 @@ class _BbOtpInputState extends State<BbOtpInput> {
     super.dispose();
   }
 
-  void _onControllerChanged() => setState(() {});
+  void _onControllerChanged() {
+    // [TextField.onChanged] only sees the payer's own edits, so a caller that
+    // clears the box after a failed verify is caught here — or the same code,
+    // entered again, would never auto-submit.
+    if (_controller.text.length < widget.length) _completed = null;
+    setState(() {});
+  }
 
   void _onFocusChanged() => setState(() {});
 

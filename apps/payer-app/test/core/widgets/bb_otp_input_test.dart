@@ -26,6 +26,7 @@ void main() {
     WidgetTester tester, {
     bool reduced = false,
     String? errorText,
+    TextEditingController? controller,
   }) async {
     await tester.pumpWidget(MaterialApp(
       theme: theme,
@@ -38,6 +39,7 @@ void main() {
           padding: const EdgeInsets.all(16),
           child: BbOtpInput(
             fieldKey: field,
+            controller: controller,
             onCompleted: completed.add,
             onChanged: changed.add,
             errorText: errorText,
@@ -46,6 +48,12 @@ void main() {
       ),
     ));
   }
+
+  /// Taps box [index]. The transparent code field lies OVER the boxes and
+  /// takes every tap — that is the design — so the tap is meant to land on it
+  /// rather than on the box itself.
+  Future<void> tapBox(WidgetTester tester, int index) =>
+      tester.tap(find.byKey(BbOtpInput.boxKey(index)), warnIfMissed: false);
 
   String digitIn(WidgetTester tester, int box) => tester
       .widget<Text>(find.descendant(
@@ -158,7 +166,7 @@ void main() {
   testWidgets('backspace removes the last digit and steps the active box back',
       (WidgetTester tester) async {
     await pumpOtp(tester);
-    await tester.tap(find.byKey(BbOtpInput.boxKey(0)));
+    await tapBox(tester, 0);
     await tester.pump();
     await tester.enterText(find.byKey(field), '1234');
     await tester.pump();
@@ -179,12 +187,31 @@ void main() {
     WidgetTester tester,
   ) async {
     await pumpOtp(tester);
-    await tester.tap(find.byKey(BbOtpInput.boxKey(0)));
+    await tapBox(tester, 0);
     await tester.pump();
     await tester.enterText(find.byKey(field), '123456');
     await tester.sendKeyEvent(LogicalKeyboardKey.backspace);
     await tester.pump();
     expect(text(tester), '12345');
+    await tester.enterText(find.byKey(field), '123456');
+    expect(completed, <String>['123456', '123456']);
+  });
+
+  testWidgets('the caller clearing the box re-arms auto-submit', (
+    WidgetTester tester,
+  ) async {
+    // A verify that failed (a timeout, a 5xx) clears the box for a retry;
+    // the payer then types the SAME, correct code again.
+    final TextEditingController controller = TextEditingController();
+    addTearDown(controller.dispose);
+    await pumpOtp(tester, controller: controller);
+    await tester.enterText(find.byKey(field), '123456');
+    expect(completed, <String>['123456']);
+
+    controller.clear();
+    await tester.pump();
+    expect(digits(tester), <String>['', '', '', '', '', '']);
+
     await tester.enterText(find.byKey(field), '123456');
     expect(completed, <String>['123456', '123456']);
   });
@@ -231,7 +258,7 @@ void main() {
       find.descendant(of: find.byKey(field), matching: find.byType(EditableText)),
     );
     expect(editable.focusNode.hasFocus, isFalse);
-    await tester.tap(find.byKey(BbOtpInput.boxKey(3)));
+    await tapBox(tester, 3);
     await tester.pump();
     expect(editable.focusNode.hasFocus, isTrue);
     // The platform can surface the SMS code for it.
