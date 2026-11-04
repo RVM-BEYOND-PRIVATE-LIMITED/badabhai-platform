@@ -699,6 +699,7 @@ class PayerApiException implements Exception {
     this.statusCode, {
     this.code,
     this.validationMessage,
+    this.fieldErrors = const <String, String>{},
   });
 
   final int statusCode;
@@ -711,6 +712,14 @@ class PayerApiException implements Exception {
   /// Null when the failure is not a per-field validation issue. The server
   /// names the field, never the offending value, so this is safe to render.
   final String? validationMessage;
+
+  /// #2595 — EVERY field-level issue of a validation 400, keyed by the wire
+  /// field at the head of its path (`role_title`, `description`, `benefits`
+  /// for `benefits.2`), first issue per field winning. Each message is
+  /// phrased to sit AT that field, so it carries no field label
+  /// (`Must not contain links.`). Empty when the 400 names no field. Same
+  /// safety as [validationMessage]: field and reason only, never the value.
+  final Map<String, String> fieldErrors;
 
   bool get isConflict => statusCode == 409;
   bool get isBadRequest => statusCode == 400;

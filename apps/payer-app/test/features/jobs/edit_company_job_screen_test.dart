@@ -6,6 +6,9 @@ import 'package:payer_app/core/data/mock_payer_api_client.dart';
 import 'package:payer_app/core/data/models.dart';
 import 'package:payer_app/core/di/locator.dart';
 import 'package:payer_app/core/auth/payer_token_store.dart';
+import 'package:payer_app/core/widgets/bb_action_bar.dart';
+import 'package:payer_app/core/widgets/bb_button.dart';
+import 'package:payer_app/core/widgets/bb_shake.dart';
 import 'package:payer_app/features/jobs/presentation/cubit/jobs_cubit.dart';
 import 'package:payer_app/features/jobs/presentation/edit_company_job_screen.dart';
 
@@ -42,6 +45,10 @@ class _ScriptedApi extends MockPayerApiClient {
   /// Every clearable field the last PATCH carried a VALUE for — so a test can
   /// assert no field ever rode both the body and `clear` (a server 400).
   Set<JobPostingClearField> lastValued = <JobPostingClearField>{};
+
+  /// When set, every [updateJob] throws it after recording the call — the
+  /// server refusing the save.
+  Object? throwOnUpdate;
 
   @override
   Future<List<JobPosting>> fetchJobs({String? status}) async =>
@@ -109,6 +116,7 @@ class _ScriptedApi extends MockPayerApiClient {
         .where((MapEntry<JobPostingClearField, Object?> e) => e.value != null)
         .map((MapEntry<JobPostingClearField, Object?> e) => e.key)
         .toSet();
+    if (throwOnUpdate != null) throw throwOnUpdate!;
     return _job;
   }
 }
@@ -293,8 +301,9 @@ void main() {
     await open(tester);
 
     expect(find.widgetWithText(TextField, 'Pune'), findsOneWidget); // city
-    expect(find.widgetWithText(TextField, '22000'), findsOneWidget);
-    expect(find.widgetWithText(TextField, '28000'), findsOneWidget);
+    // #2595 — the ₹ band prefills Indian-grouped, as the pay boxes show it.
+    expect(find.widgetWithText(TextField, '22,000'), findsOneWidget);
+    expect(find.widgetWithText(TextField, '28,000'), findsOneWidget);
     expect(
       find.widgetWithText(TextField, 'Turning job work on Fanuc controls.'),
       findsOneWidget,
@@ -514,7 +523,13 @@ void main() {
     await tapSave(tester);
 
     expect(api.updated, isEmpty);
-    expect(find.text('Check the description'), findsOneWidget);
+    // #2595 — the reason sits at the description, not in a toast.
+    expect(
+      find.text(
+        'Leave phone numbers and email addresses out of the description.',
+      ),
+      findsOneWidget,
+    );
   });
 
   // Migration 0141 — the role + trade form must be visible on the edit screen
@@ -543,5 +558,170 @@ void main() {
     expect(api.lastTradeAnswers, <String, List<String>>{
       'controller_brand': <String>['fanuc'],
     });
+  });
+
+  // --- #2595 (M7) -------------------------------------------------------------
+
+  testWidgets('Save is pinned in the shared action bar, like Post', (
+    WidgetTester tester,
+  ) async {
+    await open(tester);
+    final Scaffold scaffold = tester.widget<Scaffold>(find.descendant(
+      of: find.byType(EditCompanyJobScreen),
+      matching: find.byType(Scaffold),
+    ));
+    expect(scaffold.bottomNavigationBar, isA<BbActionBar>());
+    expect(
+      find.descendant(
+        of: find.byType(BbActionBar),
+        matching: find.text('Save changes'),
+      ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('a refused save shows every reason at its field — no toast', (
+    WidgetTester tester,
+  ) async {
+    await open(tester);
+    await typeInto(tester, 'Job title', '');
+    await typeInto(tester, 'City', '');
+    await typeInto(tester, 'Exp max (yrs)', '');
+    await tapSave(tester);
+
+    expect(api.updated, isEmpty);
+    expect(find.text('Add the job title'), findsOneWidget);
+    expect(find.text('Add the city'), findsOneWidget);
+    expect(find.text('Add the experience'), findsOneWidget);
+    expect(find.byType(SnackBar), findsNothing);
+  });
+
+  testWidgets("the server's refusal shows at the box it names — no toast", (
+    WidgetTester tester,
+  ) async {
+    await open(tester);
+    // The server screens the worker-visible Area for a company name.
+    api.throwOnUpdate = const PayerApiException(
+      400,
+      validationMessage: 'Area: Must not contain a company name.',
+      fieldErrors: <String, String>{
+        'area': 'Must not contain a company name.',
+      },
+    );
+    await typeInto(tester, 'Area (optional)', 'Tata Motors Pvt Ltd');
+    await tapSave(tester);
+    await tester.pumpAndSettle();
+
+    expect(api.updated, hasLength(1));
+    expect(
+      find.descendant(
+        of: find.ancestor(
+          of: find.text('Area (optional)'),
+          matching: find.byType(BbShake),
+        ),
+        matching: find.text('Must not contain a company name.'),
+      ),
+      findsOneWidget,
+    );
+    expect(find.byType(SnackBar), findsNothing);
+    // Still on the form, and Save is live again.
+    expect(find.text('Edit job'), findsOneWidget);
+    expect(
+      tester
+          .widget<BbButton>(find.widgetWithText(BbButton, 'Save changes'))
+          .loading,
+      isFalse,
+    );
+
+    // Changing the area is what clears it.
+    await typeInto(tester, 'Area (optional)', 'Chakan MIDC');
+    await tester.pumpAndSettle();
+    expect(find.text('Must not contain a company name.'), findsNothing);
+  });
+
+  testWidgets('Back on an unedited job leaves at once', (
+    WidgetTester tester,
+  ) async {
+    await open(tester);
+    await tester.tap(find.byIcon(Icons.arrow_back_rounded));
+    await tester.pumpAndSettle();
+    expect(find.text('Edit job'), findsNothing);
+    expect(find.text('Discard your changes?'), findsNothing);
+  });
+
+  testWidgets(
+      'Back (arrow or system) on an edited job asks before discarding it', (
+    WidgetTester tester,
+  ) async {
+    await open(tester);
+    await typeInto(tester, 'City', 'Nashik');
+
+    await tester.tap(find.byIcon(Icons.arrow_back_rounded));
+    await tester.pumpAndSettle();
+    expect(find.text('Discard your changes?'), findsOneWidget);
+    await tester.tap(find.text('Keep editing'));
+    await tester.pumpAndSettle();
+    expect(find.text('Edit job'), findsOneWidget);
+    expect(find.widgetWithText(TextField, 'Nashik'), findsOneWidget);
+
+    // The Android system Back takes the same path.
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(find.text('Discard your changes?'), findsOneWidget);
+    await tester.tap(find.text('Discard'));
+    await tester.pumpAndSettle();
+    expect(find.text('Edit job'), findsNothing);
+    expect(api.updated, isEmpty);
+  });
+
+  testWidgets('an edit put back to the saved value is no change', (
+    WidgetTester tester,
+  ) async {
+    await open(tester);
+    await typeInto(tester, 'City', 'Nashik');
+    await typeInto(tester, 'City', 'Pune');
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(find.text('Discard your changes?'), findsNothing);
+    expect(find.text('Edit job'), findsNothing);
+  });
+
+  testWidgets('the keyboard "next" walks the text boxes; "done" ends it', (
+    WidgetTester tester,
+  ) async {
+    await open(tester);
+    Finder box(String label) => find.descendant(
+          of: find
+              .ancestor(of: find.text(label), matching: find.byType(Column))
+              .first,
+          matching: find.byType(TextField),
+        );
+    bool focused(String label) => tester
+        .widget<EditableText>(
+          find.descendant(of: box(label), matching: find.byType(EditableText)),
+        )
+        .focusNode
+        .hasFocus;
+    const List<String> chain = <String>[
+      'Job title',
+      'Location',
+      'City',
+      'Area (optional)',
+      'Pay min ₹/mo',
+      'Pay max ₹/mo',
+      'Exp min (yrs)',
+      'Exp max (yrs)',
+    ];
+    await tester.tap(box(chain.first));
+    await tester.pump();
+    for (int i = 1; i < chain.length; i++) {
+      await tester.testTextInput.receiveAction(TextInputAction.next);
+      await tester.pump();
+      expect(focused(chain[i]), isTrue, reason: chain[i]);
+    }
+    expect(
+      tester.widget<TextField>(box('Exp max (yrs)')).textInputAction,
+      TextInputAction.done,
+    );
   });
 }

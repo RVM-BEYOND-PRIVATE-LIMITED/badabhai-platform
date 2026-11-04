@@ -157,9 +157,13 @@ class JobsCubit extends Cubit<JobsState> {
         return const JobActionResult.fail(kJobEditClosedMessage);
       }
       // A field-level validation 400 names the box to fix, e.g.
-      // "Job title: Must not contain a company name."
+      // "Job title: Must not contain a company name." — and hands every
+      // issue on by field, so the edit screen can show each AT its box.
       if (e.validationMessage != null && e.validationMessage!.isNotEmpty) {
-        return JobActionResult.fail(e.validationMessage!);
+        return JobActionResult.fail(
+          e.validationMessage!,
+          fieldErrors: e.fieldErrors,
+        );
       }
       return JobActionResult.fail(
         e.isConflict ? conflictMessage : 'Could not update. Please try again.',
@@ -179,11 +183,20 @@ class JobsCubit extends Cubit<JobsState> {
 /// The outcome of a one-shot My-jobs action — a success/neutral flag + a human
 /// message the screen shows as a toast. Never carries PII.
 class JobActionResult {
-  const JobActionResult.ok(this.message) : success = true;
-  const JobActionResult.fail(this.message) : success = false;
+  const JobActionResult.ok(this.message)
+      : success = true,
+        fieldErrors = const <String, String>{};
+  const JobActionResult.fail(
+    this.message, {
+    this.fieldErrors = const <String, String>{},
+  }) : success = false;
 
   final bool success;
   final String message;
+
+  /// #2595 — a refused edit's issues by wire field
+  /// ([PayerApiException.fieldErrors]); empty otherwise.
+  final Map<String, String> fieldErrors;
 }
 
 enum JobsStatus { initial, loading, ready, error }

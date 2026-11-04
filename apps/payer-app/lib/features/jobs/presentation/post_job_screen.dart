@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/material.dart';
 
 import '../../../core/data/models.dart';
@@ -8,17 +9,26 @@ import '../../../core/di/locator.dart';
 import '../../../core/session/app_session.dart';
 import '../../../core/session/app_session_cubit.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/app_haptics.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
+import '../../../core/util/number_input.dart';
+import '../../../core/widgets/bb_action_bar.dart';
 import '../../../core/widgets/bb_badge.dart';
 import '../../../core/widgets/bb_button.dart';
 import '../../../core/widgets/bb_card.dart';
-import '../../../core/widgets/bb_chip.dart';
+import '../../../core/widgets/bb_chip_select.dart';
 import '../../../core/widgets/bb_field.dart';
+import '../../../core/widgets/bb_field_error.dart';
+import '../../../core/widgets/bb_focus_chain.dart';
+import '../../../core/widgets/bb_form_errors.dart';
 import '../../../core/widgets/bb_icon_button.dart';
+import '../../../core/widgets/bb_leave_guard.dart';
+import '../../../core/widgets/bb_shake.dart';
+import '../../../core/widgets/bb_step_progress.dart';
 import '../../../core/widgets/bb_toast.dart';
-import '../domain/worker_card_fields.dart';
 import 'widgets/job_content_input.dart';
+import 'widgets/job_form_rules.dart';
 import 'widgets/match_skill_picker.dart';
 import 'widgets/trade_posting_fields.dart';
 
@@ -52,6 +62,14 @@ enum _MatchV1 { loading, available, unavailable }
 ///    to `POST /payer/agency/jobs` (201 → live `open`; refetch My-jobs). Unlike
 ///    the company route, agency DOES take the trade as a typed column.
 ///    NEVER an employer name or worker identity (no such field on this contract).
+///
+/// #2595 (M7) — a refused post shows every reason AT its field and takes the
+/// payer to the first one (scroll + shake + error haptic) instead of a toast;
+/// the pay/experience boxes are digits-only (₹-prefixed and grouped for pay);
+/// the keyboard's "next" walks the text boxes; a drag closes the keyboard; the
+/// Post button sits in the shared pinned [BbActionBar]; a progress bar counts
+/// the four sections done; and leaving with anything entered asks first
+/// ([BbLeaveGuard] — the shell asks the same for the system Back).
 class PostJobScreen extends StatefulWidget {
   const PostJobScreen({super.key, required this.onBack});
 
@@ -156,6 +174,37 @@ class _PostJobScreenState extends State<PostJobScreen> {
   final List<String> _skills = <String>[];
   bool _submitting = false;
 
+  // --- #2595 (M7) — inline errors, keyboard flow, the leave guard -----------
+
+  /// What is wrong and where; see [_validate].
+  final BbFormErrors<JobFormField> _form = BbFormErrors<JobFormField>();
+
+  /// The keyboard's "next" through the text boxes, in the order they are drawn
+  /// (the branch is locked at login, so one chain per form). It ends — "done" —
+  /// on the last experience box: the chips that follow need a tap, so the
+  /// keyboard steps aside for them.
+  late final BbFocusChain<JobFormField> _chain;
+
+  /// Every text box, merged — typing does not rebuild the form, so this is what
+  /// the progress bar, the inline errors and the leave guard listen to.
+  late final Listenable _inputs;
+
+  /// The form as it opened (the org is prefilled) — [_hasUnsavedChanges]
+  /// compares against it.
+  late final List<Object?> _pristine;
+
+  /// True once the post went through: nothing on the form is unsaved after.
+  bool _posted = false;
+
+  /// A trade chip refused at the match-skill cap, explained under the trade
+  /// fields; cleared by the next accepted change.
+  String? _skillCapError;
+
+  static const BbLeavePrompt _leavePrompt = BbLeavePrompt(
+    title: 'Discard this job?',
+    message: 'What you have filled in here will be lost.',
+  );
+
   // --- Matching V1 (COMPANY posting only) -----------------------------------
   // The demand-skill picker + live reach meter. All additive: if the route is
   // off server-side we degrade to the free-text skills flow (see [_MatchV1]).
@@ -213,6 +262,32 @@ class _PostJobScreenState extends State<PostJobScreen> {
     final String orgName =
         postingOrgLabelFor(locator<AppSessionCubit>().state?.account);
     _org = TextEditingController(text: orgName);
+    _chain = BbFocusChain<JobFormField>(
+      _isAgency
+          ? const <JobFormField>[
+              JobFormField.title,
+              JobFormField.city,
+              JobFormField.area,
+              JobFormField.payMin,
+              JobFormField.payMax,
+              JobFormField.expMin,
+              JobFormField.expMax,
+            ]
+          : const <JobFormField>[
+              JobFormField.org,
+              JobFormField.title,
+              JobFormField.city,
+              JobFormField.area,
+              JobFormField.location,
+              JobFormField.payMin,
+              JobFormField.payMax,
+              JobFormField.expMin,
+              JobFormField.expMax,
+            ],
+    );
+    _inputs = Listenable.merge(_textBoxes);
+    _inputs.addListener(_onInputChanged);
+    _pristine = _snapshot();
     // Both branches offer the closed-taxonomy picker now (ADR-0050: a V1 twin is
     // served only on skills the agent picked). Load it lazily and fail soft: any
     // error (route disabled, network) drops to `unavailable` — the COMPANY branch
@@ -227,6 +302,8 @@ class _PostJobScreenState extends State<PostJobScreen> {
   @override
   void dispose() {
     _reachDebounce?.cancel();
+    _inputs.removeListener(_onInputChanged);
+    _chain.dispose();
     _org.dispose();
     _title.dispose();
     _location.dispose();
@@ -319,10 +396,12 @@ class _PostJobScreenState extends State<PostJobScreen> {
       ],
       labelOf: (String? kind) =>
           _formForKind(kind)?.roleLabel ?? '— pick the role —',
+      errorText: _form[JobFormField.role],
       onChanged: (String? kind) {
         final PostingTradeForm? form = _formForKind(kind);
         setState(() {
           _roleKind = kind;
+          _skillCapError = null;
           _tradeLevel = '';
           _tradeAnswers = const <String, List<String>>{};
           _pickedSkillIds
@@ -365,17 +444,16 @@ class _PostJobScreenState extends State<PostJobScreen> {
             // + match chips). Refuse the tap here with the reason rather than failing the
             // publish later; the live cap arrives with the first reach preview.
             if (nextMatch.length > _maxSkillsPerPosting) {
-              showBbToast(
-                context,
-                title: 'Too many match skills',
-                message:
-                    'Pick up to $_maxSkillsPerPosting match skills — the rest are '
-                    'requirements and do not change reach.',
-                icon: Icons.info_rounded,
+              // #2595 — said under the chips that were tapped, not in a toast.
+              // ignore: discarded_futures — fire-and-forget double tick.
+              AppHaptics.error();
+              setState(
+                () => _skillCapError = matchSkillCapError(_maxSkillsPerPosting),
               );
               return;
             }
             setState(() {
+              _skillCapError = null;
               _tradeLevel = level;
               _tradeAnswers = answers;
               _pickedSkillIds
@@ -390,6 +468,7 @@ class _PostJobScreenState extends State<PostJobScreen> {
             }
           },
         ),
+        BbFieldError(text: _skillCapError),
         if (_reach != null) ...<Widget>[
           const SizedBox(height: AppSpacing.s3),
           Text(
@@ -488,11 +567,17 @@ class _PostJobScreenState extends State<PostJobScreen> {
     }
   }
 
-  /// Post is disabled for the company path while V1 is [loading], and requires at
-  /// least one demand skill picked (so the job is matchable). It does NOT require
-  /// a non-zero reach preview: reach is dynamic — the backend links workers who
-  /// join later to an existing open posting — so a zero-reach-today job is still
-  /// worth posting. The agency path and the V1-off fallback are ungated.
+  /// Whether the company skills section is complete: never while V1 is
+  /// [loading], and — once it is live — only with at least one demand skill
+  /// picked (so the job is matchable). It does NOT require a non-zero reach
+  /// preview: reach is dynamic — the backend links workers who join later to an
+  /// existing open posting — so a zero-reach-today job is still worth posting.
+  /// The agency path and the V1-off fallback need no skill.
+  ///
+  /// #2595 — Post is no longer held disabled on a missing skill (a dead button
+  /// never said why): it stays tappable once V1 has loaded, and the missing
+  /// skill is an inline error at the section ([_validate]); this getter now
+  /// drives the progress bar.
   bool get _companyCanPost {
     switch (_matchV1) {
       case _MatchV1.loading:
@@ -511,33 +596,30 @@ class _PostJobScreenState extends State<PostJobScreen> {
     }
   }
 
-  /// A trimmed whole-number field → int, or null when empty/invalid (an optional
-  /// coarse band).
-  static int? _intOrNull(String raw) {
-    final String t = raw.trim();
-    if (t.isEmpty) return null;
-    return int.tryParse(t);
-  }
+  /// A pay/experience box → int, or null when it is empty. The boxes take
+  /// digits only (#2595) — the pay ones show Indian grouping ("18,000"), which
+  /// [parseWholeNumber] reads straight through.
+  static int? _intOrNull(String raw) => parseWholeNumber(raw);
 
-  /// Shared min/max ordering check for the coarse bands — returns an honest
-  /// message, or null when the bands are fine. The server 400s these too.
-  String? _bandOrderError(int? payMin, int? payMax, int? expMin, int? expMax) {
-    if (payMin != null && payMax != null && payMax < payMin) {
-      return 'Max pay must be at least the min.';
-    }
-    if (expMin != null && expMax != null && expMax < expMin) {
-      return 'Max experience must be at least the min.';
-    }
-    return null;
-  }
-
-  /// The card's own fields, checked against [workerCardGap] — the ONE
-  /// definition the two edit screens are held to as well, so a card row added
-  /// later cannot be required in one place and optional in three.
-  ///
-  /// `neededBy` is the only branch-dependent value: the company posting and the
-  /// agency job keep their own enum state, and only one branch is ever mounted.
-  WorkerCardGap? _cardContentGap() => workerCardGap(
+  /// Every reason the form cannot be posted yet, keyed by the control the payer
+  /// has to change (#2595) — this form's basics plus the worker-visible content
+  /// every posting form insists on ([jobContentErrors]: the card's own fields,
+  /// the band ordering and the description screen). Shown inline at the fields
+  /// by [_form], and counted by the progress bar.
+  Map<JobFormField, String> _validate() {
+    final bool agency = _isAgency;
+    return <JobFormField, String>{
+      // Both are printed on the worker's card (agency) / name the posting's
+      // org (company) — never defaulted, so they must be picked or typed.
+      if (agency && _tradeKey == null) JobFormField.tradeKey: 'Pick the trade',
+      if (!agency && _org.text.trim().isEmpty)
+        JobFormField.org: 'Add the company name',
+      // Migration 0141 — the role is mandatory when the catalogue drives the
+      // form: it selects the trade fields.
+      if (_postingTrades.isNotEmpty && _roleKind == null)
+        JobFormField.role: 'Pick the role',
+      if (_title.text.trim().isEmpty) JobFormField.title: 'Add the job title',
+      ...jobContentErrors(
         city: _city.text,
         payMin: _intOrNull(_payMin.text),
         payMax: _intOrNull(_payMax.text),
@@ -545,10 +627,169 @@ class _PostJobScreenState extends State<PostJobScreen> {
         expMin: _intOrNull(_expMin.text),
         expMax: _intOrNull(_expMax.text),
         shift: _shift,
-        neededBy: _isAgency ? _neededBy : _companyNeededBy,
+        // The only branch-dependent value: the company posting and the agency
+        // job keep their own enum state, and only one branch is ever mounted.
+        neededBy: agency ? _neededBy : _companyNeededBy,
         description: _description.text,
         requirements: _requirements,
         benefits: _benefits,
+      ),
+      // Matching V1 (company): the job needs at least one demand skill so it
+      // can be matched to workers (now, or as they join — reach is dynamic). A
+      // role not yet picked is named at the role instead: picking it seeds one.
+      if (!agency &&
+          _matchV1 == _MatchV1.available &&
+          _pickedSkillIds.isEmpty &&
+          (_postingTrades.isEmpty || _roleKind != null))
+        JobFormField.skills: 'Pick at least one skill',
+    };
+  }
+
+  /// The four sections the progress bar counts (#2595), as the controls each
+  /// holds — a section is done when none of them has an error. Optional ones
+  /// (area, the location note, vacancies, an agency's skills) never count.
+  static const List<Set<JobFormField>> _companySections = <Set<JobFormField>>[
+    <JobFormField>{
+      JobFormField.org,
+      JobFormField.title,
+      JobFormField.role,
+      JobFormField.city,
+    },
+    <JobFormField>{
+      JobFormField.payMin,
+      JobFormField.payMax,
+      JobFormField.payType,
+      JobFormField.expMin,
+      JobFormField.expMax,
+      JobFormField.shift,
+      JobFormField.neededBy,
+    },
+    <JobFormField>{JobFormField.skills},
+    <JobFormField>{
+      JobFormField.description,
+      JobFormField.benefits,
+      JobFormField.requirements,
+    },
+  ];
+
+  static const List<Set<JobFormField>> _agencySections = <Set<JobFormField>>[
+    <JobFormField>{
+      JobFormField.tradeKey,
+      JobFormField.role,
+      JobFormField.title,
+      JobFormField.city,
+    },
+    <JobFormField>{
+      JobFormField.payMin,
+      JobFormField.payMax,
+      JobFormField.payType,
+      JobFormField.expMin,
+      JobFormField.expMax,
+    },
+    <JobFormField>{JobFormField.neededBy, JobFormField.shift},
+    <JobFormField>{
+      JobFormField.description,
+      JobFormField.benefits,
+      JobFormField.requirements,
+    },
+  ];
+
+  List<Set<JobFormField>> get _sections =>
+      _isAgency ? _agencySections : _companySections;
+
+  /// How many of [_sections] are complete right now.
+  int _sectionsDone() {
+    // A box the server refused is not done either, until it is changed.
+    final Set<JobFormField> open = <JobFormField>{
+      ..._validate().keys,
+      ..._form.refusals.keys,
+    };
+    // The company skills section cannot be done before the picker has loaded
+    // and said what it needs.
+    if (!_isAgency && !_companyCanPost) open.add(JobFormField.skills);
+    return _sections
+        .where((Set<JobFormField> section) => section.intersection(open).isEmpty)
+        .length;
+  }
+
+  /// A keystroke in any box: drop the inline errors it fixed. Nothing NEW is
+  /// flagged until the next submit — no nagging mid-typing.
+  void _onInputChanged() {
+    if (!_form.isEmpty && _form.settle(_validate())) setState(() {});
+  }
+
+  List<TextEditingController> get _textBoxes => <TextEditingController>[
+        _org,
+        _title,
+        _location,
+        _city,
+        _area,
+        _payMin,
+        _payMax,
+        _expMin,
+        _expMax,
+        _description,
+      ];
+
+  /// Everything the payer can enter, flattened so two moments of the form
+  /// compare with [listEquals]: boxes trimmed, picks as-is, chip lists in
+  /// order, sets and the trade answers order-insensitive.
+  List<Object?> _snapshot() => <Object?>[
+        for (final TextEditingController box in _textBoxes) box.text.trim(),
+        _band,
+        _trade,
+        _roleKind,
+        _tradeKey,
+        _neededBy,
+        _shift,
+        _companyNeededBy,
+        _payType,
+        _tradeLevel,
+        listSnapshotKey(_skills),
+        listSnapshotKey(_benefits),
+        listSnapshotKey(_requirements),
+        setSnapshotKey(_pickedSkillIds),
+        setSnapshotKey(_untickedRelatedIds),
+        tradeAnswersSnapshotKey(_tradeAnswers),
+      ];
+
+  /// True when leaving would throw input away: anything entered since the form
+  /// opened, until the post goes through.
+  bool get _hasUnsavedChanges =>
+      !_posted && !listEquals(_snapshot(), _pristine);
+
+  /// What [field] holds now. A server refusal is pinned to it
+  /// ([BbFormErrors.refuse]) and stands until it changes. The company
+  /// description is the text the create SENT, folds included
+  /// ([_companyDescription]), so changing a folded skill counts too.
+  Object? _valueOf(JobFormField field) => switch (field) {
+        JobFormField.org => _org.text.trim(),
+        JobFormField.tradeKey => _tradeKey,
+        JobFormField.role => _roleKind,
+        JobFormField.title => _title.text.trim(),
+        JobFormField.location => _location.text.trim(),
+        JobFormField.city => _city.text.trim(),
+        JobFormField.area => _area.text.trim(),
+        JobFormField.payMin => _intOrNull(_payMin.text),
+        JobFormField.payMax => _intOrNull(_payMax.text),
+        JobFormField.payType => _payType,
+        JobFormField.expMin => _intOrNull(_expMin.text),
+        JobFormField.expMax => _intOrNull(_expMax.text),
+        JobFormField.shift => _shift,
+        JobFormField.neededBy => _isAgency ? _neededBy : _companyNeededBy,
+        JobFormField.skills => setSnapshotKey(_pickedSkillIds),
+        JobFormField.description =>
+          _isAgency ? _description.text.trim() : _companyDescription(),
+        JobFormField.benefits => listSnapshotKey(_benefits),
+        JobFormField.requirements => listSnapshotKey(_requirements),
+      };
+
+  /// The in-screen back arrow: leaves at once when nothing was entered, and
+  /// asks first otherwise (the shell asks the same for the system Back).
+  void _leave() => _leavePrompt.guard(
+        context,
+        dirty: _hasUnsavedChanges,
+        leave: widget.onBack,
       );
 
   /// FOLD ONLY WHAT HAS NO COLUMN. `description` is the company posting's one
@@ -584,92 +825,29 @@ class _PostJobScreenState extends State<PostJobScreen> {
   }
 
   Future<void> _submit() async {
+    // #2595 — every reason the post cannot go yet is shown AT its field, and
+    // the payer is taken to the first one (scroll + shake + error haptic). This
+    // used to be six toast branches that NAMED one field at a time.
+    final Map<JobFormField, String> errors = _validate();
+    if (errors.isNotEmpty) {
+      setState(() => _form.show(errors));
+      return;
+    }
     if (_isAgency) {
       await _submitAgency();
-      return;
+    } else {
+      await _submitCompany();
     }
+  }
 
+  /// COMPANY create — `POST /payer/job-postings` (+ the old-server repair).
+  /// Reached only once [_validate] passes: the basics are there, the bands are
+  /// ordered, every card field is set, the description is screened, and — with
+  /// the demand-skill picker live — a skill is picked.
+  Future<void> _submitCompany() async {
     final String org = _org.text.trim();
     final String title = _title.text.trim();
-    if (org.isEmpty || title.isEmpty) {
-      showBbToast(
-        context,
-        title: 'Add the basics',
-        message: 'Company name and job title are needed.',
-        icon: Icons.info_rounded,
-      );
-      return;
-    }
-    if (_postingTrades.isNotEmpty && _roleKind == null) {
-      showBbToast(
-        context,
-        title: 'Pick the role',
-        message:
-            'Choose the role this posting is for — its trade fields follow.',
-        icon: Icons.info_rounded,
-      );
-      return;
-    }
-
-    final String? bandError = _bandOrderError(
-      _intOrNull(_payMin.text),
-      _intOrNull(_payMax.text),
-      _intOrNull(_expMin.text),
-      _intOrNull(_expMax.text),
-    );
-    if (bandError != null) {
-      showBbToast(
-        context,
-        title: 'Check the bands',
-        message: bandError,
-        icon: Icons.info_rounded,
-      );
-      return;
-    }
-
-    // Every fact the worker's card renders — city, band, pay type, experience,
-    // shift, needed-by, description, requirement + benefit chips.
-    final WorkerCardGap? gap = _cardContentGap();
-    if (gap != null) {
-      showBbToast(
-        context,
-        title: gap.title,
-        message: gap.message,
-        icon: Icons.info_rounded,
-      );
-      return;
-    }
-
-    // Worker-visible free text: screened before the call so one bad line does
-    // not 400 the whole post (the chips are already screened at entry). The
-    // agency branch has always done this; the company description used to be
-    // composed rather than typed, so it never passed through here.
-    final String? descriptionError =
-        postingDescriptionError(_description.text.trim());
-    if (descriptionError != null) {
-      showBbToast(
-        context,
-        title: 'Check the description',
-        message: descriptionError,
-        icon: Icons.info_rounded,
-      );
-      return;
-    }
-
-    // Defence in depth behind the disabled Post button: when the demand-skill
-    // picker is live the job needs at least one skill so it can be matched to
-    // workers (now, or as they join — reach is dynamic, see `_companyCanPost`).
     final bool v1 = _matchV1 == _MatchV1.available;
-    if (v1 && _pickedSkillIds.isEmpty) {
-      showBbToast(
-        context,
-        title: 'Pick a skill',
-        message: 'Choose at least one skill this role needs so we can match it '
-            'to workers.',
-        icon: Icons.info_rounded,
-      );
-      return;
-    }
 
     setState(() => _submitting = true);
     try {
@@ -766,6 +944,7 @@ class _PostJobScreenState extends State<PostJobScreen> {
         tradeAnswers: _tradeAnswers,
       );
       if (!mounted) return;
+      _posted = true;
       showBbToast(
         context,
         title: 'Job posted',
@@ -914,20 +1093,45 @@ class _PostJobScreenState extends State<PostJobScreen> {
     }
   }
 
-  /// Name the real reason where we know it: a 400 on either route means the
-  /// server rejected the DETAILS themselves, which "check your connection" would
-  /// misdescribe. The worker-visible free text is screened fail-closed on three
-  /// things — contact details, a company name, and links — so the message names
-  /// all three instead of only the first.
+  /// A refused post. The server's field errors go AT their boxes — scrolled
+  /// to, shaken, with the error haptic — exactly like the form's own (#2595);
+  /// a toast says only what no box here holds. The device mirrors only the
+  /// phone and email screens, so this is where a company name or a link in
+  /// the worker-visible text is caught.
+  ///
+  /// A refusal naming no field still names the real reason where the server
+  /// gave one. A bare 400 on either route means the server rejected the
+  /// DETAILS themselves, which "check your connection" would misdescribe: that
+  /// text is screened fail-closed on three things — contact details, a
+  /// company name, and links — so the message names all three.
   void _showPostFailure(Object error) {
+    if (error is PayerApiException) {
+      final ({Map<JobFormField, String> placed, List<String> rest}) placement =
+          placeServerErrors(error.fieldErrors, isShown: _form.hasAnchor);
+      if (placement.placed.isNotEmpty) {
+        setState(() => _form.refuse(placement.placed, valueOf: _valueOf));
+        if (placement.rest.isNotEmpty) {
+          showBbToast(
+            context,
+            title: 'Could not post',
+            message: placement.rest.join(' '),
+            icon: Icons.info_rounded,
+          );
+        }
+        return;
+      }
+    }
     final bool rejected = error is PayerApiException && error.isBadRequest;
+    final String? reason =
+        error is PayerApiException ? error.validationMessage : null;
     showBbToast(
       context,
       title: 'Could not post',
-      message: rejected
-          ? 'The server rejected these details. Take out any phone number, '
-              'email address, company name or link.'
-          : 'Something went wrong. Please try again.',
+      message: reason ??
+          (rejected
+              ? 'The server rejected these details. Take out any phone '
+                  'number, email address, company name or link.'
+              : 'Something went wrong. Please try again.'),
       icon: Icons.info_rounded,
     );
   }
@@ -936,66 +1140,17 @@ class _PostJobScreenState extends State<PostJobScreen> {
   /// Sends `trade_key`/`title`/`city` (+ optional coarse `area`/pay/experience
   /// bands + `needed_by`). On success → toast + back to My-jobs (which refetches
   /// agency jobs). NEVER an org/employer name (no such field on this route).
+  /// Reached only once [_validate] passes.
   Future<void> _submitAgency() async {
     final String title = _title.text.trim();
     final String city = _city.text.trim();
-    final String? tradeKey = _tradeKey;
-    if (tradeKey == null ||
-        title.isEmpty ||
-        (_postingTrades.isNotEmpty && _roleKind == null)) {
-      showBbToast(
-        context,
-        title: 'Add the basics',
-        message:
-            'Trade, role and job title are needed — all are printed on the '
-            'worker\'s card.',
-        icon: Icons.info_rounded,
-      );
-      return;
-    }
-
+    // [_submit] refused the post while no trade was picked.
+    final String tradeKey = _tradeKey!;
     final int? payMin = _intOrNull(_payMin.text);
     final int? payMax = _intOrNull(_payMax.text);
     final int? expMin = _intOrNull(_expMin.text);
     final int? expMax = _intOrNull(_expMax.text);
-    // Client-side ordering check for an honest message (the server also 400s).
-    final String? bandError = _bandOrderError(payMin, payMax, expMin, expMax);
-    if (bandError != null) {
-      showBbToast(
-        context,
-        title: 'Check the bands',
-        message: bandError,
-        icon: Icons.info_rounded,
-      );
-      return;
-    }
-
-    // Every fact the worker's card renders — the same closed list the company
-    // branch is held to, because the two produce the SAME card.
-    final WorkerCardGap? gap = _cardContentGap();
-    if (gap != null) {
-      showBbToast(
-        context,
-        title: gap.title,
-        message: gap.message,
-        icon: Icons.info_rounded,
-      );
-      return;
-    }
-
-    // Worker-visible free text: screened before the call so one bad line does not
-    // 400 the whole post (the chips are already screened at entry).
     final String description = _description.text.trim();
-    final String? descriptionError = postingDescriptionError(description);
-    if (descriptionError != null) {
-      showBbToast(
-        context,
-        title: 'Check the description',
-        message: descriptionError,
-        icon: Icons.info_rounded,
-      );
-      return;
-    }
 
     setState(() => _submitting = true);
     try {
@@ -1034,6 +1189,7 @@ class _PostJobScreenState extends State<PostJobScreen> {
         tradeAnswers: _postingTrades.isNotEmpty ? _tradeAnswers : null,
       );
       if (!mounted) return;
+      _posted = true;
       showBbToast(
         context,
         title: 'Job posted',
@@ -1104,64 +1260,102 @@ class _PostJobScreenState extends State<PostJobScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Transparent so this inner Scaffold never paints over the shell surface —
-    // it exists only to pin the primary action below a form that can outgrow the
-    // fold (mirrors edit_agency_job_screen).
-    return Scaffold(
-      backgroundColor: Colors.transparent,
-      bottomNavigationBar: SafeArea(
-        top: false,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(
-            AppSpacing.gutter,
-            AppSpacing.s3,
-            AppSpacing.gutter,
-            AppSpacing.s3,
-          ),
+    // #2595 — keep the errors on show honest against the CURRENT form: a pick
+    // or a chip can fix an error from another control (raising "Pay min" fixes
+    // "Max pay must be at least the min"), and those rebuild through setState
+    // rather than [_onInputChanged]. Errors only ever drop here.
+    if (!_form.isEmpty) _form.settle(_validate());
+    return BbLeaveGuard(
+      hasUnsavedChanges: () => _hasUnsavedChanges,
+      prompt: _leavePrompt,
+      watch: _inputs,
+      // Transparent so this inner Scaffold never paints over the shell surface
+      // — it exists only to pin the primary action below a form that can
+      // outgrow the fold (the shared bar the Edit screens use too).
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        bottomNavigationBar: BbActionBar(
           child: BbButton(
             label: 'Post job',
             iconLeft: Icons.send_rounded,
             block: true,
             loading: _submitting,
-            // Disabled (null) for the company path until at least one demand skill
-            // is picked (reach is not required — it is dynamic); the agency path
-            // is never gated here.
-            onPressed: (_isAgency || _companyCanPost) ? _submit : null,
+            // Held only while the company's demand-skill picker is still
+            // loading (what the post needs is not known yet). Everything else —
+            // including a skill not yet picked — is an inline error on tap
+            // (#2595), never a dead button that does not say why.
+            onPressed:
+                (_isAgency || _matchV1 != _MatchV1.loading) ? _submit : null,
           ),
         ),
-      ),
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(
-          AppSpacing.gutter,
-          AppSpacing.s2,
-          AppSpacing.gutter,
-          AppSpacing.s6,
-        ),
-        children: <Widget>[
-          Row(
-            children: <Widget>[
-              BbIconButton(
-                icon: Icons.arrow_back_rounded,
-                semanticLabel: 'Back',
-                onPressed: widget.onBack,
+        body: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: <Widget>[
+            // The header and the progress stay pinned while the form scrolls.
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.gutter,
+                AppSpacing.s2,
+                AppSpacing.gutter,
+                AppSpacing.s3,
               ),
-              const SizedBox(width: AppSpacing.s3),
-              Text(
-                'Post a job',
-                style: AppTypography.header(
-                  size: AppTypography.sizeLg,
-                  weight: FontWeight.w800,
+              child: ListBody(
+                children: <Widget>[
+                  Row(
+                    children: <Widget>[
+                      BbIconButton(
+                        icon: Icons.arrow_back_rounded,
+                        semanticLabel: 'Back',
+                        onPressed: _leave,
+                      ),
+                      const SizedBox(width: AppSpacing.s3),
+                      Text(
+                        'Post a job',
+                        style: AppTypography.header(
+                          size: AppTypography.sizeLg,
+                          weight: FontWeight.w800,
+                        ),
+                      ),
+                      const Spacer(),
+                      const BbBadge('Free', tone: BbBadgeTone.success),
+                    ],
+                  ),
+                  const SizedBox(height: AppSpacing.s3),
+                  // Typing does not rebuild the form; the bar listens to the
+                  // boxes itself (picks rebuild it with the form).
+                  ListenableBuilder(
+                    listenable: _inputs,
+                    builder: (BuildContext context, Widget? _) =>
+                        BbStepProgress(
+                      done: _sectionsDone(),
+                      total: _sections.length,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              // Every field is built (not a lazy list) so the first invalid
+              // one can always be scrolled to; a drag closes the keyboard.
+              child: SingleChildScrollView(
+                keyboardDismissBehavior:
+                    ScrollViewKeyboardDismissBehavior.onDrag,
+                padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.gutter,
+                  AppSpacing.s1,
+                  AppSpacing.gutter,
+                  AppSpacing.s6,
+                ),
+                // Branch on the locked session role: the agency posts to a
+                // DIFFERENT (faceless demand) contract that DOES accept
+                // trade/pay/experience.
+                child: ListBody(
+                  children: _isAgency ? _agencyFields() : _companyFields(),
                 ),
               ),
-              const Spacer(),
-              const BbBadge('Free', tone: BbBadgeTone.success),
-            ],
-          ),
-          const SizedBox(height: AppSpacing.s4),
-          // Branch on the locked session role: the agency posts to a DIFFERENT
-          // (faceless demand) contract that DOES accept trade/pay/experience.
-          ...(_isAgency ? _agencyFields() : _companyFields()),
-        ],
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1187,56 +1381,196 @@ class _PostJobScreenState extends State<PostJobScreen> {
         ),
       );
 
-  /// A labelled single-select rendered as aligned kit chips (the JUL31 pattern
-  /// for enum choices) — selected flips to a solid haldi pill. Carries the same
-  /// value/onChanged contract the old [BbSelect] did, so submit logic is intact.
-  /// [value] is nullable so a REQUIRED enum can start unpicked: no chip is
-  /// selected until the payer taps one, and submit refuses until they do. That
-  /// is what keeps a default off the worker's card.
-  Widget _chipField<T extends Object>({
+  /// [control], anchored for its inline error (#2595): when [field] is the
+  /// first error on a refused post, this is what scrolls into view and shakes.
+  Widget _anchored(JobFormField field, Widget control) =>
+      BbShake(key: _form.anchor(field), child: control);
+
+  /// A required enum as kit chips ([BbChipSelect]), anchored with its inline
+  /// error. No chip starts selected — submit refuses until the payer taps one,
+  /// which is what keeps a default off the worker's card.
+  Widget _chipField(
+    JobFormField field, {
     required String label,
-    required T? value,
-    required List<T> options,
-    required String Function(T) labelOf,
-    required ValueChanged<T> onSelected,
+    required String? value,
+    required List<String> options,
+    required String Function(String) labelOf,
+    required ValueChanged<String> onSelected,
   }) =>
-      Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          Text(
-            label,
-            style: AppTypography.body(
-              size: AppTypography.sizeSm,
-              weight: FontWeight.w700,
-              color: AppColors.textPrimary,
-            ),
-          ),
-          const SizedBox(height: AppSpacing.s2),
-          Wrap(
-            spacing: AppSpacing.s2,
-            runSpacing: AppSpacing.s2,
-            children: <Widget>[
-              for (final T option in options)
-                BbChip(
-                  label: labelOf(option),
-                  selected: option == value,
-                  onTap: () => onSelected(option),
-                ),
-            ],
-          ),
-        ],
+      _anchored(
+        field,
+        BbChipSelect<String>(
+          label: label,
+          value: value,
+          options: options,
+          labelOf: labelOf,
+          onSelected: onSelected,
+          errorText: _form[field],
+        ),
       );
 
   /// The pay-type selector, shared by both branches (`pay_type`, #1648) — what
   /// the ₹ band the payer just typed actually MEANS to the worker. Offered
   /// straight under the band for that reason.
-  Widget _payTypeField() => _chipField<String>(
+  Widget _payTypeField() => _chipField(
+        JobFormField.payType,
         label: 'Pay type',
         value: _payType,
         options: kJobPayTypes,
         labelOf: _payTypeLabel,
         onSelected: (String v) => setState(() => _payType = v),
       );
+
+  /// The ₹ pay band — two digits-only boxes, ₹-prefixed and grouped (#2595).
+  Widget _payBandRow() => Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Expanded(
+            child: _anchored(
+              JobFormField.payMin,
+              JobPayField(
+                label: 'Pay min ₹/mo',
+                controller: _payMin,
+                hint: 'e.g. 18,000',
+                errorText: _form[JobFormField.payMin],
+                flow: _chain[JobFormField.payMin],
+              ),
+            ),
+          ),
+          const SizedBox(width: AppSpacing.s3),
+          Expanded(
+            child: _anchored(
+              JobFormField.payMax,
+              JobPayField(
+                label: 'Pay max ₹/mo',
+                controller: _payMax,
+                hint: 'e.g. 25,000',
+                errorText: _form[JobFormField.payMax],
+                flow: _chain[JobFormField.payMax],
+              ),
+            ),
+          ),
+        ],
+      );
+
+  /// The experience window — two digits-only boxes (#2595).
+  Widget _experienceRow() => Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Expanded(
+            child: _anchored(
+              JobFormField.expMin,
+              JobExperienceField(
+                label: 'Exp min (yrs)',
+                controller: _expMin,
+                hint: 'e.g. 1',
+                errorText: _form[JobFormField.expMin],
+                flow: _chain[JobFormField.expMin],
+              ),
+            ),
+          ),
+          const SizedBox(width: AppSpacing.s3),
+          Expanded(
+            child: _anchored(
+              JobFormField.expMax,
+              JobExperienceField(
+                label: 'Exp max (yrs)',
+                controller: _expMax,
+                hint: 'e.g. 4',
+                errorText: _form[JobFormField.expMax],
+                flow: _chain[JobFormField.expMax],
+              ),
+            ),
+          ),
+        ],
+      );
+
+  /// The job title box (both branches).
+  Widget _titleField({String? hint}) => _anchored(
+        JobFormField.title,
+        BbField(
+          label: 'Job title',
+          controller: _title,
+          hint: hint,
+          errorText: _form[JobFormField.title],
+          flow: _chain[JobFormField.title],
+        ),
+      );
+
+  /// THE CARD'S PLACE ROW — the city (required) beside the coarse area bucket
+  /// (optional). Both branches.
+  Widget _cityAreaRow({String? areaHint}) => Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Expanded(
+            child: _anchored(
+              JobFormField.city,
+              BbField(
+                label: 'City',
+                controller: _city,
+                hint: 'e.g. Pune',
+                errorText: _form[JobFormField.city],
+                flow: _chain[JobFormField.city],
+              ),
+            ),
+          ),
+          const SizedBox(width: AppSpacing.s3),
+          Expanded(
+            // COARSE locality bucket, typed by the payer — deliberately NOT
+            // derived from the company form's Location: the server keeps `area`
+            // and the free-text `location_label` apart on purpose. Optional,
+            // but worker-visible, so the server screens it: anchored for that.
+            child: _anchored(
+              JobFormField.area,
+              BbField(
+                label: 'Area (optional)',
+                controller: _area,
+                hint: areaHint,
+                errorText: _form[JobFormField.area],
+                flow: _chain[JobFormField.area],
+              ),
+            ),
+          ),
+        ],
+      );
+
+  /// The worker-visible description, anchored with its inline error (the live
+  /// screen of contact details / length shows there as the payer types).
+  Widget _descriptionField() => _anchored(
+        JobFormField.description,
+        JobDescriptionField(
+          controller: _description,
+          label: 'Description',
+          errorText: _form[JobFormField.description],
+        ),
+      );
+
+  /// The Benefits / Requirements chip rows, anchored with their inline errors.
+  List<Widget> _benefitRequirementFields() => <Widget>[
+        _anchored(
+          JobFormField.benefits,
+          _chipListField(
+            label: 'Benefits',
+            values: _benefits,
+            maxItems: JobContentLimits.listItems,
+            addLabel: '+ Add benefit',
+            onAdd: _addBenefit,
+            errorText: _form[JobFormField.benefits],
+          ),
+        ),
+        const SizedBox(height: AppSpacing.s4),
+        _anchored(
+          JobFormField.requirements,
+          _chipListField(
+            label: 'Requirements',
+            values: _requirements,
+            maxItems: JobContentLimits.listItems,
+            addLabel: '+ Add requirement',
+            onAdd: _addRequirement,
+            errorText: _form[JobFormField.requirements],
+          ),
+        ),
+      ];
 
   /// `in_hand|gross|ctc` → display labels; null = "Not stated".
   ///
@@ -1253,25 +1587,26 @@ class _PostJobScreenState extends State<PostJobScreen> {
   /// column for them. Nothing on this form is prefilled and nothing is dropped.
   List<Widget> _companyFields() => <Widget>[
         _sectionCard('Company & role', <Widget>[
-          BbField(
-            label: 'Company / org name',
-            controller: _org,
-            // Identity name field: keep the keyboard from resurfacing an org
-            // name typed in another app (matches signup + account, #1227).
-            suppressSuggestions: true,
+          _anchored(
+            JobFormField.org,
+            BbField(
+              label: 'Company / org name',
+              controller: _org,
+              // Identity name field: keep the keyboard from resurfacing an org
+              // name typed in another app (matches signup + account, #1227).
+              suppressSuggestions: true,
+              errorText: _form[JobFormField.org],
+              flow: _chain[JobFormField.org],
+            ),
           ),
           const SizedBox(height: AppSpacing.s4),
-          BbField(
-            label: 'Job title',
-            controller: _title,
-            hint: 'e.g. CNC Setter',
-          ),
+          _titleField(hint: 'e.g. CNC Setter'),
           const SizedBox(height: AppSpacing.s4),
           // Migration 0141 — the ROLE is mandatory and it selects the trade form.
           // On an older server without the catalogue, the legacy trade dropdown
           // remains so posting still works.
           if (_postingTrades.isNotEmpty)
-            _roleField()
+            _anchored(JobFormField.role, _roleField())
           else
             BbSelect<String?>(
               label: 'Trade (optional)',
@@ -1295,43 +1630,27 @@ class _PostJobScreenState extends State<PostJobScreen> {
             ),
             const SizedBox(height: AppSpacing.s4),
           ],
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              Expanded(
-                // THE CARD'S PLACE ROW. Its own input since #1725 — the submit
-                // used to reuse the free-text Location below, which is
-                // `location_label` and never reaches a worker.
-                child: BbField(
-                  label: 'City',
-                  controller: _city,
-                  hint: 'e.g. Pune',
-                ),
-              ),
-              const SizedBox(width: AppSpacing.s3),
-              Expanded(
-                // COARSE locality bucket, typed by the payer — deliberately NOT
-                // derived from Location: the server keeps `area` and the
-                // free-text `location_label` apart on purpose.
-                child: BbField(
-                  label: 'Area (optional)',
-                  controller: _area,
-                  hint: 'e.g. Chakan',
-                ),
-              ),
-            ],
-          ),
+          // THE CARD'S PLACE ROW. Its own input since #1725 — the submit used
+          // to reuse the free-text Location below, which is `location_label`
+          // and never reaches a worker.
+          _cityAreaRow(areaHint: 'e.g. Chakan'),
           const SizedBox(height: AppSpacing.s4),
           // `location_label` — your own wording for the site. Kept optional and
           // said plainly to be internal: the worker feed never reads it, so it
-          // can hold the detail the coarse city/area buckets may not.
-          BbField(
-            label: 'Location note (optional, not shown to workers)',
-            controller: _location,
-            hint: 'e.g. near Chakan MIDC Phase 2',
+          // can hold the detail the coarse city/area buckets may not. Anchored
+          // for the server's length cap.
+          _anchored(
+            JobFormField.location,
+            BbField(
+              label: 'Location note (optional, not shown to workers)',
+              controller: _location,
+              hint: 'e.g. near Chakan MIDC Phase 2',
+              errorText: _form[JobFormField.location],
+              flow: _chain[JobFormField.location],
+            ),
           ),
           const SizedBox(height: AppSpacing.s4),
-          _chipField<String>(
+          BbChipSelect<String>(
             label: 'Vacancies',
             value: _band,
             options: _bands,
@@ -1343,64 +1662,19 @@ class _PostJobScreenState extends State<PostJobScreen> {
         // Whole rupees, not free text — and sent as the posting's own pay
         // columns (#1646), no longer folded into the description.
         _sectionCard('Pay, experience & timing', <Widget>[
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              Expanded(
-                child: BbField(
-                  label: 'Pay min ₹/mo',
-                  controller: _payMin,
-                  hint: 'e.g. 18000',
-                  keyboardType: TextInputType.number,
-                  mono: true,
-                ),
-              ),
-              const SizedBox(width: AppSpacing.s3),
-              Expanded(
-                child: BbField(
-                  label: 'Pay max ₹/mo',
-                  controller: _payMax,
-                  hint: 'e.g. 25000',
-                  keyboardType: TextInputType.number,
-                  mono: true,
-                ),
-              ),
-            ],
-          ),
+          _payBandRow(),
           const SizedBox(height: AppSpacing.s4),
           _payTypeField(),
           const SizedBox(height: AppSpacing.s4),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              Expanded(
-                child: BbField(
-                  label: 'Exp min (yrs)',
-                  controller: _expMin,
-                  hint: 'e.g. 1',
-                  keyboardType: TextInputType.number,
-                  mono: true,
-                ),
-              ),
-              const SizedBox(width: AppSpacing.s3),
-              Expanded(
-                child: BbField(
-                  label: 'Exp max (yrs)',
-                  controller: _expMax,
-                  hint: 'e.g. 4',
-                  keyboardType: TextInputType.number,
-                  mono: true,
-                ),
-              ),
-            ],
-          ),
+          _experienceRow(),
           const SizedBox(height: AppSpacing.s4),
           // Shift + needed-by are worker-visible DISPLAY columns, not match
           // inputs, so they live here and are offered whether or not Matching
           // V1 is on. Null stays "Any shift" / "Not specified": an unpicked
           // value sends nothing, so the worker's card never claims a timing the
           // payer did not choose.
-          _chipField<String>(
+          _chipField(
+            JobFormField.shift,
             label: 'Shift',
             value: _shift,
             options: const <String>['day', 'night', 'rotational'],
@@ -1408,7 +1682,8 @@ class _PostJobScreenState extends State<PostJobScreen> {
             onSelected: (String v) => setState(() => _shift = v),
           ),
           const SizedBox(height: AppSpacing.s4),
-          _chipField<String>(
+          _chipField(
+            JobFormField.neededBy,
             label: 'Needed by',
             value: _companyNeededBy,
             options: const <String>['immediate', 'soon', 'flexible'],
@@ -1419,7 +1694,18 @@ class _PostJobScreenState extends State<PostJobScreen> {
         const SizedBox(height: AppSpacing.s4),
         // Matching V1: the demand-skill picker + reach meter when the route is
         // live; the free-text skills flow otherwise (see [_companySkillsSection]).
-        _sectionCard('Skills & matching', _companySkillsSection()),
+        // #2595 — a job with no skill picked says so here, inline.
+        _sectionCard('Skills & matching', <Widget>[
+          _anchored(
+            JobFormField.skills,
+            ListBody(
+              children: <Widget>[
+                ..._companySkillsSection(),
+                BbFieldError(text: _form[JobFormField.skills]),
+              ],
+            ),
+          ),
+        ]),
         const SizedBox(height: AppSpacing.s4),
         // The worker-visible chips. #1646 gave the company posting the same
         // `benefits`/`requirements` columns the agency route had, so these reach
@@ -1440,23 +1726,9 @@ class _PostJobScreenState extends State<PostJobScreen> {
           // input for one — `description` was COMPOSED from the trade + the
           // V1-off skill chips — so a company posting reached the worker with a
           // "Trade: CNC Setter" line where the work should have been.
-          JobDescriptionField(controller: _description, label: 'Description'),
+          _descriptionField(),
           const SizedBox(height: AppSpacing.s4),
-          _chipListField(
-            label: 'Benefits',
-            values: _benefits,
-            maxItems: JobContentLimits.listItems,
-            addLabel: '+ Add benefit',
-            onAdd: _addBenefit,
-          ),
-          const SizedBox(height: AppSpacing.s4),
-          _chipListField(
-            label: 'Requirements',
-            values: _requirements,
-            maxItems: JobContentLimits.listItems,
-            addLabel: '+ Add requirement',
-            onAdd: _addRequirement,
-          ),
+          ..._benefitRequirementFields(),
         ]),
         const SizedBox(height: AppSpacing.s4),
         Container(
@@ -1589,11 +1861,15 @@ class _PostJobScreenState extends State<PostJobScreen> {
               ),
             ),
             const SizedBox(width: AppSpacing.s2),
-            Text(
-              'Loading matching skills…',
-              style: AppTypography.body(
-                size: AppTypography.sizeSm,
-                color: AppColors.textSecondary,
+            // Flexible: at a large text scale on a narrow phone the line wraps
+            // instead of overflowing the card.
+            Flexible(
+              child: Text(
+                'Loading matching skills…',
+                style: AppTypography.body(
+                  size: AppTypography.sizeSm,
+                  color: AppColors.textSecondary,
+                ),
               ),
             ),
           ],
@@ -1620,6 +1896,7 @@ class _PostJobScreenState extends State<PostJobScreen> {
     required int maxItems,
     required String addLabel,
     required Future<void> Function() onAdd,
+    String? errorText,
   }) =>
       JobChipListField(
         label: label,
@@ -1628,6 +1905,7 @@ class _PostJobScreenState extends State<PostJobScreen> {
         addLabel: addLabel,
         onAdd: onAdd,
         onRemove: (String value) => setState(() => values.remove(value)),
+        errorText: errorText,
       );
 
   /// "day/night/rotational" → display labels; null = the honest "Any" default.
@@ -1668,7 +1946,8 @@ class _PostJobScreenState extends State<PostJobScreen> {
   /// rejects one typed into any free-text field.
   List<Widget> _agencyFields() => <Widget>[
         _sectionCard('Job details', <Widget>[
-          _chipField<String>(
+          _chipField(
+            JobFormField.tradeKey,
             label: 'Trade',
             value: _tradeKey,
             options: kAgencyTradeKeys,
@@ -1679,10 +1958,10 @@ class _PostJobScreenState extends State<PostJobScreen> {
           // Migration 0141 — the display role selects the trade-specific fields.
           // An older server without the catalogue keeps the legacy trade-only form.
           if (_postingTrades.isNotEmpty) ...<Widget>[
-            _roleField(),
+            _anchored(JobFormField.role, _roleField()),
             const SizedBox(height: AppSpacing.s4),
           ],
-          BbField(label: 'Job title', controller: _title),
+          _titleField(),
           const SizedBox(height: AppSpacing.s4),
           // The worker card's role illustration (`role_kind`). The trade
           // catalogue's own role picker above already sets it when present.
@@ -1697,27 +1976,9 @@ class _PostJobScreenState extends State<PostJobScreen> {
             ),
             const SizedBox(height: AppSpacing.s4),
           ],
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              Expanded(
-                // #357 — was prefilled 'Pune' (and area 'Chakan'); the agency
-                // route is just as real, so these start empty too.
-                child: BbField(
-                  label: 'City',
-                  controller: _city,
-                  hint: 'e.g. Pune',
-                ),
-              ),
-              const SizedBox(width: AppSpacing.s3),
-              Expanded(
-                child: BbField(
-                  label: 'Area (optional)',
-                  controller: _area,
-                ),
-              ),
-            ],
-          ),
+          // #357 — was prefilled 'Pune' (and area 'Chakan'); the agency route is
+          // just as real, so these start empty too.
+          _cityAreaRow(),
         ]),
         // ADR-0050 — the closed demand-skill picker (optional for agency; the
         // twin is served on picked skills). Hidden entirely when the match
@@ -1728,61 +1989,16 @@ class _PostJobScreenState extends State<PostJobScreen> {
         ],
         const SizedBox(height: AppSpacing.s4),
         _sectionCard('Pay, experience & timing', <Widget>[
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              Expanded(
-                child: BbField(
-                  label: 'Pay min ₹/mo',
-                  controller: _payMin,
-                  hint: 'e.g. 18000',
-                  keyboardType: TextInputType.number,
-                  mono: true,
-                ),
-              ),
-              const SizedBox(width: AppSpacing.s3),
-              Expanded(
-                child: BbField(
-                  label: 'Pay max ₹/mo',
-                  controller: _payMax,
-                  hint: 'e.g. 25000',
-                  keyboardType: TextInputType.number,
-                  mono: true,
-                ),
-              ),
-            ],
-          ),
+          _payBandRow(),
           const SizedBox(height: AppSpacing.s4),
           _payTypeField(),
           const SizedBox(height: AppSpacing.s4),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              Expanded(
-                child: BbField(
-                  label: 'Exp min (yrs)',
-                  controller: _expMin,
-                  hint: 'e.g. 1',
-                  keyboardType: TextInputType.number,
-                  mono: true,
-                ),
-              ),
-              const SizedBox(width: AppSpacing.s3),
-              Expanded(
-                child: BbField(
-                  label: 'Exp max (yrs)',
-                  controller: _expMax,
-                  hint: 'e.g. 4',
-                  keyboardType: TextInputType.number,
-                  mono: true,
-                ),
-              ),
-            ],
-          ),
+          _experienceRow(),
         ]),
         const SizedBox(height: AppSpacing.s4),
         _sectionCard('Timing', <Widget>[
-          _chipField<String>(
+          _chipField(
+            JobFormField.neededBy,
             label: 'Needed by',
             value: _neededBy,
             options: kAgencyNeededBy,
@@ -1792,7 +2008,8 @@ class _PostJobScreenState extends State<PostJobScreen> {
           const SizedBox(height: AppSpacing.s4),
           // Null stays "Any shift" — an unpicked shift sends nothing, so the
           // worker's card never claims a shift the payer did not choose.
-          _chipField<String>(
+          _chipField(
+            JobFormField.shift,
             label: 'Shift',
             value: _shift,
             options: const <String>['day', 'night', 'rotational'],
@@ -1815,23 +2032,9 @@ class _PostJobScreenState extends State<PostJobScreen> {
             ),
           ),
           const SizedBox(height: AppSpacing.s3),
-          JobDescriptionField(controller: _description, label: 'Description'),
+          _descriptionField(),
           const SizedBox(height: AppSpacing.s4),
-          _chipListField(
-            label: 'Benefits',
-            values: _benefits,
-            maxItems: JobContentLimits.listItems,
-            addLabel: '+ Add benefit',
-            onAdd: _addBenefit,
-          ),
-          const SizedBox(height: AppSpacing.s4),
-          _chipListField(
-            label: 'Requirements',
-            values: _requirements,
-            maxItems: JobContentLimits.listItems,
-            addLabel: '+ Add requirement',
-            onAdd: _addRequirement,
-          ),
+          ..._benefitRequirementFields(),
         ]),
         const SizedBox(height: AppSpacing.s4),
         Container(

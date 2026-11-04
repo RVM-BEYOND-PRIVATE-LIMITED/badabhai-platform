@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get_it/get_it.dart';
 
@@ -8,6 +9,10 @@ import 'package:payer_app/core/data/models.dart';
 import 'package:payer_app/core/di/locator.dart';
 import 'package:payer_app/core/session/app_session.dart';
 import 'package:payer_app/core/session/app_session_cubit.dart';
+import 'package:payer_app/core/theme/app_motion.dart';
+import 'package:payer_app/core/widgets/bb_action_bar.dart';
+import 'package:payer_app/core/widgets/bb_shake.dart';
+import 'package:payer_app/core/widgets/bb_step_progress.dart';
 import 'package:payer_app/features/jobs/presentation/post_job_screen.dart';
 
 /// #357 — the Company post-a-job form shipped FABRICATED prefills
@@ -85,6 +90,10 @@ class _SpyApi extends MockPayerApiClient {
   /// When set, every [updateJob] throws it — the partial-save path.
   Object? throwOnUpdate;
 
+  /// When set, both creates throw it (after recording the call) — the server
+  /// refusing the post.
+  Object? throwOnCreate;
+
   // These #357 tests assert the LEGACY free-text skills flow, so present
   // Matching V1 and the trade catalogue as unavailable (routes off) — the
   // screen degrades to the free-text path. The 16-trade form is exercised
@@ -133,6 +142,7 @@ class _SpyApi extends MockPayerApiClient {
     companyPayMax = payMax;
     companyShift = shift;
     companyNeededBy = neededBy;
+    if (throwOnCreate != null) throw throwOnCreate!;
     return super.createCompanyJob(
       orgLabel: orgLabel,
       roleTitle: roleTitle,
@@ -192,6 +202,7 @@ class _SpyApi extends MockPayerApiClient {
     agencyBenefits = benefits;
     agencyRequirements = requirements;
     agencyMatchSkillIds = matchSkillIds;
+    if (throwOnCreate != null) throw throwOnCreate!;
     return super.createAgencyJob(
       tradeKey: tradeKey,
       title: title,
@@ -349,25 +360,69 @@ class _OldRouteSpyApi extends _V1SpyApi {
   }
 }
 
+/// A one-role trade catalogue whose five match chips, with the role's base
+/// skill, come to one more than the fallback cap of five match skills.
+final PostingTradeForm _capTrade = PostingTradeForm(
+  roleKind: 'fitter',
+  roleLabel: 'Fitter',
+  packId: 'pack_fitter',
+  matchSkillId: 'mskill_fitting',
+  questions: <PostingTradeQuestion>[
+    PostingTradeQuestion(
+      questionKey: 'machines',
+      prompt: 'Machines run',
+      answerType: 'multi_select',
+      options: <PostingTradeOption>[
+        for (int i = 1; i <= 5; i++)
+          PostingTradeOption(
+            optionKey: 'm$i',
+            value: 'm$i',
+            label: 'Machine $i',
+            match: true,
+            matchSkillIds: <String>['mskill_m$i'],
+          ),
+      ],
+    ),
+  ],
+);
+
+/// [_SpyApi] with the trade catalogue on (the 16-trade form path).
+class _TradeSpyApi extends _SpyApi {
+  @override
+  Future<List<PostingTradeForm>> fetchPostingTrades() async =>
+      <PostingTradeForm>[_capTrade];
+}
+
 void main() {
   late _SpyApi api;
 
-  Future<void> pump(WidgetTester tester, PayerRole role, {_SpyApi? spy}) async {
+  /// How many times the screen asked its host to close it.
+  int backs = 0;
+
+  Future<void> pump(
+    WidgetTester tester,
+    PayerRole role, {
+    _SpyApi? spy,
+    Size size = const Size(1000, 4000),
+  }) async {
     await GetIt.instance.reset();
     api = spy ?? _SpyApi();
+    backs = 0;
     setupLocator(apiClient: api, secureStore: InMemoryKeyValueStore());
     locator<AppSessionCubit>().signIn(role);
 
     // The form is taller than the default 600px test viewport. A tall viewport
-    // builds EVERY field, which both lets us reach 'Post job' without scrolling
-    // and keeps the `findsNothing` prefill assertions honest — off-screen text
-    // would satisfy them for the wrong reason.
-    tester.view.physicalSize = const Size(1000, 4000);
+    // shows EVERY field, which both lets us reach 'Post job' without scrolling
+    // and keeps every tap a real hit. (#2595 tests that need scrolling pass a
+    // phone-sized [size].)
+    tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
 
     await tester.pumpWidget(
-      MaterialApp(home: Scaffold(body: PostJobScreen(onBack: () {}))),
+      MaterialApp(
+        home: Scaffold(body: PostJobScreen(onBack: () => backs++)),
+      ),
     );
     await tester.pumpAndSettle();
   }
@@ -541,7 +596,9 @@ void main() {
 
       // The old screen posted 'CNC Setter' @ 'Pimpri, Pune' right here.
       expect(api.created, isEmpty);
-      expect(find.text('Add the basics'), findsOneWidget);
+      // #2595 — named AT the field (the org is the signed-in account's).
+      expect(find.text('Add the job title'), findsOneWidget);
+      expect(find.text('Add the company name'), findsNothing);
     });
 
     testWidgets('untouched agency form posts nothing', (
@@ -696,9 +753,15 @@ void main() {
       );
       await tapPost(tester);
 
-      // Fail closed at entry: the server would 400 the whole post.
+      // Fail closed at entry: the server would 400 the whole post. #2595 —
+      // the reason sits at the description, not in a toast.
       expect(api.createdAgency, isEmpty);
-      expect(find.text('Check the description'), findsOneWidget);
+      expect(
+        find.text(
+          'Leave phone numbers and email addresses out of the description.',
+        ),
+        findsOneWidget,
+      );
     });
 
     // #1960 — the picker is no longer company-only: an agency job's
@@ -865,7 +928,7 @@ void main() {
       // It used to default to the FIRST trade, so an agency that never chose
       // one still advertised 'CNC Operator' on the worker's card.
       expect(api.createdAgency, isEmpty);
-      expect(find.text('Add the basics'), findsOneWidget);
+      expect(find.text('Pick the trade'), findsOneWidget);
     });
 
     testWidgets('company — an unpicked pay type is refused', (
@@ -936,7 +999,9 @@ void main() {
       await tapPost(tester);
 
       expect(api.createdAgency, isEmpty);
-      expect(find.text('Add the basics'), findsOneWidget);
+      // Both are refused at their own chips (#2595).
+      expect(find.text('Pick the trade'), findsOneWidget);
+      expect(find.text('Pick needed by'), findsOneWidget);
     });
   });
 
@@ -972,8 +1037,534 @@ void main() {
       await tester.tap(find.text('Add'));
       await tester.pumpAndSettle();
 
+      // #2595 — refused INSIDE the dialog, under the box, with the text kept
+      // so the payer can fix it (it used to close and toast).
+      expect(
+        find.text('Leave phone numbers and email addresses out of a posting.'),
+        findsOneWidget,
+      );
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      // Never a chip — no PII on the wire.
       expect(find.text('call 98765 43210'), findsNothing);
-      expect(find.text('Not a skill'), findsOneWidget);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // #2595 (M7) — inline errors, the reveal, number boxes, keyboard flow, the
+  // pinned bar, the progress bar and the unsaved-changes guard.
+  // ---------------------------------------------------------------------------
+  group('#2595 — forms', () {
+    late List<String> haptics;
+
+    setUp(() {
+      haptics = <String>[];
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform,
+              (MethodCall call) async {
+        if (call.method == 'HapticFeedback.vibrate') {
+          haptics.add(call.arguments as String);
+        }
+        return null;
+      });
+    });
+
+    tearDown(() {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, null);
+    });
+
+    /// The [TextField] of the box labelled [label].
+    Finder boxOf(String label) => find.descendant(
+          of: find
+              .ancestor(of: find.text(label), matching: find.byType(Column))
+              .first,
+          matching: find.byType(TextField),
+        );
+
+    bool focused(WidgetTester tester, String label) => tester
+        .widget<EditableText>(
+          find.descendant(of: boxOf(label), matching: find.byType(EditableText)),
+        )
+        .focusNode
+        .hasFocus;
+
+    testWidgets('a refused post shows EVERY reason at its field — no toast', (
+      WidgetTester tester,
+    ) async {
+      await pump(tester, PayerRole.company);
+      await tapPost(tester);
+
+      expect(api.created, isEmpty);
+      for (final String error in <String>[
+        'Add the job title',
+        'Add the city',
+        'Add the pay band',
+        'Pick the pay type',
+        'Add the experience',
+        'Pick the shift',
+        'Pick needed by',
+        'Add the description',
+        'Add a benefit',
+        'Add a requirement',
+      ]) {
+        expect(find.text(error), findsOneWidget, reason: error);
+      }
+      // The six toast branches are gone.
+      expect(find.byType(SnackBar), findsNothing);
+    });
+
+    testWidgets('fixing a field clears its error; a new one waits for Post', (
+      WidgetTester tester,
+    ) async {
+      await pump(tester, PayerRole.company);
+      await tapPost(tester);
+      expect(find.text('Add the job title'), findsOneWidget);
+
+      await typeInto(tester, 'Job title', 'Fitter');
+      await tester.pumpAndSettle();
+      expect(find.text('Add the job title'), findsNothing);
+      // The others are untouched — and still on show.
+      expect(find.text('Add the city'), findsOneWidget);
+
+      // A pick fixes its own error at once…
+      await tapChip(tester, 'Night');
+      expect(find.text('Pick the shift'), findsNothing);
+      // …raising "Pay min" fixes "Max pay" (an error from another box)…
+      await typeInto(tester, 'Pay min ₹/mo', '30000');
+      await typeInto(tester, 'Pay max ₹/mo', '20000');
+      await tapPost(tester);
+      expect(find.text('Max pay must be at least the min.'), findsOneWidget);
+      await typeInto(tester, 'Pay min ₹/mo', '18000');
+      await tester.pumpAndSettle();
+      expect(find.text('Max pay must be at least the min.'), findsNothing);
+
+      // …and emptying the title again does not nag until the next Post.
+      await typeInto(tester, 'Job title', '');
+      await tester.pumpAndSettle();
+      expect(find.text('Add the job title'), findsNothing);
+      await tapPost(tester);
+      expect(find.text('Add the job title'), findsOneWidget);
+    });
+
+    testWidgets(
+        'a refused post scrolls to the FIRST invalid field, shakes it and '
+        'fires the error haptic', (WidgetTester tester) async {
+      await pump(tester, PayerRole.company, size: const Size(400, 800));
+      // The top of the form is fine; the pay band (mid-form) is the first gap.
+      await typeInto(tester, 'Job title', 'Fitter');
+      await typeInto(tester, 'City', 'Pune');
+      // Scroll to the very end of the form.
+      await tester.drag(
+        find.byType(SingleChildScrollView),
+        const Offset(0, -6000),
+      );
+      await tester.pumpAndSettle();
+      final Rect viewport =
+          tester.getRect(find.byType(SingleChildScrollView));
+      expect(
+        tester.getRect(find.text('Pay min ₹/mo')).bottom,
+        lessThan(viewport.top),
+      );
+      haptics.clear();
+
+      await tester.tap(find.text('Post job'));
+      double maxShake = 0;
+      for (int i = 0; i < 60; i++) {
+        await tester.pump(const Duration(milliseconds: 10));
+        final Finder shake = find.ancestor(
+          of: find.text('Pay min ₹/mo'),
+          matching: find.byType(BbShake),
+        );
+        final double dx = tester
+            .widget<Transform>(
+              find.descendant(of: shake, matching: find.byType(Transform)).first,
+            )
+            .transform
+            .getTranslation()
+            .x
+            .abs();
+        if (dx > maxShake) maxShake = dx;
+      }
+
+      // The first invalid field is on screen with its reason under it…
+      final Rect payMin = tester.getRect(find.text('Pay min ₹/mo'));
+      expect(payMin.top, greaterThanOrEqualTo(viewport.top));
+      expect(payMin.bottom, lessThanOrEqualTo(viewport.bottom));
+      expect(find.text('Add the pay band'), findsOneWidget);
+      // …it shook 6px…
+      expect(maxShake, closeTo(AppMotion.shakeTravel, 0.6));
+      // …and the error double tick followed the button's own tap.
+      const String light = 'HapticFeedbackType.lightImpact';
+      expect(haptics, <String>[light, light, light]);
+      expect(api.created, isEmpty);
+    });
+
+    // The device screens only phone and email shapes; the server also refuses
+    // a company name and a link in the worker-visible text
+    // (`screenWorkerVisibleText`). Its 400 names each field.
+    Future<void> fillAgencyPost(WidgetTester tester) async {
+      await typeInto(tester, 'Job title', 'Lathe hand');
+      await tapChip(tester, 'CNC / VMC Setter');
+      await typeInto(tester, 'Area (optional)', 'Tata Motors Pvt Ltd');
+      await fillCardContent(
+        tester,
+        neededBy: 'Immediate',
+        description: 'Apply at tatamotors.com',
+      );
+    }
+
+    testWidgets(
+        "the server's refusal shows AT its fields and stays until that field "
+        'changes', (WidgetTester tester) async {
+      await pump(tester, PayerRole.agency);
+      await fillAgencyPost(tester);
+      api.throwOnCreate = const PayerApiException(
+        400,
+        validationMessage: 'Description: Must not contain links.',
+        fieldErrors: <String, String>{
+          'description': 'Must not contain links.',
+          'area': 'Must not contain a company name.',
+        },
+      );
+      haptics.clear();
+
+      await tapPost(tester);
+      await tester.pumpAndSettle();
+
+      expect(api.createdAgency, hasLength(1));
+      expect(find.text('Must not contain links.'), findsOneWidget);
+      expect(find.text('Must not contain a company name.'), findsOneWidget);
+      // Each at its own box, not a toast that names no field…
+      expect(
+        find.descendant(
+          of: find.ancestor(
+            of: find.text('Area (optional)'),
+            matching: find.byType(BbShake),
+          ),
+          matching: find.text('Must not contain a company name.'),
+        ),
+        findsOneWidget,
+      );
+      expect(find.byType(SnackBar), findsNothing);
+      // …with the error double tick after the button's own.
+      const String light = 'HapticFeedbackType.lightImpact';
+      expect(haptics, <String>[light, light, light]);
+
+      // An edit elsewhere leaves both on show…
+      await typeInto(tester, 'Job title', 'Lathe operator');
+      await tester.pumpAndSettle();
+      expect(find.text('Must not contain links.'), findsOneWidget);
+      expect(find.text('Must not contain a company name.'), findsOneWidget);
+
+      // …changing THE field clears its own.
+      await typeInto(tester, 'Description', 'Turning work on Fanuc controls.');
+      await tester.pumpAndSettle();
+      expect(find.text('Must not contain links.'), findsNothing);
+      expect(find.text('Must not contain a company name.'), findsOneWidget);
+
+      // A standing refusal never blocks the next Post: the server judges it.
+      api.throwOnCreate = null;
+      await tapPost(tester);
+      expect(api.createdAgency, hasLength(2));
+    });
+
+    testWidgets("a company post's refused title shows at the title", (
+      WidgetTester tester,
+    ) async {
+      await pump(tester, PayerRole.company);
+      await typeInto(tester, 'Job title', 'Setter at Acme Pvt Ltd');
+      await fillCardContent(tester);
+      api.throwOnCreate = const PayerApiException(
+        400,
+        validationMessage: 'Title must not contain a company name',
+        fieldErrors: <String, String>{
+          'role_title': 'Title must not contain a company name.',
+        },
+      );
+
+      await tapPost(tester);
+      await tester.pumpAndSettle();
+
+      expect(api.created, hasLength(1));
+      expect(
+        find.descendant(
+          of: find.ancestor(
+            of: find.text('Job title'),
+            matching: find.byType(BbShake),
+          ),
+          matching: find.text('Title must not contain a company name.'),
+        ),
+        findsOneWidget,
+      );
+      expect(find.byType(SnackBar), findsNothing);
+    });
+
+    testWidgets('a refusal that names no box still says the real reason', (
+      WidgetTester tester,
+    ) async {
+      await pump(tester, PayerRole.agency);
+      await fillAgencyPost(tester);
+      // A service-thrown 400: a message, no field issue.
+      api.throwOnCreate = const PayerApiException(
+        400,
+        validationMessage: 'A posting may name at most 3 skills (got 4).',
+      );
+
+      await tapPost(tester);
+
+      expect(
+        find.descendant(
+          of: find.byType(SnackBar),
+          matching: find.text('A posting may name at most 3 skills (got 4).'),
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('a bare 400 names the three things the server screens', (
+      WidgetTester tester,
+    ) async {
+      await pump(tester, PayerRole.agency);
+      await fillAgencyPost(tester);
+      api.throwOnCreate = const PayerApiException(400);
+
+      await tapPost(tester);
+
+      expect(
+        find.text('The server rejected these details. Take out any phone '
+            'number, email address, company name or link.'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('pay boxes: digits only, ₹ prefix, grouped; experience digits',
+        (WidgetTester tester) async {
+      await pump(tester, PayerRole.company);
+
+      await typeInto(tester, 'Pay min ₹/mo', '18000');
+      final TextField payMin = tester.widget<TextField>(boxOf('Pay min ₹/mo'));
+      expect(payMin.controller!.text, '18,000');
+      expect(payMin.decoration!.prefixText, '₹ ');
+      expect(payMin.keyboardType, TextInputType.number);
+
+      await typeInto(tester, 'Pay max ₹/mo', 'Rs 1,25,000/-');
+      expect(
+        tester.widget<TextField>(boxOf('Pay max ₹/mo')).controller!.text,
+        '1,25,000',
+      );
+
+      await typeInto(tester, 'Exp min (yrs)', '2 yrs');
+      expect(
+        tester.widget<TextField>(boxOf('Exp min (yrs)')).controller!.text,
+        '2',
+      );
+
+      // The grouped value still posts as a whole number.
+      await typeInto(tester, 'Job title', 'Fitter');
+      await fillCardContent(tester, payMin: '18000', payMax: '125000');
+      await tapPost(tester);
+      expect(api.companyPayMin, 18000);
+      expect(api.companyPayMax, 125000);
+    });
+
+    testWidgets('the keyboard "next" walks the text boxes; "done" ends it', (
+      WidgetTester tester,
+    ) async {
+      await pump(tester, PayerRole.company);
+      const List<String> chain = <String>[
+        'Company / org name',
+        'Job title',
+        'City',
+        'Area (optional)',
+        'Location note (optional, not shown to workers)',
+        'Pay min ₹/mo',
+        'Pay max ₹/mo',
+        'Exp min (yrs)',
+        'Exp max (yrs)',
+      ];
+      for (final String label in chain.take(chain.length - 1)) {
+        expect(
+          tester.widget<TextField>(boxOf(label)).textInputAction,
+          TextInputAction.next,
+          reason: label,
+        );
+      }
+      expect(
+        tester.widget<TextField>(boxOf('Exp max (yrs)')).textInputAction,
+        TextInputAction.done,
+      );
+
+      await tester.tap(boxOf(chain.first));
+      await tester.pump();
+      for (int i = 1; i < chain.length; i++) {
+        await tester.testTextInput.receiveAction(TextInputAction.next);
+        await tester.pump();
+        expect(focused(tester, chain[i]), isTrue, reason: chain[i]);
+      }
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pump();
+      expect(focused(tester, 'Exp max (yrs)'), isFalse);
+    });
+
+    testWidgets('a drag on the form closes the keyboard', (
+      WidgetTester tester,
+    ) async {
+      await pump(tester, PayerRole.company, size: const Size(400, 800));
+      await tester.tap(boxOf('Company / org name'));
+      await tester.pump();
+      expect(focused(tester, 'Company / org name'), isTrue);
+
+      await tester.drag(
+        find.byType(SingleChildScrollView),
+        const Offset(0, -300),
+      );
+      await tester.pumpAndSettle();
+      expect(focused(tester, 'Company / org name'), isFalse);
+    });
+
+    testWidgets('Post sits in the shared pinned action bar', (
+      WidgetTester tester,
+    ) async {
+      await pump(tester, PayerRole.company);
+      final Scaffold scaffold = tester.widget<Scaffold>(find.descendant(
+        of: find.byType(PostJobScreen),
+        matching: find.byType(Scaffold),
+      ));
+      expect(scaffold.bottomNavigationBar, isA<BbActionBar>());
+      expect(
+        find.descendant(
+          of: find.byType(BbActionBar),
+          matching: find.text('Post job'),
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('the progress bar counts the four sections as they complete', (
+      WidgetTester tester,
+    ) async {
+      await pump(tester, PayerRole.company);
+      // The skill picker is off on this server, so its section has nothing
+      // required — done from the start; the other three are not.
+      expect(find.text('1 of 4 sections done'), findsOneWidget);
+
+      await typeInto(tester, 'Job title', 'Fitter');
+      await typeInto(tester, 'City', 'Pune');
+      expect(find.text('2 of 4 sections done'), findsOneWidget);
+      // The bar FILLS to the new step over 300ms (transform only).
+      double fill() => tester
+          .widget<Transform>(find.byKey(BbStepProgress.fillKey))
+          .transform
+          .storage[0];
+      await tester.pump(const Duration(milliseconds: 150));
+      expect(fill(), inExclusiveRange(0.25, 0.5));
+      await tester.pumpAndSettle();
+      expect(fill(), 0.5);
+
+      await fillCardContent(tester, city: 'Pune');
+      await tester.pumpAndSettle();
+      expect(find.text('4 of 4 sections done'), findsOneWidget);
+      expect(fill(), 1);
+    });
+
+    testWidgets('Back on an untouched form leaves at once', (
+      WidgetTester tester,
+    ) async {
+      await pump(tester, PayerRole.company);
+      await tester.tap(find.byIcon(Icons.arrow_back_rounded));
+      await tester.pumpAndSettle();
+      expect(backs, 1);
+      expect(find.text('Discard this job?'), findsNothing);
+    });
+
+    testWidgets('Back on a filled-in form asks before discarding it', (
+      WidgetTester tester,
+    ) async {
+      await pump(tester, PayerRole.company);
+      await typeInto(tester, 'Job title', 'Fitter');
+
+      await tester.tap(find.byIcon(Icons.arrow_back_rounded));
+      await tester.pumpAndSettle();
+      expect(find.text('Discard this job?'), findsOneWidget);
+      await tester.tap(find.text('Keep editing'));
+      await tester.pumpAndSettle();
+      expect(backs, 0);
+      expect(find.widgetWithText(TextField, 'Fitter'), findsOneWidget);
+
+      await tester.tap(find.byIcon(Icons.arrow_back_rounded));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Discard'));
+      await tester.pumpAndSettle();
+      expect(backs, 1);
+    });
+
+    testWidgets('a chip pick alone counts as unsaved input', (
+      WidgetTester tester,
+    ) async {
+      await pump(tester, PayerRole.agency);
+      await tapChip(tester, 'Night');
+      await tester.tap(find.byIcon(Icons.arrow_back_rounded));
+      await tester.pumpAndSettle();
+      expect(find.text('Discard this job?'), findsOneWidget);
+    });
+
+    testWidgets(
+        'a match chip past the cap is refused under the chips — not a toast',
+        (WidgetTester tester) async {
+      await pump(tester, PayerRole.company, spy: _TradeSpyApi());
+      await tester.tap(find.text('— pick the role —'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Fitter').last);
+      await tester.pumpAndSettle();
+
+      for (int i = 1; i <= 4; i++) {
+        await tapChip(tester, 'Machine $i · Match');
+      }
+      expect(find.textContaining('Pick up to 5 match skills'), findsNothing);
+      haptics.clear();
+
+      // Base skill + five chips = six: one past the cap of five.
+      await tapChip(tester, 'Machine 5 · Match');
+      expect(
+        find.text(
+          'Pick up to 5 match skills — the rest are requirements and do not '
+          'change reach.',
+        ),
+        findsOneWidget,
+      );
+      expect(find.byType(SnackBar), findsNothing);
+      await tester.pump(const Duration(milliseconds: 100));
+      // The chip's own tap, then the error double tick.
+      const String light = 'HapticFeedbackType.lightImpact';
+      expect(haptics, <String>[light, light, light]);
+
+      // The next accepted change clears it.
+      await tapChip(tester, 'Machine 4 · Match');
+      expect(find.textContaining('Pick up to 5 match skills'), findsNothing);
+    });
+
+    testWidgets(
+        'with the skill picker live, Post is not a dead button — a missing '
+        'skill is named at its section', (WidgetTester tester) async {
+      await pump(tester, PayerRole.company, spy: _V1SpyApi());
+      final FilledButton post = tester.widget<FilledButton>(find.ancestor(
+        of: find.text('Post job'),
+        matching: find.byType(FilledButton),
+      ));
+      expect(post.onPressed, isNotNull);
+
+      await typeInto(tester, 'Job title', 'Fitter');
+      await fillCardContent(tester);
+      await tapPost(tester);
+      expect(api.created, isEmpty);
+      expect(find.text('Pick at least one skill'), findsOneWidget);
+
+      await tester.tap(find.text('CNC operating'));
+      await tester.pumpAndSettle();
+      expect(find.text('Pick at least one skill'), findsNothing);
+      await tapPost(tester);
+      expect(api.created, hasLength(1));
     });
   });
 }

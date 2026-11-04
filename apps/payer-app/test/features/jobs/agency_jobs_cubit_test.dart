@@ -310,5 +310,25 @@ void main() {
       expect(result.message, 'Job title: Must not contain a company name.');
       expect(api.fetches, 0);
     });
+
+    test('#2595 — a validation 400 hands every issue on by its field',
+        () async {
+      api.throwOnUpdate = const PayerApiException(
+        400,
+        validationMessage: 'Job title: Must not contain links.',
+        fieldErrors: <String, String>{
+          'title': 'Must not contain links.',
+          'area': 'Must not contain a company name.',
+        },
+      );
+
+      final JobActionResult result = await cubit.editJob('j1', title: 'x');
+
+      expect(result.success, isFalse);
+      expect(result.fieldErrors, <String, String>{
+        'title': 'Must not contain links.',
+        'area': 'Must not contain a company name.',
+      });
+    });
   });
 }
