@@ -112,9 +112,15 @@ void main() {
       expect(find.textContaining('quota top-ups'), findsNothing);
       expect(find.textContaining('BadaBhai website'), findsNothing);
       expect(find.byIcon(Icons.open_in_new), findsNothing);
-      // The lifecycle actions an open posting legitimately has stay.
+      // The lifecycle actions an open posting legitimately has stay — behind
+      // the card's "⋯" since #2594, and the sheet sells nothing either.
+      await tester.tap(find.byIcon(Icons.more_horiz_rounded));
+      await tester.pumpAndSettle();
       expect(find.text('Pause'), findsOneWidget);
-      expect(find.text('Close'), findsOneWidget);
+      expect(find.text('Close job'), findsOneWidget);
+      expect(find.textContaining('Manage plan'), findsNothing);
+      expect(find.textContaining('Boost'), findsNothing);
+      expect(find.textContaining('Top up'), findsNothing);
     });
   });
 

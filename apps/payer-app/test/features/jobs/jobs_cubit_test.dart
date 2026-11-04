@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -101,6 +102,38 @@ void main() {
   });
 
   tearDown(() => cubit.close());
+
+  // #2594 — an action's refetch must keep the list mounted: flipping to
+  // `loading` swaps the whole tab for a spinner, so the changed card could
+  // never settle (collapse + fade) in place.
+  group('lifecycle refetch', () {
+    setUp(() async {
+      api.jobs = <JobPosting>[_job('j1')];
+      await cubit.load();
+      api.fetches = 0;
+    });
+
+    for (final (String name, Future<JobActionResult> Function(JobsCubit) op)
+        in <(String, Future<JobActionResult> Function(JobsCubit))>[
+      ('pause', (JobsCubit c) => c.pause('j1')),
+      ('resume', (JobsCubit c) => c.resume('j1')),
+      ('close', (JobsCubit c) => c.closePosting('j1')),
+    ]) {
+      test('$name refetches without flipping the list to loading', () async {
+        final List<JobsStatus> seen = <JobsStatus>[];
+        final StreamSubscription<JobsState> sub =
+            cubit.stream.listen((JobsState s) => seen.add(s.status));
+
+        final JobActionResult result = await op(cubit);
+        await sub.cancel();
+
+        expect(result.success, isTrue);
+        expect(api.fetches, 1, reason: 'the card comes from a refetch');
+        expect(seen, isNot(contains(JobsStatus.loading)));
+        expect(cubit.state.status, JobsStatus.ready);
+      });
+    }
+  });
 
   group('editJob', () {
     setUp(() async {
