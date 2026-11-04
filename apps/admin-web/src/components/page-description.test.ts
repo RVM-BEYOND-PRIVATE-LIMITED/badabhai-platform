@@ -230,7 +230,7 @@ describe("the detector", () => {
     const files = new Set(ALL.map((d) => d.where.split(":")[0]));
     for (const f of [
       "components/payer-detail.tsx",
-      "app/(portal)/workers/[id]/page.tsx",
+      "app/(portal)/candidates/[id]/page.tsx",
       "app/(portal)/jobs/[id]/page.tsx",
       "app/(portal)/events/[id]/page.tsx",
       "components/entity-timeline.tsx",

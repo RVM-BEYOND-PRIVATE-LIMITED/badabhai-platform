@@ -106,7 +106,7 @@ describe("an admin who holds read_identity", () => {
     // The id is the `actor_id`/`subject_id` on the spine and the value an operator copies into
     // a query. A name is not unique enough to be either.
     const out = await render();
-    expect(out).toContain(`href="/workers/${WORKER_ID}"`);
+    expect(out).toContain(`href="/candidates/${WORKER_ID}"`);
     expect(out).toContain(`title="${WORKER_ID}"`);
     expect(out).toContain("5eed…0001");
     expect(out).toContain('aria-label="Copy worker id"');
@@ -179,7 +179,7 @@ describe("an analyst, who will never hold read_identity", () => {
 
   it("gets the pre-ruling roster, intact", async () => {
     const out = await render();
-    expect(out).toContain(`href="/workers/${WORKER_ID}"`);
+    expect(out).toContain(`href="/candidates/${WORKER_ID}"`);
     expect((out.match(/<th scope="col">/g) ?? []).length).toBe(6);
     expect(firstRowCells(out)).toHaveLength(6);
   });
@@ -229,7 +229,7 @@ describe("an entitled admin whose name budget is spent", () => {
 
   it("leaves every other field on the row untouched", async () => {
     const out = await render();
-    expect(out).toContain(`href="/workers/${WORKER_ID}"`);
+    expect(out).toContain(`href="/candidates/${WORKER_ID}"`);
     expect(out).toContain("no photo");
     expect(firstRowCells(out)).toHaveLength(6);
   });
@@ -291,14 +291,14 @@ describe("a failed read: Retry repeats the query, Back to the first page drops t
   it("keeps the cursor on Retry, and offers the first page as its own action", async () => {
     stub.failure = new Error("boom");
     const out = await render({ cursor: "Y3Vyc29y" });
-    expect(out).toMatch(/href="\/workers\?cursor=Y3Vyc29y">(<i [^>]*><\/i>)?Retry<\/a>/);
-    expect(out).toMatch(/href="\/workers">(<i [^>]*><\/i>)?Back to the first page<\/a>/);
+    expect(out).toMatch(/href="\/candidates\?cursor=Y3Vyc29y">(<i [^>]*><\/i>)?Retry<\/a>/);
+    expect(out).toMatch(/href="\/candidates">(<i [^>]*><\/i>)?Back to the first page<\/a>/);
   });
 
   it("without a cursor, Retry is the whole recovery", async () => {
     stub.failure = new Error("boom");
     const out = await render();
-    expect(out).toMatch(/href="\/workers">(<i [^>]*><\/i>)?Retry<\/a>/);
+    expect(out).toMatch(/href="\/candidates">(<i [^>]*><\/i>)?Retry<\/a>/);
     expect(out).not.toContain("Back to the first page");
   });
 
@@ -306,19 +306,19 @@ describe("a failed read: Retry repeats the query, Back to the first page drops t
     stub.failure = new Error("boom");
     const out = await render({ status: "active" });
     expect(out.split(">Clear filters<").length - 1).toBe(1);
-    expect(out).toMatch(/href="\/workers\?status=active">(<i [^>]*><\/i>)?Retry<\/a>/);
+    expect(out).toMatch(/href="\/candidates\?status=active">(<i [^>]*><\/i>)?Retry<\/a>/);
   });
 
   it("filtered AND past page one: both recoveries, both keeping every filter (sweep AW-06)", async () => {
-    // `/workers?status=active&cursor=c2` with a 500 rendered no Retry and no first page — the
+    // `/candidates?status=active&cursor=c2` with a 500 rendered no Retry and no first page — the
     // only exit was the head's Clear filters, which drops the filter it was paging.
     stub.failure = new Error("boom");
     const out = await render({ status: "active", pendingDeletion: "true", cursor: "c2" });
     expect(out).toMatch(
-      /href="\/workers\?status=active&amp;pendingDeletion=true&amp;cursor=c2">(<i [^>]*><\/i>)?Retry<\/a>/,
+      /href="\/candidates\?status=active&amp;pendingDeletion=true&amp;cursor=c2">(<i [^>]*><\/i>)?Retry<\/a>/,
     );
     expect(out).toMatch(
-      /href="\/workers\?status=active&amp;pendingDeletion=true">(<i [^>]*><\/i>)?Back to the first page<\/a>/,
+      /href="\/candidates\?status=active&amp;pendingDeletion=true">(<i [^>]*><\/i>)?Back to the first page<\/a>/,
     );
     expect(out.split(">Clear filters<").length - 1).toBe(1);
   });
@@ -362,7 +362,7 @@ describe("a failed read is told apart by its cause", () => {
     stub.failure = new stub.RequestError(400);
     const out = await render({ status: "nonsense" });
     const state = out.slice(out.indexOf('class="state state--error"'));
-    expect(state).toMatch(/href="\/workers">(<i [^>]*><\/i>)?Clear filters<\/a>/);
+    expect(state).toMatch(/href="\/candidates">(<i [^>]*><\/i>)?Clear filters<\/a>/);
     expect(out.split(">Clear filters<").length - 1).toBe(1);
   });
 
@@ -380,7 +380,7 @@ describe("a failed read is told apart by its cause", () => {
     const out = await render();
     expect(out).toContain("Workers are unavailable");
     expect(out).not.toContain("rejected");
-    expect(out).toMatch(/href="\/workers">(<i [^>]*><\/i>)?Retry<\/a>/);
+    expect(out).toMatch(/href="\/candidates">(<i [^>]*><\/i>)?Retry<\/a>/);
   });
 
   it("a 400 on a cursor ALONE names the cursor — there are no filters to blame", async () => {
@@ -389,7 +389,7 @@ describe("a failed read is told apart by its cause", () => {
     expect(out).toContain("The server rejected this page");
     expect(out).not.toContain("rejected these filters");
     expect(out).not.toContain("filter combination");
-    expect(out).toMatch(/href="\/workers">(<i [^>]*><\/i>)?Back to the first page<\/a>/);
+    expect(out).toMatch(/href="\/candidates">(<i [^>]*><\/i>)?Back to the first page<\/a>/);
   });
 });
 

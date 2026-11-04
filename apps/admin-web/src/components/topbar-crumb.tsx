@@ -11,12 +11,12 @@ import { NavPendingCue } from "./nav-pending";
  *
  * The trail holds the page's ANCESTORS only. The page names itself in its own h1, so the crumb
  * never repeats it:
- *   - a top-level page (`/workers`) shows its sidebar group: `Operations`;
- *   - a page directly below a section (`/workers/<id>`) adds the section, UNLINKED:
- *     `Operations / Workers` — that page's back link already goes to `/workers` (its real parent
+ *   - a top-level page (`/candidates`) shows its sidebar group: `Operations`;
+ *   - a page directly below a section (`/candidates/<id>`) adds the section, UNLINKED:
+ *     `Operations / Workers` — that page's back link already goes to `/candidates` (its real parent
  *     is the section list), and one target is linked once per screen;
  *   - a deeper page adds the section, LINKED, and each NAMED step between the section and itself
- *     (`/workers/<id>/journey/<sid>` reads `Operations / Workers / Journey`); its back link goes
+ *     (`/candidates/<id>/journey/<sid>` reads `Operations / Workers / Journey`); its back link goes
  *     to a record, not the section, so the crumb is the one link to the list.
  * A step is shown only when it is a known view of the record above it (`SEGMENT_LABELS`). Every
  * other segment is a record's id — a uuid, or any other key — and an id in a breadcrumb names
@@ -94,7 +94,7 @@ export interface CrumbTrail {
   /** The nav section, present only when the page sits BELOW it (so it never repeats the h1). */
   section: { href: string; label: string } | null;
   /**
-   * The page sits DIRECTLY below the section (`/workers/<id>`), so the section list is its real
+   * The page sits DIRECTLY below the section (`/candidates/<id>`), so the section list is its real
    * parent — and its back link (header rule 1, docs/design/NAVIGATION.md) already links it.
    */
   sectionIsParent: boolean;

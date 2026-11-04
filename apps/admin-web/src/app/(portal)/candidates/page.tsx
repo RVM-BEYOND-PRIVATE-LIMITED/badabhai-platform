@@ -27,10 +27,12 @@ import {
 } from "../../../components/retry-actions";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Workers" };
+export const metadata = { title: "Candidates" };
 
 /**
- * Workers — the supply-side roster.
+ * Candidates — the supply-side roster: every registered worker (Directory, A6 #2576 — the
+ * section was "Workers"; `/workers/*` redirects here). A7 (#2577) rebuilds this screen on the
+ * candidate data bank; until then it is the worker roster as it was, under its new name.
  *
  * ── NAMES, SINCE THE 2026-08-18 RULING ──────────────────────────────────────────────────
  * A Name column is rendered to a role holding `read_identity` (super_admin / ops_admin /
@@ -50,7 +52,7 @@ export const metadata = { title: "Workers" };
  * So this screen still answers operational questions — how many, in what state, how far through
  * profiling, who is pending deletion — and now says who each row is while doing it.
  */
-export default async function WorkersPage({
+export default async function CandidatesPage({
   searchParams,
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
@@ -91,7 +93,7 @@ export default async function WorkersPage({
   const filtersRefused = refusal === "filters";
 
   /** The current query without the cursor — what the recoveries below repeat. */
-  const listHref = queryHref("/workers", {
+  const listHref = queryHref("/candidates", {
     status,
     pendingDeletion: pendingDeletion ? "true" : undefined,
   });
@@ -101,7 +103,7 @@ export default async function WorkersPage({
    * is the recovery, so the head does not repeat it.
    */
   const clearFilters = filtered ? (
-    <Link className="btn btn--ghost" href="/workers">
+    <Link className="btn btn--ghost" href="/candidates">
       <Icon name={ACTION_ICON.clearFilters} />
       Clear filters
     </Link>
@@ -117,14 +119,14 @@ export default async function WorkersPage({
   return (
     <div className="page">
       <PageHeader
-        title="Workers"
+        title="Candidates"
         description={
           /* THREE-VALUED, like the detail page's panel subs: "names are shown" directly above
              the notice saying they are withheld would contradict it. */
           posture === "faceless"
-            ? "Workers, identified by id — your role does not include name access."
+            ? "Candidates, identified by id — your role does not include name access."
             : posture === "capped"
-              ? "Workers, identified by id while names are withheld (see below)."
+              ? "Candidates, identified by id while names are withheld (see below)."
               : "Names are shown to your role, and each name read is capped and audited."
         }
         info={
@@ -137,7 +139,7 @@ export default async function WorkersPage({
           /* Folds behind a "Filters (n)" toggle on a phone (AW-08); unchanged above it. */
           <FilterPanel
             headingId="wf-heading"
-            heading="Filter workers"
+            heading="Filter candidates"
             filters={{ status, pendingDeletion }}
           >
             <WorkerFilterBar status={status ?? ""} pendingDeletion={pendingDeletion} />
@@ -230,7 +232,7 @@ export default async function WorkersPage({
                         onto the audit spine, the value an operator copies into a query, and
                         the only stable handle for a worker who has never given us a name. */}
                     <td>
-                      <Link className="link mono" href={`/workers/${w.id}`} title={w.id}>
+                      <Link className="link mono" href={`/candidates/${w.id}`} title={w.id}>
                         {shortId(w.id)}
                       </Link>
                       <CopyId id={w.id} label="worker id" />
@@ -296,7 +298,7 @@ export default async function WorkersPage({
         )}
 
         <Pager
-          basePath="/workers"
+          basePath="/candidates"
           params={{ status, pendingDeletion: pendingDeletion ? "true" : undefined }}
           nextCursor={page?.nextCursor}
         />

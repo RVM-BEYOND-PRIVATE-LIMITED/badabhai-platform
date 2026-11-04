@@ -210,7 +210,7 @@ describe("a link activated inside the drawer closes it (review L1)", () => {
     ...extra,
     target: {
       closest: (selector: string) =>
-        inLink && selector === "a[href]" ? { href: "/workers" } : null,
+        inLink && selector === "a[href]" ? { href: "/candidates" } : null,
     },
   });
 

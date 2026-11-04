@@ -50,7 +50,7 @@ export const NAV: NavSection[] = [
   {
     title: "Operations",
     items: [
-      { href: "/workers", label: "Workers", icon: "users-three", capability: "read_entities" },
+      { href: "/candidates", label: "Candidates", icon: "users-three", capability: "read_entities" },
       // Beside Workers rather than at the end of the section: every row on this screen is a
       // worker speaking, and its Worker column links straight back into the roster above.
       // `read_entities` mirrors the route's own guard exactly — the nav hides a door it

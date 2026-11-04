@@ -15,7 +15,7 @@ const SECTIONS = [
   {
     title: "Operations",
     items: [
-      { href: "/workers", label: "Workers", icon: "users-three" as const },
+      { href: "/candidates", label: "Workers", icon: "users-three" as const },
       { href: "/jobs", label: "Postings", icon: "briefcase" as const },
     ],
   },
@@ -61,7 +61,7 @@ describe("SidebarNav", () => {
   });
 
   it("an item that is not this route's section is not current at all", () => {
-    const other = out.slice(out.indexOf('href="/workers"') - 40, out.indexOf("Workers</span>"));
+    const other = out.slice(out.indexOf('href="/candidates"') - 40, out.indexOf("Workers</span>"));
     expect(other).not.toContain("aria-current");
     expect(other).not.toContain("is-active");
   });
@@ -73,7 +73,7 @@ describe("SidebarNav", () => {
  */
 describe("SidebarNav — the pending cue", () => {
   it("every link holds the cue after its label, hidden from assistive tech — the link's name is unchanged", () => {
-    for (const href of ["/workers", "/jobs"]) {
+    for (const href of ["/candidates", "/jobs"]) {
       expect(linkTo(out, href)).toMatch(
         /<span class="sidebar__label">[^<]+<\/span><span class="nav-pending" aria-hidden="true"><\/span>$/,
       );

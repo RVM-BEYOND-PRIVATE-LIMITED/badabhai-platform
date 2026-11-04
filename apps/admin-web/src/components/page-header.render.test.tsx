@@ -27,9 +27,9 @@ describe("PageHeader — structure", () => {
   });
 
   it("a detail page: the back link names the parent, points at it, and draws arrow-left", () => {
-    const out = html(<PageHeader back={{ href: "/workers", label: "Workers" }} title="Ramesh" />);
+    const out = html(<PageHeader back={{ href: "/candidates", label: "Workers" }} title="Ramesh" />);
     expect(out).toContain(
-      '<p class="page__back"><a class="backlink" href="/workers"><i class="ph-fill ph-arrow-left" aria-hidden="true"></i><span>Workers</span></a></p>',
+      '<p class="page__back"><a class="backlink" href="/candidates"><i class="ph-fill ph-arrow-left" aria-hidden="true"></i><span>Workers</span></a></p>',
     );
     // The back link comes before the title, inside the header.
     expect(out.indexOf("page__back")).toBeLessThan(out.indexOf("page__title"));
@@ -98,7 +98,7 @@ function pageSources(): Map<string, string> {
   return out;
 }
 const PAGES = pageSources();
-/** `workers/[id]/page.tsx` → `/workers/[id]`; the dashboard's `page.tsx` → `/`. */
+/** `candidates/[id]/page.tsx` → `/candidates/[id]`; the dashboard's `page.tsx` → `/`. */
 const routeOf = (file: string) => `/${file.replace(/\/?page\.tsx$/, "")}`;
 
 /** The detectors, on their own inputs, before they are trusted with the tree. */
@@ -116,7 +116,7 @@ describe("header fences — the detectors catch what they must", () => {
   it("walk every portal page", () => {
     expect(PAGES.size).toBeGreaterThan(25);
     expect(PAGES.has("page.tsx")).toBe(true);
-    expect(routeOf("workers/[id]/page.tsx")).toBe("/workers/[id]");
+    expect(routeOf("candidates/[id]/page.tsx")).toBe("/candidates/[id]");
     expect(routeOf("page.tsx")).toBe("/");
   });
 });
@@ -162,7 +162,7 @@ describe("header fences — the tree", () => {
         "/events/[id]",
         "/jobs/[id]",
         "/skills/discovery/[id]",
-        "/workers/[id]",
+        "/candidates/[id]",
       ]),
     );
   });
@@ -235,8 +235,8 @@ describe("header fences — the back-link reader", () => {
 
   it("reads a back prop, a header object's back, and one inside a ternary", () => {
     expect(read('<PageHeader back={{ href: "/events", label: "Events" }} />')).toEqual(["/events"]);
-    expect(read('const header = { back: { href: "/workers", label: "Workers" }, title: t };')).toEqual([
-      "/workers",
+    expect(read('const header = { back: { href: "/candidates", label: "Workers" }, title: t };')).toEqual([
+      "/candidates",
     ]);
     expect(read('<PageHeader back={b ? { href: "/ai-calls", label: "AI calls" } : undefined} />')).toEqual([
       "/ai-calls",
@@ -244,8 +244,8 @@ describe("header fences — the back-link reader", () => {
   });
 
   it("reports a computed href as an expression, never as a section", () => {
-    expect(read("<PageHeader back={{ href: `/workers/${id}`, label: l }} />")).toEqual([
-      "<`/workers/${id}`>",
+    expect(read("<PageHeader back={{ href: `/candidates/${id}`, label: l }} />")).toEqual([
+      "<`/candidates/${id}`>",
     ]);
   });
 
@@ -262,11 +262,11 @@ describe("header fences — the back-link reader", () => {
 
   it("finds static first-level children as well as [param] ones", () => {
     // A static view one segment below a section is held to the same rule as a record page.
-    expect(sectionAbove("/workers/[id]")).toBe("/workers");
-    expect(sectionAbove("/workers/export")).toBe("/workers");
+    expect(sectionAbove("/candidates/[id]")).toBe("/candidates");
+    expect(sectionAbove("/candidates/export")).toBe("/candidates");
     expect(sectionAbove("/skills/discovery/[id]")).toBe("/skills/discovery");
-    expect(sectionAbove("/workers")).toBeNull();
-    expect(sectionAbove("/workers/[id]/journey")).toBeNull();
+    expect(sectionAbove("/candidates")).toBeNull();
+    expect(sectionAbove("/candidates/[id]/journey")).toBeNull();
     expect(sectionAbove("/")).toBeNull();
   });
 });

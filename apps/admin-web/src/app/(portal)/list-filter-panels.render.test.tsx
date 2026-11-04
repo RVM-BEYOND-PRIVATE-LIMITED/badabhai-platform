@@ -44,7 +44,7 @@ const { default: CompaniesPage } = await import("./companies/page");
 const { default: AgenciesPage } = await import("./agencies/page");
 const { default: JobsPage } = await import("./jobs/page");
 const { default: AiCallsPage } = await import("./ai-calls/page");
-const { default: WorkersPage } = await import("./workers/page");
+const { default: WorkersPage } = await import("./candidates/page");
 const { FilterPanel, filterSetKey } = await import("../../components/filter-panel");
 
 const CORRELATION = "5eeded00-00c0-4a00-8000-0000000000c0";

@@ -72,7 +72,7 @@ describe("a session that belongs to another worker", () => {
   it("says so, linking the worker it really belongs to", async () => {
     const out = await render();
     expect(out).toContain("not to the worker in this URL");
-    expect(out).toContain(`href="/workers/${OTHER_WORKER}/journey"`);
+    expect(out).toContain(`href="/candidates/${OTHER_WORKER}/journey"`);
   });
 
   it("names the BACK LINK as the part that points elsewhere — not the breadcrumb", async () => {
@@ -80,7 +80,7 @@ describe("a session that belongs to another worker", () => {
     expect(out).toContain("the back link above is not.");
     expect(out).not.toContain("breadcrumb");
     // …and that back link really is the one pointing at the address's worker.
-    expect(out).toContain(`<a class="backlink" href="/workers/${URL_WORKER}/journey">`);
+    expect(out).toContain(`<a class="backlink" href="/candidates/${URL_WORKER}/journey">`);
   });
 });
 

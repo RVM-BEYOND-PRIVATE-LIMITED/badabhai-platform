@@ -9,16 +9,16 @@ import { Pager } from "./pager";
  */
 describe("Pager", () => {
   it("renders nothing on the last page", () => {
-    expect(renderToStaticMarkup(<Pager basePath="/workers" params={{}} nextCursor={null} />)).toBe(
+    expect(renderToStaticMarkup(<Pager basePath="/candidates" params={{}} nextCursor={null} />)).toBe(
       "",
     );
   });
 
   it("its Next page link keeps the filters, carries the next cursor and the pending cue", () => {
     const out = renderToStaticMarkup(
-      <Pager basePath="/workers" params={{ status: "active" }} nextCursor="c2" />,
+      <Pager basePath="/candidates" params={{ status: "active" }} nextCursor="c2" />,
     );
-    expect(out).toContain('href="/workers?status=active&amp;cursor=c2"');
+    expect(out).toContain('href="/candidates?status=active&amp;cursor=c2"');
     expect(out).toMatch(
       /Next page<i class="ph-fill ph-caret-right" aria-hidden="true"><\/i><span class="nav-pending" aria-hidden="true"><\/span><\/a>/,
     );

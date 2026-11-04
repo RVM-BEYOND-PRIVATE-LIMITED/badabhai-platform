@@ -102,12 +102,12 @@ export default async function WorkerJourneyPage({
   const journey = journeyRes.status === "fulfilled" ? journeyRes.value : null;
   const sessions = sessionsRes.status === "fulfilled" ? sessionsRes.value : null;
   /** The session list's current query without the cursor — what its recoveries repeat. */
-  const sessionsHref = queryHref(`/workers/${id}/journey`, { status });
+  const sessionsHref = queryHref(`/candidates/${id}/journey`, { status });
 
   return (
     <div className="page">
       <PageHeader
-        back={{ href: `/workers/${id}`, label: `Worker ${shortId(id)}` }}
+        back={{ href: `/candidates/${id}`, label: `Worker ${shortId(id)}` }}
         title="Journey"
         description="What this worker completed and where they stopped."
         info={
@@ -135,7 +135,7 @@ export default async function WorkerJourneyPage({
               </Link>
             ) : null}
             {mayReadEvents ? (
-              <Link className="btn btn--ghost" href={`/workers/${id}/timeline`}>
+              <Link className="btn btn--ghost" href={`/candidates/${id}/timeline`}>
                 <Icon name={ACTION_ICON.timeline} />
                 View event timeline
               </Link>
@@ -194,11 +194,11 @@ export default async function WorkerJourneyPage({
               (never the primary fill, which marks a screen's one action — AW-11). The active one
               is text, not a link to this page (`<FilterChip>`, final re-sweep O-2). */}
           <nav aria-label="Filter sessions by status" className="page__actions">
-            <FilterChip selected={!status} href={`/workers/${id}/journey`} cursor={cursor}>
+            <FilterChip selected={!status} href={`/candidates/${id}/journey`} cursor={cursor}>
               All
             </FilterChip>
             {SESSION_STATUS_FILTERS.map((s) => (
-              <FilterChip key={s} selected={status === s} href={`/workers/${id}/journey?status=${s}`} cursor={cursor}>
+              <FilterChip key={s} selected={status === s} href={`/candidates/${id}/journey?status=${s}`} cursor={cursor}>
                 {SESSION_STATUS_LABELS[s]}
               </FilterChip>
             ))}
@@ -246,7 +246,7 @@ export default async function WorkerJourneyPage({
                 {sessions.items.map((s) => (
                   <tr key={s.id}>
                     <th className="table__rowhead" scope="row">
-                      <Link className="link" href={`/workers/${id}/journey/${s.id}`}>
+                      <Link className="link" href={`/candidates/${id}/journey/${s.id}`}>
                         <time dateTime={s.started_at} title={timestampTitle(s.started_at)}>
                           {formatRelative(s.started_at)}
                         </time>
@@ -293,7 +293,7 @@ export default async function WorkerJourneyPage({
         )}
 
         <Pager
-          basePath={`/workers/${id}/journey`}
+          basePath={`/candidates/${id}/journey`}
           params={{ status }}
           nextCursor={sessions?.nextCursor}
           note="Paging uses a keyset cursor on (started_at, id), so a session starting mid-scan cannot make rows skip or repeat."

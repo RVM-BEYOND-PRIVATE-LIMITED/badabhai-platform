@@ -86,7 +86,7 @@ const CLIENT_COMPONENTS = [
   "payer-credits-panel.tsx",
   "../app/(portal)/ai-calls/filter-bar.tsx",
   "../app/(portal)/jobs/[id]/job-detail-header.tsx",
-  "../app/(portal)/workers/[id]/worker-detail-header.tsx",
+  "../app/(portal)/candidates/[id]/worker-detail-header.tsx",
   "../app/(portal)/admins/invite-admin-form.tsx",
   "../app/(portal)/admins/admin-row-actions.tsx",
   "../app/(portal)/skills/discovery/filter-bar.tsx",

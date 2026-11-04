@@ -80,7 +80,7 @@ const CATEGORY: Record<FeedbackCategory, { chip: string; tone: Tone; hint: strin
  * page cannot say whether they ever reached a job, how far the interview got, or where they
  * stopped. The journey screen is the mirror image — behaviour with no words. So every row
  * now links to its worker's journey, and the journey screen links back here narrowed to that
- * worker. Neither link crosses a capability boundary: `/workers/:id/journey` declares the
+ * worker. Neither link crosses a capability boundary: `/candidates/:id/journey` declares the
  * same `read_entities` this page is already behind.
  */
 export default async function FeedbackPage({
@@ -245,13 +245,13 @@ export default async function FeedbackPage({
              would take an empty screen for an answer about that worker. */
           <p className="field__help">
             Showing only what worker <span className="mono">{shortId(workerId)}</span> sent.{" "}
-            <Link className="link" href={`/workers/${encodeURIComponent(workerId)}`}>
+            <Link className="link" href={`/candidates/${encodeURIComponent(workerId)}`}>
               Open worker
             </Link>
             {mayOpenJourney ? (
               <>
                 {" · "}
-                <Link className="link" href={`/workers/${encodeURIComponent(workerId)}/journey`}>
+                <Link className="link" href={`/candidates/${encodeURIComponent(workerId)}/journey`}>
                   View journey
                 </Link>
               </>
@@ -331,7 +331,7 @@ export default async function FeedbackPage({
                     <td>
                       <Link
                         className="link mono"
-                        href={`/workers/${f.worker_id}`}
+                        href={`/candidates/${f.worker_id}`}
                         title={f.worker_id}
                       >
                         {shortId(f.worker_id)}
@@ -347,7 +347,7 @@ export default async function FeedbackPage({
                           <br />
                           <Link
                             className="link table__meta"
-                            href={`/workers/${f.worker_id}/journey`}
+                            href={`/candidates/${f.worker_id}/journey`}
                             title="What this worker completed, and where they stopped"
                           >
                             View journey

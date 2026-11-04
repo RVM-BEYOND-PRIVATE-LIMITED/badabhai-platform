@@ -65,9 +65,9 @@ export default async function WorkerDetailPage({
 
   // Offered only to a reader who may open it: the timeline route is `read_events`.
   const timelineHref = can(session.capabilities, "read_events")
-    ? `/workers/${worker.id}/timeline`
+    ? `/candidates/${worker.id}/timeline`
     : null;
-  const journeyHref = `/workers/${worker.id}/journey`;
+  const journeyHref = `/candidates/${worker.id}/journey`;
 
   // A single record, so the posture is read off this one row — `[worker]`, not a page.
   const posture = identityPosture(
@@ -80,7 +80,7 @@ export default async function WorkerDetailPage({
   // `mono` goes with the id: it is an opaque-identifier treatment, and a person's name set in a
   // monospace face reads as a machine token rather than as a name.
   const header = {
-    back: { href: "/workers", label: "Workers" },
+    back: { href: "/candidates", label: "Candidates" },
     title: name ?? shortId(worker.id),
     titleMono: name === null,
     description: (
@@ -234,7 +234,7 @@ export default async function WorkerDetailPage({
               failing, the event timeline holds the same applies and skips as audit records.
             </p>
             <div className="state__actions">
-              <Link className="btn btn--ghost" href={`/workers/${worker.id}`}>
+              <Link className="btn btn--ghost" href={`/candidates/${worker.id}`}>
                 <Icon name={ACTION_ICON.retry} />
                 Retry
               </Link>

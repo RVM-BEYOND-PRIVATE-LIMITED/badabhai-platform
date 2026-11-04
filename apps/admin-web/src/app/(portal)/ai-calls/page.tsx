@@ -212,7 +212,7 @@ export default async function AiCallsPage({
           <p className="field__help">
             Showing only the calls made for worker{" "}
             <span className="mono">{shortId(workerId)}</span>.{" "}
-            <Link className="link" href={`/workers/${encodeURIComponent(workerId)}`}>
+            <Link className="link" href={`/candidates/${encodeURIComponent(workerId)}`}>
               Open worker
             </Link>
             {/* Drops the worker and KEEPS the task and outcome filters. Shown only beside another
@@ -338,7 +338,7 @@ export default async function AiCallsPage({
                     <td>
                       <Link
                         className="link mono"
-                        href={`/workers/${t.worker_id}`}
+                        href={`/candidates/${t.worker_id}`}
                         title={t.worker_id}
                       >
                         {shortId(t.worker_id)}
@@ -353,7 +353,7 @@ export default async function AiCallsPage({
                               cannot point at a session under somebody else's id. */}
                           <Link
                             className="link table__meta"
-                            href={`/workers/${t.worker_id}/journey/${t.session_id}`}
+                            href={`/candidates/${t.worker_id}/journey/${t.session_id}`}
                             title={`Interview session ${t.session_id}`}
                           >
                             Session

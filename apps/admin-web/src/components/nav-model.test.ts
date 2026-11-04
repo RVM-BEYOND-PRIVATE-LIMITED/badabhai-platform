@@ -74,7 +74,7 @@ describe("nav icons", () => {
     expect(byHref("/events")?.icon).toBe("clock-counter-clockwise"); // ACTION_ICON.timeline
     expect(byHref("/jobs")?.icon).toBe("briefcase"); // ACTION_ICON.posting
     expect(byHref("/credits")?.icon).toBe("wallet"); // ACTION_ICON.credits
-    expect(byHref("/workers")?.icon).toBe("users-three"); // ACTION_ICON.users
+    expect(byHref("/candidates")?.icon).toBe("users-three"); // ACTION_ICON.users
   });
 });
 

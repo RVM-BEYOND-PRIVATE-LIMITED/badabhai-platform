@@ -65,7 +65,7 @@ export default async function ChatSessionDetailPage({
     throw err;
   }
 
-  const journeyHref = `/workers/${id}/journey`;
+  const journeyHref = `/candidates/${id}/journey`;
   const mismatched = session.worker_id !== id;
 
   return (
@@ -82,7 +82,7 @@ export default async function ChatSessionDetailPage({
           </>
         }
         secondaryActions={
-          <Link className="btn btn--ghost" href={`/workers/${session.worker_id}`}>
+          <Link className="btn btn--ghost" href={`/candidates/${session.worker_id}`}>
             <Icon name={ACTION_ICON.candidate} />
             Open worker
           </Link>
@@ -92,7 +92,7 @@ export default async function ChatSessionDetailPage({
       {mismatched ? (
         <p className="notice notice--warn" role="status">
           This session belongs to worker{" "}
-          <Link className="link mono" href={`/workers/${session.worker_id}/journey`}>
+          <Link className="link mono" href={`/candidates/${session.worker_id}/journey`}>
             {shortId(session.worker_id)}
           </Link>
           , not to the worker in this URL. The figures below are that session&rsquo;s own; the

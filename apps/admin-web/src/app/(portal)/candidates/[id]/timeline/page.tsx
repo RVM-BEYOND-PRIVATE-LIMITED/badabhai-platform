@@ -22,8 +22,8 @@ export default async function WorkerTimelinePage({
       type="worker"
       id={id}
       cursor={cursor}
-      basePath={`/workers/${id}/timeline`}
-      back={{ href: `/workers/${id}`, label: `Worker ${shortId(id)}` }}
+      basePath={`/candidates/${id}/timeline`}
+      back={{ href: `/candidates/${id}`, label: `Worker ${shortId(id)}` }}
       subjectLabel="worker"
     />
   );

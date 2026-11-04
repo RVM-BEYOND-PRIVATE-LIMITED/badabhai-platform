@@ -31,7 +31,7 @@ export function WorkerFilterBar({
     if (values.status) q.set("status", values.status);
     if (values.pendingDeletion) q.set("pendingDeletion", "true");
     const qs = q.toString();
-    push(qs ? `/workers?${qs}` : "/workers");
+    push(qs ? `/candidates?${qs}` : "/candidates");
   }
 
   return (

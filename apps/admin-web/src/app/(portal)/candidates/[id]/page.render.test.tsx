@@ -232,8 +232,8 @@ describe("the deletion banner still wins its own space", () => {
 describe("the header (owner ruling 2026-10-01)", () => {
   it("has a back link to the real parent, named as that page names itself", async () => {
     const out = await render();
-    expect(out).toContain('<a class="backlink" href="/workers">');
-    expect(out).toContain("<span>Workers</span></a>");
+    expect(out).toContain('<a class="backlink" href="/candidates">');
+    expect(out).toContain("<span>Candidates</span></a>");
   });
 });
 
@@ -241,7 +241,7 @@ describe("the event-timeline link follows read_events (an affordance; the route 
   it("is offered to a session that may open the timeline", async () => {
     stub.capabilities = ["read_entities", "read_events"];
     await render();
-    expect(stub.headerProps?.timelineHref).toBe(`/workers/${WORKER_ID}/timeline`);
+    expect(stub.headerProps?.timelineHref).toBe(`/candidates/${WORKER_ID}/timeline`);
   });
 
   it("is withheld from one that may not — the route would only redirect them", async () => {
@@ -249,7 +249,7 @@ describe("the event-timeline link follows read_events (an affordance; the route 
     await render();
     expect(stub.headerProps?.timelineHref).toBeNull();
     // The journey is a different capability and stays.
-    expect(stub.headerProps?.journeyHref).toBe(`/workers/${WORKER_ID}/journey`);
+    expect(stub.headerProps?.journeyHref).toBe(`/candidates/${WORKER_ID}/journey`);
   });
 });
 
@@ -272,7 +272,7 @@ describe("the posting decisions", () => {
     const out = await render();
     expect(out).toContain("Posting decisions could not be loaded");
     expect(out).toMatch(
-      /href="\/workers\/5eeded00-0001-4a00-8000-000000000001">(<i [^>]*><\/i>)?Retry<\/a>/,
+      /href="\/candidates\/5eeded00-0001-4a00-8000-000000000001">(<i [^>]*><\/i>)?Retry<\/a>/,
     );
     // One instruction per failure: a Retry button, so the copy no longer also says "reload".
     expect(out).not.toMatch(/reload/i);

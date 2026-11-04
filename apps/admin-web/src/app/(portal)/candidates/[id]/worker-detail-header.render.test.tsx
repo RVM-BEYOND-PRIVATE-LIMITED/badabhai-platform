@@ -20,11 +20,11 @@ const { ACTION_ICON } = await import("@badabhai/icons");
 const render = (canFlag: boolean) =>
   renderToStaticMarkup(
     <WorkerDetailHeader
-      header={{ title: "Ramesh Kumar", back: { href: "/workers", label: "Workers" } }}
+      header={{ title: "Ramesh Kumar", back: { href: "/candidates", label: "Candidates" } }}
       workerId="5eeded00-0001-4a00-8000-000000000001"
       canFlag={canFlag}
-      timelineHref="/workers/5eeded00-0001-4a00-8000-000000000001/timeline"
-      journeyHref="/workers/5eeded00-0001-4a00-8000-000000000001/journey"
+      timelineHref="/candidates/5eeded00-0001-4a00-8000-000000000001/timeline"
+      journeyHref="/candidates/5eeded00-0001-4a00-8000-000000000001/journey"
     />,
   );
 

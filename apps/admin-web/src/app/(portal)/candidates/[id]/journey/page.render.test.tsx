@@ -78,13 +78,13 @@ describe("the link to what this worker told us", () => {
     expect(out).not.toContain("/feedback");
     expect(out).not.toContain("What they told us");
     // The rest of the header is untouched — this removes one action, not the page.
-    expect(out).toContain(`href="/workers/${WORKER_ID}/timeline"`);
+    expect(out).toContain(`href="/candidates/${WORKER_ID}/timeline"`);
   });
 
   it("offers the event timeline only with read_events, the timeline route's own gate", async () => {
     stub.capabilities = ["read_entities"];
     const out = await render();
-    expect(out).not.toContain(`href="/workers/${WORKER_ID}/timeline"`);
+    expect(out).not.toContain(`href="/candidates/${WORKER_ID}/timeline"`);
     expect(out).not.toContain("View event timeline");
     // The feedback link is a different capability and stays.
     expect(out).toContain("What they told us");
@@ -146,17 +146,17 @@ describe("a failed session list offers the paged list's recoveries", () => {
     const out = await renderWith({ status: "ended", cursor: "c2" });
     expect(out).toContain("The session list could not be loaded");
     expect(out).toContain(
-      `href="/workers/${WORKER_ID}/journey?status=ended&amp;cursor=c2"><i class="ph-fill ph-arrow-clockwise" aria-hidden="true"></i>Retry</a>`,
+      `href="/candidates/${WORKER_ID}/journey?status=ended&amp;cursor=c2"><i class="ph-fill ph-arrow-clockwise" aria-hidden="true"></i>Retry</a>`,
     );
     expect(out).toContain(
-      `href="/workers/${WORKER_ID}/journey?status=ended"><i class="ph-fill ph-arrow-line-left" aria-hidden="true"></i>Back to the first page</a>`,
+      `href="/candidates/${WORKER_ID}/journey?status=ended"><i class="ph-fill ph-arrow-line-left" aria-hidden="true"></i>Back to the first page</a>`,
     );
   });
 
   it("on page one, Retry alone — and the copy no longer also says reload", async () => {
     const out = await renderWith({});
     expect(out).toContain(
-      `href="/workers/${WORKER_ID}/journey"><i class="ph-fill ph-arrow-clockwise" aria-hidden="true"></i>Retry</a>`,
+      `href="/candidates/${WORKER_ID}/journey"><i class="ph-fill ph-arrow-clockwise" aria-hidden="true"></i>Retry</a>`,
     );
     expect(out).not.toContain("Back to the first page");
     expect(out).not.toContain("Reload this page to try again");
@@ -164,7 +164,7 @@ describe("a failed session list offers the paged list's recoveries", () => {
 
   it("Retry is the one link to this page — the selected 'All' chip is text (final re-sweep O-2)", async () => {
     const out = await renderWith({});
-    expect(out.split(`href="/workers/${WORKER_ID}/journey"`)).toHaveLength(2);
+    expect(out.split(`href="/candidates/${WORKER_ID}/journey"`)).toHaveLength(2);
     expect(out).toMatch(/<span aria-current="true" class="btn btn--sm btn--selected">All<\/span>/);
   });
 });
@@ -179,7 +179,7 @@ describe("on a later page of sessions the selected chip links the first page", (
       }),
     );
     expect(out.match(/<[a-z]+ aria-current="true"[^>]*>/g)).toEqual([
-      `<a aria-current="true" class="btn btn--sm btn--selected" href="/workers/${WORKER_ID}/journey?status=ended">`,
+      `<a aria-current="true" class="btn btn--sm btn--selected" href="/candidates/${WORKER_ID}/journey?status=ended">`,
     ]);
   });
 });
