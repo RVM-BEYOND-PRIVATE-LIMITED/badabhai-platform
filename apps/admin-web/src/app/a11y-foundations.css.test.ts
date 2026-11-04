@@ -686,7 +686,7 @@ describe("the navigation pending cue (review of #2095)", () => {
       );
     const dot = reduced(".nav-pending--on");
     expect(dot).toBeDefined();
-    expect(decl(dot!.body, "animation")).toBe("nav-pending-show 1ms linear var(--nav-pending-delay) both");
+    expect(decl(dot!.body, "animation")).toBe("nav-pending-show 0s linear var(--nav-pending-delay) both");
     const bar = reduced(".nav-progress--on");
     expect(bar).toBeDefined();
     expect(decl(bar!.body, "animation")).toBe("none");

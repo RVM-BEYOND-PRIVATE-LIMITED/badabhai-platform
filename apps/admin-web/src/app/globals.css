@@ -859,7 +859,7 @@ details[open] > summary > .disclosure__caret {
   border-radius: var(--radius-round);
   background: currentColor;
   animation:
-    nav-pending-show 1ms linear var(--nav-pending-delay) both,
+    nav-pending-show 0s linear var(--nav-pending-delay) both,
     nav-pending-pulse var(--duration-slower) var(--ease-in-out) var(--nav-pending-delay) infinite
       alternate;
 }
@@ -915,7 +915,7 @@ details[open] > summary > .disclosure__caret {
 }
 @media (prefers-reduced-motion: reduce) {
   .nav-pending--on {
-    animation: nav-pending-show 1ms linear var(--nav-pending-delay) both;
+    animation: nav-pending-show 0s linear var(--nav-pending-delay) both;
   }
   .nav-progress--on {
     animation: none;

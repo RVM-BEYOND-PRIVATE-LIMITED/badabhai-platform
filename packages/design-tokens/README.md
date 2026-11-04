@@ -1,7 +1,8 @@
 # @badabhai/design-tokens
 
 The brand token layer for the web portals: one file, `tokens.css`, of CSS custom properties
-plus a small base layer. CSS only — no build step, no runtime, no JS exports.
+plus a small base layer, and one breakpoint constant (`breakpoints.js`). No build step, no
+runtime.
 
 Consumers: `apps/payer-web` (Company + Agency) and `apps/admin-web`. Each declares
 `"@badabhai/design-tokens": "workspace:*"` and imports the file at the top of
@@ -134,6 +135,75 @@ Logo: `.bb-lockup` (`__tile`, `__mark`, `__word`, `__sub`) puts the mark on a Sh
 Shift Blue tile on light surfaces, straight on the band on navy (`.bb-lockup--on-ink`), and the
 official logotype image (`/brand/badabhai-wordmark.png` white, `…-wordmark-navy.png` Shift
 Blue) cropped from the kit's `Logotype.png`. The files live in each app's `public/brand/`.
+
+## Motion, press and skeleton (#2570)
+
+The single source for every animation and transition in payer-web and admin-web. Each app's
+duration-token fence (`src/app/motion-duration-tokens.css.test.ts`) fails on a hard-coded
+duration in any of its stylesheets: name a `--duration-*` token (or a `calc()` of one). A literal
+`0s` (an instant visibility flip) is not motion and is allowed.
+
+| Token                  | Value  | Use                                                    |
+| ---------------------- | ------ | ------------------------------------------------------ |
+| `--duration-press`     | 90ms   | press down                                             |
+| `--duration-instant`   | 80ms   | (existing)                                             |
+| `--duration-fast`      | 140ms  | hover, popover, press release                          |
+| `--duration-page`      | 200ms  | route / page enter                                     |
+| `--duration-base`      | 220ms  | panel, drawer, dialog                                  |
+| `--duration-sheet`     | 300ms  | bottom sheet                                           |
+| `--duration-slow`      | 320ms  | (existing)                                             |
+| `--duration-slower`    | 480ms  | (existing)                                             |
+| `--duration-celebrate` | 520ms  | success stamp, with `--ease-stamp`                     |
+| `--duration-count`     | 600ms  | number count-up                                        |
+| `--duration-shimmer`   | 1400ms | one skeleton sheen sweep                               |
+| `--duration-fade`      | 140ms  | opacity-only fade; the one motion reduced motion keeps |
+
+Easings: `--ease-enter` (= `--ease-out`) for arrivals, `--ease-exit` (= `--ease-in`) for exits,
+which run ~30% shorter than their enter; `--ease-glide` for an indicator sliding between
+positions; `--ease-stamp` for success moments only. `--ease-out` / `--ease-in` / `--ease-in-out`
+stay.
+
+Distances: `--motion-rise` 6px (max travel for an entering element), `--motion-enter-scale` 0.98
+(a dialog enters 0.98 → 1), `--press-depth` 3px, `--press-scale` 0.97, `--stagger-step` 30ms per
+item for the first `--stagger-max` (8) items; the rest enter together.
+
+**Reduced motion** (`prefers-reduced-motion: reduce`): every `--duration-*` becomes `0ms`,
+`--motion-rise` / `--press-depth` `0px`, `--motion-enter-scale` / `--press-scale` `1`,
+`--stagger-step` `0ms`. Only `--duration-fade` survives, at 120ms, for opacity-only fades.
+
+**Press edge** (CRED / NeoPOP): a solid edge under primary and secondary buttons that collapses
+on press. Existing brand steps only:
+
+| Token                              | Value                                                  |
+| ---------------------------------- | ------------------------------------------------------ |
+| `--press-edge-primary`             | `--brand-press` (the darker Safety Yellow step)        |
+| `--press-edge-secondary`           | `--navy-900` (Shift Blue)                              |
+| `--shadow-press-primary`           | `0 var(--press-depth) 0 0 var(--press-edge-primary)`   |
+| `--shadow-press-primary-pressed`   | `0 0 0 0 var(--press-edge-primary)`                    |
+| `--shadow-press-secondary`         | `0 var(--press-depth) 0 0 var(--press-edge-secondary)` |
+| `--shadow-press-secondary-pressed` | `0 0 0 0 var(--press-edge-secondary)`                  |
+
+At rest `box-shadow: var(--shadow-press-primary)`; on `:active`
+`box-shadow: var(--shadow-press-primary-pressed)` and
+`transform: translateY(var(--press-depth)) scale(var(--press-scale))` over `--duration-press`,
+released over `--duration-fast`.
+
+**Skeleton:** `--skeleton-base` (`--surface-sunken`) is the placeholder fill and
+`--skeleton-sheen` (`--surface-card`) the sweep across it, one pass per `--duration-shimmer`.
+
+## Radius and breakpoints
+
+`--radius-sm` is 8px (it equalled `--radius-md`, 10px, before #2570).
+
+Four min-width breakpoints, mobile first — phone 375, tablet 600, desktop 1024, wide 1280:
+
+- CSS: `@custom-media --bp-phone`, `--bp-tablet`, `--bp-desktop`, `--bp-wide` in `tokens.css`.
+  Custom media needs `postcss-custom-media` to compile; until an app wires it the browser ignores
+  the declaration, so use the px value in `@media` and keep it equal to the token.
+- TS: `import { BREAKPOINTS } from "@badabhai/design-tokens/breakpoints"` →
+  `{ phone: 375, tablet: 600, desktop: 1024, wide: 1280 }` (plain ESM + `.d.ts`, no build).
+- `apps/payer-web/src/app/design-tokens-motion.test.ts` keeps the two in step and pins the motion,
+  press, skeleton and radius values above.
 
 ## Changing a token safely
 
