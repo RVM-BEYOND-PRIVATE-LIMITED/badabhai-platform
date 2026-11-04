@@ -13,6 +13,8 @@ import 'package:payer_app/core/data/mock_payer_api_client.dart';
 import 'package:payer_app/core/di/locator.dart';
 import 'package:payer_app/core/session/app_session.dart';
 import 'package:payer_app/core/session/app_session_cubit.dart';
+import 'package:payer_app/core/theme/app_colors.dart';
+import 'package:payer_app/core/theme/app_spacing.dart';
 import 'package:payer_app/core/theme/app_system_ui.dart';
 import 'package:payer_app/core/theme/app_theme.dart';
 import 'package:payer_app/core/widgets/bb_avatar.dart';
@@ -183,6 +185,23 @@ void main() {
       );
     });
 
+    testWidgets(
+        'wider than appMax: the status-bar strip under light icons is blue '
+        'across the full width', (WidgetTester tester) async {
+      await pumpShell(tester);
+
+      final double width = tester.view.physicalSize.width;
+      expect(width, greaterThan(AppSpacing.appMax));
+      final Finder strip = find.byKey(AppShell.statusBarStripKey);
+      expect(strip, findsOneWidget);
+      expect(tester.widget<ColoredBox>(strip).color, AppColors.blue);
+      final Rect rect = tester.getRect(strip);
+      expect(rect.left, 0);
+      expect(rect.right, width);
+      expect(rect.top, 0);
+      expect(rect.height, statusBar);
+    });
+
     testWidgets('other tabs keep the top inset on the light canvas',
         (WidgetTester tester) async {
       await pumpShell(tester);
@@ -192,6 +211,7 @@ void main() {
       }
 
       expect(tester.getTopLeft(find.byType(FindScreen)).dy, statusBar);
+      expect(find.byKey(AppShell.statusBarStripKey), findsNothing);
       expect(
         find.ancestor(
           of: find.byType(FindScreen),

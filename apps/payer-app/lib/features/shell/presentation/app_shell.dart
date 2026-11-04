@@ -37,6 +37,10 @@ class AppShell extends StatefulWidget {
 
   final AppSession session;
 
+  /// The full-bleed blue strip behind the status bar on a bare Home (#2590).
+  @visibleForTesting
+  static const Key statusBarStripKey = Key('app_shell_status_bar_strip');
+
   @override
   State<AppShell> createState() => _AppShellState();
 }
@@ -258,11 +262,35 @@ class _AppShellState extends State<AppShell> {
     // #1087 — cap the content column on tablets/foldables so it never stretches
     // to an unreadable line length. The page background stays full-bleed (the
     // Scaffold canvas shows outside the cap); only the content is centred.
-    return Center(
+    final Widget capped = Center(
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: AppSpacing.appMax),
         child: stack,
       ),
+    );
+    // #2590 — Home's blue header runs under the status bar and asks for light
+    // icons, but the column is capped at appMax. On a wider screen the bar
+    // corners (clock, battery) would show the light canvas, so a full-bleed
+    // blue strip of the status-bar height sits behind the capped column. The
+    // Stack is always present (only the strip toggles) so switching tabs never
+    // reparents — and so never remounts — the IndexedStack branches (#382).
+    final bool bareHome = sub == null && _tab == 'home';
+    return Stack(
+      children: <Widget>[
+        Positioned(
+          top: 0,
+          left: 0,
+          right: 0,
+          height: MediaQuery.paddingOf(context).top,
+          child: bareHome
+              ? const ColoredBox(
+                  key: AppShell.statusBarStripKey,
+                  color: AppColors.blue,
+                )
+              : const SizedBox.shrink(),
+        ),
+        capped,
+      ],
     );
   }
 
