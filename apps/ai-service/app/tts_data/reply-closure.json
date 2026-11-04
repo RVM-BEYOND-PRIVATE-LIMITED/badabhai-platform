@@ -1,12 +1,12 @@
 {
   "schema_version": 1,
-  "clip_count": 1552,
+  "clip_count": 1581,
   "producers": {
-    "retry": 129,
-    "clarify": 568,
-    "prompt": 411,
+    "retry": 131,
+    "clarify": 579,
+    "prompt": 420,
     "constant": 97,
-    "why": 347
+    "why": 354
   },
   "clips": [
     {
@@ -123,6 +123,11 @@
       "id": "03dcfb75a8035f60",
       "text": "Dikkat sudhaarne wale fitter ki plant par zaroorat rehti hai.",
       "producer": "why"
+    },
+    {
+      "id": "03f8c8b92ebb8768",
+      "text": "Shift report khud banane wale supervisor ko alag kaam milta hai. Shift report aap banate ho?",
+      "producer": "clarify"
     },
     {
       "id": "041841a8f3caed3d",
@@ -357,6 +362,11 @@
     {
       "id": "0bdcd283fbd47da4",
       "text": "Machine ke hisaab se sahi kaam dikhaya jaata hai. Kaunse electrical equipment par kaam karte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "0beb765c6c7b8726",
+      "text": "Planning aur quality sambhalne wale supervisor ki alag maang hai. Supervision mein kya kya sambhalte hain?",
       "producer": "clarify"
     },
     {
@@ -610,6 +620,11 @@
       "producer": "clarify"
     },
     {
+      "id": "1298b9f4c3490fcb",
+      "text": "Line leader, supervisor ya production in-charge hain?",
+      "producer": "retry"
+    },
+    {
       "id": "12c14b2b4b2a6406",
       "text": "Program banana aana EDM ka sabse bada hunar hai. Program kahan se aata hai?",
       "producer": "clarify"
@@ -858,6 +873,11 @@
       "id": "1b4c542192aa43c2",
       "text": "Aap kaunsi badi gaadi chalate hain?",
       "producer": "prompt"
+    },
+    {
+      "id": "1bcb8eb5f50b287a",
+      "text": "Department ke hisaab se sahi plant ka kaam dikhaya jaata hai.",
+      "producer": "why"
     },
     {
       "id": "1c1b359ac615917e",
@@ -1315,6 +1335,11 @@
       "producer": "prompt"
     },
     {
+      "id": "2aeb6e492c65ea20",
+      "text": "Team ke size se aapki zimmedari saaf pata chalti hai. Kitne log aapke under hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "2af275b3fb9b614a",
       "text": "Kya aap drawing padh lete hain?",
       "producer": "prompt"
@@ -1393,6 +1418,11 @@
       "id": "2c45dea55fc14cef",
       "text": "Rejection ki wajah dhoondhne wale ko aage badhaya jaata hai.",
       "producer": "why"
+    },
+    {
+      "id": "2c6d466e05722495",
+      "text": "Production ka kitna tajurba hai?",
+      "producer": "prompt"
     },
     {
       "id": "2c7b9f3afb5013a0",
@@ -1557,6 +1587,11 @@
     {
       "id": "312f4ca80102258d",
       "text": "Tool room me aapki abhi kaunsi post hai?",
+      "producer": "prompt"
+    },
+    {
+      "id": "3161da5ba0bf3fbd",
+      "text": "Supervision mein kya kya sambhalte hain?",
       "producer": "prompt"
     },
     {
@@ -2850,6 +2885,11 @@
       "producer": "clarify"
     },
     {
+      "id": "5b29782d2de8469b",
+      "text": "Machines ki ginti se aapki zimmedari saaf pata chalti hai.",
+      "producer": "why"
+    },
+    {
       "id": "5b3504bef51a81d5",
       "text": "Drawing se naya program khud banate ho?",
       "producer": "prompt"
@@ -2912,6 +2952,11 @@
     {
       "id": "5d44926d31a4f0d3",
       "text": "Kaunse measuring instrument chala lete hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "5d48a30762a27c4a",
+      "text": "Kis department ki supervision karte hain?",
       "producer": "prompt"
     },
     {
@@ -3785,6 +3830,11 @@
       "producer": "retry"
     },
     {
+      "id": "7998435419511fde",
+      "text": "Planning aur quality sambhalne wale supervisor ki alag maang hai.",
+      "producer": "why"
+    },
+    {
       "id": "799df871fe3e85d4",
       "text": "Kya aap ghar jaakar service dete hain?",
       "producer": "prompt"
@@ -4115,6 +4165,11 @@
       "producer": "prompt"
     },
     {
+      "id": "8484f15c0abf1a1a",
+      "text": "Production mein aap kis level par kaam karte hain?",
+      "producer": "prompt"
+    },
+    {
       "id": "84868244a772e6fe",
       "text": "Naap aur fitting ke liye kaunse aujaar istemaal karte hain?",
       "producer": "prompt"
@@ -4273,6 +4328,11 @@
       "id": "88aa202e902bc7a2",
       "text": "Level se employer ko aapka darja saaf pata chalta hai. Heat treatment shop me aap kis level par kaam karte hain?",
       "producer": "clarify"
+    },
+    {
+      "id": "88b6a2ac1559eeba",
+      "text": "Supervisor banne se pehle kya kaam karte the?",
+      "producer": "prompt"
     },
     {
       "id": "8934552a9f28e7b1",
@@ -4478,6 +4538,11 @@
       "id": "8fdfa8a59e8ab4f9",
       "text": "Paint shop me aap kis level par kaam karte hain?",
       "producer": "prompt"
+    },
+    {
+      "id": "8fecdfa9da0c8058",
+      "text": "Shift report khud banane wale supervisor ko alag kaam milta hai.",
+      "producer": "why"
     },
     {
       "id": "9053f4d95411ec82",
@@ -5035,6 +5100,11 @@
       "producer": "why"
     },
     {
+      "id": "a4a50eb70809bc45",
+      "text": "Kitni machines aapke under hain?",
+      "producer": "prompt"
+    },
+    {
       "id": "a4a51c75f8d6ae2f",
       "text": "Kya aap raat ki duty kar sakte hain?",
       "producer": "prompt"
@@ -5440,6 +5510,11 @@
       "producer": "prompt"
     },
     {
+      "id": "b09b95fc8375ea64",
+      "text": "Shift report aap banate ho?",
+      "producer": "prompt"
+    },
+    {
       "id": "b0c97f3f7a510e8b",
       "text": "Plant me shift badalti rehti hai.",
       "producer": "why"
@@ -5475,9 +5550,19 @@
       "producer": "why"
     },
     {
+      "id": "b21532265f62f0fd",
+      "text": "Level ke hisaab se sahi sawaal poochhe jaate hain. Production mein aap kis level par kaam karte hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "b2952bc2708f76c6",
       "text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain. Electrician ke kaam ka kitna tajurba hai?",
       "producer": "clarify"
+    },
+    {
+      "id": "b2b7a0ad816ee564",
+      "text": "Team ke size se aapki zimmedari saaf pata chalti hai.",
+      "producer": "why"
     },
     {
       "id": "b2c51c990bddcc54",
@@ -5523,6 +5608,11 @@
       "id": "b3c6e89509459eae",
       "text": "Die ya mould poora drawing se khud assemble karke tryout karte ho?",
       "producer": "prompt"
+    },
+    {
+      "id": "b401211118133388",
+      "text": "Lagbhag kitne saal production mein kaam kiya hai?",
+      "producer": "retry"
     },
     {
       "id": "b434b073d78fc912",
@@ -5950,6 +6040,11 @@
       "producer": "prompt"
     },
     {
+      "id": "c2fb30540b53c2e2",
+      "text": "Kitne log aapke under hain?",
+      "producer": "prompt"
+    },
+    {
       "id": "c3010fce0e8b9d75",
       "text": "Finish grinding ke kaam ki sabse badi pehchaan hai.",
       "producer": "why"
@@ -6080,6 +6175,11 @@
       "producer": "retry"
     },
     {
+      "id": "c674f255d76add38",
+      "text": "Industry ke hisaab se sahi plant ka kaam dikhaya jaata hai. Kis industry ke plant mein supervision ki hai?",
+      "producer": "clarify"
+    },
+    {
       "id": "c69a72c18ce4fa4c",
       "text": "Zyada kaam jaanne wale programmer ki alag maang hai.",
       "producer": "why"
@@ -6203,6 +6303,11 @@
       "id": "ca5367ae064e0fc1",
       "text": "Bina licence badi site par kaam nahi milta. Kya aapke paas licence hai?",
       "producer": "clarify"
+    },
+    {
+      "id": "ca66af9a43160347",
+      "text": "Apne trade ka kaam jaanne wale supervisor par team bharosa karti hai.",
+      "producer": "why"
     },
     {
       "id": "caf244496d2bfa2c",
@@ -6545,6 +6650,11 @@
       "producer": "prompt"
     },
     {
+      "id": "d5ad809b1a789fe2",
+      "text": "Industry ke hisaab se sahi plant ka kaam dikhaya jaata hai.",
+      "producer": "why"
+    },
+    {
       "id": "d5cd9b9181e7dffa",
       "text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain. PLC ya automation ka kitna tajurba hai?",
       "producer": "clarify"
@@ -6658,6 +6768,16 @@
       "id": "d8fae78ac461fa8b",
       "text": "Kis tarah ke parts ki checking karte hain?",
       "producer": "prompt"
+    },
+    {
+      "id": "d90d023cf5b1d4d5",
+      "text": "Level ke hisaab se sahi sawaal poochhe jaate hain. Line leader, supervisor ya production in-charge hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "d92d8cd0e95f9851",
+      "text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain. Lagbhag kitne saal production mein kaam kiya hai?",
+      "producer": "clarify"
     },
     {
       "id": "d937bf1883283c29",
@@ -6820,6 +6940,11 @@
       "producer": "clarify"
     },
     {
+      "id": "dfdd76c358270077",
+      "text": "Department ke hisaab se sahi plant ka kaam dikhaya jaata hai. Kis department ki supervision karte hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "e0185b5fce786c98",
       "text": "Har gaadi ka licence alag hota hai. Aap kaunsi gaadi chalate hain?",
       "producer": "clarify"
@@ -6930,6 +7055,11 @@
       "producer": "why"
     },
     {
+      "id": "e244f1fa06e62200",
+      "text": "Kis industry ke plant mein supervision ki hai?",
+      "producer": "prompt"
+    },
+    {
       "id": "e2c5aa56d4a9952f",
       "text": "ITI ke workshop me kaunsi machine par kaam kiya hai?",
       "producer": "prompt"
@@ -6942,6 +7072,11 @@
     {
       "id": "e2d62d452a00f168",
       "text": "Bridal ka paisa sabse zyada hota hai. Kya aap dulhan ka makeup karte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "e2d8b64f5cfbbc61",
+      "text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain. Production ka kitna tajurba hai?",
       "producer": "clarify"
     },
     {
@@ -7080,6 +7215,11 @@
       "producer": "why"
     },
     {
+      "id": "e83d1906213ecc1a",
+      "text": "Machines ki ginti se aapki zimmedari saaf pata chalti hai. Kitni machines aapke under hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "e84ea0b2c3ca1a4e",
       "text": "Drawing se bend sequence / nesting khud set karte ho, ya set kiya hua chalate ho?",
       "producer": "prompt"
@@ -7098,6 +7238,11 @@
       "id": "e900c53e15a4b826",
       "text": "GD&T padh ke CMM ya height gauge pe inspection khud karte ho?",
       "producer": "prompt"
+    },
+    {
+      "id": "e91253c22986c9f9",
+      "text": "Apne trade ka kaam jaanne wale supervisor par team bharosa karti hai. Supervisor banne se pehle kya kaam karte the?",
+      "producer": "clarify"
     },
     {
       "id": "e918aa44af7420cc",

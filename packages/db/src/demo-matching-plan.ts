@@ -571,6 +571,26 @@ export const DEMO_TRADES: readonly DemoTrade[] = [
     ],
     shiftWeights: [4, 5, 1],
   },
+  // Phase 2 #10 — the new production-supervisor trade posts under its own permanent ID. Weight 2
+  // keeps the demo profile non-vacuous (measured on a throwaway DB with the heat-treatment row in:
+  // 2 and 5 hold; 1, 3 and 4 left no persona whose top 10 the company interleave changes).
+  {
+    roleKind: "production_supervisor",
+    skillId: "mskill_production_supervisor",
+
+    weight: 2,
+    titles: ["Production Supervisor", "Shift In-charge", "Line Supervisor"],
+    pay: [22000, 40000],
+    minExp: [3, 8],
+    unit: PLANT,
+    requirements: [
+      "Shift production planning",
+      "Manpower handling (15-50 people)",
+      "Shift report and rejection (PPM)",
+      "5S and kaizen",
+    ],
+    shiftWeights: [5, 4, 1],
+  },
   // Phase 2 #8 — the new heat-treatment trade posts under its own permanent ID. Weight 3, as for
   // EDM: measured on a throwaway DB with the injection-moulding row in, it keeps the demo profile
   // non-vacuous (the company interleave still changes a persona's top 10, and the boost still
