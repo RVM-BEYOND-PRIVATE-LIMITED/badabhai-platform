@@ -30,7 +30,7 @@ void main() {
         .where((String l) => l.isNotEmpty)
         .toList();
     expect(kRoleArtKinds, order);
-    expect(kRoleArtKinds.length, 27); // the 26 role kinds + generic
+    expect(kRoleArtKinds.length, 28); // the 27 role kinds + generic
     expect(kRoleArtKinds.last, kRoleArtFallback);
   });
 

@@ -97,7 +97,8 @@ describe("the pack is structurally sound", () => {
     // + 1: Phase 2 #9 (sheet 22, 2026-11-04) minted the injection-moulding trade.
     // + 1: Phase 2 #8 (sheet 17, 2026-11-04) minted the heat-treatment trade.
     // + 1: Phase 2 #10 (sheet 23, 2026-11-04) minted the production supervisor.
-    expect(VALID.size).toBe(Q1_ERA_MATCH_SKILLS + MINTED_FOR_2022 + 8);
+    // + 1: Phase 2 #11 (sheet 19, 2026-11-04) minted the foundry / forging trade.
+    expect(VALID.size).toBe(Q1_ERA_MATCH_SKILLS + MINTED_FOR_2022 + 9);
     expect(VALID_AT_Q1.size).toBe(Q1_ERA_MATCH_SKILLS);
     for (const r of Q1_TRIAGE) {
       for (const c of r.candidates) expect(VALID_AT_Q1, `${r.skillId} -> ${c}`).toContain(c);
@@ -277,7 +278,8 @@ describe("what was applied, and what was not", () => {
     // + 1: Phase 2 #9 (sheet 22, 2026-11-04) minted the injection-moulding trade.
     // + 1: Phase 2 #8 (sheet 17, 2026-11-04) minted the heat-treatment trade.
     // + 1: Phase 2 #10 (sheet 23, 2026-11-04) minted the production supervisor.
-    expect(MATCH_SKILLS).toHaveLength(Q1_ERA_MATCH_SKILLS + MINTED_FOR_2022 + 8);
+    // + 1: Phase 2 #11 (sheet 19, 2026-11-04) minted the foundry / forging trade.
+    expect(MATCH_SKILLS).toHaveLength(Q1_ERA_MATCH_SKILLS + MINTED_FOR_2022 + 9);
     expect(SKILL_CORPUS).toHaveLength(49);
   });
 

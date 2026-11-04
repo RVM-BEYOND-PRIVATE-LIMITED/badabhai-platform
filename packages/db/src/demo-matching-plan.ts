@@ -571,6 +571,27 @@ export const DEMO_TRADES: readonly DemoTrade[] = [
     ],
     shiftWeights: [4, 5, 1],
   },
+  // Phase 2 #11 — the new foundry / forging trade posts under its own permanent ID. Weight 3:
+  // measured on a throwaway DB with the IMM, heat-treatment and production-supervisor rows in, it
+  // keeps the demo profile non-vacuous (the company interleave still changes a persona's top 10,
+  // and the boost still ranks above a fresher).
+  {
+    roleKind: "foundry_forging_operator",
+    skillId: "mskill_foundry_forging_operator",
+
+    weight: 3,
+    titles: ["Foundry Operator", "Die Casting Operator", "Forging Operator"],
+    pay: [14000, 28000],
+    minExp: [0, 4],
+    unit: PLANT,
+    requirements: [
+      "Sand moulding or die casting",
+      "Melting and pouring",
+      "Hammer or press forging",
+      "Fettling and finishing",
+    ],
+    shiftWeights: [5, 3, 2],
+  },
   // Phase 2 #10 — the new production-supervisor trade posts under its own permanent ID. Weight 2
   // keeps the demo profile non-vacuous (measured on a throwaway DB with the heat-treatment row in:
   // 2 and 5 hold; 1, 3 and 4 left no persona whose top 10 the company interleave changes).

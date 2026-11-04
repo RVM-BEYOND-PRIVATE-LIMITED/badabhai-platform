@@ -466,6 +466,20 @@ export const MATCH_SKILLS = [
     source: "rvm",
     status: "active",
   },
+  {
+    // CEO Launch Plan Pack v1, Phase 2 #11 (sheet 19): the Foundry / Forging Operator — sand and
+    // shell moulding, core making, melting, die casting, fettling and hammer / press / upset
+    // forging. APPENDED, never inserted. UNPAIRED for now, like PLC, EDM and heat treatment: the
+    // sheet relates it to heat treatment, the conventional machinist and QC, and a new relation
+    // pair changes who sees whom — an owner call, not a build default.
+    skillId: "mskill_foundry_forging_operator",
+    labelEn: "Foundry / Forging Operator",
+    labelHi: null,
+    industryId: "ind_industrial_manufacturing",
+    domainId: "fabrication",
+    source: "rvm",
+    status: "active",
+  },
 ] as const satisfies readonly MatchSkillSeed[];
 
 export type MatchSkillId = (typeof MATCH_SKILLS)[number]["skillId"];

@@ -562,7 +562,8 @@ describe("the match-skill wall", () => {
     // + 1: Phase 2 #9 (sheet 22, 2026-11-04) minted the injection-moulding trade.
     // + 1: Phase 2 #8 (sheet 17, 2026-11-04) minted the heat-treatment trade.
     // + 1: Phase 2 #10 (sheet 23, 2026-11-04) minted the production supervisor.
-    expect(MATCH_SKILLS).toHaveLength(18 + 8 + 8);
+    // + 1: Phase 2 #11 (sheet 19, 2026-11-04) minted the foundry / forging trade.
+    expect(MATCH_SKILLS).toHaveLength(18 + 8 + 9);
     expect(SKILL_CORPUS.length).toBeGreaterThan(0);
     for (const s of MATCH_SKILLS) expect(s.skillId.startsWith("mskill_")).toBe(true);
   });

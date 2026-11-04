@@ -53,6 +53,7 @@ const List<String> kRoleArtKinds = <String>[
   'edm_wirecut_operator',
   'heat_treatment_technician',
   'production_supervisor',
+  'foundry_forging_operator',
   'generic',
 ];
 
@@ -1437,6 +1438,51 @@ const Map<String, RoleArtDef> _kRoleArt = <String, RoleArtDef>{
         motion: RoleArtMotion(type: 'blink', amp: 0.6, ox: 266.0, oy: 32.0, rate: 1, phase: 0.3),
         shapes: <RoleArtShape>[
           RoleArtShape(colour: RoleArtColour.accent, opacity: 1.0, strokeWidth: 0.0, ops: <double>[0.0, 261.0, 32.0, 4.0, 5.0, 5.0, 0.0, 1.0, 1.0, 271.0, 32.0, 4.0, 5.0, 5.0, 0.0, 1.0, 1.0, 261.0, 32.0, 5.0]),
+        ],
+      ),
+    ],
+  ),
+  'foundry_forging_operator': RoleArtDef(
+    loopSeconds: 3.0,
+    parts: <RoleArtPart>[
+      RoleArtPart(
+        name: 'scene',
+        motion: null,
+        shapes: <RoleArtShape>[
+          RoleArtShape(colour: RoleArtColour.primary, opacity: 1.0, strokeWidth: 0.0, ops: <double>[0.0, 0.0, 0.0, 1.0, 300.0, 0.0, 1.0, 300.0, 100.0, 1.0, 0.0, 100.0, 5.0]),
+          RoleArtShape(colour: RoleArtColour.surface, opacity: 0.4, strokeWidth: 0.0, ops: <double>[0.0, 8.0, 24.0, 4.0, 32.0, 32.0, 0.0, 1.0, 1.0, 72.0, 24.0, 4.0, 32.0, 32.0, 0.0, 1.0, 1.0, 8.0, 24.0, 5.0]),
+          RoleArtShape(colour: RoleArtColour.surface, opacity: 0.4, strokeWidth: 0.0, ops: <double>[0.0, 0.0, 84.0, 1.0, 300.0, 84.0, 1.0, 300.0, 100.0, 1.0, 0.0, 100.0, 5.0]),
+        ],
+      ),
+      RoleArtPart(
+        name: 'machine',
+        motion: null,
+        shapes: <RoleArtShape>[
+          RoleArtShape(colour: RoleArtColour.surface, opacity: 1.0, strokeWidth: 0.0, ops: <double>[0.0, 200.0, 62.0, 1.0, 256.0, 62.0, 4.0, 4.0, 4.0, 0.0, 0.0, 1.0, 260.0, 66.0, 1.0, 260.0, 80.0, 4.0, 4.0, 4.0, 0.0, 0.0, 1.0, 256.0, 84.0, 1.0, 200.0, 84.0, 4.0, 4.0, 4.0, 0.0, 0.0, 1.0, 196.0, 80.0, 1.0, 196.0, 66.0, 4.0, 4.0, 4.0, 0.0, 0.0, 1.0, 200.0, 62.0, 5.0]),
+          RoleArtShape(colour: RoleArtColour.surface, opacity: 0.6, strokeWidth: 0.0, ops: <double>[0.0, 210.0, 54.0, 1.0, 246.0, 54.0, 4.0, 2.0, 2.0, 0.0, 0.0, 1.0, 248.0, 56.0, 1.0, 248.0, 60.0, 4.0, 2.0, 2.0, 0.0, 0.0, 1.0, 246.0, 62.0, 1.0, 210.0, 62.0, 4.0, 2.0, 2.0, 0.0, 0.0, 1.0, 208.0, 60.0, 1.0, 208.0, 56.0, 4.0, 2.0, 2.0, 0.0, 0.0, 1.0, 210.0, 54.0, 5.0]),
+          RoleArtShape(colour: RoleArtColour.surface, opacity: 1.0, strokeWidth: 0.0, ops: <double>[0.0, 150.0, 30.0, 1.0, 186.0, 30.0, 1.0, 180.0, 52.0, 1.0, 156.0, 52.0, 5.0]),
+        ],
+      ),
+      RoleArtPart(
+        name: 'pour',
+        motion: RoleArtMotion(type: 'blink', amp: 0.5, ox: 184.0, oy: 50.0, rate: 1, phase: 0.15),
+        shapes: <RoleArtShape>[
+          RoleArtShape(colour: RoleArtColour.accent, opacity: 1.0, strokeWidth: 5.0, ops: <double>[0.0, 182.0, 40.0, 3.0, 206.0, 44.0, 214.0, 56.0]),
+        ],
+      ),
+      RoleArtPart(
+        name: 'figure',
+        motion: null,
+        shapes: <RoleArtShape>[
+          RoleArtShape(colour: RoleArtColour.accent, opacity: 1.0, strokeWidth: 0.0, ops: <double>[0.0, 48.0, 84.0, 1.0, 48.0, 70.0, 4.0, 22.0, 22.0, 0.0, 0.0, 1.0, 92.0, 70.0, 1.0, 92.0, 84.0, 5.0]),
+          RoleArtShape(colour: RoleArtColour.accent, opacity: 1.0, strokeWidth: 0.0, ops: <double>[0.0, 57.0, 40.0, 4.0, 13.0, 13.0, 0.0, 0.0, 1.0, 83.0, 40.0, 1.0, 83.0, 41.0, 4.0, 3.0, 3.0, 0.0, 0.0, 1.0, 80.0, 44.0, 1.0, 60.0, 44.0, 4.0, 3.0, 3.0, 0.0, 0.0, 1.0, 57.0, 41.0, 5.0]),
+        ],
+      ),
+      RoleArtPart(
+        name: 'arm',
+        motion: RoleArtMotion(type: 'nod', amp: -6.0, ox: 84.0, oy: 60.0, rate: 1, phase: 0.0),
+        shapes: <RoleArtShape>[
+          RoleArtShape(colour: RoleArtColour.accent, opacity: 1.0, strokeWidth: 9.0, ops: <double>[0.0, 84.0, 60.0, 3.0, 118.0, 54.0, 150.0, 40.0]),
         ],
       ),
     ],

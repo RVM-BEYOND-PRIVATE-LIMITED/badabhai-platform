@@ -100,6 +100,7 @@ const MAINTENANCE_TECHNICIAN = ["mskill_maintenance_technician"] as const;
 const PLC_AUTOMATION_TECH = ["mskill_plc_automation_tech"] as const;
 const EDM_WIRECUT_OPERATOR = ["mskill_edm_wirecut_operator"] as const;
 const HEAT_TREATMENT_TECH = ["mskill_heat_treatment_tech"] as const;
+const FOUNDRY_FORGING_OPERATOR = ["mskill_foundry_forging_operator"] as const;
 const IMM_OPERATOR = ["mskill_imm_operator"] as const;
 const PRODUCTION_SUPERVISOR = ["mskill_production_supervisor"] as const;
 const INDUSTRIAL_ELECTRICIAN = ["mskill_industrial_electrician"] as const;
@@ -381,6 +382,24 @@ export const PACK_ANSWER_SKILLS: Readonly<Record<string, PackMap>> = {
       engel: IMM_OPERATOR,
       arburg: IMM_OPERATOR,
       larsen_toubro: IMM_OPERATOR,
+    },
+  },
+
+  // ══ FOUNDRY / FORGING (Phase 2 #11) ═══════════════════════════════════════════════════════
+  // "Foundry ya forging me kaunsa kaam karte hain?" — every named casting or forging process
+  // is the trade's claim. Metal, equipment and testing are depth (hardness is QC's word too).
+  qp_foundry_forging: {
+    foundry_process: {
+      sand_moulding: FOUNDRY_FORGING_OPERATOR,
+      shell_moulding: FOUNDRY_FORGING_OPERATOR,
+      die_casting: FOUNDRY_FORGING_OPERATOR,
+      investment_casting: FOUNDRY_FORGING_OPERATOR,
+      hammer_forging: FOUNDRY_FORGING_OPERATOR,
+      press_forging: FOUNDRY_FORGING_OPERATOR,
+      upset_forging: FOUNDRY_FORGING_OPERATOR,
+      melting: FOUNDRY_FORGING_OPERATOR,
+      fettling: FOUNDRY_FORGING_OPERATOR,
+      core_making: FOUNDRY_FORGING_OPERATOR,
     },
   },
 

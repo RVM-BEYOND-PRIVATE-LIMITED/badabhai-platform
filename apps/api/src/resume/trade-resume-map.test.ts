@@ -153,6 +153,7 @@ describe("trade resume map — qp_cnc_turning", () => {
       "qp_injection_moulding",
       "qp_heat_treatment",
       "qp_production_supervisor",
+      "qp_foundry_forging",
     ]);
     // `qp_welding` IS THE GENERIC ISCO-UNIT PACK AND STILL HAS NO MAP — and this row is now doing
     // real work rather than naming an arbitrary absent pack. Batch 2 added `qp_welding_trade`

@@ -201,6 +201,8 @@ export const FAMILY_CHIP_LABELS: Readonly<Record<string, string>> = Object.freez
   fam_injection_moulding: "injection moulding",
   // Phase 2 #10. The Latin reading of `label_hi`. Formless, like EDM.
   fam_production_supervisor: "production supervisor",
+  // Phase 2 #11. Formless, like heat treatment: a pin keeps talking.
+  fam_foundry_forging: "Foundry / forging",
 });
 
 /**

@@ -280,6 +280,7 @@ const EXCLUDED_FROM_WORKFORCE = new Set([
   "mskill_imm_operator",
   "mskill_heat_treatment_tech",
   "mskill_production_supervisor",
+  "mskill_foundry_forging_operator",
 ]);
 
 export interface WorkforceTrade extends DemoTrade {

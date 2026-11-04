@@ -1254,12 +1254,15 @@ describe("Batch 2 part two — press / machine operator", () => {
   });
 
   it("leaves forging, punching, supervision and the non-metal presses where they were", () => {
-    // Forge work — bare "stamper" is 7221.0500's alias, and that code is hot drop forging.
+    // Forge work — bare "stamper" is 7221.0500's alias, and that code is hot drop forging. It sat
+    // on fam_blacksmithing only because no forging trade existed; Phase 2 #11 (CEO Launch Plan
+    // Pack v1, sheet 19) moves the industrial forging codes to fam_foundry_forging. Never press.
     for (const p of ["stamper", "forging operator", "power hammer operator", "hammer man"]) {
-      expect(familyFor(p), p).toBe("fam_blacksmithing");
+      expect(familyFor(p), p).toBe("fam_foundry_forging");
     }
-    // The drop-forging die setter sits in unit 7223 beside the press tool setter, and stays generic.
-    expect(familyFor("setter drop forging machine")).toBe("fam_machining");
+    // The drop-forging die setter sits in unit 7223 beside the press tool setter; Phase 2 #11
+    // binds it to the forging trade too, and still never to the press shop.
+    expect(familyFor("setter drop forging machine")).toBe("fam_foundry_forging");
     // "Puncher, Metal" punches boiler frames; it stays with its unit.
     expect(familyFor("puncher metal")).toBe("fam_plumbing");
     // SUPERVISORY, and unbound on purpose. They reach the universal pack today because no family
@@ -2188,6 +2191,87 @@ describe("Phase 2 #10 — production supervisor, a new family on the cross-trade
       "Forging Shop Supervisor",
     ]) {
       expect(familyFor(phrase), phrase).not.toBe("fam_production_supervisor");
+    }
+  });
+});
+
+describe("Phase 2 #11 — foundry / forging, a new family on the casting and forging codes (CEO Launch Plan Pack v1)", () => {
+  const offline = resolveJobDomainCorpus();
+  const parents = new Set(
+    offline.filter((d) => d.selectable && d.parentJobDomainId).map((d) => d.parentJobDomainId),
+  );
+  const live = offline.filter(
+    (d) => d.selectable && !(d.source === "isco08" && parents.has(d.jobDomainId)),
+  );
+  const liveClaimants = (phrase: string) => {
+    const norm = normalizeOccupationText(phrase);
+    return live
+      .filter((d) => d.aliases.some((a) => normalizeOccupationText(a.text) === norm))
+      .map((d) => d.jobDomainId)
+      .sort();
+  };
+
+  it("binds exactly the casting and forging codes", () => {
+    const codes = corpus.bindings
+      .filter((b) => b.family_id === "fam_foundry_forging")
+      .map((b) => b.job_domain_id)
+      .sort();
+    expect(codes).toEqual([
+      "jd_nco_3122_4401",
+      "jd_nco_3122_4402",
+      "jd_nco_3122_4501",
+      "jd_nco_3122_4502",
+      "jd_nco_7211_0100",
+      "jd_nco_7211_0200",
+      "jd_nco_7211_0201",
+      "jd_nco_7211_0500",
+      "jd_nco_7221_0300",
+      "jd_nco_7221_0301",
+      "jd_nco_7221_0400",
+      "jd_nco_7221_0500",
+      "jd_nco_7223_0300",
+      "jd_nco_8121_3301",
+      "jd_nco_8121_3801",
+      "jd_nco_8121_4200",
+      "jd_nco_8121_4201",
+      "jd_nco_8121_4300",
+      "jd_nco_8121_4600",
+    ]);
+  });
+
+  it("reaches the family on the trade's own words, each the ONLY claimant in production", () => {
+    for (const [phrase, code] of [
+      ["foundry", "jd_nco_7211_0201"],
+      ["casting", "jd_nco_7211_0201"],
+      ["sand casting", "jd_nco_7211_0201"],
+      ["shell moulding", "jd_nco_7211_0201"],
+      ["investment casting", "jd_nco_7211_0201"],
+      ["aluminium casting", "jd_nco_7211_0201"],
+      ["फाउंड्री", "jd_nco_7211_0201"],
+      ["core making", "jd_nco_7211_0500"],
+      ["cupola", "jd_nco_8121_3801"],
+      ["melting", "jd_nco_8121_3801"],
+      ["induction furnace", "jd_nco_8121_3801"],
+      ["fettling", "jd_nco_8121_3301"],
+      ["die casting", "jd_nco_8121_4201"],
+      ["hpdc", "jd_nco_8121_4201"],
+      ["pressure die casting", "jd_nco_8121_4201"],
+      ["forging", "jd_nco_7221_0301"],
+      ["hot forging", "jd_nco_7221_0301"],
+      ["press forging", "jd_nco_7221_0301"],
+      ["फोर्जिंग", "jd_nco_7221_0301"],
+      ["power hammer", "jd_nco_7221_0300"],
+    ] as const) {
+      expect(familyFor(phrase), phrase).toBe("fam_foundry_forging");
+      expect(liveClaimants(phrase), phrase).toEqual([code]);
+    }
+  }, 30_000); // 20 phrases, each scanned against the whole live corpus — CI runs every file at once.
+
+  it("leaves the press shop, the village blacksmith and the plastics moulder where they were", () => {
+    expect(familyFor("press operator")).toBe("fam_press_operation");
+    expect(familyFor("furnace")).toBe("fam_metal_processing");
+    for (const phrase of ["blacksmith", "moulding", "injection moulding"]) {
+      expect(familyFor(phrase), phrase).not.toBe("fam_foundry_forging");
     }
   });
 });

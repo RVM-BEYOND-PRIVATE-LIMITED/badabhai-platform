@@ -19,7 +19,7 @@ import {
  * alias spelling lands on the canonical key, and null prices Lower.
  */
 describe("trade-level crosswalk", () => {
-  it("covers the four v1 trades plus the CAD trades, the fitter, the electrician, the welder, the conventional machinist, the sheet-metal operator, the assembly technician, the QC inspector, the tool & die maker, the press-shop operator, the painter / coater, the maintenance technician, the PLC / automation technician, the EDM / wire-cut operator, the injection-moulding operator, the heat-treatment technician and the production supervisor, each with its skill and level key", () => {
+  it("covers the four v1 trades plus the CAD trades, the fitter, the electrician, the welder, the conventional machinist, the sheet-metal operator, the assembly technician, the QC inspector, the tool & die maker, the press-shop operator, the painter / coater, the maintenance technician, the PLC / automation technician, the EDM / wire-cut operator, the injection-moulding operator, the heat-treatment technician, the production supervisor and the foundry / forging operator, each with its skill and level key", () => {
     expect(TRADE_LEVEL_PACKS).toEqual({
       qp_cnc_turning: { skillId: "mskill_cnc_turner", levelKey: "turning_level" },
       qp_vmc_milling: { skillId: "mskill_vmc_operator", levelKey: "milling_level" },
@@ -54,6 +54,7 @@ describe("trade-level crosswalk", () => {
       qp_plc_automation: { skillId: "mskill_plc_automation_tech", levelKey: "plc_level" },
       qp_edm_wirecut: { skillId: "mskill_edm_wirecut_operator", levelKey: "edm_level" },
       qp_heat_treatment: { skillId: "mskill_heat_treatment_tech", levelKey: "heat_level" },
+      qp_foundry_forging: { skillId: "mskill_foundry_forging_operator", levelKey: "foundry_level" },
       qp_injection_moulding: { skillId: "mskill_imm_operator", levelKey: "moulding_level" },
       qp_production_supervisor: {
         skillId: "mskill_production_supervisor",
@@ -1123,6 +1124,28 @@ describe("trade-level crosswalk", () => {
     expect(heat("senior", skilled("other"))).toEqual(row("senior", false));
     // Supervisor: no confirm item, rung rule (confirmed).
     expect(heat("supervisor", skilled("other"))).toEqual(row("supervisor", true));
+  });
+
+  it("asks the one foundry / forging confirm of skilled AND senior (CEO Launch Plan Pack v1, Phase 2 #11)", () => {
+    const foundry = (level: string, confirm: { attributeKey: string; value: unknown } | null) =>
+      tradeLevelEntriesForPackAnswers(
+        "qp_foundry_forging@1",
+        confirm === null
+          ? [{ attributeKey: "foundry_level", value: level }]
+          : [{ attributeKey: "foundry_level", value: level }, confirm],
+      );
+    const skilled = (value: string) => ({ attributeKey: "foundry_skilled_confirm", value });
+    const row = (tradeLevel: string, levelConfirmed: boolean) => [
+      { skillId: "mskill_foundry_forging_operator", tradeLevel, levelConfirmed },
+    ];
+    expect(foundry("trainee", null)).toEqual(row("trainee", false));
+    expect(foundry("operator", null)).toEqual(row("operator", false));
+    expect(foundry("skilled", null)).toEqual(row("skilled", true));
+    expect(foundry("skilled", skilled("other"))).toEqual(row("skilled", false));
+    expect(foundry("senior", skilled("self"))).toEqual(row("senior", true));
+    expect(foundry("senior", skilled("other"))).toEqual(row("senior", false));
+    // Supervisor: no confirm item, rung rule (confirmed).
+    expect(foundry("supervisor", skilled("other"))).toEqual(row("supervisor", true));
   });
 
   it("wires the two injection-moulding confirms, one per rung (CEO Launch Plan Pack v1, Phase 2 #9)", () => {
