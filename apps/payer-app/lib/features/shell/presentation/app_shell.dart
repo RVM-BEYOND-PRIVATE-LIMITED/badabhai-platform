@@ -8,12 +8,14 @@ import '../../../core/session/app_session.dart';
 import '../../../core/session/app_session_cubit.dart';
 import '../../../core/session/credits_cubit.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/app_motion.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_system_ui.dart';
 import '../../../core/widgets/bb_bottom_nav.dart';
 import '../../../core/widgets/bb_leave_guard.dart';
 import '../../../core/widgets/bb_new_item_highlight.dart';
 import '../../../core/widgets/bb_overlay_host.dart';
+import '../../../core/widgets/bb_tab_scope.dart';
 import '../../credits/presentation/credits_screen.dart';
 import '../../find/presentation/find_screen.dart';
 import '../../find/presentation/reveal_args.dart';
@@ -58,13 +60,30 @@ class _AppShellState extends State<AppShell> {
   /// next open does not silently reopen a finished chat.
   String? _resumeChatId;
 
-  /// Per-tab refresh epochs. Selecting a tab bumps ITS epoch, so only that
-  /// branch is rebuilt with fresh cubits and a fresh load — the data is never
-  /// stale just because IndexedStack kept the screen mounted. Other tabs keep
-  /// their key (and their state) until they are selected again.
-  final Map<String, int> _tabEpochs = <String, int>{};
+  /// #2592 — bumped by a Jobs card's "Applicants" button: Find rebuilds just
+  /// its Applicants view on a fresh cubit (a fresh feed). The rest of Find —
+  /// the All-candidates filters, loaded pages and scroll — is kept, and
+  /// re-reads quietly when the payer opens it again. No tab branch is ever
+  /// rebuilt now: a return re-reads it in place ([_signals]).
+  int _applicantsEpoch = 0;
 
-  int _epochOf(String id) => _tabEpochs[id] ?? 0;
+  /// #2592 — per-tab signals: a return to a tab asks its screens to re-read
+  /// their API QUIETLY, the data on screen staying put until the fresh rows
+  /// land (no skeleton, no spinner — "latest on every return" without the wait).
+  final Map<String, BbTabSignals> _signals = <String, BbTabSignals>{};
+
+  BbTabSignals _signalsOf(String id) =>
+      _signals.putIfAbsent(id, BbTabSignals.new);
+
+  /// #2592 — each tab's lists attach to that tab's own primary scroll
+  /// controller, so re-tapping the tab on screen scrolls it (and only it) back
+  /// to the top. The overlay gets its own, and the Scaffold reads whichever is
+  /// on screen (the iOS status-bar tap).
+  final Map<String, ScrollController> _scrolls = <String, ScrollController>{};
+  final ScrollController _overlayScroll = ScrollController();
+
+  ScrollController _scrollOf(String id) =>
+      _scrolls.putIfAbsent(id, ScrollController.new);
 
   /// #2591 — bumped on every overlay open. The overlay animates OUT for
   /// the page duration; keying each open on its own epoch guarantees a reopen
@@ -79,9 +98,10 @@ class _AppShellState extends State<AppShell> {
   /// surfaces the payer may never open. Grows to at most five entries.
   final Set<String> _visited = <String>{'home'};
 
-  /// The view the next Find mount opens on: All candidates (owner rulings
-  /// 2026-11-03) unless a Jobs card's "Applicants" button opened it. Read only
-  /// when the Find branch is (re)built for a new epoch.
+  /// The view a Find visit opens on: All candidates (owner rulings
+  /// 2026-11-03) unless a Jobs card's "Applicants" button opened it. A first
+  /// visit mounts Find on it; a return hands it to the Find already mounted,
+  /// which switches to it when the return's refresh signal arrives.
   FindView _findView = FindView.allCandidates;
 
   /// #2595 — the open overlay's unsaved-changes guard (Post, the AI chat): the
@@ -98,7 +118,7 @@ class _AppShellState extends State<AppShell> {
 
   /// #2596 — the posting the payer just created, for Jobs to scroll to and
   /// tint. One-shot ([BbHighlightRequest.claim]), so a later visit to Jobs —
-  /// which rebuilds the branch — never replays it. It also belongs to the
+  /// which re-reads the list in place (#2592) — never replays it. It also belongs to the
   /// LANDING visit only: every tab switch or overlay open drops it, so a
   /// request no row claimed (the list failed, or the payer left before it
   /// loaded) can never tint a card minutes later.
@@ -109,6 +129,18 @@ class _AppShellState extends State<AppShell> {
     super.initState();
     locator<CreditsCubit>().load();
     CrashReporter.setScreen('payer/$_tab'); // seed the shell's initial screen
+  }
+
+  @override
+  void dispose() {
+    for (final BbTabSignals s in _signals.values) {
+      s.dispose();
+    }
+    for (final ScrollController c in _scrolls.values) {
+      c.dispose();
+    }
+    _overlayScroll.dispose();
+    super.dispose();
   }
 
   static const List<BbNavTab> _tabs = <BbNavTab>[
@@ -148,19 +180,56 @@ class _AppShellState extends State<AppShell> {
   /// nav, Home's Browse) gets the default, All candidates.
   void _selectTab(String id, {FindView findView = FindView.allCandidates}) {
     _leaveGuard.release();
+    // A Jobs card's "Applicants" button lands Find on that view, on a fresh
+    // feed ([_applicantsEpoch]).
+    final bool applicantsLink =
+        id == 'find' && findView == FindView.applicants;
+    // #2592 — re-tapping the tab already on screen scrolls it to the top; it
+    // does not reload it. (Find still hears the re-tap: the nav tab opens All
+    // candidates even from the Applicants view a Jobs card opened.)
+    if (id == _tab && _sub == null && !applicantsLink) {
+      setState(() => _findView = findView);
+      _scrollToTop(id);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _signalsOf(id).reselect();
+      });
+      return;
+    }
+    final bool revisit = _visited.contains(id);
     setState(() {
       _justPosted = null;
       _tab = id;
       _sub = null;
       _findView = findView;
       _visited.add(id);
-      // Every visit re-reads the screen's API. The branch keeps its identity
-      // while hidden; this key bump is what makes the revisit fetch again.
-      _tabEpochs[id] = _epochOf(id) + 1;
+      if (applicantsLink) _applicantsEpoch++;
       CrashReporter.setScreen('payer/$id');
     });
+    // #2592 — every return re-reads the screen's API, QUIETLY: the branch keeps
+    // its cubits, rows, filters and scroll, and the fresh data replaces them in
+    // place. A first visit mounts the branch, whose cubits load. Sent after
+    // this frame, so the branch already holds its new configuration (Find's
+    // requested view) when it hears it.
+    if (revisit) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _signalsOf(id).refresh();
+      });
+    }
     // Home/Find/Credits all read the shared balance; refresh it with the tab.
     locator<CreditsCubit>().load();
+  }
+
+  /// Scrolls every list of tab [id] back to the top — instantly under reduced
+  /// motion.
+  void _scrollToTop(String id) {
+    final ScrollController scroll = _scrollOf(id);
+    if (!scroll.hasClients) return;
+    final Duration duration = AppMotion.resolve(context, AppMotion.page);
+    if (duration == Duration.zero) {
+      scroll.jumpTo(0);
+    } else {
+      scroll.animateTo(0, duration: duration, curve: AppMotion.easeOut);
+    }
   }
 
   void _openSub(String id) => setState(() {
@@ -200,10 +269,10 @@ class _AppShellState extends State<AppShell> {
       });
 
   /// After a post (the form or the AI chat): close the overlay and land on
-  /// Jobs — a fresh visit, so the list refetches — with the new card scrolled
-  /// into view and highlighted (#2596). [_selectTab] releases the overlay's
-  /// leave guard (a just-posted form never asks) and drops any older request;
-  /// the new one is set after it, for this visit only.
+  /// Jobs — the list re-reads (quietly on a return, #2592) — with the new card
+  /// scrolled into view and highlighted (#2596). [_selectTab] releases the
+  /// overlay's leave guard (a just-posted form never asks) and drops any older
+  /// request; the new one is set after it, for this visit only.
   void _landOnPostedJob(String postingId) {
     _selectTab('jobs');
     setState(() {
@@ -219,6 +288,15 @@ class _AppShellState extends State<AppShell> {
         _sub = 'reveal';
         CrashReporter.setScreen('payer/reveal');
       });
+
+  /// #2592 — Post closed without [_landOnPostedJob] (its back arrow, or a
+  /// hand-back that carries no posting id): back on My jobs, the list
+  /// re-reads quietly, since re-tapping the tab no longer reloads it. Any
+  /// other tab re-reads Jobs when the payer goes there.
+  void _closePost() {
+    _back();
+    if (_tab == 'jobs') _signalsOf('jobs').refresh();
+  }
 
   /// Opens the agency supply hub (Refer & earn) as a full-page route — the same
   /// agent-only surface the Account entry pushes. A real route (not an in-shell
@@ -237,15 +315,20 @@ class _AppShellState extends State<AppShell> {
   /// this returns is exactly what the IndexedStack keeps alive.
   Widget _tabBody(String id) {
     if (!_visited.contains(id)) return const SizedBox.shrink();
-    // A new epoch disposes that branch's cubits and mounts fresh ones, whose
-    // `create` runs the screen's load — the "latest data on every return" rule.
-    return KeyedSubtree(
-      key: ValueKey<String>('$id:${_epochOf(id)}'),
-      // #2590 — Home draws its blue identity header BEHIND the status bar (it
-      // pads itself by the top inset); every other branch keeps the top inset.
-      child: id == 'home'
-          ? _tabScreen(id)
-          : SafeArea(bottom: false, child: _tabScreen(id)),
+    // #2592 — the branch mounts once and is never rebuilt: its cubits load on
+    // the first visit, and each return re-reads them quietly through the
+    // tab's signals. Re-tapping the tab scrolls its own primary controller.
+    return BbTabScope(
+      signals: _signalsOf(id),
+      child: PrimaryScrollController(
+        controller: _scrollOf(id),
+        // #2590 — Home draws its blue identity header BEHIND the status bar
+        // (it pads itself by the top inset); every other branch keeps the top
+        // inset.
+        child: id == 'home'
+            ? _tabScreen(id)
+            : SafeArea(bottom: false, child: _tabScreen(id)),
+      ),
     );
   }
 
@@ -260,7 +343,11 @@ class _AppShellState extends State<AppShell> {
           // Home agency section never renders for a company.
           onOpenReferral: widget.session.isAgency ? _openReferral : null,
         ),
-      'find' => FindScreen(onReveal: _openReveal, initialView: _findView),
+      'find' => FindScreen(
+          onReveal: _openReveal,
+          initialView: _findView,
+          applicantsEpoch: _applicantsEpoch,
+        ),
       'jobs' => JobsScreen(
           onPost: () => _openSub('post'),
           onAiPost: _openAiPost,
@@ -283,10 +370,11 @@ class _AppShellState extends State<AppShell> {
 
   Widget _buildBody() {
     // #382 — the branches live in an IndexedStack, so leaving a tab hides it
-    // instead of tearing it down. Latest-on-switch is a deliberate follow-up:
-    // `_selectTab` bumps THAT tab's epoch (see _tabBody), which rebuilds only
-    // the selected branch with fresh cubits and a fresh API read. Hidden tabs
-    // keep their state.
+    // instead of tearing it down; hidden tabs keep their state. #2592 —
+    // latest-on-switch is QUIET: a return to a tab sends that tab's
+    // [BbTabSignals.refresh] and its screens re-read in place, the old rows
+    // staying on screen until the fresh ones land. A Jobs card's "Applicants"
+    // button rebuilds only Find's Applicants view ([_applicantsEpoch]).
     final String? sub = _sub;
     final int tabIndex = _tabs.indexWhere((BbNavTab t) => t.id == _tab);
     final Widget tabs = IndexedStack(
@@ -306,7 +394,7 @@ class _AppShellState extends State<AppShell> {
     // the overlay is deliberately rebuilt from scratch on open/dismiss: Post
     // must open on a blank form, and Reveal is bound to the [RevealArgs] of
     // the card that opened it.
-    final Widget stack = BbOverlayHost(
+    final Widget host = BbOverlayHost(
       base: tabs,
       overlay: sub == null
           ? null
@@ -315,7 +403,7 @@ class _AppShellState extends State<AppShell> {
               bottom: false,
               child: switch (sub) {
                 'post' =>
-                  PostJobScreen(onBack: _back, onPosted: _landOnPostedJob),
+                  PostJobScreen(onBack: _closePost, onPosted: _landOnPostedJob),
                 'aiPost' => JobPostingChatScreen(
                     // A fresh chat and a resumed one are different
                     // conversations — key on the session so reopening never
@@ -323,9 +411,9 @@ class _AppShellState extends State<AppShell> {
                     key: ValueKey<String>('aiPost:${_resumeChatId ?? 'new'}'),
                     onBack: _back,
                     resumeSessionId: _resumeChatId,
-                    onPublished: () => setState(() {
-                      _tabEpochs['jobs'] = _epochOf('jobs') + 1;
-                    }),
+                    // #2592 — a quiet re-read: the new posting joins the list
+                    // without the Jobs tab blanking behind a skeleton.
+                    onPublished: () => _signalsOf('jobs').refresh(),
                     onPostedJob: _landOnPostedJob,
                   ),
                 'credits' => CreditsScreen(onBack: _back),
@@ -334,6 +422,10 @@ class _AppShellState extends State<AppShell> {
               },
             ),
     );
+    // #2592 — the overlay's lists scroll on [_overlayScroll]; every tab branch
+    // inside overrides it with its own (see _tabBody).
+    final Widget stack =
+        PrimaryScrollController(controller: _overlayScroll, child: host);
     // #1087 — cap the content column on tablets/foldables so it never stretches
     // to an unreadable line length. The page background stays full-bleed (the
     // Scaffold canvas shows outside the cap); only the content is centred.
@@ -373,6 +465,15 @@ class _AppShellState extends State<AppShell> {
 
   @override
   Widget build(BuildContext context) {
+    // #2592 — the Scaffold's own primary controller (the iOS status-bar tap)
+    // is the one on screen: the current tab's, or the overlay's.
+    return PrimaryScrollController(
+      controller: _sub == null ? _scrollOf(_tab) : _overlayScroll,
+      child: _scaffold(context),
+    );
+  }
+
+  Widget _scaffold(BuildContext context) {
     // The active nav id stays highlighted while a sub-overlay is open if the
     // overlay belongs to that tab; default to the current tab otherwise.
     final String navId = _tab;

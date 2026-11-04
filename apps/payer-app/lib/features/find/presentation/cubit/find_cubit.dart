@@ -32,18 +32,24 @@ class FindCubit extends Cubit<FindState> {
   /// with none, claimed it had no applicants at all).
   final bool _isAgency;
 
+  /// #2592 — bumped by every read that REPLACES the feed ([load], [refresh],
+  /// [selectJob]); a response from an older read lost the race and is dropped,
+  /// so a slow job switch never lands over the one the payer tapped after it.
+  int _generation = 0;
+
   Future<void> load() async {
+    final int generation = ++_generation;
     emit(state.copyWith(status: FindStatus.loading));
     try {
       if (_useRealFeed) {
-        await _loadRealFeed();
+        await _loadRealFeed(generation);
       } else {
         final List<Candidate> candidates = await _api.fetchCandidates();
-        if (isClosed) return;
+        if (isClosed || generation != _generation) return;
         emit(FindState(status: FindStatus.ready, candidates: candidates));
       }
     } catch (e) {
-      if (isClosed) {
+      if (isClosed || generation != _generation) {
         return; // screen popped mid-load — emit would throw StateError
       }
       emit(state.copyWith(
@@ -53,9 +59,9 @@ class FindCubit extends Cubit<FindState> {
     }
   }
 
-  Future<void> _loadRealFeed() async {
+  Future<void> _loadRealFeed(int generation) async {
     final List<JobPosting> jobs = await _ownedOpenJobs();
-    if (isClosed) return;
+    if (isClosed || generation != _generation) return;
     final List<JobPosting> owned = jobs
         .where((JobPosting j) => (j.id ?? '').isNotEmpty)
         .toList(growable: false);
@@ -63,7 +69,7 @@ class FindCubit extends Cubit<FindState> {
       emit(const FindState(status: FindStatus.empty));
       return;
     }
-    await _loadApplicants(owned.first, owned);
+    await _loadApplicants(owned.first, owned, generation);
   }
 
   /// The session's OWN open jobs: company postings or agency `jobs` rows.
@@ -93,24 +99,100 @@ class FindCubit extends Cubit<FindState> {
         .toList(growable: false);
   }
 
-  /// Switch the REAL feed to another owned open job (job selector).
-  Future<void> selectJob(JobPosting job) async {
-    if (job.id == state.selectedJob?.id) return;
-    emit(state.copyWith(status: FindStatus.loading));
+  /// #2592 — the quiet re-read behind pull-to-refresh and a return to the
+  /// tab: the rows on screen STAY until the fresh ones land (no skeleton), and
+  /// the selected job is kept while it is still open. A failure keeps the rows
+  /// and comes back to the caller to say why; null on success. With nothing on
+  /// screen yet (an error, the first load) it is the normal [load].
+  ///
+  /// A job switch in flight is left alone: it is already reading fresh rows
+  /// for the job the payer picked, and bumping [_generation] here would drop
+  /// them (and, on a failed refresh, leave the rows dimmed for good).
+  Future<PayerFailure?> refresh() async {
+    if (state.status == FindStatus.initial ||
+        state.status == FindStatus.loading) {
+      return null; // the first load is already in flight
+    }
+    if (state.status == FindStatus.error) {
+      await load();
+      return null;
+    }
+    if (state.switchingJobId != null) return null;
+    final int generation = ++_generation;
     try {
-      await _loadApplicants(job, state.jobs);
+      if (!_useRealFeed) {
+        final List<Candidate> candidates = await _api.fetchCandidates();
+        if (isClosed || generation != _generation) return null;
+        emit(FindState(status: FindStatus.ready, candidates: candidates));
+        return null;
+      }
+      final List<JobPosting> owned = (await _ownedOpenJobs())
+          .where((JobPosting j) => (j.id ?? '').isNotEmpty)
+          .toList(growable: false);
+      if (isClosed || generation != _generation) return null;
+      if (owned.isEmpty) {
+        emit(const FindState(status: FindStatus.empty));
+        return null;
+      }
+      final String? keep = state.selectedJob?.id;
+      final JobPosting job = owned.firstWhere(
+        (JobPosting j) => j.id == keep,
+        orElse: () => owned.first,
+      );
+      final List<Applicant> applicants = await _api.fetchApplicants(job.id!);
+      if (isClosed || generation != _generation) return null;
+      emit(FindState(
+        status: FindStatus.ready,
+        jobs: owned,
+        selectedJob: job,
+        applicants: applicants,
+      ));
+      return null;
     } catch (e) {
-      if (isClosed) return;
-      emit(state.copyWith(
+      if (isClosed || generation != _generation) return null;
+      return PayerFailure.from(e);
+    }
+  }
+
+  /// Switch the REAL feed to another owned open job (job selector).
+  ///
+  /// #2592 — the current rows stay on screen, dimmed, while the new job's
+  /// applicants load ([FindState.switchingJobId]); [FindState.selectedJob]
+  /// only moves once they have landed, so a failed switch never claims a job
+  /// whose feed it could not read.
+  Future<void> selectJob(JobPosting job) async {
+    // Re-picking the job on screen, or the one already loading, is a no-op.
+    if (job.id == (state.switchingJobId ?? state.selectedJob?.id)) return;
+    final int generation = ++_generation;
+    emit(state.copyWith(switchingJobId: job.id));
+    try {
+      final List<Applicant> applicants = await _api.fetchApplicants(job.id!);
+      if (isClosed || generation != _generation) return;
+      emit(FindState(
+        status: FindStatus.ready,
+        jobs: state.jobs,
+        selectedJob: job,
+        applicants: applicants,
+      ));
+    } catch (e) {
+      if (isClosed || generation != _generation) return;
+      emit(FindState(
         status: FindStatus.error,
+        jobs: state.jobs,
+        selectedJob: state.selectedJob,
+        applicants: state.applicants,
         failure: PayerFailure.from(e),
       ));
     }
   }
 
-  Future<void> _loadApplicants(JobPosting job, List<JobPosting> jobs) async {
+  Future<void> _loadApplicants(
+    JobPosting job,
+    List<JobPosting> jobs,
+    int generation,
+  ) async {
     final List<Applicant> applicants = await _api.fetchApplicants(job.id!);
-    if (isClosed) return;
+    if (isClosed || generation != _generation) return;
     emit(FindState(
       status: FindStatus.ready,
       jobs: jobs,
@@ -130,12 +212,22 @@ class FindCubit extends Cubit<FindState> {
   /// handler show a retry toast. It must NOT be swallowed into
   /// `UnlockResult.unavailable()` — that is the neutral DENY, and conflating an
   /// outage with a deny is exactly the bug #346 fixed one layer down.
-  Future<UnlockResult> unlockApplicant(Applicant applicant) async {
+  ///
+  /// #2592 — [jobId] is the job whose feed the tapped row came from, bound at
+  /// the TAP: a job switch can land while the confirm dialog is open, and the
+  /// grant must be filed against the posting the worker applied to, never the
+  /// one selected by the time the payer confirms. The row is marked unlocked
+  /// only while that job's feed is still the one on screen.
+  Future<UnlockResult> unlockApplicant(
+    Applicant applicant, {
+    String? jobId,
+  }) async {
+    final String? job = jobId ?? state.selectedJob?.id;
     final UnlockResult result;
     try {
       result = await _api.unlock(
         workerId: applicant.workerId,
-        jobId: state.selectedJob?.id,
+        jobId: job,
       );
     } catch (e) {
       // Keep the rethrow (the tap handler shows a retry toast) but never emit into
@@ -149,7 +241,7 @@ class FindCubit extends Cubit<FindState> {
       rethrow;
     }
     if (isClosed) return result;
-    if (result.granted) {
+    if (result.granted && state.selectedJob?.id == job) {
       emit(state.copyWith(
         applicants: state.applicants
             .map((Applicant a) => a.workerId == applicant.workerId
@@ -186,6 +278,7 @@ class FindState extends Equatable {
     this.selectedJob,
     this.applicants = const <Applicant>[],
     this.failure,
+    this.switchingJobId,
   });
 
   final FindStatus status;
@@ -206,6 +299,11 @@ class FindState extends Equatable {
   /// REAL feed — faceless applicants for [selectedJob].
   final List<Applicant> applicants;
 
+  /// #2592 — the job the payer just picked while its applicants load: the
+  /// rows for [selectedJob] stay on screen, dimmed, until they are replaced.
+  /// Null when no switch is in flight.
+  final String? switchingJobId;
+
   /// True when rendering the REAL per-job feed (a job is selected).
   bool get isRealFeed => selectedJob != null;
 
@@ -216,6 +314,7 @@ class FindState extends Equatable {
     JobPosting? selectedJob,
     List<Applicant>? applicants,
     PayerFailure? failure,
+    String? switchingJobId,
   }) {
     return FindState(
       status: status ?? this.status,
@@ -224,10 +323,18 @@ class FindState extends Equatable {
       selectedJob: selectedJob ?? this.selectedJob,
       applicants: applicants ?? this.applicants,
       failure: failure ?? this.failure,
+      switchingJobId: switchingJobId ?? this.switchingJobId,
     );
   }
 
   @override
-  List<Object?> get props =>
-      <Object?>[status, candidates, jobs, selectedJob, applicants, failure];
+  List<Object?> get props => <Object?>[
+        status,
+        candidates,
+        jobs,
+        selectedJob,
+        applicants,
+        failure,
+        switchingJobId,
+      ];
 }

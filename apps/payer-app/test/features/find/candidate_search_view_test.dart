@@ -440,18 +440,21 @@ void main() {
   });
 
   group('paging', () {
-    testWidgets('"Load more" appends the next page, sent with the cursor',
-        (WidgetTester tester) async {
+    testWidgets(
+        'near the end the next page loads BY ITSELF, sent with the cursor '
+        '(#2592)', (WidgetTester tester) async {
       api.onSearch = (CandidateSearchQuery q) async => q.cursor == null
           ? _page(<CandidateSearchRow>[_turner], next: 'cursor-1')
           : _page(<CandidateSearchRow>[_vmc]);
       await pumpFind(tester);
 
-      await tester.ensureVisible(find.byKey(const Key('candidate_load_more')));
-      await tester.tap(find.byKey(const Key('candidate_load_more')));
-      await tester.pumpAndSettle();
-
-      expect(api.searches.last.cursor, 'cursor-1');
+      // One short page: its end is already near, so the next one was asked
+      // for without a tap — there is no "Load more" button to press.
+      expect(find.byKey(const Key('candidate_load_more')), findsNothing);
+      expect(
+        api.searches.map((CandidateSearchQuery q) => q.cursor),
+        <String?>[null, 'cursor-1'],
+      );
       expect(find.text('CNC Turner'), findsOneWidget);
       // The list is lazy: scroll the appended card and the footer into view.
       await tester.scrollUntilVisible(
@@ -463,23 +466,59 @@ void main() {
       expect(find.text("That's everyone for now."), findsOneWidget);
     });
 
-    testWidgets('a refused cursor restarts from the first page, calmly',
-        (WidgetTester tester) async {
+    testWidgets('a refused cursor restarts from the first page, calmly — and '
+        'waits for a tap instead of re-asking', (WidgetTester tester) async {
       api.onSearch = (CandidateSearchQuery q) async {
         if (q.cursor != null) throw const PayerApiException(400);
         return _page(<CandidateSearchRow>[_turner], next: 'stale');
       };
       await pumpFind(tester);
 
-      await tester.ensureVisible(find.byKey(const Key('candidate_load_more')));
-      await tester.tap(find.byKey(const Key('candidate_load_more')));
-      await tester.pumpAndSettle();
-
       expect(find.text(kCursorRefusedMessage), findsOneWidget);
       expect(find.text('Retry'), findsNothing,
           reason: 'retrying would resend the refused cursor');
-      expect(api.searches.last.cursor, isNull);
+      expect(
+        api.searches.map((CandidateSearchQuery q) => q.cursor),
+        <String?>[null, 'stale', null],
+        reason: 'no automatic second try of a refused cursor — it would loop',
+      );
       expect(find.text('CNC Turner'), findsOneWidget);
+      await tester.ensureVisible(find.byKey(const Key('candidate_load_more')));
+      expect(find.byKey(const Key('candidate_load_more')), findsOneWidget);
+    });
+
+    testWidgets('a failed automatic page waits for Retry — no retry loop',
+        (WidgetTester tester) async {
+      api.onSearch = (CandidateSearchQuery q) async {
+        if (q.cursor != null) throw const PayerApiException(503);
+        return _page(<CandidateSearchRow>[_turner], next: 'cursor-1');
+      };
+      await pumpFind(tester);
+
+      expect(
+        api.searches.map((CandidateSearchQuery q) => q.cursor),
+        <String?>[null, 'cursor-1'],
+        reason: 'one automatic ask, then the payer decides',
+      );
+      await tester.ensureVisible(
+          find.byKey(const Key('candidate_load_more_retry')));
+      expect(find.byKey(const Key('candidate_load_more_retry')), findsOneWidget);
+      expect(find.text('CNC Turner'), findsOneWidget, reason: 'rows kept');
+    });
+
+    testWidgets('a page that adds nobody new stops the automatic load-more',
+        (WidgetTester tester) async {
+      api.onSearch = (CandidateSearchQuery q) async =>
+          _page(<CandidateSearchRow>[_turner], next: 'again');
+      await pumpFind(tester);
+
+      expect(
+        api.searches.map((CandidateSearchQuery q) => q.cursor),
+        <String?>[null, 'again'],
+        reason: 'one automatic ask; the same rows again must not loop',
+      );
+      await tester.ensureVisible(find.byKey(const Key('candidate_load_more')));
+      expect(find.byKey(const Key('candidate_load_more')), findsOneWidget);
     });
   });
 

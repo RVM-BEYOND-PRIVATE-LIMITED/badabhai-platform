@@ -4,6 +4,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../core/data/models.dart';
 import '../../../core/di/locator.dart';
 import '../../../core/error/payer_failure.dart';
+import '../../../core/session/credits_cubit.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
@@ -11,7 +12,10 @@ import '../../../core/util/pay_format.dart';
 import '../../../core/widgets/bb_button.dart';
 import '../../../core/widgets/bb_card.dart';
 import '../../../core/widgets/bb_icon_button.dart';
+import '../../../core/widgets/bb_refresh.dart';
+import '../../../core/widgets/bb_skeleton.dart';
 import '../../../core/widgets/bb_status_view.dart';
+import '../../../core/widgets/bb_tab_scope.dart';
 import 'cubit/credits_screen_cubit.dart';
 
 /// Credits — the REAL balance (`GET /payer/credits`, ink card) and the REAL
@@ -32,7 +36,15 @@ class CreditsScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return BlocProvider<CreditsScreenCubit>(
       create: (_) => locator<CreditsScreenCubit>()..load(),
-      child: _CreditsView(onBack: onBack),
+      // #2592 — a return to the tab re-reads the ledger quietly (the shell
+      // re-reads the shared balance itself). A no-op on the overlay.
+      child: BbTabRefreshListener(
+        onRefresh: (BuildContext context) => refreshWithToast(
+          context,
+          context.read<CreditsScreenCubit>().refresh,
+        ),
+        child: _CreditsView(onBack: onBack),
+      ),
     );
   }
 }
@@ -44,14 +56,31 @@ class _CreditsView extends StatelessWidget {
   /// TAB (M9, #2597): a tab root has nowhere to go back to.
   final VoidCallback? onBack;
 
+  /// #2592 — pull-to-refresh: the balance and both ledgers, the current ones
+  /// staying on screen; a failure says why in a toast. The app-wide balance
+  /// (Home, the unlock dialog) is re-read alongside.
+  static Future<void> _pullToRefresh(BuildContext context) {
+    locator<CreditsCubit>().load();
+    return refreshWithToast(
+      context,
+      context.read<CreditsScreenCubit>().refresh,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    return BlocBuilder<CreditsScreenCubit, CreditsScreenState>(
+    // #2592 — a balance panel over ledger-line skeletons while it loads; the
+    // real screen cross-fades in over them.
+    return BbLoadingBuilder<CreditsScreenCubit, CreditsScreenState>(
+      isLoading: (CreditsScreenState s) =>
+          s.status == CreditsScreenStatus.loading ||
+          s.status == CreditsScreenStatus.initial,
+      skeleton: const BbSkeletonList(
+        header: BbSkeletonHeader(),
+        items: <Widget>[BbSkeletonPanel(), BbSkeletonLedgerCard()],
+        semanticLabel: 'Loading credits',
+      ),
       builder: (BuildContext context, CreditsScreenState state) {
-        if (state.status == CreditsScreenStatus.loading ||
-            state.status == CreditsScreenStatus.initial) {
-          return const BbStatusView.loading();
-        }
         if (state.status == CreditsScreenStatus.error) {
           final PayerFailure failure =
               state.failure ?? const PayerFailure(PayerFailureKind.unknown);
@@ -66,7 +95,9 @@ class _CreditsView extends StatelessWidget {
           );
         }
 
-        return ListView(
+        final Widget list = ListView(
+          // Over-scrolls even when short, so pull-to-refresh always works.
+          physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.fromLTRB(
             AppSpacing.gutter,
             AppSpacing.s2,
@@ -191,6 +222,10 @@ class _CreditsView extends StatelessWidget {
               ),
             ],
           ],
+        );
+        return BbRefreshIndicator(
+          onRefresh: () => _pullToRefresh(context),
+          child: list,
         );
       },
     );

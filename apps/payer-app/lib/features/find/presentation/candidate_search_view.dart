@@ -11,6 +11,8 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/bb_badge.dart';
 import '../../../core/widgets/bb_button.dart';
+import '../../../core/widgets/bb_refresh.dart';
+import '../../../core/widgets/bb_skeleton.dart';
 import '../../../core/widgets/bb_status_view.dart';
 import '../../../core/widgets/bb_toast.dart';
 import '../../../core/widgets/bb_unlock_dialog.dart';
@@ -79,14 +81,34 @@ class CandidateSearchView extends StatelessWidget {
         justUnlocked: justUnlocked,
       );
 
+  /// #2592 — the quiet re-read: pull-to-refresh reloads from the first page;
+  /// a return to the tab ([keepPages]) keeps the pages already scrolled
+  /// through. The rows stay on screen; a failure says why in a toast.
+  static Future<void> refreshQuietly(
+    BuildContext context, {
+    bool keepPages = false,
+  }) =>
+      refreshWithToast(
+        context,
+        () => context
+            .read<CandidateSearchCubit>()
+            .refresh(keepPages: keepPages),
+        describe: (PayerFailure f) =>
+            f.statusCode == 429 ? kSearchCappedMessage : f.message,
+      );
+
   @override
   Widget build(BuildContext context) {
     return BlocBuilder<CandidateSearchCubit, CandidateSearchState>(
       builder: (BuildContext context, CandidateSearchState state) {
+        final bool loading = state.status == CandidateSearchStatus.initial ||
+            state.status == CandidateSearchStatus.loading;
         // `context` here is the view's own, stable while the tab is mounted —
         // the unlock handler awaits a dialog and a network call on it, so it
         // must not be a card's context that can scroll out of the list.
-        return ListView.builder(
+        final Widget list = ListView.builder(
+          // Over-scrolls even when short, so pull-to-refresh always works.
+          physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.fromLTRB(
             AppSpacing.gutter,
             AppSpacing.s2,
@@ -94,8 +116,24 @@ class CandidateSearchView extends StatelessWidget {
             AppSpacing.s6,
           ),
           itemCount: _itemCount(state),
-          itemBuilder: (BuildContext _, int index) =>
-              _item(context, state, index),
+          // #2592 — the header stays put; below it, the skeleton gives way to
+          // rows that fade in, and a filter change dims the old rows until the
+          // new page replaces them.
+          itemBuilder: (BuildContext _, int index) => index == 0 || loading
+              ? _item(context, state, index)
+              : BbRevealFade(
+                  child: BbDim(
+                    dimmed: state.switchingFilters,
+                    child: _item(context, state, index),
+                  ),
+                ),
+        );
+        return BbStaleFrame(
+          busy: state.switchingFilters,
+          child: BbRefreshIndicator(
+            onRefresh: () => refreshQuietly(context),
+            child: BbRowsReveal(loading: loading, child: list),
+          ),
         );
       },
     );
@@ -117,9 +155,12 @@ class CandidateSearchView extends StatelessWidget {
     switch (state.status) {
       case CandidateSearchStatus.initial:
       case CandidateSearchStatus.loading:
-        return const Padding(
-          padding: EdgeInsets.only(top: AppSpacing.s9),
-          child: BbStatusView.loading(caption: 'Finding candidates…'),
+        // #2592 — candidate-card skeletons under the real header.
+        return const BbSkeletonList(
+          row: BbSkeletonCandidateRow(),
+          count: 3,
+          padding: EdgeInsets.zero,
+          semanticLabel: 'Finding candidates…',
         );
       case CandidateSearchStatus.error:
         return _ErrorBlock(state: state);
@@ -459,19 +500,28 @@ class _Footer extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final CandidateSearchCubit cubit = context.read<CandidateSearchCubit>();
-    if (state.loadingMore) {
-      return const Padding(
-        padding: EdgeInsets.symmetric(vertical: AppSpacing.s4),
-        child: Center(
-          child: SizedBox(
-            width: 28,
-            height: 28,
-            child: CircularProgressIndicator(
-              strokeWidth: 3,
-              color: AppColors.blue,
-            ),
-          ),
-        ),
+    // While the rows are being replaced, the cursor and the end of the list
+    // belong to the old page — say nothing about either.
+    if (state.reload != CandidateSearchReload.none) {
+      return const SizedBox.shrink();
+    }
+    // #2592 — AUTOMATIC load-more. A lazy list only builds this footer once
+    // the end scrolls within its cache extent, so being built IS "near the
+    // end": the next page loads by itself under a skeleton row. It waits for a
+    // tap instead after a failed page (the Retry below — an automatic retry
+    // of a 429 or an outage would hammer the hourly cap), after a refused
+    // cursor (it would resend the cursor the server just refused) and after a
+    // page that added nobody new (it would ask for the same page) — each of
+    // those would loop.
+    final bool auto = state.loadMoreFailure == null &&
+        state.notice != CandidateSearchNotice.cursorRefused &&
+        !state.pagingStalled;
+    if (state.loadingMore || (auto && state.canLoadMore)) {
+      return BbLoadMoreTrigger(
+        key: const Key('candidate_load_more_auto'),
+        enabled: auto && state.canLoadMore,
+        onLoadMore: cubit.loadMore,
+        child: const BbLoadMoreRow(),
       );
     }
     final PayerFailure? failure = state.loadMoreFailure;

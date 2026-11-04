@@ -10,6 +10,7 @@ import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/bb_button.dart';
 import '../../../core/widgets/bb_card.dart';
 import '../../../core/widgets/bb_icon_button.dart';
+import '../../../core/widgets/bb_skeleton.dart';
 import '../../../core/widgets/bb_status_view.dart';
 import '../../../core/widgets/bb_toast.dart';
 import '../../agency/presentation/agency_engagement_screen.dart';
@@ -57,8 +58,15 @@ class _ReferralView extends StatelessWidget {
             _Header(onBack: () => Navigator.of(context).pop()),
             Expanded(
               child: BlocBuilder<ReferralCubit, ReferralState>(
+                // #2592 — link + funnel card skeletons while it loads,
+                // cross-fading out.
                 builder: (BuildContext context, ReferralState state) =>
-                    _body(context, state),
+                    BbLoadSwitcher(
+                  loading: state.status == ReferralStatus.initial ||
+                      state.status == ReferralStatus.loading,
+                  skeleton: _skeleton,
+                  child: _body(context, state),
+                ),
               ),
             ),
           ],
@@ -67,11 +75,16 @@ class _ReferralView extends StatelessWidget {
     );
   }
 
+  static const Widget _skeleton = BbSkeletonList(
+    items: <Widget>[BbSkeletonPanel(), BbSkeletonPanel(), BbSkeletonListRow()],
+    semanticLabel: 'Loading…',
+  );
+
   Widget _body(BuildContext context, ReferralState state) {
     switch (state.status) {
       case ReferralStatus.initial:
       case ReferralStatus.loading:
-        return const BbStatusView.loading(caption: 'Loading…');
+        return _skeleton;
       case ReferralStatus.error:
         return BbStatusView(
           icon: Icons.wifi_off_rounded,

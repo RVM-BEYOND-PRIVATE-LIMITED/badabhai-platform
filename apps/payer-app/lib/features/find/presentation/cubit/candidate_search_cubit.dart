@@ -22,6 +22,12 @@ import '../../../../core/error/payer_failure.dart';
 /// older generation lost a race to a newer query and is dropped — so a slow
 /// first page can never overwrite the filters the payer picked after it.
 ///
+/// KEPT ROWS (#2592). A filter change keeps the current rows on screen —
+/// dimmed, under a thin progress bar ([CandidateSearchReload.filters]) — until
+/// the new first page replaces them; [refresh] re-reads quietly with no dim
+/// at all. While either is in flight there is no "Load more": the cursor on
+/// screen belongs to the rows being replaced.
+///
 /// ERRORS. A failed first page is the error state (with [PayerFailure]'s
 /// honest copy; a 429 is the payer's hourly search cap). A failed "Load more"
 /// keeps the rows and offers an inline retry — EXCEPT a 400, which on a cursor
@@ -60,7 +66,66 @@ class CandidateSearchCubit extends Cubit<CandidateSearchState> {
     if (next == state.query && state.status == CandidateSearchStatus.ready) {
       return;
     }
-    await _replace(next);
+    await _replace(next, keepRows: true);
+  }
+
+  /// #2592 — pull-to-refresh and a return to the tab: the current filters
+  /// from the first page, plus the unlock history, with the rows on screen
+  /// staying put (no skeleton, no dim) until the fresh page lands. A failure
+  /// keeps the rows and is returned for the caller to say why; null on
+  /// success. With nothing on screen it is the normal path ([retry]).
+  ///
+  /// [keepPages] (a tab return): once the payer has paged past the first page,
+  /// a first-page reload would throw their place away, so only the unlock
+  /// history is re-read. Pull-to-refresh — always at the top — reloads.
+  Future<PayerFailure?> refresh({bool keepPages = false}) async {
+    if (isClosed) return null;
+    switch (state.status) {
+      case CandidateSearchStatus.initial:
+      case CandidateSearchStatus.loading:
+        return null; // the first page is already on its way
+      case CandidateSearchStatus.error:
+        await retry();
+        return null;
+      case CandidateSearchStatus.ready:
+      case CandidateSearchStatus.empty:
+        break;
+    }
+    // A filter change is already reading these filters' first page.
+    if (state.reload != CandidateSearchReload.none) return null;
+    final Future<void> unlocks = _loadUnlockHistory();
+    if (keepPages && state.pagedBeyondFirst) {
+      await unlocks;
+      return null;
+    }
+    final int generation = ++_generation;
+    emit(state.copyWith(
+      reload: CandidateSearchReload.quiet,
+      loadingMore: false,
+      loadMoreFailure: null,
+    ));
+    try {
+      final CandidateSearchPage page =
+          await _api.searchCandidates(state.query.firstPage());
+      if (isClosed || generation != _generation) return null;
+      emit(state.copyWith(
+        status: page.total == 0
+            ? CandidateSearchStatus.empty
+            : CandidateSearchStatus.ready,
+        page: page,
+        rows: page.candidates,
+        reload: CandidateSearchReload.none,
+        notice: null,
+        pagingStalled: false,
+      ));
+      await unlocks;
+      return null;
+    } catch (e) {
+      if (isClosed || generation != _generation) return null;
+      emit(state.copyWith(reload: CandidateSearchReload.none));
+      await unlocks;
+      return PayerFailure.from(e);
+    }
   }
 
   /// The strict-zero way back: the same filters, every candidate, matches first.
@@ -95,14 +160,16 @@ class CandidateSearchCubit extends Cubit<CandidateSearchState> {
       // two reads could; one row per worker keeps the unlock state unambiguous.
       final Set<String> seen =
           state.rows.map((CandidateSearchRow r) => r.workerId).toSet();
+      final List<CandidateSearchRow> added = page.candidates
+          .where((CandidateSearchRow r) => seen.add(r.workerId))
+          .toList(growable: false);
       emit(state.copyWith(
         page: page,
-        rows: List<CandidateSearchRow>.unmodifiable(<CandidateSearchRow>[
-          ...state.rows,
-          ...page.candidates
-              .where((CandidateSearchRow r) => seen.add(r.workerId)),
-        ]),
+        rows: List<CandidateSearchRow>.unmodifiable(
+          <CandidateSearchRow>[...state.rows, ...added],
+        ),
         loadingMore: false,
+        pagingStalled: added.isEmpty,
       ));
     } catch (e) {
       if (isClosed || generation != _generation) return;
@@ -178,22 +245,43 @@ class CandidateSearchCubit extends Cubit<CandidateSearchState> {
 
   /// Replaces the list with [query]'s first page. The counts are cleared with
   /// the rows: until the new page lands there is no response to read them from.
+  ///
+  /// [keepRows] (#2592 — a filter change): rows already on screen stay there,
+  /// dimmed, with the counts of the response they came from, until the new
+  /// page replaces both at once.
   Future<void> _replace(
     CandidateSearchQuery query, {
     CandidateSearchNotice? notice,
+    bool keepRows = false,
   }) async {
     if (isClosed) return;
     final int generation = ++_generation;
-    emit(state.copyWith(
-      status: CandidateSearchStatus.loading,
-      query: query,
-      page: null,
-      rows: const <CandidateSearchRow>[],
-      loadingMore: false,
-      failure: null,
-      loadMoreFailure: null,
-      notice: notice,
-    ));
+    final bool keep = keepRows && state.status == CandidateSearchStatus.ready;
+    emit(keep
+        ? state.copyWith(
+            query: query,
+            // The kept rows (and the badge's counts) are still the previous
+            // filters' — a second change in flight keeps the FIRST rows' query.
+            rowsQuery: state.rowsQuery ?? state.query,
+            reload: CandidateSearchReload.filters,
+            loadingMore: false,
+            loadMoreFailure: null,
+            notice: notice,
+            pagingStalled: false,
+          )
+        : state.copyWith(
+            status: CandidateSearchStatus.loading,
+            query: query,
+            page: null,
+            rows: const <CandidateSearchRow>[],
+            loadingMore: false,
+            failure: null,
+            loadMoreFailure: null,
+            notice: notice,
+            reload: CandidateSearchReload.none,
+            pagingStalled: false,
+            rowsQuery: null,
+          ));
     try {
       final CandidateSearchPage page = await _api.searchCandidates(query);
       if (isClosed || generation != _generation) return;
@@ -203,12 +291,18 @@ class CandidateSearchCubit extends Cubit<CandidateSearchState> {
             : CandidateSearchStatus.ready,
         page: page,
         rows: page.candidates,
+        reload: CandidateSearchReload.none,
+        rowsQuery: null,
       ));
     } catch (e) {
       if (isClosed || generation != _generation) return;
       emit(state.copyWith(
         status: CandidateSearchStatus.error,
         failure: PayerFailure.from(e),
+        page: null,
+        rows: const <CandidateSearchRow>[],
+        reload: CandidateSearchReload.none,
+        rowsQuery: null,
       ));
     }
   }
@@ -258,6 +352,19 @@ class CandidateSearchCubit extends Cubit<CandidateSearchState> {
 
 enum CandidateSearchStatus { initial, loading, ready, error, empty }
 
+/// #2592 — a first-page re-read in flight while the previous rows stay on
+/// screen.
+enum CandidateSearchReload {
+  none,
+
+  /// Pull-to-refresh / a return to the tab — the rows are not dimmed.
+  quiet,
+
+  /// A filter change — the rows on screen are the OLD filters' and are
+  /// dimmed under a progress bar.
+  filters,
+}
+
 /// A calm one-line note above the list — information, never an error.
 enum CandidateSearchNotice {
   /// "Load more" sent a cursor the server refused; the list restarted from
@@ -280,6 +387,9 @@ class CandidateSearchState extends Equatable {
     this.unlocks = const <String, String>{},
     this.unlockExpiries = const <String, DateTime>{},
     this.unlocking = const <String>{},
+    this.reload = CandidateSearchReload.none,
+    this.pagingStalled = false,
+    this.rowsQuery,
   });
 
   final CandidateSearchStatus status;
@@ -320,6 +430,32 @@ class CandidateSearchState extends Equatable {
   /// Workers with an unlock in flight (their button shows progress).
   final Set<String> unlocking;
 
+  /// #2592 — whether the rows on screen are being replaced, and how.
+  final CandidateSearchReload reload;
+
+  /// #2592 — the last "Load more" added no new row (the page held only
+  /// workers already listed). Automatic load-more stops there — firing again
+  /// would ask for the same thing forever — and waits for a tap.
+  final bool pagingStalled;
+
+  /// #2592 — while a filter change is in flight ([switchingFilters]), the
+  /// filters the rows on screen came from; null otherwise (they are
+  /// [query]'s). Everything said ABOUT those rows — the "Related to" badge,
+  /// the count's "not recorded" clause — reads it, so the badge keeps reading
+  /// the same response the rows came from (ADR-0040 Decision 3); only the
+  /// filter bar shows the pending [query].
+  final CandidateSearchQuery? rowsQuery;
+
+  /// The filters the rows on screen came from.
+  CandidateSearchQuery get _shownQuery => rowsQuery ?? query;
+
+  /// The rows on screen belong to the previous filters (dim them).
+  bool get switchingFilters => reload == CandidateSearchReload.filters;
+
+  /// More than the first page is on screen ("Load more" has appended).
+  bool get pagedBeyondFirst =>
+      page != null && rows.length > page!.candidates.length;
+
   int get total => page?.total ?? 0;
   int get matched => page?.matched ?? 0;
   int get unrecorded => page?.unrecorded ?? 0;
@@ -329,9 +465,9 @@ class CandidateSearchState extends Equatable {
   /// A filter on a field that can be UNRECORDED is on (city, years in role,
   /// years in industry): the badge then always says the "not recorded" number.
   bool get unrecordableFilter =>
-      query.city != null ||
-      query.experience != null ||
-      query.industryExperience != null;
+      _shownQuery.city != null ||
+      _shownQuery.experience != null ||
+      _shownQuery.industryExperience != null;
   String? get nextCursor => page?.nextCursor;
 
   /// The first page hit the payer's hourly search cap.
@@ -340,7 +476,8 @@ class CandidateSearchState extends Equatable {
   bool get canLoadMore =>
       status == CandidateSearchStatus.ready &&
       nextCursor != null &&
-      !loadingMore;
+      !loadingMore &&
+      reload == CandidateSearchReload.none;
 
   /// Where the "Other candidates" line goes: the first row that does not match,
   /// in reorder mode only (strict mode holds matches alone). -1 = no line.
@@ -349,9 +486,9 @@ class CandidateSearchState extends Equatable {
       : -1;
 
   /// The label of the picked role (the tier-2 "Related to …" badge), if any.
-  String? get pickedRoleLabel => query.skillIds.isEmpty
+  String? get pickedRoleLabel => _shownQuery.skillIds.isEmpty
       ? null
-      : filters?.roleLabel(query.skillIds.first);
+      : filters?.roleLabel(_shownQuery.skillIds.first);
 
   /// The live grant's id, or null — including once its window has closed
   /// while this view stayed open ([now] defaults to the device clock).
@@ -380,6 +517,9 @@ class CandidateSearchState extends Equatable {
     Map<String, String>? unlocks,
     Map<String, DateTime>? unlockExpiries,
     Set<String>? unlocking,
+    CandidateSearchReload? reload,
+    bool? pagingStalled,
+    Object? rowsQuery = _keep,
   }) {
     return CandidateSearchState(
       status: status ?? this.status,
@@ -399,6 +539,11 @@ class CandidateSearchState extends Equatable {
       unlocks: unlocks ?? this.unlocks,
       unlockExpiries: unlockExpiries ?? this.unlockExpiries,
       unlocking: unlocking ?? this.unlocking,
+      reload: reload ?? this.reload,
+      pagingStalled: pagingStalled ?? this.pagingStalled,
+      rowsQuery: identical(rowsQuery, _keep)
+          ? this.rowsQuery
+          : rowsQuery as CandidateSearchQuery?,
     );
   }
 
@@ -417,5 +562,8 @@ class CandidateSearchState extends Equatable {
         unlocks,
         unlockExpiries,
         unlocking,
+        reload,
+        pagingStalled,
+        rowsQuery,
       ];
 }

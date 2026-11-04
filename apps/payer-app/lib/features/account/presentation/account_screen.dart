@@ -15,7 +15,8 @@ import '../../../core/widgets/bb_avatar.dart';
 import '../../../core/widgets/bb_button.dart';
 import '../../../core/widgets/bb_card.dart';
 import '../../../core/widgets/bb_field.dart';
-import '../../../core/widgets/bb_status_view.dart';
+import '../../../core/widgets/bb_skeleton.dart';
+import '../../../core/widgets/bb_tab_scope.dart';
 import '../../../core/widgets/payer_role_badge.dart';
 import '../../capacity/presentation/capacity_screen.dart';
 import '../../org/presentation/team_screen.dart';
@@ -47,7 +48,13 @@ class AccountScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return BlocProvider<AccountCubit>(
       create: (_) => locator<AccountCubit>()..load(),
-      child: _AccountView(session: session, onSignOut: onSignOut),
+      // #2592 — a return to the tab re-reads the account; the cards on screen
+      // stay put while it does (the view only waits when it has nothing).
+      child: BbTabRefreshListener(
+        onRefresh: (BuildContext context) =>
+            context.read<AccountCubit>().load(),
+        child: _AccountView(session: session, onSignOut: onSignOut),
+      ),
     );
   }
 }
@@ -531,14 +538,16 @@ class _InfoRow extends StatelessWidget {
   }
 }
 
+/// #2592 — the account cards' skeleton (it used to be a spinner in a card).
 class _LoadingCard extends StatelessWidget {
   const _LoadingCard();
 
   @override
-  Widget build(BuildContext context) => const BbCard(
-        child: SizedBox(
-          height: 72,
-          child: BbStatusView.loading(),
+  Widget build(BuildContext context) => Semantics(
+        label: 'Loading your account',
+        container: true,
+        child: const ExcludeSemantics(
+          child: BbShimmer(child: BbSkeletonPanel()),
         ),
       );
 }

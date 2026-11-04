@@ -12,7 +12,7 @@ import '../../../core/widgets/bb_chip.dart';
 import '../../../core/widgets/bb_icon_button.dart';
 import '../../../core/widgets/bb_leave_guard.dart';
 import '../../../core/widgets/bb_rise_in.dart';
-import '../../../core/widgets/bb_status_view.dart';
+import '../../../core/widgets/bb_skeleton.dart';
 import '../../../core/widgets/bb_toast.dart';
 import '../../../core/widgets/bb_typing_dots.dart';
 import '../domain/chat_message.dart';
@@ -442,7 +442,15 @@ class _ChatViewState extends State<_ChatView> {
               if (state.sessionFailed) _sessionBanner(),
               Expanded(
                 child: state.initializing
-                    ? const BbStatusView.loading()
+                    // #2592 — bubble skeletons while the session opens.
+                    ? const BbSkeletonList(
+                        items: <Widget>[BbSkeletonChat()],
+                        padding: EdgeInsets.symmetric(
+                          horizontal: AppSpacing.s4,
+                          vertical: AppSpacing.s2,
+                        ),
+                        semanticLabel: 'Opening the chat',
+                      )
                     : ListView(
                         controller: _scroll,
                         padding: const EdgeInsets.symmetric(

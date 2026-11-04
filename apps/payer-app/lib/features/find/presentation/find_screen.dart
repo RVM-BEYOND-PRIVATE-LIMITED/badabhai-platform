@@ -14,7 +14,10 @@ import '../../../core/widgets/bb_badge.dart';
 import '../../../core/widgets/bb_button.dart';
 import '../../../core/widgets/bb_card.dart';
 import '../../../core/widgets/bb_chip.dart';
+import '../../../core/widgets/bb_refresh.dart';
+import '../../../core/widgets/bb_skeleton.dart';
 import '../../../core/widgets/bb_status_view.dart';
+import '../../../core/widgets/bb_tab_scope.dart';
 import '../../../core/widgets/bb_toast.dart';
 import '../../../core/widgets/bb_unlock_dialog.dart';
 import 'candidate_search_view.dart';
@@ -44,6 +47,7 @@ class FindScreen extends StatefulWidget {
     super.key,
     required this.onReveal,
     this.initialView = FindView.allCandidates,
+    this.applicantsEpoch = 0,
   });
 
   final ValueChanged<RevealArgs> onReveal;
@@ -52,11 +56,17 @@ class FindScreen extends StatefulWidget {
   /// Jobs card's "Applicants" button opened Find.
   final FindView initialView;
 
+  /// #2592 — the shell bumps this for each Jobs card "Applicants" tap: the
+  /// Applicants view is rebuilt on a fresh cubit (a fresh feed), while All
+  /// candidates keeps its filters, loaded pages and scroll.
+  final int applicantsEpoch;
+
   @override
   State<FindScreen> createState() => _FindScreenState();
 }
 
-class _FindScreenState extends State<FindScreen> {
+class _FindScreenState extends State<FindScreen>
+    with BbTabReturnMixin<FindScreen> {
   late FindView _view = widget.initialView;
 
   /// The views opened so far. A view mounts — and loads — on its FIRST open,
@@ -72,6 +82,18 @@ class _FindScreenState extends State<FindScreen> {
       _opened.add(view);
     });
   }
+
+  /// #2592 — the shell keeps Find alive across tab switches, so a return (or
+  /// a re-tap of the tab) still opens the view it asks for — the nav tab and
+  /// Home's Browse: All candidates (owner rulings 2026-11-03). A return
+  /// re-reads the view it opens quietly; the hidden one re-reads when the
+  /// payer next switches to it ([BbTabRefreshListener]). A re-tap reloads
+  /// neither.
+  @override
+  void onTabReturn() => _select(widget.initialView);
+
+  @override
+  void onTabReselect() => _select(widget.initialView);
 
   @override
   Widget build(BuildContext context) {
@@ -96,14 +118,28 @@ class _FindScreenState extends State<FindScreen> {
               if (_opened.contains(FindView.allCandidates))
                 BlocProvider<CandidateSearchCubit>(
                   create: (_) => locator<CandidateSearchCubit>()..load(),
-                  child: CandidateSearchView(onReveal: widget.onReveal),
+                  // #2592 — a return to the tab re-reads the view ON SCREEN
+                  // quietly, keeping the pages already scrolled through.
+                  child: BbTabRefreshListener(
+                    enabled: _view == FindView.allCandidates,
+                    onRefresh: (BuildContext context) =>
+                        CandidateSearchView.refreshQuietly(context,
+                            keepPages: true),
+                    child: CandidateSearchView(onReveal: widget.onReveal),
+                  ),
                 )
               else
                 const SizedBox.shrink(),
               if (_opened.contains(FindView.applicants))
                 BlocProvider<FindCubit>(
+                  // #2592 — a new Jobs card "Applicants" tap: a fresh feed.
+                  key: ValueKey<int>(widget.applicantsEpoch),
                   create: (_) => locator<FindCubit>()..load(),
-                  child: _FindView(onReveal: widget.onReveal),
+                  child: BbTabRefreshListener(
+                    enabled: _view == FindView.applicants,
+                    onRefresh: _FindView.refreshQuietly,
+                    child: _FindView(onReveal: widget.onReveal),
+                  ),
                 )
               else
                 const SizedBox.shrink(),
@@ -119,6 +155,11 @@ class _FindView extends StatelessWidget {
   const _FindView({required this.onReveal});
 
   final ValueChanged<RevealArgs> onReveal;
+
+  /// #2592 — the quiet re-read behind pull-to-refresh and a return to the
+  /// tab: the rows stay on screen, and a failure says why in a toast.
+  static Future<void> refreshQuietly(BuildContext context) =>
+      refreshWithToast(context, context.read<FindCubit>().refresh);
 
   /// The credits-after preview for the unlock dialog. An error-state / unknown
   /// balance is `null` (rendered '—') — NEVER a fabricated 0 (#189 fast-follow).
@@ -146,7 +187,15 @@ class _FindView extends StatelessWidget {
   }
 
   // --- REAL unlock (opaque worker UUID → POST /payer/unlocks) ----------------
-  Future<void> _unlockApplicant(BuildContext context, Applicant applicant) async {
+  //
+  // #2592 — [jobId] is the job of the feed the row was built from. A job switch
+  // keeps the old rows tappable while the new ones load, and it can land while
+  // the confirm dialog is open — the spend and the reveal stay on THIS job.
+  Future<void> _unlockApplicant(
+    BuildContext context,
+    Applicant applicant, {
+    required String? jobId,
+  }) async {
     final FindCubit cubit = context.read<FindCubit>();
     final CreditsCubit credits = locator<CreditsCubit>();
     final bool? confirmed = await showUnlockDialog(
@@ -166,7 +215,7 @@ class _FindView extends StatelessWidget {
     // distinct from the neutral deny below.
     final UnlockResult result;
     try {
-      result = await cubit.unlockApplicant(applicant);
+      result = await cubit.unlockApplicant(applicant, jobId: jobId);
     } catch (_) {
       if (!context.mounted) return;
       showBbToast(
@@ -196,19 +245,24 @@ class _FindView extends StatelessWidget {
     onReveal(RevealArgs.real(
       applicant: applicant.copyWith(unlocked: true, unlockId: result.unlockId),
       unlockId: result.unlockId!,
-      jobId: cubit.state.selectedJob?.id,
+      jobId: jobId,
       justUnlocked: true,
     ));
   }
 
   @override
   Widget build(BuildContext context) {
-    return BlocBuilder<FindCubit, FindState>(
+    // #2592 — a skeleton shaped like the feed while it loads; the real feed
+    // cross-fades in over it.
+    return BbLoadingBuilder<FindCubit, FindState>(
+      isLoading: (FindState s) =>
+          s.status == FindStatus.loading || s.status == FindStatus.initial,
+      skeleton: const BbSkeletonList(
+        header: BbSkeletonHeader(),
+        row: BbSkeletonCandidateRow(),
+        semanticLabel: 'Loading candidates',
+      ),
       builder: (BuildContext context, FindState state) {
-        if (state.status == FindStatus.loading ||
-            state.status == FindStatus.initial) {
-          return const BbStatusView.loading();
-        }
         if (state.status == FindStatus.error) {
           final PayerFailure failure =
               state.failure ?? const PayerFailure(PayerFailureKind.unknown);
@@ -223,10 +277,15 @@ class _FindView extends StatelessWidget {
           );
         }
         if (state.status == FindStatus.empty) {
-          return const BbStatusView(
-            icon: Icons.work_rounded,
-            title: 'No matched candidates yet',
-            subtitle: 'Post a job to see matched candidates here.',
+          // #2592 — pullable too: a payer whose first job just went live
+          // pulls its applicants in without leaving the tab.
+          return BbPullableFill(
+            onRefresh: () => refreshQuietly(context),
+            child: const BbStatusView(
+              icon: Icons.work_rounded,
+              title: 'No matched candidates yet',
+              subtitle: 'Post a job to see matched candidates here.',
+            ),
           );
         }
 
@@ -256,7 +315,12 @@ class _FindView extends StatelessWidget {
             ? (state.applicants.isEmpty ? 1 : state.applicants.length)
             : state.candidates.length;
 
-        return ListView.builder(
+        // #2592 — a job switch keeps these rows on screen, dimmed under a thin
+        // progress bar, until the new job's applicants replace them.
+        final bool switching = state.switchingJobId != null;
+        final Widget feed = ListView.builder(
+          // Over-scrolls even when short, so pull-to-refresh always works.
+          physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.fromLTRB(
             AppSpacing.gutter,
             AppSpacing.s2,
@@ -274,24 +338,31 @@ class _FindView extends StatelessWidget {
               if (state.applicants.isEmpty) {
                 return Padding(
                   padding: const EdgeInsets.only(top: AppSpacing.s6),
-                  child: Text(
-                    'No applicants for this job yet.',
-                    textAlign: TextAlign.center,
-                    style: AppTypography.body(color: AppColors.textSecondary),
+                  child: BbDim(
+                    dimmed: switching,
+                    child: Text(
+                      'No applicants for this job yet.',
+                      textAlign: TextAlign.center,
+                      style: AppTypography.body(color: AppColors.textSecondary),
+                    ),
                   ),
                 );
               }
               final Applicant a = state.applicants[row];
               return Padding(
                 padding: const EdgeInsets.only(bottom: AppSpacing.s3),
-                child: _ApplicantCard(
-                  applicant: a,
-                  onUnlock: () => _unlockApplicant(context, a),
-                  onView: () => onReveal(RevealArgs.real(
+                child: BbDim(
+                  dimmed: switching,
+                  child: _ApplicantCard(
                     applicant: a,
-                    unlockId: a.unlockId ?? '',
-                    jobId: state.selectedJob?.id,
-                  )),
+                    onUnlock: () => _unlockApplicant(context, a,
+                        jobId: state.selectedJob?.id),
+                    onView: () => onReveal(RevealArgs.real(
+                      applicant: a,
+                      unlockId: a.unlockId ?? '',
+                      jobId: state.selectedJob?.id,
+                    )),
+                  ),
                 ),
               );
             }
@@ -306,6 +377,13 @@ class _FindView extends StatelessWidget {
               ),
             );
           },
+        );
+        return BbStaleFrame(
+          busy: switching,
+          child: BbRefreshIndicator(
+            onRefresh: () => refreshQuietly(context),
+            child: feed,
+          ),
         );
       },
     );
@@ -360,7 +438,14 @@ class _FindView extends StatelessWidget {
         // The job selector is REAL (server-fed postings) and stays — but only
         // when there is a genuine choice to make.
         if (real && state.jobs.length > 1) ...<Widget>[
-          _JobSelector(jobs: state.jobs, selected: state.selectedJob),
+          _JobSelector(
+            jobs: state.jobs,
+            // #2592 — the chip just tapped reads as picked while it loads.
+            selected: state.jobs
+                    .where((JobPosting j) => j.id == state.switchingJobId)
+                    .firstOrNull ??
+                state.selectedJob,
+          ),
           const SizedBox(height: AppSpacing.s2),
         ],
         RichText(

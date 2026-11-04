@@ -17,7 +17,7 @@ import '../../../core/widgets/bb_card.dart';
 import '../../../core/widgets/bb_copy_button.dart';
 import '../../../core/widgets/bb_icon_button.dart';
 import '../../../core/widgets/bb_stamp_celebration.dart';
-import '../../../core/widgets/bb_status_view.dart';
+import '../../../core/widgets/bb_skeleton.dart';
 import '../../../core/widgets/bb_toast.dart';
 import 'cubit/reveal_cubit.dart';
 import 'reveal_args.dart';
@@ -339,9 +339,13 @@ class _RealReveal extends StatelessWidget {
     if (state.status == RevealStatus.loading ||
         state.status == RevealStatus.initial) {
       phase = 'loading';
-      card = const BbCard(
-        padding: EdgeInsets.all(AppSpacing.s6),
-        child: Center(child: BbStatusView.loading()),
+      // #2592 — the relay card's skeleton (it used to be a spinner).
+      card = Semantics(
+        label: 'Loading contact relay',
+        container: true,
+        child: const ExcludeSemantics(
+          child: BbShimmer(child: BbSkeletonPanel()),
+        ),
       );
     } else if (state.status == RevealStatus.unavailable ||
         state.status == RevealStatus.error) {
