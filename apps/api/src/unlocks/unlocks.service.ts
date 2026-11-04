@@ -13,7 +13,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 import type { PayloadInputOf } from "@badabhai/event-schema";
 import {
   normalizeTradeLevelKey,
-  priceTierForLevels,
+  priceTierForTradeRows,
 } from "@badabhai/taxonomy";
 import type { RequestContext } from "../common/request-context";
 import { SERVER_CONFIG } from "../config/config.module";
@@ -373,10 +373,13 @@ export class UnlockService {
         // Higher/Lower prices, THIS is the call site that quotes them: the rung read
         // is done, the debit is the one expression to change, and the log proves the
         // tiers were already flowing before money ever depended on them.
-        const priceTier = priceTierForLevels(
-          (await this.repo.findTradeLevels(tx, workerId)).map((r) =>
-            normalizeTradeLevelKey(r.tradeLevel),
-          ),
+        // Each rung is priced by ITS OWN trade's sheet (A4 item 8): a PLC technician prices
+        // Higher, an electrician technician Lower — same key, two sheets.
+        const priceTier = priceTierForTradeRows(
+          (await this.repo.findTradeLevels(tx, workerId)).map((r) => ({
+            skillId: r.skillId,
+            tradeLevel: normalizeTradeLevelKey(r.tradeLevel),
+          })),
         );
         this.logger.log(
           `unlock price tier worker=${workerId} tier=${priceTier} job=${jobContext ?? "none"}`,

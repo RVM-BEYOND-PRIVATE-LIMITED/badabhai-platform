@@ -417,6 +417,27 @@ describe("UnlockService — happy path (apply→grant) emits the right PII-free 
     }
   });
 
+  it.each([
+    // A4 item 8: the same `technician` key, priced by each trade's own sheet.
+    ["mskill_plc_automation_tech", "technician", "higher"],
+    ["mskill_industrial_electrician", "technician", "lower"],
+  ])(
+    "A4 item 8 — %s %s prices %s on its own sheet, and the debit is still one credit",
+    async (skillId, tradeLevel, tier) => {
+      const log = vi.spyOn(Logger.prototype, "log").mockImplementation(() => undefined);
+      try {
+        const { svc, txMethods } = setup({ balance: 5, consentPurposes: ["employer_sharing"] });
+        txMethods.findTradeLevels.mockResolvedValue([{ skillId, tradeLevel }]);
+        const out = await svc.requestUnlock({ payerId: PAYER, workerId: WORKER, jobId: null }, CTX);
+        expect(out).toMatchObject({ ok: true, status: "granted" });
+        expect(txMethods.tryDebit).toHaveBeenCalledTimes(1);
+        expect(log).toHaveBeenCalledWith(expect.stringContaining(`tier=${tier}`));
+      } finally {
+        log.mockRestore();
+      }
+    },
+  );
+
   it("Middle Way P5 — no stated rung prices Lower, and the debit is still one credit", async () => {
     const log = vi.spyOn(Logger.prototype, "log").mockImplementation(() => undefined);
     try {

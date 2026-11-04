@@ -91,7 +91,18 @@ export interface TradeLevelPack {
    * still wins; with none, these rungs read unconfirmed. Absent = the shared rule.
    */
   readonly unconfirmedRungs?: readonly TradeLevel[];
+  /**
+   * Per-trade price tiers where THIS sheet prices a rung differently from the shared rule
+   * (CEO Launch Plan Pack v1 §2: "Lower / Higher per rung, per sheet"; A4 item 8). The
+   * shared `levelTier` is right for 22 of the 23 sheets; PLC (sheet 14) rules
+   * "technician+ Higher" while the electrician and maintenance sheets keep `technician`
+   * Lower. HOOK ONLY: both tiers still charge one credit. Absent = the shared rule.
+   */
+  readonly tierOverrides?: Readonly<Partial<Record<TradeLevel, PriceTier>>>;
 }
+
+/** The unlock price tier a rung prices at (spec §4.1 — hook only; ₹40 flat stays live). */
+export type PriceTier = "higher" | "lower";
 
 export const TRADE_LEVEL_PACKS: Readonly<Record<string, TradeLevelPack>> = {
   qp_cnc_turning: { skillId: "mskill_cnc_turner", levelKey: "turning_level" },
@@ -159,7 +170,13 @@ export const TRADE_LEVEL_PACKS: Readonly<Record<string, TradeLevelPack>> = {
   // Phase 2 #6 — the PLC / automation technician (CEO Launch Plan Pack v1, sheet 14), a
   // new trade. No union extension: trainee, technician, senior_technician, lead and
   // supervisor are all members. Supervisor by rule.
-  qp_plc_automation: { skillId: "mskill_plc_automation_tech", levelKey: "plc_level" },
+  // A4 item 8: the sheet's "technician+ Higher" (the deviation EXPAND-12 recorded for #2536);
+  // `technician` stays Lower in every other trade.
+  qp_plc_automation: {
+    skillId: "mskill_plc_automation_tech",
+    levelKey: "plc_level",
+    tierOverrides: { technician: "higher" },
+  },
   // Phase 2 #7 — the EDM / wire-cut operator (CEO Launch Plan Pack v1, sheet 16), a new
   // trade. No union extension: the CNC ladder's rungs are all members. Supervisor by rule.
   qp_edm_wirecut: { skillId: "mskill_edm_wirecut_operator", levelKey: "edm_level" },
@@ -309,22 +326,61 @@ export function isLevelConfirmed(level: TradeLevel | null): boolean {
  * null and the CAD trainee/draughtsman/modeller equivalents. Null prices Lower —
  * an unstated level must never price a worker up.
  */
-export function priceTierForTradeLevel(level: TradeLevel | null): "higher" | "lower" {
+export function priceTierForTradeLevel(level: TradeLevel | null): PriceTier {
   if (level === null) return "lower";
   return levelTier(level);
 }
 
+/** The crosswalk entry whose trade skill is `skillId` — one pack per trade skill. */
+const PACK_BY_SKILL: ReadonlyMap<string, TradeLevelPack> = new Map(
+  Object.values(TRADE_LEVEL_PACKS).map((pack) => [pack.skillId, pack]),
+);
+
 /**
- * The unlock price tier for a worker's stated rungs (spec §4.1 — hook input).
+ * The unlock price tier for ONE trade's rung, as that trade's sheet prices it (A4 item 8).
+ *
+ * A pack's `tierOverrides` wins for its own rungs; every other rung, and every skill with no
+ * crosswalk entry (legacy rows), prices by the shared rule. Null still prices Lower.
+ */
+export function priceTierForTradeSkill(
+  skillId: string | null | undefined,
+  level: TradeLevel | null,
+): PriceTier {
+  if (level === null) return "lower";
+  const override = skillId == null ? undefined : PACK_BY_SKILL.get(skillId)?.tierOverrides?.[level];
+  return override ?? levelTier(level);
+}
+
+/** One stated rung on one trade — a `worker_profile_skill` row's (skill, trade_level). */
+export interface TradeLevelRow {
+  readonly skillId: string;
+  readonly tradeLevel: TradeLevel | null;
+}
+
+/**
+ * The unlock price tier for a worker's stated rungs, each priced by its OWN trade's sheet
+ * (the hook's input since A4 item 8). HIGHER if any row prices Higher, else Lower; no rows —
+ * a worker who stated no rung — prices Lower.
+ */
+export function priceTierForTradeRows(rows: readonly TradeLevelRow[]): PriceTier {
+  return rows.some((row) => priceTierForTradeSkill(row.skillId, row.tradeLevel) === "higher")
+    ? "higher"
+    : "lower";
+}
+
+/**
+ * The unlock price tier for a list of bare rungs by the SHARED rule (spec §4.1).
  *
  * HIGHER if any rung prices Higher, else Lower. An empty list — or a worker who
  * never stated a rung — prices Lower: an unstated level must never price a worker up.
+ * TRADE-BLIND: it cannot apply a sheet's own tiers. The unlock hook reads
+ * {@link priceTierForTradeRows} instead (A4 item 8); this stays for callers without a skill.
  */
-export function priceTierForLevels(levels: readonly (TradeLevel | null)[]): "higher" | "lower" {
+export function priceTierForLevels(levels: readonly (TradeLevel | null)[]): PriceTier {
   return levels.some((level) => priceTierForTradeLevel(level) === "higher") ? "higher" : "lower";
 }
 
-function levelTier(level: TradeLevel): "higher" | "lower" {
+function levelTier(level: TradeLevel): PriceTier {
   // CEO Launch Pack v1 (RULED 2026-11-02, reconciled) — per-sheet tiers. Lower: the
   // trainee/operator/designer rungs. Everything else Higher.
   // Track B #1 — the fitter operator rung is Lower (sheet 6).

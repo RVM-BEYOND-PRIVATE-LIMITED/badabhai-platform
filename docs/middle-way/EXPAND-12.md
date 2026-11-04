@@ -317,6 +317,11 @@ senior_programmer`; P5 crosswalk already handles). Role `levelTerms` += rung
 > skeleton, and "PLC panel wiring" is the electrician's). Role art + generated
 > artifacts. Deviation: the sheet prices technician Higher, the shared key stays
 > Lower (per-pack tier override is a follow-up; the hook only logs).
+> RESOLVED (A4 item 8, `feat/mw-per-pack-tier`): `TRADE_LEVEL_PACKS` gains an optional
+> per-pack `tierOverrides`; PLC sets `technician: "higher"`, and the unlock hook now prices
+> each stated rung by its OWN trade (`priceTierForTradeRows`). A table test pins all 23
+> sheets' tier columns; PLC is the only sheet that differs from the shared rule. Still hook
+> only: both tiers charge one credit.
 >
 > PHASE 2 #7 — EDM / WIRE-CUT OPERATOR (NEW BUILD) ✅ CODE DONE (`feat/mw-edm-wirecut`, PR #2539, merged).
 > LIVE on production 2026-11-04: migrations 0145 + 0146 applied by the owner before merge;
