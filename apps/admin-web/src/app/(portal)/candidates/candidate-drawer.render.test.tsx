@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { candidateRecord, facelessRecord, RECORD_WORKER_ID } from "../../../../test/candidate-record";
 import type { CandidateRecordResult } from "../../../lib/candidate-detail";
+import type * as RecordView from "./candidate-record-view";
 
 /**
  * A7 (#2577) — the candidate drawer as rendered: closed without `?c=`, open over the list with
@@ -18,7 +19,7 @@ vi.mock("next/navigation", () => ({
 
 // The tabs' content is its own test (candidate-record-view.render.test.tsx).
 vi.mock("./candidate-record-view", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("./candidate-record-view")>()),
+  ...(await importOriginal<typeof RecordView>()),
   CandidateRecordPanels: ({ active, entitled, canReveal }: { active: string; entitled: boolean; canReveal: boolean }) => (
     <div data-panels={active} data-entitled={String(entitled)} data-can-reveal={String(canReveal)} />
   ),

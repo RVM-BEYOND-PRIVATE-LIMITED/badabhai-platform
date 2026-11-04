@@ -5,6 +5,7 @@ import { createHookHarness, type HookHarness } from "../../../../test/hook-harne
 import { candidateRecord, RECORD_WORKER_ID } from "../../../../test/candidate-record";
 import type { CandidateRecordResult } from "../../../lib/candidate-detail";
 import { DRAWER_ENTRY_KEY } from "../../../components/drawer";
+import type * as DrawerModel from "./candidate-drawer-model";
 
 /**
  * A7 (#2577) — the candidate drawer, render by render: ↑/↓ move it through the current page by
@@ -53,7 +54,7 @@ const read = vi.hoisted(() => ({
   calls: [] as { id: string; signal: AbortSignal; resolve: (r: CandidateRecordResult) => void }[],
 }));
 vi.mock("./candidate-drawer-model", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("./candidate-drawer-model")>()),
+  ...(await importOriginal<typeof DrawerModel>()),
   fetchCandidateRecord: (id: string, signal: AbortSignal) =>
     new Promise<CandidateRecordResult>((resolve, reject) => {
       read.calls.push({ id, signal, resolve });
