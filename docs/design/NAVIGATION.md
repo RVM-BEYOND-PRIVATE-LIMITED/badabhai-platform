@@ -121,7 +121,11 @@ and a `?c=` in the address is ignored.
   page reads the open record on the server when it loads with `?c=`; every later open or move reads
   it from the browser through the same-origin route `/candidates/[id]/record` (a route handler, not
   a page — a server action's pending state would be discarded by a URL change and followed by a
-  full refresh). A move waits 180ms for the next press before it reads; a passed read is aborted.
+  full refresh). Only a worker id (a uuid) is read; anything else in `?c=` is "No such candidate"
+  with nothing sent to the API. A move waits 350ms for the next press before it reads, so ↓ at a
+  skimming pace (about four a second) reads only the row it stops on. A read the drawer moved past
+  is aborted, and the route passes the abort on to its API call — which cancels it only if the API
+  has not received it yet: a read that reached the API is audited and spends a name all the same.
 - **Tabs.** Profile · Work history · Skills · Applications · Resume · Activity · Edit log — the
   console's segmented chip row with the ARIA tabs pattern (←/→, Home/End), sticky at the top of the
   drawer, one scrolling line on a phone. Each renders exactly the groups the record carries; every
@@ -135,9 +139,18 @@ and a `?c=` in the address is ignored.
 - **Phone reveal.** The record never carries a phone. A session holding `reveal_pii` reveals it
   through the existing reason-gated `POST /admin/workers/:id/reveal-contact` behind the T2 confirm
   (the API's closed reasons, an explanation the API checks and does not store); every neutral 404
-  reads as one sentence. The phone lives in the drawer's state only. A success closes the confirm
-  (it is not unmounted with the Reveal button the phone replaces) and puts focus on the revealed
-  phone's Copy button.
+  reads as one sentence. The confirm POSTs to the same-origin route `/candidates/[id]/phone` with a
+  plain fetch, which makes the API call server-side — not a server action, which a Back or Forward
+  while it is pending would discard and follow with a full refresh (the list's 50 audited name
+  reads again, and the phone lost). The route makes the checks Next makes only for an action, each
+  before anything is sent (`lib/same-origin-request.ts`): `Sec-Fetch-Site` same-origin and `Origin`
+  the portal's own (the request's scheme and Host header — never `X-Forwarded-Host`) when the
+  browser sends them, an older browser that sends neither still being held by the SameSite=strict
+  cookie and the JSON-only body; a JSON body (415 otherwise) of at most 4 KB (413), exactly
+  `{ reason_code, note }`. Every answer is no-store, and its error is always one of the reveal's
+  own sentences. The phone lives in the drawer's state only, gone on a move or close. A success
+  closes the confirm (it is not unmounted with the Reveal button the phone replaces) and puts focus
+  on the revealed phone's Copy button.
 - **States and motion.** A skeleton (1.4s sheen) while loading, announced by a status line outside
   it (the skeleton is aria-hidden, the view aria-busy and remounted per move); not found; a role
   that may not read records; a session that ended; an error with Retry. The drawer slides in over
