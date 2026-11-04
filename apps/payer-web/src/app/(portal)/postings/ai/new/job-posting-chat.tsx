@@ -5,7 +5,14 @@ import { looksLikePii } from "@badabhai/validators";
 import type {
   JobPostingChatSessionSummary,
   JobPostingDraft,
+  PostingTradeFormWire,
 } from "../../../../../lib/contracts";
+import { focusControl } from "../../../../../lib/form-focus";
+import {
+  POSTING_TRADE_REQUIRED_MESSAGE,
+  isPostingTrade,
+  type PostingTradesProblem,
+} from "../../../../../lib/posting-trades";
 import { Badge, Button, Card, Textarea } from "../../../../../components/ds";
 // Imported from the module path (not the ds barrel) so a test can mock just this
 // interactive pill while rendering the other hookless DS primitives for real.
@@ -108,9 +115,18 @@ export interface JobPostingChatProps {
   resumable: JobPostingChatSessionSummary[];
   /** True when that list read failed — we degrade to "start a new chat", never to fake rows. */
   loadFailed?: boolean;
+  /** #2645 — the 16 trades (`GET /payer/posting-trades`) the draft's trade is picked from. */
+  postingTrades?: PostingTradeFormWire[];
+  /** Why `postingTrades` is empty — said at the picker, with a Retry. */
+  postingTradesProblem?: PostingTradesProblem | null;
 }
 
-export function JobPostingChat({ resumable, loadFailed = false }: JobPostingChatProps) {
+export function JobPostingChat({
+  resumable,
+  loadFailed = false,
+  postingTrades = [],
+  postingTradesProblem = null,
+}: JobPostingChatProps) {
   // useState order (mirrored by job-posting-chat.test.tsx): convo, text, error, navigating.
   const [convo, setConvo] = useState<Conversation | null>(null);
   const [text, setText] = useState("");
@@ -128,6 +144,8 @@ export function JobPostingChat({ resumable, loadFailed = false }: JobPostingChat
   // Which action is in flight (W4) — so only ITS button spins; the others are just disabled.
   // APPENDED after the seeded states (the tests mirror the order).
   const [acting, setActing] = useState<ChatAction | null>(null);
+  // #2645 — the conversation whose Publish was refused for want of a trade (APPENDED).
+  const [tradeRefusedFor, setTradeRefusedFor] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   // The publish lands on the posting's edit page with the shell's "Opening Edit posting…" cue.
   const { navigate } = usePortalNavigation();
@@ -225,9 +243,15 @@ export function JobPostingChat({ resumable, loadFailed = false }: JobPostingChat
   function onPublish() {
     if (convo === null) return;
     const sessionId = convo.sessionId;
-    // The publish-step role pick rides the body (#2490). Blank stays ABSENT — never a null —
-    // so the posting stores NULL and the worker card keeps the generic art.
+    // The publish-step role pick rides the body (#2490). #2645 — it is the draft's trade, one of
+    // the 16 (#2635: a company job with none can never go live): Publish without one is refused
+    // AT the picker and sends nothing.
     const pickedRole = roleKind.trim();
+    if (!isPostingTrade(postingTrades, pickedRole)) {
+      setTradeRefusedFor(sessionId);
+      focusControl("chatRoleKind");
+      return;
+    }
     // #2493 — until the payer edits it, the area follows the interview draft; after that the
     // payer's correction wins. Blank stays ABSENT (NULL area = city-only card, never a block).
     const pickedArea = (areaTouched ? area : (convo.draft?.area ?? "")).trim();
@@ -400,6 +424,13 @@ export function JobPostingChat({ resumable, loadFailed = false }: JobPostingChat
           draftReady={convo.draftReady}
           roleKind={roleKind}
           onRoleKindChange={setRoleKind}
+          trades={postingTrades}
+          tradesProblem={postingTradesProblem}
+          roleError={
+            tradeRefusedFor === convo.sessionId && !isPostingTrade(postingTrades, roleKind)
+              ? POSTING_TRADE_REQUIRED_MESSAGE
+              : undefined
+          }
           area={areaTouched ? area : (convo.draft?.area ?? "")}
           onAreaChange={(value) => {
             setArea(value);

@@ -20,6 +20,8 @@ vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 const { publishJobPostingChatAction } = await import("./actions");
 
 const SESSION = "cccc3333-0000-4000-8000-000000000001";
+/** #2645 — a publish names the draft's trade; every case below carries one unless it says not. */
+const TRADE = "cnc_turner";
 
 beforeEach(() => {
   publishJobPostingChatSession.mockReset();
@@ -32,13 +34,13 @@ describe("publishJobPostingChatAction (#1912)", () => {
         { path: "role_title", message: "remove contact details from the title" },
       ]),
     );
-    const res = await publishJobPostingChatAction({ sessionId: SESSION });
+    const res = await publishJobPostingChatAction({ sessionId: SESSION, roleKind: TRADE });
     expect(res).toEqual({ ok: false, error: "remove contact details from the title" });
   });
 
   it("a 409 (not ready / already published) stays the generic retryable copy", async () => {
     publishJobPostingChatSession.mockRejectedValueOnce(new Error("payer API x returned 409"));
-    const res = await publishJobPostingChatAction({ sessionId: SESSION });
+    const res = await publishJobPostingChatAction({ sessionId: SESSION, roleKind: TRADE });
     expect(res).toEqual({
       ok: false,
       error: "Could not publish this posting yet. Please retry.",
@@ -48,33 +50,33 @@ describe("publishJobPostingChatAction (#1912)", () => {
   it("success returns the posting id + the unset card fields", async () => {
     publishJobPostingChatSession.mockResolvedValueOnce({
       jobPostingId: "job-1",
-      unsetCardFields: ["role_kind"],
+      unsetCardFields: ["area"],
       unmappedFields: [],
     });
-    const res = await publishJobPostingChatAction({ sessionId: SESSION });
-    expect(res).toEqual({ ok: true, postingId: "job-1", unsetCardFields: ["role_kind"] });
+    const res = await publishJobPostingChatAction({ sessionId: SESSION, roleKind: TRADE });
+    expect(res).toEqual({ ok: true, postingId: "job-1", unsetCardFields: ["area"] });
   });
 
-  it("forwards an optional role_kind and leaves it ABSENT when not picked (#2490)", async () => {
+  it("forwards the draft's trade as role_kind (#2490)", async () => {
     publishJobPostingChatSession.mockResolvedValue({
       jobPostingId: "job-1",
       unsetCardFields: [],
       unmappedFields: [],
     });
-
     await publishJobPostingChatAction({ sessionId: SESSION, roleKind: "cnc_turner" });
     expect(publishJobPostingChatSession).toHaveBeenLastCalledWith(
       SESSION,
       "cnc_turner",
       undefined,
     );
+  });
 
-    await publishJobPostingChatAction({ sessionId: SESSION });
-    expect(publishJobPostingChatSession).toHaveBeenLastCalledWith(
-      SESSION,
-      undefined,
-      undefined,
-    );
+  it("#2645 — a publish with no trade is refused before anything is sent", async () => {
+    for (const roleKind of [undefined, ""]) {
+      const res = await publishJobPostingChatAction({ sessionId: SESSION, roleKind });
+      expect(res).toEqual({ ok: false, error: "Pick one of the 16 trades" });
+    }
+    expect(publishJobPostingChatSession).not.toHaveBeenCalled();
   });
 
   it("rejects a role_kind outside the closed 21-value set (#2490)", async () => {
@@ -93,25 +95,18 @@ describe("publishJobPostingChatAction (#1912)", () => {
       unmappedFields: [],
     });
 
-    await publishJobPostingChatAction({ sessionId: SESSION, area: "  Chakan  " });
-    expect(publishJobPostingChatSession).toHaveBeenLastCalledWith(
-      SESSION,
-      undefined,
-      "Chakan",
-    );
+    await publishJobPostingChatAction({ sessionId: SESSION, roleKind: TRADE, area: "  Chakan  " });
+    expect(publishJobPostingChatSession).toHaveBeenLastCalledWith(SESSION, TRADE, "Chakan");
 
     // Cleared at publish → absent, so the posting stores NULL (city-only card).
-    await publishJobPostingChatAction({ sessionId: SESSION, area: "   " });
-    expect(publishJobPostingChatSession).toHaveBeenLastCalledWith(
-      SESSION,
-      undefined,
-      undefined,
-    );
+    await publishJobPostingChatAction({ sessionId: SESSION, roleKind: TRADE, area: "   " });
+    expect(publishJobPostingChatSession).toHaveBeenLastCalledWith(SESSION, TRADE, undefined);
   });
 
   it("rejects an area over the 120-char cap before the wire (#2493)", async () => {
     const res = await publishJobPostingChatAction({
       sessionId: SESSION,
+      roleKind: TRADE,
       area: "x".repeat(121),
     });
     expect(res).toEqual({ ok: false, error: "Keep the area under 120 characters." });

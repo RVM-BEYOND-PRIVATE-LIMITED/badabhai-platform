@@ -15,6 +15,7 @@ import {
 } from "../../../../../lib/payer-api";
 import { isPayerValidationError } from "../../../../../lib/payer-errors";
 import { roleKindInputSchema } from "../../../../../lib/job-roles";
+import { POSTING_TRADE_REQUIRED_MESSAGE } from "../../../../../lib/posting-trades";
 
 /**
  * AI job-posting chat Server Actions (ADR-0035 — the 5 frozen payer-authed endpoints).
@@ -110,9 +111,10 @@ export async function resumeJobPostingChatAction(input: {
  * Publish the session's draft as a REAL job posting (the unchanged `createForPayer` path).
  * On success the caller routes to the posting's EDIT page so any remaining card gaps are named.
  *
- * `roleKind` (#2490) is the publish-step role pick — the same closed 21-value set the manual
- * form re-validates. OPTIONAL: absent means the posting stores NULL and the worker card draws
- * the generic art, exactly as before. DISPLAY ONLY; it is never a match input.
+ * `roleKind` (#2490) is the publish-step role pick — the same closed set the manual form
+ * re-validates. REQUIRED since #2645: it is the draft's trade, and a company job that names none
+ * of the 16 can never go live (#2635), so a publish without one is refused here, before anything
+ * is sent (the chat checks it against the 16 the API served first). It also picks the card art.
  *
  * `area` (#2493) is the COARSE locality bucket — prefilled from the interview draft and
  * editable at publish. OPTIONAL: absent stores NULL, so the worker card shows the city alone.
@@ -125,9 +127,9 @@ export async function publishJobPostingChatAction(input: {
   if (!sessionIdSchema.safeParse(input.sessionId).success) {
     return { ok: false, error: NOT_FOUND };
   }
-  if (input.roleKind !== undefined) {
-    const role = roleKindInputSchema.safeParse(input.roleKind);
-    if (!role.success) return { ok: false, error: "Pick a valid role." };
+  if (!input.roleKind) return { ok: false, error: POSTING_TRADE_REQUIRED_MESSAGE };
+  if (!roleKindInputSchema.safeParse(input.roleKind).success) {
+    return { ok: false, error: "Pick a valid role." };
   }
   const area = input.area?.trim() || undefined;
   if (area !== undefined && !areaInputSchema.safeParse(area).success) {
