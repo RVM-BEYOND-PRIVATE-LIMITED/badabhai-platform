@@ -92,12 +92,6 @@ describe("PostingTradePicker — the 16 trades from the API", () => {
     expect(select.props["aria-describedby"]).toBe("roleKind-msg");
     expect(text(els.find((el) => el.props.id === "roleKind-msg"))).toBe("Pick one of the 16 trades");
   });
-
-  it("takes focus on mount only when asked (the edit page opened refused at it)", () => {
-    const select = (tree: ReactElement) => hosts(tree).find((el) => el.type === "select")!;
-    expect(select(pick({ autoFocus: true })).props.autoFocus).toBe(true);
-    expect(select(pick()).props.autoFocus).toBeUndefined();
-  });
 });
 
 describe("PostingTradePicker — the 16 trades did not load", () => {

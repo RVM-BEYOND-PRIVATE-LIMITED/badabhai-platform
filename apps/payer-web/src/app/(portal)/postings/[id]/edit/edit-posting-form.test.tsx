@@ -41,6 +41,18 @@ vi.mock("../../trade-fields", async (importOriginal) => ({
 vi.mock("../../../../../components/retry-button", () => ({
   RetryButton: () => ({ type: "button", props: { type: "button", children: "Retry" } }),
 }));
+// #2645 — the focus a `?trade=required` page opens with goes through the shared helper (its frame
+// timing is form-focus.test.ts's); here: whether, and where, the form asks for it.
+const focusControlOnNextFrame = vi.fn();
+vi.mock("../../../../../lib/form-focus", async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  focusControlOnNextFrame: (id: string) => focusControlOnNextFrame(id),
+}));
+
+/** The effects a render registered, with their dependency lists. React runs them after commit; a
+ *  test runs them itself ({@link runEffects}) and reads the lists to see what re-runs them. */
+let effects: Array<{ run: () => void; deps: readonly unknown[] | undefined }> = [];
+const runEffects = () => effects.forEach((effect) => effect.run());
 
 let stateQueue: unknown[] = [];
 let stateCursor = 0;
@@ -75,6 +87,9 @@ vi.mock("react", async () => {
     useId: () => `:r${(ids += 1)}:`,
     useState: (initial: unknown) => useState(initial),
     useTransition: () => [false, (fn: () => void) => fn()] as const,
+    useEffect: (run: () => void, deps?: readonly unknown[]) => {
+      effects.push({ run, deps });
+    },
   };
 });
 
@@ -200,6 +215,7 @@ function render(
   ];
   stateCursor = 0;
   setters = [];
+  effects = [];
   return EditPostingForm({
     payerId: PAYER_ID,
     postingId: POSTING_ID,
@@ -539,15 +555,20 @@ describe("EditPostingForm — #2645: the role is the job's trade, one of the 16"
 
   it("opened with ?trade=required: starts refused at the picker, which takes focus", () => {
     useState.mockClear();
+    focusControlOnNextFrame.mockClear();
     const tree = render({}, "draft", {}, undefined, {}, { tradeRequired: true });
     // The `problem` state's INITIAL value (index 10) — what the form mounts with.
     expect(useState.mock.calls[10]![0]).toEqual({ control: "roleKind", message: TRADE_MSG });
-    expect(hosts(tree).find((e) => e.props.id === "roleKind")!.props.autoFocus).toBe(true);
+    expect(hosts(tree).find((e) => e.props.id === "roleKind")!.type).toBe("select");
+    runEffects();
+    expect(focusControlOnNextFrame).toHaveBeenCalledWith("roleKind");
     // Without the flag it starts clean, and nothing steals focus.
     useState.mockClear();
-    const plain = render({}, "draft");
+    focusControlOnNextFrame.mockClear();
+    render({}, "draft");
+    runEffects();
     expect(useState.mock.calls[10]![0]).toBeNull();
-    expect(hosts(plain).find((e) => e.props.id === "roleKind")!.props.autoFocus).toBeUndefined();
+    expect(focusControlOnNextFrame).not.toHaveBeenCalled();
   });
 
   it("a picked trade publishes its own skill when the stored set is empty — never nothing", async () => {
@@ -710,6 +731,39 @@ describe("EditPostingForm — #2645: the 16 trades did not load", () => {
     expect(setters[10]).toHaveBeenCalledWith({
       control: "roleKind",
       message: "Pick one of the 16 trades",
+    });
+  });
+
+  describe("opened with ?trade=required (a publish refused elsewhere)", () => {
+    const REFUSED = { control: "roleKind", message: "Pick one of the 16 trades" };
+    const open = (postingTrades: Array<ReturnType<typeof tradeRow>>) =>
+      render({ roleKind: "" }, "draft", {}, undefined, { problem: REFUSED, error: REFUSED.message }, {
+        postingTrades,
+        postingTradesProblem: postingTrades.length > 0 ? null : FAILED,
+        tradeRequired: true,
+      });
+
+    it("focus goes to the picker's spot — a group React's autoFocus would never focus", () => {
+      focusControlOnNextFrame.mockClear();
+      const tree = open([]);
+      const spot = hosts(tree).find((e) => e.props.id === "roleKind")!;
+      expect(spot.type).toBe("div");
+      expect(spot.props.tabIndex).toBe(-1);
+      // …described by the cause AND the refusal, which is what a screen reader reads on focus.
+      expect(spot.props["aria-describedby"]).toBe("roleKind-cause roleKind-msg");
+      runEffects();
+      expect(focusControlOnNextFrame).toHaveBeenCalledWith("roleKind");
+    });
+
+    it("a Retry that brings the 16 back re-runs that focus, onto the select now in the spot", () => {
+      open([]);
+      const before = effects.map((effect) => effect.deps);
+      open(TRADES);
+      // React re-runs an effect whose dependency list changed between two renders.
+      expect(effects.map((effect) => effect.deps)).not.toEqual(before);
+      focusControlOnNextFrame.mockClear();
+      runEffects();
+      expect(focusControlOnNextFrame).toHaveBeenCalledWith("roleKind");
     });
   });
 });

@@ -30,7 +30,6 @@ export function PostingTradePicker({
   problem,
   value,
   error,
-  autoFocus,
   onChange,
 }: {
   /** The control's id — what a refused publish focuses (`focusControl`). */
@@ -44,8 +43,6 @@ export function PostingTradePicker({
   value: string;
   /** The inline refusal ("Pick one of the 16 trades"), or undefined. */
   error?: string;
-  /** Take focus on mount: the page opened refused at this picker. */
-  autoFocus?: boolean;
   onChange: (roleKind: string) => void;
 }) {
   if (trades.length === 0) {
@@ -59,7 +56,6 @@ export function PostingTradePicker({
       value={value}
       error={error}
       aria-invalid={error ? true : undefined}
-      autoFocus={autoFocus}
       onChange={(e) => onChange(e.target.value)}
     >
       <option value="">— pick one of the 16 trades —</option>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import type { ReactNode } from "react";
 import { Icon } from "@badabhai/icons";
 import { looksLikePii } from "@badabhai/validators";
@@ -40,7 +40,11 @@ import {
   type CardNumberPair,
   type RevealedNumbers,
 } from "../../../../../lib/job-card-form";
-import { focusControl, revealWholeControl } from "../../../../../lib/form-focus";
+import {
+  focusControl,
+  focusControlOnNextFrame,
+  revealWholeControl,
+} from "../../../../../lib/form-focus";
 import { companyPostingFacts } from "../../../../../lib/posting-facts";
 import { workerCardGap, workerCardGaps } from "../../../../../lib/worker-card-gap";
 import type { PostingEditInitial } from "../../../../../lib/payer-api";
@@ -302,6 +306,14 @@ export function EditPostingForm({
     tradeForm !== undefined && (showTradeForm || trade.matchSkillIds.length === 0)
       ? derivedMatchSkills(tradeForm, trade.answers)
       : trade.matchSkillIds;
+
+  // #2645 — opened refused (`?trade=required`): focus starts AT the trade picker, in whichever form
+  // it is drawn — the 16 trades' select, or the spot that names why they did not load (a group,
+  // which React's `autoFocus` never focuses). A Retry that brings the 16 back draws the select in
+  // that spot, so focus follows it there.
+  useEffect(() => {
+    if (tradeRequired) focusControlOnNextFrame("roleKind");
+  }, [tradeRequired, tradeMode]);
 
   // THE ONE READ — the preview, the inline errors, the gaps and the save all use it.
   const read = readCardForm(
@@ -603,7 +615,6 @@ export function EditPostingForm({
               problem={postingTradesProblem}
               value={fields.roleKind}
               error={errorOf("roleKind")}
-              autoFocus={tradeRequired || undefined}
               onChange={(value) => set("roleKind", value)}
             />
             <Input
