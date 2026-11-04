@@ -7,10 +7,12 @@ import { CopyId } from "./copy-id";
 import { StatusPill } from "./status-pill";
 import { NameCell } from "./name-cell";
 import { DataGrid, type GridColumn } from "./data-grid";
+import { CUSTOMER_KIND_LABELS, type CustomerKindFilter } from "../lib/customer";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 
 /**
- * The payer roster, shared by Companies (`role=employer`) and Agencies (`role=agent`).
+ * The payer roster — Directory › Companies, every customer: Companies (`role=employer`) and
+ * Agencies (`role=agent`) in one list since A6 (#2576), narrowed by the page's Kind filter.
  *
  * ── THE ORGANISATION NAME COLUMN (owner ruling 2026-08-18) ──────────────────────────────
  * `payers.org_name_enc` is now served behind `read_identity`, so "suspend Acme" is a thing an
@@ -33,14 +35,24 @@ export function PayerList({
   basePath,
   emptyMessage,
   posture,
+  kind,
   pager,
 }: {
   payers: PayerListItem[];
-  /** "/companies" or "/agencies" — detail links stay inside the section you came from. */
+  /**
+   * The customers' section the rows open into — `/companies` (`CUSTOMERS_HREF`), for a Company and
+   * an Agency alike since A6 (#2576); `/agencies` only redirects there.
+   */
   basePath: string;
   emptyMessage: string;
   /** Decided by the page from the rows + `read_identity`. See `lib/identity.ts`. */
   posture: IdentityPosture;
+  /**
+   * The page's Kind filter. With none (the All view) the rows mix Companies and Agencies, so each
+   * names its own kind in a Kind column; a filtered view has one kind, which its header says.
+   * Required, though it may be undefined, so a caller cannot get the All view by forgetting it.
+   */
+  kind: CustomerKindFilter | undefined;
   /** The page's pager, drawn in the grid's footer bar. */
   pager?: ReactNode;
 }) {
@@ -100,6 +112,17 @@ export function PayerList({
       title: named ? undefined : (p) => p.id,
       trail: (p) => <CopyId id={p.id} />,
     },
+    /* The stored role, in the console's words (`CUSTOMER_KIND_LABELS`): Company or Agency. */
+    ...(kind === undefined
+      ? [
+          {
+            id: "kind",
+            header: "Kind",
+            width: "short" as const,
+            cell: (p: PayerListItem) => CUSTOMER_KIND_LABELS[p.role],
+          },
+        ]
+      : []),
     {
       id: "status",
       header: "Status",
@@ -143,8 +166,8 @@ export function PayerList({
 
   return (
     <DataGrid
-      /* Companies and Agencies are two lists to the viewer: each keeps its own column choices. */
-      id={basePath === "/agencies" ? "agencies" : "companies"}
+      /* One list since A6 (#2576), whatever the Kind filter: one set of column choices. */
+      id="companies"
       caption="Customers, newest first"
       columns={columns}
       rows={payers}

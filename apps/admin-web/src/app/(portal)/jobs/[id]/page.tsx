@@ -322,7 +322,7 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
                       </time>
                     </td>
                     <td>
-                      <Link className="link mono" href={`/workers/${a.worker_id}`}>
+                      <Link className="link mono" href={`/candidates/${a.worker_id}`}>
                         {shortId(a.worker_id)}
                       </Link>
                       <CopyId id={a.worker_id} label="worker id" />

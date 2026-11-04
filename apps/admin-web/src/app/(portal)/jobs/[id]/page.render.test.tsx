@@ -388,11 +388,12 @@ describe("the posting page calls its publisher the customer — never an account
 describe("the Customer row links the customer's own section", () => {
   const PAYER = BASE.payer_id;
 
-  it("an agency's posting links /agencies/<id> directly, named Agency", async () => {
+  it("an agency's posting links the one customers section, /companies/<id>, named Agency", async () => {
+    // One Companies section holds both kinds since A6 (#2576); the persona is still named.
     stub.job = { ...BASE, payer_role: "agent" };
     const out = await render();
-    expect(out).toContain(customerCell(PAYER, `/agencies/${PAYER}`, "Agency", "</dd>"));
-    expect(out).not.toContain(`href="/companies/${PAYER}"`);
+    expect(out).toContain(customerCell(PAYER, `/companies/${PAYER}`, "Agency", "</dd>"));
+    expect(out).not.toContain(`href="/agencies/`);
   });
 
   it("a company's posting links /companies/<id>, named Company", async () => {

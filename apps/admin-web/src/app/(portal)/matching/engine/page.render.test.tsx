@@ -263,3 +263,30 @@ describe("touch targets on the stage (final re-sweep NEW-04)", () => {
     for (const tag of links) expect(/class="([^"]*)"/.exec(tag)?.[1]?.split(" ")).toContain("link");
   });
 });
+
+/**
+ * ONE HEADER, LIKE EVERY PAGE (A6, #2576): the Engine view uses the standard page header — its
+ * title, one sentence — above the stage, with no second logo (the sidebar carries the one) and no
+ * dark hero title on the navy stage.
+ */
+describe("the Engine view's header", () => {
+  it("is the standard PageHeader, outside the navy stage", async () => {
+    const html = await render({});
+    expect(html).toContain(
+      '<header class="page__head"><div class="page__heading"><h1 class="page__title">Engine view</h1>',
+    );
+    expect(html).toContain(
+      '<p class="page__sub">One worker&#x27;s skills decide which postings reach them, and in what order.</p>',
+    );
+    expect(html.indexOf("</header>")).toBeLessThan(html.indexOf('<div class="engine">'));
+    expect(html.match(/<h1[ >]/g)).toHaveLength(1);
+  });
+
+  it("draws no second logo and no hero", async () => {
+    const html = await render({ worker: WORKER_ID });
+    expect(html).not.toContain("bb-lockup");
+    expect(html).not.toContain("engine__head");
+    expect(html).not.toContain("engine__title");
+    expect(html).not.toContain("How <span");
+  });
+});

@@ -17,6 +17,12 @@ import { PayerFilterBar } from "../../../components/payer-filter-bar";
 import { FilterPanel } from "../../../components/filter-panel";
 import { PageHeader } from "../../../components/page-header";
 import { NavPendingCue } from "../../../components/nav-pending";
+import { FilterChip } from "../../../components/filter-chip-link";
+import {
+  CUSTOMER_KIND_FILTER_ROLES,
+  customerKindFilter,
+  type CustomerKindFilter,
+} from "../../../lib/customer";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 import {
   CURSOR_REFUSAL,
@@ -28,17 +34,40 @@ export const dynamic = "force-dynamic";
 export const metadata = { title: "Companies" };
 
 /**
- * Companies — payer accounts with `role = employer`.
+ * Companies — every customer: Companies (`role = employer`) and Agencies (`role = agent`).
  *
- * Companies and Agencies are the same table split by role, which is why they share a list
- * component and a detail view. They are separate NAV sections because they are separate
- * operational populations: an employer hires, an agency supplies, and the questions an
- * operator asks about each are different.
+ * ONE LIST WITH A KIND FILTER (A6, #2576). The two were separate sections over the same table and
+ * the same API, `GET /admin/payers`; they are one Directory section now, and the Kind chips —
+ * All, Companies, Agencies (`?kind=company|agency`) — set the `role` that API already takes.
+ * `/agencies` redirects to `?kind=agency` (next.config.mjs). An unknown `kind` is not sent to the
+ * API (the page translates it): the list shows every customer and the All chip says so.
  *
  * The organisation name is served behind `read_identity` since the 2026-08-18 ruling; the
- * posture is computed here and handed to the shared list, so both sections make the same
- * decision from the same rule rather than each deciding for itself.
+ * posture is computed here and handed to the shared list.
  */
+const KIND_WORDS: Record<
+  CustomerKindFilter | "all",
+  { title: string; one: string; many: string; contact: string }
+> = {
+  all: {
+    title: "Customers",
+    one: "customer",
+    many: "customers",
+    contact: "Email, phone and an agency's KYC details stay encrypted at rest and are served to no one.",
+  },
+  company: {
+    title: "Companies",
+    one: "company",
+    many: "companies",
+    contact: "Email and phone stay encrypted at rest and are served to no one.",
+  },
+  agency: {
+    title: "Agencies",
+    one: "agency",
+    many: "agencies",
+    contact: "Email, phone and KYC details stay encrypted at rest and are served to no one.",
+  },
+};
 export default async function CompaniesPage({
   searchParams,
 }: {
@@ -50,7 +79,9 @@ export default async function CompaniesPage({
   const one = (v: string | string[] | undefined) =>
     (Array.isArray(v) ? v[0] : v)?.trim() || undefined;
   const status = one(sp.status);
+  const kind = customerKindFilter(one(sp.kind));
   const cursor = one(sp.cursor);
+  const words = KIND_WORDS[kind ?? "all"];
 
   let page: Awaited<ReturnType<typeof listPayers>> | null = null;
   let failed = false;
@@ -58,7 +89,11 @@ export default async function CompaniesPage({
   const refusable = isUnknownValue(status, PAYER_STATUSES);
   let refusal: ReadRefusal = null;
   try {
-    page = await listPayers({ role: "employer", status, cursor });
+    page = await listPayers({
+      role: kind ? CUSTOMER_KIND_FILTER_ROLES[kind] : undefined,
+      status,
+      cursor,
+    });
   } catch (err) {
     // A REFUSED request (a 400: the address bar) and an UNAVAILABLE one (our fault) are
     // different screens — "pick a status" over an outage blames a filter that is not broken.
@@ -73,13 +108,15 @@ export default async function CompaniesPage({
   /** The filters were refused — not the page cursor beside them. */
   const filtersRefused = refusal === "filters";
   /** The current query without the cursor — what the recoveries below repeat. */
-  const listHref = queryHref("/companies", { status });
+  const listHref = queryHref("/companies", { kind, status });
+  /** A Kind chip's address: its kind, the status kept, no page cursor. */
+  const kindHref = (k: CustomerKindFilter | undefined) => queryHref("/companies", { kind: k, status });
   /**
    * The ONE "Clear filters" on this screen (owner brief 2026-10-01): in the results head while
    * the list loads, and inside the refusal state when the server refused the filters — there it
    * is the recovery, so the head does not repeat it.
    */
-  const clearFilters = status ? (
+  const clearFilters = status || kind ? (
     <Link className="btn btn--ghost" href="/companies">
       <Icon name={ACTION_ICON.clearFilters} />
       Clear filters
@@ -101,10 +138,10 @@ export default async function CompaniesPage({
           /* THREE-VALUED, like the detail panel's sub: "named by the organisation" directly
              above the notice saying names are withheld would contradict it. */
           posture === "faceless"
-            ? "Companies, identified by id — your role does not include name access."
+            ? `${words.title}, identified by id — your role does not include name access.`
             : posture === "capped"
-              ? "Companies, identified by id while names are withheld (see below)."
-              : "Companies, named by the organisation they registered as."
+              ? `${words.title}, identified by id while names are withheld (see below).`
+              : `${words.title}, named by the organisation they registered as.`
         }
         info={
           <>
@@ -112,14 +149,29 @@ export default async function CompaniesPage({
             {posture === "named" ? (
               <p>The organisation name is self-declared at signup, not a verified legal name.</p>
             ) : null}
-            <p>Email and phone stay encrypted at rest and are served to no one.</p>
+            <p>{words.contact}</p>
           </>
         }
         filters={
-          /* Folds behind a "Filters (n)" toggle on a phone (AW-08); unchanged above it. */
-          <FilterPanel headingId="cf-heading" heading="Filter companies" filters={{ status }}>
-            <PayerFilterBar basePath="/companies" status={status ?? ""} />
-          </FilterPanel>
+          <>
+            {/* The Kind filter (A6): one segmented chip row, always in view — it is what the
+                Companies and Agencies sections used to be. Each chip keeps the status. */}
+            <div className="segmented" role="group" aria-label="Kind">
+              <FilterChip selected={!kind} href={kindHref(undefined)} cursor={cursor}>
+                All
+              </FilterChip>
+              <FilterChip selected={kind === "company"} href={kindHref("company")} cursor={cursor}>
+                Companies
+              </FilterChip>
+              <FilterChip selected={kind === "agency"} href={kindHref("agency")} cursor={cursor}>
+                Agencies
+              </FilterChip>
+            </div>
+            {/* Folds behind a "Filters (n)" toggle on a phone (AW-08); unchanged above it. */}
+            <FilterPanel headingId="cf-heading" heading="Filter customers" filters={{ status }}>
+              <PayerFilterBar basePath="/companies" status={status ?? ""} kind={kind} />
+            </FilterPanel>
+          </>
         }
       />
 
@@ -141,7 +193,7 @@ export default async function CompaniesPage({
                 ? filtersRefused
                   ? "That filter was rejected."
                   : "Nothing was fetched."
-                : `${page?.items.length ?? 0} compan${page?.items.length === 1 ? "y" : "ies"} on this page.`}
+                : `${page?.items.length ?? 0} ${page?.items.length === 1 ? words.one : words.many} on this page.`}
             </p>
           </div>
           {filtersRefused ? null : clearFilters}
@@ -170,7 +222,7 @@ export default async function CompaniesPage({
           </div>
         ) : failed ? (
           <div className="state state--error">
-            <h3 className="state__title">Companies are unavailable</h3>
+            <h3 className="state__title">{words.title} are unavailable</h3>
             <p className="state__body">
               The list did not load, and that is a fault on our side rather than anything in the
               filter.
@@ -184,16 +236,17 @@ export default async function CompaniesPage({
             payers={page?.items ?? []}
             basePath="/companies"
             posture={posture}
+            kind={kind}
             pager={
               <Pager
                 basePath="/companies"
-                params={{ status }}
+                params={{ kind, status }}
                 cursor={cursor}
                 nextCursor={page?.nextCursor}
               />
             }
             emptyMessage={
-              status ? "No companies match this filter." : "No companies registered yet."
+              status ? `No ${words.many} match this filter.` : `No ${words.many} registered yet.`
             }
           />
         )}

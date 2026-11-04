@@ -14,7 +14,8 @@ import { PayerCreditsPanel } from "./payer-credits-panel";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 
 /**
- * One payer account — shared by Companies and Agencies, which differ only by `role`.
+ * One customer — a Company or an Agency, which differ only by `role` (one Companies section since
+ * A6, #2576).
  *
  * ── TWO NAMES, AND THEY ARE NOT THE SAME NAME ───────────────────────────────────────────
  * `org_name` is the account's REGISTERED organisation name, decrypted for this response behind
@@ -44,8 +45,9 @@ export function PayerDetailView({
 }) {
   // Distinct labels this payer has published under, most recent first.
   const labels = postings ? [...new Set(postings.map((p) => p.org_label))] : [];
-  // Phase 1's per-entity timeline route. `backHref` is /companies or /agencies, so this
-  // resolves to the section's own timeline page rather than the subject-type-wide feed.
+  // Phase 1's per-entity timeline route. `backHref` is the customers' section (/companies, for a
+  // Company and an Agency alike since A6), so this resolves to the customer's own timeline page
+  // rather than the subject-type-wide feed.
   // Offered only to a reader who may open it: the timeline route is `read_events`.
   const timelineHref = can(capabilities, "read_events")
     ? `${backHref}/${payer.id}/timeline`
@@ -60,7 +62,8 @@ export function PayerDetailView({
 
   // The id keeps its `mono` treatment; an organisation name does not get one.
   const header = {
-    back: { href: backHref, label: kind === "Company" ? "Companies" : "Agencies" },
+    // The list by its nav label: one Companies section holds both kinds (A6, #2576).
+    back: { href: backHref, label: "Companies" },
     title: orgName ?? shortId(payer.id),
     titleMono: orgName === null,
     description: (

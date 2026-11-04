@@ -22,15 +22,15 @@ const hrefOf = (out: string, label: string): string | null => {
 
 describe("RetryActions", () => {
   it("without a cursor: Retry alone, to the query as it is", () => {
-    const out = html(<RetryActions href="/workers" />);
-    expect(hrefOf(out, "Retry")).toBe("/workers");
+    const out = html(<RetryActions href="/candidates" />);
+    expect(hrefOf(out, "Retry")).toBe("/candidates");
     expect(out).not.toContain("Back to the first page");
   });
 
   it("with a cursor: Retry keeps it, and the first page drops it", () => {
-    const out = html(<RetryActions href="/workers" cursor="Y3Vyc29y" />);
-    expect(hrefOf(out, "Retry")).toBe("/workers?cursor=Y3Vyc29y");
-    expect(hrefOf(out, "Back to the first page")).toBe("/workers");
+    const out = html(<RetryActions href="/candidates" cursor="Y3Vyc29y" />);
+    expect(hrefOf(out, "Retry")).toBe("/candidates?cursor=Y3Vyc29y");
+    expect(hrefOf(out, "Back to the first page")).toBe("/candidates");
   });
 
   it("keeps the filters on both, and appends the cursor after them", () => {
@@ -122,18 +122,17 @@ describe("every RetryActions carries the page's cursor", () => {
   it("is used by every paged list that can fail", () => {
     const files = new Set(ALL.map((u) => u.file));
     for (const f of [
-      "app/(portal)/workers/page.tsx",
+      "app/(portal)/candidates/page.tsx",
       "app/(portal)/jobs/page.tsx",
       "app/(portal)/events/page.tsx",
       "app/(portal)/companies/page.tsx",
-      "app/(portal)/agencies/page.tsx",
       "components/entity-timeline.tsx",
       "app/(portal)/transactions/page.tsx",
       "app/(portal)/credits/page.tsx",
       "app/(portal)/skills/discovery/page.tsx",
       "app/(portal)/ai-calls/page.tsx",
       "app/(portal)/feedback/page.tsx",
-      "app/(portal)/workers/[id]/journey/page.tsx",
+      "app/(portal)/candidates/[id]/journey/page.tsx",
     ]) {
       expect(files.has(f), f).toBe(true);
     }

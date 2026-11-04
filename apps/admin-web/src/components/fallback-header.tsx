@@ -9,7 +9,7 @@ import { crumbTrail } from "./topbar-crumb";
  * replace whatever page was going to render at this address, and so cannot be told its parent.
  *
  * They read it off the address the same way the topbar crumb does: a page DIRECTLY below a section
- * (`/workers/<id>`) has the section list as its real parent, so the screen keeps that page's back
+ * (`/candidates/<id>`) has the section list as its real parent, so the screen keeps that page's back
  * link to it — and the crumb, which leaves that section unlinked because the back link is the one
  * link to it, is not left as the only way to the list. Anywhere else (a top-level page, a deeper
  * child whose parent is a record) there is no parent this screen could name honestly, so it

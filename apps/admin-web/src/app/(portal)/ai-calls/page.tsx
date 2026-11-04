@@ -216,7 +216,7 @@ export default async function AiCallsPage({
           <p className="field__help">
             Showing only the calls made for worker{" "}
             <span className="mono">{shortId(workerId)}</span>.{" "}
-            <Link className="link" href={`/workers/${encodeURIComponent(workerId)}`}>
+            <Link className="link" href={`/candidates/${encodeURIComponent(workerId)}`}>
               Open worker
             </Link>
             {/* Drops the worker and KEEPS the task and outcome filters. Shown only beside another
@@ -477,7 +477,7 @@ const COLUMNS: readonly GridColumn<AiTraceListItem>[] = [
     width: "id",
     cell: (t) => (
       <>
-        <Link className="link mono" href={`/workers/${t.worker_id}`} title={t.worker_id}>
+        <Link className="link mono" href={`/candidates/${t.worker_id}`} title={t.worker_id}>
           {shortId(t.worker_id)}
         </Link>
         <CopyId id={t.worker_id} label="worker id" />
@@ -488,7 +488,7 @@ const COLUMNS: readonly GridColumn<AiTraceListItem>[] = [
              row, so the link cannot point at a session under somebody else's id. */
           <Link
             className="link table__meta"
-            href={`/workers/${t.worker_id}/journey/${t.session_id}`}
+            href={`/candidates/${t.worker_id}/journey/${t.session_id}`}
             title={`Interview session ${t.session_id}`}
           >
             Session

@@ -269,8 +269,8 @@ describe("a row", () => {
 
   it("links the worker as an opaque id, and the call to its interview session", async () => {
     const out = await render();
-    expect(out).toContain(`href="/workers/${WORKER_ID}"`);
-    expect(out).toContain(`href="/workers/${WORKER_ID}/journey/${SESSION_ID}"`);
+    expect(out).toContain(`href="/candidates/${WORKER_ID}"`);
+    expect(out).toContain(`href="/candidates/${WORKER_ID}/journey/${SESSION_ID}"`);
     expect(out).toContain("5eed…0001");
   });
 
@@ -341,7 +341,7 @@ describe("the row's link to the text moves with the session, not with the page g
     expect(out).not.toContain('class="grid__link"');
     expect(columnHeaders(out)).not.toContain("Text");
     // …and the row is otherwise intact.
-    expect(out).toContain(`href="/workers/${WORKER_ID}"`);
+    expect(out).toContain(`href="/candidates/${WORKER_ID}"`);
     expect(out).toContain(">412<");
   });
 
@@ -494,7 +494,7 @@ describe("the worker narrowing", () => {
   it("percent-encodes the id it puts back into a path", async () => {
     stub.page = { items: [OTHERS_ROW], nextCursor: null };
     const out = await render({ workerId: "a#b" });
-    expect(out).toContain('href="/workers/a%23b"');
+    expect(out).toContain('href="/candidates/a%23b"');
   });
 });
 

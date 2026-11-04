@@ -12,7 +12,11 @@ its page would render for that session.
 
 `apps/admin-web` — the internal operations console. Owner rulings 2026-10-01: the job entity is
 **Posting**; the personas are **Company** and **Agency** and **Customers** is the umbrella for
-both; labels change, routes, API paths and capability keys do not.
+both; labels change, routes, API paths and capability keys do not. A6 (#2576, plan of
+2026-11-04): the sidebar is five groups with a **Directory**; Workers is **Candidates**
+(`/candidates`); Companies and Agencies are **one list with a Kind filter** (`/companies`);
+Agency match skills is a **tab on the agency posting**; Account and Sign out live in the
+topbar's avatar menu; the old addresses redirect (below).
 
 ### Sidebar
 
@@ -20,43 +24,111 @@ Source: `apps/admin-web/src/components/nav-model.ts`. The layout filters items b
 the server; an item is hidden when the session cannot open its page. Every page enforces its own
 gate (`requireCapability` / `requireSession`) whatever the sidebar shows.
 
-| Group          | Nav item               | Icon                      | Route               | Page                                 | Purpose                                                     | Capability                                            |
-| -------------- | ---------------------- | ------------------------- | ------------------- | ------------------------------------ | ----------------------------------------------------------- | ----------------------------------------------------- |
-| Overview       | Dashboard              | `squares-four`            | `/`                 | `(portal)/page.tsx`                  | What needs attention, headline figures, AI spend and volume | session (panels: `read_events`, `read_entities`)      |
-| Overview       | Events                 | `clock-counter-clockwise` | `/events`           | `(portal)/events/page.tsx`           | The global audit log, filterable                            | `read_events`                                         |
-| Operations     | Workers                | `users-three`             | `/workers`          | `(portal)/workers/page.tsx`          | The worker roster (no search, by design)                    | `read_entities`                                       |
-| Operations     | Feedback               | `chat-centered-text`      | `/feedback`         | `(portal)/feedback/page.tsx`         | What workers typed into the app's Feedback button           | `read_entities`                                       |
-| Operations     | AI calls               | `robot`                   | `/ai-calls`         | `(portal)/ai-calls/page.tsx`         | AI provider calls made for workers, as measurements         | `read_ai_traces`                                      |
-| Operations     | Companies              | `buildings`               | `/companies`        | `(portal)/companies/page.tsx`        | Company accounts (`payers.role = employer`)                 | `read_entities`                                       |
-| Operations     | Agencies               | `handshake`               | `/agencies`         | `(portal)/agencies/page.tsx`         | Agency accounts (`payers.role = agent`)                     | `read_entities`                                       |
-| Operations     | Postings               | `briefcase`               | `/jobs`             | `(portal)/jobs/page.tsx`             | Every posting, with the poster's own text                   | `read_entities`                                       |
-| Matching       | Skill discovery        | `list-magnifying-glass`   | `/skills/discovery` | `(portal)/skills/discovery/page.tsx` | The skill-candidate review queue                            | `read_entities` (deciding: `review_skill_candidates`) |
-| Matching       | Engine view            | `path`                    | `/matching/engine`  | `(portal)/matching/engine/page.tsx`  | How Matching V1 decides one demo worker's feed, live        | `read_entities`                                       |
-| Finance        | Credits                | `wallet`                  | `/credits`          | `(portal)/credits/page.tsx`          | Credit position and the credit ledger                       | `read_entities`                                       |
-| Finance        | Payment orders         | `receipt`                 | `/transactions`     | `(portal)/transactions/page.tsx`     | Credit-pack checkouts (payment orders)                      | `read_entities`                                       |
-| Administration | Admin users            | `user-gear`               | `/admins`           | `(portal)/admins/page.tsx`           | Admin directory, invites, role / MFA / suspend actions      | `manage_admins`                                       |
-| Administration | Roles and capabilities | `shield-check`            | `/roles`            | `(portal)/roles/page.tsx`            | The live role × capability matrix                           | session                                               |
-| Administration | System                 | `gauge`                   | `/system`           | `(portal)/system/page.tsx`           | System health and provider switches                         | session (switch table: `toggle_kill_switch`)          |
+| Group         | Nav item        | Icon                      | Route               | Page                                 | Purpose                                                       | Capability                                            |
+| ------------- | --------------- | ------------------------- | ------------------- | ------------------------------------ | ------------------------------------------------------------- | ----------------------------------------------------- |
+| Home          | Dashboard       | `squares-four`            | `/`                 | `(portal)/page.tsx`                  | What needs attention, headline figures, AI spend and volume   | session (panels: `read_events`, `read_entities`)      |
+| Directory     | Candidates      | `users-three`             | `/candidates`       | `(portal)/candidates/page.tsx`       | The worker roster (no search until A7 / #2559)                | `read_entities`                                       |
+| Directory     | Companies       | `buildings`               | `/companies`        | `(portal)/companies/page.tsx`        | Every customer — Kind: All · Companies · Agencies             | `read_entities`                                       |
+| Directory     | Postings        | `briefcase`               | `/jobs`             | `(portal)/jobs/page.tsx`             | Every posting, with the poster's own text; Agency postings    | `read_entities`                                       |
+| Finance       | Credits         | `wallet`                  | `/credits`          | `(portal)/credits/page.tsx`          | Credit position and the credit ledger                         | `read_entities`                                       |
+| Finance       | Payment orders  | `receipt`                 | `/transactions`     | `(portal)/transactions/page.tsx`     | Credit-pack checkouts (payment orders)                        | `read_entities`                                       |
+| Quality & AI  | Feedback        | `chat-centered-text`      | `/feedback`         | `(portal)/feedback/page.tsx`         | What workers typed into the app's Feedback button             | `read_entities`                                       |
+| Quality & AI  | AI calls        | `robot`                   | `/ai-calls`         | `(portal)/ai-calls/page.tsx`         | AI provider calls made for workers, as measurements           | `read_ai_traces`                                      |
+| Quality & AI  | Skill discovery | `list-magnifying-glass`   | `/skills/discovery` | `(portal)/skills/discovery/page.tsx` | The skill-candidate review queue                              | `read_entities` (deciding: `review_skill_candidates`) |
+| Quality & AI  | Engine view     | `path`                    | `/matching/engine`  | `(portal)/matching/engine/page.tsx`  | How Matching V1 decides one demo worker's feed, live          | `read_entities`                                       |
+| Audit & Admin | Events          | `clock-counter-clockwise` | `/events`           | `(portal)/events/page.tsx`           | The global audit log, filterable                              | `read_events`                                         |
+| Audit & Admin | Admin users     | `user-gear`               | `/admins`           | `(portal)/admins/page.tsx`           | Admin directory, invites, role / MFA / suspend actions        | `manage_admins`                                       |
+| Audit & Admin | Roles           | `shield-check`            | `/roles`            | `(portal)/roles/page.tsx`            | The live role × capability matrix ("Roles and capabilities")  | session                                               |
+| Audit & Admin | System          | `gauge`                   | `/system`           | `(portal)/system/page.tsx`           | System health and provider switches                           | session (switch table: `toggle_kill_switch`)          |
+
+**At most 15 items** (`NAV_ITEM_LIMIT`; it was 19), so the whole nav fits a 1080p browser with no
+scrolling — `nav-model.test.ts` adds up the declared heights for all 15 rows with every group open
+(884px of a 900px budget), and in headless Chrome the sidebar did not scroll at 1920×1080 or
+1920×900. **User accounts** (#2578) belongs in Directory between Candidates and Companies; it is not
+listed until its page and the capability it sits on (backend #2563) ship — an item before then
+would be a door to a 404 for every role.
+
+**Groups collapse.** Each group's title is a disclosure button (`aria-expanded`, `aria-controls`)
+with the brand caret; every group starts open. A navigation into a closed group opens it, so the
+current page is never hidden; only a group the operator toggled animates (180ms), so nothing moves
+on a page load. **The active marker glides**: the active row's wash and spine are one element under
+the rows, moved by `transform` (220ms, `--ease-glide`); without JS each active row draws its own.
+It is placed from the row's layout box (offsets summed up to the nav), never where the row is
+drawn, so a group still sliding open cannot leave it off its row, and before the browser paints.
+Only a new active row is glided to: when a group above it opens or closes, the marker moves in step
+with its row (each group is watched; the nav itself is stretched on a tall screen and never
+resizes), and a closing group hands the wash back to its row, which fades out with it.
 
 ### Detail and child pages
 
 Not in the sidebar. Each has a back link to its real parent, named the way the parent names
-itself. The topbar crumb shows the page's ancestors only (see the header rules).
+itself. The topbar crumb reads "Group › Page" (see the header rules).
 
-| Route                                                 | Page title             | Back link → parent                                                                   | Capability                                   |
-| ----------------------------------------------------- | ---------------------- | ------------------------------------------------------------------------------------ | -------------------------------------------- |
-| `/events/[id]`                                        | the event's name       | Events → `/events`                                                                   | `read_events`                                |
-| `/workers/[id]`                                       | name or short id       | Workers → `/workers`                                                                 | `read_entities`                              |
-| `/workers/[id]/timeline`                              | Event timeline         | Worker {id} → `/workers/[id]`                                                        | `read_events`                                |
-| `/workers/[id]/journey`                               | Journey                | Worker {id} → `/workers/[id]`                                                        | `read_entities`                              |
-| `/workers/[id]/journey/[sessionId]`                   | session short id       | Journey → `/workers/[id]/journey`                                                    | `read_entities`                              |
-| `/ai-calls/[id]`                                      | the call's task        | AI calls → `/ai-calls` (none on the denied screen: that reader cannot open the list) | `read_entities` page; text: `read_ai_traces` |
-| `/companies/[id]`, `/agencies/[id]`                   | organisation or id     | Companies / Agencies → the list                                                      | `read_entities`                              |
-| `/companies/[id]/timeline`, `/agencies/[id]/timeline` | Event timeline         | Company {id} / Agency {id} → the customer                                            | `read_events`                                |
-| `/jobs/[id]`                                          | the role title         | Postings → `/jobs`                                                                   | `read_entities`                              |
-| `/jobs/[id]/timeline`                                 | Event timeline         | Posting {id} → `/jobs/[id]`                                                          | `read_events`                                |
-| `/skills/discovery/[id]`                              | the candidate phrase   | Skill discovery → `/skills/discovery`                                                | `read_entities`                              |
-| `/login`, `/invite/accept`                            | Sign in, Accept invite | none (outside the portal shell)                                                      | none                                         |
+| Route                                         | Page title             | Back link → parent                                                                   | Capability                                   |
+| --------------------------------------------- | ---------------------- | ------------------------------------------------------------------------------------ | -------------------------------------------- |
+| `/events/[id]`                                | the event's name       | Events → `/events`                                                                   | `read_events`                                |
+| `/candidates/[id]`                            | name or short id       | Candidates → `/candidates`                                                           | `read_entities`                              |
+| `/candidates/[id]/timeline`                   | Event timeline         | Worker {id} → `/candidates/[id]`                                                     | `read_events`                                |
+| `/candidates/[id]/journey`                    | Journey                | Worker {id} → `/candidates/[id]`                                                     | `read_entities`                              |
+| `/candidates/[id]/journey/[sessionId]`        | session short id       | Journey → `/candidates/[id]/journey`                                                 | `read_entities`                              |
+| `/ai-calls/[id]`                              | the call's task        | AI calls → `/ai-calls` (none on the denied screen: that reader cannot open the list) | `read_entities` page; text: `read_ai_traces` |
+| `/companies/[id]`                             | organisation or id     | Companies → `/companies` (a Company or an Agency — the page names which)             | `read_entities`                              |
+| `/companies/[id]/timeline`                    | Event timeline         | Company {id} / Agency {id} → the customer                                            | `read_events` + `read_entities`              |
+| `/jobs/[id]`                                  | the role title         | Postings → `/jobs`                                                                   | `read_entities`                              |
+| `/jobs/[id]/timeline`                         | Event timeline         | Posting {id} → `/jobs/[id]`                                                          | `read_events`                                |
+| `/jobs/agency`                                | Agency postings        | Postings → `/jobs`                                                                   | `manage_agency_match_skills`                 |
+| `/jobs/agency/[jobId]`                        | the posting title      | Agency postings → `/jobs/agency` (tab: Overview)                                     | `manage_agency_match_skills`                 |
+| `/jobs/agency/[jobId]/match-skills`           | the posting title      | Agency postings → `/jobs/agency` (tab: Match skills — the editor)                    | `manage_agency_match_skills`                 |
+| `/skills/discovery/[id]`                      | the candidate phrase   | Skill discovery → `/skills/discovery`                                                | `read_entities`                              |
+| `/login`, `/invite/accept`                    | Sign in, Accept invite | none (outside the portal shell)                                                      | none                                         |
+
+**Agency postings are not rows of Postings.** An agency posting is a `jobs` row, not a
+`job_postings` one: `/admin/job-postings/:id` answers 404 for its id, its only admin read is
+`/admin/agency-jobs/:jobId/match-skills`, and the ADR-0050 system twin in `job_postings` is not
+linked in the admin projection. So it has its own list and page under Postings, opened from the
+Postings header ("Agency postings", offered only with `manage_agency_match_skills`), and its match
+skills are the second of its two tabs (Overview · Match skills, the console's segmented chip row).
+
+**Companies' Kind filter.** One segmented chip row — All · Companies · Agencies — above the folding
+filter panel, so it stays in view on a phone. `?kind=company|agency` sets the `role` that
+`GET /admin/payers` takes; an unknown kind is never sent and reads as All. Status keeps the kind, a
+chip keeps the status (and drops the page cursor), and Clear filters clears both. The All view's
+grid carries a Kind column (Company · Agency, off each row's own role); a filtered view has one
+kind, which its header says, so it has none. All three views share one set of column choices.
+
+### Redirects (old addresses)
+
+`next.config.mjs` `redirects()`; every rule keeps the query string. `src/app/legacy-redirects.test.ts`
+resolves each with Next's own matcher and checks it lands on a page with no second hop.
+
+| Old address         | Goes to                             | Status |
+| ------------------- | ----------------------------------- | ------ |
+| `/workers/*`        | `/candidates/*`                     | 308    |
+| `/agencies`         | `/companies?kind=agency`            | 308    |
+| `/agencies/<id>/*`  | `/companies/<id>/*`                 | 308    |
+| `/agency-jobs`      | `/jobs/agency`                      | 308    |
+| `/agency-jobs/<id>` | `/jobs/agency/<id>/match-skills`    | 308    |
+| `/postings/*`       | `/jobs/*` (an alias, so not cached) | 307    |
+
+### Topbar
+
+| Element           | What it is                                                                                                                                         | Gate                                                                       |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| Breadcrumb        | "Group › Page" (`topbar-crumb.tsx`)                                                                                                                 | derived from the nav                                                       |
+| Jump to · Ctrl/⌘K | A command palette (native `<dialog>`, `showModal`): paste an id, pick Candidate / Company or agency / Posting / Agency posting, Enter opens its page | each kind on its record page's own capability, filtered on the server      |
+| Environment badge | The API's `GET /health → environment` (cached in the server process; "Environment unknown" when the probe cannot say); Production in navy        | none (the probe is public)                                                 |
+| Avatar menu       | Who is signed in (role, short admin id), **Account**, **Sign out** — a disclosure, Escape / outside click / Tab away / navigation close it         | session                                                                    |
+
+The quick jump opens a record by **id only**: there is no admin lookup by phone (the entity reads
+never expose one; the universal candidate search is backend #2559, screen #2577), so a phone number
+typed there is told so. A wrong id opens that page's not-found. The palette's highlight moves
+instantly; it fades in with an 8px drop over 160ms. Behind the open mobile drawer the topbar is
+`inert` and the shortcut does nothing. A click closes it only when the press began on the backdrop
+too: a drag-select out of the field, let go below the panel, keeps the palette and the pasted id.
+
+The avatar menu listens on the document while it is open. Escape closes it wherever focus is
+(Safari and Firefox on macOS do not focus a button on click), and it closes when focus lands
+outside it, never when focus merely leaves: a click on its own text (the admin id) keeps it open.
 
 ### Header rules
 
@@ -80,12 +152,13 @@ three detail-page client headers (worker, company/agency, posting) pass their bu
 4. **Filters** directly below the header (`filters` slot), never in the actions slot. A list's
    filter bar sits in `components/filter-panel.tsx`: unchanged above the phone line, a
    "Filters (n)" disclosure on a phone — open whenever a filter is set.
-5. **Topbar crumb** (`topbar-crumb.tsx`): an ordered list — the group, then the section once
-   the page sits below it, then the named views between the section and the page ("Journey").
-   It never repeats the h1, and it never shows a record's id (only the views listed in
-   `SEGMENT_LABELS` are named). The section is linked only when the reader's sidebar holds it,
-   so a reader is never offered a link that redirects them — and never on a page directly below
-   it (`/workers/[id]`), whose back link already links the list: one target, one link, and the
+5. **Topbar crumb** (`topbar-crumb.tsx`): "Group › Page" (A6) — an ordered list: the group,
+   then the page's section (on a sidebar destination the page itself, `aria-current="page"`,
+   unlinked), then the named views between the section and the page ("Journey", "Agency
+   postings"). It never shows a record's id (only the views listed in `SEGMENT_LABELS` are
+   named). The section is linked only when the reader's sidebar holds it, so a reader is never
+   offered a link that redirects them — and never on a page directly below it
+   (`/candidates/[id]`), whose back link already links the list: one target, one link, and the
    crumb keeps the section as context. The portal's error and not-found screens keep that back
    link at the same addresses (`components/fallback-header.tsx`).
 6. **Current location.** The sidebar marks the exact page `aria-current="page"`; on a page
@@ -120,11 +193,11 @@ three detail-page client headers (worker, company/agency, posting) pass their bu
   or not a filter is set. **"Back to the first page"** is the same query without the cursor,
   and appears only when there is one; it is also the name of the way back from an empty page
   past the first. Every paged list's failed read renders both through
-  `components/retry-actions.tsx` (Workers, Postings, Events, Companies, Agencies, the event
+  `components/retry-actions.tsx` (Candidates, Postings, Events, Companies, the event
   timelines, Payment orders, the credit ledger, Skill discovery's flat view, AI calls,
   Feedback, a worker's interview sessions); a test fails if one does not pass its cursor.
 - **A refused read is not an outage.** Every list tells a 400 apart by one rule,
-  `lib/read-refusal.ts` (Workers, Postings, Events, Companies, Agencies, AI calls, Feedback,
+  `lib/read-refusal.ts` (Candidates, Postings, Events, Companies, AI calls, Feedback,
   the credit ledger, Payment orders and Admin users; Skill discovery keeps its grouped-view
   exception below). A refusal never offers Retry — the request would only be refused again —
   and says what was refused. Only a filter VALUE the API does not accept counts as a refusable
@@ -175,7 +248,7 @@ three detail-page client headers (worker, company/agency, posting) pass their bu
   discovery's Clear these fields, in its own transition with its own words.
   While pending: a dot (after a rail or crumb label, on the corner of a chip, the Pager or
   Apply), a bar along the top of the viewport (the cue a phone sees, since the drawer closes as
-  its link is followed) and one polite status line — "Opening Workers…", "Loading Credit
+  its link is followed) and one polite status line — "Opening Candidates…", "Loading Credit
   grant…", "Loading the next page…", "Applying the filters…", "Clearing the fields…". Nothing
   shows for the first 180ms (`--nav-pending-delay`, equal to `PENDING_ANNOUNCE_DELAY_MS` — a
   test ties them), so a prefetched navigation never flashes it, and all of it ends
@@ -187,13 +260,12 @@ three detail-page client headers (worker, company/agency, posting) pass their bu
   "Reload this page".
 - **Per-row controls** that share a visible name ("Suspend", "View") add the row's subject for
   assistive tech, after the visible label.
-- **A customer cell links the customer's own section** (#2032, sweep AW-28). The customer of a
-  posting (Postings, a posting's page), a ledger movement and a top balance (Credits; the top
-  balance since #2106) and a payment order (Payment orders) links `/companies/<id>` for a Company
-  and `/agencies/<id>` for an Agency, read from the `payer_role` the API serves beside
-  `payer_id`, and names the persona beside the short id. With no role — an older API or an
-  orphaned id — it links `/companies/<id>`, whose route redirects an agency to its own section,
-  and names no persona.
+- **A customer cell links the customer's page** (#2032, sweep AW-28; one section since A6). The
+  customer of a posting (Postings, a posting's page), a ledger movement and a top balance
+  (Credits; the top balance since #2106) and a payment order (Payment orders) links
+  `/companies/<id>` — a Company and an Agency alike — and, when the API serves `payer_role` beside
+  `payer_id`, names the persona beside the short id. With no role — an older API or an orphaned
+  id — it names none; the page reads the role itself.
   Every cell renders `components/customer-link.tsx`, which builds the address with
   `customerHref` (`lib/customer.ts`); a fence in `lib/customer.test.ts` fails any shipped file
   that builds `/companies/…` or `/agencies/…` by hand.
@@ -214,7 +286,7 @@ three detail-page client headers (worker, company/agency, posting) pass their bu
   Skill Discovery / Skill Candidate, Roles & capabilities, Open the event timeline, Show every
   worker. The word "account" is NOT fenced — it is right for an admin's own account ("this
   admin account has spent its hourly name budget") — so a customer is kept out of it by the
-  render tests of the customer screens (Companies, Agencies, a customer's page, its credits
+  render tests of the customer screens (Companies in every Kind, a customer's page, its credits
   panel, a posting's page), not by the fence. Event names are data and keep their words (`payer.suspended`); where one is
   shown humanized, its domain reads as the console says it ("Customer · suspended",
   "Posting · created" — `humanizeEventName`).
@@ -225,8 +297,8 @@ three detail-page client headers (worker, company/agency, posting) pass their bu
 ### Lists — the data grid (A4, #2574)
 
 Every list in the console draws its rows with ONE component, `components/data-grid.tsx`
-(`DataGrid`): Events and every entity timeline (through `EventTable`), Workers, Companies and
-Agencies (through `PayerList`), Postings, Agency match skills, Feedback, AI calls, the credit
+(`DataGrid`): Events and every entity timeline (through `EventTable`), Candidates, Companies
+(every customer, through `PayerList`), Postings, Agency postings, Feedback, AI calls, the credit
 ledger and its two summaries, Payment orders, Admin users, Skill discovery's flat view and a
 worker's interview sessions. A page declares columns; the grid does the rest. The Candidates,
 User accounts and Companies tabs (#2577–#2579) are built on it. A source fence

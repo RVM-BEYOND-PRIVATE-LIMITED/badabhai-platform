@@ -58,7 +58,7 @@ const COLUMNS: GridColumn<Row>[] = [
 
 const LINK = {
   column: "name",
-  href: (r: Row) => `/workers/${r.id}`,
+  href: (r: Row) => `/candidates/${r.id}`,
   name: (r: Row) => r.name ?? `worker ${r.id.slice(0, 4)}`,
   label: (r: Row) => (r.name ? undefined : `Worker ${r.id.slice(0, 4)}, no name on record`),
 };
@@ -120,7 +120,7 @@ describe("columns", () => {
     // A sortable header counts its arrow too.
     const sortable = grid({
       columns: COLUMNS.map((c) =>
-        c.id === "status" ? { ...c, sort: { href: "/workers?sort=status", label: "sort by status" } } : c,
+        c.id === "status" ? { ...c, sort: { href: "/candidates?sort=status", label: "sort by status" } } : c,
       ),
     });
     expect(sortable).toContain(`style="--col-head:${headerWidthRem("Status", true)}rem"`);
@@ -201,10 +201,10 @@ describe("the row as ONE link", () => {
     expect(rows).toHaveLength(2);
     for (const [i, row] of rows.entries()) {
       expect(row.split('class="grid__link"')).toHaveLength(2);
-      expect(row).toContain(`href="/workers/${ROWS[i]!.id}"`);
+      expect(row).toContain(`href="/candidates/${ROWS[i]!.id}"`);
     }
     expect(rows[0]).toMatch(
-      /<td class="grid__cell--truncate grid__cell--link"><a class="grid__link" href="\/workers\/[^"]+"><span class="grid__link-text" title="Ramesh Kumar">Ramesh Kumar<\/span>/,
+      /<td class="grid__cell--truncate grid__cell--link"><a class="grid__link" href="\/candidates\/[^"]+"><span class="grid__link-text" title="Ramesh Kumar">Ramesh Kumar<\/span>/,
     );
   });
 
@@ -309,7 +309,7 @@ describe("the pending state — a navigation under way, after the console's dela
 describe("the footer bar", () => {
   it("holds the pager slot and the view controls", () => {
     const out = grid({
-      pager: <Pager basePath="/workers" params={{}} cursor={undefined} nextCursor="c2" />,
+      pager: <Pager basePath="/candidates" params={{}} cursor={undefined} nextCursor="c2" />,
     });
     const footer = out.slice(out.indexOf('<div class="grid__footer">'));
     expect(footer).toContain('<div class="grid__pager"><nav class="pager" aria-label="Pages">');
@@ -337,7 +337,7 @@ describe("a sortable header", () => {
     grid({
       columns: COLUMNS.map((c) =>
         c.id === "status"
-          ? { ...c, sort: { href: "/workers?sort=status", direction, label: "sort by status" } }
+          ? { ...c, sort: { href: "/candidates?sort=status", direction, label: "sort by status" } }
           : c,
       ),
     });
@@ -345,7 +345,7 @@ describe("a sortable header", () => {
   it("is a link to the list ordered by it, telling assistive tech the current order", () => {
     const out = sorted("descending");
     expect(out).toMatch(
-      /<th scope="col" aria-sort="descending"><a class="grid__sort" data-direction="descending" href="\/workers\?sort=status"><span class="grid__head">Status<\/span><span class="sr-only">, sort by status<\/span><i class="ph-fill ph-sort-descending grid__sort-icon" aria-hidden="true"><\/i>/,
+      /<th scope="col" aria-sort="descending"><a class="grid__sort" data-direction="descending" href="\/candidates\?sort=status"><span class="grid__head">Status<\/span><span class="sr-only">, sort by status<\/span><i class="ph-fill ph-sort-descending grid__sort-icon" aria-hidden="true"><\/i>/,
     );
   });
 

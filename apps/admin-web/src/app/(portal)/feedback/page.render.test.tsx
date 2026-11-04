@@ -194,7 +194,7 @@ describe("a row", () => {
 
   it("shows the worker as an opaque id linking to the roster, full value in the title", async () => {
     const out = await render();
-    expect(out).toContain(`href="/workers/${WORKER_ID}"`);
+    expect(out).toContain(`href="/candidates/${WORKER_ID}"`);
     expect(out).toContain(`title="${WORKER_ID}"`);
     expect(out).toContain("5eed…0001");
   });
@@ -286,7 +286,7 @@ describe("a row", () => {
     // knowing whether they ever reached a job is guessing, and the alternative is copying an
     // id into another screen by hand.
     const out = await render();
-    expect(out).toContain(`href="/workers/${WORKER_ID}/journey"`);
+    expect(out).toContain(`href="/candidates/${WORKER_ID}/journey"`);
   });
 
   it("does NOT offer the journey link to an admin who could not open it", async () => {
@@ -296,7 +296,7 @@ describe("a row", () => {
     const out = await render();
     expect(out).not.toContain("/journey");
     // …and the row is otherwise intact: the worker link and the message are still there.
-    expect(out).toContain(`href="/workers/${WORKER_ID}"`);
+    expect(out).toContain(`href="/candidates/${WORKER_ID}"`);
     expect(out).toContain(TAGGED.message);
   });
 
@@ -331,7 +331,7 @@ describe("what this screen refuses to offer", () => {
     stub.page = { items: [TAGGED], nextCursor: null };
     const out = await render();
     expect(out).not.toContain("reveal");
-    expect(out).not.toMatch(/href="[^"]*\/workers\/[^"]*\/(contact|reveal)/);
+    expect(out).not.toMatch(/href="[^"]*\/candidates\/[^"]*\/(contact|reveal)/);
   });
 });
 
@@ -453,7 +453,7 @@ describe("the worker narrowing", () => {
 
   it("links from the narrowing to that worker's journey", async () => {
     const out = await render({ workerId: WORKER_ID });
-    expect(out).toContain(`href="/workers/${WORKER_ID}/journey"`);
+    expect(out).toContain(`href="/candidates/${WORKER_ID}/journey"`);
   });
 
   it("says nothing about a worker when none is selected", async () => {
@@ -481,7 +481,7 @@ describe("the worker narrowing", () => {
     // guaranteed to be a uuid — an unescaped `#` or `?` in a link would silently point at a
     // different route than the one the text claims.
     const out = await render({ workerId: "a#b" });
-    expect(out).toContain('href="/workers/a%23b"');
+    expect(out).toContain('href="/candidates/a%23b"');
   });
 
   it("a category chip KEEPS the worker narrowing", async () => {
@@ -552,7 +552,7 @@ describe("the empty states, which are four different claims", () => {
   it("worker-narrowed and empty: says THIS worker sent nothing, and offers their journey", async () => {
     const out = await render({ workerId: WORKER_ID });
     expect(out).toContain("This worker has sent no feedback");
-    expect(out).toContain(`href="/workers/${WORKER_ID}/journey"`);
+    expect(out).toContain(`href="/candidates/${WORKER_ID}/journey"`);
     expect(out).not.toContain("No feedback carries this tag");
     expect(out).not.toContain("No feedback submitted yet");
   });

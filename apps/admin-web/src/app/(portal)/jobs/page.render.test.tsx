@@ -82,6 +82,30 @@ describe("the gate", () => {
   });
 });
 
+/**
+ * Agency postings (A6, #2576): the old "Agency match skills" section is a view of Postings now,
+ * opened from this header — and only for a session whose role can read agency jobs at all
+ * (`manage_agency_match_skills`, the gate on every agency-job read). The page's own gate is not
+ * moved by it.
+ */
+describe("the way to Agency postings", () => {
+  const link = '<a class="btn btn--ghost" href="/jobs/agency"><i class="ph-fill ph-tag" aria-hidden="true"></i>Agency postings</a>';
+
+  it("is a header action for a session that may open it", async () => {
+    stub.capabilities = ["read_entities", "manage_agency_match_skills"];
+    const out = await render();
+    expect(out).toContain(link);
+    expect(out.indexOf(link)).toBeLessThan(out.indexOf("</header>"));
+    expect(stub.gates).toEqual(["read_entities"]);
+  });
+
+  it("is absent for one that may not — no door to a refusal", async () => {
+    const out = await render();
+    expect(out).not.toContain("/jobs/agency");
+    expect(out).not.toContain("Agency postings");
+  });
+});
+
 describe("the names (owner ruling 2026-10-01)", () => {
   it("calls the page Postings and the headcount Openings", async () => {
     const out = await render();
@@ -243,11 +267,12 @@ describe("the customer cell links the customer's own section", () => {
     stub.page = { items: [{ ...POSTING, payer_role }], nextCursor: null };
   };
 
-  it("an agency posting links /agencies/<id> directly, named Agency", async () => {
+  it("an agency posting links the one customers section, /companies/<id>, named Agency", async () => {
+    // One Companies section holds both kinds since A6 (#2576); the persona is still named.
     withRole("agent");
     const out = await render();
-    expect(out).toContain(customerCell(PAYER, `/agencies/${PAYER}`, "Agency", "</td>"));
-    expect(out).not.toContain(`href="/companies/${PAYER}"`);
+    expect(out).toContain(customerCell(PAYER, `/companies/${PAYER}`, "Agency", "</td>"));
+    expect(out).not.toContain(`href="/agencies/`);
   });
 
   it("a company posting links /companies/<id>, named Company", async () => {

@@ -622,44 +622,11 @@ details[open] > summary > .disclosure__caret {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.sidebar__foot {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-  border-top: var(--border-hairline) solid var(--border-on-ink);
-  padding-top: var(--space-4);
-}
-/* Sign out is the shared ghost button, re-pointed at the on-ink tokens: its light-surface
-   --text-secondary label would be ~2:1 on the band. */
-.sidebar .btn--ghost {
-  color: var(--text-on-ink-muted);
-  border-color: var(--border-on-ink);
-}
-.sidebar .btn--ghost:hover:not(:disabled) {
-  background: var(--surface-ink-hover);
-  color: var(--text-on-ink);
-  border-color: var(--text-on-ink-muted);
-}
 /* The global ring's surface-coloured band (see the base :focus-visible rule) exists to lift
    the ring off a filled control on a light card; on the navy band it would paint a white
    halo. The ring itself is re-pointed on `.sidebar` via --focus-ring. */
 .sidebar :where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
   box-shadow: none;
-}
-.whoami {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-  padding: 0 var(--space-3);
-}
-.whoami__role {
-  font-size: var(--text-sm);
-  font-weight: var(--weight-semibold);
-}
-.whoami__id {
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  color: var(--text-on-ink-muted);
 }
 
 .shell__main {
@@ -1064,8 +1031,8 @@ details[open] > summary > .disclosure__caret {
    expands to its full width while a pointer is over it or keyboard focus is inside it.
    - It expands OVER the page, never pushing it: the negative inline-end margin keeps its flex
      footprint at the rail's width, so the content never moves when the rail opens or closes.
-   - Labels, group titles and the footer text fade (opacity) and stay in the accessibility tree,
-     so every link keeps its accessible name; the overflow is clipped while narrow.
+   - Labels and group titles fade (opacity) and stay in the accessibility tree, so every link
+     keeps its accessible name; the overflow is clipped while narrow.
    - Motion: width over --duration-base (220ms) ease-out. Closing, the labels fade out first and
      the width follows after --duration-fade; opening, the width goes first and the labels fade
      in after it. Under reduced motion the width change is instant.
@@ -1094,23 +1061,15 @@ details[open] > summary > .disclosure__caret {
       width var(--duration-base) var(--ease-out),
       margin-inline-end var(--duration-base) var(--ease-out);
   }
-  .sidebar :is(.sidebar__label, .sidebar__grouptitle, .sidebar__soon, .bb-lockup__text, .whoami),
-  .sidebar__foot .btn > span {
+  .sidebar :is(.sidebar__label, .sidebar__grouptitle, .sidebar__soon, .bb-lockup__text) {
     opacity: 0;
     white-space: nowrap;
     transition: opacity var(--duration-fade) var(--ease-exit);
   }
   .sidebar:has(:focus-visible)
-    :is(.sidebar__label, .sidebar__grouptitle, .sidebar__soon, .bb-lockup__text, .whoami),
-  .sidebar:has(:focus-visible) .sidebar__foot .btn > span {
+    :is(.sidebar__label, .sidebar__grouptitle, .sidebar__soon, .bb-lockup__text) {
     opacity: 1;
     transition: opacity var(--duration-fade) var(--ease-enter) var(--duration-base);
-  }
-  /* Sign out keeps its glyph on the rail's icon column instead of centring a clipped label. */
-  .sidebar__foot .btn {
-    justify-content: flex-start;
-    padding-inline: var(--space-3);
-    white-space: nowrap;
   }
   .sidebar:hover {
     width: var(--shell-nav-w);
@@ -1119,8 +1078,7 @@ details[open] > summary > .disclosure__caret {
       width var(--duration-base) var(--ease-out),
       margin-inline-end var(--duration-base) var(--ease-out);
   }
-  .sidebar:hover :is(.sidebar__label, .sidebar__grouptitle, .sidebar__soon, .bb-lockup__text, .whoami),
-  .sidebar:hover .sidebar__foot .btn > span {
+  .sidebar:hover :is(.sidebar__label, .sidebar__grouptitle, .sidebar__soon, .bb-lockup__text) {
     opacity: 1;
     transition: opacity var(--duration-fade) var(--ease-enter) var(--duration-base);
   }
@@ -3041,22 +2999,7 @@ textarea.field__input {
   font-variant-numeric: tabular-nums;
   font-size: var(--text-md);
 }
-.engine__head {
-  display: grid;
-  gap: var(--space-3);
-}
-.engine__title {
-  font-family: var(--font-display);
-  font-size: var(--text-4xl);
-  line-height: var(--leading-tight);
-  text-transform: uppercase;
-  color: var(--text-on-ink);
-  margin: 0;
-}
-.engine__title-key {
-  color: var(--text-on-ink-active);
-}
-.engine__sub,
+/* The page title is the standard PageHeader above the stage (A6, #2576): no hero here. */
 .engine__state {
   font-size: var(--text-lg);
   color: var(--text-on-ink-muted);
@@ -3467,9 +3410,6 @@ textarea.field__input {
      127px an ordinary word like "Maintenance" needs at its size, and split it mid-word. */
   .engine__panel {
     padding: var(--space-4);
-  }
-  .engine__title {
-    font-size: var(--text-2xl);
   }
   .engine__step-value {
     font-size: var(--text-3xl);
@@ -4928,4 +4868,425 @@ a.pager__step:hover {
 }
 .btn--primary:disabled {
   box-shadow: none;
+}
+
+/* ══ A6 (#2576) — NAVIGATION: Directory groups, the gliding active marker, the topbar's quick
+   jump, environment badge and avatar menu, and the Ctrl/⌘K palette ══
+   ONE block, appended, so the parallel admin lanes rebase over it trivially. Brand tokens only,
+   no new colours. Motion is opacity and transform only, nothing loops, and every duration is a
+   token, so tokens.css zeroes all of it under prefers-reduced-motion:
+     active marker   glides 220ms            --duration-base, --ease-glide
+     a group         opens / closes 180ms    2 × --duration-press, enter ease-out, exit ease-in
+     avatar menu     fades in, 0.98 → 1, from the top-right, 140ms   --duration-fast
+     palette         fades in with an 8px drop, 160ms   2 × --duration-instant — the issue's one
+                     stated exception to the 6px travel rule; its results never animate. */
+
+/* ---- sidebar: groups that open and close ------------------------------------------------ */
+
+/* The 15-row budget at 1080p (nav-model.test.ts adds it up): groups --space-4 apart, each title
+   a 24px disclosure row. The nav is the marker's positioning box. */
+.sidebar__nav {
+  position: relative;
+  gap: var(--space-4);
+}
+.sidebar__grouptitle {
+  margin: 0;
+  margin-block-end: var(--space-1);
+}
+/* The title IS the toggle: it keeps the eyebrow face it inherits from the heading, on a row as
+   wide as the nav, its text on the rows' icon column. */
+.sidebar__grouptoggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  inline-size: 100%;
+  min-height: var(--space-6);
+  padding: 0 var(--space-3);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+.sidebar__grouptoggle:hover {
+  color: var(--text-on-ink);
+}
+/* The brand caret: down while open, along the line while closed (the `<summary>` convention). */
+.sidebar__groupcaret {
+  flex: none;
+  font-size: var(--icon-size-sm);
+  transition: transform calc(var(--duration-press) * 2) var(--ease-out);
+}
+.sidebar__grouptoggle[aria-expanded="false"] > .sidebar__groupcaret {
+  transform: rotate(-90deg);
+}
+/* A closed group's rows are gone: `hidden`, which the list's own `display: flex` would undo. */
+.sidebar__list[hidden] {
+  display: none;
+}
+/* Only a group the operator toggled animates (`data-moved`), so nothing moves on a page load.
+   Opening: its rows fade in and settle down by --motion-rise. Closing: they fade and lift
+   first, and the list goes when they are done (a discrete `display` transition; a browser
+   without it simply hides them at once). */
+.sidebar__group[data-moved] > .sidebar__list:not([hidden]) {
+  animation: nav-group-in calc(var(--duration-press) * 2) var(--ease-enter);
+}
+.sidebar__group[data-moved] > .sidebar__list[hidden] {
+  opacity: 0;
+  transform: translateY(calc(-1 * var(--motion-rise)));
+  transition:
+    opacity calc(var(--duration-press) * 2) var(--ease-exit),
+    transform calc(var(--duration-press) * 2) var(--ease-exit),
+    display calc(var(--duration-press) * 2) allow-discrete;
+}
+@keyframes nav-group-in {
+  from {
+    opacity: 0;
+    transform: translateY(calc(-1 * var(--motion-rise)));
+  }
+}
+
+/* ---- sidebar: the active marker ----------------------------------------------------------- */
+
+/* ONE wash-and-spine under the active row, moved by transform: changing page glides it to the
+   new row. The rows paint above it (positioned, later in the tree). Until it is measured — and
+   without JS — each active row draws its own (the UI-1 rule); `data-marker` hands it over. */
+.sidebar__list > li {
+  position: relative;
+}
+.sidebar__marker {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline: 0;
+  block-size: var(--nav-marker-h);
+  transform: translateY(var(--nav-marker-y));
+  border-radius: var(--radius-sm);
+  background: var(--surface-ink-active);
+  box-shadow: inset var(--border-spine) 0 0 0 var(--brand);
+  transition: transform var(--duration-base) var(--ease-glide);
+  pointer-events: none;
+}
+/* Only a NEW active row is glided to. When the rows move under the same one (a group above it
+   opening or closing), the marker moves in step with them: a glide would trail across other rows. */
+.sidebar__marker[data-snap] {
+  transition: none;
+}
+.sidebar__nav[data-marker] .sidebar__link.is-active {
+  background: transparent;
+  box-shadow: none;
+}
+
+/* ---- topbar: quick jump, environment, avatar menu ------------------------------------------ */
+
+.topbar__jump {
+  flex: none;
+}
+.topbar__kbd {
+  font-family: var(--font-sans);
+  font-size: var(--ui-caption-size);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-none);
+  padding: var(--space-1) var(--space-2);
+  border: var(--border-hairline) solid var(--divider);
+  border-radius: var(--radius-xs);
+  background: var(--surface-sunken);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+/* Production wears the structural navy: the one environment an operator must never mistake.
+   Every other one keeps the quiet sunken pill (`.topbar__env`, AA-fenced). */
+.topbar__env--production {
+  background: var(--surface-ink);
+  border-color: var(--surface-ink);
+  color: var(--text-on-ink);
+}
+
+.avatar-menu {
+  position: relative;
+  flex: none;
+}
+.avatar-menu__trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--control-md);
+  padding: var(--space-1) var(--space-2) var(--space-1) var(--space-1);
+  border: var(--border-hairline) solid transparent;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--text-heading);
+  font: inherit;
+  font-size: var(--ui-body-sm-size);
+  font-weight: var(--weight-semibold);
+  cursor: pointer;
+  transition: var(--transition-control);
+}
+.avatar-menu__trigger:hover,
+.avatar-menu__trigger[aria-expanded="true"] {
+  background: var(--surface-sunken);
+  border-color: var(--divider);
+}
+/* The avatar: a solid person on the Shift Blue disc — the admin has no name or photo to show. */
+.avatar-menu__avatar {
+  display: inline-grid;
+  place-items: center;
+  inline-size: var(--control-sm);
+  block-size: var(--control-sm);
+  border-radius: var(--radius-round);
+  background: var(--surface-ink);
+  color: var(--text-on-ink);
+  font-size: var(--icon-size-md);
+}
+.avatar-menu__caret {
+  font-size: var(--icon-size-sm);
+  transition: transform var(--duration-fast) var(--ease-out);
+}
+.avatar-menu__trigger[aria-expanded="true"] > .avatar-menu__caret {
+  transform: rotate(180deg);
+}
+.avatar-menu__panel {
+  position: absolute;
+  inset-block-start: calc(100% + var(--space-2));
+  inset-inline-end: 0;
+  z-index: var(--z-overlay);
+  min-inline-size: 15rem;
+  padding: var(--space-2);
+  border: var(--border-hairline) solid var(--divider);
+  border-radius: var(--radius-lg);
+  background: var(--surface-card);
+  box-shadow: var(--shadow-lg);
+  transform-origin: top right;
+}
+.avatar-menu__panel:not([hidden]) {
+  animation: avatar-menu-in var(--duration-fast) var(--ease-enter);
+}
+@keyframes avatar-menu-in {
+  from {
+    opacity: 0;
+    transform: scale(var(--motion-enter-scale));
+  }
+}
+.avatar-menu__who {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+  padding: var(--space-2) var(--space-3) var(--space-3);
+  border-block-end: var(--border-hairline) solid var(--divider);
+}
+.avatar-menu__eyebrow {
+  font-size: var(--ui-eyebrow-size);
+  font-weight: var(--ui-eyebrow-weight);
+  letter-spacing: var(--ui-eyebrow-tracking);
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+.avatar-menu__role-name {
+  font-weight: var(--weight-bold);
+  color: var(--text-heading);
+}
+.avatar-menu__id {
+  color: var(--text-secondary);
+}
+.avatar-menu__list {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+  padding: var(--space-2) 0 0;
+  list-style: none;
+}
+.avatar-menu__item {
+  display: flex;
+  align-items: center;
+  gap: var(--icon-gap);
+  min-height: var(--control-md);
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-weight: var(--weight-medium);
+  text-decoration: none;
+  transition: var(--transition-control);
+}
+.avatar-menu__item:hover {
+  background: var(--surface-sunken);
+}
+.avatar-menu__item[aria-current="page"] {
+  background: var(--brand-tint);
+  color: var(--text-accent);
+}
+.avatar-menu__item .ph-fill {
+  font-size: var(--icon-size-md);
+}
+/* Sign out is the shared ghost button; in the menu it is a row like Account — the same height,
+   its glyph on Account's column, no outline of its own. */
+.avatar-menu__signout > .btn {
+  justify-content: flex-start;
+  min-height: var(--control-md);
+  padding-inline: var(--space-3);
+  border-color: transparent;
+  color: var(--text-primary);
+  font-weight: var(--weight-medium);
+}
+.avatar-menu__signout > .btn .ph-fill {
+  font-size: var(--icon-size-md);
+}
+
+/* ---- the Ctrl/⌘K palette ------------------------------------------------------------------ */
+
+.jump {
+  inline-size: min(36rem, calc(100vw - 2 * var(--space-4)));
+  max-block-size: calc(100dvh - 2 * var(--space-9));
+  margin: var(--space-11) auto auto;
+  padding: 0;
+  border: var(--border-hairline) solid var(--divider);
+  border-radius: var(--radius-xl);
+  background: var(--surface-card);
+  color: var(--text-primary);
+  box-shadow: var(--shadow-xl);
+}
+.jump[open] {
+  animation: jump-in calc(var(--duration-instant) * 2) var(--ease-enter);
+}
+.jump::backdrop {
+  background: var(--scrim);
+}
+.jump[open]::backdrop {
+  animation: jump-fade calc(var(--duration-instant) * 2) var(--ease-enter);
+}
+@keyframes jump-in {
+  from {
+    opacity: 0;
+    transform: translateY(calc(-1 * var(--space-2)));
+  }
+}
+@keyframes jump-fade {
+  from {
+    opacity: 0;
+  }
+}
+.jump__panel {
+  display: grid;
+}
+/* The field shows its own focus: a structural-navy rule under it, for the input inside — and,
+   since forced colours drop every box-shadow, a transparent outline they repaint. */
+.jump__field {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-4);
+  border-block-end: var(--border-hairline) solid var(--divider);
+}
+.jump__field:focus-within {
+  outline: var(--border-bold) solid transparent;
+  outline-offset: calc(-1 * var(--border-bold));
+  box-shadow: inset 0 calc(-1 * var(--border-bold)) 0 var(--focus-ring);
+}
+.jump__icon {
+  flex: none;
+  font-size: var(--icon-size-md);
+  color: var(--icon-secondary);
+}
+.jump__input {
+  flex: 1;
+  min-width: 0;
+  min-height: var(--control-md);
+  border: 0;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--text-md);
+}
+.jump__input:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+.jump__list {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+  padding: var(--space-2);
+  list-style: none;
+}
+.jump__list:empty {
+  display: none;
+}
+/* The highlight is the selected tint with the accent spine. It MOVES INSTANTLY: no transition
+   on an option, ever (A6). */
+.jump__option {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: var(--control-md);
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+.jump__option[aria-selected="true"] {
+  background: var(--brand-tint);
+  box-shadow: inset var(--border-spine) 0 0 0 var(--brand);
+  color: var(--text-accent);
+}
+.jump__option-icon {
+  flex: none;
+  font-size: var(--icon-size-md);
+}
+.jump__option-label {
+  flex: 1;
+  font-weight: var(--weight-semibold);
+}
+.jump__option-id {
+  color: var(--text-secondary);
+}
+.jump__hint {
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--ui-body-sm-size);
+  color: var(--text-secondary);
+}
+
+/* ---- small screens and touch -------------------------------------------------------------- */
+
+@media (max-width: 600px), (pointer: coarse) {
+  /* A group toggle is a target like a drawer row: 44px on a phone or a coarse pointer. */
+  .sidebar__grouptoggle {
+    min-height: var(--control-md);
+  }
+}
+@media (max-width: 600px) {
+  /* On a phone the topbar's right-hand side is glyphs: the jump button a 44px square, the avatar
+     disc without its role or caret — their names stay (aria-label) — so the crumb keeps room. */
+  .topbar {
+    gap: var(--space-2);
+  }
+  .topbar__spacer {
+    display: none;
+  }
+  .crumbs {
+    flex: 1 1 auto;
+  }
+  .topbar__jump-label,
+  .topbar__jump > .topbar__kbd,
+  .avatar-menu__role,
+  .avatar-menu__caret {
+    display: none;
+  }
+  .topbar__jump {
+    inline-size: var(--control-md);
+    min-height: var(--control-md);
+    padding-inline: 0;
+    justify-content: center;
+  }
+  .avatar-menu__trigger {
+    padding: var(--space-1);
+  }
+}
+@media (max-width: 1023px) {
+  /* The shortcut hint is a keyboard's; below the drawer breakpoint the button says it alone. */
+  .topbar__jump > .topbar__kbd {
+    display: none;
+  }
 }

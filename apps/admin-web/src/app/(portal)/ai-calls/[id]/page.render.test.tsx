@@ -346,8 +346,8 @@ describe("the successful read", () => {
   it("shows the call's scalars, and links the worker and the session", async () => {
     const out = await render();
     expect(out).toContain("gemini-2.5-flash");
-    expect(out).toContain(`href="/workers/${WORKER_ID}"`);
-    expect(out).toContain(`href="/workers/${WORKER_ID}/journey/${SESSION_ID}"`);
+    expect(out).toContain(`href="/candidates/${WORKER_ID}"`);
+    expect(out).toContain(`href="/candidates/${WORKER_ID}/journey/${SESSION_ID}"`);
     expect(out).toContain('href="/events?correlationId=req-9fd0b09"');
   });
 

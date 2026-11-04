@@ -14,16 +14,16 @@ describe("Pager (keyset)", () => {
   it("renders nothing on a first page that is also the last", () => {
     expect(
       renderToStaticMarkup(
-        <Pager basePath="/workers" params={{}} cursor={undefined} nextCursor={null} />,
+        <Pager basePath="/candidates" params={{}} cursor={undefined} nextCursor={null} />,
       ),
     ).toBe("");
   });
 
   it("its Next page link keeps the filters, carries the next cursor and the pending cue", () => {
     const out = renderToStaticMarkup(
-      <Pager basePath="/workers" params={{ status: "active" }} cursor={undefined} nextCursor="c2" />,
+      <Pager basePath="/candidates" params={{ status: "active" }} cursor={undefined} nextCursor="c2" />,
     );
-    expect(out).toContain('href="/workers?status=active&amp;cursor=c2"');
+    expect(out).toContain('href="/candidates?status=active&amp;cursor=c2"');
     expect(out).toMatch(
       /Next page<i class="ph-fill ph-caret-right" aria-hidden="true"><\/i><span class="nav-pending" aria-hidden="true"><\/span><\/a>/,
     );
@@ -33,14 +33,14 @@ describe("Pager (keyset)", () => {
 
   it("past page one: First page is the same query with no cursor — every filter kept", () => {
     const out = renderToStaticMarkup(
-      <Pager basePath="/workers" params={{ status: "active" }} cursor="c2" nextCursor="c3" />,
+      <Pager basePath="/candidates" params={{ status: "active" }} cursor="c2" nextCursor="c3" />,
     );
     expect(out).toMatch(
       new RegExp(
-        `href="/workers\\?status=active"><i class="ph-fill ph-caret-double-left" aria-hidden="true"></i>First page${CUE}</a>`,
+        `href="/candidates\\?status=active"><i class="ph-fill ph-caret-double-left" aria-hidden="true"></i>First page${CUE}</a>`,
       ),
     );
-    expect(out).toContain('href="/workers?status=active&amp;cursor=c3"');
+    expect(out).toContain('href="/candidates?status=active&amp;cursor=c3"');
     expect(out.indexOf("First page")).toBeLessThan(out.indexOf("Next page"));
   });
 
@@ -62,7 +62,7 @@ describe("Pager (keyset)", () => {
 
   it("is a named navigation, its keyset note one click away behind an ⓘ", () => {
     const out = renderToStaticMarkup(
-      <Pager basePath="/workers" params={{}} cursor={undefined} nextCursor="c2" note="Keyset note." />,
+      <Pager basePath="/candidates" params={{}} cursor={undefined} nextCursor="c2" note="Keyset note." />,
     );
     expect(out).toMatch(/^<nav class="pager" aria-label="Pages">/);
     expect(out).toContain('<summary class="infopop__toggle" aria-label="About paging"');

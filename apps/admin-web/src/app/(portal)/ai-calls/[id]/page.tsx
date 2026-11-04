@@ -203,7 +203,7 @@ export default async function AiCallDetailPage({
             {
               label: "Worker",
               value: (
-                <Link className="link mono" href={`/workers/${trace.worker_id}`}>
+                <Link className="link mono" href={`/candidates/${trace.worker_id}`}>
                   {trace.worker_id}
                 </Link>
               ),
@@ -213,7 +213,7 @@ export default async function AiCallDetailPage({
               value: trace.session_id ? (
                 <Link
                   className="link mono"
-                  href={`/workers/${trace.worker_id}/journey/${trace.session_id}`}
+                  href={`/candidates/${trace.worker_id}/journey/${trace.session_id}`}
                 >
                   {trace.session_id}
                 </Link>

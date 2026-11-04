@@ -24,14 +24,21 @@ vi.mock("react", async (importOriginal) => {
   const actual = await importOriginal<typeof ReactModule>();
   return {
     ...actual,
-    useState: () => [hooks.open, hooks.setOpen],
+    // The drawer's open flag is the shell's one boolean state. The children's own state (the
+    // nav's open groups and marker, A6) is handed to React: they render for real in the markup
+    // tests below and are never called in function form.
+    useState: (initial: unknown) =>
+      typeof initial === "boolean" ? [hooks.open, hooks.setOpen] : actual.useState(initial),
     useRef: () => ({ current: hooks.drawer }),
     useEffect: (run: Effect["run"], deps?: readonly unknown[]) => {
       hooks.effects.push({ run, deps });
     },
   };
 });
-vi.mock("next/navigation", () => ({ usePathname: () => hooks.pathname }));
+vi.mock("next/navigation", () => ({
+  usePathname: () => hooks.pathname,
+  useRouter: () => ({ push: () => {}, replace: () => {}, refresh: () => {}, prefetch: () => {} }),
+}));
 
 const { Shell, MENU_TOGGLE_ID } = await import("./shell");
 
@@ -39,6 +46,8 @@ const props = {
   sections: [],
   roleLabel: "Ops admin",
   adminId: "a1b2c3d4-0000-4000-8000-000000000001",
+  environment: "staging",
+  jumpKinds: ["candidate", "company", "posting"] as const,
   onSignOut: null,
   children: <p>content</p>,
 };
@@ -210,7 +219,7 @@ describe("a link activated inside the drawer closes it (review L1)", () => {
     ...extra,
     target: {
       closest: (selector: string) =>
-        inLink && selector === "a[href]" ? { href: "/workers" } : null,
+        inLink && selector === "a[href]" ? { href: "/candidates" } : null,
     },
   });
 

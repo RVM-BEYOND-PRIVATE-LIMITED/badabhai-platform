@@ -8,23 +8,32 @@ import { renderToStaticMarkup } from "react-dom/server";
  * self-hosted Phosphor FILL font (@badabhai/icons) — and the button's accessible name, expanded
  * state and controlled element must not have moved with it.
  */
-vi.mock("next/navigation", () => ({ usePathname: () => "/jobs" }));
+vi.mock("next/navigation", () => ({
+  usePathname: () => "/jobs",
+  useRouter: () => ({ push: () => {}, replace: () => {}, refresh: () => {}, prefetch: () => {} }),
+}));
 
 const { Shell } = await import("./shell");
 
-const render = () =>
+const render = (environment: string | null = "staging") =>
   renderToStaticMarkup(
     <Shell
       sections={[
-        { title: "Operations", items: [{ href: "/jobs", label: "Postings", icon: "briefcase" }] },
+        { title: "Directory", items: [{ href: "/jobs", label: "Postings", icon: "briefcase" }] },
       ]}
       roleLabel="Ops admin"
       adminId="a1b2c3d4-0000-4000-8000-000000000001"
-      onSignOut={null}
+      environment={environment}
+      jumpKinds={["candidate", "company", "posting"]}
+      onSignOut={<button type="button">Sign out</button>}
     >
       <p>content</p>
     </Shell>,
   );
+
+/** The topbar's markup, `<header class="topbar">` to its close. */
+const topbar = (out: string) =>
+  out.slice(out.indexOf('<header class="topbar">'), out.indexOf("</header>", out.indexOf('<header class="topbar">')));
 
 /** The toggle's markup, from its opening tag to its closing `</button>`. */
 function toggle(out: string): string {
@@ -90,5 +99,56 @@ describe("the navigation status", () => {
     expect(status > sidebar && status < sidebarEnd).toBe(false);
     expect(status).toBeLessThan(main);
     expect(out).toContain('<div class="nav-progress" aria-hidden="true"></div>');
+  });
+});
+
+/**
+ * THE TOPBAR (A6, #2576): after the crumb, on the right — the quick jump, the environment the API
+ * reports, and the avatar menu holding Account and Sign out. The sidebar keeps only the brand and
+ * the nav: its foot is gone, so Sign out is never below the fold.
+ */
+describe("the topbar's right-hand side (A6)", () => {
+  it("is the quick jump, then the environment badge, then the avatar menu — in that order", () => {
+    const bar = topbar(render());
+    const jump = bar.indexOf("topbar__jump");
+    const env = bar.indexOf('class="topbar__env');
+    const avatar = bar.indexOf('class="avatar-menu"');
+    expect(bar.indexOf('class="crumbs"')).toBeLessThan(jump);
+    expect(jump).toBeGreaterThan(-1);
+    expect(env).toBeGreaterThan(jump);
+    expect(avatar).toBeGreaterThan(env);
+  });
+
+  it("the badge names the API's environment, not the role (it used to be the role pill)", () => {
+    const bar = topbar(render("staging"));
+    expect(bar).toContain('<span class="sr-only">Environment: </span>Staging</span>');
+    expect(bar).not.toContain('<span class="topbar__env">Ops admin</span>');
+  });
+
+  it("production is the navy badge; an unreadable probe says unknown", () => {
+    expect(topbar(render("production"))).toContain('class="topbar__env topbar__env--production"');
+    expect(topbar(render(null))).toContain(">Environment unknown</span>");
+  });
+
+  it("Sign out and Account live in the avatar menu, in the always-visible topbar", () => {
+    const bar = topbar(render());
+    expect(bar).toContain(">Sign out</button>");
+    expect(bar).toContain('href="/account"');
+  });
+
+  it("the sidebar is the brand and the nav, nothing else", () => {
+    const out = render();
+    const aside = out.slice(out.indexOf('<aside class="sidebar"'), out.indexOf("</aside>"));
+    expect(aside).not.toContain("sidebar__foot");
+    expect(aside).not.toContain("Sign out");
+    expect(aside).not.toContain('href="/account"');
+    expect(aside).toContain('class="sidebar__brand"');
+    expect(aside).toContain('aria-label="Portal sections"');
+  });
+
+  it("the palette's dialog is in the page, closed, until the shortcut or the button opens it", () => {
+    const out = render();
+    expect(out).toContain('<dialog class="jump"');
+    expect(out).not.toMatch(/<dialog class="jump"[^>]* open/);
   });
 });

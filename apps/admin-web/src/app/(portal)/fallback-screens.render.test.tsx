@@ -8,7 +8,7 @@ import { renderToStaticMarkup } from "react-dom/server";
  *    rule 2). Each was an h1 styled as a state title inside the state block (sweep AW-20).
  *  - The error boundary's button is "Retry", the console's one name for that action — it read
  *    "Try again" (AW-14).
- *  - Directly below a section (`/workers/<id>`) they keep the back link to that section's list:
+ *  - Directly below a section (`/candidates/<id>`) they keep the back link to that section's list:
  *    the topbar crumb leaves the section unlinked there because the back link is the link to it
  *    (AW-16), so a fallback screen without one would leave no way to the list on the page.
  */
@@ -62,19 +62,19 @@ describe("the error boundary", () => {
   });
 
   it("directly below a section, links back to its list", () => {
-    nav.pathname = `/workers/${WORKER}`;
+    nav.pathname = `/candidates/${WORKER}`;
     expect(renderError()).toContain(
-      '<a class="backlink" href="/workers"><i class="ph-fill ph-arrow-left" aria-hidden="true"></i><span>Workers</span></a>',
+      '<a class="backlink" href="/candidates"><i class="ph-fill ph-arrow-left" aria-hidden="true"></i><span>Candidates</span></a>',
     );
   });
 
   it("on a top-level page, has no back link — the sidebar is its way back", () => {
-    nav.pathname = "/workers";
+    nav.pathname = "/candidates";
     expect(renderError()).not.toContain("backlink");
   });
 
   it("deeper down, claims no parent it cannot name — the crumb links the section there", () => {
-    nav.pathname = `/workers/${WORKER}/journey`;
+    nav.pathname = `/candidates/${WORKER}/journey`;
     expect(renderError()).not.toContain("backlink");
   });
 });

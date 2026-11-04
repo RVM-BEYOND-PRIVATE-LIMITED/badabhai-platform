@@ -272,13 +272,15 @@ describe("credits — a customer cell links the customer's own section", () => {
   /** The top balance's cell with no role served: the fallback, never a persona. */
   const BALANCE = customerCell(PAYER, `/companies/${PAYER}`, null, "</td>");
 
-  it("an agency's movement links /agencies/<id> directly, named Agency", async () => {
+  it("an agency's movement links the one customers section, /companies/<id>, named Agency", async () => {
+    // One Companies section holds both kinds since A6 (#2576); the persona is still named.
     withLedgerRole("agent");
     const out = await render();
-    expect(out).toContain(customerCell(PAYER, `/agencies/${PAYER}`, "Agency", "</td>"));
-    // …and the only /companies/ link left is the top balance's.
-    expect(count(out, `href="/companies/${PAYER}"`)).toBe(1);
+    expect(out).toContain(customerCell(PAYER, `/companies/${PAYER}`, "Agency", "</td>"));
+    // …beside the top balance's cell, which names no persona (no role served).
+    expect(count(out, `href="/companies/${PAYER}"`)).toBe(2);
     expect(out).toContain(BALANCE);
+    expect(out).not.toContain(`href="/agencies/`);
   });
 
   it("a company's movement links /companies/<id>, named Company", async () => {
@@ -318,11 +320,12 @@ describe("credits — a top balance links the customer's own section (#2106)", (
     out.slice(out.indexOf('id="cr-holders"'), out.indexOf('id="cr-ledger"'));
   const FALLBACK = customerCell(PAYER, `/companies/${PAYER}`, null, "</td>");
 
-  it("an agency's balance links /agencies/<id> directly, named Agency", async () => {
+  it("an agency's balance links the one customers section, /companies/<id>, named Agency", async () => {
+    // One Companies section holds both kinds since A6 (#2576); the persona is still named.
     withBalanceRole("agent");
     const panel = holdersPanel(await render());
-    expect(panel).toContain(customerCell(PAYER, `/agencies/${PAYER}`, "Agency", "</td>"));
-    expect(panel).not.toContain(`href="/companies/${PAYER}"`);
+    expect(panel).toContain(customerCell(PAYER, `/companies/${PAYER}`, "Agency", "</td>"));
+    expect(panel).not.toContain(`href="/agencies/`);
   });
 
   it("a company's balance links /companies/<id>, named Company", async () => {

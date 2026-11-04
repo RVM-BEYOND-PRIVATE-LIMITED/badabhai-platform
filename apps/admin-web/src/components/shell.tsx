@@ -1,16 +1,18 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ACTION_ICON, Icon } from "@badabhai/icons";
+import { AvatarMenu } from "./avatar-menu";
 import { BrandLockup } from "./brand-lockup";
 import { holdFocusInDrawer } from "./drawer-focus";
+import { EnvironmentBadge } from "./environment-badge";
 import { IconButton } from "./icon-button";
 import { SidebarNav } from "./nav";
+import { QuickJump } from "./quick-jump";
 import { TopbarCrumb } from "./topbar-crumb";
-import { NavPendingCue, NavPendingStatus } from "./nav-pending";
+import { NavPendingStatus } from "./nav-pending";
 import type { NavSection } from "./nav-model";
+import type { JumpKindId } from "./quick-jump-model";
 
 /**
  * The menu toggle's id: where focus goes back to when the drawer closes, and how the shell tells
@@ -19,8 +21,8 @@ import type { NavSection } from "./nav-model";
  */
 export const MENU_TOGGLE_ID = "portal-menu-toggle";
 
-/** The signed-in admin's own settings page (ADR-0060) — reached from the user area, not the nav. */
-export const ACCOUNT_HREF = "/account";
+/** The signed-in admin's own settings page (ADR-0060) — the avatar menu's link, not a nav item. */
+export { ACCOUNT_HREF } from "./avatar-menu";
 
 /**
  * The portal chrome: sidebar + top bar + content region.
@@ -34,6 +36,11 @@ export const ACCOUNT_HREF = "/account";
  * Everything it renders is passed in from the server, so no session or capability data is
  * computed here.
  *
+ * THE TOPBAR (A6, #2576): the drawer toggle (below 1024px), the "Group › Page" crumb, then — on
+ * the right — the Ctrl/⌘K quick jump, the environment the API reports, and the avatar menu with
+ * Account and Sign out. Those two used to sit in the sidebar's foot, below 19 nav items and the
+ * fold of a 1080p screen; the topbar is sticky, so Sign out is always reachable.
+ *
  * THE OPEN DRAWER IS MODAL (final sweep AW-04). Measured before: the closed drawer's 15
  * controls were the first 15 Tab stops of every page below 1024px (off-screen), and once it was
  * open the next Tabs went to the page behind the scrim. Now: closed, it is out of the tab order
@@ -45,12 +52,18 @@ export function Shell({
   sections,
   roleLabel,
   adminId,
+  environment,
+  jumpKinds,
   children,
   onSignOut,
 }: {
   sections: NavSection[];
   roleLabel: string;
   adminId: string;
+  /** The API's environment (`lib/environment.ts`), or null when its probe did not say. */
+  environment: string | null;
+  /** The record kinds this session may quick-jump to — filtered on the server, like `sections`. */
+  jumpKinds: readonly JumpKindId[];
   children: React.ReactNode;
   onSignOut: React.ReactNode;
 }) {
@@ -138,31 +151,6 @@ export function Shell({
         </div>
 
         <SidebarNav sections={sections} />
-
-        <div className="sidebar__foot">
-          <div className="whoami">
-            <span className="whoami__role">{roleLabel}</span>
-            {/* The opaque admin id, never a name or email — /admin/me returns neither. */}
-            <span className="whoami__id" title={adminId}>
-              {adminId.slice(0, 8)}…
-            </span>
-          </div>
-          {/* Account sits in the USER area, beside who you are and Sign out — the conventional
-              place for your own settings, and where payer-web's account menu puts it. Not a
-              section of the nav: it is not a part of the platform being operated, and every
-              admin has it (no capability), so it never appears or disappears with a role. It
-              wears the nav row's styling so the active page reads the same way. */}
-          <Link
-            href={ACCOUNT_HREF}
-            className={`sidebar__link${pathname === ACCOUNT_HREF ? " is-active" : ""}`}
-            aria-current={pathname === ACCOUNT_HREF ? "page" : undefined}
-          >
-            <Icon name={ACTION_ICON.settings} className="sidebar__icon" />
-            <span className="sidebar__label">Account</span>
-            <NavPendingCue message="Opening Account…" />
-          </Link>
-          {onSignOut}
-        </div>
       </aside>
 
       {/* Scrim: only drawn while the drawer is open, and hidden from screen readers otherwise so
@@ -210,7 +198,9 @@ export function Shell({
               but not the row. */}
           <TopbarCrumb sections={sections} />
           <div className="topbar__spacer" />
-          <span className="topbar__env">{roleLabel}</span>
+          <QuickJump kinds={jumpKinds} />
+          <EnvironmentBadge environment={environment} />
+          <AvatarMenu roleLabel={roleLabel} adminId={adminId} signOut={onSignOut} />
         </header>
 
         <main className="content" id="main">

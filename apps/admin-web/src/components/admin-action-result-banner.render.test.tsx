@@ -52,10 +52,10 @@ describe("AdminActionResultBanner", () => {
     const one = html(
       <AdminActionResultBanner
         outcome={{ ok: true, changed: true, message: "Worker flagged." }}
-        eventsLink={{ href: "/workers/w-9/timeline", label: "View event timeline" }}
+        eventsLink={{ href: "/candidates/w-9/timeline", label: "View event timeline" }}
       />,
     );
-    expect(one).toContain('href="/workers/w-9/timeline"');
+    expect(one).toContain('href="/candidates/w-9/timeline"');
     expect(one).toContain(">View event timeline<");
 
     // An admin-directory action has no per-admin timeline: it is the global log, so it is

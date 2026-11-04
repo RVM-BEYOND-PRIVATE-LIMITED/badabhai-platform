@@ -18,18 +18,18 @@ const code = (rel: string) => stripComments(readFileSync(join(src, rel), "utf8")
 const LISTS: Array<[list: string, rows: string]> = [
   ["app/(portal)/events/page.tsx", "components/event-table.tsx"],
   ["components/entity-timeline.tsx", "components/event-table.tsx"],
-  ["app/(portal)/workers/page.tsx", "app/(portal)/workers/page.tsx"],
+  ["app/(portal)/candidates/page.tsx", "app/(portal)/candidates/page.tsx"],
+  /* Every customer — Companies and Agencies are one list since A6 (#2576), with a Kind filter. */
   ["app/(portal)/companies/page.tsx", "components/payer-list.tsx"],
-  ["app/(portal)/agencies/page.tsx", "components/payer-list.tsx"],
   ["app/(portal)/jobs/page.tsx", "app/(portal)/jobs/page.tsx"],
-  ["app/(portal)/agency-jobs/page.tsx", "app/(portal)/agency-jobs/page.tsx"],
+  ["app/(portal)/jobs/agency/page.tsx", "app/(portal)/jobs/agency/page.tsx"],
   ["app/(portal)/feedback/page.tsx", "app/(portal)/feedback/page.tsx"],
   ["app/(portal)/ai-calls/page.tsx", "app/(portal)/ai-calls/page.tsx"],
   ["app/(portal)/credits/page.tsx", "app/(portal)/credits/page.tsx"],
   ["app/(portal)/transactions/page.tsx", "app/(portal)/transactions/page.tsx"],
   ["app/(portal)/admins/page.tsx", "app/(portal)/admins/page.tsx"],
   ["app/(portal)/skills/discovery/page.tsx", "app/(portal)/skills/discovery/page.tsx"],
-  ["app/(portal)/workers/[id]/journey/page.tsx", "app/(portal)/workers/[id]/journey/page.tsx"],
+  ["app/(portal)/candidates/[id]/journey/page.tsx", "app/(portal)/candidates/[id]/journey/page.tsx"],
 ];
 
 /**
@@ -40,11 +40,10 @@ const LISTS: Array<[list: string, rows: string]> = [
 const FILL_PAGES = [
   "app/(portal)/events/page.tsx",
   "components/entity-timeline.tsx",
-  "app/(portal)/workers/page.tsx",
+  "app/(portal)/candidates/page.tsx",
   "app/(portal)/companies/page.tsx",
-  "app/(portal)/agencies/page.tsx",
   "app/(portal)/jobs/page.tsx",
-  "app/(portal)/agency-jobs/page.tsx",
+  "app/(portal)/jobs/agency/page.tsx",
   "app/(portal)/feedback/page.tsx",
   "app/(portal)/ai-calls/page.tsx",
 ];
@@ -71,7 +70,8 @@ describe("every list draws its rows on the data grid", () => {
     const pagers = LISTS.flatMap(([list, rows]) => [...new Set([list, rows])]).flatMap((file) =>
       [...code(file).matchAll(/<Pager\b([\s\S]*?)\/>/g)].map((m) => [file, m[1]!] as const),
     );
-    expect(pagers.length).toBeGreaterThanOrEqual(12);
+    // Eleven since A6 (#2576) folded Agencies' list, and its pager, into Companies.
+    expect(pagers.length).toBeGreaterThanOrEqual(11);
     for (const [file, props] of pagers) expect(props, file).toMatch(/\bcursor=\{/);
   });
 });
@@ -93,10 +93,10 @@ describe("the filter bars (A4)", () => {
   it("finds them all", () => {
     expect(filterBars().sort()).toEqual([
       "app/(portal)/ai-calls/filter-bar.tsx",
+      "app/(portal)/candidates/filter-bar.tsx",
       "app/(portal)/events/filter-bar.tsx",
       "app/(portal)/jobs/filter-bar.tsx",
       "app/(portal)/skills/discovery/filter-bar.tsx",
-      "app/(portal)/workers/filter-bar.tsx",
       "components/payer-filter-bar.tsx",
     ]);
   });
