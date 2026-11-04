@@ -133,7 +133,12 @@ This is a **Data-API lockout**, not tenant isolation. Risk posture:
 
 The neutral-404 discipline is consistently applied: a Recruiter cannot learn that an Owner-only
 route exists. Cookie `bb_payer_token` is `httpOnly`, `sameSite: "lax"`, `secure` computed by
-`shouldUseSecureCookie()` (`session-cookie.ts:24`). **No localStorage/sessionStorage anywhere.**
+`shouldUseSecureCookie()` (`session-cookie.ts:24`). **No session or credential in
+localStorage/sessionStorage.** The one browser-storage use is the posting forms' unsaved draft
+(W4, `lib/posting-draft.ts`): `localStorage` keys `bb:posting-draft:<payerId>:new` and
+`bb:posting-draft:<payerId>:edit:<postingId>`, scoped to the signed-in payer's opaque id so a
+shared browser never restores one payer's draft into another's form, and every
+`bb:posting-draft:*` key is removed on sign-out (`account-menu.tsx`).
 
 CSRF posture on Server Actions relies on Next 15's built-in origin check — **not independently
 verified** (dimension 9).

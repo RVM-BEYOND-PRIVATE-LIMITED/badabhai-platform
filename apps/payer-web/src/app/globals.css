@@ -5867,6 +5867,10 @@ img.agency-qr__code,
   .ai-chat {
     grid-template-columns: minmax(0, 1fr);
   }
+  /* One column: the draft follows the conversation instead of pinning over it. */
+  .ai-chat__side {
+    position: static;
+  }
 }
 .ai-chat__thread {
   display: grid;
@@ -5925,7 +5929,8 @@ img.agency-qr__code,
   display: grid;
   gap: var(--space-4);
   position: sticky;
-  top: var(--space-5);
+  /* W4 — below the sticky shell header (it slid under it at --space-5). */
+  top: var(--posting-rail-top);
 }
 .ai-draft {
   display: grid;
@@ -7536,6 +7541,7 @@ body:has(.invite-landing) .chrome-footer {
   margin: 0;
   font-size: var(--text-lg);
   color: var(--text-primary);
+  scroll-margin-top: var(--posting-rail-top);
 }
 .mw-card__sub {
   margin: 2px 0 0;
@@ -7877,6 +7883,106 @@ body:has(.invite-landing) .chrome-footer {
 .posting-preview--hidden,
 .posting-dock[data-mw-hidden] {
   display: none;
+}
+
+/* W4 (#2584) — POSTING ON A PHONE OR TABLET. At 1100px and below the designer rail drops under
+   the form, so its Publish sat below the whole form AND the preview. There the shared dock comes
+   back: pinned to the bottom of the screen along the whole form (it shares the form column's grid
+   cell, so `sticky` carries it the full length), carrying the status, the card summary (its
+   sheet) and Publish. The rail's own actions step aside so exactly one Publish is on screen. */
+@media (max-width: 1100px) {
+  .mw-layout > .mw-main {
+    grid-row: 1;
+    grid-column: 1;
+    padding-bottom: calc(var(--posting-dock-h) + var(--space-4));
+  }
+  .mw-layout > .posting-dock[data-mw-hidden] {
+    display: flex;
+    grid-row: 1;
+    grid-column: 1;
+    align-self: end;
+    position: sticky;
+    bottom: var(--space-2);
+    z-index: var(--z-sticky);
+    animation: mw-dock-in var(--duration-base) var(--ease-enter) both;
+  }
+  .mw-layout .mw-rail__actions,
+  .mw-card__foothint--wide {
+    display: none;
+  }
+  html:has(.mw-layout) {
+    scroll-padding-bottom: calc(var(--posting-dock-h) + var(--space-8));
+  }
+  .mw-layout > .posting-dock button {
+    scroll-margin-bottom: calc(-1 * (var(--posting-dock-h) + var(--space-8)));
+  }
+}
+@media (min-width: 1101px) {
+  .mw-card__foothint--narrow {
+    display: none;
+  }
+}
+@keyframes mw-dock-in {
+  from {
+    opacity: 0;
+    transform: translateY(var(--motion-rise));
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* W4 — a step change lands on the new step's heading (focus + scroll, below the sticky header —
+   `.mw-card__title`'s scroll margin) and the step arrives with a short rise. */
+.mw-form > .mw-card:not([hidden]) {
+  animation: mw-step-in var(--duration-base) var(--ease-enter) both;
+}
+@keyframes mw-step-in {
+  from {
+    opacity: 0;
+    transform: translateY(var(--motion-rise));
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* W4 — "Draft saved on this device": fades in after each local save, then out again. */
+.mw-draft-cue {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin: 0;
+  font-size: var(--ui-caption-size);
+  color: var(--text-muted);
+  opacity: 0;
+  transition: opacity var(--duration-page) var(--ease-exit);
+}
+.mw-draft-cue[data-shown="true"] {
+  opacity: 1;
+  transition-timing-function: var(--ease-enter);
+}
+/* The form opened with changes kept on this device: said plainly, with Discard beside it. */
+.mw-draft-restored {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+  margin: 0;
+  font-size: var(--ui-caption-size);
+  color: var(--text-muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mw-layout > .posting-dock[data-mw-hidden],
+  .mw-form > .mw-card:not([hidden]) {
+    animation: none;
+  }
+  .mw-draft-cue {
+    transition: none;
+  }
 }
 
 /* ============================================================

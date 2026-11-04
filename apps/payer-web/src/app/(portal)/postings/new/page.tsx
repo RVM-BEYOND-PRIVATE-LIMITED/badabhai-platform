@@ -123,6 +123,7 @@ export default async function NewPostingPage() {
 
   return (
     <PostingForm
+      payerId={session.payerId}
       quotaStep={quotaStep}
       matchSkills={matchSkills}
       postingTrades={postingTrades}

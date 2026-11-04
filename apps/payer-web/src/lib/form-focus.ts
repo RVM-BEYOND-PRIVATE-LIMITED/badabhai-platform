@@ -17,3 +17,22 @@ export function focusControl(id: string): void {
 export function revealWholeControl(event: { currentTarget: Element }): void {
   event.currentTarget.scrollIntoView({ block: "nearest" });
 }
+
+/**
+ * W4 (#2584) — a multi-step form's step change lands the payer on the NEW step's heading: focus
+ * moves there (it is `tabIndex={-1}`) and it is scrolled to the top of the view — smoothly, or
+ * at once under reduced motion. Runs on the next frame, after React has shown the step. A no-op
+ * outside a browser.
+ */
+export function focusStepHeading(id: string): void {
+  if (typeof document === "undefined" || typeof window === "undefined") return;
+  const run = () => {
+    const heading = document.getElementById(id);
+    if (heading === null) return;
+    heading.focus({ preventScroll: true });
+    const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
+    heading.scrollIntoView?.({ block: "start", behavior: reduce ? "auto" : "smooth" });
+  };
+  if (typeof window.requestAnimationFrame === "function") window.requestAnimationFrame(run);
+  else run();
+}

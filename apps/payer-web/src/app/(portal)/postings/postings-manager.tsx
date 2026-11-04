@@ -49,8 +49,11 @@ import {
  * the ₹ (`topUpOffer`, which the server page reads from the SAME live-catalog tier the action
  * charges by — never a literal here) and opens the generic DS Dialog — never a ConfirmSpendDialog,
  * which stays the unlock's alone. Only that dialog's confirm calls the action. No priced offer (the
- * catalog has no top-up tier) means nothing to sell, so the button is not drawn. Pause, Resume and
- * Close are not purchases and stay one tap. Who may buy is unchanged.
+ * catalog has no top-up tier) means nothing to sell, so the button is not drawn. Pause and Resume
+ * are not purchases and stay one tap. Who may buy is unchanged.
+ *
+ * CLOSE ASKS FIRST (W4, #2584). Closing cannot be undone from here, so Close posting opens a
+ * danger confirm (the team Remove pattern); only its confirm calls the action.
  *
  * FOCUS, ONLY WHEN IT WAS LOST (the team Remove pattern). The Dialog hands focus back to its
  * trigger on close — but a confirmed purchase disables the row's buttons while it runs, so that
@@ -208,6 +211,8 @@ export function PostingsManager({
   const [state, setState] = useState<Record<string, RowState>>({});
   // The posting whose slot purchase is waiting to be confirmed — the confirm dialog is open while set.
   const [confirmingTopUp, setConfirmingTopUp] = useState<string | null>(null);
+  // The posting whose CLOSE is waiting to be confirmed (W4) — APPENDED: the tests seed by order.
+  const [confirmingClose, setConfirmingClose] = useState<string | null>(null);
   // The posting whose slot button opened the confirm: focus goes back there once the dialog is
   // closed and that row's purchase has settled — only if focus was lost meanwhile.
   const focusBack = useRef<string | null>(null);
@@ -305,6 +310,19 @@ export function PostingsManager({
     return res; // a failure — KEEP the key: a retry of this purchase must reuse it
   }
 
+  /** Close posting only ASKS (W4) — nothing changes until the dialog's confirm. */
+  function askClose(id: string) {
+    setConfirmingClose(id);
+  }
+
+  /** The close dialog's confirm — the ONLY path to closing a posting. */
+  function confirmClose() {
+    const id = confirmingClose;
+    if (id === null) return;
+    setConfirmingClose(null);
+    void runOneTap(id, "close");
+  }
+
   /** A row's slot button only ASKS — nothing is bought, and the row's last result stays. */
   function askTopUp(id: string) {
     focusBack.current = id;
@@ -344,6 +362,8 @@ export function PostingsManager({
 
   const confirming =
     confirmingTopUp === null ? null : (rows.find((p) => p.id === confirmingTopUp) ?? null);
+  const closing =
+    confirmingClose === null ? null : (rows.find((p) => p.id === confirmingClose) ?? null);
   // The slot button's face: what it buys and the price. No offer ⇒ no slot button is drawn at all.
   const topUpFace =
     topUpOffer === null ? null : (
@@ -457,7 +477,13 @@ export function PostingsManager({
                         iconLeft={ACTION_ICON_OF[a]}
                         loading={rs.busy === a}
                         disabled={rs.busy !== null}
-                        onClick={() => (a === "topUp" ? askTopUp(p.id) : void runOneTap(p.id, a))}
+                        onClick={() =>
+                          a === "topUp"
+                            ? askTopUp(p.id)
+                            : a === "close"
+                              ? askClose(p.id)
+                              : void runOneTap(p.id, a)
+                        }
                       >
                         {a === "topUp" ? topUpFace : ACTION_LABEL[a]}
                       </Button>
@@ -494,6 +520,25 @@ export function PostingsManager({
           {inr(topUpOffer.priceInr)}?
         </Dialog>
       ) : null}
+
+      {/* Close asks first — a danger confirm, like Team › Remove (W4). */}
+      <Dialog
+        open={confirmingClose !== null}
+        onClose={() => setConfirmingClose(null)}
+        title={closing !== null ? `Close “${closing.roleTitle}”?` : "Close this posting?"}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setConfirmingClose(null)}>
+              Cancel
+            </Button>
+            <Button variant="danger" iconLeft={ACTION_ICON_OF.close} onClick={confirmClose}>
+              Close posting
+            </Button>
+          </>
+        }
+      >
+        It stops taking applicants, and a closed posting cannot be reopened from here.
+      </Dialog>
     </>
   );
 }

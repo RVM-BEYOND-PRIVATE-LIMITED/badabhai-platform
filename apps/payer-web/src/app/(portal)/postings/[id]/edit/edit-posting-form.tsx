@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import type { ReactNode } from "react";
+import { Icon } from "@badabhai/icons";
 import { looksLikePii } from "@badabhai/validators";
 import { Button, Input, Select, Textarea } from "../../../../../components/ds";
 import { ChipEditor } from "../../../../../components/chip-editor";
@@ -44,6 +45,9 @@ import { TradePostingFields, derivedMatchSkills, type TradeFormValue } from "../
 import { updatePostingAction } from "./actions";
 import { withPublishedReach } from "../../../../../lib/published-reach";
 import { usePortalNavigation } from "../../../../../components/portal-navigation";
+import { postingDraftKey } from "../../../../../lib/posting-draft";
+import { usePostingDraft } from "../../../../../components/use-posting-draft";
+import { DraftRestoredNotice } from "../../../../../components/draft-restored-notice";
 
 /**
  * Edit a posting (EMPLOYER self-serve; LIVE `PATCH /payer/job-postings/:id`). Every card field +
@@ -84,29 +88,9 @@ function seedEnum(value: string | null, allowed: readonly string[]): string {
   return value !== null && allowed.includes(value) ? value : "";
 }
 
-export function EditPostingForm({
-  postingId,
-  status,
-  initial,
-  matchSkills = [],
-  matchSelection,
-  postingTrades = [],
-  lead,
-}: {
-  postingId: string;
-  status: string;
-  initial: EditPostingInitial;
-  matchSkills?: MatchSkillWire[];
-  matchSelection?: MatchSelection;
-  /** The 16-trade posting catalogue (migration 0141). */
-  postingTrades?: PostingTradeFormWire[];
-  /** The page head, drawn at the top of the form column (the rail starts beside it). */
-  lead?: ReactNode;
-}) {
-  // useState order (mirrored positionally by edit-posting-form.test.tsx): fields, requirements,
-  // benefits, reqDraft, benDraft, error, trade, preview, revealed, navigating, problem,
-  // submitting, serverFieldErrors, legacySelection. APPEND new state only.
-  const [fields, setFields] = useState<FormFields>({
+/** The form's fields as seeded from the saved posting — also what "unchanged" means (W4). */
+function seedFields(initial: EditPostingInitial): FormFields {
+  return {
     roleTitle: initial.roleTitle,
     roleKind: initial.roleKind ?? "",
     locationLabel: initial.locationLabel ?? "",
@@ -123,7 +107,67 @@ export function EditPostingForm({
     shift: seedEnum(initial.shift, SHIFTS),
     neededBy: seedEnum(initial.neededBy, NEEDED_BY),
     description: initial.description ?? "",
-  });
+  };
+}
+
+/** What an edit's draft keeps on this device (W4). */
+interface EditPostingDraft {
+  fields: FormFields;
+  requirements: string[];
+  benefits: string[];
+  reqDraft: string;
+  benDraft: string;
+  trade: TradeFormValue & { matchSkillIds: string[]; dirty: boolean };
+  legacySelection: MatchSelection;
+}
+
+const sameJson = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+
+/** True once the payer changed anything the saved posting holds. */
+export function isEditPostingDirty(
+  draft: EditPostingDraft,
+  initial: EditPostingInitial,
+  matchSelection: MatchSelection | undefined,
+): boolean {
+  return (
+    !sameJson(draft.fields, seedFields(initial)) ||
+    !sameJson(draft.requirements, initial.requirements ?? []) ||
+    !sameJson(draft.benefits, initial.benefits ?? []) ||
+    draft.reqDraft.trim() !== "" ||
+    draft.benDraft.trim() !== "" ||
+    draft.trade.dirty ||
+    draft.trade.tradeLevel !== (initial.tradeLevel ?? "") ||
+    !sameJson(draft.trade.answers, initial.tradeAnswers ?? {}) ||
+    !sameJson(draft.legacySelection.matchSkillIds, matchSelection?.matchSkillIds ?? [])
+  );
+}
+
+export function EditPostingForm({
+  payerId,
+  postingId,
+  status,
+  initial,
+  matchSkills = [],
+  matchSelection,
+  postingTrades = [],
+  lead,
+}: {
+  /** The signed-in payer (the session's opaque id) — the local draft is kept per payer (W4). */
+  payerId: string;
+  postingId: string;
+  status: string;
+  initial: EditPostingInitial;
+  matchSkills?: MatchSkillWire[];
+  matchSelection?: MatchSelection;
+  /** The 16-trade posting catalogue (migration 0141). */
+  postingTrades?: PostingTradeFormWire[];
+  /** The page head, drawn at the top of the form column (the rail starts beside it). */
+  lead?: ReactNode;
+}) {
+  // useState order (mirrored positionally by edit-posting-form.test.tsx): fields, requirements,
+  // benefits, reqDraft, benDraft, error, trade, preview, revealed, navigating, problem,
+  // submitting, serverFieldErrors, legacySelection. APPEND new state only.
+  const [fields, setFields] = useState<FormFields>(seedFields(initial));
   const [requirements, setRequirements] = useState<string[]>(initial.requirements ?? []);
   const [benefits, setBenefits] = useState<string[]>(initial.benefits ?? []);
   const [reqDraft, setReqDraft] = useState("");
@@ -135,7 +179,7 @@ export function EditPostingForm({
   const storedTradeSeed =
     (initial.tradeLevel ?? null) !== null || (initial.tradeAnswers ?? null) !== null;
   const initialTradeForm = postingTrades.find((form) => form.role_kind === initial.roleKind);
-  const [trade, setTrade] = useState<TradeFormValue & { matchSkillIds: string[]; dirty: boolean }>({
+  const seedTrade = (): TradeFormValue & { matchSkillIds: string[]; dirty: boolean } => ({
     tradeLevel: initial.tradeLevel ?? "",
     answers: initial.tradeAnswers ?? {},
     matchSkillIds:
@@ -144,6 +188,9 @@ export function EditPostingForm({
         : (matchSelection?.matchSkillIds ?? []),
     dirty: false,
   });
+  const [trade, setTrade] = useState<TradeFormValue & { matchSkillIds: string[]; dirty: boolean }>(
+    seedTrade(),
+  );
   const [preview, setPreview] = useState<ReachPreview | null>(null);
   const [revealed, setRevealed] = useState<RevealedNumbers>({});
   // Set the moment a save succeeds: the buttons stay disabled through the navigation and the
@@ -166,6 +213,51 @@ export function EditPostingForm({
   // A saved form lands on the posting with the shell's "Opening <title>…" cue; its button stays
   // pending (`navigating`) until the page is gone.
   const { navigate } = usePortalNavigation();
+
+  // W4 — unsaved edits are kept on this device (only over the SAME saved copy: the base is the
+  // seed) and leaving with them asks first.
+  const draftPayload: EditPostingDraft = {
+    fields,
+    requirements,
+    benefits,
+    reqDraft,
+    benDraft,
+    trade,
+    legacySelection,
+  };
+  const draft = usePostingDraft<EditPostingDraft>({
+    storageKey: postingDraftKey({ kind: "edit", payerId, postingId }),
+    base: JSON.stringify({ status, initial, matchSelection: matchSelection ?? null }),
+    payload: draftPayload,
+    dirty: isEditPostingDirty(draftPayload, initial, matchSelection),
+    off: navigating,
+    onRestore: (saved) => {
+      setFields({ ...seedFields(initial), ...saved.fields });
+      setRequirements(saved.requirements ?? []);
+      setBenefits(saved.benefits ?? []);
+      setReqDraft(saved.reqDraft ?? "");
+      setBenDraft(saved.benDraft ?? "");
+      if (saved.trade) setTrade(saved.trade);
+      if (saved.legacySelection) setLegacySelection(saved.legacySelection);
+    },
+  });
+
+  /** The payer dropped the changes restored from this device: the saved posting again (W4). */
+  function discardRestored() {
+    draft.discard();
+    setFields(seedFields(initial));
+    setRequirements(initial.requirements ?? []);
+    setBenefits(initial.benefits ?? []);
+    setReqDraft("");
+    setBenDraft("");
+    setError(null);
+    setTrade(seedTrade());
+    setPreview(null);
+    setRevealed({});
+    setProblem(null);
+    setServerFieldErrors({});
+    setLegacySelection(matchSelection ?? { matchSkillIds: [], untickedRelatedIds: [] });
+  }
 
   const isDraft = status === "draft";
   const tradeMode = postingTrades.length > 0;
@@ -347,6 +439,7 @@ export function EditPostingForm({
       });
       if (res.ok) {
         setNavigating(true);
+        draft.discard();
         // Refresh as well as navigate: the router cache must not hand a later Back the pre-save
         // edit page (and its pre-save `initial`, which drives the clear diff).
         navigate(withPublishedReach(`/postings/${postingId}`, res.reached), {
@@ -377,7 +470,7 @@ export function EditPostingForm({
   const primary = isDraft ? (
     <Button
       type="button"
-      loading={busy}
+      loading={busy && submitting === "publish"}
       disabled={publishDisabled}
       iconRight="rocket-launch"
       onClick={() => submit("publish")}
@@ -419,7 +512,13 @@ export function EditPostingForm({
   const buttons = (
     <>
       {isDraft ? (
-        <Button type="submit" form={FORM_ID} variant="secondary" loading={busy} disabled={busy}>
+        <Button
+          type="submit"
+          form={FORM_ID}
+          variant="secondary"
+          loading={busy && submitting === "save"}
+          disabled={busy}
+        >
           Save draft
         </Button>
       ) : null}
@@ -439,6 +538,14 @@ export function EditPostingForm({
             submit("save");
           }}
         >
+          <p
+            className="mw-draft-cue"
+            data-shown={draft.saved ? "true" : "false"}
+            aria-hidden={!draft.saved}
+          >
+            <Icon name="check-circle" /> Draft saved on this device
+          </p>
+          {draft.restored ? <DraftRestoredNotice onDiscard={discardRestored} /> : null}
           <div className="form__section">
             <p className="form__legend">The role</p>
             <Select

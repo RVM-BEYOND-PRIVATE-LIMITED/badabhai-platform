@@ -50,6 +50,9 @@ import {
 
 const MAX_TURN_CHARS = 2000;
 
+/** The chat's server round-trips — each spins only its own button (W4). */
+type ChatAction = "start" | "send" | "publish" | `resume:${string}`;
+
 interface ChatLine {
   role: "payer" | "assistant";
   text: string;
@@ -122,21 +125,27 @@ export function JobPostingChat({ resumable, loadFailed = false }: JobPostingChat
   // interview draft (`draft.area`); once edited, the payer's value wins and rides the body.
   const [area, setArea] = useState("");
   const [areaTouched, setAreaTouched] = useState(false);
+  // Which action is in flight (W4) — so only ITS button spins; the others are just disabled.
+  // APPENDED after the seeded states (the tests mirror the order).
+  const [acting, setActing] = useState<ChatAction | null>(null);
   const [pending, startTransition] = useTransition();
   // The publish lands on the posting's edit page with the shell's "Opening Edit posting…" cue.
   const { navigate } = usePortalNavigation();
 
-  const busy = pending || navigating;
+  const busy = pending || navigating || acting !== null;
+  /** True for the ONE button whose action is running (W4 — one spinner per action). */
+  const spins = (action: ChatAction) => acting === action || (action === "publish" && navigating);
 
-  function begin(run: () => Promise<void>) {
+  function begin(action: ChatAction, run: () => Promise<void>) {
     setError(null);
+    setActing(action);
     startTransition(() => {
-      void run();
+      void run().finally(() => setActing(null));
     });
   }
 
   function onStart() {
-    begin(async () => {
+    begin("start", async () => {
       const res = await startJobPostingChatAction();
       if (!res.ok) {
         setError(res.error);
@@ -158,7 +167,7 @@ export function JobPostingChat({ resumable, loadFailed = false }: JobPostingChat
   }
 
   function onResume(sessionId: string) {
-    begin(async () => {
+    begin(`resume:${sessionId}`, async () => {
       const res = await resumeJobPostingChatAction({ sessionId });
       if (!res.ok) {
         setError(res.error);
@@ -193,7 +202,7 @@ export function JobPostingChat({ resumable, loadFailed = false }: JobPostingChat
     setConvo({ ...convo, lines: [...convo.lines, { role: "payer", text: said }], suggestions: [] });
     setText("");
 
-    begin(async () => {
+    begin("send", async () => {
       const res = await sendJobPostingChatMessageAction({ sessionId, text: said });
       if (!res.ok) {
         setError(res.error);
@@ -222,7 +231,7 @@ export function JobPostingChat({ resumable, loadFailed = false }: JobPostingChat
     // #2493 — until the payer edits it, the area follows the interview draft; after that the
     // payer's correction wins. Blank stays ABSENT (NULL area = city-only card, never a block).
     const pickedArea = (areaTouched ? area : (convo.draft?.area ?? "")).trim();
-    begin(async () => {
+    begin("publish", async () => {
       const res = await publishJobPostingChatAction({
         sessionId,
         ...(pickedRole ? { roleKind: pickedRole } : {}),
@@ -277,7 +286,7 @@ export function JobPostingChat({ resumable, loadFailed = false }: JobPostingChat
                     variant={s.sessionId === lead ? "primary" : "secondary"}
                     size="md"
                     iconRight="arrow-right"
-                    loading={busy}
+                    loading={spins(`resume:${s.sessionId}`)}
                     disabled={busy}
                     onClick={() => onResume(s.sessionId)}
                   >
@@ -308,7 +317,7 @@ export function JobPostingChat({ resumable, loadFailed = false }: JobPostingChat
               variant={resumable.length > 0 ? "secondary" : "primary"}
               size="lg"
               iconRight="chat-circle-dots"
-              loading={busy}
+              loading={spins("start")}
               disabled={busy}
               onClick={onStart}
             >
@@ -367,9 +376,11 @@ export function JobPostingChat({ resumable, loadFailed = false }: JobPostingChat
               hint="Never include a phone number or email — share contact only after you unlock an applicant."
               onChange={(e) => setText(e.target.value)}
             />
+            {/* Secondary (W4): the screen's one primary is Publish. */}
             <Button
+              variant="secondary"
               iconRight="paper-plane-tilt"
-              loading={busy}
+              loading={spins("send")}
               disabled={busy || text.trim().length === 0}
               onClick={() => onSend(text)}
             >
@@ -402,7 +413,7 @@ export function JobPostingChat({ resumable, loadFailed = false }: JobPostingChat
             block
             size="lg"
             iconRight="rocket-launch"
-            loading={busy}
+            loading={spins("publish")}
             disabled={busy || !convo.draftReady}
             onClick={onPublish}
           >

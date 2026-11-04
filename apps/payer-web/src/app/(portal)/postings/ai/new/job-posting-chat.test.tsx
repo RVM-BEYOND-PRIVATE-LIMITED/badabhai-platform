@@ -139,7 +139,14 @@ const CONVO: Convo = {
 /* ── walker ─────────────────────────────────────────────────────────────────────── */
 
 interface Collected {
-  buttons: Array<{ text: string; disabled: boolean; className: string; onClick?: () => void }>;
+  buttons: Array<{
+    text: string;
+    disabled: boolean;
+    className: string;
+    /** The DS button's spinner is on (`aria-busy`). */
+    busy: boolean;
+    onClick?: () => void;
+  }>;
   texts: string[];
   /** Every native form host rendered (id + tag), to prove which fields exist at all. */
   fields: Array<{ tag: string; id?: string }>;
@@ -181,6 +188,7 @@ function walk(node: ReactNode, acc: Collected): void {
       text: textOf(el.props.children).trim(),
       disabled: el.props.disabled === true,
       className: typeof el.props.className === "string" ? el.props.className : "",
+      busy: el.props["aria-busy"] === true,
       onClick:
         typeof el.props.onClick === "function" ? (el.props.onClick as () => void) : undefined,
     });
@@ -203,10 +211,13 @@ function render(seed: {
   roleKind?: string;
   area?: string;
   areaTouched?: boolean;
+  /** W4 — the action in flight (index 7). */
+  acting?: string | null;
   resumable?: JobPostingChatSessionSummary[];
   loadFailed?: boolean;
 }): Collected {
-  // useState order in the source: convo, text, error, navigating, roleKind, area, areaTouched.
+  // useState order in the source: convo, text, error, navigating, roleKind, area, areaTouched,
+  // acting.
   stateQueue = [
     seed.convo ?? null,
     seed.text ?? "",
@@ -215,6 +226,7 @@ function render(seed: {
     seed.roleKind ?? "",
     seed.area ?? "",
     seed.areaTouched ?? false,
+    seed.acting ?? null,
   ];
   stateCursor = 0;
   const tree = JobPostingChat({
@@ -575,5 +587,38 @@ describe("validateTurn — the client-side screen the Server Action re-runs", ()
 
   it("accepts a normal job answer", () => {
     expect(validateTurn("I need 6 CNC operators in Pune for the night shift")).toBeNull();
+  });
+});
+
+/* ── W4 (#2584): one spinner per action; Send is secondary ──────────────────── */
+
+describe("W4 — the chat's buttons", () => {
+  const spinning = (acc: Collected) => acc.buttons.filter((b) => b.busy).map((b) => b.text);
+
+  it("Send is SECONDARY — Publish is the screen's one primary", () => {
+    const acc = render({ convo: { ...CONVO, draftReady: true }, text: "Night shift" });
+    expect(button(acc, "Send")?.className.split(" ")).toContain("bb-btn--secondary");
+    expect(button(acc, "Publish posting")?.className.split(" ")).toContain("bb-btn--primary");
+  });
+
+  it("a turn in flight spins Send only; Publish and the chips are just disabled", () => {
+    const acc = render({ convo: { ...CONVO, draftReady: true }, text: "x", acting: "send" });
+    expect(spinning(acc)).toEqual(["Send"]);
+    expect(button(acc, "Publish posting")?.disabled).toBe(true);
+  });
+
+  it("a publish in flight spins Publish only", () => {
+    const acc = render({ convo: { ...CONVO, draftReady: true }, text: "x", acting: "publish" });
+    expect(spinning(acc)).toEqual(["Publish posting"]);
+    expect(button(acc, "Send")?.disabled).toBe(true);
+  });
+
+  it("on the choose screen, only the pressed Continue / Start spins", () => {
+    const other = { ...RESUMABLE, sessionId: "aaaa1111-0000-4000-8000-000000000009" };
+    const resuming = render({ resumable: [RESUMABLE, other], acting: `resume:${SESSION_ID}` });
+    expect(spinning(resuming)).toEqual(["Continue"]);
+    expect(resuming.buttons.every((b) => b.disabled)).toBe(true);
+    const starting = render({ resumable: [RESUMABLE], acting: "start" });
+    expect(spinning(starting)).toEqual(["Start a new chat"]);
   });
 });

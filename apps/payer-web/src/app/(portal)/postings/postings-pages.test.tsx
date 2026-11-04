@@ -408,6 +408,15 @@ describe("/postings/<id>/edit — Edit posting", () => {
   });
 });
 
+describe("New posting + Edit posting keep their local draft per signed-in payer (W4)", () => {
+  it("both pages hand the server session's payerId to their form", async () => {
+    const created = (await create.default()) as ReactElement<{ payerId?: string }>;
+    expect(created.props.payerId).toBe(COMPANY.payerId);
+    const edited = (await edit.default(params(ID))) as ReactElement<{ payerId?: string }>;
+    expect(edited.props.payerId).toBe(COMPANY.payerId);
+  });
+});
+
 /**
  * #2085 — the slot offer the page hands the manager is the price the top-up is CHARGED: under an
  * active offer, the offer price (what the row's button and confirm show and send) plus the list
