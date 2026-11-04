@@ -4076,10 +4076,18 @@ textarea.field__input {
 .avatar-menu__item .ph-fill {
   font-size: var(--icon-size-md);
 }
-/* Sign out is the shared ghost button; in the menu it lines its glyph up with Account's. */
+/* Sign out is the shared ghost button; in the menu it is a row like Account — the same height,
+   its glyph on Account's column, no outline of its own. */
 .avatar-menu__signout > .btn {
   justify-content: flex-start;
+  min-height: var(--control-md);
   padding-inline: var(--space-3);
+  border-color: transparent;
+  color: var(--text-primary);
+  font-weight: var(--weight-medium);
+}
+.avatar-menu__signout > .btn .ph-fill {
+  font-size: var(--icon-size-md);
 }
 
 /* ---- the Ctrl/⌘K palette ------------------------------------------------------------------ */
@@ -4204,11 +4212,31 @@ textarea.field__input {
   }
 }
 @media (max-width: 600px) {
-  /* The topbar keeps its glyphs: the jump button, the avatar. Their names stay (aria-label). */
+  /* On a phone the topbar's right-hand side is glyphs: the jump button a 44px square, the avatar
+     disc without its role or caret — their names stay (aria-label) — so the crumb keeps room. */
+  .topbar {
+    gap: var(--space-2);
+  }
+  .topbar__spacer {
+    display: none;
+  }
+  .crumbs {
+    flex: 1 1 auto;
+  }
   .topbar__jump-label,
   .topbar__jump > .topbar__kbd,
-  .avatar-menu__role {
+  .avatar-menu__role,
+  .avatar-menu__caret {
     display: none;
+  }
+  .topbar__jump {
+    inline-size: var(--control-md);
+    min-height: var(--control-md);
+    padding-inline: 0;
+    justify-content: center;
+  }
+  .avatar-menu__trigger {
+    padding: var(--space-1);
   }
 }
 @media (max-width: 1023px) {
