@@ -24,8 +24,8 @@ const at = (selector: string, media: string) =>
 /** Resolve a value against the admin `:root` locals first, then the token layer. */
 const resolve = (name: string) => resolveToken(`${TOKENS}\n${CSS}`, name);
 
-const RAIL = "@media (min-width: 1024px) and (max-width: 1439px)";
-const RAIL_HOVER = "@media (min-width: 1024px) and (max-width: 1439px) and (hover: hover)";
+// Hover-capable devices only: a touch tablet at these widths keeps the full sidebar.
+const RAIL = "@media (min-width: 1024px) and (max-width: 1439px) and (hover: hover)";
 const DRAWER = "@media (max-width: 1023px)";
 const PHONE = "@media (max-width: 600px)";
 const TOUCH = "@media (max-width: 600px), (pointer: coarse)";
@@ -101,7 +101,7 @@ describe("collapsible icon rail, 1024–1439px", () => {
     expect(rail).toBeDefined();
     expect(decl(rail!.body, "width")).toBe("var(--shell-nav-w-collapsed)");
     expect(decl(rail!.body, "overflow-x")).toBe("hidden");
-    for (const open of [at(".sidebar:has(:focus-visible)", RAIL), at(".sidebar:hover", RAIL_HOVER)]) {
+    for (const open of [at(".sidebar:has(:focus-visible)", RAIL), at(".sidebar:hover", RAIL)]) {
       expect(open).toBeDefined();
       expect(decl(open!.body, "width")).toBe("var(--shell-nav-w)");
     }
@@ -109,7 +109,7 @@ describe("collapsible icon rail, 1024–1439px", () => {
 
   it("expands OVER the page: its flex footprint stays the rail's width", () => {
     // width + margin-inline-end = the collapsed width, so the content never moves.
-    for (const open of [at(".sidebar:has(:focus-visible)", RAIL), at(".sidebar:hover", RAIL_HOVER)]) {
+    for (const open of [at(".sidebar:has(:focus-visible)", RAIL), at(".sidebar:hover", RAIL)]) {
       expect(decl(open!.body, "margin-inline-end")).toBe(
         "calc(var(--shell-nav-w-collapsed) - var(--shell-nav-w))",
       );
@@ -147,6 +147,19 @@ describe("KPI face and stat values", () => {
     );
     expect(role.some((v) => v?.includes("tabular-nums"))).toBe(true);
     expect(decl(top(".mono"), "font-family")).toBe("var(--font-mono)");
+  });
+
+  it("sets funnel, bucket and spend counts in the UI face, never mono", () => {
+    const fonts = ALL.filter((r) => r.selector === ".funnel__distinct").map((r) => decl(r.body, "font-family"));
+    expect(fonts).not.toContain("var(--font-mono)");
+    expect(decl(top(".funnel__distinct"), "font-family")).toBe("var(--font-sans)");
+    expect(decl(top(".funnel__distinct"), "font-variant-numeric")).toContain("tabular-nums");
+  });
+
+  it("collapses the rail only where it can be opened — never without hover", () => {
+    const railMedia = ALL.filter((r) => r.atRules.join().includes("(max-width: 1439px)")).map((r) => r.atRules.join());
+    expect(railMedia.length).toBeGreaterThan(0);
+    for (const m of railMedia) expect(m).toBe(RAIL);
   });
 
   it("fades a value in once on mount, with an opacity-only keyframe", () => {

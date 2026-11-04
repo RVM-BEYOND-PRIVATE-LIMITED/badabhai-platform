@@ -1043,8 +1043,10 @@ details[open] > summary > .disclosure__caret {
      the width follows after --duration-fade; opening, the width goes first and the labels fade
      in after it. Under reduced motion the width change is instant.
    Keyboard: `:has(:focus-visible)`, not `:focus-within`, so a mouse click on a rail link does not
-   hold the rail open over the next page. */
-@media (min-width: 1024px) and (max-width: 1439px) {
+   hold the rail open over the next page.
+   Hover-capable devices only: a tap neither hovers nor sets focus-visible, so on a touch tablet
+   or touch laptop at these widths the rail could never open — they keep the full sidebar. */
+@media (min-width: 1024px) and (max-width: 1439px) and (hover: hover) {
   .sidebar {
     flex: none;
     width: var(--shell-nav-w-collapsed);
@@ -1080,8 +1082,6 @@ details[open] > summary > .disclosure__caret {
     padding-inline: var(--space-3);
     white-space: nowrap;
   }
-}
-@media (min-width: 1024px) and (max-width: 1439px) and (hover: hover) {
   .sidebar:hover {
     width: var(--shell-nav-w);
     margin-inline-end: calc(var(--shell-nav-w-collapsed) - var(--shell-nav-w));
@@ -1222,7 +1222,9 @@ details[open] > summary > .disclosure__caret {
   gap: var(--space-4);
 }
 .funnel__distinct {
-  font-family: var(--font-mono);
+  /* A1 (#2571) — a count or ₹ figure is a KPI number: UI face with tabular figures, not mono. */
+  font-family: var(--font-sans);
+  font-variant-numeric: tabular-nums;
   font-weight: var(--weight-bold);
 }
 /* A withheld statistic must not look like a measured one. Italic + muted + a dotted
