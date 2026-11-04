@@ -175,7 +175,7 @@ Future<_CompanyApi> _pumpCompany(
   WidgetTester tester,
   List<JobPosting> jobs, {
   VoidCallback? onPost,
-  VoidCallback? onApplicants,
+  ValueChanged<String?>? onApplicants,
   void Function(String?)? onAiPost,
   bool reduced = false,
 }) async {
@@ -202,7 +202,7 @@ Future<_AgencyApi> _pumpAgency(
   WidgetTester tester,
   List<AgencyJobView> jobs, {
   VoidCallback? onPost,
-  VoidCallback? onApplicants,
+  ValueChanged<String?>? onApplicants,
 }) async {
   await tester.pumpWidget(const SizedBox.shrink());
   await GetIt.instance.reset();
@@ -333,7 +333,7 @@ void main() {
       await _pumpCompany(
         tester,
         <JobPosting>[_posting()],
-        onApplicants: () => applicants++,
+        onApplicants: (_) => applicants++,
       );
 
       // The callback the card always had is finally drawn — and wired.
@@ -565,7 +565,7 @@ void main() {
       await _pumpAgency(
         tester,
         <AgencyJobView>[_agencyJob()],
-        onApplicants: () => applicants++,
+        onApplicants: (_) => applicants++,
       );
 
       expect(find.text('1 job'), findsOneWidget);

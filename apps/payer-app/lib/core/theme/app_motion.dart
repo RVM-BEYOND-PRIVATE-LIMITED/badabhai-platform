@@ -108,6 +108,14 @@ class AppMotion {
   /// The scale an OTP box pops to as its digit lands (over [press]).
   static const double popScale = 1.04;
 
+  // ---- #2593 (M5) Find --------------------------------------------------
+  // The Find switch's thumb reuses [tab] (220ms, [emphasized]); an unlock that
+  // fails shakes its card with [shake] / [shakeTravel]. Same laws as M3.
+
+  /// A pinned list header's soft shadow fading in once the list scrolls under
+  /// it, and out when the list is back at the top. Opacity only.
+  static const Duration headerShadow = Duration(milliseconds: 160);
+
   /// True when the OS asks for animations to be removed
   /// ([MediaQueryData.disableAnimations]). Safe without a [MediaQuery].
   static bool reduced(BuildContext context) =>

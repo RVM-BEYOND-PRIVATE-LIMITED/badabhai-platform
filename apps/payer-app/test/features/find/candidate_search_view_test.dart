@@ -18,7 +18,9 @@ import 'package:payer_app/features/find/presentation/candidate_search_view.dart'
 import 'package:payer_app/features/find/presentation/cubit/candidate_search_cubit.dart';
 import 'package:payer_app/features/find/presentation/find_screen.dart';
 import 'package:payer_app/features/find/presentation/reveal_args.dart';
+import 'package:payer_app/core/widgets/bb_searchable_dropdown_field.dart';
 import 'package:payer_app/features/find/presentation/widgets/find_view_switch.dart';
+import 'package:payer_app/features/find/presentation/widgets/unlock_button.dart';
 
 /// Find's All-candidates view, end to end over a scripted data seam (the real
 /// route is not running): the segmented control, the masked card, the count
@@ -154,13 +156,18 @@ void main() {
   FindView selectedView(WidgetTester tester) =>
       tester.widget<FindViewSwitch>(find.byType(FindViewSwitch)).selected;
 
+  /// The All-candidates view is on stage: its Filters button shows (#2593
+  /// dropped the "ALL CANDIDATES" eyebrow that repeated the switch).
+  final Finder allCandidatesOnStage =
+      find.byKey(const Key('candidate_filters_open'));
+
   group('the segmented control', () {
     testWidgets('opens on All candidates; Applicants stays unloaded until opened',
         (WidgetTester tester) async {
       await pumpFind(tester);
 
       expect(selectedView(tester), FindView.allCandidates);
-      expect(find.text('ALL CANDIDATES'), findsOneWidget);
+      expect(allCandidatesOnStage, findsOneWidget);
       expect(api.searches, hasLength(1));
       expect(api.applicantListLoads, 0,
           reason: 'a view the payer never opens costs no request');
@@ -175,13 +182,13 @@ void main() {
 
       expect(selectedView(tester), FindView.applicants);
       expect(find.text('CANDIDATES FOR CNC SETTER'), findsOneWidget);
-      expect(find.text('ALL CANDIDATES'), findsNothing);
+      expect(allCandidatesOnStage, findsNothing);
       expect(api.applicantListLoads, 1);
 
       await tester.tap(find.byKey(const Key('find_view_all')));
       await tester.pumpAndSettle();
 
-      expect(find.text('ALL CANDIDATES'), findsOneWidget);
+      expect(allCandidatesOnStage, findsOneWidget);
       expect(find.text('CNC Turner'), findsOneWidget);
       expect(api.searches, hasLength(1),
           reason: 'the hidden view kept its page — no refetch on a peek');
@@ -242,7 +249,7 @@ void main() {
           expect(s.contains(name), isFalse);
         }
       }
-      expect(find.text('1 credit'), findsOneWidget,
+      expect(find.text(kUnlockLabel), findsOneWidget,
           reason: 'row 2 is a sample (R74) — it offers no unlock');
     });
 
@@ -561,7 +568,7 @@ void main() {
         (WidgetTester tester) async {
       await pumpFind(tester);
 
-      await tester.tap(find.text('1 credit').first);
+      await tester.tap(find.text(kUnlockLabel).first);
       await tester.pumpAndSettle();
 
       expect(find.text('Unlock this candidate?'), findsOneWidget);
@@ -586,13 +593,13 @@ void main() {
       // The card now offers the reveal, not a second spend (row 2 is a
       // sample, so no unlock is left on screen).
       expect(find.text('View'), findsOneWidget);
-      expect(find.text('1 credit'), findsNothing);
+      expect(find.text(kUnlockLabel), findsNothing);
     });
 
     testWidgets('cancel spends nothing', (WidgetTester tester) async {
       await pumpFind(tester);
 
-      await tester.tap(find.text('1 credit').first);
+      await tester.tap(find.text(kUnlockLabel).first);
       await tester.pumpAndSettle();
       await tester.tap(find.text('Cancel'));
       await tester.pumpAndSettle();
@@ -650,10 +657,10 @@ void main() {
       expect(inCard(_vmc, find.byType(BbButton)), findsNothing,
           reason: 'no unlock and no View');
 
-      // The real card is unchanged: no badge, no note, the 1-credit unlock.
+      // The real card is unchanged: no badge, no note, the unlock.
       expect(inCard(_turner, find.text('Sample candidate')), findsNothing);
       expect(inCard(_turner, find.text(note)), findsNothing);
-      expect(inCard(_turner, find.text('1 credit')), findsOneWidget);
+      expect(inCard(_turner, find.text(kUnlockLabel)), findsOneWidget);
     });
 
     testWidgets('tapping the note opens nothing and spends nothing',
@@ -687,7 +694,7 @@ void main() {
       await pumpFind(tester);
 
       expect(inCard(_vmc, find.text('View')), findsOneWidget);
-      expect(inCard(_vmc, find.text('1 credit')), findsNothing);
+      expect(inCard(_vmc, find.text(kUnlockLabel)), findsNothing);
       expect(inCard(_vmc, find.text(note)), findsNothing);
       expect(inCard(_vmc, find.text('Sample candidate')), findsOneWidget);
     });
@@ -702,13 +709,17 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Filter candidates'), findsOneWidget);
 
-      // Role — the server's options, one at most.
+      // Role — the server's options, one at most, in a searchable list
+      // (#2593): type to narrow it, then pick.
       await tester.tap(find.descendant(
         of: find.byKey(const Key('filter_role')),
-        matching: find.byType(DropdownButtonFormField<String>),
+        matching: find.byType(InputDecorator),
       ));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('CNC Turner').last);
+      await tester.enterText(
+          find.byKey(BbSearchableDropdownField.searchFieldKey), 'turn');
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(ListTile, 'CNC Turner'));
       await tester.pumpAndSettle();
       // Years in role.
       await tester.tap(find.byKey(const Key('filter_experience:1_3')));

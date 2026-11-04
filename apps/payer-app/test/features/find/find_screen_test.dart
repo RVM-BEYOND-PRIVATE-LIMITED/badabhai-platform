@@ -9,6 +9,7 @@ import 'package:payer_app/core/data/payer_api_client.dart';
 import 'package:payer_app/core/di/locator.dart';
 import 'package:payer_app/features/find/presentation/cubit/find_cubit.dart';
 import 'package:payer_app/features/find/presentation/find_screen.dart';
+import 'package:payer_app/features/find/presentation/widgets/unlock_button.dart';
 
 /// #364 — the Find feed must build LAZILY.
 ///
@@ -101,7 +102,8 @@ class _BigFeedApi extends MockPayerApiClient {
 const int _total = 150;
 
 /// The feed's scroll view. Fails loudly if the screen ever grows a second one
-/// at the top level (the filter/job-selector strips are nested inside index 0).
+/// at the top level (the job-selector strip sits in the pinned header, #2593,
+/// and only with more than one job — never in these single-job feeds).
 ListView _feed(WidgetTester tester) =>
     tester.widget<ListView>(find.byType(ListView).first);
 
@@ -161,8 +163,9 @@ void main() {
       // fully-constructed 151-widget list, rebuilt whole on every emission.
       expect(feed.childrenDelegate, isA<SliverChildBuilderDelegate>());
       expect(feed.childrenDelegate, isNot(isA<SliverChildListDelegate>()));
-      // Header at index 0 + one index per applicant, each built on demand.
-      expect(feed.childrenDelegate.estimatedChildCount, _total + 1);
+      // One index per applicant, each built on demand (#2593: the header is
+      // pinned above the list now, no longer its index 0).
+      expect(feed.childrenDelegate.estimatedChildCount, _total);
     });
 
     testWidgets('renders a window, not the whole feed, at rest', (
@@ -170,7 +173,7 @@ void main() {
     ) async {
       await pump(tester);
 
-      final int built = find.text('1 credit').evaluate().length;
+      final int built = find.text(kUnlockLabel).evaluate().length;
       expect(built, lessThan(_total ~/ 3),
           reason: 'expected a lazily built window, got $built of $_total cards');
       expect(find.text(_BigFeedApi.labelFor(_total - 1)), findsNothing);
@@ -209,6 +212,8 @@ void main() {
         find.text(_BigFeedApi.labelFor(_total - 1)),
         400,
         scrollable: find.byType(Scrollable).first,
+        // #2593 — the 360dp card (full-width footer action) is taller.
+        maxScrolls: 100,
       );
       await tester.pumpAndSettle();
 
@@ -221,7 +226,7 @@ void main() {
       WidgetTester tester,
     ) async {
       // rowCount is 1 (not 0) when the REAL feed is empty — the message takes
-      // the place of the card rows.
+      // the place of the card rows (under the pinned header, #2593).
       await GetIt.instance.reset();
       setupLocator(
         apiClient: _BigFeedApi(0),
@@ -235,7 +240,7 @@ void main() {
       await pump(tester);
 
       expect(find.text('No applicants for this job yet.'), findsOneWidget);
-      expect(_feed(tester).childrenDelegate.estimatedChildCount, 2);
+      expect(_feed(tester).childrenDelegate.estimatedChildCount, 1);
     });
   });
 
@@ -249,7 +254,7 @@ void main() {
 
       final ListView feed = _feed(tester);
       expect(feed.childrenDelegate, isA<SliverChildBuilderDelegate>());
-      expect(feed.childrenDelegate.estimatedChildCount, _total + 1);
+      expect(feed.childrenDelegate.estimatedChildCount, _total);
       expect(find.text(_BigFeedApi.skillLineFor(_total - 1)), findsNothing);
     });
   });

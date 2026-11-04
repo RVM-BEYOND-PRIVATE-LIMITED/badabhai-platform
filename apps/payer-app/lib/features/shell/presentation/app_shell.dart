@@ -104,6 +104,10 @@ class _AppShellState extends State<AppShell> {
   /// which switches to it when the return's refresh signal arrives.
   FindView _findView = FindView.allCandidates;
 
+  /// The posting whose "Applicants" button opened Find (#2593), so the
+  /// Applicants view opens on THAT job. Null on every other Find visit.
+  String? _findJobId;
+
   /// #2595 — the open overlay's unsaved-changes guard (Post, the AI chat): the
   /// shell asks it before its own system Back or a nav tap leaves the overlay.
   final BbLeaveGuardController _leaveGuard = BbLeaveGuardController();
@@ -177,8 +181,13 @@ class _AppShellState extends State<AppShell> {
   ];
 
   /// [findView] picks the view a Find visit opens on; every other caller (the
-  /// nav, Home's Browse) gets the default, All candidates.
-  void _selectTab(String id, {FindView findView = FindView.allCandidates}) {
+  /// nav, Home's Browse) gets the default, All candidates. [findJobId] is the
+  /// job a Jobs card's "Applicants" was tapped on (#2593).
+  void _selectTab(
+    String id, {
+    FindView findView = FindView.allCandidates,
+    String? findJobId,
+  }) {
     _leaveGuard.release();
     // A Jobs card's "Applicants" button lands Find on that view, on a fresh
     // feed ([_applicantsEpoch]).
@@ -201,6 +210,7 @@ class _AppShellState extends State<AppShell> {
       _tab = id;
       _sub = null;
       _findView = findView;
+      _findJobId = findJobId;
       _visited.add(id);
       if (applicantsLink) _applicantsEpoch++;
       CrashReporter.setScreen('payer/$id');
@@ -354,15 +364,20 @@ class _AppShellState extends State<AppShell> {
       'find' => FindScreen(
           onReveal: _openReveal,
           initialView: _findView,
+          initialJobId: _findJobId,
           applicantsEpoch: _applicantsEpoch,
         ),
       'jobs' => JobsScreen(
           onPost: () => _openSub('post'),
           onAiPost: _openAiPost,
           // Both session kinds see their candidates on the shared Find tab —
-          // a job card's "Applicants" button lands on the Applicants view
-          // (the per-job feed, unchanged: it opens on the first open job).
-          onApplicants: () => _selectTab('find', findView: FindView.applicants),
+          // a job card's "Applicants" button lands on the Applicants view, on
+          // the job that was tapped (#2593; it used to open the first one).
+          onApplicants: (String? jobId) => _selectTab(
+            'find',
+            findView: FindView.applicants,
+            findJobId: jobId,
+          ),
           highlight: _justPosted,
         ),
       // M9 (#2597): a tab root has no back arrow; the bottom nav is the way
