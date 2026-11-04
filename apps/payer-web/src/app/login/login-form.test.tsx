@@ -64,7 +64,8 @@ const { LoginForm } = await import("./login-form");
 
 // useState call order in the source:
 // role, mode, step, email, orgName, phone, code, emailError, orgError, phoneError, codeError,
-// error, info, cooldown, succeeded, method (… identifier, change, arrival — left unseeded).
+// error, info, cooldown, succeeded, method (… identifier, change, arrival, codeAttempt — left
+// unseeded).
 //
 // #2587: password sign-in is now the DEFAULT sign-in view, so this suite — the email-code flow's —
 // seeds `method: "code"` to keep testing the email-code view it always tested. The password

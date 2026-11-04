@@ -127,7 +127,8 @@ const ROLE_COPY: Record<
 export function LoginForm() {
   // useState call order (kept stable for the node-env render test seeding):
   // role, mode, step, email, orgName, phone, code, emailError, orgError, phoneError,
-  // codeError, error, info, cooldown, succeeded, method, identifier, change, arrival.
+  // codeError, error, info, cooldown, succeeded, method, identifier, change, arrival,
+  // codeAttempt.
   // (Any NEW state is appended at the END so every existing seed position is preserved.)
   const [role, setRole] = useState<RoleKey>("company");
   const [mode, setMode] = useState<Mode>("signin");
@@ -153,6 +154,9 @@ export function LoginForm() {
   // A temporary password the API accepted: the set-new-password step is open while this is set.
   const [change, setChange] = useState<PendingChange | null>(null);
   const [arrival, setArrival] = useState<PasswordArrival>(NO_ARRIVAL);
+  // --- #2588 the code boxes, appended after `arrival` (same reason: seed order) ---
+  // Each refused code bumps it: the boxes remount empty, focus on their first box, armed again.
+  const [codeAttempt, setCodeAttempt] = useState(0);
   const [pending, startTransition] = useTransition();
   // A verified code lands on the dashboard with the page's "Opening Dashboard…" cue (the button
   // already reads "Signed in" — `succeeded` — until the page is gone).
@@ -369,6 +373,10 @@ export function LoginForm() {
         setArrival({ error: null, notice: res.error });
       } else {
         setError(res.error);
+        // Refused: the boxes clear and re-arm — a fresh input with focus on its first box, so the
+        // next sixth digit submits again. The error stays in the status region until then.
+        setCode("");
+        setCodeAttempt((n) => n + 1);
       }
     });
   }
@@ -418,8 +426,9 @@ export function LoginForm() {
           {/* Six boxes (components/otp-input.tsx): the visible label names the group, the first box
               takes the browser's one-time-code autofill, and the sixth digit — or a whole pasted
               or autofilled code — submits through verifyCode, as Verify does. An accepted code
-              locks read-only with a check. */}
+              locks read-only with a check; a refused one remounts the boxes (`key`) empty. */}
           <OtpCodeInput
+            key={codeAttempt}
             label={`Enter the ${OTP_LENGTH}-digit login code`}
             length={OTP_LENGTH}
             value={code}

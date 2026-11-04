@@ -56,7 +56,7 @@ const DASHBOARD = ["/dashboard", { pendingLabel: "Dashboard", replace: true, ref
 
 // LoginForm's useState order: role 0, mode 1, step 2, email 3, orgName 4, phone 5, code 6,
 // emailError 7, orgError 8, phoneError 9, codeError 10, error 11, info 12, cooldown 13,
-// succeeded 14, method 15, identifier 16, change 17, arrival 18.
+// succeeded 14, method 15, identifier 16, change 17, arrival 18, codeAttempt 19.
 const SLOT = { mode: 1, step: 2, email: 3, code: 6, method: 15, arrival: 18 } as const;
 function seed(values: Partial<Record<keyof typeof SLOT, unknown>>): unknown[] {
   const out: unknown[] = [];

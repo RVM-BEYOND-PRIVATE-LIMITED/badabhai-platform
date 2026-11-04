@@ -11,7 +11,8 @@ import { createHookHarness, findByType, propsOf, textOf } from "../../../test/ho
  *
  * Locks: the sixth digit submits through the same verify as the Verify button (signin and signup
  * alike); an accepted code stays readable — locked in the boxes, with the check — while the
- * dashboard opens.
+ * dashboard opens; a refused code clears the boxes and re-arms them (a fresh input, focus on its
+ * first box), so the next sixth digit submits again.
  */
 
 const h = createHookHarness();
@@ -46,6 +47,7 @@ vi.mock("./actions", () => ({
 const { LoginForm } = await import("./login-form");
 const { OtpCodeInput } = await import("../../components/otp-input");
 const { Button, Toast } = await import("../../components/ds");
+const { NEUTRAL_VERIFY_ERROR } = await import("./messages");
 
 const EMAIL = "owner@example.com";
 const DASHBOARD = ["/dashboard", { pendingLabel: "Dashboard", replace: true, refresh: true }];
@@ -131,6 +133,55 @@ describe("the sixth digit signs in", () => {
     edit(render(), "12345");
     await h.settle();
     expect(propsOf(boxesOf(render()))).toMatchObject({ value: "123456", success: true });
+  });
+});
+
+describe("a refused code clears the boxes and re-arms them", () => {
+  it("empty, a fresh input whose first box takes focus, the neutral error shown — no portal", async () => {
+    actions.verifyCodeAction.mockResolvedValue({ ok: false, error: NEUTRAL_VERIFY_ERROR });
+    const first = openCodeStep("12345");
+    const before = boxesOf(first);
+    completeCode(first, "123456");
+    await h.settle();
+    const tree = render();
+    const after = boxesOf(tree);
+    expect(propsOf(after)).toMatchObject({ value: "", success: false, autoFocus: true });
+    // A new key remounts it: its first box takes focus on mount, and none of the refused code's
+    // editing state carries over.
+    expect(after.key).not.toBe(before.key);
+    expect(toastText(tree, "danger")).toBe(NEUTRAL_VERIFY_ERROR);
+    expect(toastText(tree, "success")).toBeUndefined();
+    expect(navigate).not.toHaveBeenCalled();
+    // The step's heading took focus on arrival only; a refusal never sends it back there.
+    expect(focused).toEqual(["login-code-heading"]);
+  });
+
+  it("the next sixth digit submits again — the new code", async () => {
+    actions.verifyCodeAction.mockResolvedValueOnce({ ok: false, error: NEUTRAL_VERIFY_ERROR });
+    completeCode(openCodeStep("12345"), "123456");
+    await h.settle();
+    actions.verifyCodeAction.mockResolvedValueOnce({ ok: true, isNewPayer: false });
+    completeCode(render(), "654321");
+    expect(actions.verifyCodeAction).toHaveBeenCalledTimes(2);
+    expect(actions.verifyCodeAction).toHaveBeenLastCalledWith({ email: EMAIL, code: "654321" });
+    await h.settle();
+    const tree = render();
+    expect(propsOf(boxesOf(tree))).toMatchObject({ value: "654321", success: true });
+    // The old refusal is gone once the new code is in.
+    expect(toastText(tree, "danger")).toBeUndefined();
+    expect(navigate).toHaveBeenCalledTimes(1);
+  });
+
+  it("a refusal after Verify by hand clears and re-arms the same way", async () => {
+    actions.verifyCodeAction.mockResolvedValue({ ok: false, error: NEUTRAL_VERIFY_ERROR });
+    const first = openCodeStep("123456");
+    const before = boxesOf(first);
+    submit(first);
+    expect(actions.verifyCodeAction).toHaveBeenCalledWith({ email: EMAIL, code: "123456" });
+    await h.settle();
+    const after = boxesOf(render());
+    expect(propsOf(after).value).toBe("");
+    expect(after.key).not.toBe(before.key);
   });
 });
 
