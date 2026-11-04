@@ -45,9 +45,11 @@ vi.mock("../../../../../components/retry-button", () => ({
 let stateQueue: unknown[] = [];
 let stateCursor = 0;
 let setters: Array<ReturnType<typeof vi.fn>> = [];
+/** A queue slot that lets the form's OWN initial value through — its real seed runs. */
+const OWN_SEED = Symbol("own seed");
 const useState = vi.fn((initial: unknown) => {
   const i = stateCursor++;
-  const seeded = i < stateQueue.length ? stateQueue[i] : initial;
+  const seeded = i < stateQueue.length && stateQueue[i] !== OWN_SEED ? stateQueue[i] : initial;
   const setter = vi.fn();
   setters[i] = setter;
   return [seeded, setter] as [unknown, (v: unknown) => void];
@@ -161,7 +163,9 @@ function render(
     reqDraft?: string;
     benDraft?: string;
   } = {},
-  selection = { matchSkillIds: [] as string[], untickedRelatedIds: [] as string[] },
+  selection:
+    | { matchSkillIds: string[]; untickedRelatedIds: string[] }
+    | typeof OWN_SEED = { matchSkillIds: [] as string[], untickedRelatedIds: [] as string[] },
   appended: {
     navigating?: boolean;
     problem?: { control: string; message: string } | null;
@@ -176,6 +180,8 @@ function render(
     initial?: EditPostingInitial;
     tradeRequired?: boolean;
     matchSkills?: unknown[];
+    /** The posting's stored match set (`match_skill_ids` + unticks), as the page reads it. */
+    matchSelection?: { matchSkillIds: string[]; untickedRelatedIds: string[] };
   } = {},
 ) {
   stateQueue = [
@@ -203,6 +209,7 @@ function render(
     postingTradesProblem: (page.postingTradesProblem ?? null) as never,
     tradeRequired: page.tradeRequired ?? false,
     matchSkills: (page.matchSkills ?? []) as never,
+    matchSelection: page.matchSelection,
   }) as ReactElement;
 }
 
@@ -565,6 +572,90 @@ describe("EditPostingForm — #2645: the role is the job's trade, one of the 16"
     await vi.waitFor(() => expect(updatePostingAction).toHaveBeenCalledTimes(1));
     const input = updatePostingAction.mock.calls[0]![0] as { publish?: { matchSkillIds: string[] } };
     expect(input.publish?.matchSkillIds).toEqual(["mskill_cnc_turner"]);
+  });
+
+  describe("a draft an older client saved with free skills (no trade fields)", () => {
+    /** A card complete enough to publish (the gap rule passes). */
+    const FULL = {
+      roleKind: "cnc_turner",
+      city: "Pune",
+      payMin: "18000",
+      payMax: "26000",
+      payType: "in_hand",
+      minExperienceYears: "1",
+      maxExperienceYears: "5",
+      shift: "day",
+      neededBy: "soon",
+      description: "Run two lathes.",
+    };
+    const CHIPS = { requirements: ["Fanuc"], benefits: ["PF"] };
+    /** What an older payer-app's flat picker (or the old web fallback) stored on the row. */
+    const HAND_PICKED = {
+      matchSkillIds: ["mskill_delivery_rider", "mskill_vmc_operating"],
+      untickedRelatedIds: ["mskill_cnc_turning"],
+    };
+    const skill = (skill_id: string, label: string) => ({
+      skill_id,
+      label,
+      industry_id: "ind_x",
+      related_skill_ids: [],
+    });
+    const VOCABULARY = [
+      skill("mskill_cnc_turner", "CNC Turning"),
+      skill("mskill_delivery_rider", "Delivery Rider"),
+      skill("mskill_vmc_operating", "VMC Operating"),
+    ];
+    /** The real trade seed runs (OWN_SEED): it starts from the stored set, as on the page. */
+    const draftTree = (initial: EditPostingInitial = { ...INITIAL, roleKind: "cnc_turner" }) =>
+      render(FULL, "draft", CHIPS, OWN_SEED, {}, {
+        initial,
+        matchSelection: HAND_PICKED,
+        matchSkills: VOCABULARY,
+      });
+
+    it("the panel, the rail and the publish all read the TRADE's set — never the stored one", async () => {
+      tradeFieldsProps.mockClear();
+      const tree = draftTree();
+      hosts(tree); // draws the (stubbed) trade panel, which records what it was handed
+      // The panel previews the trade with no answers: its own skill only.
+      expect(tradeFieldsProps.mock.calls.at(-1)![0]).toMatchObject({
+        roleKind: "cnc_turner",
+        value: { tradeLevel: "", answers: {} },
+      });
+      const facts = (railOf(tree).props as unknown as { facts: Array<{ label: string; value: unknown }> })
+        .facts;
+      expect(facts.find((f) => f.label === "Skills")?.value).toBe("CNC Turning");
+
+      railOf(tree).props.primary.props.onClick!();
+      await vi.waitFor(() => expect(updatePostingAction).toHaveBeenCalledTimes(1));
+      const input = updatePostingAction.mock.calls[0]![0] as Record<string, unknown>;
+      // The trade's set, with no untick of the old pick — what the panel's reach preview counted.
+      expect(input.publish).toEqual({ matchSkillIds: ["mskill_cnc_turner"], untickedRelatedIds: [] });
+      // The trade form rides the publish (`{}`: nothing picked), so the SERVER derives the set.
+      expect(input.tradeAnswers).toEqual({});
+      expect(input.tradeLevel).toBeUndefined();
+      // The role was not moved, so it is not sent (#2645).
+      expect(input.roleKind).toBeUndefined();
+    });
+
+    it("a draft that already has its trade form keeps its stored untick choice on publish", async () => {
+      const tree = draftTree({ ...INITIAL, roleKind: "cnc_turner", tradeLevel: null, tradeAnswers: {} });
+      railOf(tree).props.primary.props.onClick!();
+      await vi.waitFor(() => expect(updatePostingAction).toHaveBeenCalledTimes(1));
+      const input = updatePostingAction.mock.calls[0]![0] as Record<string, unknown>;
+      expect(input.publish).toEqual({
+        matchSkillIds: ["mskill_cnc_turner"],
+        untickedRelatedIds: ["mskill_cnc_turning"],
+      });
+      expect(input.tradeAnswers).toEqual({});
+    });
+
+    it("a plain Save draft sends no trade form: the stored set is left until publish", async () => {
+      await submit(draftTree());
+      const input = updatePostingAction.mock.calls[0]![0] as Record<string, unknown>;
+      expect(input.tradeAnswers).toBeUndefined();
+      expect(input.publish).toBeUndefined();
+    });
   });
 
   it("the trade fields get the job's role for the reach preview (#2635)", () => {

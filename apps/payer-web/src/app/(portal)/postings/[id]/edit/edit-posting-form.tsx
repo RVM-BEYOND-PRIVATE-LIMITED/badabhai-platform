@@ -56,7 +56,7 @@ import { DraftRestoredNotice } from "../../../../../components/draft-restored-no
 
 /**
  * Edit a posting (EMPLOYER self-serve; LIVE `PATCH /payer/job-postings/:id`). Every card field +
- * the role + the MatchSkillPicker (prefilled), beside the {@link PostingPreviewRail} — the worker's
+ * the role + its trade's fields (prefilled), beside the {@link PostingPreviewRail} — the worker's
  * card built from the SAME `readCardForm` values the save sends. DRAFT → "Save draft" (no gap
  * block) + "Publish posting" (gap block + ≥1 skill). OPEN/PAUSED → "Save changes" (gaps
  * HIGHLIGHTED, never blocked — owner ruling). The `initial` prop drives the `clear` diff (a
@@ -68,7 +68,8 @@ import { DraftRestoredNotice } from "../../../../../components/draft-restored-no
  * Retry). It is sent only when the payer moved it to another trade and is never cleared, so an
  * unrelated save cannot move a live job off the 16. A publish needs one, and the API's
  * `posting_trade_required` refusal lands AT the picker ("Pick one of the 16 trades"), as does a page
- * opened with `?trade=required` (a publish refused elsewhere).
+ * opened with `?trade=required` (a publish refused elsewhere). A publish always carries the trade
+ * form, so the server derives the match set from the trade — the set the trade panel previews.
  */
 
 const FORM_ID = "edit-posting-form";
@@ -291,14 +292,16 @@ export function EditPostingForm({
   const showTradeForm = tradeMode && (isDraft || storedTradeSeed || trade.dirty);
   // #2645 — the stored role, as stored: it is sent only when the payer moved it to another trade.
   const roleTouched = fields.roleKind !== (initial.roleKind ?? "");
-  // The match set the publish button, the rail and the PATCH all read: the role's derived chips
-  // (or the stored set while the trade form is untouched). A picked trade always carries at least
-  // its own skill, so a stored set that is empty falls back to it — never to a flat pick.
+  // The match set the publish button, the rail and the PATCH all read. Wherever the trade panel is
+  // shown it is EXACTLY what the panel previews — the trade's own skill plus its match chips — so a
+  // draft an older client saved with a hand-picked set publishes its trade's set, never those free
+  // skills (#2645). Only a posting the panel is hidden for (a live one from before migration 0141,
+  // which never publishes from here) shows its stored set; an empty one, its trade's own skill.
   const tradeForm = postingTrades.find((form) => form.role_kind === fields.roleKind);
   const activeMatchSkillIds =
-    trade.matchSkillIds.length > 0 || tradeForm === undefined
-      ? trade.matchSkillIds
-      : derivedMatchSkills(tradeForm, trade.answers);
+    tradeForm !== undefined && (showTradeForm || trade.matchSkillIds.length === 0)
+      ? derivedMatchSkills(tradeForm, trade.answers)
+      : trade.matchSkillIds;
 
   // THE ONE READ — the preview, the inline errors, the gaps and the save all use it.
   const read = readCardForm(
@@ -452,10 +455,10 @@ export function EditPostingForm({
         requirements: v.requirements,
         benefits: v.benefits,
         // Send the trade fields when the payer edited them OR the posting already has them,
-        // so an unrelated save cannot trip the clear diff and silently erase the answers.
-        ...(trade.dirty ||
-        (initial.tradeLevel ?? null) !== null ||
-        (initial.tradeAnswers ?? null) !== null
+        // so an unrelated save cannot trip the clear diff and silently erase the answers — and
+        // on EVERY publish (#2645): `{}` when untouched still names the trade, so the server
+        // derives the match set from it (as the create does) and the job goes live with its form.
+        ...(trade.dirty || storedTradeSeed || mode === "publish"
           ? {
               tradeLevel: trade.tradeLevel || undefined,
               tradeAnswers: trade.answers,
@@ -466,8 +469,10 @@ export function EditPostingForm({
           ? {
               publish: {
                 matchSkillIds: activeMatchSkillIds,
-                // Preserve the stored untick choice only while the old pick is untouched.
-                untickedRelatedIds: trade.dirty ? [] : (matchSelection?.untickedRelatedIds ?? []),
+                // The stored untick choice belongs to the stored trade selection: kept only while
+                // that is what publishes. Otherwise none, as the panel's reach preview counted.
+                untickedRelatedIds:
+                  trade.dirty || !storedTradeSeed ? [] : (matchSelection?.untickedRelatedIds ?? []),
               },
             }
           : {}),
