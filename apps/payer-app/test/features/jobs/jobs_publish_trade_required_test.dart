@@ -10,6 +10,7 @@ import 'package:payer_app/core/auth/payer_http.dart';
 import 'package:payer_app/core/auth/payer_token_store.dart';
 import 'package:payer_app/core/data/http_payer_api_client.dart';
 import 'package:payer_app/core/di/locator.dart';
+import 'package:payer_app/core/widgets/bb_button.dart';
 import 'package:payer_app/core/widgets/bb_shake.dart';
 import 'package:payer_app/features/jobs/presentation/jobs_screen.dart';
 
@@ -145,6 +146,16 @@ void main() {
     );
     expect(find.byType(SnackBar), findsNothing);
     expect(find.textContaining('a live job must name'), findsNothing);
+
+    // Back on My jobs, the card is idle again (its busy state cleared before
+    // the picker opened), so Publish can be tapped once a trade is picked.
+    await tester.tap(find.byIcon(Icons.arrow_back_rounded));
+    await tester.pumpAndSettle();
+    expect(find.text('Edit job'), findsNothing);
+    final BbButton publish =
+        tester.widget<BbButton>(find.widgetWithText(BbButton, 'Publish'));
+    expect(publish.loading, isFalse);
+    expect(publish.onPressed, isNotNull);
   });
 
   testWidgets('any other Publish refusal still says why, in a toast', (
