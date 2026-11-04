@@ -1,12 +1,5 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import {
-  inviteApiBaseUrl,
-  inviteLandingUrl,
-  isWellFormedInviteCode,
-  pingInviteClick,
-  playStoreUrl,
-  workerAppId,
-} from "./invite-landing";
+import { describe, it, expect, afterEach } from "vitest";
+import { inviteLandingUrl, isWellFormedInviteCode, playStoreUrl, workerAppId } from "./invite-landing";
 
 const CODE = "abcdef012345";
 
@@ -77,62 +70,5 @@ describe("isWellFormedInviteCode — shape only, never an existence check", () =
     for (const bad of ["abc", "ABCDEF012345", "abcdef0123456", "../../etc/passwd", ""]) {
       expect(isWellFormedInviteCode(bad)).toBe(false);
     }
-  });
-});
-
-describe("pingInviteClick — best-effort, never blocks or breaks the render", () => {
-  const fetchMock = vi.fn();
-  beforeEach(() => {
-    fetchMock.mockReset();
-    vi.stubGlobal("fetch", fetchMock);
-    process.env.PAYER_API_URL = "https://api.example.test";
-  });
-  afterEach(() => {
-    vi.unstubAllGlobals();
-    delete process.env.PAYER_API_URL;
-  });
-
-  it("POSTs the PUBLIC click endpoint for a well-formed code", async () => {
-    fetchMock.mockResolvedValue({ ok: true });
-    await pingInviteClick(CODE);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe(`https://api.example.test/invites/${CODE}/click`);
-    expect(init.method).toBe("POST");
-    expect(init.cache).toBe("no-store");
-  });
-
-  it("does not even call the API for a malformed code (nothing to attribute)", async () => {
-    await pingInviteClick("not-a-code");
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
-
-  it("SWALLOWS a network failure — a funnel signal is never worth a broken landing page", async () => {
-    fetchMock.mockRejectedValue(new Error("ECONNREFUSED"));
-    await expect(pingInviteClick(CODE)).resolves.toBeUndefined();
-  });
-
-  it("SWALLOWS a non-2xx too (the response is ignored by contract — no oracle)", async () => {
-    fetchMock.mockResolvedValue({ ok: false, status: 500 });
-    await expect(pingInviteClick(CODE)).resolves.toBeUndefined();
-  });
-
-  it("bounds a hanging API with an abort signal so a slow backend cannot stall a 3G page", async () => {
-    fetchMock.mockImplementation(
-      (_url: string, init: RequestInit) =>
-        new Promise((_resolve, reject) => {
-          init.signal?.addEventListener("abort", () => reject(new Error("aborted")));
-        }),
-    );
-    await expect(pingInviteClick(CODE, 5)).resolves.toBeUndefined();
-  });
-
-  it("falls back through PAYER_API_URL -> NEXT_PUBLIC_API_URL (no new deploy variable)", () => {
-    expect(inviteApiBaseUrl()).toBe("https://api.example.test");
-    delete process.env.PAYER_API_URL;
-    process.env.NEXT_PUBLIC_API_URL = "https://public.example.test";
-    expect(inviteApiBaseUrl()).toBe("https://public.example.test");
-    delete process.env.NEXT_PUBLIC_API_URL;
-    expect(inviteApiBaseUrl()).toBe("http://localhost:3001");
   });
 });

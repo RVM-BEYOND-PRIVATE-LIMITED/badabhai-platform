@@ -2,6 +2,7 @@ import "server-only";
 import type { z } from "zod";
 import { payerServerConfig } from "./server-config";
 import { readApiToken } from "./auth/session-cookie";
+import { visitorIpHeaders } from "./visitor-ip";
 import {
   PayerBadRequestError,
   PayerConflictError,
@@ -28,6 +29,10 @@ import {
  *
  * The API base URL is the SERVER-side `payerServerConfig().apiBaseUrl` — not a
  * `NEXT_PUBLIC_*` value — so the browser never learns the internal API origin.
+ *
+ * VISITOR IP (#2542): every call carries the visitor's public IP as ONE plain
+ * `X-Forwarded-For` ({@link visitorIpHeaders}) — the API's per-IP rate-limit key, nothing more.
+ * This is the ONLY place payer-web calls the API (api-seam-fence.test.ts).
  */
 
 class PayerUnauthorizedError extends Error {
@@ -62,12 +67,18 @@ interface RequestOptions<T> {
    * behaves exactly as before (backward compatible — the header is optional by design).
    */
   idempotencyKey?: string;
+  /** Aborts the call (a best-effort caller's timeout — the invite click ping). */
+  signal?: AbortSignal;
 }
 
 /** Low-level authed JSON call to the payer API. Throws on 401 / non-2xx / parse fail. */
 export async function payerFetch<T>(path: string, opts: RequestOptions<T>): Promise<T> {
   const { apiBaseUrl } = payerServerConfig();
-  const headers: Record<string, string> = { "content-type": "application/json" };
+  // The visitor IP first (or nothing), so no later header can be shadowed by it.
+  const headers: Record<string, string> = {
+    ...(await visitorIpHeaders()),
+    "content-type": "application/json",
+  };
 
   if (!opts.public) {
     const token = await readApiToken();
@@ -85,6 +96,7 @@ export async function payerFetch<T>(path: string, opts: RequestOptions<T>): Prom
     headers,
     body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
     cache: "no-store",
+    ...(opts.signal ? { signal: opts.signal } : {}),
   });
 
   if (res.status === 401) throw new PayerUnauthorizedError();

@@ -91,6 +91,16 @@ production value; pick the row that matches the real edge):
 | ONE trusted edge that APPENDS XFF (this harness; a single LB/nginx/ingress) | `1`                     |
 | N trusted hops, EACH appending XFF (e.g. CDN→LB→API where both append)      | `N` (count them exactly) |
 | Blanket Express `trust proxy: true`                                         | **NEVER** — spoofable XFF = rotatable rate-limit identity |
+| **PRODUCTION (Lightsail box, #2542)** — host nginx appends XFF (`$proxy_add_x_forwarded_for`) → `127.0.0.1:3001`; payer-web (behind the same nginx) forwards the visitor as its own XFF; api + payer-web loopback-bound | **`1`** — bridged `production` secret, dormant (0) until set; turn-on: `docs/ops/visitor-ip-turn-on-runbook.md` |
+
+Production topology, from the owner's `nginx -T` + `docker ps` (2026-11-04): the api host and
+the payer host each have ONE `location /` (`X-Forwarded-For $proxy_add_x_forwarded_for`,
+`X-Real-IP $remote_addr`, `X-Forwarded-Proto $scheme`, `Host $host`, no `real_ip` directives),
+port 80 is certbot redirects, and there is no admin-web server block (tunnel-only on
+`127.0.0.1:3003`). DNS must point straight at the box (the `sslip.io` hosts do by construction);
+a CDN or proxy in front would be a second hop and make 1 wrong. The hop-1 value is
+only safe because nothing reaches 3001/3333 except nginx: both binds are `127.0.0.1` and
+`published-port-binding-compose.guard.test.ts` fails CI if either reverts.
 
 Rules of thumb:
 

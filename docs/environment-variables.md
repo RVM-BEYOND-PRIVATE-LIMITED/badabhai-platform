@@ -360,10 +360,29 @@ NestJS boot assertion).
 - **Observability** — `LANGFUSE_PUBLIC_KEY`/`LANGFUSE_SECRET_KEY`/`LANGFUSE_BASE_URL` (tracing
   off unless both keys are set; see `docs/observability-runbook.md` §6).
 - **Service URLs / ports** — `API_PORT`, `AI_SERVICE_PORT`, `AI_SERVICE_URL`, `WEB_PORT`.
-- **Reverse proxy** — `TRUST_PROXY_HOP_COUNT` (not in `.env.example` as a var but read in
-  `main.ts`; a hop **count**, never a blanket boolean — spoofable `X-Forwarded-For` would
-  otherwise let an attacker rotate their rate-limit identity. Default 0 = trust nothing, use the
-  raw socket peer, until the deploy edge's actual hop count is known).
+- **Reverse proxy** — `TRUST_PROXY_HOP_COUNT` (read in `main.ts`; commented in `.env.example`). A
+  hop **count**, never a blanket boolean — a spoofable `X-Forwarded-For` would otherwise let an
+  attacker rotate their rate-limit identity. It keys `req.ip`, so it keys every per-IP cap.
+  - **Default 0** = the raw socket peer. Behind the box nginx that is one shared bucket for all
+    app traffic, and payer-web's container for every portal call.
+  - **Production: bridged** from the `production` Environment secret of the same name (#2542):
+    `ci.yml` deploy `env:` + `envs:` → box shell → `docker-compose.staging.yml`'s
+    `${TRUST_PROXY_HOP_COUNT:-0}` on the api (re-declared there; the base file's line is the dev
+    proxy-harness knob). Absent secret = 0 = dormant. `staging-deploy.sh` refuses anything but
+    empty/0/1 before a container moves. **The armed value is 1**, set by the owner per
+    `docs/ops/visitor-ip-turn-on-runbook.md`. Bridging also means a box `.env` or `export` of this
+    name no longer reaches the container — the bridged (possibly empty) value wins.
+  - **Why 1 is correct on the box** (owner `nginx -T` + `docker ps`, 2026-11-04): the api host and
+    the payer host each have ONE `location /` proxying to `127.0.0.1:3001` / `127.0.0.1:3333` with
+    `X-Forwarded-For $proxy_add_x_forwarded_for` (append), `X-Real-IP $remote_addr`,
+    `X-Forwarded-Proto $scheme`, `Host $host`; no `real_ip` directives; port 80 is certbot
+    redirects only. There is NO admin-web server block (admin-web is `127.0.0.1:3003`,
+    tunnel-only). The api and payer-web publish on loopback only (#2542), so nginx is the only
+    way in. payer-web forwards the visitor (the last entry nginx appended, public addresses only)
+    as its own `X-Forwarded-For`, which the hop-1 api reads as `req.ip`.
+  - **Not 2 or more** on this topology: Express would then trust an entry the client wrote. A CDN
+    or a second proxy in front of nginx changes the count — re-derive it first
+    (`infra/docker/proxy-harness/README.md`).
 - **CORS** — `CORS_ALLOWED_ORIGINS` (`resolveCorsOrigins`): permissive in dev, an explicit
   allow-list outside dev, **deny-all if unset** outside dev — fail closed, not fail open.
 
@@ -374,8 +393,8 @@ NestJS boot assertion).
 - **CI (`ci.yml`'s `e2e` job)**: obviously-fake literal placeholders set directly in the job's
   `env:` block (e.g. `ci-dummy-fast2sms-api-key`) — real enough to satisfy the fail-closed boot
   asserts, never a real credential, never reaching a real provider.
-- **Lightsail (`deploy-lightsail`)**: GitHub **Environment** secrets (`environment: staging` in
-  the job), bridged onto the box's shell environment via `appleboy/ssh-action`'s `env:`/`envs:`
+- **Lightsail (`deploy-lightsail`)**: GitHub **Environment** secrets (`environment: production` in
+  the job — the Lightsail box IS production), bridged onto the box's shell environment via `appleboy/ssh-action`'s `env:`/`envs:`
   pair — GitHub secrets do not reach the box's compose interpolation on their own; this bridge is
   what makes them visible to `docker-compose.staging.yml`'s `${VAR:?}` gates. See
   `docs/rollback-guide.md` and `docs/release-checklist.md` for the exact secret list currently

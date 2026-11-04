@@ -28,6 +28,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { serverEnvSchema } from "@badabhai/config";
 import { describe, expect, it } from "vitest";
 
 const ROOT = join(__dirname, "..", "..", "..", "..");
@@ -566,5 +567,81 @@ describe("R38 — why the compose loopback fix cannot reach the running containe
 
   it("the compose overlay still records that a bare `up -d` would start them", () => {
     expect(STAGING_COMPOSE).toMatch(/NEVER run this overlay with a bare `up -d`/);
+  });
+});
+
+describe("#2542 / TD25 — TRUST_PROXY_HOP_COUNT reaches the api, dormant until the secret exists", () => {
+  // The hop count keys EVERY per-IP cap: 0 is the socket peer (one shared bucket behind the host
+  // nginx), 1 is the visitor nginx appended. It reaches the container only through all five links
+  // the deploy step's own comment lists, and the preflight is the only thing that stops a value
+  // the schema WOULD accept (2, 3, ...) from making a client-written X-Forwarded-For entry trusted.
+  const BASE_COMPOSE = readFileSync(join(ROOT, "docker-compose.yml"), "utf8");
+  const SCRIPT = uncommented(
+    readFileSync(join(ROOT, "scripts", "deploy", "staging-deploy.sh"), "utf8"),
+  );
+  const PASS_THROUGH = "TRUST_PROXY_HOP_COUNT: ${TRUST_PROXY_HOP_COUNT:-0}";
+  const field = serverEnvSchema.shape.TRUST_PROXY_HOP_COUNT;
+
+  const preflight =
+    /case "\$\{TRUST_PROXY_HOP_COUNT-\}" in\n\s*([^\n)]*)\)\s*;;\n\s*\*\)([\s\S]*?)\n\s*;;\nesac/.exec(
+      SCRIPT,
+    );
+
+  it("is bridged through BOTH hops — the env: line and the envs: allowlist", () => {
+    // Either alone is inert: an `env:` entry drone-ssh does not export never reaches the box.
+    const bridged = uncommented(DEPLOY);
+    expect(bridged).toMatch(
+      /TRUST_PROXY_HOP_COUNT:\s*\$\{\{\s*secrets\.TRUST_PROXY_HOP_COUNT\s*\}\}/,
+    );
+    expect(bridged).toMatch(/envs:[^\n]*\bTRUST_PROXY_HOP_COUNT\b/);
+  });
+
+  it("the PRODUCTION overlay declares it on the api, defaulting to 0, never fail-loud", () => {
+    // Declared in the overlay itself rather than inherited from the base file's dev
+    // proxy-harness line, so tidying that line away cannot silently disarm production.
+    expect(envKeysOf("api")).toContain("TRUST_PROXY_HOP_COUNT");
+    expect(STAGING_COMPOSE).toContain(PASS_THROUGH);
+    expect(STAGING_COMPOSE).not.toContain("${TRUST_PROXY_HOP_COUNT:?");
+  });
+
+  it("the overlay and the base file use the same expression, so the merge changes nothing", () => {
+    expect(BASE_COMPOSE).toContain(PASS_THROUGH);
+  });
+
+  it("the deploy accepts exactly empty, 0 and 1 — and refuses with an exit", () => {
+    expect(preflight, "the TRUST_PROXY_HOP_COUNT case block is missing or reshaped").not.toBeNull();
+    const accepted = (preflight?.[1] ?? "")
+      .split("|")
+      .map((alternative) => alternative.trim().replace(/^"(.*)"$/, "$1"));
+    expect([...accepted].sort()).toEqual(["", "0", "1"]);
+    const refusal = preflight?.[2] ?? "";
+    expect(refusal).toMatch(/echo "::error::TRUST_PROXY_HOP_COUNT must be exactly/);
+    expect(refusal).toMatch(/\n\s*exit 1$/);
+  });
+
+  it("never echoes the value, only the name", () => {
+    expect(preflight?.[2] ?? "").not.toMatch(/\$\{?TRUST_PROXY_HOP_COUNT/);
+  });
+
+  it("runs before the first prune, pull or recreate", () => {
+    const at = SCRIPT.indexOf('case "${TRUST_PROXY_HOP_COUNT-}" in');
+    expect(at).toBeGreaterThan(-1);
+    for (const command of ["docker image prune", "$COMPOSE pull", "$COMPOSE up"]) {
+      expect(SCRIPT.indexOf(command), `${command} runs before the preflight`).toBeGreaterThan(at);
+    }
+  });
+
+  it("everything the preflight accepts, the api boots on — and unset is dormant", () => {
+    expect(field.parse(undefined)).toBe(0);
+    expect(field.parse("")).toBe(0);
+    expect(field.parse("0")).toBe(0);
+    expect(field.parse("1")).toBe(1);
+  });
+
+  it("the schema alone would accept a spoofable 2, which is why the preflight exists", () => {
+    // A guard tested only for what it refuses can drift into refusing nothing. This pins the
+    // gap the preflight closes: the api would boot on 2 and trust a client-written entry.
+    expect(field.safeParse("2").success).toBe(true);
+    expect(field.safeParse("abc").success).toBe(false);
   });
 });

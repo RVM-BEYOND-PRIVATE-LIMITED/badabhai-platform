@@ -23,6 +23,10 @@ import "server-only";
  * sends a payer JWT as `Authorization: Bearer <jwt>` ONLY. It NEVER sends an
  * internal-service token. The dead `INTERNAL_SERVICE_TOKEN` config was removed (D1):
  * a server-to-server internal token must never leave this app via the payer seam.
+ *
+ * VISITOR IP (#2542): the seam also sends the visitor's public IP as a plain
+ * `X-Forwarded-For` (lib/visitor-ip.ts), for the API's per-IP rate limits ONLY. It is not a
+ * secret and adds no config here — the posture above is unchanged.
  */
 
 export interface PayerServerConfig {

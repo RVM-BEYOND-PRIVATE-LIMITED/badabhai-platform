@@ -7,9 +7,10 @@
  * Firebase Dynamic Links shut down (2025-08-25), this page plus Play Install Referrer IS
  * the attribution chain.
  *
- * NOT server-only on purpose: this module holds no secret (a package name and a public API
- * base), and keeping it free of `server-only` lets it be unit-tested and, if ever needed,
- * rendered on either side. Nothing here reads a credential.
+ * NOT server-only on purpose: this module holds no secret (a package name and public link
+ * origins), and keeping it free of `server-only` lets it be unit-tested and, if ever needed,
+ * rendered on either side. Nothing here reads a credential or calls the API — the click ping
+ * is server-only, through the API seam (invite-click.ts, #2542).
  */
 
 /** Fail-closed-ish env read: trims, and treats blank as unset. */
@@ -80,7 +81,7 @@ export function shortLinkOrigin(): string {
  * with no `referral_clicks` row.
  *
  * ATTRIBUTION IS NOT LOST BY THE MOVE. `/i/<code>` pings the same public click endpoint
- * itself ({@link pingInviteClick} -> `POST /invites/:code/click`), which is the path the
+ * itself (`pingInviteClick` in invite-click.ts -> `POST /invites/:code/click`), the path the
  * resolver's own 302 landed on anyway. The `/r/` resolver and the `referral_links` table stay
  * in place as a measurement-only surface; nothing ships links into that space.
  */
@@ -114,15 +115,6 @@ export function intentUrl(code: string): string {
   );
 }
 
-/**
- * API base for the SERVER-SIDE click ping. Reuses the payer portal's existing
- * `PAYER_API_URL` (the same API this app already talks to) so B4 introduces no new
- * deployment variable; `NEXT_PUBLIC_API_URL` is honoured as a fallback.
- */
-export function inviteApiBaseUrl(): string {
-  return env("PAYER_API_URL") ?? env("NEXT_PUBLIC_API_URL") ?? "http://localhost:3001";
-}
-
 /** The shape a referral code may take: 12 lowercase hex, both funnels (worker + agency). */
 const CODE_RE = /^[a-f0-9]{12}$/;
 
@@ -133,32 +125,4 @@ const CODE_RE = /^[a-f0-9]{12}$/;
  */
 export function isWellFormedInviteCode(code: string): boolean {
   return CODE_RE.test(code);
-}
-
-/**
- * Fire the PUBLIC click endpoint, best-effort. NEVER blocks or fails the render:
- *  - it is awaited only so the request is actually issued before the response streams
- *    (a fire-and-forget fetch can be torn down with the request context),
- *  - a short timeout bounds it, because a slow API must not delay a worker on 3G,
- *  - every error is swallowed — a funnel signal is never worth a broken landing page.
- *
- * The endpoint's response is deliberately ignored: it is neutral by contract and reveals
- * nothing about the code, which is the property that keeps this page from being an oracle.
- */
-export async function pingInviteClick(code: string, timeoutMs = 1200): Promise<void> {
-  if (!isWellFormedInviteCode(code)) return;
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    await fetch(`${inviteApiBaseUrl()}/invites/${code}/click`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      cache: "no-store",
-      signal: controller.signal,
-    });
-  } catch {
-    // Swallowed by design (timeout, DNS, 5xx — all irrelevant to what the worker sees).
-  } finally {
-    clearTimeout(timer);
-  }
 }

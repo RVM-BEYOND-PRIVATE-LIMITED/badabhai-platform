@@ -79,6 +79,16 @@ describe("IpRateLimit.assertWithinHourlyIpCap", () => {
     const { svc } = setup({ incrResults: [new Error("READONLY")] });
     await expect429(svc.assertWithinHourlyIpCap("resume_download", IP, 20));
   });
+
+  it("#2542: hashes an IPv6 caller by its /64, so rotating within it stays in one bucket", async () => {
+    const { svc, pii } = setup({ incrResults: [1, 2] });
+    await svc.assertWithinHourlyIpCap("interview_kit", "2001:db8:abcd:12::1", 20);
+    await svc.assertWithinHourlyIpCap("interview_kit", "2001:db8:abcd:12:ffff::9", 20);
+    expect(pii.hashIp.mock.calls.map((c) => c[0])).toEqual([
+      "2001:db8:abcd:12::/64",
+      "2001:db8:abcd:12::/64",
+    ]);
+  });
 });
 
 const DEVICE = "3f7c1b9a-0d4e-4c62-9a11-77b2c5e8d013";

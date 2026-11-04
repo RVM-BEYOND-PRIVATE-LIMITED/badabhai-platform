@@ -3,6 +3,7 @@ import { InjectQueue } from "@nestjs/bullmq";
 import { Queue } from "bullmq";
 import { RESUME_RENDER_QUEUE } from "../../queue/queue.constants";
 import { PiiCryptoService } from "../pii-crypto.service";
+import { rateLimitAddress } from "./rate-limit-address";
 import type { Sender } from "./request-sender";
 
 /**
@@ -35,10 +36,12 @@ interface RedisCounter {
  * FAIL CLOSED: if Redis is unavailable we REJECT (429) rather than allow, so an
  * outage can never uncap the download routes.
  *
- * NOTE (TD): behind a proxy/LB, `req.ip` is the proxy unless Express `trust proxy`
- * is set. Until that's configured the address cap is coarse (per-egress-IP); it is still a
- * useful backstop. Tightening it to the real client IP rides the deployment work. That
- * coarseness is precisely why the OTP send routes moved OFF it — see `request-sender.ts`.
+ * THE ADDRESS IS ONLY AS GOOD AS `req.ip` (TD25, #2542). Production sits behind the box nginx,
+ * which appends the visitor to `X-Forwarded-For`; until `TRUST_PROXY_HOP_COUNT=1` is armed there
+ * (docs/ops/visitor-ip-turn-on-runbook.md) `req.ip` is nginx's address for app traffic and
+ * payer-web's container for portal calls, so the address cap is effectively one shared bucket. That
+ * coarseness is why the OTP send routes moved OFF it — see `request-sender.ts`. An IPv6 address is
+ * counted per /64 ({@link rateLimitAddress}), so one subscriber cannot rotate into fresh buckets.
  */
 @Injectable()
 export class IpRateLimit {
@@ -80,7 +83,7 @@ export class IpRateLimit {
     const hash =
       sender.kind === "device"
         ? this.pii.hmac(sender.value).slice(0, 32)
-        : this.pii.hashIp(sender.value || "unknown").slice(0, 32);
+        : this.pii.hashIp(rateLimitAddress(sender.value) || "unknown").slice(0, 32);
     const hour = IpRateLimit.utcHourStamp();
     const key = `ratelimit:${sender.kind === "device" ? "dev" : "ip"}:${scope}:${hash}:${hour}`;
     const ttl = IpRateLimit.secondsUntilEndOfUtcHour();

@@ -1,7 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReactElement, ReactNode } from "react";
-// Type-only (erased at compile), so referencing it inside the hoisted vi.mock factory is safe.
-import type * as InviteLandingModule from "../../../lib/invite-landing";
 
 /**
  * PUBLIC `/i/<code>` REFERRAL LANDING (blocker B4).
@@ -19,10 +17,9 @@ import type * as InviteLandingModule from "../../../lib/invite-landing";
  */
 
 const pingInviteClick = vi.fn<(code: string) => Promise<void>>(async () => undefined);
-vi.mock("../../../lib/invite-landing", async () => {
-  const actual = await vi.importActual<typeof InviteLandingModule>("../../../lib/invite-landing");
-  return { ...actual, pingInviteClick: (code: string) => pingInviteClick(code) };
-});
+vi.mock("../../../lib/invite-click", () => ({
+  pingInviteClick: (code: string) => pingInviteClick(code),
+}));
 
 const { default: InviteLandingPage } = await import("./page");
 
