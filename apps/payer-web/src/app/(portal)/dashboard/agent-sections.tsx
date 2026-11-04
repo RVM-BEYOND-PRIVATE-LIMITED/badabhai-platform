@@ -250,7 +250,7 @@ export async function AgentSections({
                     pendingLabel="New posting"
                   >
                     <Icon name={ACTION_ICON.create} />
-                    <span>Create New Posting</span>
+                    <span>New posting</span>
                   </PortalLink>
                   <PortalLink
                     className="bb-btn bb-btn--secondary"

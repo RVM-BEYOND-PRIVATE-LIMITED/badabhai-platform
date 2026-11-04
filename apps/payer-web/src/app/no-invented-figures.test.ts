@@ -52,6 +52,7 @@ const REMOVED: readonly string[] = [
   // One label per destination: the create form is "New posting" everywhere.
   "Create role",
   "Create First Posting",
+  "Create New Posting",
   "Create your first job post",
   "Create Job Posting",
   // Brand spelling.
