@@ -84,13 +84,19 @@ export class AdminAuthService {
 
     // Reserve a code identically for BOTH branches so the timing/response + 429s match. A code
     // is reserved even for an inactive/unknown account; it is simply never delivered, and verify
-    // mints nothing for it (no oracle). Delivery is a deferred stream in ADMIN-1.
+    // mints nothing for it (no oracle).
     if (account && account.status === "active") {
       // ADR-0038 — the RAW address is passed for delivery only. It is never logged and never
       // stored: the DTO already normalized it, and `emailHash` remains the lookup key
       // everywhere else. A `pending` or `suspended` admin deliberately falls to the
       // no-delivery branch — same neutral response, no mail to an account that cannot auth.
-      await this.otp.issueAndSend(emailHash, dto.email);
+      //
+      // R73 (2026-11-04) — DISPATCHED, not awaited, exactly like the forgot-password door. Only an
+      // active account ever reaches the provider, so waiting on it (its latency, or its failure)
+      // told a prober which emails are admins. The response now waits for the reserve alone,
+      // the same work the branch below does. A failed send is logged and the code stays
+      // reserved; the admin asks again after the resend cooldown.
+      await this.otp.issueAndDispatch(emailHash, dto.email, "login");
     } else {
       await this.otp.issueWithoutDelivery(emailHash);
     }
