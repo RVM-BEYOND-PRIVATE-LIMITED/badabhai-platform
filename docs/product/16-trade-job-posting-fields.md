@@ -110,6 +110,16 @@ kept, but matching runs only for the 16:
   role is explicitly changed (same reach-safety gate as web).
 - The API client accepts `role_kind`, `trade_level` and `trade_answers` on company and agency
   create/update.
+- **#2645 (client half of #2635) — a company job is always one of the 16 trades.** The company
+  post and edit screens pick the role only from the catalogue: no free role list, flat match
+  picker or free-text skills fallback; a failed or empty catalogue says why with a Retry and the
+  post is refused at the picker. The create always sends the trade form (`{}` when untouched),
+  so the server derives the match set from the trade. A `400 reason: posting_trade_required` on
+  `PATCH /payer/job-postings/:id` is read by its `reason` (never the message) and shown as "Pick
+  one of the 16 trades" AT the trade picker; a Publish refused this way in My jobs opens the
+  job's edit screen there. The company reach preview sends `role_kind`. The AI chat's publish
+  step offers only the catalogue's trades and refuses a publish without one before anything is
+  sent (it still asks no pack questions). Agency jobs are unchanged.
 - Candidates are visible to BOTH session kinds in the Find tab: a company session reads
   `job_postings`, an agency session reads its `jobs` rows, and both use the one
   `/payer/reach/jobs/:id/applicants` feed. The “Applicants” button on a company or agency job
