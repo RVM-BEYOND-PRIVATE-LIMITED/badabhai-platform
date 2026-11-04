@@ -13,7 +13,13 @@ const List<String> kEmployerContactPurposes = <String>[
 /// The employer-contact state the switch renders, derived from the latest
 /// consent row (GET /consent/me). Never optimistic local state.
 class EmployerContactInfo {
-  const EmployerContactInfo({required this.enabled, required this.purposes});
+  const EmployerContactInfo({
+    required this.enabled,
+    required this.purposes,
+    this.consentId,
+    this.consentVersion,
+    this.revoked = false,
+  });
 
   /// True only when the latest row grants BOTH [kEmployerContactPurposes].
   final bool enabled;
@@ -21,9 +27,24 @@ class EmployerContactInfo {
   /// The latest row's purposes verbatim (for diagnostics; not rendered).
   final List<String> purposes;
 
+  /// The latest row's id; null when the worker has no consent row at all.
+  final String? consentId;
+
+  /// The notice version the latest row certifies.
+  final String? consentVersion;
+
+  /// True when the latest row was revoked (full DPDP withdrawal).
+  final bool revoked;
+
+  /// A row exists and is not revoked — the only state a grant can extend.
+  bool get hasLiveRow => consentId != null && !revoked;
+
   factory EmployerContactInfo.fromDto(ConsentStateDto dto) =>
       EmployerContactInfo(
         enabled: kEmployerContactPurposes.every(dto.purposes.contains),
         purposes: List<String>.unmodifiable(dto.purposes),
+        consentId: dto.consentId,
+        consentVersion: dto.consentVersion,
+        revoked: dto.revokedAt != null,
       );
 }

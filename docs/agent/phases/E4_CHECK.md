@@ -103,7 +103,11 @@ AND the exit code for every item.
          (i)  `grep -n "CURRENT_CONSENT_VERSION" packages/types/src/index.ts` shows a value
               other than "2026-08-28" (base value, at `:96`); and
          (ii) apps/worker-app/lib/features/consent/presentation/consent_screen.dart contains
-              notice text describing employer sharing.
+              notice text describing employer sharing — since 2026-11-04 it renders that text
+              through `widgets/employer_sharing_notice.dart` (shared with the one-time prompt),
+              so check that file for the copy and consent_screen.dart for the widget.
+   UPDATE 2026-11-04: a HIT is now EXPECTED — the owner approved the copy, the version reads
+   "2026-11-04", and both (i) and (ii) hold. A hit with either missing is still the FAIL below.
    PRESCRIBED FAIL SHAPE: the sentence must name WHICH of the two is missing, and must say
    that consent rows are append-only so the recorded consents cannot be corrected later. A
    fail sentence that says only "employer_sharing was added" invites someone to add the copy

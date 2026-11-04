@@ -5283,6 +5283,35 @@ class EmployerContactWithdrawDto extends Equatable {
   List<Object?> get props => <Object?>[ok, consentId, withdrawn];
 }
 
+/// The outcome of POST /consent/employer-contact/grant.
+///
+/// `consent_id` null + empty `granted` = the latest row already carried both
+/// employer-contact purposes (an idempotent no-op — still a success).
+class EmployerContactGrantDto extends Equatable {
+  const EmployerContactGrantDto({
+    required this.ok,
+    this.consentId,
+    this.granted = const <String>[],
+  });
+
+  final bool ok;
+  final String? consentId;
+  final List<String> granted;
+
+  factory EmployerContactGrantDto.fromJson(Map<String, dynamic> json) =>
+      EmployerContactGrantDto(
+        ok: json['ok'] == true,
+        consentId: json['consent_id'] as String?,
+        granted: (json['granted'] as List<dynamic>?)
+                ?.whereType<String>()
+                .toList() ??
+            const <String>[],
+      );
+
+  @override
+  List<Object?> get props => <Object?>[ok, consentId, granted];
+}
+
 /// One row of `GET /workers/me/match-skills` (E4, #1828) — a kind of work the
 /// worker holds and whether he still wants to be matched for it.
 ///

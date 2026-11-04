@@ -142,7 +142,13 @@ function isDataDirGlob(path: string): boolean {
 
 describe("TD144 — the worker-app parity filter", () => {
   const filter = filterPaths(CI, "worker-app-parity");
-  const serverFiles = filter.filter((path) => !isDataDirGlob(path));
+  const serverFiles = filter.filter((path) => !isDataDirGlob(path) && path.startsWith("apps/api/"));
+  // A single SHARED file (outside apps/) a worker-app test reads — e.g. the approved
+  // employer-sharing notice the app renders verbatim. Held to the data-directory rule: listed
+  // only while a test still reads it.
+  const sharedFiles = filter.filter(
+    (path) => !isDataDirGlob(path) && !path.startsWith("apps/api/"),
+  );
   const dataDirs = filter.filter(isDataDirGlob).map((glob) => glob.slice(0, -"/**".length));
 
   it("lists exactly the server files the worker-app parity tests read", () => {
@@ -156,7 +162,12 @@ describe("TD144 — the worker-app parity filter", () => {
   const sharedReads = sharedPathsReadByAppTests();
   const listed = (path: string): boolean =>
     serverFiles.includes(path) ||
+    sharedFiles.includes(path) ||
     dataDirs.some((dir) => path === dir || path.startsWith(`${dir}/`));
+
+  it("lists a single shared file only when a worker-app test reads it", () => {
+    for (const path of sharedFiles) expect(sharedReads, path).toContain(path);
+  });
 
   it("lists a data directory only when a worker-app test reads it", () => {
     for (const dir of dataDirs) {
@@ -188,7 +199,9 @@ describe("TD144 — the worker-app parity filter", () => {
   });
 
   it("names only files that exist", () => {
-    for (const path of serverFiles) expect(existsSync(join(ROOT, path)), path).toBe(true);
+    for (const path of [...serverFiles, ...sharedFiles]) {
+      expect(existsSync(join(ROOT, path)), path).toBe(true);
+    }
     for (const dir of dataDirs) {
       expect(existsSync(join(ROOT, dir)) && statSync(join(ROOT, dir)).isDirectory(), dir).toBe(
         true,

@@ -15,6 +15,12 @@ import type { TenantKey } from "../payers/payer-tenant-scope";
 import { CandidateSearchRepository } from "./candidate-search.repository";
 import { CandidateSearchService } from "./candidate-search.service";
 import { CandidateSearchSchema, type CandidateSearchInput } from "./candidate-search.dto";
+import { ConsentRepository } from "../consent/consent.repository";
+import { ConsentService } from "../consent/consent.service";
+import type { WorkersRepository } from "../workers/workers.repository";
+import type { PiiCryptoService } from "../common/pii-crypto.service";
+import type { SessionService } from "../auth/session.service";
+import type { ServerConfig } from "@badabhai/config";
 
 /**
  * `POST /payer/candidates/search` AGAINST POSTGRES — the E2 invariant, executed:
@@ -567,6 +573,105 @@ describe.skipIf(!RUN)("candidate search membership — consent edge cases", () =
     expect(ids).not.toContain(W.tieMixed); // tied, one withholds sharing → fails closed
     expect(ids).not.toContain(W.newerRevoked); // the latest row is revoked
     expect((await page({ limit: 1 })).total - before).toBe(2);
+  });
+});
+
+/**
+ * 2026-11-04 (E4 items 6-7) — a REAL worker's road into the pool, end to end through the code that
+ * writes it. He onboarded before the employer-sharing notice (profiling, résumé, voice — what every
+ * app build before 2026-11-04 recorded) and is profiled, so he holds a wanted skill: invisible. He
+ * sees the notice and says yes — `ConsentService.grantEmployerContact` against Postgres — and the
+ * search serves him; he switches it off in Settings (`withdrawEmployerContact`) and it stops. The
+ * unit tests mock the repository; only this proves the row the grant writes is the row the pool's
+ * "latest consent" read picks.
+ */
+describe.skipIf(!RUN)("an existing worker opts in to the employer notice — consent writes the pool reads", () => {
+  const CTX3: RequestContext = { correlationId: randomUUID(), requestId: `cand-db-grant-${TAG}` };
+  const WORKER = randomUUID();
+  let client!: DbClient;
+  let search!: CandidateSearchService;
+  let consent!: ConsentService;
+  const served = async (): Promise<string[]> => {
+    const ids: string[] = [];
+    let cursor: string | null = null;
+    do {
+      const r = await search.search(PAYER, CandidateSearchSchema.parse({ limit: 50, cursor }), CTX3);
+      ids.push(...r.candidates.map((c) => c.workerId));
+      cursor = r.nextCursor;
+    } while (cursor);
+    return ids;
+  };
+
+  beforeAll(async () => {
+    assertLocalDatabase(DATABASE_URL);
+    client = createDbClient(DATABASE_URL, { max: 2 });
+    const events = new EventsService(new EventsRepository(client.db), { NODE_ENV: "test" } as never);
+    search = new CandidateSearchService(
+      new CandidateSearchRepository(client.db),
+      new WorkerSkillsRepository(client.db),
+      { get: async () => DEFAULT_MATCH_CONFIG } as unknown as MatchConfigService,
+      events,
+    );
+    // grant/withdraw touch only the consent ledger, the event spine and the ip hash.
+    consent = new ConsentService(
+      new ConsentRepository(client.db),
+      {} as unknown as WorkersRepository,
+      events,
+      { hashIp: () => "iphash" } as unknown as PiiCryptoService,
+      {} as unknown as SessionService,
+      { SIGNUP_AGE_GATE_ENABLED: false } as unknown as ServerConfig,
+    );
+    await ensureSkills(client);
+    const { sql } = client;
+    await sql`
+      INSERT INTO workers (id, phone_e164, phone_hash, status, current_city)
+      VALUES (${WORKER}::uuid, ${`enc:cand-g-${TAG}`}, ${`hash:cand-g-${TAG}`}, 'active', 'Pune')`;
+    await sql`
+      INSERT INTO worker_skill (worker_id, skill_id, industry_id, months_bucketed, wants, source)
+      VALUES (${WORKER}::uuid, ${TURNER}, ${MFG}, 36, true, 'derived_coarse')`;
+    await sql`
+      INSERT INTO worker_consents (worker_id, consent_version, purposes, accepted_at)
+      VALUES (${WORKER}::uuid, '2026-08-28',
+              ${JSON.stringify(["profiling", "resume_generation", "voice_processing"])}::jsonb,
+              now() - interval '30 days')`;
+  });
+
+  afterAll(async () => {
+    if (!client) return;
+    try {
+      await client.sql`DELETE FROM events WHERE correlation_id = ${CTX3.correlationId}::uuid`;
+      await client.sql`DELETE FROM workers WHERE id = ${WORKER}::uuid`;
+    } finally {
+      await client.sql.end({ timeout: 5 });
+    }
+  });
+
+  it("invisible before the grant, served after it, gone again after the Settings exit", async () => {
+    expect(await served()).not.toContain(WORKER);
+
+    const granted = await consent.grantEmployerContact(WORKER, "2026-11-04", "1.2.3.4", "ua", CTX3);
+    expect(granted.granted).toEqual(["employer_sharing", "employer_messaging"]);
+    expect(await served()).toContain(WORKER);
+    // The row is stamped with the notice he was shown and keeps everything he had.
+    const [row] = await client.sql<{ consent_version: string; purposes: string[] }[]>`
+      SELECT consent_version, purposes FROM worker_consents
+      WHERE worker_id = ${WORKER}::uuid ORDER BY accepted_at DESC LIMIT 1`;
+    expect(row!.consent_version).toBe("2026-11-04");
+    expect(row!.purposes).toEqual([
+      "profiling",
+      "resume_generation",
+      "voice_processing",
+      "employer_sharing",
+      "employer_messaging",
+    ]);
+    // A second yes is a no-op: no new row.
+    expect((await consent.grantEmployerContact(WORKER, "2026-11-04", undefined, undefined, CTX3)).consent_id).toBeNull();
+    const [{ n }] = await client.sql<{ n: number }[]>`
+      SELECT count(*)::int AS n FROM worker_consents WHERE worker_id = ${WORKER}::uuid`;
+    expect(n).toBe(2);
+
+    await consent.withdrawEmployerContact(WORKER, undefined, undefined, CTX3);
+    expect(await served()).not.toContain(WORKER);
   });
 });
 

@@ -72,6 +72,32 @@ describe("ConsentService.accept", () => {
     expect(JSON.stringify(call.payload)).not.toMatch(/phone|full_?name|1\.2\.3\.4/i);
   });
 
+  it("records employer purposes only at a notice version that SHOWED the employer copy", async () => {
+    const employer = ["profiling", "employer_sharing", "employer_messaging"];
+    const old = setup();
+    old.workers.findById.mockResolvedValueOnce({ id: WORKER });
+    await expect(
+      old.svc.accept(WORKER, { consent_version: "2026-08-28", purposes: employer } as never, "ip", "ua", CTX),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(old.consents.create).not.toHaveBeenCalled();
+    expect(old.events.emit).not.toHaveBeenCalled();
+
+    // One employer purpose alone is enough to need the notice.
+    const one = setup();
+    one.workers.findById.mockResolvedValueOnce({ id: WORKER });
+    await expect(
+      one.svc.accept(WORKER, { consent_version: "2026-06-01", purposes: ["employer_messaging"] } as never, "ip", "ua", CTX),
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    const shown = setup();
+    shown.workers.findById.mockResolvedValueOnce({ id: WORKER });
+    await shown.svc.accept(WORKER, { consent_version: "2026-11-04", purposes: employer } as never, "ip", "ua", CTX);
+    expect(shown.consents.create.mock.calls[0]![0]).toMatchObject({
+      consentVersion: "2026-11-04",
+      purposes: employer,
+    });
+  });
+
   it("passes ipHash null when no ip is provided", async () => {
     const { svc, workers, consents, pii } = setup();
     workers.findById.mockResolvedValueOnce({ id: WORKER });
@@ -385,5 +411,108 @@ describe("ConsentService.withdrawEmployerContact (E0 C-2)", () => {
       "resume_generation",
       "voice_processing",
     ]);
+  });
+});
+
+describe("ConsentService.grantEmployerContact (2026-11-04, E4 items 6-7)", () => {
+  const ONBOARDED = {
+    id: "consent-old",
+    consentVersion: "2026-08-28",
+    revokedAt: null as Date | null,
+    purposes: ["profiling", "resume_generation", "voice_processing"],
+  };
+
+  it("writes a NEW row derived SERVER-SIDE: everything carried over + both employer purposes, at the shown notice version", async () => {
+    const { svc, consents, events, sessions, pii } = setup();
+    vi.mocked(consents.findLatestByWorker).mockResolvedValueOnce(ONBOARDED);
+
+    const res = await svc.grantEmployerContact(WORKER, "2026-11-04", "1.2.3.4", "ua", CTX);
+
+    expect(res).toEqual({
+      ok: true,
+      consent_id: "consent-1",
+      granted: ["employer_sharing", "employer_messaging"],
+    });
+    const created = consents.create.mock.calls[0]![0];
+    expect(created.purposes).toEqual([
+      "profiling",
+      "resume_generation",
+      "voice_processing",
+      "employer_sharing",
+      "employer_messaging",
+    ]);
+    expect(created.consentVersion).toBe("2026-11-04");
+    expect(created.ipHash).toBe("iphash");
+    expect(pii.hashIp).toHaveBeenCalledWith("1.2.3.4");
+    expect(sessions.revokeAll).not.toHaveBeenCalled();
+    const evt = events.emit.mock.calls[0]![0];
+    expect(evt.event_name).toBe("consent.purposes_granted");
+    expect(evt.payload).toEqual({
+      worker_id: WORKER,
+      consent_id: "consent-1",
+      consent_version: "2026-11-04",
+      granted_purposes: ["employer_sharing", "employer_messaging"],
+    });
+    expect(evt.idempotencyKey).toBe("consent.purposes_granted:consent-1");
+  });
+
+  it("adds only the missing purpose when the latest row holds one of the pair", async () => {
+    const { svc, consents, events } = setup();
+    vi.mocked(consents.findLatestByWorker).mockResolvedValueOnce({
+      ...ONBOARDED,
+      purposes: ["profiling", "employer_sharing"],
+    });
+    const res = await svc.grantEmployerContact(WORKER, "2026-11-04", undefined, undefined, CTX);
+    expect(res.granted).toEqual(["employer_messaging"]);
+    expect(consents.create.mock.calls[0]![0].purposes).toEqual([
+      "profiling",
+      "employer_sharing",
+      "employer_messaging",
+    ]);
+    expect(events.emit.mock.calls[0]![0].payload.granted_purposes).toEqual(["employer_messaging"]);
+  });
+
+  it("is a no-op when the latest row already holds both — no new row, no event", async () => {
+    const { svc, consents, events } = setup();
+    vi.mocked(consents.findLatestByWorker).mockResolvedValueOnce({
+      ...ONBOARDED,
+      purposes: ["profiling", "employer_sharing", "employer_messaging"],
+    });
+    expect(await svc.grantEmployerContact(WORKER, "2026-11-04", undefined, undefined, CTX)).toEqual({
+      ok: true,
+      consent_id: null,
+      granted: [],
+    });
+    expect(consents.create).not.toHaveBeenCalled();
+    expect(events.emit).not.toHaveBeenCalled();
+  });
+
+  it("400s for a notice version that never showed the employer copy (nothing read, written or emitted)", async () => {
+    const { svc, consents, events } = setup();
+    vi.mocked(consents.findLatestByWorker).mockResolvedValueOnce(ONBOARDED);
+    await expect(
+      svc.grantEmployerContact(WORKER, "2026-08-28", undefined, undefined, CTX),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(consents.findLatestByWorker).not.toHaveBeenCalled();
+    expect(consents.create).not.toHaveBeenCalled();
+    expect(events.emit).not.toHaveBeenCalled();
+  });
+
+  it("404s with no live row to derive from — never consented, or revoked", async () => {
+    const missing = setup();
+    await expect(
+      missing.svc.grantEmployerContact(WORKER, "2026-11-04", undefined, undefined, CTX),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(missing.consents.create).not.toHaveBeenCalled();
+
+    const revoked = setup();
+    vi.mocked(revoked.consents.findLatestByWorker).mockResolvedValueOnce({
+      ...ONBOARDED,
+      revokedAt: new Date(),
+    });
+    await expect(
+      revoked.svc.grantEmployerContact(WORKER, "2026-11-04", undefined, undefined, CTX),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(revoked.consents.create).not.toHaveBeenCalled();
   });
 });

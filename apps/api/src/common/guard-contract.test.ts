@@ -210,7 +210,7 @@ const CONTRACT: ControllerContract[] = [
   { name: "Chat", ctor: ChatController, routes: { startSession: [C, W], postMessage: [C, W] } },
   // ADR-0044 — the post-completion companion: the same worker-self, consent-gated pair as chat.
   { name: "ChatCompanion", ctor: ChatCompanionController, routes: { open: [C, W], message: [C, W] } },
-  { name: "Consent", ctor: ConsentController, routes: { accept: [W], withdraw: [W], withdrawEmployerContact: [W], mine: [W] } },
+  { name: "Consent", ctor: ConsentController, routes: { accept: [W], withdraw: [W], withdrawEmployerContact: [W], grantEmployerContact: [W], mine: [W] } },
   // E0 — the relay: the payer sends against the handle they hold (payer-self), and the
   // worker reads/replies/reads-marks their own threads (worker-self + consent).
   { name: "PayerRelay", ctor: PayerRelayController, routes: { templates: [P], send: [P], read: [P] } },

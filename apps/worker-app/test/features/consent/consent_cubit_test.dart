@@ -87,12 +87,16 @@ void main() {
         status: ConsentStatus.success,
       ),
     ],
+    // Exactly these five, in this order (2026-11-04): the one tick now also
+    // covers the employer-sharing notice shown on the same screen.
     verify: (_) => verify(
       () => repo.acceptConsent(
         purposes: <String>[
           'profiling',
           'resume_generation',
           'voice_processing',
+          'employer_sharing',
+          'employer_messaging',
         ],
         age18Plus: true,
       ),

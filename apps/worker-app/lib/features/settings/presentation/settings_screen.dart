@@ -229,15 +229,8 @@ class _SettingsView extends StatelessWidget {
                     onTap: () => _comingSoon(context),
                   ),
                   const _WithdrawConsentRow(),
-                  // HIDDEN FOR NOW: the 'Employer contact band karein' row —
-                  // hidden with its card row until the owner asks it back.
-                  // Restored by deleting this Visibility (same pattern as the
-                  // account-delete block below).
-                  const Visibility(
-                    visible: false,
-                    maintainState: true,
-                    child: _EmployerContactRow(),
-                  ),
+                  // Shown 2026-11-04: the employer notice promises this exit.
+                  const _EmployerContactRow(),
                 ]),
                 // Account delete hidden for now; will return after the flow is
                 // redesigned.
@@ -807,11 +800,15 @@ class _SubmittingWithdrawRow extends StatelessWidget {
   }
 }
 
-/// E0 C-2 (#1630): the PER-PURPOSE exit from employer contact — NOT the
-/// all-or-nothing [_WithdrawConsentRow] above. This keeps the worker's profile,
-/// resume and voice, and does NOT log him out. Confirm-before-write; the state
-/// is read from the server on mount and re-read after the write (never
+/// E0 C-2 (#1630): the PER-PURPOSE employer-contact switch — NOT the
+/// all-or-nothing [_WithdrawConsentRow] above. Both directions keep the
+/// worker's profile, resume and voice, and neither logs him out. The state is
+/// read from the server on mount and re-read after every write (never
 /// optimistic-only), so the switch can only render server truth.
+///
+///  - ON → OFF: confirm, then the per-purpose withdraw.
+///  - OFF → ON (2026-11-04): the worker must SEE the approved notice before
+///    granting, so the switch opens the prompt screen; it never grants itself.
 class _EmployerContactRow extends StatelessWidget {
   const _EmployerContactRow();
 
@@ -821,8 +818,9 @@ class _EmployerContactRow extends StatelessWidget {
       context,
       title: 'Employer contact band karein?',
       message:
-          'Iske baad employer aapko contact nahi kar payenge. Aapka profile, '
-          'resume aur login waisa hi rahega — aap logout nahi honge.',
+          'Iske baad companies aapko dhoondh ya message nahi kar paayengi. '
+          'Aapka profile, resume aur login waisa hi rahega — aap logout nahi '
+          'honge.',
       confirmLabel: 'Haan, band karein',
       destructive: true,
       barrierDismissible: false,
@@ -831,10 +829,22 @@ class _EmployerContactRow extends StatelessWidget {
     await cubit.withdraw();
   }
 
+  Future<void> _showNoticeAndGrant(BuildContext context) async {
+    final EmployerContactCubit cubit = context.read<EmployerContactCubit>();
+    final bool? granted =
+        await context.pushOnce<bool>(Routes.employerSharing);
+    if (granted != true || cubit.isClosed) return;
+    await cubit.load();
+  }
+
   @override
   Widget build(BuildContext context) {
     return BlocConsumer<EmployerContactCubit, EmployerContactState>(
+      // Only a failed WITHDRAW alerts — the title names it. A failed load
+      // already reads 'Status pata nahi chala' on the row itself, and a failed
+      // grant is shown on the prompt screen.
       listenWhen: (EmployerContactState prev, EmployerContactState curr) =>
+          prev.status == EmployerContactStatus.submitting &&
           curr.status == EmployerContactStatus.failed,
       listener: (BuildContext context, EmployerContactState state) {
         showBbAlert(
@@ -854,17 +864,18 @@ class _EmployerContactRow extends StatelessWidget {
             : failed
                 ? 'Status pata nahi chala'
                 : state.enabled
-                    ? 'Employer abhi aapko contact kar sakte hain'
-                    : 'Employer contact band hai';
+                    ? 'Companies aapki profile dekh sakti hain'
+                    : 'Band hai — companies aapko nahi dekh paati';
         return BbListRow.toggle(
-          icon: Icons.do_not_disturb_on_outlined,
-          title: 'Employer contact band karein',
+          icon: Icons.business_center_outlined,
+          title: 'Companies ko profile dikhayein',
           subtitle: subtitle,
+          // value == enabled: ON means companies can find and message him.
           value: state.enabled,
-          // Only the ON → OFF direction exists: re-enabling is the consent
-          // notice's job, not this switch's.
-          enabled: state.status == EmployerContactStatus.ready && state.enabled,
-          onChanged: (_) => _confirmAndWithdraw(context),
+          enabled: state.status == EmployerContactStatus.ready,
+          onChanged: (bool on) => on
+              ? _showNoticeAndGrant(context)
+              : _confirmAndWithdraw(context),
         );
       },
     );

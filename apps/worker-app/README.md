@@ -14,6 +14,21 @@ Building → Resume`
 no résumé. The "no résumé" door is the handover `Name` made directly before
 that screen existed — same route, same request sequence, pinned by a test.
 
+### Consent (DPDP)
+
+- `Consent` shows two approved notices — employer sharing
+  (`docs/product/employer-sharing-consent-notice.md`) and voice
+  (`docs/product/voice-consent-notice.DRAFT.md`) — under ONE "I agree" tick,
+  which grants `profiling`, `resume_generation`, `voice_processing`,
+  `employer_sharing`, `employer_messaging` at `kConsentVersion` (`2026-11-04`).
+- Existing workers whose consent predates that notice get a one-time
+  full-screen prompt (`/employer-sharing`) from the home shell: "Haan,
+  dikhayein" → `POST /consent/employer-contact/grant`; "Abhi nahi" is
+  remembered on the device per worker + notice version.
+- Settings → "Companies ko profile dikhayein" turns it OFF (confirm +
+  withdraw) or back ON (through the same prompt). The server is the authority
+  on every one of these; the client only shows the notice and asks.
+
 ```
 lib/
   main.dart              # entrypoint

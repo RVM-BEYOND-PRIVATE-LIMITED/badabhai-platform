@@ -352,7 +352,8 @@ describe.skipIf(!RUN)("Company postings on the legacy feed (e2e, #1823 interim u
     const consent = await req("POST", "/consent/accept", {
       token: worker.token,
       body: {
-        consent_version: CONSENT_VERSION,
+        // `employer_sharing` is recorded only at a notice version that showed its copy (2026-11-04).
+        consent_version: "2026-11-04",
         purposes: ["profiling", "resume_generation", "employer_sharing"],
       },
     });
