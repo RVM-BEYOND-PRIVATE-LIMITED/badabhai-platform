@@ -28,7 +28,9 @@ import {
   type CardNumberPair,
   type RevealedNumbers,
 } from "../../../../lib/job-card-form";
-import { focusControl, revealWholeControl } from "../../../../lib/form-focus";
+import { focusControl, focusStepHeading, revealWholeControl } from "../../../../lib/form-focus";
+import { postingDraftKey } from "../../../../lib/posting-draft";
+import { usePostingDraft } from "../../../../components/use-posting-draft";
 import { companyPostingFacts } from "../../../../lib/posting-facts";
 import { workerCardGap, type WorkerCardGap } from "../../../../lib/worker-card-gap";
 import { bandForVacancies, baseApplicantQuotaForBand } from "../../../../lib/pricing-config";
@@ -60,6 +62,11 @@ import { TradePostingFields, derivedMatchSkills, type TradeFormValue } from "../
 const ROLE_GROUPS = roleOptionGroups();
 const FORM_ID = "posting-form";
 const BLANK_TRADE: TradeFormValue = { tradeLevel: "", answers: {} };
+const DRAFT_KEY = postingDraftKey({ kind: "new" });
+/** A new posting starts from nothing — the base its local draft is checked against. */
+const DRAFT_BASE = "new";
+/** The heading a step change moves focus to (W4). */
+const stepHeadingId = (n: number) => `posting-step-${n}-title`;
 
 interface FormFields {
   roleKind: string;
@@ -114,6 +121,31 @@ const BLANK: FormFields = {
   neededBy: "",
   description: "",
 };
+
+/** What the new-posting draft keeps on this device (W4). */
+interface NewPostingDraft {
+  fields: FormFields;
+  requirements: string[];
+  benefits: string[];
+  reqDraft: string;
+  benDraft: string;
+  selection: MatchSelection;
+  trade: TradeFormValue & { matchSkillIds: string[] };
+}
+
+/** True once the payer has entered anything — the form then differs from a blank one. */
+export function isNewPostingDirty(d: NewPostingDraft): boolean {
+  return (
+    Object.values(d.fields).some((v) => v.trim() !== "") ||
+    d.requirements.length > 0 ||
+    d.benefits.length > 0 ||
+    d.reqDraft.trim() !== "" ||
+    d.benDraft.trim() !== "" ||
+    d.selection.matchSkillIds.length > 0 ||
+    d.trade.tradeLevel !== "" ||
+    Object.keys(d.trade.answers).length > 0
+  );
+}
 
 /** The openings box as a whole number ≥ 1, or null. */
 function openingsOf(raw: string): number | null {
@@ -181,6 +213,39 @@ export function PostingForm({
   // The publish lands on the new posting's Applicants with the shell's "Opening Applicants…" cue
   // (the button stays "Publishing…" — `navigating` — until the page is gone).
   const { navigate } = usePortalNavigation();
+
+  // W4 — the half-filled posting is kept on this device and leaving it asks first.
+  const draftPayload: NewPostingDraft = {
+    fields,
+    requirements,
+    benefits,
+    reqDraft,
+    benDraft,
+    selection,
+    trade,
+  };
+  const draft = usePostingDraft<NewPostingDraft>({
+    storageKey: DRAFT_KEY,
+    base: DRAFT_BASE,
+    payload: draftPayload,
+    dirty: isNewPostingDirty(draftPayload),
+    off: navigating,
+    onRestore: (saved) => {
+      setFields({ ...BLANK, ...saved.fields });
+      setRequirements(saved.requirements ?? []);
+      setBenefits(saved.benefits ?? []);
+      setReqDraft(saved.reqDraft ?? "");
+      setBenDraft(saved.benDraft ?? "");
+      if (saved.selection) setSelection(saved.selection);
+      if (saved.trade) setTrade(saved.trade);
+    },
+  });
+
+  /** Show step `n` and land on its heading (focus + scroll — W4). */
+  function goToStep(n: number) {
+    setStep(n);
+    focusStepHeading(stepHeadingId(n));
+  }
 
   // THE ONE READ — the preview, the inline errors, the gap rule and the submit all use it.
   const read = readCardForm(
@@ -280,7 +345,7 @@ export function PostingForm({
         focusControl(first);
         return;
       }
-      setStep(2);
+      goToStep(2);
       return;
     }
     if (step === 2) {
@@ -292,7 +357,7 @@ export function PostingForm({
         focusControl(first);
         return;
       }
-      setStep(3);
+      goToStep(3);
     }
   }
 
@@ -381,6 +446,7 @@ export function PostingForm({
       });
       if (res.ok) {
         setNavigating(true);
+        draft.discard();
         navigate(withPublishedReach(`/postings/${res.postingId}/applicants`, res.reached), {
           pendingLabel: "Applicants",
           refresh: true,
@@ -457,7 +523,11 @@ export function PostingForm({
               const n = i + 1;
               const state = step === n ? "active" : step > n ? "done" : "todo";
               return (
-                <li className={`mw-step mw-step--${state}`} key={title}>
+                <li
+                  className={`mw-step mw-step--${state}`}
+                  key={title}
+                  aria-current={state === "active" ? "step" : undefined}
+                >
                   <span className="mw-step__dot">
                     {state === "done" ? <Icon name="check" /> : n}
                   </span>
@@ -472,11 +542,20 @@ export function PostingForm({
               );
             })}
           </ol>
+          <p
+            className="mw-draft-cue"
+            data-shown={draft.saved ? "true" : "false"}
+            aria-hidden={!draft.saved}
+          >
+            <Icon name="check-circle" /> Draft saved on this device
+          </p>
 
           <section className="mw-card" hidden={step !== 1}>
             <div className="mw-card__head">
               <div>
-                <h2 className="mw-card__title">Step 1: Role &amp; Worksite Details</h2>
+                <h2 className="mw-card__title" id={stepHeadingId(1)} tabIndex={-1}>
+                  Step 1: Role &amp; Worksite Details
+                </h2>
                 <p className="mw-card__sub">
                   Specify the technical trade and factory premises location.
                 </p>
@@ -559,7 +638,9 @@ export function PostingForm({
           <section className="mw-card" hidden={step !== 2}>
             <div className="mw-card__head">
               <div>
-                <h2 className="mw-card__title">Step 2: Pay &amp; Openings</h2>
+                <h2 className="mw-card__title" id={stepHeadingId(2)} tabIndex={-1}>
+                  Step 2: Pay &amp; Openings
+                </h2>
                 <p className="mw-card__sub">Set the pay band, openings and joining window.</p>
               </div>
             </div>
@@ -700,7 +781,7 @@ export function PostingForm({
               <button
                 type="button"
                 className="bb-btn bb-btn--secondary bb-btn--sm"
-                onClick={() => setStep(1)}
+                onClick={() => goToStep(1)}
               >
                 Back
               </button>
@@ -713,7 +794,9 @@ export function PostingForm({
           <section className="mw-card" hidden={step !== 3}>
             <div className="mw-card__head">
               <div>
-                <h2 className="mw-card__title">Step 3: Skills &amp; Perks</h2>
+                <h2 className="mw-card__title" id={stepHeadingId(3)} tabIndex={-1}>
+                  Step 3: Skills &amp; Perks
+                </h2>
                 <p className="mw-card__sub">Pick the skills workers search by, then add perks.</p>
               </div>
             </div>
@@ -804,11 +887,18 @@ export function PostingForm({
               <button
                 type="button"
                 className="bb-btn bb-btn--secondary bb-btn--sm"
-                onClick={() => setStep(2)}
+                onClick={() => goToStep(2)}
               >
                 Back
               </button>
-              <span className="mw-card__foothint">Publish from the panel on the right →</span>
+              {/* The hint names where Publish IS at this width (W4): the rail beside the form on
+                  a wide screen, the bar pinned to the bottom of the screen at 1100px and below. */}
+              <span className="mw-card__foothint mw-card__foothint--wide">
+                Publish from the panel on the right →
+              </span>
+              <span className="mw-card__foothint mw-card__foothint--narrow">
+                Publish from the bar at the bottom of the screen ↓
+              </span>
             </div>
           </section>
         </form>

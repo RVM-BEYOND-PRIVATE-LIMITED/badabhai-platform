@@ -114,6 +114,12 @@ const useState = vi.fn((initial: unknown) => {
 });
 const useTransition = vi.fn((): [boolean, (cb: () => void) => void] => [false, (cb) => cb()]);
 
+// W4 — the local draft + leave guard runs effects (a real hook outside a render); its rules are
+// lib/posting-draft.test.ts's. Here it is idle: nothing restored, nothing saved yet.
+const discardDraft = vi.fn();
+vi.mock("../../../../components/use-posting-draft", () => ({
+  usePostingDraft: () => ({ saved: false, discard: discardDraft }),
+}));
 vi.mock("react", async () => {
   const actual = await vi.importActual<typeof ReactModule>("react");
   // The DS fields mint their auto ids with `useId`, which needs a renderer; the walks below call
@@ -707,5 +713,122 @@ describe("PostingForm — typing in a pay box stands its order error down again 
     (byId(tree, "payMin").props.onBlur as () => void)();
     const reveal = setters[11]!.mock.calls[0]![0] as (prev: Record<string, true>) => Record<string, true>;
     expect(reveal({})).toEqual({ payMin: true, payMax: true });
+  });
+});
+
+/* ── W4 (#2584): the posting flow on phones ──────────────────────────────────── */
+
+/** Every DOM-level element (function components expanded), depth-first. */
+function hosts(tree: ReactNode): Array<ReactElement<Record<string, unknown>>> {
+  const out: Array<ReactElement<Record<string, unknown>>> = [];
+  (function visit(node: ReactNode): void {
+    if (node === null || node === undefined || typeof node !== "object") return;
+    if (Array.isArray(node)) return node.forEach(visit);
+    const el = node as ReactElement<Record<string, unknown> & { children?: ReactNode }>;
+    if (typeof el.type === "function") {
+      return visit((el.type as (p: unknown) => ReactNode)(el.props));
+    }
+    if (typeof el.type === "string") out.push(el);
+    if ("children" in el.props) visit(el.props.children);
+  })(tree);
+  return out;
+}
+
+describe("PostingForm — W4: steps, the phone publish bar and the draft", () => {
+  it("the active step carries aria-current='step'; the others carry none", () => {
+    const steps = hosts(render({ fields: BLANK_FIELDS, fieldErrors: {} })).filter(
+      (el) => el.type === "li" && String(el.props.className).startsWith("mw-step "),
+    );
+    expect(steps.map((s) => s.props["aria-current"])).toEqual(["step", undefined, undefined]);
+  });
+
+  it("each step's heading is a focus target (id + tabIndex -1) for a step change", () => {
+    const tree = render({ fields: BLANK_FIELDS, fieldErrors: {} });
+    for (const n of [1, 2, 3]) {
+      const heading = byId(tree, `posting-step-${n}-title`);
+      expect(heading.type).toBe("h2");
+      expect(heading.props.tabIndex).toBe(-1);
+    }
+  });
+
+  it("Next on a complete step moves to the next one (index 12 — the step)", () => {
+    const tree = render({ fields: FULL_FIELDS, fieldErrors: {} });
+    const next = hosts(tree).find(
+      (el) => el.type === "button" && textOf(el.props.children as ReactNode).includes("Next: Pay"),
+    )!;
+    (next.props.onClick as () => void)();
+    expect(setters[12]).toHaveBeenCalledWith(2);
+  });
+
+  it("the phone dock (the publish bar) carries the ONE primary — Publish", () => {
+    const tree = render({ fields: FULL_FIELDS, fieldErrors: {} });
+    const dock = hosts(tree).find((el) => el.props.className === "posting-dock")!;
+    expect(dock.props["data-mw-hidden"]).toBe(""); // shown by CSS at ≤1100px only (css fence)
+    const inDock = hosts(dock).filter((el) => el.type === "button");
+    expect(inDock.map((b) => textOf(b.props.children as ReactNode).trim())).toContain(
+      "Publish posting",
+    );
+  });
+
+  it("the step-3 hint names where Publish is at each width", () => {
+    const { texts } = collect(render({ fields: BLANK_FIELDS, fieldErrors: {} }));
+    const joined = texts.join(" ");
+    expect(joined).toContain("Publish from the panel on the right →");
+    expect(joined).toContain("Publish from the bar at the bottom of the screen ↓");
+  });
+
+  it("the 'Draft saved' cue is drawn but hidden until a save lands", () => {
+    const cue = hosts(render({ fields: BLANK_FIELDS, fieldErrors: {} })).find(
+      (el) => el.props.className === "mw-draft-cue",
+    )!;
+    expect(cue.props["data-shown"]).toBe("false");
+    expect(cue.props["aria-hidden"]).toBe(true);
+  });
+
+  it("a successful publish drops the local draft", async () => {
+    discardDraft.mockClear();
+    const tree = render({
+      fields: FULL_FIELDS,
+      fieldErrors: {},
+      requirements: ["Fanuc control"],
+      benefits: ["PF + ESI"],
+    });
+    findForm(tree)!.props.onSubmit({ preventDefault: () => undefined });
+    await vi.waitFor(() => expect(navigate).toHaveBeenCalledTimes(1));
+    expect(discardDraft).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("isNewPostingDirty — what makes leaving ask first (W4)", () => {
+  const blank = {
+    fields: BLANK_FIELDS,
+    requirements: [],
+    benefits: [],
+    reqDraft: "",
+    benDraft: "",
+    selection: { matchSkillIds: [], untickedRelatedIds: [] },
+    trade: { tradeLevel: "", answers: {}, matchSkillIds: [] },
+  };
+
+  it("a blank form is clean", async () => {
+    const { isNewPostingDirty } = await import("./posting-form");
+    expect(isNewPostingDirty(blank)).toBe(false);
+    expect(isNewPostingDirty({ ...blank, fields: { ...BLANK_FIELDS, city: "  " } })).toBe(false);
+  });
+
+  it("any typed field, chip, chip draft, skill or trade answer makes it dirty", async () => {
+    const { isNewPostingDirty } = await import("./posting-form");
+    expect(isNewPostingDirty({ ...blank, fields: { ...BLANK_FIELDS, city: "Pune" } })).toBe(true);
+    expect(isNewPostingDirty({ ...blank, requirements: ["ITI"] })).toBe(true);
+    expect(isNewPostingDirty({ ...blank, benDraft: "PF" })).toBe(true);
+    expect(
+      isNewPostingDirty({ ...blank, selection: { matchSkillIds: ["s1"], untickedRelatedIds: [] } }),
+    ).toBe(true);
+    expect(
+      isNewPostingDirty({
+        ...blank,
+        trade: { tradeLevel: "lead", answers: {}, matchSkillIds: [] },
+      }),
+    ).toBe(true);
   });
 });

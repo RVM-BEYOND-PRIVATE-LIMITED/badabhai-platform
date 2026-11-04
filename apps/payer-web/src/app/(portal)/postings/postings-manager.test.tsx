@@ -42,7 +42,8 @@ vi.mock("./actions", () => ({
   closePostingAction: (i: unknown) => closePostingAction(i),
 }));
 
-// Injected per-render state queue (source order: rows, state-record, confirming posting id).
+// Injected per-render state queue (source order: rows, state-record, confirming posting id, the
+// posting whose close awaits confirmation).
 let stateQueue: unknown[] = [];
 let stateCursor = 0;
 /** Each slot's setter from the LAST render, by source order (read to see what a click stores). */
@@ -185,13 +186,13 @@ function render(
   postings: PostingSummary[],
   rowState: Record<string, unknown> = {},
   readOnly?: boolean,
-  opts: { confirming?: string | null; offer?: typeof OFFER | null } = {},
+  opts: { confirming?: string | null; offer?: typeof OFFER | null; closing?: string | null } = {},
 ) {
   // Seed the useState slots for this render — source order in the component:
   // (1) freshRows overlay (Record<id, PostingSummary>), (2) per-row action state,
   // (3) the posting whose slot purchase is awaiting confirmation (the dialog is open while set).
   // Rows themselves render FROM PROPS (the freshRows overlay only patches by id).
-  stateQueue = [{}, rowState, opts.confirming ?? null];
+  stateQueue = [{}, rowState, opts.confirming ?? null, opts.closing ?? null];
   stateCursor = 0;
   refCursor = 0;
   effects = [];
@@ -199,9 +200,19 @@ function render(
   return PostingsManager({ postings, readOnly, topUpOffer }) as ReactElement;
 }
 
-/** The manager's one DS Dialog (the slot-purchase confirm). */
+/** The slot-purchase confirm (the manager's other DS Dialog is the Close confirm — W4). */
 function dialogOf(tree: ReactNode): ReactElement {
-  const found = ofType(tree, Dialog);
+  const found = ofType(tree, Dialog).filter(
+    (d) => (d.props as { title?: unknown }).title === "Add applicant slots?",
+  );
+  expect(found).toHaveLength(1);
+  return found[0]!;
+}
+/** The Close confirm (W4, #2584). */
+function closeDialogOf(tree: ReactNode): ReactElement {
+  const found = ofType(tree, Dialog).filter(
+    (d) => (d.props as { title?: unknown }).title !== "Add applicant slots?",
+  );
   expect(found).toHaveLength(1);
   return found[0]!;
 }
@@ -347,8 +358,13 @@ describe("PostingsManager — LIVE lifecycle trio + close (per the real lifecycl
       ["Pause", "pause"],
       ["Close posting", "close"],
     ] as const) {
-      const { buttons } = collect(render([OPEN]));
-      buttons.find((b) => b.text === label)!.onClick!();
+      const tree = render([OPEN], {}, false, { closing: busy === "close" ? OPEN.id : null });
+      if (busy === "close") {
+        // Close asks first (W4): the row turns busy from the confirm, not from the row button.
+        footerButtons(closeDialogOf(tree))[1]!.onClick();
+      } else {
+        collect(tree).buttons.find((b) => b.text === label)!.onClick!();
+      }
       // Slot 2 (source order) is the per-row action state; its first write marks the row busy.
       const update = setters[1]!.mock.calls[0]![0] as (
         prev: Record<string, unknown>,
@@ -394,6 +410,13 @@ describe("PostingsManager — LIVE lifecycle trio + close (per the real lifecycl
     expect(buttons.map((b) => b.text)).toEqual([TOP_UP, "Close posting"]);
     expect(buttons.every((b) => !b.disabled)).toBe(true);
     close!.onClick!();
+    // It only ASKS (W4); the dialog's confirm closes it.
+    expect(closePostingAction).not.toHaveBeenCalled();
+    expect(setters[3]).toHaveBeenCalledWith(OPEN.id);
+    const dialog = closeDialogOf(
+      render([{ ...OPEN, status: "draft" }], {}, false, { closing: OPEN.id }),
+    );
+    footerButtons(dialog)[1]!.onClick();
     expect(closePostingAction).toHaveBeenCalledWith({ postingId: OPEN.id });
   });
 
@@ -1035,5 +1058,52 @@ describe("PostingsManager — #2085 L1/L2: the confirmed tier, and one key per c
       [OPEN.id, "key-1"],
       [SECOND.id, "key-2"],
     ]);
+  });
+});
+
+/**
+ * W4 (#2584) — CLOSE ASKS FIRST. Closing is one-way from this list, so Close posting opens a danger
+ * confirm (the team Remove pattern); only that confirm calls the action.
+ */
+describe("PostingsManager — Close posting requires confirmation (W4)", () => {
+  it("tapping Close posting closes NOTHING: it opens the confirm and marks no row busy", () => {
+    const tree = render([OPEN]);
+    expect((closeDialogOf(tree).props as { open: boolean }).open).toBe(false);
+    collect(tree).buttons.find((b) => b.text === "Close posting")!.onClick!();
+    expect(closePostingAction).not.toHaveBeenCalled();
+    expect(setters[1]).not.toHaveBeenCalled();
+    expect(setters[3]).toHaveBeenCalledWith(OPEN.id);
+  });
+
+  it("the confirm names the posting and is a DANGER action beside Cancel", () => {
+    const dialog = closeDialogOf(render([OPEN], {}, false, { closing: OPEN.id }));
+    const props = dialog.props as { open: boolean; title?: ReactNode; children?: ReactNode };
+    expect(props.open).toBe(true);
+    expect(textOf(props.title)).toBe("Close “CNC Machinist”?");
+    expect(textOf(props.children)).toMatch(/cannot be reopened/);
+    expect(footerButtons(dialog).map((b) => [b.text, b.variant])).toEqual([
+      ["Cancel", "ghost"],
+      ["Close posting", "danger"],
+    ]);
+  });
+
+  it("Cancel (and Esc / the scrim — onClose) closes the dialog and closes no posting", () => {
+    const dialog = closeDialogOf(render([OPEN], {}, false, { closing: OPEN.id }));
+    footerButtons(dialog)[0]!.onClick();
+    (dialog.props as { onClose: () => void }).onClose();
+    expect(setters[3]!.mock.calls).toEqual([[null], [null]]);
+    expect(closePostingAction).not.toHaveBeenCalled();
+  });
+
+  it("only the confirm closes — ONCE, with only the posting id — and the row's Close then spins", () => {
+    const dialog = closeDialogOf(render([OPEN], {}, false, { closing: OPEN.id }));
+    footerButtons(dialog)[1]!.onClick();
+    expect(setters[3]).toHaveBeenCalledWith(null);
+    expect(closePostingAction).toHaveBeenCalledTimes(1);
+    expect(closePostingAction).toHaveBeenCalledWith({ postingId: OPEN.id });
+    const busy = collect(
+      render([OPEN], { [OPEN.id]: { busy: "close", error: null, notice: null } }),
+    );
+    expect(busy.buttons.filter((b) => b.loading).map((b) => b.text)).toEqual(["Close posting"]);
   });
 });

@@ -38,6 +38,12 @@ const useState = vi.fn((initial: unknown) => {
   setters[i] = setter;
   return [seeded, setter] as [unknown, (v: unknown) => void];
 });
+// W4 — the local draft + leave guard runs effects (a real hook outside a render); its rules are
+// lib/posting-draft.test.ts's. Here it is idle: nothing restored, nothing saved yet.
+const discardDraft = vi.fn();
+vi.mock("../../../../../components/use-posting-draft", () => ({
+  usePostingDraft: () => ({ saved: false, discard: discardDraft }),
+}));
 vi.mock("react", async () => {
   const actual = await vi.importActual<typeof ReactModule>("react");
   // The DS fields mint their auto ids with `useId`, which needs a renderer; the walks below call
@@ -559,5 +565,69 @@ describe("EditPostingForm — owner naming ruling: the entity is a 'posting' (F3
     expect(hint).toBeDefined();
     expect(deepText(hint!)).toContain("Workers read this when they open the posting.");
     expect(deepText(hint!)).not.toMatch(/\bjob\b/i);
+  });
+});
+
+/* ── W4 (#2584) ─────────────────────────────────────────────────────────────────── */
+
+describe("EditPostingForm — W4: one spinner per action", () => {
+  const SEL = { matchSkillIds: ["mskill_x"], untickedRelatedIds: [] };
+  /** The text of every busy (spinning) button in the rail's actions — one copy of the buttons. */
+  const spinning = (tree: ReactElement) =>
+    hosts((railOf(tree).props as unknown as { actions: ReactNode }).actions)
+      .filter((e) => e.type === "button" && e.props["aria-busy"] === true)
+      .map((b) => textOf(hosts(b.props.children as ReactNode)).trim());
+
+  it("a draft SAVE in flight spins Save draft only; Publish is just disabled", () => {
+    const tree = render({}, "draft", {}, SEL, { navigating: true, submitting: "save" });
+    expect(spinning(tree)).toEqual(["Save draft"]);
+  });
+
+  it("a PUBLISH in flight spins Publish only", () => {
+    const tree = render({}, "draft", {}, SEL, { navigating: true, submitting: "publish" });
+    expect(spinning(tree)).toEqual(["Publishing…"]);
+  });
+
+  it("a successful save drops the local draft", async () => {
+    discardDraft.mockClear();
+    await submit(render({}));
+    expect(discardDraft).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("isEditPostingDirty — what makes leaving an edit ask first (W4)", () => {
+  const SEEDED = {
+    fields: BLANK_FIELDS,
+    requirements: [] as string[],
+    benefits: [] as string[],
+    reqDraft: "",
+    benDraft: "",
+    trade: { tradeLevel: "", answers: {}, matchSkillIds: [] as string[], dirty: false },
+    legacySelection: { matchSkillIds: [] as string[], untickedRelatedIds: [] as string[] },
+  };
+
+  it("the form exactly as seeded is clean", async () => {
+    const { isEditPostingDirty } = await import("./edit-posting-form");
+    expect(isEditPostingDirty(SEEDED, INITIAL, undefined)).toBe(false);
+  });
+
+  it("a changed field, chip, chip draft or trade pick is dirty", async () => {
+    const { isEditPostingDirty } = await import("./edit-posting-form");
+    expect(
+      isEditPostingDirty(
+        { ...SEEDED, fields: { ...BLANK_FIELDS, city: "Pune" } },
+        INITIAL,
+        undefined,
+      ),
+    ).toBe(true);
+    expect(isEditPostingDirty({ ...SEEDED, requirements: ["ITI"] }, INITIAL, undefined)).toBe(true);
+    expect(isEditPostingDirty({ ...SEEDED, reqDraft: "ITI" }, INITIAL, undefined)).toBe(true);
+    expect(
+      isEditPostingDirty(
+        { ...SEEDED, trade: { ...SEEDED.trade, dirty: true } },
+        INITIAL,
+        undefined,
+      ),
+    ).toBe(true);
   });
 });
