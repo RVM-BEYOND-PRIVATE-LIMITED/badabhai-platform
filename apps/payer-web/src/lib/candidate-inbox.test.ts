@@ -133,6 +133,14 @@ describe("candidatesHref — the pager's and the states' links (the Applied view
     );
   });
 
+  it("#2588: where the cursor's page starts (`from`) rides with the cursor, and only with it", () => {
+    expect(candidatesHref({ postingId: P1, cursor: CURSOR, from: 21 })).toBe(
+      `/candidates/applied?postingId=${P1}&cursor=${CURSOR}&from=21`,
+    );
+    expect(candidatesHref({ postingId: P1, from: 21 })).toBe(`/candidates/applied?postingId=${P1}`);
+    expect(candidatesHref({ cursor: CURSOR, from: null })).toBe(`/candidates/applied?cursor=${CURSOR}`);
+  });
+
   it("a stage rides along only when set — never an empty stage= (#2139)", () => {
     expect(candidatesHref({ stage: null })).toBe("/candidates/applied");
     expect(candidatesHref({ stage: "shortlist" })).toBe("/candidates/applied?stage=shortlist");

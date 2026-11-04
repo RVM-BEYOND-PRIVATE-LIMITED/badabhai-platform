@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { AgencyJob, CandidateInboxRow, InboxPostingRef, PostingSummary } from "./contracts";
 import { isPayerBadRequest } from "./payer-errors";
+import { FROM_PARAM } from "./list-range";
 import {
   APPLICANT_STAGES,
   isApplicantStage,
@@ -121,21 +122,27 @@ export function selectedPosting(filter: CandidateFilter): string | null {
 
 /**
  * `/candidates/applied` with only the keys that are set — never an empty `postingId=`, `stage=`
- * or `cursor=`.
+ * or `cursor=`. `from` — where the cursor's page starts (lib/list-range.ts) — rides only with a
+ * cursor.
  */
 export function candidatesHref({
   postingId,
   stage,
   cursor,
+  from = null,
 }: {
   postingId?: string | null;
   stage?: ApplicantStage | null;
   cursor?: string | null;
+  from?: number | null;
 }): string {
   const q = new URLSearchParams();
   if (postingId) q.set(POSTING_FILTER_PARAM, postingId);
   if (stage) q.set(STAGE_FILTER_PARAM, stage);
-  if (cursor) q.set(CURSOR_PARAM, cursor);
+  if (cursor) {
+    q.set(CURSOR_PARAM, cursor);
+    if (from !== null) q.set(FROM_PARAM, String(from));
+  }
   const qs = q.toString();
   return qs ? `${CANDIDATES_PATH}?${qs}` : CANDIDATES_PATH;
 }

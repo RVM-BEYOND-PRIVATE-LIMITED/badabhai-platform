@@ -1,4 +1,5 @@
 import type { CandidateFilters, CandidateSearchBody } from "./contracts";
+import { FROM_PARAM } from "./list-range";
 import {
   CANDIDATES_PATH,
   CURSOR_PARAM,
@@ -216,8 +217,12 @@ export function candidateSearchBody(query: CandidateSearchQuery, limit?: number)
 /**
  * `/candidates` with only the keys that are set, in the form's own spelling (`strict=1`) — never an
  * empty `role=` or `cursor=`. The pager's links, the states' ways out and "Show all candidates".
+ * `from` — where the cursor's page starts (lib/list-range.ts) — rides only with a cursor.
  */
-export function candidateSearchHref(query: Partial<CandidateSearchQuery>): string {
+export function candidateSearchHref(
+  query: Partial<CandidateSearchQuery>,
+  from: number | null = null,
+): string {
   const q = new URLSearchParams();
   if (query.role) q.set(SEARCH_PARAM.role, query.role);
   if (query.experience) q.set(SEARCH_PARAM.experience, query.experience);
@@ -225,7 +230,10 @@ export function candidateSearchHref(query: Partial<CandidateSearchQuery>): strin
   if (query.industryExperience) q.set(SEARCH_PARAM.industryExperience, query.industryExperience);
   if (query.city) q.set(SEARCH_PARAM.city, query.city);
   if (query.strict) q.set(SEARCH_PARAM.strict, STRICT_ON);
-  if (query.cursor) q.set(CURSOR_PARAM, query.cursor);
+  if (query.cursor) {
+    q.set(CURSOR_PARAM, query.cursor);
+    if (from !== null) q.set(FROM_PARAM, String(from));
+  }
   const qs = q.toString();
   return qs ? `${CANDIDATE_SEARCH_PATH}?${qs}` : CANDIDATE_SEARCH_PATH;
 }
@@ -276,4 +284,9 @@ export function pickedRoleLabel(
 }
 
 /** THE COUNT BADGE (ADR-0040 §1/§4) — dependency-free in its own module, for the client list. */
-export { countSummary, type CountSummary, type SearchCounts } from "./candidate-counts";
+export {
+  countSummary,
+  listedCount,
+  type CountSummary,
+  type SearchCounts,
+} from "./candidate-counts";
