@@ -5016,7 +5016,7 @@ img.agency-qr__code,
   border: 2px solid currentColor;
   border-right-color: transparent;
   border-radius: 50%;
-  animation: spinner-rotate 0.6s linear infinite;
+  animation: spinner-rotate var(--duration-count) linear infinite;
 }
 @keyframes spinner-rotate {
   100% {
@@ -5259,7 +5259,7 @@ img.agency-qr__code,
 
 /* ---- "View" card action — tonal pill with a CONTINUOUSLY nudging arrow ---- */
 .dash-view__arrow {
-  animation: arrow-nudge 1.2s var(--ease-in-out) infinite;
+  animation: arrow-nudge calc(var(--duration-count) * 2) var(--ease-in-out) infinite;
   will-change: transform;
 }
 @keyframes arrow-nudge {
@@ -5293,7 +5293,7 @@ img.agency-qr__code,
     transparent 70%
   );
   transform: translateX(-130%);
-  animation: cta-shine 2.8s var(--ease-in-out) infinite;
+  animation: cta-shine calc(var(--duration-shimmer) * 2) var(--ease-in-out) infinite;
   pointer-events: none;
 }
 @keyframes cta-shine {
@@ -7853,12 +7853,12 @@ body:has(.invite-landing) .chrome-footer {
 }
 
 .pshell .pnav__group {
-  animation: mw-nav-in 0.45s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  animation: mw-nav-in var(--duration-page) var(--ease-enter) both;
 }
-.pshell .pnav__group:nth-child(2) { animation-delay: 0.05s; }
-.pshell .pnav__group:nth-child(3) { animation-delay: 0.1s; }
-.pshell .pnav__group:nth-child(4) { animation-delay: 0.15s; }
-.pshell .pnav__group:nth-child(5) { animation-delay: 0.2s; }
+.pshell .pnav__group:nth-child(2) { animation-delay: var(--stagger-step); }
+.pshell .pnav__group:nth-child(3) { animation-delay: calc(var(--stagger-step) * 2); }
+.pshell .pnav__group:nth-child(4) { animation-delay: calc(var(--stagger-step) * 3); }
+.pshell .pnav__group:nth-child(5) { animation-delay: calc(var(--stagger-step) * 4); }
 @keyframes mw-nav-in {
   from { opacity: 0; transform: translateX(-6px); }
   to { opacity: 1; transform: translateX(0); }
@@ -7905,7 +7905,7 @@ body:has(.invite-landing) .chrome-footer {
     0 10px 22px -16px rgb(0 0 0 / 0.65);
 }
 .pshell .pnav__link--active .pnav__icon {
-  animation: mw-icon-pop 0.38s cubic-bezier(0.2, 0.8, 0.2, 1);
+  animation: mw-icon-pop var(--duration-base) var(--ease-enter);
 }
 @keyframes mw-icon-pop {
   0% { transform: scale(0.86); }
@@ -7964,9 +7964,9 @@ body:has(.invite-landing) .chrome-footer {
   pointer-events: none;
   will-change: transform;
   transition:
-    transform 340ms cubic-bezier(0.22, 1, 0.36, 1),
-    height 260ms cubic-bezier(0.22, 1, 0.36, 1),
-    opacity 160ms ease-out;
+    transform var(--duration-slow) var(--ease-glide),
+    height var(--duration-base) var(--ease-glide),
+    opacity var(--duration-fast) var(--ease-enter);
 }
 .pshell .pnav__plate::after {
   content: "";
@@ -8013,7 +8013,7 @@ body:has(.invite-landing) .chrome-footer {
 @media (max-width: 1023px) {
   .pshell--drawer-open .pshell__scrim {
     backdrop-filter: blur(3px);
-    animation: pnav-scrim-in 200ms ease-out both;
+    animation: pnav-scrim-in var(--duration-base) var(--ease-enter) both;
   }
   @keyframes pnav-scrim-in {
     from { opacity: 0; }
