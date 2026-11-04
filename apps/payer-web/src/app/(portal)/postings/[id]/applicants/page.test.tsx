@@ -422,7 +422,7 @@ describe("applicants page — rows the payer already unlocked start unlocked (F1
     const out = await html();
     // A: the granted band, no spend offered. B: the spend, as before.
     expect(unlockButtonTags(out)).toHaveLength(1);
-    expect(out).toContain("Open routed contact");
+    expect(out).toContain("Open contact");
     expect(textOf(out)).toContain(FUTURE.slice(0, 10));
   });
 
@@ -449,7 +449,7 @@ describe("applicants page — rows the payer already unlocked start unlocked (F1
     getDashboard.mockRejectedValueOnce(new Error("dashboard 503"));
     const failed = await html();
     expect(unlockButtonTags(failed)).toHaveLength(FEED.applicants.length);
-    expect(failed).not.toContain("Open routed contact");
+    expect(failed).not.toContain("Open contact");
   });
 });
 
@@ -472,7 +472,9 @@ describe("applicants page — Reached N workers (a fresh publish lands here)", (
     getApplicantFeed.mockResolvedValueOnce({ ...FEED, applicants: [] });
     const out = await landed({ reached: "18" });
     expect(textOf(out)).toContain("Posting published");
-    expect(textOf(out)).toContain("Reached 18 workers");
+    // The count's moving digits are aria-hidden (#2585) — what is read is the real figure, once.
+    const spoken = out.replace(/<span class="bb-countup" aria-hidden="true">[^<]*<\/span>/g, "");
+    expect(spoken.replace(/<[^>]+>/g, "")).toContain("Reached 18 workers");
     expect(textOf(out)).toContain("No applicants on this posting yet");
   });
 

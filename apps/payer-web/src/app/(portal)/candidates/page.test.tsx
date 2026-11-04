@@ -685,7 +685,7 @@ describe("all candidates — the list and its counts (ADR-0040 Decision 3)", () 
     getUnlocks.mockResolvedValueOnce([unlock(W1)]);
     const out = await html();
     expect(unlockButtons(out)).toHaveLength(1);
-    expect(out.match(/Open routed contact/g)).toHaveLength(1);
+    expect(out.match(/Open contact/g)).toHaveLength(1);
     expect(out.match(/View masked resume/g)).toHaveLength(1);
     getUnlocks.mockResolvedValueOnce([]);
     expect(await html()).not.toContain("View masked resume");

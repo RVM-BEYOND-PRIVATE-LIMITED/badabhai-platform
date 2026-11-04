@@ -113,9 +113,9 @@ vi.mock("../../components/nav-pending", () => ({
 
 // The balance chip is a client component (hooks: its tooltip's Escape listener); its own markup
 // is balance-chip.test.tsx. Here the stand-in records what the LAYOUT hands it.
-const chipCalls: Array<{ balance: number; linkToCredits: boolean }> = [];
+const chipCalls: Array<{ balance: number; balanceAsOf: number; linkToCredits: boolean }> = [];
 vi.mock("./balance-chip", () => ({
-  BalanceChip: (p: { balance: number; linkToCredits: boolean }) => {
+  BalanceChip: (p: { balance: number; balanceAsOf: number; linkToCredits: boolean }) => {
     chipCalls.push(p);
     return { type: "span", props: { children: `chip:${p.balance}` } };
   },
@@ -263,6 +263,17 @@ describe("portal balance chip — fail-soft courtesy read", () => {
     const { text } = await render({ balance: 247 });
     expect(text).toContain("chip:247");
     expect(chipCalls.map((c) => c.balance)).toEqual([247]);
+  });
+
+  it("hands the chip WHEN this server read it — its own clock, taken before the read (#2585)", async () => {
+    const now = vi.spyOn(Date, "now").mockReturnValue(1_762_250_000_000);
+    try {
+      await render({ balance: 247 });
+      expect(chipCalls.map((c) => c.balanceAsOf)).toEqual([1_762_250_000_000]);
+      expect(now.mock.invocationCallOrder[0]!).toBeLessThan(getCredits.mock.invocationCallOrder[0]!);
+    } finally {
+      now.mockRestore();
+    }
   });
 
   it("hides the chip (never throws) when the credits read fails", async () => {

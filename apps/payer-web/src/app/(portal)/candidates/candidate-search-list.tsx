@@ -10,6 +10,7 @@ import { shownTradeLevel } from "../../../lib/trade-level";
 import { countSummary, type SearchCounts } from "../../../lib/candidate-counts";
 import { Avatar, Badge, Card } from "../../../components/ds";
 import { useToast } from "../../../components/ds/toast-provider";
+import { publishBalance, useLiveBalance } from "../../../components/live-balance";
 import { PageHeader, type PageHeaderProps } from "../../../components/page-header";
 import { PagedListHeading } from "../../../components/paged-list";
 import { PortalLink } from "../../../components/portal-link";
@@ -60,6 +61,13 @@ import {
  * Confirm-on-spend (C11): only the FIRST unlock per card prompts; a retry never does. A call that
  * never arrives (offline) is the same retryable inline error as a failed one — never a stuck
  * spinner, never a blanked list. NO-ORACLE (XB-C) and NO-LOG as on the applicant card.
+ *
+ * AFTER A GRANT (#2585), as on the applicant card: the balance the server read back is published
+ * (components/live-balance.ts) and is this list's figure at once ("0 credits", every card's Unlock
+ * / Buy credits — no reload) and the shell's chip's. The list shows whichever figure the server
+ * read last — its own `balance` (read at `balanceAsOf`) or a publish — so a list Back / Forward
+ * brings back with its first props still follows an unlock made since; a fresh grant's band plays
+ * its reveal and stamp once.
  */
 
 /** A call to a Server Action that never arrived (offline, a dropped connection) — retryable. */
@@ -78,6 +86,8 @@ export interface CandidateSearchListProps {
   relatedTo: string | null;
   /** The payer's own balance — an affordance only (an unread balance arrives as 1). */
   balance: number;
+  /** When the page's server read `balance` (epoch ms, the portal server's clock). */
+  balanceAsOf: number;
   /** The payer's LIVE grants for this page's workers, keyed by worker id (see liveUnlocksFor). */
   unlocked?: Record<string, GrantedUnlock>;
 }
@@ -88,6 +98,7 @@ export function CandidateSearchList({
   candidates,
   relatedTo,
   balance,
+  balanceAsOf,
   unlocked = {},
 }: CandidateSearchListProps) {
   // One card per worker (the server's order is total over worker ids), so every per-card state
@@ -99,6 +110,9 @@ export function CandidateSearchList({
   const [confirmWorker, setConfirmWorker] = useState<string | null>(null);
   // The transient unlock-RESULT toast — granted, or the ONE neutral no-cause failure (XB-C).
   const [result, setResult] = useState<UnlockResultKind | null>(null);
+  // The newest balance the server read (#2585): this page's, or an unlock's read-back since — what
+  // every zero-balance check below reads.
+  const liveBalance = useLiveBalance(balance, balanceAsOf);
   const toast = useToast();
 
   // A card before anything happened to it this session: granted when the payer already holds a
@@ -129,7 +143,9 @@ export function CandidateSearchList({
       res = { ok: false, error: UNREACHABLE };
     }
     if (res.ok) {
-      patch(workerId, { busy: false, unlock: res.view });
+      patch(workerId, { busy: false, unlock: res.view, fresh: res.view.kind === "granted" });
+      // The server's balance after the grant (null: nothing granted, or the read failed).
+      if (res.readBack) publishBalance(res.readBack);
       // A grant is the portal's one success toast (#2583); only the neutral failure stays here.
       if (res.view.kind === "granted") {
         setResult(null);
@@ -195,7 +211,7 @@ export function CandidateSearchList({
     <>
       <PageHeader {...header} />
 
-      {balance === 0 ? (
+      {liveBalance === 0 ? (
         <div className="alert alert--warning">
           <Icon name={ACTION_ICON.credits} className="alert__icon" />
           <div className="alert__text">
@@ -205,8 +221,8 @@ export function CandidateSearchList({
               <PortalLink href="/credits" pendingLabel="Credits">
                 Buy credits
               </PortalLink>{" "}
-              to unlock a candidate&rsquo;s routed contact. This is your own balance — not a
-              signal about any candidate.
+              to unlock a candidate&rsquo;s contact. This is your own balance — not a signal about
+              any candidate.
             </p>
           </div>
         </div>
@@ -314,12 +330,13 @@ export function CandidateSearchList({
                 contactBand({
                   row,
                   unlockError: row.unlockError,
-                  balance,
+                  balance: liveBalance,
                   unlockHintId: `candidate-${i}-unlock-hint`,
                   viewOnly: false,
                   onUnlock: () => onUnlock(c.workerId),
                   onRevealContact: (unlockId) => onRevealContact(unlockId, c.workerId),
                   onMaskedResume: (unlockId) => onMaskedResume(unlockId, c.workerId),
+                  onRevealed: () => patch(c.workerId, { fresh: false }),
                 })
               )}
             </Card>

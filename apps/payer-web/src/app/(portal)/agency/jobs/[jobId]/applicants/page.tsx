@@ -71,7 +71,9 @@ export default async function AgencyJobApplicantsPage({
     feedError = true;
   }
 
-  // Two affordance reads, independent of each other, made side by side.
+  // Two affordance reads, independent of each other, made side by side. `balanceAsOf`: when the
+  // balance was read (#2585 — the feed orders it against an unlock's read-back).
+  const balanceAsOf = Date.now();
   const [balance, unlocks] = await Promise.all([readBalance(), readUnlocks()]);
 
   const header = {
@@ -90,6 +92,7 @@ export default async function AgencyJobApplicantsPage({
           applicants={feed.applicants}
           // Balance is an affordance hint only — a failed read keeps Unlock enabled.
           balance={balance ?? 1}
+          balanceAsOf={balanceAsOf}
           // Only this feed's workers, only live grants — the client gets no unlock id it has no
           // row for. Request time: this page is force-dynamic.
           unlocked={liveUnlocksFor(

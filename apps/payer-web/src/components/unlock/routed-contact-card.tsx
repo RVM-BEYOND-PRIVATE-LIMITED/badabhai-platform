@@ -22,21 +22,22 @@ function day(ts: string): string {
 /**
  * Renders the LIVE reveal: a ROUTED relay handle ONLY (ADR-0010 F-4). There is NO
  * field here that could show a phone or a number — the artifact is an opaque, expiring
- * relay; the raw contact stays server-side and is never sent to the browser.
+ * relay; the raw contact stays server-side and is never sent to the browser. The words are plain
+ * (#2585): a "contact reference" reached "through BadaBhai" — no "routed" or "relay".
  */
 export function RoutedContactCard({ view }: { view: Extract<ContactView, { kind: "routed" }> }) {
   return (
     <Card variant="flat" padding="sm" className="reveal-card">
       <p className="reveal-card__lead">
-        <strong>Routed contact.</strong> This is an opaque reference to your access record —{" "}
-        <strong>not a phone number</strong>. The routed channel is not open yet, so there is
-        nothing to dial or message today; the reference expires with your access window.
+        <strong>Contact reference.</strong> This is how you reach them through BadaBhai —{" "}
+        <strong>not a phone number</strong>. Contact through BadaBhai isn&rsquo;t open yet, so there
+        is nothing to dial or message today; the reference ends with your access.
       </p>
       <dl className="reveal-card__dl">
-        <dt>Relay handle</dt>
+        <dt>Reference</dt>
         <dd className="bb-mono">{view.relayHandle}</dd>
         <dt>Channel</dt>
-        <dd>{view.channel === "in_app_relay" ? "In-app relay" : "Proxy number"}</dd>
+        <dd>{view.channel === "in_app_relay" ? "In the BadaBhai app" : "Proxy number"}</dd>
         <dt>Access until</dt>
         <dd className="bb-mono">{day(view.expiresAt)}</dd>
       </dl>

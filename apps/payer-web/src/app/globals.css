@@ -2716,6 +2716,86 @@ textarea.input {
   }
 }
 
+/* ==================================================================
+ * W5 (#2585) — FEEDBACK AFTER SPENDING A CREDIT. Motion tokens only (#2570), opacity and
+ * transform only, every piece plays ONCE (nothing here loops) and every duration and distance
+ * here is a token, so all of it is 0 under prefers-reduced-motion.
+ *  - The shell's credits chip, when its figure changes (balance-chip.tsx): the figure counts to
+ *    the new balance over --duration-count (CountUp) while a Safety Yellow tint fades out of the
+ *    chip over two thirds of that (400ms). The chip re-keys `.pshell__balancetint` per change.
+ *  - A card's FRESH grant (`.applicant__granted--fresh`, components/unlock/contact-band.tsx): the
+ *    band arrives blurred and clears over --duration-slow (320ms) — a blur LAYER over it that only
+ *    fades, so no filter is animated — and the Unlocked badge's seal stamps in, 0.6 → 1.08 → 1
+ *    over --duration-celebrate (520ms). The blur radius is the --motion-rise distance.
+ *  - The Post-job CTA's shine (DS5 block below) sweeps once, and never on a disabled button.
+ * ================================================================== */
+
+/* The tint sits UNDER the chip's icon and figure: while it exists, the chip is its stacking
+   context (`:has`, so a chip that never changed stacks exactly as before). */
+.pshell__balance:has(> .pshell__balancetint) {
+  isolation: isolate;
+}
+.pshell__balancetint {
+  position: absolute;
+  inset: 0;
+  z-index: calc(var(--z-base) - 1);
+  border-radius: inherit;
+  background: var(--color-brand-accent-40);
+  opacity: 0;
+  pointer-events: none;
+  animation: balance-tint-out calc(var(--duration-count) * 2 / 3) var(--ease-exit) both;
+}
+@keyframes balance-tint-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+.applicant__granted--fresh {
+  position: relative;
+}
+.applicant__granted--fresh::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  -webkit-backdrop-filter: blur(var(--motion-rise));
+  backdrop-filter: blur(var(--motion-rise));
+  opacity: 0;
+  pointer-events: none;
+  animation: unlock-clear var(--duration-slow) var(--ease-enter) both;
+}
+@keyframes unlock-clear {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+.applicant__granted--fresh .applicant__unlocked > .ph-fill {
+  animation: unlock-stamp var(--duration-celebrate) var(--ease-out) both;
+}
+@keyframes unlock-stamp {
+  0% {
+    transform: scale(0.6);
+  }
+  60% {
+    transform: scale(1.08);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+/* A disabled (or busy) CTA never shines; enabled again, it sweeps once. */
+.posting-cta:disabled::after,
+.posting-cta[aria-disabled="true"]::after {
+  animation: none;
+}
+
 /* ------------------------------------------------------------------
  * POST A JOB (DS2.1) — the EMPLOYER posting form + page notes re-skinned onto the
  * design system. The form is a DS Card whose fields are DS Input/Select/Textarea; the
@@ -5275,7 +5355,8 @@ img.agency-qr__code,
     transparent 70%
   );
   transform: translateX(-130%);
-  animation: cta-shine calc(var(--duration-shimmer) * 2) var(--ease-in-out) infinite;
+  /* ONE sweep (#2585 — it looped forever); never on a disabled button (the W5 block). */
+  animation: cta-shine calc(var(--duration-shimmer) * 2) var(--ease-in-out);
   pointer-events: none;
 }
 @keyframes cta-shine {
