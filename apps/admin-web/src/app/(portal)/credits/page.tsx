@@ -1,6 +1,12 @@
 import Link from "next/link";
 import { requireCapability } from "../../../lib/auth";
-import { getFinanceSummary, listLedger } from "../../../lib/entities";
+import {
+  getFinanceSummary,
+  listLedger,
+  type FinanceSummary,
+  type LedgerRow,
+  type ReasonBucket,
+} from "../../../lib/entities";
 import {
   creditReasonLabel,
   formatCount,
@@ -17,6 +23,8 @@ import { CustomerLink } from "../../../components/customer-link";
 import { Pager } from "../../../components/pager";
 import { Stat } from "../../../components/stat";
 import { PageHeader } from "../../../components/page-header";
+import { DataGrid, type GridColumn } from "../../../components/data-grid";
+import { NavPendingCue } from "../../../components/nav-pending";
 import {
   CURSOR_REFUSAL,
   FirstPageAction,
@@ -117,6 +125,7 @@ export default async function CreditsPage({
     <Link className="btn btn--ghost" href={`/credits?windowDays=${windowDays}`}>
       <Icon name={ACTION_ICON.clearFilters} />
       Clear the reason filter
+      <NavPendingCue message="Clearing the reason filter…" />
     </Link>
   ) : null;
 
@@ -199,33 +208,14 @@ export default async function CreditsPage({
                   </p>
                 </div>
               ) : (
-                <div className="tablewrap">
-                  <table className="table">
-                    <caption className="sr-only">Credit movement by reason</caption>
-                    <thead>
-                      <tr>
-                        <th scope="col">Reason</th>
-                        <th scope="col">Movements</th>
-                        <th scope="col">Net credits</th>
-                        <th scope="col">Amount</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {summary.by_reason.map((b) => (
-                        <tr key={b.reason}>
-                          <td>{creditReasonLabel(b.reason)}</td>
-                          <td className="ui-num">{formatCount(b.movements)}</td>
-                          <td className="mono ui-num">{formatDelta(b.credits_delta)}</td>
-                          <td className="table__meta ui-num">
-                            {/* Only purchases carry a stamped price; a debit or a grant has
-                                no rupee amount, and showing ₹0 would claim one. */}
-                            {b.amount_inr > 0 ? formatRupees(b.amount_inr) : "—"}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                <DataGrid
+                  id="credits-by-reason"
+                  caption="Credit movement by reason"
+                  columns={REASON_COLUMNS}
+                  rows={summary.by_reason}
+                  rowKey={(b) => b.reason}
+                  viewControls={false}
+                />
               )}
             </section>
 
@@ -253,30 +243,14 @@ export default async function CreditsPage({
                   )}
                 </div>
               ) : (
-                <div className="tablewrap">
-                  <table className="table">
-                    <caption className="sr-only">Largest credit balances</caption>
-                    <thead>
-                      <tr>
-                        <th scope="col">Customer</th>
-                        <th scope="col">Balance</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {summary.top_balances.map((b) => (
-                        <tr key={b.payer_id}>
-                          <td>
-                            {/* The summary serves the balance's role (#2106), so the cell goes
-                                straight to the Company or the Agency; without one it keeps the
-                                address that redirects an agency on, and names no persona. */}
-                            <CustomerLink payerId={b.payer_id} payerRole={b.payer_role} />
-                          </td>
-                          <td className="mono ui-num">{formatCount(b.balance)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                <DataGrid
+                  id="credits-top-balances"
+                  caption="Largest credit balances"
+                  columns={BALANCE_COLUMNS}
+                  rows={summary.top_balances}
+                  rowKey={(b) => b.payer_id}
+                  viewControls={false}
+                />
               )}
             </section>
           </div>
@@ -393,70 +367,140 @@ export default async function CreditsPage({
             </div>
           )
         ) : (
-          <div className="tablewrap">
-            <table className="table">
-              <caption className="sr-only">Credit ledger, newest first</caption>
-              <thead>
-                <tr>
-                  <th scope="col">When</th>
-                  <th scope="col">Customer</th>
-                  <th scope="col">Reason</th>
-                  <th scope="col">Credits</th>
-                  <th scope="col">Amount</th>
-                  <th scope="col">Reference</th>
-                </tr>
-              </thead>
-              <tbody>
-                {ledger.items.map((row) => (
-                  <tr key={row.id}>
-                    <td>
-                      <time dateTime={row.created_at} title={timestampTitle(row.created_at)}>
-                        {formatRelative(row.created_at)}
-                      </time>
-                    </td>
-                    <td>
-                      <CustomerLink payerId={row.payer_id} payerRole={row.payer_role} />
-                    </td>
-                    <td>
-                      {/* The pill shows the REASON, toned by direction — a debit spends
-                          credits, everything else adds them. It used to borrow the
-                          applications tone map by value, which rendered the word "applied"
-                          next to an ops grant. */}
-                      <StatusPill
-                        value={row.reason}
-                        label={creditReasonLabel(row.reason)}
-                        tone={row.delta < 0 ? "warn" : "ok"}
-                        title={`${row.reason} · ${row.delta < 0 ? "spends" : "adds"} credits`}
-                      />
-                    </td>
-                    <td className="mono ui-num">{formatDelta(row.delta)}</td>
-                    <td className="table__meta ui-num">
-                      {/* A null price is a legacy row or a non-purchase. Rendering the
-                          current catalog price here would retroactively rewrite what a past
-                          purchase appears to have cost. */}
-                      {row.price_inr === null ? "—" : formatRupees(row.price_inr)}
-                    </td>
-                    <td className="table__meta">
-                      {row.pack_code
-                        ? packCodeLabel(row.pack_code)
-                        : row.unlock_id
-                          ? `unlock ${shortId(row.unlock_id)}`
-                          : "—"}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <DataGrid
+            id="credit-ledger"
+            caption="Credit ledger, newest first"
+            columns={LEDGER_COLUMNS}
+            rows={ledger.items}
+            rowKey={(row) => row.id}
+            pager={
+              <Pager
+                basePath="/credits"
+                params={{ reason, windowDays: String(windowDays) }}
+                cursor={cursor}
+                nextCursor={ledger.nextCursor}
+                note="The ledger is append-only, so a keyset page is stable even as new movements arrive."
+              />
+            }
+          />
         )}
-
-        <Pager
-          basePath="/credits"
-          params={{ reason, windowDays: String(windowDays) }}
-          nextCursor={ledger?.nextCursor}
-          note="The ledger is append-only, so a keyset page is stable even as new movements arrive."
-        />
       </section>
     </div>
   );
+}
+
+/** "Movement by reason" — the window's net change per reason, a bounded table on the grid (A4). */
+const REASON_COLUMNS: readonly GridColumn<ReasonBucket>[] = [
+  { id: "reason", header: "Reason", cell: (b) => creditReasonLabel(b.reason) },
+  {
+    id: "movements",
+    header: "Movements",
+    width: "number",
+    className: "ui-num",
+    cell: (b) => formatCount(b.movements),
+  },
+  {
+    id: "net",
+    header: "Net credits",
+    width: "number",
+    className: "mono ui-num",
+    cell: (b) => formatDelta(b.credits_delta),
+  },
+  {
+    id: "amount",
+    header: "Amount",
+    width: "money",
+    className: "table__meta ui-num",
+    // Only purchases carry a stamped price; a debit or a grant has no rupee amount, and showing
+    // ₹0 would claim one.
+    cell: (b) => (b.amount_inr > 0 ? formatRupees(b.amount_inr) : "—"),
+  },
+];
+
+type TopBalance = FinanceSummary["top_balances"][number];
+
+/** "Largest balances" — who holds the outstanding credits, a bounded table on the grid (A4). */
+const BALANCE_COLUMNS: readonly GridColumn<TopBalance>[] = [
+  {
+    id: "customer",
+    header: "Customer",
+    width: "customer",
+    // The summary serves the balance's role (#2106), so the cell goes straight to the Company or
+    // the Agency; without one it keeps the address that redirects an agency on, and names no
+    // persona.
+    cell: (b) => <CustomerLink payerId={b.payer_id} payerRole={b.payer_role} />,
+  },
+  {
+    id: "balance",
+    header: "Balance",
+    width: "number",
+    className: "mono ui-num",
+    cell: (b) => formatCount(b.balance),
+  },
+];
+
+/** The credit ledger on the grid (A4, #2574): append-only movements, newest first. */
+const LEDGER_COLUMNS: readonly GridColumn<LedgerRow>[] = [
+  {
+    id: "when",
+    header: "When",
+    width: "date",
+    cell: (row) => (
+      <time dateTime={row.created_at} title={timestampTitle(row.created_at)}>
+        {formatRelative(row.created_at)}
+      </time>
+    ),
+  },
+  {
+    id: "customer",
+    header: "Customer",
+    width: "customer",
+    cell: (row) => <CustomerLink payerId={row.payer_id} payerRole={row.payer_role} />,
+  },
+  {
+    id: "reason",
+    header: "Reason",
+    width: "short",
+    // The pill shows the REASON, toned by direction — a debit spends credits, everything else
+    // adds them. It used to borrow the applications tone map by value, which rendered the word
+    // "applied" next to an ops grant.
+    cell: (row) => (
+      <StatusPill
+        value={row.reason}
+        label={creditReasonLabel(row.reason)}
+        tone={row.delta < 0 ? "warn" : "ok"}
+        title={`${row.reason} · ${row.delta < 0 ? "spends" : "adds"} credits`}
+      />
+    ),
+  },
+  {
+    id: "credits",
+    header: "Credits",
+    width: "number",
+    className: "mono ui-num",
+    cell: (row) => formatDelta(row.delta),
+  },
+  {
+    id: "amount",
+    header: "Amount",
+    width: "money",
+    className: "table__meta ui-num",
+    // A null price is a legacy row or a non-purchase. Rendering the current catalog price here
+    // would retroactively rewrite what a past purchase appears to have cost.
+    cell: (row) => (row.price_inr === null ? "—" : formatRupees(row.price_inr)),
+  },
+  {
+    id: "reference",
+    header: "Reference",
+    className: "table__meta",
+    cell: (row) => ledgerReference(row),
+    title: (row) => ledgerReference(row),
+  },
+];
+
+/** What a movement points at: the pack bought, the unlock paid for, or nothing. */
+function ledgerReference(row: LedgerRow): string {
+  if (row.pack_code) return packCodeLabel(row.pack_code);
+  if (row.unlock_id) return `unlock ${shortId(row.unlock_id)}`;
+  return "—";
 }

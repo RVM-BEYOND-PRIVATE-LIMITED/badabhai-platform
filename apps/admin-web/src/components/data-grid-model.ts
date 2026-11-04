@@ -61,6 +61,8 @@ export interface GridColumnMeta {
   group?: string;
   /** Extra class on each of the column's body cells (`table__meta`, `ui-num`, `cell--message`, …). */
   className?: string;
+  /** Its cells LABEL their rows (`th scope="row"`) — at most one column, usually the link's. */
+  rowHeader?: boolean;
   sort?: GridSort;
 }
 

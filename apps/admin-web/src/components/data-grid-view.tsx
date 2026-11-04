@@ -130,21 +130,31 @@ export function DataGridView({
                   const content = row.cells[c.index];
                   const trail = row.trails[c.index];
                   const title = row.titles[c.index];
+                  const Cell = c.rowHeader ? "th" : "td";
                   if (linked && row.href && c.id === linkColumn) {
                     return (
-                      <td key={c.id} className={cellClass(c, true)}>
+                      <Cell
+                        key={c.id}
+                        className={cellClass(c, true)}
+                        scope={c.rowHeader ? "row" : undefined}
+                      >
                         <RowLink row={row} href={row.href} title={title}>
                           {content}
                         </RowLink>
                         {trail}
-                      </td>
+                      </Cell>
                     );
                   }
                   return (
-                    <td key={c.id} className={cellClass(c, false)} title={title}>
+                    <Cell
+                      key={c.id}
+                      className={cellClass(c, false)}
+                      scope={c.rowHeader ? "row" : undefined}
+                      title={title}
+                    >
                       {content}
                       {trail}
-                    </td>
+                    </Cell>
                   );
                 })}
                 {linked ? (
@@ -225,6 +235,8 @@ function HeaderCell({ column }: { column: GridColumnMeta }) {
 
 function cellClass(column: GridColumnMeta, link: boolean): string | undefined {
   const classes = [
+    // The hook every row header in the console carries (`.table tbody th`, globals.css).
+    column.rowHeader ? "table__rowhead" : null,
     column.text === "truncate" ? "grid__cell--truncate" : null,
     column.text === "wrap" ? "grid__cell--wrap" : null,
     link ? "grid__cell--link" : null,

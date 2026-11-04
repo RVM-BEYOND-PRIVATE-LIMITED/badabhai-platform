@@ -224,7 +224,7 @@ describe("the orders table links the customer's own section", () => {
 
 /** The href of the link whose visible label (after any glyph) is exactly `label`. */
 const hrefOf = (out: string, label: string) =>
-  [...out.matchAll(/href="([^"]*)">(?:<i [^>]*><\/i>)?([^<]*)<\/a>/g)].find((m) => m[2] === label)?.[1];
+  [...out.matchAll(/href="([^"]*)">(?:<i [^>]*><\/i>)?([^<]*)(?:<span class="nav-pending" aria-hidden="true"><\/span>)?<\/a>/g)].find((m) => m[2] === label)?.[1];
 
 /**
  * A failed order read, by the console's one rule (final re-sweep O-3): the page read every

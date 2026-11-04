@@ -38,10 +38,17 @@ const render = (payers: PayerListItem[], posture: IdentityPosture) =>
     />,
   );
 
-/** The cells of the first body row, in order. */
+/**
+ * The DATA cells of the first body row, in order — the row link's end chevron (an aria-hidden
+ * cell with no header of its own, A4) is decoration, not a column.
+ */
 function firstRowCells(html: string): string[] {
   const body = html.slice(html.indexOf("<tbody>"));
-  return body.slice(0, body.indexOf("</tr>")).split("<td").slice(1);
+  return body
+    .slice(0, body.indexOf("</tr>"))
+    .split("<td")
+    .slice(1)
+    .filter((cell) => !cell.startsWith(' class="grid__end"'));
 }
 
 describe("the named posture", () => {
@@ -49,7 +56,7 @@ describe("the named posture", () => {
     const out = render([NAMED], "named");
     expect(out).toContain('<th scope="col">Organisation</th>');
     expect(out).toContain("Acme Fabrication Pvt Ltd");
-    expect(out.indexOf("Acme Fabrication")).toBeLessThan(out.indexOf(PAYER_ID));
+    expect(out.indexOf("Acme Fabrication")).toBeLessThan(out.indexOf(`title="${PAYER_ID}"`));
   });
 
   it("heads the id column Customer — never Account (owner ruling 2026-10-01; sweep AW-12)", () => {

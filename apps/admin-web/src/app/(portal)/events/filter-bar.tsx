@@ -73,15 +73,15 @@ export function EventFilterBar(initial: EventFilterValues) {
       </label>
       <label className="field">
         <span className="field__label">Actor type</span>
-        <TypeSelect value={values.actorType} options={EVENT_ACTOR_TYPES} onChange={set("actorType")} />
+        <select className="field__input" value={values.actorType} onChange={set("actorType")}>
+          {typeOptions(values.actorType, EVENT_ACTOR_TYPES)}
+        </select>
       </label>
       <label className="field">
         <span className="field__label">Subject type</span>
-        <TypeSelect
-          value={values.subjectType}
-          options={EVENT_SUBJECT_TYPES}
-          onChange={set("subjectType")}
-        />
+        <select className="field__input" value={values.subjectType} onChange={set("subjectType")}>
+          {typeOptions(values.subjectType, EVENT_SUBJECT_TYPES)}
+        </select>
       </label>
       <label className="field">
         <span className="field__label">Correlation id</span>
@@ -126,29 +126,27 @@ export function EventFilterBar(initial: EventFilterValues) {
 }
 
 /**
- * A closed set as a select, with "Any". A value in the address that is not in the set (a
- * hand-edited URL, a type the schema gained after this copy) is shown as it stands — as its own
- * option, marked — rather than silently displayed as "Any" while the list is filtered by it.
+ * A closed set's options, with "Any" first. A value in the address that is not in the set (a
+ * hand-edited URL, a type the schema gained after this copy) is offered as it stands — its own
+ * option, marked — rather than the select silently showing "Any" while the list is filtered by it.
  */
-function TypeSelect({
-  value,
-  options,
-  onChange,
-}: {
-  value: string;
-  options: readonly string[];
-  onChange: (e: React.ChangeEvent<HTMLSelectElement>) => void;
-}) {
+function typeOptions(value: string, options: readonly string[]) {
   const unknown = value !== "" && !options.includes(value);
-  return (
-    <select className="field__input" value={value} onChange={onChange}>
-      <option value="">Any</option>
-      {unknown ? <option value={value}>{value} (not a known type)</option> : null}
-      {options.map((o) => (
-        <option key={o} value={o}>
-          {o}
-        </option>
-      ))}
-    </select>
-  );
+  return [
+    <option key="" value="">
+      Any
+    </option>,
+    ...(unknown
+      ? [
+          <option key={`unknown:${value}`} value={value}>
+            {value} (not a known type)
+          </option>,
+        ]
+      : []),
+    ...options.map((o) => (
+      <option key={o} value={o}>
+        {o}
+      </option>
+    )),
+  ];
 }

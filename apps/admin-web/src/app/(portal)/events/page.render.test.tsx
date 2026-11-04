@@ -103,7 +103,7 @@ describe("a 400 is the operator's address, and says so", () => {
     stub.failure = new stub.RequestError(400);
     const out = await render({ correlationId: "abc" });
     const state = out.slice(out.indexOf('class="state state--error"'));
-    expect(state).toMatch(/href="\/events">(<i [^>]*><\/i>)?Clear filters<\/a>/);
+    expect(state).toMatch(/href="\/events">(<i [^>]*><\/i>)?Clear filters(?:<span class="nav-pending" aria-hidden="true"><\/span>)?<\/a>/);
     expect(out.split(">Clear filters<").length - 1).toBe(1);
   });
 

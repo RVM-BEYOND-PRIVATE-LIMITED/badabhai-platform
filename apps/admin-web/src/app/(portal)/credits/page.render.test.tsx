@@ -194,7 +194,7 @@ describe("the window and reason chips keep each other", () => {
 
   it("clearing the reason keeps the window, and says it clears that one filter", async () => {
     const out = await renderWith({ windowDays: "7", reason: "grant" });
-    expect(out).toMatch(/href="\/credits\?windowDays=7">(<i [^>]*><\/i>)?Clear the reason filter<\/a>/);
+    expect(out).toMatch(/href="\/credits\?windowDays=7">(<i [^>]*><\/i>)?Clear the reason filter(?:<span class="nav-pending" aria-hidden="true"><\/span>)?<\/a>/);
     expect(out).not.toContain(">Clear filters<");
   });
 });
@@ -346,7 +346,7 @@ describe("credits — a top balance links the customer's own section (#2106)", (
 
 /** The href of the link whose visible label (after any glyph) is exactly `label`. */
 const hrefOf = (out: string, label: string) =>
-  [...out.matchAll(/href="([^"]*)">(?:<i [^>]*><\/i>)?([^<]*)<\/a>/g)].find((m) => m[2] === label)?.[1];
+  [...out.matchAll(/href="([^"]*)">(?:<i [^>]*><\/i>)?([^<]*)(?:<span class="nav-pending" aria-hidden="true"><\/span>)?<\/a>/g)].find((m) => m[2] === label)?.[1];
 
 /**
  * A failed ledger read, by the console's one rule (final re-sweep O-3). The ledger is the paged

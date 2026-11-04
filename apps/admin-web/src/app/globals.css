@@ -3966,8 +3966,8 @@ textarea.field__input {
 }
 /* The column header: sticky (`.table th`) at --grid-head-top; a long label cuts rather than
    running into its neighbour. Its rule is the inset shadow `.table th` draws, so the cell border
-   is dropped (it would double the line). */
-.grid__table th {
+   is dropped (it would double the line). A ROW header stays `.table tbody th`'s: static, bordered. */
+.grid__table thead th {
   top: var(--grid-head-top);
   overflow: hidden;
   text-overflow: ellipsis;

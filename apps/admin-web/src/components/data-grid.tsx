@@ -37,6 +37,8 @@ export interface GridColumn<Row> {
   defaultHidden?: boolean;
   /** The column chooser's heading for it (#2577 groups Identity / Work / Activity / Account). */
   group?: string;
+  /** Its cells label their rows (`th scope="row"`) — at most one column, usually the link's. */
+  rowHeader?: boolean;
   /** A header that orders the list by this column (the list's own sort parameter, in the URL). */
   sort?: GridSort;
 }
@@ -114,6 +116,7 @@ export function DataGrid<Row>({
       defaultHidden: c.defaultHidden === true && c.id !== rowLink?.column,
       ...(c.group ? { group: c.group } : {}),
       ...(c.className ? { className: c.className } : {}),
+      ...(c.rowHeader ? { rowHeader: true } : {}),
       ...(c.sort ? { sort: c.sort } : {}),
     };
   });

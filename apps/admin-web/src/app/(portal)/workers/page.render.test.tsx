@@ -86,11 +86,17 @@ beforeEach(() => {
 const render = async (searchParams: Record<string, string | string[] | undefined> = {}) =>
   renderToStaticMarkup(await WorkersPage({ searchParams: Promise.resolve(searchParams) }));
 
-/** The cells of the first body row, in order. */
+/**
+ * The DATA cells of the first body row, in order — the row link's end chevron (an aria-hidden
+ * cell with no header of its own, A4) is decoration, not a column.
+ */
 function firstRowCells(html: string): string[] {
   const body = html.slice(html.indexOf("<tbody>"));
   const row = body.slice(0, body.indexOf("</tr>"));
-  return row.split("<td").slice(1);
+  return row
+    .split("<td")
+    .slice(1)
+    .filter((cell) => !cell.startsWith(' class="grid__end"'));
 }
 
 describe("an admin who holds read_identity", () => {
@@ -99,7 +105,7 @@ describe("an admin who holds read_identity", () => {
     expect(out).toContain("<th scope=\"col\">Name</th>");
     expect(out).toContain("Ramesh Kumar");
     // Order matters: the name is the label an operator scans, the id is the handle.
-    expect(out.indexOf("Ramesh Kumar")).toBeLessThan(out.indexOf(WORKER_ID));
+    expect(out.indexOf("Ramesh Kumar")).toBeLessThan(out.indexOf(`title="${WORKER_ID}"`));
   });
 
   it("KEEPS the opaque id link — the name does not replace the join key", async () => {
@@ -157,7 +163,8 @@ describe("an admin who holds read_identity", () => {
     // lookup tool" — a field that turns a name into a row is what makes this bulk queryable by
     // identity. (The filter bar is stubbed out; this asserts the PAGE adds none of its own.)
     const out = await render();
-    expect(out).not.toContain("<input");
+    // The grid's column chooser draws checkboxes; nothing here takes text.
+    expect(out).not.toMatch(/<input(?![^>]*type="checkbox")/);
     expect(out).not.toContain('role="search"');
   });
 });
@@ -362,7 +369,7 @@ describe("a failed read is told apart by its cause", () => {
     stub.failure = new stub.RequestError(400);
     const out = await render({ status: "nonsense" });
     const state = out.slice(out.indexOf('class="state state--error"'));
-    expect(state).toMatch(/href="\/workers">(<i [^>]*><\/i>)?Clear filters<\/a>/);
+    expect(state).toMatch(/href="\/workers">(<i [^>]*><\/i>)?Clear filters(?:<span class="nav-pending" aria-hidden="true"><\/span>)?<\/a>/);
     expect(out.split(">Clear filters<").length - 1).toBe(1);
   });
 

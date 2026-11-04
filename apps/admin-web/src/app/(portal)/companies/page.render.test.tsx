@@ -208,7 +208,7 @@ describe("a refused filter is cleared from the refusal itself, on both rosters",
   it.each(PAGES)("%s: the 400's way out is Clear filters, in the state, once", async (name, page) => {
     stub.failure = new stub.RequestError(400);
     const out = await render(page, { status: "nonsense", cursor: "c2" });
-    expect(stateOf(out)).toContain(`href="/${name}"><i class="ph-fill ph-funnel-x" aria-hidden="true"></i>Clear filters</a>`);
+    expect(stateOf(out)).toContain(`href="/${name}"><i class="ph-fill ph-funnel-x" aria-hidden="true"></i>Clear filters<span class="nav-pending" aria-hidden="true"></span></a>`);
     expect(out.split(">Clear filters<").length - 1).toBe(1);
     expect(out).not.toContain("Back to the first page");
   });
