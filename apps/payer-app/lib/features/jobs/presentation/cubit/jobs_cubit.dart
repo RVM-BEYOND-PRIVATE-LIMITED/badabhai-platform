@@ -166,6 +166,16 @@ class JobsCubit extends Cubit<JobsState> {
       if (e.code == kJobEditClosedCode) {
         return const JobActionResult.fail(kJobEditClosedMessage);
       }
+      // #2635 — a live company job must name one of the 16 trades. Flagged so
+      // the screen opens the trade picker instead of toasting; the issue rides
+      // at `role_kind`, so a form shows it AT the picker.
+      if (e.isPostingTradeRequired) {
+        return JobActionResult.fail(
+          kPostingTradeRequiredMessage,
+          fieldErrors: e.fieldErrors,
+          tradeRequired: true,
+        );
+      }
       // A field-level validation 400 names the box to fix, e.g.
       // "Job title: Must not contain a company name." — and hands every
       // issue on by field, so the edit screen can show each AT its box.
@@ -195,10 +205,12 @@ class JobsCubit extends Cubit<JobsState> {
 class JobActionResult {
   const JobActionResult.ok(this.message)
       : success = true,
-        fieldErrors = const <String, String>{};
+        fieldErrors = const <String, String>{},
+        tradeRequired = false;
   const JobActionResult.fail(
     this.message, {
     this.fieldErrors = const <String, String>{},
+    this.tradeRequired = false,
   }) : success = false;
 
   final bool success;
@@ -207,6 +219,11 @@ class JobActionResult {
   /// #2595 — a refused edit's issues by wire field
   /// ([PayerApiException.fieldErrors]); empty otherwise.
   final Map<String, String> fieldErrors;
+
+  /// #2635 — the server refused because the job would be live without one of
+  /// the 16 trades ([PayerApiException.isPostingTradeRequired]). The caller
+  /// shows the trade picker, never a toast of the reason.
+  final bool tradeRequired;
 }
 
 enum JobsStatus { initial, loading, ready, error }

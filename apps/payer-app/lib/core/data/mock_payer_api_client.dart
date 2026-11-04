@@ -704,10 +704,12 @@ class MockPayerApiClient implements PayerApiClient {
   Future<ReachPreview> reachPreview({
     required List<String> matchSkillIds,
     List<String> untickedRelatedIds = const <String>[],
+    String? roleKind,
   }) async {
     // Deterministic canned maths: each picked skill reaches a fixed base, each
     // still-ticked related skill adds a smaller slice. Mirrors the shape the
-    // real deterministic matcher returns (never generative).
+    // real deterministic matcher returns (never generative). [roleKind] is
+    // accepted for parity (#2635); the canned vocabulary has no trade scope.
     const Map<String, int> baseReach = <String, int>{
       'cnc_operation': 42,
       'vmc_operation': 28,

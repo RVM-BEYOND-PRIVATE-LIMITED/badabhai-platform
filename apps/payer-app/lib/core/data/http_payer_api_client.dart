@@ -287,11 +287,16 @@ class HttpPayerApiClient implements PayerApiClient {
   ///    no-op; the old client-reported "already closed" was wrong),
   ///  - [kJobEditClosedCode] — `Job is closed and cannot be edited` (terminal).
   ///
+  /// #2635 — [kPostingTradeRequiredCode] is the one refusal the server NAMES:
+  /// its `error.reason` is read, never its message. It is pinned to `role_kind`
+  /// with [kPostingTradeRequiredMessage], so a form shows it at its trade
+  /// picker and any other caller says the app's words, not the server's.
+  ///
   /// EVERY OTHER validation 400 carries its first issue as a human-readable
   /// [PayerApiException.validationMessage] naming the field, so the edit screen
   /// can say WHICH box is wrong instead of "check the details" — and (#2595)
   /// all of its issues as [PayerApiException.fieldErrors], so a form can show
-  /// each AT its box. A CREATE's 400 is only ever that last kind: the three
+  /// each AT its box. A CREATE's 400 is only ever that last kind: the four
   /// codes above are edit-only refusals.
   static _JobWriteRejection _jobWriteRejection(PayerResponse res) {
     const Map<String, String> noFields = <String, String>{};
@@ -299,6 +304,16 @@ class HttpPayerApiClient implements PayerApiClient {
       return (code: null, validationMessage: null, fieldErrors: noFields);
     }
     final Object? error = res.body['error'];
+    final Object? reason = error is Map ? error['reason'] : res.body['reason'];
+    if (reason == kPostingTradeRequiredCode) {
+      return (
+        code: kPostingTradeRequiredCode,
+        validationMessage: kPostingTradeRequiredMessage,
+        fieldErrors: const <String, String>{
+          'role_kind': kPostingTradeRequiredMessage,
+        },
+      );
+    }
     final Object? issues = error is Map ? error['issues'] : null;
     if (issues is List) {
       for (final Object? issue in issues) {
@@ -519,6 +534,7 @@ class HttpPayerApiClient implements PayerApiClient {
   Future<ReachPreview> reachPreview({
     required List<String> matchSkillIds,
     List<String> untickedRelatedIds = const <String>[],
+    String? roleKind,
   }) async {
     final PayerResponse res = await _http.send(
       PayerMethod.post,
@@ -526,6 +542,9 @@ class HttpPayerApiClient implements PayerApiClient {
       body: <String, dynamic>{
         'match_skill_ids': matchSkillIds,
         'unticked_related_ids': untickedRelatedIds,
+        // #2635 — the job's trade, so the preview scopes the posted ids to it
+        // exactly as publish will. Optional and additive: omitted when unset.
+        if (roleKind != null && roleKind.isNotEmpty) 'role_kind': roleKind,
       },
     );
     // A non-2xx must not decode to a fabricated zero-reach preview shown as real.

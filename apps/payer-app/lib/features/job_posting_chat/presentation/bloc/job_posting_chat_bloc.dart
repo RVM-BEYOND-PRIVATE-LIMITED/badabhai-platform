@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../../core/data/job_posting_chat_models.dart';
 import '../../../../core/data/models.dart';
+import '../../../../core/error/payer_failure.dart';
 import '../../domain/chat_message.dart';
 import '../../domain/job_posting_chat_repository.dart';
 
@@ -48,12 +49,19 @@ class JobPostingChatRetryRequested extends JobPostingChatEvent {
   List<Object?> get props => <Object?>[index];
 }
 
+/// Load — or retry — the 16-trade catalogue the publish step picks the job's
+/// trade from (#2635). Fired by [JobPostingChatStarted] and by the publish
+/// step's Retry.
+class JobPostingChatTradesRequested extends JobPostingChatEvent {
+  const JobPostingChatTradesRequested();
+}
+
 /// Publish the draft through the existing job-posting create path.
 ///
-/// [roleKind] is the publish-step role pick (#2490) — one of the 21 declared
-/// kinds, DISPLAY ONLY (it keys the worker card's role illustration, never a
-/// match input). Null/absent keeps the posting's `role_kind` NULL, so the card
-/// draws the generic art, exactly as before.
+/// [roleKind] is the publish-step trade pick (#2490). #2635 — it must be one of
+/// the 16 trades the catalogue lists: a company job matches only within them
+/// and can never go live without one, so a publish without it is refused here
+/// ([PublishOutcome.tradeRequired]) and nothing is sent.
 ///
 /// [area] is the publish-step locality (#2493), prefilled from the draft and
 /// editable. Null/absent keeps `area` NULL (city-only card).
@@ -87,6 +95,9 @@ enum PublishOutcome {
 
   /// Transport / server failure — retryable.
   failed,
+
+  /// #2635 — refused before sending: no trade (one of the 16) was picked.
+  tradeRequired,
 }
 
 class JobPostingChatState extends Equatable {
@@ -105,6 +116,9 @@ class JobPostingChatState extends Equatable {
     this.publishedJobId,
     this.unmappedFields = const <String>[],
     this.unsetCardFields = const <String>[],
+    this.postingTrades = const <PostingTradeForm>[],
+    this.postingTradesLoading = true,
+    this.postingTradesFailure,
   });
 
   /// Ordered, append-only transcript.
@@ -169,6 +183,22 @@ class JobPostingChatState extends Equatable {
   /// and publish never refuses over them.
   final List<String> unsetCardFields;
 
+  /// #2635 — the 16 trades the publish step offers (`GET
+  /// /payer/posting-trades`). A publish whose trade is not one of these is
+  /// refused before it is sent.
+  final List<PostingTradeForm> postingTrades;
+
+  /// True while [postingTrades] is being read.
+  final bool postingTradesLoading;
+
+  /// Why the last catalogue read failed, or null — said at the publish step.
+  final PayerFailure? postingTradesFailure;
+
+  /// Whether [roleKind] is one of [postingTrades].
+  bool isPostingTrade(String? roleKind) =>
+      roleKind != null &&
+      postingTrades.any((PostingTradeForm t) => t.roleKind == roleKind);
+
   JobPostingChatState copyWith({
     List<ChatMessage>? messages,
     bool? initializing,
@@ -184,6 +214,10 @@ class JobPostingChatState extends Equatable {
     String? publishedJobId,
     List<String>? unmappedFields,
     List<String>? unsetCardFields,
+    List<PostingTradeForm>? postingTrades,
+    bool? postingTradesLoading,
+    PayerFailure? postingTradesFailure,
+    bool clearPostingTradesFailure = false,
   }) {
     return JobPostingChatState(
       messages: messages ?? this.messages,
@@ -203,6 +237,12 @@ class JobPostingChatState extends Equatable {
       publishedJobId: publishedJobId ?? this.publishedJobId,
       unmappedFields: unmappedFields ?? this.unmappedFields,
       unsetCardFields: unsetCardFields ?? this.unsetCardFields,
+      postingTrades: postingTrades ?? this.postingTrades,
+      postingTradesLoading: postingTradesLoading ?? this.postingTradesLoading,
+      // A successful read clears the last failure; `??` alone never could.
+      postingTradesFailure: clearPostingTradesFailure
+          ? null
+          : (postingTradesFailure ?? this.postingTradesFailure),
     );
   }
 
@@ -222,6 +262,9 @@ class JobPostingChatState extends Equatable {
         publishedJobId,
         unmappedFields,
         unsetCardFields,
+        postingTrades,
+        postingTradesLoading,
+        postingTradesFailure,
       ];
 }
 
@@ -260,6 +303,7 @@ class JobPostingChatBloc
     on<JobPostingChatStarted>(_onStarted);
     on<JobPostingChatMessageSent>(_onMessageSent);
     on<JobPostingChatRetryRequested>(_onRetryRequested);
+    on<JobPostingChatTradesRequested>(_onTradesRequested);
     on<JobPostingChatPublishRequested>(_onPublishRequested);
   }
 
@@ -277,6 +321,9 @@ class JobPostingChatBloc
     JobPostingChatStarted event,
     Emitter<JobPostingChatState> emit,
   ) async {
+    // #2635 — the publish step's 16 trades, read alongside the session (its
+    // own event, so a slow catalogue never holds the chat up).
+    add(const JobPostingChatTradesRequested());
     bool failed = false;
     JobPostingChatTurn? opening;
 
@@ -487,15 +534,48 @@ class JobPostingChatBloc
     await _deliver(message.text, index, emit);
   }
 
+  /// Reads the 16-trade catalogue (#2635). A failure is KEPT (the publish step
+  /// names it and offers a retry), never swallowed into an empty picker.
+  Future<void> _onTradesRequested(
+    JobPostingChatTradesRequested event,
+    Emitter<JobPostingChatState> emit,
+  ) async {
+    emit(state.copyWith(postingTradesLoading: true));
+    try {
+      final List<PostingTradeForm> trades = await _repo.loadPostingTrades();
+      emit(state.copyWith(
+        postingTrades: trades,
+        postingTradesLoading: false,
+        clearPostingTradesFailure: true,
+      ));
+    } catch (error) {
+      emit(state.copyWith(
+        postingTradesLoading: false,
+        postingTradesFailure: PayerFailure.from(error),
+      ));
+    }
+  }
+
   /// Publishes the draft. The SERVER is the authority: it re-validates against
   /// `PayerCreateJobPostingSchema` and calls the same `createForPayer` the
   /// manual form uses (which already emits `job_posting.created`). This bloc
   /// only reports the outcome honestly.
+  ///
+  /// #2635 — except for one rule it applies first: the job must name one of
+  /// the 16 trades. The posting this creates is a draft, and a company draft
+  /// with no trade can never be published, so without one nothing is sent.
   Future<void> _onPublishRequested(
     JobPostingChatPublishRequested event,
     Emitter<JobPostingChatState> emit,
   ) async {
     if (state.publishing) return; // one in-flight publish per session
+    if (!state.isPostingTrade(event.roleKind)) {
+      // Through `none` first, so a second refused tap is still a change the
+      // screen hears.
+      emit(state.copyWith(publishOutcome: PublishOutcome.none));
+      emit(state.copyWith(publishOutcome: PublishOutcome.tradeRequired));
+      return;
+    }
     emit(state.copyWith(
       publishing: true,
       publishOutcome: PublishOutcome.none,

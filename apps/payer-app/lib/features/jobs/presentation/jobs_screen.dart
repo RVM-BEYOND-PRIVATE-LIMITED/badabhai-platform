@@ -385,6 +385,10 @@ class _RealJobCardState extends State<_RealJobCard> {
   /// reaches it from a toast) and reports it as a toast named for [action]. A
   /// successful Pause offers Undo, which resumes the posting. Starting a call
   /// takes the last toast down, so a stale Undo is never left on screen.
+  ///
+  /// #2635 — the one refusal that is NOT a toast: a job the server will not put
+  /// live without one of the 16 trades opens its edit form at the trade
+  /// picker, refused there, so the payer picks one instead of reading why.
   Future<void> _run(JobsCubit cubit, JobLifecycleAction action) async {
     final String id = job.id!;
     if (mounted) ScaffoldMessenger.of(context).hideCurrentSnackBar();
@@ -397,6 +401,10 @@ class _RealJobCardState extends State<_RealJobCard> {
     };
     _setBusy(null);
     if (!mounted) return;
+    if (result.tradeRequired) {
+      _openEdit(cubit, tradeRequired: true);
+      return;
+    }
     if (result.success && action == JobLifecycleAction.pause) {
       showJobUndoToast(
         context,
@@ -536,11 +544,16 @@ class _RealJobCardState extends State<_RealJobCard> {
 
   /// Push the edit form, handing it the SHARED [JobsCubit] so a saved edit
   /// refetches the list. Named route so the crash reporter tags the screen.
-  void _openEdit(JobsCubit cubit) {
+  /// [tradeRequired] (#2635) opens it at the trade picker, refused there.
+  void _openEdit(JobsCubit cubit, {bool tradeRequired = false}) {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
         settings: const RouteSettings(name: 'payer/job-edit'),
-        builder: (_) => EditCompanyJobScreen(job: job, cubit: cubit),
+        builder: (_) => EditCompanyJobScreen(
+          job: job,
+          cubit: cubit,
+          tradeRequired: tradeRequired,
+        ),
       ),
     );
   }

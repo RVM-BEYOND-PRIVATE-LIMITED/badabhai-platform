@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../../../core/data/models.dart' show kPostingTradeRequiredMessage;
 import '../../../core/di/locator.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_motion.dart';
@@ -223,10 +224,9 @@ class _ChatViewState extends State<_ChatView> {
   bool _draftOpen = false;
   bool _autoOpenedDraft = false;
 
-  /// The publish-step role pick (#2490) — one of the 21 declared `role_kind`s,
-  /// or null. DISPLAY ONLY (it keys the worker card's role illustration, never
-  /// a match input). Local to the publish step because the interview does not
-  /// ask for a role; blank publishes with `role_kind` absent (generic art).
+  /// The publish-step trade pick (#2490) — one of the 16 trades, or null until
+  /// picked. Local to the publish step because the interview does not ask for
+  /// one. #2635 — required: the draft is never published without it.
   String? _roleKind;
 
   /// The publish-step area/locality (#2493). Until the payer edits it, the input
@@ -374,6 +374,12 @@ class _ChatViewState extends State<_ChatView> {
           'Could not post right now. Please try again.',
           Icons.info_rounded,
         ),
+      // #2635 — the picker says this inline first; this is the backstop.
+      PublishOutcome.tradeRequired => (
+          'Not yet',
+          kPostingTradeRequiredMessage,
+          Icons.info_rounded,
+        ),
       PublishOutcome.none => ('', '', Icons.info_rounded),
     };
     if (title.isEmpty) return;
@@ -455,6 +461,13 @@ class _ChatViewState extends State<_ChatView> {
                               roleKind: _roleKind,
                               onRoleKindChanged: (String? roleKind) =>
                                   setState(() => _roleKind = roleKind),
+                              // #2635 — the 16 trades the pick comes from.
+                              trades: state.postingTrades,
+                              tradesLoading: state.postingTradesLoading,
+                              tradesFailure: state.postingTradesFailure,
+                              onRetryTrades: () => context
+                                  .read<JobPostingChatBloc>()
+                                  .add(const JobPostingChatTradesRequested()),
                               area: _areaTouched
                                   ? _area
                                   : (state.draft.area ?? ''),

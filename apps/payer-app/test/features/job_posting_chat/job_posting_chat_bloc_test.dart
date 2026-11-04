@@ -1,10 +1,29 @@
+import 'dart:io' show SocketException;
+
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:payer_app/core/data/job_posting_chat_models.dart';
 import 'package:payer_app/core/data/models.dart';
+import 'package:payer_app/core/error/payer_failure.dart';
 import 'package:payer_app/features/job_posting_chat/domain/chat_message.dart';
 import 'package:payer_app/features/job_posting_chat/domain/job_posting_chat_repository.dart';
 import 'package:payer_app/features/job_posting_chat/presentation/bloc/job_posting_chat_bloc.dart';
+
+/// Two of the 16 postable trades, as `GET /payer/posting-trades` serves them.
+const List<PostingTradeForm> _trades = <PostingTradeForm>[
+  PostingTradeForm(
+    roleKind: 'cnc_turner',
+    roleLabel: 'CNC Turner',
+    packId: 'qp_cnc_turning',
+    matchSkillId: 'mskill_cnc_turner',
+  ),
+  PostingTradeForm(
+    roleKind: 'welder',
+    roleLabel: 'Welder',
+    packId: 'qp_welding_trade',
+    matchSkillId: 'mskill_welder',
+  ),
+];
 
 /// A scripted [JobPostingChatRepository] — no HTTP, no locator.
 class _FakeRepo implements JobPostingChatRepository {
@@ -16,6 +35,7 @@ class _FakeRepo implements JobPostingChatRepository {
     this.sendThrows = false,
     this.publishError,
     this.unmappedFields = const <String>[],
+    this.tradesThrowOnce,
   });
 
   final JobPostingChatTurn? opening;
@@ -26,9 +46,14 @@ class _FakeRepo implements JobPostingChatRepository {
   final PayerApiException? publishError;
   final List<String> unmappedFields;
 
+  /// When set, the FIRST catalogue read throws it (a retry then succeeds).
+  Object? tradesThrowOnce;
+
   String? _sessionId;
   int _turn = 0;
   int openCalls = 0;
+  int tradeLoads = 0;
+  int publishCalls = 0;
   final List<String> sent = <String>[];
   String? publishedRoleKind;
   String? publishedArea;
@@ -65,13 +90,40 @@ class _FakeRepo implements JobPostingChatRepository {
       const <JobPostingChatSessionSummary>[];
 
   @override
+  Future<List<PostingTradeForm>> loadPostingTrades() async {
+    tradeLoads++;
+    final Object? error = tradesThrowOnce;
+    if (error != null) {
+      tradesThrowOnce = null;
+      throw error;
+    }
+    return _trades;
+  }
+
+  @override
   Future<PublishJobResult> publish({String? roleKind, String? area}) async {
+    publishCalls++;
     publishedRoleKind = roleKind;
     publishedArea = area;
     final PayerApiException? err = publishError;
     if (err != null) throw err;
     return PublishJobResult(jobPostingId: 'job-9', unmappedFields: unmappedFields);
   }
+}
+
+/// The chat has opened AND its 16-trade catalogue has been read. Since #2635
+/// the two run side by side, so a test that sends next waits for both (or the
+/// catalogue's own emission would satisfy a later `!sending` wait early).
+bool _settled(JobPostingChatState s) =>
+    !s.initializing && !s.postingTradesLoading;
+
+/// A bloc whose 16-trade catalogue has loaded — what the publish step needs.
+Future<JobPostingChatBloc> _withTrades(_FakeRepo repo) async {
+  final JobPostingChatBloc bloc = JobPostingChatBloc(repo);
+  bloc.add(const JobPostingChatTradesRequested());
+  await bloc.stream
+      .firstWhere((JobPostingChatState s) => !s.postingTradesLoading);
+  return bloc;
 }
 
 JobPostingChatTurn _turn({
@@ -114,7 +166,7 @@ void main() {
       expect(bloc.state.messages.single.text, kJobPostingChatOpeningText);
 
       bloc.add(const JobPostingChatStarted());
-      await bloc.stream.firstWhere((JobPostingChatState s) => !s.initializing);
+      await bloc.stream.firstWhere(_settled);
 
       expect(bloc.state.messages.first.text, 'Kaunsa kaam?');
       expect(bloc.state.messages.length, 1,
@@ -129,7 +181,7 @@ void main() {
       final JobPostingChatBloc bloc = JobPostingChatBloc(repo);
 
       bloc.add(const JobPostingChatStarted());
-      await bloc.stream.firstWhere((JobPostingChatState s) => !s.initializing);
+      await bloc.stream.firstWhere(_settled);
 
       expect(bloc.state.sessionFailed, isTrue);
       expect(bloc.state.messages.single.text, kJobPostingChatOpeningText);
@@ -187,7 +239,7 @@ void main() {
       ]);
       final JobPostingChatBloc bloc = JobPostingChatBloc(repo);
       bloc.add(const JobPostingChatStarted());
-      await bloc.stream.firstWhere((JobPostingChatState s) => !s.initializing);
+      await bloc.stream.firstWhere(_settled);
 
       bloc.add(const JobPostingChatMessageSent('CNC Setter chahiye'));
       await bloc.stream.firstWhere((JobPostingChatState s) => !s.sending);
@@ -208,7 +260,7 @@ void main() {
       ]);
       final JobPostingChatBloc bloc = JobPostingChatBloc(repo);
       bloc.add(const JobPostingChatStarted());
-      await bloc.stream.firstWhere((JobPostingChatState s) => !s.initializing);
+      await bloc.stream.firstWhere(_settled);
 
       bloc.add(const JobPostingChatMessageSent('CNC Setter'));
       await bloc.stream.firstWhere((JobPostingChatState s) => !s.sending);
@@ -227,7 +279,7 @@ void main() {
       final _FakeRepo failing = _FakeRepo(sendThrows: true);
       final JobPostingChatBloc bloc = JobPostingChatBloc(failing);
       bloc.add(const JobPostingChatStarted());
-      await bloc.stream.firstWhere((JobPostingChatState s) => !s.initializing);
+      await bloc.stream.firstWhere(_settled);
 
       bloc.add(const JobPostingChatMessageSent('CNC Setter'));
       await bloc.stream.firstWhere((JobPostingChatState s) => !s.sending);
@@ -259,7 +311,7 @@ void main() {
       ]);
       final JobPostingChatBloc bloc = JobPostingChatBloc(repo);
       bloc.add(const JobPostingChatStarted());
-      await bloc.stream.firstWhere((JobPostingChatState s) => !s.initializing);
+      await bloc.stream.firstWhere(_settled);
 
       bloc.add(const JobPostingChatMessageSent('ACME CNC Setter'));
       await bloc.stream.firstWhere((JobPostingChatState s) => s.draftReady);
@@ -284,7 +336,7 @@ void main() {
       ]);
       final JobPostingChatBloc bloc = JobPostingChatBloc(repo);
       bloc.add(const JobPostingChatStarted());
-      await bloc.stream.firstWhere((JobPostingChatState s) => !s.initializing);
+      await bloc.stream.firstWhere(_settled);
 
       bloc.add(const JobPostingChatMessageSent('CNC Setter'));
       await bloc.stream.firstWhere((JobPostingChatState s) => s.draftReady);
@@ -299,10 +351,49 @@ void main() {
     });
   });
 
+  // #2635 — the publish step's trade comes from the 16-trade catalogue.
+  group('JobPostingChatBloc — the 16 trades', () {
+    test('opening the chat reads the catalogue', () async {
+      final _FakeRepo repo = _FakeRepo();
+      final JobPostingChatBloc bloc = JobPostingChatBloc(repo);
+      expect(bloc.state.postingTradesLoading, isTrue);
+
+      bloc.add(const JobPostingChatStarted());
+      await bloc.stream
+          .firstWhere((JobPostingChatState s) => !s.postingTradesLoading);
+
+      expect(repo.tradeLoads, 1);
+      expect(bloc.state.postingTrades, _trades);
+      expect(bloc.state.postingTradesFailure, isNull);
+      await bloc.close();
+    });
+
+    test('a failed read is kept for the publish step, and a retry recovers',
+        () async {
+      final _FakeRepo repo =
+          _FakeRepo(tradesThrowOnce: const SocketException('offline'));
+      final JobPostingChatBloc bloc = JobPostingChatBloc(repo);
+
+      bloc.add(const JobPostingChatStarted());
+      await bloc.stream
+          .firstWhere((JobPostingChatState s) => !s.postingTradesLoading);
+      expect(bloc.state.postingTrades, isEmpty);
+      expect(bloc.state.postingTradesFailure?.kind, PayerFailureKind.network);
+
+      bloc.add(const JobPostingChatTradesRequested());
+      await bloc.stream.firstWhere((JobPostingChatState s) =>
+          !s.postingTradesLoading && s.postingTrades.isNotEmpty);
+      expect(repo.tradeLoads, 2);
+      expect(bloc.state.postingTradesFailure, isNull,
+          reason: 'a good read clears the old failure');
+      await bloc.close();
+    });
+  });
+
   group('JobPostingChatBloc — publish', () {
     test('success reports the created posting id', () async {
-      final JobPostingChatBloc bloc = JobPostingChatBloc(_FakeRepo());
-      bloc.add(const JobPostingChatPublishRequested());
+      final JobPostingChatBloc bloc = await _withTrades(_FakeRepo());
+      bloc.add(const JobPostingChatPublishRequested(roleKind: 'welder'));
       await bloc.stream.firstWhere(
           (JobPostingChatState s) => s.publishOutcome != PublishOutcome.none);
 
@@ -315,10 +406,10 @@ void main() {
 
     test('success carries the server unmapped_fields onto state for the notice',
         () async {
-      final JobPostingChatBloc bloc = JobPostingChatBloc(
+      final JobPostingChatBloc bloc = await _withTrades(
         _FakeRepo(unmappedFields: const <String>['pay_min', 'pay_max', 'shift']),
       );
-      bloc.add(const JobPostingChatPublishRequested());
+      bloc.add(const JobPostingChatPublishRequested(roleKind: 'welder'));
       await bloc.stream.firstWhere(
           (JobPostingChatState s) => s.publishOutcome != PublishOutcome.none);
 
@@ -338,10 +429,10 @@ void main() {
         500: PublishOutcome.failed,
       };
       for (final MapEntry<int, PublishOutcome> e in expected.entries) {
-        final JobPostingChatBloc bloc = JobPostingChatBloc(
+        final JobPostingChatBloc bloc = await _withTrades(
           _FakeRepo(publishError: PayerApiException(e.key)),
         );
-        bloc.add(const JobPostingChatPublishRequested());
+        bloc.add(const JobPostingChatPublishRequested(roleKind: 'welder'));
         await bloc.stream.firstWhere(
             (JobPostingChatState s) => s.publishOutcome != PublishOutcome.none);
         expect(bloc.state.publishOutcome, e.value, reason: '${e.key}');
@@ -349,35 +440,89 @@ void main() {
       }
     });
 
-    test('carries the publish-step role pick to the repository (#2490)',
+    test('carries the publish-step trade to the repository (#2490)',
         () async {
       final _FakeRepo repo = _FakeRepo();
-      final JobPostingChatBloc bloc = JobPostingChatBloc(repo);
+      final JobPostingChatBloc bloc = await _withTrades(repo);
       bloc.add(const JobPostingChatPublishRequested(roleKind: 'cnc_turner'));
       await bloc.stream.firstWhere(
           (JobPostingChatState s) => s.publishOutcome != PublishOutcome.none);
 
       expect(repo.publishedRoleKind, 'cnc_turner',
-          reason: 'display-only role_kind rides the publish call');
+          reason: 'the trade rides the publish call as role_kind');
       await bloc.close();
     });
 
-    test('an unpicked role publishes with NO role_kind (#2490)',
-        () async {
+    // #2635 — the draft the chat creates could never go live without one of
+    // the 16 trades (it used to publish with NO role_kind).
+    test('no trade picked: refused before anything is sent (#2635)', () async {
       final _FakeRepo repo = _FakeRepo();
-      final JobPostingChatBloc bloc = JobPostingChatBloc(repo);
+      final JobPostingChatBloc bloc = await _withTrades(repo);
       bloc.add(const JobPostingChatPublishRequested());
       await bloc.stream.firstWhere(
           (JobPostingChatState s) => s.publishOutcome != PublishOutcome.none);
 
-      expect(repo.publishedRoleKind, isNull);
+      expect(bloc.state.publishOutcome, PublishOutcome.tradeRequired);
+      expect(repo.publishCalls, 0);
+      expect(bloc.state.publishing, isFalse);
+      await bloc.close();
+    });
+
+    test('a role that is not one of the 16 is refused the same way (#2635)',
+        () async {
+      final _FakeRepo repo = _FakeRepo();
+      final JobPostingChatBloc bloc = await _withTrades(repo);
+      bloc.add(const JobPostingChatPublishRequested(roleKind: 'plumber'));
+      await bloc.stream.firstWhere(
+          (JobPostingChatState s) => s.publishOutcome != PublishOutcome.none);
+
+      expect(bloc.state.publishOutcome, PublishOutcome.tradeRequired);
+      expect(repo.publishCalls, 0);
+      await bloc.close();
+    });
+
+    test('with the trades not loaded, nothing is sent either (#2635)',
+        () async {
+      final _FakeRepo repo = _FakeRepo();
+      final JobPostingChatBloc bloc = JobPostingChatBloc(repo);
+      bloc.add(const JobPostingChatPublishRequested(roleKind: 'welder'));
+      await bloc.stream.firstWhere(
+          (JobPostingChatState s) => s.publishOutcome != PublishOutcome.none);
+
+      expect(bloc.state.publishOutcome, PublishOutcome.tradeRequired);
+      expect(repo.publishCalls, 0);
+      await bloc.close();
+    });
+
+    test('a second refused tap is still heard by the screen (#2635)',
+        () async {
+      final JobPostingChatBloc bloc = await _withTrades(_FakeRepo());
+      final List<PublishOutcome> outcomes = <PublishOutcome>[];
+      final sub = bloc.stream
+          .map((JobPostingChatState s) => s.publishOutcome)
+          .listen(outcomes.add);
+
+      bloc.add(const JobPostingChatPublishRequested());
+      await bloc.stream.firstWhere((JobPostingChatState s) =>
+          s.publishOutcome == PublishOutcome.tradeRequired);
+      bloc.add(const JobPostingChatPublishRequested());
+      await Future<void>.delayed(Duration.zero);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(
+        outcomes.where((PublishOutcome o) => o == PublishOutcome.tradeRequired),
+        hasLength(2),
+      );
+      await sub.cancel();
       await bloc.close();
     });
 
     test('carries the publish-step area to the repository (#2493)', () async {
       final _FakeRepo repo = _FakeRepo();
-      final JobPostingChatBloc bloc = JobPostingChatBloc(repo);
-      bloc.add(const JobPostingChatPublishRequested(area: 'Chakan'));
+      final JobPostingChatBloc bloc = await _withTrades(repo);
+      bloc.add(
+        const JobPostingChatPublishRequested(roleKind: 'welder', area: 'Chakan'),
+      );
       await bloc.stream.firstWhere(
           (JobPostingChatState s) => s.publishOutcome != PublishOutcome.none);
 
@@ -387,8 +532,8 @@ void main() {
 
     test('an empty area publishes with NO area (#2493)', () async {
       final _FakeRepo repo = _FakeRepo();
-      final JobPostingChatBloc bloc = JobPostingChatBloc(repo);
-      bloc.add(const JobPostingChatPublishRequested());
+      final JobPostingChatBloc bloc = await _withTrades(repo);
+      bloc.add(const JobPostingChatPublishRequested(roleKind: 'welder'));
       await bloc.stream.firstWhere(
           (JobPostingChatState s) => s.publishOutcome != PublishOutcome.none);
 

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../../../core/data/models.dart';
 import '../../../core/data/payer_api_client.dart';
 import '../../../core/di/locator.dart';
+import '../../../core/error/payer_failure.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
@@ -54,15 +55,28 @@ import 'widgets/trade_posting_fields.dart';
 /// grouped); the keyboard's "next" walks the text boxes; a drag closes the
 /// keyboard; and Back (system or arrow) on an edited form asks before
 /// discarding it.
+///
+/// #2635 — a company job matches only within the 16 postable trades, so the
+/// role is ALWAYS picked from that catalogue (`GET /payer/posting-trades`):
+/// there is no free role list to fall back on. If the catalogue does not load,
+/// the picker says why and offers a Retry; the stored role is left untouched.
+/// The server's `posting_trade_required` refusal lands AT the picker.
 class EditCompanyJobScreen extends StatefulWidget {
   const EditCompanyJobScreen({
     super.key,
     required this.job,
     required this.cubit,
+    this.tradeRequired = false,
   });
 
   final JobPosting job;
   final JobsCubit cubit;
+
+  /// #2635 — opened because the server would not put this job live without
+  /// one of the 16 trades (a Publish refused in My jobs). The trade picker
+  /// opens with [kPostingTradeRequiredMessage] at it — scrolled to and shaken
+  /// once the catalogue has loaded — until a trade is picked.
+  final bool tradeRequired;
 
   @override
   State<EditCompanyJobScreen> createState() => _EditCompanyJobScreenState();
@@ -129,8 +143,10 @@ class _EditCompanyJobScreenState extends State<EditCompanyJobScreen> {
       _neededBys.contains(widget.job.neededBy) ? widget.job.neededBy : null;
   late String? _payType =
       kJobPayTypes.contains(widget.job.payType) ? widget.job.payType : null;
-  late String? _roleKind =
-      kJobRoleKinds.contains(widget.job.roleKind) ? widget.job.roleKind : null;
+
+  /// The stored role, as stored. It changes only when the payer picks one of
+  /// the 16 trades (#2635), so an untouched save never sends — or clears — it.
+  late String? _roleKind = widget.job.roleKind;
 
   // NO 'Not set' / 'Not stated' OPTION. Shift, needed-by and pay type are all
   // printed on the worker's card, so "leave it unstated" is not a choice the
@@ -139,6 +155,15 @@ class _EditCompanyJobScreenState extends State<EditCompanyJobScreen> {
 
   // --- Migration 0141 — the role and its trade-specific form -----------------
   List<PostingTradeForm> _postingTrades = const <PostingTradeForm>[];
+  bool _postingTradesLoading = true;
+
+  /// Why the last catalogue load failed (shown at the picker), or null.
+  PayerFailure? _postingTradesFailure;
+
+  /// #2635 — [EditCompanyJobScreen.tradeRequired]'s refusal, shown once the
+  /// first catalogue load settles (so it lands on the picker, not on the
+  /// loading line).
+  late bool _tradeRefusalPending = widget.tradeRequired;
   late String _tradeLevel = widget.job.tradeLevel ?? '';
   late Map<String, List<String>> _tradeAnswers =
       widget.job.tradeAnswers ?? const <String, List<String>>{};
@@ -304,20 +329,34 @@ class _EditCompanyJobScreenState extends State<EditCompanyJobScreen> {
     if (!_form.isEmpty && _form.settle(_validate())) setState(() {});
   }
 
+  /// Load — or, from Retry, reload — the 16-trade catalogue. A failure keeps
+  /// the stored role untouched and names the cause at the picker (#2635).
   Future<void> _loadPostingTrades() async {
+    if (!_postingTradesLoading) setState(() => _postingTradesLoading = true);
+    List<PostingTradeForm> trades = const <PostingTradeForm>[];
+    PayerFailure? failure;
     try {
-      final List<PostingTradeForm> trades =
-          await locator<PayerApiClient>().fetchPostingTrades();
-      if (!mounted) return;
-      setState(() {
-        _postingTrades = trades;
-      });
-    } catch (_) {
-      if (!mounted) return;
-      setState(() {
-        _postingTrades = const <PostingTradeForm>[];
-      });
+      trades = await locator<PayerApiClient>().fetchPostingTrades();
+    } catch (error) {
+      failure = PayerFailure.from(error);
     }
+    if (!mounted) return;
+    setState(() {
+      _postingTrades = trades;
+      _postingTradesFailure = failure;
+      _postingTradesLoading = false;
+      if (_tradeRefusalPending) {
+        _tradeRefusalPending = false;
+        // Pinned to the role the job holds now: it stands until a trade is
+        // picked, however much else the payer edits.
+        _form.refuse(
+          const <JobFormField, String>{
+            JobFormField.role: kPostingTradeRequiredMessage,
+          },
+          valueOf: _valueOf,
+        );
+      }
+    });
   }
 
   void _selectRole(String kind) {
@@ -436,10 +475,9 @@ class _EditCompanyJobScreenState extends State<EditCompanyJobScreen> {
     final String? neededBy =
         _neededBy == widget.job.neededBy ? null : _neededBy;
     final String? payType = _payType == widget.job.payType ? null : _payType;
-    final bool roleKindEmptied =
-        _roleKind == null && widget.job.roleKind != null;
-    final String? roleKind =
-        roleKindEmptied || _roleKind == widget.job.roleKind ? null : _roleKind;
+    // #2635 — only ever one of the 16 trades: the picker offers nothing else
+    // and nothing here unsets it (a live job cannot leave the 16).
+    final String? roleKind = _roleKind == widget.job.roleKind ? null : _roleKind;
     final int? patchPayMin = _changedInt(payMin, widget.job.payMin);
     final int? patchPayMax = _changedInt(payMax, widget.job.payMax);
     final int? patchExpMin = _changedInt(expMin, widget.job.minExperienceYears);
@@ -460,13 +498,6 @@ class _EditCompanyJobScreenState extends State<EditCompanyJobScreen> {
       if (_emptied(_area.text, widget.job.area)) JobPostingClearField.area,
       if (_emptied(_location.text, widget.job.locationLabel))
         JobPostingClearField.locationLabel,
-      if (roleKindEmptied) JobPostingClearField.roleKind,
-      // Clearing the display role unsets its trade form too; a rung/answer map
-      // under no role would be stale data.
-      if (roleKindEmptied && widget.job.tradeLevel != null)
-        JobPostingClearField.tradeLevel,
-      if (roleKindEmptied && widget.job.tradeAnswers != null)
-        JobPostingClearField.tradeAnswers,
     ];
 
     final bool nothingChanged = roleTitle == null &&
@@ -516,17 +547,15 @@ class _EditCompanyJobScreenState extends State<EditCompanyJobScreen> {
       maxExperienceYears: patchExpMax,
       shift: shift,
       neededBy: neededBy,
-      roleKind:
-          roleKind ?? (tradeChanged && !roleKindEmptied ? _roleKind : null),
+      roleKind: roleKind ?? (tradeChanged ? _roleKind : null),
       description: description,
       // Only when they CHANGED — and an emptied list rides as `[]`, which is
       // how this contract clears the chips.
       benefits: benefits,
       requirements: requirements,
-      tradeLevel: tradeChanged && !roleKindEmptied && _tradeLevel.isNotEmpty
-          ? _tradeLevel
-          : null,
-      tradeAnswers: tradeChanged && !roleKindEmptied ? _tradeAnswers : null,
+      tradeLevel:
+          tradeChanged && _tradeLevel.isNotEmpty ? _tradeLevel : null,
+      tradeAnswers: tradeChanged ? _tradeAnswers : null,
       clear: clear.isEmpty ? null : clear,
     );
     if (!mounted) return;
@@ -593,6 +622,31 @@ class _EditCompanyJobScreenState extends State<EditCompanyJobScreen> {
       errorText: field == null ? null : _form[field],
     );
     return field == null ? select : _anchored(field, select);
+  }
+
+  /// The trade picker — the 16 trades of the catalogue as chips — with its
+  /// inline error. While the catalogue loads, or if it did not, the same spot
+  /// says so (with a Retry), so an error placed at the role always has a
+  /// control to show under (#2635).
+  Widget _roleField() {
+    if (!_postingTradesLoading && _postingTrades.isNotEmpty) {
+      return BbChipSelect<String>(
+        label: kPostingTradePickerLabel,
+        value: _roleKind,
+        options: _postingTrades
+            .map((PostingTradeForm t) => t.roleKind)
+            .toList(growable: false),
+        labelOf: (String kind) => _formForKind(kind)?.roleLabel ?? kind,
+        onSelected: _selectRole,
+        errorText: _form[JobFormField.role],
+      );
+    }
+    return PostingTradePickerPlaceholder(
+      loading: _postingTradesLoading,
+      failure: _postingTradesFailure,
+      onRetry: _loadPostingTrades,
+      errorText: _form[JobFormField.role],
+    );
   }
 
   /// "day/night/rotational" → display labels; null = the honest "Not set" (only
@@ -722,29 +776,10 @@ class _EditCompanyJobScreenState extends State<EditCompanyJobScreen> {
                     ),
                   ),
                   const SizedBox(height: AppSpacing.s4),
-                  if (_postingTrades.isNotEmpty) ...<Widget>[
-                    _chipField(
-                      label: 'Role',
-                      value: _roleKind,
-                      options: _postingTrades
-                          .map((PostingTradeForm t) => t.roleKind)
-                          .toList(growable: false),
-                      labelOf: (String kind) =>
-                          _formForKind(kind)?.roleLabel ?? kind,
-                      onSelected: _selectRole,
-                    ),
-                    const SizedBox(height: AppSpacing.s4),
-                  ] else ...<Widget>[
-                    BbSelect<String?>(
-                      label: 'Role (card illustration)',
-                      value: _roleKind,
-                      items: <String?>[null, ...kJobRoleKinds],
-                      labelOf: (String? v) =>
-                          v == null ? 'Not specified' : (jobRoleLabel(v) ?? v),
-                      onChanged: (String? v) => setState(() => _roleKind = v),
-                    ),
-                    const SizedBox(height: AppSpacing.s4),
-                  ],
+                  // #2635 — the role is one of the 16 trades, always; the
+                  // server's refusal of a role it cannot match lands here.
+                  _anchored(JobFormField.role, _roleField()),
+                  const SizedBox(height: AppSpacing.s4),
                   _anchored(
                     JobFormField.location,
                     BbField(

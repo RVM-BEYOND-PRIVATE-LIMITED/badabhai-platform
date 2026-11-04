@@ -15,16 +15,28 @@ import 'package:payer_app/features/jobs/presentation/post_job_screen.dart';
 /// highlighted) instead of a bare `onBack`; without `onPosted` the old
 /// hand-off is unchanged.
 ///
-/// The legacy free-text path (Matching V1 + the trade catalogue off), as in
-/// `post_job_screen_test.dart`, so the form can be filled without a backend.
+/// Matching V1 off, as in `post_job_screen_test.dart`, so the form can be
+/// filled without a backend. A company form is served one of the 16 trades
+/// (#2635 — a company job cannot be posted without one); the agency form keeps
+/// its trade-less fallback.
 class _LegacyFormApi extends MockPayerApiClient {
+  _LegacyFormApi({required this.trades});
+
+  final List<PostingTradeForm> trades;
+
   @override
   Future<List<MatchSkill>> fetchMatchSkills() async => const <MatchSkill>[];
 
   @override
-  Future<List<PostingTradeForm>> fetchPostingTrades() async =>
-      const <PostingTradeForm>[];
+  Future<List<PostingTradeForm>> fetchPostingTrades() async => trades;
 }
+
+const PostingTradeForm _welder = PostingTradeForm(
+  roleKind: 'welder',
+  roleLabel: 'Welder',
+  packId: 'qp_welding_trade',
+  matchSkillId: 'mskill_welder',
+);
 
 void main() {
   late List<String> posted;
@@ -37,7 +49,13 @@ void main() {
   }) async {
     await GetIt.instance.reset();
     setupLocator(
-        apiClient: _LegacyFormApi(), secureStore: InMemoryKeyValueStore());
+      apiClient: _LegacyFormApi(
+        trades: role == PayerRole.company
+            ? const <PostingTradeForm>[_welder]
+            : const <PostingTradeForm>[],
+      ),
+      secureStore: InMemoryKeyValueStore(),
+    );
     locator<AppSessionCubit>().signIn(role);
     posted = <String>[];
     backs = 0;
@@ -74,6 +92,14 @@ void main() {
 
   Future<void> tapChip(WidgetTester tester, String label) async {
     await tester.tap(find.text(label).last);
+    await tester.pumpAndSettle();
+  }
+
+  /// Pick the company job's trade from the 16-trade role picker (#2635).
+  Future<void> pickTrade(WidgetTester tester) async {
+    await tester.tap(find.text('— pick the role —'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Welder').last);
     await tester.pumpAndSettle();
   }
 
@@ -131,6 +157,7 @@ void main() {
       (WidgetTester tester) async {
     await pump(tester, PayerRole.company);
     await typeInto(tester, 'Job title', 'CNC Operator');
+    await pickTrade(tester);
     await fillCardContent(tester);
 
     await tapPost(tester);
@@ -159,6 +186,7 @@ void main() {
       (WidgetTester tester) async {
     await pump(tester, PayerRole.company, wireOnPosted: false);
     await typeInto(tester, 'Job title', 'CNC Operator');
+    await pickTrade(tester);
     await fillCardContent(tester);
 
     await tapPost(tester);

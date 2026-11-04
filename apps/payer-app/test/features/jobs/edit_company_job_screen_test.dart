@@ -1,3 +1,5 @@
+import 'dart:io' show SocketException;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -50,9 +52,28 @@ class _ScriptedApi extends MockPayerApiClient {
   /// server refusing the save.
   Object? throwOnUpdate;
 
+  /// When set, the NEXT catalogue read throws it — the 16 trades failing to
+  /// load once (a Retry then succeeds).
+  Object? throwOnTradesOnce;
+  int tradeLoads = 0;
+
+  /// When set, the catalogue answers with exactly these trades.
+  List<PostingTradeForm>? trades;
+
   @override
   Future<List<JobPosting>> fetchJobs({String? status}) async =>
       const <JobPosting>[];
+
+  @override
+  Future<List<PostingTradeForm>> fetchPostingTrades() async {
+    tradeLoads++;
+    final Object? error = throwOnTradesOnce;
+    if (error != null) {
+      throwOnTradesOnce = null;
+      throw error;
+    }
+    return trades ?? super.fetchPostingTrades();
+  }
 
   @override
   Future<JobPosting> updateJob(
@@ -181,6 +202,32 @@ const JobPosting _jobNoOptional = JobPosting(
   wireStatus: 'open',
 );
 
+/// A DRAFT that names no trade — the job a Publish is refused for (#2635).
+const JobPosting _draftNoTrade = JobPosting(
+  id: 'j1',
+  title: 'CNC Setter',
+  band: '2-5',
+  city: 'Pune',
+  payMin: 22000,
+  payMax: 28000,
+  payType: 'in_hand',
+  minExperienceYears: 1,
+  maxExperienceYears: 4,
+  neededBy: 'soon',
+  benefits: <String>['PF + ESI'],
+  requirements: <String>['Fanuc control'],
+  shift: 'day',
+  description: 'Turning job work on Fanuc controls.',
+  filled: 0,
+  quota: 0,
+  applicants: 0,
+  unlocks: 0,
+  status: JobStatus.review,
+  verified: false,
+  boosted: false,
+  wireStatus: 'draft',
+);
+
 /// [_job] with the migration-0139 trade form already stored — the panel must be
 /// visible and its edits must ride the PATCH.
 const JobPosting _jobTrade = JobPosting(
@@ -225,8 +272,13 @@ void main() {
     WidgetTester tester, {
     JobPosting job = _job,
     double height = 4000,
+    bool tradeRequired = false,
+    Object? tradesError,
+    List<PostingTradeForm>? trades,
   }) async {
-    api = _ScriptedApi();
+    api = _ScriptedApi()
+      ..throwOnTradesOnce = tradesError
+      ..trades = trades;
     cubit = JobsCubit(api);
     addTearDown(cubit.close);
 
@@ -247,8 +299,11 @@ void main() {
               child: ElevatedButton(
                 onPressed: () => Navigator.of(context).push(
                   MaterialPageRoute<void>(
-                    builder: (_) =>
-                        EditCompanyJobScreen(job: job, cubit: cubit),
+                    builder: (_) => EditCompanyJobScreen(
+                      job: job,
+                      cubit: cubit,
+                      tradeRequired: tradeRequired,
+                    ),
                   ),
                 ),
                 child: const Text('open'),
@@ -723,5 +778,171 @@ void main() {
       tester.widget<TextField>(box('Exp max (yrs)')).textInputAction,
       TextInputAction.done,
     );
+  });
+
+  // --- #2635 — a company job matches only within the 16 trades ---------------
+
+  group('#2635 — the role is one of the 16 trades', () {
+    /// [text] shown AT the trade picker (inside the role's shake anchor).
+    Finder atPicker(String text) => find.descendant(
+          of: find.ancestor(
+            of: find.text('Role'),
+            matching: find.byType(BbShake),
+          ),
+          matching: find.text(text),
+        );
+
+    const PayerApiException tradeRequired = PayerApiException(
+      400,
+      code: kPostingTradeRequiredCode,
+      validationMessage: kPostingTradeRequiredMessage,
+      fieldErrors: <String, String>{'role_kind': kPostingTradeRequiredMessage},
+    );
+
+    testWidgets('a catalogue with no trades says so — never a free role list', (
+      WidgetTester tester,
+    ) async {
+      await open(tester, trades: const <PostingTradeForm>[]);
+
+      expect(
+        atPicker(
+          'No trades are open for posting right now. Try again in a moment.',
+        ),
+        findsOneWidget,
+      );
+      // The old fallback: every declared role, plus "no role" — a pick that
+      // could move a live job off the 16 or clear its trade.
+      expect(find.text('Role (card illustration)'), findsNothing);
+      expect(find.text('Not specified'), findsNothing);
+      expect(find.widgetWithText(BbButton, 'Retry'), findsOneWidget);
+    });
+
+    testWidgets(
+        'trades that fail to load say why and retry — never a free list', (
+      WidgetTester tester,
+    ) async {
+      await open(tester, tradesError: const SocketException('offline'));
+
+      expect(
+        atPicker(
+          'The 16 trades did not load. Check your internet connection and '
+          'try again.',
+        ),
+        findsOneWidget,
+      );
+      expect(find.text('Role (card illustration)'), findsNothing);
+      expect(find.text('Not specified'), findsNothing);
+
+      await tester.tap(find.widgetWithText(BbButton, 'Retry'));
+      await tester.pumpAndSettle();
+
+      expect(api.tradeLoads, 2);
+      expect(find.textContaining('did not load'), findsNothing);
+      expect(find.text('CNC Turner'), findsOneWidget);
+    });
+
+    testWidgets(
+        "the server's posting_trade_required lands AT the picker — no toast, "
+        'never its message', (WidgetTester tester) async {
+      await open(tester);
+      api.throwOnUpdate = tradeRequired;
+
+      await tester.tap(find.text('Welder'));
+      await tester.pumpAndSettle();
+      await tapSave(tester);
+      await tester.pumpAndSettle();
+
+      expect(api.updated, hasLength(1));
+      expect(atPicker('Pick one of the 16 trades'), findsOneWidget);
+      expect(find.byType(SnackBar), findsNothing);
+      expect(find.textContaining('a live job must name'), findsNothing);
+      // Still on the form, Save live again.
+      expect(find.text('Edit job'), findsOneWidget);
+      expect(
+        tester
+            .widget<BbButton>(find.widgetWithText(BbButton, 'Save changes'))
+            .loading,
+        isFalse,
+      );
+
+      // Picking another trade is what clears it.
+      await tester.tap(find.text('CNC Turner'));
+      await tester.pumpAndSettle();
+      expect(find.text('Pick one of the 16 trades'), findsNothing);
+    });
+
+    testWidgets(
+        'opened from a refused publish, the picker is refused until a trade '
+        'is picked — and the pick rides the save with its trade form', (
+      WidgetTester tester,
+    ) async {
+      await open(tester, job: _draftNoTrade, tradeRequired: true);
+
+      expect(atPicker('Pick one of the 16 trades'), findsOneWidget);
+      expect(find.byType(SnackBar), findsNothing);
+
+      // Editing something else leaves it standing…
+      await typeInto(tester, 'City', 'Nashik');
+      await tester.pumpAndSettle();
+      expect(atPicker('Pick one of the 16 trades'), findsOneWidget);
+
+      // …picking a trade clears it and opens that trade's form.
+      await tester.tap(find.text('Welder'));
+      await tester.pumpAndSettle();
+      expect(find.text('Pick one of the 16 trades'), findsNothing);
+      expect(find.text('Trade requirements'), findsOneWidget);
+
+      await save(tester);
+      expect(api.updated, <String>['j1']);
+      expect(api.lastRoleKind, 'welder');
+      // The trade form rides with it (no chip picked yet = the trade's own
+      // skill), so the server derives the match set from the trade.
+      expect(api.lastTradeAnswers, <String, List<String>>{});
+      expect(api.lastCity, 'Nashik');
+    });
+
+    testWidgets('a role the catalogue does not list is kept, never cleared', (
+      WidgetTester tester,
+    ) async {
+      // A role this build does not know (the server added a kind). The old
+      // free select read it as "no role" and a save CLEARED it — on a live
+      // job, the move off the 16 the server refuses.
+      await open(
+        tester,
+        job: const JobPosting(
+          id: 'j1',
+          title: 'CNC Setter',
+          band: '2-5',
+          city: 'Pune',
+          payMin: 22000,
+          payMax: 28000,
+          payType: 'in_hand',
+          minExperienceYears: 1,
+          maxExperienceYears: 4,
+          neededBy: 'soon',
+          benefits: <String>['PF + ESI'],
+          requirements: <String>['Fanuc control'],
+          shift: 'day',
+          description: 'Turning job work on Fanuc controls.',
+          filled: 0,
+          quota: 0,
+          applicants: 0,
+          unlocks: 0,
+          status: JobStatus.live,
+          verified: false,
+          boosted: false,
+          wireStatus: 'open',
+          roleKind: 'a_kind_this_build_does_not_know',
+        ),
+      );
+
+      await typeInto(tester, 'City', 'Nashik');
+      await save(tester);
+
+      expect(api.updated, <String>['j1']);
+      expect(api.lastCity, 'Nashik');
+      expect(api.lastRoleKind, isNull);
+      expect(api.lastClear, isNull);
+    });
   });
 }

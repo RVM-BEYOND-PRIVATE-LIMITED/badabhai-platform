@@ -61,6 +61,18 @@ class _FakeRepo implements JobPostingChatRepository {
   Future<List<JobPostingChatSessionSummary>> listSessions() async =>
       const <JobPostingChatSessionSummary>[];
 
+  /// #2635 — one of the 16 trades, so a publish naming it goes through.
+  @override
+  Future<List<PostingTradeForm>> loadPostingTrades() async =>
+      const <PostingTradeForm>[
+        PostingTradeForm(
+          roleKind: 'welder',
+          roleLabel: 'Welder',
+          packId: 'qp_welding_trade',
+          matchSkillId: 'mskill_welder',
+        ),
+      ];
+
   @override
   Future<PublishJobResult> publish({String? roleKind, String? area}) async =>
       const PublishJobResult(jobPostingId: 'job-9');
@@ -288,10 +300,12 @@ void main() {
   });
 
   group('publish → land on Jobs with the new posting', () {
+    // #2635 — a publish names one of the 16 trades; without one the bloc
+    // refuses it and sends nothing.
     Future<void> publish(WidgetTester tester) async {
       BlocProvider.of<JobPostingChatBloc>(
         tester.element(find.byType(ListView)),
-      ).add(const JobPostingChatPublishRequested());
+      ).add(const JobPostingChatPublishRequested(roleKind: 'welder'));
       await tester.pumpAndSettle();
     }
 
