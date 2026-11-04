@@ -22,9 +22,11 @@ import 'cubit/credits_screen_cubit.dart';
 /// shown as credits only — never a ₹ amount. Credit packs are bought on the
 /// payer WEB portal; this screen only REPORTS the balance and the spend.
 class CreditsScreen extends StatelessWidget {
-  const CreditsScreen({super.key, required this.onBack});
+  const CreditsScreen({super.key, this.onBack});
 
-  final VoidCallback onBack;
+  /// Draws the back arrow when non-null. Null when Credits is a bottom-nav
+  /// TAB (M9, #2597): a tab root has nowhere to go back to.
+  final VoidCallback? onBack;
 
   @override
   Widget build(BuildContext context) {
@@ -38,7 +40,9 @@ class CreditsScreen extends StatelessWidget {
 class _CreditsView extends StatelessWidget {
   const _CreditsView({required this.onBack});
 
-  final VoidCallback onBack;
+  /// Draws the back arrow when non-null. Null when Credits is a bottom-nav
+  /// TAB (M9, #2597): a tab root has nowhere to go back to.
+  final VoidCallback? onBack;
 
   @override
   Widget build(BuildContext context) {
@@ -72,12 +76,14 @@ class _CreditsView extends StatelessWidget {
           children: <Widget>[
             Row(
               children: <Widget>[
-                BbIconButton(
-                  icon: Icons.arrow_back_rounded,
-                  semanticLabel: 'Back',
-                  onPressed: onBack,
-                ),
-                const SizedBox(width: AppSpacing.s3),
+                if (onBack != null) ...<Widget>[
+                  BbIconButton(
+                    icon: Icons.arrow_back_rounded,
+                    semanticLabel: 'Back',
+                    onPressed: onBack,
+                  ),
+                  const SizedBox(width: AppSpacing.s3),
+                ],
                 // #376 — was 'Buy credits'. There is no pack, price, or checkout
                 // element anywhere on this screen (the purchase lives on the web),
                 // so that title promised a capability it does not have. The title
