@@ -313,9 +313,10 @@ class _PostJobScreenState extends State<PostJobScreen> {
 
   /// Load the closed demand-skill set. GRACEFUL DEGRADATION: the match routes
   /// may be disabled (`MATCH_V1_ENABLED` off → 404/error). On any failure — or
-  /// an empty set — we mark V1 [unavailable], which HIDES the picker + reach UI
-  /// and keeps the existing free-text skills flow so posting still works. Never
-  /// throws to the tree.
+  /// an empty set — we mark V1 [unavailable]: the AGENCY form hides its skills
+  /// section (the flat picker and its reach meter), and the COMPANY form sends
+  /// no `match_skill_ids` — the server derives them from the trade form
+  /// (#2635). Never throws to the tree.
   Future<void> _loadMatchSkills() async {
     try {
       final List<MatchSkill> skills =
@@ -1625,7 +1626,7 @@ class _PostJobScreenState extends State<PostJobScreen> {
           const SizedBox(height: AppSpacing.s4),
           // Shift + needed-by are worker-visible DISPLAY columns, not match
           // inputs, so they live here and are offered whether or not Matching
-          // V1 is on. Null stays "Any shift" / "Not specified": an unpicked
+          // V1 is on. Null stays "Any shift" / "Not set": an unpicked
           // value sends nothing, so the worker's card never claims a timing the
           // payer did not choose.
           _chipField(
@@ -1841,7 +1842,7 @@ class _PostJobScreenState extends State<PostJobScreen> {
     }
   }
 
-  /// "immediate/soon/flexible" → display labels; null = "Not specified".
+  /// "immediate/soon/flexible" → display labels; null = "Not set".
   static String _companyNeededByLabel(String? v) {
     switch (v) {
       case 'immediate':
@@ -1851,9 +1852,8 @@ class _PostJobScreenState extends State<PostJobScreen> {
       case 'flexible':
         return 'Flexible';
       default:
-        // NOT the Trade select's "Not specified": two different unset states on
-        // one form must read differently, and an unset timing sends no
-        // `needed_by` at all rather than a fabricated "flexible".
+        // An unset timing sends no `needed_by` at all rather than a
+        // fabricated "flexible".
         return 'Not set';
     }
   }
