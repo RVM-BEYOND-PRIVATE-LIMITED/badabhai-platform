@@ -59,11 +59,13 @@ const Key kTradeFormNoticeFieldKey = Key('trade_form_notice_period_field');
 /// The marker's short internal pages, in walk order — see
 /// [TradeFormPreferencesPageState.pageCount].
 ///
-/// [_PrefsPage.availabilityStatus] and [_PrefsPage.noticePeriod] are asked
-/// ONLY inside the Availability, Terms & Salary section walk (see
-/// [TradeFormPreferencesPage.sectionKey]); onboarding never shows them. They
-/// sit before [_PrefsPage.terms] because the marker saves on its LAST internal
-/// page.
+/// [_PrefsPage.availabilityStatus] is asked on the onboarding pass too (#2642,
+/// owner ruling 2026-11-04: every worker is asked when they can join), once —
+/// skipped when the stored availability already has a status. On that pass
+/// [_PrefsPage.noticePeriod] follows ONLY a "Serving notice" answer; the
+/// Availability, Terms & Salary section walk (see
+/// [TradeFormPreferencesPage.sectionKey]) still shows both. They sit before
+/// [_PrefsPage.terms] because the marker saves on its LAST internal page.
 enum _PrefsPage {
   languages,
   documents,
@@ -131,9 +133,9 @@ class TradeFormPreferencesPage extends StatefulWidget {
   /// The walk ALSO asks availability — when the worker can join
   /// ("Kab se available hain?") and the notice period in days — on two pages
   /// of their own (one question per page, the owner's rule for this marker).
-  /// They exist so this section can be CORRECTED after the résumé is built;
-  /// onboarding stays exactly as it was (#1793 kept availability off the
-  /// trade form's first pass).
+  /// They exist so this section can be CORRECTED after the résumé is built.
+  /// Since #2642 the onboarding pass asks availability too — once, and with the
+  /// notice page only after "Serving notice" (see [_PrefsPage]).
   ///
   /// Hiding is free of data loss BY CONSTRUCTION: [TradeFormPreferences.toJson]
   /// sends a list/yes-no key only when the worker touched it, and a page that
@@ -208,16 +210,33 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
   /// qualifications marker is the one kept; backend cleanup of the now-dead
   /// `work_preferences.education_*` columns is tracked for Prakash.
   ///
-  /// Six pages at most; fewer when the chat already recorded the shift or the
-  /// preferred cities (see [TradeFormPreferencesPage.knownFacts]). The
-  /// Availability walk is also six: shift, job type, cities, availability,
-  /// notice, terms.
+  /// On the onboarding pass: seven pages at most (availability added by
+  /// #2642), eight when "Serving notice" is picked; fewer when the chat already
+  /// recorded the shift or the preferred cities (see
+  /// [TradeFormPreferencesPage.knownFacts]) or the stored availability already
+  /// has a status. The Availability walk is six: shift, job type, cities,
+  /// availability, notice, terms.
+  ///
+  /// LIVE, not fixed at mount: the notice page comes and goes with the
+  /// availability answer, and [_onAvailabilityPicked] reports the new count.
   int get pageCount => _pages.length;
 
-  late final List<_PrefsPage> _pages = <_PrefsPage>[
-    for (final _PrefsPage page in _PrefsPage.values)
-      if (!_isKnown(page)) page,
-  ];
+  List<_PrefsPage> get _pages => <_PrefsPage>[
+        for (final _PrefsPage page in _PrefsPage.values)
+          if (!_isKnown(page)) page,
+      ];
+
+  /// Whether the availability this walk was seeded with was ALREADY ANSWERED
+  /// — a stored status the worker has not touched on this walk. Fixed at
+  /// mount on purpose: a status picked on THIS walk (it rides back in the
+  /// cubit's draft with `availability` touched) must keep its page, or the
+  /// page would vanish under the worker the moment they answered it.
+  late final bool _availabilityAnsweredBefore = () {
+    final TradeFormPreferences? seed = widget.initialPreferences;
+    return seed != null &&
+        seed.availabilityStatus != null &&
+        !seed.availabilityTouched;
+  }();
 
   /// Whether this internal page is NOT asked — either the chat already
   /// recorded the fact ([TradeFormPreferencesPage.knownFacts]) or the chosen
@@ -238,8 +257,11 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
         widget.knownFacts.contains(WorkerFact.preferredCities),
       _PrefsPage.documents =>
         widget.tierScope.hides(kTierFieldDocumentsReady),
-      // Section-walk-only pages: never on the onboarding pass.
-      _PrefsPage.availabilityStatus || _PrefsPage.noticePeriod => true,
+      // #2642 — asked once on the onboarding pass, every tier (Easy field).
+      _PrefsPage.availabilityStatus => _availabilityAnsweredBefore,
+      // …and the notice length only for a worker who is serving one.
+      _PrefsPage.noticePeriod => _availabilityAnsweredBefore ||
+          _prefs.availabilityStatus != kAvailabilityServingNotice,
       _ => false,
     };
   }
@@ -661,15 +683,35 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
           subtitle: _kOptionalNote,
         ),
         const SizedBox(height: FormFlowLayout.introToOptionsGap),
-        _singleCards(
-            labels,
-            _prefs.availabilityStatus,
-            _availabilityIcon,
-            (String slug) => setState(() => _prefs = _prefs.copyWith(
-                availabilityStatus:
-                    _prefs.availabilityStatus == slug ? null : slug))),
+        _singleCards(labels, _prefs.availabilityStatus, _availabilityIcon,
+            _onAvailabilityPicked),
       ],
     );
+  }
+
+  /// A tap on an availability card (re-tapping the picked one clears it).
+  ///
+  /// On the onboarding pass the notice page exists only behind "Serving
+  /// notice" (#2642), so the page count can change here — the screen's shared
+  /// bottom bar is told. Leaving "Serving notice" puts the notice back to what
+  /// was stored: a box the worker can no longer see must not send a number.
+  void _onAvailabilityPicked(String slug) {
+    final int before = pageCount;
+    final String? status = _prefs.availabilityStatus == slug ? null : slug;
+    setState(() {
+      _prefs = _prefs.copyWith(availabilityStatus: status);
+      final bool onboarding =
+          widget.sectionKey != kResumeMenuAvailabilitySalaryKey;
+      if (onboarding && status != kAvailabilityServingNotice) {
+        final int? stored = widget.initialPreferences?.noticePeriodDays;
+        if (_prefs.noticePeriodDays != stored) {
+          _prefs = _prefs.copyWith(noticePeriodDays: stored);
+        }
+        _notice.text = stored?.toString() ?? '';
+        _noticeInvalid = false;
+      }
+    });
+    if (pageCount != before) widget.onPageChanged?.call(_page, pageCount);
   }
 
   /// "Notice period kitne din ka hai?" — whole days, 0 to
