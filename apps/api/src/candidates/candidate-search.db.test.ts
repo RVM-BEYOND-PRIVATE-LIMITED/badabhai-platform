@@ -666,9 +666,9 @@ describe.skipIf(!RUN)("an existing worker opts in to the employer notice — con
     ]);
     // A second yes is a no-op: no new row.
     expect((await consent.grantEmployerContact(WORKER, "2026-11-04", undefined, undefined, CTX3)).consent_id).toBeNull();
-    const [{ n }] = await client.sql<{ n: number }[]>`
+    const [ledger] = await client.sql<{ n: number }[]>`
       SELECT count(*)::int AS n FROM worker_consents WHERE worker_id = ${WORKER}::uuid`;
-    expect(n).toBe(2);
+    expect(ledger!.n).toBe(2);
 
     await consent.withdrawEmployerContact(WORKER, undefined, undefined, CTX3);
     expect(await served()).not.toContain(WORKER);
