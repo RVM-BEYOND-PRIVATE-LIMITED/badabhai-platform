@@ -1,10 +1,11 @@
 /**
  * BadaBhai Design System — FORM primitives (typed React wrappers).
  *
- * These are SHARED (no "use client"): purely presentational, no hooks and no
+ * These are SHARED (no "use client"): purely presentational, no state, no effects and no
  * internally-defined handlers — they only forward `onClick`/`onChange` etc. via
  * `...rest`, so a consumer adopts the right runtime (a client screen renders them
- * client-side; a server component renders them server-side). Style comes only from
+ * client-side; a server component renders them server-side). The one hook is `useId`
+ * (see {@link useFieldId}), which React also runs in a Server Component. Style comes only from
  * the `.bb-*` design-system classes + tokens (src/styles/ds-components.css). No
  * business logic. Prop contracts mirror docs/design/.../components/forms/*.d.ts.
  *
@@ -13,6 +14,7 @@
  * labels always carry the meaning. The icon-only control is `IconButton` in ./icon-button.tsx
  * (a client component: its tooltip dismisses on Escape).
  */
+import { useId } from "react";
 import type {
   ButtonHTMLAttributes,
   InputHTMLAttributes,
@@ -22,9 +24,21 @@ import type {
 } from "react";
 import { Icon, type IconName } from "@badabhai/icons";
 
-/* Auto-id for fields rendered without an explicit `id` (label ↔ control association). */
-let _fieldId = 0;
-const nextFieldId = (prefix: string) => `${prefix}-${++_fieldId}`;
+/**
+ * The id a field's label, control and feedback line share: the caller's `id`, else one from
+ * `useId` — the SAME on the server render and on hydration, and unique per field.
+ *
+ * It used to be a module-level counter. That counter kept counting across requests on the server
+ * and restarted in the browser, so the hydrated control's id differed from the server HTML's: the
+ * `<label for>` and `aria-describedby` the server sent pointed at an id the browser then replaced
+ * (React reports the mismatch and keeps the client value), and two requests could even mint the
+ * same id. The hook runs every render — never only when `id` is absent — so the hook order
+ * never changes.
+ */
+function useFieldId(prefix: string, id: string | undefined): string {
+  const generated = `${prefix}-${useId()}`;
+  return id || generated;
+}
 
 /* Shared label + hint/error slots for the Input/Select/Textarea field shell. */
 function FieldLabel({ id, label, optional }: { id: string; label?: string; optional?: boolean }) {
@@ -179,7 +193,7 @@ export function Input({
   "aria-describedby": ownDescribedBy,
   ...rest
 }: InputProps) {
-  const inputId = id || nextFieldId("bb-input");
+  const inputId = useFieldId("bb-input", id);
   const feedbackId = feedbackFor(inputId, error, hint);
   const cls = [
     "bb-input",
@@ -237,7 +251,7 @@ export function Select({
   "aria-describedby": ownDescribedBy,
   ...rest
 }: SelectProps) {
-  const sid = id || nextFieldId("bb-select");
+  const sid = useFieldId("bb-select", id);
   const feedbackId = feedbackFor(sid, error, hint);
   const cls = ["bb-input", "bb-select", error ? "bb-input--error" : "", className]
     .filter(Boolean)
@@ -285,7 +299,7 @@ export function Textarea({
   "aria-describedby": ownDescribedBy,
   ...rest
 }: TextareaProps) {
-  const taId = id || nextFieldId("bb-textarea");
+  const taId = useFieldId("bb-textarea", id);
   const feedbackId = feedbackFor(taId, error, hint);
   const cls = ["bb-input", "bb-textarea", error ? "bb-input--error" : "", className]
     .filter(Boolean)
