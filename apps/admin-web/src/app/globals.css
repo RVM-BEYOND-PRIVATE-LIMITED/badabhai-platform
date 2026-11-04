@@ -4060,12 +4060,17 @@ textarea.field__input {
   text-overflow: ellipsis;
   vertical-align: middle;
 }
-/* A text cell: one line cut with an ellipsis (its full text in `title`), or every line. */
+/* A text cell: one line cut with an ellipsis (its full text in `title`), or every line.
+   The wrap rule's WEIGHT is exact: `td.…` (0,1,1) ties `.table td`'s `nowrap` and wins on order —
+   a bare class (0,1,0) lost to it, so "wrap" never wrapped (AI calls' failure reason ran into the
+   next column) — and still yields to a cell's own rule, the prose message's `pre-wrap` (0,2,0),
+   which keeps the line breaks a worker typed. */
 .grid__cell--truncate {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.grid__cell--wrap {
+td.grid__cell--wrap,
+th.grid__cell--wrap {
   white-space: normal;
   overflow-wrap: anywhere;
 }

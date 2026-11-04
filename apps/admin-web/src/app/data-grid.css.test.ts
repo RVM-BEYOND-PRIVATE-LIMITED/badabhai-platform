@@ -145,6 +145,21 @@ describe("widths by kind — ID 10ch, status 10ch, date 12ch", () => {
     expect(decl(cut.body, "text-overflow")).toBe("ellipsis");
     expect(decl(cut.body, "overflow")).toBe("hidden");
   });
+
+  it("a wrapping column WRAPS — out-ranking `.table td`'s nowrap, yielding to the prose message's pre-wrap", () => {
+    // A bare `.grid__cell--wrap` (0,1,0) lost to `.table td { white-space: nowrap }` (0,1,1): AI
+    // calls' failure reason ran on one line into the next column (seen in Chrome). `td.…` ties
+    // it and wins on order (this block comes later); it must still lose to `.table--prose
+    // .cell--message` (0,2,0), whose pre-wrap keeps the line breaks a worker typed.
+    const wrap = top("td.grid__cell--wrap, th.grid__cell--wrap");
+    expect(decl(wrap.body, "white-space")).toBe("normal");
+    const whole = stripComments(RAW);
+    const at = (selector: string) => whole.indexOf(`\n${selector} {`);
+    expect(at(".table th,\n.table td")).toBeGreaterThan(0);
+    expect(at("td.grid__cell--wrap,\nth.grid__cell--wrap")).toBeGreaterThan(at(".table th,\n.table td"));
+    const message = rules(whole).find((r) => r.selector === ".table--prose .cell--message");
+    expect(decl(message!.body, "white-space")).toBe("pre-wrap");
+  });
 });
 
 describe("density — 44px or 36px rows", () => {
