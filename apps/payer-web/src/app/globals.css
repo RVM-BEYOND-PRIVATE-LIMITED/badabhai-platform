@@ -6291,7 +6291,8 @@ body:has(.invite-landing) .chrome-footer {
   /* Wide tables scroll INSIDE their container; the page body never scrolls sideways. The
      block cap also makes this the VERTICAL scroller, which is what makes the sticky header
      below actually stick — an uncapped `overflow-x: auto` box never scrolls, so a sticky
-     `top: 0` inside it pins to a rail that is always fully visible and never moves. */
+     `top: 0` inside it pins to a rail that is always fully visible and never moves.
+     Below 1024px the W8 block (end of file) drops the cap: no inner scroller to trap a swipe. */
   overflow: auto;
   max-block-size: calc(100dvh - 18rem);
   overscroll-behavior: contain;
@@ -8156,6 +8157,7 @@ body:has(.invite-landing) .chrome-footer {
 }
 .cred-muted { font-size: var(--ui-body-sm-size); color: var(--text-muted); }
 .cred-link { font-size: var(--ui-body-sm-size); color: var(--brand-strong, var(--navy-700)); font-weight: var(--weight-semibold); }
+/* Its track is the shared auto-fit floor since W8 (end of file): 3 → 2 → 1 as the room allows. */
 .cred-pack-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -8406,6 +8408,7 @@ body:has(.invite-landing) .chrome-footer {
 .capacity-tier__price s { font-size: var(--ui-caption-size); font-weight: var(--weight-regular); color: var(--text-disabled); }
 .plans-page .capacity-tier__allowance { margin: 0; font-size: var(--ui-caption-size); color: var(--text-muted); }
 .plans-page .capacity-tier .bb-btn { margin-top: var(--space-2); }
+/* Both grids below take one track on a phone (the W8 block, end of file). */
 .plans-quick { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-3); }
 .plans-quick__item {
   display: flex;
@@ -10459,4 +10462,35 @@ body:has(.invite-landing) .chrome-footer {
   line-height: inherit;
   letter-spacing: inherit;
   scroll-margin-top: calc(var(--shell-header-h) + var(--space-4));
+}
+
+/* ---- /credits: the pack grid auto-fits on the shared tile floor. It was three fixed tracks that
+   dropped straight to ONE at 900px, so a tablet showed three packs as a tall single column; now the
+   packs stay three across down to ~730px, then two, then one — and never wider than the column
+   (`min(100%, …)`), so nothing overflows at 320. Re-states the earlier `.cred-pack-grid` (also its
+   ≤900px one-track rule): last, at equal specificity, it wins at every width. ---- */
+.cred-pack-grid {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--stat-min)), 1fr));
+}
+
+/* ---- /plans: the quick credit packs (three tracks) and the posting plans (two) collapse to one
+   track on a phone, where three ~80px tiles squeezed a price that cannot wrap. ---- */
+@media (max-width: 600px) {
+  .plans-quick,
+  .plans-planlist {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ---- The table scroll box is a desktop affordance. Below 1024px a capped, `contain`ed inner
+   scroller was a scroll trap: a vertical swipe that started on a table scrolled the table and never
+   the page. There the box only scrolls sideways (the page never does) and grows to its table; the
+   vertical cap and the contained overscroll stay at ≥1024px. ---- */
+@media (max-width: 1023px) {
+  .tablewrap {
+    overflow-x: auto;
+    overflow-y: hidden;
+    max-block-size: none;
+    overscroll-behavior-y: auto;
+  }
 }

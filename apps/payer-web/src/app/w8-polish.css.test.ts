@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { decl, parseRules, stripComments } from "../../test/css-rules";
+import { decl, parseRules, stripComments, tokenValue } from "../../test/css-rules";
 import type { Rule } from "../../test/css-rules";
 
 /**
@@ -22,6 +22,26 @@ const RULES: Rule[] = parseRules(CSS);
 /** The rules of the W8 block alone (from its marker to the end of the file). */
 const W8: Rule[] = parseRules(stripComments(RAW.slice(RAW.lastIndexOf("/*", RAW.indexOf(MARKER)))));
 const PHONE = "@media (max-width: 600px)";
+const BELOW_DESKTOP = "@media (max-width: 1023px)";
+const TOKENS = stripComments(
+  readFileSync(join(here, "..", "..", "..", "..", "packages", "design-tokens", "tokens.css"), "utf8"),
+);
+
+/** A token's px value (px, or rem at the 16px root). */
+function px(name: string): number {
+  const v = tokenValue(TOKENS, name);
+  const m = /^(\d+(?:\.\d+)?)(px|rem)\b/.exec(v ?? "");
+  expect(m, `${name} = ${v}`).not.toBeNull();
+  return m![2] === "rem" ? Number(m![1]) * 16 : Number(m![1]);
+}
+/** The FIRST rule for exactly `selector` under `at` — the base a W8 rule of the same name re-states. */
+function base(selector: string, at = ""): Rule {
+  const found = RULES.find((r) => r.selector === selector && r.at === at);
+  expect(found, `${at} ${selector}`).toBeDefined();
+  return found!;
+}
+/** Where `r` sits in the file — a later rule wins over an earlier one at equal specificity. */
+const order = (r: Rule) => RULES.findIndex((x) => x.selector === r.selector && x.at === r.at && x.body === r.body);
 
 /** The ONE rule for exactly `selector` under `at` ("" = top level), in `rules`. */
 function rule(selector: string, at = "", rules: Rule[] = RULES): Rule {
@@ -33,7 +53,7 @@ function rule(selector: string, at = "", rules: Rule[] = RULES): Rule {
 describe("the W8 block", () => {
   it("is one marked block (vacuity: it holds rules)", () => {
     expect(RAW.split(MARKER)).toHaveLength(2);
-    expect(W8.length).toBeGreaterThanOrEqual(3);
+    expect(W8.length).toBeGreaterThanOrEqual(6);
   });
 });
 
@@ -64,5 +84,74 @@ describe("the list heading — the line it replaced, findable and focusable", ()
   it("hugs its text (a focus ring hugs it too) and lands below the sticky header", () => {
     expect(decl(h(), "justify-self")).toBe("start");
     expect(decl(h(), "scroll-margin-top")).toBe(decl(rule(".anchor-target"), "scroll-margin-top"));
+  });
+});
+
+describe("/credits — the pack grid auto-fits on the shared tile floor (no 3 → 1 jump on a tablet)", () => {
+  const grid = () => rule(".cred-pack-grid", "", W8);
+
+  it("is the shared auto-fit track, never wider than its column", () => {
+    expect(decl(grid(), "grid-template-columns")).toBe(
+      "repeat(auto-fit, minmax(min(100%, var(--stat-min)), 1fr))",
+    );
+  });
+
+  it("wins over the old three fixed tracks AND their ≤900px one-track rule — by coming later", () => {
+    const fixed = base(".cred-pack-grid");
+    expect(decl(fixed, "grid-template-columns")).toBe("repeat(3, minmax(0, 1fr))");
+    const oneTrack = rule(".cred-pack-grid, .cred-grid", "@media (max-width: 900px)");
+    expect(order(grid())).toBeGreaterThan(order(fixed));
+    expect(order(grid())).toBeGreaterThan(order(oneTrack));
+  });
+
+  it("MEASURED: three packs across on a tablet, two on a large phone, one on a phone; none overflows at 320", () => {
+    const floor = px("--stat-min");
+    const gap = px("--space-4");
+    expect(decl(base(".cred-pack-grid"), "gap")).toBe("var(--space-4)");
+    // Below 1024px the shell is one column and the content's inline padding is --gutter.
+    expect(decl(rule(".pshell__content", BELOW_DESKTOP), "padding")).toContain("var(--gutter)");
+    const room = (vw: number) => vw - 2 * px("--gutter");
+    const tracks = (vw: number) => {
+      const min = Math.min(room(vw), floor);
+      return Math.floor((room(vw) + gap) / (min + gap));
+    };
+    for (const vw of [768, 820, 900, 1000]) expect(tracks(vw), `${vw}px`).toBeGreaterThanOrEqual(3);
+    expect(tracks(600)).toBe(2);
+    for (const vw of [320, 360, 375, 414]) expect(tracks(vw), `${vw}px`).toBe(1);
+    // `min(100%, …)`: the one track at 320 is the column, never the 216px floor past it.
+    expect(Math.min(room(320), floor)).toBeLessThanOrEqual(room(320));
+  });
+});
+
+describe("/plans — the quick packs and the posting plans take one track on a phone", () => {
+  it("one zero-minimum track at ≤600px, after the base rules it overrides", () => {
+    const phone = rule(".plans-quick, .plans-planlist", PHONE, W8);
+    expect(decl(phone, "grid-template-columns")).toBe("minmax(0, 1fr)");
+    expect(decl(rule(".plans-quick"), "grid-template-columns")).toBe("repeat(3, 1fr)");
+    expect(decl(rule(".plans-planlist"), "grid-template-columns")).toBe("1fr 1fr");
+    expect(order(phone)).toBeGreaterThan(order(rule(".plans-quick")));
+    expect(order(phone)).toBeGreaterThan(order(rule(".plans-planlist")));
+  });
+});
+
+describe("the table scroll box — only at ≥1024px (no scroll trap on a phone or tablet)", () => {
+  it("below 1024px the box scrolls sideways only and grows to its table — no cap, no contained overscroll", () => {
+    const small = rule(".tablewrap", BELOW_DESKTOP, W8);
+    expect(decl(small, "overflow-x")).toBe("auto");
+    expect(decl(small, "overflow-y")).toBe("hidden");
+    expect(decl(small, "max-block-size")).toBe("none");
+    expect(decl(small, "overscroll-behavior-y")).toBe("auto");
+    expect(order(small)).toBeGreaterThan(order(rule(".tablewrap")));
+  });
+
+  it("at ≥1024px the base box keeps its cap and contained overscroll (the sticky header's scroller)", () => {
+    const base = rule(".tablewrap");
+    expect(decl(base, "overflow")).toBe("auto");
+    expect(decl(base, "max-block-size")).toBe("calc(100dvh - 18rem)");
+    expect(decl(base, "overscroll-behavior")).toBe("contain");
+    // No other rule caps it at a narrower width.
+    expect(
+      RULES.filter((r) => r.selector === ".tablewrap" && decl(r, "max-block-size") !== null).map((r) => r.at),
+    ).toEqual(["", BELOW_DESKTOP]);
   });
 });
