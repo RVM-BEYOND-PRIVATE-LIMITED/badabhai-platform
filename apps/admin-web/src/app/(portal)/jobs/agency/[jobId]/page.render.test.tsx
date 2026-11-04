@@ -75,7 +75,9 @@ describe("the header and tabs", () => {
     expect(html).toContain("Agency posting · Ludhiana");
     expect(html).toContain('<a class="backlink" href="/jobs/agency">');
     const tabs = html.slice(html.indexOf('role="group" aria-label="Agency posting"'));
-    expect(tabs).toContain('<span aria-current="true" class="btn btn--sm btn--selected">Overview</span>');
+    expect(tabs).toContain(
+      '<span aria-current="true" class="btn btn--sm btn--selected">Overview</span>',
+    );
     expect(tabs).toContain(`href="/jobs/agency/${JOB.job_id}/match-skills">Match skills`);
   });
 });

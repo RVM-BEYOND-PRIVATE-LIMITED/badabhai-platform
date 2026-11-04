@@ -1,9 +1,6 @@
 import { notFound } from "next/navigation";
 import { isAdminRequestError } from "../../../../../lib/admin-http";
-import {
-  getAgencyJobMatchSkills,
-  type AgencyJobMatchSkills,
-} from "../../../../../lib/agency-jobs";
+import { getAgencyJobMatchSkills, type AgencyJobMatchSkills } from "../../../../../lib/agency-jobs";
 import {
   AGENCY_POSTINGS_HREF,
   agencyPostingHref,

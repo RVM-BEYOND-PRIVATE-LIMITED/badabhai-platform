@@ -2,16 +2,75 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { NAV } from "./nav-model";
+import { ACTION_ICON } from "@badabhai/icons";
+import { NAV, NAV_ITEM_LIMIT, activeNavItem, navItemMatches } from "./nav-model";
+import { decl, globalsCss, resolveToken, rules, tokensCss } from "../../test/css-rules";
+
+const items = NAV.flatMap((s) => s.items);
+const byHref = (href: string) => items.find((i) => i.href === href);
+const groupOf = (href: string) => NAV.find((s) => s.items.some((i) => i.href === href))?.title;
+
+/**
+ * THE NAVIGATION (A6, #2576): five groups, Directory among them, down from 19 items so the whole
+ * nav fits 1920×1080 without scrolling. Labels and groups moved; routes, API paths and capability
+ * gates did not — the old addresses redirect (`app/legacy-redirects.test.ts`).
+ */
+describe("the groups and their items (A6)", () => {
+  it("is five groups, in the plan's order, each item in the plan's place", () => {
+    expect(NAV.map((s) => [s.title, s.items.map((i) => i.label)])).toEqual([
+      ["Home", ["Dashboard"]],
+      // User accounts (#2578) joins Directory with its page and its capability — see below.
+      ["Directory", ["Candidates", "Companies", "Postings"]],
+      ["Finance", ["Credits", "Payment orders"]],
+      ["Quality & AI", ["Feedback", "AI calls", "Skill discovery", "Engine view"]],
+      ["Audit & Admin", ["Events", "Admin users", "Roles", "System"]],
+    ]);
+  });
+
+  it(`lists at most ${NAV_ITEM_LIMIT} items — it was 19`, () => {
+    expect(NAV_ITEM_LIMIT).toBe(15);
+    expect(items.length).toBeLessThanOrEqual(NAV_ITEM_LIMIT);
+  });
+
+  it("Workers is Candidates, on the moved /candidates route", () => {
+    expect(byHref("/candidates")?.label).toBe("Candidates");
+    expect(groupOf("/candidates")).toBe("Directory");
+    expect(items.some((i) => i.href === "/workers" || i.label === "Workers")).toBe(false);
+  });
+
+  it("Companies holds both personas — there is no Agencies item", () => {
+    expect(byHref("/companies")?.label).toBe("Companies");
+    expect(groupOf("/companies")).toBe("Directory");
+    expect(items.some((i) => i.href === "/agencies" || i.label === "Agencies")).toBe(false);
+  });
+
+  it("Agency match skills is a tab on the agency posting — no item of its own", () => {
+    expect(items.some((i) => i.href === "/agency-jobs" || /match skills/i.test(i.label))).toBe(
+      false,
+    );
+  });
+
+  it("User accounts is not listed until its page and its capability ship (#2578, #2563)", () => {
+    // A listed item with no page would be a door to a 404 for every role; with no capability it
+    // could not be gated like its neighbours. It joins Directory in the change that adds both.
+    expect(items.some((i) => /user accounts/i.test(i.label) || i.href === "/accounts")).toBe(false);
+    const source = readFileSync(
+      join(dirname(fileURLToPath(import.meta.url)), "nav-model.ts"),
+      "utf8",
+    );
+    expect(source).toContain("USER ACCOUNTS (#2578)");
+  });
+
+  it("Account and Sign out are not nav items — they live in the topbar's avatar menu", () => {
+    expect(items.some((i) => i.href === "/account" || /sign out/i.test(i.label))).toBe(false);
+  });
+});
 
 /**
  * The sidebar's names (owner rulings 2026-10-01). LABELS ONLY: every route, API path and
  * capability key stays exactly as it was — the ruling renames what an operator reads, never
  * what a bookmark, an audit link or a guard points at.
  */
-const items = NAV.flatMap((s) => s.items);
-const byHref = (href: string) => items.find((i) => i.href === href);
-
 describe("nav labels", () => {
   it('the job entity is "Postings", on the unchanged /jobs route', () => {
     expect(byHref("/jobs")?.label).toBe("Postings");
@@ -25,7 +84,8 @@ describe("nav labels", () => {
 
   it("every label is sentence case and spelled out — no ampersand, no Title Case", () => {
     expect(byHref("/skills/discovery")?.label).toBe("Skill discovery");
-    expect(byHref("/roles")?.label).toBe("Roles and capabilities");
+    // The page is "Roles and capabilities"; the row says it short (A6).
+    expect(byHref("/roles")?.label).toBe("Roles");
     for (const item of items) {
       expect(item.label, item.href).not.toContain("&");
       const words = item.label.split(" ").slice(1);
@@ -35,32 +95,29 @@ describe("nav labels", () => {
     }
   });
 
-  it('skill discovery sits in "Matching" — there is no single-item "Skills" group (#1900)', () => {
-    const section = NAV.find((s) => s.items.some((i) => i.href === "/skills/discovery"));
-    expect(section?.title).toBe("Matching");
-    expect(NAV.some((s) => s.title === "Skills")).toBe(false);
-    expect(byHref("/skills/discovery")?.capability).toBe("read_entities");
-  });
-
-  it('the engine view sits in "Matching" beside skill discovery, on the read floor', () => {
-    const section = NAV.find((s) => s.items.some((i) => i.href === "/matching/engine"));
-    expect(section?.title).toBe("Matching");
+  it('skill discovery and the engine view sit in "Quality & AI", on the read floor', () => {
+    expect(groupOf("/skills/discovery")).toBe("Quality & AI");
+    expect(groupOf("/matching/engine")).toBe("Quality & AI");
     expect(byHref("/matching/engine")?.label).toBe("Engine view");
-    // Mirrors the three engine reads' `@RequireAdminRole("read_entities")`.
+    // Mirrors the reads' `@RequireAdminRole("read_entities")` on both controllers.
+    expect(byHref("/skills/discovery")?.capability).toBe("read_entities");
     expect(byHref("/matching/engine")?.capability).toBe("read_entities");
-  });
-
-  it("Companies holds both personas — there is no Agencies section (A6, #2576)", () => {
-    expect(byHref("/companies")?.label).toBe("Companies");
-    expect(byHref("/agencies")).toBeUndefined();
-    expect(items.some((i) => i.label === "Agencies")).toBe(false);
+    expect(NAV.some((s) => s.title === "Skills" || s.title === "Matching")).toBe(false);
   });
 
   it("routes and capability gates did not move with the labels", () => {
     expect(byHref("/jobs")?.capability).toBe("read_entities");
+    expect(byHref("/candidates")?.capability).toBe("read_entities");
+    expect(byHref("/companies")?.capability).toBe("read_entities");
     expect(byHref("/transactions")?.capability).toBe("read_entities");
-    expect(byHref("/skills/discovery")?.capability).toBe("read_entities");
+    expect(byHref("/credits")?.capability).toBe("read_entities");
+    expect(byHref("/feedback")?.capability).toBe("read_entities");
+    expect(byHref("/ai-calls")?.capability).toBe("read_ai_traces");
+    expect(byHref("/events")?.capability).toBe("read_events");
+    expect(byHref("/admins")?.capability).toBe("manage_admins");
     expect(byHref("/roles")?.capability).toBeUndefined();
+    expect(byHref("/system")?.capability).toBeUndefined();
+    expect(byHref("/")?.capability).toBeUndefined();
   });
 });
 
@@ -72,10 +129,96 @@ describe("nav icons", () => {
   });
 
   it("uses the shared action glyph where the item IS that concept", () => {
-    expect(byHref("/events")?.icon).toBe("clock-counter-clockwise"); // ACTION_ICON.timeline
-    expect(byHref("/jobs")?.icon).toBe("briefcase"); // ACTION_ICON.posting
-    expect(byHref("/credits")?.icon).toBe("wallet"); // ACTION_ICON.credits
-    expect(byHref("/candidates")?.icon).toBe("users-three"); // ACTION_ICON.users
+    expect(byHref("/events")?.icon).toBe(ACTION_ICON.timeline);
+    expect(byHref("/jobs")?.icon).toBe(ACTION_ICON.posting);
+    expect(byHref("/credits")?.icon).toBe(ACTION_ICON.credits);
+    // The roster row keeps Workers' glyph: many people (ACTION_ICON.users).
+    expect(byHref("/candidates")?.icon).toBe(ACTION_ICON.users);
+  });
+});
+
+describe("which item a path belongs to — one answer for the sidebar and the crumb", () => {
+  it("matches the item's own page and anything below it, on a segment boundary", () => {
+    expect(navItemMatches("/jobs", "/jobs")).toBe(true);
+    expect(navItemMatches("/jobs", "/jobs/agency/x/match-skills")).toBe(true);
+    expect(navItemMatches("/jobs", "/jobsx")).toBe(false);
+    expect(navItemMatches("/", "/")).toBe(true);
+    expect(navItemMatches("/", "/jobs")).toBe(false);
+  });
+
+  it("is the most specific item, with its group; null off the nav", () => {
+    const sections = [
+      { title: "A", items: [{ href: "/skills", label: "Skills", icon: "tag" as const }] },
+      {
+        title: "B",
+        items: [
+          { href: "/skills/discovery", label: "Discovery", icon: "list-magnifying-glass" as const },
+        ],
+      },
+    ];
+    expect(activeNavItem(sections, "/skills/discovery/x")?.item.label).toBe("Discovery");
+    expect(activeNavItem(sections, "/skills/discovery/x")?.section.title).toBe("B");
+    expect(activeNavItem(sections, "/skills/other")?.item.label).toBe("Skills");
+    expect(activeNavItem(NAV, "/account")).toBeNull();
+    expect(activeNavItem(NAV, "/nowhere")).toBeNull();
+    expect(activeNavItem(NAV, "/jobs/agency")?.item.href).toBe("/jobs");
+  });
+});
+
+/**
+ * THE NAV FITS 1920×1080 WITHOUT SCROLLING (A6 acceptance). The node env has no layout engine, so
+ * this adds up the DECLARED heights — the sidebar's padding and gaps, the brand, every group's
+ * toggle and every row at its declared minimum — with all groups open and the full plan of 15
+ * rows (User accounts included, so the budget holds the day it ships). 900px is a 1080p
+ * screen's browser viewport with the OS bar, tabs, address bar and a bookmarks bar taken off.
+ * Measured in headless Chrome at 1920×1080 and 1920×900 as well (see the PR).
+ */
+describe("the nav fits a 1080p browser without scrolling", () => {
+  const CSS = globalsCss();
+  const TOKENS = tokensCss();
+  const all = rules(CSS);
+  /** The LAST top-level value of `prop` on exactly `selector` — the one the cascade keeps. */
+  const last = (selector: string, prop: string): string => {
+    const hit = all.filter((r) => r.selector === selector && decl(r.body, prop) !== null).at(-1);
+    expect(hit, `${selector} { ${prop} }`).toBeDefined();
+    return decl(hit!.body, prop)!;
+  };
+  /** A length in px: a literal, or a `var(--token)` resolved through tokens.css; rem at 16px. */
+  const px = (value: string): number => {
+    const v = value.trim();
+    const ref = /^var\((--[\w-]+)\)$/.exec(v);
+    if (ref) return px(resolveToken(TOKENS, ref[1]!));
+    const m = /^(\d*\.?\d+)(px|rem)$/.exec(v);
+    expect(m, v).not.toBeNull();
+    return Number(m![1]) * (m![2] === "rem" ? 16 : 1);
+  };
+  /** A `padding` / `gap` shorthand's block (vertical) value. */
+  const block = (shorthand: string): number => px(shorthand.split(/\s+/)[0]!);
+
+  it("adds up to at most 900px with every group open and all 15 rows", () => {
+    const groups = NAV.length;
+    const rows = NAV_ITEM_LIMIT;
+    const sidebarPad = block(last(".sidebar", "padding")) * 2;
+    const sidebarGap = px(last(".sidebar", "gap")); // brand ↔ nav: the foot is gone
+    const brand = px("var(--logo-mark-md)") + px("var(--space-1)"); // tile + its sub-line's slack
+    const groupGap = px(last(".sidebar__nav", "gap"));
+    const toggle = px(last(".sidebar__grouptoggle", "min-height"));
+    const toggleGap = px(last(".sidebar__grouptitle", "margin-block-end"));
+    const row = px(last(".sidebar__link", "min-height"));
+    const rowGap = px(last(".sidebar__list", "gap"));
+    const total =
+      sidebarPad +
+      brand +
+      sidebarGap +
+      groups * (toggle + toggleGap) +
+      (groups - 1) * groupGap +
+      rows * row +
+      (rows - groups) * rowGap;
+    expect(total).toBeLessThanOrEqual(900);
+  });
+
+  it("has no sidebar foot left to push it down", () => {
+    expect(all.some((r) => r.selector === ".sidebar__foot")).toBe(false);
   });
 });
 

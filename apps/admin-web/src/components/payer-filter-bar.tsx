@@ -35,11 +35,7 @@ export function PayerFilterBar({
     <form className="filters" onSubmit={submit} role="search">
       <label className="field">
         <span className="field__label">Status</span>
-        <select
-          className="field__input"
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-        >
+        <select className="field__input" value={value} onChange={(e) => setValue(e.target.value)}>
           <option value="">Any</option>
           <option value="pending">Pending — registered, not yet verified</option>
           <option value="active">Active</option>

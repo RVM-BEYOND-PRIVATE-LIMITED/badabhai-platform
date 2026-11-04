@@ -174,16 +174,19 @@ describe("the Kind filter (A6)", () => {
     );
   });
 
-  it.each(VIEWS)("%s names its rows in the count, the empty state and the description", async (_n, kind, _r, _b, title) => {
-    stub.page = { items: [NAMED, { ...NAMED, id: "x" }], nextCursor: null };
-    const out = await render({ kind });
-    const many = title.toLowerCase();
-    expect(out).toContain(`2 ${many} on this page.`);
-    expect(out).toContain(`${title}, named by the organisation they registered as.`);
-    stub.page = { items: [], nextCursor: null };
-    expect(await render({ kind })).toContain(`No ${many} registered yet.`);
-    expect(await render({ kind, status: "active" })).toContain(`No ${many} match this filter.`);
-  });
+  it.each(VIEWS)(
+    "%s names its rows in the count, the empty state and the description",
+    async (_n, kind, _r, _b, title) => {
+      stub.page = { items: [NAMED, { ...NAMED, id: "x" }], nextCursor: null };
+      const out = await render({ kind });
+      const many = title.toLowerCase();
+      expect(out).toContain(`2 ${many} on this page.`);
+      expect(out).toContain(`${title}, named by the organisation they registered as.`);
+      stub.page = { items: [], nextCursor: null };
+      expect(await render({ kind })).toContain(`No ${many} registered yet.`);
+      expect(await render({ kind, status: "active" })).toContain(`No ${many} match this filter.`);
+    },
+  );
 
   // The source fence (components/page-description.test.ts) measures an interpolated word as one
   // letter; this measures the rendered words, every view and posture, against the same 90.
@@ -239,15 +242,18 @@ describe("the roster reads the posture off org_name, in every view", () => {
     },
   );
 
-  it.each(VIEWS)("%s gives an analyst the pre-ruling table and an honest reason", async (_n, kind) => {
-    stub.capabilities = ["read_entities"];
-    stub.page = { items: [FACELESS], nextCursor: null };
-    const out = await render({ kind });
-    expect(out).toContain("your role does not include name access");
-    expect(out).not.toContain('<th scope="col">Organisation</th>');
-    expect(out).not.toContain("Names are withheld on this page");
-    expect(out).toContain(`title="${PAYER_ID}"`);
-  });
+  it.each(VIEWS)(
+    "%s gives an analyst the pre-ruling table and an honest reason",
+    async (_n, kind) => {
+      stub.capabilities = ["read_entities"];
+      stub.page = { items: [FACELESS], nextCursor: null };
+      const out = await render({ kind });
+      expect(out).toContain("your role does not include name access");
+      expect(out).not.toContain('<th scope="col">Organisation</th>');
+      expect(out).not.toContain("Names are withheld on this page");
+      expect(out).toContain(`title="${PAYER_ID}"`);
+    },
+  );
 
   it.each(VIEWS)("%s posts no banner over an EMPTY page", async (_n, kind) => {
     stub.page = { items: [], nextCursor: null };
@@ -255,10 +261,13 @@ describe("the roster reads the posture off org_name, in every view", () => {
     expect(out).not.toContain("Names are withheld on this page");
   });
 
-  it.each(VIEWS)("%s keeps the caveat that a registered name is self-declared", async (_n, kind) => {
-    // A name column beside a suspend button should not read as a verified legal identity.
-    expect(await render({ kind })).toContain("not a verified legal name");
-  });
+  it.each(VIEWS)(
+    "%s keeps the caveat that a registered name is self-declared",
+    async (_n, kind) => {
+      // A name column beside a suspend button should not read as a verified legal identity.
+      expect(await render({ kind })).toContain("not a verified legal name");
+    },
+  );
 
   it("wherever agencies are listed it says their KYC details are not what is on screen", async () => {
     // `agency_kyc.account_holder_name_enc` is behind the ADR-0022 money/legal gate and is NOT
@@ -274,24 +283,32 @@ describe("the roster reads the posture off org_name, in every view", () => {
  * page one keeps the filters on both recoveries (AW-06) — in every view, the kind included.
  */
 describe("a failed read is told apart by its cause, in every view", () => {
-  it.each(VIEWS)("%s: an outage with no status is ours — never 'that filter was rejected'", async (_n, kind, _r, base, title) => {
-    stub.failure = new TypeError("fetch failed");
-    const out = await render({ kind });
-    expect(out).toContain(`${title} are unavailable`);
-    expect(out).toContain("Nothing was fetched.");
-    expect(out).not.toContain("rejected");
-    expect(out).toContain(`href="${base}"><i class="ph-fill ph-arrow-clockwise" aria-hidden="true"></i>Retry</a>`);
-  });
+  it.each(VIEWS)(
+    "%s: an outage with no status is ours — never 'that filter was rejected'",
+    async (_n, kind, _r, base, title) => {
+      stub.failure = new TypeError("fetch failed");
+      const out = await render({ kind });
+      expect(out).toContain(`${title} are unavailable`);
+      expect(out).toContain("Nothing was fetched.");
+      expect(out).not.toContain("rejected");
+      expect(out).toContain(
+        `href="${base}"><i class="ph-fill ph-arrow-clockwise" aria-hidden="true"></i>Retry</a>`,
+      );
+    },
+  );
 
-  it.each(VIEWS)("%s: an outage past page one keeps the filters on both recoveries", async (_n, kind, _r, base) => {
-    stub.failure = new stub.RequestError(503);
-    const out = await render({ kind, status: "suspended", cursor: "c2" });
-    expect(out).toContain(`href="${withQuery(base, "status=suspended&amp;cursor=c2")}"><i`);
-    expect(out).toContain(
-      `href="${withQuery(base, "status=suspended")}"><i class="ph-fill ph-arrow-line-left" aria-hidden="true"></i>Back to the first page</a>`,
-    );
-    expect(out.split(">Clear filters<").length - 1).toBe(1);
-  });
+  it.each(VIEWS)(
+    "%s: an outage past page one keeps the filters on both recoveries",
+    async (_n, kind, _r, base) => {
+      stub.failure = new stub.RequestError(503);
+      const out = await render({ kind, status: "suspended", cursor: "c2" });
+      expect(out).toContain(`href="${withQuery(base, "status=suspended&amp;cursor=c2")}"><i`);
+      expect(out).toContain(
+        `href="${withQuery(base, "status=suspended")}"><i class="ph-fill ph-arrow-line-left" aria-hidden="true"></i>Back to the first page</a>`,
+      );
+      expect(out.split(">Clear filters<").length - 1).toBe(1);
+    },
+  );
 
   it.each(VIEWS)("%s: a 400 on the status is the refusal, with no Retry", async (_n, kind) => {
     stub.failure = new stub.RequestError(400);
@@ -301,14 +318,19 @@ describe("a failed read is told apart by its cause, in every view", () => {
     expect(out).not.toContain(">Retry<");
   });
 
-  it.each(VIEWS)("%s: a 400 on a cursor alone names the cursor, and offers the first page", async (_n, kind, _r, base) => {
-    stub.failure = new stub.RequestError(400);
-    const out = await render({ kind, cursor: "stale" });
-    expect(out).toContain("The server rejected this page");
-    expect(out).not.toContain("rejected that filter");
-    expect(out).toContain(`href="${base}"><i class="ph-fill ph-arrow-line-left" aria-hidden="true"></i>Back to the first page</a>`);
-    expect(out).not.toContain(">Retry<");
-  });
+  it.each(VIEWS)(
+    "%s: a 400 on a cursor alone names the cursor, and offers the first page",
+    async (_n, kind, _r, base) => {
+      stub.failure = new stub.RequestError(400);
+      const out = await render({ kind, cursor: "stale" });
+      expect(out).toContain("The server rejected this page");
+      expect(out).not.toContain("rejected that filter");
+      expect(out).toContain(
+        `href="${base}"><i class="ph-fill ph-arrow-line-left" aria-hidden="true"></i>Back to the first page</a>`,
+      );
+      expect(out).not.toContain(">Retry<");
+    },
+  );
 });
 
 /**
@@ -323,20 +345,27 @@ describe("a refused filter is cleared from the refusal itself, in every view", (
   it.each(VIEWS)("%s: the 400's way out is Clear filters, in the state, once", async (_n, kind) => {
     stub.failure = new stub.RequestError(400);
     const out = await render({ kind, status: "nonsense", cursor: "c2" });
-    expect(stateOf(out)).toContain(`href="/companies"><i class="ph-fill ph-funnel-x" aria-hidden="true"></i>Clear filters</a>`);
+    expect(stateOf(out)).toContain(
+      `href="/companies"><i class="ph-fill ph-funnel-x" aria-hidden="true"></i>Clear filters</a>`,
+    );
     expect(out.split(">Clear filters<").length - 1).toBe(1);
     expect(out).not.toContain("Back to the first page");
   });
 
-  it.each(VIEWS)("%s: a 400 with no status or cursor is an outage, with Retry", async (_n, kind, _r, base, title) => {
-    // The kind never reaches the API as written (it is translated to a role), so it is nothing
-    // the server could have refused.
-    stub.failure = new stub.RequestError(400);
-    const out = await render({ kind });
-    expect(out).toContain(`${title} are unavailable`);
-    expect(out).not.toContain("The server rejected");
-    expect(out).toContain(`href="${base}"><i class="ph-fill ph-arrow-clockwise" aria-hidden="true"></i>Retry</a>`);
-  });
+  it.each(VIEWS)(
+    "%s: a 400 with no status or cursor is an outage, with Retry",
+    async (_n, kind, _r, base, title) => {
+      // The kind never reaches the API as written (it is translated to a role), so it is nothing
+      // the server could have refused.
+      stub.failure = new stub.RequestError(400);
+      const out = await render({ kind });
+      expect(out).toContain(`${title} are unavailable`);
+      expect(out).not.toContain("The server rejected");
+      expect(out).toContain(
+        `href="${base}"><i class="ph-fill ph-arrow-clockwise" aria-hidden="true"></i>Retry</a>`,
+      );
+    },
+  );
 });
 
 /** "Account" is the payer's own settings page; a customer is a company or an agency here. */
@@ -348,7 +377,9 @@ describe("the roster calls a customer a customer, company or agency — never an
         stub.page = { items, nextCursor: null };
         const out = await render({ kind });
         const header = out.slice(0, out.indexOf("</header>"));
-        expect(header, JSON.stringify({ capabilities, n: items.length })).not.toMatch(/\baccounts?\b/i);
+        expect(header, JSON.stringify({ capabilities, n: items.length })).not.toMatch(
+          /\baccounts?\b/i,
+        );
         const state = out.indexOf('class="state"');
         if (state >= 0) expect(out.slice(state)).not.toMatch(/\baccounts?\b/i);
       }

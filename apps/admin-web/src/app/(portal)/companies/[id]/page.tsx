@@ -5,11 +5,7 @@ export const dynamic = "force-dynamic";
 // what both are — a customer.
 export const metadata = { title: "Customer details" };
 
-export default async function CustomerDetailPage({
-  params,
-}: {
-  params: Promise<{ id: string }>;
-}) {
+export default async function CustomerDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   return <PayerDetailRoute id={id} />;
 }

@@ -26,6 +26,11 @@ describe("nav-model is server-readable data", () => {
     expect(read("nav-model.ts")).not.toMatch(/^\s*["']use client["']/m);
   });
 
+  // The same reason, A6 (#2576): the layout filters the quick jump's kinds on the server.
+  it("nor does the quick jump's model", () => {
+    expect(read("quick-jump-model.ts")).not.toMatch(/^\s*["']use client["']/m);
+  });
+
   it("NAV is a real array the server can map over", () => {
     expect(Array.isArray(NAV)).toBe(true);
     expect(NAV.length).toBeGreaterThan(0);
@@ -79,6 +84,10 @@ describe("nav-model is server-readable data", () => {
 const CLIENT_COMPONENTS = [
   "nav.tsx",
   "shell.tsx",
+  // A6 (#2576): the topbar's crumb, quick jump and avatar menu.
+  "topbar-crumb.tsx",
+  "quick-jump.tsx",
+  "avatar-menu.tsx",
   "filter-panel.tsx",
   "sign-out-button.tsx",
   "admin-action-button.tsx",

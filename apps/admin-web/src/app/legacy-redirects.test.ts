@@ -47,7 +47,10 @@ function resolve(url: string): { location: string; status: number } | null {
     });
     const search = new URLSearchParams(parsedDestination.query as Record<string, string>);
     const q = search.toString();
-    return { location: `${parsedDestination.pathname}${q ? `?${q}` : ""}`, status: getRedirectStatus(rule) };
+    return {
+      location: `${parsedDestination.pathname}${q ? `?${q}` : ""}`,
+      status: getRedirectStatus(rule),
+    };
   }
   return null;
 }
@@ -109,7 +112,10 @@ describe("Agency match skills → the agency posting under Postings", () => {
 describe("/postings is an alias for /jobs", () => {
   it.each([
     ["/postings", "/jobs"],
-    ["/postings?status=open&verificationStatus=verified", "/jobs?status=open&verificationStatus=verified"],
+    [
+      "/postings?status=open&verificationStatus=verified",
+      "/jobs?status=open&verificationStatus=verified",
+    ],
     [`/postings/${ID}`, `/jobs/${ID}`],
     [`/postings/${ID}/timeline`, `/jobs/${ID}/timeline`],
   ])("%s → %s (307)", (from, to) => {
@@ -177,7 +183,9 @@ describe("every redirect lands on a page", () => {
   ])("%s", (from) => {
     const to = resolve(from);
     expect(to, from).not.toBeNull();
-    expect(pageExists(new URL(to!.location, "http://admin.test").pathname), to!.location).toBe(true);
+    expect(pageExists(new URL(to!.location, "http://admin.test").pathname), to!.location).toBe(
+      true,
+    );
     expect(resolve(to!.location), `${to!.location} redirects again`).toBeNull();
   });
 });
