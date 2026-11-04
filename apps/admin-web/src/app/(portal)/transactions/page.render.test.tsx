@@ -194,11 +194,12 @@ describe("the orders table links the customer's own section", () => {
     stub.orders = { ...page, items: page.items.map((o) => ({ ...o, payer_role })) };
   };
 
-  it("an agency's order links /agencies/<id> directly, named Agency", async () => {
+  it("an agency's order links the one customers section, /companies/<id>, named Agency", async () => {
+    // One Companies section holds both kinds since A6 (#2576); the persona is still named.
     withRole("agent");
     const out = await render();
-    expect(out).toContain(customerCell(PAYER, `/agencies/${PAYER}`, "Agency", "</td>"));
-    expect(out).not.toContain(`href="/companies/${PAYER}"`);
+    expect(out).toContain(customerCell(PAYER, `/companies/${PAYER}`, "Agency", "</td>"));
+    expect(out).not.toContain(`href="/agencies/`);
   });
 
   it("a company's order links /companies/<id>, named Company", async () => {

@@ -1,30 +1,20 @@
-import { notFound, redirect } from "next/navigation";
+import { notFound } from "next/navigation";
 import { requireCapability } from "../lib/auth";
 import { getPayer, listJobPostings } from "../lib/entities";
 import { isAdminRequestError } from "../lib/admin-http";
 import { PayerDetailView } from "./payer-detail";
-import { CUSTOMER_SECTION_HREF, type CustomerKind } from "../lib/customer";
+import { CUSTOMER_KIND_LABELS, CUSTOMERS_HREF } from "../lib/customer";
 
 /**
- * The shared Companies/Agencies detail route body — extracted on its second use, per the
- * repo's extract-on-second-use policy.
+ * The customer detail route body (`/companies/[id]`).
  *
- * ROLE MISMATCH REDIRECTS rather than 404s. An employer id under `/agencies/:id` is a real
- * account someone reached by editing a URL or following a stale link; showing "not found"
- * would say the account does not exist, which is false. Sending them to the right section
- * keeps the breadcrumb honest and the URL meaningful.
+ * ONE ROUTE FOR BOTH KINDS (A6, #2576). Companies and Agencies were two sections, and an id under
+ * the wrong one was redirected to the other. They are one section now: the page reads the
+ * account's own `role` and names it — Company or Agency — from that, so there is no wrong
+ * section left to redirect from. `/agencies/:id` redirects here (next.config.mjs).
  */
-export async function PayerDetailRoute({
-  id,
-  kind,
-}: {
-  id: string;
-  kind: CustomerKind;
-}) {
+export async function PayerDetailRoute({ id }: { id: string }) {
   const session = await requireCapability("read_entities");
-
-  const expectedRole = kind === "Company" ? "employer" : "agent";
-  const basePath = CUSTOMER_SECTION_HREF[kind];
 
   let payer: Awaited<ReturnType<typeof getPayer>>;
   try {
@@ -33,10 +23,6 @@ export async function PayerDetailRoute({
     // 404 (unknown) and 400 (not a uuid) are both "no such account" to an operator.
     if (isAdminRequestError(err) && (err.status === 404 || err.status === 400)) notFound();
     throw err;
-  }
-
-  if (payer.role !== expectedRole) {
-    redirect(`${payer.role === "agent" ? "/agencies" : "/companies"}/${payer.id}`);
   }
 
   // Their postings — both the identifying labels and the recent-activity table. Non-fatal:
@@ -49,8 +35,8 @@ export async function PayerDetailRoute({
     <PayerDetailView
       payer={payer}
       postings={postings}
-      kind={kind}
-      backHref={basePath}
+      kind={CUSTOMER_KIND_LABELS[payer.role]}
+      backHref={CUSTOMERS_HREF}
       capabilities={session.capabilities}
     />
   );

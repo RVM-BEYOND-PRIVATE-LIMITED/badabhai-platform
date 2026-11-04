@@ -265,11 +265,12 @@ describe("the customer cell links the customer's own section", () => {
     stub.page = { items: [{ ...POSTING, payer_role }], nextCursor: null };
   };
 
-  it("an agency posting links /agencies/<id> directly, named Agency", async () => {
+  it("an agency posting links the one customers section, /companies/<id>, named Agency", async () => {
+    // One Companies section holds both kinds since A6 (#2576); the persona is still named.
     withRole("agent");
     const out = await render();
-    expect(out).toContain(customerCell(PAYER, `/agencies/${PAYER}`, "Agency", "</td>"));
-    expect(out).not.toContain(`href="/companies/${PAYER}"`);
+    expect(out).toContain(customerCell(PAYER, `/companies/${PAYER}`, "Agency", "</td>"));
+    expect(out).not.toContain(`href="/agencies/`);
   });
 
   it("a company posting links /companies/<id>, named Company", async () => {

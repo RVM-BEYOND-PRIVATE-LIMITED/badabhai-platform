@@ -50,9 +50,10 @@ describe("nav labels", () => {
     expect(byHref("/matching/engine")?.capability).toBe("read_entities");
   });
 
-  it("keeps the Company and Agency personas as two sections", () => {
+  it("Companies holds both personas — there is no Agencies section (A6, #2576)", () => {
     expect(byHref("/companies")?.label).toBe("Companies");
-    expect(byHref("/agencies")?.label).toBe("Agencies");
+    expect(byHref("/agencies")).toBeUndefined();
+    expect(items.some((i) => i.label === "Agencies")).toBe(false);
   });
 
   it("routes and capability gates did not move with the labels", () => {

@@ -26,7 +26,6 @@ const LIST_SCREENS = [
   "jobs/page.tsx",
   "events/page.tsx",
   "companies/page.tsx",
-  "agencies/page.tsx",
   "ai-calls/page.tsx",
   "feedback/page.tsx",
   "transactions/page.tsx",

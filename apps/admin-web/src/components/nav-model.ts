@@ -77,7 +77,6 @@ export const NAV: NavSection[] = [
       // owner reopens the list to ops, this line moves back in the SAME change as the decorator.
       { href: "/ai-calls", label: "AI calls", icon: "robot", capability: "read_ai_traces" },
       { href: "/companies", label: "Companies", icon: "buildings", capability: "read_entities" },
-      { href: "/agencies", label: "Agencies", icon: "handshake", capability: "read_entities" },
       { href: "/jobs", label: "Postings", icon: "briefcase", capability: "read_entities" },
     ],
   },

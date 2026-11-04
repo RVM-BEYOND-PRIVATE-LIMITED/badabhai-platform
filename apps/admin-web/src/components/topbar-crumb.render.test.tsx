@@ -155,12 +155,11 @@ describe("TopbarCrumb — never links a section the reader cannot open", () => {
  * the section as context and leaves the linking to the back link.
  */
 describe("TopbarCrumb — the section a back link already links", () => {
-  /** The seven sections with an `/<section>/[id]` detail page — every one measured. */
+  /** The sections with an `/<section>/[id]` detail page — every one measured (Agencies merged into Companies, A6). */
   const FIRST_LEVEL = [
     "/candidates",
     "/jobs",
     "/companies",
-    "/agencies",
     "/events",
     "/ai-calls",
     "/skills/discovery",

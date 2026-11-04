@@ -84,7 +84,7 @@ describe("the facts", () => {
   it("shows the id, the agency (linked as a customer), city, status and the skill count", async () => {
     const html = await render();
     expect(html).toContain(JOB.job_id);
-    expect(html).toContain(`title="${JOB.payer_id}"`);
+    expect(html).toContain(`title="${JOB.payer_id}" href="/companies/${JOB.payer_id}"`);
     expect(html).toContain("Agency");
     expect(html).toContain("Ludhiana");
     expect(html).toContain("Live");

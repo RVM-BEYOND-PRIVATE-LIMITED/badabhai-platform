@@ -126,7 +126,6 @@ describe("every RetryActions carries the page's cursor", () => {
       "app/(portal)/jobs/page.tsx",
       "app/(portal)/events/page.tsx",
       "app/(portal)/companies/page.tsx",
-      "app/(portal)/agencies/page.tsx",
       "components/entity-timeline.tsx",
       "app/(portal)/transactions/page.tsx",
       "app/(portal)/credits/page.tsx",
