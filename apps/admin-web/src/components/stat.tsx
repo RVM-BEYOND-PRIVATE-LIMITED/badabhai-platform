@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { CountUp, type CountUpKind } from "./count-up";
 
 /**
  * One headline figure in a `.stats` row.
@@ -33,6 +34,10 @@ import type { ReactNode } from "react";
  *
  * `valueTitle` is the hover text on the figure — the EXACT ₹ amount behind a rounded display
  * figure (#2572), so the precision is one hover away rather than gone.
+ *
+ * `countUp` animates the figure up to `value` over --duration-count (A2, #2572). `value` is
+ * still what renders on the server and what the animation lands on; `to` only drives the
+ * frames in between, so the string rule above holds.
  */
 export function Stat({
   label,
@@ -42,6 +47,7 @@ export function Stat({
   adornment,
   wide,
   valueTitle,
+  countUp,
 }: {
   label: string;
   value: string;
@@ -50,11 +56,12 @@ export function Stat({
   adornment?: ReactNode;
   wide?: boolean;
   valueTitle?: string;
+  countUp?: { to: number; kind: CountUpKind };
 }) {
   return (
     <div className={`stat${tone ? ` stat--${tone}` : ""}${wide ? " stat--wide" : ""}`}>
       <span className={`stat__value${absent ? " stat__value--absent" : ""}`} title={valueTitle}>
-        {value}
+        {countUp && !absent ? <CountUp to={countUp.to} text={value} kind={countUp.kind} /> : value}
         {adornment === undefined ? null : <> {adornment}</>}
       </span>
       <span className="stat__label">{label}</span>

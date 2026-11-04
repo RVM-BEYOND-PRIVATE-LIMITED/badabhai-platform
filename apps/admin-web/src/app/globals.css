@@ -3805,3 +3805,87 @@ textarea.field__input {
   background: var(--surface-card);
   border-color: var(--text-accent);
 }
+
+/* ══ A2 (#2572) — AI-spend rebuild: basis chip, window control, count-ups, volume groups ══
+   Its own block so the parallel admin lanes (A4/A5/A6) rebase over it trivially. Brand tokens
+   only; every duration is a token, so tokens.css zeroes it under reduced motion. */
+
+/* The section's ONE basis statement ("Since 19 Aug 2026 ⓘ"), replacing three repeats. */
+.spend-basis {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  align-self: flex-start;
+}
+.spend-basis__chip {
+  padding: 0.1rem var(--space-3);
+  border-radius: var(--radius-pill);
+  background: var(--surface-sunken);
+  border: var(--border-hairline) solid var(--divider);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* A count-up keeps its width while the digits change. */
+.countup {
+  font-variant-numeric: tabular-nums;
+}
+
+/* The 7/30/90 window: equal segments on a sunken track, one thumb that GLIDES to the chosen
+   segment over --duration-base on --ease-glide (transform only). */
+.seg {
+  position: relative;
+  display: inline-grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  align-self: flex-start;
+  padding: var(--space-1);
+  border: var(--border-hairline) solid var(--divider);
+  border-radius: var(--radius-md);
+  background: var(--surface-sunken);
+}
+.seg__thumb {
+  position: absolute;
+  inset-block: var(--space-1);
+  inset-inline-start: var(--space-1);
+  width: calc((100% - 2 * var(--space-1)) / var(--seg-count));
+  border: var(--border-hairline) solid var(--text-accent);
+  border-radius: var(--radius-sm);
+  background: var(--surface-card);
+  transform: translateX(calc(100% * var(--seg-index)));
+  transition: transform var(--duration-base) var(--ease-glide);
+  pointer-events: none;
+}
+.seg__option {
+  position: relative; /* above the thumb */
+  min-height: 2.25rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.seg__option[aria-current="page"] {
+  color: var(--text-primary);
+}
+
+/* Platform volume, grouped Supply / Demand / Engagement. */
+.volume-groups {
+  display: grid;
+  gap: var(--space-4);
+}
+.volume-group__title {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}

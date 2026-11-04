@@ -64,3 +64,29 @@ describe("VolumePanel — posting decisions", () => {
     expect(out).not.toMatch(/job decisions?/i);
   });
 });
+
+describe("volume grouped Supply / Demand / Engagement (#2572)", () => {
+  /** The text between one group heading and the next. */
+  const group = (out: string, title: string) => {
+    const start = out.indexOf(`>${title}</h3>`);
+    const next = out.indexOf('class="volume-group__title"', start + 1);
+    return out.slice(start, next === -1 ? undefined : next);
+  };
+
+  it("renders the three named groups in order", () => {
+    const out = renderToStaticMarkup(<VolumePanel volume={VOLUME} />);
+    const order = ["Supply", "Demand", "Engagement"].map((t) => out.indexOf(`>${t}</h3>`));
+    expect(order.every((i) => i > -1)).toBe(true);
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+  });
+
+  it("puts each tile in its group", () => {
+    const out = renderToStaticMarkup(<VolumePanel volume={VOLUME} />);
+    expect(group(out, "Supply")).toContain("Workers with a profile");
+    expect(group(out, "Supply")).toContain("Deletions scheduled");
+    expect(group(out, "Demand")).toContain("Customers");
+    expect(group(out, "Demand")).toContain("Contact unlocks");
+    expect(group(out, "Engagement")).toContain("Applies");
+    expect(group(out, "Engagement")).not.toContain("Contact unlocks");
+  });
+});

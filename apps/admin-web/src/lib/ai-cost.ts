@@ -141,7 +141,18 @@ export const COST_PER_PROFILE_BASIS_INCLUDES_ABANDONED =
   "profiling_spend_per_completed_profile_incl_abandoned_interviews";
 export const COST_PER_PROFILE_WINDOW_EDGE_SKEW =
   "interviews_straddling_the_accrual_bound_are_split";
+/**
+ * The erasure code an API from BEFORE #2554 sends: the completed-profile count came from live
+ * `worker_profiles` rows, so erasure removed the profile and left its spend. Still recognised
+ * so a portal deployed ahead of the API keeps saying the true thing about that API.
+ */
 export const COST_PER_PROFILE_ERASURE_BIAS = "erased_workers_leave_the_count_but_not_the_spend";
+/**
+ * The erasure code since #2554 (API #2604): both halves come off the event spine, so erasing a
+ * worker moves neither — the profile and its spend move together into the deleted-accounts leg.
+ */
+export const COST_PER_PROFILE_ERASURE_TREATMENT =
+  "erasure_keeps_completed_profiles_and_spend_together";
 export const COST_PER_PROFILE_TEST_SPLIT_CONVERGES = "test_share_converges_as_test_accounts_log_in";
 
 /** The additive real/test breakdown, narrowed to the fields the copy depends on. */
@@ -154,6 +165,22 @@ export interface CostTestSplitInput {
   test_calls: number;
   test_profiles: number;
   test_cost_per_profile_inr: string | null;
+  /** The deleted-accounts population (#2554). Absent from an API older than #2604. */
+  deleted_or_unattributed_cost_inr?: string;
+  deleted_or_unattributed_calls?: number;
+  deleted_or_unattributed_profiles?: number;
+}
+
+/**
+ * Spend whose worker is gone, or which never named one — its own figure since #2554, so an
+ * erased real account no longer inflates the real average. No ratio: it is a bucket of money
+ * and finished profiles, not a cohort anyone would price per head.
+ */
+export interface CostDeletedLegView {
+  spendText: string;
+  spendExactText: string;
+  calls: number;
+  profiles: number;
 }
 
 /** One leg of the split — its own money, its own denominators, its own ratio (or absence). */
@@ -181,6 +208,8 @@ export type CostTestSplitState =
       kind: "measured";
       real: CostTestSplitLegView;
       test: CostTestSplitLegView;
+      /** Null when the API predates #2604 and sends no third population. */
+      deleted: CostDeletedLegView | null;
       caveatSentence: string;
     };
 
@@ -293,13 +322,30 @@ function describeTestSplit(perProfile: CostPerProfileInput): CostTestSplitState 
     };
   }
 
+  // All three fields or none: a half-sent population is treated as not sent, rather than
+  // rendering a ₹ figure beside a count the server never gave.
+  const deleted: CostDeletedLegView | null =
+    split.deleted_or_unattributed_cost_inr !== undefined &&
+    split.deleted_or_unattributed_calls !== undefined &&
+    split.deleted_or_unattributed_profiles !== undefined
+      ? {
+          spendText: formatDisplayRupees(split.deleted_or_unattributed_cost_inr),
+          spendExactText: formatExactRupees(split.deleted_or_unattributed_cost_inr),
+          calls: split.deleted_or_unattributed_calls,
+          profiles: split.deleted_or_unattributed_profiles,
+        }
+      : null;
+
   const caveat = perProfile.test_split_caveat;
   const caveatSentence =
     caveat === COST_PER_PROFILE_TEST_SPLIT_CONVERGES
       ? "Test spend is tagged when a test account logs in, so test traffic from before that login " +
         "still reads as real: the test share converges over time, and early windows understate " +
-        "it. Untagged rows — deleted workers, worker-less calls — also read as real, so “real” " +
-        "here means “not marked test”."
+        "it." +
+        (deleted
+          ? " Deleted accounts and worker-less calls are their own figure, never counted as real."
+          : " Untagged rows — deleted workers, worker-less calls — also read as real, so “real” " +
+            "here means “not marked test”.")
       : caveat === undefined
         ? "The API did not send a caveat for this split, so read the legs as sent and do not " +
           "assume how the test share converges."
@@ -343,6 +389,7 @@ function describeTestSplit(perProfile: CostPerProfileInput): CostTestSplitState 
       split.test_profiles,
       split.test_cost_per_profile_inr,
     ),
+    deleted,
     caveatSentence,
   };
 }
@@ -437,7 +484,8 @@ export function describeCostPerProfile(
 
   const knownBasis = perProfile.basis === COST_PER_PROFILE_BASIS_INCLUDES_ABANDONED;
   const knownWindowCaveat = perProfile.window_caveat === COST_PER_PROFILE_WINDOW_EDGE_SKEW;
-  const knownErasureCaveat = perProfile.erasure_caveat === COST_PER_PROFILE_ERASURE_BIAS;
+  const legacyErasure = perProfile.erasure_caveat === COST_PER_PROFILE_ERASURE_BIAS;
+  const spineErasure = perProfile.erasure_caveat === COST_PER_PROFILE_ERASURE_TREATMENT;
   const averageIsAbsent = perProfile.cost_per_profile_inr === null;
   const mockedCalls = perProfile.profiling_calls - perProfile.profiling_real_calls;
 
@@ -487,11 +535,16 @@ export function describeCostPerProfile(
                 }`
               : ""),
 
-    completedSentence:
-      "Completed means the worker's current profile reached extracted or confirmed — counted " +
-      "once per worker, not once per re-interview, and timed by when that profile row was " +
-      "first written. A profile extracted before this period and confirmed inside it is not " +
-      "counted, because the spend that produced it happened before the period too.",
+    // The count's source changed with #2554: an API that sends the new erasure code counts
+    // completion events off the spine, an older one counted live profile rows.
+    completedSentence: spineErasure
+      ? "Completed means a profile reached extracted or confirmed in this period — counted once " +
+        "per worker, not once per re-interview, from the completion event, which outlives the " +
+        "worker's account."
+      : "Completed means the worker's current profile reached extracted or confirmed — counted " +
+        "once per worker, not once per re-interview, and timed by when that profile row was " +
+        "first written. A profile extracted before this period and confirmed inside it is not " +
+        "counted, because the spend that produced it happened before the period too.",
 
     windowSentence: !knownWindowCaveat
       ? `The server reports a window caveat this portal does not recognise: ${perProfile.window_caveat}`
@@ -502,11 +555,14 @@ export function describeCostPerProfile(
         "with only part of its cost in the spend; one still running has cost and no profile " +
         "yet. Over a period this short that skew is material, and it cuts both ways.",
 
-    erasureSentence: knownErasureCaveat
-      ? "Erasing a worker under DPDP removes their profile from the count but not their spend " +
-        "from the total — the cost table holds no worker link by design. So this average " +
-        "drifts upward with every erasure, permanently, and that drift only accumulates."
-      : `The server reports an erasure caveat this portal does not recognise: ${perProfile.erasure_caveat}`,
+    erasureSentence: spineErasure
+      ? "Erasing a worker under DPDP moves neither half: their finished profile and its spend " +
+        "move together into Spend on deleted accounts, so the average does not drift."
+      : legacyErasure
+        ? "Erasing a worker under DPDP removes their profile from the count but not their spend " +
+          "from the total — the cost table holds no worker link by design. So this average " +
+          "drifts upward with every erasure, permanently, and that drift only accumulates."
+        : `The server reports an erasure caveat this portal does not recognise: ${perProfile.erasure_caveat}`,
 
     // Rule 3. No ₹ formatter is ever reached with a null, so a ₹0.00 is unreachable rather
     // than merely avoided.

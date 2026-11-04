@@ -4,6 +4,7 @@ import {
   CAP_BREACH_SCOPE_PROFILE_EXTRACTION,
   COST_PER_PROFILE_BASIS_INCLUDES_ABANDONED,
   COST_PER_PROFILE_ERASURE_BIAS,
+  COST_PER_PROFILE_ERASURE_TREATMENT,
   COST_PER_PROFILE_TEST_SPLIT_CONVERGES,
   COST_PER_PROFILE_WINDOW_EDGE_SKEW,
   capBreachReasonLabel,
@@ -622,6 +623,87 @@ describe("cap-breach reasons — one worker's budget is not a platform outage", 
   it("shows an unmapped reason raw rather than blank", () => {
     expect(capBreachReasonLabel("a_reason_from_a_later_build")).toBe(
       "a reason from a later build",
+    );
+  });
+});
+
+describe("describeCostPerProfile — the #2554 contract (API #2604)", () => {
+  const base: CostPerProfileInput = {
+    since: SINCE,
+    profiling_task_types: ["profile_extraction"],
+    profiling_cost_inr: "10.000000",
+    profiling_calls: 20,
+    profiling_real_calls: 20,
+    profiles_extracted_or_confirmed: 5,
+    cost_per_profile_inr: "2.000000",
+    basis: COST_PER_PROFILE_BASIS_INCLUDES_ABANDONED,
+    window_caveat: COST_PER_PROFILE_WINDOW_EDGE_SKEW,
+    erasure_caveat: COST_PER_PROFILE_ERASURE_TREATMENT,
+    test_split: {
+      real_cost_inr: "6.000000",
+      real_calls: 12,
+      real_profiles: 3,
+      real_cost_per_profile_inr: "2.000000",
+      test_cost_inr: "1.000000",
+      test_calls: 2,
+      test_profiles: 1,
+      test_cost_per_profile_inr: "1.000000",
+      deleted_or_unattributed_cost_inr: "3.000000",
+      deleted_or_unattributed_calls: 6,
+      deleted_or_unattributed_profiles: 1,
+    },
+    test_split_caveat: COST_PER_PROFILE_TEST_SPLIT_CONVERGES,
+  };
+  const view = (perProfile: CostPerProfileInput) => {
+    const s = describeCostPerProfile({
+      accruing_since: SINCE,
+      is_lifetime_total: false,
+      caveat: AI_COST_CAVEAT_SINCE_0077,
+      per_profile: perProfile,
+      by_task_type: [{ task_type: "profile_extraction" }],
+    });
+    if (s.kind !== "measured") throw new Error(`expected measured, got "${s.kind}"`);
+    return s.view;
+  };
+
+  it("surfaces the deleted-accounts leg as its own figure", () => {
+    const split = view(base).testSplit;
+    if (split.kind !== "measured") throw new Error("expected a measured split");
+    expect(split.deleted).toEqual({
+      spendText: "₹3.00",
+      spendExactText: "₹3.00",
+      calls: 6,
+      profiles: 1,
+    });
+    expect(split.caveatSentence).toContain("never counted as real");
+    expect(split.caveatSentence).not.toContain("not marked test");
+  });
+
+  it("treats a half-sent deleted leg as not sent — no ₹ beside a missing count", () => {
+    const { deleted_or_unattributed_profiles: _gone, ...half } = base.test_split!;
+    const split = view({ ...base, test_split: half }).testSplit;
+    if (split.kind !== "measured") throw new Error("expected a measured split");
+    expect(split.deleted).toBeNull();
+    // And then the older caveat is the true one: untagged rows still read as real.
+    expect(split.caveatSentence).toContain("not marked test");
+  });
+
+  it("says erasure moves neither half, and counts completion events", () => {
+    const v = view(base);
+    expect(v.erasureSentence).toContain("moves neither half");
+    expect(v.erasureSentence).not.toContain("drifts upward");
+    expect(v.completedSentence).toContain("completion event");
+  });
+
+  it("keeps the old sentences for an API older than #2604", () => {
+    const v = view({ ...base, erasure_caveat: COST_PER_PROFILE_ERASURE_BIAS });
+    expect(v.erasureSentence).toContain("drifts upward");
+    expect(v.completedSentence).toContain("first written");
+  });
+
+  it("shows an unknown erasure code raw, never a guessed sentence", () => {
+    expect(view({ ...base, erasure_caveat: "something_new" }).erasureSentence).toContain(
+      "does not recognise: something_new",
     );
   });
 });
