@@ -401,6 +401,7 @@ class _PostJobScreenState extends State<PostJobScreen> {
         final PostingTradeForm? form = _formForKind(kind);
         setState(() {
           _roleKind = kind;
+          _skillCapError = null;
           _tradeLevel = '';
           _tradeAnswers = const <String, List<String>>{};
           _pickedSkillIds
