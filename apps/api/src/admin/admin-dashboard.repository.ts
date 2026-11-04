@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, count, eq, gte, inArray, isNotNull, sql } from "drizzle-orm";
+import { count, inArray, isNotNull, sql } from "drizzle-orm";
 import {
   CURRENT_PROFILE_ORDER,
   applications,
@@ -12,7 +12,6 @@ import {
   workers,
   type Database,
 } from "@badabhai/db";
-import type { ProfileStatus } from "@badabhai/types";
 import { DATABASE } from "../database/database.module";
 import type { AdminProviderCostBucket, AdminTaskCostBucket } from "./admin-dashboard.dto";
 
@@ -27,7 +26,14 @@ export interface AdminPlatformCostTotals {
 }
 
 /**
- * The PROFILING slice of platform spend — the numerator of the cost-per-profile figure.
+ * The PROFILING accrual window — the bound BOTH halves of the cost-per-profile figure use.
+ *
+ * The money itself now comes from the event spine (`AdminEventsRepository.profilingCostSplit`),
+ * because the running-totals table has no worker dimension and cannot say whose spend a
+ * deleted account's call was. This aggregate still owns the WINDOW: `since` is
+ * `min(first_recorded_at)` over the profiling task types, which is the instant profiling spend
+ * began accruing. Its ₹ figures remain available and are still exact, but the dashboard uses
+ * the spine's split so the headline and its legs are one row set.
  *
  * SHAPED LIKE {@link AdminPlatformCostTotals}, `since` INCLUDED, AND THAT FIELD IS THE WHOLE
  * POINT. An earlier version of this interface omitted it, on the reasoning that the subtotal
@@ -96,10 +102,9 @@ export interface AdminKeyCount {
  *     a scan is milliseconds.
  *   - `worker_profiles` — one row per EXTRACTION, so it grows faster than workers do; the
  *     `DISTINCT ON` below sorts it. Still small today, and it is the only aggregate here with
- *     a plausible future problem. It is read TWICE (once by status, once filtered to the
- *     accrual window), and the second read is not helped by an index either: its predicates
- *     apply to the OUTPUT of the `DISTINCT ON`, i.e. after the sort an index would be there to
- *     avoid. See `countCurrentProfilesCompletedSince`.
+ *     a plausible future problem. Only the per-status breakdown reads it now: the cost
+ *     denominator reads the completion events instead (see `AdminEventsRepository`), because
+ *     those survive a worker delete and a live table cannot.
  *   - `applications` — the largest of them, and the one to watch. Both counts are covered by
  *     nothing; if this becomes the page's latency floor, the fix is a cached/materialized
  *     roll-up on a schedule, not an index.
@@ -189,8 +194,15 @@ export class AdminDashboardRepository {
   }
 
   /**
-   * The same table, restricted to the task types that PRODUCE A PROFILE — the numerator of the
-   * cost-per-profile figure.
+   * The same table, restricted to the task types that PRODUCE A PROFILE — the accrual window
+   * the cost-per-profile figure is scoped to.
+   *
+   * THE DASHBOARD USES `since` FROM HERE AND THE MONEY FROM THE SPINE. `platform_ai_cost_totals`
+   * cannot say whose spend a call was (it has no worker dimension), so the numerator and its
+   * population split come from `ai.cost_recorded`. What this aggregate uniquely provides is the
+   * instant profiling spend began accruing: `min(first_recorded_at)` over this task-type
+   * allowlist, which is later than the table-wide bound whenever a non-profiling task type
+   * accrued first. Both halves of the ratio are filtered by it.
    *
    * SUMMED IN POSTGRES, FOR THE REASON THE SIBLING ABOVE STATES AND NOT MERELY BY IMITATION.
    * The buckets `costByTaskType()` already returns could be added up in JavaScript instead, and
@@ -201,7 +213,7 @@ export class AdminDashboardRepository {
    *
    * AN ALLOWLIST, NEVER A DENYLIST. `task_type` is a plain `text` column that also holds the
    * literal `'unknown'` for an unlabelled call, so `NOT IN ('resume_generation', ...)` would
-   * sweep every unclassified value into the profiling numerator the day one appears. `IN (...)`
+   * sweep every unclassified value into the profiling window the day one appears. `IN (...)`
    * excludes it instead: the average understates, which is recoverable from `by_task_type`,
    * rather than silently over-attributing, which is not. The set itself is a decision the
    * SERVICE owns (`PROFILING_TASK_TYPES`) and is passed in — this method holds no policy about
@@ -283,156 +295,6 @@ export class AdminDashboardRepository {
       .from(current)
       .groupBy(current.profileStatus);
     return rows.map((r) => ({ key: r.key, count: r.count }));
-  }
-
-  /**
-   * WORKERS WHOSE CURRENT PROFILE WAS PRODUCED AT OR AFTER `since` — the denominator of the
-   * cost-per-profile figure.
-   *
-   * ── `since` IS A PARAMETER, AND IT IS THE *NUMERATOR'S* BOUND ───────────────────────────
-   * It is {@link AdminProfilingCostSubtotal.since} — `min(first_recorded_at)` over the PROFILING
-   * task types — and not the table-wide `accruing_since` the section renders "Since …" from.
-   * Those two are different instants whenever a non-profiling task type accrued first, and
-   * bounding this count by the table-wide one counts profiles from a period the numerator has no
-   * spend for. That is the same "two halves, different periods" defect as computing a second
-   * bound here, arrived at from the opposite direction: measured at 22× on the local
-   * verification database, and invisible on screen either way.
-   *
-   * NOR IS IT DERIVED INSIDE THIS METHOD. A correlated
-   * `(select min(first_recorded_at) from platform_ai_cost_totals where task_type = any($1))`
-   * would be tidier and one round trip cheaper, and it would be a SECOND evaluation of the bound:
-   * the two reads are not in one transaction, so an accrual landing between them would give the
-   * count a lower bound the response never reports. The service reads the bound once, off the
-   * same aggregate that produced the numerator, and hands it to both.
-   *
-   * ── ONE ROW PER WORKER, THROUGH THE SHARED ORDERING ─────────────────────────────────────
-   * `DISTINCT ON (worker_id)` ordered by `CURRENT_PROFILE_ORDER`, exactly as
-   * `countCurrentProfilesByStatus` above. `worker_profiles` holds a row per EXTRACTION and
-   * nothing constrains a worker to one, so a plain count double-counts every re-interviewed
-   * worker and counts the empty placeholder row an ai-service outage wrote. There is exactly ONE
-   * definition of "this worker's profile" (packages/db/src/current-profile.ts); this is not a
-   * second one, and the status set is passed in rather than decided here.
-   *
-   * ── THE DATE FILTER IS ON THE RESOLVED ROW, NOT ON THE ROWS BEING RESOLVED ──────────────
-   * Both predicates sit OUTSIDE the `DISTINCT ON`. Filtering first would change WHICH row is
-   * called this worker's current profile: a worker profiled before the bound whose only
-   * in-window row is an outage placeholder would have that placeholder promoted to it — a
-   * window-scoped second notion of the very thing `CURRENT_PROFILE_ORDER` exists to make
-   * singular.
-   *
-   * MEASURED, AND THE MEASUREMENT CORRECTED THE CLAIM: with today's completed set the two
-   * placements return THE SAME COUNT, and moving the filter inside passed every database test
-   * in `admin-dashboard.db.test.ts`. The equivalence is provable rather than lucky.
-   * `PROFILE_COMPLETED_STATUSES` is a subset of the non-draft statuses, and the shared ordering
-   * ranks content first and recency second — so an in-window row that is non-draft can never be
-   * outranked by an out-of-window row (that row would have to be BOTH non-draft AND newer, and
-   * everything out of the window is older by definition). Whenever the pre-filtered form
-   * resolves to a completed row, the unfiltered form resolves to the same row.
-   *
-   * IT IS STILL WRITTEN THIS WAY, because the equivalence is a coincidence of two facts that
-   * can each change independently: that `extracting` is excluded from the completed set, and
-   * that content outranks recency. Add an in-flight status to the completed set — or reorder
-   * `CURRENT_PROFILE_ORDER`, whose own header calls that a live product question — and the
-   * pre-filtered form starts counting rows that produced nothing, while this form does not. The
-   * shape test in `admin-dashboard.repository.test.ts` pins the placement for that reason; the
-   * database test can only pin the outcome, because today the outcomes agree.
-   *
-   * ── NO INDEX SUPPORTS THIS, AND NONE IS ADDED ───────────────────────────────────────────
-   * `worker_profiles` carries five indexes — the `id` primary key, `worker_id`, a unique
-   * `ai_job_id`, the HNSW vector index and `job_domain_id` — and none on `created_at` or
-   * `profile_status` (read from `pg_indexes`; every `CREATE INDEX … worker_profiles` in
-   * packages/db/migrations agrees, the pkey being the one `CREATE TABLE` declares rather than
-   * a `CREATE INDEX`). The pkey is named because `id` is the last tiebreak term of
-   * `CURRENT_PROFILE_ORDER`, so it is the one of the five that could plausibly be thought to
-   * serve the sort below — it does not; a leading `worker_id` is what that sort needs.
-   * ADDING ONE WOULD NOT HELP, and that is structural rather than a fact about today's size.
-   * MEASURED, not reasoned — `EXPLAIN` on the local verification database (`bb_verify`,
-   * 25 `worker_profiles` rows) returns:
-   *
-   *     Aggregate
-   *       -> Subquery Scan on current_profile
-   *            Filter: created_at >= $1 AND profile_status = ANY ('{extracted,confirmed}')
-   *            -> Unique
-   *                 -> Sort  (worker_id, (profile_status <> 'draft') DESC, created_at DESC, id DESC)
-   *                      -> Seq Scan on worker_profiles
-   *
-   * The Filter sits ABOVE the `Unique`, which is where it has to stay: pushing either predicate
-   * below the `DISTINCT ON` would change which row per worker survives, so Postgres will not do
-   * it and neither may we. An index on `created_at` or `profile_status` would therefore be asked
-   * to serve a filter that runs after the very scan it exists to avoid. That plan SHAPE does not
-   * change with row count; only its cost does. NO PRODUCTION SIZE WAS MEASURED — this session
-   * has no production access — so no latency claim is made beyond the plan itself. The file
-   * header already names the escape hatch if this ever becomes the page's floor: a scheduled
-   * roll-up, not an index.
-   */
-  async countCurrentProfilesCompletedSince(
-    since: Date,
-    completedStatuses: readonly ProfileStatus[],
-  ): Promise<number> {
-    const current = this.db
-      .selectDistinctOn([workerProfiles.workerId], {
-        workerId: workerProfiles.workerId,
-        profileStatus: workerProfiles.profileStatus,
-        createdAt: workerProfiles.createdAt,
-      })
-      .from(workerProfiles)
-      .orderBy(workerProfiles.workerId, ...CURRENT_PROFILE_ORDER)
-      .as("current_profile");
-
-    const rows = await this.db
-      .select({ n: count() })
-      .from(current)
-      .where(
-        and(
-          // `>=`, not `>`: `since` IS an accrual instant that happened, so a profile written in
-          // the same instant belongs inside the window the spend covers, not outside it.
-          gte(current.createdAt, since),
-          inArray(current.profileStatus, [...completedStatuses]),
-        ),
-      );
-    return rows[0]?.n ?? 0;
-  }
-
-  /**
-   * The denominator SPLIT BY TEST FLAG — same current-profile resolution and the
-   * same outside-the-DISTINCT-ON predicates as {@link
-   * countCurrentProfilesCompletedSince}, plus a `workers` join for the flag.
-   * Untagged workers bucket as real, same rule as the spend split (which lives
-   * on the spine reader — this file must never touch `events`).
-   */
-  async countCurrentProfilesCompletedSinceSplit(
-    since: Date,
-    completedStatuses: readonly ProfileStatus[],
-  ): Promise<{ realProfiles: number; testProfiles: number }> {
-    const current = this.db
-      .selectDistinctOn([workerProfiles.workerId], {
-        workerId: workerProfiles.workerId,
-        profileStatus: workerProfiles.profileStatus,
-        createdAt: workerProfiles.createdAt,
-      })
-      .from(workerProfiles)
-      .orderBy(workerProfiles.workerId, ...CURRENT_PROFILE_ORDER)
-      .as("current_profile");
-
-    const rows = await this.db
-      .select({ isTest: workers.isTestAccount, n: count() })
-      .from(current)
-      .leftJoin(workers, eq(workers.id, current.workerId))
-      .where(
-        and(
-          gte(current.createdAt, since),
-          inArray(current.profileStatus, [...completedStatuses]),
-        ),
-      )
-      .groupBy(workers.isTestAccount);
-
-    let realProfiles = 0;
-    let testProfiles = 0;
-    for (const r of rows) {
-      if (r.isTest === true) testProfiles = r.n;
-      else realProfiles = r.n;
-    }
-    return { realProfiles, testProfiles };
   }
 
   async countJobPostingsByStatus(): Promise<AdminKeyCount[]> {

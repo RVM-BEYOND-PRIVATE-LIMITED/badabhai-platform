@@ -18,6 +18,7 @@ import {
 import { type Database, events, workers, type EventRow } from "@badabhai/db";
 import { DATABASE } from "../database/database.module";
 import { type KeysetCursor } from "./admin-events.cursor";
+import { PROFILING_POPULATIONS, type AdminProfilingPopulation } from "./admin-dashboard.dto";
 
 /**
  * Resolved, validated event filter (built by the service from the DTO). All fields optional;
@@ -44,6 +45,40 @@ export interface CountBucket {
 export interface DayBucket {
   day: string;
   count: number;
+}
+
+/** One population's slice of profiling spend. Money is an exact decimal string, never a float. */
+export interface AdminProfilingSpendBucket {
+  totalCostInr: string;
+  calls: number;
+  realCalls: number;
+}
+
+/**
+ * The profiling numerator, split by the worker population the CALL belonged to.
+ *
+ * The headline fields are computed by Postgres over the SAME grouped rows (`sum(sum(...)) over
+ * ()`), so the headline and the buckets cannot describe different row sets — which is the
+ * defect this shape exists to close. `deleted_or_unattributed` is every row whose `worker_id`
+ * has no live `workers` row, plus the worker-less payer-side shape.
+ */
+export interface AdminProfilingSpendSplit {
+  totalCostInr: string;
+  totalCalls: number;
+  totalRealCalls: number;
+  byPopulation: Record<AdminProfilingPopulation, AdminProfilingSpendBucket>;
+}
+
+/**
+ * The profiling denominator, split by the same three populations.
+ *
+ * Counted DISTINCT on the event payload's `worker_id`: one worker who completed two profiles
+ * counts once, and an event whose worker row was deleted still counts. `totalProfiles` is the
+ * sum of the three legs.
+ */
+export interface AdminProfilingProfilesSplit {
+  totalProfiles: number;
+  byPopulation: Record<AdminProfilingPopulation, number>;
 }
 
 /**
@@ -114,7 +149,10 @@ export class AdminEventsRepository {
    */
   private static keysetBefore(cursor: KeysetCursor): SQL {
     const cur = new Date(cursor.occurredAt);
-    return or(lt(events.occurredAt, cur), and(eq(events.occurredAt, cur), lt(events.id, cursor.id)))!;
+    return or(
+      lt(events.occurredAt, cur),
+      and(eq(events.occurredAt, cur), lt(events.id, cursor.id)),
+    )!;
   }
 
   /**
@@ -122,7 +160,11 @@ export class AdminEventsRepository {
    * `(occurred_at, id)` and fetches `limit` rows after the (optional) cursor. The caller passes
    * an already-capped `limit`; this method does not relax it.
    */
-  async listKeyset(filter: EventFilter, limit: number, cursor: KeysetCursor | null): Promise<EventRow[]> {
+  async listKeyset(
+    filter: EventFilter,
+    limit: number,
+    cursor: KeysetCursor | null,
+  ): Promise<EventRow[]> {
     const clauses = AdminEventsRepository.whereFor(filter);
     if (cursor) clauses.push(AdminEventsRepository.keysetBefore(cursor));
     const where = clauses.length > 0 ? and(...clauses) : undefined;
@@ -307,26 +349,81 @@ export class AdminEventsRepository {
   }
 
   /**
-   * The profiling numerator SPLIT BY TEST FLAG — a breakdown for the dashboard,
-   * never a platform figure (those stay on `platform_ai_cost_totals`, which has
-   * no worker dimension by design).
+   * The population a profiling event's worker belongs to — the ONE definition, shared by the
+   * spend split and the completed-profile split so the two cannot disagree about which leg a
+   * worker is in.
    *
-   * WHY IT LIVES HERE AND NOT ON THE DASHBOARD REPOSITORY. `events` has exactly
-   * one admin reader — this class — and the static build-blocker fails CI on a
-   * second `from(events)`. Same precedent as the journey funnel below.
-   *
-   * Untagged rows (a deleted worker, a null worker_id) bucket as real — the flag
-   * is opt-in — see the DTO convergence caveat. Summed in Postgres as `numeric`.
+   * A `NULL` join means the worker row is gone (DPDP erasure, a mid-flight delete) OR the event
+   * never named one. Both are `deleted_or_unattributed`: the honest common property is "this row
+   * cannot be attributed to a live account", and separating them would add a fourth bucket that
+   * changes nothing a reader can act on. The expression carries NO bound parameters, so it can
+   * be rendered identically in SELECT and GROUP BY — the structural-match requirement that bit
+   * `countByPayloadField`.
    */
-  async profilingCostTestSplit(
+  private static populationBucketExpr(): SQL<string> {
+    return sql<string>`case
+      when ${workers.id} is null then 'deleted_or_unattributed'
+      when ${workers.isTestAccount} then 'test'
+      else 'real'
+    end`;
+  }
+
+  /** Every population present at zero — a GROUP BY cannot invent a row for an empty leg. */
+  private static zeroSpendByPopulation(): Record<
+    AdminProfilingPopulation,
+    AdminProfilingSpendBucket
+  > {
+    return {
+      real: { totalCostInr: "0", calls: 0, realCalls: 0 },
+      test: { totalCostInr: "0", calls: 0, realCalls: 0 },
+      deleted_or_unattributed: { totalCostInr: "0", calls: 0, realCalls: 0 },
+    };
+  }
+
+  private static zeroProfilesByPopulation(): Record<AdminProfilingPopulation, number> {
+    return { real: 0, test: 0, deleted_or_unattributed: 0 };
+  }
+
+  /**
+   * The profiling numerator BY POPULATION — spend that survives the worker it was spent on.
+   *
+   * WHY THE SPINE, NOT THE TOTALS TABLE. `platform_ai_cost_totals` is keyed on
+   * `(provider, task_type)` and carries no worker dimension at all, so it can answer "how much
+   * did profiling cost" but never "whose spend was it". `ai.cost_recorded` carries the worker id
+   * and survives a `workers` delete — that is what lets this split exist and what makes a
+   * deleted test account stop reading as real.
+   *
+   * THE HEADLINE IS THE BUCKETS, IN ONE STATEMENT. `sum(sum(...)) over ()` is evaluated over the
+   * grouped rows, so the three legs and the total are the same rows by construction; a second
+   * query could land a call between the two reads and leave the page contradicting itself.
+   *
+   * BOUNDED BY `since`, WHICH IS THE PROFILING ACCRUAL BOUND, and filtered on the event name
+   * first. Both columns are indexed (`events_event_name_idx`, `events_occurred_at_idx`); the
+   * jsonb reads are applied to the rows those indexes narrow. No new index is needed.
+   *
+   * Money is `numeric` summed in Postgres and returned `::text` — the same exactness rule as
+   * every other ₹ read in this file. `real_call` is compared as text because jsonb `->>` yields
+   * the literal `"true"`; a missing/invalid value therefore counts as not-real rather than
+   * aborting the page on a cast error.
+   */
+  async profilingCostSplit(
     since: Date,
     taskTypes: readonly string[],
-  ): Promise<{ testCostInr: string; testCalls: number; realCostInr: string; realCalls: number }> {
+  ): Promise<AdminProfilingSpendSplit> {
+    const bucket = AdminEventsRepository.populationBucketExpr();
+    const cost = sql`(${events.payload}->>'estimated_cost_inr')::numeric`;
+    const isReal = sql`(${events.payload}->>'real_call') = 'true'`;
+
     const rows = await this.db
       .select({
-        isTest: workers.isTestAccount,
-        costInr: sql<string>`coalesce(sum((${events.payload}->>'estimated_cost_inr')::numeric), 0)::text`,
+        bucket,
+        totalCostInr: sql<string>`coalesce(sum(${cost}), 0)::text`,
         calls: sql<number>`count(*)::int`,
+        realCalls: sql<number>`count(*) filter (where ${isReal})::int`,
+        // The SAME grouped rows, totalled — one statement, so headline = legs structurally.
+        headlineCostInr: sql<string>`coalesce(sum(sum(${cost})) over (), 0)::text`,
+        headlineCalls: sql<number>`(sum(count(*)) over ())::int`,
+        headlineRealCalls: sql<number>`(sum(count(*) filter (where ${isReal})) over ())::int`,
       })
       .from(events)
       .leftJoin(workers, sql`${workers.id}::text = ${events.payload}->>'worker_id'`)
@@ -337,23 +434,76 @@ export class AdminEventsRepository {
           inArray(sql`${events.payload}->>'task_type'`, [...taskTypes]),
         ),
       )
-      .groupBy(workers.isTestAccount);
+      .groupBy(bucket);
 
-    let testCostInr = "0";
-    let testCalls = 0;
-    let realCostInr = "0";
-    let realCalls = 0;
-    for (const r of rows) {
-      // One row per bucket straight from Postgres — no float arithmetic anywhere.
-      if (r.isTest === true) {
-        testCostInr = r.costInr;
-        testCalls = r.calls;
-      } else {
-        realCostInr = r.costInr;
-        realCalls = r.calls;
-      }
+    const byPopulation = AdminEventsRepository.zeroSpendByPopulation();
+    for (const row of rows) {
+      // The CASE above can only produce a member of this closed set. The lookup keeps that
+      // honest if the expression is ever edited: an unexpected key would otherwise be dropped.
+      if (!(PROFILING_POPULATIONS as readonly string[]).includes(row.bucket)) continue;
+      byPopulation[row.bucket as AdminProfilingPopulation] = {
+        totalCostInr: row.totalCostInr,
+        calls: Number(row.calls),
+        realCalls: Number(row.realCalls),
+      };
     }
-    return { testCostInr, testCalls, realCostInr, realCalls };
+
+    const first = rows[0];
+    return {
+      totalCostInr: first?.headlineCostInr ?? "0",
+      totalCalls: Number(first?.headlineCalls ?? 0),
+      totalRealCalls: Number(first?.headlineRealCalls ?? 0),
+      byPopulation,
+    };
+  }
+
+  /**
+   * The profiling denominator BY POPULATION — completed profiles that survive their worker.
+   *
+   * `profile.extraction_completed` is emitted once per extraction and carries `worker_id` and
+   * the `profile_status` it wrote. It is PII-free and append-only, so it remains after a
+   * `workers` delete: an erased account's completed profile stays in this count instead of
+   * leaving the denominator and pushing the average up.
+   *
+   * DISTINCT ON THE WORKER, not the event: a re-interview emits another completion event, and
+   * counting events would divide one worker's spend across two "profiles". `count(distinct)`
+   * ignores a NULL worker id, and such an event is not attributed to any population either.
+   *
+   * The status set is passed in (the service owns the classification), and the same
+   * positive-set rule applies as the DTO documents.
+   */
+  async profilingProfilesCompletedSince(
+    since: Date,
+    completedStatuses: readonly string[],
+  ): Promise<AdminProfilingProfilesSplit> {
+    const bucket = AdminEventsRepository.populationBucketExpr();
+
+    const rows = await this.db
+      .select({
+        bucket,
+        profiles: sql<number>`count(distinct ${events.payload}->>'worker_id')::int`,
+      })
+      .from(events)
+      .leftJoin(workers, sql`${workers.id}::text = ${events.payload}->>'worker_id'`)
+      .where(
+        and(
+          eq(events.eventName, "profile.extraction_completed"),
+          gte(events.occurredAt, since),
+          inArray(sql`${events.payload}->>'profile_status'`, [...completedStatuses]),
+        ),
+      )
+      .groupBy(bucket);
+
+    const byPopulation = AdminEventsRepository.zeroProfilesByPopulation();
+    for (const row of rows) {
+      if (!(PROFILING_POPULATIONS as readonly string[]).includes(row.bucket)) continue;
+      byPopulation[row.bucket as AdminProfilingPopulation] = Number(row.profiles);
+    }
+
+    return {
+      totalProfiles: byPopulation.real + byPopulation.test + byPopulation.deleted_or_unattributed,
+      byPopulation,
+    };
   }
 
   // =========================================================================
