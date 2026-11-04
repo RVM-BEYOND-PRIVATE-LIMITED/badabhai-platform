@@ -59,6 +59,8 @@ export { Dialog } from "./dialog";
 export type { DialogProps } from "./dialog";
 export { Toast } from "./toast";
 export type { ToastProps } from "./toast";
+export { ToastProvider, useToast, TOAST_DURATION_MS, TOAST_LIMIT } from "./toast-provider";
+export type { ToastApi, ToastInput } from "./toast-provider";
 export { Tabs, tabId, tabPanelId } from "./tabs";
 export type { TabsProps, TabItem } from "./tabs";
 export { MaskedCandidate } from "./masked-candidate";

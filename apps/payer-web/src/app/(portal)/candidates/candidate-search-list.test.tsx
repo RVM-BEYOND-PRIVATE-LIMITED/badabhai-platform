@@ -35,6 +35,11 @@ vi.mock("next/link", () => ({
 }));
 // A PortalLink's cue is a client component with an effect, which this walk cannot run.
 vi.mock("../../../components/nav-pending", () => ({ NavPendingCue: () => null }));
+// The portal's ToastProvider (#2583): a granted unlock is announced through it.
+const toastShow = vi.fn();
+vi.mock("../../../components/ds/toast-provider", () => ({
+  useToast: () => ({ show: (t: unknown) => toastShow(t), dismiss: () => {} }),
+}));
 vi.mock("../postings/[id]/applicants/actions", () => ({
   candidateUnlockAction: (i: unknown) => candidateUnlockAction(i),
   unlockAction: (i: unknown) => unlockAction(i),
@@ -62,6 +67,7 @@ vi.mock("react", async () => {
 });
 
 const { CandidateSearchList } = await import("./candidate-search-list");
+const { UNLOCK_GRANTED_TOAST } = await import("../../../components/unlock");
 
 const W1 = "face2000-0000-4000-8000-000000000001";
 const W2 = "face2000-0000-4000-8000-000000000002";
@@ -184,6 +190,7 @@ beforeEach(() => {
 
 describe("the posting-less unlock (job_id null) — the same confirm-on-spend", () => {
   it("Unlock opens the ONE dialog; confirm spends through candidateUnlockAction with the worker id ONLY", async () => {
+    toastShow.mockClear();
     candidateUnlockAction.mockResolvedValue(GRANTED);
     mount([row(W1), row(W2)]);
     button(cards()[1]!, "Unlock contact (1 credit)")!.onClick!();
@@ -199,10 +206,14 @@ describe("the posting-less unlock (job_id null) — the same confirm-on-spend", 
     expect(buttons(second!).map((b) => b.text)).toEqual(["Open routed contact", "View masked resume"]);
     expect(deepText(second!)).toContain("Unlocked");
     expect(buttons(first!).map((b) => b.text)).toEqual(["Unlock contact (1 credit)"]);
-    expect(cells[3]).toBe("granted");
+    // The grant is the portal's one success toast (#2583) — announced once, never list state.
+    expect(cells[3]).toBeNull();
+    expect(toastShow).toHaveBeenCalledTimes(1);
+    expect(toastShow).toHaveBeenCalledWith(UNLOCK_GRANTED_TOAST);
   });
 
   it("a failed spend: a retryable inline error; Retry spends again WITHOUT a re-prompt", async () => {
+    toastShow.mockClear();
     candidateUnlockAction
       .mockResolvedValueOnce({ ok: false, error: "Unlock failed (service unavailable). Please retry." })
       .mockResolvedValueOnce(GRANTED);
@@ -213,7 +224,10 @@ describe("the posting-less unlock (job_id null) — the same confirm-on-spend", 
     await button(cards()[0]!, "Retry unlock (1 credit)")!.onClick!();
     expect(cells[2]).toBeNull(); // no dialog the second time
     expect(candidateUnlockAction).toHaveBeenCalledTimes(2);
-    expect(cells[3]).toBe("granted");
+    // The grant is the portal's one success toast (#2583) — announced once, never list state.
+    expect(cells[3]).toBeNull();
+    expect(toastShow).toHaveBeenCalledTimes(1);
+    expect(toastShow).toHaveBeenCalledWith(UNLOCK_GRANTED_TOAST);
   });
 
   it("Cancel closes the dialog and spends nothing", () => {

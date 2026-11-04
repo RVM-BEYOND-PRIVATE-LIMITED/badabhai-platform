@@ -9,6 +9,7 @@ import { shownTradeLevel } from "../../../lib/trade-level";
 // The count copy's own dependency-free module — the search's URL reads (zod) stay off the client.
 import { countSummary, type SearchCounts } from "../../../lib/candidate-counts";
 import { Avatar, Badge, Card } from "../../../components/ds";
+import { useToast } from "../../../components/ds/toast-provider";
 import { PageHeader, type PageHeaderProps } from "../../../components/page-header";
 import { PortalLink } from "../../../components/portal-link";
 import {
@@ -16,6 +17,7 @@ import {
   contactBand,
   EMPTY_UNLOCK_ROW,
   UnlockResultToast,
+  UNLOCK_GRANTED_TOAST,
   type UnlockResultKind,
   type UnlockRowState,
 } from "../../../components/unlock";
@@ -93,6 +95,7 @@ export function CandidateSearchList({
   const [confirmWorker, setConfirmWorker] = useState<string | null>(null);
   // The transient unlock-RESULT toast — granted, or the ONE neutral no-cause failure (XB-C).
   const [result, setResult] = useState<UnlockResultKind | null>(null);
+  const toast = useToast();
 
   // A card before anything happened to it this session: granted when the payer already holds a
   // live grant on this worker, else locked. Derived from props, so session changes layer over it.
@@ -118,7 +121,13 @@ export function CandidateSearchList({
     }
     if (res.ok) {
       patch(workerId, { busy: false, unlock: res.view });
-      setResult(res.view.kind === "granted" ? "granted" : "unavailable");
+      // A grant is the portal's one success toast (#2583); only the neutral failure stays here.
+      if (res.view.kind === "granted") {
+        setResult(null);
+        toast.show(UNLOCK_GRANTED_TOAST);
+      } else {
+        setResult("unavailable");
+      }
     } else {
       patch(workerId, { busy: false, unlockError: res.error });
       setResult("unavailable");

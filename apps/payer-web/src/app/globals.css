@@ -5009,30 +5009,6 @@ img.agency-qr__code,
   gap: var(--space-2);
 }
 
-/* Inline per-action loading spinner (unlock / reveal / resume). Decorative — the button's
-   live status text ("Unlocking…") carries the meaning; aria-hidden keeps it out of SR output. */
-.spinner {
-  display: inline-block;
-  width: 12px;
-  height: 12px;
-  margin-right: 6px;
-  vertical-align: -1px;
-  border: 2px solid currentColor;
-  border-right-color: transparent;
-  border-radius: 50%;
-  animation: spinner-rotate var(--duration-count) linear infinite;
-}
-@keyframes spinner-rotate {
-  100% {
-    transform: rotate(360deg);
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .spinner {
-    animation: none;
-  }
-}
-
 /* Visually-hidden but screen-reader-available (a11y for aria-live / labels). */
 .sr-only {
   position: absolute;
@@ -9466,6 +9442,12 @@ body:has(.invite-landing) .chrome-footer {
   color: var(--text-primary);
   border: var(--border-hairline) solid var(--border-subtle);
   box-shadow: var(--shadow-xs);
+}
+/* The sliding indicator (#2583) takes this page's active-segment look: the tighter radius and the
+   hairline edge the static marker above draws. */
+.login-roletabs .bb-tabs__indicator {
+  border-radius: var(--radius-sm);
+  border: var(--border-hairline) solid var(--border-subtle);
 }
 .login-roletabs .bb-tab--active:focus-visible {
   outline: var(--focus-outline);

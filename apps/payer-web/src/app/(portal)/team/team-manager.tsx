@@ -5,6 +5,7 @@ import { ACTION_ICON, Icon } from "@badabhai/icons";
 import type { OrgMemberView, OrgMemberStatus } from "../../../lib/org-members";
 import type { OrgRole } from "../../../lib/auth/org-roles";
 import { Badge, Button, Dialog, Input } from "../../../components/ds";
+import { useToast } from "../../../components/ds/toast-provider";
 import { RetryButton } from "../../../components/retry-button";
 import { inviteMemberAction, removeMemberAction } from "./actions";
 
@@ -59,6 +60,7 @@ export function TeamManager({ members }: { members: OrgMemberView[] | null }) {
   // The member a Remove is waiting to be confirmed for — the confirm dialog is open while set.
   const [confirming, setConfirming] = useState<OrgMemberView | null>(null);
   const [pending, startTransition] = useTransition();
+  const toast = useToast();
   // Where focus goes back once the confirm has closed and any removal has settled: the trigger's
   // id, and — after a successful removal — the member whose row must leave the list first.
   const focusBack = useRef<{ id: string; untilGone: string | null } | null>(null);
@@ -76,12 +78,25 @@ export function TeamManager({ members }: { members: OrgMemberView[] | null }) {
     (document.getElementById(back.id) ?? document.getElementById(MEMBERS_HEADING_ID))?.focus();
   }, [confirming, pending, members]);
 
+  /**
+   * An action's outcome: a success is the portal's one success toast (#2583); a refusal stays in
+   * this panel's region, beside the form it is about.
+   */
+  function report(res: { ok: boolean; message: string }) {
+    if (res.ok) {
+      setMessage(null);
+      toast.show({ tone: "success", message: res.message });
+    } else {
+      setMessage({ ok: false, text: res.message });
+    }
+  }
+
   function onInvite(e: FormEvent) {
     e.preventDefault();
     setMessage(null);
     startTransition(async () => {
       const res = await inviteMemberAction({ email });
-      setMessage({ ok: res.ok, text: res.message });
+      report(res);
       if (res.ok) setEmail("");
     });
   }
@@ -98,7 +113,7 @@ export function TeamManager({ members }: { members: OrgMemberView[] | null }) {
     setConfirming(null);
     startTransition(async () => {
       const res = await removeMemberAction({ memberId: member.memberId });
-      setMessage({ ok: res.ok, text: res.message });
+      report(res);
       // The action revalidated /team: focus waits for the refreshed list to drop the row.
       if (res.ok && focusBack.current !== null) {
         focusBack.current = { ...focusBack.current, untilGone: member.memberId };

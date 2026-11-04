@@ -54,6 +54,11 @@ vi.mock("next/link", () => ({
   }),
 }));
 vi.mock("../../../../../components/nav-pending", () => ({ NavPendingCue: () => null }));
+// The portal's ToastProvider (#2583): a granted unlock is announced through it.
+const toastShow = vi.fn();
+vi.mock("../../../../../components/ds/toast-provider", () => ({
+  useToast: () => ({ show: (t: unknown) => toastShow(t), dismiss: () => {} }),
+}));
 vi.mock("./actions", () => ({
   unlockAction: (i: unknown) => unlockAction(i),
   revealContactAction: (i: unknown) => revealContactAction(i),

@@ -7,6 +7,7 @@ import type { ApplicantPosting } from "../../../../../lib/candidate-inbox";
 import type { ContactView, RevealView, UnlockView } from "../../../../../lib/unlock-view";
 import type { GrantedUnlock } from "../../../../../lib/unlock-history";
 import { Avatar, Badge, Button, Card, Tabs, Toast } from "../../../../../components/ds";
+import { useToast } from "../../../../../components/ds/toast-provider";
 import { PageHeader, type PageHeaderProps } from "../../../../../components/page-header";
 import { PortalLink } from "../../../../../components/portal-link";
 import { bandLabel, monthsLabel, opaqueId } from "../../../../../lib/masking";
@@ -16,6 +17,7 @@ import {
   ConfirmSpendDialog,
   contactBand,
   UnlockResultToast,
+  UNLOCK_GRANTED_TOAST,
   type UnlockResultKind,
 } from "../../../../../components/unlock";
 import {
@@ -291,7 +293,8 @@ export function ApplicantActions(props: ApplicantActionsProps) {
   // The worker whose first unlock is awaiting confirmation (DS Dialog open ⇔ non-null). The
   // confirm is a pure UI gate in the SCREEN — it sends nothing and names no candidate detail.
   const [confirmWorker, setConfirmWorker] = useState<string | null>(null);
-  // Transient unlock-RESULT toast (granted | unavailable). NO-ORACLE: the failure copy is one
+  // Transient unlock-RESULT toast — now the neutral failure only (a grant is the portal toast,
+  // #2583; `granted` is never set here). NO-ORACLE: the failure copy is one
   // neutral line with NO cause (the shared toast reuses NEUTRAL_UNLOCK_MESSAGE). It is purely a
   // confirmation of the spend outcome — never names a candidate, never logs. Added LAST so the
   // upstream useState order (rows, confirmedUnlock, stages, activeStage, confirmWorker) is intact.
@@ -313,6 +316,9 @@ export function ApplicantActions(props: ApplicantActionsProps) {
   // press handled before the re-render, or a `gone` answer deciding which moves are still
   // pending, must see the present. Appended LAST, after `stageNotice`.
   const [inFlight] = useState<Set<string>>(() => new Set());
+  // The portal's toast stack (#2583): a granted unlock is its one success pattern; the neutral
+  // failure and a failed move stay in this card list's own region below.
+  const toast = useToast();
 
   // A row's state before anything happened to it this session: granted when the payer already
   // holds a live grant on this worker (the page's unlock-history read), else locked. Derived from
@@ -411,7 +417,13 @@ export function ApplicantActions(props: ApplicantActionsProps) {
     const res = await unlockAction({ postingId, workerId });
     if (res.ok) {
       patch(workerId, { busy: false, unlock: res.view });
-      setResult(res.view.kind === "granted" ? "granted" : "unavailable");
+      // A grant is the portal's one success toast (#2583); only the neutral failure stays here.
+      if (res.view.kind === "granted") {
+        setResult(null);
+        toast.show(UNLOCK_GRANTED_TOAST);
+      } else {
+        setResult("unavailable");
+      }
     } else {
       patch(workerId, { busy: false, unlockError: res.error });
       setResult("unavailable");

@@ -303,7 +303,9 @@ describe("the navigation pending cue (components/nav-pending.tsx)", () => {
     expect(bar).toBeGreaterThan(-1);
     expect(main.whole).not.toContain('role="status"');
     expect(main.whole).not.toContain("nav-progress");
-    // Exactly one status line in the whole shell.
-    expect(html.match(/role="status"/g)).toHaveLength(1);
+    // Exactly one NAVIGATION status line in the whole shell. The only other polite status is the
+    // portal's one toast stack (#2583) — also outside the inert page, and empty until a toast.
+    expect(html.match(/role="status"/g)).toHaveLength(2);
+    expect(html.match(/class="bb-toast-viewport" role="status"/g)).toHaveLength(1);
   });
 });

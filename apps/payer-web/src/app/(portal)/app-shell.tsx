@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { Icon } from "@badabhai/icons";
 import { IconButtonBase } from "@badabhai/icons/button";
 import { NavPendingStatus } from "../../components/nav-pending";
+import { ToastProvider } from "../../components/ds/toast-provider";
 import { SidebarNav } from "./sidebar-nav";
 import { NavSectionsProvider } from "./nav-context";
 import { openDrawer } from "./drawer-focus";
@@ -105,87 +106,91 @@ export function AppShell({
     .filter(Boolean)
     .join(" ");
 
+  // The portal's ONE toast stack (#2583) wraps the shell: its live region sits outside
+  // `.pshell__main`, so it stays announceable behind the open drawer.
   return (
-    <div className={shellClass}>
-      {/* The navigation under way: the page-wide bar and the one status line. Here, OUTSIDE
+    <ToastProvider>
+      <div className={shellClass}>
+        {/* The navigation under way: the page-wide bar and the one status line. Here, OUTSIDE
           `.pshell__main` — which goes inert behind the open drawer — and out of the grid flow
           (fixed bar, sr-only line). components/nav-pending.tsx. */}
-      <NavPendingStatus />
+        <NavPendingStatus />
 
-      {/* Open, the rail is a drawer — the only way it opens is the menu button, drawn below 1024px,
+        {/* Open, the rail is a drawer — the only way it opens is the menu button, drawn below 1024px,
           and leaving drawer mode closes it — so it is a labelled modal dialog then; otherwise it
           is the plain rail landmark. */}
-      <aside
-        className="pshell__rail"
-        id={railId}
-        ref={railRef}
-        role={drawerOpen ? "dialog" : undefined}
-        aria-modal={drawerOpen ? true : undefined}
-        aria-label={drawerOpen ? "Navigation" : undefined}
-      >
-        <div className="pshell__brand">{brand}</div>
+        <aside
+          className="pshell__rail"
+          id={railId}
+          ref={railRef}
+          role={drawerOpen ? "dialog" : undefined}
+          aria-modal={drawerOpen ? true : undefined}
+          aria-label={drawerOpen ? "Navigation" : undefined}
+        >
+          <div className="pshell__brand">{brand}</div>
 
-        <SidebarNav sections={sections} />
+          <SidebarNav sections={sections} />
 
-        <div className="pshell__railfoot">
-          {footer}
-          <button
-            className="pshell__collapse"
-            type="button"
-            onClick={() => setCollapsed((v) => !v)}
-            aria-expanded={!collapsed}
-            aria-controls={railId}
-            aria-label={collapseLabel}
-            /* Collapsed, the button is icon-only. Its tooltip is the rail's own — the title bubble
+          <div className="pshell__railfoot">
+            {footer}
+            <button
+              className="pshell__collapse"
+              type="button"
+              onClick={() => setCollapsed((v) => !v)}
+              aria-expanded={!collapsed}
+              aria-controls={railId}
+              aria-label={collapseLabel}
+              /* Collapsed, the button is icon-only. Its tooltip is the rail's own — the title bubble
                every rail link shows for its hidden label — because the rail scrolls
                (overflow-y), which would clip the shared `.bb-icon-tip` on the narrow icon rail. */
-            title={collapseLabel}
-          >
-            <Icon name={collapsed ? "caret-right" : "caret-left"} />
-            <span className="pnav__label">Collapse</span>
-          </button>
-        </div>
-      </aside>
+              title={collapseLabel}
+            >
+              <Icon name={collapsed ? "caret-right" : "caret-left"} />
+              <span className="pnav__label">Collapse</span>
+            </button>
+          </div>
+        </aside>
 
-      {/* Scrim: a POINTER target while the drawer is open, hidden from assistive tech the rest of
+        {/* Scrim: a POINTER target while the drawer is open, hidden from assistive tech the rest of
           the time so it never shows up as a stray button in the reading order. Never a Tab stop:
           it covers the viewport, so its focus ring would be drawn off-screen; the open drawer
           keeps Tab inside itself, and Escape closes it from the keyboard. */}
-      <button
-        ref={scrimRef}
-        className="pshell__scrim"
-        type="button"
-        tabIndex={-1}
-        aria-hidden={!drawerOpen}
-        aria-label="Close navigation"
-        onClick={() => setDrawerOpen(false)}
-      />
+        <button
+          ref={scrimRef}
+          className="pshell__scrim"
+          type="button"
+          tabIndex={-1}
+          aria-hidden={!drawerOpen}
+          aria-label="Close navigation"
+          onClick={() => setDrawerOpen(false)}
+        />
 
-      {/* Behind the open drawer the page is `inert`: no Tab stop, no pointer target, nothing a
+        {/* Behind the open drawer the page is `inert`: no Tab stop, no pointer target, nothing a
           screen reader can wander into — the modal half of the drawer. */}
-      <div className="pshell__main" inert={drawerOpen}>
-        <header className="pshell__header">
-          {/* The shared icon-only control: "Navigation" is its name AND its visible tooltip (on
+        <div className="pshell__main" inert={drawerOpen}>
+          <header className="pshell__header">
+            {/* The shared icon-only control: "Navigation" is its name AND its visible tooltip (on
               hover and keyboard focus, Escape-dismissable), opening inward from the top-left. */}
-          <IconButtonBase
-            id={menuId}
-            classBase="pshell__menu"
-            icon="list"
-            label="Navigation"
-            tooltipPlacement="bottom-start"
-            onClick={() => setDrawerOpen((v) => !v)}
-            aria-expanded={drawerOpen}
-            aria-controls={railId}
-          />
-          {header}
-        </header>
+            <IconButtonBase
+              id={menuId}
+              classBase="pshell__menu"
+              icon="list"
+              label="Navigation"
+              tooltipPlacement="bottom-start"
+              onClick={() => setDrawerOpen((v) => !v)}
+              aria-expanded={drawerOpen}
+              aria-controls={railId}
+            />
+            {header}
+          </header>
 
-        <main className="pshell__content" id="main">
-          {/* The same sections, for the content column's client pieces (the error boundary's
+          <main className="pshell__content" id="main">
+            {/* The same sections, for the content column's client pieces (the error boundary's
               way back up — nav-context.tsx). */}
-          <NavSectionsProvider value={sections}>{children}</NavSectionsProvider>
-        </main>
+            <NavSectionsProvider value={sections}>{children}</NavSectionsProvider>
+          </main>
+        </div>
       </div>
-    </div>
+    </ToastProvider>
   );
 }

@@ -23,12 +23,11 @@ import type { CreditPack } from "../../../lib/contracts";
 let stateQueue: unknown[] = [];
 let stateCursor = 0;
 // The setter for each useState slot from the LAST render, so a test can assert WHICH toast a
-// handler set. useState order in credits-panel: 0 pendingCode, 1 pendingConfirm, 2 message,
-// 3 notice, 4 error.
+// handler set. useState order in credits-panel: 0 pendingCode, 1 pendingConfirm, 2 notice,
+// 3 error. A completed purchase is no longer panel state: it is a toast (#2583, `toastShow`).
 let stateSetters: ReturnType<typeof vi.fn>[] = [];
-const MESSAGE_IDX = 2;
-const NOTICE_IDX = 3;
-const ERROR_IDX = 4;
+const NOTICE_IDX = 2;
+const ERROR_IDX = 3;
 const useState = vi.fn((initial: unknown) => {
   const i = stateCursor++;
   const seeded = i < stateQueue.length ? stateQueue[i] : initial;
@@ -56,6 +55,12 @@ vi.mock("react", async () => {
   };
 });
 
+// The portal's ToastProvider (#2583): the panel announces a completed purchase through it.
+const toastShow = vi.fn();
+vi.mock("../../../components/ds/toast-provider", () => ({
+  useToast: () => ({ show: toastShow, dismiss: vi.fn() }),
+}));
+
 const routerRefresh = vi.fn();
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: routerRefresh }) }));
 
@@ -75,6 +80,7 @@ vi.mock("./razorpay-checkout", () => ({
 }));
 
 const { CreditsPanel } = await import("./credits-panel");
+const { CountUp } = await import("../../../components/ds/count-up");
 
 const PACK_A: CreditPack = { code: "pack_50", priceInr: 2000, credits: 50 };
 const PACK_B: CreditPack = { code: "pack_100", priceInr: 3500, credits: 100 };
@@ -101,7 +107,7 @@ function textOf(node: ReactNode): string {
 
 /** Render with the confirm Dialog ARMED for `pack` (useState order: pendingCode, pendingConfirm, …). */
 function render(pack: CreditPack): ReactElement {
-  stateQueue = [null, pack, null, null, null];
+  stateQueue = [null, pack, null, null];
   stateCursor = 0;
   return CreditsPanel({ packs: [PACK_A, PACK_B], real: false }) as ReactElement;
 }
@@ -133,6 +139,7 @@ beforeEach(() => {
   loadCheckoutScript.mockReset();
   openCheckout.mockReset();
   routerRefresh.mockReset();
+  toastShow.mockReset();
   keyBox = { current: null };
   uuidCounter = 0;
   vi.stubGlobal("crypto", { randomUUID: () => `key-${++uuidCounter}` });
@@ -211,7 +218,7 @@ describe("credits panel — a 409 PENDING is honest + KEEPS the key (#1185)", ()
       expect.stringContaining("still processing"),
     );
     // …and NEITHER the success message NOR the error toast is ever set (only the reset-to-null).
-    expect(argsOf(stateSetters[MESSAGE_IDX]!)).toEqual([null]);
+    expect(toastShow).not.toHaveBeenCalled();
     expect(argsOf(stateSetters[ERROR_IDX]!)).toEqual([null]);
   });
 });
@@ -250,13 +257,57 @@ describe("credits panel — PR-D2 best-value container flag", () => {
   });
 
   it("follows the catalog, not a position: re-price A below B and the flag moves with it", () => {
-    stateQueue = [null, null, null, null, null];
+    stateQueue = [null, null, null, null];
     stateCursor = 0;
     const cheapA: CreditPack = { ...PACK_A, priceInr: 1000 }; // ₹20/credit now beats B's ₹35
     const tree = CreditsPanel({ packs: [cheapA, PACK_B], real: false }) as ReactElement;
     const best = packCards(tree).filter(isBest);
     expect(best).toHaveLength(1);
     expect(best[0]!.key).toBe(PACK_A.code);
+  });
+});
+
+/**
+ * #2583 (W3) — ONE success pattern and ONE primary. A completed purchase is a toast from the
+ * portal's ToastProvider with the balance counting up from the old figure to the server's new
+ * one; it is never panel state. Only the best-value pack's Buy is primary.
+ */
+describe("credits panel — #2583: success is a toast; one primary", () => {
+  it("a completed top-up shows ONE success toast whose balance counts up to the server's figure", async () => {
+    topUpAction.mockResolvedValueOnce({ ok: true, balance: 60, creditsAdded: 50 });
+    await confirmBuy(PACK_A);
+    expect(toastShow).toHaveBeenCalledTimes(1);
+    const shown = toastShow.mock.calls[0]![0] as { tone: string; title: string; message: ReactNode };
+    expect(shown.tone).toBe("success");
+    expect(shown.title).toBe("Credits added");
+    const counts = findAll(shown.message, CountUp);
+    expect(counts).toHaveLength(1);
+    expect(counts[0]!.props).toMatchObject({ from: 10, to: 60 });
+    expect(textOf(shown.message)).toContain("Added 50 credits.");
+    // Not panel state: no neutral notice, no error.
+    expect(argsOf(stateSetters[NOTICE_IDX]!)).toEqual([null]);
+    expect(argsOf(stateSetters[ERROR_IDX]!)).toEqual([null]);
+  });
+
+  it("a failed top-up shows no toast — the error stays in the panel", async () => {
+    topUpAction.mockResolvedValueOnce({ ok: false, error: "Top-up failed. Please retry." });
+    await confirmBuy(PACK_A);
+    expect(toastShow).not.toHaveBeenCalled();
+    expect(argsOf(stateSetters[ERROR_IDX]!)).toContain("Top-up failed. Please retry.");
+  });
+
+  it("only the best-value pack's Buy is primary; the rest are secondary", () => {
+    stateQueue = [null, null, null, null];
+    stateCursor = 0;
+    const tree = CreditsPanel({ packs: [PACK_A, PACK_B], real: false }) as ReactElement;
+    const variants = findAll(tree, Card).map((c) => [
+      c.key,
+      (findAll(c, Button)[0]!.props as { variant?: string }).variant,
+    ]);
+    expect(variants).toEqual([
+      [PACK_A.code, "secondary"],
+      [PACK_B.code, "primary"],
+    ]);
   });
 });
 
@@ -280,7 +331,7 @@ describe("credits panel — no mock wording, in either mode", () => {
 
   it("a pack's button reads 'Buy' in both modes", () => {
     for (const real of [false, true]) {
-      stateQueue = [null, null, null, null, null];
+      stateQueue = [null, null, null, null];
       stateCursor = 0;
       const tree = CreditsPanel({ packs: [PACK_A, PACK_B], real }) as ReactElement;
       expect(packButtons(tree), `real=${real}`).toEqual([
@@ -293,7 +344,7 @@ describe("credits panel — no mock wording, in either mode", () => {
   it("the armed confirm and a running purchase carry no mock copy", () => {
     for (const real of [false, true]) {
       for (const queue of [
-        [null, PACK_A, null, null, null], // the confirm armed
+        [null, PACK_A, null, null], // the confirm armed
         [PACK_A.code, null, null, null, null], // a purchase running
       ]) {
         stateQueue = queue;
@@ -305,7 +356,7 @@ describe("credits panel — no mock wording, in either mode", () => {
       }
     }
     // …and the confirm still names what is bought and its price (the flow is unchanged).
-    stateQueue = [null, PACK_A, null, null, null];
+    stateQueue = [null, PACK_A, null, null];
     stateCursor = 0;
     const dialog = findAll(
       CreditsPanel({ packs: [PACK_A, PACK_B], real: false }) as ReactElement,
@@ -319,7 +370,7 @@ describe("credits panel — no mock wording, in either mode", () => {
 
 describe("credits panel — fence: the purchase dialog never says it charges (review B1)", () => {
   it("the armed confirm shows the price and claims no charge", () => {
-    stateQueue = [null, PACK_A, null, null, null];
+    stateQueue = [null, PACK_A, null, null];
     stateCursor = 0;
     const tree = CreditsPanel({ packs: [PACK_A, PACK_B], real: false }) as ReactElement;
     const dialog = findAll(tree, Dialog)[0]!;
@@ -346,7 +397,7 @@ describe("credits panel — #2085: the price shown is the price sent; a refused 
 
   /** Render with `pack` armed and read back the ONE ₹ figure its confirm question shows. */
   function shownInConfirm(pack: CreditPack): number {
-    stateQueue = [null, pack, null, null, null];
+    stateQueue = [null, pack, null, null];
     stateCursor = 0;
     const tree = CreditsPanel({ packs: PACKS, real: false }) as ReactElement;
     const body = textOf((findAll(tree, Dialog)[0]!.props as { children?: ReactNode }).children);
@@ -357,7 +408,7 @@ describe("credits panel — #2085: the price shown is the price sent; a refused 
 
   /** Arm `pack` and press the confirm, as the payer does. */
   async function confirmFrom(pack: CreditPack): Promise<void> {
-    stateQueue = [null, pack, null, null, null];
+    stateQueue = [null, pack, null, null];
     stateCursor = 0;
     const tree = CreditsPanel({ packs: PACKS, real: false }) as ReactElement;
     const footer = (findAll(tree, Dialog)[0]!.props as { footer?: ReactNode }).footer;
@@ -380,7 +431,7 @@ describe("credits panel — #2085: the price shown is the price sent; a refused 
   });
 
   it("an offer is shown honestly: the tile strikes the list price beside the offer price", () => {
-    stateQueue = [null, null, null, null, null];
+    stateQueue = [null, null, null, null];
     stateCursor = 0;
     const tree = CreditsPanel({ packs: PACKS, real: false }) as ReactElement;
     const tile = findAll(tree, Card).find((c) => c.key === OFFER_PACK.code)!;
@@ -402,7 +453,7 @@ describe("credits panel — #2085: the price shown is the price sent; a refused 
       "The price changed to ₹2,400. Review and confirm again.",
     );
     // Neutral: neither the success toast nor the danger toast.
-    expect(argsOf(stateSetters[MESSAGE_IDX]!)).toEqual([null]);
+    expect(toastShow).not.toHaveBeenCalled();
     expect(argsOf(stateSetters[ERROR_IDX]!)).toEqual([null]);
     expect(routerRefresh).toHaveBeenCalledTimes(1);
   });
@@ -417,7 +468,7 @@ describe("credits panel — #2085: the price shown is the price sent; a refused 
 
   it("real mode: the order carries the tile's price; a refused price opens no checkout and says so", async () => {
     createOrderAction.mockResolvedValue({ ok: false, priceChanged: true, currentPriceInr: 7000 });
-    stateQueue = [null, null, null, null, null];
+    stateQueue = [null, null, null, null];
     stateCursor = 0;
     const tree = CreditsPanel({ packs: PACKS, real: true }) as ReactElement;
     const tile = findAll(tree, Card).find((c) => c.key === OFFER_PACK.code)!;
@@ -441,7 +492,7 @@ describe("credits panel — #2085: the price shown is the price sent; a refused 
   });
 
   it("Cancel sends nothing", () => {
-    stateQueue = [null, OFFER_PACK, null, null, null];
+    stateQueue = [null, OFFER_PACK, null, null];
     stateCursor = 0;
     const tree = CreditsPanel({ packs: PACKS, real: false }) as ReactElement;
     const dialog = findAll(tree, Dialog)[0]!;

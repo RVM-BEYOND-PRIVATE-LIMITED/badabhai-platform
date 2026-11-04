@@ -14,6 +14,13 @@
  * consumer can render `role=tabpanel` + `aria-labelledby={tabId(idBase, id)}` and the
  * pair is announced as one widget. `idBase` is additive/optional — existing call sites
  * (segmented filters) keep working unchanged.
+ *
+ * ONE SLIDING INDICATOR (#2583): the underline and the segment's raised pill are a single
+ * aria-hidden element that glides to the active tab (transform only, --duration-slow /
+ * --ease-glide; still under reduced motion). It is placed from the live layout by a callback ref
+ * — no hooks, see below — and re-placed when the tablist resizes. Until it is placed (server
+ * render, before hydration) the active tab draws its own static marker, so there is never a frame
+ * without one.
  */
 import type { HTMLAttributes, KeyboardEvent, ReactNode } from "react";
 import { Icon, type IconName } from "@badabhai/icons";
@@ -46,6 +53,40 @@ export interface TabsProps extends Omit<HTMLAttributes<HTMLDivElement>, "onChang
 export const tabId = (idBase: string, id: string) => `${idBase}-tab-${id}`;
 /** The element id of a tab's panel for a given `idBase` (use as the tab's `aria-controls`). */
 export const tabPanelId = (idBase: string, id: string) => `${idBase}-panel-${id}`;
+
+/** Set on the tablist once its indicator is placed; the stylesheet hands the marker over then. */
+export const TABS_INDICATOR_ATTR = "data-indicator";
+
+/**
+ * Move the indicator onto the active tab: its offset box becomes the indicator's CSS variables.
+ * With no active tab the attribute is dropped and no tab is marked.
+ */
+export function placeTabsIndicator(list: HTMLElement): void {
+  const bar = list.querySelector<HTMLElement>(".bb-tabs__indicator");
+  const active = list.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]');
+  if (!bar || !active) {
+    list.removeAttribute(TABS_INDICATOR_ATTR);
+    return;
+  }
+  bar.style.setProperty("--bb-tabs-x", `${active.offsetLeft}px`);
+  bar.style.setProperty("--bb-tabs-y", `${active.offsetTop}px`);
+  bar.style.setProperty("--bb-tabs-w", `${active.offsetWidth}px`);
+  bar.style.setProperty("--bb-tabs-h", `${active.offsetHeight}px`);
+  list.setAttribute(TABS_INDICATOR_ATTR, "ready");
+}
+
+/**
+ * The tablist's callback ref. A fresh function each render, so React calls it after EVERY commit
+ * — a new active tab is placed without a hook — and its cleanup stops the resize watch.
+ */
+function indicatorRef(list: HTMLDivElement | null): (() => void) | undefined {
+  if (!list) return undefined;
+  placeTabsIndicator(list);
+  if (typeof ResizeObserver === "undefined") return undefined;
+  const watch = new ResizeObserver(() => placeTabsIndicator(list));
+  watch.observe(list);
+  return () => watch.disconnect();
+}
 
 export function Tabs({
   tabs,
@@ -99,7 +140,7 @@ export function Tabs({
   }
 
   return (
-    <div className={cls} role="tablist" {...rest}>
+    <div className={cls} role="tablist" ref={(el) => indicatorRef(el)} {...rest}>
       {tabs.map((t, i) => {
         const active = value === t.id;
         // Roving tabindex: only the active tab (or the first, when none is active) is a
@@ -125,6 +166,7 @@ export function Tabs({
           </button>
         );
       })}
+      <span className="bb-tabs__indicator" aria-hidden="true" />
     </div>
   );
 }

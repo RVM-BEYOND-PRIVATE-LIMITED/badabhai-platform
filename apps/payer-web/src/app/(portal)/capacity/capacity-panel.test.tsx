@@ -22,12 +22,11 @@ import type { CapacityTier } from "./capacity-panel";
 let stateQueue: unknown[] = [];
 let stateCursor = 0;
 // The setter for each useState slot from the LAST render, so a test can assert WHICH toast a
-// handler set. useState order in capacity-panel: 0 pendingCode, 1 pendingConfirm, 2 message,
-// 3 error, 4 notice.
+// handler set. useState order in capacity-panel: 0 pendingCode, 1 pendingConfirm, 2 error,
+// 3 notice. A recorded upgrade is no longer panel state: it is a toast (#2583, `toastShow`).
 let stateSetters: ReturnType<typeof vi.fn>[] = [];
-const MESSAGE_IDX = 2;
-const ERROR_IDX = 3;
-const NOTICE_IDX = 4;
+const ERROR_IDX = 2;
+const NOTICE_IDX = 3;
 const useState = vi.fn((initial: unknown) => {
   const i = stateCursor++;
   const seeded = i < stateQueue.length ? stateQueue[i] : initial;
@@ -63,6 +62,12 @@ vi.mock("react", async () => {
     },
   };
 });
+
+// The portal's ToastProvider (#2583): the panel announces a recorded upgrade through it.
+const toastShow = vi.fn();
+vi.mock("../../../components/ds/toast-provider", () => ({
+  useToast: () => ({ show: toastShow, dismiss: vi.fn() }),
+}));
 
 const routerRefresh = vi.fn();
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: routerRefresh }) }));
@@ -133,6 +138,7 @@ beforeEach(() => {
   stateSetters = [];
   upgradeCapacityAction.mockReset();
   routerRefresh.mockReset();
+  toastShow.mockReset();
   refs = [];
   uuidCounter = 0;
   vi.stubGlobal("crypto", { randomUUID: () => `key-${++uuidCounter}` });
@@ -140,6 +146,32 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+});
+
+/** #2583 (W3) — a recorded upgrade is a toast, never panel state; one primary tier. */
+describe("capacity panel — #2583: success is a toast; one primary", () => {
+  it("a recorded upgrade shows ONE success toast and sets no notice or error", async () => {
+    upgradeCapacityAction.mockResolvedValueOnce({ ok: true, resumedCount: 2 });
+    await confirmUpgrade(TIER_B);
+    expect(toastShow).toHaveBeenCalledTimes(1);
+    expect(toastShow).toHaveBeenCalledWith({
+      tone: "success",
+      message: "Capacity recorded — 2 posting(s) resumed.",
+    });
+    expect(argsOf(stateSetters[NOTICE_IDX]!)).toEqual([null]);
+    expect(argsOf(stateSetters[ERROR_IDX]!)).toEqual([null]);
+  });
+
+  it("only the MOST CAPACITY tier's Upgrade is primary; the rest are secondary", () => {
+    const tree = render(null);
+    const variants = findAll(tree, Button)
+      .filter((b) => (b.props as { block?: boolean }).block === true)
+      .map((b) => [(b.props as { id?: string }).id, (b.props as { variant?: string }).variant]);
+    expect(variants).toEqual([
+      ["capacity-tier-starter", "secondary"],
+      ["capacity-tier-growth", "primary"],
+    ]);
+  });
 });
 
 describe("capacity panel — ONE key per PURCHASE (a): a retry of the SAME tier reuses the SAME key", () => {
@@ -209,7 +241,7 @@ describe("capacity panel — a 409 PENDING is honest + KEEPS the key (#1185)", (
       expect.stringContaining("still processing"),
     );
     // …and NEITHER the success message NOR the error toast is ever set (only the reset-to-null).
-    expect(argsOf(stateSetters[MESSAGE_IDX]!)).toEqual([null]);
+    expect(toastShow).not.toHaveBeenCalled();
     expect(argsOf(stateSetters[ERROR_IDX]!)).toEqual([null]);
   });
 });
@@ -524,7 +556,7 @@ describe("capacity panel — #2085: the price shown is the price sent; a refused
     expect(argsOf(stateSetters[NOTICE_IDX]!)).toContain(
       "The price changed to ₹5,499. Review and confirm again.",
     );
-    expect(argsOf(stateSetters[MESSAGE_IDX]!)).toEqual([null]);
+    expect(toastShow).not.toHaveBeenCalled();
     expect(argsOf(stateSetters[ERROR_IDX]!)).toEqual([null]);
     expect(routerRefresh).toHaveBeenCalledTimes(1);
   });

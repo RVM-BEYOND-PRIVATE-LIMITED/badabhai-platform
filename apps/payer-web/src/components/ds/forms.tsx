@@ -88,7 +88,11 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   iconLeft?: IconName;
   /** Glyph rendered after the label. */
   iconRight?: IconName;
-  /** Show a spinner and disable interaction. */
+  /**
+   * Busy: the label cross-fades to the shared spinner IN PLACE (the label keeps its box, so the
+   * button never changes width under the click), `aria-busy` is set, and clicks are blocked
+   * (the button is disabled) — but it keeps full opacity: busy is not "unavailable" (#2583).
+   */
   loading?: boolean;
 }
 
@@ -133,12 +137,22 @@ export function Button({
     .filter(Boolean)
     .join(" ");
 
+  // The label row is always rendered — while busy it fades out and the spinner overlays it, so
+  // the button's width is the label's whether or not it is busy (#2583).
   return (
-    <button type={type} className={cls} disabled={disabled || loading} {...rest}>
-      {loading && <span className="bb-btn__spinner" aria-hidden="true" />}
-      {!loading && iconLeft && <Icon name={iconLeft} />}
-      {children != null && <span>{children}</span>}
-      {!loading && iconRight && <Icon name={iconRight} />}
+    <button
+      type={type}
+      className={cls}
+      disabled={disabled || loading}
+      aria-busy={loading || undefined}
+      {...rest}
+    >
+      <span className="bb-btn__label">
+        {iconLeft && <Icon name={iconLeft} />}
+        {children != null && <span>{children}</span>}
+        {iconRight && <Icon name={iconRight} />}
+      </span>
+      {loading && <span className="bb-btn__spinner bb-spinner" aria-hidden="true" />}
     </button>
   );
 }
