@@ -566,6 +566,16 @@ export const tradeLevelBadgeWireSchema = z.object({
 export type TradeLevelBadgeWire = z.infer<typeof tradeLevelBadgeWireSchema>;
 
 /**
+ * "Level needed" fit for a COMPANY-posting applicant row (API #2548, ADR-0061).
+ * `null` means the list has no level sort (flag off, "Any level", or a trade
+ * outside the 4). OPTIONAL so an older API that predates the field still parses.
+ * Present only while `LEVEL_NEEDED_SORT_ENABLED` is on; the server's order stays
+ * authoritative and nothing here re-sorts or hides a row.
+ */
+export const levelFitSchema = z.enum(["meets", "not_confirmed", "below"]).nullable();
+export type LevelFit = z.infer<typeof levelFitSchema>;
+
+/**
  * One faceless applicant on a posting. NO name/phone/employer/raw-PII — only the
  * opaque worker_id + banded, post-masking signals the API authorizes (XB-C: no
  * existence/consent oracle leaks here either).
@@ -614,6 +624,12 @@ export const facelessApplicantSchema = z.object({
    * Optional because a backend that predates P5 (or the legacy weighted row) sends none.
    */
   tradeLevels: z.array(tradeLevelBadgeWireSchema).optional(),
+
+  /**
+   * "Level needed" fit (API #2548, ADR-0061) — company postings only. Absent or
+   * `null` means there is no level sort; the card then shows no level tag.
+   */
+  levelFit: levelFitSchema.optional(),
 
   /**
    * The applicant's SAVED place on the payer's New / Shortlist / Passed board for this posting
@@ -1086,6 +1102,7 @@ export const reachApplicantWireSchema = z.object({
   experienceBand: z.string().nullable().optional(),
   tradeLabel: z.string().nullable().optional(),
   cityLabel: z.string().nullable().optional(),
+  levelFit: levelFitSchema.optional(),
   stage: applicantStageWireSchema.optional(),
 });
 
@@ -1112,6 +1129,7 @@ export const matchCandidateWireSchema = z.object({
   matchedSkillLabel: z.string().nullable(),
   engineVersion: z.string().nullable(),
   tradeLevels: z.array(tradeLevelBadgeWireSchema).optional(),
+  levelFit: levelFitSchema.optional(),
   stage: applicantStageWireSchema.optional(),
 });
 

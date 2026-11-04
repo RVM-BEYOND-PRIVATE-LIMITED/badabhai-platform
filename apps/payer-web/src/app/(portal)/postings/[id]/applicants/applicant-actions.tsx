@@ -741,6 +741,15 @@ export function ApplicantActions(props: ApplicantActionsProps) {
                         {a.hot === true ? <Badge tone="warning">Hot</Badge> : null}
                       </>
                     )}
+                    {/* "Level needed" fit (#2548, ADR-0061). ONLY the unconfirmed
+                        group is tagged: `meets` needs no explanation, `below` stays
+                        quiet, and `null`/absent means no level sort at all. Purely
+                        a label — the server's order is what the card list keeps. */}
+                    {a.levelFit === "not_confirmed" ? (
+                      <Badge tone="warning" variant="outline" className="applicant__level">
+                        Level not confirmed
+                      </Badge>
+                    ) : null}
                   </div>
                 </div>
 

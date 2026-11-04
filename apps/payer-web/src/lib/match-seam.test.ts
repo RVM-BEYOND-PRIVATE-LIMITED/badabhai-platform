@@ -242,6 +242,25 @@ describe("GET /payer/reach/jobs/:id/applicants — BOTH server shapes parse (mom
     expect(a.signals).toEqual([]);
   });
 
+  it("carries levelFit from the company row and treats absent/null as no tag", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        jobId: POSTING_ID,
+        applicants: [
+          { ...V1_ROW, levelFit: "not_confirmed" },
+          { ...V1_ROW, levelFit: null },
+          V1_ROW,
+        ],
+      }),
+    );
+    const { getApplicantFeed } = await import("./payer-api");
+    const rows = (await getApplicantFeed(POSTING_ID))!.applicants;
+    expect(rows[0]!.levelFit).toBe("not_confirmed");
+    // null (no level sort) and an older API's ABSENT field both read as no tag.
+    expect(rows[1]!.levelFit).toBeUndefined();
+    expect(rows[2]!.levelFit).toBeUndefined();
+  });
+
   it("parses a V1 row from an OLD backend with no tradeLevels (the field is optional)", async () => {
     const { tradeLevels: _rungs, ...oldBackendRow } = V1_ROW;
     void _rungs;

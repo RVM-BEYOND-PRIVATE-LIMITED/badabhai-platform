@@ -13,6 +13,7 @@ import '../../../core/widgets/bb_status_view.dart';
 import '../../../core/widgets/bb_toast.dart';
 import 'cubit/agency_jobs_cubit.dart';
 import 'edit_agency_job_screen.dart';
+import 'widgets/trade_posting_fields.dart' show humaniseTradeKey;
 
 /// My jobs — AGENCY branch. Lists the agency session's own faceless postings
 /// (`GET /payer/agency/jobs`): trade label · title · city/area · pay & experience
@@ -170,6 +171,9 @@ class _AgencyJobCard extends StatelessWidget {
       job.locationText,
       if (job.payRangeLabel != null) job.payRangeLabel!,
       if (job.experienceLabel != null) job.experienceLabel!,
+      // #2548 — read-only until level editing in the app is decided (Q1).
+      if (job.tradeLevel != null && job.tradeLevel!.isNotEmpty)
+        'Level needed: ${humaniseTradeKey(job.tradeLevel!)}',
     ];
 
     return BbCard(

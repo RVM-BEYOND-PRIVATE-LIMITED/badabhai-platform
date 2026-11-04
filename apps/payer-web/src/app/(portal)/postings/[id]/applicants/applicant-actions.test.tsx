@@ -935,6 +935,35 @@ describe("ApplicantActions — Middle Way P5 level badge (display only)", () => 
   });
 });
 
+describe("ApplicantActions — \"Level needed\" fit tag (#2548)", () => {
+  const v1 = (over: Partial<FacelessApplicant>): FacelessApplicant => ({
+    workerId: WORKER,
+    rank: 1,
+    score: 0,
+    hot: false,
+    signals: [],
+    matchTier: 1,
+    effectiveTier: 1,
+    skillMonths: 48,
+    ...over,
+  });
+  const levelTags = (a: FacelessApplicant) =>
+    elements(render({ applicants: [a] })).filter((e) => hasClass(e, "applicant__level"));
+
+  it("tags ONLY the not_confirmed group", () => {
+    const tags = levelTags(v1({ levelFit: "not_confirmed" }));
+    expect(tags).toHaveLength(1);
+    expect(textOf(tags[0]!.props.children as ReactNode)).toBe("Level not confirmed");
+  });
+
+  it("meets, below, null and absent show no level tag", () => {
+    expect(levelTags(v1({ levelFit: "meets" }))).toHaveLength(0);
+    expect(levelTags(v1({ levelFit: "below" }))).toHaveLength(0);
+    expect(levelTags(v1({ levelFit: null }))).toHaveLength(0);
+    expect(levelTags(v1({}))).toHaveLength(0);
+  });
+});
+
 /* ── W2-B layout: one toolbar of secondary actions + ONE focal spend band per card ───────── */
 
 type El = ReactElement<Record<string, unknown> & { children?: ReactNode }>;
