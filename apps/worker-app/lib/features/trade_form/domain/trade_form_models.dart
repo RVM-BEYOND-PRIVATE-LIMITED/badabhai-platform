@@ -688,6 +688,11 @@ const int kTradeFormMaxLanguages = 6;
 /// `.strict()`), losing the shift / cities / salary edits sent with it.
 const int kTradeFormMaxNoticeDays = 180;
 
+/// The `availability.status` slug that has a notice period (`availability_status`
+/// in `GET /workers/me/work-preferences/options`). On the trade form's first
+/// pass the notice page follows ONLY this answer (#2642).
+const String kAvailabilityServingNotice = 'serving_notice';
+
 /// The closed-set preferences a worker sets on a `preferences` marker screen.
 ///
 /// Deliberately carries NO education/credential fields any more — this
@@ -759,6 +764,11 @@ class TradeFormPreferences extends Equatable {
   /// now holds the worker's real stored answer rather than a blank default.
   /// That is what makes [toJson]'s `touched_only` signal honest.
   final Set<String> touched;
+
+  /// True once the worker changed a part of the availability object on this
+  /// walk. The trade form's first pass uses it to tell an answer given NOW
+  /// (its page stays) from one already stored (asked once, #2642).
+  bool get availabilityTouched => touched.contains(_kPrefAvailabilityKey);
 
   TradeFormPreferences copyWith({
     Set<String>? languages,
