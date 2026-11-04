@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import type { PageHeaderContent } from "./page-header";
 import type { JobPostingListItem, PayerDetail } from "../lib/entities";
 import type { AdminCapability } from "../lib/auth/capabilities";
+import { CUSTOMERS_HREF } from "../lib/customer";
 
 /**
  * One payer account, under the three name postures.
@@ -277,7 +278,8 @@ describe("the page never calls the customer an account", () => {
         payer={payer}
         postings={postings}
         kind={kind}
-        backHref={kind === "Company" ? "/companies" : "/agencies"}
+        // One customers list for both kinds since A6 (#2576) — what PayerDetailRoute passes.
+        backHref={CUSTOMERS_HREF}
         capabilities={capabilities}
       />,
     );
