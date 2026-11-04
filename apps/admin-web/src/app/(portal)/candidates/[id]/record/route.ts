@@ -14,7 +14,8 @@ import {
  * hourly name budget). Next runs server actions through the router's queue, and a URL change made
  * while one is pending DISCARDS it and schedules a full refresh of the page — a ↓ pressed while a
  * record loads would have re-read the whole list. A plain fetch never enters that queue, can be
- * aborted when the drawer moves on, and runs beside the next.
+ * aborted when the drawer moves on, and runs beside the next. The drawer's phone reveal is a route
+ * for the same reason (`../phone/route.ts`, which also makes the server action's own checks).
  *
  * ── AN ABORTED READ ─────────────────────────────────────────────────────────────────────
  * The incoming request's signal is passed to the API call (`readCandidateRecord` → `adminFetch`),

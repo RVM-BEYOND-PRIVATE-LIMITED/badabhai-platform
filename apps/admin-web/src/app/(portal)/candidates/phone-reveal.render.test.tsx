@@ -52,7 +52,7 @@ vi.mock("../../../components/confirm-dialog", () => ({
 }));
 
 const reveal = vi.hoisted(() => vi.fn());
-vi.mock("./actions", () => ({ revealCandidatePhoneAction: reveal }));
+vi.mock("./phone-reveal-model", () => ({ requestPhoneReveal: reveal }));
 
 const { PhoneField, REVEAL_REASON_CATEGORIES } = await import("./phone-reveal");
 const { LOCK_REASONS } = await import("./locked-tag");
@@ -122,18 +122,17 @@ describe("the confirm-with-reason (A5's T2)", () => {
     expect(confirm!.description).toContain("not stored");
   });
 
-  it("confirming sends this worker, the reason code and the explanation to the reveal action", async () => {
+  it("confirming sends this worker, the reason code and the explanation to the reveal route", async () => {
     reveal.mockResolvedValue({ ok: true, phone: "+919800000001" });
     html(true);
     const outcome = await confirm!.onConfirm({
       category: "worker_support_callback",
       text: "Worker asked for a call back",
     });
-    expect(reveal).toHaveBeenCalledWith(
-      RECORD_WORKER_ID,
-      "worker_support_callback",
-      "Worker asked for a call back",
-    );
+    expect(reveal).toHaveBeenCalledWith(RECORD_WORKER_ID, {
+      category: "worker_support_callback",
+      text: "Worker asked for a call back",
+    });
     expect(outcome).toEqual({ ok: true, changed: true, message: "Phone revealed." });
     // The phone goes into this field's state — the only place it is kept.
     expect(sets).toContainEqual([PHONE, "+919800000001"]);

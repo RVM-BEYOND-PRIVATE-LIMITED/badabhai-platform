@@ -10,7 +10,7 @@ import {
   PII_REVEAL_REASON_CODES,
   PII_REVEAL_REASON_LABELS,
 } from "../../../lib/admin-action-vocabulary";
-import { revealCandidatePhoneAction } from "./actions";
+import { requestPhoneReveal } from "./phone-reveal-model";
 import { LOCK_REASONS, LockedTag } from "./locked-tag";
 
 /** The reveal's reason choices — the API's closed codes, in words. */
@@ -26,6 +26,10 @@ export const REVEAL_REASON_CATEGORIES = PII_REVEAL_REASON_CODES.map((value) => (
  * A5's T2 confirm: what changes (the phone becomes visible to you), a reason from the API's
  * closed list, and an explanation. The API records the reason with the reveal before it decrypts
  * anything, and checks the explanation without storing it — the dialog says so.
+ *
+ * The confirm asks the same-origin route `[id]/phone` with a plain fetch (`phone-reveal-model.ts`),
+ * not a server action: a Back or Forward while an action is pending discards it and refreshes the
+ * whole list (50 audited name reads) and drops the phone — the route says why.
  *
  * The revealed phone lives in this component's state only: it is gone when the drawer moves to
  * another candidate or closes (the panel is keyed by worker), and nothing persists, logs or
@@ -44,7 +48,7 @@ export function PhoneField({ workerId, canReveal }: { workerId: string; canRevea
   const revealedRef = useRef<HTMLSpanElement>(null);
 
   async function reveal(reason: ConfirmReason): Promise<AdminActionOutcome> {
-    const outcome = await revealCandidatePhoneAction(workerId, reason.category, reason.text);
+    const outcome = await requestPhoneReveal(workerId, reason);
     if (!outcome.ok) return { ok: false, error: outcome.error };
     setPhone(outcome.phone);
     return { ok: true, changed: true, message: "Phone revealed." };
