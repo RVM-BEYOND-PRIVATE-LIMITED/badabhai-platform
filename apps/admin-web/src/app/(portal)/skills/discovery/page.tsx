@@ -34,6 +34,7 @@ import { StatusPill } from "../../../../components/status-pill";
 import { Pager } from "../../../../components/pager";
 import { Stat } from "../../../../components/stat";
 import { PageHeader } from "../../../../components/page-header";
+import { AboutData } from "../../../../components/about-data";
 import {
   CURSOR_REFUSAL,
   FirstPageLink,
@@ -297,18 +298,29 @@ export default async function SkillDiscoveryPage({
     view === "grouped" && groupSort !== "candidates" ? groupSort : undefined,
   ].filter(Boolean).length;
 
-  // THE QUEUE COMES FIRST (final sweep AW-02, owner requirement 21). The first batch sat 2325px
-  // below the top of <main> at 375 and 1153px at 1280 — nine metric tiles, the panel's sub-line,
-  // three chip rows, the tier caption and a ten-field form came before it (measured). Now the
-  // queue panel leads; inside it only the status scope and the tier tabs stay out (tier
-  // sequencing must be VISIBLE, AC#11), every other narrowing control is one disclosure, the
-  // standing explanations are the foot notes after the results, and the metrics follow the panel.
+  // THE QUEUE STAYS NEAR THE TOP (final sweep AW-02, owner requirement 21). The first batch sat
+  // 2325px below the top of <main> at 375 and 1153px at 1280 — nine metric tiles, the panel's
+  // sub-line, three chip rows, the tier caption and a ten-field form came before it (measured).
+  // A3 (#2573): the KPIs lead again, but as ONE compact summary bar of five headline counts; the
+  // decided-outcome tiles and the captions fold into its "About this data". Inside the queue
+  // panel only the status scope and the tier segmented control stay out (tier sequencing must be
+  // VISIBLE, AC#11), every other narrowing control is one disclosure, and the standing
+  // explanations are the foot notes after the results.
   return (
     <div className="page">
       <PageHeader
         title="Skill discovery"
-        description="AI-surfaced claims that the skill taxonomy may be missing something — each a claim, never a skill: an approval only records a decision, and the corpus write stays in the offline, gated chain."
+        description="AI-surfaced claims that the skill taxonomy may be missing something."
+        info={
+          <p>
+            Each is a claim, never a skill: an approval only records a decision, and the corpus
+            write stays in the offline, gated chain.
+          </p>
+        }
       />
+
+      {/* The KPI summary bar, above the queue it summarises (A3, #2573). */}
+      <MetricsTiles metrics={metrics} />
 
       <section className="panel" aria-labelledby="sd-queue" aria-live="polite">
         <div className="panel__head panel__head--row">
@@ -347,10 +359,10 @@ export default async function SkillDiscoveryPage({
             ))}
           </div>
 
-          {/* ── tier tabs — sequencing is VISIBLE, never a silent default filter ──────────
-              The Derived tab says it is sequenced behind Direct in its own label; the full reason
-              is a standing note, in the foot notes after the results. */}
-          <div className="filters--inline" role="group" aria-label="Review tier">
+          {/* ── tier segmented control — sequencing is VISIBLE, never a silent default filter ─
+              The Derived segment says it is sequenced behind Direct in its own label; the full
+              reason is a standing note, in the foot notes after the results. */}
+          <div className="segmented" role="group" aria-label="Review tier">
             <FilterChip selected={activeTier === "all"} href={tierTabHref("all")} cursor={cursor}>
               All tiers
             </FilterChip>
@@ -526,9 +538,6 @@ export default async function SkillDiscoveryPage({
           <p className="field__help">{DERIVED_TIER_SEQUENCING_REASON}</p>
         </div>
       </section>
-
-      {/* The queue's metrics, after the queue they describe (AW-02). */}
-      <MetricsTiles metrics={metrics} />
     </div>
   );
 }
@@ -575,7 +584,7 @@ function resolveStatusScope(
 
 /**
  * One section, named for assistive tech the way the credits and transactions stat blocks are:
- * the two tile rows and their captions are ONE block with its own tighter rhythm, not four loose
+ * the summary bar and its "About this data" are ONE block with its own tighter rhythm, not loose
  * page children each a full page gap apart (and the error state's h3 now sits under an h2).
  */
 function MetricsTiles({ metrics }: { metrics: SkillDiscoveryMetrics | null }) {
@@ -588,7 +597,7 @@ function MetricsTiles({ metrics }: { metrics: SkillDiscoveryMetrics | null }) {
         <div className="state state--error">
           <h3 className="state__title">Queue metrics are unavailable</h3>
           <p className="state__body">
-            The metrics read failed. The queue above is a separate read and may still work.
+            The metrics read failed. The queue below is a separate read and may still work.
           </p>
         </div>
       ) : (
@@ -604,7 +613,8 @@ function MetricsBody({ metrics }: { metrics: SkillDiscoveryMetrics }) {
 
   return (
     <>
-      <div className="stats">
+      {/* The summary bar: one compact row of the counts a reviewer acts on. */}
+      <div className="stats stats--compact">
         <Stat label="Awaiting decision" value={formatCount(metrics.awaiting_decision)} />
         <Stat label={ADMIN_SKILL_REVIEW_TIER_LABELS.direct} value={formatCount(byTier("direct"))} />
         <Stat
@@ -615,28 +625,30 @@ function MetricsBody({ metrics }: { metrics: SkillDiscoveryMetrics }) {
           label={ADMIN_SKILL_REVIEW_TIER_LABELS.derived}
           value={formatCount(byTier("derived"))}
         />
-      </div>
-      <div className="stats stats--compact">
-        <Stat label="New skill" value={formatCount(byStatus("approved_create"))} />
-        <Stat label="Added as alias" value={formatCount(byStatus("approved_map"))} />
-        <Stat label="Merged" value={formatCount(byStatus("approved_merge"))} />
-        <Stat label="Rejected" value={formatCount(byStatus("rejected"))} />
         <Stat label="On hold" value={formatCount(metrics.deferred)} />
       </div>
-      <div className="queue-notes">
-        <p className="field__help">
-          {formatCount(metrics.total)} candidates in total.{" "}
-          {metrics.oldest_awaiting_created_at
-            ? `Oldest still awaiting a decision: ${formatRelative(metrics.oldest_awaiting_created_at)} (${formatTimestamp(metrics.oldest_awaiting_created_at)}).`
-            : "Nothing is currently awaiting a decision."}
-        </p>
-        {/*
-         * `tier_basis`, rendered beside the three tier counts it qualifies (#1280, correction 3).
-         * The tiles look like counts of a stored column and are not — the tier is recomputed on
-         * every read from the phrase class and whether a strong match exists.
-         */}
-        <p className="field__help">{basisMarkerLabel(metrics.tier_basis)}</p>
-      </div>
+      <AboutData>
+        <div className="stats stats--compact">
+          <Stat label="New skill" value={formatCount(byStatus("approved_create"))} />
+          <Stat label="Added as alias" value={formatCount(byStatus("approved_map"))} />
+          <Stat label="Merged" value={formatCount(byStatus("approved_merge"))} />
+          <Stat label="Rejected" value={formatCount(byStatus("rejected"))} />
+        </div>
+        <div className="queue-notes">
+          <p className="field__help">
+            {formatCount(metrics.total)} candidates in total.{" "}
+            {metrics.oldest_awaiting_created_at
+              ? `Oldest still awaiting a decision: ${formatRelative(metrics.oldest_awaiting_created_at)} (${formatTimestamp(metrics.oldest_awaiting_created_at)}).`
+              : "Nothing is currently awaiting a decision."}
+          </p>
+          {/*
+           * `tier_basis`, rendered beside the three tier counts it qualifies (#1280, correction 3).
+           * The tiles look like counts of a stored column and are not — the tier is recomputed on
+           * every read from the phrase class and whether a strong match exists.
+           */}
+          <p className="field__help">{basisMarkerLabel(metrics.tier_basis)}</p>
+        </div>
+      </AboutData>
     </>
   );
 }
@@ -659,9 +671,9 @@ function EmptyQueueState({
       <div className="state">
         <h3 className="state__title">No discovery run has ever been persisted</h3>
         <p className="state__body">
-          This is an operations state, not an empty result: the `skill_candidate` table itself
-          has nothing in it. A discovery run is an offline `packages/db` CLI step, outside this
-          console — see `docs/operations/skill-discovery-activation-plan.md` for how to run one.
+          This is an operations state, not an empty result: no skill candidate has ever been
+          stored. A discovery run is an offline step outside this console — the skill-discovery
+          activation plan says how to run one.
         </p>
       </div>
     );

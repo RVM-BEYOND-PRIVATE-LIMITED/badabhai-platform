@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { InfoPopover } from "./info-popover";
 
 /**
  * "Names are withheld on this page" — the CAPPED posture, and only that one.
@@ -19,9 +20,14 @@ import type { ReactNode } from "react";
  */
 export function IdentityCapNotice({ children }: { children: ReactNode }) {
   return (
-    <section className="notice notice--warn" role="status">
-      <strong>Names are withheld on this page.</strong> {children} Every other field below is
-      unaffected, and the ids still link to the same records.
+    <section className="notice notice--warn notice--row" role="status">
+      <span>
+        <strong>Names are withheld on this page.</strong> {children}
+      </span>
+      {/* The reassurance is one click away (#2573), so the notice stays at two lines. */}
+      <InfoPopover label="About withheld names">
+        <p>Every other field below is unaffected, and the ids still link to the same records.</p>
+      </InfoPopover>
     </section>
   );
 }

@@ -48,8 +48,8 @@ export function InviteAdminForm({
           Invite an admin
         </h2>
         <p className="panel__sub">
-          Creates a `pending` admin and mints a one-time accept link, shown here once for
-          you to share. An email is sent only when real invite delivery is configured.
+          Creates a pending admin and a one-time accept link, shown here once for you to share.
+          An email is sent only when real invite delivery is configured.
         </p>
       </div>
       <form className="form" onSubmit={(e) => e.preventDefault()}>

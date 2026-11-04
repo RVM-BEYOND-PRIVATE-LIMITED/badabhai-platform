@@ -53,7 +53,7 @@ export const SIMULATED_TAG =
  * a figure that appears away from the banner — so this banner is their only marker.
  */
 export const MOCK_POSTURE_BANNER =
-  '<section class="notice notice--warn" role="status"><strong>Simulated money — not revenue.</strong>';
+  '<section class="notice notice--warn notice--row" role="status"><span><strong>Simulated money — not revenue.</strong> No one was charged.</span>';
 
 /** The opening of `PaymentsPostureBanner` under live payments. */
 export const LIVE_POSTURE_BANNER =

@@ -31,7 +31,7 @@ export default function PortalError({
     <div className="page">
       <FallbackHeader
         title="Something went wrong"
-        description="This screen could not be loaded, which usually means the admin API is unreachable or returned an unexpected response."
+        description="This screen could not be loaded — usually the admin API is unreachable."
       />
       {/* The alert region speaks for itself: assistive tech announces its text on its own, so
           it opens with what happened rather than relying on the header above it. */}

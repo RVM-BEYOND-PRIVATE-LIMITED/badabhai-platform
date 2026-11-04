@@ -19,6 +19,7 @@ import { Timestamp } from "../../../../components/timestamp";
 import { DetailList } from "../../../../components/detail-list";
 import { StatusPill } from "../../../../components/status-pill";
 import { PageHeader } from "../../../../components/page-header";
+import { InfoPopover } from "../../../../components/info-popover";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 
 // Per-request, never cached. The body of this page can contain a worker's own words, and the
@@ -258,9 +259,17 @@ export default async function AiCallDetailPage({
         the scalars it put them 763px down at 375 (final sweep AW-08). It still precedes both
         halves on every render.
       */}
-      <section className="notice notice--warn" role="status">
-        <strong>Read this as the worker&apos;s own words.</strong> {AI_TRACE_TEXT_CAVEAT}{" "}
-        {AI_TRACE_TEXT_CONTROLS}
+      {/* The claim stays in band above the words it qualifies; the why and the controls are one
+          click away behind the ⓘ (#2573). */}
+      <section className="notice notice--warn notice--row" role="status">
+        <span>
+          <strong>Read this as the worker&apos;s own words.</strong> Treat everything below as
+          identifying.
+        </span>
+        <InfoPopover label="About this text">
+          <p>{AI_TRACE_TEXT_CAVEAT}</p>
+          <p>{AI_TRACE_TEXT_CONTROLS}</p>
+        </InfoPopover>
       </section>
 
       <Half

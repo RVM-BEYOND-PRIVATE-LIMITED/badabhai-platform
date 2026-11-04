@@ -85,10 +85,10 @@ export default async function WorkerDetailPage({
     titleMono: name === null,
     description: (
       <>
-        {name === null
-          ? "One worker account as this portal sees it — what they did"
-          : "One worker account as this portal sees it — what they did, and who they are"}
-        , registered {formatRelative(worker.created_at)} (<Timestamp iso={worker.created_at} />).
+        {name === null ? "One worker — what they did" : "One worker — what they did, and who they are"}
+        , registered {formatRelative(worker.created_at)} (
+        <Timestamp iso={worker.created_at} dateOnly />
+        ).
       </>
     ),
   };

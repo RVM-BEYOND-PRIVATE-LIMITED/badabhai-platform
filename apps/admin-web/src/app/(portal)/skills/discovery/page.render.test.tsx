@@ -280,7 +280,9 @@ describe("#1280 — the grouped view now calls the real GET /admin/skill-discove
     const out = await render({ view: "flat" });
     // The only disclosure on the flat view is More filters (AW-02) — no review batch.
     expect(out).not.toContain('<details class="reviewgroup"');
-    expect((out.match(/<details/g) ?? []).length).toBe(1);
+    // (The header's ⓘ and the metrics' "About this data" are <details> too, #2573 — notes, not
+    // review disclosures.)
+    expect((out.match(/<details(?! class="(?:infopop|about)")/g) ?? []).length).toBe(1);
     expect(out).toContain('<details class="disclosure queue-filters"');
     expect(out).toContain("sanitary fixture installation");
   });
@@ -630,7 +632,10 @@ describe("error states", () => {
     expect(out).toContain("The server rejected this request");
     expect(out).toContain("That filter matches 25000 candidates");
     expect(out).not.toContain(">Clear filters<");
-    const state = out.slice(out.indexOf("The server rejected this request"), out.indexOf("queue-notes"));
+    const state = out.slice(
+      out.indexOf("The server rejected this request"),
+      out.indexOf("queue-notes--foot"),
+    );
     expect(state).toContain("Flat view");
     expect(state).not.toContain("<a ");
     expect(out).not.toContain(">Retry<");
@@ -732,7 +737,7 @@ describe("hierarchy and rhythm", () => {
     expect(at, "results after the stack").toBeGreaterThanOrEqual(end);
   }
 
-  it("the metrics are ONE named section: both tile rows and both captions inside it", async () => {
+  it("the metrics are ONE named section: the summary bar, then its About this data", async () => {
     const out = await render();
     const open =
       '<section class="queue-metrics" aria-labelledby="sd-metrics">' +
@@ -740,11 +745,17 @@ describe("hierarchy and rhythm", () => {
     const start = out.indexOf(open);
     expect(start).toBeGreaterThanOrEqual(0);
     const section = out.slice(start, out.indexOf("</section>", start));
-    expect(section).toContain('<div class="stats">');
-    expect(section).toContain('<div class="stats stats--compact">');
-    expect((section.match(/class="stat"/g) ?? []).length).toBe(9);
+    // A3 (#2573): the five headline counts are one compact summary bar; the decided-outcome
+    // tiles and the two captions are in the collapsed "About this data" right under it.
+    const about = section.indexOf('<details class="about">');
+    expect(about).toBeGreaterThan(0);
+    const bar = section.slice(0, about);
+    expect(bar).toContain('<div class="stats stats--compact">');
+    expect((bar.match(/class="stat"/g) ?? []).length).toBe(5);
+    const folded = section.slice(about);
+    expect((folded.match(/class="stat"/g) ?? []).length).toBe(4);
     // The two captions travel together, closer to each other than to the tiles.
-    expect(section).toContain('<div class="queue-notes"><p class="field__help">6,673 candidates in total.');
+    expect(folded).toContain('<div class="queue-notes"><p class="field__help">6,673 candidates in total.');
   });
 
   it("a failed metrics read renders its error state inside the section (h3 under an h2)", async () => {
@@ -767,7 +778,7 @@ describe("hierarchy and rhythm", () => {
     const order = [
       at('<div class="queue-controls">'),
       at('<div class="filters--inline" role="group" aria-label="Status">'),
-      at('<div class="filters--inline" role="group" aria-label="Review tier">'),
+      at('<div class="segmented" role="group" aria-label="Review tier">'),
       at('<details class="disclosure queue-filters"'),
       at('aria-label="Batch order"'),
       at(FILTER_BAR),
@@ -852,22 +863,23 @@ describe("the queue comes first (AW-02)", () => {
     return { tag: out.slice(at, out.indexOf(">", at) + 1), at, end: out.indexOf("</details>", at) };
   };
 
-  it("the metrics follow the queue panel instead of preceding it", async () => {
+  // A3 (#2573) moved the KPIs back on top — as one compact summary bar of five tiles, not the
+  // nine-tile block AW-02 measured; the rest folds into its "About this data".
+  it("the KPI summary bar sits above the queue panel, and is the only thing between them", async () => {
     stub.groups = { ...stub.groups, groups: [GROUP], total_groups: 1, total_candidates: 2, total_undecided: 1 };
     const out = await render();
-    expect(out.indexOf('<section class="queue-metrics"')).toBeGreaterThan(
-      out.indexOf('<ul class="reviewgroups">'),
-    );
-    expect(out.indexOf('<section class="queue-metrics"')).toBeGreaterThan(
-      out.indexOf('<div class="queue-notes queue-notes--foot">'),
-    );
+    const metrics = out.indexOf('<section class="queue-metrics"');
+    const queue = out.indexOf('<section class="panel" aria-labelledby="sd-queue"');
+    expect(metrics).toBeGreaterThan(out.indexOf("</header>"));
+    expect(metrics).toBeLessThan(queue);
+    expect(out.slice(out.indexOf("</section>", metrics) + "</section>".length, queue)).toBe("");
   });
 
-  it("a failed metrics read no longer points the reader at a queue 'below' it", async () => {
+  it("a failed metrics read points the reader at the queue below it", async () => {
     stub.metricsFailure = new stub.RequestError(503);
     const out = await render();
-    expect(out).toContain("The queue above is a separate read and may still work.");
-    expect(out).not.toContain("The queue below");
+    expect(out).toContain("The queue below is a separate read and may still work.");
+    expect(out).not.toContain("The queue above");
   });
 
   it("More filters is closed when none of its fields is set", async () => {

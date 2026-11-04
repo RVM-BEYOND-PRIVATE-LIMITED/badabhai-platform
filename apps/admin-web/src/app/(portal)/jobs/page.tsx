@@ -98,7 +98,10 @@ export default async function JobsPage({
     <div className="page">
       <PageHeader
         title="Postings"
-        description="Every posting on the platform, with company and role text exactly as the poster typed it — the text workers see in the feed."
+        description="Every posting on the platform, as workers see it in the feed."
+        info={
+          <p>Company and role text are shown exactly as the poster typed them.</p>
+        }
         filters={
           /* Folds behind a "Filters (n)" toggle on a phone (AW-08); unchanged above it. */
           <FilterPanel

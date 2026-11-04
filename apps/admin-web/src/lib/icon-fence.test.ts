@@ -208,6 +208,9 @@ describe("icon fence (admin) — the detectors catch what they must, and only th
     expect(
       hits('const a = <figure><svg role="img" aria-label="Logo" width={160} /></figure>;'),
     ).toBe(0);
+    expect(
+      summariesWithoutCaret('<summary className="infopop__toggle" aria-label="x"><Icon name="info" /></summary>'),
+    ).toBe(0);
   });
 
   it("walks the shipped sources", () => {
@@ -253,10 +256,16 @@ describe("icon fence (admin) — no raw glyph and no hand-drawn SVG icon anywher
 const GLYPHS_AS_ICONS = ["\u2190", "\u2192", "\u2713", "\u2714", "\u2715", "\u2717", "\u2630"];
 const glyphsIn = (code: string) => GLYPHS_AS_ICONS.filter((g) => code.includes(g));
 
-/** A `<summary>` must draw the brand caret; the browser's own triangle is hidden in CSS. */
+/**
+ * A `<summary>` must draw the brand caret; the browser's own triangle is hidden in CSS. The one
+ * other brand glyph a summary may draw instead is the InfoPopover's ⓘ (`infopop__toggle`, #2573):
+ * that toggle IS its icon, and its triangle is hidden the same way.
+ */
 const summariesWithoutCaret = (code: string): number => {
   const summaries = code.match(/<summary\b[^>]*>[\s\S]*?<\/summary>/g) ?? [];
-  return summaries.filter((s) => !s.includes("disclosure__caret")).length;
+  return summaries.filter(
+    (s) => !s.includes("disclosure__caret") && !s.includes('className="infopop__toggle"'),
+  ).length;
 };
 
 describe("icon fence (admin) — glyph characters and browser markers", () => {

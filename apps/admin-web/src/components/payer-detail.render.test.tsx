@@ -303,7 +303,9 @@ describe("the page never calls the customer an account", () => {
 
   it("names the persona in the description, the notices and the postings states", () => {
     const capped = renderAs("Agency", SUSPENDED, ENTITLED, null);
-    expect(capped).toContain("One agency — what it has posted and spent");
+    // #2573: the subtitle is one line; what the page covers moved into its ⓘ note.
+    expect(capped).toContain("One agency — its postings could not be loaded");
+    expect(capped).toContain("What this agency has posted and spent");
     expect(capped).toContain("Your role may see this agency&#x27;s registered name");
     expect(capped).toContain("(the agency returns to active)");
     expect(capped).toContain("The agency record above loaded");

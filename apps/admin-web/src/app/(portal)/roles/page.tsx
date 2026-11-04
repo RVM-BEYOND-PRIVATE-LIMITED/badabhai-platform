@@ -52,7 +52,13 @@ export default async function RolesPage() {
     <div className="page">
       <PageHeader
         title="Roles and capabilities"
-        description="The authorization model, read live from the server — the same matrix the guards enforce, so this table cannot disagree with what is actually permitted."
+        description="The authorization model, read live from the server."
+        info={
+          <p>
+            It is the same matrix the guards enforce, so this table cannot disagree with what is
+            actually permitted.
+          </p>
+        }
       />
 
       <section className="panel" aria-labelledby="rc-you">

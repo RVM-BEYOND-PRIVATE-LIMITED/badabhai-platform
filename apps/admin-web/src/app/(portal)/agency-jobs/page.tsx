@@ -36,7 +36,7 @@ export default async function AgencyJobsPage() {
     <div className="page">
       <PageHeader
         title="Agency match skills"
-        description="Agency postings and the match skills each one matches on — open a row to review or change its selection."
+        description="Agency postings and the match skills each one matches on."
       />
 
       <section className="panel" aria-live="polite">

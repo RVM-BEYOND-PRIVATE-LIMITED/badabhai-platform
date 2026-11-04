@@ -521,6 +521,20 @@ describe("the two failures, which are different claims", () => {
   });
 });
 
+describe("the unavailable state is one line (#2573)", () => {
+  it("an icon, one sentence and Retry — announced as an alert", async () => {
+    stub.failure = new TypeError("fetch failed");
+    const out = await render();
+    const at = out.indexOf('<div class="state state--error state--row" role="alert">');
+    expect(at).toBeGreaterThanOrEqual(0);
+    const state = out.slice(at, out.indexOf("</div></div>", at));
+    expect(state).toContain('<span class="state__icon"><i class="ph-fill ph-warning-circle"');
+    expect((state.match(/<p /g) ?? []).length).toBe(1);
+    expect(state).not.toContain("<h3");
+    expect(state).toMatch(/>(<i [^>]*><\/i>)?Retry<\/a>/);
+  });
+});
+
 describe("paging", () => {
   it("carries the filters, and only the newest cursor, into the next page", async () => {
     stub.page = { items: [OK_ROW], nextCursor: "bmV4dA" };

@@ -21,6 +21,7 @@ import { StatusPill } from "../../../../components/status-pill";
 import { CustomerLink } from "../../../../components/customer-link";
 import { DetailList } from "../../../../components/detail-list";
 import { Stat } from "../../../../components/stat";
+import { InfoPopover } from "../../../../components/info-popover";
 import { JobDetailHeader } from "./job-detail-header";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 
@@ -115,11 +116,17 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
       />
 
       {job.status === "suspended" && (
-        <section className="notice notice--bad" role="status">
-          <strong>Hidden by a suspension.</strong> Its customer is suspended, so this
-          posting is out of the worker feed. Reinstating the customer restores it to{" "}
-          <strong>{job.previous_status ?? "its previous state"}</strong> rather than forcing
-          it open — a posting the customer had paused stays paused.
+        <section className="notice notice--bad notice--row" role="status">
+          <span>
+            <strong>Hidden by a suspension.</strong> Reinstating the customer restores it to{" "}
+            <strong>{job.previous_status ?? "its previous state"}</strong>.
+          </span>
+          <InfoPopover label="About this suspension">
+            <p>
+              Its customer is suspended, so this posting is out of the worker feed. Reinstating
+              does not force it open — a posting the customer had paused stays paused.
+            </p>
+          </InfoPopover>
         </section>
       )}
 

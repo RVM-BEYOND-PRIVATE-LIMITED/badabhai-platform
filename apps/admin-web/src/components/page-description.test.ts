@@ -18,6 +18,8 @@ import ts from "typescript";
  */
 const srcRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const MAX_ALTERNATIVES = 256;
+/** The components whose `description` prop is a page subtitle: the header and its two wrappers. */
+const HEADER_TAGS = new Set(["PageHeader", "FallbackHeader", "Frame"]);
 
 /** JSX whitespace rules: lines trimmed at their joins, blank lines dropped, joined by a space. */
 function jsxText(raw: string): string {
@@ -133,7 +135,7 @@ export function descriptionsIn(fileName: string, source: string): Found[] {
       ts.isJsxAttribute(node) &&
       node.name.getText(sf) === "description" &&
       ts.isJsxAttributes(node.parent) &&
-      node.parent.parent.tagName.getText(sf) === "PageHeader" &&
+      HEADER_TAGS.has(node.parent.parent.tagName.getText(sf)) &&
       node.initializer
     ) {
       found.push({ where: at(node), texts: renderedTexts(node.initializer) });
@@ -242,6 +244,25 @@ describe("every page description is one sentence", () => {
   it("in every branch it can render", () => {
     const offenders = ALL.flatMap((d) =>
       d.texts.filter((t) => sentenceCount(t) > 1).map((t) => `${d.where}: ${t}`),
+    );
+    expect(offenders).toEqual([]);
+  });
+});
+
+/**
+ * …and that sentence fits on ONE line: at most 90 characters (#2573). A value stands in as the
+ * one-letter placeholder, so a branch that interpolates a name is measured on its fixed words.
+ * Anything longer is a caveat, and caveats live behind an InfoPopover or "About this data".
+ */
+export const MAX_SUBTITLE_CHARS = 90;
+
+describe("every page description fits on one line", () => {
+  it(`is at most ${MAX_SUBTITLE_CHARS} characters in every branch it can render`, () => {
+    const offenders = ALL.flatMap((d) =>
+      d.texts
+        .map((t) => t.trim())
+        .filter((t) => t.length > MAX_SUBTITLE_CHARS)
+        .map((t) => `${d.where} (${t.length}): ${t}`),
     );
     expect(offenders).toEqual([]);
   });
