@@ -49,6 +49,7 @@ const ROW_KEYS = [
   "industryMonths",
   "city",
   "tradeLevels",
+  "isSample",
 ] as const satisfies readonly (keyof CandidateSearchRowDto)[];
 const FILTERS_KEYS = [
   "roles",

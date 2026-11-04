@@ -15,6 +15,7 @@ import {
   mapContactResult,
   mapRevealResult,
   mapUnlockResult,
+  NEUTRAL_UNLOCK_MESSAGE,
   type ContactView,
   type RevealView,
   type UnlockView,
@@ -54,12 +55,19 @@ export async function unlockAction(input: {
  * E2): he applied to no posting, so there is no job context — `job_id` goes out as an explicit
  * null (the API's own default). The client names only the opaque worker id; the server still
  * decides every spend (the one neutral body for every deny cause, F-3).
+ *
+ * `isSample` is the row's own flag (R74): a sample row is refused HERE with the API's own neutral
+ * view and no network call. Never sent on — the API refuses a sample unlock regardless.
  */
 export async function candidateUnlockAction(input: {
   workerId: string;
+  isSample: boolean;
 }): Promise<UnlockActionResult> {
-  if (!uuid.safeParse(input.workerId).success) {
+  if (!uuid.safeParse(input.workerId).success || typeof input.isSample !== "boolean") {
     return { ok: false, error: "Invalid request." };
+  }
+  if (input.isSample) {
+    return { ok: true, view: { kind: "unavailable", message: NEUTRAL_UNLOCK_MESSAGE } };
   }
   return spendUnlock(null, input.workerId);
 }

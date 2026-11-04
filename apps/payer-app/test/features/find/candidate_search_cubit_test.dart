@@ -69,7 +69,11 @@ const LabelledId _im = LabelledId(
   label: 'Industrial Manufacturing',
 );
 
-CandidateSearchRow _row(String workerId, {bool matches = true}) =>
+CandidateSearchRow _row(
+  String workerId, {
+  bool matches = true,
+  bool sample = false,
+}) =>
     CandidateSearchRow(
       workerId: workerId,
       matchesFilters: matches,
@@ -81,6 +85,7 @@ CandidateSearchRow _row(String workerId, {bool matches = true}) =>
       industryMonths: 54,
       city: 'Pune',
       tradeLevels: const <CandidateTradeLevel>[],
+      isSample: sample,
     );
 
 final CandidateSearchRow _rowA = _row(_workerA);
@@ -535,6 +540,25 @@ void main() {
       expect((await first).unlockId, 'unl-7');
       expect((await second).unlockId, 'unl-7');
       expect(api.unlockCalls, hasLength(1));
+    });
+
+    test('a SAMPLE row (R74) is refused locally — no request, no spend',
+        () async {
+      final CandidateSearchRow sample = _row(_workerC, sample: true);
+      api.onSearch = (_) async => _page(<CandidateSearchRow>[_rowA, sample]);
+      await cubit.load();
+      final List<CandidateSearchState> seen = <CandidateSearchState>[];
+      final StreamSubscription<CandidateSearchState> sub =
+          cubit.stream.listen(seen.add);
+
+      final UnlockResult result = await cubit.unlock(sample);
+      await Future<void>.delayed(Duration.zero);
+      await sub.cancel();
+
+      expect(result, const UnlockResult.unavailable());
+      expect(api.unlockCalls, isEmpty, reason: 'no client call for a sample');
+      expect(seen, isEmpty, reason: 'no "unlocking" spinner either');
+      expect(cubit.state.unlockIdFor(_workerC), isNull);
     });
   });
 

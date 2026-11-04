@@ -126,7 +126,14 @@ class CandidateSearchCubit extends Cubit<CandidateSearchState> {
   /// unlock must not cost the payer the page they were reading. Single-flight
   /// per worker: a second call while one is in flight joins it, never a second
   /// spend.
+  ///
+  /// A SAMPLE row (R74) is refused here with the server's own neutral reply and
+  /// no request — the card offers no unlock, and this keeps any other caller
+  /// from sending one. The server refuses it too; this is not the gate.
   Future<UnlockResult> unlock(CandidateSearchRow row) {
+    if (row.isSample) {
+      return Future<UnlockResult>.value(const UnlockResult.unavailable());
+    }
     final String workerId = row.workerId;
     // A BLOCK body on purpose: `=> remove(...)` would return the removed value
     // — this very future — and `whenComplete` would wait on itself forever.

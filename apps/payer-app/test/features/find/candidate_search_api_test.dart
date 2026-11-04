@@ -103,9 +103,12 @@ void main() {
       expect(page.filtered, isTrue);
       expect(page.candidates.map((CandidateSearchRow r) => r.workerId),
           <String>[
-            'face2000-0000-4000-8000-000000000003',
+            '3f6c1a2e-9b4d-4c7e-8a1f-2d5e6b7c8a90',
             'face2000-0000-4000-8000-000000000007',
           ]);
+      expect(page.candidates.map((CandidateSearchRow r) => r.isSample),
+          <bool>[false, true],
+          reason: 'R74: the seed row arrives flagged');
       expect(page.nextCursor, isNotNull);
     });
 

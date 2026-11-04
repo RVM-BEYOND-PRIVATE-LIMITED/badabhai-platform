@@ -274,6 +274,7 @@ beforeEach(() => {
           industryMonths: 54,
           city: "Pune",
           tradeLevels: [],
+          isSample: false,
         },
       ],
       nextCursor: null,

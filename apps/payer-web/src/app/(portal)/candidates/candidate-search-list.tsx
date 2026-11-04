@@ -49,6 +49,9 @@ import {
  *    three numbers, never folded. A filtered, non-strict list draws "Other candidates" before its
  *    first non-match, so it is plain that the matches lead (the order is the server's — nothing
  *    here re-sorts or filters a row).
+ *  - A SAMPLE row (`isSample`, R74 — a synthetic seed row, not a person) is badged "Sample
+ *    candidate" and offers NO unlock: a constant line stands where Unlock would be. The flag is
+ *    the server's; the API refuses the spend too.
  *
  * Runs in the BROWSER and sees NO secret: the Server Actions bind to the server-held payer (XB-A)
  * and return only PII-free, already-mapped views. ALREADY UNLOCKED: `unlocked` carries the payer's
@@ -110,12 +113,17 @@ export function CandidateSearchList({
     setRows((prev) => ({ ...prev, [workerId]: { ...(prev[workerId] ?? baseRow(workerId)), ...p } }));
   }
 
+  // The row's own R74 flag — the action refuses a sample before any network.
+  function isSample(workerId: string): boolean {
+    return candidates.some((c) => c.workerId === workerId && c.isSample);
+  }
+
   // The posting-less unlock (ids-only body; `job_id` null). Its result raises the toast.
   async function runUnlock(workerId: string) {
     patch(workerId, { busy: true, unlockError: null });
     let res: UnlockActionResult;
     try {
-      res = await candidateUnlockAction({ workerId });
+      res = await candidateUnlockAction({ workerId, isSample: isSample(workerId) });
     } catch {
       res = { ok: false, error: UNREACHABLE };
     }
@@ -256,6 +264,8 @@ export function CandidateSearchList({
                   <span className="applicant__bands">{industry}</span>
                 </div>
                 <div className="applicant__relevance">
+                  {/* R74: a synthetic seed row says so first. Neutral tone — a fact, not a warning. */}
+                  {c.isSample ? <Badge tone="neutral">Sample candidate</Badge> : null}
                   {/* E18's rule, here too: a RELATED match says so plainly before a spend. Info
                       tone, not brand — Safety Yellow is the Unlock CTA's colour. */}
                   {c.matchTier === 2 ? (
@@ -291,17 +301,25 @@ export function CandidateSearchList({
                 </div>
               ) : null}
 
-              {/* The SAME spend → reveal band as the applicant card. No posting: never view-only. */}
-              {contactBand({
-                row,
-                unlockError: row.unlockError,
-                balance,
-                unlockHintId: `candidate-${i}-unlock-hint`,
-                viewOnly: false,
-                onUnlock: () => onUnlock(c.workerId),
-                onRevealContact: (unlockId) => onRevealContact(unlockId, c.workerId),
-                onMaskedResume: (unlockId) => onMaskedResume(unlockId, c.workerId),
-              })}
+              {/* R74: a sample row offers no spend — a constant line where Unlock would be. A
+                  grant the payer already holds is the server's and still shows. */}
+              {c.isSample && row.unlock?.kind !== "granted" ? (
+                <div className="applicant__contact">
+                  <p className="applicant__neutral">Sample profile — can&rsquo;t be unlocked</p>
+                </div>
+              ) : (
+                // The SAME spend → reveal band as the applicant card. No posting: never view-only.
+                contactBand({
+                  row,
+                  unlockError: row.unlockError,
+                  balance,
+                  unlockHintId: `candidate-${i}-unlock-hint`,
+                  viewOnly: false,
+                  onUnlock: () => onUnlock(c.workerId),
+                  onRevealContact: (unlockId) => onRevealContact(unlockId, c.workerId),
+                  onMaskedResume: (unlockId) => onMaskedResume(unlockId, c.workerId),
+                })
+              )}
             </Card>
           );
           return i === dividerAt

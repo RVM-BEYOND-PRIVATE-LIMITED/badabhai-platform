@@ -31,6 +31,12 @@ String? candidateIndustryLine(CandidateSearchRow row) {
 String _tenure(int months, {required String zero}) =>
     months > 0 ? monthsLabel(months) : zero;
 
+/// R74 — the badge on a synthetic seed row.
+const String kSampleCandidateLabel = 'Sample candidate';
+
+/// R74 — what a sample card shows where the unlock button would be.
+const String kSampleNoUnlockNote = "Sample profile — can't be unlocked";
+
 /// The MASKED all-candidates card (ADR-0040 E2) — the per-job applicant card's
 /// family: the sealed "••" avatar, the masked "Worker ••3f9a" handle, closed-
 /// vocabulary facts, and the SAME 1-credit unlock / View pair.
@@ -42,6 +48,10 @@ String _tenure(int months, {required String zero}) =>
 /// field for a name, phone, photo, employer, salary or address, so nothing
 /// identifying can reach this widget — before or after the unlock (the reveal
 /// shows only the relay handle).
+///
+/// A SAMPLE row (R74) carries a "Sample candidate" badge and offers no unlock:
+/// a muted note stands in the button's place. A grant the payer ALREADY holds
+/// (from before R74) is the server's record and still shows View, as on web.
 class CandidateCard extends StatelessWidget {
   const CandidateCard({
     super.key,
@@ -79,10 +89,14 @@ class CandidateCard extends StatelessWidget {
         ? null
         : (relatedToLabel == null ? 'Related role' : 'Related to $relatedToLabel');
     final String? industry = candidateIndustryLine(row);
+    final bool sample = row.isSample;
+    final bool showUnlocked = unlocked;
 
     return BbCard(
       // Same marks as the applicant card: a green outline once unlocked.
-      border: unlocked ? Border.all(color: AppColors.success, width: 1.5) : null,
+      border: showUnlocked
+          ? Border.all(color: AppColors.success, width: 1.5)
+          : null,
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
@@ -115,6 +129,14 @@ class CandidateCard extends StatelessWidget {
                     color: AppColors.textMuted,
                   ),
                 ),
+                if (sample) ...<Widget>[
+                  const SizedBox(height: AppSpacing.gap6),
+                  const BbBadge(
+                    kSampleCandidateLabel,
+                    tone: BbBadgeTone.neutral,
+                    icon: Icons.info,
+                  ),
+                ],
                 if (related != null) ...<Widget>[
                   const SizedBox(height: AppSpacing.gap6),
                   // The same copy and tone the applicant card uses for its
@@ -153,13 +175,15 @@ class CandidateCard extends StatelessWidget {
             ),
           ),
           const SizedBox(width: AppSpacing.s2),
-          if (unlocked)
+          if (showUnlocked)
             BbButton(
               label: 'View',
               size: BbButtonSize.md,
               iconLeft: Icons.chat_bubble_rounded,
               onPressed: onView,
             )
+          else if (sample)
+            const _SampleNote()
           else
             BbButton(
               // #2589 — credits only, never a ₹ price on the unlock CTA; no
@@ -172,6 +196,28 @@ class CandidateCard extends StatelessWidget {
               onPressed: onUnlock,
             ),
         ],
+      ),
+    );
+  }
+}
+
+/// The muted stand-in for the unlock button on a sample card — text, never a
+/// tap target. Capped to roughly the button's width so the facts keep theirs.
+class _SampleNote extends StatelessWidget {
+  const _SampleNote();
+
+  @override
+  Widget build(BuildContext context) {
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: AppSpacing.s12),
+      child: Text(
+        kSampleNoUnlockNote,
+        textAlign: TextAlign.end,
+        style: AppTypography.body(
+          size: AppTypography.sizeXs,
+          color: AppColors.textMuted,
+          height: 1.35,
+        ),
       ),
     );
   }

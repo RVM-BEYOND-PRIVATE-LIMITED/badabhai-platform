@@ -96,37 +96,22 @@ import { expandReachSkillIds } from "./match-v1-derive";
 import { argFlag, argValue, parseCommonCli, printCounts, printFooter, printHeader } from "./match-v1-cli";
 import { hostClass, isProductionLike } from "./ops-guard";
 import { makeRng, pickWeighted, REACH_CITIES, type ReachCity, type Rng } from "./reach-pool-data";
+import { workforceIdLikePattern, workforceUuid, type WorkforceIdKind } from "./sample-workers";
 import { jobPostings, matchConfig, payers, skills, workerAttributes, workerConsents, workerProfiles, workers } from "./schema";
 
 const NAME = "seed:synthetic-workforce";
 
 // ---------------------------------------------------------------------------
-// Id namespace — "face" (valid hex only — UUIDs can't carry a literal "wfsd", "w"/"s" aren't
-// hex digits; this replaced an earlier prefix that silently produced invalid UUIDs), disjoint
-// from the demo seed's "de30…" and the reach seed's "5eed…". Layout mirrors `demoUuid` exactly.
+// Id namespace — "face…", owned by `sample-workers.ts` so the API can recognise a seeded worker
+// as a SAMPLE candidate (R74) from the same definition this seed writes with.
 // ---------------------------------------------------------------------------
 
-export const WORKFORCE_ID_PREFIX = "face";
-
-const WORKFORCE_KIND_TAG = {
-  payer: "10",
-  worker: "20",
-  profile: "21",
-  consent: "22",
-  posting: "30",
-} as const;
-
-export type WorkforceIdKind = keyof typeof WORKFORCE_KIND_TAG;
-
-export function workforceUuid(kind: WorkforceIdKind, index: number): string {
-  if (!Number.isInteger(index) || index < 0) throw new Error(`workforceUuid: bad index ${index}`);
-  return `${WORKFORCE_ID_PREFIX}${WORKFORCE_KIND_TAG[kind]}00-0000-4000-8000-${index.toString(16).padStart(12, "0")}`;
-}
-
-/** SQL `LIKE` pattern matching every workforce-seed id of one kind (and nothing else). */
-export function workforceIdLikePattern(kind: WorkforceIdKind): string {
-  return `${WORKFORCE_ID_PREFIX}${WORKFORCE_KIND_TAG[kind]}00-0000-4000-8000-%`;
-}
+export {
+  WORKFORCE_ID_PREFIX,
+  workforceIdLikePattern,
+  workforceUuid,
+  type WorkforceIdKind,
+} from "./sample-workers";
 
 /** Workforce-seed phones: `+910000050001` … (the first 250 of the 1000-slot block). */
 export function workforcePhone(index: number): string {

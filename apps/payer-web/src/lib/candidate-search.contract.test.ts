@@ -76,6 +76,11 @@ describe("payer-web's wire schemas parse the fixture's answers — every key kno
     const noCounts = { ...(FIXTURE.response as Record<string, unknown>) };
     delete noCounts.unrecorded;
     expect(candidateSearchWireSchema.safeParse(noCounts).success).toBe(false);
+    // A row without the R74 sample flag is refused, not defaulted (the API always sends it).
+    const response = FIXTURE.response as { candidates: Array<Record<string, unknown>> };
+    const { isSample: _drop, ...noSample } = response.candidates[0]!;
+    const unflagged = { ...response, candidates: [noSample] };
+    expect(candidateSearchWireSchema.safeParse(unflagged).success).toBe(false);
   });
 
   it("the fixture's rows carry the masked shape the card reads (and nothing that names a person)", () => {
@@ -84,6 +89,9 @@ describe("payer-web's wire schemas parse the fixture's answers — every key kno
     // A related row and a not-recorded row are both in it — the card's two hardest cases.
     expect(candidates.some((c) => c.matchTier === 2 && !c.matchesFilters)).toBe(true);
     expect(candidates.some((c) => c.industryMonths === null && c.city === null)).toBe(true);
+    // R74: a real row and a SAMPLE row — the badge and the no-unlock line read `isSample`.
+    expect(candidates.some((c) => c.isSample)).toBe(true);
+    expect(candidates.some((c) => !c.isSample)).toBe(true);
     for (const c of candidates) {
       for (const key of Object.keys(c)) expect(key).not.toMatch(/name|phone|photo|email|address|salary|employer/i);
     }
