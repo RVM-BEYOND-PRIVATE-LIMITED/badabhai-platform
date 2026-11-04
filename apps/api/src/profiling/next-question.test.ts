@@ -1069,6 +1069,23 @@ describe("Middle-Way required close (P3a) — the settled slots end the intervie
     expect(decision.completionReason).toBe("required_complete");
   });
 
+  it("production supervisor closes on its Easy 5 too (Phase 2 #10) — area/team/salary optional", () => {
+    const ps: EnginePacks = {
+      occupation: pack("qp_production_supervisor", []),
+      universal: pack("pk_universal", []),
+    };
+    const easy5 = settledAnswers([
+      "primary_trade",
+      "supervision_experience",
+      "supervision_level",
+      "current_city",
+      "availability",
+    ]);
+    const decision = nextQuestion(state({ answers: easy5 }), ps);
+    expect(decision.kind).toBe("close");
+    expect(decision.completionReason).toBe("required_complete");
+  });
+
   it("a declined slot counts as settled — 'nahi pata' closes, never re-asks", () => {
     const answers = settledAnswers(
       TURNER_8.filter((k) => k !== "salary_expected"),
@@ -1201,6 +1218,8 @@ describe("Middle-Way stop rule (P3b) — 14-turn focus, 20-turn stop, optional o
     expect(isMiddleWayPack("qp_heat_treatment")).toBe(true);
     // Phase 2 #9: the new injection-moulding pack is Middle-Way from v1.
     expect(isMiddleWayPack("qp_injection_moulding")).toBe(true);
+    // Phase 2 #10: the new production-supervisor pack is Middle-Way from v1.
+    expect(isMiddleWayPack("qp_production_supervisor")).toBe(true);
     expect(isMiddleWayPack(null)).toBe(false);
   });
 

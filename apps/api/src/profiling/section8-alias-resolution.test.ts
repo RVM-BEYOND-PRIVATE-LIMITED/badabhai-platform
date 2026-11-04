@@ -1588,3 +1588,37 @@ describe("Phase 2 #8 heat treatment — rungs and capture (CEO Launch Plan Pack 
     },
   );
 });
+
+describe("Phase 2 #10 production supervisor — rungs and capture (CEO Launch Plan Pack v1, sheet 23)", () => {
+  // Formless (chat-only, like EDM): no form route to pin.
+  const supervisionLevel = loadItem("qp_production_supervisor.json", "supervision_level");
+  it.each([
+    ["Line Leader", "senior"],
+    ["line leader hoon", "senior"],
+    ["Supervisor", "supervisor"],
+    ["Production In-charge", "lead"],
+  ])("supervision_level: %s → %s", (text, expected) => {
+    expect(matchOptions(supervisionLevel as never, text as string)).toEqual([expected]);
+  });
+
+  it.each([
+    ["qp_production_supervisor.json", "supervision_area", "Machine shop", "machine_shop"],
+    ["qp_production_supervisor.json", "supervision_area", "Press / sheet metal", "press_sheet_metal"],
+    ["qp_production_supervisor.json", "supervision_area", "Paint shop", "paint_shop"],
+    ["qp_production_supervisor.json", "supervision_team_size", "15 se 50 log", "fifteen_to_fifty"],
+    ["qp_production_supervisor.json", "supervision_machines", "5 se 20", "five_to_twenty"],
+    ["qp_production_supervisor.json", "supervision_systems", "ERP / SAP entry", "erp_sap"],
+    ["qp_production_supervisor.json", "supervision_systems", "Safety", "safety"],
+    ["qp_production_supervisor.json", "supervision_trade_background", "Fitter", "fitter"],
+    ["qp_production_supervisor.json", "supervision_trade_background", "CNC / VMC operator", "cnc_vmc"],
+    ["qp_production_supervisor.json", "supervision_report_confirm", "Haan, main banata hoon", "self"],
+    ["qp_production_supervisor.json", "supervision_report_confirm", "Nahi, koi aur banata hai", "other"],
+  ] as ReadonlyArray<readonly [string, string, string, string | null]>)(
+    "%s %s: %s → %s",
+    (packFile, questionKey, text, expected) => {
+      expect(capturedOption(packFile, questionKey, text)).toEqual(
+        expected === null ? [] : [expected],
+      );
+    },
+  );
+});

@@ -270,6 +270,8 @@ const TRADE_REQUIRED_KEYS: Readonly<Record<string, readonly string[]>> = {
   qp_heat_treatment: ["heat_experience", "heat_level"],
   // Phase 2 #9 — Injection moulding Easy Q2–Q3; the first pack for the declared kind.
   qp_injection_moulding: ["moulding_experience", "moulding_level"],
+  // Phase 2 #10 — Production Supervisor Easy Q2–Q3; a new cross-trade trade.
+  qp_production_supervisor: ["supervision_experience", "supervision_level"],
 };
 
 /** True when every required slot for this occupation pack is settled. */

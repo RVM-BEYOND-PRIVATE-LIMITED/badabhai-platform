@@ -802,3 +802,14 @@
 {"kind":"binding","family_id":"fam_heat_treatment","job_domain_id":"jd_nco_8121_4800"}
 {"kind":"binding","family_id":"fam_heat_treatment","job_domain_id":"jd_nco_8121_4900"}
 {"kind":"binding","family_id":"fam_heat_treatment","job_domain_id":"jd_nco_8121_4700"}
+# PHASE 2 #10 (CEO Launch Plan Pack v1, sheet 23): Production Supervisor, a new cross-trade
+# family. No family bound 3122 before (every supervisor code reached fam_universal). Owner
+# ruling 2026-11-04: bind the CROSS-TRADE supervisor codes only. Every trade-specific 3122 code
+# (press shop 4601/4602, welding 4200/4702, sheet metal 4300, plastic moulding 2100/2200/2300,
+# casting, forging, tool room, ...) stays where it is: sheet 23's rule is that a trade
+# supervisor keeps his trade (VMC · Supervisor).
+{"kind":"family","family_id":"fam_production_supervisor","label_en":"Production Supervisor","label_hi":"प्रोडक्शन सुपरवाइजर","industry_id":"ind_industrial_manufacturing"}
+{"kind":"binding","family_id":"fam_production_supervisor","job_domain_id":"jd_nco_3122_9900"}
+{"kind":"binding","family_id":"fam_production_supervisor","job_domain_id":"jd_nco_3122_1900"}
+{"kind":"binding","family_id":"fam_production_supervisor","job_domain_id":"jd_nco_3122_0601"}
+{"kind":"binding","family_id":"fam_production_supervisor","job_domain_id":"jd_nco_3122_6503"}

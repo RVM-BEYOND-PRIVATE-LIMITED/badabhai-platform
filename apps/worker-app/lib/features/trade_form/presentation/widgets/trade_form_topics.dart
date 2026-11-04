@@ -113,6 +113,13 @@ const Map<String, (String, String)> _kTopics = <String, (String, String)>{
   // Track A #3 (qp_cam_programming@4) — same mechanism, same category.
   'cam_program_confirm': _level, 'cam_senior_confirm': _level,
   'cam_lead_confirm': _level, 'cam_team_confirm': _level,
+  // Phase 2 #10 (qp_production_supervisor) — chat-only pack, like EDM below.
+  // `sector_worked` is shared and already listed.
+  'supervision_experience': _experience, 'supervision_level': _level,
+  'supervision_report_confirm': _level, 'supervision_team_size': _level,
+  'supervision_area': _operations, 'supervision_machines': _machines,
+  'supervision_systems': _operations,
+  'supervision_trade_background': _experience,
   // Phase 2 #9 (qp_injection_moulding) — chat-only pack, like EDM below.
   'moulding_experience': _experience, 'moulding_level': _level,
   'moulding_setting_confirm': _level, 'moulding_senior_confirm': _level,

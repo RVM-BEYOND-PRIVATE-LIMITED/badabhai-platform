@@ -914,6 +914,24 @@ const QUESTION_TTS_TEXT: Readonly<Record<string, string>> = {
   // "Machine ki kaunsi dikkat aap sudhaar lete hain?" (the turner's) and "Kis machine ka poora
   // overhaul khud kar lete hain?" (the fitter's).
   "Maintenance ka kitna tajurba hai?": "मेंटेनेंस का कितना तजुर्बा है?",
+  // --- qp_production_supervisor@1 (Phase 2 #10, a new trade) — prompts and retries. "in-charge"
+  // is Devanagari (इंचार्ज, as a shop floor says it). The tenure and level whys are shared and
+  // twinned above.
+  "Production ka kitna tajurba hai?": "प्रोडक्शन का कितना तजुर्बा है?",
+  "Lagbhag kitne saal production mein kaam kiya hai?":
+    "लगभग कितने साल प्रोडक्शन में काम किया है?",
+  "Production mein aap kis level par kaam karte hain?":
+    "प्रोडक्शन में आप किस लेवल पर काम करते हैं?",
+  "Line leader, supervisor ya production in-charge hain?":
+    "लाइन लीडर, सुपरवाइजर या प्रोडक्शन इंचार्ज हैं?",
+  "Shift report aap banate ho?": "शिफ्ट रिपोर्ट आप बनाते हो?",
+  "Kis department ki supervision karte hain?": "किस डिपार्टमेंट की सुपरविज़न करते हैं?",
+  "Kitne log aapke under hain?": "कितने लोग आपके अंडर हैं?",
+  "Kitni machines aapke under hain?": "कितनी मशीनें आपके अंडर हैं?",
+  "Supervision mein kya kya sambhalte hain?": "सुपरविज़न में क्या क्या संभालते हैं?",
+  "Kis industry ke plant mein supervision ki hai?":
+    "किस इंडस्ट्री के प्लांट में सुपरविज़न की है?",
+  "Supervisor banne se pehle kya kaam karte the?": "सुपरवाइजर बनने से पहले क्या काम करते थे?",
   // --- qp_injection_moulding@1 (Phase 2 #9, the first pack for the declared kind) — prompts and
   // retries. The level prompt/retry, the brand prompt and the tenure, level, brand and tonnage
   // whys are shared and twinned above.
@@ -1570,6 +1588,22 @@ const WHY_TTS_TEXT: Readonly<Record<string, string>> = {
   // the three fresher ones) are shared verbatim with packs twinned above.
   "Kaam ki kism se sahi plant ka kaam dikhaya jaata hai.":
     "काम की किस्म से सही प्लांट का काम दिखाया जाता है।",
+  // --- qp_production_supervisor@1 (Phase 2 #10) — why-texts. Filed HERE: `composeClarify`
+  // scans only this table.
+  "Shift report khud banane wale supervisor ko alag kaam milta hai.":
+    "शिफ्ट रिपोर्ट खुद बनाने वाले सुपरवाइजर को अलग काम मिलता है।",
+  "Department ke hisaab se sahi plant ka kaam dikhaya jaata hai.":
+    "डिपार्टमेंट के हिसाब से सही प्लांट का काम दिखाया जाता है।",
+  "Team ke size se aapki zimmedari saaf pata chalti hai.":
+    "टीम के साइज़ से आपकी ज़िम्मेदारी साफ़ पता चलती है।",
+  "Machines ki ginti se aapki zimmedari saaf pata chalti hai.":
+    "मशीनों की गिनती से आपकी ज़िम्मेदारी साफ़ पता चलती है।",
+  "Planning aur quality sambhalne wale supervisor ki alag maang hai.":
+    "प्लानिंग और क्वालिटी संभालने वाले सुपरवाइजर की अलग माँग है।",
+  "Industry ke hisaab se sahi plant ka kaam dikhaya jaata hai.":
+    "इंडस्ट्री के हिसाब से सही प्लांट का काम दिखाया जाता है।",
+  "Apne trade ka kaam jaanne wale supervisor par team bharosa karti hai.":
+    "अपने ट्रेड का काम जानने वाले सुपरवाइजर पर टीम भरोसा करती है।",
   // --- qp_injection_moulding@1 (Phase 2 #9) — why-texts. Filed HERE: `composeClarify` scans
   // only this table.
   "Mould change aur setting khud karne wale setter ko alag kaam milta hai.":
