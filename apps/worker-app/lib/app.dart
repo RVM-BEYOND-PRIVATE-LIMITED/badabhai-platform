@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import 'core/auth/account_deleted_signal.dart';
 import 'core/auth/locale_store.dart';
 import 'core/config/app_config.dart';
+import 'core/consent/voice_consent.dart';
 import 'core/di/locator.dart';
 import 'core/observability/crash_route_observer.dart';
 import 'core/theme/app_theme.dart';
@@ -13,6 +14,7 @@ import 'core/widgets/bb_alert_dialog.dart';
 import 'core/widgets/feedback_fab.dart';
 import 'features/auth/domain/auth_session_manager.dart';
 import 'features/auth/presentation/lifecycle_relock_observer.dart';
+import 'features/consent/data/voice_consent_loader.dart';
 import 'l10n/gen/app_localizations.dart';
 import 'l10n/ui_locale.dart';
 import 'router.dart';
@@ -72,6 +74,12 @@ class _BadaBhaiAppState extends State<BadaBhaiApp> {
           LifecycleRelockObserver(locator<AuthSessionManager>());
       WidgetsBinding.instance.addObserver(observer);
       _relock = observer;
+      // OWNER ASK (2026-10-22) — read the worker's voice-consent answer
+      // whenever a session becomes usable, so every voice control obeys it.
+      final AuthSessionManager auth = locator<AuthSessionManager>();
+      _authForVoiceConsent = auth;
+      auth.addListener(_onAuthChangedForVoiceConsent);
+      _onAuthChangedForVoiceConsent();
     }
     // ADR account-deletion: subscribe to the app-scoped signal fired by the HTTP
     // seams on a 410 { code: WORKER_ACCOUNT_DELETED }. Guarded like the observer
@@ -83,8 +91,22 @@ class _BadaBhaiAppState extends State<BadaBhaiApp> {
     }
   }
 
+  AuthSessionManager? _authForVoiceConsent;
+
+  /// Loads the voice-consent answer once per authenticated session (it is
+  /// cleared on logout, so the next worker's session reads its own).
+  void _onAuthChangedForVoiceConsent() {
+    final AuthSessionManager? auth = _authForVoiceConsent;
+    if (auth == null) return;
+    if (auth.status == AuthStatus.authenticated &&
+        VoiceConsent.instance.state.value == null) {
+      unawaited(refreshVoiceConsent());
+    }
+  }
+
   @override
   void dispose() {
+    _authForVoiceConsent?.removeListener(_onAuthChangedForVoiceConsent);
     _detachScreenTracking?.call();
     unawaited(_accountDeletedSub?.cancel());
     final LifecycleRelockObserver? observer = _relock;

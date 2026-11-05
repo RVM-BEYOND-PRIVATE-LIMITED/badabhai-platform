@@ -125,7 +125,9 @@ class _ConsentView extends StatelessWidget {
                         const SizedBox(height: 12),
                         _AgreeRow(
                           accepted: state.accepted,
+                          declined: state.declined,
                           onAcceptedChanged: cubit.setAccepted,
+                          onDeclinedChanged: cubit.setDeclined,
                         ),
                         const SizedBox(height: 12),
                         _AgeGateCard(
@@ -152,8 +154,11 @@ class _ConsentView extends StatelessWidget {
                 child: PrimaryActionButton(
                   label: 'Aage Badhein',
                   isLoading: state.isSubmitting,
-                  // Gated on the explicit tick ([_AgreeRow]) AND a yes/no age answer.
-                  onPressed: state.canSubmit ? cubit.submit : null,
+                  // Gated on ONE of the two ticks ([_AgreeRow]) AND a yes/no
+                  // age answer. A declined tick confirms voice-off first.
+                  onPressed: state.canSubmit
+                      ? () => _continue(context, cubit, state)
+                      : null,
                 ),
               ),
             ],
@@ -162,6 +167,33 @@ class _ConsentView extends StatelessWidget {
       },
     );
   }
+}
+
+/// The CTA. "I agree" proceeds at once; "I don't agree" first says, in the
+/// owner's words, that voice features will not be available and the whole
+/// interview must be typed. Only the explicit "Phir bhi aage badhein" submits;
+/// "Wapas" returns to the privacy screen with the tick kept.
+Future<void> _continue(
+  BuildContext context,
+  ConsentCubit cubit,
+  ConsentState state,
+) async {
+  if (!state.declined) {
+    await cubit.submit();
+    return;
+  }
+  final bool confirmed = await showBbConfirm(
+    context,
+    title: 'Voice features band rahenge',
+    message:
+        "I don't agree select karne par aapko Badabhai app ke voice features "
+        'nahi milenge — poora interview type karke de sakte hain, sirf mic band '
+        'rahega.',
+    confirmLabel: 'Phir bhi aage badhein',
+    cancelLabel: 'Wapas',
+  );
+  if (!confirmed || !context.mounted) return;
+  await cubit.submit();
 }
 
 /// Records the age answer. A "Nahi" tap is confirmed first, so a mis-tap can
@@ -399,42 +431,86 @@ class _NoticeCard extends StatelessWidget {
 /// affirmative act, and this tick is it — 'Aage Badhein' stays disabled until
 /// it is ticked.
 class _AgreeRow extends StatelessWidget {
-  const _AgreeRow({required this.accepted, required this.onAcceptedChanged});
+  const _AgreeRow({
+    required this.accepted,
+    required this.declined,
+    required this.onAcceptedChanged,
+    required this.onDeclinedChanged,
+  });
 
   final bool accepted;
+  final bool declined;
   final ValueChanged<bool> onAcceptedChanged;
+  final ValueChanged<bool> onDeclinedChanged;
 
   @override
   Widget build(BuildContext context) {
     return ConsentNoticeCard(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-      child: InkWell(
-        onTap: () => onAcceptedChanged(!accepted),
-        borderRadius: BorderRadius.circular(OnboardingRadii.note),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 4),
-          child: Row(
-            children: <Widget>[
-              // No local fill / side overrides: the app-wide checkbox theme
-              // is the v3 drawing (navy fill, yellow border, yellow tick),
-              // and an override here is how this tick quietly ended up
-              // wearing a grey border while every other one wore yellow.
-              Checkbox(
-                value: accepted,
-                onChanged: (bool? v) => onAcceptedChanged(v ?? false),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  'I agree',
-                  style: OnboardingTypography.inter(
-                    size: 14,
-                    weight: FontWeight.w600,
-                  ),
+      child: Column(
+        children: <Widget>[
+          _ConsentTick(
+            tickKey: const Key('consent_agree_tick'),
+            label: 'I agree',
+            value: accepted,
+            onChanged: onAcceptedChanged,
+          ),
+          // Owner ruling 2026-11-05: the two ticks are mutually exclusive
+          // (radio-like) — the cubit clears the other one.
+          _ConsentTick(
+            tickKey: const Key('consent_decline_tick'),
+            label: "I don't agree",
+            value: declined,
+            onChanged: onDeclinedChanged,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// One tick row. No local fill / side overrides: the app-wide checkbox theme is
+/// the v3 drawing (navy fill, yellow border, yellow tick), and an override here
+/// is how this tick quietly ended up wearing a grey border while every other one
+/// wore yellow.
+class _ConsentTick extends StatelessWidget {
+  const _ConsentTick({
+    required this.tickKey,
+    required this.label,
+    required this.value,
+    required this.onChanged,
+  });
+
+  final Key tickKey;
+  final String label;
+  final bool value;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      key: tickKey,
+      onTap: () => onChanged(!value),
+      borderRadius: BorderRadius.circular(OnboardingRadii.note),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Row(
+          children: <Widget>[
+            Checkbox(
+              value: value,
+              onChanged: (bool? v) => onChanged(v ?? false),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                label,
+                style: OnboardingTypography.inter(
+                  size: 14,
+                  weight: FontWeight.w600,
                 ),
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
