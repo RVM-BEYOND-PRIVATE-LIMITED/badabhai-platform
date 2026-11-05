@@ -1,6 +1,7 @@
 import 'package:equatable/equatable.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../../../../core/data/candidate_search_models.dart';
 import '../../../../core/data/models.dart';
 import '../../../../core/data/payer_api_client.dart';
 import '../../../../core/error/payer_failure.dart';
@@ -32,7 +33,40 @@ class JobsCubit extends Cubit<JobsState> {
 
   Future<void> load() async {
     emit(state.copyWith(status: JobsStatus.loading));
-    await _refresh();
+    await Future.wait(<Future<void>>[
+      _refresh(),
+      _loadMatchingVocabulary(),
+    ]);
+  }
+
+  /// #2671 — the find-matching button needs the 16-trade catalogue (the job's
+  /// own `match_skill_id`) and the Candidates filter cities (a city the search
+  /// does not recognise must never be sent). Both are vocabulary, not worker
+  /// data; a failure keeps the previous read (or none) and never fails the job
+  /// list — without them the button simply reads the city as absent.
+  Future<void> _loadMatchingVocabulary() async {
+    final Future<List<PostingTradeForm>> tradesRead = _readTrades();
+    final Future<CandidateFilters?> filtersRead = _readFilters();
+    final List<PostingTradeForm> trades = await tradesRead;
+    final CandidateFilters? filters = await filtersRead;
+    if (isClosed) return;
+    emit(state.copyWith(postingTrades: trades, candidateFilters: filters));
+  }
+
+  Future<List<PostingTradeForm>> _readTrades() async {
+    try {
+      return await _api.fetchPostingTrades();
+    } catch (_) {
+      return state.postingTrades;
+    }
+  }
+
+  Future<CandidateFilters?> _readFilters() async {
+    try {
+      return await _api.fetchCandidateFilters();
+    } catch (_) {
+      return state.candidateFilters;
+    }
   }
 
   /// Fetches the list WITHOUT flipping to [JobsStatus.loading] — the refetch
@@ -47,7 +81,12 @@ class JobsCubit extends Cubit<JobsState> {
         return; // screen popped mid-load — emit would throw StateError
       }
       if (!_reads.claim(read)) return; // a newer read already landed
-      emit(JobsState(status: JobsStatus.ready, jobs: jobs));
+      emit(JobsState(
+        status: JobsStatus.ready,
+        jobs: jobs,
+        postingTrades: state.postingTrades,
+        candidateFilters: state.candidateFilters,
+      ));
     } catch (e) {
       if (isClosed || !_reads.isLatest(read)) return;
       // The error replaces the list on screen: a refresh sent before the
@@ -78,7 +117,12 @@ class JobsCubit extends Cubit<JobsState> {
       final List<JobPosting> jobs = await _api.fetchJobs();
       if (isClosed) return null;
       if (_reads.claim(read)) {
-        emit(JobsState(status: JobsStatus.ready, jobs: jobs));
+        emit(JobsState(
+          status: JobsStatus.ready,
+          jobs: jobs,
+          postingTrades: state.postingTrades,
+          candidateFilters: state.candidateFilters,
+        ));
       }
       return null;
     } catch (e) {
@@ -271,6 +315,8 @@ class JobsState extends Equatable {
     this.status = JobsStatus.initial,
     this.jobs = const <JobPosting>[],
     this.failure,
+    this.postingTrades = const <PostingTradeForm>[],
+    this.candidateFilters,
   });
 
   final JobsStatus status;
@@ -280,18 +326,33 @@ class JobsState extends Equatable {
   /// Null unless [status] is [JobsStatus.error].
   final PayerFailure? failure;
 
+  /// #2671 — the 16-trade catalogue (`GET /payer/posting-trades`), read beside
+  /// the list so a card can offer "Find matching workers" with its job's own
+  /// trade. Empty until loaded (or when the read failed).
+  final List<PostingTradeForm> postingTrades;
+
+  /// #2671 — the Candidates filter options, read for their city vocabulary
+  /// only: a job city the search does not list is left out. Null until loaded
+  /// (or when the read failed).
+  final CandidateFilters? candidateFilters;
+
   JobsState copyWith({
     JobsStatus? status,
     List<JobPosting>? jobs,
     PayerFailure? failure,
+    List<PostingTradeForm>? postingTrades,
+    CandidateFilters? candidateFilters,
   }) {
     return JobsState(
       status: status ?? this.status,
       jobs: jobs ?? this.jobs,
       failure: failure ?? this.failure,
+      postingTrades: postingTrades ?? this.postingTrades,
+      candidateFilters: candidateFilters ?? this.candidateFilters,
     );
   }
 
   @override
-  List<Object?> get props => <Object?>[status, jobs, failure];
+  List<Object?> get props =>
+      <Object?>[status, jobs, failure, postingTrades, candidateFilters];
 }

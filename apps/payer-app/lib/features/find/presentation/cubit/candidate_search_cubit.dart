@@ -48,12 +48,17 @@ class CandidateSearchCubit extends Cubit<CandidateSearchState> {
   final Map<String, Future<UnlockResult>> _unlocksInFlight =
       <String, Future<UnlockResult>>{};
 
-  /// Filters + the first page + the unlock history, concurrently.
-  Future<void> load() => Future.wait(<Future<void>>[
-        _loadFilters(),
-        _loadUnlockHistory(),
-        _replace(state.query.firstPage()),
-      ]);
+  /// Filters + the first page + the unlock history, concurrently. [query] is
+  /// the search to start on — #2671 a job's "Find matching workers" prefills the
+  /// trade, the listed city and strict; an ordinary visit starts unfiltered.
+  Future<void> load({CandidateSearchQuery? query}) {
+    final CandidateSearchQuery start = query ?? state.query;
+    return Future.wait(<Future<void>>[
+      _loadFilters(),
+      _loadUnlockHistory(),
+      _replace(start.firstPage()),
+    ]);
+  }
 
   /// The filter sheet's result. The cursor resets and the rows are replaced. A
   /// query with no filter drops [CandidateSearchQuery.strict] too — "only show
@@ -132,8 +137,7 @@ class CandidateSearchCubit extends Cubit<CandidateSearchState> {
   }
 
   /// The strict-zero way back: the same filters, every candidate, matches first.
-  Future<void> dropStrict() =>
-      applyQuery(state.query.firstPage(strict: false));
+  Future<void> dropStrict() => applyQuery(state.query.firstPage(strict: false));
 
   Future<void> clearFilters() => applyQuery(const CandidateSearchQuery());
 
@@ -207,8 +211,7 @@ class CandidateSearchCubit extends Cubit<CandidateSearchState> {
     final String workerId = row.workerId;
     // A BLOCK body on purpose: `=> remove(...)` would return the removed value
     // — this very future — and `whenComplete` would wait on itself forever.
-    return _unlocksInFlight[workerId] ??=
-        _unlock(workerId).whenComplete(() {
+    return _unlocksInFlight[workerId] ??= _unlock(workerId).whenComplete(() {
       _unlocksInFlight.remove(workerId);
     });
   }
@@ -532,7 +535,8 @@ class CandidateSearchState extends Equatable {
       page: identical(page, _keep) ? this.page : page as CandidateSearchPage?,
       rows: rows ?? this.rows,
       loadingMore: loadingMore ?? this.loadingMore,
-      failure: identical(failure, _keep) ? this.failure : failure as PayerFailure?,
+      failure:
+          identical(failure, _keep) ? this.failure : failure as PayerFailure?,
       loadMoreFailure: identical(loadMoreFailure, _keep)
           ? this.loadMoreFailure
           : loadMoreFailure as PayerFailure?,

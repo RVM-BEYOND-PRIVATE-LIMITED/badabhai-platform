@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../../../core/data/candidate_search_models.dart';
 import '../../../core/data/models.dart';
 import '../../../core/di/locator.dart';
 import '../../../core/error/payer_failure.dart';
@@ -60,6 +61,8 @@ class FindScreen extends StatefulWidget {
     this.initialView = FindView.allCandidates,
     this.initialJobId,
     this.applicantsEpoch = 0,
+    this.initialSearch = const CandidateSearchQuery(),
+    this.searchEpoch = 0,
   });
 
   final ValueChanged<RevealArgs> onReveal;
@@ -76,6 +79,15 @@ class FindScreen extends StatefulWidget {
   /// Applicants view is rebuilt on a fresh cubit (a fresh feed), while All
   /// candidates keeps its filters, loaded pages and scroll.
   final int applicantsEpoch;
+
+  /// #2671 — the search a job's "Find matching workers" opened Find with
+  /// (role, optionally city, strict on). The All-candidates cubit starts on it.
+  final CandidateSearchQuery initialSearch;
+
+  /// #2671 — the shell bumps this for each job "Find matching workers" tap, so
+  /// a later tap rebuilds the All-candidates cubit on the NEW search while an
+  /// ordinary return keeps the filters, loaded pages and scroll.
+  final int searchEpoch;
 
   @override
   State<FindScreen> createState() => _FindScreenState();
@@ -159,7 +171,12 @@ class _FindScreenState extends State<FindScreen>
             children: <Widget>[
               if (_opened.contains(FindView.allCandidates))
                 BlocProvider<CandidateSearchCubit>(
-                  create: (_) => locator<CandidateSearchCubit>()..load(),
+                  // #2671 — a job's "Find matching workers" tap mounts a fresh
+                  // cubit on that job's search; an ordinary visit keeps the one
+                  // on screen.
+                  key: ValueKey<int>(widget.searchEpoch),
+                  create: (_) => locator<CandidateSearchCubit>()
+                    ..load(query: widget.initialSearch),
                   // #2592 — a return to the tab re-reads the view ON SCREEN
                   // quietly, keeping the pages already scrolled through.
                   child: BbTabRefreshListener(
@@ -344,10 +361,10 @@ class _FindView extends StatelessWidget {
         }
 
         final bool real = state.isRealFeed;
-        final String role = real
-            ? (state.selectedJob?.title ?? 'this role')
-            : 'CNC Setter';
-        final int count = real ? state.applicants.length : state.candidates.length;
+        final String role =
+            real ? (state.selectedJob?.title ?? 'this role') : 'CNC Setter';
+        final int count =
+            real ? state.applicants.length : state.candidates.length;
 
         // #364 — the feed builds LAZILY. This was a plain `ListView(children:
         // [...])` that expanded EVERY applicant/candidate inline. Precisely
@@ -783,9 +800,8 @@ class _CandidateCard extends StatelessWidget {
   /// fit badge wraps with the meta: beside the facts it starved the name line
   /// at 360dp.
   Widget _facts(bool masked) {
-    final String shownName = masked
-        ? NameMask.redacted(candidate.name)
-        : candidate.name;
+    final String shownName =
+        masked ? NameMask.redacted(candidate.name) : candidate.name;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
@@ -804,7 +820,8 @@ class _CandidateCard extends StatelessWidget {
               ),
             ),
             const SizedBox(width: AppSpacing.gap6),
-            const Icon(Icons.verified_rounded, size: 15, color: AppColors.success),
+            const Icon(Icons.verified_rounded,
+                size: 15, color: AppColors.success),
             if (candidate.hot) ...<Widget>[
               const SizedBox(width: AppSpacing.gap6),
               const BbBadge(

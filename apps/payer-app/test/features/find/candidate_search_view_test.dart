@@ -33,8 +33,8 @@ final Map<String, dynamic> _fixture = jsonDecode(
       .readAsStringSync(),
 ) as Map<String, dynamic>;
 
-final CandidateSearchPage _fixturePage =
-    CandidateSearchPage.tryFromJson(_fixture['response'] as Map<String, dynamic>)!;
+final CandidateSearchPage _fixturePage = CandidateSearchPage.tryFromJson(
+    _fixture['response'] as Map<String, dynamic>)!;
 final CandidateSearchPage _fixtureStrictZero = CandidateSearchPage.tryFromJson(
     _fixture['emptyStrictResponse'] as Map<String, dynamic>)!;
 final CandidateFilters _fixtureFilters =
@@ -70,7 +70,8 @@ CandidateSearchPage _page(
 class _ViewApi extends MockPayerApiClient {
   final List<CandidateSearchQuery> searches = <CandidateSearchQuery>[];
   Future<CandidateSearchPage> Function(CandidateSearchQuery q) onSearch =
-      (CandidateSearchQuery q) async => _page(<CandidateSearchRow>[_turner, _vmc]);
+      (CandidateSearchQuery q) async =>
+          _page(<CandidateSearchRow>[_turner, _vmc]);
   List<PayerUnlock> history = const <PayerUnlock>[];
   int applicantListLoads = 0;
   final List<({String workerId, String? jobId})> unlockCalls =
@@ -125,11 +126,16 @@ void main() {
   Future<void> pumpFind(
     WidgetTester tester, {
     FindView initialView = FindView.allCandidates,
+    CandidateSearchQuery initialSearch = const CandidateSearchQuery(),
   }) async {
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
-          body: FindScreen(onReveal: revealed.add, initialView: initialView),
+          body: FindScreen(
+            onReveal: revealed.add,
+            initialView: initialView,
+            initialSearch: initialSearch,
+          ),
         ),
       ),
     );
@@ -163,7 +169,8 @@ void main() {
       find.byKey(const Key('candidate_filters_open'));
 
   group('the segmented control', () {
-    testWidgets('opens on All candidates; Applicants stays unloaded until opened',
+    testWidgets(
+        'opens on All candidates; Applicants stays unloaded until opened',
         (WidgetTester tester) async {
       await pumpFind(tester);
 
@@ -238,7 +245,8 @@ void main() {
           findsOneWidget);
 
       // Faceless: masked avatars only, and nothing phone- or name-shaped.
-      for (final BbAvatar a in tester.widgetList<BbAvatar>(find.byType(BbAvatar))) {
+      for (final BbAvatar a
+          in tester.widgetList<BbAvatar>(find.byType(BbAvatar))) {
         expect(a.mode, BbAvatarMode.masked);
         expect(a.initials, '••');
       }
@@ -372,8 +380,8 @@ void main() {
       // "CNC Turner").
       expect(tester.getTopLeft(find.text('Worker ••8a90')).dy, lessThan(line),
           reason: 'the match leads');
-      expect(tester.getTopLeft(find.text('Worker ••0007')).dy,
-          greaterThan(line));
+      expect(
+          tester.getTopLeft(find.text('Worker ••0007')).dy, greaterThan(line));
 
       await runQuery(
           tester,
@@ -438,7 +446,8 @@ void main() {
       expect(find.text('CNC Turner'), findsOneWidget);
     });
 
-    testWidgets('an outage names its cause with a Retry', (WidgetTester tester) async {
+    testWidgets('an outage names its cause with a Retry',
+        (WidgetTester tester) async {
       api.onSearch = (_) async => throw const PayerApiException(503);
       await pumpFind(tester);
 
@@ -480,7 +489,8 @@ void main() {
       expect(find.text("That's everyone for now."), findsOneWidget);
     });
 
-    testWidgets('a refused cursor restarts from the first page, calmly — and '
+    testWidgets(
+        'a refused cursor restarts from the first page, calmly — and '
         'waits for a tap instead of re-asking', (WidgetTester tester) async {
       api.onSearch = (CandidateSearchQuery q) async {
         if (q.cursor != null) throw const PayerApiException(400);
@@ -514,9 +524,10 @@ void main() {
         <String?>[null, 'cursor-1'],
         reason: 'one automatic ask, then the payer decides',
       );
-      await tester.ensureVisible(
-          find.byKey(const Key('candidate_load_more_retry')));
-      expect(find.byKey(const Key('candidate_load_more_retry')), findsOneWidget);
+      await tester
+          .ensureVisible(find.byKey(const Key('candidate_load_more_retry')));
+      expect(
+          find.byKey(const Key('candidate_load_more_retry')), findsOneWidget);
       expect(find.text('CNC Turner'), findsOneWidget, reason: 'rows kept');
     });
 
@@ -548,9 +559,10 @@ void main() {
         reason: 'one request per failed refresh — the failed page waits for '
             'a tap (an automatic retry would hammer the hourly cap)',
       );
-      await tester.ensureVisible(
-          find.byKey(const Key('candidate_load_more_retry')));
-      expect(find.byKey(const Key('candidate_load_more_retry')), findsOneWidget);
+      await tester
+          .ensureVisible(find.byKey(const Key('candidate_load_more_retry')));
+      expect(
+          find.byKey(const Key('candidate_load_more_retry')), findsOneWidget);
       expect(find.text('CNC Turner'), findsOneWidget, reason: 'rows kept');
     });
 
@@ -594,7 +606,8 @@ void main() {
       expect(args.applicant, isNull);
       expect(args.workerId, _turner.workerId);
       expect(args.unlockId, 'unl-search-1');
-      expect(args.jobId, isNull, reason: 'the masked résumé goes out posting-less');
+      expect(args.jobId, isNull,
+          reason: 'the masked résumé goes out posting-less');
       expect(args.title, 'Worker ••8a90');
       expect(args.facets, <String>['CNC Turner', '4 yrs experience', 'Pune']);
       // The card now offers the reveal, not a second spend (row 2 is a
@@ -634,7 +647,8 @@ void main() {
       await tester.tap(find.text('View'));
       await tester.pumpAndSettle();
 
-      expect(api.unlockCalls, isEmpty, reason: 'no second credit for a held grant');
+      expect(api.unlockCalls, isEmpty,
+          reason: 'no second credit for a held grant');
       expect(revealed.single.unlockId, 'held-1');
     });
   });
@@ -772,5 +786,19 @@ void main() {
       expect(api.searches.last.toJson(), <String, dynamic>{});
       expect(find.text('Filters'), findsOneWidget);
     });
+  });
+  testWidgets('#2671 — a job prefill starts All candidates on that search', (
+    WidgetTester tester,
+  ) async {
+    const CandidateSearchQuery prefill = CandidateSearchQuery(
+      skillIds: <String>['mskill_cnc_turner'],
+      city: 'Pune',
+      strict: true,
+    );
+    await pumpFind(tester, initialSearch: prefill);
+
+    expect(api.searches.first.skillIds, <String>['mskill_cnc_turner']);
+    expect(api.searches.first.city, 'Pune');
+    expect(api.searches.first.strict, isTrue);
   });
 }

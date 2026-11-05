@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:get_it/get_it.dart';
 
 import 'package:payer_app/core/auth/payer_token_store.dart';
+import 'package:payer_app/core/data/candidate_search_models.dart';
 import 'package:payer_app/core/data/mock_payer_api_client.dart';
 import 'package:payer_app/core/data/models.dart';
 import 'package:payer_app/core/di/locator.dart';
@@ -19,6 +20,27 @@ class _RealJobsApi extends MockPayerApiClient {
 
   @override
   Future<List<JobPosting>> fetchJobs({String? status}) async => _jobs;
+
+  @override
+  Future<List<PostingTradeForm>> fetchPostingTrades() async =>
+      <PostingTradeForm>[
+        PostingTradeForm(
+          roleKind: 'cnc_turner',
+          roleLabel: 'CNC Turner',
+          packId: 'qp_cnc_turner',
+          matchSkillId: 'mskill_cnc_turner',
+        ),
+      ];
+
+  @override
+  Future<CandidateFilters> fetchCandidateFilters() async =>
+      const CandidateFilters(
+        roles: <CandidateRoleOption>[],
+        industries: <LabelledId>[],
+        experienceBuckets: <LabelledId>[],
+        cities: <String>['Pune'],
+        maxRoles: 5,
+      );
 }
 
 JobPosting _job({
@@ -28,6 +50,9 @@ JobPosting _job({
   required bool boosted,
   bool verified = false,
   int disclosuresCount = 0,
+  String wire = 'open',
+  String? roleKind = 'cnc_turner',
+  String? city = 'Pune',
 }) =>
     JobPosting(
       title: 'VMC Operator',
@@ -40,7 +65,9 @@ JobPosting _job({
       verified: verified,
       boosted: boosted,
       id: id,
-      wireStatus: 'open',
+      wireStatus: wire,
+      roleKind: roleKind,
+      city: city,
       locationLabel: 'Pune',
       disclosuresCount: disclosuresCount,
     );
@@ -54,6 +81,29 @@ Future<void> _pump(WidgetTester tester, List<JobPosting> jobs) async {
   );
   await tester.pumpWidget(
     MaterialApp(home: Scaffold(body: JobsScreen(onPost: () {}))),
+  );
+  await tester.pumpAndSettle();
+}
+
+Future<void> _pumpWithFind(
+  WidgetTester tester,
+  List<JobPosting> jobs,
+  ValueChanged<CandidateSearchQuery> onFindMatching,
+) async {
+  await GetIt.instance.reset();
+  setupLocator(
+    apiClient: _RealJobsApi(jobs),
+    secureStore: InMemoryKeyValueStore(),
+  );
+  await tester.pumpWidget(
+    MaterialApp(
+      home: Scaffold(
+        body: JobsScreen(
+          onPost: () {},
+          onFindMatching: onFindMatching,
+        ),
+      ),
+    ),
   );
   await tester.pumpAndSettle();
 }
@@ -87,7 +137,8 @@ void main() {
     expect(find.text('Edit details'), findsOneWidget);
   });
 
-  testWidgets('an unverified plan-less posting shows none of the earned badges', (
+  testWidgets('an unverified plan-less posting shows none of the earned badges',
+      (
     WidgetTester tester,
   ) async {
     await _pump(tester, <JobPosting>[
@@ -98,5 +149,65 @@ void main() {
     expect(find.text('Verified job'), findsNothing);
     expect(find.text('Boosted'), findsNothing);
     expect(find.text('Applicant views'), findsNothing);
+  });
+
+  group('#2671 — Find matching workers', () {
+    testWidgets('an open job on a trade opens the prefilled search', (
+      WidgetTester tester,
+    ) async {
+      final List<CandidateSearchQuery> opened = <CandidateSearchQuery>[];
+      await _pumpWithFind(
+        tester,
+        <JobPosting>[_job(id: 'job-1', quota: 0, filled: 0, boosted: false)],
+        opened.add,
+      );
+
+      await tester.tap(find.text('Find matching workers'));
+      await tester.pumpAndSettle();
+
+      expect(opened, hasLength(1));
+      expect(opened.single.skillIds, <String>['mskill_cnc_turner']);
+      expect(opened.single.city, 'Pune');
+      expect(opened.single.strict, isTrue);
+    });
+
+    testWidgets('a draft and a non-16 role offer no button', (
+      WidgetTester tester,
+    ) async {
+      await _pumpWithFind(
+        tester,
+        <JobPosting>[
+          _job(id: 'job-1', quota: 0, filled: 0, boosted: false, wire: 'draft'),
+          _job(
+            id: 'job-2',
+            quota: 0,
+            filled: 0,
+            boosted: false,
+            roleKind: 'not_a_trade',
+          ),
+        ],
+        (_) {},
+      );
+      expect(find.text('Find matching workers'), findsNothing);
+    });
+
+    testWidgets('an unlisted city is left out of the prefilled search', (
+      WidgetTester tester,
+    ) async {
+      final List<CandidateSearchQuery> opened = <CandidateSearchQuery>[];
+      await _pumpWithFind(
+        tester,
+        <JobPosting>[
+          _job(
+              id: 'job-1', quota: 0, filled: 0, boosted: false, city: 'Mumbai'),
+        ],
+        opened.add,
+      );
+
+      await tester.tap(find.text('Find matching workers'));
+      await tester.pumpAndSettle();
+
+      expect(opened.single.city, isNull);
+    });
   });
 }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../../../core/data/candidate_search_models.dart';
 import '../../../core/di/locator.dart';
 import '../../../core/observability/crash_reporter.dart';
 import '../../../core/session/app_session.dart';
@@ -108,6 +109,14 @@ class _AppShellState extends State<AppShell> {
   /// Applicants view opens on THAT job. Null on every other Find visit.
   String? _findJobId;
 
+  /// #2671 — the search a job's "Find matching workers" opened Find with. The
+  /// cubit starts on it; an ordinary Find visit leaves the search untouched.
+  CandidateSearchQuery _findSearch = const CandidateSearchQuery();
+
+  /// #2671 — bumped for each "Find matching workers" tap, so Find mounts a
+  /// fresh All-candidates cubit on the new search even if it is already open.
+  int _findSearchEpoch = 0;
+
   /// #2595 — the open overlay's unsaved-changes guard (Post, the AI chat): the
   /// shell asks it before its own system Back or a nav tap leaves the overlay.
   final BbLeaveGuardController _leaveGuard = BbLeaveGuardController();
@@ -182,21 +191,24 @@ class _AppShellState extends State<AppShell> {
 
   /// [findView] picks the view a Find visit opens on; every other caller (the
   /// nav, Home's Browse) gets the default, All candidates. [findJobId] is the
-  /// job a Jobs card's "Applicants" was tapped on (#2593).
+  /// job a Jobs card's "Applicants" was tapped on (#2593). [findSearch] is the
+  /// search a job's "Find matching workers" opens Find with (#2671).
   void _selectTab(
     String id, {
     FindView findView = FindView.allCandidates,
     String? findJobId,
+    CandidateSearchQuery? findSearch,
   }) {
     _leaveGuard.release();
     // A Jobs card's "Applicants" button lands Find on that view, on a fresh
-    // feed ([_applicantsEpoch]).
-    final bool applicantsLink =
-        id == 'find' && findView == FindView.applicants;
+    // feed ([_applicantsEpoch]); "Find matching workers" lands it on a fresh
+    // search ([_findSearchEpoch]).
+    final bool applicantsLink = id == 'find' && findView == FindView.applicants;
+    final bool searchLink = id == 'find' && findSearch != null;
     // #2592 — re-tapping the tab already on screen scrolls it to the top; it
     // does not reload it. (Find still hears the re-tap: the nav tab opens All
     // candidates even from the Applicants view a Jobs card opened.)
-    if (id == _tab && _sub == null && !applicantsLink) {
+    if (id == _tab && _sub == null && !applicantsLink && !searchLink) {
       setState(() => _findView = findView);
       _scrollToTop(id);
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -213,6 +225,10 @@ class _AppShellState extends State<AppShell> {
       _findJobId = findJobId;
       _visited.add(id);
       if (applicantsLink) _applicantsEpoch++;
+      if (searchLink) {
+        _findSearch = findSearch;
+        _findSearchEpoch++;
+      }
       CrashReporter.setScreen('payer/$id');
     });
     // #2592 — every return re-reads the screen's API, QUIETLY: the branch keeps
@@ -366,6 +382,8 @@ class _AppShellState extends State<AppShell> {
           initialView: _findView,
           initialJobId: _findJobId,
           applicantsEpoch: _applicantsEpoch,
+          initialSearch: _findSearch,
+          searchEpoch: _findSearchEpoch,
         ),
       'jobs' => JobsScreen(
           onPost: () => _openSub('post'),
@@ -378,6 +396,10 @@ class _AppShellState extends State<AppShell> {
             findView: FindView.applicants,
             findJobId: jobId,
           ),
+          // #2671 — a company job's "Find matching workers" opens the
+          // All-candidates view already filtered to that job.
+          onFindMatching: (CandidateSearchQuery query) =>
+              _selectTab('find', findSearch: query),
           highlight: _justPosted,
         ),
       // M9 (#2597): a tab root has no back arrow; the bottom nav is the way
