@@ -3,11 +3,12 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Icon } from "@badabhai/icons";
-import { Button, Card, Dialog, Toast } from "../../../components/ds";
+import { Button, Card, Dialog, InlineNotice } from "../../../components/ds";
 import { useToast } from "../../../components/ds/toast-provider";
 import { formatInr } from "../../../lib/format";
 import type { ChargedPrice } from "../../../lib/pricing-config";
 import { earlierPurchaseMessage, priceChangedMessage } from "../../../lib/purchase-messages";
+import { creditsErrorMessage } from "../../../lib/credits-messages";
 import { upgradeCapacityAction } from "./actions";
 
 /**
@@ -32,7 +33,7 @@ import { upgradeCapacityAction } from "./actions";
  * opens the generic DS Dialog (never a ConfirmSpendDialog — that stays the unlock's alone), which
  * asks a neutral priced question — what is bought, for how much, like the credits confirm; it
  * claims no charge (review B1) — with Cancel and a priced confirm. Only that confirm sends. While it runs, the confirmed tier's button alone spins (the rest are just
- * disabled), and the result region is aria-live='polite' (DS Toast). Who may buy is unchanged.
+ * disabled), and the result region is aria-live='polite' (a shared InlineNotice). Who may buy is unchanged.
  *
  * FOCUS, ONLY WHEN IT WAS LOST (the team Remove pattern): the Dialog hands focus back to its
  * trigger on close, but a confirmed upgrade disables every tier button while it runs, so that
@@ -177,7 +178,7 @@ export function CapacityPanel({
         router.refresh();
       } else {
         // KEEP the key: the next tap of this SAME tier replays it and the server dedupes.
-        setError(res.error);
+        setError(creditsErrorMessage(res.error));
       }
     });
   }
@@ -252,8 +253,8 @@ export function CapacityPanel({
       )}
 
       <div aria-live="polite" className="capacity-result">
-        {notice ? <Toast tone="neutral">{notice}</Toast> : null}
-        {error ? <Toast tone="danger">{error}</Toast> : null}
+        {notice ? <InlineNotice tone="info">{notice}</InlineNotice> : null}
+        {error ? <InlineNotice tone="danger">{error}</InlineNotice> : null}
       </div>
 
       {/* Confirm-on-spend — the generic DS Dialog (never the credit-spend confirm). A neutral

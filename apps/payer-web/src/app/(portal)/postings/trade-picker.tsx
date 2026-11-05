@@ -1,5 +1,5 @@
 import { Icon } from "@badabhai/icons";
-import { Select, fieldFeedbackId } from "../../../components/ds";
+import { FieldFeedback, Select, fieldFeedbackId } from "../../../components/ds";
 import { RetryButton } from "../../../components/retry-button";
 import type { PostingTradeFormWire } from "../../../lib/contracts";
 import { roleOptionGroups } from "../../../lib/job-roles";
@@ -114,12 +114,7 @@ function TradesUnavailable({
           <RetryButton />
         </div>
       </div>
-      {error ? (
-        <span id={feedbackId} className="bb-field__error">
-          <Icon name="warning-circle" />
-          {error}
-        </span>
-      ) : null}
+      <FieldFeedback id={feedbackId} error={error} />
     </div>
   );
 }

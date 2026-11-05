@@ -189,7 +189,14 @@
 .bb-field__label { font-size: var(--text-sm); font-weight: var(--weight-semibold); color: var(--text-primary); }
 .bb-field__label .bb-field__opt { color: var(--text-faint); font-weight: var(--weight-regular); }
 .bb-field__hint { font-size: var(--text-sm); color: var(--text-muted); }
-.bb-field__error { font-size: var(--text-sm); color: var(--danger); font-weight: var(--weight-medium); display: flex; align-items: center; gap: var(--space-1); }
+.bb-field__error {
+  font-size: var(--text-sm); color: var(--danger); font-weight: var(--weight-medium);
+  display: flex; align-items: center; gap: var(--space-1);
+  /* The message settles in (4px down + fade) instead of appearing abruptly. Under reduced
+     motion every duration/travel collapses to 0 in tokens.css, so only the final state shows. */
+  animation: bb-field-feedback-in var(--duration-fast) var(--ease-enter);
+}
+@keyframes bb-field-feedback-in { from { opacity: 0; transform: translateY(calc(var(--motion-rise) * -1)); } }
 /* Ink: --danger is a paper-tuned red (#c62828 measured 3.11:1 on the ink card, under AA for this
    small text). The field error takes the light end of the ramp in the ink theme, as the ink
    danger badge and the portal's other ink error text already do. Paper is untouched. */
@@ -619,6 +626,37 @@
    shared tooltip (.bb-icon-tip) that shows its label. */
 .bb-toast__close { position: relative; background: none; border: none; color: var(--ink-300); cursor: pointer; padding: 2px; font-size: var(--text-md); display: inline-flex; border-radius: var(--radius-xs); }
 .bb-toast__close:hover { color: var(--paper-0); }
+
+/* ---------- InlineNotice ---------- */
+/* ONE calm message strip for a form/panel outcome (#2688). The tint carries the state, the
+   semantic text colour carries the words; no saturated fill and no capitals. */
+.bb-inline-notice {
+  display: flex; align-items: flex-start; gap: var(--space-2);
+  margin: 0; padding: var(--space-2) var(--space-3);
+  border: var(--border-hairline) solid var(--border-default);
+  border-inline-start: var(--border-bold) solid var(--info);
+  border-radius: var(--radius-md);
+  background: var(--info-tint); color: var(--text-primary);
+  font-family: var(--font-sans); font-size: var(--text-sm); line-height: var(--leading-normal);
+  animation: bb-inline-notice-in var(--duration-fast) var(--ease-enter);
+}
+@keyframes bb-inline-notice-in { from { opacity: 0; transform: translateY(calc(var(--motion-rise) * -1)); } }
+.bb-inline-notice__icon { flex: none; margin-top: 1px; color: var(--info); }
+.bb-inline-notice__text { min-width: 0; }
+.bb-inline-notice__title { margin: 0; font-weight: var(--weight-semibold); }
+.bb-inline-notice__msg { margin: 0; overflow-wrap: anywhere; }
+.bb-inline-notice__title + .bb-inline-notice__msg { margin-top: 2px; }
+.bb-inline-notice__action { flex: none; margin-inline-start: auto; }
+.bb-inline-notice--danger  { background: var(--danger-tint); border-inline-start-color: var(--danger); color: var(--red-700); }
+.bb-inline-notice--danger  .bb-inline-notice__icon { color: var(--danger); }
+.bb-inline-notice--warning { background: var(--warning-tint); border-inline-start-color: var(--warning); color: var(--amber-800); }
+.bb-inline-notice--warning .bb-inline-notice__icon { color: var(--warning); }
+.bb-inline-notice--success { background: var(--success-tint); border-inline-start-color: var(--success); color: var(--green-700); }
+.bb-inline-notice--success .bb-inline-notice__icon { color: var(--success); }
+.bb-inline-notice--info    .bb-inline-notice__icon { color: var(--info); }
+[data-theme="ink"] .bb-inline-notice--danger  { color: var(--red-300); }
+[data-theme="ink"] .bb-inline-notice--warning { color: var(--amber-300); }
+[data-theme="ink"] .bb-inline-notice--success { color: var(--green-300); }
 
 /* ---------- Tooltip ---------- */
 .bb-tooltip-wrap { position: relative; display: inline-flex; }

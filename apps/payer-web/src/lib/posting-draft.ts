@@ -143,14 +143,20 @@ export function leavingHref(
 }
 
 /**
- * Asks before leaving while `isDirty()` is true: a `beforeunload` prompt (tab close, reload, a
- * typed URL) and a confirm on an in-app link click — caught in the CAPTURE phase on the document,
- * before the router's own link handler, so a "stay" stops the navigation outright. Returns the
- * cleanup.
+ * Asks before leaving while `isDirty()` is true.
+ *
+ *  - CLOSING THE TAB / RELOADING: the browser's own `beforeunload` prompt (the only native prompt
+ *    this app still allows — a page cannot style it, and navigation has not started yet).
+ *  - AN IN-APP LINK: caught in the CAPTURE phase on the document, before the router's own link
+ *    handler. `onInAppLeave(href, message)` decides: return true to let the link go, or false to
+ *    stop it and show the caller's own in-app confirmation. The hook uses the latter and then
+ *    navigates on the payer's confirmation.
+ *
+ * Returns the cleanup.
  */
 export function installLeaveGuard(
   isDirty: () => boolean,
-  confirmLeave: (message: string) => boolean,
+  onInAppLeave: (href: string, message: string) => boolean,
   win: Window = window,
 ): () => void {
   const onBeforeUnload = (event: BeforeUnloadEvent) => {
@@ -161,8 +167,9 @@ export function installLeaveGuard(
   };
   const onClick = (event: MouseEvent) => {
     if (!isDirty()) return;
-    if (leavingHref(event, win.location) === null) return;
-    if (confirmLeave(LEAVE_CONFIRM)) return;
+    const href = leavingHref(event, win.location);
+    if (href === null) return;
+    if (onInAppLeave(href, LEAVE_CONFIRM)) return;
     event.preventDefault();
     event.stopPropagation();
   };

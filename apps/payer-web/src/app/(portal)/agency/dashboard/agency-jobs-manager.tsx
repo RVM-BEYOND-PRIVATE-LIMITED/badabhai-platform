@@ -14,6 +14,7 @@ import {
   tradeLabel,
 } from "../../../../lib/agency-view";
 import { bandLabel } from "../../../../lib/masking";
+import { agencyErrorMessage } from "../../../../lib/agency-messages";
 import { Badge, Button, Card } from "../../../../components/ds";
 import { PortalLink } from "../../../../components/portal-link";
 import {
@@ -100,7 +101,7 @@ export function AgencyJobsManager({ jobs }: { jobs: AgencyJob[] }) {
         upsertRow(res.job);
         router.refresh();
       } else {
-        setError(id, res.error);
+        setError(id, agencyErrorMessage(res.error));
       }
     });
   }

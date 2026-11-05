@@ -3,8 +3,9 @@
 import { Fragment, useState, useTransition } from "react";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 import { looksLikeActionContextPii } from "@badabhai/validators";
-import { Badge, Button, Card, Input, SelectMenu } from "../../../../components/ds";
+import { Badge, Button, Card, InlineNotice, Input, SelectMenu } from "../../../../components/ds";
 import { inviteContextSlugError } from "../../../../lib/invite-meta";
+import { agencyErrorMessage } from "../../../../lib/agency-messages";
 import {
   inviteShareMessage,
   shareableInviteUrl,
@@ -168,7 +169,7 @@ export function AgencyBatchInvitePanel() {
         // about the batch already on screen: those codes are minted, permanent, already
         // charged against the cap, and have no readback endpoint. Wiping them here destroyed
         // up to 50 live links with no way to get them back. Only the error changes.
-        setError(res.error);
+        setError(agencyErrorMessage(res.error));
       }
     });
   }
@@ -310,17 +311,17 @@ export function AgencyBatchInvitePanel() {
             */}
             <div aria-live="polite" className="agency-invite__status">
               {validationMessage ? (
-                <p className="agency-invite__error">{validationMessage}</p>
+                <InlineNotice tone="warning">{validationMessage}</InlineNotice>
               ) : null}
               {error ? (
-                <p className="agency-invite__error">
+                <InlineNotice tone="danger">
                   {error}
                   {invites && invites.length > 0
                     ? " The links already created are still listed below and are still valid."
                     : ""}
-                </p>
+                </InlineNotice>
               ) : null}
-              {copyError ? <p className="agency-invite__error">{copyError}</p> : null}
+              {copyError ? <InlineNotice tone="warning">{copyError}</InlineNotice> : null}
               {!error && invites && invites.length > 0 ? (
                 <p className="agency-section__sub">
                   {invites.length} {invites.length === 1 ? "link" : "links"} created and listed
@@ -379,7 +380,7 @@ export function AgencyBatchInvitePanel() {
               </div>
               {copyError ? (
                 <div className="agency-invite__result">
-                  <p className="agency-invite__error">{COPY_FAILED}</p>
+                  <InlineNotice tone="warning">{COPY_FAILED}</InlineNotice>
                   {/* The single-mint fallback shape: `.agency-invite__dl dd` wraps (break-all),
                       so every url is readable in full and transcribable by hand. */}
                   <dl className="agency-invite__dl">

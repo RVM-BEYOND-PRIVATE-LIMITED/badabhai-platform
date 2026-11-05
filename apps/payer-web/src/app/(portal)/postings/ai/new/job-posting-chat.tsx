@@ -13,12 +13,13 @@ import {
   isPostingTrade,
   type PostingTradesProblem,
 } from "../../../../../lib/posting-trades";
-import { Badge, Button, Card, Textarea } from "../../../../../components/ds";
+import { Badge, Button, Card, InlineNotice, Textarea } from "../../../../../components/ds";
 // Imported from the module path (not the ds barrel) so a test can mock just this
 // interactive pill while rendering the other hookless DS primitives for real.
 import { Chip } from "../../../../../components/ds/chip";
 import { PortalLink } from "../../../../../components/portal-link";
 import { usePortalNavigation } from "../../../../../components/portal-navigation";
+import { postingsErrorMessage } from "../../../../../lib/postings-messages";
 import { DraftPreview } from "./draft-preview";
 import {
   publishJobPostingChatAction,
@@ -166,7 +167,7 @@ export function JobPostingChat({
     begin("start", async () => {
       const res = await startJobPostingChatAction();
       if (!res.ok) {
-        setError(res.error);
+        setError(postingsErrorMessage(res.error));
         return;
       }
       // A new conversation starts with no role/area picked — never carry a
@@ -188,7 +189,7 @@ export function JobPostingChat({
     begin(`resume:${sessionId}`, async () => {
       const res = await resumeJobPostingChatAction({ sessionId });
       if (!res.ok) {
-        setError(res.error);
+        setError(postingsErrorMessage(res.error));
         return;
       }
       setRoleKind("");
@@ -223,7 +224,7 @@ export function JobPostingChat({
     begin("send", async () => {
       const res = await sendJobPostingChatMessageAction({ sessionId, text: said });
       if (!res.ok) {
-        setError(res.error);
+        setError(postingsErrorMessage(res.error));
         return;
       }
       setConvo((prev) =>
@@ -262,7 +263,7 @@ export function JobPostingChat({
         ...(pickedArea ? { area: pickedArea } : {}),
       });
       if (!res.ok) {
-        setError(res.error);
+        setError(postingsErrorMessage(res.error));
         return;
       }
       // PR-B: ALWAYS route to the EDIT page. The chat publish still leaves the card columns the
@@ -354,7 +355,7 @@ export function JobPostingChat({
         </Card>
 
         <div aria-live="polite" className="ai-chat-status">
-          {error !== null ? <p className="ai-chat-status__error">{error}</p> : null}
+          {error !== null ? <InlineNotice tone="danger">{error}</InlineNotice> : null}
         </div>
       </div>
     );
@@ -402,7 +403,7 @@ export function JobPostingChat({
           </div>
 
           <div aria-live="polite" className="ai-chat-status">
-            {error !== null ? <p className="ai-chat-status__error">{error}</p> : null}
+            {error !== null ? <InlineNotice tone="danger">{error}</InlineNotice> : null}
           </div>
         </Card>
       </div>

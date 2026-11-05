@@ -91,7 +91,7 @@ describe("ChipEditor — a refused publish's reason, and long chips", () => {
     expect(input.props["aria-invalid"]).toBe(true);
     expect(input.props["aria-describedby"]).toBe("requirements-error");
     expect(renderToStaticMarkup(tree)).toContain(
-      '<p id="requirements-error" class="bb-field__error chip-editor__error">At least one requirement chip.</p>',
+      '<span id="requirements-error" class="bb-field__error"><i class="ph-fill ph-warning-circle" aria-hidden="true"></i>At least one requirement chip.</span>',
     );
   });
 

@@ -1,5 +1,5 @@
 import type { MouseEvent } from "react";
-import { Button, Chip, Input } from "./ds";
+import { Button, Chip, FieldFeedback, Input } from "./ds";
 
 /**
  * A small add-a-chip editor: an input + Add button, and the current chips as removable pills.
@@ -91,11 +91,7 @@ export function ChipEditor({
           Add
         </Button>
       </div>
-      {error ? (
-        <p id={errorId} className="bb-field__error chip-editor__error">
-          {error}
-        </p>
-      ) : null}
+      <FieldFeedback id={errorId} error={error} />
       {items.length > 0 ? (
         <div className="chip-editor__chips" id={listId}>
           {items.map((item, i) => (

@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import type { ReactNode } from "react";
 import { Icon } from "@badabhai/icons";
 import { looksLikePii } from "@badabhai/validators";
-import { Button, Input, Select, Textarea } from "../../../../../components/ds";
+import { Button, InlineNotice, Input, Select, Textarea } from "../../../../../components/ds";
 import { ChipEditor } from "../../../../../components/chip-editor";
 import {
   PostingActions,
@@ -58,6 +58,8 @@ import { usePortalNavigation } from "../../../../../components/portal-navigation
 import { postingDraftKey } from "../../../../../lib/posting-draft";
 import { usePostingDraft } from "../../../../../components/use-posting-draft";
 import { DraftRestoredNotice } from "../../../../../components/draft-restored-notice";
+import { LeaveDraftDialog } from "../../../../../components/leave-draft-dialog";
+import { postingsErrorMessage } from "../../../../../lib/postings-messages";
 
 /**
  * Edit a posting (EMPLOYER self-serve; LIVE `PATCH /payer/job-postings/:id`). Every card field +
@@ -274,6 +276,7 @@ export function EditPostingForm({
     // #2645 — a draft whose one change is the old flat pick restores as the saved posting: dropped.
     isDirty: (saved) => isEditPostingDirty(restoredDraft(saved), initial),
     off: navigating,
+    onLeave: (href) => navigate(href, { pendingLabel: "page" }),
     onRestore: (saved) => {
       const restored = restoredDraft(saved);
       setFields(restored.fields);
@@ -524,13 +527,14 @@ export function EditPostingForm({
       } else if (res.tradeRequired) {
         // #2645 — the API would not put (or keep) this job live without one of the 16 trades:
         // said AT the trade picker, where focus goes — never the server's sentence.
-        setError(res.error);
-        setProblem({ control: "roleKind", message: res.error });
+        const copy = postingsErrorMessage(res.error);
+        setError(copy);
+        setProblem({ control: "roleKind", message: copy });
         focusControl("roleKind");
       } else {
         // #1912 — a server validation 400 names the refused field; show it inline at its control.
         if (res.fieldErrors) setServerFieldErrors(res.fieldErrors);
-        setError(res.error);
+        setError(postingsErrorMessage(res.error));
       }
     });
   }
@@ -572,9 +576,9 @@ export function EditPostingForm({
   // the buttons) — the reason a save was refused sits by the button the payer pressed.
   const refusal =
     error !== null ? (
-      <p className="posting-actions__msg posting-actions__msg--danger">
+      <InlineNotice tone="danger">
         <strong>Your changes were not saved.</strong> {error}
-      </p>
+      </InlineNotice>
     ) : null;
   // A refusal a FIELD owns (`problem`) is not announced here: focus moves to that field, whose
   // description reads the reason — once. One no field owns (the server's) is announced, from the
@@ -610,6 +614,7 @@ export function EditPostingForm({
 
   return (
     <div className="posting-layout posting-layout--editor">
+      {draft.leave.open ? <LeaveDraftDialog leave={draft.leave} /> : null}
       <div className="posting-layout__main">
         {lead}
         <form

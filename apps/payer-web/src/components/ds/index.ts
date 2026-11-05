@@ -21,7 +21,9 @@ export {
   // that belong to a GROUP of controls rather than one DS field — the agency form's match-skill
   // picker (#2104) — so they describe themselves by the same id every DS field uses.
   fieldFeedbackId,
+  FieldFeedback,
 } from "./forms";
+export type { FieldFeedbackProps } from "./forms";
 export type {
   ButtonProps,
   InputProps,
@@ -36,9 +38,9 @@ export type {
 export { Card, Badge, StatTile, Avatar } from "./display";
 export type { CardProps, BadgeProps, StatTileProps, AvatarProps } from "./display";
 
-/* ---- Feedback (shared: Tooltip, ProgressBar) ---- */
-export { Tooltip, ProgressBar } from "./feedback";
-export type { TooltipProps, ProgressBarProps } from "./feedback";
+/* ---- Feedback (shared: Tooltip, ProgressBar, InlineNotice) ---- */
+export { Tooltip, ProgressBar, InlineNotice } from "./feedback";
+export type { TooltipProps, ProgressBarProps, InlineNoticeProps } from "./feedback";
 
 /* ---- Brand (shared) ---- */
 export { BadaBhaiLogo } from "./logo";
