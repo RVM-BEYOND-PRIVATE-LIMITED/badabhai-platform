@@ -75,6 +75,8 @@ export interface PayerSessionOrgClaim {
 
 export interface PayerSessionToken {
   token: string;
+  /** The server-side session id, so a caller that must undo a mint can revoke exactly it. */
+  sid: string;
   expiresInSeconds: number;
 }
 
@@ -190,7 +192,7 @@ export class PayerSessionService {
       );
     }
     const token = await this.signToken(payerId, sid, role, org);
-    return { token, expiresInSeconds: ttl };
+    return { token, sid, expiresInSeconds: ttl };
   }
 
   /** Verify the token + load its Redis session, slide the TTL, return claims (or null). */
@@ -254,7 +256,7 @@ export class PayerSessionService {
     org?: PayerSessionOrgClaim,
   ): Promise<PayerSessionToken> {
     const token = await this.signToken(payerId, sid, role, org);
-    return { token, expiresInSeconds: this.ttlSeconds() };
+    return { token, sid, expiresInSeconds: this.ttlSeconds() };
   }
 
   /** Sign the payer JWT. Optional claims are OMITTED (never null) when not supplied. */

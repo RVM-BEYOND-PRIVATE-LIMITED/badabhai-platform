@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { e164PhoneSchema } from "@badabhai/validators";
 import type { OrgRole, PayerRole, PayerStatus } from "@badabhai/db";
+import { containsHardIdentifier } from "../profiling/resume-import/resume-parse-gates";
 import type { AdminPage } from "./admin-entities.dto";
 
 /**
@@ -45,7 +46,15 @@ export const AdminPayerReasonTextSchema = z
   .string()
   .trim()
   .min(15, "Reason must be at least 15 characters")
-  .max(500, "Reason must be at most 500 characters");
+  .max(500, "Reason must be at most 500 characters")
+  /**
+   * #2563 follow-up — the reason is stored on `audit_logs`, which payer erasure does NOT
+   * reach. It must not become a PII sink: reject an email, phone, PAN, Aadhaar or other hard
+   * identifier using the platform's existing detector.
+   */
+  .refine((value) => containsHardIdentifier(value) === null, {
+    message: "Reason must not contain an email, phone number or other hard identifier",
+  });
 
 /**
  * POST /admin/payers — create a company/agency owner login, or a team member under an existing

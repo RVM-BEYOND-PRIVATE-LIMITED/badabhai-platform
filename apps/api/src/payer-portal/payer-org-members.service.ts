@@ -343,6 +343,37 @@ export class PayerOrgMembersService {
     const removed = await this.orgs.softRemoveMember(org.orgId, memberId);
     if (!removed) throw new NotFoundException("Member not found");
 
+    // #2563 follow-up — a member row created by an admin can carry the FOUNDER's copied org
+    // name. Once removed they must not keep it into a later solo org. Compare the stored
+    // ciphertexts by plaintext and replace only when it really is the founder's name; a
+    // member's own business name is left untouched. Best-effort: a decrypt failure must never
+    // fail the removal.
+    if (removed.memberPayerId !== null) {
+      try {
+        const [memberPayer, orgRow] = await Promise.all([
+          this.payers.findById(removed.memberPayerId),
+          this.orgs.findOrgById(org.orgId),
+        ]);
+        const founder = orgRow ? await this.payers.findById(orgRow.rootPayerId) : undefined;
+        const founderNameEnc = orgRow?.nameEnc ?? founder?.orgNameEnc ?? null;
+        if (
+          memberPayer &&
+          founderNameEnc &&
+          this.pii.decrypt(memberPayer.orgNameEnc) === this.pii.decrypt(founderNameEnc)
+        ) {
+          await this.payers.setOrgName(removed.memberPayerId, "My Organisation");
+          // The neutral name is a display fallback, not a login identifier.
+          await this.payers.clearOrgLookupHash(removed.memberPayerId);
+        }
+      } catch (err) {
+        this.logger.warn(
+          `could not clear a removed member's copied org name member=${memberId.slice(0, 8)}… reason=${
+            err instanceof Error ? err.name : "unknown"
+          }`,
+        );
+      }
+    }
+
     await this.events.emit({
       event_name: "payer_member.removed",
       actor: { actor_type: "payer", actor_id: removedBy },

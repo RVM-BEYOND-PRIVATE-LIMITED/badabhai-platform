@@ -260,11 +260,11 @@ export class AdminPayerLoginsRepository {
    * Written OUTSIDE the rolled-back transaction, value-free: admin id, action code and the
    * EXISTING payer id only. No email, no phone, no attempted name and no reason text.
    */
-  async writeConflictAudit(adminId: string, payerId: string): Promise<void> {
+  async writeConflictAudit(adminId: string, payerId: string, actionCode: string): Promise<void> {
     await this.db.insert(auditLogs).values({
       actorType: "admin",
       actorId: adminId,
-      action: "payer_login_create_conflict",
+      action: actionCode,
       entityType: "payer",
       entityId: payerId,
       metadata: {},

@@ -154,6 +154,22 @@ export class PayerOrgsRepository {
     return row !== undefined;
   }
 
+  /** #2563 follow-up — has this payer EVER held a membership in another payer's org? */
+  async hasEverBeenMemberOfOtherOrg(payerId: string): Promise<boolean> {
+    const [row] = await this.db
+      .select({ id: payerMembers.id })
+      .from(payerMembers)
+      .innerJoin(payerOrgs, eq(payerOrgs.id, payerMembers.orgId))
+      .where(
+        and(
+          eq(payerMembers.memberPayerId, payerId),
+          ne(payerOrgs.rootPayerId, payerId),
+        ),
+      )
+      .limit(1);
+    return row !== undefined;
+  }
+
   /** #2563 - the org a team member is being attached to, or undefined. */
   async findOrgById(
     orgId: string,
