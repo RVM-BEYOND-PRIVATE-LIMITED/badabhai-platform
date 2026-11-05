@@ -2275,6 +2275,92 @@ describe("#2635 — company jobs match only within the 16 postable trades", () =
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 
+  it("#2668 — a publish carrying trade_answers on a role outside the 16 returns posting_trade_required", async () => {
+    // Both payer clients always send trade fields since #2662/#2666, so this is the live
+    // shape. The gate must run before `normalizeSelection`, which would otherwise 400 with
+    // "trade fields are only available for a postable role" and no reason.
+    const draft = row({ status: "draft", roleKind: "injection_moulding_operator" });
+    const normalizeSelection = vi
+      .fn()
+      .mockRejectedValue(
+        new BadRequestException("trade fields are only available for a postable role"),
+      );
+    const d = make(draft, { postingTrades: { normalizeSelection } });
+    d.findByIdAndPayer.mockResolvedValue({ ...toApi(draft), payer_id: PAYER_ID });
+
+    const err = await d.svc
+      .updateForPayer(
+        POSTING_ID,
+        PAYER_ID,
+        { status: "open", trade_answers: {} } as never,
+        CTX as never,
+      )
+      .catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(BadRequestException);
+    expect((err as BadRequestException).getResponse()).toMatchObject({
+      reason: "posting_trade_required",
+    });
+    expect(normalizeSelection).not.toHaveBeenCalled();
+    expect(d.updateOwned).not.toHaveBeenCalled();
+    expect(d.materializeReach).not.toHaveBeenCalled();
+  });
+
+  it("#2668 — moving a LIVE posting off the 16 with trade fields still returns posting_trade_required", async () => {
+    const live = row({ status: "open", roleKind: "welder" });
+    const normalizeSelection = vi
+      .fn()
+      .mockRejectedValue(
+        new BadRequestException("trade fields are only available for a postable role"),
+      );
+    const d = make(live, { postingTrades: { normalizeSelection } });
+    d.findByIdAndPayer.mockResolvedValue({ ...toApi(live), payer_id: PAYER_ID });
+
+    const err = await d.svc
+      .updateForPayer(
+        POSTING_ID,
+        PAYER_ID,
+        { role_kind: "injection_moulding_operator", trade_answers: {} } as never,
+        CTX as never,
+      )
+      .catch((e: unknown) => e);
+
+    expect((err as BadRequestException).getResponse()).toMatchObject({
+      reason: "posting_trade_required",
+    });
+    expect(normalizeSelection).not.toHaveBeenCalled();
+    expect(d.updateOwned).not.toHaveBeenCalled();
+  });
+
+  it("#2668 — a DRAFT role change off the 16 with trade fields keeps the trade-form 400", async () => {
+    // Drafts may change role freely; the gate is at publish/live, so a malformed trade form
+    // on a draft still surfaces the validator's error (no reason), not posting_trade_required.
+    const draft = row({ status: "draft", roleKind: "fitter" });
+    const normalizeSelection = vi
+      .fn()
+      .mockRejectedValue(
+        new BadRequestException("trade fields are only available for a postable role"),
+      );
+    const d = make(draft, { postingTrades: { normalizeSelection } });
+    d.findByIdAndPayer.mockResolvedValue({ ...toApi(draft), payer_id: PAYER_ID });
+
+    const err = await d.svc
+      .updateForPayer(
+        POSTING_ID,
+        PAYER_ID,
+        { role_kind: "injection_moulding_operator", trade_answers: {} } as never,
+        CTX as never,
+      )
+      .catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(BadRequestException);
+    expect((err as BadRequestException).getResponse()).not.toMatchObject({
+      reason: "posting_trade_required",
+    });
+    expect(normalizeSelection).toHaveBeenCalledTimes(1);
+    expect(d.updateOwned).not.toHaveBeenCalled();
+  });
+
   it("a company publish that names the trade IN the same PATCH is allowed", async () => {
     const draft = row({ status: "draft" });
     const d = make(draft);
