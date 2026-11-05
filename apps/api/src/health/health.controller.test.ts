@@ -42,6 +42,13 @@ const STORAGE_CONFIG_UP = {
   armed_without_credentials: false,
 };
 
+/** B13 (#2567) — the alert-window knobs every default config below carries. */
+const ALERT_CONFIG = {
+  AI_FALLBACK_ALERT_WINDOW_HOURS: 24,
+  AI_FALLBACK_ALERT_MIN_CALLS: 10,
+  AI_FALLBACK_ALERT_SHARE: 0.5,
+};
+
 const CONFIG = { NODE_ENV: "test", ...STORAGE_CONFIGURED } as never;
 
 /** The ai-service reachable and reporting REAL calls on (the non-default posture). */
@@ -81,13 +88,18 @@ function setup(opts: {
   getJobScheduler?: () => Promise<unknown>;
   aiProbe?: () => Promise<AiServiceHealthSnapshot>;
   config?: unknown;
+  alerts?: unknown;
 }) {
   const dbExecute = opts.dbExecute ?? (async () => [{ "?column?": 1 }]);
   const redisPing = opts.redisPing ?? (async () => "PONG");
   const getJobSchedulerImpl =
     opts.getJobScheduler ?? (async () => ({ key: "account-deletion-sweep", every: "3600000" }));
   const aiProbeImpl = opts.aiProbe ?? (async () => AI_REAL);
-  const config = (opts.config ?? { NODE_ENV: "test", ...STORAGE_CONFIGURED }) as never;
+  const config = (opts.config ?? {
+    NODE_ENV: "test",
+    ...STORAGE_CONFIGURED,
+    ...ALERT_CONFIG,
+  }) as never;
 
   const db = { execute: vi.fn(dbExecute) } as unknown as Database;
   // queue.client is a Promise<ioredis> in BullMQ; ping() lives on the resolved client.
@@ -98,7 +110,7 @@ function setup(opts: {
   const probeHealth = vi.fn(aiProbeImpl);
   const ai = { probeHealth } as unknown as AiService;
 
-  const service = new HealthService(db, queue, deletionQueue, ai, config);
+  const service = new HealthService(db, queue, deletionQueue, ai, config, opts.alerts as never);
   const controller = new HealthController(CONFIG, service);
   return { controller, db, pingFn, getJobScheduler, probeHealth };
 }
@@ -135,6 +147,8 @@ describe("HealthController.check — readiness probes", () => {
       deletion_sweep: "up",
       ai_service: "up",
       ai_posture: "real",
+      ai_tasks: [],
+      ai_tasks_window_hours: 24,
       storage_config: STORAGE_CONFIG_UP,
     });
   });
@@ -229,6 +243,8 @@ describe("HealthController.check — readiness probes", () => {
       deletion_sweep: "down",
       ai_service: "down",
       ai_posture: "mock",
+      ai_tasks: [],
+      ai_tasks_window_hours: 24,
       storage_config: STORAGE_CONFIG_UP,
     });
   });
@@ -260,6 +276,8 @@ describe("HealthController.check — readiness probes", () => {
       deletion_sweep: "down",
       ai_service: "up",
       ai_posture: "real",
+      ai_tasks: [],
+      ai_tasks_window_hours: 24,
       storage_config: STORAGE_CONFIG_UP,
     });
   });
@@ -529,6 +547,82 @@ describe("HealthController.check — readiness probes", () => {
       warnSpy.mockRestore();
       logSpy.mockRestore();
     }
+  });
+
+  // ---- B13 (#2567): the per-task RECORDED posture — what actually fell back ----
+
+  it("reports per-task recorded posture from the alerts service, with the stated window", async () => {
+    const taskPosture = vi.fn(async () => [
+      {
+        task_type: "profile_extraction",
+        window_hours: 24,
+        total_calls: 20,
+        real_calls: 4,
+        fallback_calls: 16,
+        fallback_share: 0.8,
+        breaching: true,
+        last_alert: "raised",
+        active: true,
+      },
+    ]);
+    const { controller } = setup({ alerts: { taskPosture } });
+    const body = await controller.check(fakeRes());
+
+    expect(body.checks.ai_tasks).toEqual([
+      {
+        task_type: "profile_extraction",
+        total_calls: 20,
+        real_calls: 4,
+        fallback_calls: 16,
+        fallback_share: 0.8,
+        breaching: true,
+      },
+    ]);
+    expect(body.checks.ai_tasks_window_hours).toBe(24);
+    // The recorded breakdown is ADDITIVE — the config-presence posture is untouched.
+    expect(body.checks.ai_posture).toBe("real");
+  });
+
+  it("an empty window reads as no recorded calls, never as a failure", async () => {
+    const { controller } = setup({ alerts: { taskPosture: async () => [] } });
+    const body = await controller.check(fakeRes());
+
+    expect(body.checks.ai_tasks).toEqual([]);
+  });
+
+  it("an unreadable spine degrades to the empty set — readiness must not fail on observability", async () => {
+    const warnSpy = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    try {
+      const { controller } = setup({
+        alerts: {
+          taskPosture: async () => {
+            throw new Error("events table unreachable");
+          },
+        },
+      });
+      const res = fakeRes();
+      const body = await controller.check(res);
+
+      expect(res.statusCode).toBe(200);
+      expect(body.checks.ai_tasks).toEqual([]);
+      const logged = warnSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      expect(logged).toMatch(/ai task posture unreadable/);
+      expect(logged).not.toMatch(/unreachable/); // secret-free: name, never the message
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it("without the alerts service the breakdown is absent-but-present (empty, never gating)", async () => {
+    // Every construction that predates B13 passes no 6th arg — the field must still be
+    // present (a consumer reads it unconditionally) and must never gate the status code.
+    const { controller } = setup({});
+    const res = fakeRes();
+    const body = await controller.check(res);
+
+    expect(body.checks.ai_tasks).toEqual([]);
+    expect(body.checks.ai_tasks_window_hours).toBe(24);
+    expect(res.statusCode).toBe(200);
   });
 
   // ---- storage_config: worker photo upload / resume download config-presence signal ----

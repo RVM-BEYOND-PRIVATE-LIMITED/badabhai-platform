@@ -1295,6 +1295,14 @@ const aiTaskType = z.enum([
   "job_posting_chat_turn",
 ]);
 
+/**
+ * The task-type vocabulary as runtime data (not just a type). `aiTaskType` itself stays
+ * module-private; this is the list `AiAlertsService` uses to refuse an unclassifiable
+ * stored task label BEFORE it reaches the alert-verdict payloads (which close over the
+ * same enum) — a row that cannot name its task must not poison its task's evaluation.
+ */
+export const AI_TASK_TYPES: readonly string[] = aiTaskType.options;
+
 /** Async AI job type. Mirrors `AI_JOB_TYPES` in @badabhai/types. */
 const aiJobType = z.enum([
   "pseudonymization",
@@ -5889,3 +5897,56 @@ export const PayerCandidateSearchPerformedPayload = z
 export type PayerCandidateSearchPerformedPayload = z.infer<
   typeof PayerCandidateSearchPerformedPayload
 >;
+
+/**
+ * [B13] (#2567) — one AI task's fallback share crossed its threshold over the window.
+ *
+ * WHY A NEW NAME AND NOT A FLAG ON `ai.cost_recorded`. A cost row is a per-call fact;
+ * this is an aggregate verdict ("profiling_chat_turn ran 80% mocked over the last 24h").
+ * Counting it out of cost rows at read time answers "what happened" but leaves nothing
+ * for an alert feed to pivot on, nothing to clear, and nothing to email about. The
+ * `pace.ops_alert_raised` and `job_posting.reach_alert` precedents carry the same shape
+ * (opaque ids + closed labels + counts) for the same reason.
+ *
+ * PII-FREE BY CONSTRUCTION: the task label, the window, integer counts and two 0..1
+ * shares. No model name, no prompt, no worker, no reason text — the "why" is a count,
+ * which is exactly what keeps this emailable.
+ *
+ * FALLBACK MEANS `real_call=false` ON `ai.cost_recorded` (see AiCostRecordedPayload):
+ * the mock posture, a tripped spend cap, an unreachable ai-service. A total transport
+ * failure that never reaches the recorder emits no cost row at all (the 16_OBSERVABILITY
+ * gap), so this share UNDERSTATES fallback while that gap is open — a 0 here still
+ * means "no RECORDED call fell back", never "every call went real".
+ *
+ * Actor is `system` (an automated evaluation, never an admin write — so the
+ * reason-gated admin-write rule does not apply); subject is the aggregate `ai_job`
+ * with a null id (no single job breached — the TASK did). v1.
+ */
+export const AiFallbackAlertRaisedPayload = z.object({
+  task_type: aiTaskType,
+  window_hours: z.number().int().positive(),
+  total_calls: z.number().int().nonnegative(),
+  fallback_calls: z.number().int().nonnegative(),
+  fallback_share: z.number().min(0).max(1),
+  threshold_share: z.number().min(0).max(1),
+  min_calls: z.number().int().nonnegative(),
+});
+export type AiFallbackAlertRaisedPayload = z.infer<typeof AiFallbackAlertRaisedPayload>;
+
+/**
+ * [B13] (#2567) — the task named by an earlier `ai.fallback_alert_raised` recovered.
+ *
+ * Emitted when the same window that breached no longer does (share below the threshold,
+ * or volume below the minimum). Carries the same shape as the raise so a consumer can
+ * close the loop without re-querying. Same actor/subject/PII posture as the raise. v1.
+ */
+export const AiFallbackAlertClearedPayload = z.object({
+  task_type: aiTaskType,
+  window_hours: z.number().int().positive(),
+  total_calls: z.number().int().nonnegative(),
+  fallback_calls: z.number().int().nonnegative(),
+  fallback_share: z.number().min(0).max(1),
+  threshold_share: z.number().min(0).max(1),
+  min_calls: z.number().int().nonnegative(),
+});
+export type AiFallbackAlertClearedPayload = z.infer<typeof AiFallbackAlertClearedPayload>;

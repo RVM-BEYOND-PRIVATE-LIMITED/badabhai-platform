@@ -1,9 +1,14 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Injectable, Logger, Optional } from "@nestjs/common";
 import type { AICallMetadata } from "@badabhai/ai-contracts";
 import type { AiCostTaskType } from "@badabhai/event-schema";
 
 import { EventsService } from "../events/events.service";
 import { AiCostTotalsRepository } from "./ai-cost-totals.repository";
+// VALUE import (not `import type`): Nest reads the constructor's design:paramtypes at
+// runtime to resolve this dependency — a type-only import erases it and the API fails
+// to boot (E2E "API process exited during startup"). No cycle: the alerts service
+// never imports the recorder.
+import { AiAlertsService } from "./ai-alerts.service";
 
 /**
  * WHO THIS SPEND BELONGS TO. Absent attribution is legitimate — payer-side calls have no
@@ -55,6 +60,14 @@ export class AiCostRecorder {
   constructor(
     private readonly events: EventsService,
     private readonly totals: AiCostTotalsRepository,
+    /**
+     * B13 (#2567) — the loud-alert evaluation, OPTIONAL so every existing construction
+     * (and every unit test that builds this class by hand) keeps working. In the Nest
+     * graph it always resolves (AiModule provides it); where it is absent the recorder
+     * is exactly what it was before — evaluation then runs only when driven directly
+     * (`AiAlertsService.evaluate`), which is also the seam the acceptance tests use.
+     */
+    @Optional() private readonly alerts?: AiAlertsService,
   ) {}
 
   /**
@@ -244,5 +257,11 @@ export class AiCostRecorder {
           `task=${taskType} (non-fatal): ${String(err)}`,
       );
     }
+    // B13 (#2567) — re-check this task's fallback window now that the row above committed.
+    // Awaited (not fire-and-forget) so the evaluation sees a settled spine, and debounced
+    // inside the service so the steady-state cost is an in-memory timestamp check per call.
+    // Never throws (evaluateSoon catches everything); a failing evaluation costs an alert,
+    // never the request it observed.
+    await this.alerts?.evaluateSoon();
   }
 }

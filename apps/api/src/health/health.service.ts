@@ -1,10 +1,11 @@
-import { Inject, Injectable, Logger } from "@nestjs/common";
+import { Inject, Injectable, Logger, Optional } from "@nestjs/common";
 import { InjectQueue } from "@nestjs/bullmq";
 import { Queue } from "bullmq";
 import { sql } from "drizzle-orm";
 import type { Database } from "@badabhai/db";
 import type { ServerConfig } from "@badabhai/config";
 import { AiService } from "../ai/ai.service";
+import { AiAlertsService } from "../ai/ai-alerts.service";
 import { SERVER_CONFIG } from "../config/config.module";
 import { DATABASE } from "../database/database.module";
 import {
@@ -92,6 +93,25 @@ export interface StorageConfigChecks {
   armed_without_credentials: boolean;
 }
 
+/**
+ * B13 (#2567) — one AI task's recorded posture inside the alert window: how many calls
+ * reached a provider and how many fell back. Labels + counts + one share ONLY — PII-free
+ * by construction (the same ids/enums/counts discipline as every other check here), so
+ * this unauthenticated endpoint can carry it.
+ *
+ * `fallback_share` is 0 when nothing was recorded — "no RECORDED call fell back", never
+ * "every call went real" (a total transport failure emits no cost row at all).
+ */
+export interface AiTaskPosture {
+  task_type: string;
+  total_calls: number;
+  real_calls: number;
+  fallback_calls: number;
+  fallback_share: number;
+  /** Recorded enough calls AND the share reaches `AI_FALLBACK_ALERT_SHARE`. */
+  breaching: boolean;
+}
+
 export interface HealthChecks {
   database: DependencyStatus;
   redis: DependencyStatus;
@@ -126,6 +146,21 @@ export interface HealthChecks {
    * look at `ai_jobs.real_call` on an actual job.
    */
   ai_posture: AiPosture;
+  /**
+   * B13 (#2567) — per-task RECORDED posture over the trailing
+   * `AI_FALLBACK_ALERT_WINDOW_HOURS` (stated in `ai_tasks_window_hours`): for every task
+   * type with an `ai.cost_recorded` row in the window, how many calls reached a provider
+   * and how many fell back. This is the field the 28-Oct incident asked for: that day
+   * EVERY call ran fallback while this endpoint still reported the real provider —
+   * `ai_posture` is config-presence, `ai_tasks` is what actually happened.
+   *
+   * INFORMATIONAL, like `ai_service`/`ai_posture`/`deletion_sweep`: it does NOT flip the
+   * 200/503 (a mocked task is degraded-but-serving, never an outage), and an unreadable
+   * spine reads as the empty set rather than failing the probe.
+   */
+  ai_tasks: AiTaskPosture[];
+  /** The trailing window `ai_tasks` covers, in hours. Echoed so the breakdown states its window. */
+  ai_tasks_window_hours: number;
   /**
    * Storage config-presence signal — see `StorageConfigChecks` for what it does and does
    * not prove. Reported for DETECTION (an operator or the staging smoke can see a
@@ -265,6 +300,11 @@ export class HealthService {
     // synchronously (no new client, no I/O). AppConfigModule is @Global (same idiom
     // as DATABASE/AiService above), so this resolves without an import in HealthModule.
     @Inject(SERVER_CONFIG) private readonly config: ServerConfig,
+    // B13 (#2567) — the per-task RECORDED posture for `checks.ai_tasks`. AiModule is
+    // @Global so this resolves without an import in HealthModule (the same idiom as
+    // AiService above). OPTIONAL so every existing construction keeps working: where it
+    // is absent the breakdown reads as the empty set rather than failing the probe.
+    @Optional() private readonly alerts?: AiAlertsService,
   ) {}
 
   /**
@@ -279,12 +319,15 @@ export class HealthService {
       this.runProbe("deletion_sweep", () => this.probeDeletionSweep()),
       this.probeAiService(),
     ]);
+    const aiTasks = await this.readAiTaskPosture();
     return {
       database,
       redis,
       deletion_sweep: deletionSweep,
       ai_service: aiService.status,
       ai_posture: aiService.posture,
+      ai_tasks: aiTasks,
+      ai_tasks_window_hours: this.config.AI_FALLBACK_ALERT_WINDOW_HOURS,
       storage_config: this.readStorageConfig(),
     };
   }
@@ -376,6 +419,37 @@ export class HealthService {
     if (status === "down") return "mock";
     if (realCallsEnabled === null) return "unknown"; // TD67 locked posture — withheld
     return realCallsEnabled ? "real" : "mock";
+  }
+
+  /**
+   * B13 (#2567) — the per-task RECORDED posture for `checks.ai_tasks`.
+   *
+   * A read through `AiAlertsService.taskPosture()` (one windowed, index-backed GROUP BY
+   * over `ai.cost_recorded`), mapped to the compact health projection. NEVER throws: an
+   * unreadable spine degrades to the empty set, because an observability read failing
+   * must not fail readiness — the same rule that keeps every probe here from throwing.
+   * A WARN names the degradation server-side (secret-free), so "no recorded calls" from
+   * an empty window stays distinguishable from "no recorded calls" from a dead query in
+   * the logs, even though the body cannot tell them apart.
+   */
+  private async readAiTaskPosture(): Promise<AiTaskPosture[]> {
+    if (!this.alerts) return [];
+    try {
+      const rows = await this.alerts.taskPosture();
+      return rows.map((r) => ({
+        task_type: r.task_type,
+        total_calls: r.total_calls,
+        real_calls: r.real_calls,
+        fallback_calls: r.fallback_calls,
+        fallback_share: r.fallback_share,
+        breaching: r.breaching,
+      }));
+    } catch (err) {
+      this.logger.warn(
+        `ai task posture unreadable, reporting no recorded calls (reason: ${HealthService.safeReason(err)})`,
+      );
+      return [];
+    }
   }
 
   /**

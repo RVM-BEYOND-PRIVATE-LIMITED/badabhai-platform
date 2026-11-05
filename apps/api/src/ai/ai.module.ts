@@ -3,6 +3,8 @@ import { AiCostRecorder } from "./ai-cost-recorder.service";
 import { AiCostTotalsRepository } from "./ai-cost-totals.repository";
 import { AiTraceRecorder } from "./ai-trace-recorder.service";
 import { AiTracesRepository } from "./ai-traces.repository";
+import { AiAlertsRepository } from "./ai-alerts.repository";
+import { AiAlertsService } from "./ai-alerts.service";
 import { AiService } from "./ai.service";
 
 /**
@@ -21,13 +23,29 @@ import { AiService } from "./ai.service";
  * has its OWN select-only repository, the same split `FeedbackRepository` /
  * `AdminFeedbackRepository` already makes.
  *
+ * B13 (#2567) follows the same split for the loud-AI-alert feature: `AiAlertsRepository`
+ * is SELECT-ONLY over the spine (like the admin spine reader, but outside admin/** so the
+ * single-reader build-blocker still holds and `GET /health` can use it unauthenticated);
+ * `AiAlertsService` composes it with `EventsService` for the raised/cleared verdicts and is
+ * EXPORTED so the admin endpoint and health can read through it. `AiCostRecorder` drives
+ * evaluation after every recorded cost (debounced, never throwing).
+ *
  * NO NEW IMPORT EDGE. `DatabaseModule` and `EventsModule` are both `@Global`, and
- * `PiiCryptoService` (CryptoModule) is too, so this module's graph is unchanged and the app's
- * boot order is not affected.
+ * `PiiCryptoService` (CryptoModule), `SERVER_CONFIG` (AppConfigModule) and
+ * `EmailNotificationService` (EmailNotificationModule) are too, so this module's graph is
+ * unchanged and the app's boot order is not affected.
  */
 @Global()
 @Module({
-  providers: [AiService, AiCostRecorder, AiCostTotalsRepository, AiTraceRecorder, AiTracesRepository],
-  exports: [AiService, AiCostRecorder, AiTraceRecorder],
+  providers: [
+    AiService,
+    AiCostRecorder,
+    AiCostTotalsRepository,
+    AiTraceRecorder,
+    AiTracesRepository,
+    AiAlertsRepository,
+    AiAlertsService,
+  ],
+  exports: [AiService, AiCostRecorder, AiTraceRecorder, AiAlertsService],
 })
 export class AiModule {}

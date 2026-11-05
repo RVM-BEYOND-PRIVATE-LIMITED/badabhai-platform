@@ -762,6 +762,13 @@ services:
       AUTH_ROLLING_TIERS_ENABLED: ${AUTH_ROLLING_TIERS_ENABLED:-false}
       AI_JOBS_RETENTION_DELETE_ENABLED: ${AI_JOBS_RETENTION_DELETE_ENABLED:-false}
       AI_ENABLE_REAL_CALLS: ${AI_ENABLE_REAL_CALLS:-false}
+      # B13 (#2567) — loud AI alerts. `:-` + the schema defaults so an unset secret keeps
+      # today's thresholds (24h window, 10-call minimum, 0.5 share) and email OFF.
+      AI_FALLBACK_ALERT_WINDOW_HOURS: ${AI_FALLBACK_ALERT_WINDOW_HOURS:-24}
+      AI_FALLBACK_ALERT_MIN_CALLS: ${AI_FALLBACK_ALERT_MIN_CALLS:-10}
+      AI_FALLBACK_ALERT_SHARE: ${AI_FALLBACK_ALERT_SHARE:-0.5}
+      AI_ALERT_EMAIL_ENABLED: ${AI_ALERT_EMAIL_ENABLED:-false}
+      AI_ALERT_EMAIL_TO: ${AI_ALERT_EMAIL_TO:-}
 
       # ---- Payer/agency login channel (#2122, owner-authorised). Env-driven, never a
       # literal: unset/empty resolves to `email_otp`, the real ZeptoMail delivery path
