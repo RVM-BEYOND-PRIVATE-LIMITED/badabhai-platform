@@ -26,6 +26,9 @@ class _FakeAccountApi implements PayerAccountApi {
 
   @override
   Future<void> logout() async {}
+
+  @override
+  Future<void> deleteAccountImmediatelyForTest() async {}
 }
 
 /// Mimics PayerHttp's force-reauth on an unrecoverable 401: the `/payer/me`
@@ -47,6 +50,9 @@ class _ReauthClearingAccountApi implements PayerAccountApi {
 
   @override
   Future<void> logout() async {}
+
+  @override
+  Future<void> deleteAccountImmediatelyForTest() async {}
 }
 
 PayerLoginResult _login(String role) => PayerLoginResult(

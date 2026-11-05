@@ -1,7 +1,9 @@
+import 'package:flutter/foundation.dart' show kReleaseMode;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../../../core/config/app_config.dart';
 import '../../../core/data/payer_account_api.dart';
 import '../../../core/util/phone_format.dart';
 import '../../../core/di/locator.dart';
@@ -40,10 +42,21 @@ class AccountScreen extends StatelessWidget {
     super.key,
     required this.session,
     required this.onSignOut,
+    this.testDeleteOverride,
   });
 
   final AppSession session;
   final VoidCallback onSignOut;
+
+  /// Test-only escape hatch: forces the QA delete affordance on in a debug
+  /// test binary without changing the compile-time [kEnablePayerTestDelete].
+  /// Release builds IGNORE it, so the button stays tree-shaken from a stock
+  /// store build precisely as the flag intends.
+  @visibleForTesting
+  final bool? testDeleteOverride;
+
+  bool get _showTestDelete =>
+      kEnablePayerTestDelete || (!kReleaseMode && testDeleteOverride == true);
 
   @override
   Widget build(BuildContext context) {
@@ -54,17 +67,26 @@ class AccountScreen extends StatelessWidget {
       child: BbTabRefreshListener(
         onRefresh: (BuildContext context) =>
             context.read<AccountCubit>().load(),
-        child: _AccountView(session: session, onSignOut: onSignOut),
+        child: _AccountView(
+          session: session,
+          onSignOut: onSignOut,
+          showTestDelete: _showTestDelete,
+        ),
       ),
     );
   }
 }
 
 class _AccountView extends StatelessWidget {
-  const _AccountView({required this.session, required this.onSignOut});
+  const _AccountView({
+    required this.session,
+    required this.onSignOut,
+    required this.showTestDelete,
+  });
 
   final AppSession session;
   final VoidCallback onSignOut;
+  final bool showTestDelete;
 
   @override
   Widget build(BuildContext context) {
@@ -166,6 +188,20 @@ class _AccountView extends StatelessWidget {
                 ],
               ),
             ),
+            // TEST-ONLY (kEnablePayerTestDelete): compiled out of a normal
+            // build. Sits directly below the Sign out row for QA, for BOTH a
+            // company and an agency session.
+            if (showTestDelete) ...<Widget>[
+              const SizedBox(height: AppSpacing.s3),
+              BbButton(
+                label: 'Delete account (test)',
+                block: true,
+                size: BbButtonSize.md,
+                variant: BbButtonVariant.danger,
+                iconLeft: Icons.delete_forever_rounded,
+                onPressed: () => _confirmDeleteAccount(context),
+              ),
+            ],
           ],
         );
       },
@@ -219,6 +255,39 @@ class _AccountView extends StatelessWidget {
       destructive: true,
     );
     if (confirmed) onSignOut();
+  }
+
+  /// TEST-ONLY: confirm, then immediately delete this payer's own account. On
+  /// success the account is gone, so the session is torn down through the same
+  /// [onSignOut] path as Sign out (best-effort revoke + wipe the bearer) and the
+  /// app lands on Login. Any failure — including the neutral 404 returned while
+  /// the server's seam is disabled — keeps the session and shows the honest,
+  /// general line (the client cannot distinguish the causes).
+  Future<void> _confirmDeleteAccount(BuildContext context) async {
+    final AccountCubit cubit = context.read<AccountCubit>();
+    final bool confirmed = await showBbConfirm(
+      context,
+      title: 'Account delete karein?',
+      message: 'Yeh aapka account turant delete kar dega.',
+      confirmLabel: 'Delete',
+      cancelLabel: 'Cancel',
+      destructive: true,
+    );
+    if (!confirmed) return;
+
+    final bool deleted = await cubit.deleteAccountForTest();
+    if (!context.mounted) return;
+    if (deleted) {
+      onSignOut();
+      return;
+    }
+    showBbToast(
+      context,
+      title: "Couldn't delete account",
+      message: 'Test delete is not enabled on this server.',
+      icon: Icons.info_rounded,
+      tone: BbToastTone.error,
+    );
   }
 
   Future<void> _openEdit(BuildContext context, PayerMe me) async {

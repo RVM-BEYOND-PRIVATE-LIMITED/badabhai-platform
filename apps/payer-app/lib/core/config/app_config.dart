@@ -18,6 +18,17 @@ import '../data/payer_api_client.dart';
 /// live `/payer/*` route. Surfaces without one were REMOVED rather than faked.
 const bool kUseMocks = bool.fromEnvironment('USE_MOCKS', defaultValue: false);
 
+/// TEST-ONLY affordance: shows a "Delete account (test)" button in the Account
+/// tab that immediately deletes the signed-in payer's own account (no DBA) so
+/// QA can exercise the deletion flow end to end.
+///
+/// Mirrors the worker app's flag name, so ONE
+/// `--dart-define=ENABLE_TEST_DELETE=true` covers both apps. It is compiled OUT
+/// of a stock release: the default is a compile-time `const false`, so the
+/// button subtree is tree-shaken from a normal build.
+const bool kEnablePayerTestDelete =
+    bool.fromEnvironment('ENABLE_TEST_DELETE', defaultValue: false);
+
 /// The build-time API base URL OVERRIDE. Supply it to point a build at a
 /// specific backend — notably the real PRODUCTION host for a store release:
 ///   flutter build apk --dart-define=API_BASE_URL=https://api.example.com
