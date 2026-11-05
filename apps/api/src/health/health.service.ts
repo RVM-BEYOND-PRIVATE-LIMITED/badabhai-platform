@@ -11,6 +11,8 @@ import { DATABASE } from "../database/database.module";
 import {
   ACCOUNT_DELETION_QUEUE,
   ACCOUNT_DELETION_SWEEP_SCHEDULER_ID,
+  CANDIDATE_INDEX_POLL_SCHEDULER_ID,
+  CANDIDATE_INDEX_REBUILD_SCHEDULER_ID,
   RESUME_RENDER_QUEUE,
 } from "../queue/queue.constants";
 
@@ -122,6 +124,14 @@ export interface HealthChecks {
    * is fine. INFORMATIONAL: it does NOT flip the 200/503 (see health.controller.ts).
    */
   deletion_sweep: DependencyStatus;
+  /**
+   * B4 (#2557) — are the candidate-index poll + rebuild schedulers actually
+   * registered in Redis? `up` = the clocks that project the read table exist;
+   * `down` = they do not, so the table goes stale even though every request
+   * path is fine. INFORMATIONAL: it does NOT flip the 200/503 (see
+   * health.controller.ts).
+   */
+  candidate_index: DependencyStatus;
   /**
    * TD81 — is the FastAPI ai-service reachable from this process at all? `down` is the
    * literal TD81 condition: the deploy shipped with no `ai-service` at all, so
@@ -237,7 +247,7 @@ const SAFE_REASON_MAX_CAUSE_DEPTH = 4;
  * purpose: `ai_posture` is DERIVED from the ai_service probe, not probed itself, and
  * must never be passable as a probe name to `runProbe`.
  */
-type ProbeName = "database" | "redis" | "deletion_sweep" | "ai_service";
+type ProbeName = "database" | "redis" | "deletion_sweep" | "candidate_index" | "ai_service";
 
 /**
  * Minimal typed view of the one Redis command the probe needs. BullMQ's
@@ -305,6 +315,10 @@ export class HealthService {
     // AiService above). OPTIONAL so every existing construction keeps working: where it
     // is absent the breakdown reads as the empty set rather than failing the probe.
     @Optional() private readonly alerts?: AiAlertsService,
+    // B4 (#2557) — the candidate-index queue handle, for the scheduler-existence
+    // probe. Same OPTIONAL idiom: unit constructions omit it and the probe reads
+    // down instead of throwing at construction.
+    @Optional() private readonly candidateIndexQueue?: Queue,
   ) {}
 
   /**
@@ -313,10 +327,11 @@ export class HealthService {
    * the storage config-presence signal (synchronous — no probe to await).
    */
   async check(): Promise<HealthChecks> {
-    const [database, redis, deletionSweep, aiService] = await Promise.all([
+    const [database, redis, deletionSweep, candidateIndex, aiService] = await Promise.all([
       this.runProbe("database", () => this.probeDatabase()),
       this.runProbe("redis", () => this.probeRedis()),
       this.runProbe("deletion_sweep", () => this.probeDeletionSweep()),
+      this.runProbe("candidate_index", () => this.probeCandidateIndex()),
       this.probeAiService(),
     ]);
     const aiTasks = await this.readAiTaskPosture();
@@ -324,6 +339,7 @@ export class HealthService {
       database,
       redis,
       deletion_sweep: deletionSweep,
+      candidate_index: candidateIndex,
       ai_service: aiService.status,
       ai_posture: aiService.posture,
       ai_tasks: aiTasks,
@@ -372,6 +388,32 @@ export class HealthService {
     const scheduler = await this.deletionQueue.getJobScheduler(ACCOUNT_DELETION_SWEEP_SCHEDULER_ID);
     if (!scheduler) {
       const e = new Error(`job scheduler ${ACCOUNT_DELETION_SWEEP_SCHEDULER_ID} is not registered`);
+      e.name = "SchedulerMissingError";
+      throw e;
+    }
+  }
+
+  /**
+   * B4 (#2557) — do the candidate-index poll + rebuild schedulers exist? Both
+   * clocks are required: without the poll the table lags event traffic, without
+   * the rebuild a missed event never converges. Missing either → the named,
+   * secret-free error so `safeReason` logs a useful tag.
+   */
+  private async probeCandidateIndex(): Promise<void> {
+    const queue = this.candidateIndexQueue;
+    if (!queue) {
+      const e = new Error("candidate-index queue is not wired");
+      e.name = "SchedulerMissingError";
+      throw e;
+    }
+    const [poll, rebuild] = await Promise.all([
+      queue.getJobScheduler(CANDIDATE_INDEX_POLL_SCHEDULER_ID),
+      queue.getJobScheduler(CANDIDATE_INDEX_REBUILD_SCHEDULER_ID),
+    ]);
+    if (!poll || !rebuild) {
+      const e = new Error(
+        `candidate-index schedulers not registered (poll=${poll ? "yes" : "no"}, rebuild=${rebuild ? "yes" : "no"})`,
+      );
       e.name = "SchedulerMissingError";
       throw e;
     }

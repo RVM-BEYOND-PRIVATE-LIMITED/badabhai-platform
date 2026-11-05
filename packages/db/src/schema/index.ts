@@ -137,6 +137,7 @@ export * from "./ai-cost";
 export * from "./feedback";
 export * from "./ai-trace";
 export * from "./learn";
+export * from "./admin-candidate-index";
 
 // ---------------------------------------------------------------------------
 // Inferred row types (select / insert) for use across services.

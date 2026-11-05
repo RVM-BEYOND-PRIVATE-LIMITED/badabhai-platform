@@ -886,6 +886,27 @@ export const serverEnvSchema = z.object({
   // unbounded run.
   LEARN_LABELS_BATCH_LIMIT: z.coerce.number().int().positive().default(500),
 
+  // ── Candidate read table (B4, #2557, migration 0156): spine events → rows ──
+  // Poll cadence (minutes) for the events-cursor tick. The cursor + idempotent
+  // upsert are authoritative — a missed/duplicated tick only delays projection.
+  CANDIDATE_INDEX_POLL_INTERVAL_MINUTES: z.coerce.number().int().positive().default(5),
+  // Full-rebuild cadence (hours). Re-projects every worker, so a missed event or a
+  // resolver change converges without a manual repair.
+  CANDIDATE_INDEX_REBUILD_INTERVAL_HOURS: z.coerce.number().positive().default(24),
+  // Per-tick cap on workers projected — a backlog drains across ticks, never one
+  // unbounded run.
+  CANDIDATE_INDEX_BATCH_LIMIT: z.coerce.number().int().positive().default(500),
+  // Dedicated name-token keyring (ADR-0062 §3.6): JSON object mapping key id →
+  // 64-hex-char (32-byte) key, e.g. `{"2026-11-a":"<64 hex>"}`. NEVER
+  // `PII_HASH_PEPPER` and never falls back to another secret. Empty/unset means
+  // name search is UNAVAILABLE (fail closed): the projector stores empty token
+  // sets with a NULL key id. Shape-validated where it is read, not here, so an
+  // unset keyring is a valid configuration, not a boot error.
+  ADMIN_NAME_TOKEN_KEYS: z.string().default(""),
+  // The key id new rows are tokenised under. Must be a key of the keyring above
+  // whenever the keyring is non-empty (checked where it is read, fail closed).
+  ADMIN_NAME_TOKEN_ACTIVE_KID: z.string().default(""),
+
   // OTP shape + lifecycle. The code is generated with crypto.randomInt per digit,
   // stored ONLY as a keyed HMAC, single-use, and rate-limited per phone + per IP.
   OTP_LENGTH: z.coerce.number().int().min(4).max(8).default(6),

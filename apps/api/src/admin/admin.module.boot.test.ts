@@ -241,4 +241,16 @@ describe("AdminModule wiring (DI regression guard)", () => {
     expect(providers).toContain(AdminAuthGuard);
     expect(providers).toContain(AdminRolesGuard);
   });
+
+  it("declares the B4 (#2557) candidate read-table projector + its store/token service", () => {
+    // The projector injects the detail repository, the attribute/credential/language/
+    // occupation loaders, WorkersRepository (via WorkersModule), PiiCryptoService
+    // (@Global) and the index store — a dropped registration is a BOOT failure every
+    // hand-built unit test misses.
+    const tokens = providerTokens();
+    expect(tokens).toContain("CandidateIndexRepository");
+    expect(tokens).toContain("CandidateIndexProjector");
+    expect(tokens).toContain("CandidateIndexProcessor");
+    expect(tokens).toContain("NameTokenService");
+  });
 });

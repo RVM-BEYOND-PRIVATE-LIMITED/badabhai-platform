@@ -3,7 +3,7 @@ import { BullModule } from "@nestjs/bullmq";
 import { JwtModule } from "@nestjs/jwt";
 import { areRealAdminInvitesEnabled, type ServerConfig } from "@badabhai/config";
 import { SERVER_CONFIG } from "../config/config.module";
-import { RESUME_RENDER_QUEUE } from "../queue/queue.constants";
+import { CANDIDATE_INDEX_QUEUE, RESUME_RENDER_QUEUE } from "../queue/queue.constants";
 import { DatabaseModule } from "../database/database.module";
 import { EventsModule } from "../events/events.module";
 import { StorageModule } from "../storage/storage.module";
@@ -92,6 +92,10 @@ import { AdminMatchEngineController } from "./admin-match-engine.controller";
 import { AdminCandidateDetailRepository } from "./admin-candidate-detail.repository";
 import { AdminCandidateDetailService } from "./admin-candidate-detail.service";
 import { AdminCandidateDetailController } from "./admin-candidate-detail.controller";
+import { CandidateIndexRepository } from "./candidate-index/candidate-index.repository";
+import { CandidateIndexProjector } from "./candidate-index/candidate-index.projector";
+import { CandidateIndexProcessor } from "./candidate-index/candidate-index.processor";
+import { NameTokenService } from "./candidate-index/name-token.service";
 import { CandidateSearchRepository } from "../candidates/candidate-search.repository";
 import { WorkerAttributesRepository } from "../profiles/worker-attributes.repository";
 import { WorkerLanguagesRepository } from "../profiles/worker-languages.repository";
@@ -204,6 +208,8 @@ import { WorkerQualificationsRepository } from "../profiles/worker-qualification
     WorkersModule,
     // Reuse BullMQ's Redis connection (client only) for the admin session/OTP/MFA-secret stores.
     BullModule.registerQueue({ name: RESUME_RENDER_QUEUE }),
+    // B4 (#2557) — the candidate read-table projector's own queue (poll + nightly rebuild).
+    BullModule.registerQueue({ name: CANDIDATE_INDEX_QUEUE }),
     // The admin session is signed with ITS OWN secret — distinct from the worker/payer JWT.
     JwtModule.registerAsync({
       inject: [SERVER_CONFIG],
@@ -440,6 +446,11 @@ import { WorkerQualificationsRepository } from "../profiles/worker-qualification
     // boot never depends on the profiles or candidates subtrees. Only their READ methods are
     // called from this module (`admin-static-guards.test.ts` pins that).
     AdminCandidateDetailRepository,
+    // B4 (#2557) — the candidate read-table projector (poll + rebuild) and its store.
+    CandidateIndexRepository,
+    CandidateIndexProjector,
+    CandidateIndexProcessor,
+    NameTokenService,
     AdminCandidateDetailService,
     WorkerAttributesRepository,
     WorkerQualificationsRepository,
