@@ -1,8 +1,16 @@
+import 'dart:io' show SocketException;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:get_it/get_it.dart';
 import 'package:payer_app/core/data/mock_payer_api_client.dart';
 import 'package:payer_app/core/data/models.dart';
+import 'package:payer_app/core/di/locator.dart';
+import 'package:payer_app/core/auth/payer_token_store.dart';
+import 'package:payer_app/core/widgets/bb_action_bar.dart';
+import 'package:payer_app/core/widgets/bb_button.dart';
+import 'package:payer_app/core/widgets/bb_shake.dart';
 import 'package:payer_app/features/jobs/presentation/cubit/jobs_cubit.dart';
 import 'package:payer_app/features/jobs/presentation/edit_company_job_screen.dart';
 
@@ -32,14 +40,40 @@ class _ScriptedApi extends MockPayerApiClient {
   String? lastNeededBy;
   String? lastDescription;
   List<JobPostingClearField>? lastClear;
+  String? lastRoleKind;
+  String? lastTradeLevel;
+  Map<String, List<String>>? lastTradeAnswers;
 
   /// Every clearable field the last PATCH carried a VALUE for — so a test can
   /// assert no field ever rode both the body and `clear` (a server 400).
   Set<JobPostingClearField> lastValued = <JobPostingClearField>{};
 
+  /// When set, every [updateJob] throws it after recording the call — the
+  /// server refusing the save.
+  Object? throwOnUpdate;
+
+  /// When set, the NEXT catalogue read throws it — the 16 trades failing to
+  /// load once (a Retry then succeeds).
+  Object? throwOnTradesOnce;
+  int tradeLoads = 0;
+
+  /// When set, the catalogue answers with exactly these trades.
+  List<PostingTradeForm>? trades;
+
   @override
   Future<List<JobPosting>> fetchJobs({String? status}) async =>
       const <JobPosting>[];
+
+  @override
+  Future<List<PostingTradeForm>> fetchPostingTrades() async {
+    tradeLoads++;
+    final Object? error = throwOnTradesOnce;
+    if (error != null) {
+      throwOnTradesOnce = null;
+      throw error;
+    }
+    return trades ?? super.fetchPostingTrades();
+  }
 
   @override
   Future<JobPosting> updateJob(
@@ -62,6 +96,9 @@ class _ScriptedApi extends MockPayerApiClient {
     List<String>? benefits,
     List<String>? requirements,
     String? neededBy,
+    String? roleKind,
+    String? tradeLevel,
+    Map<String, List<String>>? tradeAnswers,
     List<String>? matchSkillIds,
     List<String>? untickedRelatedIds,
     List<JobPostingClearField>? clear,
@@ -78,6 +115,9 @@ class _ScriptedApi extends MockPayerApiClient {
     lastNeededBy = neededBy;
     lastDescription = description;
     lastClear = clear;
+    lastRoleKind = roleKind;
+    lastTradeLevel = tradeLevel;
+    lastTradeAnswers = tradeAnswers;
     lastValued = <JobPostingClearField, Object?>{
       JobPostingClearField.locationLabel: locationLabel,
       JobPostingClearField.description: description,
@@ -92,10 +132,12 @@ class _ScriptedApi extends MockPayerApiClient {
       JobPostingClearField.neededBy: neededBy,
       JobPostingClearField.benefits: benefits,
       JobPostingClearField.requirements: requirements,
-    }.entries
+    }
+        .entries
         .where((MapEntry<JobPostingClearField, Object?> e) => e.value != null)
         .map((MapEntry<JobPostingClearField, Object?> e) => e.key)
         .toSet();
+    if (throwOnUpdate != null) throw throwOnUpdate!;
     return _job;
   }
 }
@@ -160,18 +202,92 @@ const JobPosting _jobNoOptional = JobPosting(
   wireStatus: 'open',
 );
 
+/// A DRAFT that names no trade — the job a Publish is refused for (#2635).
+const JobPosting _draftNoTrade = JobPosting(
+  id: 'j1',
+  title: 'CNC Setter',
+  band: '2-5',
+  city: 'Pune',
+  payMin: 22000,
+  payMax: 28000,
+  payType: 'in_hand',
+  minExperienceYears: 1,
+  maxExperienceYears: 4,
+  neededBy: 'soon',
+  benefits: <String>['PF + ESI'],
+  requirements: <String>['Fanuc control'],
+  shift: 'day',
+  description: 'Turning job work on Fanuc controls.',
+  filled: 0,
+  quota: 0,
+  applicants: 0,
+  unlocks: 0,
+  status: JobStatus.review,
+  verified: false,
+  boosted: false,
+  wireStatus: 'draft',
+);
+
+/// [_job] with the migration-0139 trade form already stored — the panel must be
+/// visible and its edits must ride the PATCH.
+const JobPosting _jobTrade = JobPosting(
+  id: 'j1',
+  title: 'CNC Setter',
+  band: '2-5',
+  locationLabel: 'Pimpri, Pune',
+  city: 'Pune',
+  area: 'Chakan',
+  payMin: 22000,
+  payMax: 28000,
+  payType: 'in_hand',
+  minExperienceYears: 1,
+  maxExperienceYears: 4,
+  neededBy: 'soon',
+  benefits: <String>['PF + ESI'],
+  requirements: <String>['Fanuc control'],
+  shift: 'day',
+  description: 'Turning job work on Fanuc controls.',
+  filled: 0,
+  quota: 0,
+  applicants: 0,
+  unlocks: 0,
+  status: JobStatus.live,
+  verified: false,
+  boosted: false,
+  wireStatus: 'open',
+  roleKind: 'cnc_turner',
+  tradeLevel: 'setter',
+  tradeAnswers: <String, List<String>>{
+    'controller_brand': <String>['fanuc'],
+  },
+);
+
 void main() {
   late _ScriptedApi api;
   late JobsCubit cubit;
 
   /// Mount the screen on a tall viewport: the form is taller than the default
   /// 600px test surface, and a built field keeps every tap a real hit.
-  Future<void> open(WidgetTester tester, {JobPosting job = _job}) async {
-    api = _ScriptedApi();
+  Future<void> open(
+    WidgetTester tester, {
+    JobPosting job = _job,
+    double height = 4000,
+    bool tradeRequired = false,
+    Object? tradesError,
+    List<PostingTradeForm>? trades,
+  }) async {
+    api = _ScriptedApi()
+      ..throwOnTradesOnce = tradesError
+      ..trades = trades;
     cubit = JobsCubit(api);
     addTearDown(cubit.close);
 
-    tester.view.physicalSize = const Size(1000, 3000);
+    // The trade catalogue is read through the locator (migration 0141), so the
+    // graph must be wired for the role/trade panel to render.
+    await GetIt.instance.reset();
+    setupLocator(apiClient: api, secureStore: InMemoryKeyValueStore());
+
+    tester.view.physicalSize = Size(1000, height);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
 
@@ -183,8 +299,11 @@ void main() {
               child: ElevatedButton(
                 onPressed: () => Navigator.of(context).push(
                   MaterialPageRoute<void>(
-                    builder: (_) =>
-                        EditCompanyJobScreen(job: job, cubit: cubit),
+                    builder: (_) => EditCompanyJobScreen(
+                      job: job,
+                      cubit: cubit,
+                      tradeRequired: tradeRequired,
+                    ),
                   ),
                 ),
                 child: const Text('open'),
@@ -237,8 +356,9 @@ void main() {
     await open(tester);
 
     expect(find.widgetWithText(TextField, 'Pune'), findsOneWidget); // city
-    expect(find.widgetWithText(TextField, '22000'), findsOneWidget);
-    expect(find.widgetWithText(TextField, '28000'), findsOneWidget);
+    // #2595 — the ₹ band prefills Indian-grouped, as the pay boxes show it.
+    expect(find.widgetWithText(TextField, '22,000'), findsOneWidget);
+    expect(find.widgetWithText(TextField, '28,000'), findsOneWidget);
     expect(
       find.widgetWithText(TextField, 'Turning job work on Fanuc controls.'),
       findsOneWidget,
@@ -458,6 +578,371 @@ void main() {
     await tapSave(tester);
 
     expect(api.updated, isEmpty);
-    expect(find.text('Check the description'), findsOneWidget);
+    // #2595 — the reason sits at the description, not in a toast.
+    expect(
+      find.text(
+        'Leave phone numbers and email addresses out of the description.',
+      ),
+      findsOneWidget,
+    );
+  });
+
+  // Migration 0141 — the role + trade form must be visible on the edit screen
+  // too, and a rung change must ride the PATCH (it is display-only, never a
+  // match input, but it is still stored).
+  testWidgets('a stored trade form is prefilled, and a rung edit rides PATCH', (
+    WidgetTester tester,
+  ) async {
+    await open(tester, job: _jobTrade, height: 5000);
+
+    // The catalogue loaded from the mock; the stored role is selected and the
+    // panel is visible because the posting already uses the trade form.
+    expect(find.text('Role'), findsOneWidget);
+    expect(find.text('CNC Turner'), findsOneWidget);
+    expect(find.text('Trade requirements'), findsOneWidget);
+    expect(find.text('Rung'), findsOneWidget);
+    expect(find.text('Setter'), findsOneWidget);
+
+    await tester.tap(find.text('Programmer'));
+    await tester.pumpAndSettle();
+    await save(tester);
+
+    expect(api.updated, <String>['j1']);
+    expect(api.lastRoleKind, 'cnc_turner');
+    expect(api.lastTradeLevel, 'programmer');
+    expect(api.lastTradeAnswers, <String, List<String>>{
+      'controller_brand': <String>['fanuc'],
+    });
+  });
+
+  // --- #2595 (M7) -------------------------------------------------------------
+
+  testWidgets('Save is pinned in the shared action bar, like Post', (
+    WidgetTester tester,
+  ) async {
+    await open(tester);
+    final Scaffold scaffold = tester.widget<Scaffold>(find.descendant(
+      of: find.byType(EditCompanyJobScreen),
+      matching: find.byType(Scaffold),
+    ));
+    expect(scaffold.bottomNavigationBar, isA<BbActionBar>());
+    expect(
+      find.descendant(
+        of: find.byType(BbActionBar),
+        matching: find.text('Save changes'),
+      ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('a refused save shows every reason at its field — no toast', (
+    WidgetTester tester,
+  ) async {
+    await open(tester);
+    await typeInto(tester, 'Job title', '');
+    await typeInto(tester, 'City', '');
+    await typeInto(tester, 'Exp max (yrs)', '');
+    await tapSave(tester);
+
+    expect(api.updated, isEmpty);
+    expect(find.text('Add the job title'), findsOneWidget);
+    expect(find.text('Add the city'), findsOneWidget);
+    expect(find.text('Add the experience'), findsOneWidget);
+    expect(find.byType(SnackBar), findsNothing);
+  });
+
+  testWidgets("the server's refusal shows at the box it names — no toast", (
+    WidgetTester tester,
+  ) async {
+    await open(tester);
+    // The server screens the worker-visible Area for a company name.
+    api.throwOnUpdate = const PayerApiException(
+      400,
+      validationMessage: 'Area: Must not contain a company name.',
+      fieldErrors: <String, String>{
+        'area': 'Must not contain a company name.',
+      },
+    );
+    await typeInto(tester, 'Area (optional)', 'Tata Motors Pvt Ltd');
+    await tapSave(tester);
+    await tester.pumpAndSettle();
+
+    expect(api.updated, hasLength(1));
+    expect(
+      find.descendant(
+        of: find.ancestor(
+          of: find.text('Area (optional)'),
+          matching: find.byType(BbShake),
+        ),
+        matching: find.text('Must not contain a company name.'),
+      ),
+      findsOneWidget,
+    );
+    expect(find.byType(SnackBar), findsNothing);
+    // Still on the form, and Save is live again.
+    expect(find.text('Edit job'), findsOneWidget);
+    expect(
+      tester
+          .widget<BbButton>(find.widgetWithText(BbButton, 'Save changes'))
+          .loading,
+      isFalse,
+    );
+
+    // Changing the area is what clears it.
+    await typeInto(tester, 'Area (optional)', 'Chakan MIDC');
+    await tester.pumpAndSettle();
+    expect(find.text('Must not contain a company name.'), findsNothing);
+  });
+
+  testWidgets('Back on an unedited job leaves at once', (
+    WidgetTester tester,
+  ) async {
+    await open(tester);
+    await tester.tap(find.byIcon(Icons.arrow_back_rounded));
+    await tester.pumpAndSettle();
+    expect(find.text('Edit job'), findsNothing);
+    expect(find.text('Discard your changes?'), findsNothing);
+  });
+
+  testWidgets(
+      'Back (arrow or system) on an edited job asks before discarding it', (
+    WidgetTester tester,
+  ) async {
+    await open(tester);
+    await typeInto(tester, 'City', 'Nashik');
+
+    await tester.tap(find.byIcon(Icons.arrow_back_rounded));
+    await tester.pumpAndSettle();
+    expect(find.text('Discard your changes?'), findsOneWidget);
+    await tester.tap(find.text('Keep editing'));
+    await tester.pumpAndSettle();
+    expect(find.text('Edit job'), findsOneWidget);
+    expect(find.widgetWithText(TextField, 'Nashik'), findsOneWidget);
+
+    // The Android system Back takes the same path.
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(find.text('Discard your changes?'), findsOneWidget);
+    await tester.tap(find.text('Discard'));
+    await tester.pumpAndSettle();
+    expect(find.text('Edit job'), findsNothing);
+    expect(api.updated, isEmpty);
+  });
+
+  testWidgets('an edit put back to the saved value is no change', (
+    WidgetTester tester,
+  ) async {
+    await open(tester);
+    await typeInto(tester, 'City', 'Nashik');
+    await typeInto(tester, 'City', 'Pune');
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(find.text('Discard your changes?'), findsNothing);
+    expect(find.text('Edit job'), findsNothing);
+  });
+
+  testWidgets('the keyboard "next" walks the text boxes; "done" ends it', (
+    WidgetTester tester,
+  ) async {
+    await open(tester);
+    Finder box(String label) => find.descendant(
+          of: find
+              .ancestor(of: find.text(label), matching: find.byType(Column))
+              .first,
+          matching: find.byType(TextField),
+        );
+    bool focused(String label) => tester
+        .widget<EditableText>(
+          find.descendant(of: box(label), matching: find.byType(EditableText)),
+        )
+        .focusNode
+        .hasFocus;
+    const List<String> chain = <String>[
+      'Job title',
+      'Location',
+      'City',
+      'Area (optional)',
+      'Pay min ₹/mo',
+      'Pay max ₹/mo',
+      'Exp min (yrs)',
+      'Exp max (yrs)',
+    ];
+    await tester.tap(box(chain.first));
+    await tester.pump();
+    for (int i = 1; i < chain.length; i++) {
+      await tester.testTextInput.receiveAction(TextInputAction.next);
+      await tester.pump();
+      expect(focused(chain[i]), isTrue, reason: chain[i]);
+    }
+    expect(
+      tester.widget<TextField>(box('Exp max (yrs)')).textInputAction,
+      TextInputAction.done,
+    );
+  });
+
+  // --- #2635 — a company job matches only within the 16 trades ---------------
+
+  group('#2635 — the role is one of the 16 trades', () {
+    /// [text] shown AT the trade picker (inside the role's shake anchor).
+    Finder atPicker(String text) => find.descendant(
+          of: find.ancestor(
+            of: find.text('Role'),
+            matching: find.byType(BbShake),
+          ),
+          matching: find.text(text),
+        );
+
+    const PayerApiException tradeRequired = PayerApiException(
+      400,
+      code: kPostingTradeRequiredCode,
+      validationMessage: kPostingTradeRequiredMessage,
+      fieldErrors: <String, String>{'role_kind': kPostingTradeRequiredMessage},
+    );
+
+    testWidgets('a catalogue with no trades says so — never a free role list', (
+      WidgetTester tester,
+    ) async {
+      await open(tester, trades: const <PostingTradeForm>[]);
+
+      expect(
+        atPicker(
+          'No trades are open for posting right now. Try again in a moment.',
+        ),
+        findsOneWidget,
+      );
+      // The old fallback: every declared role, plus "no role" — a pick that
+      // could move a live job off the 16 or clear its trade.
+      expect(find.text('Role (card illustration)'), findsNothing);
+      expect(find.text('Not specified'), findsNothing);
+      expect(find.widgetWithText(BbButton, 'Retry'), findsOneWidget);
+    });
+
+    testWidgets(
+        'trades that fail to load say why and retry — never a free list', (
+      WidgetTester tester,
+    ) async {
+      await open(tester, tradesError: const SocketException('offline'));
+
+      expect(
+        atPicker(
+          'The 16 trades did not load. Check your internet connection and '
+          'try again.',
+        ),
+        findsOneWidget,
+      );
+      expect(find.text('Role (card illustration)'), findsNothing);
+      expect(find.text('Not specified'), findsNothing);
+
+      await tester.tap(find.widgetWithText(BbButton, 'Retry'));
+      await tester.pumpAndSettle();
+
+      expect(api.tradeLoads, 2);
+      expect(find.textContaining('did not load'), findsNothing);
+      expect(find.text('CNC Turner'), findsOneWidget);
+    });
+
+    testWidgets(
+        "the server's posting_trade_required lands AT the picker — no toast, "
+        'never its message', (WidgetTester tester) async {
+      await open(tester);
+      api.throwOnUpdate = tradeRequired;
+
+      await tester.tap(find.text('Welder'));
+      await tester.pumpAndSettle();
+      await tapSave(tester);
+      await tester.pumpAndSettle();
+
+      expect(api.updated, hasLength(1));
+      expect(atPicker('Pick one of the 16 trades'), findsOneWidget);
+      expect(find.byType(SnackBar), findsNothing);
+      expect(find.textContaining('a live job must name'), findsNothing);
+      // Still on the form, Save live again.
+      expect(find.text('Edit job'), findsOneWidget);
+      expect(
+        tester
+            .widget<BbButton>(find.widgetWithText(BbButton, 'Save changes'))
+            .loading,
+        isFalse,
+      );
+
+      // Picking another trade is what clears it.
+      await tester.tap(find.text('CNC Turner'));
+      await tester.pumpAndSettle();
+      expect(find.text('Pick one of the 16 trades'), findsNothing);
+    });
+
+    testWidgets(
+        'opened from a refused publish, the picker is refused until a trade '
+        'is picked — and the pick rides the save with its trade form', (
+      WidgetTester tester,
+    ) async {
+      await open(tester, job: _draftNoTrade, tradeRequired: true);
+
+      expect(atPicker('Pick one of the 16 trades'), findsOneWidget);
+      expect(find.byType(SnackBar), findsNothing);
+
+      // Editing something else leaves it standing…
+      await typeInto(tester, 'City', 'Nashik');
+      await tester.pumpAndSettle();
+      expect(atPicker('Pick one of the 16 trades'), findsOneWidget);
+
+      // …picking a trade clears it and opens that trade's form.
+      await tester.tap(find.text('Welder'));
+      await tester.pumpAndSettle();
+      expect(find.text('Pick one of the 16 trades'), findsNothing);
+      expect(find.text('Trade requirements'), findsOneWidget);
+
+      await save(tester);
+      expect(api.updated, <String>['j1']);
+      expect(api.lastRoleKind, 'welder');
+      // The trade form rides with it (no chip picked yet = the trade's own
+      // skill), so the server derives the match set from the trade.
+      expect(api.lastTradeAnswers, <String, List<String>>{});
+      expect(api.lastCity, 'Nashik');
+    });
+
+    testWidgets('a role the catalogue does not list is kept, never cleared', (
+      WidgetTester tester,
+    ) async {
+      // A role this build does not know (the server added a kind). The old
+      // free select read it as "no role" and a save CLEARED it — on a live
+      // job, the move off the 16 the server refuses.
+      await open(
+        tester,
+        job: const JobPosting(
+          id: 'j1',
+          title: 'CNC Setter',
+          band: '2-5',
+          city: 'Pune',
+          payMin: 22000,
+          payMax: 28000,
+          payType: 'in_hand',
+          minExperienceYears: 1,
+          maxExperienceYears: 4,
+          neededBy: 'soon',
+          benefits: <String>['PF + ESI'],
+          requirements: <String>['Fanuc control'],
+          shift: 'day',
+          description: 'Turning job work on Fanuc controls.',
+          filled: 0,
+          quota: 0,
+          applicants: 0,
+          unlocks: 0,
+          status: JobStatus.live,
+          verified: false,
+          boosted: false,
+          wireStatus: 'open',
+          roleKind: 'a_kind_this_build_does_not_know',
+        ),
+      );
+
+      await typeInto(tester, 'City', 'Nashik');
+      await save(tester);
+
+      expect(api.updated, <String>['j1']);
+      expect(api.lastCity, 'Nashik');
+      expect(api.lastRoleKind, isNull);
+      expect(api.lastClear, isNull);
+    });
   });
 }

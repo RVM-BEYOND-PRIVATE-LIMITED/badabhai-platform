@@ -141,6 +141,9 @@ export interface PostingPreviewRailProps {
    * that answer would never be announced.
    */
   busy?: boolean;
+  /** Render the rail + dock in the DOM but visually hidden (the designer layout carries its own
+   * preview; the shared rails' behaviour — live slots, dock measurement — still applies). */
+  hidden?: boolean;
 }
 
 export function PostingPreviewRail({
@@ -152,6 +155,7 @@ export function PostingPreviewRail({
   status,
   outcome,
   busy = false,
+  hidden = false,
 }: PostingPreviewRailProps) {
   // APPENDED-ONLY state for the positional useState mocks in the form tests: this is the only one.
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -164,7 +168,10 @@ export function PostingPreviewRail({
 
   return (
     <>
-      <aside className="posting-preview posting-preview--rail" aria-label="Live card preview">
+      <aside
+        className={`posting-preview posting-preview--rail${hidden ? " posting-preview--hidden" : ""}`}
+        aria-label="Live card preview"
+      >
         {/* Focusable (and so keyboard-scrollable) only while it overflows — see rail-scroll.ts. */}
         <div
           className="posting-preview__scroll"
@@ -184,7 +191,7 @@ export function PostingPreviewRail({
       </aside>
 
       {/* Its measured height is the room the page keeps for it (dock-reserve.ts). */}
-      <div className="posting-dock" ref={observeDockHeight}>
+      <div className="posting-dock" data-mw-hidden={hidden ? "" : undefined} ref={observeDockHeight}>
         <div className="posting-dock__status">{status}</div>
         <div className="posting-dock__live" aria-live="polite">
           {outcome}

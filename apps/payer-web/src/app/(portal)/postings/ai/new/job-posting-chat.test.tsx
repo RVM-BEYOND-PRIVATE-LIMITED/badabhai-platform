@@ -20,8 +20,9 @@ import type {
  *     id (XB-A — the client never passes a payer id).
  *  2. The chat renders the transcript, the DETERMINISTIC engine's suggested-answer chips,
  *     and the live structured draft (banded vacancies, never a raw count).
- *  3. PUBLISH is gated on the ENGINE's `draftReady`, sends only the session id, and routes
- *     to the posting's EXISTING detail page (`/postings/:id`).
+ *  3. PUBLISH is gated on the ENGINE's `draftReady`, sends the session id plus the OPTIONAL
+ *     publish-step role pick (#2490), and routes to the posting's EDIT page so remaining card
+ *     gaps are named.
  *  4. RULE A: nothing in this UI asks for the payer's company/org name.
  *  5. The inline turn screen mirrors the manual form's `looksLikePii` description check.
  */
@@ -102,6 +103,7 @@ const DRAFT: JobPostingDraft = {
   requirements: ["ITI"],
   description: "Two-shift CNC role.",
   city: "Pune",
+  area: "Chakan",
   payType: "in_hand",
   minExperienceYears: 2,
   maxExperienceYears: 6,
@@ -194,11 +196,22 @@ function render(seed: {
   text?: string;
   error?: string | null;
   navigating?: boolean;
+  roleKind?: string;
+  area?: string;
+  areaTouched?: boolean;
   resumable?: JobPostingChatSessionSummary[];
   loadFailed?: boolean;
 }): Collected {
-  // useState order in the source: convo, text, error, navigating.
-  stateQueue = [seed.convo ?? null, seed.text ?? "", seed.error ?? null, seed.navigating ?? false];
+  // useState order in the source: convo, text, error, navigating, roleKind, area, areaTouched.
+  stateQueue = [
+    seed.convo ?? null,
+    seed.text ?? "",
+    seed.error ?? null,
+    seed.navigating ?? false,
+    seed.roleKind ?? "",
+    seed.area ?? "",
+    seed.areaTouched ?? false,
+  ];
   stateCursor = 0;
   const tree = JobPostingChat({
     resumable: seed.resumable ?? [],
@@ -409,16 +422,67 @@ describe("publish — gated on the ENGINE's readiness, routes to the existing de
     expect(allText(render({ convo: CONVO }))).toContain("publish unlocks once");
   });
 
-  it("is enabled once draftReady, and sends ONLY the session id", async () => {
+  it("prefills the draft area and sends it even when no role is picked (#2493)", async () => {
     publishJobPostingChatAction.mockResolvedValue({ ok: true, postingId: POSTING_ID });
     const acc = render({ convo: { ...CONVO, draftReady: true } });
     const publish = button(acc, "Publish");
     expect(publish?.disabled).toBe(false);
+    // The area control is on the publish step, prefilled from the interview draft.
+    const areaField = acc.fields.find((f) => f.tag === "input" && f.id === "chatArea");
+    expect(areaField).toBeDefined();
+    expect(allText(acc)).toContain("Area / locality");
     publish?.onClick?.();
     await flush();
-    expect(publishJobPostingChatAction).toHaveBeenCalledWith({ sessionId: SESSION_ID });
+    expect(publishJobPostingChatAction).toHaveBeenCalledWith({
+      sessionId: SESSION_ID,
+      area: "Chakan",
+    });
     const arg = publishJobPostingChatAction.mock.calls[0]?.[0] as Record<string, unknown>;
-    expect(Object.keys(arg)).toEqual(["sessionId"]);
+    expect(Object.keys(arg).sort()).toEqual(["area", "sessionId"]);
+  });
+
+  it("a payer-edited area wins over the draft; an emptied area is omitted (#2493)", async () => {
+    publishJobPostingChatAction.mockResolvedValue({ ok: true, postingId: POSTING_ID });
+
+    // Edited value.
+    const edited = render({
+      convo: { ...CONVO, draftReady: true },
+      area: "Bhosari",
+      areaTouched: true,
+    });
+    button(edited, "Publish")?.onClick?.();
+    await flush();
+    expect(publishJobPostingChatAction).toHaveBeenLastCalledWith({
+      sessionId: SESSION_ID,
+      area: "Bhosari",
+    });
+
+    // Cleared by the payer → absent, so the posting stores NULL (city-only card).
+    const cleared = render({
+      convo: { ...CONVO, draftReady: true },
+      area: "",
+      areaTouched: true,
+    });
+    button(cleared, "Publish")?.onClick?.();
+    await flush();
+    expect(publishJobPostingChatAction).toHaveBeenLastCalledWith({ sessionId: SESSION_ID });
+  });
+
+  it("carries the publish-step role pick as role_kind (#2490)", async () => {
+    publishJobPostingChatAction.mockResolvedValue({ ok: true, postingId: POSTING_ID });
+    const acc = render({
+      convo: { ...CONVO, draftReady: true },
+      roleKind: "cnc_turner",
+    });
+    // The picker is a real form control on the preview, not hidden behind the edit page.
+    expect(acc.fields.some((f) => f.tag === "select" && f.id === "chatRoleKind")).toBe(true);
+    button(acc, "Publish")?.onClick?.();
+    await flush();
+    expect(publishJobPostingChatAction).toHaveBeenCalledWith({
+      sessionId: SESSION_ID,
+      roleKind: "cnc_turner",
+      area: "Chakan",
+    });
   });
 
   it("routes to the posting's EDIT page on success (PR-B: highlights the worker-card gaps)", async () => {
@@ -429,8 +493,10 @@ describe("publish — gated on the ENGINE's readiness, routes to the existing de
     });
     button(render({ convo: { ...CONVO, draftReady: true } }), "Publish")?.onClick?.();
     await flush();
-    // PR-B: publish leaves role_kind + the card fields the interview does not collect NULL, so
-    // the chat routes to /edit (where workerCardGaps are highlighted), never the read-only detail.
+    // PR-B: publish still leaves the card columns the interview does not collect (area, match
+    // skills) NULL/+unset, so the chat routes to /edit (where workerCardGaps are highlighted),
+    // never the read-only detail. (#2490: the picked role_kind rides the publish body, so it is
+    // no longer a null gone to the edit page for a payer who picked one.)
     // Named for the shell's cue ("Opening Edit posting…", the rows' own name for that page) and
     // refreshed, so the edit page reads the just-published posting.
     expect(navigate).toHaveBeenCalledWith(`/postings/${POSTING_ID}/edit`, {
@@ -474,10 +540,10 @@ describe("rule A — the payer's company/org name is never asked in the chat", (
     }
   });
 
-  it("the only free-text field in the chat is the answer composer", () => {
+  it("the free-text fields are the answer composer and the area pick — never an org name", () => {
     const acc = render({ convo: CONVO });
-    expect(acc.fields.map((f) => f.tag)).toEqual(["textarea"]);
-    expect(acc.fields[0]?.id).toBe("chatTurn");
+    const freeText = acc.fields.filter((f) => f.tag === "textarea" || f.tag === "input");
+    expect(freeText.map((f) => f.id).sort()).toEqual(["chatArea", "chatTurn"]);
   });
 
   it("tells the payer their company name is filled in automatically", () => {

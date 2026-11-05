@@ -4,11 +4,7 @@ import { getPostings } from "../../../lib/payer-api";
 import { requirePayer } from "../../../lib/auth";
 import { getLiveCatalog } from "../../../lib/live-catalog";
 import { quotaTopUpTier } from "../../../lib/pricing-config";
-import {
-  agentPostingRedirect,
-  COMPANY_POSTING_ROUTES,
-  postingRoutes,
-} from "../../../lib/posting-routes";
+import { agentPostingRedirect, postingRoutes } from "../../../lib/posting-routes";
 import type { PostingSummary } from "../../../lib/contracts";
 import { Card } from "../../../components/ds";
 import { CachedPricingNote } from "../../../components/cached-pricing-note";
@@ -80,7 +76,7 @@ export default async function PostingsPage() {
           title="Postings"
           description="Every posting you have opened, its applicant feed, and the controls to pause, resume, add applicant slots or close it."
           primaryAction={{
-            href: COMPANY_POSTING_ROUTES.create,
+            href: "/postings/new",
             label: "New posting",
             icon: ACTION_ICON.create,
           }}

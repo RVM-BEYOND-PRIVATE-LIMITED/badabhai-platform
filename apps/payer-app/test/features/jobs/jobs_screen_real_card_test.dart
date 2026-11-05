@@ -80,7 +80,10 @@ void main() {
     expect(find.text('12/40'), findsOneWidget);
     // Truthful per-posting engagement (résumés downloaded) shows in the meta line.
     expect(find.textContaining('7 résumés downloaded'), findsOneWidget);
-    // The edit affordance the same card gained.
+    // The edit affordance the same card gained — behind its "⋯" since #2594.
+    expect(find.text('Edit details'), findsNothing);
+    await tester.tap(find.byIcon(Icons.more_horiz_rounded));
+    await tester.pumpAndSettle();
     expect(find.text('Edit details'), findsOneWidget);
   });
 

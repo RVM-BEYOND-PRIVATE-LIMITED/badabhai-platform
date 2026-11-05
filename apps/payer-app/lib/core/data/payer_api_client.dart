@@ -1,3 +1,4 @@
+import 'candidate_search_models.dart';
 import 'job_posting_chat_models.dart';
 import 'models.dart';
 
@@ -26,6 +27,28 @@ abstract class PayerApiClient {
   /// owned [jobId] (`GET /payer/reach/jobs/:jobId/applicants`). PII-free:
   /// [Applicant] carries an opaque worker UUID + coarse facets, never a name.
   Future<List<Applicant>> fetchApplicants(String jobId);
+
+  // --- All-candidates search (ADR-0040, phase E2; owner rulings 2026-11-03) --
+  // Every worker in the eligible pool (the API decides membership), MASKED and
+  // ordered by the payer's filters. Company and agency sessions alike — it does
+  // not depend on owned postings. Identity still costs 1 credit per worker at
+  // [unlock] (with a null job: a search row has no posting context).
+
+  /// One page of the all-candidates search (`POST /payer/candidates/search`,
+  /// snake_case body). Returns the masked rows AND the counts the badge reads.
+  /// A non-2xx throws [PayerApiException] with its status (429 = the payer's
+  /// hourly cap; 400 = a refused body or cursor); a 2xx that is not the
+  /// contract throws too — never an empty page read as "nobody on the portal".
+  Future<CandidateSearchPage> searchCandidates(CandidateSearchQuery query);
+
+  /// The filter options (`GET /payer/candidates/filters`): roles, industries,
+  /// the experience buckets and the cities the pool records. Same error rules.
+  Future<CandidateFilters> fetchCandidateFilters();
+
+  /// The caller's OWN unlocks (`GET /payer/unlocks` → `{unlocks:[...]}` — the
+  /// route [fetchLedger] already reads, here as typed rows), so an all-
+  /// candidates card the payer already paid for opens on "View". PII-free.
+  Future<List<PayerUnlock>> fetchOwnUnlocks();
 
   /// The signed-in payer's job postings; optional [status] filter
   /// (`?status=open` scopes the REAL feed to live postings).
@@ -81,8 +104,11 @@ abstract class PayerApiClient {
     int? maxExperienceYears,
     String? shift,
     String? neededBy,
+    String? roleKind,
     List<String>? benefits,
     List<String>? requirements,
+    String? tradeLevel,
+    Map<String, List<String>>? tradeAnswers,
   });
 
   /// One owned posting (`GET /payer/job-postings/:id`). A neutral 404 (unknown or
@@ -128,8 +154,11 @@ abstract class PayerApiClient {
     int? maxExperienceYears,
     String? shift,
     String? neededBy,
+    String? roleKind,
     List<String>? benefits,
     List<String>? requirements,
+    String? tradeLevel,
+    Map<String, List<String>>? tradeAnswers,
     List<JobPostingClearField>? clear,
   });
 
@@ -145,27 +174,6 @@ abstract class PayerApiClient {
   /// it is currently paused → [PayerApiException].
   Future<JobPosting> resumeJob(String id);
 
-  /// Buy an applicant-visibility plan for a posting
-  /// (`POST /payer/job-postings/:id/plan` → 201). [tier] is `'standard'|'pro'`.
-  Future<PlanPurchase> buyPlan(String id, {required String tier, String? coupon});
-
-  /// Boost a posting (`POST /payer/job-postings/:id/boost` → 201). 409 when an
-  /// active boost already exists → [PayerApiException].
-  Future<BoostPurchase> buyBoost(
-    String id, {
-    String tier = 'all_candidates',
-    String? coupon,
-  });
-
-  /// Top up a posting's applicant-visibility quota
-  /// (`POST /payer/job-postings/:id/quota-topup` → 201). 409 when there is no
-  /// active plan → [PayerApiException].
-  Future<PlanPurchase> quotaTopup(
-    String id, {
-    required String tier,
-    String? coupon,
-  });
-
   // --- Match V1 — demand skill picker + reach preview -----------------------
   // The DEMAND-side skill taxonomy the payer picks from + the deterministic
   // reach preview. Both PII-free (coarse skill ids/labels + integer counts).
@@ -175,13 +183,22 @@ abstract class PayerApiClient {
   /// into. A non-2xx surfaces as [PayerApiException].
   Future<List<MatchSkill>> fetchMatchSkills();
 
+  /// The 16-trade posting form catalogue (`GET /payer/posting-trades`).
+  /// One read per form; each trade carries its display-only ladder and chip questions.
+  Future<List<PostingTradeForm>> fetchPostingTrades();
+
   /// Deterministic reach preview for a picked skill set
   /// (`POST /payer/match/reach-preview`, body `{match_skill_ids,
-  /// unticked_related_ids}`). Returns per-skill breakdowns + roll-up totals. A
-  /// non-2xx surfaces as [PayerApiException].
+  /// unticked_related_ids, role_kind?}`). Returns per-skill breakdowns + roll-up
+  /// totals. A non-2xx surfaces as [PayerApiException].
+  ///
+  /// [roleKind] (#2635) is the job's trade: one of the 16 scopes the posted ids
+  /// to that trade exactly as publish will, so the "reaches N workers" figure
+  /// matches what goes live. Omitted from the body when null.
   Future<ReachPreview> reachPreview({
     required List<String> matchSkillIds,
     List<String> untickedRelatedIds = const <String>[],
+    String? roleKind,
   });
 
   // --- AI job-posting chat (ADR-0035) ---------------------------------------
@@ -234,15 +251,27 @@ abstract class PayerApiClient {
   );
 
   /// Publish the session's draft as a real posting
-  /// (`POST /payer/job-posting-chat/sessions/:id/publish`, EMPTY body — the
-  /// draft already lives server-side and the org name is auto-filled there).
+  /// (`POST /payer/job-posting-chat/sessions/:id/publish` — the draft already
+  /// lives server-side and the org name is auto-filled there).
   /// The server validates the stored draft against the SAME
   /// `PayerCreateJobPostingSchema` the manual form uses and calls the SAME
   /// `createForPayer`. Returns a [PublishJobResult] carrying the created
   /// posting's id plus any `unmapped_fields` the draft could not fold onto the
   /// structured posting. A 400 (draft still incomplete) / 409 (already
   /// published) surfaces as [PayerApiException].
-  Future<PublishJobResult> publishJobPostingChatSession(String sessionId);
+  ///
+  /// [roleKind] (#2490) is the optional publish-step role pick — the same
+  /// closed 21-value set the manual form sends, display only (it keys the worker
+  /// card's role illustration, never a match input). Absent stores NULL.
+  ///
+  /// [area] (#2493) is the optional publish-step locality. The interview usually
+  /// fills the draft, but this body value wins over it. Absent stores NULL, so
+  /// the worker card shows the city alone.
+  Future<PublishJobResult> publishJobPostingChatSession(
+    String sessionId, {
+    String? roleKind,
+    String? area,
+  });
 
   /// The unlock ledger (most-recent first).
   Future<List<LedgerEntry>> fetchLedger();
@@ -322,11 +351,18 @@ abstract class PayerApiClient {
     int? minExperienceYears,
     int? maxExperienceYears,
     String? neededBy,
+    String? roleKind,
     String? description,
     String? shift,
     List<String>? benefits,
     List<String>? requirements,
-    /// ADR-0050 — the closed-set demand skills (`match_skill_ids`). OPTIONAL: an
+
+    /// The display role (one of the 16 postable kinds) and migration 0141's
+    /// trade-specific fields.
+    String? tradeLevel,
+    Map<String, List<String>>? tradeAnswers,
+
+    /// ADR-0050 - the closed-set demand skills (`match_skill_ids`). OPTIONAL: an
     /// empty/null pick sends nothing. Persists once the API adds the field
     /// (#1960/#1957); today the route strips it.
     List<String>? matchSkillIds,
@@ -367,11 +403,17 @@ abstract class PayerApiClient {
     int? minExperienceYears,
     int? maxExperienceYears,
     String? neededBy,
+    String? roleKind,
     String? description,
     String? shift,
     List<String>? benefits,
     List<String>? requirements,
-    /// ADR-0050 — the closed-set demand skills (`match_skill_ids`). A null list
+
+    /// The display role and migration 0141's trade-specific fields.
+    String? tradeLevel,
+    Map<String, List<String>>? tradeAnswers,
+
+    /// ADR-0050 - the closed-set demand skills (`match_skill_ids`). A null list
     /// is OMITTED (leaves the stored set alone); a passed list (including `[]`)
     /// is sent, so `[]` clears it. Persists once the API adds the field.
     List<String>? matchSkillIds,
@@ -397,49 +439,6 @@ abstract class PayerApiClient {
   /// AGGREGATE counts only (k-anon floor applied) — no per-worker rows.
   Future<ReferralsSummary> fetchReferralsSummary();
 
-  // --- Agency supply-money — KYC · earnings · payouts (ADR-0022 Amdt 2) ------
-  // AGENT-only AND FLAG-GATED: every route below sits behind
-  // `AgencyPayoutsEnabledGuard`, which returns a NEUTRAL 404 while the launch
-  // flag is OFF (the surface is inert by default). Callers MUST treat a 404 as
-  // an honest "not available yet" state, never a crash/generic error; a 403 is
-  // the agent-only gate (a company session). Money is MOCK server-side; a payout
-  // REQUEST is a plain authed POST — there is NO gateway/card/checkout (money-OUT
-  // withdrawal of earned commission, not money-IN). Reads are masked (last-4).
-
-  /// Submit/replace the agency's KYC
-  /// (`POST /payer/agency/kyc` → 201 masked [AgencyKycView], status `pending`).
-  /// [pan] / [ifsc] are uppercased + format-validated server-side; a 400 (bad
-  /// PAN/IFSC/account), 409 (a PAN already backing another agency), 404 (flag
-  /// off) surface as [PayerApiException]. The raw values are encrypted at rest
-  /// and NEVER echoed — the response only ever carries the last-4.
-  Future<AgencyKycView> submitAgencyKyc({
-    required String pan,
-    required String bankAccount,
-    required String ifsc,
-    required String accountHolderName,
-  });
-
-  /// The agency's OWN masked KYC status (`GET /payer/agency/kyc`). A 404 means
-  /// the surface is flag-gated off; other non-2xx surface as [PayerApiException].
-  Future<AgencyKycView> fetchAgencyKyc();
-
-  /// The agency's earnings + payout-gate state (`GET /payer/agency/earnings`).
-  /// A 404 means flag-gated off (show "not available yet"); other non-2xx
-  /// surface as [PayerApiException].
-  Future<AgencyEarnings> fetchAgencyEarnings();
-
-  /// Request a payout of the currently-requestable accruals
-  /// (`POST /payer/agency/payouts`, empty body → HTTP 200 EITHER way). A pass
-  /// returns `ok:true` + the created request; a gate refusal returns `ok:false`
-  /// + a [PayoutRequestResult.blockedReason] and changes nothing. A 404 (flag
-  /// off) / 403 (company) surface as [PayerApiException]. MONEY-OUT: no gateway.
-  Future<PayoutRequestResult> requestAgencyPayout();
-
-  /// The agency's OWN payout request history (`GET /payer/agency/payouts` — a
-  /// BARE array wrapped under `items` by the transport), newest-first. A 404
-  /// means flag-gated off; other non-2xx surface as [PayerApiException].
-  Future<List<AgencyPayout>> fetchAgencyPayouts();
-
   /// Current credit balance.
   Future<int> fetchCredits();
 
@@ -451,7 +450,9 @@ abstract class PayerApiClient {
   Future<int> unlockCandidate(int candidateId);
 
   /// REAL unlock — spend a credit to unlock [workerId] (an opaque UUID from the
-  /// per-job feed), optionally scoped to [jobId] (`POST /payer/unlocks`).
+  /// per-job feed or the all-candidates search), optionally scoped to [jobId]
+  /// (`POST /payer/unlocks`). A search row passes no [jobId]: `job_id` is then
+  /// omitted, which the route reads as "no posting context".
   /// Returns a typed [UnlockResult]; the neutral DENY (HTTP 200
   /// `{status:"unavailable"}`) comes back as `unavailable`, never an exception.
   Future<UnlockResult> unlock({required String workerId, String? jobId});

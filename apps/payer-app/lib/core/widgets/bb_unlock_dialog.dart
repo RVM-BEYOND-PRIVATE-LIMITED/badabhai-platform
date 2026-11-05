@@ -5,9 +5,13 @@ import '../theme/app_spacing.dart';
 import '../theme/app_typography.dart';
 import 'bb_button.dart';
 
+/// The unlock CTA label on every candidate card — the spend in CREDITS, never a
+/// ₹ price (#2589: no payment information of any kind in the app).
+const String kUnlockCreditLabel = '1 credit';
+
 /// The unlock confirmation — `.bb-dialog` over a scrim. Names the candidate
-/// (their redacted feed name), states the spend ("1 credit (₹40) used —
-/// N left after"), and carries the deep-blue fair-use note. Confirm returns `true`.
+/// (their redacted feed name), states the spend in credits only ("1 credit
+/// will be used — N left after"; no ₹ amount, #2589), and carries the deep-blue fair-use note. Confirm returns `true`.
 ///
 /// The redacted name is passed in (the dialog never receives the real name);
 /// the fair-use note states the unlock NEVER changes a worker's ranking.
@@ -58,7 +62,7 @@ class _UnlockDialog extends StatelessWidget {
             children: <Widget>[
               Text(
                 'Unlock this candidate?',
-                style: AppTypography.display(size: AppTypography.sizeLg),
+                style: AppTypography.heading(size: AppTypography.sizeLg),
               ),
               const SizedBox(height: AppSpacing.s3),
               RichText(
@@ -80,7 +84,7 @@ class _UnlockDialog extends StatelessWidget {
                     ),
                     const TextSpan(text: "'s real name and phone number. "),
                     TextSpan(
-                      text: '1 credit (₹40)',
+                      text: kUnlockCreditLabel,
                       style: AppTypography.body(
                         size: AppTypography.sizeBase,
                         weight: FontWeight.w700,
@@ -110,7 +114,7 @@ class _UnlockDialog extends StatelessWidget {
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: <Widget>[
-                    const Icon(Icons.info, size: 18, color: AppColors.teal700),
+                    const Icon(Icons.info_rounded, size: 18, color: AppColors.teal700),
                     const SizedBox(width: AppSpacing.s2),
                     Expanded(
                       child: Text(
@@ -128,9 +132,13 @@ class _UnlockDialog extends StatelessWidget {
               ),
               const SizedBox(height: AppSpacing.s5),
               BbButton(
-                label: 'Unlock for ₹40',
-                iconLeft: Icons.lock_open,
+                label: 'Unlock for $kUnlockCreditLabel',
+                iconLeft: Icons.lock_open_rounded,
                 block: true,
+                // #2596 — the press gets BbButton's light tap only: the unlock's
+                // ONE medium haptic (AppHaptics.confirm) lands with the success
+                // stamp once the server granted it, so a single unlock never
+                // buzzes twice (it was here, per #2591).
                 onPressed: () => Navigator.of(context).pop(true),
               ),
               const SizedBox(height: AppSpacing.s2),

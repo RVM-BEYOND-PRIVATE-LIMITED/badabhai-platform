@@ -5,6 +5,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
 import 'package:badabhai_worker_app/core/di/locator.dart';
+import 'package:badabhai_worker_app/features/profile_tab/domain/profile_summary.dart';
+import 'package:badabhai_worker_app/features/profile_tab/domain/profile_summary_repository.dart';
 import 'package:badabhai_worker_app/core/error/failure.dart';
 import 'package:badabhai_worker_app/core/theme/onboarding_theme.dart';
 import 'package:badabhai_worker_app/features/profile/domain/profile_repository.dart';
@@ -19,6 +21,8 @@ import '../../support/kit_matrix.dart';
 class _MockResumeRepository extends Mock implements ResumeRepository {}
 
 class _MockResumeEditRepository extends Mock implements ResumeEditRepository {}
+
+class _MockSummaryRepository extends Mock implements ProfileSummaryRepository {}
 
 class _MockProfileRepository extends Mock implements ProfileRepository {}
 
@@ -134,7 +138,8 @@ void main() {
   // ---- 2. the spec's own drawing ------------------------------------------
 
   group('spec values', () {
-    testWidgets('the whole screen sits on SHIFT BLUE (§3.22)', (
+    testWidgets('the whole screen sits on a SHIFT BLUE gradient (owner ask '
+        '2026-10-22)', (
       WidgetTester tester,
     ) async {
       setKitSurface(tester, const Size(390, 844));
@@ -142,12 +147,19 @@ void main() {
       await tester.pump();
       await pumpPastFloor(tester);
 
-      // One navy field under the header, with the white card the only thing on
-      // it — not the app canvas every other onboarding screen uses.
-      final ColoredBox field = tester.widget<ColoredBox>(
-        find.byType(ColoredBox).first,
+      // One full-bleed navy field (Shift Blue fading deeper), not the app
+      // canvas every other onboarding screen uses.
+      expect(
+        find.byWidgetPredicate((Widget w) {
+          if (w is! DecoratedBox) return false;
+          final Decoration d = w.decoration;
+          return d is BoxDecoration &&
+              d.gradient is LinearGradient &&
+              (d.gradient! as LinearGradient).colors.first ==
+                  OnboardingColors.shiftBlue;
+        }),
+        findsOneWidget,
       );
-      expect(field.color, OnboardingColors.shiftBlue);
       await tester.pumpWidget(const SizedBox.shrink());
     });
 
@@ -167,13 +179,11 @@ void main() {
 
       // The bar is DETERMINATE and stops short of full: the screen must not
       // say "finished" while the server is still working.
-      final LinearProgressIndicator bar = tester
-          .widget<LinearProgressIndicator>(
-            find.byType(LinearProgressIndicator),
-          );
-      expect(bar.value, isNotNull);
-      expect(bar.value, lessThan(1.0));
-      expect(bar.valueColor!.value, OnboardingColors.safetyYellow);
+      final FractionallySizedBox fill = tester.widget<FractionallySizedBox>(
+        find.byType(FractionallySizedBox),
+      );
+      expect(fill.widthFactor, greaterThan(0));
+      expect(fill.widthFactor, lessThan(1.0));
 
       // The step counter is real, and mono so it cannot jitter as it ticks.
       expect(find.textContaining('STEP '), findsOneWidget);
@@ -193,7 +203,7 @@ void main() {
                   .widget<Container>(
                     find
                         .ancestor(
-                          of: find.byType(LinearProgressIndicator),
+                          of: find.textContaining('STEP '),
                           matching: find.byType(Container),
                         )
                         .last,
@@ -325,6 +335,60 @@ void main() {
 
       await expectKitTapTargets(tester);
       handle.dispose();
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+  });
+
+  // OWNER ASK (2026-10-22) — the glass preview card under the checklist.
+  group('resume preview card', () {
+    testWidgets('shows the worker\'s OWN data, never a sample person', (
+      WidgetTester tester,
+    ) async {
+      final _MockSummaryRepository summaryRepo = _MockSummaryRepository();
+      when(() => summaryRepo.summary()).thenAnswer(
+        (_) async => const ProfileSummary(
+          strengthSignals: 0,
+          tradeLabel: 'CNC Turner',
+          experienceYears: 6,
+          skills: <String>['Fanuc'],
+        ),
+      );
+      locator.registerSingleton<ProfileSummaryRepository>(summaryRepo);
+      locator.registerSingleton<ResumeEditRepository>(editRepo);
+      when(() => editRepo.load()).thenAnswer(
+        (_) async => const ResumeSafeFields(
+          displayName: 'Ramesh Kumar',
+          showPhoto: true,
+          nightShiftReady: true,
+        ),
+      );
+      setKitSurface(tester, const Size(390, 844));
+      await tester.pumpWidget(kitTestApp(screen()));
+      await tester.pump();
+      await pumpPastFloor(tester);
+
+      expect(find.text('Ramesh Kumar'), findsOneWidget);
+      expect(find.text('RK'), findsOneWidget);
+      expect(find.text('CNC Turner'), findsOneWidget);
+      expect(find.text('Fanuc'), findsOneWidget);
+      expect(find.text('Night Shift Ready'), findsOneWidget);
+      expect(find.text('PDF CARD'), findsOneWidget);
+      // Not attested: no tick and no "Verified Profile" claim.
+      expect(find.byIcon(Icons.verified_rounded), findsNothing);
+      expect(find.textContaining('Verified Profile'), findsNothing);
+      expect(find.text('Isabella Swan'), findsNothing);
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('is left out when the worker\'s data cannot load', (
+      WidgetTester tester,
+    ) async {
+      setKitSurface(tester, const Size(390, 844));
+      await tester.pumpWidget(kitTestApp(screen()));
+      await tester.pump();
+      await pumpPastFloor(tester);
+
+      expect(find.text('PDF CARD'), findsNothing);
       await tester.pumpWidget(const SizedBox.shrink());
     });
   });

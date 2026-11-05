@@ -53,6 +53,10 @@ export interface PageHeaderProps {
   status?: ReactNode;
   primaryAction?: PageHeaderAction;
   secondaryActions?: readonly PageHeaderAction[];
+  /** An optional badge beside the title (a mode/state label, not an action). */
+  badge?: ReactNode;
+  /** Arbitrary non-link controls in the action group (e.g. a "Save draft" button). */
+  actionsSlot?: ReactNode;
   /** A full-width filter / search row under the title. */
   toolbar?: ReactNode;
   /** An extra class on `.page-head` (the QR page's print hook). */
@@ -104,12 +108,14 @@ export function PageHeader({
   status,
   primaryAction,
   secondaryActions = [],
+  badge,
+  actionsSlot,
   toolbar,
   className,
 }: PageHeaderProps) {
   const actions = primaryAction ? [primaryAction, ...secondaryActions] : [...secondaryActions];
   warnOnDuplicateDestinations(actions);
-  const hasActions = status != null || actions.length > 0;
+  const hasActions = actionsSlot != null || status != null || actions.length > 0;
   return (
     <>
       {back ? (
@@ -122,11 +128,19 @@ export function PageHeader({
       ) : null}
       <div className={className ? `page-head ${className}` : "page-head"}>
         <div className="page-head__text">
-          <h1 className="page-head__title">{title}</h1>
+          {badge != null ? (
+            <div className="page-head__titlerow">
+              <h1 className="page-head__title">{title}</h1>
+              {badge}
+            </div>
+          ) : (
+            <h1 className="page-head__title">{title}</h1>
+          )}
           {description ? <p className="page-head__sub">{description}</p> : null}
         </div>
         {hasActions ? (
           <div className="page-head__actions">
+            {actionsSlot}
             {status}
             {primaryAction ? <ActionLink action={primaryAction} variant="primary" /> : null}
             {secondaryActions.map((a) => (

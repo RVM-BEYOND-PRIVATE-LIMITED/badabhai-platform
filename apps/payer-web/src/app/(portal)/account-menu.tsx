@@ -34,7 +34,7 @@ type Status = "pending" | "active" | "suspended";
 
 export interface AccountMenuProps {
   orgName: string;
-  email?: string;
+  email?: string | null;
   phoneLast4?: string | null;
   role: Role;
   status: Status;

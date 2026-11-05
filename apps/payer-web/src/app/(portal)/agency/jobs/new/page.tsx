@@ -24,7 +24,7 @@ export const dynamic = "force-dynamic";
  * create action re-asserts the role itself (a Server Action is independently invocable).
  */
 export default async function NewAgencyPostingPage() {
-  await requireAgent();
+  const session = await requireAgent();
   if (!agencyFlags().agencyPortalEnabled) notFound();
 
   // ADR-0050 §6.1 step 2 (#2104) — the closed match vocabulary, read SERVER-side so the session
@@ -43,6 +43,7 @@ export default async function NewAgencyPostingPage() {
   return (
     <NewAgencyPosting
       matchSkills={matchSkills}
+      payerRef={session.payerId.slice(0, 8)}
       lead={
         <PageHeader
           title="New posting"

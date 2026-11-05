@@ -91,12 +91,12 @@ class PayerFailure {
   /// The glyph for the error card — one source of truth so every screen reads the
   /// same visual for the same cause.
   IconData get icon => switch (kind) {
-        PayerFailureKind.network => Icons.wifi_off,
-        PayerFailureKind.timeout => Icons.hourglass_empty,
-        PayerFailureKind.server => Icons.cloud_off,
-        PayerFailureKind.session => Icons.lock_outline,
-        PayerFailureKind.notFound => Icons.search_off,
-        PayerFailureKind.unknown => Icons.error_outline,
+        PayerFailureKind.network => Icons.wifi_off_rounded,
+        PayerFailureKind.timeout => Icons.hourglass_empty_rounded,
+        PayerFailureKind.server => Icons.cloud_off_rounded,
+        PayerFailureKind.session => Icons.lock_rounded,
+        PayerFailureKind.notFound => Icons.search_off_rounded,
+        PayerFailureKind.unknown => Icons.error_rounded,
       };
 
   /// A short heading for the error card.

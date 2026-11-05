@@ -4,6 +4,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../core/data/models.dart';
 import '../../../core/di/locator.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/app_motion.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/bb_avatar.dart';
@@ -12,6 +13,7 @@ import '../../../core/widgets/bb_button.dart';
 import '../../../core/widgets/bb_card.dart';
 import '../../../core/widgets/bb_field.dart';
 import '../../../core/widgets/bb_icon_button.dart';
+import '../../../core/widgets/bb_skeleton.dart';
 import '../../../core/widgets/bb_status_view.dart';
 import '../../../core/widgets/bb_toast.dart';
 import 'cubit/org_cubit.dart';
@@ -47,7 +49,16 @@ class _TeamView extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
                 _Header(onBack: () => Navigator.of(context).pop()),
-                Expanded(child: _body(context, state)),
+                // #2592 — member-row skeletons while it loads, cross-fading
+                // out.
+                Expanded(
+                  child: BbLoadSwitcher(
+                    loading: state.status == OrgStatus.loading ||
+                        state.status == OrgStatus.initial,
+                    skeleton: _skeleton,
+                    child: _body(context, state),
+                  ),
+                ),
               ],
             );
           },
@@ -56,13 +67,18 @@ class _TeamView extends StatelessWidget {
     );
   }
 
+  static const Widget _skeleton = BbSkeletonList(
+    row: BbSkeletonListRow(),
+    semanticLabel: 'Loading your team',
+  );
+
   Widget _body(BuildContext context, OrgState state) {
     if (state.status == OrgStatus.loading || state.status == OrgStatus.initial) {
-      return const BbStatusView.loading();
+      return _skeleton;
     }
     if (state.status == OrgStatus.error && state.members.isEmpty) {
       return BbStatusView(
-        icon: Icons.wifi_off,
+        icon: Icons.wifi_off_rounded,
         title: 'Could not load your team',
         subtitle: state.error,
         action: BbButton(
@@ -83,7 +99,7 @@ class _TeamView extends StatelessWidget {
         if (state.isOwner) ...<Widget>[
           BbButton(
             label: 'Invite recruiter',
-            iconLeft: Icons.person_add_alt,
+            iconLeft: Icons.person_add_alt_rounded,
             block: true,
             onPressed: () => _openInvite(context),
           ),
@@ -91,7 +107,7 @@ class _TeamView extends StatelessWidget {
         ],
         Text(
           'Members',
-          style: AppTypography.display(
+          style: AppTypography.heading(
             size: AppTypography.sizeBase,
             weight: FontWeight.w700,
           ),
@@ -114,7 +130,7 @@ class _TeamView extends StatelessWidget {
         const SizedBox(height: AppSpacing.s5),
         Text(
           'Have an invite?',
-          style: AppTypography.display(
+          style: AppTypography.heading(
             size: AppTypography.sizeBase,
             weight: FontWeight.w700,
           ),
@@ -149,6 +165,7 @@ class _TeamView extends StatelessWidget {
     final OrgCubit cubit = context.read<OrgCubit>();
     await showModalBottomSheet<void>(
       context: context,
+      sheetAnimationStyle: AppMotion.sheetStyle(context),
       isScrollControlled: true,
       backgroundColor: AppColors.surfaceCard,
       shape: const RoundedRectangleBorder(
@@ -162,6 +179,7 @@ class _TeamView extends StatelessWidget {
     final OrgCubit cubit = context.read<OrgCubit>();
     await showModalBottomSheet<void>(
       context: context,
+      sheetAnimationStyle: AppMotion.sheetStyle(context),
       isScrollControlled: true,
       backgroundColor: AppColors.surfaceCard,
       shape: const RoundedRectangleBorder(
@@ -216,14 +234,14 @@ class _Header extends StatelessWidget {
       child: Row(
         children: <Widget>[
           BbIconButton(
-            icon: Icons.arrow_back,
+            icon: Icons.arrow_back_rounded,
             semanticLabel: 'Back',
             onPressed: onBack,
           ),
           const SizedBox(width: AppSpacing.s3),
           Text(
             'Team',
-            style: AppTypography.display(
+            style: AppTypography.header(
               size: AppTypography.sizeLg,
               weight: FontWeight.w800,
             ),
@@ -315,7 +333,7 @@ class _MemberRow extends StatelessWidget {
           ),
           if (canRemove)
             BbIconButton(
-              icon: Icons.person_remove_alt_1_outlined,
+              icon: Icons.person_remove_alt_1_rounded,
               semanticLabel: 'Remove ${member.emailMasked}',
               onPressed: onRemove,
             ),
@@ -383,7 +401,7 @@ class _InviteSheetState extends State<_InviteSheet> {
         children: <Widget>[
           Text(
             'Invite recruiter',
-            style: AppTypography.display(
+            style: AppTypography.header(
               size: AppTypography.sizeLg,
               weight: FontWeight.w800,
             ),
@@ -401,7 +419,7 @@ class _InviteSheetState extends State<_InviteSheet> {
             label: 'Their email',
             controller: _email,
             hint: 'name@company.in',
-            icon: Icons.mail_outline,
+            icon: Icons.mail_rounded,
             keyboardType: TextInputType.emailAddress,
           ),
           const SizedBox(height: AppSpacing.s5),
@@ -467,7 +485,7 @@ class _AcceptSheetState extends State<_AcceptSheet> {
         children: <Widget>[
           Text(
             'Accept invite',
-            style: AppTypography.display(
+            style: AppTypography.header(
               size: AppTypography.sizeLg,
               weight: FontWeight.w800,
             ),
@@ -498,6 +516,6 @@ void _toast(BuildContext context, bool success, String message) {
     context,
     title: success ? 'Done' : 'Not now',
     message: message,
-    icon: success ? Icons.check_circle : Icons.info_outline,
+    icon: success ? Icons.check_circle_rounded : Icons.info_rounded,
   );
 }

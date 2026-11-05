@@ -145,7 +145,7 @@ export function MatchSkillPicker({
   return (
     // A titled bordered block = the UI-1 `.panel`. `.match-picker` moves onto the body as the
     // column that spaces the chip rows, the reach strip and the zero-reach alert.
-    <section className="panel">
+    <section className="panel" id="match-skills">
       <div className="panel__head">
         <div className="panel__text">
           <h2 className="panel__title">Which skill are you hiring for?</h2>

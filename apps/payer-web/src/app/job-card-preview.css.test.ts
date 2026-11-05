@@ -93,7 +93,7 @@ describe("the card is the reference phone's card", () => {
       [".jcp__place", 13],
       [".jcp__salary-label", 11],
       [".jcp__paytype", 10],
-      [".jcp__salary-band", 20],
+      [".jcp__salary-band", 18],
       [".jcp__duty-label", 12],
       [".jcp__chip-text", 12],
     ];
@@ -219,18 +219,18 @@ describe("desktop: the rail sticks BELOW the header, capped to the viewport, act
     expect(decl(editor, "justify-content")).toBe("start");
   });
 
-  it("the card is drawn at 1.0–1.2× the phone on desktop (readable, wrap points kept)", () => {
-    const scale = Number(decl(g(".posting-preview .jcp", DESKTOP), "--jcp-scale"));
-    expect(scale).toBeGreaterThan(1);
-    expect(scale).toBeLessThanOrEqual(1.2);
+  it("is drawn at the phone's own 1× on desktop too — no laptop upscaling", () => {
+    expect(decl(d(".jcp"), "--jcp-scale")).toBe("1");
+    expect(
+      G.filter((r) => r.selector === ".posting-preview .jcp" && r.at.includes(DESKTOP)),
+    ).toHaveLength(0);
   });
 
-  it("the desktop pay-type pill is floored at the 12px text token (the phone sheet keeps 10dp)", () => {
-    expect(decl(g(".posting-preview .jcp__paytype", DESKTOP), "font-size")).toBe(
-      "max(var(--text-xs), calc(10 * var(--jcp-u)))",
-    );
-    expect(px("var(--text-xs)")).toBeGreaterThanOrEqual(12);
+  it("the pay-type pill keeps the phone's 10dp on desktop too", () => {
     expect(decl(d(".jcp__paytype"), "font-size")).toBe(dp(10));
+    expect(
+      G.filter((r) => r.selector === ".posting-preview .jcp__paytype" && r.at.includes(DESKTOP)),
+    ).toHaveLength(0);
   });
 
   it("END-ROOM: the form column runs ~half a viewport past its last field (Chrome centres focus)", () => {
@@ -247,7 +247,7 @@ describe("desktop: the rail sticks BELOW the header, capped to the viewport, act
   it("a company editor may run into the shell's bottom padding — by exactly that padding", () => {
     const padding = (decl(g(".pshell__content"), "padding") ?? "").split(" ");
     const bottom = padding[2]!;
-    expect(bottom).toBe("var(--space-10)");
+    expect(bottom).toBe("var(--space-6)");
     expect(
       decl(g(".pshell__content > .posting-layout--editor:last-child", DESKTOP), "margin-bottom"),
     ).toBe(`calc(-1 * ${bottom})`);

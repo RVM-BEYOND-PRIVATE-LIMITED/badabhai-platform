@@ -71,7 +71,7 @@ const { NAV_PENDING_DELAY_MS, resetNavigationForTests, shownNavigation } = await
 
 interface Props {
   orgName?: string;
-  email?: string;
+  email?: string | null;
   phoneLast4?: string | null;
   role?: "employer" | "agent";
   status?: "pending" | "active" | "suspended";
@@ -154,6 +154,16 @@ describe("AccountMenu — collapsed trigger (a11y)", () => {
     const { props } = collect(render({ email: undefined }));
     const trigger = props.find((p) => p["aria-haspopup"] === "menu");
     expect(trigger!["aria-label"]).toBe("Signed in as Acme");
+  });
+
+  it("a phone-only account (email: null) renders no email row and never prints 'null' (#2497/#2499)", () => {
+    openState = true;
+    const { props, text } = collect(render({ email: null }));
+    const trigger = props.find((p) => p["aria-haspopup"] === "menu");
+    expect(trigger!["aria-label"]).toBe("Signed in as Acme");
+    expect(text).toContain("Acme");
+    expect(text).not.toContain("null");
+    expect(text).not.toContain("ops@acme.example");
   });
 
   it("collapsed (default), the panel is hidden — but stays mounted, so the Account link outlives the click that closes it", () => {

@@ -7,6 +7,7 @@ import '../../../core/util/phone_format.dart';
 import '../../../core/di/locator.dart';
 import '../../../core/session/app_session.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/app_motion.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/bb_alert_dialog.dart';
@@ -14,7 +15,8 @@ import '../../../core/widgets/bb_avatar.dart';
 import '../../../core/widgets/bb_button.dart';
 import '../../../core/widgets/bb_card.dart';
 import '../../../core/widgets/bb_field.dart';
-import '../../../core/widgets/bb_status_view.dart';
+import '../../../core/widgets/bb_skeleton.dart';
+import '../../../core/widgets/bb_tab_scope.dart';
 import '../../../core/widgets/payer_role_badge.dart';
 import '../../capacity/presentation/capacity_screen.dart';
 import '../../org/presentation/team_screen.dart';
@@ -27,6 +29,11 @@ import 'cubit/account_cubit.dart';
 ///
 /// PII discipline: only `phoneLast4` is ever rendered or held — a full phone is
 /// accepted transiently in the edit sheet and handed straight to the PATCH.
+/// The sign-out confirm's body (M9, #2597). Public so a test can pin it.
+const String kSignOutConfirmMessage =
+    "You'll need your password, or a sign-in code sent to your work email or "
+    'phone, to sign back in.';
+
 class AccountScreen extends StatelessWidget {
   const AccountScreen({
     super.key,
@@ -41,7 +48,13 @@ class AccountScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return BlocProvider<AccountCubit>(
       create: (_) => locator<AccountCubit>()..load(),
-      child: _AccountView(session: session, onSignOut: onSignOut),
+      // #2592 — a return to the tab re-reads the account; the cards on screen
+      // stay put while it does (the view only waits when it has nothing).
+      child: BbTabRefreshListener(
+        onRefresh: (BuildContext context) =>
+            context.read<AccountCubit>().load(),
+        child: _AccountView(session: session, onSignOut: onSignOut),
+      ),
     );
   }
 }
@@ -68,7 +81,7 @@ class _AccountView extends StatelessWidget {
               children: <Widget>[
                 Text(
                   'Account',
-                  style: AppTypography.display(
+                  style: AppTypography.header(
                     size: AppTypography.sizeXl,
                     weight: FontWeight.w800,
                   ),
@@ -109,19 +122,19 @@ class _AccountView extends StatelessWidget {
               child: Column(
                 children: <Widget>[
                   _SettingsRow(
-                    icon: Icons.edit_outlined,
+                    icon: Icons.edit_rounded,
                     label: 'Edit account',
                     onTap: state.me == null
                         ? null
                         : () => _openEdit(context, state.me!),
                   ),
                   _SettingsRow(
-                    icon: Icons.groups_outlined,
+                    icon: Icons.groups_rounded,
                     label: 'Team',
                     onTap: () => _openTeam(context),
                   ),
                   _SettingsRow(
-                    icon: Icons.tune,
+                    icon: Icons.tune_rounded,
                     label: 'Hiring capacity',
                     onTap: () => _openCapacity(context),
                   ),
@@ -129,7 +142,7 @@ class _AccountView extends StatelessWidget {
                   // agent-gated routes (they 403 for a company session).
                   if (session.isAgency)
                     _SettingsRow(
-                      icon: Icons.campaign_outlined,
+                      icon: Icons.campaign_rounded,
                       label: 'Refer & earn',
                       onTap: () => _openReferral(context),
                     ),
@@ -137,12 +150,12 @@ class _AccountView extends StatelessWidget {
                   // deferred, CLAUDE.md §8) — so it does NOT render a chevron and
                   // is not tappable, rather than looking like a dead affordance.
                   const _SettingsRow(
-                    icon: Icons.verified_user_outlined,
+                    icon: Icons.verified_user_rounded,
                     label: 'Privacy & DPDP consent',
                     showChevron: false,
                   ),
                   _SettingsRow(
-                    icon: Icons.logout,
+                    icon: Icons.logout_rounded,
                     label: 'Sign out',
                     danger: true,
                     showBorder: false,
@@ -198,7 +211,9 @@ class _AccountView extends StatelessWidget {
     final bool confirmed = await showBbConfirm(
       context,
       title: 'Sign out?',
-      message: "You'll need your phone number and OTP to sign back in.",
+      // M9 (#2597): the app signs in with a password or a one-time code sent
+      // to the work email or phone.
+      message: kSignOutConfirmMessage,
       confirmLabel: 'Sign out',
       destructive: true,
     );
@@ -209,6 +224,7 @@ class _AccountView extends StatelessWidget {
     final AccountCubit cubit = context.read<AccountCubit>();
     await showModalBottomSheet<void>(
       context: context,
+      sheetAnimationStyle: AppMotion.sheetStyle(context),
       isScrollControlled: true,
       backgroundColor: AppColors.surfaceCard,
       shape: const RoundedRectangleBorder(
@@ -313,7 +329,7 @@ class _EditSheetState extends State<_EditSheet> {
           children: <Widget>[
             Text(
             'Edit account',
-            style: AppTypography.display(
+            style: AppTypography.header(
               size: AppTypography.sizeLg,
               weight: FontWeight.w800,
             ),
@@ -410,7 +426,7 @@ class _IdentityCard extends StatelessWidget {
               children: <Widget>[
                 Text(
                   orgName,
-                  style: AppTypography.display(
+                  style: AppTypography.heading(
                     size: AppTypography.sizeMd,
                     weight: FontWeight.w700,
                   ),
@@ -444,18 +460,18 @@ class _DetailsCard extends StatelessWidget {
       child: Column(
         children: <Widget>[
           _InfoRow(
-            icon: Icons.mail_outline,
+            icon: Icons.mail_rounded,
             label: 'Email',
             value: m?.email.isNotEmpty == true ? m!.email : '—',
           ),
           _InfoRow(
-            icon: Icons.phone_outlined,
+            icon: Icons.phone_rounded,
             label: 'Phone',
             value: _maskedPhone(m?.phoneLast4),
             mono: true,
           ),
           _InfoRow(
-            icon: Icons.badge_outlined,
+            icon: Icons.badge_rounded,
             label: 'Status',
             value: m == null ? '—' : _statusLabel(m.status),
             showBorder: false,
@@ -522,14 +538,16 @@ class _InfoRow extends StatelessWidget {
   }
 }
 
+/// #2592 — the account cards' skeleton (it used to be a spinner in a card).
 class _LoadingCard extends StatelessWidget {
   const _LoadingCard();
 
   @override
-  Widget build(BuildContext context) => const BbCard(
-        child: SizedBox(
-          height: 72,
-          child: BbStatusView.loading(),
+  Widget build(BuildContext context) => Semantics(
+        label: 'Loading your account',
+        container: true,
+        child: const ExcludeSemantics(
+          child: BbShimmer(child: BbSkeletonPanel()),
         ),
       );
 }
@@ -608,7 +626,7 @@ class _SettingsRow extends StatelessWidget {
             ),
           ),
           if (showChevron)
-            const Icon(Icons.chevron_right,
+            const Icon(Icons.chevron_right_rounded,
                 size: 20, color: AppColors.textFaint),
         ],
       ),

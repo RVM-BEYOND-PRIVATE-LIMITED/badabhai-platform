@@ -237,18 +237,18 @@ export const COMPANION_V3_OUTCOMES = [
 export type CompanionV3Outcome = (typeof COMPANION_V3_OUTCOMES)[number];
 
 // ---- The general road (ADR-0045) ----
-// A chat worker whose role is OUTSIDE the 21 predefined roles runs role → skills and closes with
+// A chat worker whose role is OUTSIDE the 22 predefined roles runs role → skills and closes with
 // a card to the offline general form. Shared by the API (which decides) and the event spine
 // (which records), so an event can never carry a value the service does not know. IDS AND CLOSED
 // SETS, NEVER TEXT: nothing here names a role, a skill or anything the worker typed.
 //
 // WHICH LANE a chat session settled into once its role was known. `skills` is the general road;
-// `classic` is today's interview (every one of the 21 roles, and every fallback).
+// `classic` is today's interview (every one of the 22 roles, and every fallback).
 export const PROFILING_LANES = ["skills", "classic"] as const;
 export type ProfilingLane = (typeof PROFILING_LANES)[number];
 // WHY the lane was chosen.
-//   outside_declared_roles  the role is known and is not one of the 21     → skills
-//   declared_role           the role is one of the 21                      → classic
+//   outside_declared_roles  the role is known and is not one of the 22     → skills
+//   declared_role           the role is one of the 22                      → classic
 //   form_offered            the trade-form offer went on screen            → classic
 //   model_unavailable       the model could not run the stretch            → classic
 //   role_unresolved         Phase A ended without a role                   → classic
@@ -575,8 +575,10 @@ export const CONSENT_PURPOSES = [
   // disclosure purpose: it gates whether a worker's routed contact may be disclosed
   // to a paying party. It is DISTINCT from `profiling` — a worker may have profiling
   // consent but NOT this, and is then undiscoverable for unlock (neutral "unavailable").
-  // The fail-closed gate keys on this exact string. Production DPDP notice copy +
-  // lawful-basis wording remain a human/legal launch gate (CLAUDE.md §8).
+  // The fail-closed gate keys on this exact string. REQUESTED FROM THE WORKER APP since
+  // 2026-11-04, when the owner approved its notice copy
+  // (docs/product/employer-sharing-consent-notice.md) — only ever paired with a notice
+  // version in EMPLOYER_CONTACT_NOTICE_VERSIONS below.
   "employer_sharing",
   // Phase-2 WhatsApp invite funnel + re-engagement (ADR-0020). A SEPARATE, explicit
   // DPDP basis for messaging a worker over WhatsApp — the worker's phone leaves to a
@@ -638,10 +640,10 @@ export const CONSENT_PURPOSES = [
   // decision taken deliberately a second time.
   //
   // Dormant on arrival, and that is the house pattern rather than an exception: a purpose no
-  // client requests fails closed for every worker, so the relay routes stay shut until E4's
-  // notice copy ships and workers opt in. `employer_sharing`, `whatsapp_messaging`,
-  // `agent_activity_visibility` and `voice_processing` all held exactly this posture.
-  // Requesting it from a client is E4's work and must not happen before the copy.
+  // client requests fails closed for every worker, so the relay routes stayed shut until E4's
+  // notice copy shipped. That copy was APPROVED 2026-11-04
+  // (docs/product/employer-sharing-consent-notice.md); the worker app now requests this purpose
+  // together with `employer_sharing`, always at a version in EMPLOYER_CONTACT_NOTICE_VERSIONS.
   "employer_messaging",
 ] as const;
 export type ConsentPurpose = (typeof CONSENT_PURPOSES)[number];
@@ -663,8 +665,25 @@ export type ConsentPurpose = (typeof CONSENT_PURPOSES)[number];
  * `whatsapp_messaging` already hold.
  *
  * Bump this when the NOTICE COPY changes, together with the client that renders it.
+ *
+ * 2026-11-04 — BUMPED, with the copy: the owner approved the employer-sharing notice
+ * (docs/product/employer-sharing-consent-notice.md, E4 items 6-7) and the worker app renders it
+ * on the consent screen and the one-time prompt in the same change.
  */
-export const CURRENT_CONSENT_VERSION = "2026-08-28" as const;
+export const CURRENT_CONSENT_VERSION = "2026-11-04" as const;
+
+/** The two purposes the employer-sharing notice asks for — granted and withdrawn together. */
+export const EMPLOYER_CONTACT_PURPOSES = ["employer_sharing", "employer_messaging"] as const satisfies readonly ConsentPurpose[];
+
+/**
+ * The notice versions whose screen SHOWED the employer-sharing copy. A consent row may carry
+ * an {@link EMPLOYER_CONTACT_PURPOSES} member only at one of these versions: recording
+ * `employer_sharing` against an older notice would claim a worker agreed to a sentence he was
+ * never shown (E4_BUILD, "copy first, version bump with it, purpose requested last"), and
+ * consent rows are append-only, so the mistake could not be undone. Append a version here when
+ * the employer copy is re-approved; never remove one (old rows stay valid).
+ */
+export const EMPLOYER_CONTACT_NOTICE_VERSIONS: readonly string[] = ["2026-11-04"];
 
 // ---- Chat ----
 /**
@@ -1026,6 +1045,9 @@ export const WORKER_APP_SCREEN_TEMPLATES = Object.freeze([
   "/inbox", // Routes.inbox
   "/inbox/:id", // GoRoute(path: '/inbox/:unlockId')
   "/feedback", // Routes.feedback
+  // 2026-11-04 — the employer-sharing notice prompt: shown once to an existing worker on app
+  // open, and pushed from the Settings switch's ON direction.
+  "/employer-sharing", // Routes.employerSharing
   // The referral deep link. Declared inline in the route tree rather than as a `Routes`
   // constant, because nothing in the app navigates to it — the platform delivers it.
   "/i/:id", // GoRoute(path: '/i/:code')
@@ -1143,20 +1165,38 @@ export const TRADE_FORM_KINDS_ALL = Object.freeze([
   "blow_moulding_operator", // qp_blow_moulding — `polymer`
   "rubber_moulding_operator", // qp_rubber_moulding — `polymer`
   "plastic_process_technician", // qp_plastic_process — `polymer`
+
+  // ── TRACK A #4 — 3D CAD Designer (CEO Launch Plan Pack v1, sheet 4) ──
+  "cad_designer_3d", // qp_cad_design_3d — `design`; formless, like the polymer batch
+
+  // ── PHASE 2 #6 — PLC / Automation Technician (CEO Launch Plan Pack v1, sheet 14) ──
+  "plc_automation_technician", // qp_plc_automation — `maintenance`; formless, like 3D
+
+  // ── PHASE 2 #7 — EDM / Wire-cut Operator (CEO Launch Plan Pack v1, sheet 16) ──
+  "edm_wirecut_operator", // qp_edm_wirecut — `machining`; formless, like PLC
+
+  // ── PHASE 2 #8 — Heat-Treatment Technician (CEO Launch Plan Pack v1, sheet 17) ──
+  "heat_treatment_technician", // qp_heat_treatment — `fabrication`; formless, like EDM
+
+  // ── PHASE 2 #10 — Production Supervisor (CEO Launch Plan Pack v1, sheet 23) ──
+  "production_supervisor", // qp_production_supervisor — `production`; formless, cross-trade
+
+  // ── PHASE 2 #11 — Foundry / Forging Operator (CEO Launch Plan Pack v1, sheet 19) ──
+  "foundry_forging_operator", // qp_foundry_forging — `fabrication`; formless, like heat treatment
 ] as const);
 
 export type TradeFormKindName = (typeof TRADE_FORM_KINDS_ALL)[number];
 
 const TRADE_FORM_KIND_SET: ReadonlySet<string> = new Set(TRADE_FORM_KINDS_ALL);
 
-/** Whether a value is one of the 21 DECLARED role kinds. A type guard, like the others here. */
+/** Whether a value is one of the 22 DECLARED role kinds. A type guard, like the others here. */
 export function isTradeFormKindName(value: unknown): value is TradeFormKindName {
   return typeof value === "string" && TRADE_FORM_KIND_SET.has(value);
 }
 
 // ---- Job-posting role (migration 0131) ----
 //
-// HERE FOR THE SAME REASON AS THE SETS BELOW: `packages/db` spells the 21 kinds into
+// HERE FOR THE SAME REASON AS THE SETS BELOW: `packages/db` spells the 22 kinds into
 // `job_postings_role_kind_chk` / `jobs_role_kind_chk`, `packages/event-schema` puts `role_kind` on
 // `job.created` / `job_posting.created`, `apps/api` validates the posting routes by it, and the web
 // clients render the picker and the preview from the labels below. Declared once so none can drift.
@@ -1167,7 +1207,7 @@ export function isTradeFormKindName(value: unknown): value is TradeFormKindName 
 // 2026-09-29, #1823).
 
 /**
- * The six role FAMILIES the picker groups the 21 kinds under — the same six the API's
+ * The six role FAMILIES the picker groups the 22 kinds under — the same six the API's
  * `ROLE_CLUSTERS` (`apps/api/src/profiling/roles/role-form-descriptor.ts`) veto within, in the same
  * order. The API's parity test asserts the two agree, so a seventh cluster turns it red until this
  * list learns it.
@@ -1207,9 +1247,9 @@ export interface JobRoleLabel {
  * `job-role-labels.parity.test.ts` asserts label === displayName and family === cluster for every
  * kind, so an edit to either side alone turns it red.
  *
- * EXHAUSTIVE AT COMPILE TIME: a `Record` over {@link TradeFormKindName}, so a 22nd declared kind
+ * EXHAUSTIVE AT COMPILE TIME: a `Record` over {@link TradeFormKindName}, so a 23rd declared kind
  * does not type-check until it has a label here. Deliberately carries no `formEnabled`: whether a
- * worker-side FORM exists says nothing about whether an employer may post the role, and all 21 are
+ * worker-side FORM exists says nothing about whether an employer may post the role, and all 22 are
  * postable by owner ruling.
  */
 export const JOB_ROLE_LABELS: Readonly<Record<TradeFormKindName, JobRoleLabel>> = Object.freeze({
@@ -1222,22 +1262,39 @@ export const JOB_ROLE_LABELS: Readonly<Record<TradeFormKindName, JobRoleLabel>> 
   cad_draughtsman: { label: "CAD Designer / Draughtsman", family: "design" },
   welder: { label: "Welder", family: "fabrication" },
   sheet_metal_worker: { label: "Sheet Metal Worker", family: "fabrication" },
-  press_operator: { label: "Press / Machine Operator", family: "fabrication" },
-  painter_coating: { label: "Painter / Powder Coating", family: "fabrication" },
+  // Phase 2 #3 (CEO Launch Plan Pack v1, sheet 18): display name is
+  // "Press-shop Operator"; the key does not change.
+  press_operator: { label: "Press-shop Operator", family: "fabrication" },
+  // Phase 2 #4 (CEO Launch Plan Pack v1, sheet 20): plating joins the trade's
+  // name; the key does not change.
+  painter_coating: { label: "Painter / Powder Coating / Plating", family: "fabrication" },
   fitter: { label: "Fitter", family: "maintenance" },
   maintenance_technician: { label: "Maintenance Technician", family: "maintenance" },
   industrial_electrician: { label: "Industrial Electrician", family: "maintenance" },
-  assembly_line_worker: { label: "Assembly Line Worker", family: "production" },
+  // Track B #6 (CEO Launch Plan Pack v1, sheet 11): display name is
+  // "Assembly Technician"; the key does not change.
+  assembly_line_worker: { label: "Assembly Technician", family: "production" },
   quality_inspector: { label: "Quality Inspector / QC", family: "production" },
   injection_moulding_operator: { label: "Injection Moulding Operator", family: "polymer" },
   mould_die_maker: { label: "Mould / Die Maker (Plastics)", family: "polymer" },
   blow_moulding_operator: { label: "Blow Moulding / Extrusion Operator", family: "polymer" },
   rubber_moulding_operator: { label: "Rubber Moulding / Compression Operator", family: "polymer" },
   plastic_process_technician: { label: "Plastic Process / Quality Technician", family: "polymer" },
+  cad_designer_3d: { label: "3D CAD Designer", family: "design" },
+  // Phase 2 #6 (CEO Launch Plan Pack v1, sheet 14).
+  plc_automation_technician: { label: "PLC / Automation Technician", family: "maintenance" },
+  // Phase 2 #7 (CEO Launch Plan Pack v1, sheet 16).
+  edm_wirecut_operator: { label: "EDM / Wire-cut Operator", family: "machining" },
+  // Phase 2 #8 (CEO Launch Plan Pack v1, sheet 17).
+  heat_treatment_technician: { label: "Heat-Treatment Technician", family: "fabrication" },
+  // Phase 2 #10 (CEO Launch Plan Pack v1, sheet 23).
+  production_supervisor: { label: "Production Supervisor", family: "production" },
+  // Phase 2 #11 (CEO Launch Plan Pack v1, sheet 19).
+  foundry_forging_operator: { label: "Foundry / Forging Operator", family: "fabrication" },
 } satisfies Record<TradeFormKindName, JobRoleLabel>);
 
 /**
- * The display label for a stored `role_kind`, or `null` when it is not one of the 21.
+ * The display label for a stored `role_kind`, or `null` when it is not one of the 22.
  *
  * TAKES `unknown` ON PURPOSE: the value comes off a wire or a row, and a reader must not have to
  * narrow before asking. NEVER ECHOES ITS INPUT — an unknown or malformed value is `null`, so a

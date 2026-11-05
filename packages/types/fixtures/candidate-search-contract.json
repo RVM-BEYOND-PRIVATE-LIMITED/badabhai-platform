@@ -1,0 +1,96 @@
+{
+  "$comment": "THE PAYER ALL-CANDIDATES SEARCH CONTRACT (ADR-0040, phase E2; owner rulings 2026-11-03). One wire example per route, consumed by three parsers that must agree: the API (apps/api/src/candidates/candidate-search.contract.test.ts parses every request with CandidateSearchSchema and checks the response/filters examples carry exactly the DTO's keys), payer-web (apps/payer-web/src/lib/candidate-search.contract.test.ts parses them with its own Zod wire schemas) and the payer app (apps/payer-app/test/core/data/candidate_search_contract_test.dart parses them with fromJson). Request bodies are snake_case and responses camelCase, matching the routes beside them. Every value is synthetic: the first workerId is a random v4 id (a real-shaped worker, isSample false), the second is the synthetic-workforce seed's face… namespace (isSample true — R74, badged 'Sample candidate', never unlockable), and the cursor is a real server-minted one. A MASKED candidate carries no name, phone, photo, employer, salary, address or free text — if a key is added here, all three parsers must learn it in the same change.",
+  "version": 1,
+  "routes": {
+    "search": { "method": "POST", "path": "/payer/candidates/search" },
+    "filters": { "method": "GET", "path": "/payer/candidates/filters" }
+  },
+  "requests": [
+    { "name": "unfiltered first page", "body": {} },
+    {
+      "name": "every filter, strict, second page",
+      "body": {
+        "skill_ids": ["mskill_cnc_turner"],
+        "experience": "1_3",
+        "industry_id": "ind_industrial_manufacturing",
+        "industry_experience": "1_3",
+        "city": "Pune",
+        "strict": true,
+        "limit": 20,
+        "cursor": "eyJ2IjoxLCJmIjoiS3RVNlZSbElVLUY1bUFWaWJTUUd5bSIsInciOiJmYWNlMjAwMC0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDAwMDciLCJvIjoyMH0"
+      }
+    }
+  ],
+  "response": {
+    "total": 62,
+    "matched": 14,
+    "unrecorded": 9,
+    "filtered": true,
+    "strict": false,
+    "candidates": [
+      {
+        "workerId": "3f6c1a2e-9b4d-4c7e-8a1f-2d5e6b7c8a90",
+        "matchesFilters": true,
+        "matchTier": 1,
+        "role": { "id": "mskill_cnc_turner", "label": "CNC Turner" },
+        "otherRoles": [{ "id": "mskill_cnc_setter_operator", "label": "CNC Setter-Operator" }],
+        "skillMonths": 48,
+        "industry": { "id": "ind_industrial_manufacturing", "label": "Industrial Manufacturing" },
+        "industryMonths": 54,
+        "city": "Pune",
+        "tradeLevels": [
+          {
+            "skillId": "mskill_cnc_turner",
+            "skillLabel": "CNC Turner",
+            "tradeLevel": "setter",
+            "tradeLevelLabel": "Setter",
+            "levelConfirmed": true
+          }
+        ],
+        "isSample": false
+      },
+      {
+        "workerId": "face2000-0000-4000-8000-000000000007",
+        "matchesFilters": false,
+        "matchTier": 2,
+        "role": { "id": "mskill_vmc_operator", "label": "VMC Operator" },
+        "otherRoles": [],
+        "skillMonths": 24,
+        "industry": { "id": "ind_industrial_manufacturing", "label": "Industrial Manufacturing" },
+        "industryMonths": null,
+        "city": null,
+        "tradeLevels": [],
+        "isSample": true
+      }
+    ],
+    "nextCursor": "eyJ2IjoxLCJmIjoiS3RVNlZSbElVLUY1bUFWaWJTUUd5bSIsInciOiJmYWNlMjAwMC0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDAwMDciLCJvIjoyMH0"
+  },
+  "emptyStrictResponse": {
+    "total": 62,
+    "matched": 0,
+    "unrecorded": 0,
+    "filtered": true,
+    "strict": true,
+    "candidates": [],
+    "nextCursor": null
+  },
+  "filters": {
+    "roles": [
+      { "id": "mskill_cnc_turner", "label": "CNC Turner", "industryId": "ind_industrial_manufacturing" },
+      { "id": "mskill_vmc_operator", "label": "VMC Operator", "industryId": "ind_industrial_manufacturing" }
+    ],
+    "industries": [
+      { "id": "ind_industrial_manufacturing", "label": "Industrial Manufacturing" },
+      { "id": "ind_quick_commerce", "label": "Quick-commerce Delivery" }
+    ],
+    "experienceBuckets": [
+      { "id": "under_1", "label": "Under 1 year" },
+      { "id": "1_3", "label": "1–3 years" },
+      { "id": "3_5", "label": "3–5 years" },
+      { "id": "5_10", "label": "5–10 years" },
+      { "id": "10_plus", "label": "10+ years" }
+    ],
+    "cities": ["Chennai", "Pune"],
+    "maxRoles": 5
+  }
+}

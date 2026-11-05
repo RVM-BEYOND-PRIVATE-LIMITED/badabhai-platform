@@ -16,8 +16,10 @@ import 'package:http/testing.dart';
 ///
 /// The Availability, Terms & Salary résumé-section walk now asks when the
 /// worker can join and their notice period (days), on two pages of their own,
-/// so that section can be CORRECTED after the résumé is built. Onboarding is
-/// unchanged. The save is the existing `PUT /workers/me/work-preferences`, and
+/// so that section can be CORRECTED after the résumé is built. Since #2642 the
+/// onboarding pass asks availability too (once; the notice page only after
+/// "Serving notice") — see the last group. The save is the existing
+/// `PUT /workers/me/work-preferences`, and
 /// because that PUT replaces the stored `availability` json whole, every save
 /// re-sends all three parts.
 
@@ -199,10 +201,10 @@ void main() {
             find.widgetWithText(SingleSelectQuestionCard, title))
         .isSelected;
 
-    testWidgets('onboarding never asks availability — unchanged', (
-      WidgetTester tester,
-    ) async {
-      await pump(tester);
+    testWidgets(
+        'onboarding asks availability ONCE — a stored status skips both pages '
+        '(#2642)', (WidgetTester tester) async {
+      await pump(tester); // `_stored` already carries a status
 
       expect(key.currentState!.pageCount, 6,
           reason: 'languages, documents, shift, job type, cities, terms');
@@ -399,6 +401,172 @@ void main() {
         'available_from': '2026-11-01',
         'notice_period_days': null,
       });
+    });
+  });
+
+  group('#2642 — the first pass asks availability once', () {
+    late GlobalKey<TradeFormPreferencesPageState> key;
+    TradeFormPreferences? saved;
+    late List<(int, int)> reported;
+
+    Future<void> pump(
+      WidgetTester tester, {
+      TradeFormPreferences? initial,
+      TradeFormTierScope tierScope = TradeFormTierScope.unscoped,
+    }) async {
+      key = GlobalKey<TradeFormPreferencesPageState>();
+      saved = null;
+      reported = <(int, int)>[];
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: SingleChildScrollView(
+            child: TradeFormPreferencesPage(
+              key: key,
+              loadOptions: () async => _options,
+              enabled: true,
+              onSave: (TradeFormPreferences p) => saved = p,
+              initialPreferences: initial,
+              tierScope: tierScope,
+              onPageChanged: (int page, int count) =>
+                  reported.add((page, count)),
+            ),
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+    }
+
+    Future<void> next(WidgetTester tester, int times) async {
+      for (int i = 0; i < times; i++) {
+        key.currentState!.goToNextPage();
+        await tester.pumpAndSettle();
+      }
+    }
+
+    /// Languages, documents, shift, job type, cities → the availability page.
+    Future<void> toAvailability(WidgetTester tester) => next(tester, 5);
+
+    testWidgets('a new worker is asked; the notice page is NOT on the pass', (
+      WidgetTester tester,
+    ) async {
+      await pump(tester);
+
+      expect(key.currentState!.pageCount, 7,
+          reason: 'languages, documents, shift, job type, cities, '
+              'availability, terms');
+      await toAvailability(tester);
+      expect(find.text('Kab se available hain?'), findsOneWidget);
+      await next(tester, 1);
+      expect(find.byKey(kTradeFormNoticeFieldKey), findsNothing);
+      expect(key.currentState!.isLastPage, isTrue, reason: 'terms is next');
+    });
+
+    testWidgets(
+        '"Serving notice" brings the notice page in, the count is reported, '
+        'and the PUT carries the availability object', (
+      WidgetTester tester,
+    ) async {
+      await pump(tester);
+      await toAvailability(tester);
+
+      await tester.tap(find.text('Serving notice'));
+      await tester.pump();
+      expect(key.currentState!.pageCount, 8);
+      expect(reported.last, (5, 8),
+          reason: 'the shared bottom bar must learn the new page count');
+
+      await next(tester, 1);
+      expect(find.text('Notice period kitne din ka hai?'), findsOneWidget);
+      await tester.enterText(find.byKey(kTradeFormNoticeFieldKey), '30');
+      await tester.pump();
+      await next(tester, 1);
+      expect(key.currentState!.isLastPage, isTrue);
+      key.currentState!.save();
+
+      expect(saved!.toJson(), <String, dynamic>{
+        'touched_only': true,
+        'availability': <String, dynamic>{
+          'status': 'serving_notice',
+          'available_from': null,
+          'notice_period_days': 30,
+        },
+      }, reason: 'availability only, because only it was touched');
+    });
+
+    testWidgets('any other answer keeps the pass at one availability page', (
+      WidgetTester tester,
+    ) async {
+      await pump(tester);
+      await toAvailability(tester);
+
+      await tester.tap(find.text('Within a week'));
+      await tester.pump();
+      expect(key.currentState!.pageCount, 7);
+      await next(tester, 1);
+      key.currentState!.save();
+
+      expect(saved!.toJson()['availability'], <String, dynamic>{
+        'status': 'within_week',
+        'available_from': null,
+        'notice_period_days': null,
+      });
+    });
+
+    testWidgets(
+        'leaving "Serving notice" drops the page AND the typed notice — a box '
+        'the worker can no longer see sends nothing', (
+      WidgetTester tester,
+    ) async {
+      await pump(tester);
+      await toAvailability(tester);
+      await tester.tap(find.text('Serving notice'));
+      await tester.pump();
+      await next(tester, 1);
+      await tester.enterText(find.byKey(kTradeFormNoticeFieldKey), '45');
+      await tester.pump();
+      key.currentState!.goToPreviousPage();
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Within a month'));
+      await tester.pump();
+      expect(key.currentState!.pageCount, 7);
+      expect(reported.last, (5, 7));
+      await next(tester, 1);
+      key.currentState!.save();
+
+      expect(saved!.toJson()['availability'], <String, dynamic>{
+        'status': 'within_month',
+        'available_from': null,
+        'notice_period_days': null,
+      });
+    });
+
+    testWidgets('an answer given on THIS walk keeps its page on the way back', (
+      WidgetTester tester,
+    ) async {
+      // The cubit's draft after the worker picked "Serving notice" and left:
+      // `availability` is touched, so it is not "already answered".
+      final TradeFormPreferences draft = const TradeFormPreferences()
+          .copyWith(availabilityStatus: 'serving_notice');
+      await pump(tester, initial: draft);
+
+      expect(key.currentState!.pageCount, 8,
+          reason: 'availability + notice both stay');
+    });
+
+    testWidgets('every tier asks it — a scope that hides documents still does', (
+      WidgetTester tester,
+    ) async {
+      await pump(
+        tester,
+        tierScope: const TradeFormTierScope(
+            hiddenFields: <String>{kTierFieldDocumentsReady}),
+      );
+
+      expect(key.currentState!.pageCount, 6,
+          reason: 'documents hidden by the tier; availability still asked');
+      await next(tester, 4);
+      expect(find.text('Kab se available hain?'), findsOneWidget);
     });
   });
 }

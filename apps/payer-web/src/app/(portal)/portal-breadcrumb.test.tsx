@@ -95,7 +95,6 @@ describe("one level below a destination whose pages link back to it — the GROU
   // in-card "Use the manual form instead"), so it reads like New posting itself: the group.
   it.each([
     [`/postings/${ID}`, "Hiring", "Postings", COMPANY],
-    ["/postings/ai/new", "Hiring", "New posting", COMPANY],
     [`/agency/jobs/${ID}`, "Demand", "Postings", AGENCY],
   ] as const)("%s → '%s' (never '%s' again), no link, no landmark", (path, group, parent, s) => {
     const out = crumb(path, s);
@@ -111,6 +110,7 @@ describe("deeper pages, and children with no back link — the section as a LINK
   it.each([
     [`/postings/${ID}/applicants`, "/postings", "Postings"],
     [`/postings/${ID}/edit`, "/postings", "Postings"],
+    ["/postings/ai/new", "/postings", "Postings"],
     ["/team/accept", "/team", "Team"],
   ])("%s → links %s ('%s'), inside a Breadcrumb landmark", (path, href, label) => {
     const out = crumb(path);

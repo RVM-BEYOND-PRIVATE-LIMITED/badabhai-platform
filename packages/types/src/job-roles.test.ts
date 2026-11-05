@@ -1,7 +1,7 @@
 /**
  * The job-posting role labels (migration 0131, ADR-0036 addendum 2026-09-29).
  *
- * `JOB_ROLE_LABELS` is compile-time exhaustive over the 21 declared kinds, so the tests here pin
+ * `JOB_ROLE_LABELS` is compile-time exhaustive over the 27 declared kinds, so the tests here pin
  * what the type system cannot: no EXTRA key, no duplicated or empty label, every family real and
  * used, and a `jobRoleLabel` that never hands back anything it was not given by the closed set.
  * The label TEXT is pinned against the role descriptors by the API's parity test, which is the
@@ -21,7 +21,7 @@ import {
 describe("JOB_ROLE_LABELS covers exactly the declared kinds", () => {
   it("has one entry per TRADE_FORM_KINDS_ALL kind — and no other key", () => {
     expect(Object.keys(JOB_ROLE_LABELS).sort()).toEqual([...TRADE_FORM_KINDS_ALL].sort());
-    expect(Object.keys(JOB_ROLE_LABELS)).toHaveLength(21);
+    expect(Object.keys(JOB_ROLE_LABELS)).toHaveLength(27);
   });
 
   it("gives every kind a distinct, non-blank label", () => {
@@ -57,7 +57,7 @@ describe("jobRoleLabel — the closed set in, a label or null out", () => {
     expect(jobRoleLabel(kind)).toBe(JOB_ROLE_LABELS[kind].label);
   });
 
-  it("returns null for anything outside the 21 — and never echoes the input", () => {
+  it("returns null for anything outside the 27 — and never echoes the input", () => {
     const unknowns: unknown[] = [
       "cnc_operator", // a TRADE key (the agency/legacy vocabulary), not a role kind
       "Welder",

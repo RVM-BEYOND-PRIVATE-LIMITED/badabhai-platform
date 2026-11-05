@@ -62,6 +62,7 @@ class JobPostingDraft extends Equatable {
     this.requirements = const <String>[],
     this.description,
     this.city,
+    this.area,
     this.payType,
     this.minExperienceYears,
     this.maxExperienceYears,
@@ -97,6 +98,12 @@ class JobPostingDraft extends Equatable {
   /// free text the worker feed does not read. A town outside that list
   /// legitimately stays null.
   final String? city;
+
+  /// #2493 — the COARSE area/locality bucket beside the city (e.g. "Chakan").
+  /// Usually derived from the location answer; null when unanswered. The
+  /// publish step can override it, and a null value is legitimate (city-only
+  /// card), never a refusal.
+  final String? area;
 
   /// What the ₹ band MEANS: `in_hand` | `gross` | `ctc`. A RAW ENUM — humanised
   /// at the display edge (`jobPayTypeLabel`), never printed as-is.
@@ -146,6 +153,7 @@ class JobPostingDraft extends Equatable {
       requirements.isEmpty &&
       description == null &&
       city == null &&
+      area == null &&
       payType == null &&
       minExperienceYears == null &&
       maxExperienceYears == null &&
@@ -166,6 +174,7 @@ class JobPostingDraft extends Equatable {
           _strList(json, 'requirements', 'requirements', 'requirements'),
       description: _str(json, 'description', 'description'),
       city: _str(json, 'city', 'city'),
+      area: _str(json, 'area', 'area'),
       payType: _str(json, 'pay_type', 'payType'),
       minExperienceYears:
           _int(json, 'min_experience_years', 'minExperienceYears'),
@@ -197,6 +206,7 @@ class JobPostingDraft extends Equatable {
         requirements,
         description,
         city,
+        area,
         payType,
         minExperienceYears,
         maxExperienceYears,

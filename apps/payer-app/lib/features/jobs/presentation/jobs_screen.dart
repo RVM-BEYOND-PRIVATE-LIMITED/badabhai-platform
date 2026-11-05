@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:url_launcher/url_launcher.dart';
 
-import '../../../core/config/app_config.dart';
 import '../../../core/data/job_posting_chat_models.dart';
 import '../../../core/data/models.dart';
 import '../../../core/di/locator.dart';
@@ -13,38 +11,21 @@ import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/bb_badge.dart';
 import '../../../core/widgets/bb_button.dart';
 import '../../../core/widgets/bb_card.dart';
+import '../../../core/widgets/bb_new_item_highlight.dart';
 import '../../../core/widgets/bb_progress.dart';
 import '../../../core/error/payer_failure.dart';
+import '../../../core/widgets/bb_refresh.dart';
+import '../../../core/widgets/bb_skeleton.dart';
 import '../../../core/widgets/bb_status_view.dart';
-import '../../../core/widgets/bb_toast.dart';
+import '../../../core/widgets/bb_tab_scope.dart';
 import '../../job_posting_chat/presentation/cubit/chat_sessions_cubit.dart';
 import 'agency_jobs_screen.dart';
 import 'cubit/jobs_cubit.dart';
 import 'edit_company_job_screen.dart';
-
-/// Opens an external URL. Overridable so widget tests can assert WHERE a link
-/// went without a platform channel (`launchUrl` throws MissingPluginException
-/// under `flutter test`).
-typedef ExternalUrlLauncher = Future<bool> Function(Uri url);
-
-/// Production launcher: hand the url to the OS browser, never an in-app webview
-/// — the payer signs in and pays on the web portal, outside this app.
-Future<bool> defaultExternalUrlLauncher(Uri url) =>
-    launchUrl(url, mode: LaunchMode.externalApplication);
-
-/// The seam a "manage this on the web" link leaves through. Production must
-/// always leave this as [defaultExternalUrlLauncher].
-@visibleForTesting
-ExternalUrlLauncher jobsExternalUrlLauncher = defaultExternalUrlLauncher;
-
-/// Label of the external affordance that REPLACED the in-app purchase actions.
-const String kManagePlanOnWebLabel = 'Manage plan on web';
-
-/// Says the missing capability out loud on the screen, so "where do I buy a
-/// plan?" is answered here instead of read as a bug (the same honesty the
-/// Credits screen already applies to buying credits).
-const String kManagePlanOnWebNote =
-    'Plans, boosts and quota top-ups are managed on the BadaBhai website.';
+import 'widgets/job_card_actions.dart';
+import 'widgets/job_list_format.dart';
+import 'widgets/jobs_empty_state.dart';
+import 'widgets/trade_posting_fields.dart' show humaniseTradeKey;
 
 /// Entry point label for the conversational create path (ADR-0035).
 const String kAiPostLabel = 'Create with AI';
@@ -56,21 +37,23 @@ const String kResumeChatTitle = 'Continue your job posting';
 ///
 ///  - COMPANY: a REAL row (`job.id != null`, from `GET /payer/job-postings`)
 ///    renders the honest [_RealJobCard] (lifecycle pill + only the LEGAL actions
-///    for that state); a MOCK row (`id == null`) keeps the rich [_JobCard] so
-///    MOCK stays walkable. Two create paths sit side by side: the existing
-///    manual form ([onPost]) and the AI-assisted chat ([onAiPost], ADR-0035) —
-///    the chat is ADDITIVE and replaces nothing.
+///    for that state: one main action and a "⋯" sheet, #2594); a MOCK row
+///    (`id == null`) keeps the rich [_JobCard] so MOCK stays walkable. Two
+///    create paths sit side by side: the existing manual form ([onPost]) and
+///    the AI-assisted chat ([onAiPost], ADR-0035) — the chat is ADDITIVE and
+///    replaces nothing. No postings yet → [JobsEmptyState], never a blank list.
 ///  - AGENCY: the faceless agency postings (`GET /payer/agency/jobs`) render via
 ///    [AgencyJobsView] (trade · city/area · pay & experience bands · applicants ·
-///    open/closed pill with Pause/Close). The agent routes 403 for a company, so
-///    they are only ever mounted here for an agency session.
+///    status pill; Applicants plus a "⋯" with Edit/Close). The agent routes
+///    403 for a company, so they are only ever mounted here for an agency
+///    session.
 ///
 /// NO MONEY ACTION EXISTS ON THIS SCREEN (owner decision). The one-tap
 /// "Buy plan" / "Boost reach" / "Top up quota" sheet that used to live on the
 /// open/paused cards charged real money from inside a store-distributed app —
-/// exactly what App Store / Play Store IAP policy governs. It is replaced by
-/// [kManagePlanOnWebLabel], an external link to the web portal. The API-client
-/// methods and the backend endpoints are untouched.
+/// exactly what App Store / Play Store IAP policy governs. Its "Manage plan on
+/// web" replacement is gone too (#2589 — no payment information of any kind in
+/// the app); plans, boosts and top-ups live on payer-web only.
 ///
 /// AGENCY DOES NOT GET THE AI PATH: ADR-0035's publish step calls
 /// `JobPostingsService.createForPayer`, which writes a COMPANY `job_postings`
@@ -78,9 +61,24 @@ const String kResumeChatTitle = 'Continue your job posting';
 /// published from the chat would not appear in it — offering the entry point
 /// there would promise a posting the agent could never find.
 class JobsScreen extends StatelessWidget {
-  const JobsScreen({super.key, required this.onPost, this.onAiPost});
+  const JobsScreen({
+    super.key,
+    required this.onPost,
+    this.onAiPost,
+    this.onApplicants,
+    this.highlight,
+  });
 
   final VoidCallback onPost;
+
+  /// The posting the payer just created (#2596): its card is scrolled into
+  /// view and briefly tinted, once. Null on an ordinary visit.
+  final BbHighlightRequest? highlight;
+
+  /// Opens the candidate/applicant feed (the Find tab) on the tapped job — its
+  /// id, or null for a MOCK row, which has none (#2593). Optional so existing
+  /// mounts and tests keep working; the shell wires it for both sessions.
+  final ValueChanged<String?>? onApplicants;
 
   /// Opens the AI-assisted chat. A non-null argument RESUMES that session
   /// (cross-device pickup); null starts a fresh one. Optional so existing
@@ -92,7 +90,13 @@ class JobsScreen extends StatelessWidget {
     // The session role is locked at login — branch the whole surface on it so a
     // company never touches the agent-gated routes and vice-versa.
     final bool isAgency = locator<AppSessionCubit>().state?.isAgency ?? false;
-    if (isAgency) return AgencyJobsView(onPost: onPost);
+    if (isAgency) {
+      return AgencyJobsView(
+        onPost: onPost,
+        onApplicants: onApplicants,
+        highlight: highlight,
+      );
+    }
     return BlocProvider<JobsCubit>(
       create: (_) => locator<JobsCubit>()..load(),
       // The cross-device pickup read, nested so both cubits are in scope for the
@@ -100,26 +104,56 @@ class JobsScreen extends StatelessWidget {
       // is already on screen when the tab opens.
       child: BlocProvider<ChatSessionsCubit>(
         create: (_) => locator<ChatSessionsCubit>()..load(),
-        child: _JobsView(onPost: onPost, onAiPost: onAiPost),
+        // #2592 — a return to the tab re-reads both quietly.
+        child: BbTabRefreshListener(
+          onRefresh: _JobsView.refreshQuietly,
+          child: _JobsView(
+            onPost: onPost,
+            onAiPost: onAiPost,
+            onApplicants: onApplicants,
+            highlight: highlight,
+          ),
+        ),
       ),
     );
   }
 }
 
 class _JobsView extends StatelessWidget {
-  const _JobsView({required this.onPost, this.onAiPost});
+  const _JobsView({
+    required this.onPost,
+    this.onAiPost,
+    this.onApplicants,
+    this.highlight,
+  });
 
   final VoidCallback onPost;
   final void Function(String? resumeSessionId)? onAiPost;
+  final ValueChanged<String?>? onApplicants;
+  final BbHighlightRequest? highlight;
+
+  /// #2592 — the quiet re-read behind pull-to-refresh and a return to the
+  /// tab: the postings stay on screen, and a failure says why in a toast. The
+  /// resume card re-reads too (it degrades silently by design).
+  static Future<void> refreshQuietly(BuildContext context) {
+    context.read<ChatSessionsCubit>().load();
+    return refreshWithToast(context, context.read<JobsCubit>().refresh);
+  }
 
   @override
   Widget build(BuildContext context) {
-    return BlocBuilder<JobsCubit, JobsState>(
+    // #2592 — job-card skeletons while the postings load; the list
+    // cross-fades in over them.
+    return BbLoadingBuilder<JobsCubit, JobsState>(
+      isLoading: (JobsState s) =>
+          s.status == JobsStatus.loading || s.status == JobsStatus.initial,
+      skeleton: const BbSkeletonList(
+        header: BbSkeletonHeader(),
+        row: BbSkeletonJobRow(),
+        count: 3,
+        semanticLabel: 'Loading your jobs',
+      ),
       builder: (BuildContext context, JobsState state) {
-        if (state.status == JobsStatus.loading ||
-            state.status == JobsStatus.initial) {
-          return const BbStatusView.loading();
-        }
         if (state.status == JobsStatus.error) {
           final PayerFailure failure =
               state.failure ?? const PayerFailure(PayerFailureKind.unknown);
@@ -134,7 +168,23 @@ class _JobsView extends StatelessWidget {
           );
         }
 
-        return ListView.builder(
+        // A new account has no postings: say what the tab is for and offer
+        // the next step (#2594) — the AI path too, when it is wired. #2592 —
+        // it pulls to refresh too (a job posted from the web portal).
+        if (state.jobs.isEmpty) {
+          return BbRefreshIndicator(
+            onRefresh: () => refreshQuietly(context),
+            child: JobsEmptyState(
+              onPost: onPost,
+              footer:
+                  onAiPost == null ? null : _AiPostPath(onAiPost: onAiPost!),
+            ),
+          );
+        }
+
+        final Widget list = ListView.builder(
+          // Over-scrolls even when short, so pull-to-refresh always works.
+          physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.fromLTRB(
             AppSpacing.gutter,
             AppSpacing.s2,
@@ -148,67 +198,98 @@ class _JobsView extends StatelessWidget {
             if (index != 0) {
               final JobPosting job = state.jobs[index - 1];
               return Padding(
+                // Keyed by posting so an action's refetch updates THIS card in
+                // place (it settles closed) and never hands its state to
+                // another row.
+                key: job.id == null ? null : ValueKey<String>(job.id!),
                 padding: const EdgeInsets.only(bottom: AppSpacing.s3),
-                child: job.id == null
-                    ? _JobCard(job: job)
-                    : _RealJobCard(job: job),
+                // #2596 — the just-posted card scrolls into view, tinted once.
+                child: BbNewItemHighlight(
+                  active: highlight?.claim(job.id) ?? false,
+                  child: job.id == null
+                      ? _JobCard(job: job, onApplicants: onApplicants)
+                      : _RealJobCard(job: job, onApplicants: onApplicants),
+                ),
               );
             }
             return Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: <Widget>[
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      Text(
-                        'MY JOB POSTINGS',
-                        style: AppTypography.eyebrow(color: AppColors.textMuted),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: <Widget>[
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: <Widget>[
+                          Text(
+                            'MY JOB POSTINGS',
+                            style: AppTypography.eyebrow(
+                                color: AppColors.textMuted),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            countLabel(state.jobs.length, 'job'),
+                            style: AppTypography.header(
+                              size: AppTypography.sizeXl,
+                              weight: FontWeight.w800,
+                            ),
+                          ),
+                        ],
                       ),
-                      const SizedBox(height: 2),
-                      Text(
-                        '${state.jobs.length} jobs',
-                        style: AppTypography.display(
-                          size: AppTypography.sizeXl,
-                          weight: FontWeight.w800,
-                        ),
-                      ),
-                    ],
-                  ),
+                    ),
+                    BbButton(
+                      label: 'Post',
+                      // md (44px) not sm — a loud primary CTA clears the 48px tap
+                      // floor (#1082).
+                      size: BbButtonSize.md,
+                      iconLeft: Icons.add_rounded,
+                      onPressed: onPost,
+                    ),
+                  ],
                 ),
-                BbButton(
-                  label: 'Post',
-                  // md (44px) not sm — a loud primary CTA clears the 48px tap
-                  // floor (#1082).
-                  size: BbButtonSize.md,
-                  iconLeft: Icons.add,
-                  onPressed: onPost,
-                ),
-              ],
-            ),
-            if (onAiPost != null) ...<Widget>[
-              const SizedBox(height: AppSpacing.s3),
-              // ADDITIVE second create path (ADR-0035). The manual form above is
-              // untouched and stays the default for a payer who knows the fields.
-              BbButton(
-                label: kAiPostLabel,
-                variant: BbButtonVariant.tonal,
-                size: BbButtonSize.sm,
-                iconLeft: Icons.auto_awesome,
-                block: true,
-                onPressed: () => onAiPost!(null),
-              ),
-              _ResumeChatCard(onResume: onAiPost!),
-            ],
-            const SizedBox(height: AppSpacing.s3),
+                if (onAiPost != null) ...<Widget>[
+                  const SizedBox(height: AppSpacing.s3),
+                  _AiPostPath(onAiPost: onAiPost!),
+                ],
+                const SizedBox(height: AppSpacing.s3),
               ],
             );
           },
         );
+        return BbRefreshIndicator(
+          onRefresh: () => refreshQuietly(context),
+          child: list,
+        );
       },
+    );
+  }
+}
+
+/// The ADDITIVE second create path (ADR-0035) — "Create with AI" plus the
+/// cross-device resume card — shared by the list header and the empty state.
+/// The manual form stays the default for a payer who knows the fields.
+class _AiPostPath extends StatelessWidget {
+  const _AiPostPath({required this.onAiPost});
+
+  final void Function(String? resumeSessionId) onAiPost;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        BbButton(
+          label: kAiPostLabel,
+          variant: BbButtonVariant.tonal,
+          size: BbButtonSize.sm,
+          iconLeft: Icons.auto_awesome_rounded,
+          block: true,
+          onPressed: () => onAiPost(null),
+        ),
+        _ResumeChatCard(onResume: onAiPost),
+      ],
     );
   }
 }
@@ -248,7 +329,7 @@ class _ResumeChatCard extends StatelessWidget {
             onTap: () => onResume(session.id),
             child: Row(
               children: <Widget>[
-                const Icon(Icons.forum_outlined, color: AppColors.brand),
+                const Icon(Icons.forum_rounded, color: AppColors.brand),
                 const SizedBox(width: AppSpacing.s3),
                 Expanded(
                   child: Column(
@@ -256,7 +337,7 @@ class _ResumeChatCard extends StatelessWidget {
                     children: <Widget>[
                       Text(
                         kResumeChatTitle,
-                        style: AppTypography.display(
+                        style: AppTypography.heading(
                           size: AppTypography.sizeBase,
                           weight: FontWeight.w700,
                         ),
@@ -271,7 +352,7 @@ class _ResumeChatCard extends StatelessWidget {
                     ],
                   ),
                 ),
-                const Icon(Icons.chevron_right, color: AppColors.textMuted),
+                const Icon(Icons.chevron_right_rounded, color: AppColors.textMuted),
               ],
             ),
           ),
@@ -286,10 +367,23 @@ class _ResumeChatCard extends StatelessWidget {
 // quota/counts (the server row has none).
 // ---------------------------------------------------------------------------
 
-class _RealJobCard extends StatelessWidget {
-  const _RealJobCard({required this.job});
+class _RealJobCard extends StatefulWidget {
+  const _RealJobCard({required this.job, this.onApplicants});
 
   final JobPosting job;
+  final ValueChanged<String?>? onApplicants;
+
+  @override
+  State<_RealJobCard> createState() => _RealJobCardState();
+}
+
+class _RealJobCardState extends State<_RealJobCard> {
+  /// The lifecycle action in flight for THIS card, or null when idle. Its
+  /// controls — and a Pause's Undo — are disabled while it runs, so one tap
+  /// sends one request.
+  JobLifecycleAction? _busy;
+
+  JobPosting get job => widget.job;
 
   String get _wire => job.wireStatus ?? 'draft';
 
@@ -302,74 +396,116 @@ class _RealJobCard extends StatelessWidget {
         _ => ('Draft', BbBadgeTone.neutral),
       };
 
-  /// Runs a one-shot action and surfaces the [JobActionResult] as a toast. The
-  /// cubit is read up-front; the context.mounted guard keeps the toast honest
-  /// across the await.
-  Future<void> _run(
-    BuildContext context,
-    Future<JobActionResult> Function(JobsCubit) op,
-  ) async {
-    final JobsCubit cubit = context.read<JobsCubit>();
-    final JobActionResult result = await op(cubit);
-    if (!context.mounted) return;
-    showBbToast(
+  /// The "⋯" sheet's actions — the same LEGAL set the stacked buttons offered:
+  /// Edit on any non-terminal posting, Pause only while open, Close on a draft
+  /// or an open job (the server 409s a close on a paused one).
+  List<JobMenuAction> get _menu => switch (_wire) {
+        'open' => const <JobMenuAction>[
+            JobMenuAction.pause,
+            JobMenuAction.edit,
+            JobMenuAction.close,
+          ],
+        'paused' => const <JobMenuAction>[JobMenuAction.edit],
+        'closed' => const <JobMenuAction>[],
+        _ => const <JobMenuAction>[JobMenuAction.edit, JobMenuAction.close],
+      };
+
+  void _setBusy(JobLifecycleAction? action) {
+    if (mounted) setState(() => _busy = action);
+  }
+
+  /// Runs one lifecycle call on [cubit] (read at tap time, so an Undo still
+  /// reaches it from a toast) and reports it as a toast named for [action]. A
+  /// successful Pause offers Undo, which resumes the posting. Starting a call
+  /// takes the last toast down, so a stale Undo is never left on screen.
+  ///
+  /// #2635 — the one refusal that is NOT a toast: a job the server will not put
+  /// live without one of the 16 trades opens its edit form at the trade
+  /// picker, refused there, so the payer picks one instead of reading why.
+  Future<void> _run(JobsCubit cubit, JobLifecycleAction action) async {
+    final String id = job.id!;
+    if (mounted) ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    _setBusy(action);
+    final JobActionResult result = await switch (action) {
+      JobLifecycleAction.publish => cubit.publish(id),
+      JobLifecycleAction.pause => cubit.pause(id),
+      JobLifecycleAction.resume => cubit.resume(id),
+      JobLifecycleAction.close => cubit.closePosting(id),
+    };
+    _setBusy(null);
+    if (!mounted) return;
+    if (result.tradeRequired) {
+      _openEdit(cubit, tradeRequired: true);
+      return;
+    }
+    if (result.success && action == JobLifecycleAction.pause) {
+      showJobUndoToast(
+        context,
+        title: action.done,
+        message: result.message,
+        // An Undo that lands while another call runs, or once the job is no
+        // longer paused, would only send a duplicate — it sends nothing. Not
+        // gated on [mounted]: the lazy list disposes a card scrolled out of
+        // view, and its Undo must still resume the job.
+        onUndo: () {
+          if (_busy == null && _wire == 'paused') {
+            _run(cubit, JobLifecycleAction.resume);
+          }
+        },
+      );
+      return;
+    }
+    showJobActionToast(
       context,
-      title: result.success ? 'Done' : 'Not now',
+      action,
+      success: result.success,
       message: result.message,
-      icon: result.success ? Icons.check_circle : Icons.info_outline,
     );
   }
 
-  /// Hands the payer to the WEB portal to manage plans / boosts / top-ups.
-  ///
-  /// This REPLACED a one-tap in-app purchase sheet ("Buy plan · Standard",
-  /// "Buy plan · Pro", "Boost reach", "Top up quota") that charged real money
-  /// behind a confirm dialog. Selling a digital entitlement from inside a
-  /// store-distributed app is precisely what the App Store / Play Store IAP
-  /// rules cover, so the app now has zero money-spending actions and points
-  /// outward instead.
-  ///
-  /// Falls back to an honest toast (no dead-end, no fabricated link) when no
-  /// usable web origin is configured or nothing on the device can open it.
-  Future<void> _openPlanOnWeb(BuildContext context) async {
-    final String? base = resolvePayerWebUrl();
-    bool opened = false;
-    if (base != null) {
-      final Uri? url = Uri.tryParse('$base/jobs/${job.id}');
-      if (url != null) {
-        try {
-          opened = await jobsExternalUrlLauncher(url);
-        } catch (_) {
-          opened = false;
-        }
-      }
+  /// The "⋯" sheet, then the picked action. A Close always asks first.
+  Future<void> _openMenu() async {
+    final JobsCubit cubit = context.read<JobsCubit>();
+    final JobMenuAction? picked =
+        await showJobActionSheet(context, jobTitle: job.title, actions: _menu);
+    if (picked == null || !mounted) return;
+    switch (picked) {
+      case JobMenuAction.pause:
+        await _run(cubit, JobLifecycleAction.pause);
+      case JobMenuAction.edit:
+        _openEdit(cubit);
+      case JobMenuAction.close:
+        final bool confirmed =
+            await showCloseJobConfirm(context, jobTitle: job.title);
+        if (confirmed && mounted) await _run(cubit, JobLifecycleAction.close);
     }
-    if (opened || !context.mounted) return;
-    showBbToast(
-      context,
-      title: 'Open on web',
-      message: kManagePlanOnWebNote,
-      icon: Icons.open_in_new,
-    );
   }
 
   @override
   Widget build(BuildContext context) {
     final (String label, BbBadgeTone tone) = _pill;
-    final bool dim = _wire == 'closed';
+    final String? posted =
+        job.createdAt == null ? null : readableDate(job.createdAt!);
     final List<String> meta = <String>[
       if (job.locationLabel != null && job.locationLabel!.isNotEmpty)
         job.locationLabel!,
-      if (job.band.isNotEmpty) '${job.band} vacancies',
-      if (job.createdAt != null) 'Posted ${_shortDate(job.createdAt!)}',
+      // #2548 — the posting's level, READ-ONLY here. Editing it in the app is
+      // a later decision (owner ruling Q1); the value is whatever the server
+      // already stored, never a client default.
+      if (job.tradeLevel != null && job.tradeLevel!.isNotEmpty)
+        'Level needed: ${humaniseTradeKey(job.tradeLevel!)}',
+      if (job.band.isNotEmpty) vacanciesLabel(job.band),
+      if (posted != null) 'Posted $posted',
       // Truthful per-posting engagement (backend-sourced); omitted when none.
       if (job.disclosuresCount > 0)
         '${job.disclosuresCount} '
             '${job.disclosuresCount == 1 ? 'résumé' : 'résumés'} downloaded',
     ];
 
-    return BbCard(
-      opacity: dim ? 0.62 : 1,
+    // A closed card fades to the row dim and collapses as its actions go — the
+    // job stays listed, only its card settles (#2594).
+    return JobCardSurface(
+      dimmed: _wire == 'closed',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
@@ -379,7 +515,7 @@ class _RealJobCard extends StatelessWidget {
               Expanded(
                 child: Text(
                   job.title,
-                  style: AppTypography.display(
+                  style: AppTypography.heading(
                     size: AppTypography.sizeMd,
                     weight: FontWeight.w700,
                   ),
@@ -413,13 +549,13 @@ class _RealJobCard extends StatelessWidget {
                   const BbBadge(
                     'Verified job',
                     tone: BbBadgeTone.success,
-                    icon: Icons.verified_user,
+                    icon: Icons.verified_user_rounded,
                   ),
                 if (job.boosted)
                   const BbBadge(
                     'Boosted',
                     tone: BbBadgeTone.brand,
-                    icon: Icons.rocket_launch,
+                    icon: Icons.rocket_launch_rounded,
                   ),
               ],
             ),
@@ -433,20 +569,7 @@ class _RealJobCard extends StatelessWidget {
             ),
           ],
           const SizedBox(height: AppSpacing.s3),
-          ..._actions(context),
-          // Edit content (role title / location / vacancy band) — available on
-          // any non-terminal posting. A closed job is terminal, so no edit.
-          if (_wire != 'closed') ...<Widget>[
-            const SizedBox(height: AppSpacing.s2),
-            BbButton(
-              label: 'Edit details',
-              variant: BbButtonVariant.secondary,
-              size: BbButtonSize.sm,
-              iconLeft: Icons.edit_outlined,
-              block: true,
-              onPressed: () => _openEdit(context),
-            ),
-          ],
+          _actions(),
         ],
       ),
     );
@@ -454,135 +577,81 @@ class _RealJobCard extends StatelessWidget {
 
   /// Push the edit form, handing it the SHARED [JobsCubit] so a saved edit
   /// refetches the list. Named route so the crash reporter tags the screen.
-  void _openEdit(BuildContext context) {
+  /// [tradeRequired] (#2635) opens it at the trade picker, refused there.
+  void _openEdit(JobsCubit cubit, {bool tradeRequired = false}) {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
         settings: const RouteSettings(name: 'payer/job-edit'),
         builder: (_) => EditCompanyJobScreen(
           job: job,
-          cubit: context.read<JobsCubit>(),
+          cubit: cubit,
+          tradeRequired: tradeRequired,
         ),
       ),
     );
   }
 
-  List<Widget> _actions(BuildContext context) {
-    final String id = job.id!;
-    switch (_wire) {
-      case 'draft':
-        return <Widget>[
-          Row(
-            children: <Widget>[
-              Expanded(
-                child: BbButton(
-                  label: 'Publish',
-                  // Navy commitment — the single haldi on this view is the header
-                  // 'Post' CTA, so per-card actions never compete for it.
-                  variant: BbButtonVariant.navy,
-                  size: BbButtonSize.md,
-                  iconLeft: Icons.send,
-                  onPressed: () =>
-                      _run(context, (JobsCubit c) => c.publish(id)),
-                ),
-              ),
-              const SizedBox(width: AppSpacing.s2),
-              Expanded(
-                child: BbButton(
-                  label: 'Close',
-                  variant: BbButtonVariant.secondary,
-                  size: BbButtonSize.sm,
-                  onPressed: () =>
-                      _run(context, (JobsCubit c) => c.closePosting(id)),
-                ),
-              ),
-            ],
-          ),
-        ];
-      case 'open':
-        return <Widget>[
-          Row(
-            children: <Widget>[
-              Expanded(
-                child: BbButton(
-                  label: 'Pause',
-                  variant: BbButtonVariant.secondary,
-                  size: BbButtonSize.sm,
-                  iconLeft: Icons.pause,
-                  onPressed: () => _run(context, (JobsCubit c) => c.pause(id)),
-                ),
-              ),
-              const SizedBox(width: AppSpacing.s2),
-              Expanded(
-                child: BbButton(
-                  label: 'Close',
-                  variant: BbButtonVariant.secondary,
-                  size: BbButtonSize.sm,
-                  onPressed: () =>
-                      _run(context, (JobsCubit c) => c.closePosting(id)),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: AppSpacing.s2),
-          _manageOnWeb(context),
-        ];
-      case 'paused':
-        return <Widget>[
-          BbButton(
-            label: 'Resume',
-            // Navy commitment — keeps the header 'Post' as the view's sole haldi.
-            variant: BbButtonVariant.navy,
-            size: BbButtonSize.md,
-            iconLeft: Icons.play_arrow,
-            block: true,
-            onPressed: () => _run(context, (JobsCubit c) => c.resume(id)),
-          ),
-          const SizedBox(height: AppSpacing.s2),
-          _manageOnWeb(context),
-        ];
-      default: // closed — terminal, no actions.
-        return <Widget>[
-          Text(
-            'This job is closed.',
-            style: AppTypography.body(
-              size: AppTypography.sizeSm,
-              color: AppColors.textMuted,
-            ),
-          ),
-        ];
+  /// ONE main action — Publish (draft), Applicants (open), Resume (paused) —
+  /// plus the "⋯" for the rest (#2594). Navy commitment: the single haldi on
+  /// this view is the header 'Post' CTA, so per-card actions never compete for
+  /// it. A closed job is terminal: no actions.
+  Widget _actions() {
+    if (_wire == 'closed') {
+      return Text(
+        'This job is closed.',
+        style: AppTypography.body(
+          size: AppTypography.sizeSm,
+          color: AppColors.textMuted,
+        ),
+      );
     }
-  }
-
-  /// The external "manage plan on web" affordance + the one-line note that says
-  /// out loud why there is no purchase button here.
-  Widget _manageOnWeb(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        BbButton(
-          label: kManagePlanOnWebLabel,
-          variant: BbButtonVariant.secondary,
-          size: BbButtonSize.sm,
-          iconLeft: Icons.open_in_new,
-          block: true,
-          onPressed: () => _openPlanOnWeb(context),
-        ),
-        const SizedBox(height: AppSpacing.s1),
-        Text(
-          kManagePlanOnWebNote,
-          style: AppTypography.body(
-            size: AppTypography.sizeXs,
-            color: AppColors.textMuted,
-          ),
-        ),
-      ],
+    final bool idle = _busy == null;
+    final List<JobMenuAction> menu = _menu;
+    return JobCardActionRow(
+      main: _mainAction(idle),
+      jobTitle: job.title,
+      showMore: menu.isNotEmpty,
+      moreBusy: _busy == JobLifecycleAction.pause ||
+          _busy == JobLifecycleAction.close,
+      onMore: idle ? _openMenu : null,
     );
   }
 
-  /// The date portion of an ISO timestamp (no intl dep). Falls back to the raw
-  /// string if it is shorter than a date.
-  static String _shortDate(String iso) =>
-      iso.length >= 10 ? iso.substring(0, 10) : iso;
+  Widget _mainAction(bool idle) {
+    return switch (_wire) {
+      // Opens the Find tab's Applicants view on THIS job (the shell wires
+      // it). Navigation only, so it stays live while a sheet action runs.
+      'open' => BbButton(
+          label: 'Applicants',
+          variant: BbButtonVariant.navy,
+          size: BbButtonSize.md,
+          iconLeft: Icons.groups_rounded,
+          onPressed: widget.onApplicants == null
+              ? null
+              : () => widget.onApplicants!(job.id),
+        ),
+      'paused' => BbButton(
+          label: 'Resume',
+          variant: BbButtonVariant.navy,
+          size: BbButtonSize.md,
+          iconLeft: Icons.play_arrow_rounded,
+          loading: _busy == JobLifecycleAction.resume,
+          onPressed: idle ? () => _lifecycle(JobLifecycleAction.resume) : null,
+        ),
+      _ => BbButton(
+          label: 'Publish',
+          variant: BbButtonVariant.navy,
+          size: BbButtonSize.md,
+          iconLeft: Icons.send_rounded,
+          loading: _busy == JobLifecycleAction.publish,
+          onPressed: idle ? () => _lifecycle(JobLifecycleAction.publish) : null,
+        ),
+    };
+  }
+
+  /// A main-button lifecycle call; the cubit is read at tap time.
+  void _lifecycle(JobLifecycleAction action) =>
+      _run(context.read<JobsCubit>(), action);
 }
 
 // ---------------------------------------------------------------------------
@@ -591,9 +660,10 @@ class _RealJobCard extends StatelessWidget {
 // ---------------------------------------------------------------------------
 
 class _JobCard extends StatelessWidget {
-  const _JobCard({required this.job});
+  const _JobCard({required this.job, this.onApplicants});
 
   final JobPosting job;
+  final ValueChanged<String?>? onApplicants;
 
   @override
   Widget build(BuildContext context) {
@@ -616,7 +686,7 @@ class _JobCard extends StatelessWidget {
               Expanded(
                 child: Text(
                   job.title,
-                  style: AppTypography.display(
+                  style: AppTypography.heading(
                     size: AppTypography.sizeMd,
                     weight: FontWeight.w700,
                   ),
@@ -628,8 +698,8 @@ class _JobCard extends StatelessWidget {
           ),
           const SizedBox(height: 2),
           Text(
-            '${job.band} · ${job.applicants} applicants · '
-            '${job.unlocks} unlocks used',
+            '${job.band} · ${countLabel(job.applicants, 'applicant')} · '
+            '${countLabel(job.unlocks, 'unlock')} used',
             style: AppTypography.body(
               size: AppTypography.sizeSm,
               color: AppColors.textMuted,
@@ -645,13 +715,13 @@ class _JobCard extends StatelessWidget {
                   const BbBadge(
                     'Verified job',
                     tone: BbBadgeTone.success,
-                    icon: Icons.verified_user,
+                    icon: Icons.verified_user_rounded,
                   ),
                 if (job.boosted)
                   const BbBadge(
                     'Boosted',
                     tone: BbBadgeTone.brand,
-                    icon: Icons.rocket_launch,
+                    icon: Icons.rocket_launch_rounded,
                   ),
               ],
             ),
@@ -670,9 +740,9 @@ class _JobCard extends StatelessWidget {
             label: 'Applicants',
             variant: BbButtonVariant.secondary,
             size: BbButtonSize.sm,
-            iconLeft: Icons.groups_outlined,
+            iconLeft: Icons.groups_rounded,
             block: true,
-            onPressed: () {},
+            onPressed: onApplicants == null ? null : () => onApplicants!(job.id),
           ),
         ],
       ),

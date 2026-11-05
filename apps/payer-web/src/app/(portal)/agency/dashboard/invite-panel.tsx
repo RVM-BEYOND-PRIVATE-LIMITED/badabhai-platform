@@ -133,8 +133,11 @@ export function AgencyInvitePanel() {
   // `agency-invite` names THIS panel among the page's framed tools: on a phone, Referrals lifts it
   // above the funnel by it (F19).
   return (
-    <section className="agency-section agency-invite">
-      <h2 className="agency-section__title">Invite workers</h2>
+    <section id="invite" className="agency-section agency-invite">
+      <div className="agency-invite__head">
+        <h2 className="agency-section__title">Invite Workers to Agency Supply</h2>
+        <span className="agency-protected">Generator Ready</span>
+      </div>
       <Card variant="flat" className="agency-invite__note">
         <strong>Consent-first.</strong> Share this link with workers. They must self-onboard and
         accept consent before BadaBhai processes their data — minting a link does not.

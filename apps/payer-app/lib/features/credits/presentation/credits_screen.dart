@@ -1,11 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:url_launcher/url_launcher.dart';
 
-import '../../../core/config/app_config.dart';
 import '../../../core/data/models.dart';
 import '../../../core/di/locator.dart';
 import '../../../core/error/payer_failure.dart';
+import '../../../core/session/credits_cubit.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
@@ -13,66 +12,39 @@ import '../../../core/util/pay_format.dart';
 import '../../../core/widgets/bb_button.dart';
 import '../../../core/widgets/bb_card.dart';
 import '../../../core/widgets/bb_icon_button.dart';
+import '../../../core/widgets/bb_refresh.dart';
+import '../../../core/widgets/bb_skeleton.dart';
 import '../../../core/widgets/bb_status_view.dart';
-import '../../../core/widgets/bb_toast.dart';
+import '../../../core/widgets/bb_tab_scope.dart';
 import 'cubit/credits_screen_cubit.dart';
-
-/// Opens an external URL. Overridable so widget tests can assert WHERE a link
-/// went without a platform channel (`launchUrl` throws MissingPluginException
-/// under `flutter test`). Mirrors the `ExternalUrlLauncher` seam in
-/// `jobs_screen.dart`.
-typedef CreditsUrlLauncher = Future<bool> Function(Uri url);
-
-/// Production launcher: hand the url to the OS browser, never an in-app webview —
-/// the payer signs in and pays on the web portal, outside this app.
-Future<bool> defaultCreditsUrlLauncher(Uri url) =>
-    launchUrl(url, mode: LaunchMode.externalApplication);
-
-/// The seam the "buy credits on web" link leaves through. Production must always
-/// leave this as [defaultCreditsUrlLauncher].
-@visibleForTesting
-CreditsUrlLauncher creditsExternalUrlLauncher = defaultCreditsUrlLauncher;
-
-/// Label of the external affordance that REPLACED the in-app pack purchase.
-const String kBuyCreditsOnWebLabel = 'Buy credits on web';
-
-/// Says the missing capability out loud on the screen, so "where do I buy
-/// credits?" is answered here instead of read as a bug — the same honesty the
-/// Jobs screen applies to plans, boosts and quota top-ups.
-const String kBuyCreditsOnWebNote =
-    'Credit packs are bought on the BadaBhai website.';
-
-/// Whether the "Buy credits on web" affordance is shown.
-///
-/// HIDDEN FOR NOW (`false`) — credits are an in-app spendable balance (virtual
-/// currency), and an in-app affordance that points out to a web purchase is
-/// Google Play ANTI-STEERING surface, which Play does NOT bless for virtual
-/// currency the way it does for reader content. Hidden by VISIBILITY ONLY: the
-/// button, its note, `_openCreditsOnWeb`, and the whole web-hand-off code stay
-/// in place — flip this back to `true` to re-enable (e.g. once distribution is
-/// confirmed India-only, where anti-steering is struck down, or alternative
-/// billing is wired).
-const bool kShowBuyCreditsOnWeb = false;
 
 /// Credits — the REAL balance (`GET /payer/credits`, ink card) and the REAL
 /// credit ledger (`GET /payer/credits/ledger`), both READ-ONLY.
 ///
-/// There is NO in-app purchase surface here. Selling a digital entitlement from
-/// inside a store-distributed app is exactly what App Store / Play Store IAP
-/// policy covers, and the mobile-payments rule bars it outright. Credit packs are
-/// bought on the payer WEB portal, so this screen REPORTS what the server says
-/// the payer has and has spent, and POINTS to the web for the purchase — the same
-/// hand-off the Jobs screen uses for plans, boosts and quota top-ups.
+/// There is NO purchase surface and NO payment information here (#2589, owner
+/// ruling 4 Nov 2026): no pack, no price, no "buy on web" pointer. Credits are
+/// shown as credits only — never a ₹ amount. Credit packs are bought on the
+/// payer WEB portal; this screen only REPORTS the balance and the spend.
 class CreditsScreen extends StatelessWidget {
-  const CreditsScreen({super.key, required this.onBack});
+  const CreditsScreen({super.key, this.onBack});
 
-  final VoidCallback onBack;
+  /// Draws the back arrow when non-null. Null when Credits is a bottom-nav
+  /// TAB (M9, #2597): a tab root has nowhere to go back to.
+  final VoidCallback? onBack;
 
   @override
   Widget build(BuildContext context) {
     return BlocProvider<CreditsScreenCubit>(
       create: (_) => locator<CreditsScreenCubit>()..load(),
-      child: _CreditsView(onBack: onBack),
+      // #2592 — a return to the tab re-reads the ledger quietly (the shell
+      // re-reads the shared balance itself). A no-op on the overlay.
+      child: BbTabRefreshListener(
+        onRefresh: (BuildContext context) => refreshWithToast(
+          context,
+          context.read<CreditsScreenCubit>().refresh,
+        ),
+        child: _CreditsView(onBack: onBack),
+      ),
     );
   }
 }
@@ -80,43 +52,35 @@ class CreditsScreen extends StatelessWidget {
 class _CreditsView extends StatelessWidget {
   const _CreditsView({required this.onBack});
 
-  final VoidCallback onBack;
+  /// Draws the back arrow when non-null. Null when Credits is a bottom-nav
+  /// TAB (M9, #2597): a tab root has nowhere to go back to.
+  final VoidCallback? onBack;
 
-  /// Hands the payer to the WEB portal to buy credit packs. This REPLACED an
-  /// in-app pack catalogue + Buy buttons that granted credits from inside the
-  /// app — a store-barred payment surface. Falls back to an honest toast (no
-  /// dead end, no fabricated link) when no usable web origin is configured or
-  /// nothing on the device can open it.
-  Future<void> _openCreditsOnWeb(BuildContext context) async {
-    final String? base = resolvePayerWebUrl();
-    bool opened = false;
-    if (base != null) {
-      final Uri? url = Uri.tryParse('$base/credits');
-      if (url != null) {
-        try {
-          opened = await creditsExternalUrlLauncher(url);
-        } catch (_) {
-          opened = false;
-        }
-      }
-    }
-    if (opened || !context.mounted) return;
-    showBbToast(
+  /// #2592 — pull-to-refresh: the balance and both ledgers, the current ones
+  /// staying on screen; a failure says why in a toast. The app-wide balance
+  /// (Home, the unlock dialog) is re-read alongside.
+  static Future<void> _pullToRefresh(BuildContext context) {
+    locator<CreditsCubit>().load();
+    return refreshWithToast(
       context,
-      title: 'Open on web',
-      message: kBuyCreditsOnWebNote,
-      icon: Icons.open_in_new,
+      context.read<CreditsScreenCubit>().refresh,
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    return BlocBuilder<CreditsScreenCubit, CreditsScreenState>(
+    // #2592 — a balance panel over ledger-line skeletons while it loads; the
+    // real screen cross-fades in over them.
+    return BbLoadingBuilder<CreditsScreenCubit, CreditsScreenState>(
+      isLoading: (CreditsScreenState s) =>
+          s.status == CreditsScreenStatus.loading ||
+          s.status == CreditsScreenStatus.initial,
+      skeleton: const BbSkeletonList(
+        header: BbSkeletonHeader(),
+        items: <Widget>[BbSkeletonPanel(), BbSkeletonLedgerCard()],
+        semanticLabel: 'Loading credits',
+      ),
       builder: (BuildContext context, CreditsScreenState state) {
-        if (state.status == CreditsScreenStatus.loading ||
-            state.status == CreditsScreenStatus.initial) {
-          return const BbStatusView.loading();
-        }
         if (state.status == CreditsScreenStatus.error) {
           final PayerFailure failure =
               state.failure ?? const PayerFailure(PayerFailureKind.unknown);
@@ -131,7 +95,9 @@ class _CreditsView extends StatelessWidget {
           );
         }
 
-        return ListView(
+        final Widget list = ListView(
+          // Over-scrolls even when short, so pull-to-refresh always works.
+          physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.fromLTRB(
             AppSpacing.gutter,
             AppSpacing.s2,
@@ -141,19 +107,21 @@ class _CreditsView extends StatelessWidget {
           children: <Widget>[
             Row(
               children: <Widget>[
-                BbIconButton(
-                  icon: Icons.arrow_back,
-                  semanticLabel: 'Back',
-                  onPressed: onBack,
-                ),
-                const SizedBox(width: AppSpacing.s3),
+                if (onBack != null) ...<Widget>[
+                  BbIconButton(
+                    icon: Icons.arrow_back_rounded,
+                    semanticLabel: 'Back',
+                    onPressed: onBack,
+                  ),
+                  const SizedBox(width: AppSpacing.s3),
+                ],
                 // #376 — was 'Buy credits'. There is no pack, price, or checkout
                 // element anywhere on this screen (the purchase lives on the web),
                 // so that title promised a capability it does not have. The title
                 // now names what the screen actually is.
                 Text(
                   'Credits',
-                  style: AppTypography.display(
+                  style: AppTypography.header(
                     size: AppTypography.sizeLg,
                     weight: FontWeight.w800,
                   ),
@@ -197,24 +165,6 @@ class _CreditsView extends StatelessWidget {
                 ],
               ),
             ),
-            // #1200 — the in-app "Buy credits" pack catalogue + Buy buttons were
-            // REMOVED (store IAP policy / mobile-payments rule). In their place, an
-            // honest pointer to the web portal where the purchase actually happens,
-            // mirroring the Jobs screen's plan/boost/top-up hand-off.
-            // Hidden by VISIBILITY ONLY (kShowBuyCreditsOnWeb) — the Play Store
-            // anti-steering concern for virtual currency. Code kept; the leading
-            // spacer rides inside the Visibility so hiding leaves ONE gap, not two.
-            Visibility(
-              visible: kShowBuyCreditsOnWeb,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  const SizedBox(height: AppSpacing.s5),
-                  _BuyCreditsOnWeb(onOpen: () => _openCreditsOnWeb(context)),
-                ],
-              ),
-            ),
             const SizedBox(height: AppSpacing.s5),
             // #376 follow-up — this section reads `GET /payer/credits/ledger`
             // (pack purchases, unlock debits, grants, refunds), so it is the
@@ -222,7 +172,7 @@ class _CreditsView extends StatelessWidget {
             // real per-unlock history is a separate section below.
             Text(
               'Credit ledger',
-              style: AppTypography.display(
+              style: AppTypography.heading(
                 size: AppTypography.sizeBase,
                 weight: FontWeight.w700,
               ),
@@ -252,7 +202,7 @@ class _CreditsView extends StatelessWidget {
               const SizedBox(height: AppSpacing.s5),
               Text(
                 'Unlock history',
-                style: AppTypography.display(
+                style: AppTypography.heading(
                   size: AppTypography.sizeBase,
                   weight: FontWeight.w700,
                 ),
@@ -273,41 +223,11 @@ class _CreditsView extends StatelessWidget {
             ],
           ],
         );
+        return BbRefreshIndicator(
+          onRefresh: () => _pullToRefresh(context),
+          child: list,
+        );
       },
-    );
-  }
-}
-
-/// The external "buy credits on web" affordance + the one-line note that says out
-/// loud why there is no in-app Buy button here. Mirrors the Jobs screen's
-/// `_manageOnWeb` (secondary, block button + a muted note).
-class _BuyCreditsOnWeb extends StatelessWidget {
-  const _BuyCreditsOnWeb({required this.onOpen});
-
-  final VoidCallback onOpen;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        BbButton(
-          label: kBuyCreditsOnWebLabel,
-          variant: BbButtonVariant.secondary,
-          size: BbButtonSize.sm,
-          iconLeft: Icons.open_in_new,
-          block: true,
-          onPressed: onOpen,
-        ),
-        const SizedBox(height: AppSpacing.s1),
-        Text(
-          kBuyCreditsOnWebNote,
-          style: AppTypography.body(
-            size: AppTypography.sizeXs,
-            color: AppColors.textMuted,
-          ),
-        ),
-      ],
     );
   }
 }

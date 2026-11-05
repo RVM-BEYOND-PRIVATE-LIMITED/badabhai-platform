@@ -1,7 +1,16 @@
 import '../auth/payer_http.dart';
+import 'candidate_search_models.dart';
 import 'job_posting_chat_models.dart';
 import 'models.dart';
 import 'payer_api_client.dart';
+
+/// What a refused job write says (see `_jobWriteRejection`): a typed [code],
+/// the first issue as a labelled sentence, and every issue by its field.
+typedef _JobWriteRejection = ({
+  String? code,
+  String? validationMessage,
+  Map<String, String> fieldErrors,
+});
 
 /// REAL HTTP-backed [PayerApiClient]. EVERY method here talks to a live
 /// `/payer/*` route — this class holds no canned data and composes no mock.
@@ -27,7 +36,8 @@ class HttpPayerApiClient implements PayerApiClient {
 
   @override
   Future<int> fetchCredits() async {
-    final PayerResponse res = await _http.send(PayerMethod.get, '/payer/credits');
+    final PayerResponse res =
+        await _http.send(PayerMethod.get, '/payer/credits');
     // A non-2xx must NOT decode to a fabricated 0 balance rendered as a real
     // "0 credits" — surface the failure so the UI shows an honest error/retry.
     if (!res.isSuccess) throw PayerApiException(res.statusCode);
@@ -36,7 +46,8 @@ class HttpPayerApiClient implements PayerApiClient {
 
   @override
   Future<List<LedgerEntry>> fetchLedger() async {
-    final PayerResponse res = await _http.send(PayerMethod.get, '/payer/unlocks');
+    final PayerResponse res =
+        await _http.send(PayerMethod.get, '/payer/unlocks');
     // A non-2xx must not decode to a fabricated empty ledger shown as success.
     if (!res.isSuccess) throw PayerApiException(res.statusCode);
     final List<dynamic> rows =
@@ -89,8 +100,11 @@ class HttpPayerApiClient implements PayerApiClient {
     int? maxExperienceYears,
     String? shift,
     String? neededBy,
+    String? roleKind,
     List<String>? benefits,
     List<String>? requirements,
+    String? tradeLevel,
+    Map<String, List<String>>? tradeAnswers,
   }) async {
     // EXACTLY ONE of vacancy_band | vacancies (server rejects both/neither).
     if ((vacancyBand == null) == (vacancies == null)) {
@@ -120,17 +134,27 @@ class HttpPayerApiClient implements PayerApiClient {
       if (payMin != null) 'pay_min': payMin,
       if (payMax != null) 'pay_max': payMax,
       if (payType != null) 'pay_type': payType,
-      if (minExperienceYears != null) 'min_experience_years': minExperienceYears,
-      if (maxExperienceYears != null) 'max_experience_years': maxExperienceYears,
+      if (minExperienceYears != null)
+        'min_experience_years': minExperienceYears,
+      if (maxExperienceYears != null)
+        'max_experience_years': maxExperienceYears,
       if (shift != null) 'shift': shift,
       if (neededBy != null) 'needed_by': neededBy,
+      // Migration 0131 — the display role that picks the worker card's art.
+      if (roleKind != null) 'role_kind': roleKind,
       if (benefits != null && benefits.isNotEmpty) 'benefits': benefits,
       if (requirements != null && requirements.isNotEmpty)
         'requirements': requirements,
+      if (roleKind != null && roleKind.isNotEmpty) 'role_kind': roleKind,
+      if (tradeLevel != null && tradeLevel.isNotEmpty)
+        'trade_level': tradeLevel,
+      if (tradeAnswers != null) 'trade_answers': tradeAnswers,
     };
     final PayerResponse res =
         await _http.send(PayerMethod.post, '/payer/job-postings', body: body);
-    if (!res.isSuccess) throw PayerApiException(res.statusCode);
+    // #2595 — a refused create names its fields the way an edit's 400 does, so
+    // the Post form can show each reason AT its box.
+    if (!res.isSuccess) throw _jobWriteFailure(res);
     return _jobFromRow(res.body);
   }
 
@@ -165,8 +189,11 @@ class HttpPayerApiClient implements PayerApiClient {
     int? maxExperienceYears,
     String? shift,
     String? neededBy,
+    String? roleKind,
     List<String>? benefits,
     List<String>? requirements,
+    String? tradeLevel,
+    Map<String, List<String>>? tradeAnswers,
     List<JobPostingClearField>? clear,
   }) async {
     final Map<String, dynamic> body = <String, dynamic>{
@@ -186,15 +213,21 @@ class HttpPayerApiClient implements PayerApiClient {
       if (payMin != null) 'pay_min': payMin,
       if (payMax != null) 'pay_max': payMax,
       if (payType != null) 'pay_type': payType,
-      if (minExperienceYears != null) 'min_experience_years': minExperienceYears,
-      if (maxExperienceYears != null) 'max_experience_years': maxExperienceYears,
+      if (minExperienceYears != null)
+        'min_experience_years': minExperienceYears,
+      if (maxExperienceYears != null)
+        'max_experience_years': maxExperienceYears,
       if (shift != null) 'shift': shift,
       if (neededBy != null) 'needed_by': neededBy,
+      if (roleKind != null) 'role_kind': roleKind,
       // LIST SEMANTICS (deliberate asymmetry with the create): a list the caller
       // PASSES rides the PATCH even when EMPTY, because `[]` is how the chips
       // get CLEARED server-side; only a null list is omitted.
       if (benefits != null) 'benefits': benefits,
       if (requirements != null) 'requirements': requirements,
+      if (roleKind != null) 'role_kind': roleKind,
+      if (tradeLevel != null) 'trade_level': tradeLevel,
+      if (tradeAnswers != null) 'trade_answers': tradeAnswers,
     };
     // #1652 — the fields to UNSET, after the values so a contradiction is caught.
     _addClear(body, clear?.map((JobPostingClearField f) => f.wire));
@@ -204,9 +237,7 @@ class HttpPayerApiClient implements PayerApiClient {
     final PayerResponse res = await _http
         .send(PayerMethod.patch, '/payer/job-postings/$id', body: body);
     // 400 no-op / 409 closed or illegal transition surface as a typed error.
-    if (!res.isSuccess) {
-      throw PayerApiException(res.statusCode, code: _jobEditRejectionCode(res));
-    }
+    if (!res.isSuccess) throw _jobWriteFailure(res);
     return _jobFromRow(res.body);
   }
 
@@ -228,7 +259,19 @@ class HttpPayerApiClient implements PayerApiClient {
     body['clear'] = clear;
   }
 
-  /// The typed code for a failed job-edit PATCH, or null.
+  /// The typed failure of a job WRITE — a create or an edit, on either
+  /// contract — from its non-2xx response ([_jobWriteRejection] reads a 400).
+  static PayerApiException _jobWriteFailure(PayerResponse res) {
+    final _JobWriteRejection rejection = _jobWriteRejection(res);
+    return PayerApiException(
+      res.statusCode,
+      code: rejection.code,
+      validationMessage: rejection.validationMessage,
+      fieldErrors: rejection.fieldErrors,
+    );
+  }
+
+  /// The typed code + field-level messages for a failed job write.
   ///
   /// [kJobEditSetAndClearedCode] when the 400 is the server's `clear` rejection
   /// — a validation issue on the `clear` path, inside the global
@@ -237,18 +280,207 @@ class HttpPayerApiClient implements PayerApiClient {
   /// [JobPostingClearField]/[AgencyJobClearField] names, the non-empty rule and
   /// the pre-send check in [_addClear] leave "set and cleared" as the only
   /// `clear` refusal it can meet.
-  static String? _jobEditRejectionCode(PayerResponse res) {
-    if (res.statusCode != 400) return null;
+  ///
+  /// The two other 400s a job edit can legitimately return are stamped too, so a
+  /// caller never has to guess from the bare status:
+  ///  - [kJobEditNoChangesCode] — `no effective changes to apply` (the save was a
+  ///    no-op; the old client-reported "already closed" was wrong),
+  ///  - [kJobEditClosedCode] — `Job is closed and cannot be edited` (terminal).
+  ///
+  /// #2635 — [kPostingTradeRequiredCode] is the one refusal the server NAMES:
+  /// its `error.reason` is read, never its message. It is pinned to `role_kind`
+  /// with [kPostingTradeRequiredMessage], so a form shows it at its trade
+  /// picker and any other caller says the app's words, not the server's.
+  ///
+  /// EVERY OTHER validation 400 carries its first issue as a human-readable
+  /// [PayerApiException.validationMessage] naming the field, so the edit screen
+  /// can say WHICH box is wrong instead of "check the details" — and (#2595)
+  /// all of its issues as [PayerApiException.fieldErrors], so a form can show
+  /// each AT its box. A CREATE's 400 is only ever that last kind: the four
+  /// codes above are edit-only refusals.
+  static _JobWriteRejection _jobWriteRejection(PayerResponse res) {
+    const Map<String, String> noFields = <String, String>{};
+    if (res.statusCode != 400) {
+      return (code: null, validationMessage: null, fieldErrors: noFields);
+    }
     final Object? error = res.body['error'];
+    final Object? reason = error is Map ? error['reason'] : res.body['reason'];
+    if (reason == kPostingTradeRequiredCode) {
+      return (
+        code: kPostingTradeRequiredCode,
+        validationMessage: kPostingTradeRequiredMessage,
+        fieldErrors: const <String, String>{
+          'role_kind': kPostingTradeRequiredMessage,
+        },
+      );
+    }
     final Object? issues = error is Map ? error['issues'] : null;
-    if (issues is! List) return null;
-    for (final Object? issue in issues) {
-      if (issue is Map && issue['path'] == 'clear') {
-        return kJobEditSetAndClearedCode;
+    if (issues is List) {
+      for (final Object? issue in issues) {
+        if (issue is Map && issue['path'] == 'clear') {
+          return (
+            code: kJobEditSetAndClearedCode,
+            validationMessage: null,
+            fieldErrors: noFields,
+          );
+        }
       }
+      final String? fieldMessage = _firstValidationMessage(issues);
+      if (fieldMessage != null) {
+        return (
+          code: null,
+          validationMessage: fieldMessage,
+          fieldErrors: _fieldErrors(issues),
+        );
+      }
+    }
+    final Object? message =
+        error is Map ? error['message'] : res.body['message'];
+    if (message is String) {
+      if (message == 'no effective changes to apply') {
+        return (
+          code: kJobEditNoChangesCode,
+          validationMessage: null,
+          fieldErrors: noFields,
+        );
+      }
+      if (message == 'Job is closed and cannot be edited') {
+        return (
+          code: kJobEditClosedCode,
+          validationMessage: null,
+          fieldErrors: noFields,
+        );
+      }
+      final String? fromMessage = _messageToFieldText(message);
+      if (fromMessage != null) {
+        return (
+          code: null,
+          validationMessage: fromMessage,
+          fieldErrors: noFields,
+        );
+      }
+    }
+    return (code: null, validationMessage: null, fieldErrors: noFields);
+  }
+
+  /// A service-thrown 400 (cross-field order, skill cap, skill vocabulary, …) has
+  /// no `issues` list — only a message. Name its field when the message starts
+  /// with one, and otherwise show the sentence itself. Null for the two shapes we
+  /// already handle above and for the bare validation envelope.
+  static String? _messageToFieldText(String message) {
+    final String text = message.trim();
+    if (text.isEmpty || text == 'Validation failed' || text == 'Bad Request') {
+      return null;
+    }
+    final String lower = text.toLowerCase();
+    for (final MapEntry<String, String> field in _fieldLabels.entries) {
+      if (lower.startsWith('${field.key} ')) {
+        final String rest = text.substring(field.key.length + 1).trim();
+        if (rest.isEmpty) continue;
+        return '${field.value}: ${_sentence(rest)}';
+      }
+    }
+    return _sentence(text);
+  }
+
+  /// Upper-case the first letter and close the sentence, without touching an
+  /// already-finished one.
+  static String _sentence(String text) {
+    final String trimmed = text.trim();
+    if (trimmed.isEmpty) return trimmed;
+    final String capitalised = trimmed[0].toUpperCase() + trimmed.substring(1);
+    return capitalised.endsWith('.') ? capitalised : '$capitalised.';
+  }
+
+  /// The friendly label for each editable job wire field, so a server issue on
+  /// `pay_max` reads as `Maximum pay: ...` rather than a bare field name.
+  static const Map<String, String> _fieldLabels = <String, String>{
+    'trade_key': 'Trade',
+    'title': 'Job title',
+    'city': 'City',
+    'area': 'Area',
+    'pay_min': 'Minimum pay',
+    'pay_max': 'Maximum pay',
+    'min_experience_years': 'Minimum experience',
+    'max_experience_years': 'Maximum experience',
+    'needed_by': 'Needed by',
+    'pay_type': 'Pay type',
+    'role_kind': 'Role',
+    'description': 'Description',
+    'shift': 'Shift',
+    'benefits': 'Benefits',
+    'requirements': 'Requirements',
+    'match_skill_ids': 'Skills',
+  };
+
+  /// Turn the server's first validation issue into a field-named sentence. The
+  /// server NEVER echoes the value, only the field and a safe reason, so this is
+  /// safe to render. Returns null when there is no usable issue.
+  static String? _firstValidationMessage(List<dynamic> issues) {
+    for (final Object? issue in issues) {
+      if (issue is! Map) continue;
+      final Object? rawMessage = issue['message'];
+      if (rawMessage is! String) continue;
+      final Object? rawPath = issue['path'];
+      final String path = rawPath is String ? rawPath : '';
+      final String? text =
+          _issueReason(rawMessage, subject: path.split('.').last);
+      if (text == null) continue;
+      final String? label = _fieldLabels[path];
+      return label == null ? text : '$label: $text.';
     }
     return null;
   }
+
+  /// #2595 — EVERY validation issue, keyed by the wire field at the head of its
+  /// path (`benefits.2` → `benefits`), the first per field winning — the same
+  /// routing payer-web's `mapPostingIssues` does. Each reason is phrased to sit
+  /// AT its field: no label, and the field's own leading name dropped
+  /// ("description must not contain links" → "Must not contain links.").
+  static Map<String, String> _fieldErrors(List<dynamic> issues) {
+    final Map<String, String> errors = <String, String>{};
+    for (final Object? issue in issues) {
+      if (issue is! Map) continue;
+      final Object? rawMessage = issue['message'];
+      final Object? rawPath = issue['path'];
+      if (rawMessage is! String || rawPath is! String) continue;
+      final String field = rawPath.split('.').first;
+      if (field.isEmpty || errors.containsKey(field)) continue;
+      final String? reason = _issueReason(rawMessage, subject: field);
+      if (reason != null) errors[field] = _sentence(reason);
+    }
+    return errors;
+  }
+
+  /// One validation issue's reason, readable — or null when nothing is left.
+  /// The server's field-screen messages open with the field's own [subject]
+  /// ("title must not contain a company name"); that is dropped so a label is
+  /// not doubled. Zod's ceilings get a plain phrase instead of raw Zod. The
+  /// first letter is capitalised; no stop is added.
+  static String? _issueReason(String rawMessage, {required String subject}) {
+    String text = rawMessage.trim();
+    if (subject.isNotEmpty && text.toLowerCase().startsWith('$subject ')) {
+      text = text.substring(subject.length + 1).trim();
+    }
+    if (text.startsWith(_zodNumberMax)) {
+      text = 'must be ${text.substring(_zodNumberMax.length).trim()} or less';
+    } else if (text.startsWith(_zodNumberMin)) {
+      text = 'must be ${text.substring(_zodNumberMin.length).trim()} or more';
+    } else if (_zodTextMax.firstMatch(text) case final RegExpMatch cap) {
+      // The text boxes carry no length cap of their own, so this one is real.
+      text = 'must be ${cap.group(1)} characters or fewer';
+    }
+    if (text.isEmpty) return null;
+    return text[0].toUpperCase() + text.substring(1);
+  }
+
+  static const String _zodNumberMax = 'Too big: expected number to be <=';
+  static const String _zodNumberMin = 'Too small: expected number to be >=';
+
+  /// Zod's text length ceiling: "Too big: expected string to have <=200
+  /// characters".
+  static final RegExp _zodTextMax =
+      RegExp(r'^Too big: expected string to have <=(\d+) characters$');
 
   @override
   Future<JobPosting> closeJob(String id) => _lifecycle(id, 'close');
@@ -268,69 +500,6 @@ class HttpPayerApiClient implements PayerApiClient {
     return _jobFromRow(res.body);
   }
 
-  @override
-  Future<PlanPurchase> buyPlan(
-    String id, {
-    required String tier,
-    String? coupon,
-  }) async {
-    final PayerResponse res = await _http.send(
-      PayerMethod.post,
-      '/payer/job-postings/$id/plan',
-      body: <String, dynamic>{
-        'tier': tier,
-        if (coupon != null && coupon.isNotEmpty) 'coupon': coupon,
-      },
-    );
-    if (!res.isSuccess) throw PayerApiException(res.statusCode);
-    return _planFromResponse(res.body);
-  }
-
-  @override
-  Future<BoostPurchase> buyBoost(
-    String id, {
-    String tier = 'all_candidates',
-    String? coupon,
-  }) async {
-    final PayerResponse res = await _http.send(
-      PayerMethod.post,
-      '/payer/job-postings/$id/boost',
-      body: <String, dynamic>{
-        'tier': tier,
-        if (coupon != null && coupon.isNotEmpty) 'coupon': coupon,
-      },
-    );
-    // 409 when an active boost already exists.
-    if (!res.isSuccess) throw PayerApiException(res.statusCode);
-    final Map<String, dynamic> boost =
-        (res.body['boost'] as Map<String, dynamic>?) ?? const <String, dynamic>{};
-    final Map<String, dynamic> quote =
-        (res.body['quote'] as Map<String, dynamic>?) ?? const <String, dynamic>{};
-    return BoostPurchase(
-      status: boost['status'] as String?,
-      finalInr: (quote['finalInr'] as num?)?.toInt(),
-    );
-  }
-
-  @override
-  Future<PlanPurchase> quotaTopup(
-    String id, {
-    required String tier,
-    String? coupon,
-  }) async {
-    final PayerResponse res = await _http.send(
-      PayerMethod.post,
-      '/payer/job-postings/$id/quota-topup',
-      body: <String, dynamic>{
-        'tier': tier,
-        if (coupon != null && coupon.isNotEmpty) 'coupon': coupon,
-      },
-    );
-    // 409 when there is no active plan to top up.
-    if (!res.isSuccess) throw PayerApiException(res.statusCode);
-    return _planFromResponse(res.body);
-  }
-
   // --- Match V1 — demand skill picker + reach preview ------------------------
 
   @override
@@ -348,9 +517,24 @@ class HttpPayerApiClient implements PayerApiClient {
   }
 
   @override
+  Future<List<PostingTradeForm>> fetchPostingTrades() async {
+    final PayerResponse res =
+        await _http.send(PayerMethod.get, '/payer/posting-trades');
+    if (!res.isSuccess) throw PayerApiException(res.statusCode);
+    final List<dynamic> rows = res.body['trades'] is List<dynamic>
+        ? res.body['trades'] as List<dynamic>
+        : const <dynamic>[];
+    return rows
+        .whereType<Map<String, dynamic>>()
+        .map(PostingTradeForm.fromJson)
+        .toList(growable: false);
+  }
+
+  @override
   Future<ReachPreview> reachPreview({
     required List<String> matchSkillIds,
     List<String> untickedRelatedIds = const <String>[],
+    String? roleKind,
   }) async {
     final PayerResponse res = await _http.send(
       PayerMethod.post,
@@ -358,6 +542,9 @@ class HttpPayerApiClient implements PayerApiClient {
       body: <String, dynamic>{
         'match_skill_ids': matchSkillIds,
         'unticked_related_ids': untickedRelatedIds,
+        // #2635 — the job's trade, so the preview scopes the posted ids to it
+        // exactly as publish will. Optional and additive: omitted when unset.
+        if (roleKind != null && roleKind.isNotEmpty) 'role_kind': roleKind,
       },
     );
     // A non-2xx must not decode to a fabricated zero-reach preview shown as real.
@@ -420,8 +607,9 @@ class HttpPayerApiClient implements PayerApiClient {
         .toList();
     // Newest activity first — the same ordering the web client applies, so both
     // devices offer the same conversation back.
-    rows.sort((JobPostingChatSessionSummary a, JobPostingChatSessionSummary b) =>
-        b.activityKey.compareTo(a.activityKey));
+    rows.sort(
+        (JobPostingChatSessionSummary a, JobPostingChatSessionSummary b) =>
+            b.activityKey.compareTo(a.activityKey));
     return List<JobPostingChatSessionSummary>.unmodifiable(rows);
   }
 
@@ -443,14 +631,21 @@ class HttpPayerApiClient implements PayerApiClient {
 
   @override
   Future<PublishJobResult> publishJobPostingChatSession(
-    String sessionId,
-  ) async {
-    // EMPTY body: the draft already lives server-side on the session row, the
-    // payer IS the session (XB-A), and the org name is auto-filled there.
+    String sessionId, {
+    String? roleKind,
+    String? area,
+  }) async {
+    // The draft already lives server-side on the session row, the payer IS the
+    // session (XB-A), and the org name is auto-filled there. The only body keys
+    // are the optional publish-step picks (#2490 role, #2493 area) — omitted
+    // when unpicked.
     final PayerResponse res = await _http.send(
       PayerMethod.post,
       '/payer/job-posting-chat/sessions/$sessionId/publish',
-      body: <String, dynamic>{},
+      body: <String, dynamic>{
+        if (roleKind != null && roleKind.isNotEmpty) 'role_kind': roleKind,
+        if (area != null && area.isNotEmpty) 'area': area,
+      },
     );
     // 400 draft incomplete · 409 already published / not ready · 404 unknown.
     if (!res.isSuccess) throw PayerApiException(res.statusCode);
@@ -460,21 +655,19 @@ class HttpPayerApiClient implements PayerApiClient {
     if (id is! String || id.isEmpty) throw PayerApiException(res.statusCode);
     // Fields the server could not fold onto the structured posting (additive,
     // default []). Accepts snake_case + camelCase; ignores non-string entries.
-    final List<String> unmapped =
-        ((res.body['unmapped_fields'] ?? res.body['unmappedFields'])
-                    as List<dynamic>? ??
-                const <dynamic>[])
-            .whereType<String>()
-            .toList(growable: false);
+    final List<String> unmapped = ((res.body['unmapped_fields'] ??
+                res.body['unmappedFields']) as List<dynamic>? ??
+            const <dynamic>[])
+        .whereType<String>()
+        .toList(growable: false);
     // #1727 — the worker-card columns the created posting holds NULL. Parsed on
     // the same tolerant terms: a key this build does not know about must never
     // throw here, because the posting has ALREADY been created server-side.
-    final List<String> unsetCard =
-        ((res.body['unset_card_fields'] ?? res.body['unsetCardFields'])
-                    as List<dynamic>? ??
-                const <dynamic>[])
-            .whereType<String>()
-            .toList(growable: false);
+    final List<String> unsetCard = ((res.body['unset_card_fields'] ??
+                res.body['unsetCardFields']) as List<dynamic>? ??
+            const <dynamic>[])
+        .whereType<String>()
+        .toList(growable: false);
     return PublishJobResult(
       jobPostingId: id,
       unmappedFields: unmapped,
@@ -515,8 +708,8 @@ class HttpPayerApiClient implements PayerApiClient {
 
   @override
   Future<List<LedgerEntry>> fetchCreditLedger({int limit = 20}) async {
-    final PayerResponse res = await _http
-        .send(PayerMethod.get, '/payer/credits/ledger?limit=$limit');
+    final PayerResponse res =
+        await _http.send(PayerMethod.get, '/payer/credits/ledger?limit=$limit');
     // A non-2xx must not decode to a fabricated empty ledger shown as success.
     if (!res.isSuccess) throw PayerApiException(res.statusCode);
     final List<dynamic> rows =
@@ -546,6 +739,56 @@ class HttpPayerApiClient implements PayerApiClient {
     return rows
         .whereType<Map<String, dynamic>>()
         .map(_applicantFromRow)
+        .toList(growable: false);
+  }
+
+  // --- All-candidates search (ADR-0040 E2) -----------------------------------
+
+  @override
+  Future<CandidateSearchPage> searchCandidates(
+    CandidateSearchQuery query,
+  ) async {
+    // POST, though it writes nothing (the filter set is a list — the
+    // reach-preview precedent). PayerHttp never auto-retries a POST, so each
+    // call is exactly one unit of the payer's hourly search cap.
+    final PayerResponse res = await _http.send(
+      PayerMethod.post,
+      '/payer/candidates/search',
+      body: query.toJson(),
+    );
+    // 429 = the hourly cap, 400 = a refused body or cursor, 5xx = an outage.
+    // The status rides the exception so the screen can say which — none may
+    // decode to an empty page, which would read as "nobody on the portal".
+    if (!res.isSuccess) throw PayerApiException(res.statusCode);
+    final CandidateSearchPage? page = CandidateSearchPage.tryFromJson(res.body);
+    // #370 — a 2xx that is not the contract (captive-portal HTML decodes to
+    // `{}`) is an error, never a zero-candidate pool.
+    if (page == null) throw PayerApiException(res.statusCode);
+    return page;
+  }
+
+  @override
+  Future<CandidateFilters> fetchCandidateFilters() async {
+    final PayerResponse res =
+        await _http.send(PayerMethod.get, '/payer/candidates/filters');
+    if (!res.isSuccess) throw PayerApiException(res.statusCode);
+    final CandidateFilters? filters = CandidateFilters.tryFromJson(res.body);
+    if (filters == null) throw PayerApiException(res.statusCode);
+    return filters;
+  }
+
+  @override
+  Future<List<PayerUnlock>> fetchOwnUnlocks() async {
+    final PayerResponse res =
+        await _http.send(PayerMethod.get, '/payer/unlocks');
+    if (!res.isSuccess) throw PayerApiException(res.statusCode);
+    final Object? rows = res.body['unlocks'];
+    // Same #370 rule: a 2xx without the list is a contract error, not "you
+    // have unlocked nobody".
+    if (rows is! List<dynamic>) throw PayerApiException(res.statusCode);
+    return rows
+        .map(PayerUnlock.tryFromJson)
+        .whereType<PayerUnlock>()
         .toList(growable: false);
   }
 
@@ -738,10 +981,13 @@ class HttpPayerApiClient implements PayerApiClient {
     int? minExperienceYears,
     int? maxExperienceYears,
     String? neededBy,
+    String? roleKind,
     String? description,
     String? shift,
     List<String>? benefits,
     List<String>? requirements,
+    String? tradeLevel,
+    Map<String, List<String>>? tradeAnswers,
     List<String>? matchSkillIds,
   }) async {
     // snake_case body — trade_key/pay_min/etc. NEVER a body payer_id (the server
@@ -760,16 +1006,25 @@ class HttpPayerApiClient implements PayerApiClient {
       if (payMax != null) 'pay_max': payMax,
       // #1648 — what the band MEANS. Never defaulted: omitted stores NULL.
       if (payType != null) 'pay_type': payType,
-      if (minExperienceYears != null) 'min_experience_years': minExperienceYears,
-      if (maxExperienceYears != null) 'max_experience_years': maxExperienceYears,
+      if (minExperienceYears != null)
+        'min_experience_years': minExperienceYears,
+      if (maxExperienceYears != null)
+        'max_experience_years': maxExperienceYears,
       if (neededBy != null) 'needed_by': neededBy,
+      if (roleKind != null) 'role_kind': roleKind,
       if (description != null && description.trim().isNotEmpty)
         'description': description.trim(),
       if (shift != null) 'shift': shift,
       if (benefits != null && benefits.isNotEmpty) 'benefits': benefits,
       if (requirements != null && requirements.isNotEmpty)
         'requirements': requirements,
-      // ADR-0050 — demand skills. On CREATE an empty pick carries no information
+      if (roleKind != null && roleKind.isNotEmpty) 'role_kind': roleKind,
+      // Migration 0141 — the trade-specific form. Empty answers still carry the
+      // role's base match skill, so an empty map is sent when the form used it.
+      if (tradeLevel != null && tradeLevel.isNotEmpty)
+        'trade_level': tradeLevel,
+      if (tradeAnswers != null) 'trade_answers': tradeAnswers,
+      // ADR-0050 - demand skills. On CREATE an empty pick carries no information
       // the absent key does not (there is nothing stored to clear), so it is
       // omitted. The route strips it until the API field lands (#1960/#1957).
       if (matchSkillIds != null && matchSkillIds.isNotEmpty)
@@ -777,7 +1032,8 @@ class HttpPayerApiClient implements PayerApiClient {
     };
     final PayerResponse res =
         await _http.send(PayerMethod.post, '/payer/agency/jobs', body: body);
-    if (!res.isSuccess) throw PayerApiException(res.statusCode);
+    // #2595 — field-named, like the company create.
+    if (!res.isSuccess) throw _jobWriteFailure(res);
     return AgencyJobView.fromJson(res.body);
   }
 
@@ -822,10 +1078,13 @@ class HttpPayerApiClient implements PayerApiClient {
     int? minExperienceYears,
     int? maxExperienceYears,
     String? neededBy,
+    String? roleKind,
     String? description,
     String? shift,
     List<String>? benefits,
     List<String>? requirements,
+    String? tradeLevel,
+    Map<String, List<String>>? tradeAnswers,
     List<String>? matchSkillIds,
     List<AgencyJobClearField>? clear,
   }) async {
@@ -837,9 +1096,12 @@ class HttpPayerApiClient implements PayerApiClient {
       if (payMin != null) 'pay_min': payMin,
       if (payMax != null) 'pay_max': payMax,
       if (payType != null) 'pay_type': payType,
-      if (minExperienceYears != null) 'min_experience_years': minExperienceYears,
-      if (maxExperienceYears != null) 'max_experience_years': maxExperienceYears,
+      if (minExperienceYears != null)
+        'min_experience_years': minExperienceYears,
+      if (maxExperienceYears != null)
+        'max_experience_years': maxExperienceYears,
       if (neededBy != null) 'needed_by': neededBy,
+      if (roleKind != null) 'role_kind': roleKind,
       if (description != null && description.trim().isNotEmpty)
         'description': description.trim(),
       if (shift != null) 'shift': shift,
@@ -848,7 +1110,10 @@ class HttpPayerApiClient implements PayerApiClient {
       // CLEARED server-side; only a null list is omitted.
       if (benefits != null) 'benefits': benefits,
       if (requirements != null) 'requirements': requirements,
-      // ADR-0050 — same list semantics: a passed `match_skill_ids` (even `[]`)
+      if (roleKind != null) 'role_kind': roleKind,
+      if (tradeLevel != null) 'trade_level': tradeLevel,
+      if (tradeAnswers != null) 'trade_answers': tradeAnswers,
+      // ADR-0050 - same list semantics: a passed `match_skill_ids` (even `[]`)
       // is sent to clear; a null is omitted. Stripped by the route until the API
       // field lands (#1960/#1957).
       if (matchSkillIds != null) 'match_skill_ids': matchSkillIds,
@@ -858,19 +1123,19 @@ class HttpPayerApiClient implements PayerApiClient {
     if (body.isEmpty) {
       throw ArgumentError('updateAgencyJob needs at least one field');
     }
-    final PayerResponse res =
-        await _http.send(PayerMethod.patch, '/payer/agency/jobs/$id', body: body);
-    if (!res.isSuccess) {
-      throw PayerApiException(res.statusCode, code: _jobEditRejectionCode(res));
-    }
+    final PayerResponse res = await _http
+        .send(PayerMethod.patch, '/payer/agency/jobs/$id', body: body);
+    if (!res.isSuccess) throw _jobWriteFailure(res);
     return AgencyJobView.fromJson(res.body);
   }
 
   @override
-  Future<AgencyJobView> closeAgencyJob(String id) => _agencyLifecycle(id, 'close');
+  Future<AgencyJobView> closeAgencyJob(String id) =>
+      _agencyLifecycle(id, 'close');
 
   @override
-  Future<AgencyJobView> pauseAgencyJob(String id) => _agencyLifecycle(id, 'pause');
+  Future<AgencyJobView> pauseAgencyJob(String id) =>
+      _agencyLifecycle(id, 'pause');
 
   @override
   Future<AgencyJobView> resumeAgencyJob(String id) =>
@@ -894,86 +1159,6 @@ class HttpPayerApiClient implements PayerApiClient {
     // A non-2xx must not decode to a fabricated all-zero summary shown as real.
     if (!res.isSuccess) throw PayerApiException(res.statusCode);
     return ReferralsSummary.fromJson(res.body);
-  }
-
-  // --- Agency supply-money — KYC · earnings · payouts (AGENT-only, FLAG-GATED)-
-  // Every route is behind `AgencyPayoutsEnabledGuard` → a NEUTRAL 404 while the
-  // launch flag is OFF. We surface EVERY non-2xx (incl. that 404) as a typed
-  // [PayerApiException] so the cubit maps 404 → "not available yet" and 403 →
-  // "agent-only", never a fabricated empty/zero state shown as real.
-
-  @override
-  Future<AgencyKycView> submitAgencyKyc({
-    required String pan,
-    required String bankAccount,
-    required String ifsc,
-    required String accountHolderName,
-  }) async {
-    // snake_case body — the server uppercases + format-validates PAN/IFSC and
-    // encrypts at rest. NEVER a body payer_id (derived from the bearer).
-    final PayerResponse res = await _http.send(
-      PayerMethod.post,
-      '/payer/agency/kyc',
-      body: <String, dynamic>{
-        'pan': pan,
-        'bank_account': bankAccount,
-        'ifsc': ifsc,
-        'account_holder_name': accountHolderName,
-      },
-    );
-    // 400 bad format · 409 PAN already used · 404 flag off · 403 company → typed.
-    if (!res.isSuccess) throw PayerApiException(res.statusCode);
-    return AgencyKycView.fromJson(res.body);
-  }
-
-  @override
-  Future<AgencyKycView> fetchAgencyKyc() async {
-    final PayerResponse res =
-        await _http.send(PayerMethod.get, '/payer/agency/kyc');
-    // 404 flag off → typed (cubit shows "not available yet"), never a fake
-    // not_submitted decoded from an error body.
-    if (!res.isSuccess) throw PayerApiException(res.statusCode);
-    return AgencyKycView.fromJson(res.body);
-  }
-
-  @override
-  Future<AgencyEarnings> fetchAgencyEarnings() async {
-    final PayerResponse res =
-        await _http.send(PayerMethod.get, '/payer/agency/earnings');
-    // 404 flag off / 403 company / 5xx → typed, never a fabricated all-zero
-    // earnings view shown as real.
-    if (!res.isSuccess) throw PayerApiException(res.statusCode);
-    return AgencyEarnings.fromJson(res.body);
-  }
-
-  @override
-  Future<PayoutRequestResult> requestAgencyPayout() async {
-    // Empty body — the acting agency is the SESSION payer (bearer), and the
-    // request claims the currently-requestable accruals server-side. MONEY-OUT:
-    // there is NO gateway/card here. The route returns HTTP 200 for BOTH a pass
-    // (`ok:true`) and a gate refusal (`ok:false, blocked, reason`), so a 2xx is
-    // always parsed; only a real non-2xx (404 flag off / 403) is an exception.
-    final PayerResponse res =
-        await _http.send(PayerMethod.post, '/payer/agency/payouts');
-    if (!res.isSuccess) throw PayerApiException(res.statusCode);
-    return PayoutRequestResult.fromJson(res.body);
-  }
-
-  @override
-  Future<List<AgencyPayout>> fetchAgencyPayouts() async {
-    // The list route returns a BARE JSON array — PayerHttp._decode wraps it
-    // under `items`.
-    final PayerResponse res =
-        await _http.send(PayerMethod.get, '/payer/agency/payouts');
-    // 404 flag off / 403 company / 5xx → typed, never a fabricated empty history.
-    if (!res.isSuccess) throw PayerApiException(res.statusCode);
-    final List<dynamic> rows = res.body['items'] is List<dynamic>
-        ? res.body['items'] as List<dynamic>
-        : const <dynamic>[];
-    return rows
-        .whereType<Map<String, dynamic>>()
-        .map(AgencyPayout.fromJson)
-        .toList(growable: false);
   }
 
   // --- Org / team members (ADR-0027) — masked, owner-gated -------------------
@@ -1056,12 +1241,11 @@ class HttpPayerApiClient implements PayerApiClient {
   static String? _inviteRefusalCode(PayerResponse res) {
     if (res.statusCode != 409) return null;
     final Object? error = res.body['error'];
-    final Object? message = error is Map ? error['message'] : res.body['message'];
+    final Object? message =
+        error is Map ? error['message'] : res.body['message'];
     if (message is! String) return null;
-    final String flat = message
-        .toLowerCase()
-        .replaceAll(RegExp(r'[^a-z0-9]+'), ' ')
-        .trim();
+    final String flat =
+        message.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), ' ').trim();
     return flat.contains('accepted with this account')
         ? kOrgInviteNotAcceptableCode
         : null;
@@ -1112,7 +1296,8 @@ class HttpPayerApiClient implements PayerApiClient {
     return JobPosting(
       id: row['id'] as String?,
       title: row['roleTitle'] as String? ?? row['role_title'] as String? ?? '',
-      band: row['vacancyBand'] as String? ?? row['vacancy_band'] as String? ?? '',
+      band:
+          row['vacancyBand'] as String? ?? row['vacancy_band'] as String? ?? '',
       locationLabel:
           row['locationLabel'] as String? ?? row['location_label'] as String?,
       createdAt: row['createdAt'] as String? ?? row['created_at'] as String?,
@@ -1141,10 +1326,10 @@ class HttpPayerApiClient implements PayerApiClient {
       description: row['description'] as String?,
       city: row['city'] as String?,
       area: row['area'] as String?,
-      payMin: (row['pay_min'] as num?)?.toInt() ??
-          (row['payMin'] as num?)?.toInt(),
-      payMax: (row['pay_max'] as num?)?.toInt() ??
-          (row['payMax'] as num?)?.toInt(),
+      payMin:
+          (row['pay_min'] as num?)?.toInt() ?? (row['payMin'] as num?)?.toInt(),
+      payMax:
+          (row['pay_max'] as num?)?.toInt() ?? (row['payMax'] as num?)?.toInt(),
       payType: row['pay_type'] as String? ?? row['payType'] as String?,
       minExperienceYears: (row['min_experience_years'] as num?)?.toInt() ??
           (row['minExperienceYears'] as num?)?.toInt(),
@@ -1157,7 +1342,12 @@ class HttpPayerApiClient implements PayerApiClient {
       requirements: _optionalStringList(row['requirements']),
       shift: row['shift'] as String?,
       neededBy: row['needed_by'] as String? ?? row['neededBy'] as String?,
+      roleKind: row['role_kind'] as String? ?? row['roleKind'] as String?,
       matchSkillIds: _stringList(row['match_skill_ids']),
+      tradeLevel: row['trade_level'] as String? ?? row['tradeLevel'] as String?,
+      tradeAnswers: _optionalStringMapList(
+        row['trade_answers'] ?? row['tradeAnswers'],
+      ),
       // Still NO per-posting source (applications + unlocks attach to `jobs`, not
       // `job_postings`) — kept at the model defaults rather than faked.
       applicants: 0,
@@ -1207,6 +1397,8 @@ class HttpPayerApiClient implements PayerApiClient {
         industryMonths: (row['industryMonths'] as num?)?.toInt(),
         matchedSkillLabel: row['matchedSkillLabel'] as String?,
         lastWorkedAt: row['lastWorkedAt'] as String?,
+        // #2548 — display-only level fit; absent or null = no level sort.
+        levelFit: row['levelFit'] as String?,
       );
     }
     final List<dynamic> components =
@@ -1232,6 +1424,7 @@ class HttpPayerApiClient implements PayerApiClient {
       industryMonths: (row['industry_months'] as num?)?.toInt(),
       matchedSkillLabel: row['matched_skill_label'] as String?,
       lastWorkedAt: row['last_worked_at'] as String?,
+      levelFit: row['levelFit'] as String?,
     );
   }
 
@@ -1241,23 +1434,6 @@ class HttpPayerApiClient implements PayerApiClient {
         weight: (row['weight'] as num?)?.toDouble() ?? 0,
         reason: row['reason'] as String? ?? '',
       );
-
-  /// Flattens the plan/quota-topup response (`{plan{applicantVisibilityQuota,
-  /// status}, quote{finalInr}, paused, wouldPause}`) → [PlanPurchase].
-  PlanPurchase _planFromResponse(Map<String, dynamic> body) {
-    final Map<String, dynamic> plan =
-        (body['plan'] as Map<String, dynamic>?) ?? const <String, dynamic>{};
-    final Map<String, dynamic> quote =
-        (body['quote'] as Map<String, dynamic>?) ?? const <String, dynamic>{};
-    return PlanPurchase(
-      applicantVisibilityQuota:
-          (plan['applicantVisibilityQuota'] as num?)?.toInt(),
-      status: plan['status'] as String?,
-      finalInr: (quote['finalInr'] as num?)?.toInt(),
-      paused: body['paused'] as bool? ?? false,
-      wouldPause: body['wouldPause'] as bool? ?? false,
-    );
-  }
 
   /// One credit-ledger row (`{delta, reason, pack_code, ...}`) → [LedgerEntry].
   /// The sign of `delta` drives credit/debit; the label is derived from the
@@ -1308,4 +1484,16 @@ class HttpPayerApiClient implements PayerApiClient {
   static List<String>? _optionalStringList(Object? v) => v is List<dynamic>
       ? List<String>.unmodifiable(v.whereType<String>())
       : null;
+
+  static Map<String, List<String>>? _optionalStringMapList(Object? v) {
+    if (v is! Map) return null;
+    final out = <String, List<String>>{};
+    for (final entry in v.entries) {
+      if (entry.key is String && entry.value is List) {
+        out[entry.key as String] = List<String>.unmodifiable(
+            (entry.value as List).whereType<String>());
+      }
+    }
+    return Map<String, List<String>>.unmodifiable(out);
+  }
 }

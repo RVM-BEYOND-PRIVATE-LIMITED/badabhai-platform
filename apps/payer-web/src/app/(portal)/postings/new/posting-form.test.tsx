@@ -305,11 +305,11 @@ describe("PostingForm render — the role picker and the card fields are present
 });
 
 describe("PostingForm render — disable-submit-until-valid", () => {
-  it("a BLANK form renders the submit button DISABLED", () => {
+  it("a BLANK form keeps the submit button CLICKABLE — a click names what is missing", () => {
     const submit = collect(render({ fields: BLANK_FIELDS, fieldErrors: {} })).buttons.find(
       (b) => b.type === "submit",
     );
-    expect(submit!.disabled).toBe(true);
+    expect(submit!.disabled).toBe(false);
   });
 
   it("a fully-valid form (role title + vacancies + a skill) renders submit ENABLED", () => {
@@ -327,7 +327,7 @@ describe("PostingForm render — disable-submit-until-valid", () => {
     expect(submit!.text).toBe("Publishing…");
   });
 
-  it("a form with every demand field set but NO match skill keeps submit DISABLED", () => {
+  it("a form with every demand field set but NO match skill keeps submit CLICKABLE so the click can explain", () => {
     const { buttons } = collect(
       render({
         fields: VALID_FIELDS,
@@ -335,7 +335,7 @@ describe("PostingForm render — disable-submit-until-valid", () => {
         selection: { matchSkillIds: [], untickedRelatedIds: [] },
       }),
     );
-    expect(buttons.find((b) => b.type === "submit")!.disabled).toBe(true);
+    expect(buttons.find((b) => b.type === "submit")!.disabled).toBe(false);
   });
 });
 
@@ -442,7 +442,7 @@ describe("PostingForm — the preview rail is the worker card, built from the sh
     expect([...ids]).toEqual(["posting-form"]);
   });
 
-  it('a pay of "21k" shows "needs a whole number" AT ONCE and keeps publish disabled', () => {
+  it('a pay of "21k" shows "needs a whole number" AT ONCE; the click reports it', () => {
     const { texts, aria, buttons } = collect(
       render({ fields: { ...FULL_FIELDS, payMin: "21k" }, fieldErrors: {} }),
     );
@@ -450,7 +450,7 @@ describe("PostingForm — the preview rail is the worker card, built from the sh
     expect(texts.join(" ")).toContain("Pay needs a whole number"); // the card names the fix
     expect(texts.join(" ")).not.toContain("Up to ₹26,000/mah");
     expect(aria.find((a) => a.id === "payMin")!.ariaInvalid).toBe(true);
-    expect(buttons.find((b) => b.type === "submit")!.disabled).toBe(true);
+    expect(buttons.find((b) => b.type === "submit")!.disabled).toBe(false);
   });
 
   it("max below min: the card says so at once; the FIELD error waits until the payer leaves the box", () => {
@@ -485,6 +485,22 @@ describe("PostingForm — the preview rail is the worker card, built from the sh
     await findForm(tree)!.props.onSubmit({ preventDefault: () => undefined });
     expect(createPostingAction).not.toHaveBeenCalled();
     expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it("a complete card with NO skill is refused out loud, not with a dead button", async () => {
+    const tree = render({
+      fields: FULL_FIELDS,
+      fieldErrors: {},
+      requirements: ["Fanuc control"],
+      benefits: ["PF + ESI"],
+      selection: { matchSkillIds: [], untickedRelatedIds: [] },
+    });
+    await findForm(tree)!.props.onSubmit({ preventDefault: () => undefined });
+    expect(createPostingAction).not.toHaveBeenCalled();
+    expect(navigate).not.toHaveBeenCalled();
+    expect(setters[2]).toHaveBeenCalledWith(
+      "Pick at least one skill — a posting needs one so workers can find it.",
+    );
   });
 
   it("a publish lands on the posting's Applicants (?reached=N) with the shell's 'Opening Applicants…' cue — latched busy first", async () => {
@@ -559,11 +575,13 @@ describe("PostingForm — a refused publish says why AT the field focus moves to
     expect(setters[10]).toHaveBeenCalledWith(null);
   });
 
-  it("ONE status per breakpoint: the rail footer and the dock carry it; the form's end does not", () => {
+  it("ONE status per breakpoint: the desktop rail, the hidden rail footer and the dock; the form's end does not", () => {
     const { classes } = collect(render({ fields: FULL_FIELDS, fieldErrors: {}, gap: GAP }));
-    expect(classes.filter((c) => c === "posting-actions__status")).toHaveLength(1); // rail footer
-    expect(classes.filter((c) => c === "posting-dock__status")).toHaveLength(1); // phone dock
-    expect(classes.filter((c) => c === "posting-actions")).toHaveLength(2); // footer + form end
+    // Three DOM copies: the designer rail (desktop), the shared hidden rail footer, and the dock.
+    // CSS shows exactly one at each breakpoint (the rail on desktop; the dock below 1024px).
+    expect(classes.filter((c) => c === "posting-actions__status")).toHaveLength(2);
+    expect(classes.filter((c) => c === "posting-dock__status")).toHaveLength(1);
+    expect(classes.filter((c) => c === "posting-actions")).toHaveLength(2);
   });
 });
 
@@ -599,15 +617,15 @@ describe("PostingForm — M3: a refused publish's reason is announced ONCE", () 
 
   it("…so NO live region repeats it: the copy by the button is visible, not announced", () => {
     const tree = render({ fields: FULL_FIELDS, fieldErrors: {}, gap: GAP });
-    // Drawn by the button (rail footer + dock): title, then the same message…
-    expect(collect(tree).texts.filter((t) => t === GAP.title)).toHaveLength(2);
+    // Drawn by the button (desktop rail + hidden rail footer + dock): title, then the message…
+    expect(collect(tree).texts.filter((t) => t === GAP.title)).toHaveLength(3);
     expect(liveTexts(tree).filter((t) => t.includes(GAP.message))).toEqual([]);
   });
 
   it("a refusal no field owns (the server's) IS announced — from the live slot, one per breakpoint", () => {
     const ERR = "Could not publish right now — try again.";
     const tree = render({ fields: FULL_FIELDS, fieldErrors: {}, error: ERR });
-    expect(liveTexts(tree).filter((t) => t.includes(ERR))).toHaveLength(2); // rail footer + dock
+    expect(liveTexts(tree).filter((t) => t.includes(ERR))).toHaveLength(3); // desktop rail + rail footer + dock
   });
 
   it("a typed number problem is the box's own description too (aria-describedby → its line)", () => {

@@ -10,6 +10,11 @@ import '../../../core/widgets/onboarding/primary_action_button.dart';
 import '../../../router.dart';
 import 'cubit/consent_cubit.dart';
 
+/// OWNER ASK (2026-10-22) — the privacy screen's "I don't agree" choice: go on
+/// without voice consent, answering by typing only.
+const String kConsentDeclineLabel = "I don't agree";
+const Key kConsentDeclineButtonKey = Key('consent-decline');
+
 /// Handed to `/consent` as go_router `extra` when the screen is PUSHED over a
 /// surface the worker must be able to get back to, rather than entered as the
 /// FIRST step of onboarding.
@@ -108,6 +113,8 @@ class _ConsentView extends StatelessWidget {
                         _NoticeCard(
                           accepted: state.accepted,
                           onAcceptedChanged: cubit.setAccepted,
+                          declined: state.declined,
+                          onDeclinedChanged: cubit.setDeclined,
                         ),
                         // Honest failure text — say what happened, in red,
                         // instead of a silently un-pressed button.
@@ -144,11 +151,18 @@ class _ConsentView extends StatelessWidget {
               // top border, which also carries the safe-area inset and
               // publishes its own height (so nothing floating can cover it).
               KitDockedBar(
-                child: PrimaryActionButton(
-                  label: 'Aage Badhein',
-                  isLoading: state.isSubmitting,
-                  // Still gated on the explicit tick — see [_NoticeCard].
-                  onPressed: state.canSubmit ? cubit.submit : null,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: <Widget>[
+                    PrimaryActionButton(
+                      label: 'Aage Badhein',
+                      isLoading: state.isSubmitting,
+                      // Gated on an explicit tick — "I agree" or "I don't
+                      // agree" (see [_NoticeCard]).
+                      onPressed: state.canSubmit ? cubit.submit : null,
+                    ),
+                  ],
                 ),
               ),
             ],
@@ -316,10 +330,20 @@ class _ShieldCard extends StatelessWidget {
 /// The explicit "I agree" tick also stays. The kit's screen has only a Continue
 /// button, but DPDP consent needs a clear affirmative act, and that tick is it.
 class _NoticeCard extends StatelessWidget {
-  const _NoticeCard({required this.accepted, required this.onAcceptedChanged});
+  const _NoticeCard({
+    required this.accepted,
+    required this.onAcceptedChanged,
+    required this.declined,
+    required this.onDeclinedChanged,
+  });
 
   final bool accepted;
   final ValueChanged<bool> onAcceptedChanged;
+
+  /// OWNER ASK (2026-10-22) — the "I don't agree" tick right under "I agree".
+  /// Ticking one clears the other (the cubit owns that rule).
+  final bool declined;
+  final ValueChanged<bool> onDeclinedChanged;
 
   static TextStyle get _bold => const TextStyle(fontWeight: FontWeight.w700);
 
@@ -424,36 +448,66 @@ class _NoticeCard extends StatelessWidget {
           const SizedBox(height: 16),
           const Divider(color: OnboardingColors.borderSubtle, height: 1),
           const SizedBox(height: 8),
-          InkWell(
-            onTap: () => onAcceptedChanged(!accepted),
-            borderRadius: BorderRadius.circular(OnboardingRadii.note),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 4),
-              child: Row(
-                children: <Widget>[
-                  // No local fill / side overrides: the app-wide checkbox theme
-                  // is the v3 drawing (navy fill, yellow border, yellow tick),
-                  // and an override here is how this tick quietly ended up
-                  // wearing a grey border while every other one wore yellow.
-                  Checkbox(
-                    value: accepted,
-                    onChanged: (bool? v) => onAcceptedChanged(v ?? false),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'I agree',
-                      style: OnboardingTypography.inter(
-                        size: 14,
-                        weight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
+          _ConsentTick(
+            value: accepted,
+            label: 'I agree',
+            onChanged: onAcceptedChanged,
+          ),
+          _ConsentTick(
+            key: kConsentDeclineButtonKey,
+            value: declined,
+            label: kConsentDeclineLabel,
+            onChanged: onDeclinedChanged,
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// One answer row on the notice: the tick and its label, the whole row
+/// tappable.
+class _ConsentTick extends StatelessWidget {
+  const _ConsentTick({
+    super.key,
+    required this.value,
+    required this.label,
+    required this.onChanged,
+  });
+
+  final bool value;
+  final String label;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: () => onChanged(!value),
+      borderRadius: BorderRadius.circular(OnboardingRadii.note),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Row(
+          children: <Widget>[
+            // No local fill / side overrides: the app-wide checkbox theme
+            // is the v3 drawing (navy fill, yellow border, yellow tick),
+            // and an override here is how this tick quietly ended up
+            // wearing a grey border while every other one wore yellow.
+            Checkbox(
+              value: value,
+              onChanged: (bool? v) => onChanged(v ?? false),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                label,
+                style: OnboardingTypography.inter(
+                  size: 14,
+                  weight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

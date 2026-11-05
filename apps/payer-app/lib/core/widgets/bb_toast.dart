@@ -13,7 +13,7 @@ void showBbToast(
   BuildContext context, {
   required String title,
   required String message,
-  IconData icon = Icons.check_circle,
+  IconData icon = Icons.check_circle_rounded,
 }) {
   final ScaffoldMessengerState messenger = ScaffoldMessenger.of(context);
   messenger

@@ -11,6 +11,7 @@ import '../../../core/widgets/bb_badge.dart';
 import '../../../core/widgets/bb_button.dart';
 import '../../../core/widgets/bb_card.dart';
 import '../../../core/widgets/bb_icon_button.dart';
+import '../../../core/widgets/bb_skeleton.dart';
 import '../../../core/widgets/bb_status_view.dart';
 import 'cubit/agency_engagement_cubit.dart';
 
@@ -47,8 +48,16 @@ class _EngagementView extends StatelessWidget {
             _Header(onBack: () => Navigator.of(context).pop()),
             Expanded(
               child: BlocBuilder<AgencyEngagementCubit, AgencyEngagementState>(
+                // #2592 — worker-card skeletons while it loads, cross-fading
+                // out.
                 builder: (BuildContext context, AgencyEngagementState state) =>
-                    _body(context, state),
+                    BbLoadSwitcher(
+                  loading: state.resolvedStatus ==
+                          AgencyEngagementStatus.initial ||
+                      state.resolvedStatus == AgencyEngagementStatus.loading,
+                  skeleton: _skeleton,
+                  child: _body(context, state),
+                ),
               ),
             ),
           ],
@@ -57,36 +66,41 @@ class _EngagementView extends StatelessWidget {
     );
   }
 
+  static const Widget _skeleton = BbSkeletonList(
+    row: BbSkeletonListRow(),
+    semanticLabel: 'Loading workers…',
+  );
+
   Widget _body(BuildContext context, AgencyEngagementState state) {
     void reload() => context.read<AgencyEngagementCubit>().load();
 
     switch (state.resolvedStatus) {
       case AgencyEngagementStatus.initial:
       case AgencyEngagementStatus.loading:
-        return const BbStatusView.loading(caption: 'Loading workers…');
+        return _skeleton;
       case AgencyEngagementStatus.empty:
         return BbStatusView(
-          icon: Icons.groups_outlined,
+          icon: Icons.groups_rounded,
           title: 'No referred workers yet',
           subtitle: 'Share your invite link. Workers you refer show up here as '
               'they join and get active.',
           action: BbButton(
             label: 'Refresh',
             variant: BbButtonVariant.secondary,
-            iconLeft: Icons.refresh,
+            iconLeft: Icons.refresh_rounded,
             onPressed: reload,
           ),
         );
       case AgencyEngagementStatus.forbidden:
         return const BbStatusView(
-          icon: Icons.lock_outline,
+          icon: Icons.lock_rounded,
           title: 'Agency accounts only',
           subtitle: 'This referral funnel is only available on agency '
               '(recruiter) accounts.',
         );
       case AgencyEngagementStatus.rateLimited:
         return BbStatusView(
-          icon: Icons.hourglass_empty,
+          icon: Icons.hourglass_empty_rounded,
           title: 'Too many requests',
           subtitle: 'You have refreshed a lot. Wait a moment, then try again.',
           action: BbButton(
@@ -96,7 +110,7 @@ class _EngagementView extends StatelessWidget {
         );
       case AgencyEngagementStatus.error:
         return BbStatusView(
-          icon: Icons.wifi_off,
+          icon: Icons.wifi_off_rounded,
           title: 'Could not load workers',
           subtitle: 'Please check your connection and try again.',
           action: BbButton(label: 'Retry', onPressed: reload),
@@ -183,7 +197,7 @@ class _WorkerCard extends StatelessWidget {
                     const SizedBox(height: 4),
                     Row(
                       children: <Widget>[
-                        const Icon(Icons.schedule,
+                        const Icon(Icons.schedule_rounded,
                             size: 14, color: AppColors.textFaint),
                         const SizedBox(width: 6),
                         Flexible(
@@ -205,12 +219,12 @@ class _WorkerCard extends StatelessWidget {
                   ? const BbBadge(
                       'Profile ready',
                       tone: BbBadgeTone.success,
-                      icon: Icons.check_circle,
+                      icon: Icons.check_circle_rounded,
                     )
                   : const BbBadge(
                       'Profile pending',
                       tone: BbBadgeTone.warning,
-                      icon: Icons.hourglass_bottom,
+                      icon: Icons.hourglass_bottom_rounded,
                     ),
             ],
           ),
@@ -281,14 +295,14 @@ class _Header extends StatelessWidget {
       child: Row(
         children: <Widget>[
           BbIconButton(
-            icon: Icons.arrow_back,
+            icon: Icons.arrow_back_rounded,
             semanticLabel: 'Back',
             onPressed: onBack,
           ),
           const SizedBox(width: AppSpacing.s3),
           Text(
             'Referred workers',
-            style: AppTypography.display(
+            style: AppTypography.header(
               size: AppTypography.sizeLg,
               weight: FontWeight.w800,
             ),

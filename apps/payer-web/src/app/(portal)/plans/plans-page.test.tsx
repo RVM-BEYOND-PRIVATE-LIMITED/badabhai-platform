@@ -167,7 +167,7 @@ describe("/plans — AT CAPACITY derives from the REAL count", () => {
     getCapacity.mockResolvedValue(capacity({ activeVacancies: 4, activeVacancyAllowance: 10 }));
     const text = textOf(await html());
     expect(text).toContain("4 / 10");
-    expect(text.toLowerCase()).toContain("live from the enforcement engine");
+    expect(text.toLowerCase()).toContain("concurrent count from config");
   });
 });
 
@@ -200,10 +200,10 @@ describe("/plans — Hiring capacity is ONE section, the target of /capacity", (
     // (`anchor-target`: the fragment lands below the sticky header — a11y-foundations · 7.)
     const section = between(
       out,
-      '<section class="section anchor-target" id="hiring-capacity">',
+      '<section class="plans-card anchor-target" id="hiring-capacity">',
       "</section>",
     );
-    expect(textOf(section)).toContain("Hiring capacity");
+    expect(textOf(section)).toMatch(/Hiring Capacity/i);
     expect(section).toContain('data-stub="capacity-panel"');
     // …exactly one capacity panel on the page.
     expect(out.match(/data-stub="capacity-panel"/g)).toHaveLength(1);
@@ -217,9 +217,9 @@ describe("/plans — the page spine and the per-posting table", () => {
       'class="page-head"',
       'class="page-head__title"',
       'class="page-head__sub"',
-      'class="stat-row stat-row--kpi"',
-      'class="panel panel--table"',
-      'class="alert alert--info"',
+      'class="plans-stats"',
+      'class="plans-card"',
+      'class="plans-note"',
     ]) {
       expect(out, cls).toContain(cls);
     }
@@ -229,16 +229,11 @@ describe("/plans — the page spine and the per-posting table", () => {
     }
   });
 
-  it("NO posting rows is a real empty state — with no second New posting (the page has one)", async () => {
+  it("NO posting rows is a real empty state — and no page-level New posting CTA", async () => {
     const out = await html();
-    const table = between(out, '<section class="panel panel--table">', "</section>");
-    expect(textOf(table)).toContain("No postings yet");
-    expect(textOf(table)).toContain("You haven’t published a posting yet");
-    expect(links(table)).toEqual([]);
-    // The page's ONE "New posting" (Posting plans), to the company form.
-    expect(links(out).filter((l) => l.text === "New posting")).toEqual([
-      { href: "/postings/new", text: "New posting" },
-    ]);
+    expect(textOf(out)).toContain("No active postings yet");
+    expect(textOf(out)).toContain("You haven’t published a posting yet");
+    expect(links(out).filter((l) => l.text === "New posting")).toEqual([]);
   });
 
   it("each row's role opens that POSTING (a title always opens the details — F12); faceless", async () => {

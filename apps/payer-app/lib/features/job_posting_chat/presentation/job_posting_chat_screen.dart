@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../../../core/data/models.dart' show kPostingTradeRequiredMessage;
 import '../../../core/di/locator.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_motion.dart';
@@ -9,8 +10,11 @@ import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/bb_chat_bubble.dart';
 import '../../../core/widgets/bb_chip.dart';
 import '../../../core/widgets/bb_icon_button.dart';
-import '../../../core/widgets/bb_status_view.dart';
+import '../../../core/widgets/bb_leave_guard.dart';
+import '../../../core/widgets/bb_rise_in.dart';
+import '../../../core/widgets/bb_skeleton.dart';
 import '../../../core/widgets/bb_toast.dart';
+import '../../../core/widgets/bb_typing_dots.dart';
 import '../domain/chat_message.dart';
 import 'bloc/job_posting_chat_bloc.dart';
 import 'widgets/draft_preview.dart';
@@ -29,6 +33,10 @@ const String kJobChatBlockedNotice =
 const String kJobChatTypingLabel = 'Working on it…';
 
 const String kJobChatTitle = 'AI job posting';
+
+/// The composer's Send control — for widget tests (#2596: disabled while the
+/// input is empty).
+const Key kJobChatSendKey = Key('job_chat_send');
 
 /// The base success copy — byte-identical to the pre-notice behaviour, used
 /// whenever the whole draft mapped onto the live posting.
@@ -83,6 +91,7 @@ String jobChatJoinLabels(List<String> labels) {
 /// reads them on the card.
 const Map<String, String> kJobChatCardFieldLabels = <String, String>{
   'city': 'city',
+  'area': 'area',
   'pay_min': 'pay band',
   'pay_max': 'pay band',
   'pay_type': 'pay type',
@@ -167,6 +176,7 @@ class JobPostingChatScreen extends StatelessWidget {
     required this.onBack,
     this.resumeSessionId,
     this.onPublished,
+    this.onPostedJob,
   });
 
   final VoidCallback onBack;
@@ -175,21 +185,31 @@ class JobPostingChatScreen extends StatelessWidget {
   /// Called after a posting is created, so the host can refresh My-jobs.
   final VoidCallback? onPublished;
 
+  /// Called with the created posting's id after a successful publish, IN PLACE
+  /// of [onPublished] + [onBack] — the host lands on Jobs with that card
+  /// highlighted (#2596). Unset (or no id on the result) keeps the old pair.
+  final ValueChanged<String>? onPostedJob;
+
   @override
   Widget build(BuildContext context) {
     return BlocProvider<JobPostingChatBloc>(
       create: (_) => locator<JobPostingChatBloc>()
         ..add(JobPostingChatStarted(resumeSessionId: resumeSessionId)),
-      child: _ChatView(onBack: onBack, onPublished: onPublished),
+      child: _ChatView(
+        onBack: onBack,
+        onPublished: onPublished,
+        onPostedJob: onPostedJob,
+      ),
     );
   }
 }
 
 class _ChatView extends StatefulWidget {
-  const _ChatView({required this.onBack, this.onPublished});
+  const _ChatView({required this.onBack, this.onPublished, this.onPostedJob});
 
   final VoidCallback onBack;
   final VoidCallback? onPublished;
+  final ValueChanged<String>? onPostedJob;
 
   @override
   State<_ChatView> createState() => _ChatViewState();
@@ -204,12 +224,65 @@ class _ChatViewState extends State<_ChatView> {
   bool _draftOpen = false;
   bool _autoOpenedDraft = false;
 
+  /// The publish-step trade pick (#2490) — one of the 16 trades, or null until
+  /// picked. Local to the publish step because the interview does not ask for
+  /// one. #2635 — required: the draft is never published without it.
+  String? _roleKind;
+
+  /// The publish-step area/locality (#2493). Until the payer edits it, the input
+  /// follows the interview draft (`draft.area`); after that the payer's value
+  /// wins. Blank publishes with `area` absent (city-only card).
+  String _area = '';
+  bool _areaTouched = false;
+
+  /// #2595 — what to ask before a leave would lose something.
+  static const BbLeavePrompt _leavePrompt = BbLeavePrompt(
+    title: 'Leave this chat?',
+    message: 'Your unsent message and any role or area you picked will be '
+        'lost. Messages already sent stay saved.',
+    leaveLabel: 'Leave',
+    stayLabel: 'Keep chatting',
+  );
+
+  /// #2596 — bubbles appended from here on rise in; the opener and a resumed
+  /// transcript (already on screen when the chat opens) do not. Set at the
+  /// payer's first send.
+  int? _riseFrom;
+
+  /// The highest bubble index already handed its entrance, so a bubble that
+  /// scrolls out of the lazy list and back is never risen twice.
+  int _risenThrough = -1;
+
   @override
   void dispose() {
     _scroll.dispose();
     _controller.dispose();
     super.dispose();
   }
+
+  /// True when leaving would lose something the server does not have (#2595):
+  /// a message typed but not sent, one that FAILED to send, or a role / area
+  /// picked for the publish step. A sent conversation is stored server-side
+  /// (and resumable from Jobs), so it never counts — and nothing does once the
+  /// posting is published.
+  bool get _hasUnsavedChanges {
+    final JobPostingChatState state = context.read<JobPostingChatBloc>().state;
+    if (state.publishOutcome == PublishOutcome.success) return false;
+    return _controller.text.trim().isNotEmpty ||
+        state.messages.any(
+          (ChatMessage m) => m.fromPayer && m.status == ChatSendStatus.failed,
+        ) ||
+        _roleKind != null ||
+        (_areaTouched && _area.trim() != (state.draft.area ?? '').trim());
+  }
+
+  /// The header's back arrow: leaves at once unless something would be lost,
+  /// and asks first then (the shell asks the same for the system Back).
+  void _leave() => _leavePrompt.guard(
+        context,
+        dirty: _hasUnsavedChanges,
+        leave: widget.onBack,
+      );
 
   void _send() {
     final String text = _controller.text;
@@ -225,7 +298,9 @@ class _ChatViewState extends State<_ChatView> {
   /// server-side question bank, not in this widget.
   void _sendText(String text) {
     if (text.trim().isEmpty) return;
-    context.read<JobPostingChatBloc>().add(JobPostingChatMessageSent(text));
+    final JobPostingChatBloc bloc = context.read<JobPostingChatBloc>();
+    _riseFrom ??= bloc.state.messages.length;
+    bloc.add(JobPostingChatMessageSent(text));
   }
 
   void _retry(int index) {
@@ -233,7 +308,17 @@ class _ChatViewState extends State<_ChatView> {
   }
 
   void _publish() {
-    context.read<JobPostingChatBloc>().add(const JobPostingChatPublishRequested());
+    final JobPostingChatState state = context.read<JobPostingChatBloc>().state;
+    // Untouched → follow the interview draft; edited → the payer's value wins.
+    // Blank stays null, so the body key is ABSENT (NULL area = city-only card).
+    final String area =
+        (_areaTouched ? _area : (state.draft.area ?? '')).trim();
+    context.read<JobPostingChatBloc>().add(
+          JobPostingChatPublishRequested(
+            roleKind: _roleKind,
+            area: area.isEmpty ? null : area,
+          ),
+        );
   }
 
   void _animateToBottom() {
@@ -270,30 +355,42 @@ class _ChatViewState extends State<_ChatView> {
             state.unmappedFields,
             unsetCardFields: state.unsetCardFields,
           ),
-          Icons.check_circle,
+          Icons.check_circle_rounded,
         ),
       PublishOutcome.incomplete => (
           'Not yet',
           'A few required details are still missing — keep chatting.',
-          Icons.info_outline,
+          Icons.info_rounded,
         ),
       // A 409 means "already published" OR "not ready yet" — the wire does not
       // distinguish them, so this copy must not claim either.
       PublishOutcome.conflict => (
           'Not posted',
           'This chat is either already posted, or the draft is not ready yet.',
-          Icons.info_outline,
+          Icons.info_rounded,
         ),
       PublishOutcome.failed => (
           'Not now',
           'Could not post right now. Please try again.',
-          Icons.info_outline,
+          Icons.info_rounded,
         ),
-      PublishOutcome.none => ('', '', Icons.info_outline),
+      // #2635 — the picker says this inline first; this is the backstop.
+      PublishOutcome.tradeRequired => (
+          'Not yet',
+          kPostingTradeRequiredMessage,
+          Icons.info_rounded,
+        ),
+      PublishOutcome.none => ('', '', Icons.info_rounded),
     };
     if (title.isEmpty) return;
     showBbToast(context, title: title, message: message, icon: icon);
     if (state.publishOutcome == PublishOutcome.success) {
+      final String? jobId = state.publishedJobId;
+      final ValueChanged<String>? onPostedJob = widget.onPostedJob;
+      if (onPostedJob != null && jobId != null) {
+        onPostedJob(jobId);
+        return;
+      }
       widget.onPublished?.call();
       widget.onBack();
     }
@@ -301,6 +398,14 @@ class _ChatViewState extends State<_ChatView> {
 
   @override
   Widget build(BuildContext context) {
+    return BbLeaveGuard(
+      hasUnsavedChanges: () => _hasUnsavedChanges,
+      prompt: _leavePrompt,
+      child: _buildChat(context),
+    );
+  }
+
+  Widget _buildChat(BuildContext context) {
     return MultiBlocListener(
       listeners: <BlocListener<JobPostingChatBloc, JobPostingChatState>>[
         BlocListener<JobPostingChatBloc, JobPostingChatState>(
@@ -337,7 +442,15 @@ class _ChatViewState extends State<_ChatView> {
               if (state.sessionFailed) _sessionBanner(),
               Expanded(
                 child: state.initializing
-                    ? const BbStatusView.loading()
+                    // #2592 — bubble skeletons while the session opens.
+                    ? const BbSkeletonList(
+                        items: <Widget>[BbSkeletonChat()],
+                        padding: EdgeInsets.symmetric(
+                          horizontal: AppSpacing.s4,
+                          vertical: AppSpacing.s2,
+                        ),
+                        semanticLabel: 'Opening the chat',
+                      )
                     : ListView(
                         controller: _scroll,
                         padding: const EdgeInsets.symmetric(
@@ -353,6 +466,23 @@ class _ChatViewState extends State<_ChatView> {
                               draft: state.draft,
                               ready: state.draftReady,
                               publishing: state.publishing,
+                              roleKind: _roleKind,
+                              onRoleKindChanged: (String? roleKind) =>
+                                  setState(() => _roleKind = roleKind),
+                              // #2635 — the 16 trades the pick comes from.
+                              trades: state.postingTrades,
+                              tradesLoading: state.postingTradesLoading,
+                              tradesFailure: state.postingTradesFailure,
+                              onRetryTrades: () => context
+                                  .read<JobPostingChatBloc>()
+                                  .add(const JobPostingChatTradesRequested()),
+                              area: _areaTouched
+                                  ? _area
+                                  : (state.draft.area ?? ''),
+                              onAreaChanged: (String area) => setState(() {
+                                _area = area;
+                                _areaTouched = true;
+                              }),
                               onPublish: _publish,
                             ),
                           ],
@@ -365,12 +495,18 @@ class _ChatViewState extends State<_ChatView> {
                 _followups(state.followups),
               if (state.lastReplyBlocked)
                 _notice(
-                  icon: Icons.error_outline,
+                  icon: Icons.error_rounded,
                   color: AppColors.dangerPress,
                   text: kJobChatBlockedNotice,
                 ),
-              _inputBar(),
-              const SizedBox(height: AppSpacing.s2),
+              // #2595 — the app's bottom nav no longer sits under the chat (a
+              // full-screen task, like Post), so the composer clears the
+              // system gesture inset itself; with no inset, the old gap stays.
+              SafeArea(
+                top: false,
+                minimum: const EdgeInsets.only(bottom: AppSpacing.s2),
+                child: _inputBar(),
+              ),
             ],
           );
         },
@@ -380,11 +516,20 @@ class _ChatViewState extends State<_ChatView> {
 
   Widget _bubble(ChatMessage m, int i) {
     final bool failed = m.status == ChatSendStatus.failed;
-    return BbChatBubble(
-      text: m.text,
-      fromPayer: m.fromPayer,
-      failed: failed,
-      onRetry: failed ? () => _retry(i) : null,
+    // #2596 — a bubble new since the first send rises in once (180ms). The
+    // transcript is append-only, so the index is the bubble's identity.
+    final int? riseFrom = _riseFrom;
+    final bool rise = riseFrom != null && i >= riseFrom && i > _risenThrough;
+    if (i > _risenThrough) _risenThrough = i;
+    return BbRiseIn(
+      key: ValueKey<int>(i),
+      animate: rise,
+      child: BbChatBubble(
+        text: m.text,
+        fromPayer: m.fromPayer,
+        failed: failed,
+        onRetry: failed ? () => _retry(i) : null,
+      ),
     );
   }
 
@@ -399,15 +544,15 @@ class _ChatViewState extends State<_ChatView> {
       child: Row(
         children: <Widget>[
           BbIconButton(
-            icon: Icons.arrow_back,
+            icon: Icons.arrow_back_rounded,
             semanticLabel: 'Back',
-            onPressed: widget.onBack,
+            onPressed: _leave,
           ),
           const SizedBox(width: AppSpacing.s3),
           Expanded(
             child: Text(
               kJobChatTitle,
-              style: AppTypography.display(
+              style: AppTypography.header(
                 size: AppTypography.sizeLg,
                 weight: FontWeight.w800,
               ),
@@ -441,7 +586,7 @@ class _ChatViewState extends State<_ChatView> {
       ),
       child: Row(
         children: <Widget>[
-          const Icon(Icons.cloud_off, size: 18, color: AppColors.dangerPress),
+          const Icon(Icons.cloud_off_rounded, size: 18, color: AppColors.dangerPress),
           const SizedBox(width: AppSpacing.s2),
           Flexible(
             child: Text(
@@ -486,9 +631,9 @@ class _ChatViewState extends State<_ChatView> {
     );
   }
 
-  /// Deliberately STATIC (a dots glyph, not a spinner): an indefinite animation
-  /// never lets `pumpAndSettle` settle, and the value here is the honest "still
-  /// working" cue, not motion.
+  /// Mounted ONLY while a reply is awaited (`state.sending`), so its dots —
+  /// a progress indicator, the one motion allowed to loop — pulse only then
+  /// (#2596). With animations disabled they stand still.
   Widget _typingIndicator() {
     return Padding(
       padding: const EdgeInsets.fromLTRB(
@@ -499,7 +644,7 @@ class _ChatViewState extends State<_ChatView> {
       ),
       child: Row(
         children: <Widget>[
-          const Icon(Icons.more_horiz, size: 20, color: AppColors.brand),
+          const BbTypingDots(),
           const SizedBox(width: AppSpacing.s2),
           Flexible(
             child: Text(
@@ -585,26 +730,38 @@ class _ChatViewState extends State<_ChatView> {
           const SizedBox(width: AppSpacing.s2),
           // Deep-blue send: the view's single haldi is the draft-panel Publish
           // CTA, so send is a navy action — and green stays money/WhatsApp only.
-          Semantics(
-            button: true,
-            label: 'Send',
-            child: Material(
-              color: AppColors.blue,
-              shape: const CircleBorder(),
-              child: InkWell(
-                customBorder: const CircleBorder(),
-                onTap: _send,
-                child: const SizedBox(
-                  width: AppSpacing.tap,
-                  height: AppSpacing.tap,
-                  child: Icon(
-                    Icons.send_rounded,
-                    color: AppColors.onBlue,
-                    size: 22,
+          // #2596 — disabled while the input is empty (the navy button's own
+          // disabled tokens), so an empty tap can never look like a send.
+          ValueListenableBuilder<TextEditingValue>(
+            valueListenable: _controller,
+            builder: (BuildContext context, TextEditingValue value, Widget? _) {
+              final bool canSend = value.text.trim().isNotEmpty;
+              return Semantics(
+                button: true,
+                enabled: canSend,
+                label: 'Send',
+                child: Material(
+                  key: kJobChatSendKey,
+                  color: canSend ? AppColors.blue : AppColors.disabled,
+                  shape: const CircleBorder(),
+                  child: InkWell(
+                    customBorder: const CircleBorder(),
+                    onTap: canSend ? _send : null,
+                    child: SizedBox(
+                      width: AppSpacing.tap,
+                      height: AppSpacing.tap,
+                      child: Icon(
+                        Icons.send_rounded,
+                        color: canSend
+                            ? AppColors.onBlue
+                            : AppColors.textSecondary,
+                        size: 22,
+                      ),
+                    ),
                   ),
                 ),
-              ),
-            ),
+              );
+            },
           ),
         ],
       ),

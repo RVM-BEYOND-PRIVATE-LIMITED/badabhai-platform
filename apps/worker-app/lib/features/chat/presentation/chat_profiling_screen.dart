@@ -21,6 +21,7 @@ import '../../../core/api/api_models.dart'
         EditProposalRow,
         FormOffer;
 import '../../../core/config/remote_config.dart';
+import '../../../core/consent/voice_consent.dart';
 import '../../../core/di/locator.dart';
 import '../../../core/session/resume_import_signal.dart';
 import '../../../core/nav/tab_focus.dart';
@@ -453,6 +454,47 @@ class _ChatViewState extends State<_ChatView>
   /// raise the keyboard straight onto the field.
   final FocusNode _composerFocus = FocusNode();
 
+  void _onVoiceConsentChanged() {
+    if (!mounted) return;
+    // A mic that is live when consent turns out to be absent stops at once.
+    if (!VoiceConsent.instance.voiceAllowed && _dictation.listening) {
+      _stopDictation();
+    }
+    setState(() {});
+  }
+
+  /// The keyboard type the composer was last built with (`true` = number pad).
+  bool _composerNumeric = false;
+
+  /// ISSUE_2b — Bada Bhai is thinking (a send is in flight): the composer
+  /// takes no input and cannot send, but keeps its focus and keyboard.
+  bool _composerThinking = false;
+
+  /// ISSUE_1 (2026-10-21) — the keyboard must always match the question on
+  /// screen. A `number` turn ("kitne saal") is answered with the field still
+  /// focused, so the NEXT turn ("Pehle job mein aap kya kaam karte the?")
+  /// rebuilds the field as text while its keyboard is open. Flutter sends that
+  /// change as `TextInput.updateConfig`, which the Android embedding does not
+  /// handle, so the number pad stayed up for a text question.
+  ///
+  /// When the type flips while the field is focused, drop and re-take focus
+  /// after the frame: that closes the input connection and opens a new one
+  /// (`TextInput.setClient`, which restarts the IME) with the new type. Does
+  /// nothing when the field is not focused — the next focus opens the right
+  /// keyboard anyway.
+  void _syncComposerKeyboard(bool numeric) {
+    if (numeric == _composerNumeric) return;
+    _composerNumeric = numeric;
+    if (!_composerFocus.hasFocus) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_composerFocus.hasFocus) return;
+      _composerFocus.unfocus();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _composerFocus.requestFocus();
+      });
+    });
+  }
+
   /// Anchors the bottom composer/CTA segment (the composer-or-hint row plus
   /// the CTA-or-handover-card row) so its rendered height can be measured and
   /// published to [bottomBarInset] (#1364). This screen uses a raw [Scaffold],
@@ -522,6 +564,9 @@ class _ChatViewState extends State<_ChatView>
   @override
   void initState() {
     super.initState();
+    // OWNER ASK (2026-10-22) — the voice controls follow the worker's voice
+    // consent, which can arrive (from the server) after this screen opens.
+    VoiceConsent.instance.state.addListener(_onVoiceConsentChanged);
     _dictation = DictationController(
       onNotice: _showComposerNotice,
       // The app going to the background, or the feedback screen taking the
@@ -632,6 +677,7 @@ class _ChatViewState extends State<_ChatView>
     if (locator.isRegistered<SpeechReader>()) {
       unawaited(locator<SpeechReader>().stop()); // never leave TTS reading
     }
+    VoiceConsent.instance.state.removeListener(_onVoiceConsentChanged);
     _dictation
       ..removeListener(_onDictationChanged)
       ..dispose();
@@ -673,8 +719,16 @@ class _ChatViewState extends State<_ChatView>
   }
 
   void _send() {
-    final String text = _controller.text;
+    // ISSUE_2b (2026-10-21) — nothing goes out while Bada Bhai is thinking.
+    if (context.read<ChatBloc>().state.sending) return;
+    // ISSUE_3 — the picked skills (pills) go out with anything typed, as ONE
+    // message, the same typed path as writing it by hand.
+    final String typed = _controller.text.trim();
+    final String text = <String>[..._picked, if (typed.isNotEmpty) typed].join(
+      ', ',
+    );
     if (text.trim().isEmpty) return;
+    if (_picked.isNotEmpty) setState(() => _picked = const <String>[]);
     _sendText(text);
     // Clear the composer AND drop the dictation carry-over so a late recogniser
     // final (or the next hold) can never re-fill it with the sentence just sent.
@@ -1721,7 +1775,9 @@ class _ChatViewState extends State<_ChatView>
     // mid-conversation applies from the next build, not the next frame. That is
     // deliberate — a control must not vanish from under a worker's thumb
     // between the moment they reach for it and the moment they tap.
-    final bool showVoice = !BbRemoteConfig.instance.voiceEntryHidden;
+    // OWNER ASK (2026-10-22) — voice only with the worker's voice consent
+    // (and the B7 kill switch off); see [VoiceConsent].
+    final bool showVoice = VoiceConsent.instance.voiceAllowed;
     // B7 display lever: a non-empty notice is shown above the composer. Empty by
     // default, so nothing renders unless ops set one.
     final String maintenance = BbRemoteConfig.instance.chatMaintenanceNotice;
@@ -1966,6 +2022,8 @@ class _ChatViewState extends State<_ChatView>
           // #1559 / #1583 — ticks belong to the question they were made on,
           // for the same reason.
           if (_ticked.isNotEmpty) setState(() => _ticked = const <String>[]);
+          // ISSUE_3 — picks belong to the question they were made on.
+          if (_picked.isNotEmpty) setState(() => _picked = const <String>[]);
           _wasSending = state.sending;
           _onMessagesChanged(state.messages);
         },
@@ -2337,6 +2395,8 @@ class _ChatViewState extends State<_ChatView>
                 // #1583 — a `number` question opens the number keypad for this
                 // turn only; the turn-scoped answerType reverts it on the next.
                 numeric: state.answerType == ChatAnswerType.number,
+                // ISSUE_2b — locked (not hidden) while Bada Bhai is thinking.
+                thinking: state.sending,
               ),
             // #1339/#1340 — the handover card REPLACES the "build my
             // profile" CTA on the one turn that hands the worker to a
@@ -2370,7 +2430,8 @@ class _ChatViewState extends State<_ChatView>
             // on screen — the wait, defeated by the control beside it.
             else if (state.companion &&
                 BbRemoteConfig.instance.chatCompanionV2Enabled &&
-                !BbRemoteConfig.instance.voiceEntryHidden &&
+                // The kill switch AND the worker's voice consent (2026-10-22).
+                VoiceConsent.instance.voiceAllowed &&
                 !_cooldownActive(state))
               _companionVoiceButton(),
           ],
@@ -2447,7 +2508,11 @@ class _ChatViewState extends State<_ChatView>
   ///
   /// [numeric] (#1583) swaps the field's keyboard to a number keypad; the mic
   /// and dictation are untouched (dictated text lands in the field as before).
-  Widget _inputBar(bool showVoice, {bool numeric = false}) {
+  Widget _inputBar(
+    bool showVoice, {
+    bool numeric = false,
+    bool thinking = false,
+  }) {
     return Container(
       decoration: const BoxDecoration(
         color: OnboardingColors.paperWhite,
@@ -2467,14 +2532,54 @@ class _ChatViewState extends State<_ChatView>
                 onStop: _stopDictation,
                 onSend: _sendFromDictation,
               )
-            : _idleBar(showVoice, numeric: numeric),
+            : Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: <Widget>[
+                  // ISSUE_3 — the picked skills, IN the input area, each with
+                  // a ✕ to remove it. Animated in and out.
+                  AnimatedSize(
+                    duration: const Duration(milliseconds: 220),
+                    curve: Curves.easeOutCubic,
+                    alignment: Alignment.bottomLeft,
+                    child: _picked.isEmpty
+                        ? const SizedBox(width: double.infinity)
+                        : Padding(
+                            padding: const EdgeInsets.only(
+                              bottom: AppSpacing.s2,
+                            ),
+                            child: Wrap(
+                              spacing: AppSpacing.s2,
+                              runSpacing: AppSpacing.s2,
+                              children: <Widget>[
+                                for (final String label in _picked)
+                                  _PickedPill(
+                                    key: ValueKey<String>('picked:$label'),
+                                    label: label,
+                                    onRemove: thinking
+                                        ? null
+                                        : () => _togglePick(label),
+                                  ),
+                              ],
+                            ),
+                          ),
+                  ),
+                  _idleBar(showVoice, numeric: numeric, thinking: thinking),
+                ],
+              ),
       ),
     );
   }
 
   /// The normal composer row: (hidden) voice-note mic + text field + the trailing
   /// mic/send action. [numeric]: see [_inputBar].
-  Widget _idleBar(bool showVoice, {bool numeric = false}) {
+  Widget _idleBar(
+    bool showVoice, {
+    bool numeric = false,
+    bool thinking = false,
+  }) {
+    _syncComposerKeyboard(numeric);
+    _composerThinking = thinking;
     return Row(
       children: <Widget>[
         // Owner request: HIDE the bottom-left voice-note mic — hidden with
@@ -2496,12 +2601,25 @@ class _ChatViewState extends State<_ChatView>
             focusNode: _composerFocus,
             minLines: 1,
             maxLines: 4,
-            // #1583 — null keeps the field's own default (today's keyboard);
-            // a live change re-configures the open keyboard in place.
+            // #1583 — null keeps the field's own default (today's keyboard).
+            // An OPEN keyboard is not re-configured in place on Android; see
+            // [_syncComposerKeyboard].
             keyboardType: numeric ? TextInputType.number : null,
             textInputAction: TextInputAction.send,
             onSubmitted: (_) => _send(),
+            // ISSUE_2b (2026-10-21) — the keyboard's Send key must NOT drop the
+            // keyboard. Flutter's default for a `send` action is to unfocus the
+            // field; providing this (a no-op) keeps the focus, so the keyboard
+            // stays up while Bada Bhai thinks and for the next answer.
+            onEditingComplete: () {},
             inputFormatters: <TextInputFormatter>[
+              // ISSUE_2b (2026-10-21) — while Bada Bhai is thinking the field
+              // takes no input, yet stays focused so the keyboard stays up
+              // (disabling or read-only would drop the keyboard).
+              TextInputFormatter.withFunction(
+                (TextEditingValue oldValue, TextEditingValue newValue) =>
+                    _composerThinking ? oldValue : newValue,
+              ),
               DevanagariBlockFormatter(
                 onBlocked: () => setState(() => _devanagariBlocked = true),
               ),
@@ -2518,7 +2636,10 @@ class _ChatViewState extends State<_ChatView>
               ),
               isDense: true,
               filled: true,
-              fillColor: OnboardingColors.paperWhite,
+              // ISSUE_2b — a greyed field reads as "wait" while Bada Bhai thinks.
+              fillColor: thinking
+                  ? OnboardingColors.borderDefault.withValues(alpha: 0.35)
+                  : OnboardingColors.paperWhite,
               // Roomier padding + the design's input radius (md=12, not the pill):
               // a fully-rounded pill made multi-line text hug the curved corners
               // and touch the border. A softer 12-radius box gives the text clear
@@ -2550,7 +2671,7 @@ class _ChatViewState extends State<_ChatView>
           ),
         ),
         const SizedBox(width: AppSpacing.s2),
-        _composerAction(),
+        _composerAction(thinking: thinking),
       ],
     );
   }
@@ -2558,18 +2679,34 @@ class _ChatViewState extends State<_ChatView>
   /// The trailing button on the IDLE row: SEND when the field has text, otherwise
   /// MIC (tap starts voice-to-text). While listening the whole row is a
   /// [DictationBar] (waveform + Stop + Send), so this slot never shows a Stop.
-  Widget _composerAction() {
+  Widget _composerAction({bool thinking = false}) {
     return ValueListenableBuilder<TextEditingValue>(
       valueListenable: _controller,
       builder: (BuildContext context, TextEditingValue value, Widget? _) {
-        if (value.text.trim().isNotEmpty) {
+        // ISSUE_3 — picked pills alone are a sendable answer.
+        if (value.text.trim().isNotEmpty || _picked.isNotEmpty) {
           return IconButton(
             tooltip: 'Bhejein',
-            onPressed: _send,
+            // ISSUE_2b — no send while Bada Bhai is thinking.
+            onPressed: thinking ? null : _send,
             style: _composerActionStyle,
             icon: const Icon(
               Icons.send_rounded,
               color: OnboardingColors.shiftBlue,
+              size: 22,
+            ),
+          );
+        }
+        // OWNER ASK (2026-10-22) — no voice consent, no mic: the slot shows
+        // the (inactive) send button, and the worker answers by typing.
+        if (!VoiceConsent.instance.voiceAllowed) {
+          return IconButton(
+            tooltip: 'Bhejein',
+            onPressed: null,
+            style: _composerActionStyle,
+            icon: const Icon(
+              Icons.send_rounded,
+              color: OnboardingColors.ink500,
               size: 22,
             ),
           );
@@ -2582,7 +2719,7 @@ class _ChatViewState extends State<_ChatView>
         // other and the label is the only thing that says which does which.
         return IconButton(
           tooltip: kComposerDictationLabel,
-          onPressed: _startDictation,
+          onPressed: thinking ? null : _startDictation,
           style: _composerActionStyle,
           icon: const Icon(
             Icons.mic,
@@ -2732,6 +2869,8 @@ class _ChatViewState extends State<_ChatView>
     // "Kuch aur" means exactly "answer in your own words", so the input is
     // enabled by default rather than replaced by the locked bar.
     if (_turnOffersCustomAnswer(state)) return false;
+    // ISSUE_3 — a multi-pick SKILLS row fills the composer, so it stays open.
+    if (_isMultiPickRow(state, state.suggestedOptions)) return false;
     if (state.inputMode == ChatInputMode.optionsOnly) return true;
     return state.answerType == ChatAnswerType.singleSelect ||
         state.answerType == ChatAnswerType.multiSelect;
@@ -2798,6 +2937,78 @@ class _ChatViewState extends State<_ChatView>
         suggestions.every(
           (ChatOption o) => o.optionKey.startsWith(_kLlmOptionKeyPrefix),
         );
+  }
+
+  /// ISSUE_3 (2026-10-21, owner rulings) — whether this row is a SKILLS
+  /// question whose chips may be picked TOGETHER ("Pipe fitting mein aap
+  /// kaunsa kaam karte hain?", "Aur kya karte hain — soldering, threading?").
+  /// The picks gather in the input area as removable pills and go out as ONE
+  /// message on Send.
+  ///
+  /// A row qualifies only when ALL hold:
+  ///  * it is a model SUGGESTION row ([_isLlmSuggestionRow]) — never the
+  ///    engine's closed pack lists, never a disambiguation, never companion;
+  ///  * it is not a yes/no pair, and no label carries a digit (an amount or a
+  ///    duration such as "1-2 saal", where exactly one is true);
+  ///  * the server said `multi_select`, OR the worker has already CONFIRMED
+  ///    the trade ([_tradeConfirmed]). Before that gate the model is still
+  ///    finding the trade/role, which stays ONE tap = ONE answer; after it the
+  ///    model asks skills.
+  static bool _isMultiPickRow(ChatState state, List<ChatOption> options) {
+    if (state.companion) return false;
+    if (state.questionKind == ChatQuestionKind.disambiguate) return false;
+    if (!_isLlmSuggestionRow(options)) return false;
+    final List<String> labels = <String>[
+      for (final ChatOption o in options.where(
+        (ChatOption o) => !_isServerEscape(o),
+      ))
+        o.labelText,
+    ];
+    if (_isYesNoPair(labels)) return false;
+    if (labels.any((String l) => RegExp(r'\d').hasMatch(l))) return false;
+    return state.answerType == ChatAnswerType.multiSelect ||
+        _tradeConfirmed(state);
+  }
+
+  /// The server's fixed trade-confirm gate copy (`apps/api/src/profiling/
+  /// trade-confirm.ts` `tradeConfirmPrompt`): "TRADE — kya aap yahi kaam
+  /// karna chahte hain?" answered with its own Haan / Nahi.
+  static const String _kTradeConfirmPromptTail =
+      'kya aap yahi kaam karna chahte hain?';
+
+  /// Whether THIS chat's transcript shows the worker answering "Haan" to the
+  /// trade-confirm gate — the point after which the model asks skills. Read
+  /// from the transcript itself, so a cold reopen (which redraws it) knows it
+  /// too.
+  static bool _tradeConfirmed(ChatState state) {
+    final List<ChatMessage> m = state.messages;
+    for (int i = 0; i + 1 < m.length; i++) {
+      if (m[i].fromWorker || !m[i + 1].fromWorker) continue;
+      if (!m[i].text.trim().toLowerCase().endsWith(_kTradeConfirmPromptTail)) {
+        continue;
+      }
+      if (m[i + 1].text.trim().toLowerCase().startsWith('haan')) return true;
+    }
+    return false;
+  }
+
+  /// ISSUE_3 — the labels picked on THIS multi-pick row, in tap order. Shown
+  /// as removable pills in the input area and sent together on Send.
+  /// TURN-SCOPED like [_ticked]: cleared the moment the turn moves on.
+  List<String> _picked = const <String>[];
+
+  /// ISSUE_3 — a tap on a multi-pick chip: adds its label to the input area
+  /// (animated in), or removes it when it is already picked. Sends nothing.
+  void _togglePick(String label) {
+    if (context.read<ChatBloc>().state.sending) return;
+    setState(() {
+      _picked = _picked.contains(label)
+          ? <String>[
+              for (final String p in _picked)
+                if (p != label) p,
+            ]
+          : <String>[..._picked, label];
+    });
   }
 
   /// Replaces the composer on an `options_only` turn (#770): a locked-look bar
@@ -3220,6 +3431,11 @@ class _ChatViewState extends State<_ChatView>
         state.answerType == ChatAnswerType.multiSelect &&
         state.questionKind != ChatQuestionKind.disambiguate &&
         !isShiftQuestion;
+    // ISSUE_2 (2026-10-21) — the "Kuch aur — khud likhein" escape only opens
+    // the text input. When the input is already on screen (the composer is not
+    // locked to the options) it is redundant, so it is hidden; it stays only
+    // on a locked turn, where it is the one way to type.
+    final bool showEscape = _locksComposerToOptions(state);
     // ADR-0057 R10 (#2314) — a pending change/delete of an earlier answer is
     // drawn as a TILE (before → after, or a delete's warning) in place of its
     // Haan / Nahi chips. The tile's buttons ARE those chips, so the server
@@ -3255,10 +3471,24 @@ class _ChatViewState extends State<_ChatView>
         child: state.companion
             ? _companionActionChips(state.suggestedOptions)
             : state.questionKind == ChatQuestionKind.disambiguate
-            ? _disambiguateOptions(state.suggestedOptions)
+            ? _disambiguateOptions(
+                state.suggestedOptions,
+                showEscape: showEscape,
+              )
+            // ISSUE_3 — a SKILLS question (a model row the server served
+            // multi_select) picks into the composer; see [_isMultiPickRow].
+            : _isMultiPickRow(state, state.suggestedOptions)
+            ? _followupOptions(
+                state.suggestedOptions,
+                showEscape: showEscape,
+                multiPick: true,
+              )
             : multiSelect
-            ? _multiSelectOptions(state.suggestedOptions)
-            : _followupOptions(state.suggestedOptions),
+            ? _multiSelectOptions(
+                state.suggestedOptions,
+                showEscape: showEscape,
+              )
+            : _followupOptions(state.suggestedOptions, showEscape: showEscape),
       );
     }
     if (state.followups.isNotEmpty) {
@@ -3283,7 +3513,7 @@ class _ChatViewState extends State<_ChatView>
                   ChatOption(optionKey: f, labelText: f),
               ])
             : state.questionKind == ChatQuestionKind.disambiguate
-            ? _disambiguate(state.followups)
+            ? _disambiguate(state.followups, showEscape: showEscape)
             : multiSelect
             // Label-only chips (an older build, or the optimistic
             // prediction's labels): the label is the key, as on
@@ -3291,7 +3521,7 @@ class _ChatViewState extends State<_ChatView>
             ? _multiSelectOptions(<ChatOption>[
                 for (final String f in state.followups)
                   ChatOption(optionKey: f, labelText: f),
-              ])
+              ], showEscape: showEscape)
             : _followups(state.followups),
       );
     }
@@ -3408,16 +3638,44 @@ class _ChatViewState extends State<_ChatView>
   ///    model offers at most four guesses and the worker's own answer may be
   ///    none of them. Never on the yes/no gate — there the two chips ARE the
   ///    full answer.
-  Widget _followupOptions(List<ChatOption> options) {
+  ///
+  /// ISSUE_2 (2026-10-21) — [showEscape] is false while the text input is on
+  /// screen: the escape chip only opens that input, so it is hidden there.
+  ///
+  /// ISSUE_3 (2026-10-21) — a SKILLS row ([_isMultiPickRow], [multiPick]) lets
+  /// the worker pick several chips: each tap adds (or removes) a removable
+  /// pill in the input area, and a picked chip turns solid yellow. Nothing is
+  /// sent until Send, which sends the picks (plus anything typed) as ONE
+  /// message — the same typed path as writing it by hand.
+  Widget _followupOptions(
+    List<ChatOption> options, {
+    bool showEscape = true,
+    bool multiPick = false,
+  }) {
     final List<ChatOption> answers = options
         .where((ChatOption o) => !_isServerEscape(o))
         .toList();
     final bool escape =
-        answers.length != options.length ||
-        (_isLlmSuggestionRow(options) &&
-            !_isYesNoPair(<String>[
-              for (final ChatOption o in answers) o.labelText,
-            ]));
+        showEscape &&
+        (answers.length != options.length ||
+            (_isLlmSuggestionRow(options) &&
+                !_isYesNoPair(<String>[
+                  for (final ChatOption o in answers) o.labelText,
+                ])));
+    if (multiPick) {
+      return _chipScroller(<Widget>[
+        for (final ChatOption o in answers) ...<Widget>[
+          _AnswerChip(
+            label: o.labelText,
+            selected: _picked.contains(o.labelText),
+            filledWhenSelected: true,
+            onTap: () => _togglePick(o.labelText),
+          ),
+          const SizedBox(width: AppSpacing.s2),
+        ],
+        if (escape) _customAnswerChip(),
+      ]);
+    }
     return _chipScroller(<Widget>[
       for (final ChatOption o in answers) ...<Widget>[
         if (o.optionKey == kFreeChatResumeKey)
@@ -3465,11 +3723,15 @@ class _ChatViewState extends State<_ChatView>
   ///
   /// The server's own escape ([_kServerEscapeOptionKey]) is never a tick: it
   /// opens the composer, exactly as on [_followupOptions].
-  Widget _multiSelectOptions(List<ChatOption> options) {
+  Widget _multiSelectOptions(
+    List<ChatOption> options, {
+    bool showEscape = true,
+  }) {
     final List<ChatOption> answers = options
         .where((ChatOption o) => !_isServerEscape(o))
         .toList();
-    final bool escape = answers.length != options.length;
+    // ISSUE_2 — no escape chip while the text input is already on screen.
+    final bool escape = showEscape && answers.length != options.length;
     return Padding(
       padding: const EdgeInsets.fromLTRB(
         AppSpacing.s4,
@@ -3610,7 +3872,7 @@ class _ChatViewState extends State<_ChatView>
   /// single-select. Unlike [_followups]' horizontal scroller, nothing can be
   /// skimmed past — the tapped label becomes the answer of record and selects
   /// the pack. The "none of these" escape is rendered visually distinct.
-  Widget _disambiguate(List<String> options) {
+  Widget _disambiguate(List<String> options, {bool showEscape = true}) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(
         AppSpacing.s4,
@@ -3622,7 +3884,11 @@ class _ChatViewState extends State<_ChatView>
         crossAxisAlignment: CrossAxisAlignment.stretch,
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
-          for (final String o in options) _disambiguateOption(o),
+          for (final String o in options)
+            // ISSUE_2 — see [_disambiguateOptions].
+            if (showEscape ||
+                o.trim().toLowerCase() != _kDisambiguateEscape.toLowerCase())
+              _disambiguateOption(o),
         ],
       ),
     );
@@ -3920,7 +4186,10 @@ class _ChatViewState extends State<_ChatView>
         _lockedComposerBar(text: text, icon: Icons.hourglass_empty),
   );
 
-  Widget _disambiguateOptions(List<ChatOption> options) {
+  Widget _disambiguateOptions(
+    List<ChatOption> options, {
+    bool showEscape = true,
+  }) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(
         AppSpacing.s4,
@@ -3933,7 +4202,10 @@ class _ChatViewState extends State<_ChatView>
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
           for (final ChatOption o in options)
-            _disambiguateRow(
+            // ISSUE_2 — the escape row only opens the text input; hidden while
+            // that input is already on screen.
+            if (showEscape || !(o.isNoneOfAbove || _isServerEscape(o)))
+              _disambiguateRow(
               label: o.labelText,
               escape: o.isNoneOfAbove || _isServerEscape(o),
               onTap: o.isNoneOfAbove || _isServerEscape(o)
@@ -4309,11 +4581,80 @@ class _BulletRow extends StatelessWidget {
 ///
 /// The one exception is a `multi_select` turn (#1559 / #1583), where the chip
 /// is a TOGGLE — see [selected].
+/// ISSUE_3 (2026-10-21) — one picked skill in the input area: a solid
+/// safety-yellow pill with a ✕ that removes it. Scales and fades in when it
+/// lands, so the pick visibly "fills" the input.
+class _PickedPill extends StatelessWidget {
+  const _PickedPill({super.key, required this.label, required this.onRemove});
+
+  final String label;
+
+  /// Null while Bada Bhai is thinking: the ✕ is shown but inert.
+  final VoidCallback? onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    return TweenAnimationBuilder<double>(
+      tween: Tween<double>(begin: 0, end: 1),
+      duration: const Duration(milliseconds: 260),
+      curve: Curves.easeOutBack,
+      builder: (BuildContext context, double t, Widget? child) => Opacity(
+        opacity: t.clamp(0.0, 1.0),
+        child: Transform.scale(scale: 0.6 + 0.4 * t, child: child),
+      ),
+      child: Container(
+        padding: const EdgeInsets.only(left: 12, right: 4),
+        decoration: BoxDecoration(
+          color: OnboardingColors.safetyYellow,
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Flexible(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: OnboardingTypography.inter(
+                  size: 13,
+                  weight: FontWeight.w600,
+                  color: OnboardingColors.shiftBlue,
+                ),
+              ),
+            ),
+            IconButton(
+              tooltip: '$label hatayein',
+              onPressed: onRemove,
+              visualDensity: VisualDensity.compact,
+              constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
+              icon: const Icon(
+                Icons.close_rounded,
+                size: 18,
+                color: OnboardingColors.shiftBlue,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _AnswerChip extends StatelessWidget {
-  const _AnswerChip({required this.label, required this.onTap, this.selected});
+  const _AnswerChip({
+    required this.label,
+    required this.onTap,
+    this.selected,
+    this.filledWhenSelected = false,
+  });
 
   final String label;
   final VoidCallback onTap;
+
+  /// ISSUE_3 (2026-10-21) — a picked multi-pick chip is a SOLID safety-yellow
+  /// box (navy label + check) instead of the multi-select's yellow outline.
+  final bool filledWhenSelected;
 
   /// Null on every chip but a multi-select's: today's chip, unchanged.
   /// Non-null makes the chip a toggle announced as selected / not selected;
@@ -4332,7 +4673,9 @@ class _AnswerChip extends StatelessWidget {
       child: Ink(
         decoration: BoxDecoration(
           color: ticked
-              ? OnboardingColors.selectedCardBg
+              ? (filledWhenSelected
+                    ? OnboardingColors.safetyYellow
+                    : OnboardingColors.selectedCardBg)
               : OnboardingColors.chipBg,
           borderRadius: _radius,
           border: ticked

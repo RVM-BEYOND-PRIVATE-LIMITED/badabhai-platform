@@ -18,6 +18,17 @@ class NameMask {
     return '$first•••• $last'.trim();
   }
 
+  /// Opaque worker UUID → "Worker ••3f9a": the last four hex characters (dashes
+  /// dropped) behind the soft dots. The ONE masked label every faceless card
+  /// uses — the per-job applicant card, the all-candidates card, the unlock
+  /// dialog and the reveal — so a payer sees the same handle for the same
+  /// worker everywhere. Never a name: it is derived from the id alone.
+  static String workerLabel(String workerId) {
+    final String id = workerId.replaceAll('-', '');
+    final String tail = id.length >= 4 ? id.substring(id.length - 4) : id;
+    return 'Worker ••$tail';
+  }
+
   /// "Ramesh Kumar" → "RK" — up to two uppercased initials for the avatar.
   static String initials(String name) {
     final List<String> parts = name.trim().split(RegExp(r'\s+'));

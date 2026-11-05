@@ -2022,20 +2022,34 @@ export async function getJobPostingChatTranscript(
 
 /**
  * POST /payer/job-posting-chat/sessions/:id/publish — turn the session's draft into the REAL
- * job posting. The body is EMPTY: the draft already lives server-side on the session row, the
- * payer is the session (XB-A), and the org name is auto-filled server-side (rule A). Returns
- * the created posting's id so the caller routes to its EXISTING detail page.
+ * job posting. The draft already lives server-side on the session row, the payer is the session
+ * (XB-A), and the org name is auto-filled server-side (rule A).
+ *
+ * `roleKind` is the publish-step role pick (#2490): display/classification only, the same closed
+ * 21-value set the manual form sends, never a match input. OPTIONAL — absent stays absent, so the
+ * posting stores NULL and the worker card draws the generic art. Sent only when the payer picked.
+ *
+ * `area` (#2493) is the COARSE locality bucket prefilled from the draft (or corrected at publish).
+ * The server lets the body win over the draft. OPTIONAL — absent stores NULL; the card then shows
+ * the city alone, exactly as before.
+ *
+ * Returns the created posting's id so the caller routes to its EXISTING detail page.
  *
  * A 409 (draft not ready / already published) surfaces as a thrown error the action turns into
  * retryable copy; unknown/not-owned stays the neutral 404 → `null`.
  */
 export async function publishJobPostingChatSession(
   sessionId: string,
+  roleKind?: string,
+  area?: string,
 ): Promise<JobPostingChatPublishResult | null> {
   try {
     const wire = await payerFetch(`/payer/job-posting-chat/sessions/${sessionId}/publish`, {
       method: "POST",
-      body: {},
+      body: {
+        ...(roleKind ? { role_kind: roleKind } : {}),
+        ...(area ? { area } : {}),
+      },
       schema: jobPostingChatPublishWireSchema,
     });
     return {

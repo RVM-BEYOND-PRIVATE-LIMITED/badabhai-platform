@@ -421,13 +421,13 @@ describe("the shell's trail and the page's back link never open the same page (e
     }
   });
 
-  it("Post with AI (a mode of New posting) has no back link and no trail link (F15)", async () => {
+  it("Post with AI has no back link; its trail links the Postings destination", async () => {
     // Its one way to the form is the chat's own "Use the manual form instead".
     const route = ROUTES.find((r) => r.path === "/postings/ai/new")!;
     const r = await renderRoute(route);
     expect(r.back).toBeNull();
-    expect(r.crumbLinks).toEqual([]);
-    expect(r.crumbIsLandmark).toBe(false);
+    expect(r.crumbLinks).toEqual(["/postings"]);
+    expect(r.crumbIsLandmark).toBe(true);
     expect(r.html).toContain('<a href="/postings/new" class="ai-chat-intro__alt">');
   });
 });

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:payer_app/core/data/mock_payer_api_client.dart';
@@ -10,11 +12,12 @@ import 'package:payer_app/features/find/presentation/cubit/find_cubit.dart';
 /// silently rot: the real-feed load (open postings → faceless applicants, with
 /// an honest empty state), selectJob switching, and unlockApplicant — whose
 /// grant-marking a later reveal's `unlockId` depends on, whose neutral DENY
-/// must NEVER read as success, and whose OUTAGE must surface as
-/// [FindStatus.error] AND rethrow (#348) rather than collapse into
-/// `UnlockResult.unavailable()` (the bug #346 fixed one layer down).
+/// must NEVER read as success, and whose OUTAGE must rethrow (#348) rather
+/// than collapse into `UnlockResult.unavailable()` (the bug #346 fixed one
+/// layer down) — while KEEPING the list on screen (#2593).
 class _ScriptedApi extends MockPayerApiClient {
   List<JobPosting> jobs = const <JobPosting>[];
+  List<AgencyJobView> agencyJobs = const <AgencyJobView>[];
   Map<String, List<Applicant>> applicantsByJob = <String, List<Applicant>>{};
   UnlockResult unlockResult = const UnlockResult.unavailable();
 
@@ -37,6 +40,12 @@ class _ScriptedApi extends MockPayerApiClient {
   }
 
   @override
+  Future<List<AgencyJobView>> fetchAgencyJobs() async {
+    if (throwOnJobs != null) throw throwOnJobs!;
+    return agencyJobs;
+  }
+
+  @override
   Future<List<Applicant>> fetchApplicants(String jobId) async {
     applicantFetches.add(jobId);
     if (throwOnApplicants != null) throw throwOnApplicants!;
@@ -51,6 +60,30 @@ class _ScriptedApi extends MockPayerApiClient {
     unlockCalls.add((workerId: workerId, jobId: jobId));
     if (throwOnUnlock != null) throw throwOnUnlock!;
     return unlockResult;
+  }
+}
+
+/// [_ScriptedApi]'s feed, with an unlock that waits on [reply] — a request
+/// held in flight (#2593).
+class _GatedApi extends MockPayerApiClient {
+  _GatedApi(this._feed, this._reply);
+
+  final _ScriptedApi _feed;
+  final Future<UnlockResult> _reply;
+  int unlockCalls = 0;
+
+  @override
+  Future<List<JobPosting>> fetchJobs({String? status}) =>
+      _feed.fetchJobs(status: status);
+
+  @override
+  Future<List<Applicant>> fetchApplicants(String jobId) =>
+      _feed.fetchApplicants(jobId);
+
+  @override
+  Future<UnlockResult> unlock({required String workerId, String? jobId}) {
+    unlockCalls++;
+    return _reply;
   }
 }
 
@@ -136,6 +169,48 @@ void main() {
       expect(cubit.state.applicants, isEmpty);
       expect(api.applicantFetches, isEmpty,
           reason: 'nothing is owned — there is no job id to query');
+    });
+
+    test('an AGENCY session reads its own open jobs, not company postings',
+        () async {
+      // The agency's candidates live on `jobs` rows; the shared applicant route
+      // then resolves them exactly like a company posting.
+      api.agencyJobs = const <AgencyJobView>[
+        AgencyJobView(
+          id: _jobA,
+          status: 'open',
+          tradeKey: 'fitter',
+          title: 'Fitter',
+          city: 'Pune',
+          applicantsReceived: 4,
+        ),
+        AgencyJobView(
+          id: _jobB,
+          status: 'closed',
+          tradeKey: 'fitter',
+          title: 'Old fitter job',
+          city: 'Pune',
+          applicantsReceived: 0,
+        ),
+      ];
+      api.applicantsByJob = <String, List<Applicant>>{
+        _jobA: <Applicant>[_applicant(_workerA)],
+      };
+      final FindCubit agency =
+          FindCubit(api, useRealFeed: true, isAgency: true);
+      addTearDown(agency.close);
+
+      await agency.load();
+
+      expect(agency.state.jobs.map((JobPosting j) => j.id), <String>[_jobA]);
+      expect(agency.state.selectedJob?.title, 'Fitter');
+      expect(
+        agency.state.applicants.map((Applicant a) => a.workerId),
+        <String>[_workerA],
+      );
+      // The company route was never read for an agency session.
+      expect(api.jobFetches, 0);
+      expect(api.applicantFetches, <String>[_jobA]);
     });
 
     test('a posting with no usable id is not treated as ownable', () async {
@@ -291,7 +366,7 @@ void main() {
           reason: 'a deny is a normal 200 — not an outage');
     });
 
-    test('#348 — an OUTAGE emits FindStatus.error AND rethrows', () async {
+    test('#348 / #2593 — an OUTAGE rethrows and KEEPS the list', () async {
       seedTwoJobs();
       await cubit.load();
       api.throwOnUnlock = const PayerApiException(503);
@@ -301,10 +376,13 @@ void main() {
         throwsA(isA<PayerApiException>()),
       );
 
-      // Both halves matter: the state keeps this cubit consistent with
-      // load/selectJob, and the rethrow is what lets the tap handler offer a
-      // retry instead of a silent no-op.
-      expect(cubit.state.status, FindStatus.error);
+      // The rethrow is what lets the tap handler offer a retry instead of a
+      // silent no-op; the list stays — one failed unlock used to swap the
+      // whole feed for an error page.
+      expect(cubit.state.status, FindStatus.ready);
+      expect(cubit.state.applicants, hasLength(2));
+      expect(cubit.state.isUnlocking(_workerA), isFalse,
+          reason: 'the button comes back, so Retry is one tap');
     });
 
     test('an outage must never be swallowed into a neutral deny', () async {
@@ -322,7 +400,113 @@ void main() {
       expect(returned, isNull,
           reason: 'conflating an outage with UnlockResult.unavailable() is the '
               'exact bug #346 fixed one layer down');
-      expect(cubit.state.applicants.every((Applicant a) => !a.unlocked), isTrue);
+      expect(
+          cubit.state.applicants.every((Applicant a) => !a.unlocked), isTrue);
+    });
+  });
+
+  group('#2593 — Applicants opens the job that was tapped', () {
+    test('load(jobId:) opens THAT job, not the first open one', () async {
+      seedTwoJobs();
+
+      await cubit.load(jobId: _jobB);
+
+      expect(cubit.state.status, FindStatus.ready);
+      expect(cubit.state.selectedJob?.id, _jobB);
+      expect(cubit.state.jobs.length, 2, reason: 'the selector still lists both');
+      expect(cubit.state.applicants.single.workerId, _workerB);
+      expect(api.applicantFetches, <String>[_jobB],
+          reason: 'the first job is never read on the way to the tapped one');
+    });
+
+    test('a tapped job that is no longer open falls back to the first',
+        () async {
+      seedTwoJobs();
+
+      await cubit.load(jobId: '99999999-9999-4999-8999-999999999999');
+
+      expect(cubit.state.selectedJob?.id, _jobA);
+      expect(api.applicantFetches, <String>[_jobA]);
+    });
+
+    test("Retry after a failed load stays on the tapped job", () async {
+      seedTwoJobs();
+      api.throwOnApplicants = const PayerApiException(503);
+      await cubit.load(jobId: _jobB);
+      expect(cubit.state.status, FindStatus.error);
+
+      api.throwOnApplicants = null;
+      await cubit.load(); // the error state's Retry
+
+      expect(cubit.state.selectedJob?.id, _jobB);
+      expect(api.applicantFetches, <String>[_jobB, _jobB]);
+    });
+
+    test('an agency session opens the tapped agency job too', () async {
+      final FindCubit agency = FindCubit(api, useRealFeed: true, isAgency: true);
+      addTearDown(agency.close);
+      api
+        ..agencyJobs = <AgencyJobView>[
+          const AgencyJobView(
+            id: _jobA,
+            status: 'open',
+            tradeKey: 'cnc_setter',
+            title: 'CNC Setter',
+            city: 'Pune',
+            applicantsReceived: 1,
+          ),
+          const AgencyJobView(
+            id: _jobB,
+            status: 'open',
+            tradeKey: 'fitter',
+            title: 'Fitter',
+            city: 'Pune',
+            applicantsReceived: 1,
+          ),
+        ]
+        ..applicantsByJob = <String, List<Applicant>>{
+          _jobB: <Applicant>[_applicant(_workerB)],
+        };
+
+      await agency.load(jobId: _jobB);
+
+      expect(agency.state.selectedJob?.title, 'Fitter');
+      expect(api.applicantFetches, <String>[_jobB]);
+    });
+  });
+
+  group('#2593 — one unlock request per worker', () {
+    test('a second call while one is in flight joins it — one request',
+        () async {
+      seedTwoJobs();
+      final Completer<UnlockResult> reply = Completer<UnlockResult>();
+      final _GatedApi gated = _GatedApi(api, reply.future);
+      final FindCubit c = FindCubit(gated, useRealFeed: true);
+      addTearDown(c.close);
+      await c.load();
+
+      final Future<UnlockResult> first = c.unlockApplicant(c.state.applicants[0]);
+      final Future<UnlockResult> second =
+          c.unlockApplicant(c.state.applicants[0]);
+
+      expect(c.state.isUnlocking(_workerA), isTrue,
+          reason: 'the card shows progress while the request is in flight');
+      reply.complete(const UnlockResult.granted(unlockId: 'unl-1'));
+      expect(await first, await second);
+      expect(gated.unlockCalls, 1);
+      expect(c.state.isUnlocking(_workerA), isFalse);
+      expect(c.state.applicants[0].unlockId, 'unl-1');
+    });
+
+    test('once it settles, a new tap is a new request', () async {
+      seedTwoJobs();
+      await cubit.load();
+      api.unlockResult = const UnlockResult.unavailable();
+
+      await cubit.unlockApplicant(cubit.state.applicants.first);
+      await cubit.unlockApplicant(cubit.state.applicants.first);
+
+      expect(api.unlockCalls, hasLength(2));
     });
   });
 

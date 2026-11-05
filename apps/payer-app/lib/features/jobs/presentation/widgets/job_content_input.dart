@@ -1,21 +1,26 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show TextInputFormatter;
 
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/theme/app_typography.dart';
+import '../../../../core/util/number_input.dart';
+import '../../../../core/util/pay_format.dart';
 import '../../../../core/widgets/bb_chip.dart';
 import '../../../../core/widgets/bb_field.dart';
-import '../../../../core/widgets/bb_toast.dart';
+import '../../../../core/widgets/bb_field_error.dart';
+import '../../../../core/widgets/bb_focus_chain.dart';
 
-/// Shared rules + inputs for the WORKER-VISIBLE free text on a posting — the
+/// Shared rules + inputs for the WORKER-VISIBLE content of a posting — the
 /// description and the benefits / requirements chips the worker's job card
-/// renders VERBATIM.
+/// renders VERBATIM, and the ₹ pay band + experience window boxes (#2595).
 ///
-/// One copy for all three surfaces that enter it (agency post, agency edit,
-/// company edit) so the caps and the PII screen can never drift apart between
-/// them. Every rule here MIRRORS a server rule (`agency.dto.ts`): the server is
-/// the authority — this only fails closed EARLIER, with an honest message,
-/// instead of letting a whole post 400.
+/// One copy for all three surfaces that enter it (post, agency edit, company
+/// edit) so the caps and the PII screen can never drift apart between them.
+/// Every rule here MIRRORS a server rule (`agency.dto.ts`,
+/// `common/job-content.schemas.ts`): the server is the authority — this only
+/// fails closed EARLIER, with an honest message, instead of letting a whole
+/// post 400.
 abstract final class JobContentLimits {
   /// `description` — max chars (server: `DESCRIPTION_MAX`).
   static const int descriptionChars = 2000;
@@ -26,6 +31,14 @@ abstract final class JobContentLimits {
 
   /// One benefits/requirements chip — max chars (server: `LIST_ITEM_MAX`).
   static const int listItemChars = 80;
+
+  /// `pay_min` / `pay_max` — the ₹/month ceiling (server: `PAY_MAX_INR`,
+  /// ₹1 crore). The pay boxes refuse a digit past it.
+  static const int payMaxInr = 10000000;
+
+  /// `min/max_experience_years` — the ceiling (server:
+  /// `EXPERIENCE_MAX_YEARS`). The experience boxes refuse a digit past it.
+  static const int experienceMaxYears = 60;
 }
 
 // Client mirror of the server's `looksLikePii` (packages/validators): an email
@@ -63,13 +76,31 @@ String? postingDescriptionError(String raw) {
   return null;
 }
 
+/// Why [phrase] cannot become a chip, or null when it can. Mirrors the server's
+/// two item rules: the [maxChars] cap and the fail-closed PII screen. [noun]
+/// names the list ("skill" / "benefit" / "requirement").
+String? postingPhraseError(
+  String phrase, {
+  required String noun,
+  required int maxChars,
+}) {
+  if (phrase.length > maxChars) {
+    return 'Keep a $noun under $maxChars characters.';
+  }
+  if (looksLikePostingPii(phrase)) {
+    return 'Leave phone numbers and email addresses out of a posting.';
+  }
+  return null;
+}
+
 /// Prompt for ONE real phrase for a chip list and return it, or null when the
-/// payer cancelled or the phrase was refused.
+/// payer cancelled or entered nothing.
 ///
 /// #357: it ASKS for the phrase instead of inserting a placeholder, and it fails
-/// closed at entry on the server's own two item rules — the [maxChars] cap and
-/// the PII screen — so one bad chip can never 400 the whole write. [noun] names
-/// the list in every message ("skill" / "benefit" / "requirement").
+/// closed at entry on the server's own two item rules ([postingPhraseError]) so
+/// one bad chip can never 400 the whole write. #2595: a refused phrase is
+/// explained INLINE under the box and the dialog stays open with the text, so
+/// the payer fixes it instead of retyping it after a toast.
 Future<String?> promptForPostingPhrase(
   BuildContext context, {
   required String noun,
@@ -80,29 +111,15 @@ Future<String?> promptForPostingPhrase(
 }) async {
   final String? entered = await showDialog<String>(
     context: context,
-    builder: (BuildContext _) =>
-        _AddPhraseDialog(title: title, hint: hint, fieldKey: fieldKey),
+    builder: (BuildContext _) => _AddPhraseDialog(
+      title: title,
+      hint: hint,
+      fieldKey: fieldKey,
+      validate: (String phrase) =>
+          postingPhraseError(phrase, noun: noun, maxChars: maxChars),
+    ),
   );
-
-  if (!context.mounted || entered == null || entered.isEmpty) return null;
-  if (entered.length > maxChars) {
-    showBbToast(
-      context,
-      title: 'Too long',
-      message: 'Keep a $noun under $maxChars characters.',
-      icon: Icons.info_outline,
-    );
-    return null;
-  }
-  if (looksLikePostingPii(entered)) {
-    showBbToast(
-      context,
-      title: 'Not a $noun',
-      message: 'Leave phone numbers and email addresses out of a posting.',
-      icon: Icons.info_outline,
-    );
-    return null;
-  }
+  if (entered == null || entered.isEmpty) return null;
   return entered;
 }
 
@@ -110,64 +127,123 @@ Future<String?> promptForPostingPhrase(
 /// the honest reason it cannot be sent (over the cap, or contact details the
 /// server screens fail-closed) AS THE PAYER TYPES, instead of waiting for a 400.
 /// Rebuilt off the controller alone, so typing does not rebuild the whole form.
+///
+/// [errorText] is the form's own inline error for the box (#2595 — e.g. "Add
+/// the description" on a refused submit); the live screen wins when both apply.
 class JobDescriptionField extends StatelessWidget {
   const JobDescriptionField({
     super.key,
     required this.controller,
     this.label = 'Description (optional)',
     this.hint = 'What the work is, machines, shift timings…',
+    this.errorText,
   });
 
   final TextEditingController controller;
   final String label;
   final String hint;
+  final String? errorText;
 
   @override
   Widget build(BuildContext context) {
     return ValueListenableBuilder<TextEditingValue>(
       valueListenable: controller,
       builder: (BuildContext _, TextEditingValue value, Widget? __) {
-        final String? error = postingDescriptionError(value.text);
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            BbField(
-              label: label,
-              controller: controller,
-              hint: hint,
-              minLines: 3,
-              maxLines: 6,
-              keyboardType: TextInputType.multiline,
-            ),
-            if (error != null) ...<Widget>[
-              const SizedBox(height: AppSpacing.s2),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  const Icon(
-                    Icons.error_outline,
-                    size: 16,
-                    color: AppColors.danger,
-                  ),
-                  const SizedBox(width: AppSpacing.s2),
-                  Expanded(
-                    child: Text(
-                      error,
-                      style: AppTypography.body(
-                        size: AppTypography.sizeSm,
-                        color: AppColors.danger,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ],
+        return BbField(
+          label: label,
+          controller: controller,
+          hint: hint,
+          minLines: 3,
+          maxLines: 6,
+          keyboardType: TextInputType.multiline,
+          errorText: postingDescriptionError(value.text) ?? errorText,
         );
       },
     );
   }
 }
+
+/// The job PAY boxes (#2595) — what the worker's card prints as the ₹ band; NOT
+/// payment information of any kind. Digits only behind a fixed `₹` prefix,
+/// Indian-grouped as typed ("18,000"), and capped at the server's ceiling
+/// ([JobContentLimits.payMaxInr]). Read the value with [parseWholeNumber];
+/// prefill it with [formatPayInput].
+class JobPayField extends StatelessWidget {
+  const JobPayField({
+    super.key,
+    required this.label,
+    required this.controller,
+    this.hint,
+    this.errorText,
+    this.flow,
+  });
+
+  final String label;
+  final TextEditingController controller;
+  final String? hint;
+  final String? errorText;
+  final BbFieldFlow? flow;
+
+  static const List<TextInputFormatter> _formatters = <TextInputFormatter>[
+    WholeNumberInputFormatter(max: JobContentLimits.payMaxInr, grouped: true),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return BbField(
+      label: label,
+      controller: controller,
+      hint: hint,
+      keyboardType: TextInputType.number,
+      mono: true,
+      prefixText: '₹ ',
+      inputFormatters: _formatters,
+      errorText: errorText,
+      flow: flow,
+    );
+  }
+}
+
+/// The experience boxes (#2595) — whole years, digits only, capped at the
+/// server's ceiling ([JobContentLimits.experienceMaxYears]).
+class JobExperienceField extends StatelessWidget {
+  const JobExperienceField({
+    super.key,
+    required this.label,
+    required this.controller,
+    this.hint,
+    this.errorText,
+    this.flow,
+  });
+
+  final String label;
+  final TextEditingController controller;
+  final String? hint;
+  final String? errorText;
+  final BbFieldFlow? flow;
+
+  static const List<TextInputFormatter> _formatters = <TextInputFormatter>[
+    WholeNumberInputFormatter(max: JobContentLimits.experienceMaxYears),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return BbField(
+      label: label,
+      controller: controller,
+      hint: hint,
+      keyboardType: TextInputType.number,
+      mono: true,
+      inputFormatters: _formatters,
+      errorText: errorText,
+      flow: flow,
+    );
+  }
+}
+
+/// A stored ₹ amount as a [JobPayField] shows it ("22,000"); empty when unset.
+String formatPayInput(int? amount) =>
+    amount == null ? '' : formatIndianGrouped(amount);
 
 /// A labelled editor for a payer-typed chip list (Key skills / Benefits /
 /// Requirements): one removable chip per entered phrase plus an '+ Add' chip
@@ -183,12 +259,16 @@ class JobChipListField extends StatelessWidget {
     required this.addLabel,
     required this.onAdd,
     required this.onRemove,
+    this.errorText,
   });
 
   final String label;
   final List<String> values;
   final int maxItems;
   final String addLabel;
+
+  /// Inline error under the chips (#2595 — e.g. "Add a benefit"), or null.
+  final String? errorText;
 
   /// Opens the '+ Add' prompt. A `Future<void>` tear-off is fine — the caller
   /// owns the await (this is a fire-and-forget dialog, like the other sheet
@@ -218,7 +298,7 @@ class JobChipListField extends StatelessWidget {
               BbChip(
                 label: value,
                 selected: true,
-                icon: Icons.close,
+                icon: Icons.close_rounded,
                 onTap: () => onRemove(value),
               ),
             if (values.length < maxItems)
@@ -229,6 +309,7 @@ class JobChipListField extends StatelessWidget {
               ),
           ],
         ),
+        BbFieldError(text: errorText),
       ],
     );
   }
@@ -239,16 +320,22 @@ class JobChipListField extends StatelessWidget {
 /// alongside the awaited `showDialog` future tears it down while the route is
 /// still animating out, and the still-mounted [TextField] then throws "used
 /// after being disposed". Pops the trimmed phrase, or null on cancel.
+///
+/// #2595 — [validate] runs on Add (and the keyboard's "done"): a refused
+/// phrase keeps the dialog open with the reason under the box; typing clears
+/// it.
 class _AddPhraseDialog extends StatefulWidget {
   const _AddPhraseDialog({
     required this.title,
     required this.hint,
     required this.fieldKey,
+    required this.validate,
   });
 
   final String title;
   final String hint;
   final Key fieldKey;
+  final String? Function(String phrase) validate;
 
   @override
   State<_AddPhraseDialog> createState() => _AddPhraseDialogState();
@@ -256,6 +343,7 @@ class _AddPhraseDialog extends StatefulWidget {
 
 class _AddPhraseDialogState extends State<_AddPhraseDialog> {
   final TextEditingController _field = TextEditingController();
+  String? _error;
 
   @override
   void dispose() {
@@ -263,7 +351,15 @@ class _AddPhraseDialogState extends State<_AddPhraseDialog> {
     super.dispose();
   }
 
-  void _submit() => Navigator.of(context).pop(_field.text.trim());
+  void _submit() {
+    final String phrase = _field.text.trim();
+    final String? error = phrase.isEmpty ? null : widget.validate(phrase);
+    if (error != null) {
+      setState(() => _error = error);
+      return;
+    }
+    Navigator.of(context).pop(phrase);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -271,7 +367,7 @@ class _AddPhraseDialogState extends State<_AddPhraseDialog> {
       backgroundColor: AppColors.surfaceCard,
       title: Text(
         widget.title,
-        style: AppTypography.display(
+        style: AppTypography.heading(
           size: AppTypography.sizeMd,
           weight: FontWeight.w800,
         ),
@@ -280,6 +376,12 @@ class _AddPhraseDialogState extends State<_AddPhraseDialog> {
         controller: _field,
         hint: widget.hint,
         fieldKey: widget.fieldKey,
+        errorText: _error,
+        textInputAction: TextInputAction.done,
+        onSubmitted: (_) => _submit(),
+        onChanged: (_) {
+          if (_error != null) setState(() => _error = null);
+        },
       ),
       actions: <Widget>[
         TextButton(

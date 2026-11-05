@@ -172,12 +172,14 @@ function hrefsOf(node: ReactNode, acc: string[] = []): string[] {
     node.forEach((c) => hrefsOf(c, acc));
     return acc;
   }
-  const el = node as ReactElement<{ href?: unknown; children?: ReactNode }>;
+  const el = node as ReactElement<{ href?: unknown; children?: ReactNode; foot?: ReactNode }>;
   if (typeof el.props?.href === "string") acc.push(el.props.href);
   if (el.type === PageHeader) {
     const hp = el.props as { primaryAction?: { href: string } };
     if (hp.primaryAction) acc.push(hp.primaryAction.href);
   }
+  // StatTile's NEW `foot` slot carries a contextual link (Top-up / Create role); walk it too.
+  if (el.props && "foot" in el.props) hrefsOf(el.props.foot, acc);
   if (el.props && "children" in el.props) hrefsOf(el.props.children, acc);
   return acc;
 }
@@ -260,9 +262,10 @@ describe("CARDS-1 · clickable tiles + cards link to their REAL routes", () => {
   // Only the granted unlock, so the wallet is the one needs-you item.
   const granted = { unlocks: [DATA.unlocks[0]!] };
 
-  it("an OWNER at an empty or low balance gets exactly ONE 'Buy credits', in the needs-you item", async () => {
-    // The page has no standing Credits door (no Buy credits card — F15), so the item's own
-    // contextual action is the labelled way to buy when it matters.
+  it("credits is reached from the KPI Top-up (and the usage log), never a duplicate needs-you action", async () => {
+    // designr4 puts the wallet's door on the balance card itself ("Top-up →") and closes the
+    // unlocks panel with "Usage log →"; the needs-you item states the low balance but adds no
+    // second, duplicate button for the same destination.
     for (const balance of [0, 3]) {
       const tree = await render(
         { ...granted, credits: { payerId: "p", balance } },
@@ -270,29 +273,32 @@ describe("CARDS-1 · clickable tiles + cards link to their REAL routes", () => {
         "owner",
       );
       const doors = creditsDoors(tree);
-      expect(doors.all, `balance ${balance}`).toEqual(["/credits"]);
-      expect(doors.inAction, `balance ${balance}`).toHaveLength(1);
-      expect(textOf(doors.inAction[0]!).trim(), `balance ${balance}`).toBe("Buy credits");
-      // …and its pending cue names where it goes, not what it says (review of #2125).
-      expect(linkCues(tree).get("/credits"), `balance ${balance}`).toEqual(["Credits"]);
+      expect(doors.all, `balance ${balance}`).toEqual(["/credits", "/credits"]);
+      expect(doors.inAction, `balance ${balance}`).toEqual([]);
+      // Both cues name their destination, not what the link says (review of #2125).
+      expect(linkCues(tree).get("/credits"), `balance ${balance}`).toEqual([
+        "Credits",
+        "Credits",
+      ]);
     }
-    // An agency owner the same.
+    // An agency's credits door lives in AgentSections (mocked here), not the shared page.
     const agency = await render(
       { ...granted, credits: { payerId: "p", balance: 0 } },
       "agent",
       "owner",
     );
-    expect(creditsDoors(agency).inAction).toHaveLength(1);
+    expect(creditsDoors(agency).all).toEqual([]);
+    expect(creditsDoors(agency).inAction).toEqual([]);
   });
 
-  it("an OWNER with a healthy balance gets NO in-page door to Credits (the header chip is it)", async () => {
+  it("a healthy balance still shows the KPI Top-up as the in-page credits door", async () => {
     const tree = await render(
       { ...granted, credits: { payerId: "p", balance: 247 } },
       "employer",
       "owner",
     );
     expect(findByClass(tree, "attention")).toEqual([]);
-    expect(creditsDoors(tree).all).toEqual([]);
+    expect(creditsDoors(tree).all).toEqual(["/credits", "/credits"]);
   });
 
   it("a RECRUITER gets the SAME doors as an owner — any member can buy (owner ruling 2026-10-07)", async () => {
@@ -304,23 +310,26 @@ describe("CARDS-1 · clickable tiles + cards link to their REAL routes", () => {
           "recruiter",
         );
         const doors = creditsDoors(tree);
-        expect(doors.all, `${role} ${balance}`).toEqual(["/credits"]);
-        expect(doors.inAction, `${role} ${balance}`).toHaveLength(1);
-        expect(textOf(doors.inAction[0]!).trim(), `${role} ${balance}`).toBe("Buy credits");
+        expect(doors.all, `${role} ${balance}`).toEqual(
+          role === "employer" ? ["/credits", "/credits"] : [],
+        );
+        expect(doors.inAction, `${role} ${balance}`).toEqual([]);
         // Nobody is sent to ask an owner any more.
         expect(textOf(tree), `${role} ${balance}`).not.toMatch(/account owner/i);
       }
-      // …and, like an owner, no in-page door at a healthy balance (the header chip is it).
+      // …and, like an owner, the KPI Top-up is still the in-page door at a healthy balance.
       const healthy = await render(
         { ...granted, credits: { payerId: "p", balance: 247 } },
         role,
         "recruiter",
       );
-      expect(creditsDoors(healthy).all, role).toEqual([]);
+      expect(creditsDoors(healthy).all, role).toEqual(
+        role === "employer" ? ["/credits", "/credits"] : [],
+      );
     }
   });
 
-  it("all postings closed: the needs-you item says so, and the head's New posting is the door", async () => {
+  it("all postings closed: the needs-you item says so, and the KPI card carries Create role", async () => {
     const tree = await render({
       postings: DATA.postings.map((x) => ({ ...x, status: "closed" })),
       unlocks: [DATA.unlocks[0]!],
@@ -330,26 +339,24 @@ describe("CARDS-1 · clickable tiles + cards link to their REAL routes", () => {
     expect(hrefsOf(tree).filter((h) => h === "/postings/new")).toHaveLength(1);
   });
 
-  it("'No postings yet' is said ONCE, by the postings panel", async () => {
+  it("'No active job postings yet' is said ONCE, by the postings panel", async () => {
     const tree = await render({ postings: [], unlocks: [DATA.unlocks[0]!] });
-    expect(textOf(tree).match(/No postings yet/g)).toHaveLength(1);
+    expect(textOf(tree).match(/No active job postings yet/g)).toHaveLength(1);
     // Zero postings is not a needs-you item (the panel says it right there).
     expect(findByClass(tree, "attention")).toEqual([]);
   });
 
-  it("quick actions follow their destination's gate, and none repeats a door the page has", async () => {
-    const labels = async (role: "employer" | "agent", orgRole: "owner" | "recruiter") =>
+  it("the Quick Action card follows its destination's gate", async () => {
+    const cards = async (role: "employer" | "agent", orgRole: "owner" | "recruiter") =>
       findByClass(await render(undefined, role, orgRole), "quick__card").map((c) =>
         textOf(c).trim(),
       );
-    // Plans & capacity is a COMPANY page; no "Buy credits" card (the shell's balance chip is the
-    // door to Credits — F15); no "Invite workers" door (the agency's invite tools are
-    // their own section).
+    // Plans & capacity is a COMPANY page; the card rides the KPI strip for a company only.
     for (const orgRole of ["owner", "recruiter"] as const) {
-      const company = await labels("employer", orgRole);
+      const company = await cards("employer", orgRole);
       expect(company, orgRole).toHaveLength(1);
-      expect(company[0], orgRole).toMatch(/^Plans & capacity/);
-      expect(await labels("agent", orgRole), orgRole).toEqual([]);
+      expect(company[0], orgRole).toContain("Plans & capacity");
+      expect(await cards("agent", orgRole), orgRole).toEqual([]);
     }
     for (const role of ["employer", "agent"] as const) {
       expect(textOf(await render(undefined, role, "owner"))).not.toMatch(/Invite workers/);
@@ -362,18 +369,15 @@ describe("CARDS-1 · clickable tiles + cards link to their REAL routes", () => {
     expect(textOf(tree)).not.toContain("Quick actions");
   });
 
-  it("ONE link to the Postings list and ONE New posting entry point (the head)", async () => {
+  it("ONE link to the Postings list and ONE New posting door (the KPI card)", async () => {
     const tree = await render();
     const all = hrefsOf(tree);
     expect(all.filter((h) => h === "/postings")).toHaveLength(1);
-    // A healthy account has no attention item, so the head is the only door to the form.
+    // A healthy account has no attention item; the KPI card's "+ Create role" is the form's door,
+    // and the head adds none.
     const healthy = await render({ unlocks: [DATA.unlocks[0]!] });
     expect(hrefsOf(healthy).filter((h) => h === "/postings/new")).toHaveLength(1);
-    expect(p(headOf(healthy)).primaryAction).toEqual({
-      href: "/postings/new",
-      label: "New posting",
-      icon: "plus",
-    });
+    expect(p(headOf(healthy)).primaryAction).toBeUndefined();
   });
 
   it("that one link names the list as the rail item and its H1 do: 'Postings'", async () => {
@@ -424,21 +428,20 @@ describe("CARDS-1 · clickable tiles + cards link to their REAL routes", () => {
     expect(textOf(tree)).not.toMatch(/view applicants/i);
   });
 
-  it("a Recent-unlock row with no posting context is NOT a link and names no posting — company AND agency", async () => {
+  it("a Recent-unlock row with no posting context is NOT a link and names no posting", async () => {
     // No posting context (a search unlock, or one made before #2033), and the page does not read
-    // an agency's job titles — so no such row can name or open a posting. Both personas have
-    // postings/jobs the row could have been wrongly tied to.
-    for (const role of ["employer", "agent"] as const) {
-      const tree = await render(undefined, role);
-      const rows = findByClass(tree, "dash-unlock");
-      expect(rows.length, role).toBe(2);
-      for (const r of rows) {
-        expect(p(r).href, role).toBeUndefined();
-        expect(p(r).ariaLabel, role).toBeUndefined();
-        expect(textOf(r)).toContain("Unlocked contact");
-        expect(textOf(r)).not.toMatch(/CNC Operator|VMC Setter|View applicants/);
-      }
+    // an agency's job titles — so no such row can name or open a posting.
+    const tree = await render();
+    const rows = findByClass(tree, "dash-unlock");
+    expect(rows.length).toBe(2);
+    for (const r of rows) {
+      expect(p(r).href).toBeUndefined();
+      expect(p(r).ariaLabel).toBeUndefined();
+      expect(textOf(r)).toContain("Unlocked contact");
+      expect(textOf(r)).not.toMatch(/CNC Operator|VMC Setter|View applicants/);
     }
+    // An agent's unlocks are rendered inside AgentSections (mocked here), never by this page.
+    expect(findByClass(await render(undefined, "agent"), "dash-unlock")).toEqual([]);
   });
 
   /** This payer's own company posting (a real uuid id), and an unlock made from a posting. */
@@ -624,17 +627,17 @@ describe("UI-1 · empty + error states", () => {
     // One for "Your postings", one for "Recent unlocks".
     expect(findByClass(tree, "state").length).toBeGreaterThanOrEqual(2);
     expect(textOf(tree)).toContain("No contacts unlocked yet");
-    expect(textOf(tree)).toContain("No postings yet");
-    // PHASE 16 — an empty state must say what to do next, not just that it is empty: it names
-    // the page's one primary action, which the head carries.
-    expect(textOf(tree)).toContain("use New posting above");
-    expect(p(headOf(tree)).primaryAction).toMatchObject({ label: "New posting" });
+    expect(textOf(tree)).toContain("No active job postings yet");
+    // PHASE 16 — an empty state must say what to do next, not just that it is empty: the
+    // panel carries its own "Create First Posting" action.
+    expect(textOf(tree)).toContain("Create First Posting");
+    expect(p(headOf(tree)).primaryAction).toBeUndefined();
   });
 
   it("every read failing: the head + New posting stay, and EACH panel says its own error (F29)", async () => {
     const tree = await render({ throws: true });
     // Never a blank page: the head and its one primary survive.
-    expect(p(headOf(tree)).primaryAction).toMatchObject({ label: "New posting" });
+    expect(p(headOf(tree)).primaryAction).toBeUndefined();
     expect(textOf(tree)).not.toContain("We could not load your account");
     const errors = findByClass(tree, "state--error");
     expect(errors.map((e) => textOf(findByClass(e, "state__title")[0]!))).toEqual([
@@ -671,33 +674,23 @@ describe("MERGE-1 · single role-aware dashboard composition (agent vs employer)
     expect(findAll(tree, AgentSectionsStub).length).toBe(1);
   });
 
-  it("an AGENT dashboard DROPS the duplicate 'Open postings' tile + employer 'Your postings' list", async () => {
+  it("an AGENT dashboard is the agency composition only (no employer tiles or postings list)", async () => {
     const tree = await render(undefined, "agent");
-    // DATA-COHERENCE: the employer job-postings-derived vacancy tile + list are omitted for
-    // agents (the agency Demand summary + manager in AgentSections are the source of truth),
-    // so they can never contradict.
-    const tiles = findAll(tree, StatTile);
-    expect(tiles.length).toBe(2); // Credit balance + Contacts unlocked
-    const labels = tiles.map((t) => p(t).label);
-    expect(labels).toEqual(["Credit balance", "Contacts unlocked"]);
-    // No "Revenue — Coming soon" placeholder in the KPI row (F21): the parked page is reached
-    // from the rail's "Coming soon" group, not from a tile with no figure.
-    expect(labels).not.toContain("Revenue");
+    // The shared employer strip and postings list are not rendered at all; AgentSections owns
+    // the agency KPI strip, pipeline, funnel and unlocks.
+    expect(findAll(tree, StatTile)).toHaveLength(0);
     expect(hrefsOf(tree)).not.toContain("/agency/revenue");
-    expect(labels).not.toContain("Open postings");
-    expect(labels).not.toContain("Open vacancies");
-    // the employer-postings list does NOT render for an agent (no contradictory second list)
     expect(findByClass(tree, "dash-posting").length).toBe(0);
+    expect(findAll(tree, AgentSectionsStub)).toHaveLength(1);
   });
 
-  it("an AGENT still sees the COHERENT shared reads (credit balance + recent unlocks)", async () => {
+  it("an AGENT still gets the COHERENT shared reads, handed to AgentSections", async () => {
     const tree = await render(undefined, "agent");
-    const tiles = findAll(tree, StatTile);
-    const byLabel = (l: string) => tiles.find((t) => p(t).label === l);
-    expect(p(byLabel("Credit balance")!).value).toBe(247);
-    expect(p(byLabel("Contacts unlocked")!).value).toBe(2);
-    // recent-unlock rows are coherent (same unlocks read) and stay faceless
-    expect(findByClass(tree, "dash-unlock").length).toBe(2);
+    const [agent] = findAll(tree, AgentSectionsStub);
+    expect(agent).toBeDefined();
+    const props = p(agent!);
+    expect((props.credits as { balance: number }).balance).toBe(247);
+    expect((props.unlocks as unknown[]).length).toBe(2);
   });
 });
 
@@ -728,6 +721,8 @@ describe("PR-D2 · hierarchy + KPI variant", () => {
       if (words.includes("page-head")) out.push("head");
       else if (words.includes("attention")) out.push("needs-you");
       else if (words.includes("stat-row")) out.push("position");
+      else if (words.includes("dash-columns")) out.push("columns");
+      else if (words.includes("dash-foot")) out.push("footer");
       else if (words.includes("quick")) out.push("actions");
       else if (words.includes("panel")) {
         const t = textOf(el);
@@ -743,18 +738,22 @@ describe("PR-D2 · hierarchy + KPI variant", () => {
     return out;
   }
 
-  it("employer: head → needs-you → position → actions → postings → recent", async () => {
+  it("employer: head → needs-you → position → columns → footer", async () => {
     // balance 3 is below the pricing config's low-balance threshold (lowBalanceThreshold(),
     // default 5), so the needs-you band renders.
     const tree = await render({ credits: { payerId: "p", balance: 3 } });
-    expect(bands(tree)).toEqual(["head", "needs-you", "position", "actions", "postings", "recent"]);
+    expect(bands(tree)).toEqual(["head", "needs-you", "position", "columns", "footer"]);
+    // …the columns hold the postings panel then the unlocks panel, in that reading order.
+    const columns = findByClass(tree, "dash-columns")[0]!;
+    const panels = findByClass(columns, "panel");
+    expect(panels).toHaveLength(2);
+    expect(textOf(panels[0]!)).toContain("Your postings");
+    expect(textOf(panels[1]!)).toContain("Recent unlocks");
   });
 
-  it("agent: the same spine minus the employer postings band, agency modules last", async () => {
-    // (No quick actions for an agency — Credits' door is the shell's balance chip, F15 — so no
-    // empty actions band either.)
+  it("agent: head → needs-you → agency (the agency composition owns the rest)", async () => {
     const tree = await render({ credits: { payerId: "p", balance: 3 } }, "agent");
-    expect(bands(tree)).toEqual(["head", "needs-you", "position", "recent", "agency"]);
+    expect(bands(tree)).toEqual(["head", "needs-you", "agency"]);
   });
 
   it("needs-you is ABSENT (not an empty band) when nothing needs the payer", async () => {
@@ -777,11 +776,7 @@ describe("PR-D2 · hierarchy + KPI variant", () => {
 describe("AGENCY posting entry point — the agency form, never the company one", () => {
   it("an agent's head 'New posting' opens /agency/jobs/new; no link reaches /postings*", async () => {
     const tree = await render(undefined, "agent");
-    expect(p(headOf(tree)).primaryAction).toEqual({
-      href: "/agency/jobs/new",
-      label: "New posting",
-      icon: "plus",
-    });
+    expect(p(headOf(tree)).primaryAction).toBeUndefined();
     expect(hrefsOf(tree).filter((h) => h.startsWith("/postings"))).toEqual([]);
   });
 
@@ -829,10 +824,7 @@ describe("F29 · one failed read never blanks the dashboard", () => {
 
   it("BALANCE read fails: only the balance tile goes neutral; everything else renders", async () => {
     const tree = await render({ fail: ["credits"], credits: { payerId: "p", balance: 0 } });
-    expect(p(headOf(tree)).primaryAction).toMatchObject({
-      href: "/postings/new",
-      label: "New posting",
-    });
+    expect(p(headOf(tree)).primaryAction).toBeUndefined();
     expect(p(tile(tree, "Credit balance")).value).toBe("—");
     expect(textOf(p(tile(tree, "Credit balance")).caption as ReactNode)).toBe(
       "Not available right now",
@@ -856,7 +848,7 @@ describe("F29 · one failed read never blanks the dashboard", () => {
     expect(findByClass(tree, "dash-posting")).toHaveLength(2);
     expect(findByClass(tree, "dash-unlock")).toHaveLength(0);
     expect(textOf(tree)).not.toContain("No contacts unlocked yet");
-    expect(p(headOf(tree)).primaryAction).toMatchObject({ label: "New posting" });
+    expect(p(headOf(tree)).primaryAction).toBeUndefined();
   });
 
   it("POSTINGS read fails: the Your postings panel says so (with Retry); the rest renders", async () => {
@@ -872,15 +864,16 @@ describe("F29 · one failed read never blanks the dashboard", () => {
     expect(textOf(tree)).not.toContain("No open postings");
     // The panel keeps its one link to the Postings list, and the head its New posting.
     expect(hrefsOf(tree).filter((h) => h === "/postings")).toHaveLength(1);
-    expect(p(headOf(tree)).primaryAction).toMatchObject({ label: "New posting" });
+    expect(p(headOf(tree)).primaryAction).toBeUndefined();
     expect(findByClass(tree, "dash-unlock")).toHaveLength(2);
   });
 
   it("an AGENCY dashboard survives a failed balance read too (agency modules still mount)", async () => {
     const tree = await render({ fail: ["credits"] }, "agent");
-    expect(p(headOf(tree)).primaryAction).toMatchObject({ href: "/agency/jobs/new" });
-    expect(p(tile(tree, "Credit balance")).value).toBe("—");
-    expect(findAll(tree, AgentSectionsStub)).toHaveLength(1);
+    expect(p(headOf(tree)).primaryAction).toBeUndefined();
+    const [agent] = findAll(tree, AgentSectionsStub);
+    expect(agent).toBeDefined();
+    expect(p(agent!).credits).toBeNull();
     expect(errorTitles(tree)).toEqual([]);
   });
 

@@ -88,10 +88,9 @@ void main() {
     });
   });
 
-  /// The web origin the "Manage plan on web" link opens. It exists because
-  /// every money action was REMOVED from this app (store IAP policy), which
-  /// would otherwise leave the payer at a dead end.
-  group('resolvePayerWebUrl — the external money surface', () {
+  /// The payer-web origin (the base of an agency invite link). No payment
+  /// pointer uses it any more (#2589 — no payment information in the app).
+  group('resolvePayerWebUrl — the payer-web origin', () {
     test('defaults to the documented payer-web origin, over https', () {
       final String? url = resolvePayerWebUrl(configuredUrl: '');
       expect(url, isNotNull);

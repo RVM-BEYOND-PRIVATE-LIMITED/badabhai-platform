@@ -41,8 +41,12 @@ export interface PayerSession {
   readonly displayLabel: string;
   /** Role, for UI affordances only — never an authz decision on the client. */
   readonly role: PayerRole;
-  /** The payer's OWN account email — shown back to them only; never logged/eventized. */
-  readonly email?: string;
+  /**
+   * The payer's OWN account email — shown back to them only; never logged/eventized.
+   * `null` ⇔ a phone-only account (#2497/#2499); `undefined` ⇔ this session has no
+   * `/payer/me` read yet (e.g. the verify step). Both mean "no email to render".
+   */
+  readonly email?: string | null;
   /** Last 4 of the payer's OWN phone (masked), or null if not set; never logged/eventized. */
   readonly phoneLast4?: string | null;
   /** The payer's OWN account status — drives the identity badge, not an authz decision. */

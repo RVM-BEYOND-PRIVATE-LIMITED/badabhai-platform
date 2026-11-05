@@ -137,35 +137,17 @@ class _ProfileTabView extends StatelessWidget {
     return ListView(
       padding: EdgeInsets.fromLTRB(side.left, 14, side.right, 24),
       children: <Widget>[
-        ProfileIdentityCard(summary: s, displayName: state.displayName),
-        // #1524 — a chat-sourced profile carries a visible chat-road badge so
-        // the tab never silently renders chat data as a form profile. Unknown
-        // (`null`) and form sources keep today's exact layout.
-        if (s.isChatSourced) ...<Widget>[
-          const SizedBox(height: 12),
-          const Align(
-            alignment: Alignment.centerLeft,
-            child: KitInfoChip(
-              label: kChatProfileSourceLabel,
-              dot: OnboardingColors.shiftBlue,
-            ),
-          ),
-        ],
-        // OWNER ASK (2026-10-16) — the "Profile ko mazboot banayein" /
-        // "Profile lagbhag poori hai" strength card (#1322) is hidden for
-        // good: no nudge card on this tab, in any band.
-        // #1579 — the empty-zone rule, enforced by construction: a section
-        // with no content renders NOTHING (no heading, no gap, no claim-like
-        // empty sentence). A section collectable through an existing one-tap
-        // route renders a single compact Add row instead. Sections with no
-        // collection route (skills — chat-extracted, no editor) hide entirely;
-        // the strength nudge above owns guidance there.
-        if (_hasSkillsContent(s)) ...<Widget>[
-          const SizedBox(height: 12),
-          _skillsCard(s),
-        ],
-        const SizedBox(height: 12),
-        _workInfoSection(context, s),
+        // OWNER ASK (2026-10-22) — the "Chat se bani profile" badge and the
+        // "Skills aur anubhav" / "Kaam ki jaankari" cards are no longer on
+        // this page. They are ICON-ONLY buttons inside the name card, under
+        // the trade line; the two data ones open their details in a bottom
+        // sheet, so nothing the worker could see before is lost. Each icon
+        // shows only when it has something behind it (#1579).
+        ProfileIdentityCard(
+          summary: s,
+          displayName: state.displayName,
+          facts: _profileFactIcons(context, s),
+        ),
         const SizedBox(height: 12),
         _shortcutsCard(context),
         // Comfortable separation from the content above; logout sits last.
@@ -277,6 +259,87 @@ class _ProfileTabView extends StatelessWidget {
     }
   }
 
+  /// OWNER ASK (2026-10-22) — the icon-only buttons inside the name card:
+  ///  * chat bubble — "Chat se bani profile" (#1524's chat-road marker);
+  ///  * tools — tap: the skills / anubhav details in a sheet;
+  ///  * briefcase — tap: the work facts in a sheet.
+  /// The words stay as the tooltip (long-press) and the screen-reader label.
+  List<Widget> _profileFactIcons(BuildContext context, ProfileSummary s) {
+    final String? education = _educationLabel(s);
+    final int skillCount = s.skills.length + s.machines.length;
+    return <Widget>[
+      if (s.isChatSourced)
+        const _ProfileFactIcon(
+          key: Key('profile-fact-chat-source'),
+          icon: Icons.chat_bubble_rounded,
+          label: kChatProfileSourceLabel,
+        ),
+      if (_hasSkillsContent(s))
+        _ProfileFactIcon(
+          key: const Key('profile-fact-skills'),
+          icon: Icons.construction_rounded,
+          label: 'Skills aur anubhav',
+          onTap: () => _openFactSheet(
+            context,
+            title: 'Skills aur anubhav',
+            icon: Icons.construction_rounded,
+            // The real total, digits only (ruling R8) — on the sheet's
+            // header, where the old card carried it.
+            count: skillCount,
+            rows: _structuredRows(s, education),
+          ),
+        ),
+      if (_hasWorkInfo(s))
+        _ProfileFactIcon(
+          key: const Key('profile-fact-work-info'),
+          icon: Icons.work_rounded,
+          label: 'Kaam ki jaankari',
+          onTap: () => _openFactSheet(
+            context,
+            title: 'Kaam ki jaankari',
+            icon: Icons.work_rounded,
+            rows: _workInfoRows(s),
+          ),
+        ),
+    ];
+  }
+
+  /// The details behind a fact chip, in a bottom sheet — the same rows the
+  /// old cards drew.
+  void _openFactSheet(
+    BuildContext context, {
+    required String title,
+    required IconData icon,
+    required List<Widget> rows,
+    int? count,
+  }) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      backgroundColor: OnboardingColors.paperWhite,
+      builder: (BuildContext sheet) => SafeArea(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.sizeOf(sheet).height * 0.8,
+          ),
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                KitCardHeader(icon: icon, title: title, count: count),
+                const SizedBox(height: 12),
+                ...rows,
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   /// Whether the skills card has anything to show (#1579). The card renders
   /// ONLY in this case — an empty section is hidden entirely, never a heading
   /// with an empty-state sentence (absence is not a claim, and skills have no
@@ -286,43 +349,6 @@ class _ProfileTabView extends StatelessWidget {
       s.machines.isNotEmpty ||
       s.experienceYears != null ||
       _educationLabel(s) != null;
-
-  /// Skills, machines and years of experience as a STRUCTURED section — the data
-  /// the LLM extracts after registration, surfaced here instead of only being
-  /// baked into the resume text (the user's ask). Every field is PII-free: the
-  /// canonical skill/machine labels and a years NUMBER — never the free-text
-  /// experience summary (which the backend deliberately keeps off the wire, §2).
-  ///
-  /// The count pill carries the real total and nothing else (ruling R8): the
-  /// chips have NO green check, because a tick claims someone verified the value
-  /// and no per-item verification exists on the wire (R9, B8).
-  Widget _skillsCard(ProfileSummary s) {
-    final String? education = _educationLabel(s);
-    return KitCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          KitCardHeader(
-            icon: Icons.construction_rounded,
-            title: 'Skills aur anubhav',
-            count: s.skills.length + s.machines.length,
-          ),
-          const SizedBox(height: 12),
-          ..._structuredRows(s, education),
-        ],
-      ),
-    );
-  }
-
-  /// #1579 — the work-info section: the filled card, or NOTHING when empty.
-  ///
-  /// The "Kaam ki jaankari jodein" Add entry was removed permanently (owner
-  /// ask): unlike languages, an empty work-info zone offers no shortcut and
-  /// renders no stub.
-  Widget _workInfoSection(BuildContext context, ProfileSummary s) {
-    if (_hasWorkInfo(s)) return _workInfoCard(s);
-    return const SizedBox.shrink();
-  }
 
   /// The experience / education / skills / machines groups, separated by a
   /// consistent gap. Any absent group is dropped (never a fabricated
@@ -403,7 +429,7 @@ class _ProfileTabView extends StatelessWidget {
 
   /// True when any v4 work fact is present (#1587). The card renders ONLY in
   /// this case, so absent answers add no heading and no gap.
-  bool _hasWorkInfo(ProfileSummary s) =>
+  static bool _hasWorkInfo(ProfileSummary s) =>
       s.commuteKm != null ||
       s.willingToTravel ||
       (s.salaryPeriod?.isNotEmpty ?? false) ||
@@ -412,27 +438,6 @@ class _ProfileTabView extends StatelessWidget {
       s.noticeDays != null ||
       s.trainings.isNotEmpty ||
       s.occupations.isNotEmpty;
-
-  /// #1587 — the v4 elicited facts (commute, travel, salary period,
-  /// availability, trainings, secondary occupations) as factual rows and
-  /// server-labelled chips. Every row is dropped when its source is absent;
-  /// only `true` travel prints, and occupation labels render verbatim (never
-  /// humanised from the id).
-  Widget _workInfoCard(ProfileSummary s) {
-    return KitCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          const KitCardHeader(
-            icon: Icons.work_outline_rounded,
-            title: 'Kaam ki jaankari',
-          ),
-          const SizedBox(height: 12),
-          ..._workInfoRows(s),
-        ],
-      ),
-    );
-  }
 
   List<Widget> _workInfoRows(ProfileSummary s) {
     final List<Widget> groups = <Widget>[
@@ -585,6 +590,60 @@ const double _kShortcutGap = 10;
 /// One Profile shortcut as a compact tile (`issue3.jpeg`): the same icon, title,
 /// line and destination the full-width row had, stacked so two fit side by
 /// side.
+/// OWNER ASK (2026-10-22) — one icon-only button inside the name card. The
+/// [label] is never painted; it is the tooltip and the screen-reader label.
+/// Tappable ones (with [onTap]) wear a yellow ring so they read as buttons.
+class _ProfileFactIcon extends StatelessWidget {
+  const _ProfileFactIcon({
+    super.key,
+    required this.icon,
+    required this.label,
+    this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final bool tappable = onTap != null;
+    final Widget circle = Container(
+      width: 36,
+      height: 36,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: OnboardingColors.noteBg,
+        shape: BoxShape.circle,
+        border: Border.all(
+          color: tappable
+              ? OnboardingColors.safetyYellow
+              : OnboardingColors.borderDefault,
+          width: tappable ? 1.5 : 1,
+        ),
+      ),
+      child: Icon(icon, size: 18, color: OnboardingColors.shiftBlue),
+    );
+    return Tooltip(
+      message: label,
+      child: Semantics(
+        label: label,
+        button: tappable,
+        excludeSemantics: true,
+        child: InkWell(
+          onTap: onTap,
+          customBorder: const CircleBorder(),
+          child: SizedBox(
+            width: OnboardingLayout.tapTarget,
+            height: OnboardingLayout.tapTarget,
+            child: Center(child: circle),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _ShortcutTile extends StatelessWidget {
   const _ShortcutTile({
     super.key,

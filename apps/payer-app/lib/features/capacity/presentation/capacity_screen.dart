@@ -10,6 +10,7 @@ import '../../../core/widgets/bb_badge.dart';
 import '../../../core/widgets/bb_button.dart';
 import '../../../core/widgets/bb_card.dart';
 import '../../../core/widgets/bb_icon_button.dart';
+import '../../../core/widgets/bb_skeleton.dart';
 import '../../../core/widgets/bb_status_view.dart';
 import 'cubit/capacity_cubit.dart';
 
@@ -48,7 +49,15 @@ class _CapacityView extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
                 _Header(onBack: () => Navigator.of(context).pop()),
-                Expanded(child: _body(context, state)),
+                // #2592 — panel skeletons while it loads, cross-fading out.
+                Expanded(
+                  child: BbLoadSwitcher(
+                    loading: state.status == CapacityStatus.loading ||
+                        state.status == CapacityStatus.initial,
+                    skeleton: _skeleton,
+                    child: _body(context, state),
+                  ),
+                ),
               ],
             );
           },
@@ -57,14 +66,19 @@ class _CapacityView extends StatelessWidget {
     );
   }
 
+  static const Widget _skeleton = BbSkeletonList(
+    items: <Widget>[BbSkeletonPanel(), BbSkeletonListRow(), BbSkeletonListRow()],
+    semanticLabel: 'Loading capacity',
+  );
+
   Widget _body(BuildContext context, CapacityState state) {
     if (state.status == CapacityStatus.loading ||
         state.status == CapacityStatus.initial) {
-      return const BbStatusView.loading();
+      return _skeleton;
     }
     if (state.status == CapacityStatus.error && state.capacity == null) {
       return BbStatusView(
-        icon: Icons.wifi_off,
+        icon: Icons.wifi_off_rounded,
         title: 'Could not load capacity',
         subtitle: state.error,
         action: BbButton(
@@ -108,14 +122,14 @@ class _Header extends StatelessWidget {
       child: Row(
         children: <Widget>[
           BbIconButton(
-            icon: Icons.arrow_back,
+            icon: Icons.arrow_back_rounded,
             semanticLabel: 'Back',
             onPressed: onBack,
           ),
           const SizedBox(width: AppSpacing.s3),
           Text(
             'Hiring capacity',
-            style: AppTypography.display(
+            style: AppTypography.header(
               size: AppTypography.sizeLg,
               weight: FontWeight.w800,
             ),
@@ -205,7 +219,7 @@ class _DetailsCard extends StatelessWidget {
       child: Column(
         children: <Widget>[
           _InfoRow(
-            icon: Icons.workspace_premium_outlined,
+            icon: Icons.workspace_premium_rounded,
             label: 'Current tier',
             child: BbBadge(
               capacityTierLabel(cap.sourceTier),
@@ -215,7 +229,7 @@ class _DetailsCard extends StatelessWidget {
             ),
           ),
           _InfoRow(
-            icon: Icons.event_outlined,
+            icon: Icons.event_rounded,
             label: 'Renews / expires',
             value: _dateLabel(cap.expiresAt),
             showBorder: false,

@@ -61,7 +61,7 @@ describe("nav model — which paths light which item up", () => {
   it.each([
     ["/dashboard", "/dashboard"],
     ["/postings", "/postings"],
-    ["/postings/new", "/postings/new"],
+    ["/postings/new", "/postings"],
     ["/candidates", "/candidates"],
     ["/plans", "/plans"],
     ["/credits", "/credits"],
@@ -74,12 +74,12 @@ describe("nav model — which paths light which item up", () => {
     expect(activeHrefs("/postings/2f8c/applicants")).toEqual(["/postings"]);
   });
 
-  it("the AI chat is the SAME destination as New posting, never Postings", () => {
-    expect(activeHrefs("/postings/ai/draft-1")).toEqual(["/postings/new"]);
+  it("the AI chat is a mode of Postings (the create routes live under it now)", () => {
+    expect(activeHrefs("/postings/ai/draft-1")).toEqual(["/postings"]);
   });
 
-  it("/postings/new does not also light the Postings list (siblings, not parent/child)", () => {
-    expect(activeHrefs("/postings/new")).toEqual(["/postings/new"]);
+  it("/postings/new lights Postings — create is inside the Postings destination", () => {
+    expect(activeHrefs("/postings/new")).toEqual(["/postings"]);
   });
 
   it("/capacity lights nothing — it is a redirect to Plans & capacity, never a rendered page", () => {
@@ -114,7 +114,7 @@ describe("nav model — which paths light which item up", () => {
 
     it.each([
       ["/agency/jobs", "/agency/jobs"],
-      ["/agency/jobs/new", "/agency/jobs/new"],
+      ["/agency/jobs/new", "/agency/jobs"],
       ["/candidates", "/candidates"],
       ["/agency/workers", "/agency/workers"],
       ["/agency/referrals", "/agency/referrals"],
@@ -128,9 +128,9 @@ describe("nav model — which paths light which item up", () => {
       expect(activeHrefs("/agency/workers/abc", agency)).toEqual(["/agency/workers"]);
     });
 
-    it("a posting's detail lights Postings; the create form lights only itself", () => {
+    it("a posting's detail and the create form both light Postings", () => {
       expect(activeHrefs("/agency/jobs/2f8c", agency)).toEqual(["/agency/jobs"]);
-      expect(activeHrefs("/agency/jobs/new", agency)).toEqual(["/agency/jobs/new"]);
+      expect(activeHrefs("/agency/jobs/new", agency)).toEqual(["/agency/jobs"]);
     });
 
     it("bulk invite upload lights nothing — it is not in the rail", () => {
@@ -166,10 +166,10 @@ describe("nav model — role shapes the affordances, not the gates", () => {
 describe("nav model — Posting naming, and an agency posts AGENCY jobs only (2026-10-01)", () => {
   const labelsOf = (sections: NavSection[]) => allItems(sections).map((i) => i.label);
 
-  it("the job entity is a Posting for BOTH personas — the same two labels", () => {
+  it("the job entity is a Posting for BOTH personas — one rail label; create lives on the page", () => {
     for (const isAgency of [false, true]) {
       const labels = labelsOf(navSections({ isAgency, isOwner: true, ...ON }));
-      expect(labels).toContain("New posting");
+      expect(labels).not.toContain("New posting");
       expect(labels).toContain("Postings");
       expect(labels.join(" ")).not.toMatch(/vacanc|Post a job/i);
     }
@@ -178,7 +178,6 @@ describe("nav model — Posting naming, and an agency posts AGENCY jobs only (20
   it("the company rail, in order", () => {
     expect(labelsOf(navSections({ isAgency: false, isOwner: true, ...ON }))).toEqual([
       "Dashboard",
-      "New posting",
       "Postings",
       "Candidates",
       "Plans & capacity",
@@ -190,7 +189,6 @@ describe("nav model — Posting naming, and an agency posts AGENCY jobs only (20
   it("the agency rail, in order — Supply labels match their page titles", () => {
     expect(labelsOf(navSections({ isAgency: true, isOwner: true, ...ON }))).toEqual([
       "Dashboard",
-      "New posting",
       "Postings",
       "Candidates",
       "Worker activity",
@@ -232,7 +230,6 @@ describe("nav model — Posting naming, and an agency posts AGENCY jobs only (20
   it("the recruiter rails, in order — the owner rails minus Team", () => {
     expect(labelsOf(navSections({ isAgency: false, isOwner: false, ...ON }))).toEqual([
       "Dashboard",
-      "New posting",
       "Postings",
       "Candidates",
       "Plans & capacity",
@@ -240,7 +237,6 @@ describe("nav model — Posting naming, and an agency posts AGENCY jobs only (20
     ]);
     expect(labelsOf(navSections({ isAgency: true, isOwner: false, ...ON }))).toEqual([
       "Dashboard",
-      "New posting",
       "Postings",
       "Candidates",
       "Worker activity",
@@ -251,24 +247,21 @@ describe("nav model — Posting naming, and an agency posts AGENCY jobs only (20
     ]);
   });
 
-  it("an agency's posting items open the AGENCY surface; nothing in its rail opens /postings*", () => {
+  it("an agency's Postings item opens the AGENCY surface; nothing in its rail opens /postings*", () => {
     const items = allItems(navSections({ isAgency: true, isOwner: true, ...ON }));
-    expect(items.find((i) => i.label === "New posting")!.href).toBe("/agency/jobs/new");
     expect(items.find((i) => i.label === "Postings")!.href).toBe("/agency/jobs");
     expect(items.filter((i) => i.href.startsWith("/postings"))).toEqual([]);
   });
 
-  it("a company's posting items open the company surface", () => {
+  it("a company's Postings item opens the company surface", () => {
     const items = allItems(navSections({ isAgency: false, isOwner: true, ...ON }));
-    expect(items.find((i) => i.label === "New posting")!.href).toBe("/postings/new");
     expect(items.find((i) => i.label === "Postings")!.href).toBe("/postings");
     expect(items.filter((i) => i.href.startsWith("/agency"))).toEqual([]);
   });
 
-  it("'New posting' is a plus (create), never plus-circle; Credits is the wallet", () => {
+  it("Credits is the wallet; no plus-circle create glyph is left in the rail", () => {
     for (const isAgency of [false, true]) {
       const items = allItems(navSections({ isAgency, isOwner: true, ...ON }));
-      expect(items.find((i) => i.label === "New posting")!.icon).toBe("plus");
       expect(items.find((i) => i.label === "Credits")!.icon).toBe("wallet");
       expect(items.map((i) => i.icon)).not.toContain("plus-circle");
     }
@@ -280,7 +273,6 @@ describe("nav model — the nav follows the page gate (agency-portal flag)", () 
     allItems(navSections({ isAgency: true, isOwner, agencyPortalEnabled })).map((i) => i.href);
   /** Every agency-only page checks `agencyPortalEnabled` before it renders (off → 404). */
   const FLAG_GATED = [
-    "/agency/jobs/new",
     "/agency/jobs",
     "/candidates",
     "/agency/workers",
@@ -340,11 +332,10 @@ describe("navTrail — where a path sits (the header trail and the error boundar
     ["/postings", ["Hiring", "/postings", 0]],
     ["/postings/2f8c", ["Hiring", "/postings", 1]],
     ["/postings/2f8c/applicants", ["Hiring", "/postings", 2]],
-    ["/postings/new", ["Hiring", "/postings/new", 0]],
-    // Owned through another base: /postings/ai is one level below New posting (the base itself
-    // too — it is not the destination's own route).
-    ["/postings/ai", ["Hiring", "/postings/new", 1]],
-    ["/postings/ai/new", ["Hiring", "/postings/new", 1]],
+    ["/postings/new", ["Hiring", "/postings", 1]],
+    // The create routes are children of Postings, not a second destination.
+    ["/postings/ai", ["Hiring", "/postings", 1]],
+    ["/postings/ai/new", ["Hiring", "/postings", 2]],
     ["/candidates", ["Hiring", "/candidates", 0]],
     ["/dashboard", ["-", "/dashboard", 0]],
     ["/team/accept", ["Organisation", "/team", 1]],
@@ -354,7 +345,7 @@ describe("navTrail — where a path sits (the header trail and the error boundar
 
   it("the agency's postings, and paths no destination owns", () => {
     expect(at("/agency/jobs/2f8c", agency)).toEqual(["Demand", "/agency/jobs", 1]);
-    expect(at("/agency/jobs/new", agency)).toEqual(["Demand", "/agency/jobs/new", 0]);
+    expect(at("/agency/jobs/new", agency)).toEqual(["Demand", "/agency/jobs", 1]);
     expect(at("/candidates", agency)).toEqual(["Demand", "/candidates", 0]);
     for (const path of ["/account", "/nowhere", "/postings-archive"]) expect(at(path), path).toBeNull();
     // A company's posting path is not an agency's (no agency destination owns it).

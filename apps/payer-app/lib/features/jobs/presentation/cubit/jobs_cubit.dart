@@ -4,6 +4,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../../core/data/models.dart';
 import '../../../../core/data/payer_api_client.dart';
 import '../../../../core/error/payer_failure.dart';
+import '../../../../core/util/read_order.dart';
 
 /// Loads the signed-in payer's job postings for the My-jobs screen and drives
 /// the per-row lifecycle (publish / pause / resume / close) actions. Each action
@@ -18,22 +19,40 @@ import '../../../../core/error/payer_failure.dart';
 /// sells a digital entitlement through its own payment rail is exactly what the
 /// App Store / Play Store IAP rules exist to catch, so the whole path is gone
 /// from the app: no button, and no cubit method a future screen could quietly
-/// re-bind to. The API-client methods and the backend endpoints are UNCHANGED —
-/// `apps/payer-web` still drives them, and the app now points there instead
-/// (see `resolvePayerWebUrl`).
+/// re-bind to. The mobile API-client methods are gone too (#2589); the backend
+/// endpoints are UNCHANGED and `apps/payer-web` still drives them.
 class JobsCubit extends Cubit<JobsState> {
   JobsCubit(this._api) : super(const JobsState());
 
   final PayerApiClient _api;
 
+  /// #2592 — a quiet [refresh] and the re-read after an action can be in
+  /// flight together; the one sent later wins ([ReadOrder]).
+  final ReadOrder _reads = ReadOrder();
+
   Future<void> load() async {
     emit(state.copyWith(status: JobsStatus.loading));
+    await _refresh();
+  }
+
+  /// Fetches the list WITHOUT flipping to [JobsStatus.loading] — the refetch
+  /// after an action (#2594), so the list stays on screen and the changed card
+  /// settles in place instead of the whole tab flashing to a spinner. #2592 —
+  /// ordered against a quiet [refresh] in flight ([ReadOrder]).
+  Future<void> _refresh() async {
+    final int read = _reads.start();
     try {
       final List<JobPosting> jobs = await _api.fetchJobs();
-      if (isClosed) return; // screen popped mid-load — emit would throw StateError
+      if (isClosed) {
+        return; // screen popped mid-load — emit would throw StateError
+      }
+      if (!_reads.claim(read)) return; // a newer read already landed
       emit(JobsState(status: JobsStatus.ready, jobs: jobs));
     } catch (e) {
-      if (isClosed) return;
+      if (isClosed || !_reads.isLatest(read)) return;
+      // The error replaces the list on screen: a refresh sent before the
+      // action must not land after it and paint the old pills back.
+      _reads.settle(read);
       emit(state.copyWith(
         status: JobsStatus.error,
         failure: PayerFailure.from(e),
@@ -41,32 +60,62 @@ class JobsCubit extends Cubit<JobsState> {
     }
   }
 
+  /// #2592 — pull-to-refresh and a return to the tab: re-reads the postings
+  /// with the list staying on screen. A failure KEEPS the list and comes back
+  /// to the caller to say why; null on success. With nothing on screen yet it
+  /// is the normal [load].
+  Future<PayerFailure?> refresh() async {
+    if (state.status == JobsStatus.initial ||
+        state.status == JobsStatus.loading) {
+      return null; // the first load is already in flight
+    }
+    if (state.status == JobsStatus.error) {
+      await load();
+      return null;
+    }
+    final int read = _reads.start();
+    try {
+      final List<JobPosting> jobs = await _api.fetchJobs();
+      if (isClosed) return null;
+      if (_reads.claim(read)) {
+        emit(JobsState(status: JobsStatus.ready, jobs: jobs));
+      }
+      return null;
+    } catch (e) {
+      if (isClosed || !_reads.isLatest(read)) return null;
+      return PayerFailure.from(e);
+    }
+  }
+
   // --- Lifecycle -------------------------------------------------------------
+
+  // The ok messages sit under a toast title that already names the action
+  // ("Job paused", #2594), so each says what changed for workers.
 
   /// Publish a draft (`PATCH … status:'open'`).
   Future<JobActionResult> publish(String id) => _lifecycle(
         () => _api.updateJob(id, status: 'open'),
-        okMessage: 'Published — workers can see it now.',
+        okMessage: 'Workers can see it now.',
         conflictMessage: "This job can't be published.",
       );
 
   Future<JobActionResult> pause(String id) => _lifecycle(
         () => _api.pauseJob(id),
-        okMessage: 'Paused — hidden from workers for now.',
+        okMessage: 'Hidden from workers until you resume it.',
         conflictMessage: 'Only an open job can be paused.',
       );
 
   Future<JobActionResult> resume(String id) => _lifecycle(
         () => _api.resumeJob(id),
-        okMessage: 'Resumed — live again.',
+        okMessage: 'Workers can see it again.',
         conflictMessage: 'Only a paused job can be resumed.',
       );
 
   // Named [closePosting] (not `close`) so it does not shadow [Cubit.close].
   Future<JobActionResult> closePosting(String id) => _lifecycle(
         () => _api.closeJob(id),
-        okMessage: 'Closed.',
-        conflictMessage: 'Already closed.',
+        okMessage: 'Workers can no longer apply.',
+        conflictMessage: 'This job is already closed.',
       );
 
   /// Edit an existing posting's content (`PATCH /payer/job-postings/:id`) —
@@ -96,9 +145,15 @@ class JobsCubit extends Cubit<JobsState> {
     int? maxExperienceYears,
     String? shift,
     String? neededBy,
+    String? roleKind,
     String? description,
     List<String>? benefits,
     List<String>? requirements,
+
+    /// Migration 0141 — the trade-specific form. The server re-validates the
+    /// rung/answers and derives `match_skill_ids` from the chips.
+    String? tradeLevel,
+    Map<String, List<String>>? tradeAnswers,
     List<JobPostingClearField>? clear,
   }) =>
       _lifecycle(
@@ -116,9 +171,12 @@ class JobsCubit extends Cubit<JobsState> {
           maxExperienceYears: maxExperienceYears,
           shift: shift,
           neededBy: neededBy,
+          roleKind: roleKind,
           description: description,
           benefits: benefits,
           requirements: requirements,
+          tradeLevel: tradeLevel,
+          tradeAnswers: tradeAnswers,
           clear: clear,
         ),
         okMessage: 'Job updated.',
@@ -132,13 +190,38 @@ class JobsCubit extends Cubit<JobsState> {
   }) async {
     try {
       await op();
-      await load();
+      await _refresh();
       return JobActionResult.ok(okMessage);
     } on PayerApiException catch (e) {
       // #1652 — a set-and-cleared edit is named for what it is: retrying the
       // same save cannot succeed.
       if (e.isSetAndCleared) {
         return const JobActionResult.fail(kJobEditSetAndClearedMessage);
+      }
+      if (e.code == kJobEditNoChangesCode) {
+        return const JobActionResult.fail(kJobEditNoChangesMessage);
+      }
+      if (e.code == kJobEditClosedCode) {
+        return const JobActionResult.fail(kJobEditClosedMessage);
+      }
+      // #2635 — a live company job must name one of the 16 trades. Flagged so
+      // the screen opens the trade picker instead of toasting; the issue rides
+      // at `role_kind`, so a form shows it AT the picker.
+      if (e.isPostingTradeRequired) {
+        return JobActionResult.fail(
+          kPostingTradeRequiredMessage,
+          fieldErrors: e.fieldErrors,
+          tradeRequired: true,
+        );
+      }
+      // A field-level validation 400 names the box to fix, e.g.
+      // "Job title: Must not contain a company name." — and hands every
+      // issue on by field, so the edit screen can show each AT its box.
+      if (e.validationMessage != null && e.validationMessage!.isNotEmpty) {
+        return JobActionResult.fail(
+          e.validationMessage!,
+          fieldErrors: e.fieldErrors,
+        );
       }
       return JobActionResult.fail(
         e.isConflict ? conflictMessage : 'Could not update. Please try again.',
@@ -158,11 +241,27 @@ class JobsCubit extends Cubit<JobsState> {
 /// The outcome of a one-shot My-jobs action — a success/neutral flag + a human
 /// message the screen shows as a toast. Never carries PII.
 class JobActionResult {
-  const JobActionResult.ok(this.message) : success = true;
-  const JobActionResult.fail(this.message) : success = false;
+  const JobActionResult.ok(this.message)
+      : success = true,
+        fieldErrors = const <String, String>{},
+        tradeRequired = false;
+  const JobActionResult.fail(
+    this.message, {
+    this.fieldErrors = const <String, String>{},
+    this.tradeRequired = false,
+  }) : success = false;
 
   final bool success;
   final String message;
+
+  /// #2595 — a refused edit's issues by wire field
+  /// ([PayerApiException.fieldErrors]); empty otherwise.
+  final Map<String, String> fieldErrors;
+
+  /// #2635 — the server refused because the job would be live without one of
+  /// the 16 trades ([PayerApiException.isPostingTradeRequired]). The caller
+  /// shows the trade picker, never a toast of the reason.
+  final bool tradeRequired;
 }
 
 enum JobsStatus { initial, loading, ready, error }

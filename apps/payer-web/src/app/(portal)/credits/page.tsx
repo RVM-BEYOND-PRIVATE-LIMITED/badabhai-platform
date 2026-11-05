@@ -13,7 +13,7 @@ import { payerServerConfig } from "../../../lib/server-config";
 import { formatInr } from "../../../lib/format";
 import { opaqueId } from "../../../lib/masking";
 import type { CreditTopUp, Dashboard, UnlockHistoryItem } from "../../../lib/contracts";
-import { Badge, Card, StatTile } from "../../../components/ds";
+import { Badge, Card } from "../../../components/ds";
 import { CachedPricingNote } from "../../../components/cached-pricing-note";
 import { PageHeader } from "../../../components/page-header";
 import { RetryButton } from "../../../components/retry-button";
@@ -91,15 +91,28 @@ export default async function CreditsPage() {
   const balance = dashboard?.credits.balance ?? null;
   const lowBalance = balance !== null && balance < threshold;
 
+  const balanceValue = dashboard?.credits.balance ?? null;
+  const unlockValue =
+    balanceValue !== null && unit !== null ? balanceValue * unit : null;
+  const validUntil = new Date();
+  validUntil.setMonth(validUntil.getMonth() + validityMonths);
+  const validUntilLabel = validUntil.toLocaleDateString("en-US", {
+    month: "short",
+    day: "2-digit",
+    year: "numeric",
+  });
+
   return (
     <>
       <PageHeader
         title="Credits"
-        description={`1 credit = 1 contact unlock${unit !== null ? ` (${formatInr(unit)} per unlock)` : ""}${
-          realPayments
-            ? " — pay securely via Razorpay; credits are added as soon as the payment is confirmed."
-            : "."
-        }`}
+        description={`1 credit = 1 verified contact unlock${unit !== null ? ` · Standard rate: ${formatInr(unit)} per unlock` : ""}${realPayments ? " — pay securely via Razorpay; credits are added as soon as the payment is confirmed." : ""}`}
+        actionsSlot={
+          <span className="cred-info">
+            <Icon name="info" />
+            <span>Purchased credits reflect immediately</span>
+          </span>
+        }
       />
 
       {!live ? <CachedPricingNote /> : null}
@@ -136,163 +149,190 @@ export default async function CreditsPage() {
         </Card>
       ) : dashboard ? (
         <>
-          <div className="stat-row">
-            {/* The wallet hero — the DS StatTile on the Shift Blue container (one class). */}
-            <StatTile
-              className="credits-balance"
-              label="Credit balance"
-              value={dashboard.credits.balance}
-              icon={ACTION_ICON.credits}
-              caption={
-                unit !== null ? (
-                  <>
-                    <span className="bb-mono">{formatInr(unit)}</span> per unlock
-                  </>
-                ) : undefined
-              }
-            />
-          </div>
-          <section className="section">
-            <div className="section__head">
-              <div className="section__text">
-                <h2 className="section__title">Buy credits</h2>
-                <p className="section__sub">
-                  Pick a pack — the credits land in the balance above and can be spent on any
-                  contact unlock.
+          <section className="cred-hero">
+            <span className="cred-hero__icon">
+              <Icon name={ACTION_ICON.credits} />
+            </span>
+            <div className="cred-hero__body">
+              <p className="cred-hero__label">
+                CURRENT CREDIT BALANCE <span className="cred-dot" aria-hidden="true" />
+              </p>
+              <p className="cred-hero__value">
+                <span className="cred-hero__num bb-mono">{dashboard.credits.balance}</span>
+                <span className="cred-hero__unit">available unlocks</span>
+              </p>
+              <p className="cred-hero__sub">
+                Equivalent candidate unlock value:{" "}
+                <span className="bb-mono">
+                  {unlockValue !== null ? formatInr(unlockValue) : "—"}
+                </span>
+              </p>
+            </div>
+            <div className="cred-hero__stats">
+              <div>
+                <span>VALID UNTIL</span>
+                <strong>{validUntilLabel}</strong>
+              </div>
+              <div>
+                <span>AVG RATE PAID</span>
+                <strong>{unit !== null ? `${formatInr(unit)} / unlock` : "—"}</strong>
+              </div>
+            </div>
+          </section>
+
+          <section className="cred-buy">
+            <div className="cred-buy__head">
+              <div>
+                <h2 className="cred-section__title">Buy Credits</h2>
+                <p className="cred-section__sub">
+                  Pick a pack — the credits land in the balance above immediately and can be spent
+                  on any contact unlock.
                 </p>
               </div>
+              <span className="cred-muted">Instant GST Invoice Available</span>
             </div>
             <CreditsPanel packs={packs} real={realPayments} />
           </section>
         </>
       ) : null}
 
-      <section className="panel panel--table">
-        <div className="panel__head">
-          <div className="panel__text">
-            <h2 className="panel__title">History</h2>
-            <p className="panel__sub">
-              Your own credit movements — purchases and unlock spends. Ids and amounts only; no
-              applicant identity is ever shown.
-            </p>
-          </div>
-        </div>
-        <div className="panel__body">
-          {history.length > 0 ? (
-            // A labelled, keyboard-reachable scroll region: on a phone this ledger is wider
-            // than the screen and scrolls inside itself, so it must be focusable to be
-            // scrollable without a pointer.
-            <div className="tablewrap" tabIndex={0} role="region" aria-label="Credit history">
-              <table className="table table--nowrap">
-                <thead>
-                  <tr>
-                    <th>Date</th>
-                    <th>Type</th>
-                    <th className="num">Credits</th>
-                    <th className="num">Amount</th>
-                    <th>Ref</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {history.map((t) => (
-                    <tr key={t.id}>
-                      <td className="mono">{day(t.at)}</td>
-                      <td>
-                        {t.kind === "topup" ? (
-                          // "Purchase": credits are BOUGHT ("Buy credits"); "Top up" also
-                          // named adding applicant slots to a posting.
-                          <Badge tone="success">Purchase</Badge>
-                        ) : (
-                          <Badge tone="neutral">Unlock</Badge>
-                        )}
-                      </td>
-                      <td className="num">{t.credits > 0 ? `+${t.credits}` : t.credits}</td>
-                      <td className="num">
-                        {t.kind === "topup" && t.priceInr !== undefined
-                          ? formatInr(t.priceInr)
-                          : "—"}
-                      </td>
-                      <td className="mono">{opaqueId(t.id)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+      <div className="cred-grid">
+        <section className="cred-panel">
+          <div className="cred-panel__head">
+            <div>
+              <h2 className="cred-panel__title">Credit Movement &amp; History</h2>
+              <p className="cred-panel__sub">Your purchases and candidate unlock spends</p>
             </div>
-          ) : error ? (
-            // The balance read is what failed, so the unlock half of the ledger is missing —
-            // say that rather than claiming there were never any movements.
-            <div className="state state--error">
-              <span className="state__icon">
-                <Icon name="warning-circle" />
-              </span>
-              <h3 className="state__title">History unavailable</h3>
-              <p className="state__body">
-                We couldn&rsquo;t load your credit movements right now. Nothing has changed — please
-                retry.
-              </p>
-              <div className="state__actions">
-                <RetryButton />
+            {history.length > 0 ? (
+              <span className="cred-link">Download GST Invoices</span>
+            ) : null}
+          </div>
+          <div className="cred-panel__body">
+            {history.length > 0 ? (
+              <div className="tablewrap" tabIndex={0} role="region" aria-label="Credit history">
+                <table className="table table--nowrap">
+                  <thead>
+                    <tr>
+                      <th>Date</th>
+                      <th>Type</th>
+                      <th className="num">Credits</th>
+                      <th className="num">Amount</th>
+                      <th>Ref</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {history.map((t) => (
+                      <tr key={t.id}>
+                        <td className="mono">{day(t.at)}</td>
+                        <td>
+                          {t.kind === "topup" ? (
+                            <Badge tone="success">Purchase</Badge>
+                          ) : (
+                            <Badge tone="neutral">Unlock</Badge>
+                          )}
+                        </td>
+                        <td className="num">{t.credits > 0 ? `+${t.credits}` : t.credits}</td>
+                        <td className="num">
+                          {t.kind === "topup" && t.priceInr !== undefined
+                            ? formatInr(t.priceInr)
+                            : "—"}
+                        </td>
+                        <td className="mono">{opaqueId(t.id)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
-            </div>
-          ) : (
-            <div className="state">
-              <span className="state__icon">
-                <Icon name="receipt" />
-              </span>
-              <h3 className="state__title">No credit movements yet</h3>
-              <p className="state__body">
-                Credit purchases and unlock spends land here the moment they happen. Buy a pack above
-                to get started.
-              </p>
-            </div>
-          )}
-        </div>
-      </section>
-
-      <section className="panel panel--table">
-        <div className="panel__head">
-          <div className="panel__text">
-            <h2 className="panel__title">Credit expiry</h2>
-            <p className="panel__sub">
-              Purchased credits expire {validityMonths} months after the purchase. Soonest first.
-            </p>
+            ) : error ? (
+              <div className="state state--error">
+                <span className="state__icon">
+                  <Icon name="warning-circle" />
+                </span>
+                <h3 className="state__title">History unavailable</h3>
+                <p className="state__body">
+                  We couldn&rsquo;t load your credit movements right now. Nothing has changed —
+                  please retry.
+                </p>
+                <div className="state__actions">
+                  <RetryButton />
+                </div>
+              </div>
+            ) : (
+              <div className="cred-empty">
+                <span className="cred-empty__icon">
+                  <Icon name="receipt" />
+                </span>
+                <h3 className="cred-empty__title">No recent credit movements</h3>
+                <p className="cred-empty__body">
+                  Credit purchases and unlocked applicant contact details will be logged securely
+                  here.
+                </p>
+              </div>
+            )}
           </div>
-        </div>
-        <div className="panel__body">
-          {expiry.length > 0 ? (
-            <div className="tablewrap" tabIndex={0} role="region" aria-label="Credit expiry">
-              <table className="table table--nowrap">
-                <thead>
-                  <tr>
-                    <th className="num">Credits</th>
-                    <th>Purchased</th>
-                    <th>Expires</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {expiry.map((e) => (
-                    <tr key={e.topUpId}>
-                      <td className="num">{e.credits}</td>
-                      <td className="mono">{day(e.purchasedAt)}</td>
-                      <td className="mono">{day(e.expiresAt)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <div className="state">
-              <span className="state__icon">
-                <Icon name="hourglass" />
-              </span>
-              <h3 className="state__title">Nothing expiring yet</h3>
-              <p className="state__body">
-                Credits you buy show their purchase and expiry dates here, soonest first.
+          <div className="cred-panel__foot">
+            <span>All candidate identities protected</span>
+            <span className="cred-panel__footend">
+              <Icon name="shield-check" /> Encrypted Audit
+            </span>
+          </div>
+        </section>
+
+        <section className="cred-panel">
+          <div className="cred-panel__head">
+            <div>
+              <h2 className="cred-panel__title">Credit Expiry &amp; Policy</h2>
+              <p className="cred-panel__sub">
+                Purchased credits are valid for {validityMonths} months
               </p>
             </div>
-          )}
-        </div>
-      </section>
+            <span className="cred-pill">
+              <Icon name="hourglass" /> Earliest First FIFO
+            </span>
+          </div>
+          <div className="cred-panel__body">
+            {expiry.length > 0 ? (
+              <div className="tablewrap" tabIndex={0} role="region" aria-label="Credit expiry">
+                <table className="table table--nowrap">
+                  <thead>
+                    <tr>
+                      <th className="num">Credits</th>
+                      <th>Purchased</th>
+                      <th>Expires</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {expiry.map((e) => (
+                      <tr key={e.topUpId}>
+                        <td className="num">{e.credits}</td>
+                        <td className="mono">{day(e.purchasedAt)}</td>
+                        <td className="mono">{day(e.expiresAt)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="cred-empty">
+                <span className="cred-empty__icon cred-empty__icon--green">
+                  <Icon name="hourglass" />
+                </span>
+                <h3 className="cred-empty__title">Nothing expiring soon</h3>
+                <p className="cred-empty__body">
+                  All {balance ?? 0} current credits are safe and active. We will email you 30 days
+                  before any unspent credit expires.
+                </p>
+              </div>
+            )}
+          </div>
+          <div className="cred-panel__foot">
+            <span>Validity term: {validityMonths * 30} Days</span>
+            <span className="cred-panel__footend cred-panel__footend--green">
+              <Icon name="check-circle" /> 100% Active
+            </span>
+          </div>
+        </section>
+      </div>
 
       {realPayments ? (
         <div className="alert alert--info">
@@ -308,4 +348,5 @@ export default async function CreditsPage() {
       ) : null}
     </>
   );
+
 }

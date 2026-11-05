@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 
 import 'app_colors.dart';
+import 'app_page_transitions.dart';
 import 'app_spacing.dart';
+import 'app_system_ui.dart';
 import 'app_typography.dart';
 
 /// The BadaBhai **JUL31 "JOSH"** theme, assembled from the design tokens
@@ -74,6 +76,10 @@ class AppTheme {
       highlightColor: AppColors.brandTint,
       dividerColor: AppColors.divider,
 
+      // #2591 — every page route fades + slides 8% over 300ms (emphasized),
+      // with Android predictive back.
+      pageTransitionsTheme: BbPageTransitionsBuilder.theme,
+
       iconTheme: const IconThemeData(color: AppColors.ink700, size: 24),
 
       // Flat header — canvas surface, ink foreground, no shadow.
@@ -87,6 +93,8 @@ class AppTheme {
         centerTitle: true,
         titleTextStyle: textTheme.titleLarge,
         iconTheme: const IconThemeData(color: AppColors.ink700),
+        // #2590 — app bars sit on the light canvas: dark status-bar icons.
+        systemOverlayStyle: AppSystemUi.onLight,
       ),
 
       // Primary CTA — HALDI button, deep-blue label, flat.

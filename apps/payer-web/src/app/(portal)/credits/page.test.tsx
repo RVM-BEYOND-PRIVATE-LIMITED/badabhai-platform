@@ -249,7 +249,7 @@ describe("credits page — (b) history renders unlock + top-up rows", () => {
     expect(joined).toContain("+50");
     // ...with a dash for the amount, and NO invented ₹ figure anywhere.
     expect(joined).toContain("—");
-    expect(joined).not.toMatch(/₹2,000/);
+    expect(joined.match(/₹2,000/g) ?? []).toHaveLength(1); // the hero only — the row stays a dash
     expect(joined).not.toMatch(/₹0\b/); // never a fake zero either
   });
 });
@@ -258,7 +258,7 @@ describe("credits page — (c) expiry shows purchase + 12 months", () => {
   it("renders the purchase date and the +12-month expiry date", async () => {
     const purchased = "2026-01-10T08:00:00.000Z";
     const { joined } = await render({ balance: 50, topUps: [topUp({ createdAt: purchased })] });
-    expect(joined).toMatch(/Credit expiry/);
+    expect(joined).toMatch(/Credit Expiry/i);
     expect(joined).toContain("2026-01-10"); // purchased
     // +12 months via the same pure helper the page uses → 2027-01-10.
     expect(joined).toContain(addMonthsIso(purchased, 12).slice(0, 10));
@@ -302,7 +302,7 @@ describe("credits page — (e) packs + unit price resolve from the live catalog 
     expect(joined).not.toMatch(/no money moves/i);
     // The description still says what a credit buys and its config price — and stops there.
     expect(joined).toContain(
-      `1 credit = 1 contact unlock (₹${unlockUnitPriceInr({ products: DEFAULT_CATALOG.products })} per unlock).`,
+      `1 credit = 1 verified contact unlock · Standard rate: ₹${unlockUnitPriceInr({ products: DEFAULT_CATALOG.products })} per unlock`,
     );
   });
 });
@@ -396,8 +396,8 @@ describe("credits page — (g) UI-1 page spine + real empty/error states", () =>
     expect(classes).toContain("page-head");
     expect(classes).toContain("page-head__title");
     expect(classes).toContain("page-head__sub");
-    expect(classes).toContain("stat-row");
-    expect(classes).toContain("panel panel--table");
+    expect(classes).toContain("cred-hero");
+    expect(classes).toContain("cred-panel");
     // The page's info band is the DS alert. Only REAL mode draws one now (the Razorpay note) —
     // the mock-mode band was the "Mock payments only" disclaimer the owner ruled out (F35).
     payerServerConfig.mockReturnValue({
@@ -430,12 +430,12 @@ describe("credits page — (g) UI-1 page spine + real empty/error states", () =>
   it("an EMPTY history/expiry renders a real empty state, never a missing panel", async () => {
     const { flat, classes } = await render({ balance: 50 });
     // Both panels are present…
-    expect(flat).toContain("History");
-    expect(flat).toContain("Credit expiry");
+    expect(flat).toContain("Credit Movement & History");
+    expect(flat).toMatch(/Credit Expiry/i);
     // …and each says what is empty and what to do next.
-    expect(flat).toContain("No credit movements yet");
-    expect(flat).toContain("Nothing expiring yet");
-    expect(classes).toContain("state");
+    expect(flat).toContain("No recent credit movements");
+    expect(flat).toContain("Nothing expiring soon");
+    expect(classes).toContain("cred-empty");
   });
 
   it("a FAILED balance read gives the history panel an error state with a retry (no leak)", async () => {
@@ -487,14 +487,10 @@ describe("credits page — (h) PR-D2 wallet hero + scrollable ledgers", () => {
     return acc;
   }
 
-  it("the balance renders through the DS StatTile with the hero class, inside the stat-row", async () => {
+  it("the balance renders in the designer hero", async () => {
     const { classes } = await render({ balance: 50 });
-    // The page passes the class to the primitive…
-    expect(classes).toContain("credits-balance");
-    // …and the primitive (expanded by the walker) renders it on its own root — not a fork.
-    expect(classes).toContain("bb-stat credits-balance");
-    // The spine around it is unchanged.
-    expect(classes).toContain("stat-row");
+    expect(classes).toContain("cred-hero");
+    expect(classes.some((c) => c.includes("cred-hero__num"))).toBe(true);
   });
 
   it("each ledger is a focusable, labelled region wrapping a no-wrap table", async () => {

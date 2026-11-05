@@ -1,4 +1,4 @@
-import 'package:flutter/animation.dart';
+import 'package:flutter/widgets.dart';
 
 /// BadaBhai motion tokens — ported from `tokens/motion.css`.
 ///
@@ -21,4 +21,135 @@ class AppMotion {
   static const Duration base = Duration(milliseconds: 220);
   static const Duration slow = Duration(milliseconds: 320);
   static const Duration slower = Duration(milliseconds: 480);
+
+  // ---- #2596 (M8) success moments ---------------------------------------
+  // Two kinds of token live here:
+  //  - MOTION ([stampLand], [countUp], [bubbleRise], [typingCycle]): the
+  //    movement itself goes to zero (or stands still) when the OS asks for
+  //    animations to be removed.
+  //  - HOLDS ([copiedHold], [highlightFade], and the stamp's on-screen
+  //    lifetime): how long a confirmation stays readable. They are NOT zeroed
+  //    under reduced motion. They keep their full length, then cut without
+  //    a fade, because the cue is the message.
+
+  /// The success stamp lands: scale 0.6 → 1.08 → 1, once.
+  static const Duration stampLand = Duration(milliseconds: 520);
+
+  /// A key figure counts up to its real value.
+  static const Duration countUp = Duration(milliseconds: 600);
+
+  /// The tint on a row the payer just created fades out over this long. A
+  /// hold under reduced motion: the tint stays this long, then cuts.
+  static const Duration highlightFade = Duration(milliseconds: 1500);
+
+  /// How long a copy button shows its check before turning back. A hold, not
+  /// motion: it is not zeroed under reduced motion (the check is the message).
+  static const Duration copiedHold = Duration(milliseconds: 1200);
+
+  /// A new chat bubble rises into place.
+  static const Duration bubbleRise = Duration(milliseconds: 180);
+
+  /// One full cycle of the typing dots while a reply is awaited.
+  static const Duration typingCycle = Duration(milliseconds: 1200);
+
+  /// Travel of an in-place entrance (a chat bubble's rise), in logical pixels.
+  static const double riseOffset = 6;
+
+  // ---- #2591 (M3) motion foundation -------------------------------------
+  // Subtle + purposeful: 90–300ms, opacity/transform only, ≤6px of travel on
+  // in-place elements, and every duration collapses to zero under the OS
+  // "remove animations" setting (see [reduced] / [resolve]).
+
+  /// Emphasized enter curve — a fast start that settles softly (M3
+  /// emphasized-decelerate). Used for page routes, overlays and the tab
+  /// indicator.
+  static const Cubic emphasized = Cubic(0.05, 0.7, 0.1, 1);
+
+  /// Press feedback — scale to [pressScale] (and collapse the navy edge).
+  static const Duration press = Duration(milliseconds: 90);
+
+  /// Page routes and in-shell overlays — fade + [pageSlide] horizontal slide.
+  static const Duration page = Duration(milliseconds: 300);
+
+  /// Bottom sheets in and out.
+  static const Duration sheet = Duration(milliseconds: 280);
+
+  /// Bottom-nav tab indicator slide.
+  static const Duration tab = Duration(milliseconds: 220);
+
+  /// Delay between consecutive items of a staggered list entrance.
+  static const Duration stagger = Duration(milliseconds: 30);
+
+  /// A small glyph morphing in place — a checklist tick as its rule is met
+  /// (#2597).
+  static const Duration morph = Duration(milliseconds: 160);
+
+  /// The scale a tappable surface presses down to.
+  static const double pressScale = 0.97;
+
+  /// Horizontal slide of a page/overlay transition, as a fraction of its width.
+  static const double pageSlide = 0.08;
+
+  // ---- #2595 (M7) form feedback -----------------------------------------
+  // Same laws as M3: opacity/transform only, ≤6px of travel, zero under the
+  // OS "remove animations" setting (every one is read through [resolve]).
+
+  /// An inline field error appearing: a fade + [errorTravel] slide down.
+  static const Duration errorReveal = Duration(milliseconds: 160);
+
+  /// How far an inline error slides down as it appears, in logical pixels.
+  static const double errorTravel = 4;
+
+  /// The one shake of the first invalid field on a refused submit.
+  static const Duration shake = Duration(milliseconds: 200);
+
+  /// The shake's travel either side of rest, in logical pixels.
+  static const double shakeTravel = 6;
+
+  /// A form progress bar filling to its next step.
+  static const Duration progress = Duration(milliseconds: 300);
+
+  /// The scale an OTP box pops to as its digit lands (over [press]).
+  static const double popScale = 1.04;
+
+  // ---- #2593 (M5) Find --------------------------------------------------
+  // The Find switch's thumb reuses [tab] (220ms, [emphasized]); an unlock that
+  // fails shakes its card with [shake] / [shakeTravel]. Same laws as M3.
+
+  /// A pinned list header's soft shadow fading in once the list scrolls under
+  /// it, and out when the list is back at the top. Opacity only.
+  static const Duration headerShadow = Duration(milliseconds: 160);
+
+  /// True when the OS asks for animations to be removed
+  /// ([MediaQueryData.disableAnimations]). Safe without a [MediaQuery].
+  static bool reduced(BuildContext context) =>
+      MediaQuery.maybeDisableAnimationsOf(context) ?? false;
+
+  /// [duration], or [Duration.zero] when animations are disabled — the one
+  /// gate every animated primitive reads its duration through.
+  static Duration resolve(BuildContext context, Duration duration) =>
+      reduced(context) ? Duration.zero : duration;
+
+  /// [AnimationStyle] for `showModalBottomSheet(sheetAnimationStyle: …)` —
+  /// [sheet] in and out, zero when animations are disabled.
+  static AnimationStyle sheetStyle(BuildContext context) {
+    final Duration d = resolve(context, sheet);
+    return AnimationStyle(duration: d, reverseDuration: d);
+  }
+
+  // ---- #2592 (M4) loading & refresh --------------------------------------
+
+  /// One sweep of the skeleton shimmer. The shimmer is a progress indicator —
+  /// the one kind of loop the rules allow — and stops under reduced motion.
+  static const Duration shimmer = Duration(milliseconds: 1200);
+
+  /// Real content cross-fading in over its skeleton.
+  static const Duration contentFade = Duration(milliseconds: 200);
+
+  /// The load-more row fading in at the end of a paged list.
+  static const Duration loadMoreFade = Duration(milliseconds: 160);
+
+  /// The opacity the rows on screen dim to while a job or filter change loads
+  /// their replacement (the dim itself eases over [fast]).
+  static const double staleOpacity = 0.6;
 }

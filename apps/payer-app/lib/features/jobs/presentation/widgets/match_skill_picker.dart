@@ -126,7 +126,7 @@ class MatchSkillPicker extends StatelessWidget {
     final Widget chip = BbChip(
       label: skill.label,
       selected: picked,
-      icon: picked ? Icons.check : null,
+      icon: picked ? Icons.check_rounded : null,
       onTap: disabled ? null : () => onToggleSkill(skill.skillId),
     );
     return disabled ? Opacity(opacity: 0.45, child: chip) : chip;
@@ -139,7 +139,7 @@ class MatchSkillPicker extends StatelessWidget {
   Widget _reachMeter() {
     if (pickedIds.isEmpty) {
       return _hint(
-        icon: Icons.groups_outlined,
+        icon: Icons.groups_rounded,
         text: 'Pick a skill to see how many workers you can reach.',
       );
     }
@@ -150,13 +150,13 @@ class MatchSkillPicker extends StatelessWidget {
       // payer is not stranded on a spinner with Post disabled.
       if (reachFailed && !reachLoading) {
         return _hint(
-          icon: Icons.error_outline,
+          icon: Icons.error_rounded,
           text: "Couldn't count workers — check your connection.",
           onRetry: onRetryReach,
         );
       }
       return _hint(
-        icon: Icons.groups_outlined,
+        icon: Icons.groups_rounded,
         text: 'Counting workers…',
         busy: true,
       );
@@ -181,7 +181,7 @@ class MatchSkillPicker extends StatelessWidget {
           Row(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: <Widget>[
-              const Icon(Icons.groups, size: 24, color: AppColors.green700),
+              const Icon(Icons.groups_rounded, size: 24, color: AppColors.green700),
               const SizedBox(width: AppSpacing.s2),
               Expanded(
                 child: RichText(
@@ -277,7 +277,7 @@ class MatchSkillPicker extends StatelessWidget {
     return BbChip(
       label: '${rel.label} +${rel.reachCount}',
       selected: ticked,
-      icon: ticked ? Icons.check : Icons.add,
+      icon: ticked ? Icons.check_rounded : Icons.add_rounded,
       onTap: () => onToggleRelated(rel.skillId),
     );
   }
@@ -375,7 +375,7 @@ class _WarnCard extends StatelessWidget {
               ),
             )
           else
-            const Icon(Icons.error_outline,
+            const Icon(Icons.error_rounded,
                 size: 22, color: AppColors.onHaldi),
           const SizedBox(width: AppSpacing.s2),
           Expanded(
