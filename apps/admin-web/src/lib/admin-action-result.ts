@@ -25,6 +25,15 @@ export interface AdminActionSuccess {
   acceptUrl?: string;
   /** ISO expiry for [acceptUrl], so the operator can say how long the link is good for. */
   acceptExpiresAt?: string;
+  /**
+   * A temporary password the action wants the operator to hand over once (#2578 — creating a
+   * payer login, or issuing a one-time password). OPTIONAL and shown once.
+   *
+   * A BEARER SECRET, exactly like [acceptUrl]: display it with a copy button, never log it,
+   * never put it in an analytics event, never persist it. The API returns it only in the
+   * response that minted it, so it cannot be shown again.
+   */
+  temporaryPassword?: string;
 }
 
 export interface AdminActionFailure {
