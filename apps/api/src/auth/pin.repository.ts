@@ -1,7 +1,13 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { eq, sql } from "drizzle-orm";
-import { type Database, workerCredentials, type WorkerCredential } from "@badabhai/db";
+import { desc, eq, sql } from "drizzle-orm";
+import {
+  type Database,
+  auditLogs,
+  workerCredentials,
+  type WorkerCredential,
+} from "@badabhai/db";
 import { DATABASE } from "../database/database.module";
+import { ADMIN_ACTION_CODES } from "../admin/admin-action-codes";
 
 /**
  * Drizzle data access for `worker_credentials` (ADR-0026 Phase 3, the device-bound PIN).
@@ -24,6 +30,39 @@ export class PinRepository {
       .where(eq(workerCredentials.workerId, workerId))
       .limit(1);
     return rows[0];
+  }
+
+  /**
+   * #2562 — when an admin last RESET this worker's PIN, from the audit row the reset writes in
+   * the same transaction as the credential delete. `audit_logs_entity_idx` serves the lookup.
+   *
+   * This is the durable watermark `/auth/pin/set` uses: a session whose phone-code sign-in
+   * predates this instant must not be able to choose a new PIN, because the reset's whole
+   * point is that the worker proves the phone again (ADR-0062 §3.8). Null = never reset by an
+   * admin.
+   */
+  async latestAdminPinResetAt(workerId: string): Promise<Date | null> {
+    const [row] = await this.db
+      .select({ createdAt: auditLogs.createdAt })
+      .from(auditLogs)
+      .where(
+        sql`${auditLogs.action} = ${ADMIN_ACTION_CODES.worker_pin_reset}
+          AND ${auditLogs.entityType} = 'worker'
+          AND ${auditLogs.entityId} = ${workerId}`,
+      )
+      .orderBy(desc(auditLogs.createdAt))
+      .limit(1);
+    return row?.createdAt ?? null;
+  }
+
+  /** #2562 — admin PIN reset: remove the credential so the old PIN cannot unlock and the next
+   * phone-code sign-in routes the worker to set-PIN. */
+  async deleteByWorkerId(workerId: string, tx?: Database): Promise<boolean> {
+    const rows = await (tx ?? this.db)
+      .delete(workerCredentials)
+      .where(eq(workerCredentials.workerId, workerId))
+      .returning({ id: workerCredentials.id });
+    return rows.length > 0;
   }
 
   /**

@@ -57,7 +57,9 @@ export class PinController {
     @Body(new ZodValidationPipe(PinSetSchema)) dto: PinSetDto,
     @Ctx() ctx: RequestContext,
   ): Promise<void> {
-    await this.pin.setPin(worker.id, dto.pin, ctx);
+    // A guard-issued session always carries the OTP anchor; 0 is a fail-closed fallback (it
+    // predates every possible admin reset), never an invitation to skip the gate.
+    await this.pin.setPin(worker.id, dto.pin, ctx, worker.createdAtMs ?? 0);
   }
 
   /**

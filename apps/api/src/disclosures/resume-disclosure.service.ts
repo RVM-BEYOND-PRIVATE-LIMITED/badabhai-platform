@@ -183,7 +183,7 @@ export class ResumeDisclosureService {
     // rule); the tx below RE-CHECKS under the lock. No denied row is written: the
     // deny-reason enum carries no pending value and a leaving worker should accrue no
     // new rows keyed on them.
-    if (await this.isPendingDeletion(workerId)) return neutralUnavailable();
+    if (await this.isPayerSurfaceFrozen(workerId)) return neutralUnavailable();
 
     // The name-free render source (latest snapshot). Reading it pre-lock is safe — it
     // is not contended and carries NO PII (the real name is NOT in the snapshot).
@@ -212,7 +212,12 @@ export class ResumeDisclosureService {
       // signed URL is a new disclosure) during grace. ONE cheap tx-SCOPED pk read
       // (deadlock rule); a gone row is the same neutral.
       const marker = await this.repo.getWorkerDeletionMarker(tx, workerId);
-      if (!marker || marker.deletionScheduledAt !== null) return { kind: "neutral" };
+      if (
+        !marker ||
+        marker.deletionScheduledAt !== null ||
+        marker.status === "suspended"
+      )
+        return { kind: "neutral" };
 
       // ---- [2] SHARED worker-protection cap (atomic, under the lock) --------------
       if (await this.isOverSharedCap(tx, workerId)) {
@@ -755,18 +760,20 @@ export class ResumeDisclosureService {
   }
 
   /**
-   * ADR-0031 payer-surface freeze (ruling (b)): true when the worker has a PENDING
-   * scheduled deletion (`deletion_scheduled_at` set) — a leaving worker's resume is
-   * not disclosable; the caller denies with the byte-identical neutral body (no
-   * oracle). Tx-EXTERNAL read (pre-lock only; the in-tx re-check uses the tx-scoped
-   * marker read). Fail closed: a read error counts as pending (disclose nothing).
+   * ADR-0031 payer-surface freeze (ruling (b)), extended by #2562: true when the worker has a
+   * PENDING scheduled deletion OR is SUSPENDED. Both stop the resume from being disclosable;
+   * unsuspend reverses the second, exactly as a cancelled deletion reverses the first. Fail
+   * closed: a read error counts as frozen (disclose nothing).
    */
-  private async isPendingDeletion(workerId: string): Promise<boolean> {
+  private async isPayerSurfaceFrozen(workerId: string): Promise<boolean> {
     try {
       const worker = await this.workers.findById(workerId);
-      return worker !== undefined && worker.deletionScheduledAt !== null;
+      // A MISSING row is not "frozen" here - the normal path answers it with the same neutral
+      // body (no oracle), so this helper stays about the two DURABLE states only.
+      if (worker === undefined) return false;
+      return worker.deletionScheduledAt !== null || worker.status === "suspended";
     } catch {
-      return true; // fail closed
+      return true; // fail closed on a read error
     }
   }
 }

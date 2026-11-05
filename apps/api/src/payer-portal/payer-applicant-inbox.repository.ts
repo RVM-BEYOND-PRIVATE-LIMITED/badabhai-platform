@@ -81,6 +81,8 @@ export function inboxCountStatement(tenant: TenantKey, query: InboxCountQuery): 
       WHERE j.payer_id = ${tenant}::uuid
         AND a.action = 'applied'
         AND w.deletion_scheduled_at IS NULL
+        -- #2562 - the COUNT must match the page: a suspended worker is not an applicant row.
+        AND w.status <> 'suspended'
         AND EXISTS (SELECT 1 FROM worker_profiles wp WHERE wp.worker_id = a.worker_id)
         ${posting(dsql`j.id`)}
         ${stageFilter}
@@ -93,6 +95,8 @@ export function inboxCountStatement(tenant: TenantKey, query: InboxCountQuery): 
       WHERE jp.payer_id = ${tenant}::uuid
         AND a.action = 'applied'
         AND w.deletion_scheduled_at IS NULL
+        -- #2562 - the COUNT must match the page: a suspended worker is not an applicant row.
+        AND w.status <> 'suspended'
         AND NOT EXISTS (
           SELECT 1 FROM jobs oj WHERE oj.id = a.job_id AND oj.payer_id = ${tenant}::uuid
         )
@@ -119,8 +123,9 @@ export function inboxCountStatement(tenant: TenantKey, query: InboxCountQuery): 
  * not own matches nothing in either arm. `payer_id` is never projected.
  *
  * MEMBERSHIP IS EACH PER-POSTING LIST'S, so every row here has a row on its posting's list:
- *  - both arms: `action = 'applied'` (a skip is never an applicant) and the ADR-0031 (b)
- *    freeze (`workers.deletion_scheduled_at IS NULL`);
+ *  - both arms: `action = 'applied'` (a skip is never an applicant), the ADR-0031 (b)
+ *    freeze (`workers.deletion_scheduled_at IS NULL`) and the #2562 suspension freeze
+ *    (`workers.status <> 'suspended'`);
  *  - agency arm: a `worker_profiles` row must exist — the per-job list ranks appliers off their
  *    profile row (`applicantSignalRowsStatement` reads FROM `worker_profiles`), so an applier
  *    without one is not on it;
@@ -189,6 +194,8 @@ export function inboxPageStatement(tenant: TenantKey, query: InboxPageQuery): SQ
       WHERE j.payer_id = ${tenant}::uuid
         AND a.action = 'applied'
         AND w.deletion_scheduled_at IS NULL
+        -- #2562 - suspended workers are frozen on payer surfaces exactly like pending deletion.
+        AND w.status <> 'suspended'
         AND EXISTS (SELECT 1 FROM worker_profiles wp WHERE wp.worker_id = a.worker_id)
         ${posting(dsql`j.id`)}
         ${keyset}
@@ -209,6 +216,8 @@ export function inboxPageStatement(tenant: TenantKey, query: InboxPageQuery): SQ
       WHERE jp.payer_id = ${tenant}::uuid
         AND a.action = 'applied'
         AND w.deletion_scheduled_at IS NULL
+        -- #2562 - suspended workers are frozen on payer surfaces exactly like pending deletion.
+        AND w.status <> 'suspended'
         AND NOT EXISTS (
           SELECT 1 FROM jobs oj WHERE oj.id = a.job_id AND oj.payer_id = ${tenant}::uuid
         )

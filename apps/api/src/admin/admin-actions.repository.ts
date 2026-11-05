@@ -6,14 +6,17 @@ import {
   type PayerStatus,
   type WorkerFlag,
   type WorkerFlagReasonCode,
+  auditLogs,
   creditLedger,
   jobPostings,
   jobs,
   payerCredits,
   payers,
   workerFlags,
+  workers,
 } from "@badabhai/db";
 import { DATABASE } from "../database/database.module";
+import type { WorkerStatus } from "@badabhai/types";
 
 /** The outcome of a credit grant — the new balance + the ledger row id, plus whether THIS call
  * actually moved the balance (false on an idempotent replay of the same key). */
@@ -329,6 +332,63 @@ export class AdminActionsRepository {
       .where(and(eq(jobPostings.id, id), ne(jobPostings.status, "closed")))
       .returning({ id: jobPostings.id });
     return row;
+  }
+
+  // ----- workers: account actions (#2562) ------------------------------------
+
+  /** A worker's id + current status only (no PII column). undefined when gone. */
+  async findWorkerStatus(id: string): Promise<{ id: string; status: WorkerStatus } | undefined> {
+    const [row] = await this.db
+      .select({ id: workers.id, status: workers.status })
+      .from(workers)
+      .where(eq(workers.id, id))
+      .limit(1);
+    return row;
+  }
+
+  /** Suspend: guarded on not-already-suspended, so a retry is a no-op. */
+  async suspendWorker(id: string, tx: Database): Promise<{ id: string } | undefined> {
+    const [row] = await tx
+      .update(workers)
+      .set({ status: "suspended", updatedAt: new Date() })
+      .where(and(eq(workers.id, id), ne(workers.status, "suspended")))
+      .returning({ id: workers.id });
+    return row;
+  }
+
+  /** Unsuspend: restore the only usable status a worker has (`active`). */
+  async reinstateWorker(id: string, tx: Database): Promise<{ id: string } | undefined> {
+    const [row] = await tx
+      .update(workers)
+      .set({ status: "active", updatedAt: new Date() })
+      .where(and(eq(workers.id, id), eq(workers.status, "suspended")))
+      .returning({ id: workers.id });
+    return row;
+  }
+
+  /**
+   * #2562 — the written reason for a worker-account action. `audit_logs` is the platform's
+   * write-only audit table; the reason is never evented. It IS a known store that worker
+   * deletion does not reach, which is why the DTO rejects hard identifiers.
+   */
+  async writeAuditReason(
+    tx: Database,
+    input: {
+      adminId: string;
+      workerId: string;
+      action: string;
+      reasonCode: string;
+      reasonText: string;
+    },
+  ): Promise<void> {
+    await tx.insert(auditLogs).values({
+      actorType: "admin",
+      actorId: input.adminId,
+      action: input.action,
+      entityType: "worker",
+      entityId: input.workerId,
+      metadata: { reason_code: input.reasonCode, reason_text: input.reasonText },
+    });
   }
 
   // ----- worker_flags (flag / unflag) ---------------------------------------

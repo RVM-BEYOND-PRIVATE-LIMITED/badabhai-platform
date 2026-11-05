@@ -189,9 +189,12 @@ export class UnlocksRepository {
   async getWorkerDeletionMarker(
     tx: Tx,
     workerId: string,
-  ): Promise<{ deletionScheduledAt: Date | null } | undefined> {
+  ): Promise<{ deletionScheduledAt: Date | null; status: string } | undefined> {
     const rows = await tx
-      .select({ deletionScheduledAt: workers.deletionScheduledAt })
+      .select({
+        deletionScheduledAt: workers.deletionScheduledAt,
+        status: workers.status,
+      })
       .from(workers)
       .where(eq(workers.id, workerId))
       .limit(1);

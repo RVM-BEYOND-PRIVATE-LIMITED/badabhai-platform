@@ -45,6 +45,8 @@ const CTX: RequestContext = { correlationId: uuid(0xe9e10001), requestId: "engin
 const WORKER = uuid(0xe9e11001);
 /** Inside the deletion grace window: a neutral 404 and never on the picker (ADR-0031 (b)). */
 const LEAVING = uuid(0xe9e11002);
+/** #2562 — SUSPENDED: the same freeze as pending deletion, reversible by unsuspend. */
+const SUSPENDED = uuid(0xe9e11005);
 /** A REAL worker (not in the demo block, not allow-listed): refused, fail-closed. */
 const REAL = uuid(0xe9e11003);
 /** The owner's demo handset, named in the allow-list: allowed. */
@@ -54,16 +56,18 @@ const ALLOWED = uuid(0xe9e11004);
 const PEPPER = "engine-view-db-test-pepper-".repeat(2);
 const DEMO_PHONE = "+910000026901";
 const LEAVING_PHONE = "+910000026902";
+const SUSPENDED_PHONE = "+910000026903";
 /** Reserved synthetic numbers outside the demo block — never a real SIM. */
 const REAL_PHONE = "+910000017001";
 const ALLOWED_PHONE = "+910000017002";
 const PHONES: Record<string, string> = {
   [WORKER]: DEMO_PHONE,
   [LEAVING]: LEAVING_PHONE,
+  [SUSPENDED]: SUSPENDED_PHONE,
   [REAL]: REAL_PHONE,
   [ALLOWED]: ALLOWED_PHONE,
 };
-const ALL_WORKERS = [WORKER, LEAVING, REAL, ALLOWED];
+const ALL_WORKERS = [WORKER, LEAVING, SUSPENDED, REAL, ALLOWED];
 const PAYER = uuid(0xe9e12001);
 
 const INDUSTRY = "ind_industrial_manufacturing";
@@ -206,6 +210,12 @@ describe.skipIf(!RUN)("Engine view — funnel and feed order against Postgres", 
     expect(workers.map((w) => w.worker_id)).not.toContain(LEAVING);
   });
 
+  it("a SUSPENDED worker is the same neutral 404 and is never on the picker", async () => {
+    await expect(engine.getWorkerView(SUSPENDED)).rejects.toMatchObject({ status: 404 });
+    const { workers } = await engine.listRecentWorkers(50);
+    expect(workers.map((w) => w.worker_id)).not.toContain(SUSPENDED);
+  });
+
   it("the recent-worker picker lists the fixture worker by short ref only", async () => {
     const { workers } = await engine.listRecentWorkers(50);
     const me = workers.find((w) => w.worker_id === WORKER);
@@ -255,6 +265,17 @@ async function seed(client: DbClient): Promise<void> {
   await sql`
     INSERT INTO worker_skill (worker_id, skill_id, industry_id, months_bucketed, wants, source)
     VALUES (${LEAVING}::uuid, ${SKILL_DIRECT}, ${INDUSTRY}, 24, true, 'interview')
+  `;
+  // #2562 — a suspended worker holds the same skill; both admin surfaces must hide him.
+  await sql`
+    INSERT INTO workers (id, phone_e164, phone_hash, status, created_at)
+    VALUES (${SUSPENDED}::uuid, 'enc:engine-view-suspended', ${hashPhone(SUSPENDED_PHONE, PEPPER)},
+            'suspended', now() + interval '1 minute')
+    ON CONFLICT (id) DO NOTHING
+  `;
+  await sql`
+    INSERT INTO worker_skill (worker_id, skill_id, industry_id, months_bucketed, wants, source)
+    VALUES (${SUSPENDED}::uuid, ${SKILL_DIRECT}, ${INDUSTRY}, 24, true, 'interview')
   `;
   for (const [skill, months, wants] of [
     [SKILL_DIRECT, 36, true],

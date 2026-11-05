@@ -13,18 +13,27 @@ import {
   AdminGrantCreditsSchema,
   AdminInviteSchema,
   AdminTargetParamsSchema,
+  AdminWorkerPinResetSchema,
+  AdminWorkerSignOutAllSchema,
+  AdminWorkerSuspendSchema,
+  AdminWorkerUnsuspendSchema,
   type AdminChangeRoleDto,
   type AdminFlagWorkerDto,
   type AdminGrantCreditsDto,
   type AdminInviteDto,
   type AdminTargetParamsDto,
+  type AdminWorkerPinResetDto,
+  type AdminWorkerSignOutAllDto,
+  type AdminWorkerSuspendDto,
+  type AdminWorkerUnsuspendDto,
 } from "./admin-actions.dto";
 
 /**
  * Governed admin entity actions (ADR-0025 ADMIN-3a, Decision 3/5/6) — the WRITE half of the
- * Admin Ops Portal. Every route mutates ONE system-of-record table and emits EXACTLY ONE
- * value-free `admin.action_performed` (the spine stays read-only — emit only, never
- * UPDATE/DELETE on `events`).
+ * Admin Ops Portal. Every route mutates ONE system-of-record (a Postgres row, or the worker's
+ * Redis session lineage for #2562's sign-out-all) and emits EXACTLY ONE value-free
+ * `admin.action_performed` (the spine stays read-only — emit only, never UPDATE/DELETE on
+ * `events`).
  *
  * RBAC (deny-by-default, ONE principal + ONE role per route):
  *   - EVERY route is behind {@link AdminAuthGuard} (authn) + {@link AdminRolesGuard} (authz).
@@ -118,6 +127,56 @@ export class AdminActionsController {
     @Ctx() ctx: RequestContext,
   ) {
     return this.service.unflagWorker(admin.id, params.id, ctx);
+  }
+
+  // ----- worker account actions (#2562, manage_worker_account) ----------------
+
+  @Post("workers/:id/sign-out-all")
+  @HttpCode(200)
+  @RequireAdminRole("manage_worker_account")
+  signOutAllWorker(
+    @CurrentAdmin() admin: AuthenticatedAdmin,
+    @Param(new ZodValidationPipe(AdminTargetParamsSchema)) params: AdminTargetParamsDto,
+    @Body(new ZodValidationPipe(AdminWorkerSignOutAllSchema)) dto: AdminWorkerSignOutAllDto,
+    @Ctx() ctx: RequestContext,
+  ) {
+    return this.service.signOutAllWorker(admin.id, params.id, dto, ctx);
+  }
+
+  @Post("workers/:id/pin-reset")
+  @HttpCode(200)
+  @RequireAdminRole("manage_worker_account")
+  resetWorkerPin(
+    @CurrentAdmin() admin: AuthenticatedAdmin,
+    @Param(new ZodValidationPipe(AdminTargetParamsSchema)) params: AdminTargetParamsDto,
+    @Body(new ZodValidationPipe(AdminWorkerPinResetSchema)) dto: AdminWorkerPinResetDto,
+    @Ctx() ctx: RequestContext,
+  ) {
+    return this.service.resetWorkerPin(admin.id, params.id, dto, ctx);
+  }
+
+  @Post("workers/:id/suspend")
+  @HttpCode(200)
+  @RequireAdminRole("manage_worker_account")
+  suspendWorker(
+    @CurrentAdmin() admin: AuthenticatedAdmin,
+    @Param(new ZodValidationPipe(AdminTargetParamsSchema)) params: AdminTargetParamsDto,
+    @Body(new ZodValidationPipe(AdminWorkerSuspendSchema)) dto: AdminWorkerSuspendDto,
+    @Ctx() ctx: RequestContext,
+  ) {
+    return this.service.suspendWorker(admin.id, params.id, dto, ctx);
+  }
+
+  @Post("workers/:id/unsuspend")
+  @HttpCode(200)
+  @RequireAdminRole("manage_worker_account")
+  unsuspendWorker(
+    @CurrentAdmin() admin: AuthenticatedAdmin,
+    @Param(new ZodValidationPipe(AdminTargetParamsSchema)) params: AdminTargetParamsDto,
+    @Body(new ZodValidationPipe(AdminWorkerUnsuspendSchema)) dto: AdminWorkerUnsuspendDto,
+    @Ctx() ctx: RequestContext,
+  ) {
+    return this.service.unsuspendWorker(admin.id, params.id, dto, ctx);
   }
 
   // ----- admin management (manage_admins — super_admin only) -----------------

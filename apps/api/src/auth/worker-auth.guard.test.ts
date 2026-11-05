@@ -6,7 +6,8 @@ import type { WorkerConsent } from "@badabhai/db";
 import type { ConsentRepository } from "../consent/consent.repository";
 import type { WorkersRepository } from "../workers/workers.repository";
 import type { SessionService } from "./session.service";
-import { WorkerAuthGuard } from "./worker-auth.guard";
+import { AuthController } from "./auth.controller";
+import { WorkerAuthGuard, AllowSuspended } from "./worker-auth.guard";
 import {
   WorkerAccountDeletedException,
   WORKER_ACCOUNT_DELETED_CODE,
@@ -14,9 +15,10 @@ import {
 
 const config = { SESSION_TTL_DAYS: 30 } as unknown as ServerConfig;
 const FULL_TTL = 30 * 86400;
+const CREATED_AT_MS = 1_700_000_000_000;
 
 /** Build an ExecutionContext whose request carries the given auth header. */
-function makeCtx(authHeader?: string) {
+function makeCtx(authHeader?: string, handler: object = () => undefined) {
   const headers: Record<string, string> = {};
   if (authHeader !== undefined) headers["authorization"] = authHeader;
   const req: {
@@ -32,15 +34,24 @@ function makeCtx(authHeader?: string) {
       getRequest: () => req,
       getResponse: () => res,
     }),
+    getHandler: () => handler,
   } as unknown as ExecutionContext;
   return { ctx, req, setHeader };
 }
 
 function makeSession(
   validateResult: { workerId: string; sid: string; remainingSeconds: number } | null,
+  scope?: string,
 ) {
+  const validated =
+    validateResult === null
+      ? null
+      : { ...validateResult, createdAtMs: CREATED_AT_MS, ...(scope ? { scope } : {}) };
   return {
-    validateAndTouch: vi.fn().mockResolvedValue(validateResult),
+    validate: vi.fn().mockResolvedValue(validated),
+    validateAndTouch: vi.fn().mockResolvedValue(validated),
+    touchSession: vi.fn().mockResolvedValue(true),
+    sessionsRevokedAtMs: vi.fn().mockResolvedValue(null),
     mint: vi.fn().mockResolvedValue({ token: "fresh.jwt", expiresInSeconds: FULL_TTL }),
   } as unknown as SessionService;
 }
@@ -53,16 +64,26 @@ function makeConsents(latest: Partial<WorkerConsent> | undefined) {
 }
 
 /**
- * Workers repository double — the out-of-band-deletion existence probe. `exists` is the
- * DEFAULT-true happy path (the worker row is present); pass false to simulate a row deleted
- * out of band, or a rejected value to simulate a DB error (the fail-safe path).
+ * Workers repository double — the out-of-band-deletion existence probe and #2562's status
+ * probe. `exists` is the DEFAULT-true happy path (the worker row is present); pass false to
+ * simulate a row deleted out of band, or a rejected value to simulate a DB error (the
+ * fail-safe path). `status` defaults to `active`.
  */
-function makeWorkers(exists: boolean | { throws: Error } = true) {
+function makeWorkers(
+  exists: boolean | { throws: Error } = true,
+  status: "pending" | "active" | "suspended" = "active",
+) {
   const existsById =
     typeof exists === "boolean"
       ? vi.fn().mockResolvedValue(exists)
       : vi.fn().mockRejectedValue(exists.throws);
-  return { existsById } as unknown as WorkersRepository;
+  const findSelfView =
+    typeof exists === "boolean"
+      ? exists
+        ? vi.fn().mockResolvedValue({ status, deletionScheduledAt: null })
+        : vi.fn().mockResolvedValue(undefined)
+      : vi.fn().mockRejectedValue(exists.throws);
+  return { existsById, findSelfView } as unknown as WorkersRepository;
 }
 
 /** Active (not-revoked) consent — the common case; re-mint must stay enabled. */
@@ -96,11 +117,11 @@ describe("WorkerAuthGuard", () => {
     const guard = new WorkerAuthGuard(session, config, consents, makeWorkers());
     const { ctx, req, setHeader } = makeCtx("Bearer good.token");
     await expect(guard.canActivate(ctx)).resolves.toBe(true);
-    expect(req.worker).toEqual({ id: "w1", sid: "s1" });
+    expect(req.worker).toEqual({ id: "w1", sid: "s1", createdAtMs: CREATED_AT_MS });
     expect(setHeader).not.toHaveBeenCalled();
     expect(session.mint).not.toHaveBeenCalled();
-    // A5 residual: the consent read rides ONLY the half-life re-mint branch — the
-    // ordinary per-request path never touches the DB (at most one read per half-life).
+    // A5 residual: the consent read rides ONLY the half-life re-mint branch — the ordinary
+    // per-request path takes the two account probes and no consent read.
     expect(consents.findLatestByWorker).not.toHaveBeenCalled();
   });
 
@@ -125,7 +146,7 @@ describe("WorkerAuthGuard", () => {
         message: expect.any(String),
       });
       expect(WORKER_ACCOUNT_DELETED_CODE).toBe("WORKER_ACCOUNT_DELETED");
-      expect(workers.existsById).toHaveBeenCalledWith("w1");
+      expect(workers.findSelfView).toHaveBeenCalledWith("w1");
       // A rejected request never attaches the worker nor rolls a fresh token for a ghost.
       expect(req.worker).toBeUndefined();
       expect(session.mint).not.toHaveBeenCalled();
@@ -137,8 +158,8 @@ describe("WorkerAuthGuard", () => {
       const guard = new WorkerAuthGuard(session, config, makeConsents(ACTIVE_CONSENT), workers);
       const { ctx, req } = makeCtx("Bearer good.token");
       await expect(guard.canActivate(ctx)).resolves.toBe(true);
-      expect(req.worker).toEqual({ id: "w1", sid: "s1" });
-      expect(workers.existsById).toHaveBeenCalledWith("w1");
+      expect(req.worker).toEqual({ id: "w1", sid: "s1", createdAtMs: CREATED_AT_MS });
+      expect(workers.findSelfView).toHaveBeenCalledWith("w1");
     });
 
     it("FAIL-SAFE: existence probe THROWS (DB down) ⇒ request PASSES, never a false 410", async () => {
@@ -149,7 +170,7 @@ describe("WorkerAuthGuard", () => {
       const guard = new WorkerAuthGuard(session, config, makeConsents(ACTIVE_CONSENT), workers);
       const { ctx, req } = makeCtx("Bearer good.token");
       await expect(guard.canActivate(ctx)).resolves.toBe(true);
-      expect(req.worker).toEqual({ id: "w1", sid: "s1" });
+      expect(req.worker).toEqual({ id: "w1", sid: "s1", createdAtMs: CREATED_AT_MS });
     });
 
     it("INVALID token still ⇒ 401 and NEVER reaches the existence probe (no 410 for a bad token)", async () => {
@@ -161,7 +182,160 @@ describe("WorkerAuthGuard", () => {
       expect(err).toBeInstanceOf(UnauthorizedException);
       expect(err).not.toBeInstanceOf(WorkerAccountDeletedException);
       // The 401 short-circuits BEFORE any DB read — an expired token must never probe existence.
-      expect(workers.existsById).not.toHaveBeenCalled();
+      expect(workers.findSelfView).not.toHaveBeenCalled();
+    });
+  });
+
+  // #2562 — a suspended worker is refused on an EXISTING session, even though the token and
+  // the Redis session are still valid. The durable status row is the authority. The refusal
+  // is the SAME neutral 401 an expired session gets, so the app's existing re-auth path runs.
+  describe("suspended worker → neutral 401 (existing signed-out path)", () => {
+    it("valid token + SUSPENDED row ⇒ 401, req.worker is never attached", async () => {
+      const session = makeSession({ workerId: "w1", sid: "s1", remainingSeconds: FULL_TTL });
+      const workers = makeWorkers(true, "suspended");
+      const guard = new WorkerAuthGuard(session, config, makeConsents(ACTIVE_CONSENT), workers);
+      const { ctx, req } = makeCtx("Bearer good.token");
+
+      const err = await guard.canActivate(ctx).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(UnauthorizedException);
+      expect((err as UnauthorizedException).getStatus()).toBe(HttpStatus.UNAUTHORIZED);
+      expect(workers.findSelfView).toHaveBeenCalledWith("w1");
+      expect(req.worker).toBeUndefined();
+      expect(session.mint).not.toHaveBeenCalled();
+    });
+
+    it("unsuspended (active) row with the same session token ⇒ passes", async () => {
+      const session = makeSession({ workerId: "w1", sid: "s1", remainingSeconds: FULL_TTL });
+      const workers = makeWorkers(true, "active");
+      const guard = new WorkerAuthGuard(session, config, makeConsents(ACTIVE_CONSENT), workers);
+      const { ctx, req } = makeCtx("Bearer good.token");
+      await expect(guard.canActivate(ctx)).resolves.toBe(true);
+      expect(req.worker).toEqual({ id: "w1", sid: "s1", createdAtMs: CREATED_AT_MS });
+    });
+
+    it("FAIL-SAFE: status probe THROWS (DB down) ⇒ request PASSES, never a false lockout", async () => {
+      const session = makeSession({ workerId: "w1", sid: "s1", remainingSeconds: FULL_TTL });
+      const workers = makeWorkers({ throws: new Error("pg down") });
+      const guard = new WorkerAuthGuard(session, config, makeConsents(ACTIVE_CONSENT), workers);
+      const { ctx, req } = makeCtx("Bearer good.token");
+      await expect(guard.canActivate(ctx)).resolves.toBe(true);
+      expect(req.worker).toEqual({ id: "w1", sid: "s1", createdAtMs: CREATED_AT_MS });
+    });
+  });
+
+  // #2562 — the DPDP exits (account deletion request/confirm/cancel and consent withdrawal)
+  // must stay reachable while suspended; EVERY other worker route keeps the neutral 401.
+  describe("AllowSuspended — DPDP exits while suspended", () => {
+    it("an AllowSuspended handler PASSES while suspended and attaches req.worker", async () => {
+      class ExemptController {
+        @AllowSuspended()
+        handler(): void {}
+      }
+      const session = makeSession({ workerId: "w1", sid: "s1", remainingSeconds: FULL_TTL });
+      const workers = makeWorkers(true, "suspended");
+      const guard = new WorkerAuthGuard(session, config, makeConsents(ACTIVE_CONSENT), workers);
+      const { ctx, req } = makeCtx("Bearer good.token", ExemptController.prototype.handler);
+
+      await expect(guard.canActivate(ctx)).resolves.toBe(true);
+      expect(req.worker).toEqual({ id: "w1", sid: "s1", createdAtMs: CREATED_AT_MS });
+      // The session is touched only after the account gate passed.
+      expect(session.touchSession).toHaveBeenCalledWith("w1", "s1");
+    });
+
+    it("the SAME suspended row on a non-exempt handler is still refused", async () => {
+      const session = makeSession({ workerId: "w1", sid: "s1", remainingSeconds: FULL_TTL });
+      const workers = makeWorkers(true, "suspended");
+      const guard = new WorkerAuthGuard(session, config, makeConsents(ACTIVE_CONSENT), workers);
+      const { ctx, req } = makeCtx("Bearer good.token", () => undefined);
+
+      await expect(guard.canActivate(ctx)).rejects.toBeInstanceOf(UnauthorizedException);
+      expect(req.worker).toBeUndefined();
+    });
+
+    it("a restricted SUSPENDED DPDP token is accepted ONLY on an exempt handler", async () => {
+      const session = makeSession(
+        { workerId: "w1", sid: "s1", remainingSeconds: 900 },
+        "suspended_dpdp",
+      );
+      const workers = makeWorkers(true, "suspended");
+      const guard = new WorkerAuthGuard(session, config, makeConsents(ACTIVE_CONSENT), workers);
+
+      const exempt = makeCtx("Bearer restricted.token", AuthController.prototype.accountDeleteRequest);
+      await expect(guard.canActivate(exempt.ctx)).resolves.toBe(true);
+      expect(exempt.req.worker).toMatchObject({ id: "w1", scope: "suspended_dpdp" });
+      // A restricted token keeps its fixed short life; it must not slide to a session TTL.
+      expect(session.touchSession).not.toHaveBeenCalled();
+
+      const nonExempt = makeCtx("Bearer restricted.token", AuthController.prototype.me);
+      await expect(guard.canActivate(nonExempt.ctx)).rejects.toBeInstanceOf(
+        UnauthorizedException,
+      );
+    });
+
+    it("a restricted token is refused on a non-exempt route even if the row is active", async () => {
+      const session = makeSession(
+        { workerId: "w1", sid: "s1", remainingSeconds: 900 },
+        "suspended_dpdp",
+      );
+      const guard = new WorkerAuthGuard(session, config, makeConsents(ACTIVE_CONSENT), makeWorkers());
+      const { ctx } = makeCtx("Bearer restricted.token", AuthController.prototype.me);
+      await expect(guard.canActivate(ctx)).rejects.toBeInstanceOf(UnauthorizedException);
+    });
+
+    it("an unknown scope fails closed everywhere", async () => {
+      const session = makeSession(
+        { workerId: "w1", sid: "s1", remainingSeconds: 900 },
+        "some_other_scope",
+      );
+      class Exempt {
+        @AllowSuspended()
+        handler(): void {}
+      }
+      const guard = new WorkerAuthGuard(session, config, makeConsents(ACTIVE_CONSENT), makeWorkers());
+      const { ctx } = makeCtx("Bearer weird.token", Exempt.prototype.handler);
+      await expect(guard.canActivate(ctx)).rejects.toBeInstanceOf(UnauthorizedException);
+    });
+
+    it("a suspended refusal does NOT slide the session TTL", async () => {
+      const session = makeSession({ workerId: "w1", sid: "s1", remainingSeconds: FULL_TTL });
+      const workers = makeWorkers(true, "suspended");
+      const guard = new WorkerAuthGuard(session, config, makeConsents(ACTIVE_CONSENT), workers);
+      const { ctx } = makeCtx("Bearer good.token", () => undefined);
+
+      await expect(guard.canActivate(ctx)).rejects.toBeInstanceOf(UnauthorizedException);
+      // The suspended check runs BEFORE any TTL write — the refusal must not keep the very
+      // session it denies alive.
+      expect(session.touchSession).not.toHaveBeenCalled();
+      expect(session.validateAndTouch).not.toHaveBeenCalled();
+    });
+  });
+
+  // #2562 — the durable sweep watermark outlives the Redis delete, so a family minted before an
+  // admin sweep is refused even if its record survived or was recreated by an in-flight refresh.
+  describe("durable session sweep watermark", () => {
+    it("session minted BEFORE the watermark ⇒ neutral 401 and no TTL slide", async () => {
+      const session = makeSession({ workerId: "w1", sid: "s1", remainingSeconds: FULL_TTL });
+      (session.sessionsRevokedAtMs as ReturnType<typeof vi.fn>).mockResolvedValue(
+        CREATED_AT_MS + 1,
+      );
+      const guard = new WorkerAuthGuard(session, config, makeConsents(ACTIVE_CONSENT), makeWorkers());
+      const { ctx, req } = makeCtx("Bearer good.token");
+
+      await expect(guard.canActivate(ctx)).rejects.toBeInstanceOf(UnauthorizedException);
+      expect(req.worker).toBeUndefined();
+      expect(session.touchSession).not.toHaveBeenCalled();
+    });
+
+    it("session minted AFTER the watermark ⇒ passes", async () => {
+      const session = makeSession({ workerId: "w1", sid: "s1", remainingSeconds: FULL_TTL });
+      (session.sessionsRevokedAtMs as ReturnType<typeof vi.fn>).mockResolvedValue(
+        CREATED_AT_MS - 1,
+      );
+      const guard = new WorkerAuthGuard(session, config, makeConsents(ACTIVE_CONSENT), makeWorkers());
+      const { ctx } = makeCtx("Bearer good.token");
+
+      await expect(guard.canActivate(ctx)).resolves.toBe(true);
+      expect(session.touchSession).toHaveBeenCalledWith("w1", "s1");
     });
   });
 
@@ -191,7 +365,7 @@ describe("WorkerAuthGuard", () => {
       // The request itself PASSES — a revoked worker can still call e.g. POST /auth/logout;
       // only the silent session EXTENSION is withheld.
       await expect(guard.canActivate(ctx)).resolves.toBe(true);
-      expect(req.worker).toEqual({ id: "w1", sid: "s1" });
+      expect(req.worker).toEqual({ id: "w1", sid: "s1", createdAtMs: CREATED_AT_MS });
       expect(consents.findLatestByWorker).toHaveBeenCalledWith("w1");
       expect(session.mint).not.toHaveBeenCalled();
       expect(setHeader).not.toHaveBeenCalled();
@@ -227,7 +401,7 @@ describe("WorkerAuthGuard", () => {
       const guard = new WorkerAuthGuard(session, config, consents, makeWorkers());
       const { ctx, req, setHeader } = makeCtx("Bearer aging.token");
       await expect(guard.canActivate(ctx)).resolves.toBe(true);
-      expect(req.worker).toEqual({ id: "w1", sid: "s1" });
+      expect(req.worker).toEqual({ id: "w1", sid: "s1", createdAtMs: CREATED_AT_MS });
       expect(session.mint).not.toHaveBeenCalled();
       expect(setHeader).not.toHaveBeenCalled();
     });

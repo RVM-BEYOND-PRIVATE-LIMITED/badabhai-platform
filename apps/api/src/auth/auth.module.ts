@@ -114,8 +114,8 @@ import { PinHasher } from "./pin-hasher.service";
     // Attribution-only sibling of WorkerAuthGuard: attaches `req.worker` when a valid token
     // rides along and ALWAYS allows the request. Used by the PUBLIC interview-kit download
     // so `interview_kit.downloaded` can carry an optional `worker_id` without the route
-    // ever requiring a session. Its only dependency is SessionService, which this module
-    // exports — so an importing module resolves it (see the exports note below).
+    // ever requiring a session. It depends on SessionService (exported here) and the @Global
+    // WorkersRepository (the same account probe WorkerAuthGuard uses).
     OptionalWorkerAuthGuard,
     ConsentGuard,
     ConsentNotRevokedGuard,
@@ -148,6 +148,9 @@ import { PinHasher } from "./pin-hasher.service";
     SessionService,
     ConsentModule,
     DevicesRepository,
+    // #2562 — the admin account actions delete the worker's PIN credential in the same
+    // transaction as the audit row + admin action.
+    PinRepository,
   ],
 })
 export class AuthModule {}

@@ -63,6 +63,14 @@ const MANAGE_ADMINS_ROUTES = [
   "createAdminDirect",
 ] as const;
 
+/** #2562 manage_worker_account (super_admin + ops_admin + support; analyst denied). */
+const MANAGE_WORKER_ACCOUNT_ROUTES = [
+  "signOutAllWorker",
+  "resetWorkerPin",
+  "suspendWorker",
+  "unsuspendWorker",
+] as const;
+
 const ALLOWED_OPS_WRITE: AdminRole[] = ["super_admin", "ops_admin"];
 const DENIED_OPS_WRITE: AdminRole[] = ["support", "analyst"];
 
@@ -100,6 +108,24 @@ describe("ADMIN-3a authz matrix — manage_admins (super_admin ONLY)", () => {
   }
 });
 
+// #2562 — the support role operates account recovery, so it is ALLOWED here (unlike every
+// other write). The analyst is the only denial; that is the ADR-0062 §3.8 row.
+describe("ADMIN-3a authz matrix — manage_worker_account (super_admin + ops_admin + support)", () => {
+  for (const route of MANAGE_WORKER_ACCOUNT_ROUTES) {
+    it(`${route}: super_admin + ops_admin + support ALLOWED`, () => {
+      for (const role of ["super_admin", "ops_admin", "support"] as AdminRole[]) {
+        expect(guard.canActivate(ctxFor(route, admin(role)))).toBe(true);
+      }
+    });
+    it(`${route}: analyst DENIED (403)`, () => {
+      expect(() => guard.canActivate(ctxFor(route, admin("analyst")))).toThrow(ForbiddenException);
+    });
+    it(`${route}: unauthenticated → 401`, () => {
+      expect(() => guard.canActivate(ctxFor(route, undefined))).toThrow(UnauthorizedException);
+    });
+  }
+});
+
 describe("ADMIN-3a authz matrix — declared capabilities (exact, least-privilege)", () => {
   it("ops-write routes declare suspend_payer/grant_credits/force_close_posting/flag_worker", () => {
     expect(declaredCapability("suspendPayer")).toBe("suspend_payer");
@@ -111,5 +137,10 @@ describe("ADMIN-3a authz matrix — declared capabilities (exact, least-privileg
   });
   it("admin-management routes declare manage_admins (super-only)", () => {
     for (const r of MANAGE_ADMINS_ROUTES) expect(declaredCapability(r)).toBe("manage_admins");
+  });
+  it("worker-account routes declare manage_worker_account", () => {
+    for (const r of MANAGE_WORKER_ACCOUNT_ROUTES) {
+      expect(declaredCapability(r)).toBe("manage_worker_account");
+    }
   });
 });

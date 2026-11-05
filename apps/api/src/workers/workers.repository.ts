@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, asc, desc, eq, inArray, isNotNull, isNull, lt, lte, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, isNull, lt, lte, ne, or, sql } from "drizzle-orm";
 import {
   CURRENT_PROFILE_ORDER,
   type Database,
@@ -185,7 +185,12 @@ export class WorkersRepository {
       .select({ id: workers.id })
       .from(workers)
       .where(
-        and(inArray(workers.phoneHash, [...phoneHashes]), isNull(workers.deletionScheduledAt)),
+        and(
+          inArray(workers.phoneHash, [...phoneHashes]),
+          isNull(workers.deletionScheduledAt),
+          // #2562 - a suspended worker is not a live contactable worker.
+          ne(workers.status, "suspended"),
+        ),
       );
     return rows.map((r) => r.id);
   }

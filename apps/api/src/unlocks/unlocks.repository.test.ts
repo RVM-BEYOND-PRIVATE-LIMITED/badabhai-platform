@@ -212,16 +212,19 @@ describe("UnlocksRepository.legacyJobExists — #1903, reads jobs by id only", (
   });
 });
 
-describe("UnlocksRepository.getWorkerDeletionMarker — tx-scoped, PII-free single-column read", () => {
-  it("selects ONLY deletion_scheduled_at from workers, scoped by id", async () => {
-    const { db, tx, captured } = makeDb({ rows: [{ deletionScheduledAt: null }] });
+describe("UnlocksRepository.getWorkerDeletionMarker - tx-scoped, PII-free two-column read", () => {
+  it("selects ONLY deletion_scheduled_at + status from workers, scoped by id", async () => {
+    const { db, tx, captured } = makeDb({
+      rows: [{ deletionScheduledAt: null, status: "active" }],
+    });
     const out = await new UnlocksRepository(db).getWorkerDeletionMarker(tx, WORKER_ID);
     expect(captured.selectTable).toBe(workers);
-    expect(Object.keys(captured.selection!)).toEqual(["deletionScheduledAt"]);
+    expect(Object.keys(captured.selection!).sort()).toEqual(["deletionScheduledAt", "status"]);
     expect(text(captured.where)).toBe('"workers"."id" = $1');
     expect(params(captured.where)).toEqual([WORKER_ID]);
     expect(captured.limit).toBe(1);
-    expect(out).toEqual({ deletionScheduledAt: null });
+    // `status` is the #2562 suspension marker; the read still carries no PII column.
+    expect(out).toEqual({ deletionScheduledAt: null, status: "active" });
   });
 
   it("returns undefined when the worker row is gone", async () => {

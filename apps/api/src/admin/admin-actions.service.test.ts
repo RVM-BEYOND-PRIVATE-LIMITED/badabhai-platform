@@ -1,13 +1,20 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { ConflictException, NotFoundException } from "@nestjs/common";
+import {
+  ConflictException,
+  NotFoundException,
+  ServiceUnavailableException,
+} from "@nestjs/common";
 import { DrizzleQueryError } from "drizzle-orm";
 import { createEvent, type CreateEventInput } from "@badabhai/event-schema";
 import type { RequestContext } from "../common/request-context";
 import type { EventsService } from "../events/events.service";
 import type { PayerSessionService } from "../payers/payer-session.service";
+import type { SessionService } from "../auth/session.service";
+import type { PinRepository } from "../auth/pin.repository";
 import type { AdminRepository } from "./admin.repository";
 import type { AdminActionsRepository } from "./admin-actions.repository";
 import { AdminActionsService } from "./admin-actions.service";
+import { AdminWorkerSuspendSchema } from "./admin-actions.dto";
 import type { AdminInviteService } from "./admin-invite.service";
 
 const CTX: RequestContext = {
@@ -32,6 +39,11 @@ const SANCTIONED_ACTION_CODES = new Set([
   "posting_force_closed",
   "worker_flagged",
   "worker_unflagged",
+  // #2562 — worker account actions.
+  "worker_signed_out_all",
+  "worker_pin_reset",
+  "worker_suspended",
+  "worker_reinstated",
   "admin_invited",
   "admin_role_changed",
   "admin_suspended",
@@ -59,6 +71,10 @@ const FORBIDDEN_VALUE_FRAGMENTS = [
 interface Mocks {
   /** ADR-0037 — the payer session revoker suspension calls after the tx commits. */
   sessions: { revokeAllForPayer: ReturnType<typeof vi.fn> };
+  /** #2562 - the WORKER session revoker account actions call after the tx commits. */
+  workerSessions: { revokeAllStrict: ReturnType<typeof vi.fn> };
+  /** #2562 — the worker PIN credential store (reset deletes the row). */
+  pins: { deleteByWorkerId: ReturnType<typeof vi.fn> };
   actions: {
     findPayerStatus: ReturnType<typeof vi.fn>;
     suspendPayer: ReturnType<typeof vi.fn>;
@@ -70,6 +86,11 @@ interface Mocks {
     forceClosePosting: ReturnType<typeof vi.fn>;
     openFlag: ReturnType<typeof vi.fn>;
     resolveFlag: ReturnType<typeof vi.fn>;
+    // #2562 — worker account actions.
+    findWorkerStatus: ReturnType<typeof vi.fn>;
+    suspendWorker: ReturnType<typeof vi.fn>;
+    reinstateWorker: ReturnType<typeof vi.fn>;
+    writeAuditReason: ReturnType<typeof vi.fn>;
     withTransaction: ReturnType<typeof vi.fn>;
   };
   admins: {
@@ -113,6 +134,11 @@ function make(): Mocks {
     forceClosePosting: vi.fn(),
     openFlag: vi.fn(),
     resolveFlag: vi.fn(),
+    // #2562 — worker account actions.
+    findWorkerStatus: vi.fn(),
+    suspendWorker: vi.fn(),
+    reinstateWorker: vi.fn(),
+    writeAuditReason: vi.fn(async () => undefined),
     withTransaction: vi.fn(async (cb: (tx: unknown) => Promise<unknown>) => cb(FAKE_TX)),
   };
   const admins = {
@@ -134,6 +160,10 @@ function make(): Mocks {
   // ADR-0037 — suspension revokes every live payer session. Spied so tests can assert
   // revocation happened (and did NOT happen on the idempotent no-op path).
   const sessions = { revokeAllForPayer: vi.fn(async () => 2) };
+  // #2562 — worker sessions + PIN credential stores. The sweep is spied so tests can assert
+  // it happened (and did NOT happen on an idempotent no-op).
+  const workerSessions = { revokeAllStrict: vi.fn(async () => 3) };
+  const pins = { deleteByWorkerId: vi.fn(async () => true) };
   // The accept-link seam. Token minting is stubbed to a FIXED value so an invite assertion
   // can name the exact hash/URL it expects instead of matching a random 43-char string.
   const invites = {
@@ -149,8 +179,10 @@ function make(): Mocks {
     events as unknown as EventsService,
     sessions as unknown as PayerSessionService,
     invites as unknown as AdminInviteService,
+    workerSessions as unknown as SessionService,
+    pins as unknown as PinRepository,
   );
-  return { actions, admins, events, sessions, invites, service };
+  return { actions, admins, events, sessions, workerSessions, pins, invites, service };
 }
 
 /** The emit params the service passed to EventsService.emit (camelCase tracing ids). */
@@ -706,6 +738,235 @@ describe("unflagWorker", () => {
     const res = await m.service.unflagWorker(ADMIN_ID, WORKER_ID, CTX);
     expect(res).toEqual({ target_id: WORKER_ID, changed: false });
     expect(m.events.emit).not.toHaveBeenCalled();
+  });
+});
+
+// #2562 — worker account actions. Each writes the reason + one value-free admin action in the
+// SAME transaction as its SoR change, then sweeps Redis AFTER the commit.
+describe("worker account actions (#2562)", () => {
+  const SIGN_OUT = {
+    reason_code: "worker_sign_out_all",
+    reason_text: "Worker reported a lost handset on the support call",
+  } as never;
+  const PIN_RESET = {
+    reason_code: "worker_pin_reset",
+    reason_text: "Worker cannot recall the existing device PIN",
+  } as never;
+  const SUSPEND = {
+    reason_code: "worker_suspend",
+    reason_text: "Repeated abusive messages confirmed by the review team",
+  } as never;
+  const UNSUSPEND = {
+    reason_code: "worker_unsuspend",
+    reason_text: "Appeal upheld after the review team cleared the account",
+  } as never;
+
+  it("signOutAllWorker: audits + emits the admin action in one tx, then sweeps every session", async () => {
+    m.actions.findWorkerStatus.mockResolvedValue({ id: WORKER_ID, status: "active" });
+
+    const res = await m.service.signOutAllWorker(ADMIN_ID, WORKER_ID, SIGN_OUT, CTX);
+
+    expect(m.actions.writeAuditReason).toHaveBeenCalledWith(FAKE_TX, {
+      adminId: ADMIN_ID,
+      workerId: WORKER_ID,
+      action: "worker_signed_out_all",
+      reasonCode: "worker_sign_out_all",
+      reasonText: "Worker reported a lost handset on the support call",
+    });
+    const event = soleEmit(m.events) as CapturedEmit & { tx?: unknown };
+    assertValueFreeAction(event, {
+      actionCode: "worker_signed_out_all",
+      subjectType: "worker",
+      targetId: WORKER_ID,
+    });
+    // The event commits with the audit row (H3), not after the Redis sweep.
+    expect(event.tx).toBe(FAKE_TX);
+    expect(m.workerSessions.revokeAllStrict).toHaveBeenCalledWith(WORKER_ID, { actor_type: "admin", actor_id: ADMIN_ID });
+    expect(res).toEqual({ target_id: WORKER_ID, changed: true });
+  });
+
+  it("signOutAllWorker: unknown worker → 404, no audit/event/sweep", async () => {
+    m.actions.findWorkerStatus.mockResolvedValue(undefined);
+    await expect(
+      m.service.signOutAllWorker(ADMIN_ID, WORKER_ID, SIGN_OUT, CTX),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(m.actions.withTransaction).not.toHaveBeenCalled();
+    expect(m.workerSessions.revokeAllStrict).not.toHaveBeenCalled();
+  });
+
+  it("resetWorkerPin: deletes the credential + audits + emits BOTH events, then sweeps", async () => {
+    m.actions.findWorkerStatus.mockResolvedValue({ id: WORKER_ID, status: "active" });
+
+    const res = await m.service.resetWorkerPin(ADMIN_ID, WORKER_ID, PIN_RESET, CTX);
+
+    // The delete rides the SAME tx as the audit row and both events.
+    expect(m.pins.deleteByWorkerId).toHaveBeenCalledWith(WORKER_ID, FAKE_TX);
+    expect(m.actions.writeAuditReason).toHaveBeenCalledWith(FAKE_TX, {
+      adminId: ADMIN_ID,
+      workerId: WORKER_ID,
+      action: "worker_pin_reset",
+      reasonCode: "worker_pin_reset",
+      reasonText: "Worker cannot recall the existing device PIN",
+    });
+    assertValueFreeAction(emitNamed(m.events, "admin.action_performed"), {
+      actionCode: "worker_pin_reset",
+      subjectType: "worker",
+      targetId: WORKER_ID,
+    });
+    const domain = emitNamed(m.events, "worker.pin_reset") as CapturedEmit & { tx?: unknown };
+    expect(domain.actor).toEqual({ actor_type: "admin", actor_id: ADMIN_ID });
+    expect(domain.payload).toEqual({ worker_id: WORKER_ID });
+    expect(domain.tx).toBe(FAKE_TX);
+    // The sweep is the ADR-0062 §3.8 proof: a surviving session could set a PIN without OTP.
+    expect(m.workerSessions.revokeAllStrict).toHaveBeenCalledWith(WORKER_ID, { actor_type: "admin", actor_id: ADMIN_ID });
+    expect(res).toEqual({ target_id: WORKER_ID, changed: true });
+  });
+
+  it("suspendWorker: sweeps first, then writes status + audit + action", async () => {
+    m.actions.findWorkerStatus.mockResolvedValue({ id: WORKER_ID, status: "active" });
+    m.actions.suspendWorker.mockResolvedValue({ id: WORKER_ID });
+
+    const res = await m.service.suspendWorker(ADMIN_ID, WORKER_ID, SUSPEND, CTX);
+
+    expect(m.actions.suspendWorker).toHaveBeenCalledWith(WORKER_ID, FAKE_TX);
+    expect(m.actions.writeAuditReason).toHaveBeenCalledWith(FAKE_TX, {
+      adminId: ADMIN_ID,
+      workerId: WORKER_ID,
+      action: "worker_suspended",
+      reasonCode: "worker_suspend",
+      reasonText: "Repeated abusive messages confirmed by the review team",
+    });
+    assertValueFreeAction(soleEmit(m.events), {
+      actionCode: "worker_suspended",
+      subjectType: "worker",
+      targetId: WORKER_ID,
+    });
+    expect(m.workerSessions.revokeAllStrict).toHaveBeenCalledWith(WORKER_ID, {
+      actor_type: "admin",
+      actor_id: ADMIN_ID,
+    });
+    expect(res).toEqual({ target_id: WORKER_ID, changed: true });
+  });
+
+  it("suspendWorker: already suspended → idempotent no-op, no event, no sweep", async () => {
+    m.actions.findWorkerStatus.mockResolvedValue({ id: WORKER_ID, status: "suspended" });
+    const res = await m.service.suspendWorker(ADMIN_ID, WORKER_ID, SUSPEND, CTX);
+    expect(res).toEqual({ target_id: WORKER_ID, changed: false });
+    expect(m.actions.withTransaction).not.toHaveBeenCalled();
+    expect(m.events.emit).not.toHaveBeenCalled();
+    expect(m.workerSessions.revokeAllStrict).not.toHaveBeenCalled();
+  });
+
+  it("suspendWorker: concurrent status change → 409 after the sweep", async () => {
+    m.actions.findWorkerStatus.mockResolvedValue({ id: WORKER_ID, status: "active" });
+    m.actions.suspendWorker.mockResolvedValue(undefined);
+    await expect(
+      m.service.suspendWorker(ADMIN_ID, WORKER_ID, SUSPEND, CTX),
+    ).rejects.toBeInstanceOf(ConflictException);
+    // The sweep is the account action's first effect; a 409 only means the status write lost.
+    expect(m.workerSessions.revokeAllStrict).toHaveBeenCalled();
+  });
+
+  it("suspendWorker: an audit/event failure rolls the status back; the sweep already ran", async () => {
+    m.actions.findWorkerStatus.mockResolvedValue({ id: WORKER_ID, status: "active" });
+    m.actions.suspendWorker.mockResolvedValue({ id: WORKER_ID });
+    m.events.emit.mockRejectedValueOnce(new Error("spine down"));
+    await expect(
+      m.service.suspendWorker(ADMIN_ID, WORKER_ID, SUSPEND, CTX),
+    ).rejects.toThrow("spine down");
+    expect(m.workerSessions.revokeAllStrict).toHaveBeenCalled();
+  });
+
+  it("worker actions fail closed with 503 when the session sweep throws", async () => {
+    m.workerSessions.revokeAllStrict.mockRejectedValue(new Error("redis down"));
+    m.actions.findWorkerStatus.mockResolvedValue({ id: WORKER_ID, status: "active" });
+
+    for (const run of [
+      () => m.service.signOutAllWorker(ADMIN_ID, WORKER_ID, SIGN_OUT, CTX),
+      () => m.service.resetWorkerPin(ADMIN_ID, WORKER_ID, PIN_RESET, CTX),
+      () => m.service.suspendWorker(ADMIN_ID, WORKER_ID, SUSPEND, CTX),
+    ]) {
+      await expect(run()).rejects.toBeInstanceOf(ServiceUnavailableException);
+    }
+    // Nothing was committed or evented for any of them.
+    expect(m.actions.withTransaction).not.toHaveBeenCalled();
+    expect(m.events.emit).not.toHaveBeenCalled();
+
+    // ...and unsuspend is the same fail-closed path, leaving the worker suspended.
+    m.actions.findWorkerStatus.mockResolvedValue({ id: WORKER_ID, status: "suspended" });
+    await expect(
+      m.service.unsuspendWorker(ADMIN_ID, WORKER_ID, UNSUSPEND, CTX),
+    ).rejects.toBeInstanceOf(ServiceUnavailableException);
+    expect(m.actions.reinstateWorker).not.toHaveBeenCalled();
+  });
+
+  it("unsuspendWorker: sweeps first, then restores active + audit + action", async () => {
+    m.actions.findWorkerStatus.mockResolvedValue({ id: WORKER_ID, status: "suspended" });
+    m.actions.reinstateWorker.mockResolvedValue({ id: WORKER_ID });
+
+    const res = await m.service.unsuspendWorker(ADMIN_ID, WORKER_ID, UNSUSPEND, CTX);
+
+    expect(m.workerSessions.revokeAllStrict).toHaveBeenCalledWith(WORKER_ID, {
+      actor_type: "admin",
+      actor_id: ADMIN_ID,
+    });
+    expect(m.actions.reinstateWorker).toHaveBeenCalledWith(WORKER_ID, FAKE_TX);
+    expect(m.actions.writeAuditReason).toHaveBeenCalledWith(FAKE_TX, {
+      adminId: ADMIN_ID,
+      workerId: WORKER_ID,
+      action: "worker_reinstated",
+      reasonCode: "worker_unsuspend",
+      reasonText: "Appeal upheld after the review team cleared the account",
+    });
+    assertValueFreeAction(soleEmit(m.events), {
+      actionCode: "worker_reinstated",
+      subjectType: "worker",
+      targetId: WORKER_ID,
+    });
+    expect(res).toEqual({ target_id: WORKER_ID, changed: true });
+  });
+
+  it("unsuspendWorker: not suspended → idempotent no-op, no event", async () => {
+    m.actions.findWorkerStatus.mockResolvedValue({ id: WORKER_ID, status: "active" });
+    const res = await m.service.unsuspendWorker(ADMIN_ID, WORKER_ID, UNSUSPEND, CTX);
+    expect(res).toEqual({ target_id: WORKER_ID, changed: false });
+    expect(m.actions.withTransaction).not.toHaveBeenCalled();
+    expect(m.events.emit).not.toHaveBeenCalled();
+  });
+
+  it("unsuspendWorker: concurrent status change → 409", async () => {
+    m.actions.findWorkerStatus.mockResolvedValue({ id: WORKER_ID, status: "suspended" });
+    m.actions.reinstateWorker.mockResolvedValue(undefined);
+    await expect(
+      m.service.unsuspendWorker(ADMIN_ID, WORKER_ID, UNSUSPEND, CTX),
+    ).rejects.toBeInstanceOf(ConflictException);
+    // The sweep runs before the status write, so it has already happened.
+    expect(m.workerSessions.revokeAllStrict).toHaveBeenCalled();
+  });
+
+  it("the written reason is required and rejects hard identifiers", () => {
+    const base = { reason_code: "worker_suspend" as const };
+    expect(
+      AdminWorkerSuspendSchema.safeParse({
+        ...base,
+        reason_text: "Repeated abuse confirmed by the review team",
+      }).success,
+    ).toBe(true);
+    expect(
+      AdminWorkerSuspendSchema.safeParse({ ...base, reason_text: "too short" }).success,
+    ).toBe(false);
+    expect(
+      AdminWorkerSuspendSchema.safeParse({
+        ...base,
+        reason_text: "Call the worker on +91 98765 43210 about it",
+      }).success,
+    ).toBe(false);
+    expect(
+      AdminWorkerSuspendSchema.safeParse({
+        ...base,
+        reason_text: "Email the worker at ops@badabhai.in about it",
+      }).success,
+    ).toBe(false);
   });
 });
 

@@ -19,7 +19,7 @@ import { OptionalWorkerAuthGuard } from "./optional-worker-auth.guard";
  * SIGNATURE was verified and whose session record still exists — because that id becomes
  * `interview_kit.downloaded.worker_id`, an attribution row on the audit spine, written by an
  * UNAUTHENTICATED route. The dangerous change is not "the guard denies too much"; it is
- * swapping `session.validateAndTouch(token)` for anything that merely DECODES. That would
+ * swapping `session.validate(token)` for anything that merely DECODES. That would
  * mint forged attribution rows from any unsigned JWT a caller cared to paste, and a test
  * whose session double returns null for the literal string `"bad.token"` would stay green
  * through it — the double, not the code, would be doing the verifying.
@@ -86,7 +86,7 @@ function makeRedis() {
   };
 }
 
-function setup(secret = SECRET) {
+function setup(secret = SECRET, workerStatus: "active" | "suspended" = "active") {
   const redis = makeRedis();
   const queue = { client: Promise.resolve(redis.client) } as unknown as Queue;
   const jwt = new JwtService({ secret, signOptions: { algorithm: "HS256" } });
@@ -99,8 +99,18 @@ function setup(secret = SECRET) {
     { revokeAllForWorker: vi.fn().mockResolvedValue([]) } as never,
     { enqueue: vi.fn().mockResolvedValue(undefined) } as never,
   );
-  const validateSpy = vi.spyOn(session, "validateAndTouch");
-  return { redis, jwt, session, validateSpy, guard: new OptionalWorkerAuthGuard(session) };
+  const workers = {
+    findSelfView: vi.fn(async () => ({ status: workerStatus, deletionScheduledAt: null })),
+  };
+  const validateSpy = vi.spyOn(session, "validate");
+  return {
+    redis,
+    jwt,
+    session,
+    workers,
+    validateSpy,
+    guard: new OptionalWorkerAuthGuard(session, workers as never),
+  };
 }
 
 /** An ExecutionContext whose request carries the given Authorization header (or none). */
@@ -187,7 +197,7 @@ describe("attribution comes from a verified session, never from a decoded claim"
 
   it("a token signed with the WRONG SECRET attributes nothing (bad signature)", async () => {
     /**
-     * ⚠ THE MUTATION THIS CATCHES. Replacing `validateAndTouch` with a decode-only helper
+     * ⚠ THE MUTATION THIS CATCHES. Replacing `validate` with a decode-only helper
      * (`jwt.decode`, or a `verifyAsync` with the signature check disabled) would read `sub`
      * off this token and mint a forged `interview_kit.downloaded.worker_id` for anyone who
      * can type a JSON object — from an UNAUTHENTICATED route. The token below is a real,
@@ -232,8 +242,36 @@ describe("attribution comes from a verified session, never from a decoded claim"
     expect(req.worker).toBeUndefined();
   });
 
+  it("a SUSPENDED worker is served anonymously and its TTL is not touched", async () => {
+    const { guard, session } = setup(SECRET, "suspended");
+    const minted = await session.create(WORKER_ID);
+    const { ctx, req } = makeCtx(`Bearer ${minted.access.token}`);
+
+    await expect(guard.canActivate(ctx)).resolves.toBe(true);
+    expect(req.worker).toBeUndefined();
+  });
+
+  it("a family swept after the token was minted attributes nothing", async () => {
+    const { guard, session, redis } = setup();
+    const minted = await session.create(WORKER_ID);
+    redis.store.set(`worker_sessions_revoked_at:${WORKER_ID}`, String(Date.now() + 60_000));
+    const { ctx, req } = makeCtx(`Bearer ${minted.access.token}`);
+
+    await expect(guard.canActivate(ctx)).resolves.toBe(true);
+    expect(req.worker).toBeUndefined();
+  });
+
+  it("a restricted SUSPENDED DPDP token is never attributed", async () => {
+    const { guard, session } = setup(SECRET, "suspended");
+    const restricted = await session.createRestricted(WORKER_ID, "suspended_dpdp", 900);
+    const { ctx, req } = makeCtx(`Bearer ${restricted.token}`);
+
+    await expect(guard.canActivate(ctx)).resolves.toBe(true);
+    expect(req.worker).toBeUndefined();
+  });
+
   it("a THROWING session service is served anonymously, and logs no token and no id", async () => {
-    // `validateAndTouch` returns null rather than throwing on every known failure, so this is
+    // `validate` returns null rather than throwing on every known failure, so this is
     // the second wall: an unexpected throw must not 500 a route whose whole contract is that
     // it works without a session.
     const { guard, validateSpy } = setup();

@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { e164PhoneSchema } from "@badabhai/validators";
 import type { OrgRole, PayerRole, PayerStatus } from "@badabhai/db";
-import { containsHardIdentifier } from "../profiling/resume-import/resume-parse-gates";
+import { containsHardIdentifier } from "../common/hard-identifier";
 import type { AdminPage } from "./admin-entities.dto";
 
 /**

@@ -231,6 +231,55 @@ describe("SessionService.create", () => {
   });
 });
 
+// #2562 — the restricted token a SUSPENDED worker gets from phone-code verification. It is NOT
+// a session: 15 minutes, no refresh, no device binding, and a scope that limits it to DPDP exits.
+describe("#2562 — createRestricted (suspended DPDP token)", () => {
+  it("stores a 15m record with a scope, no refresh and no family", async () => {
+    const { svc, redis, jwt } = setup();
+    const token = await svc.createRestricted("worker-1", "suspended_dpdp", 900);
+
+    expect(token.expiresInSeconds).toBe(900);
+    expect(token.token).toBeTruthy();
+    expect(jwt.lastSigned).toMatchObject({
+      sub: "worker-1",
+      scope: "suspended_dpdp",
+    });
+    const sid = jwt.lastSigned!.sid;
+    expect(redis.store.has(`session:${sid}`)).toBe(true);
+    expect(redis.ttls.get(`session:${sid}`)).toBe(900);
+    expect([...redis.store.keys()].some((k) => k.startsWith("refresh:"))).toBe(false);
+    expect([...redis.sets.keys()].some((k) => k.startsWith("worker_families:"))).toBe(false);
+    expect(redis.sets.get("worker_sessions:worker-1")?.has(sid)).toBe(true);
+
+    const validated = await svc.validate(token.token);
+    expect(validated).toMatchObject({
+      workerId: "worker-1",
+      sid,
+      scope: "suspended_dpdp",
+    });
+  });
+
+  it("cannot be refreshed or rotated into a real session", async () => {
+    const { svc } = setup();
+    const token = await svc.createRestricted("worker-1", "suspended_dpdp", 900);
+
+    await expect(svc.refresh(token.token)).resolves.toBeNull();
+    await expect(svc.refreshByToken(token.token, "idem-restricted")).resolves.toEqual({
+      ok: false,
+      reason: "invalid",
+    });
+  });
+
+  it("is still killed by the worker-level sweep", async () => {
+    const { svc, redis, jwt } = setup();
+    await svc.createRestricted("worker-1", "suspended_dpdp", 900);
+    const sid = jwt.lastSigned!.sid;
+
+    await svc.revokeAll("worker-1");
+    expect(redis.store.has(`session:${sid}`)).toBe(false);
+  });
+});
+
 describe("SessionService.validateAndTouch (legacy flat behavior, tiers OFF)", () => {
   it("returns claims and RESETS the flat session TTL (sliding)", async () => {
     const { svc, redis } = setup();
@@ -749,6 +798,141 @@ describe("SessionService.revoke / revokeAll", () => {
     const { svc } = setup({ devices: { revokeAllForWorker: vi.fn().mockResolvedValue([]) }, push });
     await svc.revokeAll("worker-1");
     expect(push.enqueue).not.toHaveBeenCalled();
+  });
+});
+
+// #2562 — the admin sweep contract. Unlike the worker's own logout-all, an admin account action
+// may not report success when the session store is unavailable; the durable watermark makes the
+// kill hold across a racing refresh and a safe retry.
+describe("#2562 — strict admin sweep + durable watermark", () => {
+  const WATERMARK_KEY = "worker_sessions_revoked_at:worker-1";
+
+  it("revokeAllStrict PROPAGATES a Redis failure — the admin action cannot claim success", async () => {
+    const { svc, redis, emit } = setup();
+    await svc.create("worker-1");
+    const setSpy = vi.spyOn(redis.client, "set").mockRejectedValueOnce(new Error("redis down"));
+
+    await expect(svc.revokeAllStrict("worker-1")).rejects.toThrow("redis down");
+    // No event was emitted, so nothing downstream can treat the sweep as done.
+    expect(emit).not.toHaveBeenCalled();
+    setSpy.mockRestore();
+  });
+
+  it("revokeAll (worker-initiated logout-all) still swallows a Redis failure", async () => {
+    const { svc, redis } = setup();
+    await svc.create("worker-1");
+    const setSpy = vi.spyOn(redis.client, "set").mockRejectedValueOnce(new Error("redis down"));
+
+    await expect(svc.revokeAll("worker-1")).resolves.toBe(0);
+    setSpy.mockRestore();
+  });
+
+  it("retrying a failed strict sweep is SAFE and kills every session", async () => {
+    const { svc, redis, jwt } = setup();
+    const created = await svc.create("worker-1");
+    const sid = jwt.lastSigned!.sid;
+
+    const setSpy = vi.spyOn(redis.client, "set").mockRejectedValueOnce(new Error("redis down"));
+    await expect(svc.revokeAllStrict("worker-1")).rejects.toThrow("redis down");
+    setSpy.mockRestore();
+    // The failed attempt did not delete the live session.
+    expect(redis.store.has(`session:${sid}`)).toBe(true);
+
+    await expect(svc.revokeAllStrict("worker-1")).resolves.toBe(1);
+    expect(redis.store.has(`session:${sid}`)).toBe(false);
+    expect(created.refresh.token).toBeTruthy();
+  });
+
+  it("writes the watermark BEFORE deleting anything, with the refresh-horizon TTL", async () => {
+    const { svc, redis } = setup();
+    await svc.create("worker-1");
+    redis.calls.length = 0;
+
+    await svc.revokeAll("worker-1");
+
+    const setIdx = redis.calls.findIndex(
+      (c) => c[0] === "set" && String(c[1]) === WATERMARK_KEY,
+    );
+    const firstDelIdx = redis.calls.findIndex((c) => c[0] === "del");
+    expect(setIdx).toBeGreaterThanOrEqual(0);
+    expect(firstDelIdx).toBeGreaterThan(setIdx);
+    expect(redis.ttls.get(WATERMARK_KEY)).toBe(90 * 86400);
+  });
+
+  it("an ADMIN-triggered sweep names the admin as actor; the payload is unchanged", async () => {
+    const { svc, emit } = setup();
+    await svc.create("worker-1");
+
+    await svc.revokeAll("worker-1", { actor_type: "admin", actor_id: "admin-9" });
+
+    const ev = emit.mock.calls
+      .map((c) => c[0] as { event_name: string; actor: unknown; payload: unknown })
+      .find((e) => e.event_name === "worker.logged_out_all")!;
+    expect(ev).toBeDefined();
+    expect(ev.actor).toEqual({ actor_type: "admin", actor_id: "admin-9" });
+    expect(ev.payload).toEqual({ worker_id: "worker-1", sessions_revoked: 1 });
+  });
+
+  it("validate() does NOT slide the TTL; validateAndTouch() does", async () => {
+    const { svc, redis } = setup();
+    const created = await svc.create("worker-1");
+
+    redis.calls.length = 0;
+    const validated = await svc.validate(created.access.token);
+    expect(validated).not.toBeNull();
+    expect(validated!.createdAtMs).toBeGreaterThan(0);
+    expect(redis.calls.some((c) => c[0] === "expire")).toBe(false);
+    expect(
+      redis.calls.some((c) => c[0] === "set" && String(c[1]).startsWith("session:")),
+    ).toBe(false);
+
+    redis.calls.length = 0;
+    await svc.validateAndTouch(created.access.token);
+    expect(redis.calls.some((c) => c[0] === "expire")).toBe(true);
+  });
+
+  it("sessionsRevokedAtMs reads the watermark; null when none was set", async () => {
+    const { svc, redis } = setup();
+    expect(await svc.sessionsRevokedAtMs("worker-1")).toBeNull();
+
+    redis.store.set(WATERMARK_KEY, "1762345678901");
+    expect(await svc.sessionsRevokedAtMs("worker-1")).toBe(1762345678901);
+  });
+
+  it("a refresh family minted BEFORE the watermark never rotates (revoked + requires_otp)", async () => {
+    const { svc, redis } = setup();
+    const created = await svc.create("worker-1");
+    // Simulate a sweep that raced the refresh: its watermark is newer than the OTP anchor.
+    redis.store.set(WATERMARK_KEY, String(Date.now() + 60_000));
+
+    const res = await svc.refreshByToken(created.refresh.token, "idem-watermark");
+    expect(res).toEqual({ ok: false, reason: "requires_otp" });
+    // The family was killed, so even the old refresh record cannot be replayed.
+    expect(redis.store.has(`refresh:${sha256Hex(created.refresh.token)}`)).toBe(false);
+  });
+
+  it("re-checks the watermark AFTER rotation — a sweep landing mid-refresh still wins", async () => {
+    const { svc, redis } = setup();
+    const created = await svc.create("worker-1");
+    const realGet = redis.client.get.bind(redis.client);
+    let watermarkReads = 0;
+    const getSpy = vi.spyOn(redis.client, "get").mockImplementation(async (key: string) => {
+      if (key === WATERMARK_KEY) {
+        watermarkReads += 1;
+        // First read (pre-rotation): absent. Second read (post-rotation): the sweep has landed.
+        return watermarkReads === 1 ? null : String(Date.now() + 60_000);
+      }
+      return realGet(key);
+    });
+
+    const res = await svc.refreshByToken(created.refresh.token, "idem-watermark-race");
+
+    expect(res).toEqual({ ok: false, reason: "requires_otp" });
+    expect(watermarkReads).toBeGreaterThanOrEqual(2);
+    // The family created by the rotation was revoked again.
+    const familyIds = [...redis.sets.keys()].filter((k) => k.startsWith("worker_families:"));
+    expect(familyIds.every((k) => (redis.sets.get(k)?.size ?? 0) === 0)).toBe(true);
+    getSpy.mockRestore();
   });
 });
 

@@ -8,6 +8,7 @@ import { DatabaseModule } from "../database/database.module";
 import { EventsModule } from "../events/events.module";
 import { StorageModule } from "../storage/storage.module";
 import { PayersModule } from "../payers/payers.module";
+import { AuthModule } from "../auth/auth.module";
 import { MatchModule } from "../match/match.module";
 import { WorkersModule } from "../workers/workers.module";
 import { AdminRepository } from "./admin.repository";
@@ -191,6 +192,9 @@ import { WorkerQualificationsRepository } from "../profiles/worker-qualification
     // revokes their live sessions immediately. PayersModule exports it. One-directional:
     // PayersModule does not import AdminModule, so no forwardRef is needed.
     PayersModule,
+    // #2562 — the worker-account actions need the WORKER SessionService and PinRepository.
+    // AuthModule exports both; it does not import AdminModule, so no cycle.
+    AuthModule,
     // The Engine view reads through the match module's OWN read paths (feed composition,
     // candidate list), never a copy of their ORDER BY.
     MatchModule,

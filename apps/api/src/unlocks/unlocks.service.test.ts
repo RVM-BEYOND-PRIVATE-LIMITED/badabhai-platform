@@ -66,6 +66,8 @@ interface SetupOpts {
   consentRevoked?: boolean;
   workerExists?: boolean;
   pendingDeletion?: boolean; // ADR-0031: worker inside the deletion grace window
+  /** #2562 — the worker's durable status is `suspended` (frozen like pending deletion). */
+  workerSuspended?: boolean;
   existingUnlock?: Record<string, unknown>;
   existingRouting?: Record<string, unknown>; // P-021: a routing row an earlier reveal wrote
   /** E0 resolution: the routing row `findRoutingByHandle` returns, and the exact projection. */
@@ -120,8 +122,16 @@ function setup(opts: SetupOpts = {}) {
     findRoutingByHandle: vi.fn(async () => opts.routingByHandle),
     appendLedger: vi.fn(async () => undefined),
     tryDebit: vi.fn(async () => ((opts.debitOk ?? true) ? balance - 1 : undefined)),
-    // ADR-0031: the tx-scoped deletion-grace marker read (the in-tx re-checks).
-    getWorkerDeletionMarker: vi.fn(async () => (workerExists ? { deletionScheduledAt } : undefined)),
+    // ADR-0031: the tx-scoped deletion-grace marker read (the in-tx re-checks). #2562 adds
+    // the durable status so a suspended worker freezes exactly like a pending-deletion one.
+    getWorkerDeletionMarker: vi.fn(async () =>
+      workerExists
+        ? {
+            deletionScheduledAt,
+            status: opts.workerSuspended ? "suspended" : "active",
+          }
+        : undefined,
+    ),
     // Middle Way P5: the tx-scoped rung read for the price-tier hook. Default: no
     // stated rung, so the hook prices Lower — the ₹40 flat debit is untouched.
     findTradeLevels: vi.fn(
@@ -174,7 +184,14 @@ function setup(opts: SetupOpts = {}) {
 
   const workers = {
     findById: vi.fn(async () =>
-      workerExists ? { id: WORKER, phoneE164: "ciphertext", deletionScheduledAt } : undefined,
+      workerExists
+        ? {
+            id: WORKER,
+            phoneE164: "ciphertext",
+            deletionScheduledAt,
+            status: opts.workerSuspended ? "suspended" : "active",
+          }
+        : undefined,
     ),
   };
 
@@ -1219,7 +1236,10 @@ describe("UnlockService — ADR-0031 pending-deletion freeze (byte-identical neu
 
   it("the in-tx RE-CHECK closes the schedule-vs-unlock race (deletion scheduled after the pre-lock read)", async () => {
     const t = setup({ balance: 5, consentPurposes: ["employer_sharing"] }); // active at the pre-lock read
-    t.txMethods.getWorkerDeletionMarker.mockResolvedValue({ deletionScheduledAt: new Date() });
+    t.txMethods.getWorkerDeletionMarker.mockResolvedValue({
+      deletionScheduledAt: new Date(),
+      status: "active",
+    });
     const out = await t.svc.requestUnlock({ payerId: PAYER, workerId: WORKER, jobId: null }, CTX);
     expect(JSON.stringify(out)).toBe(JSON.stringify(neutralUnavailable()));
     expect(t.txMethods.tryDebit).not.toHaveBeenCalled();
@@ -1243,9 +1263,64 @@ describe("UnlockService — ADR-0031 pending-deletion freeze (byte-identical neu
   it("reveal TOCTOU: a deletion scheduled between the pre-lock read and the lock still freezes", async () => {
     const t = setup({ consentPurposes: ["employer_sharing"], existingUnlock: grantedUnlock() });
     // The pre-lock read sees an ACTIVE worker; the tx-scoped marker read sees the schedule.
-    t.txMethods.getWorkerDeletionMarker.mockResolvedValue({ deletionScheduledAt: new Date() });
+    t.txMethods.getWorkerDeletionMarker.mockResolvedValue({
+      deletionScheduledAt: new Date(),
+      status: "active",
+    });
     const out = await t.svc.reveal("unlock-1", CTX);
     expect(JSON.stringify(out)).toBe(JSON.stringify(neutralUnavailable()));
+    expect(t.pii.decrypt).not.toHaveBeenCalled();
+    expect(t.txMethods.createRouting).not.toHaveBeenCalled();
+    expect(emitted(t.events)).not.toContain("contact.revealed");
+  });
+});
+
+// #2562 — suspension uses the SAME payer-surface freeze as pending deletion: invisible on
+// every list, and refused at unlock/reveal with the byte-identical neutral body.
+describe("#2562 - a suspended worker is frozen on every unlock surface", () => {
+  function grantedUnlock() {
+    return {
+      id: "unlock-1",
+      payerId: PAYER,
+      workerId: WORKER,
+      status: "granted",
+      routingTokenRef: "44444444-4444-4444-4444-444444444444",
+      revealCount: 0,
+      expiresAt: new Date(Date.now() + 60_000),
+    };
+  }
+
+  it("requestUnlock while suspended → byte-identical neutral; no tx, no debit, no deny row", async () => {
+    const t = setup({ balance: 5, consentPurposes: ["employer_sharing"], workerSuspended: true });
+    const out = await t.svc.requestUnlock({ payerId: PAYER, workerId: WORKER, jobId: null }, CTX);
+    expect(JSON.stringify(out)).toBe(JSON.stringify(neutralUnavailable()));
+    expect(t.repo.withTransaction).not.toHaveBeenCalled();
+    expect(t.txMethods.tryDebit).not.toHaveBeenCalled();
+    expect(t.txMethods.recordDeny).not.toHaveBeenCalled();
+    expect(emitted(t.events)).toEqual(["unlock.requested"]);
+  });
+
+  it("requestUnlock TOCTOU: a suspension landing after the pre-lock read still freezes", async () => {
+    const t = setup({ balance: 5, consentPurposes: ["employer_sharing"] }); // active pre-lock
+    t.txMethods.getWorkerDeletionMarker.mockResolvedValue({
+      deletionScheduledAt: null,
+      status: "suspended",
+    });
+    const out = await t.svc.requestUnlock({ payerId: PAYER, workerId: WORKER, jobId: null }, CTX);
+    expect(JSON.stringify(out)).toBe(JSON.stringify(neutralUnavailable()));
+    expect(t.txMethods.tryDebit).not.toHaveBeenCalled();
+    expect(t.txMethods.upsertGrant).not.toHaveBeenCalled();
+  });
+
+  it("reveal while suspended → neutral; no tx, no decrypt, no routing", async () => {
+    const t = setup({
+      consentPurposes: ["employer_sharing"],
+      workerSuspended: true,
+      existingUnlock: grantedUnlock(),
+    });
+    const out = await t.svc.reveal("unlock-1", CTX);
+    expect(JSON.stringify(out)).toBe(JSON.stringify(neutralUnavailable()));
+    expect(t.repo.withTransaction).not.toHaveBeenCalled();
     expect(t.pii.decrypt).not.toHaveBeenCalled();
     expect(t.txMethods.createRouting).not.toHaveBeenCalled();
     expect(emitted(t.events)).not.toContain("contact.revealed");

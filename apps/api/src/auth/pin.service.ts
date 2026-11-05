@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Inject,
   Injectable,
   Logger,
@@ -23,8 +24,9 @@ import { PinRepository } from "./pin.repository";
 import { ConsentRepository } from "../consent/consent.repository";
 import { withConsentAccepted } from "../consent/consent-flag";
 import {
-  throwIfWorkerDeleted,
+  readWorkerAccountState,
   WorkerAccountDeletedException,
+  WorkerAccountSuspendedException,
 } from "./worker-account-deleted.exception";
 import type { DeviceInfoDto } from "./devices.dto";
 import type { PinResetConfirmResponse, PinVerifyResponse } from "./pin.dto";
@@ -68,6 +70,11 @@ export interface VerifyPinInput {
  * emit distinct PII-FREE events for ops. The raw PIN, the pin_hash, the device fingerprint, and
  * the phone NEVER enter an event/log (CLAUDE.md §2) — logs carry only static reasons + ids.
  *
+ * #2562 adds SUSPENDED to that neutral set on THIS surface: a suspended worker's unlock attempt
+ * gets the same 401 as a wrong PIN and a `pin_verify_failed` fact for ops. The app's existing
+ * failure budget then routes them back to OTP login; the explicit suspended refusal (403) lives
+ * on sign-in and PIN-reset confirmation, where no session exists to protect.
+ *
  * THE ONE EXCEPTION is the reserved 410 WORKER_ACCOUNT_DELETED (ADR-0026 Phase-3 Finding-3
  * addendum, owner ruling 2026-10-08), and it fires only for the holder of a once-valid credential:
  *   (a0) the presented refresh token no longer resolves, but it was a live device-bound tip of a
@@ -106,8 +113,29 @@ export class PinService {
    * WorkerAuthGuard, so the worker id is the token's). Validates exact PIN_LENGTH (400 on a
    * malformed value — there is no strength rule since #1462), hashes, upserts (which clears the
    * whole throttle + force-OTP state), and emits `worker.pin_set`.
+   *
+   * #2562 — THE DURABLE ADMIN-RESET GATE. `sessionCreatedAtMs` is the epoch-ms of the OTP that
+   * minted this session family. If an admin reset the PIN AFTER that sign-in, this session is
+   * stale by definition: the reset exists precisely so the worker proves the phone again. A
+   * Redis sweep alone is not the proof (an in-flight or partially-deleted session can survive),
+   * so the audit row's timestamp is the authority. The guarded controller always supplies it.
    */
-  async setPin(workerId: string, pin: string, ctx: RequestContext): Promise<void> {
+  async setPin(
+    workerId: string,
+    pin: string,
+    ctx: RequestContext,
+    sessionCreatedAtMs: number,
+  ): Promise<void> {
+    const resetAt = await this.pins.latestAdminPinResetAt(workerId);
+    if (resetAt !== null && sessionCreatedAtMs < resetAt.getTime()) {
+      // 403, not 401: this is not a dead session (it is valid for every OTHER route), it is a
+      // credential action that requires a FRESH phone-code sign-in. The app's set-PIN screen
+      // can route to OTP on this code; a 401 would invite a refresh loop that cannot help.
+      throw new ForbiddenException({
+        code: "PIN_RESET_REQUIRES_PHONE_CODE",
+        message: "Sign in again with a phone code to set a new PIN",
+      });
+    }
     await this.writePin(workerId, pin, "worker.pin_set", ctx);
   }
 
@@ -171,6 +199,11 @@ export class PinService {
       // worker row is created on first OTP login). Fail neutrally rather than leak anything.
       throw new BadRequestException("PIN reset could not be completed");
     }
+
+    // #2562 — a suspended worker must not be able to set a new PIN. The OTP proves the phone,
+    // but the ACCOUNT is closed: writing the credential here would leave a usable secret on a
+    // suspended row and force the mint below to fail after the code was spent.
+    if (worker.status === "suspended") throw new WorkerAccountSuspendedException();
 
     // (3) Write the new PIN + emit worker.pin_reset (the audit fact for this request).
     await this.writePin(worker.id, newPin, "worker.pin_reset", ctx);
@@ -322,34 +355,23 @@ export class PinService {
     }
     const { workerId, deviceId } = resolved;
 
-    // (a2) COLD-START OUT-OF-BAND DELETION → the reserved 410 (WORKER_ACCOUNT_DELETED), the SAME
-    // signal WorkerAuthGuard and POST /auth/token/refresh return. The Enter-PIN screen is the one
-    // authed-worker surface a cold-started app reaches with NO WorkerAuthGuard, so without this a
-    // deleted worker there is indistinguishable from a wrong PIN (the neutral 401), and the app
-    // never shows the account-deleted dialog on the PIN screen (the gap this closes).
-    //
-    // WHY IT IS REACHABLE, AND WHY THE PROBE IS HERE (before the device + credential gates):
-    // identity is resolved from the REFRESH TOKEN, whose record lives in REDIS — it SURVIVES a
-    // raw `DELETE FROM workers`, so `resolveRefreshToken` still yields a real workerId for a
-    // deleted worker. But `worker_devices` and `worker_credentials` are FK `ON DELETE CASCADE`
-    // from `workers`, so both the trusted-device gate (b) and the credential lookup (c) read
-    // rows that a workers-row delete has already removed — a deleted worker would fall into the
-    // neutral `untrusted_device` / `no_pin_set` 401 and MASK the deletion. Probing existence HERE,
-    // straight off the resolved (Redis) identity with no workers-join required to resolve it,
-    // surfaces the terminal state before those cascade-emptied gates can hide it.
-    //
-    // FAIL-SAFE: a DB error leaves existence UNKNOWN → treated as PRESENT, so a Postgres blip
-    // falls through to the normal neutral path and never 410-storms. ONLY a DEFINITIVELY-absent
-    // row throws. A wrong PIN (row present, hash mismatch), an unresolvable/rotated/dead token
-    // (handled above, no worker to probe), and a correct PIN are ALL unchanged — only
-    // (valid token → real workerId) + (row absent) becomes the 410.
-    //
-    // SECURITY (relaxes ADR-0026's strict no-oracle 401 for this case — RATIFIED by the owner
-    // 2026-10-08, recorded in ADR-0026's Phase-3 Finding-3 addendum together with (a0) above): a
-    // deleted account is a TERMINAL, unguessable state, not a PIN secret, and the 410 fires only
-    // when the credential (the refresh token) is itself VALID — so it reveals nothing a wrong-PIN
-    // guesser could probe for. `existsById` is a PK point-lookup projecting the id only (no PII).
-    await throwIfWorkerDeleted(this.workers, workerId, this.logger);
+    // (a2) ONE durable account read: deletion is the reserved 410; suspension is the SAME
+    // neutral 401 as a wrong PIN (no new oracle on this surface). A DB error is UNKNOWN and
+    // fails open to the normal neutral path.
+    const accountState = await readWorkerAccountState(this.workers, workerId, this.logger);
+    if (accountState === "deleted") throw new WorkerAccountDeletedException();
+    if (accountState === "suspended") {
+      await this.emitVerifyFailed(workerId, deviceId, "suspended", ctx);
+      throw PinService.neutralFailure();
+    }
+
+    // #2562 — a family minted before the latest admin sweep is dead even if its refresh record
+    // survived. The refresh token is the credential here, so the same watermark applies.
+    const revokedAtMs = await this.sessions.sessionsRevokedAtMs(workerId);
+    if (revokedAtMs !== null && resolved.createdViaOtpAtMs < revokedAtMs) {
+      await this.emitVerifyFailed(workerId, deviceId, "swept", ctx);
+      throw PinService.neutralFailure();
+    }
 
     // (b) Trusted-device gate: the resolved device must be a NON-revoked device owned by the
     // worker. A revoked/foreign device is untrusted ⇒ neutral failure (+ a verify-failed

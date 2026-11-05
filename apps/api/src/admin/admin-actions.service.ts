@@ -1,9 +1,17 @@
-import { ConflictException, Injectable, Logger, NotFoundException } from "@nestjs/common";
+import {
+  ConflictException,
+  Injectable,
+  Logger,
+  NotFoundException,
+  ServiceUnavailableException,
+} from "@nestjs/common";
 import type { PayloadInputOf } from "@badabhai/event-schema";
 import type { Database, PayerStatus } from "@badabhai/db";
 import type { RequestContext } from "../common/request-context";
 import { EventsService } from "../events/events.service";
 import { PayerSessionService } from "../payers/payer-session.service";
+import { SessionService } from "../auth/session.service";
+import { PinRepository } from "../auth/pin.repository";
 import { AdminRepository } from "./admin.repository";
 import { AdminActionsRepository } from "./admin-actions.repository";
 import { AdminInviteService } from "./admin-invite.service";
@@ -14,75 +22,15 @@ import type {
   AdminFlagWorkerDto,
   AdminGrantCreditsDto,
   AdminInviteDto,
+  AdminWorkerPinResetDto,
+  AdminWorkerSignOutAllDto,
+  AdminWorkerSuspendDto,
+  AdminWorkerUnsuspendDto,
 } from "./admin-actions.dto";
 
-/**
- * The closed set of admin action CODES recorded on the spine (`admin.action_performed.action_code`).
- * One per route outcome; a CODE only — the action_code is the WHAT, never the value (the new
- * status, the amount, the reason). Pinned here so a typo can't drift the audited code.
- */
-export const ADMIN_ACTION_CODES = {
-  payer_suspended: "payer_suspended",
-  payer_reinstated: "payer_reinstated",
-  credits_granted: "credits_granted",
-  posting_force_closed: "posting_force_closed",
-  worker_flagged: "worker_flagged",
-  worker_unflagged: "worker_unflagged",
-  admin_invited: "admin_invited",
-  // The invitee redeeming their accept link (pending → active). Recorded as its own code, and
-  // with the accepting admin as BOTH actor and target: they are the only principal in the
-  // request (the accept is unauthenticated — the token is the proof), and an audit trail that
-  // attributed the activation to the original inviter would misstate who acted and when.
-  admin_invite_accepted: "admin_invite_accepted",
-  admin_role_changed: "admin_role_changed",
-  admin_suspended: "admin_suspended",
-  admin_mfa_reset: "admin_mfa_reset",
-  // ── Migration 0144 — admin password sign-in + optional two-step (owner 2026-11-03) ──────────
-  // Every one targets an ADMIN (subject/target `admin_session`). The password, the code, the
-  // device token and the email NEVER ride the event — the code names WHAT happened, nothing else.
-  //   admin_created        — a super_admin created an ACTIVE admin directly with a temporary
-  //                          password (actor = creator, target = the new admin).
-  //   admin_password_set   — a password was set or changed by its owner: the must-change step
-  //                          on first sign-in, or the Account page (actor = target = self).
-  //   admin_password_reset — a forgot-password code was redeemed (actor = target = the admin;
-  //                          the request is unauthenticated, the emailed code is the proof).
-  //   admin_device_trusted — a browser was trusted to skip the two-step step for N days.
-  //   admin_mfa_enabled    — the admin switched their own two-step ON (code confirmed).
-  //   admin_mfa_disabled   — the admin switched their own two-step OFF (current code proven).
-  admin_created: "admin_created",
-  admin_password_set: "admin_password_set",
-  admin_password_reset: "admin_password_reset",
-  admin_device_trusted: "admin_device_trusted",
-  admin_mfa_enabled: "admin_mfa_enabled",
-  admin_mfa_disabled: "admin_mfa_disabled",
-  // ── Migration 0093 — skill-candidate review decisions ────────────────────────────────────
-  // FIVE codes, not one `skill_candidate_reviewed` plus a payload field, because the spine is
-  // VALUE-FREE: which way a reviewer decided IS the value, and the only free-form string the
-  // spine carries is the action code. Collapsing them would either lose the decision from the
-  // audit trail entirely or smuggle it back as a payload key that `.strict()` rejects.
-  //
-  // Each code is named for the SoR STATUS it records, not for the wire word the console sends
-  // (the request body says `alias`/`hold`, the ladder says `approved_map`/`deferred` — see the
-  // decision DTO). That is deliberate: the code is then a total function of
-  // `statusForDecision(...)`, so an auditor reconciling the spine against a `skill_candidate`
-  // row needs no translation table, and a mismatch between the two is visible rather than
-  // arguable. The reason text, the proposed label, the target skill id and the confidence band
-  // stay on the row — none of them may ride an event.
-  skill_candidate_approved_create: "skill_candidate_approved_create",
-  skill_candidate_approved_map: "skill_candidate_approved_map",
-  skill_candidate_approved_merge: "skill_candidate_approved_merge",
-  skill_candidate_rejected: "skill_candidate_rejected",
-  skill_candidate_deferred: "skill_candidate_deferred",
-  // ── #2563 — payer login management ──────────────────────────────────────────────────────
-  // Three codes, each targeting a PAYER. The temporary password, its hash and the login ID
-  // never ride the event; the reason code/text lives on the `audit_logs` row written in the
-  // same transaction, because `admin.action_performed` is `.strict()` and value-free.
-  payer_login_created: "payer_login_created",
-  payer_login_create_conflict: "payer_login_create_conflict",
-  payer_password_issued: "payer_password_issued",
-  payer_password_revoked: "payer_password_revoked",
-} as const;
-export type AdminActionCode = (typeof ADMIN_ACTION_CODES)[keyof typeof ADMIN_ACTION_CODES];
+import { ADMIN_ACTION_CODES, type AdminActionCode } from "./admin-action-codes";
+export { ADMIN_ACTION_CODES } from "./admin-action-codes";
+export type { AdminActionCode } from "./admin-action-codes";
 
 /**
  * The faceless event subject for each action's target entity (one of the registered subjects).
@@ -105,8 +53,9 @@ type AdminActionSubjectType =
 
 /**
  * Governed admin entity actions (ADR-0025 ADMIN-3a, Decision 3/5/6). Each method mutates a
- * SYSTEM-OF-RECORD table (payers.status / credit_ledger / job_postings.status / worker_flags /
- * admin_users) and emits EXACTLY ONE registry-validated `admin.action_performed` carrying the
+ * SYSTEM-OF-RECORD (payers.status / credit_ledger / job_postings.status / worker_flags /
+ * admin_users, and #2562's workers.status + worker_credentials + the worker session lineage)
+ * and emits EXACTLY ONE registry-validated `admin.action_performed` carrying the
  * action CODE + the opaque target id ONLY.
  *
  * VALUE-FREE SPINE (Decision 5/6 + CLAUDE.md invariant #2): the new status, the credit amount,
@@ -142,6 +91,10 @@ export class AdminActionsService {
     // The accept-link seam (mint / hash / expire / render / deliver). Holds every rule about
     // where a raw invite token may travel.
     private readonly invites: AdminInviteService,
+    // #2562 — WORKER sessions (a separate Redis lineage from the payer one above).
+    private readonly workerSessions: SessionService,
+    // #2562 — the worker's device-unlock PIN credential. An admin reset deletes it.
+    private readonly pins: PinRepository,
   ) {}
 
   // ----- payers: suspend / reinstate ----------------------------------------
@@ -429,6 +382,250 @@ export class AdminActionsService {
       await this.emitAction(adminId, ADMIN_ACTION_CODES.worker_unflagged, "worker", workerId, ctx, tx);
     });
     return { target_id: workerId, changed };
+  }
+
+  // ----- workers: account actions (#2562, manage_worker_account) --------------
+
+  /**
+   * #2562 — end EVERY session and device the worker holds.
+   *
+   * The audit row and `admin.action_performed` commit in ONE transaction first; the Redis
+   * sweep runs after it. Redis is not transactional with Postgres: sweeping first and then
+   * failing the audit write would sign the worker out with no record of why, whereas a sweep
+   * that runs a moment later still ends every session. `SessionService.revokeAll` is the same
+   * seam the worker's own logout-all uses (sessions, refresh families, trusted devices, and
+   * the push warning), so this action cannot drift from that contract.
+   */
+  async signOutAllWorker(
+    adminId: string,
+    workerId: string,
+    dto: AdminWorkerSignOutAllDto,
+    ctx: RequestContext,
+  ): Promise<AdminActionResult> {
+    const current = await this.actions.findWorkerStatus(workerId);
+    if (!current) throw new NotFoundException("Worker not found");
+
+    // SWEEP FIRST, STRICTLY. Redis is not transactional with Postgres, so a sweep failure
+    // after the audit commit would report an action that did not happen. Running it first means
+    // a failure writes nothing and returns 503; a retry is safe (the sweep and the watermark are
+    // idempotent). The audit row + admin action then commit together.
+    await this.revokeWorkerSessions(workerId, adminId, "sign-out-all");
+
+    await this.actions.withTransaction(async (tx) => {
+      await this.actions.writeAuditReason(tx, {
+        adminId,
+        workerId,
+        action: ADMIN_ACTION_CODES.worker_signed_out_all,
+        reasonCode: dto.reason_code,
+        reasonText: dto.reason_text,
+      });
+      await this.emitAction(
+        adminId,
+        ADMIN_ACTION_CODES.worker_signed_out_all,
+        "worker",
+        workerId,
+        ctx,
+        tx,
+      );
+    });
+
+    return { target_id: workerId, changed: true };
+  }
+
+  /**
+   * #2562 — reset the worker's PIN by DELETING the credential and ending every live session.
+   *
+   * WHY BOTH, and why this is the ADR-0062 §3.8 approval condition: `POST /auth/pin/set`
+   * lets an ALREADY-AUTHENTICATED worker choose a PIN without a fresh OTP. If a session
+   * survived the reset, its holder could set a PIN WITHOUT proving they hold the phone. The
+   * sweep makes a new phone-code sign-in the only way back in, and that sign-in returns
+   * `pin_set:false`, routing the worker to set-PIN. The credential is deleted in the same
+   * transaction as the audit row + both events; the Redis sweep follows the commit.
+   */
+  async resetWorkerPin(
+    adminId: string,
+    workerId: string,
+    dto: AdminWorkerPinResetDto,
+    ctx: RequestContext,
+  ): Promise<AdminActionResult> {
+    const current = await this.actions.findWorkerStatus(workerId);
+    if (!current) throw new NotFoundException("Worker not found");
+
+    // SWEEP FIRST, STRICTLY — see signOutAllWorker. The durable PIN-reset audit row is written
+    // only after every session is provably gone; a Redis failure returns 503 and no reset.
+    await this.revokeWorkerSessions(workerId, adminId, "PIN reset");
+
+    await this.actions.withTransaction(async (tx) => {
+      await this.pins.deleteByWorkerId(workerId, tx);
+      await this.actions.writeAuditReason(tx, {
+        adminId,
+        workerId,
+        action: ADMIN_ACTION_CODES.worker_pin_reset,
+        reasonCode: dto.reason_code,
+        reasonText: dto.reason_text,
+      });
+      await this.emitAction(
+        adminId,
+        ADMIN_ACTION_CODES.worker_pin_reset,
+        "worker",
+        workerId,
+        ctx,
+        tx,
+      );
+      // The domain fact, alongside the admin-action record. Actor = the ADMIN: this reset
+      // was not worker-initiated. Payload stays `{worker_id}` (never the PIN/hash).
+      await this.events.emit({
+        event_name: "worker.pin_reset",
+        actor: { actor_type: "admin", actor_id: adminId },
+        subject: { subject_type: "worker", subject_id: workerId },
+        payload: { worker_id: workerId },
+        correlationId: ctx.correlationId,
+        requestId: ctx.requestId,
+        idempotencyKey: `worker.pin_reset:${workerId}:${ctx.requestId}`,
+        tx,
+      });
+    });
+
+    return { target_id: workerId, changed: true };
+  }
+
+  /**
+   * #2562 — suspend a worker's account.
+   *
+   * The status write + audit row + `admin.action_performed` commit together; the session
+   * sweep follows. Enforcement is not the sweep alone: the guard, refresh, OTP mint and PIN
+   * unlock all read the CURRENT status, so a session that survives a failed Redis sweep
+   * still cannot be used. Idempotent: already suspended → no-op success, no event.
+   */
+  async suspendWorker(
+    adminId: string,
+    workerId: string,
+    dto: AdminWorkerSuspendDto,
+    ctx: RequestContext,
+  ): Promise<AdminActionResult> {
+    const current = await this.actions.findWorkerStatus(workerId);
+    if (!current) throw new NotFoundException("Worker not found");
+    if (current.status === "suspended") return { target_id: workerId, changed: false };
+
+    // SWEEP FIRST, STRICTLY. A session that survives a failed sweep must not exist after a
+    // successful suspend, and a failed sweep must leave the worker un-suspended so the retry
+    // can finish. The durable watermark makes a sweep that DID succeed hold even if a record
+    // survives; the status write follows in its own transaction.
+    await this.revokeWorkerSessions(workerId, adminId, "suspension");
+
+    let conflict = false;
+    await this.actions.withTransaction(async (tx) => {
+      const moved = await this.actions.suspendWorker(workerId, tx);
+      if (!moved) {
+        // A concurrent writer moved the row between the read above and this update.
+        conflict = true;
+        return;
+      }
+      await this.actions.writeAuditReason(tx, {
+        adminId,
+        workerId,
+        action: ADMIN_ACTION_CODES.worker_suspended,
+        reasonCode: dto.reason_code,
+        reasonText: dto.reason_text,
+      });
+      await this.emitAction(
+        adminId,
+        ADMIN_ACTION_CODES.worker_suspended,
+        "worker",
+        workerId,
+        ctx,
+        tx,
+      );
+    });
+    if (conflict) throw new ConflictException("Worker status changed concurrently; retry");
+
+    return { target_id: workerId, changed: true };
+  }
+
+  /**
+   * #2562 — restore a suspended worker's access. Unsuspend ALWAYS writes `active`: it is the
+   * only status that carries access, there is no "previous status" column, and no migration
+   * adds one. Re-suspending is a fresh admin action with its own reason, audit row and sweep.
+   *
+   * The sweep runs AGAIN (strictly) before the status write. Suspension already ended every
+   * session, but a session that survived a failed suspend sweep must not come back to life;
+   * if this sweep fails the worker stays `suspended`, so the operator's retry repeats the same
+   * safe path. Signing in afterwards still requires a fresh OTP/MFA proof. Idempotent: an
+   * already-active worker is a no-op.
+   */
+  async unsuspendWorker(
+    adminId: string,
+    workerId: string,
+    dto: AdminWorkerUnsuspendDto,
+    ctx: RequestContext,
+  ): Promise<AdminActionResult> {
+    const current = await this.actions.findWorkerStatus(workerId);
+    if (!current) throw new NotFoundException("Worker not found");
+    if (current.status !== "suspended") return { target_id: workerId, changed: false };
+
+    // #2562 — run the sweep AGAIN, strictly, before restoring the status. A suspend whose
+    // sweep failed left the worker suspended (and returned 503); this retry kills any session
+    // that survived it. Doing it before the status write keeps a failed sweep retry-safe: the
+    // worker stays suspended, so a second unsuspend repeats the same path.
+    await this.revokeWorkerSessions(workerId, adminId, "unsuspend");
+
+    let conflict = false;
+    await this.actions.withTransaction(async (tx) => {
+      const moved = await this.actions.reinstateWorker(workerId, tx);
+      if (!moved) {
+        conflict = true;
+        return;
+      }
+      await this.actions.writeAuditReason(tx, {
+        adminId,
+        workerId,
+        action: ADMIN_ACTION_CODES.worker_reinstated,
+        reasonCode: dto.reason_code,
+        reasonText: dto.reason_text,
+      });
+      await this.emitAction(
+        adminId,
+        ADMIN_ACTION_CODES.worker_reinstated,
+        "worker",
+        workerId,
+        ctx,
+        tx,
+      );
+    });
+    if (conflict) throw new ConflictException("Worker status changed concurrently; retry");
+
+    return { target_id: workerId, changed: true };
+  }
+
+  /**
+   * #2562 — STRICT worker-session sweep for an admin account action. Unlike the worker's own
+   * logout-all, a Redis failure must not be reported as success: the caller gets 503 and no
+   * audit/SoR change (the sweep runs before those writes). The watermark and deletes are
+   * idempotent, so the operator's retry is safe.
+   *
+   * The event's actor is the ADMIN, not the worker — the payload still carries only
+   * `{worker_id, sessions_revoked}`.
+   */
+  private async revokeWorkerSessions(
+    workerId: string,
+    adminId: string,
+    action: string,
+  ): Promise<void> {
+    try {
+      const revoked = await this.workerSessions.revokeAllStrict(workerId, {
+        actor_type: "admin",
+        actor_id: adminId,
+      });
+      this.logger.log(`worker ${action}; sessions revoked worker=${workerId} count=${revoked}`);
+    } catch (err) {
+      this.logger.error(
+        `worker ${action} aborted: session sweep FAILED worker=${workerId} ` +
+          `(reason: ${err instanceof Error ? err.message : String(err)})`,
+      );
+      throw new ServiceUnavailableException(
+        "The worker's sessions could not be ended. Try again.",
+      );
+    }
   }
 
   // ----- admin_users: invite / change role / suspend (manage_admins) --------

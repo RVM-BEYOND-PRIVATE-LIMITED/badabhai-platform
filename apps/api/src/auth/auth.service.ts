@@ -6,10 +6,15 @@ import { OtpSendFailedException } from "../common/otp-send-failure";
 import { EventsService } from "../events/events.service";
 import { WorkersRepository } from "../workers/workers.repository";
 import { OtpService } from "./otp.service";
-import { SessionService } from "./session.service";
+import {
+  SessionService,
+  SUSPENDED_DPDP_SCOPE,
+  SUSPENDED_DPDP_TTL_SECONDS,
+} from "./session.service";
 import { DevicesService } from "./devices.service";
 import { PinRepository } from "./pin.repository";
 import { isSyntheticTestPhone, type LoginResponse, type OtpRequestResponse } from "./auth.dto";
+import { WorkerAccountSuspendedException } from "./worker-account-deleted.exception";
 import type { DeviceInfoDto } from "./devices.dto";
 
 /**
@@ -165,6 +170,7 @@ export class AuthService {
       phone,
       ctx,
       deviceInfo,
+      true,
     );
 
     // No idempotencyKey: a worker legitimately verifies/logs in many times, so
@@ -264,7 +270,29 @@ export class AuthService {
     ctx: RequestContext,
     deviceInfo?: DeviceInfoDto,
     isNew = false,
+    restrictedOnSuspended = false,
   ): Promise<Omit<LoginResponse, "consent_accepted">> {
+    // #2562 — THE SIGN-IN GATE. A suspended worker must not receive a normal session, however
+    // they proved the phone (OTP verify, test login, or PIN-reset confirm all funnel through
+    // this method). Checked before device registration and before `sessions.create`, so a
+    // refusal leaves no device trust and no push target behind.
+    //
+    // DPDP (owner ruling 5 Nov 2026): the phone-code verify door still returns the SAME 403
+    // shape, but with a 15-minute RESTRICTED token that opens only the five DPDP exits. It has
+    // no refresh token, no device binding and no push registration; the caller must never
+    // register a device for it.
+    if (worker.status === "suspended") {
+      if (restrictedOnSuspended) {
+        const restricted = await this.sessions.createRestricted(
+          worker.id,
+          SUSPENDED_DPDP_SCOPE,
+          SUSPENDED_DPDP_TTL_SECONDS,
+        );
+        throw new WorkerAccountSuspendedException(restricted);
+      }
+      throw new WorkerAccountSuspendedException();
+    }
+
     // ADR-0026 Phase 2 — register the trusted device (only if the client sent device_info)
     // and bind the new session to it via the `did` claim. BEST-EFFORT: a device failure
     // returns undefined and login proceeds unbound — device binding never breaks login.
@@ -327,6 +355,7 @@ export class AuthService {
     phone: string,
     ctx: RequestContext,
     deviceInfo?: DeviceInfoDto,
+    restrictedOnSuspended = false,
   ): Promise<{
     response: Omit<LoginResponse, "consent_accepted">;
     worker: { id: string; status: string };
@@ -399,6 +428,7 @@ export class AuthService {
       ctx,
       deviceInfo,
       isNew,
+      restrictedOnSuspended,
     );
     return { response, worker, phoneHash, isNew };
   }

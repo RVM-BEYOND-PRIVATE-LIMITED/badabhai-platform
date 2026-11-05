@@ -4,6 +4,7 @@ import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
 import {
   CurrentWorker,
   WorkerAuthGuard,
+  AllowSuspended,
   type AuthenticatedWorker,
 } from "../auth/worker-auth.guard";
 import { ConsentService } from "./consent.service";
@@ -45,6 +46,7 @@ export class ConsentController {
 
   @Post("withdraw")
   @HttpCode(200)
+  @AllowSuspended()
   @UseGuards(WorkerAuthGuard)
   async withdraw(@CurrentWorker() worker: AuthenticatedWorker, @Ctx() ctx: RequestContext) {
     return this.consent.withdraw(worker.id, ctx);
@@ -61,6 +63,7 @@ export class ConsentController {
    */
   @Post("employer-contact/withdraw")
   @HttpCode(200)
+  @AllowSuspended()
   @UseGuards(WorkerAuthGuard)
   async withdrawEmployerContact(
     @CurrentWorker() worker: AuthenticatedWorker,

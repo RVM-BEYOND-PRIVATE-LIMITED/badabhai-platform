@@ -50,6 +50,8 @@ describe("feedMembershipStatement — the per-posting feed's own membership, for
       expect(sql).toContain("AND a.worker_id = $2::uuid");
       expect(sql).toContain("AND a.action = 'applied'");
       expect(sql).toContain("AND w.deletion_scheduled_at IS NULL");
+      // #2562 — suspended workers are frozen on payer surfaces.
+      expect(sql).toContain("AND w.status <> 'suspended'");
       expect(sql).toMatch(/LIMIT 1$/);
       expect(params).toEqual([POSTING, WORKER]);
     },

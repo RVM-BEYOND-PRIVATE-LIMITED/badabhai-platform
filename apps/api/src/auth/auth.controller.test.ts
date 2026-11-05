@@ -68,7 +68,10 @@ function make() {
       workerId: WORKER.id,
       sid: WORKER.sid,
       familyId: "fam-1",
+      createdViaOtpAtMs: Date.now() - 60_000,
     })),
+    // #2562 — no sweep watermark in these fixtures.
+    sessionsRevokedAtMs: vi.fn(async () => null),
     revokeAll: vi.fn(async () => 2),
     describe: vi.fn(async () => ({
       tier: 1,
@@ -259,7 +262,7 @@ describe("AuthController — token/refresh out-of-band deletion → 410 WORKER_A
     (consents.findLatestByWorker as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       revokedAt: null,
     });
-    (workers.existsById as ReturnType<typeof vi.fn>).mockResolvedValueOnce(false);
+    (workers.findSelfView as ReturnType<typeof vi.fn>).mockResolvedValueOnce(undefined);
     const err = await controller
       .tokenRefresh({ refresh_token: "rt" } as never, reqIdem())
       .catch((e: unknown) => e);
@@ -270,19 +273,22 @@ describe("AuthController — token/refresh out-of-band deletion → 410 WORKER_A
     });
     // Denied BEFORE any rotation — the presented token is not consumed / reuse-flagged.
     expect(sessions.refreshByToken).not.toHaveBeenCalled();
-    expect(workers.existsById).toHaveBeenCalledWith(WORKER.id);
+    expect(workers.findSelfView).toHaveBeenCalledWith(WORKER.id);
   });
 
   it("existing worker → rotates normally (no 410)", async () => {
     const { controller, sessions, workers } = make();
-    (workers.existsById as ReturnType<typeof vi.fn>).mockResolvedValueOnce(true);
+    (workers.findSelfView as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      status: "active",
+      deletionScheduledAt: null,
+    });
     await controller.tokenRefresh({ refresh_token: "rt" } as never, reqIdem());
     expect(sessions.refreshByToken).toHaveBeenCalled();
   });
 
   it("FAIL-SAFE: existence probe THROWS (DB down) → rotates normally, never a false 410", async () => {
     const { controller, sessions, workers } = make();
-    (workers.existsById as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error("pg down"));
+    (workers.findSelfView as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error("pg down"));
     await controller.tokenRefresh({ refresh_token: "rt" } as never, reqIdem());
     expect(sessions.refreshByToken).toHaveBeenCalled();
   });
@@ -291,7 +297,34 @@ describe("AuthController — token/refresh out-of-band deletion → 410 WORKER_A
     const { controller, sessions, workers } = make();
     (sessions.resolveRefreshToken as ReturnType<typeof vi.fn>).mockResolvedValueOnce(null);
     await controller.tokenRefresh({ refresh_token: "rt" } as never, reqIdem());
-    expect(workers.existsById).not.toHaveBeenCalled();
+    expect(workers.findSelfView).not.toHaveBeenCalled();
+    expect(sessions.refreshByToken).toHaveBeenCalled();
+  });
+});
+
+// #2562 — suspension must also stop the one worker-authed path with no WorkerAuthGuard.
+describe("AuthController — token/refresh for a suspended worker", () => {
+  it("SUSPENDED worker → neutral 401 and the token is NOT rotated", async () => {
+    const { controller, sessions, workers, consents } = make();
+    (consents.findLatestByWorker as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      revokedAt: null,
+    });
+    (workers.findSelfView as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      status: "suspended",
+      deletionScheduledAt: null,
+    });
+    const err = await controller
+      .tokenRefresh({ refresh_token: "rt" } as never, reqIdem())
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(UnauthorizedException);
+    expect((err as UnauthorizedException).getStatus()).toBe(401);
+    expect(sessions.refreshByToken).not.toHaveBeenCalled();
+  });
+
+  it("FAIL-SAFE: status probe THROWS (DB down) → rotates normally, never a false lockout", async () => {
+    const { controller, sessions, workers } = make();
+    (workers.findSelfView as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error("pg down"));
+    await controller.tokenRefresh({ refresh_token: "rt" } as never, reqIdem());
     expect(sessions.refreshByToken).toHaveBeenCalled();
   });
 });
