@@ -17,6 +17,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
+import 'package:badabhai_worker_app/core/consent/voice_consent.dart';
 import 'package:badabhai_worker_app/core/di/locator.dart';
 import 'package:badabhai_worker_app/core/theme/app_theme.dart';
 import 'package:badabhai_worker_app/features/consent/domain/consent_repository.dart';
@@ -102,9 +103,9 @@ void main() {
     // The DPDP voice notice (#1270) is long enough that the checkbox now sits
     // below the fold on the test surface — scroll it into view first, exactly
     // what a real worker does before ticking it.
-    await tester.ensureVisible(find.byType(Checkbox));
+    await tester.ensureVisible(find.byType(Checkbox).first);
     await tester.pumpAndSettle();
-    await tester.tap(find.byType(Checkbox));
+    await tester.tap(find.byType(Checkbox).first);
     await tester.pump();
     await tester.tap(find.text('Aage Badhein'));
     await tester.pumpAndSettle();
@@ -205,4 +206,55 @@ void main() {
       });
     },
   );
+
+  // OWNER ASK (2026-10-22) — the worker can refuse voice recording and still
+  // go on, typing only.
+  group('"I don\'t agree" to voice', () {
+    tearDown(() => VoiceConsent.instance.clear());
+
+    testWidgets('"I don\'t agree" sits under "I agree"; only one stays ticked',
+        (WidgetTester tester) async {
+      await pump(tester, recovery: false);
+      await tester.ensureVisible(find.byKey(kConsentDeclineButtonKey));
+      await tester.pumpAndSettle();
+      expect(find.text(kConsentDeclineLabel), findsOneWidget);
+      expect(
+        tester.getTopLeft(find.byKey(kConsentDeclineButtonKey)).dy,
+        greaterThan(tester.getTopLeft(find.text('I agree')).dy),
+      );
+
+      bool ticked(int i) =>
+          tester.widget<Checkbox>(find.byType(Checkbox).at(i)).value ?? false;
+
+      await tester.tap(find.text('I agree'));
+      await tester.pump();
+      expect(ticked(0), isTrue);
+      expect(ticked(1), isFalse);
+
+      await tester.tap(find.text(kConsentDeclineLabel));
+      await tester.pump();
+      expect(ticked(0), isFalse);
+      expect(ticked(1), isTrue);
+    });
+
+    testWidgets('"I don\'t agree" + Aage Badhein continues without voice', (
+      WidgetTester tester,
+    ) async {
+      await pump(tester, recovery: false);
+      await tester.ensureVisible(find.byKey(kConsentDeclineButtonKey));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(kConsentDeclineLabel));
+      await tester.pump();
+      await tester.tap(find.text('Aage Badhein'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('CHAT STEP'), findsOneWidget);
+      verify(
+        () => repo.acceptConsent(
+          purposes: <String>['profiling', 'resume_generation'],
+        ),
+      ).called(1);
+      expect(VoiceConsent.instance.state.value, isFalse);
+    });
+  });
 }

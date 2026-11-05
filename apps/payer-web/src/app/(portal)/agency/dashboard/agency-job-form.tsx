@@ -29,13 +29,21 @@ import {
   type RevealedNumbers,
 } from "../../../../lib/job-card-form";
 import { focusControl, revealWholeControl } from "../../../../lib/form-focus";
+import { formatInr } from "../../../../lib/format";
 import { agencyPostingFacts } from "../../../../lib/posting-facts";
 import {
   workerCardGap,
   workerCardGaps,
   type WorkerCardGap,
 } from "../../../../lib/worker-card-gap";
-import { Button, Input, Select, Textarea, fieldFeedbackId } from "../../../../components/ds";
+import {
+  BadaBhaiLogo,
+  Button,
+  Input,
+  Select,
+  Textarea,
+  fieldFeedbackId,
+} from "../../../../components/ds";
 import { ChipEditor } from "../../../../components/chip-editor";
 import { PostingActions, PostingPreviewRail } from "../../../../components/posting-preview-rail";
 // The COMPANY form's picker, reused verbatim (#2104): one closed vocabulary, one cap, one set of
@@ -120,7 +128,18 @@ interface FormFields {
  * DS field: it refuses through the same two steps (disable-until-valid, then its message at the
  * control with focus) because it is required exactly as hard (#2104 / ADR-0050 Q9).
  */
-type FieldKey = "title" | "city" | "matchSkillIds";
+type FieldKey =
+  | "roleKind"
+  | "title"
+  | "city"
+  | "payMin"
+  | "payMax"
+  | "payType"
+  | "minExperienceYears"
+  | "maxExperienceYears"
+  | "shift"
+  | "neededBy"
+  | "matchSkillIds";
 type FieldErrors = Partial<Record<FieldKey, string>>;
 
 /**
@@ -205,6 +224,7 @@ export function AgencyJobForm({
   onCancel,
   submitLabel,
   lead,
+  payerRef = "—",
 }: {
   mode: "create" | "edit";
   job?: AgencyJob;
@@ -223,6 +243,8 @@ export function AgencyJobForm({
    * preview rail starts level with the top of the page's content, not below the header.
    */
   lead?: ReactNode;
+  /** A short, non-PII payer reference for the designer preview card. */
+  payerRef?: string;
 }) {
   // useState call order (mirrored POSITIONALLY by agency-job-form.test.tsx): fields, fieldErrors,
   // error, requirements, benefits, reqDraft, benDraft, gap, revealed, navigating, selection.
@@ -246,6 +268,8 @@ export function AgencyJobForm({
     matchSkillIds: job?.matchSkillIds ?? [],
     untickedRelatedIds: [],
   });
+  // APPENDED — preserves every earlier positional useState index (agency-job-form.test.tsx).
+  const [step, setStep] = useState(1);
   const [pending, startTransition] = useTransition();
   const busy = pending || navigating;
 
@@ -286,6 +310,73 @@ export function AgencyJobForm({
   /** A control's error: its own validation first, then the refused-create gap — where focus lands. */
   const errorOf = (control: string, own?: string) =>
     own ?? (gap !== null && gap.field === control ? gap.message : undefined);
+
+  /**
+   * STEP GATE — the same fields the create path already insists on (the worker-card gap),
+   * applied one card at a time. The server remains the authority; this is UX parity with the
+   * company posting wizard.
+   */
+  function validateStep(which: 1 | 2): FieldErrors {
+    const errs: FieldErrors = {};
+    if (which === 1) {
+      if (fields.roleKind.trim() === "") errs.roleKind = "Pick the role from the list.";
+      if (fields.title.trim().length < 1) errs.title = "Enter a role title.";
+      if (fields.city.trim().length < 1) errs.city = "Enter a city.";
+      return errs;
+    }
+    if (fields.payMin.trim() === "") errs.payMin = "Add the minimum pay.";
+    else {
+      const issue = liveCardFieldError(read.issues, "payMin", true);
+      if (issue !== undefined) errs.payMin = issue;
+    }
+    if (fields.payMax.trim() === "") errs.payMax = "Add the maximum pay.";
+    else {
+      const issue = liveCardFieldError(read.issues, "payMax", true);
+      if (issue !== undefined) errs.payMax = issue;
+    }
+    if (fields.payType.trim() === "") errs.payType = "Pick the pay type.";
+    if (fields.minExperienceYears.trim() === "") {
+      errs.minExperienceYears = "Add the minimum experience.";
+    } else {
+      const issue = liveCardFieldError(read.issues, "minExperienceYears", true);
+      if (issue !== undefined) errs.minExperienceYears = issue;
+    }
+    if (fields.maxExperienceYears.trim() === "") {
+      errs.maxExperienceYears = "Add the maximum experience.";
+    } else {
+      const issue = liveCardFieldError(read.issues, "maxExperienceYears", true);
+      if (issue !== undefined) errs.maxExperienceYears = issue;
+    }
+    if (fields.shift.trim() === "") errs.shift = "Pick the shift.";
+    if (fields.neededBy.trim() === "") errs.neededBy = "Pick needed by.";
+    return errs;
+  }
+
+  /** Advance only when the CURRENT card is complete; focus the first missing control. */
+  function goNext() {
+    if (step === 1) {
+      const errs = validateStep(1);
+      setFieldErrors((prev) => ({ ...prev, ...errs }));
+      const first = (Object.keys(errs) as FieldKey[])[0];
+      if (first !== undefined) {
+        focusControl(controlId(first));
+        return;
+      }
+      setStep(2);
+      return;
+    }
+    if (step === 2) {
+      setRevealed(ALL_NUMBERS_REVEALED);
+      const errs = validateStep(2);
+      setFieldErrors((prev) => ({ ...prev, ...errs }));
+      const first = (Object.keys(errs) as FieldKey[])[0];
+      if (first !== undefined) {
+        focusControl(controlId(first));
+        return;
+      }
+      setStep(3);
+    }
+  }
 
   function addChip(kind: "req" | "ben") {
     if (gap !== null && gap.field === (kind === "req" ? "requirements" : "benefits")) setGap(null);
@@ -408,161 +499,508 @@ export function AgencyJobForm({
     </>
   );
 
+  const STEP_TITLES = ["Role & Worksite", "Pay & Experience", "Skills & Perks"];
+  const roleLabel =
+    ROLE_GROUPS.flatMap((g) => g.options).find((o) => o.value === fields.roleKind)?.label ??
+    (fields.title.trim() !== "" ? fields.title : "Your role title");
+  const selectedSkillLabels = matchSkills
+    .filter((s) => selection.matchSkillIds.includes(s.skill_id))
+    .map((s) => s.label)
+    .slice(0, 4);
+  const locationText = [fields.area.trim(), fields.city.trim()].filter(Boolean).join(", ");
+  const payText =
+    read.values.payMin !== undefined && read.values.payMax !== undefined
+      ? `${formatInr(read.values.payMin)} – ${formatInr(read.values.payMax)}`
+      : "Not set";
+  const expText =
+    read.values.minExperienceYears !== undefined || read.values.maxExperienceYears !== undefined
+      ? `${read.values.minExperienceYears ?? 0} – ${read.values.maxExperienceYears ?? 0} Years`
+      : "Not set";
+
   return (
-    <div className="posting-layout posting-layout--editor">
-      <div className="posting-layout__main">
+    <div className="mw-layout">
+      <div className="mw-main">
         {lead}
-        <form id={formId} className="agency-job-form" onSubmit={handleSubmit}>
-          <Select id="roleKind" label="Role" value={fields.roleKind} error={errorOf("roleKind")} aria-invalid={errorOf("roleKind") ? true : undefined} onChange={(e) => set("roleKind", e.target.value)}>
-            <option value="">— pick the role —</option>
-            {ROLE_GROUPS.map((group) => (
-              <optgroup key={group.family} label={group.label}>
-                {group.options.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
+        <form id={formId} className="form mw-form" onSubmit={handleSubmit}>
+          <ol className="mw-stepper" aria-label="Posting steps">
+            {STEP_TITLES.map((title, i) => {
+              const n = i + 1;
+              const state = step === n ? "active" : step > n ? "done" : "todo";
+              return (
+                <li className={`mw-step mw-step--${state}`} key={title}>
+                  <span className="mw-step__dot">
+                    {state === "done" ? <Icon name="check" /> : n}
+                  </span>
+                  <span className="mw-step__text">
+                    <span className="mw-step__eyebrow">STEP {n} OF 3</span>
+                    <span className="mw-step__title">{title}</span>
+                  </span>
+                  {i < STEP_TITLES.length - 1 ? (
+                    <span className="mw-step__line" aria-hidden="true" />
+                  ) : null}
+                </li>
+              );
+            })}
+          </ol>
+
+          <section className="mw-card" hidden={step !== 1}>
+            <div className="mw-card__head">
+              <div>
+                <h2 className="mw-card__title">Step 1: Role &amp; Worksite Details</h2>
+                <p className="mw-card__sub">
+                  Specify the technical trade and the place the work happens.
+                </p>
+              </div>
+              <span className="mw-pill mw-pill--warm">In Progress</span>
+            </div>
+            <div className="mw-card__body">
+              <Select
+                id="roleKind"
+                label="Role Category"
+                value={fields.roleKind}
+                error={errorOf("roleKind")}
+                aria-invalid={errorOf("roleKind") ? true : undefined}
+                hint="Files the posting under the right role; workers still see your title."
+                onChange={(e) => set("roleKind", e.target.value)}
+              >
+                <option value="">— pick the role category —</option>
+                {ROLE_GROUPS.map((group) => (
+                  <optgroup key={group.family} label={group.label}>
+                    {group.options.map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </optgroup>
+                ))}
+              </Select>
+
+              <Select
+                id="tradeKey"
+                label="Trade (matching)"
+                value={fields.tradeKey}
+                onChange={(e) => set("tradeKey", e.target.value)}
+              >
+                {TRADE_KEYS.map((t) => (
+                  <option key={t} value={t}>
+                    {tradeLabel(t)}
                   </option>
                 ))}
-              </optgroup>
-            ))}
-          </Select>
+              </Select>
 
-          <Select id="tradeKey" label="Trade (matching)" value={fields.tradeKey} onChange={(e) => set("tradeKey", e.target.value)}>
-            {TRADE_KEYS.map((t) => (
-              <option key={t} value={t}>
-                {tradeLabel(t)}
-              </option>
-            ))}
-          </Select>
-
-          <Input id="title" label="Role title" placeholder="CNC Operator — Night Shift" value={fields.title} error={fieldErrors.title} aria-invalid={fieldErrors.title ? true : undefined} hint="The heading of the worker's card — a generic role title, never a company name or contact details." onChange={(e) => set("title", e.target.value)} />
-
-          <div className="agency-job-form__pair">
-            <Input id={controlId("city")} label="City" placeholder="Pune" value={fields.city} error={errorOf("city", fieldErrors.city)} aria-invalid={errorOf("city", fieldErrors.city) ? true : undefined} onChange={(e) => set("city", e.target.value)} />
-            <Input id="area" label="Area / locality" optional placeholder="Pimpri-Chinchwad" value={fields.area} onChange={(e) => set("area", e.target.value)} />
-          </div>
-
-          <div className="agency-job-form__pair">
-            <Input id="payMin" label="Pay band — min (₹ / month)" inputMode="numeric" placeholder="20000" value={fields.payMin} error={errorOf("payMin", numberError("payMin"))} aria-invalid={errorOf("payMin", numberError("payMin")) ? true : undefined} onChange={(e) => set("payMin", e.target.value)} onBlur={() => reveal("pay")} />
-            <Input id="payMax" label="Pay band — max (₹ / month)" inputMode="numeric" placeholder="35000" value={fields.payMax} error={errorOf("payMax", numberError("payMax"))} aria-invalid={errorOf("payMax", numberError("payMax")) ? true : undefined} onChange={(e) => set("payMax", e.target.value)} onBlur={() => reveal("pay")} />
-          </div>
-
-          <Select id="payType" label="Pay type" value={fields.payType} error={errorOf("payType")} aria-invalid={errorOf("payType") ? true : undefined} onChange={(e) => set("payType", e.target.value)}>
-            <option value="">— pick the pay type —</option>
-            {PAY_TYPES.map((p) => (
-              <option key={p} value={p}>
-                {payTypeLabel(p)}
-              </option>
-            ))}
-          </Select>
-
-          <div className="agency-job-form__pair">
-            <Input id="minExperienceYears" label="Experience — min (years)" inputMode="numeric" placeholder="1" value={fields.minExperienceYears} error={errorOf("minExperienceYears", numberError("minExperienceYears"))} aria-invalid={errorOf("minExperienceYears", numberError("minExperienceYears")) ? true : undefined} onChange={(e) => set("minExperienceYears", e.target.value)} onBlur={() => reveal("experience")} />
-            <Input id="maxExperienceYears" label="Experience — max (years)" inputMode="numeric" placeholder="5" value={fields.maxExperienceYears} error={errorOf("maxExperienceYears", numberError("maxExperienceYears"))} aria-invalid={errorOf("maxExperienceYears", numberError("maxExperienceYears")) ? true : undefined} onChange={(e) => set("maxExperienceYears", e.target.value)} onBlur={() => reveal("experience")} />
-          </div>
-
-          <div className="agency-job-form__pair">
-            <Select id="shift" label="Shift" value={fields.shift} error={errorOf("shift")} aria-invalid={errorOf("shift") ? true : undefined} onChange={(e) => set("shift", e.target.value)}>
-              <option value="">— pick the shift —</option>
-              {SHIFTS.map((s) => (
-                <option key={s} value={s}>
-                  {shiftLabel(s)}
-                </option>
-              ))}
-            </Select>
-            <Select id="neededBy" label="Needed by" value={fields.neededBy} error={errorOf("neededBy")} aria-invalid={errorOf("neededBy") ? true : undefined} onChange={(e) => set("neededBy", e.target.value)}>
-              <option value="">— pick joining time —</option>
-              {NEEDED_BY.map((n) => (
-                <option key={n} value={n}>
-                  {neededByLabel(n)}
-                </option>
-              ))}
-            </Select>
-          </div>
-
-          <Textarea id="description" label="Description" value={fields.description} rows={3} onFocus={revealWholeControl} error={errorOf("description")} aria-invalid={errorOf("description") ? true : undefined} hint="What the work is — workers read it when they open the posting. Never a phone/email or a company name." onChange={(e) => set("description", e.target.value)} />
-
-          <ChipEditor
-            id="requirements"
-            label="Requirements"
-            placeholder="e.g. Fanuc control"
-            draft={reqDraft}
-            items={requirements}
-            error={errorOf("requirements")}
-            onDraft={setReqDraft}
-            onAdd={() => addChip("req")}
-            onRemove={(i) => setRequirements((p) => p.filter((_, j) => j !== i))}
-          />
-          <ChipEditor
-            id="benefits"
-            label="Benefits"
-            placeholder="e.g. PF + ESI"
-            draft={benDraft}
-            items={benefits}
-            error={errorOf("benefits")}
-            onDraft={setBenDraft}
-            onAdd={() => addChip("ben")}
-            onRemove={(i) => setBenefits((p) => p.filter((_, j) => j !== i))}
-          />
-
-          {/*
-            MATCH SKILLS (#2104) — last, as on the company form: every card field first, then who
-            sees it. The wrapper is this group's focus target and carries its refusal, since the
-            picker is a panel of chips, not a DS field with its own error slot. `tabIndex={-1}`
-            makes it focusable only PROGRAMMATICALLY, so a refused submit can take the payer here
-            (`focusControl`) without adding a stop to the Tab order; `aria-describedby` points at
-            the same `${id}-msg` line every DS field uses (M3), so the reason is read with it.
-          */}
-          <div
-            id={controlId("matchSkillIds")}
-            className="agency-job-form__match"
-            tabIndex={-1}
-            aria-describedby={
-              fieldErrors.matchSkillIds ? fieldFeedbackId(controlId("matchSkillIds")) : undefined
-            }
-          >
-            {matchSkills.length > 0 ? (
-              <MatchSkillPicker
-                vocabulary={matchSkills}
-                selection={selection}
-                onChange={pick}
-                // ADR-0050 Q2 — the twin's reach is `match ∪ related(match)`; `jobs` has nowhere
-                // to store an untick, so none is offered here (see the picker's own note).
-                relatedUnticks={false}
+              <Input
+                id="title"
+                label="Role Title"
+                placeholder="CNC Operator — Night Shift"
+                value={fields.title}
+                error={fieldErrors.title}
+                aria-invalid={fieldErrors.title ? true : undefined}
+                hint="The heading of the worker's card — a generic role title, never a company name or contact details."
+                onChange={(e) => set("title", e.target.value)}
               />
-            ) : (
-              // The vocabulary read FAILED (the page hands down `[]`). Nothing is picked, so the
-              // submit stays refused by `validate` — this says why, as the company form does.
-              <div className="alert alert--danger">
-                <Icon name="warning-circle" className="alert__icon" />
-                <div className="alert__text">
-                  <p className="alert__title">Could not load the skill list</p>
-                  <p className="alert__body">
-                    Reload the page — a posting needs at least one skill before workers can find
-                    it.
-                  </p>
-                </div>
-              </div>
-            )}
-            {fieldErrors.matchSkillIds ? (
-              <span
-                id={fieldFeedbackId(controlId("matchSkillIds"))}
-                className="bb-field__error"
-                // Not a live region: focus lands here on a refusal and the description is read
-                // with it, so an alert would say the same thing twice (the DS M3 contract).
-              >
-                <Icon name="warning-circle" />
-                {fieldErrors.matchSkillIds}
-              </span>
-            ) : null}
-          </div>
 
-          <div className="posting-layout__end">
-            <PostingActions>{buttons}</PostingActions>
-          </div>
+              <div className="mw-grid2">
+                <Input
+                  id={controlId("city")}
+                  label="City"
+                  placeholder="Pune"
+                  value={fields.city}
+                  error={errorOf("city", fieldErrors.city)}
+                  aria-invalid={errorOf("city", fieldErrors.city) ? true : undefined}
+                  onChange={(e) => set("city", e.target.value)}
+                />
+                <Input
+                  id="area"
+                  label="Area / Locality"
+                  optional
+                  placeholder="Pimpri-Chinchwad"
+                  value={fields.area}
+                  onChange={(e) => set("area", e.target.value)}
+                />
+              </div>
+            </div>
+            <div className="mw-card__foot">
+              {onCancel ? (
+                <Button variant="secondary" type="button" disabled={busy} onClick={onCancel}>
+                  Cancel
+                </Button>
+              ) : (
+                <span />
+              )}
+              <button
+                type="button"
+                className="bb-btn bb-btn--primary bb-btn--sm"
+                onClick={goNext}
+              >
+                Next: Pay &amp; Experience <Icon name="arrow-right" />
+              </button>
+            </div>
+          </section>
+
+          <section className="mw-card" hidden={step !== 2}>
+            <div className="mw-card__head">
+              <div>
+                <h2 className="mw-card__title">Step 2: Pay &amp; Experience</h2>
+                <p className="mw-card__sub">
+                  Set the pay band, experience window, shift and joining time.
+                </p>
+              </div>
+              <span className="mw-pill">In Progress</span>
+            </div>
+            <div className="mw-card__body">
+              <div className="mw-grid2">
+                <Input
+                  id="payMin"
+                  label="Pay band — min (₹ / month)"
+                  inputMode="numeric"
+                  placeholder="20000"
+                  value={fields.payMin}
+                  error={errorOf("payMin", numberError("payMin"))}
+                  aria-invalid={errorOf("payMin", numberError("payMin")) ? true : undefined}
+                  onChange={(e) => set("payMin", e.target.value)}
+                  onBlur={() => reveal("pay")}
+                />
+                <Input
+                  id="payMax"
+                  label="Pay band — max (₹ / month)"
+                  inputMode="numeric"
+                  placeholder="35000"
+                  value={fields.payMax}
+                  error={errorOf("payMax", numberError("payMax"))}
+                  aria-invalid={errorOf("payMax", numberError("payMax")) ? true : undefined}
+                  onChange={(e) => set("payMax", e.target.value)}
+                  onBlur={() => reveal("pay")}
+                />
+              </div>
+
+              <Select
+                id="payType"
+                label="Pay type"
+                value={fields.payType}
+                error={errorOf("payType")}
+                aria-invalid={errorOf("payType") ? true : undefined}
+                onChange={(e) => set("payType", e.target.value)}
+              >
+                <option value="">— pick the pay type —</option>
+                {PAY_TYPES.map((p) => (
+                  <option key={p} value={p}>
+                    {payTypeLabel(p)}
+                  </option>
+                ))}
+              </Select>
+
+              <div className="mw-grid2">
+                <Input
+                  id="minExperienceYears"
+                  label="Experience — min (years)"
+                  inputMode="numeric"
+                  placeholder="1"
+                  value={fields.minExperienceYears}
+                  error={errorOf("minExperienceYears", numberError("minExperienceYears"))}
+                  aria-invalid={
+                    errorOf("minExperienceYears", numberError("minExperienceYears"))
+                      ? true
+                      : undefined
+                  }
+                  onChange={(e) => set("minExperienceYears", e.target.value)}
+                  onBlur={() => reveal("experience")}
+                />
+                <Input
+                  id="maxExperienceYears"
+                  label="Experience — max (years)"
+                  inputMode="numeric"
+                  placeholder="5"
+                  value={fields.maxExperienceYears}
+                  error={errorOf("maxExperienceYears", numberError("maxExperienceYears"))}
+                  aria-invalid={
+                    errorOf("maxExperienceYears", numberError("maxExperienceYears"))
+                      ? true
+                      : undefined
+                  }
+                  onChange={(e) => set("maxExperienceYears", e.target.value)}
+                  onBlur={() => reveal("experience")}
+                />
+              </div>
+
+              <div className="mw-grid2">
+                <Select
+                  id="shift"
+                  label="Shift"
+                  value={fields.shift}
+                  error={errorOf("shift")}
+                  aria-invalid={errorOf("shift") ? true : undefined}
+                  onChange={(e) => set("shift", e.target.value)}
+                >
+                  <option value="">— pick the shift —</option>
+                  {SHIFTS.map((s) => (
+                    <option key={s} value={s}>
+                      {shiftLabel(s)}
+                    </option>
+                  ))}
+                </Select>
+                <Select
+                  id="neededBy"
+                  label="Needed by"
+                  value={fields.neededBy}
+                  error={errorOf("neededBy")}
+                  aria-invalid={errorOf("neededBy") ? true : undefined}
+                  onChange={(e) => set("neededBy", e.target.value)}
+                >
+                  <option value="">— pick joining time —</option>
+                  {NEEDED_BY.map((n) => (
+                    <option key={n} value={n}>
+                      {neededByLabel(n)}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+            </div>
+            <div className="mw-card__foot">
+              <button
+                type="button"
+                className="bb-btn bb-btn--secondary bb-btn--sm"
+                onClick={() => setStep(1)}
+              >
+                Back
+              </button>
+              <button
+                type="button"
+                className="bb-btn bb-btn--primary bb-btn--sm"
+                onClick={goNext}
+              >
+                Next: Skills &amp; Perks <Icon name="arrow-right" />
+              </button>
+            </div>
+          </section>
+
+          <section className="mw-card" hidden={step !== 3}>
+            <div className="mw-card__head">
+              <div>
+                <h2 className="mw-card__title">Step 3: Skills &amp; Perks</h2>
+                <p className="mw-card__sub">
+                  Pick the skills workers search by, then add the detail and perks.
+                </p>
+              </div>
+              <span className="mw-pill">In Progress</span>
+            </div>
+            <div className="mw-card__body">
+              <Textarea
+                id="description"
+                label="Description"
+                value={fields.description}
+                rows={3}
+                onFocus={revealWholeControl}
+                error={errorOf("description")}
+                aria-invalid={errorOf("description") ? true : undefined}
+                hint="What the work is — workers read it when they open the posting. Never a phone/email or a company name."
+                onChange={(e) => set("description", e.target.value)}
+              />
+
+              <div className="form__section">
+                <p className="form__legend">Requirements and benefits</p>
+                <ChipEditor
+                  id="requirements"
+                  label="Requirements"
+                  placeholder="e.g. Fanuc control"
+                  draft={reqDraft}
+                  items={requirements}
+                  error={errorOf("requirements")}
+                  onDraft={setReqDraft}
+                  onAdd={() => addChip("req")}
+                  onRemove={(i) => setRequirements((p) => p.filter((_, j) => j !== i))}
+                />
+                <ChipEditor
+                  id="benefits"
+                  label="Benefits"
+                  placeholder="e.g. PF + ESI"
+                  draft={benDraft}
+                  items={benefits}
+                  error={errorOf("benefits")}
+                  onDraft={setBenDraft}
+                  onAdd={() => addChip("ben")}
+                  onRemove={(i) => setBenefits((p) => p.filter((_, j) => j !== i))}
+                />
+              </div>
+
+              <div
+                id={controlId("matchSkillIds")}
+                className="agency-job-form__match"
+                tabIndex={-1}
+                aria-describedby={
+                  fieldErrors.matchSkillIds
+                    ? fieldFeedbackId(controlId("matchSkillIds"))
+                    : undefined
+                }
+              >
+                {matchSkills.length > 0 ? (
+                  <MatchSkillPicker
+                    vocabulary={matchSkills}
+                    selection={selection}
+                    onChange={pick}
+                    relatedUnticks={false}
+                  />
+                ) : (
+                  <div className="alert alert--danger">
+                    <Icon name="warning-circle" className="alert__icon" />
+                    <div className="alert__text">
+                      <p className="alert__title">Could not load the skill list</p>
+                      <p className="alert__body">
+                        Reload the page — a posting needs at least one skill before workers can
+                        find it.
+                      </p>
+                    </div>
+                  </div>
+                )}
+                {fieldErrors.matchSkillIds ? (
+                  <span
+                    id={fieldFeedbackId(controlId("matchSkillIds"))}
+                    className="bb-field__error"
+                  >
+                    <Icon name="warning-circle" />
+                    {fieldErrors.matchSkillIds}
+                  </span>
+                ) : null}
+              </div>
+            </div>
+            <div className="mw-card__foot">
+              <button
+                type="button"
+                className="bb-btn bb-btn--secondary bb-btn--sm"
+                onClick={() => setStep(2)}
+              >
+                Back
+              </button>
+              <span className="mw-card__foothint">Publish from the panel on the right →</span>
+            </div>
+          </section>
         </form>
       </div>
 
+      <aside className="mw-rail" aria-label="Posting preview and publishing">
+        <div className="mw-railcards">
+          <div className="mw-mini mw-mini--green">
+            <span className="mw-mini__icon">
+              <Icon name="rocket-launch" />
+            </span>
+            <div className="mw-mini__body">
+              <p className="mw-mini__title">100% Free Through Launch</p>
+              <p className="mw-mini__meta">₹0 cost</p>
+              <p className="mw-mini__sub">
+                Publish unlimited agency roles during this beta testing window.
+              </p>
+            </div>
+          </div>
+          <div className="mw-mini">
+            <span className="mw-mini__icon mw-mini__icon--green">
+              <Icon name="check" />
+            </span>
+            <div className="mw-mini__body">
+              <p className="mw-mini__title">0 Credits billed today</p>
+              <p className="mw-mini__sub">No credits deducted during beta. Publish for free.</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="mw-preview">
+          <div className="mw-preview__head">
+            <span className="mw-dot" aria-hidden="true" />
+            <span>LIVE WORKER CARD PREVIEW</span>
+            <span className="mw-preview__hint">Updates live as you type</span>
+          </div>
+          <div className="mw-worker">
+            <div className="mw-worker__top">
+              <div className="mw-worker__brand">
+                <BadaBhaiLogo theme="ink" size={26} />
+                <span className="mw-worker__verified">VERIFIED</span>
+              </div>
+              <Icon name="buildings" className="mw-worker__ghost" />
+            </div>
+            <p className="mw-worker__payer">Payer ID: {payerRef}</p>
+            <div className="mw-worker__titlerow">
+              <h3 className="mw-worker__title">{roleLabel}</h3>
+            </div>
+            <p className="mw-worker__place">
+              <Icon name="map-pin" />
+              <span>{locationText !== "" ? locationText : "Area, City"}</span>
+            </p>
+            <div className="mw-worker__stats">
+              <div>
+                <span className="mw-worker__label">MONTHLY TAKE-HOME</span>
+                <strong>{payText}</strong>
+              </div>
+              <div>
+                <span className="mw-worker__label">EXPERIENCE</span>
+                <strong>{expText}</strong>
+              </div>
+            </div>
+            <p className="mw-worker__label">REQUIRED SKILLS</p>
+            <div className="mw-worker__chips">
+              {(selectedSkillLabels.length > 0 ? selectedSkillLabels : ["Pick a skill"]).map(
+                (label) => (
+                  <span className="mw-chip" key={`skill:${label}`}>
+                    {label}
+                  </span>
+                ),
+              )}
+              {requirements.map((label) => (
+                <span className="mw-chip" key={`req:${label}`}>
+                  {label}
+                </span>
+              ))}
+            </div>
+            <div className="mw-worker__foot">
+              <span>{fields.shift !== "" ? shiftLabel(fields.shift) : "Shift"}</span>
+              <span>{benefits.length > 0 ? benefits.join(" + ") : "Benefits"}</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="mw-audit">
+          <div className="mw-audit__head">
+            <h3 className="mw-audit__title">Internal Audit Summary</h3>
+            <span className="mw-audit__pill">Recruiter view</span>
+          </div>
+          <dl className="mw-audit__list">
+            <div className="mw-audit__row">
+              <dt>Role Code</dt>
+              <dd>{fields.roleKind !== "" ? fields.roleKind : "—"}</dd>
+            </div>
+            <div className="mw-audit__row">
+              <dt>Trade</dt>
+              <dd>{tradeLabel(fields.tradeKey)}</dd>
+            </div>
+            <div className="mw-audit__row">
+              <dt>Location</dt>
+              <dd>{locationText !== "" ? locationText : "—"}</dd>
+            </div>
+            <div className="mw-audit__row">
+              <dt>Urgency</dt>
+              <dd>{fields.neededBy !== "" ? neededByLabel(fields.neededBy) : "—"}</dd>
+            </div>
+          </dl>
+          <p className="mw-audit__note">
+            Workers read detailed technical specs inside full job view.
+          </p>
+        </div>
+
+        <div className="mw-rail__actions">
+          <PostingActions status={statusLine} outcome={outcomeLine}>
+            {primary}
+          </PostingActions>
+        </div>
+
+        <p className="mw-rail__foot">
+          <span>
+            <Icon name="check-circle" /> Instant Activation
+          </span>
+          <span>
+            <Icon name="check-circle" /> 0 credits billed today
+          </span>
+        </p>
+      </aside>
+
       <PostingPreviewRail
+        hidden
         fields={read.card}
         draft={read.draft}
         facts={agencyPostingFacts({
@@ -570,11 +1008,7 @@ export function AgencyJobForm({
           tradeKey: fields.tradeKey,
           description: fields.description,
         })}
-        actions={
-          <PostingActions status={statusLine} outcome={outcomeLine}>
-            {buttons}
-          </PostingActions>
-        }
+        actions={<PostingActions>{buttons}</PostingActions>}
         primary={primary}
         status={statusLine}
         outcome={outcomeLine}

@@ -334,7 +334,7 @@ export function PostingsManager({
           {/* What to do next is the page head's one primary action, "New posting" — the state
               names it rather than offering a second door to the same form. */}
           <p className="state__body">
-            Matched workers can only find you once a role is live — use New posting above.
+            Matched workers can only find you once a role is live — use New posting in the sidebar.
             Posting is free through launch.
           </p>
         </div>

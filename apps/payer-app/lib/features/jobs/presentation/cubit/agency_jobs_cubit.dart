@@ -3,6 +3,8 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../../core/data/models.dart';
 import '../../../../core/data/payer_api_client.dart';
+import '../../../../core/error/payer_failure.dart';
+import '../../../../core/util/read_order.dart';
 
 /// Loads the AGENCY session's own job postings (`GET /payer/agency/jobs`) and
 /// drives the per-row lifecycle (close / edit). Agent-only — the screen only
@@ -19,19 +21,68 @@ class AgencyJobsCubit extends Cubit<AgencyJobsState> {
 
   final PayerApiClient _api;
 
+  /// #2592 — a quiet [refresh] and the re-read after an action can be in
+  /// flight together; the one sent later wins ([ReadOrder]).
+  final ReadOrder _reads = ReadOrder();
+
   Future<void> load() async {
     emit(state.copyWith(status: AgencyJobsStatus.loading));
+    await _refresh();
+  }
+
+  /// Fetches the list WITHOUT flipping to [AgencyJobsStatus.loading] — the
+  /// refetch after an action (#2594), so the list stays on screen and the
+  /// closed card settles in place instead of the tab flashing to a spinner.
+  /// #2592 — ordered against a quiet [refresh] in flight ([ReadOrder]).
+  Future<void> _refresh() async {
+    final int read = _reads.start();
     try {
       final List<AgencyJobView> jobs = await _api.fetchAgencyJobs();
+      if (isClosed || !_reads.claim(read)) return; // a newer read landed
       emit(AgencyJobsState(status: AgencyJobsStatus.ready, jobs: jobs));
     } catch (_) {
+      if (isClosed || !_reads.isLatest(read)) return;
+      // The error replaces the list on screen: a refresh sent before the
+      // close/edit must not land after it and paint the old card back.
+      _reads.settle(read);
       emit(state.copyWith(status: AgencyJobsStatus.error));
+    }
+  }
+
+  /// #2592 — pull-to-refresh and a return to the tab: re-reads the postings
+  /// with the list staying on screen. A failure KEEPS the list and comes back
+  /// to the caller to say why; null on success. With nothing on screen yet it
+  /// is the normal [load].
+  Future<PayerFailure?> refresh() async {
+    if (state.status == AgencyJobsStatus.initial ||
+        state.status == AgencyJobsStatus.loading) {
+      return null; // the first load is already in flight
+    }
+    if (state.status == AgencyJobsStatus.error) {
+      await load();
+      return null;
+    }
+    final int read = _reads.start();
+    try {
+      final List<AgencyJobView> jobs = await _api.fetchAgencyJobs();
+      if (isClosed) return null;
+      if (_reads.claim(read)) {
+        emit(AgencyJobsState(status: AgencyJobsStatus.ready, jobs: jobs));
+      }
+      return null;
+    } catch (e) {
+      if (isClosed || !_reads.isLatest(read)) return null;
+      return PayerFailure.from(e);
     }
   }
 
   Future<JobActionResult> closePosting(String id) => _lifecycle(
         () => _api.closeAgencyJob(id),
-        okMessage: 'Closed — no longer taking applicants.',
+        // The toast title already says "Job closed" (#2594).
+        okMessage: 'No longer taking applicants.',
+        // A close 400 means the row is already closed (the only 400 this
+        // terminal transition has).
+        badRequestMessage: 'This job is already closed.',
       );
 
   /// Edit an agency posting (`PATCH /payer/agency/jobs/:id`). Every field the
@@ -58,10 +109,17 @@ class AgencyJobsCubit extends Cubit<AgencyJobsState> {
     int? minExperienceYears,
     int? maxExperienceYears,
     String? neededBy,
+    String? roleKind,
     String? description,
     String? shift,
     List<String>? benefits,
     List<String>? requirements,
+
+    /// Migration 0141 — the trade-specific form. The server re-validates the
+    /// rung/answers and derives `match_skill_ids` from the chips.
+    String? tradeLevel,
+    Map<String, List<String>>? tradeAnswers,
+
     /// ADR-0050 — the demand-skill pick (`match_skill_ids`). Null omits it (the
     /// stored set survives); a passed list (including `[]`) replaces it.
     List<String>? matchSkillIds,
@@ -80,35 +138,60 @@ class AgencyJobsCubit extends Cubit<AgencyJobsState> {
           minExperienceYears: minExperienceYears,
           maxExperienceYears: maxExperienceYears,
           neededBy: neededBy,
+          roleKind: roleKind,
           description: description,
           shift: shift,
           benefits: benefits,
           requirements: requirements,
+          tradeLevel: tradeLevel,
+          tradeAnswers: tradeAnswers,
           matchSkillIds: matchSkillIds,
           clear: clear,
         ),
         okMessage: 'Job updated.',
+        badRequestMessage:
+            'Could not save changes. Check the details and try again.',
       );
 
   Future<JobActionResult> _lifecycle(
     Future<AgencyJobView> Function() op, {
     required String okMessage,
+    required String badRequestMessage,
   }) async {
     try {
       await op();
-      await load();
+      await _refresh();
       return JobActionResult.ok(okMessage);
     } on PayerApiException catch (e) {
       // #1652 — checked BEFORE the blanket 400 below: a set-and-cleared edit
-      // is a 400 too, and "already closed" would name the wrong reason.
+      // is a 400 too, and the wrong reason would be named.
       if (e.isSetAndCleared) {
         return const JobActionResult.fail(kJobEditSetAndClearedMessage);
+      }
+      // A save with nothing changed is NOT a closed job. The old blanket
+      // `isBadRequest -> "already closed"` told a payer their freshly added,
+      // still-open job was closed whenever they tapped Save without editing.
+      if (e.code == kJobEditNoChangesCode) {
+        return const JobActionResult.fail(kJobEditNoChangesMessage);
+      }
+      if (e.code == kJobEditClosedCode) {
+        return const JobActionResult.fail(kJobEditClosedMessage);
+      }
+      // Any other validation 400 names the field the server refused (e.g.
+      // "Job title: Must not contain a company name."), instead of the old
+      // "check the details" that left the agent guessing — and hands every
+      // issue on by field, so the edit screen can show each AT its box.
+      if (e.validationMessage != null && e.validationMessage!.isNotEmpty) {
+        return JobActionResult.fail(
+          e.validationMessage!,
+          fieldErrors: e.fieldErrors,
+        );
       }
       return JobActionResult.fail(
         e.isNotFound
             ? "This job isn't available."
             : e.isBadRequest
-                ? 'This job is already closed.'
+                ? badRequestMessage
                 : 'Could not update. Please try again.',
       );
     } catch (_) {
@@ -120,11 +203,20 @@ class AgencyJobsCubit extends Cubit<AgencyJobsState> {
 /// The outcome of a one-shot agency My-jobs action — a success/neutral flag + a
 /// human message the screen shows as a toast. Never carries PII.
 class JobActionResult {
-  const JobActionResult.ok(this.message) : success = true;
-  const JobActionResult.fail(this.message) : success = false;
+  const JobActionResult.ok(this.message)
+      : success = true,
+        fieldErrors = const <String, String>{};
+  const JobActionResult.fail(
+    this.message, {
+    this.fieldErrors = const <String, String>{},
+  }) : success = false;
 
   final bool success;
   final String message;
+
+  /// #2595 — a refused edit's issues by wire field
+  /// ([PayerApiException.fieldErrors]); empty otherwise.
+  final Map<String, String> fieldErrors;
 }
 
 enum AgencyJobsStatus { initial, loading, ready, error }

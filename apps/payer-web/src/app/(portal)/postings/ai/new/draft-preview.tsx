@@ -1,7 +1,10 @@
 import { RoleArt } from "@badabhai/role-art";
-import { Badge, Card } from "../../../../../components/ds";
+import { Badge, Card, Input, Select } from "../../../../../components/ds";
 import { formatInr } from "../../../../../lib/format";
+import { roleOptionGroups } from "../../../../../lib/job-roles";
 import type { JobPostingDraft } from "../../../../../lib/contracts";
+
+const ROLE_GROUPS = roleOptionGroups();
 
 /**
  * The STRUCTURED PREVIEW of the live `JobPostingDraft` (ADR-0035) — what the chat has
@@ -149,9 +152,30 @@ export interface DraftPreviewProps {
   draft: JobPostingDraft | null;
   /** The engine's deterministic readiness signal — never inferred from the fields here. */
   draftReady: boolean;
+  /**
+   * The publish-step role pick (#2490) — `""` until the payer chooses one. It is the SAME
+   * closed 21-value set the manual form sends, drives the card illustration below, and rides
+   * the publish body as `role_kind`. Display only; never a match input.
+   */
+  roleKind: string;
+  onRoleKindChange: (roleKind: string) => void;
+  /**
+   * The publish-step area/locality (#2493) — prefilled from `draft.area`, editable
+   * here. It rides the publish body as `area`. Optional: blank stays absent, so
+   * the worker card shows the city alone (exactly as before).
+   */
+  area: string;
+  onAreaChange: (area: string) => void;
 }
 
-export function DraftPreview({ draft, draftReady }: DraftPreviewProps) {
+export function DraftPreview({
+  draft,
+  draftReady,
+  roleKind,
+  onRoleKindChange,
+  area,
+  onAreaChange,
+}: DraftPreviewProps) {
   return (
     <Card variant="outline" className="ai-draft" aria-live="polite">
       <div className="ai-draft__head">
@@ -161,11 +185,38 @@ export function DraftPreview({ draft, draftReady }: DraftPreviewProps) {
         </Badge>
       </div>
 
-      {/* The job card's role illustration. The chat interview never picks a role (publish leaves
-          `role_kind` NULL — see below), so this is the generic scene until the payer picks one on
-          the posting form, whose card preview then draws that role's art. Held still here so the page
-          stays calm while the payer chats. */}
-      <RoleArt roleKind={null} animated={false} className="ai-draft__art" />
+      {/* The job card's role illustration, keyed by the publish-step pick. The chat interview
+          never asks for a role, so the payer chooses it here; before a pick this is the generic
+          scene. The same `role_kind` rides the publish body, and the worker card draws this art. */}
+      <RoleArt roleKind={roleKind || null} animated={false} className="ai-draft__art" />
+
+      <Select
+        id="chatRoleKind"
+        label="Role (card illustration)"
+        hint="Picks the illustration on the worker's card. Optional — leave it blank for the generic art."
+        value={roleKind}
+        onChange={(e) => onRoleKindChange(e.target.value)}
+      >
+        <option value="">— pick the role —</option>
+        {ROLE_GROUPS.map((group) => (
+          <optgroup key={group.family} label={group.label}>
+            {group.options.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </optgroup>
+        ))}
+      </Select>
+
+      <Input
+        id="chatArea"
+        label="Area / locality"
+        hint="Prefilled from your location answer. Optional — leave it blank for city only."
+        value={area}
+        maxLength={120}
+        onChange={(e) => onAreaChange(e.target.value)}
+      />
 
       {draft === null ? (
         <p className="ai-draft__empty">
@@ -177,8 +228,8 @@ export function DraftPreview({ draft, draftReady }: DraftPreviewProps) {
             <Row label="Role title" value={draft.roleTitle ?? NONE} />
             {/* PR-B: the "Trade" row is gone. The chat interview never asks for a trade, so it
                 was ALWAYS "—" — a permanently empty row that read as a hole in the posting. The
-                role is surfaced by the skills below + the posting form's role picker; the chat
-                publish leaves `role_kind` NULL (backend contract), which the edit page highlights. */}
+                role is surfaced by the skills below + the role picker above; the picked
+                `role_kind` rides the publish body (#2490). */}
             <Row label="Location" value={draft.locationLabel ?? NONE} />
             {/* #1727 — the coarse card city, beside the poster's own wording
                 rather than instead of it: only this one reaches a worker. */}

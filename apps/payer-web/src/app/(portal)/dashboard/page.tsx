@@ -2,7 +2,7 @@ import { ACTION_ICON, Icon, type IconName } from "@badabhai/icons";
 import { getCredits, getPostings, getUnlocks } from "../../../lib/payer-api";
 import { requirePayer } from "../../../lib/auth";
 import { getLiveCatalog } from "../../../lib/live-catalog";
-import { unlockUnitPriceInr } from "../../../lib/pricing-config";
+import { lowBalanceThreshold, unlockUnitPriceInr } from "../../../lib/pricing-config";
 import { postingRoutes } from "../../../lib/posting-routes";
 import { recentUnlockRows } from "../../../lib/unlock-history";
 import { Badge, Card, StatTile } from "../../../components/ds";
@@ -45,16 +45,16 @@ export const dynamic = "force-dynamic";
  * agent. The agency data is the source of truth for their postings, so the shared top OMITS
  * its `job-postings`-derived tile and section for agents.
  *
- * ONE DOOR PER DESTINATION (owner ruling 2026-10-01). "New posting" is the head's one primary
- * action — for an agency it opens the AGENCY form (`jobs`), never the company one. The Postings
- * list is reached from the "Your postings" panel alone. A posting card opens THAT POSTING, and its
+ * ONE DOOR PER DESTINATION (owner ruling 2026-10-01). "New posting" lives in the rail (for an
+ * agency it opens the AGENCY form (`jobs`), never the company one); the head adds no second door.
+ * The Postings list is reached from the "Your postings" panel alone. A posting card opens THAT POSTING, and its
  * "Applicants" action opens the feed — the one rule on every surface (F12, as on the agency
  * dashboard). The counters are counts, the balance included; an unlock row is a door only to the
  * applicants of the own posting it names (where that worker shows unlocked). There is
  * no standing door to Credits on the page (F15 — a "Buy credits" card repeated the header's balance
  * chip): a member whose balance is empty or low gets the needs-you item's own contextual "Buy
  * credits" — the one labelled way to buy, shown exactly when it matters. A needs-you item shows no
- * button for a destination the page itself already offers (the head's New posting, a quick
+ * button for a destination the page itself already offers (the rail's New posting, a quick
  * action). Credits is open to every member, Owner or Recruiter (owner ruling 2026-10-07), so the
  * page takes no org role at all. Plans & capacity is a company page (it sells company-posting
  * entitlements), so an agency gets no card.
@@ -69,10 +69,26 @@ export const dynamic = "force-dynamic";
  * backend gate for it is #1885. The per-unlock price comes from the live catalog (the same source
  * as Credits), never a literal.
  */
-export default async function DashboardPage() {
+type PostingFilter = "all" | "drafts" | "closed";
+
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ posting?: string | string[] }>;
+} = {}) {
   const session = await requirePayer();
   const isAgency = session.role === "agent";
   const posting = postingRoutes(isAgency);
+  // The company form's create route. Non-null for a company; an agency never renders the
+  // company postings panel or its create action, so this is only a type guard there.
+  const createHref = posting?.create ?? "/postings/new";
+
+  // The postings panel's tabs are real navigation: a server round-trip filters the
+  // list, so the URL and what is on screen always agree (no client-only filter state).
+  const params = (await searchParams) ?? {};
+  const rawFilter = Array.isArray(params.posting) ? params.posting[0] : params.posting;
+  const postingFilter: PostingFilter =
+    rawFilter === "drafts" || rawFilter === "closed" ? rawFilter : "all";
   // The per-unlock price (the same source as Credits), read BESIDE the three reads. It never
   // rejects (a failed read is the compile-time catalog).
   const catalog = getLiveCatalog();
@@ -96,39 +112,102 @@ export default async function DashboardPage() {
   // agency reads none, and a failed postings read leaves every row plain.
   const recentUnlocks = recentUnlockRows(unlocks ?? [], postings ?? [], Date.now());
   const attention = buildAttentionItems({ credits, unlocks, postings }, { isAgency });
-  const quick = quickActions({ isAgency });
-  // The destinations this page ALREADY offers — the head's primary and the quick actions it
-  // renders: an attention item does not repeat one. (The shell's balance chip is not one: it
-  // shows a number and hides when its read fails — so the empty/low-balance item keeps its own
-  // labelled "Buy credits".)
+  const lowBalance = credits !== null && credits.balance < lowBalanceThreshold();
+
+  // The tab is a VIEW of the same read, never a second fetch.
+  const visiblePostings =
+    postings === null
+      ? null
+      : postingFilter === "all"
+        ? postings
+        : postings.filter((p) => (postingFilter === "drafts" ? p.status === "draft" : p.status === "closed"));
+
+  // The destinations this page ALREADY offers — the KPI row's actions and the quick-action
+  // card: an attention item does not repeat one. Credits is always on the page now (Top-up),
+  // so a low-balance item states the fact without a second, duplicate "Buy credits" door.
   const pageDoors = new Set<string>([
     ...(posting ? [posting.create] : []),
-    ...quick.map((q) => q.href),
+    "/credits",
+    ...(isAgency ? [] : ["/plans"]),
   ]);
+
+  // AGENCY (designr8): the agency dashboard is its own composition. The shared employer
+  // command centre below is not rendered for an agent — no duplicate counters, no employer
+  // postings list, no second unlock panel.
+  if (isAgency) {
+    return (
+      <>
+        <PageHeader
+          title="Agency Dashboard"
+          badge={<span className="dash-workspace-badge">Agency</span>}
+        />
+        {attention.length > 0 ? (
+          <section className="attention dash-attention" aria-labelledby="attention-heading">
+            <div className="dash-attention__head">
+              <div>
+                <h2 className="attention__heading" id="attention-heading">
+                  Needs your attention
+                </h2>
+                <p className="dash-attention__sub">
+                  No noise — this band only appears when something genuinely needs you.
+                </p>
+              </div>
+              <span className="dash-count" aria-hidden="true">
+                {attention.length}
+              </span>
+            </div>
+            <ul className="attention__list">
+              {attention.map((item) => (
+                <li className={`attention__item attention__item--${item.tone}`} key={item.id}>
+                  <Icon name={TONE_ICON[item.tone]} className="attention__icon" />
+                  <div className="attention__text">
+                    <p className="attention__title">{item.title}</p>
+                    <p className="attention__body">{item.body}</p>
+                  </div>
+                  {item.action && !pageDoors.has(item.action.href) ? (
+                    <PortalLink
+                      className="bb-btn bb-btn--secondary bb-btn--sm attention__action"
+                      href={item.action.href}
+                      pendingLabel={item.action.pendingLabel}
+                    >
+                      <Icon name={item.action.icon} />
+                      <span>{item.action.label}</span>
+                    </PortalLink>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
+        <AgentSections credits={credits} unlocks={unlocks} unitPriceInr={unitPrice} />
+      </>
+    );
+  }
 
   return (
     <>
       <PageHeader
         title="Dashboard"
-        description={
-          isAgency
-            ? "Your postings, referred workers and unlocked contacts."
-            : "Your postings, credits and unlocked contacts — and anything that needs you."
-        }
-        primaryAction={
-          posting
-            ? { href: posting.create, label: "New posting", icon: ACTION_ICON.create }
-            : undefined
-        }
+        badge={<span className="dash-workspace-badge">Employer Workspace</span>}
       />
 
       {/* 1 · NEEDS YOU — absent entirely when nothing does, so its presence always means
           something. A permanent "all clear" panel trains people to stop reading it. */}
       {attention.length > 0 ? (
-        <section className="attention" aria-labelledby="attention-heading">
-          <h2 className="attention__heading" id="attention-heading">
-            Needs your attention
-          </h2>
+        <section className="attention dash-attention" aria-labelledby="attention-heading">
+          <div className="dash-attention__head">
+            <div>
+              <h2 className="attention__heading" id="attention-heading">
+                Needs your attention
+              </h2>
+              <p className="dash-attention__sub">
+                No noise — this band only appears when something genuinely needs you.
+              </p>
+            </div>
+            <span className="dash-count" aria-hidden="true">
+              {attention.length}
+            </span>
+          </div>
           <ul className="attention__list">
             {attention.map((item) => (
               <li className={`attention__item attention__item--${item.tone}`} key={item.id}>
@@ -153,76 +232,143 @@ export default async function DashboardPage() {
         </section>
       ) : null}
 
-      {/* 2 · POSITION — the KPI variant: no hole beside a lone third tile, and a compact
-          ledger row per tile on a phone so the counters stay secondary to bands 1 and 3. */}
+      {/* 2 · POSITION — the four-card command strip (designr4): three live counters
+          plus the Plans quick action. The counters stay counts first; each carries its
+          one contextual action underneath, as the billing screens do. */}
       <div className="stat-row stat-row--kpi">
-        {/* A count like its neighbours, never a door: Credits is reached from the header chip
-            and, when the balance is empty or low, the needs-you item. */}
         <StatTile
+          className="dash-kpi dash-kpi--credit"
           label="Credit balance"
           value={credits?.balance ?? UNREAD}
           icon={ACTION_ICON.credits}
+          status={
+            credits === null ? undefined : (
+              <span
+                className={
+                  lowBalance
+                    ? "dash-stat-pill dash-stat-pill--low"
+                    : "dash-stat-pill dash-stat-pill--ready"
+                }
+              >
+                {lowBalance ? "Low" : "Ready"}
+              </span>
+            )
+          }
           caption={
             credits === null ? (
               UNREAD_CAPTION
             ) : unitPrice !== null ? (
               <>
-                <span className="bb-mono">{formatInr(unitPrice)}</span> per unlock
+                <span className="bb-mono">{formatInr(unitPrice)}</span> per contact unlock
               </>
             ) : undefined
+          }
+          foot={
+            <PortalLink className="dash-kpi__link" href="/credits" pendingLabel="Credits">
+              Top-up <Icon name={ACTION_ICON.next} />
+            </PortalLink>
           }
         />
         {isAgency ? null : (
           <StatTile
+            className="dash-kpi dash-kpi--postings"
             label="Open postings"
             value={postings === null ? UNREAD : postings.filter((x) => x.status === "open").length}
             icon={ACTION_ICON.posting}
-            caption={postings === null ? UNREAD_CAPTION : `${postings.length} total`}
+            status={
+              postings === null ? undefined : (
+                <span className="dash-stat-note">active roles</span>
+              )
+            }
+            caption={postings === null ? UNREAD_CAPTION : `${postings.length} total drafted`}
+            foot={
+              <PortalLink
+                className="dash-kpi__link"
+                href={createHref}
+                pendingLabel="New posting"
+              >
+                <Icon name="plus" /> Create role
+              </PortalLink>
+            }
           />
         )}
         {/* No "Revenue — Coming soon" tile (F21): the KPI row holds counts that were read, never
-            a placeholder. The parked Revenue page is reached from the rail's "Coming soon"
-            group, behind the same agency-portal flag. */}
-        {/* A count, not a door: the postings list it used to open shows no unlocks. */}
+            a placeholder. */}
         <StatTile
+          className="dash-kpi dash-kpi--unlocks"
           label="Contacts unlocked"
           value={unlocks?.length ?? UNREAD}
           icon={ACTION_ICON.unlock}
-          caption={unlocks === null ? UNREAD_CAPTION : "1 credit each"}
+          status={
+            unlocks === null ? undefined : <span className="dash-stat-note">revealed</span>
+          }
+          caption={unlocks === null ? UNREAD_CAPTION : "Cost: 1 credit / profile"}
+          foot={<span className="dash-kpi__meta">Direct phone &amp; email</span>}
         />
+
+        {/* The plans card rides the same strip as a dark Quick Action tile — the one
+            company-only add-on, never a dead link for an agency. */}
+        {isAgency ? null : (
+          <PortalLink
+            className="quick__card dash-quick-action"
+            href="/plans"
+            pendingLabel="Plans & capacity"
+          >
+            <span className="dash-quick-action__top">
+              <span className="dash-quick-action__eyebrow">QUICK ACTION</span>
+              <span className="dash-quick-action__badge">Free Tier</span>
+            </span>
+            <span className="dash-quick-action__title">Plans &amp; capacity</span>
+            <span className="dash-quick-action__desc">
+              Control active posting limits and team access.
+            </span>
+            <span className="dash-quick-action__foot">
+              <span className="dash-quick-action__limit">Pricing &amp; add-ons</span>
+              <span className="dash-quick-action__manage">
+                Manage <Icon name={ACTION_ICON.next} />
+              </span>
+            </span>
+          </PortalLink>
+        )}
       </div>
 
-      {/* 3 · DO SOMETHING — the handful of things a payer does over and over. These were
-          previously buried as small links inside section headers. Absent when there are none. */}
-      {quick.length > 0 ? (
-        <section className="quick" aria-labelledby="quick-heading">
-          <h2 className="quick__heading" id="quick-heading">
-            Quick actions
-          </h2>
-          <div className="quick__grid">
-            {quick.map((q) => (
-              <PortalLink className="quick__card" href={q.href} key={q.href} pendingLabel={q.label}>
-                <span className="quick__icon">
-                  <Icon name={q.icon} />
-                </span>
-                <span className="quick__label">{q.label}</span>
-                <span className="quick__desc">{q.description}</span>
-              </PortalLink>
-            ))}
-          </div>
-        </section>
-      ) : null}
-
-      {/* 4 · YOUR WORK — omitted for agents (different entity; see the header note). */}
+      {/* 4 · YOUR WORK — omitted for agents (different entity; see the header note).
+          5 · RECENT — the two panels share one column grid, as in designr4. */}
+      <div className="dash-columns">
       {isAgency ? null : (
-        <section className="panel">
+        <section className="panel dash-panel">
           <div className="panel__head">
-            <h2 className="panel__title">Your postings</h2>
-            <div className="panel__actions">
+            <div className="panel__text">
+              <div className="dash-panel__titlerow">
+                <h2 className="panel__title">Your postings</h2>
+                {postings !== null ? (
+                  <span className="dash-count">
+                    {postings.filter((x) => x.status === "open").length} Active
+                  </span>
+                ) : null}
+              </div>
+            </div>
+            <div className="panel__actions dash-panel__actions">
+              {postings !== null ? (
+                <div className="dash-tabs" role="tablist" aria-label="Posting status">
+                  {POSTING_TABS.map((tab) => (
+                    <PortalLink
+                      key={tab.value}
+                      className={
+                        postingFilter === tab.value ? "dash-tab dash-tab--active" : "dash-tab"
+                      }
+                      href={tab.href}
+                      pendingLabel={tab.label}
+                    >
+                      {tab.label}
+                    </PortalLink>
+                  ))}
+                </div>
+              ) : null}
               {/* The dashboard's ONE link to the Postings list, named as the rail item and the
                   list's H1 name it: one label per destination. */}
               <PortalLink
-                className="bb-btn bb-btn--secondary bb-btn--sm"
+                className="dash-panel__link"
                 href="/postings"
                 pendingLabel="Postings"
               >
@@ -237,21 +383,55 @@ export default async function DashboardPage() {
                 "We couldn’t load your postings",
                 "Nothing has changed — your postings and their applicants are safe. Retry to read them again.",
               )
-            ) : postings.length === 0 ? (
-              <div className="state">
-                <span className="state__icon">
+            ) : visiblePostings !== null && visiblePostings.length === 0 ? (
+              <div className="state dash-empty-panel">
+                <span className="state__icon dash-empty-panel__icon">
                   <Icon name={ACTION_ICON.posting} />
                 </span>
-                <h3 className="state__title">No postings yet</h3>
-                {/* What to do next is the page's one primary action, "New posting", above. */}
+                <h3 className="state__title">
+                  {postingFilter === "all"
+                    ? "No active job postings yet"
+                    : postingFilter === "drafts"
+                      ? "No draft postings yet"
+                      : "No closed postings yet"}
+                </h3>
                 <p className="state__body">
-                  Matched workers can only find you once a role is live — use New posting above.
-                  Posting is free through launch.
+                  Matched workers can only find you once a role is live. Publish a requisition now —
+                  posting is completely free through launch.
                 </p>
+                <div className="dash-empty-panel__actions">
+                  <PortalLink
+                    className="bb-btn bb-btn--primary"
+                    href={createHref}
+                    pendingLabel="New posting"
+                  >
+                    <Icon name={ACTION_ICON.create} />
+                    <span>Create First Posting</span>
+                  </PortalLink>
+                  <PortalLink
+                    className="bb-btn bb-btn--secondary"
+                    href="/postings/ai/new"
+                    pendingLabel="Post with AI"
+                  >
+                    <Icon name="sparkle" />
+                    <span>Build with AI</span>
+                  </PortalLink>
+                </div>
+                <ul className="dash-perks">
+                  <li>
+                    <Icon name="check" /> Instant alerts
+                  </li>
+                  <li>
+                    <Icon name="check" /> Verified phone
+                  </li>
+                  <li>
+                    <Icon name="check" /> Zero brokerage
+                  </li>
+                </ul>
               </div>
             ) : (
               <div className="dash-postings">
-                {postings.slice(0, 6).map((post) => (
+                {(visiblePostings ?? []).slice(0, 6).map((post) => (
                   // Whole-card link to THIS posting's details (F12 — a posting's title always
                   // opens the posting). The id is the posting's OWN opaque uuid (never a worker
                   // id/phone).
@@ -263,6 +443,9 @@ export default async function DashboardPage() {
                     ariaLabel={`${post.roleTitle} — view posting`}
                     pendingLabel={post.roleTitle}
                   >
+                    <span className="dash-posting__icon" aria-hidden="true">
+                      <Icon name={ACTION_ICON.posting} />
+                    </span>
                     <div className="dash-posting__main">
                       <div className="dash-posting__title">{post.roleTitle}</div>
                       {/* The applicant COUNT is deliberately not shown. It is not in the
@@ -271,7 +454,14 @@ export default async function DashboardPage() {
                           employer they had none when they may have had many. Until the count
                           is on the wire, the row offers the feed instead of a false figure. */}
                       <div className="dash-posting__meta">
-                        {post.locationLabel ?? "Location flexible"} · {post.vacancyBand} openings
+                        <span>
+                          <Icon name="map-pin" />
+                          {post.locationLabel ?? "Location flexible"}
+                        </span>
+                        <span>
+                          <Icon name="briefcase" />
+                          {post.vacancyBand} openings
+                        </span>
                       </div>
                     </div>
                     <div className="dash-posting__right">
@@ -304,12 +494,17 @@ export default async function DashboardPage() {
       )}
 
       {/* 5 · RECENT — the quietest band. */}
-      <section className="panel">
+      <section className="panel dash-panel">
         <div className="panel__head">
           <div className="panel__text">
-            <h2 className="panel__title">Recent unlocks</h2>
+            <div className="dash-panel__titlerow">
+              <h2 className="panel__title">Recent unlocks</h2>
+              {unlocks !== null && recentUnlocks.length > 0 ? (
+                <span className="dash-count">{recentUnlocks.length}</span>
+              ) : null}
+            </div>
             <p className="panel__sub">
-              Contacts you have revealed. Identities stay masked until you unlock them.
+              Direct contacts revealed. Masked until unlock.
             </p>
           </div>
         </div>
@@ -320,14 +515,22 @@ export default async function DashboardPage() {
               "Nothing has changed — your unlocked contacts are safe. Retry to read them again.",
             )
           ) : recentUnlocks.length === 0 ? (
-            <div className="state">
-              <span className="state__icon">
-                <Icon name={ACTION_ICON.unlock} />
+            <div className="state dash-empty-panel">
+              <span className="state__icon dash-empty-panel__icon dash-empty-panel__icon--lock">
+                <Icon name="lock-key" />
               </span>
               <h3 className="state__title">No contacts unlocked yet</h3>
               <p className="state__body">
-                Open a posting&rsquo;s applicants and unlock one to see their routed contact here.
+                Open a posting&rsquo;s applicants and unlock any candidate to reveal their phone,
+                email, and resume.
               </p>
+              <div className="dash-callout">
+                <Icon name="check-circle" />
+                <span>
+                  Unlocks include direct WhatsApp number and lifetime candidate re-contact
+                  rights.
+                </span>
+              </div>
             </div>
           ) : (
             <div className="dash-candlist">
@@ -351,6 +554,14 @@ export default async function DashboardPage() {
                   : {};
                 return (
                   <Card key={row.key} padding="sm" className="dash-unlock" {...link}>
+                    <span
+                      className={
+                        row.live ? "dash-unlock__icon dash-unlock__icon--live" : "dash-unlock__icon"
+                      }
+                      aria-hidden="true"
+                    >
+                      <Icon name={row.live ? "lock-key-open" : "lock-key"} />
+                    </span>
                     <div className="dash-unlock__main">
                       <div className="dash-unlock__title">
                         {row.posting ? row.posting.title : "Unlocked contact"}
@@ -377,10 +588,38 @@ export default async function DashboardPage() {
             </div>
           )}
         </div>
+        <div className="dash-panel__foot">
+          <span className="dash-panel__footstart">
+            <Icon name="check-circle" /> Credit auto-refund on invalid numbers
+          </span>
+          <PortalLink
+            className="dash-panel__footlink"
+            href="/credits"
+            pendingLabel="Credits"
+          >
+            Usage log <Icon name={ACTION_ICON.next} />
+          </PortalLink>
+        </div>
       </section>
+      </div>
 
       {/* MERGE-1: agency demand modules render INLINE for an AGENT only. */}
       {isAgency ? <AgentSections /> : null}
+
+      <footer className="dash-foot">
+        <div className="dash-foot__status">
+          <span className="dash-foot__dot" aria-hidden="true" />
+          <span>Gateway Online: Badabhai Recruiter Engine v2.4</span>
+          <span className="dash-foot__sep" aria-hidden="true">
+            ·
+          </span>
+          <span>Candidate Database: 160,000+ Verified Workers</span>
+        </div>
+        <div className="dash-foot__links">
+          <span>Employer Helpdesk</span>
+          <span>Pricing Terms</span>
+        </div>
+      </footer>
     </>
   );
 }
@@ -419,29 +658,9 @@ const TONE_ICON: Record<"critical" | "warning" | "info", IconName> = {
   info: "info",
 };
 
-interface QuickAction {
-  href: string;
-  label: string;
-  description: string;
-  icon: IconName;
-}
-
-/**
- * The high-frequency actions that are NOT already on this page. "New posting" is the head's
- * primary, and each posting card opens its posting, so neither is repeated here; an agency's
- * invite tools live in its own sections (agent-sections.tsx), and quick actions add none; and
- * Credits is reached from the header chip — and, at an empty or low balance, the needs-you item's
- * "Buy credits" — so there is no "Buy credits" card (F15). Every card follows its destination's
- * gate: Plans & capacity is a COMPANY page, so an agency has none.
- */
-function quickActions({ isAgency }: { isAgency: boolean }): QuickAction[] {
-  if (isAgency) return [];
-  return [
-    {
-      href: "/plans",
-      label: "Plans & capacity",
-      description: "How many postings you can run at once.",
-      icon: "chart-donut",
-    },
-  ];
-}
+/** The postings panel's three views. Each is a real URL so the filter survives a refresh. */
+const POSTING_TABS: { value: PostingFilter; label: string; href: string }[] = [
+  { value: "all", label: "All", href: "/dashboard" },
+  { value: "drafts", label: "Drafts", href: "/dashboard?posting=drafts" },
+  { value: "closed", label: "Closed", href: "/dashboard?posting=closed" },
+];

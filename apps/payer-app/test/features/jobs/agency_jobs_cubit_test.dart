@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:payer_app/core/data/mock_payer_api_client.dart';
@@ -50,10 +52,13 @@ class _ScriptedAgencyApi extends MockPayerApiClient {
     int? minExperienceYears,
     int? maxExperienceYears,
     String? neededBy,
+    String? roleKind,
     String? description,
     String? shift,
     List<String>? benefits,
     List<String>? requirements,
+    String? tradeLevel,
+    Map<String, List<String>>? tradeAnswers,
     List<String>? matchSkillIds,
     List<AgencyJobClearField>? clear,
   }) async {
@@ -112,7 +117,8 @@ void main() {
       await cubit.load();
 
       expect(cubit.state.status, AgencyJobsStatus.ready);
-      expect(cubit.state.jobs.map((AgencyJobView j) => j.id), <String>['j1', 'j2']);
+      expect(cubit.state.jobs.map((AgencyJobView j) => j.id),
+          <String>['j1', 'j2']);
     });
 
     test('an empty list is a legitimate ready state, not an error', () async {
@@ -148,9 +154,24 @@ void main() {
       final JobActionResult result = await cubit.closePosting('j1');
 
       expect(result.success, isTrue);
-      expect(result.message, 'Closed — no longer taking applicants.');
+      // #2594 — the toast title says "Job closed"; the message says what changed.
+      expect(result.message, 'No longer taking applicants.');
       expect(api.closed, <String>['j1']);
       expect(api.fetches, 1, reason: 'the pill/buttons come from a refetch');
+      expect(cubit.state.jobs.first.status, 'closed');
+    });
+
+    test('#2594 — the refetch keeps the list on screen (never flips to '
+        'loading), so the closed card settles in place', () async {
+      final List<AgencyJobsStatus> seen = <AgencyJobsStatus>[];
+      final StreamSubscription<AgencyJobsState> sub =
+          cubit.stream.listen((AgencyJobsState s) => seen.add(s.status));
+
+      await cubit.closePosting('j1');
+      await sub.cancel();
+
+      expect(seen, isNot(contains(AgencyJobsStatus.loading)));
+      expect(cubit.state.status, AgencyJobsStatus.ready);
       expect(cubit.state.jobs.first.status, 'closed');
     });
 
@@ -248,8 +269,7 @@ void main() {
       expect(api.lastClear, <AgencyJobClearField>[AgencyJobClearField.area]);
     });
 
-    test('a set-and-cleared 400 is NOT reported as "already closed"',
-        () async {
+    test('a set-and-cleared 400 is NOT reported as "already closed"', () async {
       api.throwOnUpdate =
           const PayerApiException(400, code: kJobEditSetAndClearedCode);
 
@@ -258,6 +278,74 @@ void main() {
       expect(result.success, isFalse);
       expect(result.message, kJobEditSetAndClearedMessage);
       expect(api.fetches, 0);
+    });
+
+    test('a no-op 400 says nothing changed, not "already closed"', () async {
+      api.throwOnUpdate =
+          const PayerApiException(400, code: kJobEditNoChangesCode);
+
+      final JobActionResult result =
+          await cubit.editJob('j1', title: 'Old title');
+
+      expect(result.success, isFalse);
+      expect(result.message, kJobEditNoChangesMessage);
+      expect(api.fetches, 0);
+    });
+
+    test('a genuinely closed 400 names the terminal closed state', () async {
+      api.throwOnUpdate =
+          const PayerApiException(400, code: kJobEditClosedCode);
+
+      final JobActionResult result = await cubit.editJob('j1', title: 'x');
+
+      expect(result.success, isFalse);
+      expect(result.message, kJobEditClosedMessage);
+      expect(api.fetches, 0);
+    });
+
+    test('any other 400 is a neutral save failure, never "already closed"',
+        () async {
+      api.throwOnUpdate = const PayerApiException(400);
+
+      final JobActionResult result = await cubit.editJob('j1', title: 'x');
+
+      expect(result.success, isFalse);
+      expect(result.message,
+          'Could not save changes. Check the details and try again.');
+      expect(api.fetches, 0);
+    });
+
+    test('a validation 400 shows the field and reason', () async {
+      api.throwOnUpdate = const PayerApiException(
+        400,
+        validationMessage: 'Job title: Must not contain a company name.',
+      );
+
+      final JobActionResult result = await cubit.editJob('j1', title: 'x');
+
+      expect(result.success, isFalse);
+      expect(result.message, 'Job title: Must not contain a company name.');
+      expect(api.fetches, 0);
+    });
+
+    test('#2595 — a validation 400 hands every issue on by its field',
+        () async {
+      api.throwOnUpdate = const PayerApiException(
+        400,
+        validationMessage: 'Job title: Must not contain links.',
+        fieldErrors: <String, String>{
+          'title': 'Must not contain links.',
+          'area': 'Must not contain a company name.',
+        },
+      );
+
+      final JobActionResult result = await cubit.editJob('j1', title: 'x');
+
+      expect(result.success, isFalse);
+      expect(result.fieldErrors, <String, String>{
+        'title': 'Must not contain links.',
+        'area': 'Must not contain a company name.',
+      });
     });
   });
 }

@@ -123,12 +123,11 @@ void main() {
         );
         // …and the work history.
         expect(find.text('Work History'), findsOneWidget);
-        // Employer + role + location, composed in the server's own order with
-        // the separators it already prefixed.
-        expect(
-          find.text('ABC Precision Ltd — CNC Turner · Gurugram, Haryana'),
-          findsOneWidget,
-        );
+        // Employer + role as the job's title (the server's own order and
+        // separator), the city on its own line under it (OWNER ASK
+        // 2026-10-21 — the job block).
+        expect(find.text('ABC Precision Ltd — CNC Turner'), findsOneWidget);
+        expect(find.text('Gurugram, Haryana'), findsOneWidget);
         expect(find.text('and 2 more'), findsOneWidget);
       });
 
@@ -321,30 +320,20 @@ void main() {
       expect(harness.pushed.last.extra, Routes.resume);
     });
 
-    testWidgets('"Report correction" goes to feedback with /resume attached', (
-      WidgetTester tester,
-    ) async {
-      await pumpTab(tester);
-
-      final Finder report = find.text('Report correction');
-      await tester.scrollUntilVisible(report, 200);
-      await tester.tap(report);
-      await tester.pumpAndSettle();
-
-      expect(harness.topPath, Routes.feedback);
-      expect(harness.pushed.last.extra, Routes.resume);
-    });
-
-    testWidgets('the control note stays on the card stack, verbatim', (
-      WidgetTester tester,
-    ) async {
-      await pumpTab(tester);
-      final Finder note = find.text(
-        'Naam / photo / phone aap control karte hain',
-      );
-      await tester.scrollUntilVisible(note, 200);
-      expect(note, findsOneWidget);
-    });
+    testWidgets(
+      'OWNER ASK 2026-10-21: no "Report correction" card and no '
+      '"Naam / photo / phone" line at the bottom of the tab',
+      (WidgetTester tester) async {
+        await pumpTab(tester);
+        await tester.drag(find.byType(Scrollable).first, const Offset(0, -4000));
+        await tester.pumpAndSettle();
+        expect(find.text('Report correction'), findsNothing);
+        expect(
+          find.text('Naam / photo / phone aap control karte hain'),
+          findsNothing,
+        );
+      },
+    );
   });
 
   group('the edit round trip never burns a generate', () {

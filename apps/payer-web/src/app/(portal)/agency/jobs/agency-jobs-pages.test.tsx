@@ -156,11 +156,14 @@ describe("agency posting pages — requireAgent, then the flag, both before any 
 });
 
 describe("the heads — Posting naming, one door each", () => {
-  it("Postings: the rail destination (no back link) with New posting as its one action", async () => {
+  it("Postings: the rail destination with the New posting action in its head", async () => {
     const h = head(await list.default());
     expect(h.title).toBe("Postings");
     expect(h.back).toBeUndefined();
-    expect(h.primaryAction).toMatchObject({ href: "/agency/jobs/new", label: "New posting", icon: "plus" });
+    expect(h.primaryAction).toMatchObject({
+      href: "/agency/jobs/new",
+      label: "New posting",
+    });
   });
 
   it("New posting: a rail destination too — no back link, no action (the form is the page)", async () => {

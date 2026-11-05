@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../../../core/consent/voice_consent.dart';
+
 import '../../../../core/theme/onboarding_theme.dart';
 import '../../../../core/util/devanagari_guard.dart';
 import '../../../chat/presentation/widgets/voice_wave_visualizer.dart';
@@ -177,6 +179,18 @@ class _TradeFormWorkDictationState extends State<TradeFormWorkDictation> {
 
   @override
   Widget build(BuildContext context) {
+    // OWNER ASK (2026-10-22) — no voice consent, no mic: the worker types the
+    // description ([VoiceConsent]).
+    return ValueListenableBuilder<bool?>(
+      valueListenable: VoiceConsent.instance.state,
+      builder: (BuildContext context, bool? _, Widget? __) =>
+          VoiceConsent.instance.voiceAllowed || _dictation.listening
+          ? _micColumn()
+          : const SizedBox.shrink(),
+    );
+  }
+
+  Widget _micColumn() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[

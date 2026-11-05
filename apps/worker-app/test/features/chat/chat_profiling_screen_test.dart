@@ -13,6 +13,7 @@ import 'package:badabhai_worker_app/core/api/api_models.dart'
         ChatProgress,
         ChatQuestionKind,
         PredictedQuestion;
+import 'package:badabhai_worker_app/core/consent/voice_consent.dart';
 import 'package:badabhai_worker_app/core/di/locator.dart';
 import 'package:badabhai_worker_app/core/error/failure.dart';
 import 'package:badabhai_worker_app/core/session/known_worker_facts_store.dart';
@@ -877,11 +878,9 @@ void main() {
           reason: 'a "Kuch aur" turn keeps the composer enabled',
         );
         expect(find.text(kChatOptionsOnlyHint), findsNothing);
-        expect(
-          find.text(kChatCustomAnswerLabel),
-          findsOneWidget,
-          reason: 'the escape chip rides the row alongside the model guesses',
-        );
+        // ISSUE_2 (2026-10-21) — the input is open, so the escape chip (which
+        // only opens it) is not drawn.
+        expect(find.text(kChatCustomAnswerLabel), findsNothing);
       },
     );
 
@@ -1625,8 +1624,8 @@ void main() {
         tester.widget<TextField>(find.byType(TextField));
 
     testWidgets(
-      'the disambiguation escape opens a focused composer with the custom '
-      'hint and sends NOTHING',
+      'ISSUE_2: the disambiguation escape row is hidden while the composer '
+      'is open; the profile rows stay',
       (WidgetTester tester) async {
         int sends = 0;
         when(
@@ -1642,41 +1641,22 @@ void main() {
         await tester.pumpAndSettle();
         expect(sends, 1);
 
-        // The escape row reads as an invitation to type, not the bare label.
-        expect(find.text(kChatCustomAnswerLabel), findsOneWidget);
-        expect(find.text('Kuch aur'), findsNothing);
-        expect(
-          find.bySemanticsLabel(kChatCustomAnswerSemantics),
-          findsOneWidget,
-        );
-        // The escape row rides this turn, so typing is allowed: the composer is
-        // shown by default (OWNER ASK 2026-10-12).
+        // Typing is open on this turn, so the escape (which only opens
+        // typing) is not drawn at all — neither its label nor the bare one.
         expect(
           find.byType(TextField),
           findsOneWidget,
           reason: 'a "Kuch aur" turn keeps the composer enabled by default',
         );
-
-        await tester.tap(find.text(kChatCustomAnswerLabel));
-        await tester.pumpAndSettle();
-
-        expect(sends, 1, reason: 'the escape tap must not submit anything');
-        expect(find.byType(TextField), findsOneWidget);
-        expect(composer(tester).decoration!.hintText, kChatCustomAnswerHint);
-        expect(
-          composer(tester).focusNode!.hasFocus,
-          isTrue,
-          reason: 'the keyboard lands straight on the composer',
-        );
-        // The profile rows stay on screen and tappable.
+        expect(find.text(kChatCustomAnswerLabel), findsNothing);
+        expect(find.text('Kuch aur'), findsNothing);
         expect(find.text('CNC machine operator'), findsOneWidget);
         expect(find.text('VMC operator'), findsOneWidget);
       },
     );
 
     testWidgets(
-      'typing a custom profile sends exactly that text with no optionKey, '
-      'then custom mode resets',
+      'typing a custom profile sends exactly that text with no optionKey',
       (WidgetTester tester) async {
         when(
           () => repo.sendMessage(
@@ -1697,8 +1677,6 @@ void main() {
         await tester.testTextInput.receiveAction(TextInputAction.send);
         await tester.pumpAndSettle();
 
-        await tester.tap(find.text(kChatCustomAnswerLabel));
-        await tester.pumpAndSettle();
         await tester.enterText(find.byType(TextField), 'CNC operator');
         await tester.pump();
         await tester.tap(find.byIcon(Icons.send_rounded));
@@ -1730,15 +1708,10 @@ void main() {
           const ChatTurn(reply: 'Kitne saal ka experience hai?'),
         );
         await tester.pumpAndSettle();
-        expect(
-          composer(tester).decoration!.hintText,
-          isNot(kChatCustomAnswerHint),
-          reason: 'custom mode is turn-scoped',
-        );
       },
     );
 
-    testWidgets('a profile row is still tappable while custom mode is open', (
+    testWidgets('a profile row is tappable with the composer open', (
       WidgetTester tester,
     ) async {
       when(
@@ -1758,8 +1731,6 @@ void main() {
       await tester.testTextInput.receiveAction(TextInputAction.send);
       await tester.pumpAndSettle();
 
-      await tester.tap(find.text(kChatCustomAnswerLabel));
-      await tester.pumpAndSettle();
       await tester.tap(find.text('VMC operator'));
       await tester.pumpAndSettle();
 
@@ -1769,91 +1740,38 @@ void main() {
           submissionId: any(named: 'submissionId'),
         ),
       ).called(1);
-      expect(
-        composer(tester).decoration!.hintText,
-        isNot(kChatCustomAnswerHint),
-      );
     });
 
     testWidgets(
-      'the label-only disambiguation path (no suggested_options) also opens '
-      'custom mode instead of declining',
+      'ISSUE_2: the label-only disambiguation path (no suggested_options) '
+      'hides the Kuch aur row too',
       (WidgetTester tester) async {
-        int sends = 0;
         when(
           () =>
               repo.sendMessage(any(), submissionId: any(named: 'submissionId')),
-        ).thenAnswer((_) async {
-          sends++;
-          return const ChatTurn(
+        ).thenAnswer(
+          (_) async => const ChatTurn(
             reply: 'Inme se aapka kaam kaunsa hai?',
             followups: <String>['CNC machine operator', 'Kuch aur'],
             questionKind: ChatQuestionKind.disambiguate,
-          );
-        });
+          ),
+        );
         await pumpScreen(tester);
         await tester.enterText(find.byType(TextField), 'job');
         await tester.testTextInput.receiveAction(TextInputAction.send);
         await tester.pumpAndSettle();
 
-        await tester.tap(find.text(kChatCustomAnswerLabel));
-        await tester.pumpAndSettle();
-
-        expect(sends, 1);
-        expect(composer(tester).decoration!.hintText, kChatCustomAnswerHint);
-        expect(composer(tester).focusNode!.hasFocus, isTrue);
+        expect(find.text(kChatCustomAnswerLabel), findsNothing);
+        expect(find.text('Kuch aur'), findsNothing);
+        expect(find.text('CNC machine operator'), findsOneWidget);
+        expect(find.byType(TextField), findsOneWidget);
       },
     );
 
     testWidgets(
-      'an LLM suggestion row gains a trailing Kuch aur chip that enters '
-      'custom mode without sending',
-      (WidgetTester tester) async {
-        int sends = 0;
-        when(
-          () =>
-              repo.sendMessage(any(), submissionId: any(named: 'submissionId')),
-        ).thenAnswer((_) async {
-          sends++;
-          return const ChatTurn(
-            reply: 'Aap kaunsa kaam karte hain?',
-            followups: <String>['CNC operator', 'Welder', 'Helper'],
-            suggestedOptions: <ChatOption>[
-              ChatOption(optionKey: 'llm_a', labelText: 'CNC operator'),
-              ChatOption(optionKey: 'llm_b', labelText: 'Welder'),
-              ChatOption(optionKey: 'llm_c', labelText: 'Helper'),
-            ],
-          );
-        });
-        await pumpScreen(tester);
-        await tester.enterText(find.byType(TextField), 'I need job');
-        await tester.testTextInput.receiveAction(TextInputAction.send);
-        await tester.pumpAndSettle();
-
-        final Finder chip = find.text(kChatCustomAnswerLabel);
-        expect(chip, findsOneWidget);
-        expect(
-          find.bySemanticsLabel(kChatCustomAnswerGenericSemantics),
-          findsOneWidget,
-        );
-        await tester.ensureVisible(chip);
-        await tester.pumpAndSettle();
-        await tester.tap(chip);
-        await tester.pumpAndSettle();
-
-        expect(sends, 1, reason: 'the Kuch aur chip opens typing, never sends');
-        // A chip row can be about a skill or a duration: a neutral hint.
-        expect(
-          composer(tester).decoration!.hintText,
-          kChatCustomAnswerGenericHint,
-        );
-        expect(composer(tester).focusNode!.hasFocus, isTrue);
-      },
-    );
-
-    testWidgets(
-      'the server escape (kuch_aur) on an LLM chip ASK turn is the one '
-      'escape chip and never sends "Kuch aur"',
+      'ISSUE_2 + ISSUE_3: a SKILLS row (model chips served multi_select) has '
+      'no escape chip; a tap fills the composer (multi-pick), and nothing is '
+      'sent until Send',
       (WidgetTester tester) async {
         final List<String> sent = <String>[];
         when(
@@ -1862,73 +1780,224 @@ void main() {
         ).thenAnswer((Invocation call) async {
           sent.add(call.positionalArguments.first as String);
           return const ChatTurn(
-            reply: 'Aap kaunsa kaam karte hain?',
-            followups: <String>['CNC operator', 'Welder', 'Kuch aur'],
+            reply: 'Plumbing mein aap kaunsa kaam karte hain?',
+            followups: <String>['Pipe fitting', 'Repair', 'Installation'],
             suggestedOptions: <ChatOption>[
-              ChatOption(optionKey: 'llm_a', labelText: 'CNC operator'),
-              ChatOption(optionKey: 'llm_b', labelText: 'Welder'),
+              ChatOption(optionKey: 'llm_a', labelText: 'Pipe fitting'),
+              ChatOption(optionKey: 'llm_b', labelText: 'Repair'),
+              ChatOption(optionKey: 'llm_c', labelText: 'Installation'),
               ChatOption(
                 optionKey: 'kuch_aur',
                 labelText: 'Kuch aur',
                 isNoneOfAbove: true,
               ),
             ],
+            // The server's signal for a skills question.
+            answerType: ChatAnswerType.multiSelect,
           );
+        });
+        await pumpScreen(tester);
+        await tester.enterText(find.byType(TextField), 'plumber');
+        await tester.testTextInput.receiveAction(TextInputAction.send);
+        await tester.pumpAndSettle();
+
+        // ISSUE_2 — typing is open, so no escape chip (neither label).
+        expect(find.text(kChatCustomAnswerLabel), findsNothing);
+        expect(find.text('Kuch aur'), findsNothing);
+
+        // ISSUE_3 — picks land in the input area as removable pills.
+        await tester.tap(find.text('Pipe fitting'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Repair'));
+        await tester.pumpAndSettle();
+        expect(find.byTooltip('Pipe fitting hatayein'), findsOneWidget);
+        expect(find.byTooltip('Repair hatayein'), findsOneWidget);
+        // The typed text is untouched: picks are pills, not text.
+        expect(composer(tester).controller!.text, isEmpty);
+
+        // A picked chip is announced selected.
+        expect(
+          tester.getSemantics(find.text('Repair').first),
+          matchesSemantics(
+            isButton: true,
+            hasSelectedState: true,
+            isSelected: true,
+            label: 'Repair',
+            hasTapAction: true,
+            isFocusable: true,
+            hasFocusAction: true,
+          ),
+        );
+
+        // The pill's ✕ removes it.
+        await tester.tap(find.byTooltip('Pipe fitting hatayein'));
+        await tester.pumpAndSettle();
+        expect(find.byTooltip('Pipe fitting hatayein'), findsNothing);
+
+        expect(sent, <String>['plumber'], reason: 'picking sends nothing');
+
+        // Send sends the picks (plus anything typed) as ONE message.
+        await tester.enterText(find.byType(TextField), 'aur valve');
+        await tester.pump();
+        await tester.tap(find.byIcon(Icons.send_rounded));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 350));
+        expect(sent, <String>['plumber', 'Repair, aur valve']);
+        await tester.pumpAndSettle();
+        expect(find.byTooltip('Repair hatayein'), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'ISSUE_3: after the worker says Haan to the trade-confirm gate, a model '
+      'chip row is a SKILLS row — multi-pick even when served single_select',
+      (WidgetTester tester) async {
+        final List<String> sent = <String>[];
+        when(
+          () =>
+              repo.sendMessage(any(), submissionId: any(named: 'submissionId')),
+        ).thenAnswer((Invocation call) async {
+          sent.add(call.positionalArguments.first as String);
+          if (sent.length == 1) {
+            return const ChatTurn(
+              reply: 'Plumber — kya aap yahi kaam karna chahte hain?',
+              suggestedOptions: <ChatOption>[
+                ChatOption(optionKey: 'trade_confirm_yes', labelText: 'Haan'),
+                ChatOption(optionKey: 'trade_confirm_no', labelText: 'Nahi'),
+              ],
+              inputMode: ChatInputMode.optionsOnly,
+            );
+          }
+          if (sent.length == 2) {
+            return const ChatTurn(
+              reply: 'Pipe fitting mein aap kaunsa kaam karte hain?',
+              suggestedOptions: <ChatOption>[
+                ChatOption(optionKey: 'llm_a', labelText: 'Soldering'),
+                ChatOption(optionKey: 'llm_b', labelText: 'Threading'),
+                ChatOption(optionKey: 'llm_c', labelText: 'Water line'),
+                ChatOption(
+                  optionKey: 'kuch_aur',
+                  labelText: 'Kuch aur',
+                  isNoneOfAbove: true,
+                ),
+              ],
+              answerType: ChatAnswerType.singleSelect,
+            );
+          }
+          return const ChatTurn(reply: 'Theek hai.');
+        });
+        await pumpScreen(tester);
+        await tester.enterText(find.byType(TextField), 'plumber');
+        await tester.testTextInput.receiveAction(TextInputAction.send);
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Haan'));
+        await tester.pumpAndSettle();
+        expect(sent, <String>['plumber', 'Haan']);
+
+        await tester.tap(find.text('Soldering'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Threading'));
+        await tester.pumpAndSettle();
+        expect(sent, hasLength(2), reason: 'picks send nothing');
+        expect(find.byTooltip('Soldering hatayein'), findsOneWidget);
+        expect(find.byTooltip('Threading hatayein'), findsOneWidget);
+
+        await tester.tap(find.byIcon(Icons.send_rounded));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 350));
+        expect(sent.last, 'Soldering, Threading');
+        await tester.pumpAndSettle();
+      },
+    );
+
+    testWidgets(
+      'ISSUE_2b: while Bada Bhai is thinking the composer takes no input and '
+      'cannot send — but keeps focus, so the keyboard stays up',
+      (WidgetTester tester) async {
+        final Completer<ChatTurn> pending = Completer<ChatTurn>();
+        when(
+          () =>
+              repo.sendMessage(any(), submissionId: any(named: 'submissionId')),
+        ).thenAnswer((_) => pending.future);
+        await pumpScreen(tester);
+        await tester.tap(find.byType(TextField));
+        await tester.pump();
+        await tester.enterText(find.byType(TextField), 'plumber');
+        await tester.testTextInput.receiveAction(TextInputAction.send);
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 350));
+        expect(find.text('Bada Bhai type kar raha hai…'), findsOneWidget);
+
+        // Typing is refused while thinking.
+        tester.testTextInput.updateEditingValue(
+          const TextEditingValue(
+            text: 'dobara',
+            selection: TextSelection.collapsed(offset: 6),
+          ),
+        );
+        await tester.pump();
+        expect(composer(tester).controller!.text, isEmpty);
+        expect(
+          composer(tester).focusNode!.hasFocus,
+          isTrue,
+          reason: 'the keyboard is not dropped while thinking',
+        );
+        expect(tester.testTextInput.isVisible, isTrue);
+
+        pending.complete(const ChatTurn(reply: 'Theek hai.'));
+        await tester.pumpAndSettle();
+        tester.testTextInput.updateEditingValue(
+          const TextEditingValue(
+            text: 'ab chalega',
+            selection: TextSelection.collapsed(offset: 10),
+          ),
+        );
+        await tester.pump();
+        expect(composer(tester).controller!.text, 'ab chalega');
+      },
+    );
+
+    testWidgets(
+      'ISSUE_3: the ROLE question (model chips served single_select) stays '
+      'ONE tap = ONE answer — the tap sends at once, nothing is filled',
+      (WidgetTester tester) async {
+        final List<String> sent = <String>[];
+        when(
+          () =>
+              repo.sendMessage(any(), submissionId: any(named: 'submissionId')),
+        ).thenAnswer((Invocation call) async {
+          sent.add(call.positionalArguments.first as String);
+          return sent.length == 1
+              ? const ChatTurn(
+                  reply: 'Aap kaunsa kaam karte hain?',
+                  followups: <String>['CNC operator', 'Welder'],
+                  suggestedOptions: <ChatOption>[
+                    ChatOption(optionKey: 'llm_a', labelText: 'CNC operator'),
+                    ChatOption(optionKey: 'llm_b', labelText: 'Welder'),
+                    ChatOption(
+                      optionKey: 'kuch_aur',
+                      labelText: 'Kuch aur',
+                      isNoneOfAbove: true,
+                    ),
+                  ],
+                  answerType: ChatAnswerType.singleSelect,
+                )
+              : const ChatTurn(reply: 'Theek hai.');
         });
         await pumpScreen(tester);
         await tester.enterText(find.byType(TextField), 'mujhe job chahiye');
         await tester.testTextInput.receiveAction(TextInputAction.send);
         await tester.pumpAndSettle();
 
-        expect(find.text('Kuch aur'), findsNothing);
-        final Finder chip = find.text(kChatCustomAnswerLabel);
-        expect(chip, findsOneWidget, reason: 'one escape, never a double');
-        await tester.ensureVisible(chip);
+        await tester.tap(find.text('Welder'));
         await tester.pumpAndSettle();
-        await tester.tap(chip);
-        await tester.pumpAndSettle();
-
-        expect(sent, <String>[
-          'mujhe job chahiye',
-        ], reason: '"Kuch aur" must never be recorded as the worker\'s role');
-        expect(
-          composer(tester).decoration!.hintText,
-          kChatCustomAnswerGenericHint,
-        );
-        expect(composer(tester).focusNode!.hasFocus, isTrue);
+        expect(sent, <String>['mujhe job chahiye', 'Welder']);
+        expect(composer(tester).controller!.text, isEmpty);
       },
     );
 
-    testWidgets('the escape focuses the composer and raises the keyboard', (
-      WidgetTester tester,
-    ) async {
-      when(
-        () => repo.sendMessage(any(), submissionId: any(named: 'submissionId')),
-      ).thenAnswer((_) async => disambiguation);
-      await pumpScreen(tester);
-      await tester.enterText(find.byType(TextField), 'mujhe job chahiye');
-      await tester.testTextInput.receiveAction(TextInputAction.send);
-      await tester.pumpAndSettle();
-
-      // The escape row rides this turn, so the composer is shown by default
-      // (OWNER ASK 2026-10-12).
-      expect(find.byType(TextField), findsOneWidget);
-
-      await tester.tap(find.text(kChatCustomAnswerLabel));
-      await tester.pumpAndSettle();
-
-      expect(find.byType(TextField), findsOneWidget);
-      expect(
-        tester.testTextInput.isVisible,
-        isTrue,
-        reason: 'the escape lands the keyboard straight on the composer',
-      );
-      expect(composer(tester).focusNode!.hasFocus, isTrue);
-    });
-
     testWidgets(
-      'no overflow at 320x568 with text scale 2.0 on a disambiguation turn '
-      'in custom mode',
+      'no overflow at 320x568 with text scale 2.0 on a disambiguation turn',
       (WidgetTester tester) async {
         when(
           () =>
@@ -1956,21 +2025,13 @@ void main() {
         await tester.enterText(find.byType(TextField), 'job');
         await tester.testTextInput.receiveAction(TextInputAction.send);
         await tester.pumpAndSettle();
-        expect(tester.takeException(), isNull);
-
-        final Finder escape = find.text(kChatCustomAnswerLabel);
-        await tester.ensureVisible(escape);
-        await tester.pumpAndSettle();
-        await tester.tap(escape);
-        await tester.pumpAndSettle();
 
         expect(
           tester.takeException(),
           isNull,
-          reason: 'custom mode must not overflow a short phone at 2.0x',
+          reason: 'the turn must not overflow a short phone at 2.0x',
         );
         expect(find.byType(TextField), findsOneWidget);
-        expect(composer(tester).focusNode!.hasFocus, isTrue);
       },
     );
   });
@@ -2301,5 +2362,47 @@ void main() {
     expect(find.text(kChatLocationDropdownToggle), findsOneWidget);
     expect(find.text(kChatLocationManualCityToggle), findsOneWidget);
     expect(tester.takeException(), isNull);
+  });
+
+  // OWNER ASK (2026-10-22) — a worker who said "I don't agree" to voice on the
+  // privacy screen gets no mic in the chat; they answer by typing.
+  group('voice consent declined', () {
+    tearDown(() => VoiceConsent.instance.clear());
+
+    testWidgets('no mic in the composer; typing still sends', (
+      WidgetTester tester,
+    ) async {
+      VoiceConsent.instance.set(granted: false);
+      when(
+        () => repo.sendMessage(any(), submissionId: any(named: 'submissionId')),
+      ).thenAnswer((_) async => const ChatTurn(reply: 'ok bhai'));
+
+      await pumpScreen(tester);
+      expect(find.byIcon(Icons.mic), findsNothing);
+      expect(find.text(kComposerDictationLabel), findsNothing);
+      expect(find.byType(TextField), findsOneWidget);
+
+      await tester.enterText(find.byType(TextField), 'Welder hoon');
+      await tester.testTextInput.receiveAction(TextInputAction.send);
+      await tester.pumpAndSettle();
+      verify(
+        () => repo.sendMessage(
+          'Welder hoon',
+          submissionId: any(named: 'submissionId'),
+        ),
+      ).called(1);
+    });
+
+    testWidgets('mic comes back when voice is granted', (
+      WidgetTester tester,
+    ) async {
+      VoiceConsent.instance.set(granted: false);
+      await pumpScreen(tester);
+      expect(find.byIcon(Icons.mic), findsNothing);
+
+      VoiceConsent.instance.set(granted: true);
+      await tester.pumpAndSettle();
+      expect(find.byIcon(Icons.mic), findsOneWidget);
+    });
   });
 }

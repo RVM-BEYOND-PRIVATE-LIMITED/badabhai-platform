@@ -794,6 +794,10 @@ export const orgRoleWireSchema = z.enum(["owner", "recruiter"]) satisfies z.ZodT
  * and `phoneLast4` are `.optional()` here so the consumer stays backward-compatible during
  * rollout (an older response without them still parses); the live backend always sends them.
  *
+ * `email` is `.nullable()` for the phone-only account (#2497/#2499): the backend sends
+ * `null` when the payer has NO email (null ⇔ phone-only, never an email account). An email
+ * account still parses exactly as before.
+ *
  * `orgId` / `orgRole` (#2079) are the caller's CURRENT org membership, read from the DB on every
  * call. `.optional()` so an API from before #2079 still parses (→ least privilege). `.catch(null)`
  * so a value outside the mirrored enum (or a malformed id) degrades to `null` = least privilege
@@ -805,7 +809,7 @@ export const payerMeWireSchema = z.object({
   role: z.enum(["employer", "agent"]),
   status: z.enum(["pending", "active", "suspended"]),
   orgName: z.string(),
-  email: z.string().email().optional(),
+  email: z.string().email().nullable().optional(),
   phoneLast4: z.string().length(4).nullable().optional(),
   orgId: z.string().uuid().nullable().optional().catch(null),
   orgRole: orgRoleWireSchema.nullable().optional().catch(null),
@@ -1646,6 +1650,9 @@ export const jobPostingChatDraftWireSchema = z.object({
   // plain strings here so a value added server-side reaches the humaniser
   // rather than the error path.
   city: z.string().nullable().optional(),
+  // #2493 — the COARSE area/locality bucket the interview derives from the
+  // location answer (or asks one follow-up for). Optional: absent stays null.
+  area: z.string().nullable().optional(),
   pay_type: z.string().nullable().optional(),
   min_experience_years: z.number().int().nullable().optional(),
   max_experience_years: z.number().int().nullable().optional(),
@@ -1669,6 +1676,8 @@ export interface JobPostingDraft {
   description: string | null;
   /** The coarse card city — never derived from `locationLabel` (poster free text). */
   city: string | null;
+  /** #2493 — the coarse area/locality beside the city, or null when unanswered. */
+  area: string | null;
   /** `in_hand` | `gross` | `ctc`, raw — humanised at the display edge. */
   payType: string | null;
   /** Either end may be null on its own; 0 is a real value (a fresher). */
@@ -1698,6 +1707,7 @@ export function toJobPostingDraft(
     requirements: wire.requirements ?? [],
     description: wire.description ?? null,
     city: wire.city ?? null,
+    area: wire.area ?? null,
     payType: wire.pay_type ?? null,
     minExperienceYears: wire.min_experience_years ?? null,
     maxExperienceYears: wire.max_experience_years ?? null,

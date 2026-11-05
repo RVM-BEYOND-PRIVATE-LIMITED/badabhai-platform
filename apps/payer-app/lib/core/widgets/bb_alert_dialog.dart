@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../theme/app_colors.dart';
+import '../theme/app_haptics.dart';
 import '../theme/app_spacing.dart';
 import '../theme/app_typography.dart';
 import 'bb_button.dart';
@@ -12,7 +13,7 @@ import 'bb_button.dart';
 ///
 /// JUL31 "Josh" chrome: a white [AppColors.surfaceCard] card, [AppRadii.lg]
 /// corners, elevation 0 (separation is the scrim + fill, never a shadow — design
-/// law §4), an Anek [title], a legible Roboto [message], and one full-width
+/// law §4), a normal-face [title], a legible Inter [message], and one full-width
 /// primary [BbButton]. Returns when the payer taps OK.
 Future<void> showBbAlert(
   BuildContext context, {
@@ -20,6 +21,9 @@ Future<void> showBbAlert(
   required String message,
   String okLabel = 'Theek hai',
 }) {
+  // #2591 — this alert carries a terminal error (e.g. the account is gone):
+  // the double error tick lands as it appears.
+  AppHaptics.error();
   return showDialog<void>(
     context: context,
     barrierDismissible: false,
@@ -47,7 +51,7 @@ Future<void> showBbAlert(
         title: Text(
           title,
           textAlign: TextAlign.center,
-          style: AppTypography.display(size: AppTypography.sizeMd),
+          style: AppTypography.heading(size: AppTypography.sizeMd),
         ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
@@ -85,8 +89,8 @@ Future<void> showBbAlert(
 /// Shows the BadaBhai centred CONFIRM — a two-button modal for a reversible-but-
 /// consequential choice (e.g. Sign out). Same JUL31 "Josh" chrome as [showBbAlert]
 /// (white [AppColors.surfaceCard] card, [AppRadii.lg] corners, elevation 0 —
-/// separation is the scrim + fill, never a shadow, design law §4 — Anek [title],
-/// Roboto [message]) but with a quiet [cancelLabel] ([BbButtonVariant.secondary])
+/// separation is the scrim + fill, never a shadow, design law §4 — normal-face [title],
+/// Inter [message]) but with a quiet [cancelLabel] ([BbButtonVariant.secondary])
 /// beside the [confirmLabel] action.
 ///
 /// Returns `true` only when the payer taps confirm; `false` on cancel OR a
@@ -126,7 +130,7 @@ Future<bool> showBbConfirm(
         title: Text(
           title,
           textAlign: TextAlign.center,
-          style: AppTypography.display(size: AppTypography.sizeMd),
+          style: AppTypography.heading(size: AppTypography.sizeMd),
         ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
@@ -163,7 +167,11 @@ Future<bool> showBbConfirm(
                         ? BbButtonVariant.danger
                         : BbButtonVariant.primary,
                     size: BbButtonSize.md,
-                    onPressed: () => Navigator.of(dialogContext).pop(true),
+                    onPressed: () {
+                      // #2591 — medium haptic on a confirmed choice.
+                      AppHaptics.confirm();
+                      Navigator.of(dialogContext).pop(true);
+                    },
                   ),
                 ),
               ],

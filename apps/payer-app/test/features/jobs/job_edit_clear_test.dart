@@ -85,7 +85,7 @@ Map<String, dynamic> _sentBody(_Router router) =>
 
 void main() {
   group('the typed names mirror the server sets', () {
-    test('company: CLEARABLE_POSTING_FIELDS, all 14', () {
+    test('company: CLEARABLE_POSTING_FIELDS, all 16', () {
       expect(
         JobPostingClearField.values.map((JobPostingClearField f) => f.wire),
         <String>[
@@ -103,11 +103,13 @@ void main() {
           'benefits',
           'requirements',
           'role_kind',
+          'trade_level',
+          'trade_answers',
         ],
       );
     });
 
-    test('agency: CLEARABLE_AGENCY_JOB_FIELDS, 12 — no trade, title or city',
+    test('agency: CLEARABLE_AGENCY_JOB_FIELDS, 14 — no trade, title or city',
         () {
       final List<String> wires = AgencyJobClearField.values
           .map((AgencyJobClearField f) => f.wire)
@@ -125,6 +127,8 @@ void main() {
         'benefits',
         'requirements',
         'role_kind',
+        'trade_level',
+        'trade_answers',
       ]);
       expect(wires, isNot(contains('city')));
       expect(wires, isNot(contains('title')));
@@ -244,7 +248,7 @@ void main() {
       );
     });
 
-    test('any other 400 carries no code', () async {
+    test("the server's no-op 400 carries the no-changes code", () async {
       final h = _harness();
       h.router.respond = (http.Request _) => _json(
             <String, dynamic>{
@@ -261,7 +265,137 @@ void main() {
         throwsA(
           isA<PayerApiException>()
               .having((PayerApiException e) => e.isBadRequest, '400', isTrue)
-              .having((PayerApiException e) => e.code, 'code', isNull),
+              .having((PayerApiException e) => e.code, 'code',
+                  kJobEditNoChangesCode),
+        ),
+      );
+    });
+
+    test("the server's closed-job 400 carries the closed code", () async {
+      final h = _harness();
+      h.router.respond = (http.Request _) => _json(
+            <String, dynamic>{
+              'statusCode': 400,
+              'error': <String, dynamic>{
+                'message': 'Job is closed and cannot be edited',
+              },
+            },
+            400,
+          );
+
+      await expectLater(
+        h.api.updateJob(_jobId, roleTitle: 'x'),
+        throwsA(
+          isA<PayerApiException>()
+              .having((PayerApiException e) => e.code, 'code',
+                  kJobEditClosedCode),
+        ),
+      );
+    });
+
+    test('a validation 400 names the field and the reason', () async {
+      final h = _harness();
+      h.router.respond = (http.Request _) => _json(
+            <String, dynamic>{
+              'statusCode': 400,
+              'error': <String, dynamic>{
+                'message': 'Validation failed',
+                'issues': <Map<String, dynamic>>[
+                  <String, dynamic>{
+                    'path': 'title',
+                    'message': 'title must not contain a company name',
+                  },
+                ],
+              },
+            },
+            400,
+          );
+
+      await expectLater(
+        h.api.updateJob(_jobId, roleTitle: 'x'),
+        throwsA(
+          isA<PayerApiException>().having(
+            (PayerApiException e) => e.validationMessage,
+            'validationMessage',
+            'Job title: Must not contain a company name.',
+          ),
+        ),
+      );
+    });
+
+    test('a numeric ceiling 400 gets a plain field-named phrase', () async {
+      final h = _harness();
+      h.router.respond = (http.Request _) => _json(
+            <String, dynamic>{
+              'statusCode': 400,
+              'error': <String, dynamic>{
+                'message': 'Validation failed',
+                'issues': <Map<String, dynamic>>[
+                  <String, dynamic>{
+                    'path': 'pay_max',
+                    'message': 'Too big: expected number to be <=10000000',
+                  },
+                ],
+              },
+            },
+            400,
+          );
+
+      await expectLater(
+        h.api.updateJob(_jobId, roleTitle: 'x'),
+        throwsA(
+          isA<PayerApiException>().having(
+            (PayerApiException e) => e.validationMessage,
+            'validationMessage',
+            'Maximum pay: Must be 10000000 or less.',
+          ),
+        ),
+      );
+    });
+
+    test('a service 400 names its field from the message prefix', () async {
+      final h = _harness();
+      h.router.respond = (http.Request _) => _json(
+            <String, dynamic>{
+              'statusCode': 400,
+              'error': <String, dynamic>{
+                'message': 'pay_max must be >= pay_min',
+              },
+            },
+            400,
+          );
+
+      await expectLater(
+        h.api.updateJob(_jobId, roleTitle: 'x'),
+        throwsA(
+          isA<PayerApiException>().having(
+            (PayerApiException e) => e.validationMessage,
+            'validationMessage',
+            'Maximum pay: Must be >= pay_min.',
+          ),
+        ),
+      );
+    });
+
+    test('a bare validation envelope carries no code or field message',
+        () async {
+      final h = _harness();
+      h.router.respond = (http.Request _) => _json(
+            <String, dynamic>{
+              'statusCode': 400,
+              'error': <String, dynamic>{'message': 'Validation failed'},
+            },
+            400,
+          );
+
+      await expectLater(
+        h.api.updateJob(_jobId, roleTitle: 'x'),
+        throwsA(
+          isA<PayerApiException>()
+              .having((PayerApiException e) => e.isBadRequest, '400', isTrue)
+              .having((PayerApiException e) => e.code, 'code', isNull)
+              .having((PayerApiException e) => e.validationMessage,
+                  'validationMessage', isNull),
         ),
       );
     });

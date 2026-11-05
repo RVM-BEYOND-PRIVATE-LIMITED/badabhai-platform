@@ -17,8 +17,9 @@ import type {
   AgencyReferralsSummary,
 } from "../../../../lib/contracts";
 import { kAnonCount } from "../../../../lib/agency-view";
-import { ProgressBar, StatTile } from "../../../../components/ds";
+import { ProgressBar } from "../../../../components/ds";
 import { PageHeader } from "../../../../components/page-header";
+import { PortalLink } from "../../../../components/portal-link";
 import { RetryButton } from "../../../../components/retry-button";
 import { AgencyBatchInvitePanel } from "../dashboard/batch-invite-panel";
 import { AgencyInvitePanel } from "../dashboard/invite-panel";
@@ -147,171 +148,226 @@ export default async function AgencyReferralsPage() {
   return (
     <div className="agency-referrals-page">
       <PageHeader
-        title="Referrals"
-        description="Share your referral link, track your consent-safe funnel (aggregate counts, never a per-worker breakdown) and, where enabled, your mock referral earnings."
+        title="Referral Funnel & Worker Onboarding"
+        badge={<span className="dash-workspace-badge">Live Pipeline</span>}
+        description="Share consent-safe invite links, track candidate conversions, and manage partner payouts without PII liability."
+        actionsSlot={
+          <span className="agency-protected">
+            <Icon name="shield-check" /> Consent-First Protected
+          </span>
+        }
       />
 
-      {/*
-        THE LEAD PAIR (F19): the funnel, then the one primary. A layout box only — on a laptop it
-        is plain block flow and changes nothing; on a phone (≤600px, globals.css) it lifts the
-        invite panel above the funnel, so "Create invite link" is on the first screen (it sat at
-        823-867 on a 375x812 phone, under 355px of funnel tiles). Only this pair reorders: the
-        page itself stays block flow, where an earnings section's last margin still collapses.
-      */}
-      <div className="agency-referrals-page__lead">
-        {/*
-          a) REFERRAL FUNNEL — LIVE aggregate, k-anon floored (no per-invitee oracle). FIRST in the
-          DOM and on every screen wider than a phone (final sweep F19): it is what the page
-          reports, and above the forms it puts "Create invite link" on screen sooner than the
-          forms' own fields and prose did (measured at 1280).
-
-          A `.section` (not a `.panel`): the body is a run of StatTiles that already carry their
-          own surface, so a bordered frame around them would be a box inside a box. The k-anon
-          disclosure is the section's SUB — it describes the whole funnel, so it reads before the
-          numbers rather than as a footnote after them.
-        */}
-        <section className="section">
-          <div className="section__head">
-            <div className="section__text">
-              <h2 className="section__title">Referral funnel</h2>
-              {summary && !funnelError ? (
-                <p className="section__sub">
-                  Aggregate only — counts below {summary.minBucket} show as &ldquo;&lt;
-                  {summary.minBucket}&rdquo; to protect a single worker&rsquo;s privacy. There is no
-                  per-worker breakdown.
-                </p>
-              ) : null}
+      {/* Stage cards — the funnel's three k-anon stages, designr7. */}
+      {summary && !funnelError ? (
+        <>
+          <div className="agency-stages agency-stages--lg">
+            <div className="agency-stage-card">
+              <div className="agency-stage-card__head">
+                <span>STAGE 01 · INVITES CREATED</span>
+                <span className="agency-stage-card__icon">
+                  <Icon name="link" />
+                </span>
+              </div>
+              <strong className="bb-mono">
+                {kAnonCount(summary.created, summary.minBucket)}
+              </strong>
+              <em>active tokens</em>
+              <div className="agency-stage-card__foot">Tracked by agency</div>
+            </div>
+            <div className="agency-stage-card">
+              <div className="agency-stage-card__head">
+                <span>STAGE 02 · CLICKED &amp; VIEWED</span>
+                <span className="agency-stage-card__icon">
+                  <Icon name="cursor-click" />
+                </span>
+              </div>
+              <strong className="bb-mono">
+                {kAnonCount(summary.clicked, summary.minBucket)}
+              </strong>
+              <em>landing agents</em>
+              <div className="agency-stage-card__foot">Workers accessed join</div>
+            </div>
+            <div className="agency-stage-card">
+              <div className="agency-stage-card__head">
+                <span>STAGE 03 · ACCEPTED &amp; CONSENT GIVEN</span>
+                <span className="agency-stage-card__icon agency-stage-card__icon--green">
+                  <Icon name="seal-check" />
+                </span>
+              </div>
+              <strong className="bb-mono">
+                {kAnonCount(summary.accepted, summary.minBucket)}
+              </strong>
+              <em>ready to deploy</em>
+              <div className="agency-stage-card__foot">Self-selected on Badabhai</div>
             </div>
           </div>
-          {summary && !funnelError ? (
-            <>
-              {/* `stat-row--kpi` (the shared opt-in): no hole beside a wrapped tile, and each
-                  tile is a compact ledger row on a phone instead of a 115px card. */}
-              <div className="stat-row stat-row--kpi">
-                <StatTile
-                  label="Invites created"
-                  value={kAnonCount(summary.created, summary.minBucket)}
-                  icon="link"
-                />
-                <StatTile
-                  label="Clicked"
-                  value={kAnonCount(summary.clicked, summary.minBucket)}
-                  icon="cursor-click"
-                />
-                <StatTile
-                  label="Accepted"
-                  value={kAnonCount(summary.accepted, summary.minBucket)}
-                  icon="seal-check"
-                />
-              </div>
 
+          <div className="agency-privacy-banner">
+            <Icon name="info" />
+            <p>
+              <strong>Aggregate only:</strong> counts below {summary.minBucket} display as
+              &ldquo;&lt;{summary.minBucket}&rdquo; to strictly protect single worker privacy.
+              Conversion percentage metrics unlock once counts exceed {summary.minBucket}.
+            </p>
+            <span className="agency-protected">Privacy floor active</span>
+          </div>
+
+          {pct !== null ? (
+            <div className="agency-conversion">
               <ProgressBar
                 tone="success"
                 label="Created-to-clicked conversion"
-                value={pct ?? 0}
-                showValue={pct !== null}
+                value={pct}
+                showValue
               />
-              {pct === null && (
-                <p className="section__sub">
-                  Conversion appears once both stages clear the privacy floor of{" "}
-                  {summary.minBucket}.
+            </div>
+          ) : null}
+        </>
+      ) : (
+        <div className="state state--error">
+          <span className="state__icon">
+            <Icon name="warning-circle" />
+          </span>
+          <h3 className="state__title">Referral funnel unavailable</h3>
+          <p className="state__body">
+            Your funnel counts could not load right now. Nothing has changed — your invites and
+            referrals are safe. Please retry shortly.
+          </p>
+          <div className="state__actions">
+            <RetryButton />
+          </div>
+        </div>
+      )}
+
+      <div className="agency-referrals-grid">
+        <div className="agency-referrals-main">
+          <AgencyInvitePanel />
+        </div>
+
+        <aside className="agency-referrals-side">
+          {earningsForbidden ? (
+            <section className="panel agency-earnings-card">
+              <div className="panel__head">
+                <h2 className="panel__title">Earnings &amp; Rev-Share Payouts</h2>
+                <span className="soon-badge">Owner only</span>
+              </div>
+              <div className="panel__body">
+                <p className="agency-earnings-card__lead">
+                  Only your organization&rsquo;s owner can see payouts.
                 </p>
-              )}
-            </>
-          ) : (
-            <div className="state state--error">
-              <span className="state__icon">
-                <Icon name="warning-circle" />
-              </span>
-              <h3 className="state__title">Referral funnel unavailable</h3>
-              <p className="state__body">
-                Your funnel counts could not load right now. Nothing has changed — your invites
-                and referrals are safe. Please retry shortly.
-              </p>
-              <div className="state__actions">
-                <RetryButton />
+              </div>
+            </section>
+          ) : earningsError ? (
+            <section className="panel agency-earnings-card">
+              <div className="panel__head">
+                <h2 className="panel__title">Earnings &amp; Rev-Share Payouts</h2>
+              </div>
+              <div className="panel__body">
+                <div className="state state--error">
+                  <span className="state__icon">
+                    <Icon name="warning-circle" />
+                  </span>
+                  <h3 className="state__title">Earnings unavailable</h3>
+                  <p className="state__body">
+                    Your earnings could not load right now. Anything you have accrued is still
+                    there. Please retry shortly.
+                  </p>
+                  <div className="state__actions">
+                    <RetryButton />
+                  </div>
+                </div>
+              </div>
+            </section>
+          ) : !payoutsEnabled ? (
+            <section className="panel agency-earnings-card">
+              <div className="panel__head">
+                <h2 className="panel__title">Earnings &amp; Rev-Share Payouts</h2>
+                <span className="soon-badge">Soon</span>
+              </div>
+              <div className="panel__body">
+                <p className="agency-earnings-card__lead">
+                  Referral payouts aren&rsquo;t switched on yet. When active, every candidate
+                  referred who gets verified and deployed unlocks rev-share.
+                </p>
+                <div className="agency-earnings-tier">
+                  <span>Estimated Reward Tier</span>
+                  <strong>Tier set at launch</strong>
+                </div>
+                <p className="agency-earnings-card__hint">
+                  Tier is calculated automatically based on fulfillment demand.
+                </p>
+              </div>
+              <div className="dash-panel__foot">
+                <span>Payout ledger in sandbox mode</span>
+                <span className="dash-panel__footend">Get Notified</span>
+              </div>
+            </section>
+          ) : earnings ? (
+            <EarningsPanel earnings={earnings} />
+          ) : null}
+
+          <section className="panel agency-dispatch">
+            <div className="panel__head">
+              <h2 className="panel__title">Instant Worker Dispatch Channels</h2>
+            </div>
+            <div className="panel__body">
+              <div className="agency-dispatch-grid">
+                <a className="agency-dispatch__tile" href="#invite">
+                  <span className="agency-dispatch__icon">
+                    <Icon name="whatsapp-logo" />
+                  </span>
+                  <strong>WhatsApp</strong>
+                  <em>Send Invites</em>
+                </a>
+                <PortalLink
+                  className="agency-dispatch__tile"
+                  href="/agency/qr"
+                  pendingLabel="QR invite"
+                >
+                  <span className="agency-dispatch__icon">
+                    <Icon name="qr-code" />
+                  </span>
+                  <strong>QR Poster</strong>
+                  <em>Print &amp; Post</em>
+                </PortalLink>
+                <a className="agency-dispatch__tile" href="#batch-invites">
+                  <span className="agency-dispatch__icon">
+                    <Icon name="paper-plane-tilt" />
+                  </span>
+                  <strong>SMS Broadcast</strong>
+                  <em>Send to Database</em>
+                </a>
               </div>
             </div>
-          )}
-        </section>
-
-        {/* b) REFERRAL LINK — LIVE faceless mint (opaque code/link + copy; consent-first). Its
-            "Create invite link" is this page's ONE primary, right under the consent note. */}
-        <AgencyInvitePanel />
+          </section>
+        </aside>
       </div>
 
-      {/*
-        c) BATCH MINT — the same faceless mint, N at a time (≤50) for a gate drive or a print
-        run. Cardinality-shaped: the ONLY inputs are a count and one shared non-PII tag. This is
-        NOT the dead "Bulk Invite Upload" (it ingests worker contacts); nothing here accepts,
-        stores or sends a worker identity. The page's SECONDARY tool: a closed disclosure whose
-        "Create links" is a secondary button. It owns the `#batch-invites` fragment target.
-      */}
       <AgencyBatchInvitePanel />
 
-      {/* d) SUPPLY MONEY — earnings + KYC + payout, gated behind AGENCY_PAYOUTS_ENABLED. */}
-      {/* OWNER-ONLY (#2178): a recruiter's 403 is a neutral state — no retry, no error
-          styling. The referral link + funnel above stay live either way. */}
-      {earningsForbidden ? (
-        <section className="section">
-          <div className="section__head">
-            <h2 className="section__title">Earnings &amp; payouts</h2>
-          </div>
-          <div className="state state--neutral">
-            <span className="state__icon">
-              <Icon name="lock-key" />
-            </span>
-            <h3 className="state__title">Owner only</h3>
-            <p className="state__body">
-              Only your organization&apos;s owner can see payouts.
-            </p>
-          </div>
-        </section>
-      ) : earningsError ? (
-        <section className="section">
-          <div className="section__head">
-            <h2 className="section__title">Your earnings</h2>
-          </div>
-          <div className="state state--error">
-            <span className="state__icon">
-              <Icon name="warning-circle" />
-            </span>
-            <h3 className="state__title">Earnings unavailable</h3>
-            <p className="state__body">
-              Your earnings could not load right now. Nothing has changed — anything you have
-              accrued is still there. Please retry shortly.
-            </p>
-            <div className="state__actions">
-              <RetryButton />
-            </div>
-          </div>
-        </section>
-      ) : !payoutsEnabled ? (
-        <section className="section">
-          <div className="section__head">
-            <h2 className="section__title">Earnings &amp; payouts</h2>
-            <div className="section__actions">
-              <span className="soon-badge">Soon</span>
-            </div>
-          </div>
-          {/* `aria-disabled` is kept: the block is a placeholder for a surface that is real on
-              the server but not switched on, and nothing in it is operable. */}
-          <div className="soon-card" aria-disabled="true">
-            <h3 className="soon-card__title">Payouts coming soon</h3>
-            <p className="soon-card__body">
-              Referral earnings and payouts aren&rsquo;t switched on yet. Keep sharing your
-              referral link above — when a worker you referred joins and gets contacted, your
-              mock rev-share will start accruing here.
-            </p>
-          </div>
-        </section>
-      ) : earnings ? (
+      {earnings && payoutsEnabled && !earningsForbidden ? (
         <>
-          <EarningsPanel earnings={earnings} />
           <KycPanel kyc={kycForPanel} />
           <PayoutPanel earnings={earnings} payouts={payouts} />
         </>
       ) : null}
+
+      <footer className="dash-foot">
+        <div className="dash-foot__status">
+          <span className="dash-foot__dot" aria-hidden="true" />
+          <span>Gateway Online: BadaBhai Recruiter Engine v2.8</span>
+          <span className="dash-foot__sep" aria-hidden="true">
+            ·
+          </span>
+          <span>Candidate Database: 180,000+ Verified Workers</span>
+        </div>
+        <div className="dash-foot__links">
+          <span>Audit Guidelines</span>
+          <span>Privacy Floor Documentation</span>
+          <span>V2.15-ag</span>
+        </div>
+      </footer>
     </div>
   );
 }

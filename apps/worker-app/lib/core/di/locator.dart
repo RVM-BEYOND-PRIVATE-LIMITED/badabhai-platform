@@ -18,6 +18,7 @@ import '../nav/job_feed_invalidation.dart';
 import '../nav/tab_focus.dart';
 import '../auth/secure_token_store.dart';
 import '../config/app_config.dart';
+import '../consent/voice_consent.dart';
 import '../session/chat_turn_resume_store.dart';
 import '../session/resume_download_offer_store.dart';
 import '../session/resume_redo_store.dart';
@@ -901,6 +902,9 @@ ResumeRedoStore? _resumeRedoOrNull() =>
     locator.isRegistered<ResumeRedoStore>() ? locator<ResumeRedoStore>() : null;
 
 void _clearSessionScopedCaches() {
+  // OWNER ASK (2026-10-22) — one worker's voice-consent answer must never
+  // carry into the next worker's session on a shared handset.
+  VoiceConsent.instance.clear();
   if (locator.isRegistered<PhotoRepository>()) {
     locator<PhotoRepository>().onLogout();
   }

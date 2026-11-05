@@ -3,6 +3,11 @@ import 'package:flutter/material.dart';
 import '../../../../core/theme/onboarding_theme.dart';
 import '../../../../core/util/education_label.dart';
 import '../../../../core/widgets/kit/kit_card.dart';
+import '../../../../core/widgets/kit/kit_check_row.dart';
+import '../../../../core/widgets/kit/kit_info_chip.dart';
+import '../../../../core/widgets/kit/kit_micro_label.dart';
+import 'resume_card_slots.dart' show valuesReadAsChips;
+import 'resume_document_view.dart' show ResumeWhenPill;
 
 /// One `Label: value` line parsed out of the deterministic resume text.
 class ResumeEntry {
@@ -159,17 +164,18 @@ const List<_SectionSpec> _sections = <_SectionSpec>[
     'Education',
     'Certifications',
   ]),
-  // Night-shift readiness sits under Location, right BELOW the current city.
   _SectionSpec('Location', Icons.location_on_outlined, <String>[
     'Current location',
-    kNightShiftLabel,
     'Preferred locations',
   ]),
-  // When the worker can start + their asked pay — their own document, last.
+  // When the worker can start, whether they work nights, and their asked pay —
+  // their own document, last. OWNER ASK (2026-10-21): night-shift readiness is
+  // a WORK TERM, so it sits here; under Location it read as a place (and was a
+  // Location card's only line when no city was stated).
   _SectionSpec(
     'Availability, Terms & Salary',
     Icons.event_available_outlined,
-    <String>['Availability', 'Expected salary'],
+    <String>['Availability', kNightShiftLabel, 'Expected salary'],
   ),
 ];
 
@@ -266,19 +272,29 @@ class _ResumeSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // OWNER ASK (2026-10-21) — the card reads as a layout, not a paragraph:
+    // a job is a block, a list label owns a chip grid, a single fact is a
+    // label-over-value tile. Thin dividers separate the pieces.
+    final List<Widget> pieces = hideRowLabels
+        ? <Widget>[for (final ResumeEntry r in rows) _JobBlock(line: r.value)]
+        : <Widget>[for (final ResumeEntry r in rows) _EntryRow(entry: r)];
     return KitCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           KitCardHeader(icon: icon, title: title),
-          const SizedBox(height: 12),
-          for (int i = 0; i < rows.length; i++) ...<Widget>[
-            if (i > 0) const SizedBox(height: 8),
-            _EntryRow(
-              label: rows[i].label,
-              value: rows[i].value,
-              hideLabel: hideRowLabels,
-            ),
+          const SizedBox(height: 14),
+          for (int i = 0; i < pieces.length; i++) ...<Widget>[
+            if (i > 0)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 12),
+                child: Divider(
+                  height: 1,
+                  thickness: 1,
+                  color: OnboardingColors.borderDefault,
+                ),
+              ),
+            pieces[i],
           ],
         ],
       ),
@@ -286,66 +302,158 @@ class _ResumeSection extends StatelessWidget {
   }
 }
 
-/// One `Label: value` line — the label muted, the value in body weight, wrapping
-/// naturally for long skill/machine lists. With [hideLabel] it renders the VALUE
-/// alone (the section title carries the label), for repeated-label sections.
+/// The labels whose value `build_resume` writes as a LIST joined with ", "
+/// (`apps/ai-service/app/extraction.py`: `", ".join(machines)`,
+/// `", ".join(skills)`, `", ".join(profile.education)`,
+/// `", ".join(profile.certifications)`). Only these are drawn as chips.
 ///
-/// ── WHY THIS PATH KEEPS TEXT LINES AND NOT THE CHIP MATRIX ────────────────
-///
-/// The trade sheet's cards now pack every value group into a wrapping chip
-/// matrix (see `kChipValueMaxChars`), and it is worth saying why this renderer
-/// does not: it has no value GROUPS to pack. `build_resume` hands this path ONE
-/// ALREADY-JOINED STRING per label — 'Machines: VMC, HMC' arrives as a single
-/// value, not as a list — and it is drawn as one wrapping line, which already
-/// packs several values per row and costs no more card height than chips would.
-///
-/// Splitting that string back on ', ' to make chips would INVENT values the
-/// worker never stated the moment one of them contains a comma ('Gurugram,
-/// Haryana' under Preferred locations becomes two cities), and a fabricated
-/// entry on a worker's own resume is a worse bug than a wasted row. The
-/// structured document is where per-value data actually exists, so that is
-/// where the matrix lives.
-class _EntryRow extends StatelessWidget {
-  const _EntryRow({
-    required this.label,
-    required this.value,
-    this.hideLabel = false,
-  });
+/// "Preferred locations" is deliberately NOT here: a place can itself carry a
+/// comma ("Gurugram, Haryana"), and splitting it would show the worker a city
+/// they never named.
+const Set<String> _kListLabels = <String>{
+  'skills',
+  'machines',
+  'education',
+  'certifications',
+};
 
-  final String label;
-  final String value;
-  final bool hideLabel;
+/// Splits a server-joined list back into its items: on ", " OUTSIDE brackets,
+/// so a single item such as "Welding (MIG, TIG)" stays ONE item. Lossless —
+/// every character of [value] lands in exactly one item.
+List<String> splitResumeList(String value) {
+  final List<String> out = <String>[];
+  final StringBuffer cur = StringBuffer();
+  int depth = 0;
+  for (int i = 0; i < value.length; i++) {
+    final String ch = value[i];
+    if (ch == '(' || ch == '[') depth++;
+    if ((ch == ')' || ch == ']') && depth > 0) depth--;
+    if (depth == 0 &&
+        ch == ',' &&
+        i + 1 < value.length &&
+        value[i + 1] == ' ') {
+      if (cur.toString().trim().isNotEmpty) out.add(cur.toString().trim());
+      cur.clear();
+      i++; // skip the space after the comma
+      continue;
+    }
+    cur.write(ch);
+  }
+  if (cur.toString().trim().isNotEmpty) out.add(cur.toString().trim());
+  return out;
+}
+
+/// One `Label: value` entry, laid out for reading:
+///  * a LIST label ([_kListLabels]) — its label as a small caption, its items
+///    as a wrapping chip grid (full-width rows when an item is too long to
+///    read as a chip, the trade sheet's own rule [valuesReadAsChips]);
+///  * any other fact — the label as a small caption, the value under it in a
+///    larger, bold line.
+class _EntryRow extends StatelessWidget {
+  const _EntryRow({required this.entry});
+
+  final ResumeEntry entry;
 
   @override
   Widget build(BuildContext context) {
-    if (hideLabel) {
-      return Text(
-        value,
-        style: OnboardingTypography.inter(size: 13, height: 1.45),
-      );
-    }
-    return Text.rich(
-      TextSpan(
-        style: OnboardingTypography.inter(size: 13, height: 1.45),
-        children: <InlineSpan>[
-          TextSpan(
-            text: '$label: ',
+    final bool isList = _kListLabels.contains(entry.label.toLowerCase());
+    final List<String> items = isList
+        ? splitResumeList(entry.value)
+        : const <String>[];
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        KitMicroLabel(entry.label),
+        const SizedBox(height: 8),
+        if (isList && items.isNotEmpty)
+          valuesReadAsChips(items)
+              ? Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: <Widget>[
+                    for (final String v in items) KitInfoChip(label: v),
+                  ],
+                )
+              : Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: <Widget>[
+                    for (int i = 0; i < items.length; i++) ...<Widget>[
+                      if (i > 0) const SizedBox(height: 6),
+                      KitCheckRow(label: items[i]),
+                    ],
+                  ],
+                )
+        else
+          Text(
+            entry.value,
             style: OnboardingTypography.inter(
-              size: 13,
-              height: 1.45,
+              size: 15,
+              weight: FontWeight.w600,
+              height: 1.35,
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+/// One job from a `Work history:` line, which `build_resume` writes as
+/// `role — duration — work done` (`_work_history_lines`: " — ".join(parts),
+/// the duration and the work each present only when recorded).
+///
+/// Drawn as a block: the ROLE as a bold title, the DURATION as a small pill
+/// beside it, and the WORK DONE as readable body text under them. Lossless:
+/// when the middle part does not read as a duration (no digit, or long), it
+/// is kept as work text, never dropped or relabelled.
+class _JobBlock extends StatelessWidget {
+  const _JobBlock({required this.line});
+
+  final String line;
+
+  @override
+  Widget build(BuildContext context) {
+    final List<String> parts = line.split(' — ');
+    final String role = parts.first.trim();
+    String? duration;
+    List<String> rest = parts.skip(1).toList();
+    if (rest.isNotEmpty &&
+        RegExp(r'\d').hasMatch(rest.first) &&
+        rest.first.trim().length <= 24) {
+      duration = rest.first.trim();
+      rest = rest.skip(1).toList();
+    }
+    final String work = rest.join(' — ').trim();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Wrap(
+          spacing: 8,
+          runSpacing: 6,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: <Widget>[
+            Text(
+              role,
+              style: OnboardingTypography.inter(
+                size: 16,
+                weight: FontWeight.w700,
+                color: OnboardingColors.shiftBlue,
+              ),
+            ),
+            if (duration != null) ResumeWhenPill(text: duration),
+          ],
+        ),
+        if (work.isNotEmpty) ...<Widget>[
+          const SizedBox(height: 8),
+          Text(
+            work,
+            style: OnboardingTypography.inter(
+              size: 14,
+              height: 1.5,
               color: OnboardingColors.ink600,
             ),
           ),
-          TextSpan(
-            text: value,
-            style: OnboardingTypography.inter(
-              size: 13,
-              weight: FontWeight.w600,
-              height: 1.45,
-            ),
-          ),
         ],
-      ),
+      ],
     );
   }
 }

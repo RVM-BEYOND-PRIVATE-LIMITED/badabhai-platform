@@ -143,7 +143,7 @@ void main() {
       expect(find.text(kProfileStrengthWeakTitle), findsNothing);
       expect(find.text(kProfileStrengthFairTitle), findsNothing);
       expect(find.textContaining('apni photo'), findsNothing);
-      expect(find.text('Skills aur anubhav'), findsNothing);
+      expect(find.byTooltip('Skills aur anubhav'), findsNothing);
       expect(find.text('VMC Operator'), findsOneWidget);
     },
   );
@@ -163,7 +163,12 @@ void main() {
       ),
     );
 
-    expect(find.text('Skills aur anubhav'), findsOneWidget);
+    // OWNER ASK (2026-10-22) — a small chip under the name card; its
+    // details open in a sheet.
+    expect(find.byTooltip('Skills aur anubhav'), findsOneWidget);
+    expect(find.text('Anubhav: 4 saal'), findsNothing);
+    await tester.tap(find.byKey(const Key('profile-fact-skills')));
+    await tester.pumpAndSettle();
     expect(find.text('Anubhav: 4 saal'), findsOneWidget);
     // Each value is its own chip, under its own micro label.
     expect(find.byType(KitInfoChip), findsNWidgets(3));
@@ -191,7 +196,7 @@ void main() {
     );
 
     // No heading, no claim-like empty sentence, no chips, no count pill.
-    expect(find.text('Skills aur anubhav'), findsNothing);
+    expect(find.byTooltip('Skills aur anubhav'), findsNothing);
     expect(find.textContaining('Abhi kuch nahi'), findsNothing);
     expect(find.byType(KitInfoChip), findsNothing);
     expect(find.byType(BbChip), findsNothing);
@@ -213,7 +218,7 @@ void main() {
       ),
     );
 
-    expect(find.text(kChatProfileSourceLabel), findsOneWidget);
+    expect(find.byTooltip(kChatProfileSourceLabel), findsOneWidget);
   });
 
   testWidgets(
@@ -227,13 +232,13 @@ void main() {
           source: 'form',
         ),
       );
-      expect(find.text(kChatProfileSourceLabel), findsNothing);
+      expect(find.byTooltip(kChatProfileSourceLabel), findsNothing);
 
       await _pump(
         tester,
         const ProfileSummary(tradeLabel: 'Welder', strengthSignals: 4),
       );
-      expect(find.text(kChatProfileSourceLabel), findsNothing);
+      expect(find.byTooltip(kChatProfileSourceLabel), findsNothing);
     },
   );
 
@@ -419,7 +424,11 @@ void main() {
         ),
       );
 
-      expect(find.text('Kaam ki jaankari'), findsOneWidget);
+      expect(find.byTooltip('Kaam ki jaankari'), findsOneWidget);
+      // OWNER ASK (2026-10-22) — the facts open from the small chip.
+      expect(find.text('Aane-jaane: 20 km tak'), findsNothing);
+      await tester.tap(find.byKey(const Key('profile-fact-work-info')));
+      await tester.pumpAndSettle();
       expect(find.text('Aane-jaane: 20 km tak'), findsOneWidget);
       expect(find.text('Travel kar sakte hain'), findsOneWidget);
       expect(find.text('Salary: Din ke hisaab se'), findsOneWidget);
@@ -442,7 +451,7 @@ void main() {
         const ProfileSummary(tradeLabel: 'Fitter', strengthSignals: 3),
       );
 
-      expect(find.text('Kaam ki jaankari'), findsNothing);
+      expect(find.byTooltip('Kaam ki jaankari'), findsNothing);
     });
   });
 
@@ -457,9 +466,9 @@ void main() {
       await _pump(tester, const ProfileSummary(strengthSignals: 0));
 
       // Headings without content: none may render.
-      expect(find.text('Skills aur anubhav'), findsNothing);
+      expect(find.byTooltip('Skills aur anubhav'), findsNothing);
       expect(find.text('Bhasha aur kaam'), findsNothing);
-      expect(find.text('Kaam ki jaankari'), findsNothing);
+      expect(find.byTooltip('Kaam ki jaankari'), findsNothing);
       expect(find.textContaining('Abhi kuch nahi'), findsNothing);
       expect(find.text('No experience'), findsNothing);
       // Both empty-zone Add entries are gone for good: the "Bhasha aur kaam"
@@ -519,7 +528,7 @@ void main() {
           // Filled: the heading renders, and no Add entry stands beside it.
           await freshPump(section.filled);
           expect(
-            find.text(section.heading),
+            find.byTooltip(section.heading),
             findsOneWidget,
             reason: '${section.name}: filled section must head itself',
           );
@@ -534,7 +543,7 @@ void main() {
           // Empty: no heading, no gap-claim — the Add entry or nothing.
           await freshPump(const ProfileSummary(strengthSignals: 0));
           expect(
-            find.text(section.heading),
+            find.byTooltip(section.heading),
             findsNothing,
             reason: '${section.name}: empty section must not head itself',
           );
@@ -557,12 +566,12 @@ void main() {
       (WidgetTester tester) async {
         await tester.pumpWidget(const SizedBox.shrink());
         await _pump(tester, ProfileSummary(strengthSignals: 0, commuteKm: 20));
-        expect(find.text('Kaam ki jaankari'), findsOneWidget);
+        expect(find.byTooltip('Kaam ki jaankari'), findsOneWidget);
         expect(find.text('Kaam ki jaankari jodein'), findsNothing);
 
         await tester.pumpWidget(const SizedBox.shrink());
         await _pump(tester, const ProfileSummary(strengthSignals: 0));
-        expect(find.text('Kaam ki jaankari'), findsNothing);
+        expect(find.byTooltip('Kaam ki jaankari'), findsNothing);
         expect(find.text('Kaam ki jaankari jodein'), findsNothing);
       },
     );
@@ -591,11 +600,11 @@ void main() {
       // trade, never a raw id.
       expect(find.text('Aapki profile'), findsOneWidget);
       // Chat-road badge still marks the road.
-      expect(find.text('Chat se bani profile'), findsOneWidget);
+      expect(find.byTooltip('Chat se bani profile'), findsOneWidget);
       // Empty sections obey the empty-zone rule, like trade profiles. The
       // "Bhasha aur kaam" section was removed permanently (owner ask), so no
       // Add entry renders for it either; work-info renders nothing at all.
-      expect(find.text('Skills aur anubhav'), findsNothing);
+      expect(find.byTooltip('Skills aur anubhav'), findsNothing);
       expect(find.text('Bhasha aur kaam jodein'), findsNothing);
       expect(find.text('Kaam ki jaankari jodein'), findsNothing);
       // No dead ends: the way forward is on screen ('Profile edit karein'

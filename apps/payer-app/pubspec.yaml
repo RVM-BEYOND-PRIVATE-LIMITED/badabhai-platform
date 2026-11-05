@@ -25,11 +25,11 @@ dependencies:
   # 7.1.0); 5.2.4 is the last compiling build. A caret would re-pull 5.2.5.
   firebase_core: ^4.12.0
   firebase_crashlytics: 5.2.4
-  # #350 — Baloo 2 + Mukta are now SELF-HOSTED under `fonts:` below (as Roboto
-  # Mono already was), so nothing here fetches at runtime. google_fonts stays a
-  # dependency only because core/theme/app_typography.dart keeps the pre-#350
-  # fetch branch behind `bundledBrandFonts`, and because it owns
-  # `GoogleFonts.config.allowRuntimeFetching`, which that file forces to false.
+  # #350/#2590 — every family is SELF-HOSTED under `fonts:` below (Inter body,
+  # Kilimanjaro Sans headings, Baloo 2 / Mukta fallbacks, Roboto Mono data), so
+  # nothing fetches at runtime. google_fonts stays a dependency only because it
+  # owns `GoogleFonts.config.allowRuntimeFetching`, which
+  # core/theme/app_typography.dart forces to false.
   google_fonts: ^6.2.1
   # State management + DI: BLoC/Cubit for presentation, Equatable for immutable
   # value states/models, get_it as the composition-root service locator.
@@ -130,3 +130,18 @@ flutter:
           weight: 700
         - asset: assets/fonts/KilimanjaroSans-Regular.otf
           weight: 800
+    # #2590 — Inter, the brand body/UI face (CLAUDE.md), BUNDLED like the worker
+    # app ships it. It replaces Roboto, which google_fonts used to fetch over
+    # HTTP on first use — the app now makes NO runtime font fetch. SIL OFL 1.1:
+    # OFL-Inter.txt sits beside the binaries as redistribution requires. Weights
+    # are the ones the type scale asks for (400/500/600/700).
+    - family: Inter
+      fonts:
+        - asset: assets/fonts/Inter-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/Inter-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/Inter-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/Inter-Bold.ttf
+          weight: 700

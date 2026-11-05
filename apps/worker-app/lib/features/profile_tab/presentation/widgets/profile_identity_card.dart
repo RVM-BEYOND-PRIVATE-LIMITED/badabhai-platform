@@ -72,7 +72,13 @@ class ProfileIdentityCard extends StatelessWidget {
     super.key,
     required this.summary,
     this.displayName,
+    this.facts = const <Widget>[],
   });
+
+  /// OWNER ASK (2026-10-22) — small icon-only buttons drawn under the
+  /// trade / experience / city line (chat-sourced marker, skills, work info).
+  /// Nothing is drawn when empty.
+  final List<Widget> facts;
 
   final ProfileSummary summary;
 
@@ -158,6 +164,10 @@ class ProfileIdentityCard extends StatelessWidget {
                       height: 1.35,
                     ),
                   ),
+                ],
+                if (facts.isNotEmpty) ...<Widget>[
+                  const SizedBox(height: 8),
+                  Wrap(spacing: 4, runSpacing: 4, children: facts),
                 ],
                 if (summary.attested) ...<Widget>[
                   const SizedBox(height: 10),

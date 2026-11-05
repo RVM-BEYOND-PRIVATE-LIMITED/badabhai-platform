@@ -271,18 +271,34 @@ class _SpyAuthApi implements PayerAuthApi {
 
   @override
   Future<PayerLoginResult> loginVerify({
-    required String email,
+    String? email,
+    String? phone,
     required String code,
   }) async =>
       throw UnimplementedError();
 
   @override
-  Future<void> loginRequest({required String email}) async {}
+  Future<PayerPasswordLoginOutcome> loginWithPassword({
+    required String identifier,
+    required String password,
+    String? newPassword,
+  }) async =>
+      throw UnimplementedError();
+
+  @override
+  Future<void> setPassword({
+    required String accessToken,
+    required String password,
+  }) async {}
+
+  @override
+  Future<void> loginRequest({String? email, String? phone}) async {}
 
   @override
   Future<void> signup({
     required String role,
-    required String email,
     required String orgName,
+    String? email,
+    String? phone,
   }) async {}
 }

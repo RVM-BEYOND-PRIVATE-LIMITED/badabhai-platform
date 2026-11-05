@@ -1,3 +1,4 @@
+import 'candidate_search_models.dart';
 import 'job_posting_chat_models.dart';
 import 'models.dart';
 import 'payer_api_client.dart';
@@ -18,6 +19,9 @@ class MockPayerApiClient implements PayerApiClient {
 
   int _credits = 200;
   final Set<int> _unlocked = <int>{};
+
+  /// workerId → unlockId for every [unlock] grant this session.
+  final Map<String, String> _grants = <String, String>{};
 
   static const List<Candidate> _candidates = <Candidate>[
     Candidate(
@@ -193,6 +197,91 @@ class MockPayerApiClient implements PayerApiClient {
   Future<List<Applicant>> fetchApplicants(String jobId) async =>
       _applicantsFrom(_candidates);
 
+  // --- All-candidates search (canned, deterministic) ------------------------
+  // A small synthetic pool run through the SAME rules the route documents:
+  // filters reorder (matches first, nobody removed) unless `strict`; an
+  // unrecorded city/industry tenure excludes nobody and counts in
+  // `unrecorded`, never in `matched`; a related role is tier 2 and does not
+  // pass a role filter. Faceless rows only — there is no name to leak.
+
+  @override
+  Future<CandidateSearchPage> searchCandidates(
+    CandidateSearchQuery query,
+  ) async {
+    final int offset = _mockSearchOffset(query.cursor);
+    final Set<String> asked = query.skillIds.toSet();
+    final Set<String> related = <String>{
+      for (final String id in asked) ...?_kMockRelatedRoles[id],
+    }..removeAll(asked);
+    final List<_MockScored> scored = _kMockPool
+        .map((_MockWorker w) => w.score(query, asked, related))
+        .toList(growable: false);
+    final List<_MockScored> ordered = scored
+        .where((_MockScored s) => !query.strict || s.pass)
+        .toList()
+      ..sort(_MockScored.compare);
+    final List<_MockScored> page = ordered
+        .skip(offset)
+        .take(query.limit ?? _kMockSearchPageSize)
+        .toList(growable: false);
+    final int next = offset + page.length;
+    final bool filtered = query.hasFilters;
+    return CandidateSearchPage(
+      total: _kMockPool.length,
+      matched: filtered
+          ? scored.where((_MockScored s) => s.pass && !s.unrecorded).length
+          : _kMockPool.length,
+      unrecorded: filtered
+          ? scored.where((_MockScored s) => s.pass && s.unrecorded).length
+          : 0,
+      filtered: filtered,
+      strict: query.strict,
+      candidates: page.map((_MockScored s) => s.row).toList(growable: false),
+      nextCursor: next < ordered.length ? '$_kMockCursorPrefix$next' : null,
+    );
+  }
+
+  @override
+  Future<CandidateFilters> fetchCandidateFilters() async {
+    final Map<String, CandidateRoleOption> roles =
+        <String, CandidateRoleOption>{};
+    final Set<String> cities = <String>{};
+    for (final _MockWorker w in _kMockPool) {
+      for (final (LabelledId role, int _) in w.roles) {
+        roles.putIfAbsent(
+          role.id,
+          () => CandidateRoleOption(
+            id: role.id,
+            label: role.label,
+            industryId: w.industry.id,
+          ),
+        );
+      }
+      if (w.city != null) cities.add(w.city!);
+    }
+    return CandidateFilters(
+      roles: roles.values.toList(growable: false),
+      industries: const <LabelledId>[_kMockManufacturing, _kMockQuickCommerce],
+      experienceBuckets: _kMockBuckets
+          .map((_MockBucket b) => LabelledId(id: b.id, label: b.label))
+          .toList(growable: false),
+      cities: cities.toList()..sort(),
+      maxRoles: 5,
+    );
+  }
+
+  @override
+  Future<List<PayerUnlock>> fetchOwnUnlocks() async => _grants.entries
+      .map(
+        (MapEntry<String, String> g) => PayerUnlock(
+          unlockId: g.value,
+          workerId: g.key,
+          status: 'granted',
+          expiresAt: _kMockGrantExpiry,
+        ),
+      )
+      .toList(growable: false);
+
   @override
   // `status` is a no-op on the mock (canned list is already the "open" feed).
   Future<List<JobPosting>> fetchJobs({String? status}) async => _jobs;
@@ -239,8 +328,11 @@ class MockPayerApiClient implements PayerApiClient {
     int? maxExperienceYears,
     String? shift,
     String? neededBy,
+    String? roleKind,
     List<String>? benefits,
     List<String>? requirements,
+    String? tradeLevel,
+    Map<String, List<String>>? tradeAnswers,
   }) async {
     if ((vacancyBand == null) == (vacancies == null)) {
       throw ArgumentError(
@@ -276,7 +368,10 @@ class MockPayerApiClient implements PayerApiClient {
           requirements != null && requirements.isNotEmpty ? requirements : null,
       shift: shift,
       neededBy: neededBy,
+      roleKind: roleKind,
       matchSkillIds: matchSkillIds ?? const <String>[],
+      tradeLevel: tradeLevel,
+      tradeAnswers: tradeAnswers,
       createdAt: '2026-07-08T00:00:00Z',
       status: JobStatus.review,
       filled: 0,
@@ -314,8 +409,11 @@ class MockPayerApiClient implements PayerApiClient {
     int? maxExperienceYears,
     String? shift,
     String? neededBy,
+    String? roleKind,
     List<String>? benefits,
     List<String>? requirements,
+    String? tradeLevel,
+    Map<String, List<String>>? tradeAnswers,
     List<JobPostingClearField>? clear,
   }) async {
     // The real PATCH accepts every key above and returns the UPDATED row, so the
@@ -367,7 +465,19 @@ class MockPayerApiClient implements PayerApiClient {
       shift: patched(JobPostingClearField.shift, shift, current.shift),
       neededBy:
           patched(JobPostingClearField.neededBy, neededBy, current.neededBy),
+      roleKind:
+          patched(JobPostingClearField.roleKind, roleKind, current.roleKind),
       matchSkillIds: matchSkillIds ?? current.matchSkillIds,
+      tradeLevel: patched(
+        JobPostingClearField.tradeLevel,
+        tradeLevel,
+        current.tradeLevel,
+      ),
+      tradeAnswers: patched(
+        JobPostingClearField.tradeAnswers,
+        tradeAnswers,
+        current.tradeAnswers,
+      ),
       createdAt: current.createdAt,
       status: current.status,
       filled: current.filled,
@@ -391,38 +501,6 @@ class MockPayerApiClient implements PayerApiClient {
   @override
   Future<JobPosting> resumeJob(String id) async =>
       _cannedJob(id, wireStatus: 'open');
-
-  @override
-  Future<PlanPurchase> buyPlan(
-    String id, {
-    required String tier,
-    String? coupon,
-  }) async =>
-      PlanPurchase(
-        applicantVisibilityQuota: tier == 'pro' ? 100 : 50,
-        status: 'active',
-        finalInr: tier == 'pro' ? 7999 : 4999,
-      );
-
-  @override
-  Future<BoostPurchase> buyBoost(
-    String id, {
-    String tier = 'all_candidates',
-    String? coupon,
-  }) async =>
-      const BoostPurchase(status: 'active', finalInr: 999);
-
-  @override
-  Future<PlanPurchase> quotaTopup(
-    String id, {
-    required String tier,
-    String? coupon,
-  }) async =>
-      const PlanPurchase(
-        applicantVisibilityQuota: 25,
-        status: 'active',
-        finalInr: 1999,
-      );
 
   @override
   Future<List<LedgerEntry>> fetchLedger() async => _ledger;
@@ -468,17 +546,170 @@ class MockPayerApiClient implements PayerApiClient {
     ),
   ];
 
+  /// A SMALL mock of the 16-trade posting catalogue. Two trades are enough for the
+  /// demo, and they exercise both a match chip and a facet chip. The live client
+  /// returns the server's full catalogue.
+  static const List<PostingTradeForm> _postingTrades = <PostingTradeForm>[
+    PostingTradeForm(
+      roleKind: 'cnc_turner',
+      roleLabel: 'CNC Turner',
+      packId: 'qp_cnc_turning',
+      matchSkillId: 'cnc_operation',
+      ladder: <PostingTradeRung>[
+        PostingTradeRung(
+          rung: 'helper',
+          monthsFloor: '0-1',
+          evidence: 'load/unload, deburr',
+          confirmed: false,
+          priceTier: 'lower',
+        ),
+        PostingTradeRung(
+          rung: 'operator',
+          monthsFloor: '1+',
+          evidence: 'proven program, wear offset',
+          confirmed: false,
+          priceTier: 'lower',
+        ),
+        PostingTradeRung(
+          rung: 'setter',
+          monthsFloor: '2+',
+          evidence: 'work/tool offsets, first piece',
+          confirmed: true,
+          priceTier: 'higher',
+        ),
+        PostingTradeRung(
+          rung: 'programmer',
+          monthsFloor: '3-5+',
+          evidence: 'new program from drawing',
+          confirmed: true,
+          priceTier: 'higher',
+        ),
+      ],
+      questions: <PostingTradeQuestion>[
+        PostingTradeQuestion(
+          questionKey: 'turning_machine',
+          prompt: 'Aap kaunsi turning machine chalate hain?',
+          answerType: 'multi_select',
+          options: <PostingTradeOption>[
+            PostingTradeOption(
+              optionKey: 'cnc_lathe',
+              value: 'cnc_lathe',
+              label: 'CNC lathe ya turning centre',
+              match: true,
+              matchSkillIds: <String>['cnc_operation'],
+            ),
+            PostingTradeOption(
+              optionKey: 'conventional_lathe',
+              value: 'conventional_lathe',
+              label: 'Khraad ya conventional lathe',
+              match: false,
+            ),
+          ],
+        ),
+        PostingTradeQuestion(
+          questionKey: 'controller_brand',
+          prompt: 'Machine par kaunsa controller lagaa hai?',
+          answerType: 'multi_select',
+          options: <PostingTradeOption>[
+            PostingTradeOption(
+              optionKey: 'fanuc',
+              value: 'fanuc',
+              label: 'Fanuc',
+              match: false,
+            ),
+            PostingTradeOption(
+              optionKey: 'siemens',
+              value: 'siemens',
+              label: 'Siemens',
+              match: false,
+            ),
+          ],
+        ),
+        PostingTradeQuestion(
+          questionKey: 'programming_level',
+          prompt: 'Programme ke saath aap kitna kaam karte hain?',
+          answerType: 'single_select',
+          options: <PostingTradeOption>[
+            PostingTradeOption(
+              optionKey: 'edit_program',
+              value: 'edit_program',
+              label: 'Programme edit kar leta hoon',
+              match: false,
+            ),
+            PostingTradeOption(
+              optionKey: 'write_program',
+              value: 'write_program',
+              label: 'Naya programme likh leta hoon',
+              match: true,
+              matchSkillIds: <String>['cnc_programming'],
+            ),
+          ],
+        ),
+      ],
+    ),
+    PostingTradeForm(
+      roleKind: 'welder',
+      roleLabel: 'Welder',
+      packId: 'qp_welding_trade',
+      matchSkillId: 'welding',
+      ladder: <PostingTradeRung>[
+        PostingTradeRung(
+          rung: 'helper',
+          monthsFloor: '0-1',
+          evidence: 'tack, grind, assist',
+          confirmed: false,
+          priceTier: 'lower',
+        ),
+        PostingTradeRung(
+          rung: 'skilled',
+          monthsFloor: '2-3+',
+          evidence: 'multi-process + symbols',
+          confirmed: true,
+          priceTier: 'higher',
+        ),
+      ],
+      questions: <PostingTradeQuestion>[
+        PostingTradeQuestion(
+          questionKey: 'welding_process',
+          prompt: 'Aap kaunsi welding karte hain?',
+          answerType: 'multi_select',
+          options: <PostingTradeOption>[
+            PostingTradeOption(
+              optionKey: 'mig_mag',
+              value: 'mig_mag',
+              label: 'MIG / MAG',
+              match: true,
+              matchSkillIds: <String>['welding'],
+            ),
+            PostingTradeOption(
+              optionKey: 'tig',
+              value: 'tig',
+              label: 'TIG',
+              match: true,
+              matchSkillIds: <String>['welding'],
+            ),
+          ],
+        ),
+      ],
+    ),
+  ];
+
   @override
   Future<List<MatchSkill>> fetchMatchSkills() async => _matchSkills;
+
+  @override
+  Future<List<PostingTradeForm>> fetchPostingTrades() async => _postingTrades;
 
   @override
   Future<ReachPreview> reachPreview({
     required List<String> matchSkillIds,
     List<String> untickedRelatedIds = const <String>[],
+    String? roleKind,
   }) async {
     // Deterministic canned maths: each picked skill reaches a fixed base, each
     // still-ticked related skill adds a smaller slice. Mirrors the shape the
-    // real deterministic matcher returns (never generative).
+    // real deterministic matcher returns (never generative). [roleKind] is
+    // accepted for parity (#2635); the canned vocabulary has no trade scope.
     const Map<String, int> baseReach = <String, int>{
       'cnc_operation': 42,
       'vmc_operation': 28,
@@ -537,8 +768,7 @@ class MockPayerApiClient implements PayerApiClient {
   static String _matchSkillLabel(String id) => _matchSkills
       .where((MatchSkill s) => s.skillId == id)
       .map((MatchSkill s) => s.label)
-      .followedBy(<String>[id])
-      .first;
+      .followedBy(<String>[id]).first;
 
   // --- Agency — referred workers + batch invites (canned) --------------------
 
@@ -605,7 +835,8 @@ class MockPayerApiClient implements PayerApiClient {
   // can never learn to expect a raw integer here.
 
   int _chatSeq = 0;
-  final Map<String, _MockChatSession> _chatSessions = <String, _MockChatSession>{};
+  final Map<String, _MockChatSession> _chatSessions =
+      <String, _MockChatSession>{};
 
   @override
   Future<JobPostingChatTurn> startJobPostingChatSession() async {
@@ -642,12 +873,11 @@ class MockPayerApiClient implements PayerApiClient {
 
   @override
   Future<List<JobPostingChatSessionSummary>>
-      fetchJobPostingChatSessions() async =>
-          _chatSessions.values
-              .map((_MockChatSession s) => s.summary)
-              .toList(growable: false)
-              .reversed
-              .toList(growable: false);
+      fetchJobPostingChatSessions() async => _chatSessions.values
+          .map((_MockChatSession s) => s.summary)
+          .toList(growable: false)
+          .reversed
+          .toList(growable: false);
 
   @override
   Future<JobPostingChatTranscript?> fetchJobPostingChatTranscript(
@@ -668,8 +898,10 @@ class MockPayerApiClient implements PayerApiClient {
 
   @override
   Future<PublishJobResult> publishJobPostingChatSession(
-    String sessionId,
-  ) async {
+    String sessionId, {
+    String? roleKind,
+    String? area,
+  }) async {
     final _MockChatSession? session = _chatSessions[sessionId];
     if (session == null) throw const PayerApiException(404);
     if (session.published) throw const PayerApiException(409);
@@ -677,6 +909,10 @@ class MockPayerApiClient implements PayerApiClient {
     // and rejects an incomplete one — mirror that so the UI's publish-failure
     // path is exercised in MOCK too.
     if (!session.draft.hasRequiredFields) throw const PayerApiException(400);
+    // #2490/#2493 — the optional publish-step picks. Display only; the canned
+    // mock posting carries no card columns, so nothing else changes here.
+    session.publishedRoleKind = roleKind;
+    session.publishedArea = area;
     session.published = true;
     _chatSeq += 1;
     // Canned clean publish — nothing left unmapped.
@@ -750,10 +986,13 @@ class MockPayerApiClient implements PayerApiClient {
     int? minExperienceYears,
     int? maxExperienceYears,
     String? neededBy,
+    String? roleKind,
     String? description,
     String? shift,
     List<String>? benefits,
     List<String>? requirements,
+    String? tradeLevel,
+    Map<String, List<String>>? tradeAnswers,
     List<String>? matchSkillIds,
   }) async {
     _agencySeq += 1;
@@ -777,6 +1016,7 @@ class MockPayerApiClient implements PayerApiClient {
       minExperienceYears: minExperienceYears,
       maxExperienceYears: maxExperienceYears,
       neededBy: neededBy,
+      roleKind: roleKind,
       description: description,
       shift: shift,
       benefits: benefits != null && benefits.isNotEmpty ? benefits : null,
@@ -784,6 +1024,8 @@ class MockPayerApiClient implements PayerApiClient {
           requirements != null && requirements.isNotEmpty ? requirements : null,
       // ADR-0050 — stored as an array (empty = none picked).
       matchSkillIds: matchSkillIds ?? const <String>[],
+      tradeLevel: tradeLevel,
+      tradeAnswers: tradeAnswers,
       applicantsReceived: 0,
       createdAt: '2026-07-08T00:00:00Z',
       updatedAt: '2026-07-08T00:00:00Z',
@@ -817,10 +1059,13 @@ class MockPayerApiClient implements PayerApiClient {
     int? minExperienceYears,
     int? maxExperienceYears,
     String? neededBy,
+    String? roleKind,
     String? description,
     String? shift,
     List<String>? benefits,
     List<String>? requirements,
+    String? tradeLevel,
+    Map<String, List<String>>? tradeAnswers,
     List<String>? matchSkillIds,
     List<AgencyJobClearField>? clear,
   }) async {
@@ -836,10 +1081,14 @@ class MockPayerApiClient implements PayerApiClient {
         minExperienceYears == null &&
         maxExperienceYears == null &&
         neededBy == null &&
+        roleKind == null &&
         description == null &&
         shift == null &&
         benefits == null &&
         requirements == null &&
+        roleKind == null &&
+        tradeLevel == null &&
+        tradeAnswers == null &&
         matchSkillIds == null &&
         cleared.isEmpty) {
       throw ArgumentError('updateAgencyJob needs at least one field');
@@ -872,6 +1121,7 @@ class MockPayerApiClient implements PayerApiClient {
           j.maxExperienceYears,
         ),
         neededBy: patched(AgencyJobClearField.neededBy, neededBy, j.neededBy),
+        roleKind: patched(AgencyJobClearField.roleKind, roleKind, j.roleKind),
         description: patched(
           AgencyJobClearField.description,
           description,
@@ -886,6 +1136,16 @@ class MockPayerApiClient implements PayerApiClient {
         ),
         // ADR-0050 — a supplied list (even `[]`) replaces; a null leaves it.
         matchSkillIds: matchSkillIds ?? j.matchSkillIds,
+        tradeLevel: patched(
+          AgencyJobClearField.tradeLevel,
+          tradeLevel,
+          j.tradeLevel,
+        ),
+        tradeAnswers: patched(
+          AgencyJobClearField.tradeAnswers,
+          tradeAnswers,
+          j.tradeAnswers,
+        ),
         applicantsReceived: j.applicantsReceived,
         createdAt: j.createdAt,
         updatedAt: '2026-07-08T00:00:00Z',
@@ -894,15 +1154,18 @@ class MockPayerApiClient implements PayerApiClient {
   }
 
   @override
-  Future<AgencyJobView> closeAgencyJob(String id) => _setAgencyStatus(id, 'closed');
+  Future<AgencyJobView> closeAgencyJob(String id) =>
+      _setAgencyStatus(id, 'closed');
 
   @override
   // A pause is reversible (#1202) — the row comes back `paused`, resumable.
-  Future<AgencyJobView> pauseAgencyJob(String id) => _setAgencyStatus(id, 'paused');
+  Future<AgencyJobView> pauseAgencyJob(String id) =>
+      _setAgencyStatus(id, 'paused');
 
   @override
   // Resume flips a `paused` row back to `open` (#1202).
-  Future<AgencyJobView> resumeAgencyJob(String id) => _setAgencyStatus(id, 'open');
+  Future<AgencyJobView> resumeAgencyJob(String id) =>
+      _setAgencyStatus(id, 'open');
 
   Future<AgencyJobView> _setAgencyStatus(String id, String status) => _mutate(
         id,
@@ -918,6 +1181,7 @@ class MockPayerApiClient implements PayerApiClient {
           minExperienceYears: j.minExperienceYears,
           maxExperienceYears: j.maxExperienceYears,
           neededBy: j.neededBy,
+          roleKind: j.roleKind,
           // Lifecycle does not touch the demand skills (#1960).
           matchSkillIds: j.matchSkillIds,
           applicantsReceived: j.applicantsReceived,
@@ -981,20 +1245,28 @@ class MockPayerApiClient implements PayerApiClient {
 
   @override
   Future<UnlockResult> unlock({required String workerId, String? jobId}) async {
+    // R74: a sample worker gets the route's neutral deny, and no credit moves.
+    if (_kMockPool.any((_MockWorker w) => w.isSample && w.workerId == workerId)) {
+      return const UnlockResult.unavailable();
+    }
     // Canned grant — decrement the shared balance so the credits stat still
     // moves. A real backend is server-truth; here we just mint an unlock id.
     if (_credits > 0) _credits -= 1;
     final String tail = workerId.length >= 4
         ? workerId.substring(workerId.length - 4)
         : workerId;
+    final String unlockId = 'mock-unlock-$tail';
+    // Remembered so [fetchOwnUnlocks] reports it, as `GET /payer/unlocks` does.
+    _grants[workerId] = unlockId;
     return UnlockResult.granted(
-      unlockId: 'mock-unlock-$tail',
-      expiresAt: '2026-12-31T00:00:00Z',
+      unlockId: unlockId,
+      expiresAt: _kMockGrantExpiry,
     );
   }
 
   @override
-  Future<RevealResult> reveal(String unlockId) async => const RevealResult.relay(
+  Future<RevealResult> reveal(String unlockId) async =>
+      const RevealResult.relay(
         relayHandle: 'relay-7Q2X',
         channel: 'in_app_relay',
         expiresAt: '2026-12-31T00:00:00Z',
@@ -1090,7 +1362,9 @@ class MockPayerApiClient implements PayerApiClient {
     final int i =
         _orgMembers.indexWhere((OrgMemberView m) => m.memberId == memberId);
     if (i < 0) throw const PayerApiException(404); // neutral unknown/not-owned
-    if (_orgMembers[i].isOwner) throw const PayerApiException(409); // can't remove owner
+    if (_orgMembers[i].isOwner) {
+      throw const PayerApiException(409); // can't remove owner
+    }
     _orgMembers.removeAt(i);
   }
 
@@ -1128,127 +1402,6 @@ class MockPayerApiClient implements PayerApiClient {
   @override
   Future<CapacityView> fetchCapacity() async => _capacity;
 
-  // --- Agency supply-money — KYC · earnings · payouts (canned, walkable) ------
-  // A stateful in-memory mock so the whole earnings → request → history flow is
-  // walkable in MOCK mode. The launch flag is treated as ON here (a demo build);
-  // the real flag-OFF 404 degrade is exercised against the HTTP client, not this
-  // mock. Money is fake — a request just moves ₹ from requestable → in-request
-  // and prepends a history row. Masked by construction (last-4 only), PII-free.
-  // Config economics mirror the server defaults (25% × ₹40 / 90d / ₹500 min).
-  static const int _kPayoutThresholdInr = 500;
-  static const int _kPayoutBasisInr = 40;
-  static const int _kPayoutRateBps = 2500;
-  static const int _kPayoutWindowDays = 90;
-
-  // ₹ accrued per qualifying unlock (basis × rate) = 40 × 2500 / 10000 = ₹10.
-  int get _accrualAmountInr => (_kPayoutBasisInr * _kPayoutRateBps) ~/ 10000;
-
-  // Seeded VERIFIED so the request flow is immediately walkable in a demo.
-  AgencyKycView _kyc = const AgencyKycView(
-    status: 'verified',
-    panLast4: '234F',
-    bankLast4: '9012',
-    updatedAt: '2026-07-10T00:00:00Z',
-  );
-
-  int _requestableInr = 850; // 85 accruals available to request
-  int _inRequestInr = 0;
-  final int _paidInr = 500; // one prior settled payout (the history seed row)
-  final int _totalAccrualCount = 135; // 85 requestable + 50 already paid
-
-  int _payoutSeq = 1;
-  final List<AgencyPayout> _payouts = <AgencyPayout>[
-    const AgencyPayout(
-      id: 'mock-payout-1',
-      amountInr: 500,
-      accrualCount: 50,
-      status: 'paid',
-      createdAt: '2026-06-20T00:00:00Z',
-    ),
-  ];
-
-  @override
-  Future<AgencyKycView> submitAgencyKyc({
-    required String pan,
-    required String bankAccount,
-    required String ifsc,
-    required String accountHolderName,
-  }) async {
-    // A fresh submission is PENDING until an ops ack (the app has no verify path
-    // in mock) — the honest state. Only the last-4 ever leaves the boundary.
-    String last4(String v) => v.length <= 4 ? v : v.substring(v.length - 4);
-    _kyc = AgencyKycView(
-      status: 'pending',
-      panLast4: last4(pan),
-      bankLast4: last4(bankAccount),
-      updatedAt: '2026-07-12T00:00:00Z',
-    );
-    return _kyc;
-  }
-
-  @override
-  Future<AgencyKycView> fetchAgencyKyc() async => _kyc;
-
-  @override
-  Future<AgencyEarnings> fetchAgencyEarnings() async {
-    String? blocked;
-    if (!_kyc.isVerified) {
-      blocked = 'kyc_not_verified';
-    } else if (_requestableInr < _kPayoutThresholdInr) {
-      blocked = 'below_threshold';
-    }
-    return AgencyEarnings(
-      totalAccruedInr: _requestableInr + _inRequestInr + _paidInr,
-      requestableInr: _requestableInr,
-      inRequestInr: _inRequestInr,
-      paidInr: _paidInr,
-      accrualCount: _totalAccrualCount,
-      kycStatus: _kyc.status,
-      thresholdInr: _kPayoutThresholdInr,
-      basisInr: _kPayoutBasisInr,
-      rateBps: _kPayoutRateBps,
-      windowDays: _kPayoutWindowDays,
-      payoutsEnabled: true,
-      canRequest: blocked == null,
-      blockedReason: blocked,
-    );
-  }
-
-  @override
-  Future<PayoutRequestResult> requestAgencyPayout() async {
-    // Mirror the server gate: KYC verified AND ≥ threshold. A refusal changes
-    // nothing (HTTP 200 with ok:false server-side).
-    if (!_kyc.isVerified) {
-      return const PayoutRequestResult(ok: false, blockedReason: 'kyc_not_verified');
-    }
-    if (_requestableInr < _kPayoutThresholdInr) {
-      return const PayoutRequestResult(ok: false, blockedReason: 'below_threshold');
-    }
-    final int amount = _requestableInr;
-    final int count = amount ~/ _accrualAmountInr;
-    _payoutSeq += 1;
-    final AgencyPayout row = AgencyPayout(
-      id: 'mock-payout-$_payoutSeq',
-      amountInr: amount,
-      accrualCount: count,
-      status: 'requested',
-      createdAt: '2026-07-14T00:00:00Z',
-    );
-    _payouts.insert(0, row);
-    _inRequestInr += amount;
-    _requestableInr = 0;
-    return PayoutRequestResult(
-      ok: true,
-      requestId: row.id,
-      amountInr: amount,
-      accrualCount: count,
-    );
-  }
-
-  @override
-  Future<List<AgencyPayout>> fetchAgencyPayouts() async =>
-      List<AgencyPayout>.unmodifiable(_payouts);
-
   /// Faceless [Applicant] rows synthesized from the canned candidates — opaque
   /// UUID-style ids + coarse facets + a couple of soft reasons. No name/phone.
   List<Applicant> _applicantsFrom(List<Candidate> source) {
@@ -1284,6 +1437,304 @@ class MockPayerApiClient implements PayerApiClient {
     }).toList(growable: false);
   }
 }
+
+// ===========================================================================
+// MOCK all-candidates pool (ADR-0040 E2)
+// ===========================================================================
+
+/// The expiry every canned grant carries: a fresh 14-day window from now (the
+/// real unlock window), so a demo build never re-locks on a calendar date.
+String get _kMockGrantExpiry =>
+    DateTime.now().toUtc().add(const Duration(days: 14)).toIso8601String();
+
+/// Small on purpose, so a demo build shows "Load more" over a 10-worker pool.
+const int _kMockSearchPageSize = 5;
+
+/// The only cursors the mock mints; anything else is refused like the API's.
+const String _kMockCursorPrefix = 'mock:';
+
+/// The offset a mock cursor names. A cursor the mock did not mint is the
+/// route's 400 — a page link "the server did not mint".
+int _mockSearchOffset(String? cursor) {
+  if (cursor == null) return 0;
+  final int? offset = cursor.startsWith(_kMockCursorPrefix)
+      ? int.tryParse(cursor.substring(_kMockCursorPrefix.length))
+      : null;
+  if (offset == null || offset < 0) throw const PayerApiException(400);
+  return offset;
+}
+
+class _MockBucket {
+  const _MockBucket(this.id, this.label, this.min, this.max);
+
+  final String id;
+  final String label;
+  final int min;
+
+  /// Exclusive; null = no upper edge.
+  final int? max;
+
+  bool holds(int months) => months >= min && (max == null || months < max!);
+}
+
+/// The API's closed bucket list (`EXPERIENCE_BUCKETS`), edges in months.
+const List<_MockBucket> _kMockBuckets = <_MockBucket>[
+  _MockBucket('under_1', 'Under 1 year', 0, 12),
+  _MockBucket('1_3', '1–3 years', 12, 36),
+  _MockBucket('3_5', '3–5 years', 36, 60),
+  _MockBucket('5_10', '5–10 years', 60, 120),
+  _MockBucket('10_plus', '10+ years', 120, null),
+];
+
+bool _mockInBucket(int months, String bucketId) {
+  for (final _MockBucket b in _kMockBuckets) {
+    if (b.id == bucketId) return b.holds(months);
+  }
+  return false;
+}
+
+const LabelledId _kMockManufacturing = LabelledId(
+  id: 'ind_industrial_manufacturing',
+  label: 'Industrial Manufacturing',
+);
+const LabelledId _kMockQuickCommerce = LabelledId(
+  id: 'ind_quick_commerce',
+  label: 'Quick-commerce Delivery',
+);
+
+const LabelledId _kMockTurner =
+    LabelledId(id: 'mskill_cnc_turner', label: 'CNC Turner');
+const LabelledId _kMockVmc =
+    LabelledId(id: 'mskill_vmc_operator', label: 'VMC Operator');
+const LabelledId _kMockSetter =
+    LabelledId(id: 'mskill_cnc_setter_operator', label: 'CNC Setter-Operator');
+const LabelledId _kMockWelder =
+    LabelledId(id: 'mskill_mig_welder', label: 'MIG Welder');
+const LabelledId _kMockFitter = LabelledId(id: 'mskill_fitter', label: 'Fitter');
+const LabelledId _kMockRider =
+    LabelledId(id: 'mskill_delivery_rider', label: 'Delivery Rider');
+
+/// The roles a role search widens into (tier 2), a slice of the curated map.
+const Map<String, List<String>> _kMockRelatedRoles = <String, List<String>>{
+  'mskill_cnc_turner': <String>[
+    'mskill_cnc_setter_operator',
+    'mskill_vmc_operator',
+  ],
+  'mskill_cnc_setter_operator': <String>['mskill_cnc_turner'],
+  'mskill_vmc_operator': <String>['mskill_cnc_turner'],
+};
+
+CandidateTradeLevel _mockLevel(LabelledId trade, String key, String label) =>
+    CandidateTradeLevel(
+      skillId: trade.id,
+      skillLabel: trade.label,
+      tradeLevel: key,
+      tradeLevelLabel: label,
+      levelConfirmed: key != 'helper' && key != 'operator',
+    );
+
+/// One synthetic worker: his wanted roles (months each, most first), his
+/// industry tenure and city (either may be unrecorded) and stated rungs.
+/// [isSample] marks the rows the API flags as seed data (R74).
+class _MockWorker {
+  const _MockWorker(
+    this.n, {
+    required this.roles,
+    required this.industry,
+    this.industryMonths,
+    this.city,
+    this.levels = const <CandidateTradeLevel>[],
+    this.isSample = false,
+  });
+
+  final int n;
+  final List<(LabelledId, int)> roles;
+  final LabelledId industry;
+  final int? industryMonths;
+  final String? city;
+  final List<CandidateTradeLevel> levels;
+  final bool isSample;
+
+  String get workerId =>
+      '00000000-0000-4000-8000-1000000000${n.toString().padLeft(2, '0')}';
+
+  _MockScored score(
+    CandidateSearchQuery q,
+    Set<String> asked,
+    Set<String> related,
+  ) {
+    // The lead role: a picked one, else a related one, else his most months.
+    (LabelledId, int)? pick(bool Function(LabelledId) test) {
+      for (final (LabelledId, int) r in roles) {
+        if (test(r.$1)) return r;
+      }
+      return null;
+    }
+
+    final (LabelledId, int) lead = pick((LabelledId r) => asked.contains(r.id)) ??
+        pick((LabelledId r) => related.contains(r.id)) ??
+        roles.first;
+    final int matchClass = asked.isEmpty || asked.contains(lead.$1.id)
+        ? 1
+        : (related.contains(lead.$1.id) ? 2 : 3);
+
+    bool pass = matchClass == 1;
+    bool unrecorded = false;
+    if (q.experience != null) {
+      pass = pass && _mockInBucket(lead.$2, q.experience!);
+    }
+    if (q.industryId != null) pass = pass && industry.id == q.industryId;
+    if (q.industryExperience != null) {
+      if (industryMonths == null) {
+        unrecorded = true; // unrecorded excludes nobody
+      } else {
+        pass = pass && _mockInBucket(industryMonths!, q.industryExperience!);
+      }
+    }
+    if (q.city != null) {
+      if (city == null) {
+        unrecorded = true;
+      } else {
+        pass = pass && city!.toLowerCase() == q.city!.toLowerCase();
+      }
+    }
+
+    return _MockScored(
+      pass: pass,
+      unrecorded: pass && unrecorded,
+      matchClass: matchClass,
+      row: CandidateSearchRow(
+        workerId: workerId,
+        matchesFilters: pass,
+        matchTier: asked.isEmpty || matchClass == 3 ? null : matchClass,
+        role: lead.$1,
+        otherRoles: roles
+            .where(((LabelledId, int) r) => r.$1.id != lead.$1.id)
+            .map(((LabelledId, int) r) => r.$1)
+            .take(4)
+            .toList(growable: false),
+        skillMonths: lead.$2,
+        industry: industry,
+        industryMonths: industryMonths,
+        city: city,
+        tradeLevels: levels,
+        isSample: isSample,
+      ),
+    );
+  }
+}
+
+class _MockScored {
+  const _MockScored({
+    required this.pass,
+    required this.unrecorded,
+    required this.matchClass,
+    required this.row,
+  });
+
+  final bool pass;
+  final bool unrecorded;
+  final int matchClass;
+  final CandidateSearchRow row;
+
+  /// Matches first, then tier, role months, industry months (unrecorded
+  /// last), worker id — the documented order, minus the activity term.
+  static int compare(_MockScored a, _MockScored b) {
+    if (a.pass != b.pass) return a.pass ? -1 : 1;
+    if (a.matchClass != b.matchClass) return a.matchClass - b.matchClass;
+    if (a.row.skillMonths != b.row.skillMonths) {
+      return b.row.skillMonths - a.row.skillMonths;
+    }
+    final int ai = a.row.industryMonths ?? -1;
+    final int bi = b.row.industryMonths ?? -1;
+    if (ai != bi) return bi - ai;
+    return a.row.workerId.compareTo(b.row.workerId);
+  }
+}
+
+final List<_MockWorker> _kMockPool = <_MockWorker>[
+  _MockWorker(
+    1,
+    roles: const <(LabelledId, int)>[(_kMockTurner, 48), (_kMockSetter, 24)],
+    industry: _kMockManufacturing,
+    industryMonths: 54,
+    city: 'Pune',
+    levels: <CandidateTradeLevel>[_mockLevel(_kMockTurner, 'setter', 'Setter')],
+  ),
+  const _MockWorker(
+    2,
+    roles: <(LabelledId, int)>[(_kMockVmc, 24)],
+    industry: _kMockManufacturing,
+    isSample: true,
+  ),
+  _MockWorker(
+    3,
+    roles: const <(LabelledId, int)>[
+      (_kMockSetter, 72),
+      (_kMockTurner, 60),
+      (_kMockVmc, 30),
+    ],
+    industry: _kMockManufacturing,
+    industryMonths: 84,
+    city: 'Pune',
+    levels: <CandidateTradeLevel>[
+      _mockLevel(_kMockSetter, 'setter_programmer', 'Setter-cum-Programmer'),
+    ],
+  ),
+  const _MockWorker(
+    4,
+    roles: <(LabelledId, int)>[(_kMockWelder, 36)],
+    industry: _kMockManufacturing,
+    industryMonths: 36,
+    city: 'Chennai',
+  ),
+  const _MockWorker(
+    5,
+    roles: <(LabelledId, int)>[(_kMockFitter, 120), (_kMockWelder, 18)],
+    industry: _kMockManufacturing,
+    industryMonths: 126,
+    city: 'Nashik',
+  ),
+  _MockWorker(
+    6,
+    roles: const <(LabelledId, int)>[(_kMockTurner, 18)],
+    industry: _kMockManufacturing,
+    city: 'Chennai',
+    levels: <CandidateTradeLevel>[
+      _mockLevel(_kMockTurner, 'operator', 'Operator'),
+    ],
+  ),
+  const _MockWorker(
+    7,
+    roles: <(LabelledId, int)>[(_kMockRider, 30)],
+    industry: _kMockQuickCommerce,
+    industryMonths: 30,
+    city: 'Pune',
+  ),
+  _MockWorker(
+    8,
+    roles: const <(LabelledId, int)>[(_kMockVmc, 60), (_kMockTurner, 12)],
+    industry: _kMockManufacturing,
+    industryMonths: 66,
+    levels: <CandidateTradeLevel>[_mockLevel(_kMockVmc, 'setter', 'Setter')],
+  ),
+  const _MockWorker(
+    9,
+    roles: <(LabelledId, int)>[(_kMockRider, 6)],
+    industry: _kMockQuickCommerce,
+    industryMonths: 6,
+    city: 'Chennai',
+    isSample: true,
+  ),
+  _MockWorker(
+    10,
+    roles: const <(LabelledId, int)>[(_kMockTurner, 0)],
+    industry: _kMockManufacturing,
+    industryMonths: 0,
+    city: 'Pune',
+    levels: <CandidateTradeLevel>[_mockLevel(_kMockTurner, 'helper', 'Helper')],
+  ),
+];
 
 // ===========================================================================
 // MOCK job-posting interview engine (ADR-0035)
@@ -1429,13 +1880,18 @@ class _MockChatSession {
   final List<JobPostingChatMessageRow> messages = <JobPostingChatMessageRow>[];
   JobPostingDraft draft = const JobPostingDraft();
   bool published = false;
+
+  /// #2490 — the role picked on the publish step (display only), or null.
+  String? publishedRoleKind;
+
+  /// #2493 — the area/locality picked on the publish step, or null.
+  String? publishedArea;
   int _asked = 0;
 
   bool get draftReady => _asked >= _kMockChatTopics.length;
 
-  String get status => published
-      ? 'published'
-      : (draftReady ? 'draft_ready' : 'active');
+  String get status =>
+      published ? 'published' : (draftReady ? 'draft_ready' : 'active');
 
   /// Chips for the question currently on screen (empty once the bank is done).
   List<String> get currentChips => _asked < _kMockChatTopics.length
@@ -1500,4 +1956,3 @@ class _MockChatSession {
     );
   }
 }
-

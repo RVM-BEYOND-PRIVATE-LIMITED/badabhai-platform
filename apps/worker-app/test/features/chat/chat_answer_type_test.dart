@@ -12,6 +12,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:http/http.dart' as http;
@@ -765,16 +766,11 @@ void main() {
         await pumpChat(tester);
         await type(tester, 'Helper hoon');
 
-        // The escape chip rides this turn, so the composer is enabled by default.
+        // The escape rides this turn, so the composer is enabled by default —
+        // and, being open, it makes the escape chip redundant (ISSUE_2,
+        // 2026-10-21), so the chip is not drawn.
         expect(find.byType(TextField), findsOneWidget);
-        await tester.tap(find.text(kChatCustomAnswerLabel));
-        await tester.pumpAndSettle();
-        expect(
-          find.byType(TextField),
-          findsOneWidget,
-          reason:
-              'the escape chip focuses the composer for the worker\'s own words',
-        );
+        expect(find.text(kChatCustomAnswerLabel), findsNothing);
       },
     );
 
@@ -859,6 +855,57 @@ void main() {
           tester.widget<TextField>(find.byType(TextField)).keyboardType,
           TextInputType.multiline,
           reason: 'reverted on the next turn',
+        );
+      },
+    );
+
+    testWidgets(
+      'ISSUE_1: a text question after a number question RE-OPENS the '
+      'keyboard as text while the field stays focused',
+      (WidgetTester tester) async {
+        // Android ignores TextInput.updateConfig, so a keyboard opened as a
+        // number pad stays one unless the input connection is opened again
+        // (TextInput.setClient restarts the IME). The fix drops and re-takes
+        // focus when the type flips under a focused field.
+        replies(kCommuteTurn);
+        await pumpChat(tester);
+        await type(tester, 'Welder hoon');
+
+        // Focus the number field as the worker would to answer.
+        await tester.tap(find.byType(TextField));
+        await tester.pumpAndSettle();
+        expect(
+          tester.widget<TextField>(find.byType(TextField)).focusNode!.hasFocus,
+          isTrue,
+        );
+        String lastClientType() {
+          final Map<String, dynamic> args =
+              tester.testTextInput.setClientArgs!;
+          return (args['inputType'] as Map<String, dynamic>)['name'] as String;
+        }
+
+        expect(lastClientType(), 'TextInputType.number');
+        tester.testTextInput.log.clear();
+
+        await type(tester, '20');
+        verifySentOnce('20');
+
+        expect(
+          tester.widget<TextField>(find.byType(TextField)).keyboardType,
+          TextInputType.multiline,
+        );
+        expect(
+          tester.testTextInput.log.any(
+            (MethodCall c) => c.method == 'TextInput.setClient',
+          ),
+          isTrue,
+          reason: 'the keyboard must be re-opened for the new question type',
+        );
+        expect(lastClientType(), 'TextInputType.multiline');
+        expect(
+          tester.widget<TextField>(find.byType(TextField)).focusNode!.hasFocus,
+          isTrue,
+          reason: 'the worker keeps typing without tapping the field again',
         );
       },
     );

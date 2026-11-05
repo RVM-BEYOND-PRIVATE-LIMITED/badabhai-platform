@@ -1,15 +1,16 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart' show HapticFeedback;
 
 import '../theme/app_colors.dart';
+import '../theme/app_haptics.dart';
 import '../theme/app_spacing.dart';
 import '../theme/app_theme.dart';
 import '../theme/app_typography.dart';
+import 'bb_pressable.dart';
 
 /// Visual style of a [BbButton]. Mirrors the JUL31 kit's `BBButtonKind`
 /// (primary · navy · success · outline) plus the payer-app's own quiet
-/// variants. Label voice is ALWAYS Anek (display) and a light haptic fires on
-/// press — the kit's two button laws.
+/// variants. Label voice is the normal UI face (Inter) and a light haptic
+/// fires on press — the kit's two button laws.
 ///
 ///  - [primary]  — haldi action CTA, deep-blue label (the ONE main action).
 ///  - [brand]    — haldi brand CTA (logo moments / brand highlights).
@@ -39,6 +40,7 @@ class BbButton extends StatelessWidget {
     this.block = false,
     this.iconLeft,
     this.iconRight,
+    this.leading,
     this.loading = false,
     this.buttonKey,
   }) : assert(
@@ -61,6 +63,11 @@ class BbButton extends StatelessWidget {
   final bool block;
   final IconData? iconLeft;
   final IconData? iconRight;
+
+  /// A widget in the leading icon slot, in place of [iconLeft] — for an icon
+  /// that animates (e.g. copy → check, #2596). Sized like [iconLeft] through
+  /// the ambient [IconTheme], and replaced by the spinner while [loading].
+  final Widget? leading;
   final bool loading;
 
   /// Key applied to the underlying Material button (handy for widget tests).
@@ -79,7 +86,7 @@ class BbButton extends StatelessWidget {
     final VoidCallback? effectiveOnPressed = (loading || onPressed == null)
         ? null
         : () {
-            HapticFeedback.lightImpact();
+            AppHaptics.tap();
             onPressed!();
           };
 
@@ -97,16 +104,18 @@ class BbButton extends StatelessWidget {
       label: label,
       iconLeft: iconLeft,
       iconRight: iconRight,
+      leading: leading,
       loading: loading,
       size: size,
       spinnerColor: spinnerColor,
     );
 
     final Size minSize = Size(block ? double.infinity : 64, _height);
-    // Kit law: buttons speak in Anek (display), never Roboto. The button's own
-    // foregroundColor still resolves the label colour (Material copies it over
-    // this style), so each variant keeps its correct on-face colour.
-    final TextStyle labelStyle = AppTypography.display(
+    // Buttons live below the header, so they speak in the normal UI face
+    // (Inter). The button's own foregroundColor still resolves the label colour
+    // (Material copies it over this style), so each variant keeps its correct
+    // on-face colour.
+    final TextStyle labelStyle = AppTypography.heading(
       size: size == BbButtonSize.sm ? AppTypography.sizeSm : AppTypography.sizeBase,
       weight: FontWeight.w700,
     );
@@ -201,7 +210,19 @@ class BbButton extends StatelessWidget {
         ),
     };
 
-    return block ? SizedBox(width: double.infinity, child: button) : button;
+    // #2591 — every button presses down to 0.97; the ONE primary CTA also
+    // carries the 3px navy edge that collapses on press. The Material button
+    // keeps its own tap + haptic, so the press is read passively.
+    final Widget pressable = BbPressable.passive(
+      enabled: effectiveOnPressed != null,
+      edge: variant == BbButtonVariant.primary,
+      borderRadius: BorderRadius.circular(AppRadii.md),
+      child: button,
+    );
+
+    return block
+        ? SizedBox(width: double.infinity, child: pressable)
+        : pressable;
   }
 }
 
@@ -210,6 +231,7 @@ class _Content extends StatelessWidget {
     required this.label,
     required this.iconLeft,
     required this.iconRight,
+    required this.leading,
     required this.loading,
     required this.size,
     required this.spinnerColor,
@@ -218,6 +240,7 @@ class _Content extends StatelessWidget {
   final String label;
   final IconData? iconLeft;
   final IconData? iconRight;
+  final Widget? leading;
   final bool loading;
   final BbButtonSize size;
   final Color spinnerColor;
@@ -237,6 +260,12 @@ class _Content extends StatelessWidget {
               strokeWidth: 2,
               valueColor: AlwaysStoppedAnimation<Color>(spinnerColor),
             ),
+          ),
+          const SizedBox(width: AppSpacing.s2),
+        ] else if (leading != null) ...<Widget>[
+          IconTheme.merge(
+            data: IconThemeData(size: iconSize),
+            child: leading!,
           ),
           const SizedBox(width: AppSpacing.s2),
         ] else if (iconLeft != null) ...<Widget>[

@@ -136,3 +136,21 @@ describe("/account — the agency KYC card follows the agency-portal flag", () =
     expect(out).toContain("owner can see payouts");
   });
 });
+
+describe("/account — phone-only payer (#2497/#2499)", () => {
+  it("renders without an email row, shows the masked phone, and never prints 'null'", async () => {
+    requirePayer.mockResolvedValue({ ...AGENT, email: null, phoneLast4: "4321" });
+    const out = await html();
+    expect(out).toContain("Signed in as");
+    expect(out).not.toContain("Account email");
+    expect(out).not.toContain("null");
+    expect(out).toContain("••••4321");
+  });
+
+  it("still shows the neutral retry when the session has no /payer/me read yet (email undefined)", async () => {
+    requirePayer.mockResolvedValue({ ...AGENT, email: undefined });
+    const out = await html();
+    expect(out).toContain("Service unavailable");
+    expect(out).not.toContain("Signed in as");
+  });
+});

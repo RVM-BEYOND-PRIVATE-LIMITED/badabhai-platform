@@ -225,7 +225,7 @@ describe("AgencyJobsManager — aligned with the company list (2026-10-01)", () 
     expect(hrefsOf(tree)).toEqual([]);
     const text = collect(tree).text.join(" ");
     expect(text).toContain("No postings yet");
-    expect(text).toContain("use New posting above");
+    expect(text).toContain("use New posting in the sidebar.");
   });
 });
 

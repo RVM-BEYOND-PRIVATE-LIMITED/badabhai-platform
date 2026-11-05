@@ -383,9 +383,20 @@ class _WorkHistoryCard extends StatelessWidget {
           // ONE CHILD PER VISUAL ROW, and no spacers of our own (#1475). A
           // spacer handed in as a child gets padded on BOTH sides, which is
           // what put two employments three gaps apart instead of one.
-          for (final ResumeEmploymentDto e in document.employments) ...<Widget>[
-            const SizedBox(height: 12),
-            ResumeEmploymentEntry(employment: e),
+          for (int i = 0; i < document.employments.length; i++) ...<Widget>[
+            // OWNER ASK (2026-10-21) — a thin divider between jobs.
+            if (i == 0)
+              const SizedBox(height: 14)
+            else
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 12),
+                child: Divider(
+                  height: 1,
+                  thickness: 1,
+                  color: OnboardingColors.borderDefault,
+                ),
+              ),
+            ResumeEmploymentEntry(employment: document.employments[i]),
           ],
           if (document.employmentsMore != null &&
               document.employmentsMore!.isNotEmpty) ...<Widget>[
@@ -683,8 +694,7 @@ class _ResumeEmploymentEntryState extends State<ResumeEmploymentEntry> {
   @override
   Widget build(BuildContext context) {
     final ResumeEmploymentDto employment = widget.employment;
-    final String heading =
-        '${employment.employer}${employment.roleInline ?? ''}${employment.locationSuffix ?? ''}';
+    final String title = '${employment.employer}${employment.roleInline ?? ''}';
     // A genuine rewrite to compare, with an id to act on. See the DTO's own
     // doc — an entry that was never rewritten and one whose rewrite was
     // already declined are indistinguishable here, by design, and both
@@ -699,43 +709,50 @@ class _ResumeEmploymentEntryState extends State<ResumeEmploymentEntry> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        // THE GENERAL SHEET puts the employer (and its city) on the left and
-        // the span on the right; the trade sheet stacks them. Same strings,
-        // same server-composed separators — only the geometry differs.
-        if (general)
-          ResumeSheetHeadRow(
-            title: '${employment.employer}${employment.roleInline ?? ''}',
-            titleSuffix: employment.locationSuffix,
-            when: employment.when,
-          )
-        else ...<Widget>[
-          if (heading.isNotEmpty)
-            Text(
-              heading,
-              style: OnboardingTypography.inter(
-                size: 14,
-                weight: FontWeight.w700,
-                height: 1.35,
+        // OWNER ASK (2026-10-21) — ONE readable job block on BOTH sheets: the
+        // employer (+ role) as a bold title, the span as a small pill beside
+        // it, the city under it, then the work done as body text. Same
+        // strings, same server-composed separators — only the layout changed.
+        Wrap(
+          spacing: 8,
+          runSpacing: 6,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: <Widget>[
+            if (title.isNotEmpty)
+              Text(
+                title,
+                style: OnboardingTypography.inter(
+                  size: 16,
+                  weight: FontWeight.w700,
+                  height: 1.3,
+                  color: OnboardingColors.shiftBlue,
+                ),
               ),
+            if (employment.when.isNotEmpty) ResumeWhenPill(text: employment.when),
+          ],
+        ),
+        if ((employment.locationSuffix ?? '').trim().isNotEmpty) ...<Widget>[
+          const SizedBox(height: 2),
+          Text(
+            // The suffix arrives separator-prefixed (" · Pune"); drop the
+            // leading separator now that the city sits on its own line.
+            employment.locationSuffix!.replaceFirst(RegExp(r'^[\s·,—-]+'), ''),
+            style: OnboardingTypography.inter(
+              size: 13,
+              color: OnboardingColors.ink500,
             ),
-          if (employment.when.isNotEmpty)
-            Text(
-              employment.when,
-              style: OnboardingTypography.inter(
-                size: 12,
-                color: OnboardingColors.ink500,
-              ),
-            ),
+          ),
         ],
         if (employment.work.isNotEmpty) ...<Widget>[
-          const SizedBox(height: 4),
-          if (general)
-            ResumeSheetBullet(text: employment.work)
-          else
-            Text(
-              employment.work,
-              style: OnboardingTypography.inter(size: 13, height: 1.45),
+          const SizedBox(height: 8),
+          Text(
+            employment.work,
+            style: OnboardingTypography.inter(
+              size: 14,
+              height: 1.5,
+              color: OnboardingColors.ink600,
             ),
+          ),
         ],
         // #1353/#1354 — an entry with nothing to compare shows NOTHING extra:
         // no affordance, no disabled/greyed placeholder.
@@ -1108,4 +1125,33 @@ splitQualificationFacts(List<ResumeExtraSection> sections) {
     }
   }
   return (sections: kept, qualifications: moved);
+}
+
+/// OWNER ASK (2026-10-21) — a job's span ("Jan 2020 – Mar 2024 · 4 yrs",
+/// "10 saal") as a small yellow pill beside its title, on every Work History
+/// layout of the Résumé tab.
+class ResumeWhenPill extends StatelessWidget {
+  const ResumeWhenPill({super.key, required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+      decoration: BoxDecoration(
+        color: OnboardingColors.selectedCardBg,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: OnboardingColors.safetyYellow),
+      ),
+      child: Text(
+        text,
+        style: OnboardingTypography.inter(
+          size: 12,
+          weight: FontWeight.w700,
+          color: OnboardingColors.shiftBlue,
+        ),
+      ),
+    );
+  }
 }

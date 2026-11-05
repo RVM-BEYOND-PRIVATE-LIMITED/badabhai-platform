@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../core/di/locator.dart';
@@ -6,11 +7,15 @@ import '../../../core/session/app_session.dart';
 import '../../../core/session/credits_cubit.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
+import '../../../core/theme/app_system_ui.dart';
 import '../../../core/theme/app_typography.dart';
+import '../../../core/util/pay_format.dart';
 import '../../../core/widgets/bb_avatar.dart';
 import '../../../core/widgets/bb_button.dart';
 import '../../../core/widgets/bb_card.dart';
-import '../../../core/widgets/bb_stat.dart';
+import '../../../core/widgets/bb_count_up.dart';
+import '../../../core/widgets/bb_pressable.dart';
+import '../../../core/widgets/bb_refresh.dart';
 import '../../../core/widgets/payer_role_badge.dart';
 
 /// Home — the identity header, the REAL credit balance, and the two real
@@ -53,52 +58,59 @@ class HomeScreen extends StatelessWidget {
       children: <Widget>[
         _Header(acct: session.account, role: session.role),
         Expanded(
-          child: ListView(
-            padding: const EdgeInsets.fromLTRB(
-              AppSpacing.gutter,
-              AppSpacing.s5,
-              AppSpacing.gutter,
-              AppSpacing.s6,
-            ),
-            children: <Widget>[
-              _SectionLabel('OVERVIEW'),
-              const SizedBox(height: AppSpacing.s2),
-              _CreditBalanceCard(onOpenCredits: onOpenCredits),
-              const SizedBox(height: AppSpacing.s5),
-              _SectionLabel('QUICK ACTIONS'),
-              const SizedBox(height: AppSpacing.s2),
-              Row(
-                children: <Widget>[
-                  Expanded(
-                    // The ONE haldi CTA on Home.
-                    child: BbButton(
-                      label: 'Post a job',
-                      iconLeft: Icons.add_circle_outline,
-                      onPressed: onPost,
-                    ),
-                  ),
-                  const SizedBox(width: AppSpacing.s3),
-                  Expanded(
-                    child: BbButton(
-                      label: 'Browse',
-                      variant: BbButtonVariant.secondary,
-                      iconLeft: Icons.search,
-                      onPressed: onBrowse,
-                    ),
-                  ),
-                ],
+          // #2592 — pull-to-refresh re-reads the server-truth balance (the one
+          // live figure here); the card keeps its number while it does.
+          child: BbRefreshIndicator(
+            onRefresh: () => locator<CreditsCubit>().load(),
+            child: ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.gutter,
+                AppSpacing.s5,
+                AppSpacing.gutter,
+                AppSpacing.s6,
               ),
-              // Agency-only supply hub — makes the agency dashboard distinct and
-              // surfaces the agent-gated Refer-&-earn (funnel + referred workers
-              // + bulk invites) that a company session never sees. Renders only
-              // for an agency session (onOpenReferral is null for a company).
-              if (session.role.isAgency && onOpenReferral != null) ...<Widget>[
-                const SizedBox(height: AppSpacing.s5),
-                _SectionLabel('AGENCY'),
+              children: <Widget>[
+                _SectionLabel('OVERVIEW'),
                 const SizedBox(height: AppSpacing.s2),
-                _AgencyHubCard(onTap: onOpenReferral!),
+                _CreditBalanceCard(onOpenCredits: onOpenCredits),
+                const SizedBox(height: AppSpacing.s5),
+                _SectionLabel('QUICK ACTIONS'),
+                const SizedBox(height: AppSpacing.s2),
+                Row(
+                  children: <Widget>[
+                    Expanded(
+                      // The ONE haldi CTA on Home.
+                      child: BbButton(
+                        label: 'Post a job',
+                        iconLeft: Icons.add_circle_rounded,
+                        onPressed: onPost,
+                      ),
+                    ),
+                    const SizedBox(width: AppSpacing.s3),
+                    Expanded(
+                      child: BbButton(
+                        label: 'Browse',
+                        variant: BbButtonVariant.secondary,
+                        iconLeft: Icons.search_rounded,
+                        onPressed: onBrowse,
+                      ),
+                    ),
+                  ],
+                ),
+                // Agency-only supply hub — makes the agency dashboard distinct and
+                // surfaces the agent-gated Refer-&-earn (funnel + referred workers
+                // + bulk invites) that a company session never sees. Renders only
+                // for an agency session (onOpenReferral is null for a company).
+                if (session.role.isAgency &&
+                    onOpenReferral != null) ...<Widget>[
+                  const SizedBox(height: AppSpacing.s5),
+                  _SectionLabel('AGENCY'),
+                  const SizedBox(height: AppSpacing.s2),
+                  _AgencyHubCard(onTap: onOpenReferral!),
+                ],
               ],
-            ],
+            ),
           ),
         ),
       ],
@@ -127,48 +139,54 @@ class _Header extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      color: AppColors.blue,
-      padding: const EdgeInsets.fromLTRB(
-        AppSpacing.gutter,
-        AppSpacing.s5,
-        AppSpacing.gutter,
-        AppSpacing.s5,
-      ),
-      child: Row(
-        children: <Widget>[
-          BbAvatar(initials: acct.initials, size: 48),
-          const SizedBox(width: AppSpacing.s3),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Text(
-                  acct.name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppTypography.display(
-                    size: AppTypography.sizeMd,
-                    weight: FontWeight.w700,
-                    color: AppColors.onBlue,
+    // #2590 — the band is drawn BEHIND the status bar (the shell gives Home no
+    // top inset), so it pads itself by that inset and asks for light icons.
+    final double topInset = MediaQuery.paddingOf(context).top;
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: AppSystemUi.onDark,
+      child: Container(
+        width: double.infinity,
+        color: AppColors.blue,
+        padding: EdgeInsets.fromLTRB(
+          AppSpacing.gutter,
+          AppSpacing.s5 + topInset,
+          AppSpacing.gutter,
+          AppSpacing.s5,
+        ),
+        child: Row(
+          children: <Widget>[
+            BbAvatar(initials: acct.initials, size: 48),
+            const SizedBox(width: AppSpacing.s3),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Text(
+                    acct.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppTypography.header(
+                      size: AppTypography.sizeMd,
+                      weight: FontWeight.w700,
+                      color: AppColors.onBlue,
+                    ),
                   ),
-                ),
-                Text(
-                  acct.plan,
-                  style: AppTypography.body(
-                    size: AppTypography.sizeXs,
-                    color: AppColors.onBlueMuted,
+                  Text(
+                    acct.plan,
+                    style: AppTypography.body(
+                      size: AppTypography.sizeXs,
+                      color: AppColors.onBlueMuted,
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-          const SizedBox(width: AppSpacing.s3),
-          // The unmissable role cue — COMPANY vs AGENCY — so the payer always
-          // knows which portal they are in.
-          PayerRoleBadge(role: role, onDark: true),
-        ],
+            const SizedBox(width: AppSpacing.s3),
+            // The unmissable role cue — COMPANY vs AGENCY — so the payer always
+            // knows which portal they are in.
+            PayerRoleBadge(role: role, onDark: true),
+          ],
+        ),
       ),
     );
   }
@@ -188,7 +206,7 @@ class _AgencyHubCard extends StatelessWidget {
       onTap: onTap,
       child: Row(
         children: <Widget>[
-          const Icon(Icons.campaign_outlined, size: 24, color: AppColors.blue),
+          const Icon(Icons.campaign_rounded, size: 24, color: AppColors.blue),
           const SizedBox(width: AppSpacing.s3),
           Expanded(
             child: Column(
@@ -196,7 +214,7 @@ class _AgencyHubCard extends StatelessWidget {
               children: <Widget>[
                 Text(
                   'Refer & earn',
-                  style: AppTypography.display(
+                  style: AppTypography.heading(
                     size: AppTypography.sizeBase,
                     weight: FontWeight.w700,
                   ),
@@ -214,37 +232,143 @@ class _AgencyHubCard extends StatelessWidget {
             ),
           ),
           const SizedBox(width: AppSpacing.s2),
-          const Icon(Icons.chevron_right, size: 20, color: AppColors.textFaint),
+          const Icon(Icons.chevron_right_rounded,
+              size: 20, color: AppColors.textFaint),
         ],
       ),
     );
   }
 }
 
-/// The one real figure on Home: the server-truth credit balance. Renders "—"
-/// until the first load resolves (and if it fails) — never a fabricated 0.
+/// Home's hero (#2596): the one real figure on Home, the server-truth credit
+/// balance (`GET /payer/credits`, 1 credit = 1 unlock), counting up to its
+/// value. It is the same deep-blue balance block the Credits screen leads with,
+/// so the number reads the same on both. Renders "—" until the first load
+/// resolves (and if it fails) — never a fabricated 0, and no count from 0
+/// towards an unknown number. Nothing else is added: Home has no other real
+/// figure (see [HomeScreen]).
 class _CreditBalanceCard extends StatelessWidget {
   const _CreditBalanceCard({required this.onOpenCredits});
 
   final VoidCallback onOpenCredits;
+
+  /// The balance figure — for widget tests.
+  static const Key valueKey = Key('home_credit_balance_value');
 
   @override
   Widget build(BuildContext context) {
     return BlocBuilder<CreditsCubit, CreditsState>(
       bloc: locator<CreditsCubit>(),
       builder: (BuildContext context, CreditsState credits) {
-        return BbStat(
-          label: 'Credit balance',
-          // A failed refresh renders an honest '—', never a fabricated 0
-          // (#189 fast-follow); the retry affordance re-loads server truth.
-          value: credits.error ? '—' : '${credits.balance ?? '—'}',
-          icon: Icons.lock_open,
-          deltaText: credits.error ? 'Retry' : 'View ledger',
-          onDeltaTap: credits.error
-              ? () => locator<CreditsCubit>().load()
-              : onOpenCredits,
+        // A failed refresh renders an honest '—', never a fabricated 0
+        // (#189 fast-follow); the retry affordance re-loads server truth.
+        final int? balance = credits.error ? null : credits.balance;
+        final TextStyle figure = AppTypography.mono(
+          size: AppTypography.size2xl,
+          weight: FontWeight.w700,
+          color: AppColors.paper0,
+        );
+        return BbCard(
+          ink: true,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Row(
+                children: <Widget>[
+                  Expanded(
+                    child: Text(
+                      'Credit balance',
+                      style: AppTypography.body(
+                        size: AppTypography.sizeSm,
+                        color: AppColors.ink300,
+                      ),
+                    ),
+                  ),
+                  const Icon(
+                    Icons.lock_open_rounded,
+                    size: 18,
+                    color: AppColors.ink300,
+                  ),
+                ],
+              ),
+              const SizedBox(height: AppSpacing.s1),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.baseline,
+                textBaseline: TextBaseline.alphabetic,
+                children: <Widget>[
+                  KeyedSubtree(
+                    key: valueKey,
+                    child: balance == null
+                        ? Text('—', style: figure)
+                        : BbCountUp(
+                            value: balance,
+                            format: formatIndianGrouped,
+                            style: figure,
+                          ),
+                  ),
+                  const SizedBox(width: AppSpacing.s2),
+                  Text(
+                    'unlocks',
+                    style: AppTypography.body(
+                      size: AppTypography.sizeBase,
+                      color: AppColors.ink300,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: AppSpacing.s2),
+              _HeroLink(
+                label: credits.error ? 'Retry' : 'View ledger',
+                icon: credits.error
+                    ? Icons.refresh_rounded
+                    : Icons.chevron_right_rounded,
+                onTap: credits.error
+                    ? () => locator<CreditsCubit>().load()
+                    : onOpenCredits,
+              ),
+            ],
+          ),
         );
       },
+    );
+  }
+}
+
+/// The hero's one link, on the deep-blue surface. Small text, full 48px target.
+class _HeroLink extends StatelessWidget {
+  const _HeroLink({
+    required this.label,
+    required this.icon,
+    required this.onTap,
+  });
+
+  final String label;
+  final IconData icon;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return BbPressable(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(AppRadii.xs),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minHeight: AppSpacing.tap),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Text(
+              label,
+              style: AppTypography.body(
+                size: AppTypography.sizeSm,
+                weight: FontWeight.w700,
+                color: AppColors.onBlue,
+              ),
+            ),
+            const SizedBox(width: AppSpacing.s1),
+            Icon(icon, size: 18, color: AppColors.onBlue),
+          ],
+        ),
+      ),
     );
   }
 }

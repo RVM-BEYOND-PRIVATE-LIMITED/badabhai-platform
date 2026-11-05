@@ -36,10 +36,22 @@ abstract interface class JobPostingChatRepository {
   /// "continue where you left off" list.
   Future<List<JobPostingChatSessionSummary>> listSessions();
 
+  /// #2635 — the 16-trade catalogue (`GET /payer/posting-trades`) the publish
+  /// step picks the job's trade from. Throws on a failed read; the bloc says
+  /// why and offers a retry.
+  Future<List<PostingTradeForm>> loadPostingTrades();
+
   /// Publishes the bound session's draft through the existing job-posting create
   /// path. Returns the [PublishJobResult] — the created posting's id PLUS any
   /// collected fields the server could not fold onto the live posting, which the
   /// chat surfaces as a non-blocking honesty notice. Throws [PayerApiException]
   /// on 400 (draft incomplete) / 409 (already published or not ready) / 404.
-  Future<PublishJobResult> publish();
+  ///
+  /// [roleKind] is the publish-step trade pick (#2490): one of the 16 trades,
+  /// which the chat requires before it publishes (#2635 — a company job with no
+  /// trade can never go live).
+  ///
+  /// [area] is the publish-step locality (#2493), prefilled from the draft and
+  /// editable. Null/absent leaves `area` NULL (city-only card).
+  Future<PublishJobResult> publish({String? roleKind, String? area});
 }

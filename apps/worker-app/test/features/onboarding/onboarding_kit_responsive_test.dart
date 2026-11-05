@@ -445,13 +445,17 @@ void main() {
       // The strict guideline's checkbox — navy fill, yellow border, yellow
       // tick — lives in the app theme. A local `side` / `fillColor` override is
       // how this one quietly wore a grey border, so it must stay absent.
-      final Checkbox tick = tester.widget<Checkbox>(find.byType(Checkbox));
-      expect(tick.side, isNull);
-      expect(tick.fillColor, isNull);
-      expect(tick.activeColor, isNull);
+      // Both ticks ("I agree" and "I don't agree") obey the same rule.
+      expect(find.byType(Checkbox), findsNWidgets(2));
+      for (final Checkbox tick
+          in tester.widgetList<Checkbox>(find.byType(Checkbox))) {
+        expect(tick.side, isNull);
+        expect(tick.fillColor, isNull);
+        expect(tick.activeColor, isNull);
+      }
 
       final CheckboxThemeData theme = Theme.of(
-        tester.element(find.byType(Checkbox)),
+        tester.element(find.byType(Checkbox).first),
       ).checkboxTheme;
       expect(
         theme.fillColor!.resolve(<WidgetState>{WidgetState.selected}),

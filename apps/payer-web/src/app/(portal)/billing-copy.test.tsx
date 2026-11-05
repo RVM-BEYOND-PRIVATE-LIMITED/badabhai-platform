@@ -169,7 +169,7 @@ describe("/credits — no mock wording, in either payment posture", () => {
         const out = await creditsMarkup();
         const label = `real=${real} live=${live}`;
         // The credits panel really rendered (its pack cards), so its buttons are in the fence.
-        expect(out, label).toContain("credit-pack");
+        expect(out, label).toContain("cred-pack");
         expect(out, label).not.toMatch(/\bmock\b/i);
         expect(out, label).not.toMatch(/staging preview/i);
       }
@@ -200,7 +200,7 @@ describe("/credits — no mock wording, in either payment posture", () => {
         (m) => m[1]!.replace(/<[^>]+>/g, "").trim(),
       );
       expect(labels.length, `real=${real}`).toBe(3);
-      expect(new Set(labels), `real=${real}`).toEqual(new Set(["Buy"]));
+      expect(labels.every((l) => /^Buy Pack \d+$/.test(l)), `real=${real}`).toBe(true);
     }
   });
 });

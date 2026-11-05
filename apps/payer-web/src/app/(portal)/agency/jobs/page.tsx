@@ -47,7 +47,11 @@ export default async function AgencyPostingsPage() {
       <PageHeader
         title="Postings"
         description="Every posting your agency has published, with the controls to edit, pause, resume or close it."
-        primaryAction={{ href: "/agency/jobs/new", label: "New posting", icon: ACTION_ICON.create }}
+        primaryAction={{
+          href: "/agency/jobs/new",
+          label: "New posting",
+          icon: ACTION_ICON.create,
+        }}
       />
       {jobs ? (
         <AgencyJobsManager jobs={jobs} />

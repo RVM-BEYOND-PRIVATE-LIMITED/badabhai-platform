@@ -10,9 +10,9 @@ import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/bb_button.dart';
 import '../../../core/widgets/bb_card.dart';
 import '../../../core/widgets/bb_icon_button.dart';
+import '../../../core/widgets/bb_skeleton.dart';
 import '../../../core/widgets/bb_status_view.dart';
 import '../../../core/widgets/bb_toast.dart';
-import '../../agency/presentation/agency_earnings_screen.dart';
 import '../../agency/presentation/agency_engagement_screen.dart';
 import '../../agency/presentation/batch_invite_screen.dart';
 import '../../agency/util/invite_url.dart';
@@ -26,12 +26,12 @@ import 'cubit/referral_cubit.dart';
 /// PII-free: an opaque invite code + link and aggregate counts (k-anon floor
 /// applied server-side). The aggregate funnel here links out to three deeper
 /// agent-only surfaces — the FACELESS per-worker engagement funnel
-/// ([AgencyEngagementScreen], `GET /payer/agency/workers`), BULK invite minting
-/// ([BatchInviteScreen], `POST /payer/agency/invites/batch`), and the
-/// supply-money hub ([AgencyEarningsScreen], `GET /payer/agency/earnings` +
-/// KYC + payouts). The money surface is FLAG-GATED server-side
-/// (`AgencyPayoutsEnabledGuard` → neutral 404 while off) and degrades to an
-/// honest "not available yet" state, so the entry is safe to show unconditionally.
+/// ([AgencyEngagementScreen], `GET /payer/agency/workers`) and BULK invite
+/// minting ([BatchInviteScreen], `POST /payer/agency/invites/batch`).
+///
+/// NO PAYMENT INFORMATION (#2589, owner ruling 4 Nov 2026): earnings, payouts
+/// and KYC (PAN / bank / IFSC) are not in the mobile app — they live on
+/// payer-web only, so this hub carries no entry to them.
 class ReferralScreen extends StatelessWidget {
   const ReferralScreen({super.key});
 
@@ -58,8 +58,15 @@ class _ReferralView extends StatelessWidget {
             _Header(onBack: () => Navigator.of(context).pop()),
             Expanded(
               child: BlocBuilder<ReferralCubit, ReferralState>(
+                // #2592 — link + funnel card skeletons while it loads,
+                // cross-fading out.
                 builder: (BuildContext context, ReferralState state) =>
-                    _body(context, state),
+                    BbLoadSwitcher(
+                  loading: state.status == ReferralStatus.initial ||
+                      state.status == ReferralStatus.loading,
+                  skeleton: _skeleton,
+                  child: _body(context, state),
+                ),
               ),
             ),
           ],
@@ -68,14 +75,19 @@ class _ReferralView extends StatelessWidget {
     );
   }
 
+  static const Widget _skeleton = BbSkeletonList(
+    items: <Widget>[BbSkeletonPanel(), BbSkeletonPanel(), BbSkeletonListRow()],
+    semanticLabel: 'Loading…',
+  );
+
   Widget _body(BuildContext context, ReferralState state) {
     switch (state.status) {
       case ReferralStatus.initial:
       case ReferralStatus.loading:
-        return const BbStatusView.loading(caption: 'Loading…');
+        return _skeleton;
       case ReferralStatus.error:
         return BbStatusView(
-          icon: Icons.wifi_off,
+          icon: Icons.wifi_off_rounded,
           title: 'Could not load',
           subtitle: 'Please check your connection and try again.',
           action: BbButton(
@@ -105,7 +117,7 @@ class _ReferralView extends StatelessWidget {
             const SizedBox(height: AppSpacing.s5),
             Text(
               'Your funnel',
-              style: AppTypography.display(
+              style: AppTypography.heading(
                 size: AppTypography.sizeBase,
                 weight: FontWeight.w700,
               ),
@@ -115,14 +127,14 @@ class _ReferralView extends StatelessWidget {
             const SizedBox(height: AppSpacing.s5),
             Text(
               'Go deeper',
-              style: AppTypography.display(
+              style: AppTypography.heading(
                 size: AppTypography.sizeBase,
                 weight: FontWeight.w700,
               ),
             ),
             const SizedBox(height: AppSpacing.s2),
             _NavCard(
-              icon: Icons.groups_outlined,
+              icon: Icons.groups_rounded,
               title: 'Referred workers',
               subtitle: 'See each worker you referred and how far they have got.',
               onTap: () => _open(
@@ -133,24 +145,13 @@ class _ReferralView extends StatelessWidget {
             ),
             const SizedBox(height: AppSpacing.s3),
             _NavCard(
-              icon: Icons.qr_code_2,
+              icon: Icons.qr_code_2_rounded,
               title: 'Invite in bulk',
               subtitle: 'Mint a run of codes with QR to print or forward.',
               onTap: () => _open(
                 context,
                 name: 'payer/agency/invites',
                 builder: (_) => const BatchInviteScreen(),
-              ),
-            ),
-            const SizedBox(height: AppSpacing.s3),
-            _NavCard(
-              icon: Icons.payments_outlined,
-              title: 'Earnings & payouts',
-              subtitle: 'What you have earned and request a payout.',
-              onTap: () => _open(
-                context,
-                name: 'payer/agency/earnings',
-                builder: (_) => const AgencyEarningsScreen(),
               ),
             ),
           ],
@@ -204,7 +205,7 @@ class _NavCard extends StatelessWidget {
               children: <Widget>[
                 Text(
                   title,
-                  style: AppTypography.display(
+                  style: AppTypography.heading(
                     size: AppTypography.sizeBase,
                     weight: FontWeight.w700,
                   ),
@@ -222,7 +223,7 @@ class _NavCard extends StatelessWidget {
             ),
           ),
           const SizedBox(width: AppSpacing.s2),
-          const Icon(Icons.chevron_right, size: 20, color: AppColors.textFaint),
+          const Icon(Icons.chevron_right_rounded, size: 20, color: AppColors.textFaint),
         ],
       ),
     );
@@ -246,14 +247,14 @@ class _Header extends StatelessWidget {
       child: Row(
         children: <Widget>[
           BbIconButton(
-            icon: Icons.arrow_back,
+            icon: Icons.arrow_back_rounded,
             semanticLabel: 'Back',
             onPressed: onBack,
           ),
           const SizedBox(width: AppSpacing.s3),
           Text(
             'Refer & earn',
-            style: AppTypography.display(
+            style: AppTypography.header(
               size: AppTypography.sizeLg,
               weight: FontWeight.w800,
             ),
@@ -288,7 +289,7 @@ class _LinkCard extends StatelessWidget {
       context,
       title: 'Link copied',
       message: 'Share it on WhatsApp with workers you trust.',
-      icon: Icons.check_circle,
+      icon: Icons.check_circle_rounded,
     );
   }
 
@@ -305,7 +306,7 @@ class _LinkCard extends StatelessWidget {
         context,
         title: 'WhatsApp not available',
         message: 'Copy the link instead and paste it wherever you like.',
-        icon: Icons.error_outline,
+        icon: Icons.error_rounded,
       );
     }
   }
@@ -358,7 +359,7 @@ class _LinkCard extends StatelessWidget {
           const SizedBox(height: AppSpacing.s2),
           BbButton(
             label: 'Copy link',
-            iconLeft: Icons.copy,
+            iconLeft: Icons.copy_rounded,
             block: true,
             variant: BbButtonVariant.secondary,
             onPressed: () => _copy(context),
@@ -419,7 +420,7 @@ class _Stat extends StatelessWidget {
         children: <Widget>[
           Text(
             '$value',
-            style: AppTypography.display(
+            style: AppTypography.heading(
               size: AppTypography.sizeXl,
               weight: FontWeight.w800,
             ),

@@ -115,6 +115,13 @@ export function JobPostingChat({ resumable, loadFailed = false }: JobPostingChat
   // Keep the publish CTA disabled across the success→navigation window so it can never be
   // re-clicked (no double publish) — the same latch the manual posting form uses.
   const [navigating, setNavigating] = useState(false);
+  // The publish-step role pick (#2490) — `""` until the payer chooses one. Optional: blank
+  // publishes with `role_kind` absent, so the worker card keeps the generic art.
+  const [roleKind, setRoleKind] = useState("");
+  // The publish-step area/locality (#2493). Until the payer edits it, the input follows the
+  // interview draft (`draft.area`); once edited, the payer's value wins and rides the body.
+  const [area, setArea] = useState("");
+  const [areaTouched, setAreaTouched] = useState(false);
   const [pending, startTransition] = useTransition();
   // The publish lands on the posting's edit page with the shell's "Opening Edit posting…" cue.
   const { navigate } = usePortalNavigation();
@@ -135,6 +142,11 @@ export function JobPostingChat({ resumable, loadFailed = false }: JobPostingChat
         setError(res.error);
         return;
       }
+      // A new conversation starts with no role/area picked — never carry a
+      // previous pick into a different draft.
+      setRoleKind("");
+      setArea("");
+      setAreaTouched(false);
       setConvo({
         sessionId: res.turn.sessionId,
         lines: [{ role: "assistant", text: res.turn.replyText }],
@@ -152,6 +164,9 @@ export function JobPostingChat({ resumable, loadFailed = false }: JobPostingChat
         setError(res.error);
         return;
       }
+      setRoleKind("");
+      setArea("");
+      setAreaTouched(false);
       setConvo({
         sessionId: res.transcript.sessionId,
         lines: res.transcript.messages
@@ -201,16 +216,26 @@ export function JobPostingChat({ resumable, loadFailed = false }: JobPostingChat
   function onPublish() {
     if (convo === null) return;
     const sessionId = convo.sessionId;
+    // The publish-step role pick rides the body (#2490). Blank stays ABSENT — never a null —
+    // so the posting stores NULL and the worker card keeps the generic art.
+    const pickedRole = roleKind.trim();
+    // #2493 — until the payer edits it, the area follows the interview draft; after that the
+    // payer's correction wins. Blank stays ABSENT (NULL area = city-only card, never a block).
+    const pickedArea = (areaTouched ? area : (convo.draft?.area ?? "")).trim();
     begin(async () => {
-      const res = await publishJobPostingChatAction({ sessionId });
+      const res = await publishJobPostingChatAction({
+        sessionId,
+        ...(pickedRole ? { roleKind: pickedRole } : {}),
+        ...(pickedArea ? { area: pickedArea } : {}),
+      });
       if (!res.ok) {
         setError(res.error);
         return;
       }
-      // PR-B: ALWAYS route to the EDIT page. The chat publish leaves the worker-card columns
-      // (role_kind + the card fields the interview does not collect) NULL, and the edit page is
-      // where `workerCardGaps` are highlighted so the payer completes the card in one place —
-      // rather than landing on a read-only detail that hides what is still missing. Latch BEFORE
+      // PR-B: ALWAYS route to the EDIT page. The chat publish still leaves the card columns the
+      // interview does not collect (area, match skills) NULL/+unset, and the edit page is where
+      // `workerCardGaps` are highlighted so the payer completes the card in one place — rather
+      // than landing on a read-only detail that hides what is still missing. Latch BEFORE
       // navigating so the CTA can never be re-clicked across the success→navigation window.
       setNavigating(true);
       navigate(`/postings/${res.postingId}/edit`, { pendingLabel: "Edit posting", refresh: true });
@@ -359,7 +384,17 @@ export function JobPostingChat({ resumable, loadFailed = false }: JobPostingChat
       </div>
 
       <aside className="ai-chat__side">
-        <DraftPreview draft={convo.draft} draftReady={convo.draftReady} />
+        <DraftPreview
+          draft={convo.draft}
+          draftReady={convo.draftReady}
+          roleKind={roleKind}
+          onRoleKindChange={setRoleKind}
+          area={areaTouched ? area : (convo.draft?.area ?? "")}
+          onAreaChange={(value) => {
+            setArea(value);
+            setAreaTouched(true);
+          }}
+        />
         <div className="ai-chat__publish">
           {/* BLOCK: it fills the draft column whatever it reads. Content-sized, it shrank 29px
               under the click (the rocket became the spinner, the label "Publishing…"). */}

@@ -153,6 +153,14 @@ interface StatTileOwnProps extends HTMLAttributes<HTMLDivElement> {
    * `delta`/`deltaDir="flat"` for context that isn't a change over time.
    */
   caption?: ReactNode;
+  /**
+   * A short state that reads WITH the figure ("Ready", "active roles", "revealed") — the small
+   * label a command-centre card puts beside its number. It is not a trend and carries no colour
+   * of its own; the caller supplies the pill/text.
+   */
+  status?: ReactNode;
+  /** A footer row under the caption (a contextual action or a one-line unit note). */
+  foot?: ReactNode;
 }
 /** `href` + `ariaLabel` as for {@link CardProps} — the bare label+value is rarely a clear name. */
 export type StatTileProps = StatTileOwnProps & SurfaceLinkProps;
@@ -164,6 +172,8 @@ export function StatTile({
   delta,
   deltaDir = "up",
   caption,
+  status,
+  foot,
   href,
   ariaLabel,
   pendingLabel,
@@ -192,7 +202,14 @@ export function StatTile({
           </span>
         )}
       </div>
-      <div className="bb-stat__value">{value}</div>
+      {status != null ? (
+        <div className="bb-stat__value bb-stat__value--withstatus">
+          {value}
+          <span className="dash-stat-status">{status}</span>
+        </div>
+      ) : (
+        <div className="bb-stat__value">{value}</div>
+      )}
       {caption != null && <div className="bb-stat__caption">{caption}</div>}
       {delta != null && (
         <div className={`bb-stat__delta bb-stat__delta--${deltaDir}`}>
@@ -200,6 +217,7 @@ export function StatTile({
           {delta}
         </div>
       )}
+      {foot != null && <div className="dash-stat-foot">{foot}</div>}
     </div>
   );
 }

@@ -1,6 +1,7 @@
 import 'package:equatable/equatable.dart';
 
 import '../session/app_session.dart';
+import '../util/name_mask.dart';
 
 /// PII-free, swappable DTOs for the payer app. These mirror the sample-data
 /// arrays in the Payer App kit's `.dc.html` script block and are the binding
@@ -66,8 +67,19 @@ class Candidate extends Equatable {
       );
 
   @override
-  List<Object?> get props =>
-      <Object?>[id, name, trade, skill, exp, loc, avail, hot, fit, phone, unlocked];
+  List<Object?> get props => <Object?>[
+        id,
+        name,
+        trade,
+        skill,
+        exp,
+        loc,
+        avail,
+        hot,
+        fit,
+        phone,
+        unlocked
+      ];
 }
 
 /// Lifecycle of a job posting — drives the status pill + row dimming.
@@ -109,7 +121,10 @@ class JobPosting extends Equatable {
     this.requirements,
     this.shift,
     this.neededBy,
+    this.roleKind,
     this.matchSkillIds = const <String>[],
+    this.tradeLevel,
+    this.tradeAnswers,
   });
 
   final String title;
@@ -196,9 +211,21 @@ class JobPosting extends Equatable {
   /// `immediate | soon | flexible` (`needed_by`), or null when unset.
   final String? neededBy;
 
+  /// The declared role kind (`role_kind`, one of [kJobRoleKinds]) — display /
+  /// classification only. It picks the role illustration on the worker's card;
+  /// null renders the generic art.
+  final String? roleKind;
+
   /// The closed-set demand skills the posting asks for (`match_skill_ids`).
   /// EMPTY means the posting materialises no reach — it can match no worker.
   final List<String> matchSkillIds;
+
+  /// Migration 0141 — the display-only ladder rung, or null.
+  final String? tradeLevel;
+
+  /// Migration 0141 — the poster's chip answers, or null. Keys/values are the
+  /// role pack's closed slugs; the API validates them before storing.
+  final Map<String, List<String>>? tradeAnswers;
 
   double get progress => quota == 0 ? 0 : filled / quota;
   int get pct => (progress * 100).round();
@@ -231,7 +258,10 @@ class JobPosting extends Equatable {
         requirements,
         shift,
         neededBy,
+        roleKind,
         matchSkillIds,
+        tradeLevel,
+        tradeAnswers,
       ];
 }
 
@@ -263,7 +293,11 @@ enum JobPostingClearField {
   /// Migration 0131 (#1840) — `job_postings.role_kind` is nullable, so "no role
   /// picked" is clearable. The app does not surface the role yet; the name is
   /// here so this set stays equal to the server's.
-  roleKind('role_kind');
+  roleKind('role_kind'),
+
+  /// Migration 0141 - both nullable.
+  tradeLevel('trade_level'),
+  tradeAnswers('trade_answers');
 
   const JobPostingClearField(this.wire);
 
@@ -354,6 +388,7 @@ class Applicant extends Equatable {
     this.industryMonths,
     this.matchedSkillLabel,
     this.lastWorkedAt,
+    this.levelFit,
     this.unlocked = false,
     this.unlockId,
   });
@@ -394,6 +429,11 @@ class Applicant extends Equatable {
   /// ISO timestamp / coarse "last worked" marker for the matched skill.
   final String? lastWorkedAt;
 
+  /// "Level needed" fit (#2548, ADR-0061): `meets | not_confirmed | below`, or
+  /// null when the list has no level sort (flag off, "Any level", or a trade
+  /// outside the 4). Display only — the server's order is authoritative.
+  final String? levelFit;
+
   final bool unlocked;
 
   /// The granted unlock id (set once a paid unlock succeeds) — carried so the
@@ -405,12 +445,9 @@ class Applicant extends Equatable {
   bool get viaRelated => matchTier == 2;
 
   /// Masked, PII-free label derived from the opaque UUID — e.g. "Worker ••3f9a".
-  /// Never a real name. Used on the faceless feed card + the unlock dialog.
-  String get maskedLabel {
-    final String id = workerId.replaceAll('-', '');
-    final String tail = id.length >= 4 ? id.substring(id.length - 4) : id;
-    return 'Worker ••$tail';
-  }
+  /// Never a real name. Used on the faceless feed card + the unlock dialog. One
+  /// derivation for every faceless card ([NameMask.workerLabel]).
+  String get maskedLabel => NameMask.workerLabel(workerId);
 
   /// Up to [max] SOFT signal chips synthesized from the ranking reasons. Only
   /// the qualitative `reason` text — never a raw/weight number or a score.
@@ -436,6 +473,7 @@ class Applicant extends Equatable {
         industryMonths: industryMonths,
         matchedSkillLabel: matchedSkillLabel,
         lastWorkedAt: lastWorkedAt,
+        levelFit: levelFit,
         unlocked: unlocked ?? this.unlocked,
         unlockId: unlockId ?? this.unlockId,
       );
@@ -457,6 +495,7 @@ class Applicant extends Equatable {
         industryMonths,
         matchedSkillLabel,
         lastWorkedAt,
+        levelFit,
         unlocked,
         unlockId,
       ];
@@ -485,6 +524,59 @@ class UnlockResult extends Equatable {
 
   @override
   List<Object?> get props => <Object?>[available, unlockId, expiresAt];
+}
+
+/// One row of `GET /payer/unlocks` — the caller's OWN unlocks (#2033 payer
+/// view). PII-free: opaque ids, the payer-visible [status] (`granted` |
+/// `revealed` | `expired` | `revoked`; the server derives `expired` from
+/// `expires_at` at read time) and the grant window. Never a name or phone.
+///
+/// Read so a card the payer ALREADY paid for opens on "View" instead of asking
+/// for another credit. Display state only: the server stays the authority — a
+/// re-unlock of a live grant returns that grant without a second debit (F-6).
+class PayerUnlock extends Equatable {
+  const PayerUnlock({
+    required this.unlockId,
+    required this.workerId,
+    required this.status,
+    this.expiresAt,
+  });
+
+  final String unlockId;
+
+  /// Null after a DSAR hard-delete SET NULL the column (migration 0030).
+  final String? workerId;
+  final String status;
+  final String? expiresAt;
+
+  /// A grant this payer can still reveal: the server says `granted`/`revealed`
+  /// AND its window has not lapsed by [now]. Both must agree, so a device clock
+  /// running behind can never present a grant the server already expired.
+  bool isLiveAt(DateTime now) {
+    if (status != 'granted' && status != 'revealed') return false;
+    final DateTime? until =
+        expiresAt == null ? null : DateTime.tryParse(expiresAt!);
+    return until == null || until.isAfter(now);
+  }
+
+  /// Null for a row without an unlock id — nothing could reveal it.
+  static PayerUnlock? tryFromJson(Object? json) {
+    if (json is! Map<String, dynamic>) return null;
+    final Object? id = json['unlock_id'];
+    if (id is! String || id.isEmpty) return null;
+    final Object? worker = json['worker_id'];
+    final Object? status = json['status'];
+    final Object? expires = json['expires_at'];
+    return PayerUnlock(
+      unlockId: id,
+      workerId: worker is String && worker.isNotEmpty ? worker : null,
+      status: status is String ? status : '',
+      expiresAt: expires is String && expires.isNotEmpty ? expires : null,
+    );
+  }
+
+  @override
+  List<Object?> get props => <Object?>[unlockId, workerId, status, expiresAt];
 }
 
 /// Result of `POST /payer/unlocks/:unlockId/reveal`. Success carries a
@@ -603,12 +695,31 @@ class PayerDisclosure extends Equatable {
 /// message with PII. Money DENY (HTTP 200 `{status:"unavailable"}`) is NOT this
 /// — that is a typed unavailable result, not an exception.
 class PayerApiException implements Exception {
-  const PayerApiException(this.statusCode, {this.code});
+  const PayerApiException(
+    this.statusCode, {
+    this.code,
+    this.validationMessage,
+    this.fieldErrors = const <String, String>{},
+  });
 
   final int statusCode;
 
   /// Optional opaque server error code (never PII).
   final String? code;
+
+  /// The server's first FIELD-level validation message, already made
+  /// human-readable (e.g. `Job title: Must not contain a company name.`).
+  /// Null when the failure is not a per-field validation issue. The server
+  /// names the field, never the offending value, so this is safe to render.
+  final String? validationMessage;
+
+  /// #2595 — EVERY field-level issue of a validation 400, keyed by the wire
+  /// field at the head of its path (`role_title`, `description`, `benefits`
+  /// for `benefits.2`), first issue per field winning. Each message is
+  /// phrased to sit AT that field, so it carries no field label
+  /// (`Must not contain links.`). Empty when the 400 names no field. Same
+  /// safety as [validationMessage]: field and reason only, never the value.
+  final Map<String, String> fieldErrors;
 
   bool get isConflict => statusCode == 409;
   bool get isBadRequest => statusCode == 400;
@@ -617,6 +728,10 @@ class PayerApiException implements Exception {
   /// #1652 — a job edit that both SET and CLEARED one field (see
   /// [kJobEditSetAndClearedCode]).
   bool get isSetAndCleared => code == kJobEditSetAndClearedCode;
+
+  /// #2635 — a company job write refused because the job would be live
+  /// without one of the 16 trades (see [kPostingTradeRequiredCode]).
+  bool get isPostingTradeRequired => code == kPostingTradeRequiredCode;
 
   @override
   String toString() =>
@@ -649,43 +764,39 @@ const String kJobEditSetAndClearedMessage =
     'Nothing was saved — one detail was both changed and removed in the same '
     'save. Open the job again and retry.';
 
-/// Result of buying/topping-up a job posting's applicant-visibility PLAN
-/// (`POST /payer/job-postings/:id/plan` and `.../quota-topup`). Flattens the
-/// `{plan{applicantVisibilityQuota,status}, quote{finalInr}, paused, wouldPause}`
-/// response to the handful of fields the My-jobs card surfaces. PII-free.
-class PlanPurchase extends Equatable {
-  const PlanPurchase({
-    this.applicantVisibilityQuota,
-    this.status,
-    this.finalInr,
-    this.paused = false,
-    this.wouldPause = false,
-  });
+/// The [PayerApiException.code] for a job-edit PATCH the server refused because
+/// nothing supplied differed from the stored row (`400 no effective changes to
+/// apply`). Not a closed job and not a validation failure — the save was a
+/// no-op. The HTTP client stamps this from the server's message so the UI can
+/// say "nothing changed" instead of the old blanket "already closed" claim.
+const String kJobEditNoChangesCode = 'JOB_EDIT_NO_CHANGES';
 
-  final int? applicantVisibilityQuota;
-  final String? status;
+/// The [PayerApiException.code] for a job-edit PATCH rejected because the row
+/// is `closed` (`400 Job is closed and cannot be edited`) — closed is terminal.
+const String kJobEditClosedCode = 'JOB_EDIT_CLOSED';
 
-  /// The charged amount in ₹ from the quote (`finalInr`) — shown in the toast.
-  final int? finalInr;
-  final bool paused;
-  final bool wouldPause;
+/// What the payer is told on [kJobEditNoChangesCode]: the save was a no-op.
+const String kJobEditNoChangesMessage =
+    'Nothing to save — change a field first.';
 
-  @override
-  List<Object?> get props =>
-      <Object?>[applicantVisibilityQuota, status, finalInr, paused, wouldPause];
-}
+/// What the payer is told on [kJobEditClosedCode]: closed is terminal.
+const String kJobEditClosedMessage = 'This job is closed and cannot be edited.';
 
-/// Result of boosting a job posting (`POST /payer/job-postings/:id/boost`).
-/// Flattens `{boost{status}, quote{finalInr}}`. PII-free.
-class BoostPurchase extends Equatable {
-  const BoostPurchase({this.status, this.finalInr});
+/// #2635 — the [PayerApiException.code] for a company job write the server
+/// refused because it would leave a LIVE job outside the 16 postable trades:
+/// publishing one that names none of them, or moving an open/paused one off
+/// them. Matching runs only for those trades, so such a job would reach nobody.
+///
+/// It is the server's own machine-readable `error.reason`, verbatim — unlike
+/// the codes above, the HTTP client reads it rather than inferring it from a
+/// message. Never rendered: the payer sees [kPostingTradeRequiredMessage].
+const String kPostingTradeRequiredCode = 'posting_trade_required';
 
-  final String? status;
-  final int? finalInr;
-
-  @override
-  List<Object?> get props => <Object?>[status, finalInr];
-}
+/// What the payer is told on [kPostingTradeRequiredCode] — AT the trade
+/// picker, never in place of it, and never the server's own message. Also the
+/// forms' own refusal when a company job has no trade picked yet, so one rule
+/// reads one way wherever it is met.
+const String kPostingTradeRequiredMessage = 'Pick one of the 16 trades';
 
 // --- Agency demand (ADR-0022) — jobs + referral funnel --------------------
 // The agency (role='agent') owns its OWN faceless `jobs` rows: a coarse
@@ -739,6 +850,78 @@ const Map<String, String> kAgencyTradeLabels = <String, String>{
 
 /// Label for a trade key — falls back to the raw key for an unknown value.
 String agencyTradeLabel(String key) => kAgencyTradeLabels[key] ?? key;
+
+/// The 27 declared job ROLE kinds (`role_kind`, migration 0131) — DISPLAY /
+/// CLASSIFICATION ONLY, never a match input. This is the value that picks the
+/// role illustration on the worker's job card; a posting without it still
+/// renders the generic art. Mirrors `TRADE_FORM_KINDS_ALL` in
+/// `@badabhai/types` (the backend's closed enum), so the payer app asks for the
+/// same field payer-web already sends.
+const List<String> kJobRoleKinds = <String>[
+  'cnc_turner',
+  'vmc_milling',
+  'cnc_grinding',
+  'conventional_machinist',
+  'tool_die_maker',
+  'cam_programmer',
+  'cad_draughtsman',
+  'welder',
+  'sheet_metal_worker',
+  'press_operator',
+  'painter_coating',
+  'fitter',
+  'maintenance_technician',
+  'industrial_electrician',
+  'assembly_line_worker',
+  'quality_inspector',
+  'injection_moulding_operator',
+  'mould_die_maker',
+  'blow_moulding_operator',
+  'rubber_moulding_operator',
+  'plastic_process_technician',
+  'cad_designer_3d',
+  'plc_automation_technician',
+  'edm_wirecut_operator',
+  'heat_treatment_technician',
+  'production_supervisor',
+  'foundry_forging_operator',
+];
+
+/// Human labels for [kJobRoleKinds] (display only — the wire always carries the
+/// key). Mirrors `JOB_ROLE_LABELS` in `@badabhai/types`.
+const Map<String, String> kJobRoleLabels = <String, String>{
+  'cnc_turner': 'CNC Turner',
+  'vmc_milling': 'CNC Machining Centre Operator',
+  'cnc_grinding': 'CNC Grinding Operator',
+  'conventional_machinist': 'Conventional Machinist',
+  'tool_die_maker': 'Tool & Die Maker',
+  'cam_programmer': 'CAM Programmer',
+  'cad_draughtsman': 'CAD Designer / Draughtsman',
+  'welder': 'Welder',
+  'sheet_metal_worker': 'Sheet Metal Worker',
+  'press_operator': 'Press-shop Operator',
+  'painter_coating': 'Painter / Powder Coating / Plating',
+  'fitter': 'Fitter',
+  'maintenance_technician': 'Maintenance Technician',
+  'industrial_electrician': 'Industrial Electrician',
+  'assembly_line_worker': 'Assembly Technician',
+  'quality_inspector': 'Quality Inspector / QC',
+  'injection_moulding_operator': 'Injection Moulding Operator',
+  'mould_die_maker': 'Mould / Die Maker (Plastics)',
+  'blow_moulding_operator': 'Blow Moulding / Extrusion Operator',
+  'rubber_moulding_operator': 'Rubber Moulding / Compression Operator',
+  'plastic_process_technician': 'Plastic Process / Quality Technician',
+  'cad_designer_3d': '3D CAD Designer',
+  'plc_automation_technician': 'PLC / Automation Technician',
+  'edm_wirecut_operator': 'EDM / Wire-cut Operator',
+  'heat_treatment_technician': 'Heat-Treatment Technician',
+  'production_supervisor': 'Production Supervisor',
+  'foundry_forging_operator': 'Foundry / Forging Operator',
+};
+
+/// Label for a role kind — null when the value is not one of the 27.
+String? jobRoleLabel(String? kind) =>
+    kind == null ? null : kJobRoleLabels[kind];
 
 /// The coarse `needed_by` timing enum the agency route accepts.
 const List<String> kAgencyNeededBy = <String>['immediate', 'soon', 'flexible'];
@@ -807,7 +990,10 @@ class AgencyJobView extends Equatable {
     this.shift,
     this.benefits,
     this.requirements,
+    this.roleKind,
     this.matchSkillIds = const <String>[],
+    this.tradeLevel,
+    this.tradeAnswers,
     this.createdAt,
     this.updatedAt,
   });
@@ -827,6 +1013,9 @@ class AgencyJobView extends Equatable {
         minExperienceYears: (row['minExperienceYears'] as num?)?.toInt(),
         maxExperienceYears: (row['maxExperienceYears'] as num?)?.toInt(),
         neededBy: row['neededBy'] as String?,
+        // Migration 0131 — the display role. The agency view returns it as
+        // `roleKind`; tolerate `role_kind` too for an older wire shape.
+        roleKind: row['roleKind'] as String? ?? row['role_kind'] as String?,
         // #1647 — the write-only four, now readable. An ABSENT key stays null
         // (an older deployment simply does not return them); only a real `[]`
         // becomes an empty list, so "unstated" and "cleared" stay distinct.
@@ -836,7 +1025,10 @@ class AgencyJobView extends Equatable {
         requirements: _optionalStringList(row['requirements']),
         // ADR-0050 — the closed-set demand skills (`match_skill_ids`), returned
         // as an array once the API serves it; absent stays `[]` (no skills).
-        matchSkillIds: _optionalStringList(row['match_skill_ids']) ?? const <String>[],
+        matchSkillIds:
+            _optionalStringList(row['match_skill_ids']) ?? const <String>[],
+        tradeLevel: row['tradeLevel'] as String?,
+        tradeAnswers: _optionalStringMapList(row['tradeAnswers']),
         applicantsReceived: (row['applicantsReceived'] as num?)?.toInt() ?? 0,
         createdAt: row['createdAt'] as String?,
         updatedAt: row['updatedAt'] as String?,
@@ -862,6 +1054,11 @@ class AgencyJobView extends Equatable {
   final int? maxExperienceYears;
   final String? neededBy;
 
+  /// The declared role kind (`role_kind`, one of [kJobRoleKinds]) — display /
+  /// classification only. It picks the role illustration on the worker's card;
+  /// null renders the generic art.
+  final String? roleKind;
+
   // --- The WORKER-VISIBLE content the job card renders VERBATIM -------------
   // `AgencyService.toJobView` returns all four since #1647, so the edit form
   // PREFILLS them instead of telling the payer their typing overwrites a value
@@ -875,6 +1072,10 @@ class AgencyJobView extends Equatable {
   /// The closed-set demand skills this agency job asks for (`match_skill_ids`,
   /// ADR-0050). Empty when none picked / the API does not serve it yet.
   final List<String> matchSkillIds;
+
+  /// Migration 0141 — the display-only rung and the poster's chip answers.
+  final String? tradeLevel;
+  final Map<String, List<String>>? tradeAnswers;
   final int applicantsReceived;
   final String? createdAt;
   final String? updatedAt;
@@ -928,7 +1129,10 @@ class AgencyJobView extends Equatable {
         shift,
         benefits,
         requirements,
+        roleKind,
         matchSkillIds,
+        tradeLevel,
+        tradeAnswers,
         applicantsReceived,
         createdAt,
         updatedAt,
@@ -958,7 +1162,11 @@ enum AgencyJobClearField {
 
   /// Migration 0131 (#1840) — `jobs.role_kind` is nullable, so it is clearable
   /// (unlike `trade_key`). Not surfaced by the app yet.
-  roleKind('role_kind');
+  roleKind('role_kind'),
+
+  /// Migration 0141 - both nullable.
+  tradeLevel('trade_level'),
+  tradeAnswers('trade_answers');
 
   const AgencyJobClearField(this.wire);
 
@@ -972,6 +1180,19 @@ enum AgencyJobClearField {
 List<String>? _optionalStringList(Object? value) => value is List<dynamic>
     ? List<String>.unmodifiable(value.whereType<String>())
     : null;
+
+/// A closed-slug answer map (`{question_key: [option_key, …]}`), or null.
+Map<String, List<String>>? _optionalStringMapList(Object? value) {
+  if (value is! Map) return null;
+  final out = <String, List<String>>{};
+  for (final entry in value.entries) {
+    final key = entry.key;
+    final list = entry.value;
+    if (key is! String || list is! List) continue;
+    out[key] = List<String>.unmodifiable(list.whereType<String>());
+  }
+  return Map<String, List<String>>.unmodifiable(out);
+}
 
 /// The agency referral FUNNEL summary (`GET /payer/agency/referrals/summary`).
 /// AGGREGATE counts only — there are NO per-worker rows on this seam (faceless).
@@ -1008,246 +1229,6 @@ class ReferralsSummary extends Equatable {
 
   @override
   List<Object?> get props => <Object?>[created, clicked, accepted, minBucket];
-}
-
-// --- Agency supply-money — KYC · earnings · payouts (ADR-0022 Amdt 2) ------
-// AGENT-only + FLAG-GATED: every `/payer/agency/{kyc,earnings,payouts}` route
-// sits behind `AgencyPayoutsEnabledGuard`, which returns a NEUTRAL 404 while the
-// launch flag is OFF (the whole surface is inert by default). The client treats
-// that 404 as an honest "not available yet" state, NEVER a crash/generic error.
-// All money is MOCK server-side (no disbursement); a payout REQUEST is a plain
-// authed POST — there is NO gateway/card/checkout here (money-OUT, not money-IN).
-// Reads are MASKED: KYC only ever returns last-4, never full PAN/bank. camelCase
-// on the wire.
-
-/// The masked KYC view (`POST /payer/agency/kyc` 201 + `GET /payer/agency/kyc`).
-/// Financial PII is encrypted at rest server-side and NEVER echoed — the only
-/// derivatives here are the [status] enum and the last-4 of PAN / bank account.
-class AgencyKycView extends Equatable {
-  const AgencyKycView({
-    required this.status,
-    this.panLast4,
-    this.bankLast4,
-    this.rejectReason,
-    this.updatedAt,
-  });
-
-  factory AgencyKycView.fromJson(Map<String, dynamic> row) => AgencyKycView(
-        status: row['status'] as String? ?? 'not_submitted',
-        panLast4: row['panLast4'] as String?,
-        bankLast4: row['bankLast4'] as String?,
-        rejectReason: row['rejectReason'] as String?,
-        updatedAt: row['updatedAt'] as String?,
-      );
-
-  /// `not_submitted` | `pending` | `verified` | `rejected`.
-  final String status;
-
-  /// Last 4 of the PAN (masked) — null until a submission exists.
-  final String? panLast4;
-
-  /// Last 4 of the bank account (masked) — null until a submission exists.
-  final String? bankLast4;
-
-  /// A bounded reason CODE when [status] is `rejected` (never free-text PII).
-  final String? rejectReason;
-
-  /// ISO-8601 last-updated timestamp, or null when never submitted.
-  final String? updatedAt;
-
-  bool get isNotSubmitted => status == 'not_submitted';
-  bool get isPending => status == 'pending';
-  bool get isVerified => status == 'verified';
-  bool get isRejected => status == 'rejected';
-
-  @override
-  List<Object?> get props =>
-      <Object?>[status, panLast4, bankLast4, rejectReason, updatedAt];
-}
-
-/// Earnings analytics + the payout-gate state (`GET /payer/agency/earnings`).
-/// PII-free: ₹ integers + config economics + the gate flags. [canRequest] is the
-/// server's own decision (KYC verified AND ≥ threshold AND flag on); the client
-/// never re-derives it — it only reflects it and shows [blockedReason] honestly.
-class AgencyEarnings extends Equatable {
-  const AgencyEarnings({
-    required this.totalAccruedInr,
-    required this.requestableInr,
-    required this.inRequestInr,
-    required this.paidInr,
-    required this.accrualCount,
-    required this.kycStatus,
-    required this.thresholdInr,
-    required this.basisInr,
-    required this.rateBps,
-    required this.windowDays,
-    required this.payoutsEnabled,
-    required this.canRequest,
-    this.blockedReason,
-  });
-
-  factory AgencyEarnings.fromJson(Map<String, dynamic> row) => AgencyEarnings(
-        totalAccruedInr: (row['totalAccruedInr'] as num?)?.toInt() ?? 0,
-        requestableInr: (row['requestableInr'] as num?)?.toInt() ?? 0,
-        inRequestInr: (row['inRequestInr'] as num?)?.toInt() ?? 0,
-        paidInr: (row['paidInr'] as num?)?.toInt() ?? 0,
-        accrualCount: (row['accrualCount'] as num?)?.toInt() ?? 0,
-        kycStatus: row['kycStatus'] as String? ?? 'not_submitted',
-        thresholdInr: (row['thresholdInr'] as num?)?.toInt() ?? 0,
-        basisInr: (row['basisInr'] as num?)?.toInt() ?? 0,
-        rateBps: (row['rateBps'] as num?)?.toInt() ?? 0,
-        windowDays: (row['windowDays'] as num?)?.toInt() ?? 0,
-        payoutsEnabled: row['payoutsEnabled'] as bool? ?? false,
-        canRequest: row['canRequest'] as bool? ?? false,
-        blockedReason: row['blockedReason'] as String?,
-      );
-
-  /// Lifetime ₹ accrued (all commission ever earned).
-  final int totalAccruedInr;
-
-  /// Unclaimed ₹ available to request right now.
-  final int requestableInr;
-
-  /// ₹ claimed into an open (mock-pending) payout request.
-  final int inRequestInr;
-
-  /// ₹ claimed into a settled (mock) payout.
-  final int paidInr;
-
-  /// Number of commission accruals behind [totalAccruedInr].
-  final int accrualCount;
-
-  /// The KYC gate state (`not_submitted`|`pending`|`verified`|`rejected`).
-  final String kycStatus;
-
-  /// Minimum ₹ a request must clear.
-  final int thresholdInr;
-
-  /// ₹ commission basis per qualifying unlock.
-  final int basisInr;
-
-  /// Commission rate in basis points (e.g. 2500 = 25%).
-  final int rateBps;
-
-  /// The attribution window in days.
-  final int windowDays;
-
-  /// Whether the launch flag is on server-side.
-  final bool payoutsEnabled;
-
-  /// The server's decision: may a payout be requested right now?
-  final bool canRequest;
-
-  /// Why a request would be refused (`kyc_not_verified`|`below_threshold`|
-  /// `disabled`), or null when [canRequest]. A CODE — humanize at the edge.
-  final String? blockedReason;
-
-  bool get isKycVerified => kycStatus == 'verified';
-
-  /// ₹ short of the threshold (0 once cleared) — drives the progress copy.
-  int get remainingToThresholdInr {
-    final int gap = thresholdInr - requestableInr;
-    return gap > 0 ? gap : 0;
-  }
-
-  @override
-  List<Object?> get props => <Object?>[
-        totalAccruedInr,
-        requestableInr,
-        inRequestInr,
-        paidInr,
-        accrualCount,
-        kycStatus,
-        thresholdInr,
-        basisInr,
-        rateBps,
-        windowDays,
-        payoutsEnabled,
-        canRequest,
-        blockedReason,
-      ];
-}
-
-/// The outcome of `POST /payer/agency/payouts` — HTTP 200 EITHER way. A pass
-/// carries the created request; a gate refusal carries a [blockedReason] CODE
-/// and changes nothing server-side. NOT a payment: no gateway/card is involved.
-class PayoutRequestResult extends Equatable {
-  const PayoutRequestResult({
-    required this.ok,
-    this.requestId,
-    this.amountInr,
-    this.accrualCount,
-    this.blockedReason,
-  });
-
-  factory PayoutRequestResult.fromJson(Map<String, dynamic> row) =>
-      PayoutRequestResult(
-        ok: row['ok'] as bool? ?? false,
-        requestId: row['requestId'] as String?,
-        amountInr: (row['amountInr'] as num?)?.toInt(),
-        accrualCount: (row['accrualCount'] as num?)?.toInt(),
-        blockedReason: row['reason'] as String?,
-      );
-
-  /// True when the request was accepted (accruals claimed into a payout row).
-  final bool ok;
-
-  /// The created payout request id (present only when [ok]).
-  final String? requestId;
-
-  /// ₹ claimed into the request (present only when [ok]).
-  final int? amountInr;
-
-  /// Accruals claimed into the request (present only when [ok]).
-  final int? accrualCount;
-
-  /// The refusal CODE when NOT [ok] (`kyc_not_verified`|`below_threshold`|
-  /// `disabled`).
-  final String? blockedReason;
-
-  @override
-  List<Object?> get props =>
-      <Object?>[ok, requestId, amountInr, accrualCount, blockedReason];
-}
-
-/// One payout request in the agency's OWN history (`GET /payer/agency/payouts`
-/// rows). PII-free: ₹ + opaque id + status enum. `status='paid'` is INERT in
-/// alpha (no real disbursement — the §7 launch gate).
-class AgencyPayout extends Equatable {
-  const AgencyPayout({
-    required this.id,
-    required this.amountInr,
-    required this.accrualCount,
-    required this.status,
-    this.createdAt,
-  });
-
-  factory AgencyPayout.fromJson(Map<String, dynamic> row) => AgencyPayout(
-        id: row['id'] as String? ?? '',
-        amountInr: (row['amountInr'] as num?)?.toInt() ?? 0,
-        accrualCount: (row['accrualCount'] as num?)?.toInt() ?? 0,
-        status: row['status'] as String? ?? 'requested',
-        createdAt: row['createdAt'] as String?,
-      );
-
-  /// Opaque payout-request UUID.
-  final String id;
-
-  /// ₹ of the request.
-  final int amountInr;
-
-  /// Accruals claimed into the request.
-  final int accrualCount;
-
-  /// `requested` | `paid` | `rejected`.
-  final String status;
-
-  /// ISO-8601 created timestamp.
-  final String? createdAt;
-
-  @override
-  List<Object?> get props =>
-      <Object?>[id, amountInr, accrualCount, status, createdAt];
 }
 
 // --- Org / team members (ADR-0027) ----------------------------------------
@@ -1419,6 +1400,159 @@ class MatchSkill extends Equatable {
       <Object?>[skillId, label, industryId, relatedSkillIds];
 }
 
+/// Migration 0141 — one chip on the role-specific posting form.
+class PostingTradeOption extends Equatable {
+  const PostingTradeOption({
+    required this.optionKey,
+    required this.value,
+    required this.label,
+    required this.match,
+    this.matchSkillIds = const <String>[],
+  });
+
+  factory PostingTradeOption.fromJson(Map<String, dynamic> row) =>
+      PostingTradeOption(
+        optionKey: row['option_key'] as String? ?? '',
+        value: row['value'] as String? ?? row['option_key'] as String? ?? '',
+        label: row['label'] as String? ?? '',
+        match: row['match'] as bool? ?? false,
+        matchSkillIds:
+            (row['match_skill_ids'] as List<dynamic>? ?? const <dynamic>[])
+                .whereType<String>()
+                .toList(growable: false),
+      );
+
+  final String optionKey;
+  final String value;
+  final String label;
+
+  /// True when tapping this chip adds a match skill and changes reach.
+  final bool match;
+  final List<String> matchSkillIds;
+
+  @override
+  List<Object?> get props =>
+      <Object?>[optionKey, value, label, match, matchSkillIds];
+}
+
+/// One question/chip group on the role-specific posting form.
+class PostingTradeQuestion extends Equatable {
+  const PostingTradeQuestion({
+    required this.questionKey,
+    required this.prompt,
+    required this.answerType,
+    this.options = const <PostingTradeOption>[],
+  });
+
+  factory PostingTradeQuestion.fromJson(Map<String, dynamic> row) =>
+      PostingTradeQuestion(
+        questionKey: row['question_key'] as String? ?? '',
+        prompt: row['prompt'] as String? ?? '',
+        answerType: row['answer_type'] as String? ?? 'multi_select',
+        options: (row['options'] as List<dynamic>? ?? const <dynamic>[])
+            .whereType<Map<String, dynamic>>()
+            .map(PostingTradeOption.fromJson)
+            .toList(growable: false),
+      );
+
+  final String questionKey;
+  final String prompt;
+
+  /// `single_select` or `multi_select`.
+  final String answerType;
+  final List<PostingTradeOption> options;
+
+  bool get singleSelect => answerType == 'single_select';
+
+  @override
+  List<Object?> get props =>
+      <Object?>[questionKey, prompt, answerType, options];
+}
+
+/// One rung of the trade's display-only ladder.
+class PostingTradeRung extends Equatable {
+  const PostingTradeRung({
+    required this.rung,
+    required this.monthsFloor,
+    required this.evidence,
+    required this.confirmed,
+    required this.priceTier,
+  });
+
+  factory PostingTradeRung.fromJson(Map<String, dynamic> row) =>
+      PostingTradeRung(
+        rung: row['rung'] as String? ?? '',
+        monthsFloor: row['monthsFloor'] as String? ?? '',
+        evidence: row['evidence'] as String? ?? '',
+        confirmed: row['confirmed'] as bool? ?? false,
+        priceTier: row['priceTier'] as String? ?? 'lower',
+      );
+
+  final String rung;
+  final String monthsFloor;
+  final String evidence;
+  final bool confirmed;
+  final String priceTier;
+
+  @override
+  List<Object?> get props =>
+      <Object?>[rung, monthsFloor, evidence, confirmed, priceTier];
+}
+
+/// The whole posting-side definition of one trade (`GET /payer/posting-trades`).
+class PostingTradeForm extends Equatable {
+  const PostingTradeForm({
+    required this.roleKind,
+    required this.roleLabel,
+    required this.packId,
+    required this.matchSkillId,
+    this.ladder = const <PostingTradeRung>[],
+    this.questions = const <PostingTradeQuestion>[],
+  });
+
+  factory PostingTradeForm.fromJson(Map<String, dynamic> row) =>
+      PostingTradeForm(
+        roleKind: row['role_kind'] as String? ?? '',
+        roleLabel:
+            row['role_label'] as String? ?? row['role_kind'] as String? ?? '',
+        packId: row['pack_id'] as String? ?? '',
+        matchSkillId: row['match_skill_id'] as String? ?? '',
+        ladder: (row['ladder'] as List<dynamic>? ?? const <dynamic>[])
+            .whereType<Map<String, dynamic>>()
+            .map(PostingTradeRung.fromJson)
+            .toList(growable: false),
+        questions: (row['questions'] as List<dynamic>? ?? const <dynamic>[])
+            .whereType<Map<String, dynamic>>()
+            .map(PostingTradeQuestion.fromJson)
+            .toList(growable: false),
+      );
+
+  final String roleKind;
+  final String roleLabel;
+  final String packId;
+  final String matchSkillId;
+  final List<PostingTradeRung> ladder;
+  final List<PostingTradeQuestion> questions;
+
+  /// The base match skill plus every selected match chip, de-duplicated.
+  List<String> matchSkillIdsFor(Map<String, List<String>> answers) {
+    final out = <String>{matchSkillId};
+    for (final question in questions) {
+      final selected = answers[question.questionKey] ?? const <String>[];
+      for (final option in question.options) {
+        if (selected.contains(option.optionKey)) {
+          out.addAll(option.matchSkillIds);
+        }
+      }
+    }
+    return out.toList(growable: false);
+  }
+
+  @override
+  List<Object?> get props =>
+      <Object?>[roleKind, roleLabel, packId, matchSkillId, ladder, questions];
+}
+
 /// A related-skill preview under a picked [ReachSkill] (`related[]` rows of the
 /// reach-preview response). [ticked] is the server's default include/exclude
 /// state; the UI may untick it (sending the id in `unticked_related_ids`), which
@@ -1501,11 +1635,11 @@ class ReachPreview extends Equatable {
             .whereType<Map<String, dynamic>>()
             .map(ReachSkill.fromJson)
             .toList(growable: false),
-        reachSkillIds:
-            ((body['reach_skill_ids'] ?? body['reachSkillIds']) as List<dynamic>? ??
-                    const <dynamic>[])
-                .whereType<String>()
-                .toList(growable: false),
+        reachSkillIds: ((body['reach_skill_ids'] ?? body['reachSkillIds'])
+                    as List<dynamic>? ??
+                const <dynamic>[])
+            .whereType<String>()
+            .toList(growable: false),
         reachTotal:
             ((body['reach_total'] ?? body['reachTotal']) as num?)?.toInt() ?? 0,
         reachTier1:
@@ -1585,11 +1719,10 @@ class AgencyWorker extends Equatable {
         appliedCount:
             ((row['appliedCount'] ?? row['applied_count']) as num?)?.toInt() ??
                 0,
-        unlockedCount:
-            ((row['unlockedCount'] ?? row['unlocked_count']) as num?)?.toInt() ??
-                0,
-        lastActiveOn:
-            (row['lastActiveOn'] ?? row['last_active_on']) as String?,
+        unlockedCount: ((row['unlockedCount'] ?? row['unlocked_count']) as num?)
+                ?.toInt() ??
+            0,
+        lastActiveOn: (row['lastActiveOn'] ?? row['last_active_on']) as String?,
       );
 
   /// Opaque worker referral handle — never a name/phone.
@@ -1600,8 +1733,13 @@ class AgencyWorker extends Equatable {
   final String? lastActiveOn;
 
   @override
-  List<Object?> get props =>
-      <Object?>[ref, profileComplete, appliedCount, unlockedCount, lastActiveOn];
+  List<Object?> get props => <Object?>[
+        ref,
+        profileComplete,
+        appliedCount,
+        unlockedCount,
+        lastActiveOn
+      ];
 }
 
 /// One freshly minted agency invite (`POST /payer/agency/invites/batch` rows).

@@ -370,6 +370,12 @@ describe("payerMeWireSchema — orgId/orgRole (#2079 contract)", () => {
     expect(orgRoleWireSchema.options).toEqual(["owner", "recruiter"]);
   });
 
+  it("parses a phone-only account's null email, and an email account unchanged (#2497/#2499)", () => {
+    const phoneOnly = payerMeWireSchema.parse(meBody({ email: null }));
+    expect(phoneOnly.email).toBeNull();
+    expect(payerMeWireSchema.parse(meBody()).email).toBe("owner@acme.example");
+  });
+
   it("parses owner / recruiter / null, and an ABSENT pair as undefined (older API)", () => {
     expect(payerMeWireSchema.parse(meBody({ orgRole: "owner" })).orgRole).toBe("owner");
     expect(payerMeWireSchema.parse(meBody({ orgRole: "recruiter" })).orgRole).toBe("recruiter");

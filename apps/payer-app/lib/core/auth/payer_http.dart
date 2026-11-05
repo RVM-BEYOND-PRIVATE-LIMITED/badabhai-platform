@@ -117,9 +117,18 @@ class PayerHttp {
     Map<String, dynamic>? body,
     bool authed = true,
     String? idempotencyKey,
+    String? bearerOverride,
   }) async {
     final PayerResponse res = await _rawSend(method, path,
-        body: body, authed: authed, idempotencyKey: idempotencyKey);
+        body: body,
+        authed: authed,
+        idempotencyKey: idempotencyKey,
+        bearerOverride: bearerOverride);
+
+    // An explicit token (the signup-password step, before the session is
+    // persisted) is a one-shot call: no refresh, no forced re-auth. The caller
+    // owns that token and the session does not exist locally yet.
+    if (bearerOverride != null) return res;
 
     // Only authed calls take part in the 401 → refresh → retry dance.
     if (!authed || res.statusCode != 401) return res;
@@ -156,6 +165,7 @@ class PayerHttp {
     Map<String, dynamic>? body,
     bool authed = true,
     String? idempotencyKey,
+    String? bearerOverride,
   }) async {
     final Uri uri = Uri.parse('$baseUrl$path');
     final Map<String, String> headers = <String, String>{
@@ -169,7 +179,7 @@ class PayerHttp {
       headers['idempotency-key'] = idempotencyKey;
     }
     if (authed) {
-      final String? token = _tokenStore.accessToken;
+      final String? token = bearerOverride ?? _tokenStore.accessToken;
       if (token != null && token.isNotEmpty) {
         headers['authorization'] = 'Bearer $token';
       }
@@ -202,7 +212,12 @@ class PayerHttp {
         // Persist a rolling refresh BEFORE decoding, so the very next call already
         // signs with the fresh bearer even if this response is an error the caller
         // rethrows.
-        await _adoptRollingToken(path, res, authed: authed);
+        // Never persist a rolling token from a call made with an EXPLICIT
+        // bearer (the signup-password step): the session must not exist locally
+        // until the password is set and the caller saves it deliberately.
+        if (bearerOverride == null) {
+          await _adoptRollingToken(path, res, authed: authed);
+        }
         return await _decode(res);
       } on TimeoutException {
         // A timeout means the server ACCEPTED the request but did not answer inside

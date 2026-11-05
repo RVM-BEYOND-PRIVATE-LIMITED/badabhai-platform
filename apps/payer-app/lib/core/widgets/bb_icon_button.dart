@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 
 import '../theme/app_colors.dart';
+import '../theme/app_haptics.dart';
 import '../theme/app_spacing.dart';
+import 'bb_pressable.dart';
 
 /// A square, outlined icon button — `.bb-iconbtn--outline`. The back-arrow and
 /// bell affordances in screen headers. Always a 48px tap target.
@@ -19,11 +21,25 @@ class BbIconButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // #2591 — the shared press (0.97 + light haptic) wraps the existing button.
+    return BbPressable.passive(
+      enabled: onPressed != null,
+      borderRadius: BorderRadius.circular(AppRadii.md),
+      child: _button(),
+    );
+  }
+
+  Widget _button() {
     return Material(
       color: AppColors.surfaceCard,
       borderRadius: BorderRadius.circular(AppRadii.md),
       child: InkWell(
-        onTap: onPressed,
+        onTap: onPressed == null
+            ? null
+            : () {
+                AppHaptics.tap();
+                onPressed!();
+              },
         borderRadius: BorderRadius.circular(AppRadii.md),
         child: Container(
           width: AppSpacing.tap,

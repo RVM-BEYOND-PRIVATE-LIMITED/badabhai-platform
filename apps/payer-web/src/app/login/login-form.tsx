@@ -6,7 +6,7 @@ import { Badge, Button, Input, OtpInput, Tabs, Toast, tabId, tabPanelId } from "
 import { requestCodeAction, signupAction, verifyCodeAction } from "./actions";
 import { looksLikeLoginEmail } from "./email-shape";
 import { usePortalNavigation } from "../../components/portal-navigation";
-import { INVALID_ORG_NAME, INVALID_PHONE, SEND_CONFIRMATION } from "./messages";
+import { INVALID_ORG_NAME, INVALID_PHONE } from "./messages";
 import type { PayerRole } from "../../lib/auth";
 import { Icon, type IconName } from "@badabhai/icons";
 
@@ -164,8 +164,6 @@ export function LoginForm() {
     setStep("code");
     // Resend countdown is driven by the SERVER cooldown — never a hard-coded number.
     setCooldown(resendInSeconds);
-    // Neutral, account-state-independent confirmation. The code is NEVER echoed.
-    setInfo(SEND_CONFIRMATION);
   }
 
   /** Step 1 (signin) — request a login code for the email. UNCHANGED logic. */
@@ -260,8 +258,8 @@ export function LoginForm() {
 
   const statusRegion = (
     <div aria-live="polite" className="login-status">
-      {info ? (
-        <Toast tone={succeeded ? "success" : "brand"} title={succeeded ? "Signed in" : "Login code"}>
+      {info && succeeded ? (
+        <Toast tone="success" title="Signed in">
           {info}
         </Toast>
       ) : null}

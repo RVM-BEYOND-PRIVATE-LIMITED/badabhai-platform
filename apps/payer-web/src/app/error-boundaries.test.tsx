@@ -204,7 +204,7 @@ describe("PortalError — a way out when an error replaced the page", () => {
     [`/postings/${ID}`, COMPANY, "/postings", "Postings"],
     [`/postings/${ID}/applicants`, COMPANY, "/postings", "Postings"],
     [`/postings/${ID}/edit`, COMPANY, "/postings", "Postings"],
-    ["/postings/ai/new", COMPANY, "/postings/new", "New posting"],
+    ["/postings/ai/new", COMPANY, "/postings", "Postings"],
     [`/agency/jobs/${ID}`, AGENCY, "/agency/jobs", "Postings"],
   ] as const)("%s → back up to its section (%s %s), and the Dashboard", (path, s, href, label) => {
     expect(links(path, [...s])).toEqual([

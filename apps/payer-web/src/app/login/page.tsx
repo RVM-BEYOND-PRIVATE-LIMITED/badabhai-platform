@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { Icon } from "@badabhai/icons";
 import { payerAuth } from "../../lib/auth";
 import { BadaBhaiLogo, ThemeToggle } from "../../components/ds";
 import { NavPendingStatus } from "../../components/nav-pending";
@@ -7,25 +8,20 @@ import { LoginForm } from "./login-form";
 export const dynamic = "force-dynamic";
 
 /**
- * Payer login (ADR-0019 Phase 1 — REAL-OTP only, B-R1 OPEN) — DS1.1 re-skin onto the
- * design system.
+ * Payer login (ADR-0019 Phase 1 — REAL-OTP only, B-R1 OPEN) — designr5 split auth desk.
  *
- * ONE centred card at every width. A two-column split with a left brand/value panel was
- * tried and removed: this screen is reached by someone who has already decided to sign in,
- * so a marketing column beside the form is a second thing to read before the one control
- * that matters. Nothing was lost with it — the panel carried no state, no affordance and
- * no copy the form needs — and the card is now identical from a phone to an ultrawide
- * rather than being two different screens at 1023px and 1024px.
+ * ONE shell at every width: a slim brand bar, the auth card, and a trust footer. Above the
+ * card's breakpoint the card is the designr5 split — the form on paper, the hiring-engine
+ * proof panel on Shift Blue; below it the proof panel drops under the form so the control
+ * that matters stays first.
  *
- * PR-D2 brand band: the lockup sits on a Shift Blue band across the top of the card (the
- * `on-ink` lockup — ivory/yellow mark, white logotype — with a Safety Yellow rule under it).
- * The band is navy in BOTH themes (`--surface-ink` does not flip), so the lockup is always the
- * on-ink variant here. Presentation only: the page's single h1 and the form are unchanged.
+ * PRESENTATION ONLY. The auth path is unchanged: REAL OTP only, no mock/dev sign-in and no
+ * code convenience on this surface. The code is delivered to the payer's email and typed in —
+ * never displayed, pre-filled, or one-click skipped. A third-party IdP / MFA is a separate
+ * human gate (B-R1).
  *
- * Login is the backend payer-auth OTP flow ONLY; there is NO mock/dev sign-in and NO
- * code convenience on this surface. The code is delivered to the payer's email and typed
- * in — never displayed, pre-filled, or one-click skipped. A third-party IdP / MFA is a
- * separate human gate (B-R1).
+ * The aside's claims are the design's own marketing copy. It carries no live read and no
+ * payer/worker data; the form remains the only interactive surface it describes.
  */
 export default async function LoginPage() {
   const existing = await payerAuth().currentSession();
@@ -34,25 +30,104 @@ export default async function LoginPage() {
   return (
     <div className="login-wrap login-wrap--auth">
       {/* The navigation cue's bar and polite status line — this page has no portal shell to
-          render them, and a verified code navigates to the dashboard (components/nav-pending.tsx).
-          Fixed and visually hidden: they take no space in the centred card's layout. */}
+          render them, and a verified code navigates to the dashboard (components/nav-pending.tsx). */}
       <NavPendingStatus />
       {/* Pre-auth theme control — the preference is available before sign-in too. */}
       <div className="login-theme">
         <ThemeToggle />
       </div>
 
-      <main className="login-card">
-        <div className="login-card__brand">
-          <BadaBhaiLogo size={44} theme="ink" />
-        </div>
-        <h1 className="login-card__title">Your hiring desk</h1>
-        <p className="login-card__sub">
-          Sign in, or create a Company or Agency account. We email you a one-time code.
-        </p>
+      <div className="login-shell">
+        <header className="login-topbar">
+          <BadaBhaiLogo size={30} />
+          <div className="login-topbar__right">
+            <span className="login-topbar__status">
+              <span className="login-topbar__dot" aria-hidden="true" />
+              Direct verified applicant network
+            </span>
+            <span className="login-topbar__help">Need assistance?</span>
+          </div>
+        </header>
 
-        <LoginForm />
-      </main>
+        <div className="login-split">
+          <main className="login-card">
+            <div className="login-intro">
+              <span className="login-eyebrow">
+                <Icon name="list-bullets" />
+                Badabhai Employer Portal
+              </span>
+              <h1 className="login-card__title">Your hiring desk</h1>
+            </div>
+
+            <LoginForm />
+          </main>
+
+          <aside className="login-aside" aria-label="Why hire with BadaBhai">
+            <p className="login-aside__eyebrow">
+              India&rsquo;s leading blue &amp; grey collar hiring engine
+            </p>
+            <h2 className="login-aside__title">Hire workers directly. No middleman delays.</h2>
+            <p className="login-aside__lead">
+              Access thousands of pre-screened delivery executives, warehouse staff, drivers, and
+              frontline operators in minutes.
+            </p>
+
+            <ul className="login-aside__features">
+              <li>
+                <span className="login-aside__icon">
+                  <Icon name="seal-check" />
+                </span>
+                <div>
+                  <strong>180,000+ Verified Workers</strong>
+                  <p>Pre-verified, ID-checked, driving licenses, and immediate availability.</p>
+                </div>
+              </li>
+              <li>
+                <span className="login-aside__icon">
+                  <Icon name="whatsapp-logo" />
+                </span>
+                <div>
+                  <strong>Instant WhatsApp Connect</strong>
+                  <p>Contact candidates directly via WhatsApp and direct call routing.</p>
+                </div>
+              </li>
+              <li>
+                <span className="login-aside__icon">
+                  <Icon name="hand-coins" />
+                </span>
+                <div>
+                  <strong>50 Free Hiring Credits</strong>
+                  <p>Get 50 free contact unlocks for your first set of candidates today.</p>
+                </div>
+              </li>
+            </ul>
+
+            <figure className="login-quote">
+              <span className="login-quote__avatar" aria-hidden="true">
+                RK
+              </span>
+              <figcaption className="login-quote__body">
+                <span className="login-quote__name">Rahul Kumar &middot; Warehouse Lead</span>
+                <span className="login-quote__meta">Placed at Techcorp in 9 days</span>
+              </figcaption>
+              <span className="login-quote__badge">Match 98%</span>
+            </figure>
+
+            <p className="login-aside__join">
+              Join 3,200+ companies hiring efficiently with Badabhai.
+            </p>
+          </aside>
+        </div>
+
+        <footer className="login-foot">
+          <span>© 2026 Badabhai Technologies Private Limited. All rights reserved.</span>
+          <span className="login-foot__links">
+            <span>Privacy Policy</span>
+            <span>Terms of Service</span>
+            <span>Enterprise Security</span>
+          </span>
+        </footer>
+      </div>
     </div>
   );
 }

@@ -14,6 +14,7 @@ import {
   startJobPostingChatSession,
 } from "../../../../../lib/payer-api";
 import { isPayerValidationError } from "../../../../../lib/payer-errors";
+import { roleKindInputSchema } from "../../../../../lib/job-roles";
 
 /**
  * AI job-posting chat Server Actions (ADR-0035 — the 5 frozen payer-authed endpoints).
@@ -34,6 +35,9 @@ import { isPayerValidationError } from "../../../../../lib/payer-errors";
  */
 
 const sessionIdSchema = z.string().uuid();
+
+/** Same cap as the manual `areaSchema`; the publish route re-validates it server-side. */
+const areaInputSchema = z.string().trim().min(1).max(120);
 
 const NOT_FOUND = "That conversation could not be found.";
 
@@ -104,16 +108,33 @@ export async function resumeJobPostingChatAction(input: {
 
 /**
  * Publish the session's draft as a REAL job posting (the unchanged `createForPayer` path).
- * On success the caller routes to the posting's EXISTING detail page — no new detail UI.
+ * On success the caller routes to the posting's EDIT page so any remaining card gaps are named.
+ *
+ * `roleKind` (#2490) is the publish-step role pick — the same closed 21-value set the manual
+ * form re-validates. OPTIONAL: absent means the posting stores NULL and the worker card draws
+ * the generic art, exactly as before. DISPLAY ONLY; it is never a match input.
+ *
+ * `area` (#2493) is the COARSE locality bucket — prefilled from the interview draft and
+ * editable at publish. OPTIONAL: absent stores NULL, so the worker card shows the city alone.
  */
 export async function publishJobPostingChatAction(input: {
   sessionId: string;
+  roleKind?: string;
+  area?: string;
 }): Promise<ChatPublishResult> {
   if (!sessionIdSchema.safeParse(input.sessionId).success) {
     return { ok: false, error: NOT_FOUND };
   }
+  if (input.roleKind !== undefined) {
+    const role = roleKindInputSchema.safeParse(input.roleKind);
+    if (!role.success) return { ok: false, error: "Pick a valid role." };
+  }
+  const area = input.area?.trim() || undefined;
+  if (area !== undefined && !areaInputSchema.safeParse(area).success) {
+    return { ok: false, error: "Keep the area under 120 characters." };
+  }
   try {
-    const published = await publishJobPostingChatSession(input.sessionId);
+    const published = await publishJobPostingChatSession(input.sessionId, input.roleKind, area);
     if (!published) return { ok: false, error: NOT_FOUND };
     revalidatePath("/postings");
     return {

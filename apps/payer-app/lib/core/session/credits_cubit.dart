@@ -19,6 +19,15 @@ class CreditsState extends Equatable {
   /// True when the LAST refresh failed — the UI shows '—' + a retry affordance.
   final bool error;
 
+  /// The balance left after ONE more 1-credit unlock — the confirm dialog's
+  /// preview, for every unlock path. Null when the balance is unknown or the
+  /// last refresh failed (rendered '—'), NEVER a fabricated 0 (#189 fast-follow).
+  int? get afterOneUnlock {
+    final int? known = error ? null : balance;
+    if (known == null) return null;
+    return (known - 1).clamp(0, known);
+  }
+
   @override
   List<Object?> get props => <Object?>[balance, error];
 }

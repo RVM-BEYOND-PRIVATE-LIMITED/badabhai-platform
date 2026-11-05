@@ -446,8 +446,8 @@ Trade: HMC Machining''';
   );
 
   testWidgets(
-    'the tab\'s history: a NAHI BANI entry is disabled with the reason, the '
-    'READY entry beside it stays live',
+    'OWNER ASK 2026-10-21: the tab draws no "Pichle resume" section even with '
+    'history; the profile card\'s Download stays live',
     (WidgetTester tester) async {
       await pumpScreen(
         tester,
@@ -457,32 +457,15 @@ Trade: HMC Machining''';
       );
       await tester.pumpAndSettle();
 
-      final Finder section = find.byType(ResumeHistorySection);
-      expect(section, findsOneWidget);
-      final List<BbButton> downloads = tester
-          .widgetList<BbButton>(
-            find.descendant(of: section, matching: find.widgetWithText(BbButton, 'Download')),
-          )
-          .toList();
-      expect(downloads, hasLength(2));
-      expect(downloads.first.onPressed, isNotNull, reason: 'the READY entry');
-      expect(downloads.last.onPressed, isNull, reason: 'the NAHI BANI entry');
-      expect(
-        find.descendant(of: section, matching: find.text(kResumePdfUnavailableMessage)),
-        findsOneWidget,
-      );
-      // The current résumé rendered: the profile card above is live.
+      expect(find.byType(ResumeHistorySection), findsNothing);
       expect(buttonIn(tester, profileCard, 'Download').onPressed, isNotNull);
     },
   );
 
   testWidgets(
-    'the history SURVIVES a résumé load that lands after it — the section and '
-    'its Downloads stay on the tab',
+    'a résumé load that lands after the history read leaves the profile card '
+    'live and draws no history section',
     (WidgetTester tester) async {
-      // Realistic ordering: the history answers fast, the résumé's own reads
-      // slowly. Every résumé emit used to rebuild the state without the
-      // history, so the LAST one to land wiped "Pichle resume" off the tab.
       await pumpScreen(
         tester,
         name: 'Ramesh Kumar',
@@ -495,14 +478,8 @@ Trade: HMC Machining''';
       await tester.pump(const Duration(milliseconds: 500));
       await tester.pumpAndSettle();
 
-      expect(find.byType(ResumeHistorySection), findsOneWidget);
-      expect(
-        find.descendant(
-          of: find.byType(ResumeHistorySection),
-          matching: find.widgetWithText(BbButton, 'Download'),
-        ),
-        findsNWidgets(2),
-      );
+      expect(find.byType(ResumeHistorySection), findsNothing);
+      expect(buttonIn(tester, profileCard, 'Download').onPressed, isNotNull);
     },
   );
 

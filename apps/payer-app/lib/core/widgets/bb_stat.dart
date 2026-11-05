@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_spacing.dart';
 import '../theme/app_typography.dart';
+import 'bb_pressable.dart';
 
 /// Trend direction of a [BbStat] delta — `.bb-stat__delta--*`.
 enum BbStatDelta { up, down, flat }
@@ -35,9 +36,9 @@ class BbStat extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final (Color deltaColor, IconData deltaIcon) = switch (delta) {
-      BbStatDelta.up => (AppColors.success, Icons.trending_up),
-      BbStatDelta.down => (AppColors.danger, Icons.trending_down),
-      BbStatDelta.flat => (AppColors.textMuted, Icons.remove),
+      BbStatDelta.up => (AppColors.success, Icons.trending_up_rounded),
+      BbStatDelta.down => (AppColors.danger, Icons.trending_down_rounded),
+      BbStatDelta.flat => (AppColors.textMuted, Icons.remove_rounded),
     };
 
     final Widget deltaRow = Row(
@@ -94,7 +95,9 @@ class BbStat extends StatelessWidget {
           ),
           const SizedBox(height: AppSpacing.s1),
           if (onDeltaTap != null)
-            InkWell(
+            // #2591 — BbPressable brings its own Material, so the ripple paints
+            // above the tile's white fill instead of under it (it was invisible).
+            BbPressable(
               onTap: onDeltaTap,
               borderRadius: BorderRadius.circular(AppRadii.xs),
               // A visually-small delta link ("View ledger") must still meet the
@@ -106,7 +109,7 @@ class BbStat extends StatelessWidget {
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: <Widget>[
-                      const Icon(Icons.add, size: 14, color: AppColors.success),
+                      const Icon(Icons.add_rounded, size: 14, color: AppColors.success),
                       const SizedBox(width: 4),
                       Text(
                         deltaText,

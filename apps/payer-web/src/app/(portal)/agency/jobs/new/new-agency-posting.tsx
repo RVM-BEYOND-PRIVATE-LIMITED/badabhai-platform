@@ -22,9 +22,11 @@ import { createAgencyJobAction } from "../../dashboard/jobs-actions";
 export function NewAgencyPosting({
   matchSkills,
   lead,
+  payerRef,
 }: {
   matchSkills: MatchSkillWire[];
   lead: ReactNode;
+  payerRef?: string;
 }) {
   const { navigate } = usePortalNavigation();
   return (
@@ -32,6 +34,7 @@ export function NewAgencyPosting({
       mode="create"
       matchSkills={matchSkills}
       lead={lead}
+      payerRef={payerRef}
       submitLabel="Publish posting"
       onCancel={() => navigate("/agency/jobs", { pendingLabel: "Postings" })}
       onSubmit={async (input) => {

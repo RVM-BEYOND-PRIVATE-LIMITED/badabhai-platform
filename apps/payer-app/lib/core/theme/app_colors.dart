@@ -10,7 +10,7 @@ import 'package:flutter/material.dart';
 ///
 ///  - **Haldi** #FFC400 — the hero. Primary CTAs, highlights, rails (ONE per
 ///    screen). Text on haldi is ALWAYS deep blue.
-///  - **Blue**  #123D8C — structure, trust, headers, links, dark surfaces.
+///  - **Blue**  #0E1946 — structure, trust, headers, links, dark surfaces.
 ///  - **Green** #1E7A3C — success / money / WhatsApp only.
 ///  - **Red**   #C62828 — failure only.
 ///  - **Ink**   #101828 → #475069 → #8A92A6 — neutral slate text ramp.
@@ -25,13 +25,13 @@ class AppColors {
   static const Color haldi = Color(0xFFFFC400); // hero — CTAs, highlights, rails
   static const Color haldiPressed = Color(0xFFE0AC00);
   static const Color haldiTint = Color(0xFFFFF3CC); // soft warning/brand tint
-  static const Color onHaldi = Color(0xFF123D8C); // text on yellow = deep blue
+  static const Color onHaldi = Color(0xFF0E1946); // text on yellow = deep blue
 
-  static const Color blue = Color(0xFF123D8C); // structure, trust, headers, links
-  static const Color bluePressed = Color(0xFF0D2D68);
-  static const Color blueTintChat = Color(0xFFE9F0FB); // outgoing chat / info tint
+  static const Color blue = Color(0xFF0E1946); // structure, trust, headers, links
+  static const Color bluePressed = Color(0xFF070D26);
+  static const Color blueTintChat = Color(0xFFEEF1F8); // outgoing chat / info tint
   static const Color onBlue = Color(0xFFFFFFFF);
-  static const Color onBlueMuted = Color(0xFFB9C8E6);
+  static const Color onBlueMuted = Color(0xFFBAC6E5);
 
   static const Color canvas = Color(0xFFF2F4F8); // page background
   static const Color paper = Color(0xFFFFFFFF); // cards
@@ -83,17 +83,17 @@ class AppColors {
   static const Color green700 = Color(0xFF0F4A24);
 
   // ---- Rani pink (not in the system) → fold to Blue ----
-  static const Color pink50 = Color(0xFFE9F0FB);
-  static const Color pink100 = Color(0xFFB9C8E6);
-  static const Color pink500 = Color(0xFF123D8C);
-  static const Color pink600 = Color(0xFF0D2D68);
+  static const Color pink50 = Color(0xFFEEF1F8);
+  static const Color pink100 = Color(0xFFBAC6E5);
+  static const Color pink500 = Color(0xFF0E1946);
+  static const Color pink600 = Color(0xFF070D26);
 
   // ---- Turquoise (not in the system) → fold to Blue ----
-  static const Color teal50 = Color(0xFFE9F0FB);
-  static const Color teal100 = Color(0xFFB9C8E6);
-  static const Color teal500 = Color(0xFF123D8C);
-  static const Color teal600 = Color(0xFF0D2D68);
-  static const Color teal700 = Color(0xFF0D2D68);
+  static const Color teal50 = Color(0xFFEEF1F8);
+  static const Color teal100 = Color(0xFFBAC6E5);
+  static const Color teal500 = Color(0xFF0E1946);
+  static const Color teal600 = Color(0xFF070D26);
+  static const Color teal700 = Color(0xFF070D26);
 
   // ---- Crimson (danger) — new red ramp ----
   static const Color red50 = Color(0xFFFBEAEA);
@@ -137,9 +137,9 @@ class AppColors {
   static const Color textMuted = Color(0xFF667085);
   static const Color textFaint = Color(0xFF667085);
   static const Color textInverse = paper0; // white
-  static const Color textBrand = blue; // #123D8C
-  static const Color textOnBrand = blue; // #123D8C — text on haldi is deep blue
-  static const Color textLink = blue; // #123D8C
+  static const Color textBrand = blue; // #0E1946
+  static const Color textOnBrand = blue; // #0E1946 — text on haldi is deep blue
+  static const Color textLink = blue; // #0E1946
 
   // surfaces
   static const Color surfacePage = paper2; // canvas #F2F4F8
@@ -147,8 +147,8 @@ class AppColors {
   static const Color surfaceRaised = paper1; // white
   static const Color surfaceSunken = paper3; // #EDF0F5
   static const Color surfaceInset = paper4; // #EDF0F5
-  static const Color surfaceInk = blue; // #123D8C dark surface
-  static const Color surfaceInk2 = bluePressed; // #0D2D68
+  static const Color surfaceInk = blue; // #0E1946 dark surface
+  static const Color surfaceInk2 = bluePressed; // #070D26
 
   // brand (haldi)
   static const Color brand = haldi;
@@ -175,7 +175,7 @@ class AppColors {
   static const Color warning = haldi;
   static const Color warningTint = haldiTint;
   static const Color info = blue;
-  static const Color infoTint = blueTintChat; // #E9F0FB
+  static const Color infoTint = blueTintChat; // #EEF1F8
 
   // lines & dividers (solid #D8DEE9 hairlines — the only separation tool)
   static const Color borderSubtle = border; // #D8DEE9
@@ -188,7 +188,7 @@ class AppColors {
   static const Color ring = Color(0x6BFFC400);
 
   // scrim (deep-blue)
-  static const Color scrim = Color(0x8F0D1B3A);
+  static const Color scrim = Color(0x8F0E1946);
 
   /// Motif border colours — festive (green) + double (haldi) — used on hero
   /// cards (job card, resume header, form pop-up).

@@ -619,7 +619,7 @@ describe("PostingsManager — A11Y-OF-FAILURE: per-row error region is aria-live
     expect(cls.has("state__actions")).toBe(false);
     const text = textOf(tree);
     expect(text).toContain("No postings yet");
-    expect(text).toContain("use New posting above");
+    expect(text).toContain("use New posting in the sidebar.");
     expect(hrefs(tree)).toEqual([]);
     // FACELESS: an empty feed names nobody.
     expect(text).not.toMatch(/\b(phone|worker name)\b/i);

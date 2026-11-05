@@ -8,17 +8,25 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/bb_badge.dart';
 import '../../../core/widgets/bb_button.dart';
-import '../../../core/widgets/bb_card.dart';
+import '../../../core/widgets/bb_new_item_highlight.dart';
+import '../../../core/widgets/bb_refresh.dart';
+import '../../../core/widgets/bb_skeleton.dart';
 import '../../../core/widgets/bb_status_view.dart';
-import '../../../core/widgets/bb_toast.dart';
+import '../../../core/widgets/bb_tab_scope.dart';
 import 'cubit/agency_jobs_cubit.dart';
 import 'edit_agency_job_screen.dart';
+import 'widgets/job_card_actions.dart';
+import 'widgets/job_list_format.dart';
+import 'widgets/jobs_empty_state.dart';
+import 'widgets/trade_posting_fields.dart' show humaniseTradeKey;
 
 /// My jobs — AGENCY branch. Lists the agency session's own faceless postings
 /// (`GET /payer/agency/jobs`): trade label · title · city/area · pay & experience
 /// bands (if set) · applicants-received · a status pill (open/paused/closed). A
-/// non-closed row offers Close; a closed row is terminal. Agent-only — the shell
-/// only mounts this for an agency session (the routes 403 for a company).
+/// non-closed row has ONE main action (Applicants) plus a "⋯" sheet with Edit
+/// and Close — a Close always asks first (#2594); a closed row is terminal. No
+/// postings yet → [JobsEmptyState]. Agent-only — the shell only mounts this for
+/// an agency session (the routes 403 for a company).
 ///
 /// NO PAUSE BUTTON (backend contract): on the deployed backend
 /// `POST /payer/agency/jobs/:id/pause` maps to a TERMINAL close ("pause ==
@@ -28,35 +36,73 @@ import 'edit_agency_job_screen.dart';
 /// row (should the model carry one) renders a READ-ONLY pill and still offers
 /// Close only — never a Pause or Resume control.
 class AgencyJobsView extends StatelessWidget {
-  const AgencyJobsView({super.key, required this.onPost});
+  const AgencyJobsView({
+    super.key,
+    required this.onPost,
+    this.onApplicants,
+    this.highlight,
+  });
 
   final VoidCallback onPost;
+
+  /// Opens the candidate/applicant feed (the Find tab), shared with company,
+  /// on the tapped job's id (#2593).
+  final ValueChanged<String?>? onApplicants;
+
+  /// The posting just created (#2596) — scrolled into view and tinted, once.
+  final BbHighlightRequest? highlight;
 
   @override
   Widget build(BuildContext context) {
     return BlocProvider<AgencyJobsCubit>(
       create: (_) => locator<AgencyJobsCubit>()..load(),
-      child: _AgencyJobsBody(onPost: onPost),
+      // #2592 — a return to the tab re-reads the postings quietly.
+      child: BbTabRefreshListener(
+        onRefresh: _AgencyJobsBody.refreshQuietly,
+        child: _AgencyJobsBody(
+          onPost: onPost,
+          onApplicants: onApplicants,
+          highlight: highlight,
+        ),
+      ),
     );
   }
 }
 
 class _AgencyJobsBody extends StatelessWidget {
-  const _AgencyJobsBody({required this.onPost});
+  const _AgencyJobsBody({
+    required this.onPost,
+    this.onApplicants,
+    this.highlight,
+  });
 
   final VoidCallback onPost;
+  final ValueChanged<String?>? onApplicants;
+  final BbHighlightRequest? highlight;
+
+  /// #2592 — the quiet re-read behind pull-to-refresh and a return to the
+  /// tab: the postings stay on screen, and a failure says why in a toast.
+  static Future<void> refreshQuietly(BuildContext context) =>
+      refreshWithToast(context, context.read<AgencyJobsCubit>().refresh);
 
   @override
   Widget build(BuildContext context) {
-    return BlocBuilder<AgencyJobsCubit, AgencyJobsState>(
+    // #2592 — job-card skeletons while the postings load; the list
+    // cross-fades in over them.
+    return BbLoadingBuilder<AgencyJobsCubit, AgencyJobsState>(
+      isLoading: (AgencyJobsState s) =>
+          s.status == AgencyJobsStatus.loading ||
+          s.status == AgencyJobsStatus.initial,
+      skeleton: const BbSkeletonList(
+        header: BbSkeletonHeader(),
+        row: BbSkeletonJobRow(),
+        count: 3,
+        semanticLabel: 'Loading your jobs',
+      ),
       builder: (BuildContext context, AgencyJobsState state) {
-        if (state.status == AgencyJobsStatus.loading ||
-            state.status == AgencyJobsStatus.initial) {
-          return const BbStatusView.loading();
-        }
         if (state.status == AgencyJobsStatus.error) {
           return BbStatusView(
-            icon: Icons.wifi_off,
+            icon: Icons.wifi_off_rounded,
             title: 'Could not load jobs',
             action: BbButton(
               label: 'Retry',
@@ -65,7 +111,18 @@ class _AgencyJobsBody extends StatelessWidget {
           );
         }
 
-        return ListView.builder(
+        // A new account has no postings: say what the tab is for and offer
+        // the next step (#2594). #2592 — it pulls to refresh too.
+        if (state.jobs.isEmpty) {
+          return BbRefreshIndicator(
+            onRefresh: () => refreshQuietly(context),
+            child: JobsEmptyState(onPost: onPost),
+          );
+        }
+
+        final Widget list = ListView.builder(
+          // Over-scrolls even when short, so pull-to-refresh always works.
+          physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.fromLTRB(
             AppSpacing.gutter,
             AppSpacing.s2,
@@ -79,59 +136,83 @@ class _AgencyJobsBody extends StatelessWidget {
             if (index != 0) {
               final AgencyJobView job = state.jobs[index - 1];
               return Padding(
+                // Keyed by job so a Close's refetch settles THIS card in place
+                // and never hands its state to another row.
+                key: ValueKey<String>(job.id),
                 padding: const EdgeInsets.only(bottom: AppSpacing.s3),
-                child: _AgencyJobCard(job: job),
+                // #2596 — the just-posted card scrolls into view, tinted once.
+                child: BbNewItemHighlight(
+                  active: highlight?.claim(job.id) ?? false,
+                  child: _AgencyJobCard(job: job, onApplicants: onApplicants),
+                ),
               );
             }
             return Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: <Widget>[
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      Text(
-                        'AGENCY JOB POSTINGS',
-                        style: AppTypography.eyebrow(color: AppColors.textMuted),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: <Widget>[
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: <Widget>[
+                          Text(
+                            'AGENCY JOB POSTINGS',
+                            style: AppTypography.eyebrow(
+                                color: AppColors.textMuted),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            countLabel(state.jobs.length, 'job'),
+                            style: AppTypography.header(
+                              size: AppTypography.sizeXl,
+                              weight: FontWeight.w800,
+                            ),
+                          ),
+                        ],
                       ),
-                      const SizedBox(height: 2),
-                      Text(
-                        '${state.jobs.length} jobs',
-                        style: AppTypography.display(
-                          size: AppTypography.sizeXl,
-                          weight: FontWeight.w800,
-                        ),
-                      ),
-                    ],
-                  ),
+                    ),
+                    BbButton(
+                      label: 'Post',
+                      // md (44px) not sm — a loud primary CTA clears the 48px tap
+                      // floor (#1082).
+                      size: BbButtonSize.md,
+                      iconLeft: Icons.add_rounded,
+                      onPressed: onPost,
+                    ),
+                  ],
                 ),
-                BbButton(
-                  label: 'Post',
-                  // md (44px) not sm — a loud primary CTA clears the 48px tap
-                  // floor (#1082).
-                  size: BbButtonSize.md,
-                  iconLeft: Icons.add,
-                  onPressed: onPost,
-                ),
-              ],
-            ),
-            const SizedBox(height: AppSpacing.s3),
+                const SizedBox(height: AppSpacing.s3),
               ],
             );
           },
+        );
+        return BbRefreshIndicator(
+          onRefresh: () => refreshQuietly(context),
+          child: list,
         );
       },
     );
   }
 }
 
-class _AgencyJobCard extends StatelessWidget {
-  const _AgencyJobCard({required this.job});
+class _AgencyJobCard extends StatefulWidget {
+  const _AgencyJobCard({required this.job, this.onApplicants});
 
   final AgencyJobView job;
+  final ValueChanged<String?>? onApplicants;
+
+  @override
+  State<_AgencyJobCard> createState() => _AgencyJobCardState();
+}
+
+class _AgencyJobCardState extends State<_AgencyJobCard> {
+  /// A Close is in flight — the "⋯" shows a spinner and takes no taps, so one
+  /// confirm sends one request.
+  bool _closing = false;
+
+  AgencyJobView get job => widget.job;
 
   // Green is reserved for VERIFIED only (kit law); an open posting is an
   // active/info state, not success green. Paused mirrors the company card's
@@ -142,18 +223,35 @@ class _AgencyJobCard extends StatelessWidget {
         _ => ('Closed', BbBadgeTone.neutral),
       };
 
-  Future<void> _run(
-    BuildContext context,
-    Future<JobActionResult> Function(AgencyJobsCubit) op,
-  ) async {
+  /// The "⋯" sheet: Edit and Close ONLY — see the class doc of
+  /// [AgencyJobsView] for why there is no Pause. A Close always asks first.
+  Future<void> _openMenu() async {
     final AgencyJobsCubit cubit = context.read<AgencyJobsCubit>();
-    final JobActionResult result = await op(cubit);
-    if (!context.mounted) return;
-    showBbToast(
+    final JobMenuAction? picked = await showJobActionSheet(
       context,
-      title: result.success ? 'Done' : 'Not now',
+      jobTitle: job.title,
+      actions: const <JobMenuAction>[JobMenuAction.edit, JobMenuAction.close],
+    );
+    if (picked == null || !mounted) return;
+    if (picked == JobMenuAction.edit) {
+      _openEdit(cubit);
+    } else if (picked == JobMenuAction.close) {
+      final bool confirmed =
+          await showCloseJobConfirm(context, jobTitle: job.title);
+      if (confirmed && mounted) await _close(cubit);
+    }
+  }
+
+  Future<void> _close(AgencyJobsCubit cubit) async {
+    setState(() => _closing = true);
+    final JobActionResult result = await cubit.closePosting(job.id);
+    if (!mounted) return;
+    setState(() => _closing = false);
+    showJobActionToast(
+      context,
+      JobLifecycleAction.close,
+      success: result.success,
       message: result.message,
-      icon: result.success ? Icons.check_circle : Icons.info_outline,
     );
   }
 
@@ -164,10 +262,15 @@ class _AgencyJobCard extends StatelessWidget {
       job.locationText,
       if (job.payRangeLabel != null) job.payRangeLabel!,
       if (job.experienceLabel != null) job.experienceLabel!,
+      // #2548 — read-only until level editing in the app is decided (Q1).
+      if (job.tradeLevel != null && job.tradeLevel!.isNotEmpty)
+        'Level needed: ${humaniseTradeKey(job.tradeLevel!)}',
     ];
 
-    return BbCard(
-      opacity: job.isClosed ? 0.62 : 1,
+    // A closed card fades to the row dim and collapses as its actions go — the
+    // job stays listed, only its card settles (#2594).
+    return JobCardSurface(
+      dimmed: job.isClosed,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
@@ -180,7 +283,7 @@ class _AgencyJobCard extends StatelessWidget {
                   children: <Widget>[
                     Text(
                       job.title,
-                      style: AppTypography.display(
+                      style: AppTypography.heading(
                         size: AppTypography.sizeMd,
                         weight: FontWeight.w700,
                       ),
@@ -211,27 +314,14 @@ class _AgencyJobCard extends StatelessWidget {
           ),
           const SizedBox(height: 4),
           Text(
-            '${job.applicantsReceived} applicants received',
+            '${countLabel(job.applicantsReceived, 'applicant')} received',
             style: AppTypography.body(
               size: AppTypography.sizeSm,
               color: AppColors.textMuted,
             ),
           ),
           const SizedBox(height: AppSpacing.s3),
-          ..._actions(context),
-          // Edit the posting — open OR paused (a closed job is terminal, and the
-          // server rejects a PATCH on a closed row).
-          if (!job.isClosed) ...<Widget>[
-            const SizedBox(height: AppSpacing.s2),
-            BbButton(
-              label: 'Edit details',
-              variant: BbButtonVariant.secondary,
-              size: BbButtonSize.sm,
-              iconLeft: Icons.edit_outlined,
-              block: true,
-              onPressed: () => _openEdit(context),
-            ),
-          ],
+          _actions(),
         ],
       ),
     );
@@ -239,45 +329,44 @@ class _AgencyJobCard extends StatelessWidget {
 
   /// Push the edit form, handing it the SHARED [AgencyJobsCubit] so a saved edit
   /// refetches the list. Named route so the crash reporter tags the screen.
-  void _openEdit(BuildContext context) {
+  void _openEdit(AgencyJobsCubit cubit) {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
         settings: const RouteSettings(name: 'payer/agency-job-edit'),
-        builder: (_) => EditAgencyJobScreen(
-          job: job,
-          cubit: context.read<AgencyJobsCubit>(),
-        ),
+        builder: (_) => EditAgencyJobScreen(job: job, cubit: cubit),
       ),
     );
   }
 
-  List<Widget> _actions(BuildContext context) {
+  /// ONE main action plus the "⋯" (#2594). The FIND tab is the candidate/
+  /// applicant feed for BOTH session kinds; Applicants opens it from the job
+  /// the agent is looking at. Edit and Close sit behind the "⋯" — open OR
+  /// paused (the server rejects a PATCH on a closed row, and a close is
+  /// terminal).
+  Widget _actions() {
     if (job.isClosed) {
-      return <Widget>[
-        Text(
-          'This job is closed.',
-          style: AppTypography.body(
-            size: AppTypography.sizeSm,
-            color: AppColors.textMuted,
-          ),
+      return Text(
+        'This job is closed.',
+        style: AppTypography.body(
+          size: AppTypography.sizeSm,
+          color: AppColors.textMuted,
         ),
-      ];
+      );
     }
-    final String id = job.id;
-    // Close ONLY — see the class doc: the backend pause endpoint is a terminal
-    // close, so offering Pause here would mislead the agent into losing a live
-    // posting. A `paused` row is treated the same (read-only pill, Close only).
-    // Restored once #1202 ships a real paused state + resume.
-    return <Widget>[
-      BbButton(
-        label: 'Close',
-        variant: BbButtonVariant.secondary,
-        size: BbButtonSize.sm,
-        iconLeft: Icons.close,
-        block: true,
-        onPressed: () =>
-            _run(context, (AgencyJobsCubit c) => c.closePosting(id)),
+    return JobCardActionRow(
+      main: BbButton(
+        label: 'Applicants',
+        // Navy commitment — the single haldi on this view is the header 'Post'.
+        variant: BbButtonVariant.navy,
+        size: BbButtonSize.md,
+        iconLeft: Icons.groups_rounded,
+        onPressed: widget.onApplicants == null
+            ? null
+            : () => widget.onApplicants!(job.id),
       ),
-    ];
+      jobTitle: job.title,
+      moreBusy: _closing,
+      onMore: _closing ? null : _openMenu,
+    );
   }
 }

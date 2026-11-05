@@ -10,6 +10,7 @@ import { BalanceChip } from "./balance-chip";
 import { AppShell } from "./app-shell";
 import { navSections } from "./nav-model";
 import { PortalBreadcrumb } from "./portal-breadcrumb";
+import { PageTitleHeading } from "./page-title-heading";
 
 export const dynamic = "force-dynamic";
 
@@ -83,6 +84,7 @@ export default async function PortalLayout({ children }: { children: ReactNode }
       }
       header={
         <>
+          <PageTitleHeading sections={sections} isAgency={isAgency} />
           <PortalBreadcrumb sections={sections} />
           <div className="pshell__headeractions">
             {balance != null ? (

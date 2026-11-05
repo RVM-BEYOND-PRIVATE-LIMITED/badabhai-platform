@@ -1,6 +1,5 @@
 "use client";
 
-import type { CSSProperties } from "react";
 import { Icon, type IconName } from "@badabhai/icons";
 import { RoleArt } from "@badabhai/role-art";
 import {
@@ -11,7 +10,6 @@ import {
   type JobCardDraft,
 } from "../lib/job-card-view";
 import { observeChipFold } from "../lib/job-card-fold";
-import { BadaBhaiLogo } from "./ds";
 
 /**
  * THE JOB-CARD PREVIEW — the worker's swipe card (`Design1JobCard`), drawn from what the payer
@@ -51,28 +49,52 @@ const CHIP_ICON: Record<JobCardChip["kind"], IconName> = {
   benefit: "gift",
 };
 
-/** The worker card's footer lockup, at the card's own scale (22dp mark, like `BrandBadge`). */
-const LOCKUP_SIZE = { "--bb-lockup-size": "calc(22 * var(--jcp-u))" } as CSSProperties;
+
 
 export interface JobCardPreviewProps {
   /** The card fields — a saved posting's, or a live form's (via `readCardForm`). */
   fields: CardFields;
   /** A live form's draft state (numbers that cannot be drawn, chip text not yet added). */
   draft?: JobCardDraft;
+  /**
+   * Draw the "Card preview — built from what you entered" caption under the card.
+   * On by default; the posting form's own "LIVE WORKER CARD PREVIEW" header
+   * supplies that context, so it passes false to keep the card itself clean.
+   */
+  showCaption?: boolean;
+  /**
+   * Grow to fit every entered row instead of clipping at the reference phone's
+   * content height. The form preview uses this so the payer can see everything
+   * they typed; the saved-posting surfaces keep the phone's clip.
+   */
+  expand?: boolean;
 }
 
-export function JobCardPreview({ fields, draft }: JobCardPreviewProps) {
+export function JobCardPreview({
+  fields,
+  draft,
+  showCaption = true,
+  expand = false,
+}: JobCardPreviewProps) {
   const view = toJobCardView(fields, draft);
   const hasTitle = view.title !== "";
   const hasPlace = view.place !== "";
   const salary = view.salary;
 
   return (
-    <figure className="jcp">
+    <figure className={expand ? "jcp jcp--expand" : "jcp"}>
       <div className="jcp__card">
         <div className="jcp__content" ref={observeChipFold}>
           <div className="jcp__flow">
-            <RoleArt roleKind={fields.role_kind} className="jcp__art" />
+            {/* The role art is the card's header, cropped to the phone's 84/300 window, with the
+                small white brand plate overlapping its top-left — exactly as Design1JobCard draws it. */}
+            <div className="jcp__artwrap">
+              <RoleArt roleKind={fields.role_kind} className="jcp__art" />
+              <span className="jcp__brandplate">
+                <span className="jcp__brandplate-mark" aria-hidden="true" />
+                <span className="jcp__brandplate-word">BadaBhai</span>
+              </span>
+            </div>
             <div className="jcp__titlerow">
               {/* An empty slot keeps the worker's (empty) text; its placeholder is drawn by CSS
                   from data-placeholder, so the card's own text is always the phone's. */}
@@ -176,11 +198,6 @@ export function JobCardPreview({ fields, draft }: JobCardPreviewProps) {
               (it sits on the clip edge); drawn as a dashed line once the payer shows all. */}
           <span className="jcp__foldline" data-fold-line="" aria-hidden="true" />
         </div>
-        <div className="jcp__brand">
-          <span className="jcp__brand-plate">
-            <BadaBhaiLogo style={LOCKUP_SIZE} />
-          </span>
-        </div>
       </div>
       <details className="jcp__fold" data-fold="">
         {/* The space is its own text node BETWEEN the spans: inside a span it was dropped from
@@ -191,7 +208,9 @@ export function JobCardPreview({ fields, draft }: JobCardPreviewProps) {
           <span className="jcp__fold-open">cut off on a typical phone — below the dashed line</span>
         </summary>
       </details>
-      <figcaption className="jcp__caption">Card preview — built from what you entered</figcaption>
+      {showCaption ? (
+        <figcaption className="jcp__caption">Card preview — built from what you entered</figcaption>
+      ) : null}
     </figure>
   );
 }
