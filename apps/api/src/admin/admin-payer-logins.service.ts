@@ -334,7 +334,7 @@ export class AdminPayerLoginsService {
         // `payer.created` carries no contact PII, only the opaque id and the role.
         await this.events.emit({
           event_name: "payer.created",
-          actor: { actor_type: "payer", actor_id: created.id },
+          actor: { actor_type: "admin", actor_id: admin.id },
           subject: { subject_type: "payer", subject_id: created.id },
           payload: {
             payer_id: created.id,
@@ -352,7 +352,9 @@ export class AdminPayerLoginsService {
       // SEPARATE, value-free audit row OUTSIDE it: admin id, action and the existing payer id
       // only — no email, no phone, no reason text.
       if (err instanceof ConflictException && conflictPayerId !== null) {
-        await this.repo.writeConflictAudit(admin.id, conflictPayerId).catch(() => undefined);
+        await this.repo
+          .writeConflictAudit(admin.id, conflictPayerId, ADMIN_ACTION_CODES.payer_login_create_conflict)
+          .catch(() => undefined);
       }
       throw err;
     }
@@ -360,10 +362,10 @@ export class AdminPayerLoginsService {
     // After commit. The free tier belongs to the OWNER account, exactly as signup grants it;
     // a team member spends the org's existing credits. `grantQuietly` never fails the creation.
     if (dto.member_of_org_id === undefined) await this.freeTier.grantQuietly(payerId);
+    await this.notice.notify(payerId, "setup");
     // No sessions exist for a just-created account, but the contract is "issue ends every
     // session" and this keeps that true if a retry races a login.
     await this.sessions.revokeAllForPayer(payerId);
-    await this.notice.notify(payerId, "reset");
 
     return {
       payer_id: payerId,
@@ -421,8 +423,8 @@ export class AdminPayerLoginsService {
     // The admin's new credential must be usable at once even if the payer was locked out on
     // the OLD one. Best-effort: the issue is safe to retry, which retries this clear too.
     await this.lockStates.clear(payerId);
-    await this.sessions.revokeAllForPayer(payerId);
     await this.notice.notify(payerId, "reset");
+    await this.sessions.revokeAllForPayer(payerId);
     return { payer_id: payerId, temporary_password: temporaryPassword, must_change_password: true };
   }
 
@@ -457,12 +459,15 @@ export class AdminPayerLoginsService {
 
     // Idempotent in the SESSION half too: a retry on an already-revoked account still sweeps
     // every live session. The write/event half stays a no-op.
-    await this.sessions.revokeAllForPayer(payerId);
     if (changed) await this.notice.notify(payerId, "revoked");
+    await this.sessions.revokeAllForPayer(payerId);
     return { payer_id: payerId, changed };
   }
 
-  /** One value-free `admin.action_performed` on the caller's transaction. */
+  /**
+   * Emit `payer.activated` (the lifecycle transition itself) on the caller's transaction. The
+   * actor is the ADMIN who vouched for the account; the payload carries both status ends.
+   */
   private emitActivated(
     tx: Database,
     adminId: string,

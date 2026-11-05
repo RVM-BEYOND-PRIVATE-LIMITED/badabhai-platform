@@ -318,7 +318,7 @@ guard's fail-closed `role: null`).
 |---|:---:|:---:|:---:|:---:|
 | Read events (explorer, filter on the 4 indexes) | ✅ | ✅ | ✅ | ✅ |
 | Read entities (workers/payers/jobs/postings — ids, enums, counts; **no contact PII**) — `read_entities`, implemented BP-1 (PR #574) | ✅ | ✅ | ✅ | ✅ |
-| **Read identities (the NAME behind an id, on the five entity/directory reads)** — `read_identity`, owner ruling 2026-08-18 reversing Decision 4 | ✅ | ✅ | ✅ | ❌ |
+| **Read identities (the NAME behind an id, on the six entity/directory reads)** — `read_identity`, owner ruling 2026-08-18 reversing Decision 4 | ✅ | ✅ | ✅ | ❌ |
 | **Manage payer credentials (create a login, issue a temporary password, revoke, User accounts list)** — `manage_payer_credentials`, #2563. The login ID (payer email, else phone) is disclosed ONLY on this surface, through `read_identity` and the audited name budget | ✅ | ✅ | ✅ | ❌ |
 | Read metrics / dashboards | ✅ | ✅ | ✅ | ✅ |
 | Export (PII-free events / aggregates) | ✅ | ✅ | ❌ | ❌ |

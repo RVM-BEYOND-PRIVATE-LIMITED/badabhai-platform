@@ -545,11 +545,11 @@ export class PayerAuthService {
     ctx: RequestContext,
   ): Promise<void> {
     await this.storeOwnPassword(payerId, password, ctx);
+    await this.notice.notify(payerId, "changed");
     // After the commit: Redis is not transactional with Postgres. A failure THROWS (see
     // revokeAllForPayerExcept) rather than reporting a completed change that left other
     // devices signed in — the retry is the same idempotent write plus a fresh revoke.
     await this.sessions.revokeAllForPayerExcept(payerId, currentSid);
-    await this.notice.notify(payerId, "changed");
   }
 
   /**
@@ -647,17 +647,30 @@ export class PayerAuthService {
       // Lost a concurrent forced-change race: the other request already stored its password,
       // so this one has no business minting a session on a credential it no longer holds.
       if (!replaced) throw new UnauthorizedException("Incorrect identifier or password");
+      // Send before the sweep: a notice must still go out if the session store is down.
+      await this.notice.notify(account.id, "changed");
       // No caller session exists yet: every session that does exist belongs to an earlier
       // credential and must end. A failure THROWS before a new session is minted.
       await this.sessions.revokeAllForPayer(account.id);
-      await this.notice.notify(account.id, "changed");
     }
 
     // Lazy org-hash fill for pre-#2493 rows (best-effort — never fails a good login).
-    // #2563 — ONLY for an org ROOT. Writing the founder's company-name hash onto a team
-    // member's row would make their login resolve the founder's company name and collide with
-    // the founder's own company-name sign-in.
-    if (!account.orgNameLookupHash) {
+    // #2563 follow-up — NEVER for a payer who has ever held a membership in another org.
+    // A team member's row can carry the founder's copied org name; writing its hash onto the
+    // member would make the founder's company-name sign-in collide with theirs. If an old
+    // row already carries that stale hash, clear it on the next login.
+    const everMember = await this.orgs
+      .hasEverBeenMemberOfOtherOrg(account.id)
+      .catch(() => false);
+    if (everMember) {
+      if (account.orgNameLookupHash) {
+        await this.payers.clearOrgLookupHash(account.id).catch((err: unknown) => {
+          this.logger.warn(
+            `payer stale org lookup clear failed payer=${account.id.slice(0, 8)}… reason=${err instanceof Error ? err.message : String(err)}`,
+          );
+        });
+      }
+    } else if (!account.orgNameLookupHash) {
       const isRoot = await this.orgs.isRootPayer(account.id).catch(() => false);
       if (isRoot) {
         await this.payers.ensureOrgLookupHash(account).catch((err: unknown) => {
@@ -670,6 +683,14 @@ export class PayerAuthService {
 
     const org = await this.resolveOrEnsureOrg(account.id);
     const session = await this.sessions.create(account.id, account.role, org);
+    // #2563 follow-up — strict against a revoke that commits concurrently with this sign-in.
+    // The row read above said password sign-in was open; if it has since closed, the session
+    // just minted must not survive. Revoke it and answer the same neutral 401 as a bad password.
+    const latest = await this.payers.findById(account.id);
+    if (latest?.passwordRevokedAt != null) {
+      await this.sessions.revoke(session.sid, account.id);
+      throw new UnauthorizedException("Incorrect identifier or password");
+    }
     await this.recordLogin(account.id);
     await this.events.emit({
       event_name: "payer.session_started",

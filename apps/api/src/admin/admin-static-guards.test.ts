@@ -936,10 +936,24 @@ describe("identity reads — one reader, one decrypter, and no name search", () 
 
   it("the identity SERVICE gates on read_identity, not on a route capability", () => {
     // The check cannot be a second decorator (`@RequireAdminRole` sets exactly one capability
-    // per route, asserted throughout this file), so it lives in the service — where a scan is
+    // per route, asserted throughout this file), so it lives in the service - where a scan is
     // the only thing standing between it and being quietly dropped in a refactor.
     const svc = code("admin-identity.service.ts");
     expect(svc).toContain(`can(admin.role, "read_identity")`);
+  });
+
+  it("the `payer_logins` identity surface is used ONLY by the payer-login service", () => {
+    // #2563 follow-up — the surface exists for the User accounts list. A second caller would
+    // silently become another place payer emails/phones are disclosed, outside that screen.
+    // `admin-identity.service.ts` is the dispatcher that implements the surface; every OTHER
+    // admin file must not name it.
+    const callers = tsFiles(ADMIN_DIR)
+      .filter((f) => !f.endsWith(".test.ts"))
+      .filter((f) => !f.endsWith("admin-identity.service.ts"))
+      .filter((f) => code(relative(ADMIN_DIR, f)).includes('"payer_logins"'))
+      .map((f) => relative(SRC_DIR, f).replace(/\\/g, "/"))
+      .sort();
+    expect(callers).toEqual(["admin/admin-payer-logins.service.ts"]);
   });
 });
 

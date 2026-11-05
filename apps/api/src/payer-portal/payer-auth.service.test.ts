@@ -64,6 +64,7 @@ function setup(over: { method?: "email_otp" | "whatsapp" | "supabase" } = {}) {
     recordLogin: vi.fn(async () => undefined),
     withTransaction: vi.fn(async (work: (tx: unknown) => Promise<unknown>) => work({})),
     ensureOrgLookupHash: vi.fn(async () => undefined),
+    clearOrgLookupHash: vi.fn(async () => undefined),
     findById: vi.fn(async (): Promise<Record<string, unknown> | undefined> => account),
     // ADR-0037 — first successful verify promotes pending → active. Default: the account
     // is already active in this fixture, so the guarded update moves no row (undefined)
@@ -88,6 +89,8 @@ function setup(over: { method?: "email_otp" | "whatsapp" | "supabase" } = {}) {
     ensureSoloOrg: vi.fn(async () => ({ orgId: "org-1", orgRole: "owner" })),
     // #2563 — the lazy company-name hash backfill runs only for an org ROOT.
     isRootPayer: vi.fn(async () => true),
+    // #2563 follow-up — a payer who ever held another org's membership never gets the backfill.
+    hasEverBeenMemberOfOtherOrg: vi.fn(async () => false),
   };
   // ADR-0053 — the acting-org choice. `resolveActingOrg` serves refresh (no heal); login asks
   // `ensureActingOrg`, the ONE place a missing org is repaired (the real heal is exercised by
@@ -97,7 +100,7 @@ function setup(over: { method?: "email_otp" | "whatsapp" | "supabase" } = {}) {
     ensureActingOrg: vi.fn(async () => ({ orgId: "org-1", orgRole: "owner" })),
   };
   const sessions = {
-    create: vi.fn(async () => ({ token: "jwt-token", expiresInSeconds: 2592000 })),
+    create: vi.fn(async () => ({ token: "jwt-token", sid: "sid-jwt", expiresInSeconds: 2592000 })),
     mint: vi.fn(async () => ({ token: "fresh-jwt", expiresInSeconds: 2592000 })),
     revoke: vi.fn(async () => undefined),
     revokeAllForPayer: vi.fn(async () => 0),
@@ -829,6 +832,34 @@ describe("PayerAuthService — #2563 forced change, revoke and last sign-in", ()
     expect(d.sessions.create).toHaveBeenCalledTimes(1);
   });
 
+  it("revokes the just-minted session when the password is revoked concurrently", async () => {
+    const d = setup();
+    d.payers.findByEmail.mockResolvedValueOnce(pwAccount());
+    d.payers.findById.mockResolvedValueOnce(
+      pwAccount({ passwordRevokedAt: new Date(Date.now() + 1000) }),
+    );
+    d.sessions.create.mockResolvedValueOnce({
+      token: "racing-jwt",
+      sid: "racing-sid",
+      expiresInSeconds: 2592000,
+    });
+
+    await expect(d.svc.loginWithPassword(EMAIL, PW, CTX)).rejects.toBeInstanceOf(
+      UnauthorizedException,
+    );
+    expect(d.sessions.revoke).toHaveBeenCalledWith("racing-sid", PAYER_ID);
+    expect(d.payers.recordLogin).not.toHaveBeenCalled();
+  });
+
+  it("sends the forced-change notice even when the session sweep throws", async () => {
+    const d = setup();
+    d.payers.findByEmail.mockResolvedValueOnce(pwAccount({ mustChangePassword: true }));
+    d.sessions.revokeAllForPayer.mockRejectedValueOnce(new Error("redis down"));
+
+    await expect(d.svc.loginWithPassword(EMAIL, PW, CTX, NEW_PW)).rejects.toThrow("redis down");
+    expect(d.notice.notify).toHaveBeenCalledWith(PAYER_ID, "changed");
+  });
+
   it("never writes the founder's company-name hash onto a team-member row", async () => {
     const d = setup();
     d.orgs.isRootPayer.mockResolvedValueOnce(false);
@@ -845,6 +876,19 @@ describe("PayerAuthService — #2563 forced change, revoke and last sign-in", ()
     root.payers.findByEmail.mockResolvedValueOnce(pwAccount({ orgNameLookupHash: null }));
     await root.svc.loginWithPassword(EMAIL, PW, CTX);
     expect(root.payers.ensureOrgLookupHash).toHaveBeenCalledTimes(1);
+  });
+
+  it("clears a stale founder hash for a payer who ever held another org membership", async () => {
+    const d = setup();
+    d.orgs.hasEverBeenMemberOfOtherOrg.mockResolvedValueOnce(true);
+    d.payers.findByEmail.mockResolvedValueOnce(
+      pwAccount({ orgNameLookupHash: "stale-founder-hash" }),
+    );
+
+    await d.svc.loginWithPassword(EMAIL, PW, CTX);
+
+    expect(d.payers.ensureOrgLookupHash).not.toHaveBeenCalled();
+    expect(d.payers.clearOrgLookupHash).toHaveBeenCalledWith(PAYER_ID);
   });
 
   it("rejects a new_password equal to the temporary one", async () => {

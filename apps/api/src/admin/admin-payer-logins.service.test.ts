@@ -141,6 +141,33 @@ describe("AdminPayerLoginsService — create (#2563)", () => {
     );
   });
 
+  it("rejects a reason carrying an email, phone or other hard identifier", () => {
+    const base = {
+      role: "employer",
+      email: "owner@example.com",
+      org_name: "Acme",
+      reason_code: "login_created",
+    };
+    expect(
+      AdminCreatePayerLoginSchema.safeParse({
+        ...base,
+        reason_text: "Created for the client onboarding call",
+      }).success,
+    ).toBe(true);
+    expect(
+      AdminCreatePayerLoginSchema.safeParse({
+        ...base,
+        reason_text: "Created for owner@example.com after the call",
+      }).success,
+    ).toBe(false);
+    expect(
+      AdminCreatePayerLoginSchema.safeParse({
+        ...base,
+        reason_text: "Created after calling +91 98765 43210 about it",
+      }).success,
+    ).toBe(false);
+  });
+
   it("creates an owner login with a policy-valid 14-character temporary password, in one transaction", async () => {
     const d = setup();
     const res = await d.svc.createLogin(
@@ -169,6 +196,9 @@ describe("AdminPayerLoginsService — create (#2563)", () => {
       actor: { actor_type: "admin", actor_id: ADMIN.id },
       payload: { payer_id: "p1", previous_status: "pending", new_status: "active" },
     });
+    expect(eventNamed(d.events, "payer.created")[0]).toMatchObject({
+      actor: { actor_type: "admin", actor_id: ADMIN.id },
+    });
     expect(d.payers.setTemporaryPassword).toHaveBeenCalledWith(
       "p1",
       { hash: `hash<${res.temporary_password}>`, pepperVersion: 1 },
@@ -192,7 +222,7 @@ describe("AdminPayerLoginsService — create (#2563)", () => {
     });
     expect(d.freeTier.grantQuietly).toHaveBeenCalledWith("p1");
     expect(d.sessions.revokeAllForPayer).toHaveBeenCalledWith("p1");
-    expect(d.notice.notify).toHaveBeenCalledWith("p1", "reset");
+    expect(d.notice.notify).toHaveBeenCalledWith("p1", "setup");
   });
 
   it("409 when the email/phone already exists — no credential, no audit row, no event", async () => {
@@ -211,7 +241,11 @@ describe("AdminPayerLoginsService — create (#2563)", () => {
     expect(d.repo.writeAuditReason).not.toHaveBeenCalled();
     expect(d.events.emit).not.toHaveBeenCalled();
     // Review fix 11 — the rolled-back check still leaves a value-free audit trace.
-    expect(d.repo.writeConflictAudit).toHaveBeenCalledWith(ADMIN.id, "p1");
+    expect(d.repo.writeConflictAudit).toHaveBeenCalledWith(
+      ADMIN.id,
+      "p1",
+      ADMIN_ACTION_CODES.payer_login_create_conflict,
+    );
   });
 
   it("a team member gets an ACTIVE membership with no invite token, no solo org and no free-tier grant", async () => {
@@ -312,6 +346,20 @@ describe("AdminPayerLoginsService — issue / revoke (#2563)", () => {
     expect(d.notice.notify).toHaveBeenCalledWith("p1", "reset");
   });
 
+  it("sends the issue notice even when the session sweep throws", async () => {
+    const d = setup();
+    d.sessions.revokeAllForPayer.mockRejectedValueOnce(new Error("redis down"));
+    await expect(
+      d.svc.issueTemporaryPassword(
+        ADMIN,
+        "p1",
+        { reason_code: "password_issued", reason_text: "Payer lost the onboarding email" } as never,
+        CTX,
+      ),
+    ).rejects.toThrow("redis down");
+    expect(d.notice.notify).toHaveBeenCalledWith("p1", "reset");
+  });
+
   it("activates a PENDING self-signup and emits payer.activated with the admin as actor", async () => {
     const d = setup();
     d.payers.findById.mockResolvedValueOnce({
@@ -384,6 +432,26 @@ describe("AdminPayerLoginsService — issue / revoke (#2563)", () => {
     expect(d.payers.revokePassword).toHaveBeenCalledWith("p1", {});
     expect(actionEvents(d.events)[0]?.payload.action_code).toBe("payer_password_revoked");
     expect(d.sessions.revokeAllForPayer).toHaveBeenCalledWith("p1");
+    expect(d.notice.notify).toHaveBeenCalledWith("p1", "revoked");
+  });
+
+  it("sends the revoke notice even when the session sweep throws", async () => {
+    const d = setup();
+    d.payers.findById.mockResolvedValueOnce({
+      id: "p1",
+      passwordRevokedAt: null,
+      mustChangePassword: false,
+      status: "active",
+    } as never);
+    d.sessions.revokeAllForPayer.mockRejectedValueOnce(new Error("redis down"));
+    await expect(
+      d.svc.revokePassword(
+        ADMIN,
+        "p1",
+        { reason_code: "password_revoked", reason_text: "Credential reported as shared" } as never,
+        CTX,
+      ),
+    ).rejects.toThrow("redis down");
     expect(d.notice.notify).toHaveBeenCalledWith("p1", "revoked");
   });
 
