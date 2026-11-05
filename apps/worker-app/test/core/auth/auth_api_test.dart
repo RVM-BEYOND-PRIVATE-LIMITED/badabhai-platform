@@ -78,6 +78,56 @@ void main() {
       );
     });
 
+    test('suspended 403 maps to workerSuspended with the restricted token '
+        '(and never to the consent/dead-session codes)', () async {
+      String suspendedBody({String? token}) => jsonEncode(<String, dynamic>{
+            'statusCode': 403,
+            'error': <String, dynamic>{
+              'code': 'WORKER_ACCOUNT_SUSPENDED',
+              'message': 'This account is suspended.',
+              if (token != null) 'restricted_token': token,
+            },
+          });
+
+      final AuthApi withToken = _api(MockClient((http.Request req) async =>
+          http.Response(suspendedBody(token: 'restricted-xyz'), 403)));
+      await expectLater(
+        () => withToken.otpVerify('+910000000000', '000000'),
+        throwsA(isA<AuthFailure>()
+            .having((AuthFailure f) => f.code, 'code',
+                AuthErrorCode.workerSuspended)
+            .having((AuthFailure f) => f.isWorkerSuspended, 'isWorkerSuspended',
+                isTrue)
+            .having((AuthFailure f) => f.restrictedToken, 'restrictedToken',
+                'restricted-xyz')),
+      );
+
+      final AuthApi noToken = _api(MockClient((http.Request req) async =>
+          http.Response(suspendedBody(), 403)));
+      await expectLater(
+        () => noToken.pinVerify('1234', refreshToken: 'r'),
+        throwsA(isA<AuthFailure>()
+            .having((AuthFailure f) => f.code, 'code',
+                AuthErrorCode.workerSuspended)
+            .having((AuthFailure f) => f.restrictedToken, 'restrictedToken',
+                isNull)
+            .having((AuthFailure f) => f.isReauthRequired, 'isReauthRequired',
+                isFalse)),
+      );
+
+      // token/refresh is the dangerous one: its 403 arm normally means
+      // reauth. A suspended body must win, or the worker gets "log in again"
+      // instead of the suspended screen.
+      await expectLater(
+        () => noToken.tokenRefresh('r'),
+        throwsA(isA<AuthFailure>()
+            .having((AuthFailure f) => f.code, 'code',
+                AuthErrorCode.workerSuspended)
+            .having((AuthFailure f) => f.isReauthRequired, 'isReauthRequired',
+                isFalse)),
+      );
+    });
+
     test('otp/verify 401 → otpInvalid (NOT a session-expired/reauth code)',
         () async {
       final AuthApi api = _api(MockClient((http.Request req) async {

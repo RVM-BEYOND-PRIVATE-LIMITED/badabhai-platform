@@ -5549,3 +5549,102 @@ a.pager__step:hover {
     gap: var(--space-2);
   }
 }
+
+/* ══ #2689 — SUBTLE FEEDBACK: inline validation, shake, inline notices, offline band ══
+   One language for both the sign-in/auth screens and the portal. Durations are motion tokens,
+   so every animation collapses to 0 under prefers-reduced-motion; only opacity and a 4–6px
+   transform move. Error text is the semantic danger tone used as text, never a saturated fill. */
+.form__summary {
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-sm);
+  line-height: var(--ui-body-leading);
+  color: var(--text-secondary);
+}
+.form__summary strong {
+  color: var(--text-primary);
+  font-weight: var(--weight-semibold);
+}
+.field__error--in {
+  animation: field-error-in var(--duration-fast) var(--ease-enter) both;
+}
+@keyframes field-error-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.form--shake {
+  animation: form-shake var(--duration-base) var(--ease-enter) both;
+}
+@keyframes form-shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  20% {
+    transform: translateX(-6px);
+  }
+  40% {
+    transform: translateX(6px);
+  }
+  60% {
+    transform: translateX(-4px);
+  }
+  80% {
+    transform: translateX(4px);
+  }
+}
+.notice--inline {
+  margin-top: var(--space-3);
+}
+/* One slim, top-of-window band for a lost connection — not one toast per request. */
+.offline-banner {
+  position: fixed;
+  inset-block-start: 0;
+  inset-inline: 0;
+  z-index: var(--z-toast);
+  display: flex;
+  justify-content: center;
+  padding: var(--space-2) var(--space-4);
+  border-block-end: var(--border-hairline) solid var(--warning);
+  background: var(--warning-tint);
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+}
+@media (max-width: 600px) {
+  /* Phone confirmations read as a bottom sheet; a centred dialog on a 375px screen is a
+     shrunken desktop modal, and the action buttons end up off the thumb's reach. */
+  .overlay--dialog {
+    place-items: end center;
+    padding: 0;
+  }
+  .overlay--dialog .overlay__panel {
+    width: 100%;
+    max-height: 92dvh;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .form--shake,
+  .field__error--in {
+    animation: none;
+  }
+}
+
+/* #2689 rule 2 — phones get the toast at bottom-centre, clear of the bottom bar and safe area;
+   desktop keeps the bottom-right stack. */
+@media (max-width: 600px) {
+  .toasts {
+    inset-block-end: calc(var(--space-4) + env(safe-area-inset-bottom, 0px));
+    justify-content: center;
+  }
+  .toasts__list {
+    align-items: stretch;
+    width: 100%;
+  }
+}

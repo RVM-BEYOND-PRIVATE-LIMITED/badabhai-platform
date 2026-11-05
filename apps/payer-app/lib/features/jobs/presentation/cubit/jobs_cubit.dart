@@ -4,6 +4,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../../core/data/candidate_search_models.dart';
 import '../../../../core/data/models.dart';
 import '../../../../core/data/payer_api_client.dart';
+import '../../../../core/error/api_error_copy.dart';
 import '../../../../core/error/payer_failure.dart';
 import '../../../../core/util/read_order.dart';
 
@@ -268,12 +269,14 @@ class JobsCubit extends Cubit<JobsState> {
         );
       }
       return JobActionResult.fail(
-        e.isConflict ? conflictMessage : 'Could not update. Please try again.',
+        e.isConflict
+            ? conflictMessage
+            : ApiErrorCopy.forError(e, context: 'jobs'),
       );
     } catch (e) {
       // Name the real reason (a timeout is not a dead link) — same honesty as
       // load(), instead of a blanket "check your connection".
-      return JobActionResult.fail(PayerFailure.from(e).message);
+      return JobActionResult.fail(ApiErrorCopy.forError(e, context: 'jobs'));
     }
   }
 

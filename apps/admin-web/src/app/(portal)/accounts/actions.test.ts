@@ -152,9 +152,9 @@ describe("issueTemporaryPasswordAction", () => {
   });
 
   it("surfaces the server's refusal verbatim", async () => {
-    adminFetch.mockRejectedValueOnce(new FakeRequestError(404, "Payer not found"));
+    adminFetch.mockRejectedValueOnce(new FakeRequestError(404, "That record no longer exists. Refresh the page and try again."));
     const res = await issueTemporaryPasswordAction(PAYER_ID, REASON);
-    expect(res).toEqual({ ok: false, error: "Payer not found" });
+    expect(res).toEqual({ ok: false, error: "That record no longer exists. Refresh the page and try again." });
   });
 
   it("refuses a short reason without calling the API", async () => {

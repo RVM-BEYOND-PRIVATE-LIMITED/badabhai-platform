@@ -187,6 +187,8 @@ function linkClick(href = "/postings") {
 }
 
 describe("installLeaveGuard — leaving a dirty form asks first", () => {
+  // An in-app link is handed to the caller, which shows the DS dialog and returns false to stop
+  // the click. Only closing the tab keeps the browser's own prompt. (#2688)
   it("a dirty form: an in-app link asks; 'stay' stops the navigation before the router sees it", () => {
     const { win, docListeners } = fakeWindow();
     const confirmLeave = vi.fn(() => false);
@@ -195,7 +197,7 @@ describe("installLeaveGuard — leaving a dirty form asks first", () => {
     expect(listener.capture).toBe(true); // capture phase: ahead of the link's own handler
     const e = linkClick();
     listener.fn(e);
-    expect(confirmLeave).toHaveBeenCalledWith(LEAVE_CONFIRM);
+    expect(confirmLeave).toHaveBeenCalledWith("/postings", LEAVE_CONFIRM);
     expect(e.preventDefault).toHaveBeenCalled();
     expect(e.stopPropagation).toHaveBeenCalled();
   });
@@ -225,17 +227,15 @@ describe("installLeaveGuard — leaving a dirty form asks first", () => {
     expect(unload.preventDefault).not.toHaveBeenCalled();
   });
 
-  it("a dirty form: closing the tab or reloading raises the browser's own prompt", () => {
+  it("a dirty form: closing the tab or reloading raises the browser's own prompt — not the in-app callback", () => {
     const { win, winListeners } = fakeWindow();
-    installLeaveGuard(
-      () => true,
-      () => false,
-      win,
-    );
+    const onInAppLeave = vi.fn(() => false);
+    installLeaveGuard(() => true, onInAppLeave, win);
     const unload = { preventDefault: vi.fn(), returnValue: undefined as unknown };
     winListeners.get("beforeunload")!(unload);
     expect(unload.preventDefault).toHaveBeenCalled();
     expect(unload.returnValue).toBe("");
+    expect(onInAppLeave).not.toHaveBeenCalled();
   });
 
   it("the cleanup removes both listeners", () => {

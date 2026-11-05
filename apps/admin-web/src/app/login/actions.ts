@@ -22,6 +22,7 @@ import {
   NEUTRAL_PASSWORD_ERROR,
   NEUTRAL_REQUEST_ERROR,
   NEW_PASSWORD_REJECTED_ERROR,
+  TEMPORARY_PASSWORD_DOOR,
 } from "./messages";
 
 /**
@@ -242,7 +243,7 @@ export async function verifyCodeAction(input: {
     // still on a temporary password and must use the password door. The caller has just proven
     // mailbox control, so the server's own copy is safe to show.
     if (err instanceof AdminRequestError && err.status === 409) {
-      return { ok: false, error: err.message };
+      return { ok: false, error: TEMPORARY_PASSWORD_DOOR };
     }
     return { ok: false, error: failureMessage(err, NEUTRAL_CODE_ERROR) };
   }

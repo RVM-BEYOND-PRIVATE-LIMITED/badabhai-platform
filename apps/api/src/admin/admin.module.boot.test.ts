@@ -12,6 +12,8 @@ import { AdminRolesGuard } from "./admin-roles.guard";
 import { AdminActionsController } from "./admin-actions.controller";
 import { AdminPiiRevealController } from "./admin-pii-reveal.controller";
 import { AdminDashboardController } from "./admin-dashboard.controller";
+import { AdminAiAlertsController } from "./admin-ai-alerts.controller";
+import { AdminFunnelController } from "./admin-funnel.controller";
 import { AdminWorkerJourneyController } from "./admin-worker-journey.controller";
 import { AdminAiTracesController } from "./admin-ai-traces.controller";
 import { AdminPayerLoginsController } from "./admin-payer-logins.controller";
@@ -139,6 +141,24 @@ describe("AdminModule wiring (DI regression guard)", () => {
     const tokens = providerTokens();
     expect(tokens).toContain("AdminSkillDiscoveryService");
     expect(tokens).toContain("AdminSkillDiscoveryRepository");
+  });
+
+  it("declares the B13 (#2567) ai-alerts controller — its service is @Global, so no provider here", () => {
+    // `AdminAiAlertsController` reads through the @Global `AiAlertsService` (AiModule),
+    // exactly like `HealthService` reaches `AiService` — so the controller is the ONLY
+    // registration this module needs. A provider entry here would be the wrong split
+    // (and a second instance of a stateful evaluator).
+    expect(getMeta("controllers", AdminModule)).toContain(AdminAiAlertsController);
+  });
+
+  it("declares the B14 (#2568) onboarding-funnel controller + provides its service/repository", () => {
+    // `AdminFunnelService` composes the funnel repository (all non-spine reads) with the
+    // shared `AdminEventsRepository` (the two spine signals) and the journey's universal
+    // lookup. A dropped registration is a BOOT failure every hand-built unit test misses.
+    expect(getMeta("controllers", AdminModule)).toContain(AdminFunnelController);
+    const tokens = providerTokens();
+    expect(tokens).toContain("AdminFunnelService");
+    expect(tokens).toContain("AdminFunnelRepository");
   });
 
   it("declares the #2560 candidate full-detail controller + EVERY provider its service injects", () => {

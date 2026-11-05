@@ -9,6 +9,7 @@ import type {
 import { usePortalNavigation } from "../../../../../../components/portal-navigation";
 import { AgencyJobForm } from "../../../dashboard/agency-job-form";
 import { updateAgencyJobAction } from "../../../dashboard/jobs-actions";
+import { agencyErrorMessage } from "../../../../../../lib/agency-messages";
 
 /**
  * The agency's EDIT form on its own page (`/agency/jobs/<id>/edit`). The form, its card rule
@@ -47,7 +48,7 @@ export function EditAgencyPosting({
       onCancel={() => navigate(detailHref, { pendingLabel: job.title })}
       onSubmit={async (input) => {
         const res = await updateAgencyJobAction(job.id, input, job);
-        if (!res.ok) return { ok: false, error: res.error };
+        if (!res.ok) return { ok: false, error: agencyErrorMessage(res.error) };
         navigate(detailHref, { pendingLabel: res.job.title, refresh: true });
         return { ok: true };
       }}

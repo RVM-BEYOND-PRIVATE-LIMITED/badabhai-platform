@@ -86,6 +86,27 @@ class ConsentRequiredFailure extends Failure {
   const ConsentRequiredFailure([super.message = 'Please accept consent to continue.']);
 }
 
+/// HTTP 403 with `error.code == "WORKER_ACCOUNT_SUSPENDED"` — an admin suspended
+/// this worker. It is NOT the consent gate: routing it to consent would loop a
+/// suspended worker between screens with no explanation.
+///
+/// [restrictedToken] is the OPTIONAL short-lived token a backend that includes
+/// #2679 returns in the same 403 body. It is carried ONLY so the suspended screen
+/// can call account-delete request/confirm/cancel and consent-withdraw; it is
+/// never a session bearer, never persisted, and never used for push registration.
+class WorkerSuspendedFailure extends Failure {
+  const WorkerSuspendedFailure({
+    this.restrictedToken,
+    String message =
+        'Aapka account suspend hai. BadaBhai support se sampark karein.',
+  }) : super(message);
+
+  final String? restrictedToken;
+
+  @override
+  List<Object?> get props => <Object?>[message, restrictedToken];
+}
+
 /// HTTP 403 with `error.code == "AGE_BELOW_MINIMUM"` — the sign-up declared
 /// they are under 18. The server wrote NO consent row, so there is nothing to
 /// retry: the worker sees the terminal "come back at 18" screen and the app

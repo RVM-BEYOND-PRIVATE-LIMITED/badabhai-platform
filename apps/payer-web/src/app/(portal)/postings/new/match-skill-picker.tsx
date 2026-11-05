@@ -2,8 +2,9 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Icon } from "@badabhai/icons";
-import { Badge, Chip } from "../../../../components/ds";
+import { Badge, Chip, InlineNotice } from "../../../../components/ds";
 import type { MatchSkillWire, ReachPreview } from "../../../../lib/contracts";
+import { postingsErrorMessage } from "../../../../lib/postings-messages";
 import { previewReachAction } from "./match-actions";
 
 /**
@@ -101,7 +102,7 @@ export function MatchSkillPicker({
       } else {
         // Keep the LAST good preview on screen rather than blanking to nothing: a
         // transient failure should not look like "this posting reaches no one".
-        setError(res.error);
+        setError(postingsErrorMessage(res.error));
         onPreviewChange?.(null);
       }
     });
@@ -236,7 +237,7 @@ export function MatchSkillPicker({
             {/* A transient preview failure keeps the LAST good count on screen (see the
                 effect above), so this stays an inline line beside it — promoting it to a
                 full error state would imply the number above had gone away. */}
-            {error ? <p className="match-picker__error">{error}</p> : null}
+            {error ? <InlineNotice tone="danger">{error}</InlineNotice> : null}
           </div>
 
           {/*

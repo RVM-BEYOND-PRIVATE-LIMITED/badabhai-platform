@@ -1015,6 +1015,7 @@ export const WORKER_APP_SCREEN_TEMPLATES = Object.freeze([
   "/pin/set", // Routes.setPin
   "/pin/forgot", // Routes.forgotPin
   "/consent", // Routes.consent
+  "/suspended", // Routes.suspended (#2687 — suspended account + DPDP exits)
   "/name", // Routes.name
   "/invite", // Routes.invite
   "/chat", // Routes.chatProfiling

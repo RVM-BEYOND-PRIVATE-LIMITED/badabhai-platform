@@ -61,6 +61,7 @@ const List<String> _kHiddenPrefixes = <String>[
   Routes.building, // /building — spec §3.22 gives it no feedback button
   Routes.voiceNote, // /voice — would cover the record control at 320dp
   Routes.profilePreview, // /profiling — header owns the Feedback word instead
+  Routes.suspended, // /suspended — no session; feedback would be a dead tap
 ];
 
 /// Whether the floating Feedback button should show on [path].

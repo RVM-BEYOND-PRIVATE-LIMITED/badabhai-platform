@@ -45,7 +45,9 @@ import { DraftRestoredNotice } from "../../../../components/draft-restored-notic
 import { companyPostingFacts } from "../../../../lib/posting-facts";
 import { workerCardGap, type WorkerCardGap } from "../../../../lib/worker-card-gap";
 import { bandForVacancies, baseApplicantQuotaForBand } from "../../../../lib/pricing-config";
-import { Badge, Button, Input, Select, Textarea } from "../../../../components/ds";
+import { Badge, Button, InlineNotice, Input, Select, Textarea } from "../../../../components/ds";
+import { LeaveDraftDialog } from "../../../../components/leave-draft-dialog";
+import { postingsErrorMessage } from "../../../../lib/postings-messages";
 import { JobCardPreview } from "../../../../components/job-card-preview";
 import { ChipEditor } from "../../../../components/chip-editor";
 import {
@@ -273,6 +275,7 @@ export function PostingForm({
     // #2645 — a draft whose one change is the old flat pick restores as a blank form: dropped.
     isDirty: (saved) => isNewPostingDirty(restoredNewPostingDraft(saved)),
     off: navigating,
+    onLeave: (href) => navigate(href, { pendingLabel: "page" }),
     onRestore: (saved) => {
       const restored = restoredNewPostingDraft(saved);
       setFields(restored.fields);
@@ -526,7 +529,7 @@ export function PostingForm({
         // #1912 — the server refused a field (it re-runs the PII screen); show its
         // message ON that input, not only in the banner.
         if (res.fieldErrors) setFieldErrors(res.fieldErrors as FieldErrors);
-        setError(res.error);
+        setError(postingsErrorMessage(res.error));
       }
     });
   }
@@ -563,9 +566,7 @@ export function PostingForm({
       </p>
     ) : null;
   // The server's refusal has no field to focus — it is announced, from the live slot.
-  const outcomeLine = error ? (
-    <p className="posting-actions__msg posting-actions__msg--danger">{error}</p>
-  ) : null;
+  const outcomeLine = error ? <InlineNotice tone="danger">{error}</InlineNotice> : null;
 
   const STEP_TITLES = ["Role & Worksite", "Pay & Openings", "Skills & Perks"];
   const locationText = [fields.area.trim(), fields.city.trim()].filter(Boolean).join(", ");
@@ -582,6 +583,7 @@ export function PostingForm({
 
   return (
     <div className="mw-layout">
+      {draft.leave.open ? <LeaveDraftDialog leave={draft.leave} /> : null}
       <div className="mw-main">
         {lead}
         <form id={FORM_ID} className="form mw-form" onSubmit={onSubmit}>

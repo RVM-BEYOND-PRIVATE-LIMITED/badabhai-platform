@@ -7,6 +7,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_motion.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
+import '../../../core/widgets/bb_alert_dialog.dart';
 import '../../../core/widgets/bb_avatar.dart';
 import '../../../core/widgets/bb_badge.dart';
 import '../../../core/widgets/bb_button.dart';
@@ -191,26 +192,15 @@ class _TeamView extends StatelessWidget {
 
   Future<void> _confirmRemove(BuildContext context, OrgMemberView member) async {
     final OrgCubit cubit = context.read<OrgCubit>();
-    final bool? ok = await showDialog<bool>(
-      context: context,
-      builder: (BuildContext dialogContext) => AlertDialog(
-        backgroundColor: AppColors.surfaceCard,
-        title: const Text('Remove teammate?'),
-        content: Text('${member.emailMasked} will lose access to this team.'),
-        actions: <Widget>[
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            style: TextButton.styleFrom(foregroundColor: AppColors.danger),
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('Remove'),
-          ),
-        ],
-      ),
+    final bool ok = await showBbConfirm(
+      context,
+      title: 'Remove teammate?',
+      message: '${member.emailMasked} will lose access to this team.',
+      confirmLabel: 'Remove',
+      cancelLabel: 'Cancel',
+      destructive: true,
     );
-    if (ok != true || !context.mounted) return;
+    if (!ok || !context.mounted) return;
     final OrgActionResult result = await cubit.remove(member.memberId);
     if (!context.mounted) return;
     _toast(context, result.success, result.message);

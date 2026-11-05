@@ -57,6 +57,14 @@ const Map<String, Map<String, String>> kAuthErrorMessages =
     'bho': 'Hamein aapki profile nahi mil rahi hai. Kripya dobara login karein.', // TODO l10n: bho
     'en': "We can't find your profile. Please log in again.",
   },
+  // HTTP 403 WORKER_ACCOUNT_SUSPENDED. The dedicated screen owns the full
+  // message; these backstop any surface that reads authErrorMessage directly.
+  AuthErrorCode.workerSuspended: <String, String>{
+    'hi': 'Aapka account suspend hai. BadaBhai support se sampark karein.',
+    'mr': 'Aapka account suspend hai. BadaBhai support se sampark karein.', // TODO l10n: mr
+    'bho': 'Aapka account suspend hai. BadaBhai support se sampark karein.', // TODO l10n: bho
+    'en': 'Your account is suspended. Please contact BadaBhai support.',
+  },
   AuthErrorCode.unavailable: <String, String>{
     'hi': 'Service abhi busy hai. Thodi der baad try karein.',
     'mr': 'Service abhi busy hai. Thodi der baad try karein.', // TODO l10n: mr

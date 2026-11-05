@@ -9,7 +9,8 @@ import {
   type DbClient,
 } from "@badabhai/db";
 import type { ServerConfig } from "@badabhai/config";
-import { inArray } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
+import { PayerOrgMembersService } from "../payer-portal/payer-org-members.service";
 import { PiiCryptoService } from "../common/pii-crypto.service";
 import type { RequestContext } from "../common/request-context";
 import { PayerAuthService } from "../payer-portal/payer-auth.service";
@@ -44,7 +45,12 @@ const CTX: RequestContext = {
 };
 const OWNER_EMAIL = "login-2563-owner@example.test";
 const PENDING_EMAIL = "login-2563-pending@example.test";
+const FOUNDER_EMAIL = "login-2563-founder@example.test";
+const MEMBER_EMAIL = "login-2563-member@example.test";
 const TEMP_NEW_PASSWORD = "ChangedPass7";
+const FOUNDER_PASSWORD = "FounderPass7";
+const MEMBER_PASSWORD = "MemberPass7";
+const FOUNDER_ORG = "Founder Co 2563";
 
 const config = {
   PAYER_LOGIN_METHOD: "email_otp",
@@ -96,6 +102,7 @@ describe.skipIf(!RUN)("payer login management — REAL default status (#2563)", 
   let orgsRepo: PayerOrgsRepository;
   let admin: AdminPayerLoginsService;
   let auth: PayerAuthService;
+  let members: PayerOrgMembersService;
 
   beforeAll(async () => {
     client = createDbClient(DATABASE_URL, { max: 4 });
@@ -144,6 +151,14 @@ describe.skipIf(!RUN)("payer login management — REAL default status (#2563)", 
       { client: Promise.resolve(redis) } as never,
       notice as never,
     );
+    members = new PayerOrgMembersService(
+      orgsRepo,
+      pii,
+      events as never,
+      payersRepo,
+      config,
+      { send: async () => undefined } as never,
+    );
   });
 
   afterAll(async () => {
@@ -151,7 +166,14 @@ describe.skipIf(!RUN)("payer login management — REAL default status (#2563)", 
     const ids = await db
       .select({ id: payers.id })
       .from(payers)
-      .where(inArray(payers.emailHash, [pii.hmac(OWNER_EMAIL), pii.hmac(PENDING_EMAIL)]));
+      .where(
+        inArray(payers.emailHash, [
+          pii.hmac(OWNER_EMAIL),
+          pii.hmac(PENDING_EMAIL),
+          pii.hmac(FOUNDER_EMAIL),
+          pii.hmac(MEMBER_EMAIL),
+        ]),
+      );
     const idList = ids.map((r) => r.id);
     if (idList.length > 0) {
       await db.delete(payerMembers).where(inArray(payerMembers.memberPayerId, idList));
@@ -214,5 +236,74 @@ describe.skipIf(!RUN)("payer login management — REAL default status (#2563)", 
       TEMP_NEW_PASSWORD,
     );
     expect(login).toMatchObject({ payer_id: signup.id, role: "employer" });
+  });
+
+  it("founder company-name login still works after a removed member logs in again", async () => {
+    const founder = await payersRepo.createOrGet({
+      role: "employer",
+      email: FOUNDER_EMAIL,
+      orgName: FOUNDER_ORG,
+    });
+    const founderOrg = await orgsRepo.ensureSoloOrg(founder.id);
+    expect(founderOrg).not.toBeNull();
+    const founderRow = await payersRepo.findById(founder.id);
+    await payersRepo.setPassword(founder.id, {
+      hash: pii.hashPassword(FOUNDER_PASSWORD),
+      pepperVersion: 1,
+    });
+    await payersRepo.activate(founder.id);
+
+    // An admin-created team member carries the founder's COPIED org name.
+    const member = await payersRepo.createOrGet({
+      role: "employer",
+      email: MEMBER_EMAIL,
+      orgNameEnc: founderRow!.orgNameEnc,
+    });
+    const memberRow = await payersRepo.findById(member.id);
+    await orgsRepo.createActiveMember({
+      orgId: founderOrg!.orgId,
+      memberPayerId: member.id,
+      emailEnc: memberRow!.emailEnc,
+      emailHash: memberRow!.emailHash,
+      orgRole: "recruiter",
+    });
+    await payersRepo.setPassword(member.id, {
+      hash: pii.hashPassword(MEMBER_PASSWORD),
+      pepperVersion: 1,
+    });
+    await payersRepo.activate(member.id);
+
+    // The member's first login must NOT write the founder's company-name hash.
+    await auth.loginWithPassword(MEMBER_EMAIL, MEMBER_PASSWORD, CTX);
+    expect((await payersRepo.findById(member.id))?.orgNameLookupHash).toBeNull();
+
+    const [active] = await db
+      .select({ id: payerMembers.id })
+      .from(payerMembers)
+      .where(
+        and(
+          eq(payerMembers.orgId, founderOrg!.orgId),
+          eq(payerMembers.memberPayerId, member.id),
+        ),
+      )
+      .limit(1);
+    await members.remove(
+      { orgId: founderOrg!.orgId, orgRole: "owner" },
+      founder.id,
+      active!.id,
+      CTX,
+    );
+
+    // Removal clears the founder's copied name; the next login heals a solo org under a
+    // neutral name, and the founder's company-name sign-in still resolves to exactly one row.
+    const removedRow = await payersRepo.findById(member.id);
+    expect(pii.decrypt(removedRow!.orgNameEnc)).toBe("My Organisation");
+    expect(removedRow!.orgNameLookupHash).toBeNull();
+    await expect(auth.loginWithPassword(MEMBER_EMAIL, MEMBER_PASSWORD, CTX)).resolves.toMatchObject({
+      payer_id: member.id,
+    });
+    await expect(auth.loginWithPassword(FOUNDER_ORG, FOUNDER_PASSWORD, CTX)).resolves.toMatchObject({
+      payer_id: founder.id,
+    });
   });
 });

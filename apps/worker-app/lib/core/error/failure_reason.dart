@@ -25,6 +25,10 @@ import 'failure.dart';
     icon: Icons.privacy_tip_outlined,
     reason: 'Aage badhne ke liye consent dena hoga.',
   ),
+  WorkerSuspendedFailure(:final String message) => (
+    icon: Icons.block_rounded,
+    reason: message,
+  ),
   RateLimitedFailure() => (
     icon: Icons.hourglass_empty_rounded,
     reason: 'Bahut requests. Thodi der baad dobara try karein.',

@@ -2,13 +2,14 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Icon } from "@badabhai/icons";
-import { Badge, Chip } from "../../../components/ds";
+import { Badge, Chip, InlineNotice } from "../../../components/ds";
 import type {
   MatchSkillWire,
   PostingTradeFormWire,
   PostingTradeQuestionWire,
   ReachPreview,
 } from "../../../lib/contracts";
+import { postingsErrorMessage } from "../../../lib/postings-messages";
 import { previewReachAction } from "./new/match-actions";
 
 /**
@@ -100,7 +101,7 @@ export function TradePostingFields({
         setError(null);
         onPreviewChange?.(res.preview);
       } else {
-        setError(res.error);
+        setError(postingsErrorMessage(res.error));
         onPreviewChange?.(null);
       }
     });
@@ -241,7 +242,7 @@ export function TradePostingFields({
             </Badge>
           ) : null}
           {loading ? <span className="trade-fields__loading">Checking reach…</span> : null}
-          {error ? <p className="trade-fields__error">{error}</p> : null}
+          {error ? <InlineNotice tone="danger">{error}</InlineNotice> : null}
         </div>
 
         {preview?.zero_reach ? (

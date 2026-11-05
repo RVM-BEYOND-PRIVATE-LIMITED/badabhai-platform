@@ -19,6 +19,59 @@ void main() {
       expect(mapError(ApiException(401, 'x')), isA<UnauthorizedFailure>());
     });
 
+    test('403 WORKER_ACCOUNT_SUSPENDED -> WorkerSuspendedFailure (not consent)',
+        () {
+      final Failure f = mapError(ApiException(
+        403,
+        'This account is suspended.',
+        body: <String, dynamic>{
+          'code': 'WORKER_ACCOUNT_SUSPENDED',
+          'restricted_token': 'restricted-abc',
+        },
+      ));
+
+      expect(f, isA<WorkerSuspendedFailure>());
+      expect(f, isNot(isA<ConsentRequiredFailure>()));
+      expect((f as WorkerSuspendedFailure).restrictedToken, 'restricted-abc');
+      expect(failureReason(f).reason, contains('suspend'));
+    });
+
+    test('suspended 403 through the real { error: { code } } envelope works',
+        () {
+      final Failure f = mapError(ApiException(
+        403,
+        'This account is suspended.',
+        body: <String, dynamic>{
+          'error': <String, dynamic>{
+            'code': 'WORKER_ACCOUNT_SUSPENDED',
+            'restricted_token': 'nested-token',
+          },
+        },
+      ));
+
+      expect((f as WorkerSuspendedFailure).restrictedToken, 'nested-token');
+    });
+
+    test('suspended 403 WITHOUT a restricted token still maps to the type',
+        () {
+      final Failure f = mapError(ApiException(
+        403,
+        'This account is suspended.',
+        body: <String, dynamic>{'code': 'WORKER_ACCOUNT_SUSPENDED'},
+      ));
+
+      expect(f, isA<WorkerSuspendedFailure>());
+      expect((f as WorkerSuspendedFailure).restrictedToken, isNull);
+    });
+
+    test('a plain 403 (no suspended code) is still ConsentRequiredFailure',
+        () {
+      expect(
+        mapError(ApiException(403, 'consent', body: <String, dynamic>{})),
+        isA<ConsentRequiredFailure>(),
+      );
+    });
+
     // #1013 — a 400 used to fall into the ServerFailure arm and render "Server
     // error (400). Thodi der baad try karein.", which sends the worker away to
     // retry a request the server will refuse identically forever.

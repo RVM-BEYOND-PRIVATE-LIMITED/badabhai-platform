@@ -17,6 +17,7 @@ import '../../../core/widgets/bb_card.dart';
 import '../../../core/widgets/bb_field.dart';
 import '../../../core/widgets/bb_skeleton.dart';
 import '../../../core/widgets/bb_tab_scope.dart';
+import '../../../core/widgets/bb_toast.dart';
 import '../../../core/widgets/payer_role_badge.dart';
 import '../../capacity/presentation/capacity_screen.dart';
 import '../../org/presentation/team_screen.dart';
@@ -297,12 +298,13 @@ class _EditSheetState extends State<_EditSheet> {
     // values) so the payer sees the cubit's error and can retry.
     if (widget.cubit.state.status == AccountStatus.error) {
       setState(() => _saving = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            widget.cubit.state.error ?? 'Could not save your changes.',
-          ),
-        ),
+      showBbToast(
+        context,
+        title: "Couldn't save",
+        message: widget.cubit.state.error ??
+            'Could not save your changes. Check the details and retry.',
+        icon: Icons.info_rounded,
+        tone: BbToastTone.error,
       );
       return;
     }

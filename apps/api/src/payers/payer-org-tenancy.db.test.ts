@@ -1050,7 +1050,7 @@ describe.skipIf(!RUN)(
 
       // Security review of PR #2167, L2: the outsider's FILTERED reads are no oracle either.
       it("the outsider's inbox filtered to the anchor's posting is the same empty page as for an unknown posting", async () => {
-        const empty = { applicants: [], nextCursor: null };
+        const empty = { applicants: [], nextCursor: null, total: 0 };
         const foreign = await on.inbox.list(ids.C, { limit: 50, postingId: PA }, P2A_CTX);
         const unknown = await on.inbox.list(ids.C, { limit: 50, postingId: randomUUID() }, P2A_CTX);
         expect(foreign).toEqual(empty);
@@ -1061,7 +1061,7 @@ describe.skipIf(!RUN)(
       });
 
       it("the outsider's inbox filtered by a stage the org's board holds is empty, as for any stage", async () => {
-        const empty = { applicants: [], nextCursor: null };
+        const empty = { applicants: [], nextCursor: null, total: 0 };
         for (const stage of ["shortlist", "passed", "new"] as const) {
           expect(await on.inbox.list(ids.C, { limit: 50, stage }, P2A_CTX), stage).toEqual(empty);
         }

@@ -43,13 +43,16 @@ void main() {
     });
 
     test('server purposes decide it', () {
-      VoiceConsent.instance.setFromPurposes(
-        const <String>['profiling', 'resume_generation', 'voice_processing'],
-      );
+      VoiceConsent.instance.setFromPurposes(const <String>[
+        'profiling',
+        'resume_generation',
+        'voice_processing',
+      ]);
       expect(VoiceConsent.instance.state.value, isTrue);
-      VoiceConsent.instance.setFromPurposes(
-        const <String>['profiling', 'resume_generation'],
-      );
+      VoiceConsent.instance.setFromPurposes(const <String>[
+        'profiling',
+        'resume_generation',
+      ]);
       expect(VoiceConsent.instance.state.value, isFalse);
     });
 

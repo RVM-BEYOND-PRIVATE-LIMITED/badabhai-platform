@@ -49,6 +49,9 @@ import { AdminIdentityService } from "./admin-identity.service";
 import { AdminEntitiesRepository } from "./admin-entities.repository";
 import { AdminEntitiesService } from "./admin-entities.service";
 import { AdminEntitiesController } from "./admin-entities.controller";
+import { AdminEmptyFeedRepository } from "./admin-empty-feed.repository";
+import { AdminEmptyFeedService } from "./admin-empty-feed.service";
+import { AdminEmptyFeedController } from "./admin-empty-feed.controller";
 import { AdminPayerLoginsRepository } from "./admin-payer-logins.repository";
 import { AdminPayerLoginsService } from "./admin-payer-logins.service";
 import { AdminPayerLoginsController } from "./admin-payer-logins.controller";
@@ -61,6 +64,10 @@ import { AdminDirectoryController } from "./admin-directory.controller";
 import { AdminDashboardRepository } from "./admin-dashboard.repository";
 import { AdminDashboardService } from "./admin-dashboard.service";
 import { AdminDashboardController } from "./admin-dashboard.controller";
+import { AdminAiAlertsController } from "./admin-ai-alerts.controller";
+import { AdminFunnelRepository } from "./admin-funnel.repository";
+import { AdminFunnelService } from "./admin-funnel.service";
+import { AdminFunnelController } from "./admin-funnel.controller";
 import { AdminWorkerJourneyRepository } from "./admin-worker-journey.repository";
 import { AdminWorkerJourneyService } from "./admin-worker-journey.service";
 import { AdminWorkerJourneyController } from "./admin-worker-journey.controller";
@@ -205,11 +212,16 @@ import { WorkerQualificationsRepository } from "../profiles/worker-qualification
     AdminActionsController,
     AdminPiiRevealController,
     AdminKillSwitchController,
+    // #2569 — MUST precede AdminEntitiesController: its literal `workers/empty-feed` route
+    // would otherwise be captured by that controller's `workers/:id` UUID route.
+    AdminEmptyFeedController,
     AdminEntitiesController,
     AdminPayerLoginsController,
     AdminFinanceController,
     AdminDirectoryController,
     AdminDashboardController,
+    AdminAiAlertsController,
+    AdminFunnelController,
     AdminWorkerJourneyController,
     AdminFeedbackController,
     AdminAiTracesController,
@@ -295,6 +307,10 @@ import { WorkerQualificationsRepository } from "../profiles/worker-qualification
     // worker/payer reads come from AdminIdentityService above, never from this repository.
     AdminEntitiesRepository,
     AdminEntitiesService,
+    // #2569 — the empty-feed read; its own repository keeps the feed-mode anti-join out of
+    // the faceless entity projections.
+    AdminEmptyFeedRepository,
+    AdminEmptyFeedService,
     // #2563: payer login management — create/issue/revoke + the User accounts list, behind
     // `manage_payer_credentials`. The credential write, the `audit_logs` reason row and the
     // value-free `admin.action_performed` share ONE transaction; the login ID and organisation
@@ -321,6 +337,17 @@ import { WorkerQualificationsRepository } from "../profiles/worker-qualification
     // one admin reader (build-blocked in `admin-static-guards.test.ts`).
     AdminDashboardRepository,
     AdminDashboardService,
+    // B13 (#2567): the LOUD-AI-ALERT read has NO provider here — `AdminAiAlertsController`
+    // (declared in `controllers` above) reads through the @Global `AiAlertsService`
+    // (AiModule). Evaluation (the raised/cleared verdicts) runs in `AiCostRecorder`'s
+    // wake, never on a GET, so there is no admin write to audit on this surface.
+    // B14 (#2568): the ONBOARDING FUNNEL read. `AdminFunnelService` composes the new
+    // SELECT-ONLY `AdminFunnelRepository` (every non-spine table) with the shared
+    // `AdminEventsRepository` (the two spine signals — `events` keeps exactly one admin
+    // reader) and the journey's universal-pack lookup. SELECT-ONLY, no audit event:
+    // k-anon'd aggregates are the dashboard's data class, not a per-person read.
+    AdminFunnelRepository,
+    AdminFunnelService,
     // Phase 6: the per-worker JOURNEY — the 7-step funnel plus the interview session reads
     // (list + detail, with the derived stuck question). Behind `read_entities`, SELECT-ONLY,
     // explicit column projections, keyset-paginated. It returns NO transcript text of any

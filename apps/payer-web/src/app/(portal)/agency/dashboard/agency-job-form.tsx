@@ -31,11 +31,13 @@ import {
 } from "../../../../lib/job-card-form";
 import { focusControl, revealWholeControl } from "../../../../lib/form-focus";
 import { formatInr } from "../../../../lib/format";
+import { agencyErrorMessage } from "../../../../lib/agency-messages";
 import { agencyPostingFacts } from "../../../../lib/posting-facts";
 import { workerCardGap, workerCardGaps, type WorkerCardGap } from "../../../../lib/worker-card-gap";
 import {
   BadaBhaiLogo,
   Button,
+  InlineNotice,
   Input,
   Select,
   Textarea,
@@ -484,7 +486,7 @@ export function AgencyJobForm({
         ...(pickUnchanged ? {} : { matchSkillIds: selection.matchSkillIds }),
       });
       if (!res.ok) {
-        setError(res.error);
+        setError(agencyErrorMessage(res.error));
         return;
       }
       // The host leaves the page (create → the new posting, edit → its details). The values stay
@@ -517,9 +519,7 @@ export function AgencyJobForm({
     </>
   );
   // The server's refusal has no field to focus — it is announced, from the live slot.
-  const outcomeLine = error ? (
-    <p className="posting-actions__msg posting-actions__msg--danger">{error}</p>
-  ) : null;
+  const outcomeLine = error ? <InlineNotice tone="danger">{error}</InlineNotice> : null;
   const buttons = (
     <>
       {primary}

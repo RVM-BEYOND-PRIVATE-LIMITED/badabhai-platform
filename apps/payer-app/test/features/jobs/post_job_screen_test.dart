@@ -1271,9 +1271,9 @@ void main() {
       expect(find.text('Add the pay band'), findsOneWidget);
       // …it shook 6px…
       expect(maxShake, closeTo(AppMotion.shakeTravel, 0.6));
-      // …and the error double tick followed the button's own tap.
+      // …and ONE light error tick followed the button's own tap.
       const String light = 'HapticFeedbackType.lightImpact';
-      expect(haptics, <String>[light, light, light]);
+      expect(haptics, <String>[light, light]);
       expect(api.created, isEmpty);
     });
 
@@ -1324,9 +1324,9 @@ void main() {
         findsOneWidget,
       );
       expect(find.byType(SnackBar), findsNothing);
-      // …with the error double tick after the button's own.
+      // …with ONE light error tick after the button's own.
       const String light = 'HapticFeedbackType.lightImpact';
-      expect(haptics, <String>[light, light, light]);
+      expect(haptics, <String>[light, light]);
 
       // An edit elsewhere leaves both on show…
       await typeInto(tester, 'Job title', 'Lathe operator');

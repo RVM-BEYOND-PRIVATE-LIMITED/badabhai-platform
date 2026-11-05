@@ -67,16 +67,16 @@ describe("suspendPayerAction", () => {
 
   it("surfaces the server's own conflict text on a 409", async () => {
     adminFetch.mockRejectedValueOnce(
-      new FakeRequestError(409, "Payer status changed concurrently; retry"),
+      new FakeRequestError(409, "That record changed since you loaded it. Refresh the page and check it before trying again."),
     );
     const res = await suspendPayerAction("p-1");
-    expect(res).toEqual({ ok: false, error: "Payer status changed concurrently; retry" });
+    expect(res).toEqual({ ok: false, error: "That record changed since you loaded it. Refresh the page and check it before trying again." });
   });
 
   it("a 404 (unknown payer) surfaces the server's own text", async () => {
-    adminFetch.mockRejectedValueOnce(new FakeRequestError(404, "Payer not found"));
+    adminFetch.mockRejectedValueOnce(new FakeRequestError(404, "That record no longer exists. Refresh the page and try again."));
     const res = await suspendPayerAction("nonexistent");
-    expect(res).toEqual({ ok: false, error: "Payer not found" });
+    expect(res).toEqual({ ok: false, error: "That record no longer exists. Refresh the page and try again." });
   });
 });
 
@@ -174,9 +174,9 @@ describe("grantCreditsAction", () => {
 
   it("surfaces the server's suspended-payer conflict verbatim", async () => {
     adminFetch.mockRejectedValueOnce(
-      new FakeRequestError(409, "Payer is suspended; credits cannot be granted"),
+      new FakeRequestError(409, "That customer is suspended, so credits can't be granted. Reinstate the customer first."),
     );
     const res = await grantCreditsAction("p-1", validInput);
-    expect(res).toEqual({ ok: false, error: "Payer is suspended; credits cannot be granted" });
+    expect(res).toEqual({ ok: false, error: "That customer is suspended, so credits can't be granted. Reinstate the customer first." });
   });
 });

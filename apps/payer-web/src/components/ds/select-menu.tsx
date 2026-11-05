@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 import { Icon } from "@badabhai/icons";
+import { FieldFeedback } from "./forms";
 
 /**
  * BadaBhai Design System — SelectMenu (accessible custom combobox).
@@ -229,14 +230,7 @@ export function SelectMenu({
         ) : null}
       </div>
 
-      {error ? (
-        <span className="bb-field__error">
-          <Icon name="warning-circle" />
-          {error}
-        </span>
-      ) : hint ? (
-        <span className="bb-field__hint">{hint}</span>
-      ) : null}
+      <FieldFeedback error={error} hint={hint} />
     </div>
   );
 }

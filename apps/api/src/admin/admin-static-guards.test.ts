@@ -16,6 +16,10 @@ import { AdminDashboardController } from "./admin-dashboard.controller";
 import { AdminWorkerJourneyController } from "./admin-worker-journey.controller";
 import { AdminAiTracesController } from "./admin-ai-traces.controller";
 import { AdminCandidateDetailController } from "./admin-candidate-detail.controller";
+import { AdminAiAlertsController } from "./admin-ai-alerts.controller";
+import { AdminFunnelController } from "./admin-funnel.controller";
+import { AdminEmptyFeedController } from "./admin-empty-feed.controller";
+import { AdminModule } from "./admin.module";
 import { AdminAuthGuard } from "./admin-auth.guard";
 import { AdminRolesGuard, ADMIN_CAPABILITY_KEY } from "./admin-roles.guard";
 import { AdminAiTraceFlagGuard } from "./admin-ai-trace-flag.guard";
@@ -936,10 +940,103 @@ describe("identity reads — one reader, one decrypter, and no name search", () 
 
   it("the identity SERVICE gates on read_identity, not on a route capability", () => {
     // The check cannot be a second decorator (`@RequireAdminRole` sets exactly one capability
-    // per route, asserted throughout this file), so it lives in the service — where a scan is
+    // per route, asserted throughout this file), so it lives in the service - where a scan is
     // the only thing standing between it and being quietly dropped in a refactor.
     const svc = code("admin-identity.service.ts");
     expect(svc).toContain(`can(admin.role, "read_identity")`);
+  });
+
+  it("the `payer_logins` identity surface is used ONLY by the payer-login service", () => {
+    // #2563 follow-up — the surface exists for the User accounts list. A second caller would
+    // silently become another place payer emails/phones are disclosed, outside that screen.
+    // `admin-identity.service.ts` is the dispatcher that implements the surface; every OTHER
+    // admin file must not name it.
+    const callers = tsFiles(ADMIN_DIR)
+      .filter((f) => !f.endsWith(".test.ts"))
+      .filter((f) => !f.endsWith("admin-identity.service.ts"))
+      .filter((f) => code(relative(ADMIN_DIR, f)).includes('"payer_logins"'))
+      .map((f) => relative(SRC_DIR, f).replace(/\\/g, "/"))
+      .sort();
+    expect(callers).toEqual(["admin/admin-payer-logins.service.ts"]);
+  });
+});
+
+describe("B13 (#2567) ai-alerts route - guarded, read-only, and read_entities-scoped", () => {
+  const proto = AdminAiAlertsController.prototype as unknown as Record<string, unknown>;
+  const routeMethods = Object.getOwnPropertyNames(AdminAiAlertsController.prototype).filter(
+    (m) =>
+      m !== "constructor" &&
+      typeof proto[m] === "function" &&
+      Reflect.getMetadata("path", proto[m] as object) !== undefined,
+  );
+
+  it("discovers EXACTLY the one status read (no evaluate/write route — verdicts never run on a GET)", () => {
+    expect(routeMethods.sort()).toEqual(["status"]);
+  });
+
+  it("the route carries AdminAuthGuard AND AdminRolesGuard (no open privileged route)", () => {
+    const guards = effectiveGuards(AdminAiAlertsController, "status");
+    expect(guards).toContain(AdminAuthGuard.name);
+    expect(guards).toContain(AdminRolesGuard.name);
+  });
+
+  it("the route declares method-level @RequireAdminRole('read_entities') (the dashboard floor)", () => {
+    const onMethod = Reflect.getMetadata(ADMIN_CAPABILITY_KEY, proto.status as object) as
+      | AdminCapability
+      | undefined;
+    const onClass = Reflect.getMetadata(ADMIN_CAPABILITY_KEY, AdminAiAlertsController) as
+      | AdminCapability
+      | undefined;
+    expect(onMethod).toBe("read_entities");
+    expect(onClass, "AdminAiAlertsController must NOT declare a class-level capability").toBeUndefined();
+  });
+
+  it("the surface is READ-ONLY by construction — the route is a GET, never a write verb", () => {
+    const verb = Reflect.getMetadata("method", proto.status as object) as number;
+    expect(verb, "status must be a GET (evaluation never runs on this controller)").toBe(0);
+  });
+});
+
+describe("B14 (#2568) funnel routes - guarded, read-only, and read_entities-scoped", () => {
+  const proto = AdminFunnelController.prototype as unknown as Record<string, unknown>;
+  const routeMethods = Object.getOwnPropertyNames(AdminFunnelController.prototype).filter(
+    (m) =>
+      m !== "constructor" &&
+      typeof proto[m] === "function" &&
+      Reflect.getMetadata("path", proto[m] as object) !== undefined,
+  );
+
+  it("discovers EXACTLY the one funnel read (aggregates only — no per-worker read, no write)", () => {
+    expect(routeMethods.sort()).toEqual(["onboarding"]);
+  });
+
+  it("the route carries AdminAuthGuard AND AdminRolesGuard (no open privileged route)", () => {
+    const guards = effectiveGuards(AdminFunnelController, "onboarding");
+    expect(guards).toContain(AdminAuthGuard.name);
+    expect(guards).toContain(AdminRolesGuard.name);
+  });
+
+  it("the route declares method-level @RequireAdminRole('read_entities') (the dashboard floor)", () => {
+    const onMethod = Reflect.getMetadata(ADMIN_CAPABILITY_KEY, proto.onboarding as object) as
+      | AdminCapability
+      | undefined;
+    const onClass = Reflect.getMetadata(ADMIN_CAPABILITY_KEY, AdminFunnelController) as
+      | AdminCapability
+      | undefined;
+    expect(onMethod).toBe("read_entities");
+    expect(onClass, "AdminFunnelController must NOT declare a class-level capability").toBeUndefined();
+  });
+
+  it("the surface is READ-ONLY by construction — the route is a GET, never a write verb", () => {
+    const verb = Reflect.getMetadata("method", proto.onboarding as object) as number;
+    expect(verb, "onboarding must be a GET (this controller never writes)").toBe(0);
+  });
+
+  it("the repository issues no write against ANY table (read-only data access)", () => {
+    // The spine guard above covers `events`. This is the wider promise for B14: the
+    // funnel repository never writes anything at all.
+    const repo = readFileSync(join(ADMIN_DIR, "admin-funnel.repository.ts"), "utf8");
+    expect(repo).not.toMatch(/\.(insert|update|delete)\s*\(/);
   });
 });
 
@@ -1833,5 +1930,62 @@ describe("#2560 candidate full-detail route — guarded, read-only, audited firs
         forbidden,
       );
     }
+  });
+});
+
+describe("#2569 empty-feed route — guarded, read_entities, and registered before workers/:id", () => {
+  const proto = AdminEmptyFeedController.prototype as unknown as Record<string, unknown>;
+  const routeMethods = Object.getOwnPropertyNames(AdminEmptyFeedController.prototype).filter(
+    (m) =>
+      m !== "constructor" &&
+      typeof proto[m] === "function" &&
+      Reflect.getMetadata("path", proto[m] as object) !== undefined,
+  );
+
+  it("declares exactly one GET route with the literal path", () => {
+    expect(routeMethods).toEqual(["list"]);
+    expect(Reflect.getMetadata("path", proto.list as object)).toBe("workers/empty-feed");
+  });
+
+  it("is behind AdminAuthGuard + AdminRolesGuard and declares exactly one read_entities", () => {
+    for (const method of routeMethods) {
+      expect(effectiveGuards(AdminEmptyFeedController, method)).toContain(AdminAuthGuard.name);
+      expect(effectiveGuards(AdminEmptyFeedController, method)).toContain(AdminRolesGuard.name);
+      const capability = Reflect.getMetadata(
+        ADMIN_CAPABILITY_KEY,
+        proto[method] as object,
+      ) as AdminCapability | undefined;
+      expect(capability).toBe("read_entities");
+    }
+    expect(
+      Reflect.getMetadata(ADMIN_CAPABILITY_KEY, AdminEmptyFeedController) as
+        | AdminCapability
+        | undefined,
+    ).toBeUndefined();
+  });
+
+  it("the module registers the literal controller BEFORE AdminEntitiesController", () => {
+    // Express matches in registration order; a workers/:id route registered first would
+    // capture workers/empty-feed and its UUID validation would answer 400.
+    const controllers = Reflect.getMetadata("controllers", AdminModule) as unknown[];
+    expect(controllers).toContain(AdminEmptyFeedController);
+    expect(controllers).toContain(AdminEntitiesController);
+    expect(controllers.indexOf(AdminEmptyFeedController)).toBeLessThan(
+      controllers.indexOf(AdminEntitiesController),
+    );
+  });
+
+  it("the repository is faceless and pins the active-feed flags", () => {
+    const repo = readFileSync(join(ADMIN_DIR, "admin-empty-feed.repository.ts"), "utf8")
+      .replace(/^\s*(\/\/|\*|\/\*).*$/gm, "")
+      .replace(/\s+/g, " ");
+    const svc = readFileSync(join(ADMIN_DIR, "admin-empty-feed.service.ts"), "utf8")
+      .replace(/^\s*(\/\/|\*|\/\*).*$/gm, "")
+      .replace(/\s+/g, " ");
+    for (const forbidden of ["phone", "full_name", "email", "photo_storage_key"]) {
+      expect(repo).not.toContain(forbidden);
+    }
+    expect(svc).toContain("isMatchV1Enabled");
+    expect(svc).toContain("isFeedPostingsUnionEnabled");
   });
 });

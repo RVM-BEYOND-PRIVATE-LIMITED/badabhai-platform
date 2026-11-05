@@ -126,14 +126,16 @@ describe("T2 consequential", () => {
     expect(dialogProps!.initialFocusRef).toBeUndefined();
   });
 
-  it("keeps a failure inside the dialog, with the server's own text", () => {
+  it("keeps a failure inside the dialog as a polite notice with Retry", () => {
     seeded = [
       { category: "fraud", reason: REASON, typedName: "" },
       { ok: false, error: "Payer already suspended." },
     ];
     const out = t2();
-    expect(out).toContain('<div class="alert alert--danger" role="alert">');
+    expect(out).toContain('<div class="alert alert--danger notice notice--inline" role="status">');
+    expect(out).not.toContain('role="alert"');
     expect(out).toContain("Payer already suspended.");
+    expect(out).toContain(">Retry<");
   });
 });
 

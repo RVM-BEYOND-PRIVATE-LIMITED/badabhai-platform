@@ -12,6 +12,7 @@ import {
 import { formatInr } from "../../../../lib/format";
 import { day, payoutBlockedLabel } from "../../../../lib/agency-view";
 import { Badge, Button } from "../../../../components/ds";
+import { agencyErrorMessage } from "../../../../lib/agency-messages";
 import { requestPayoutAction } from "./supply-actions";
 
 /**
@@ -61,7 +62,7 @@ export function PayoutPanel({
       } else if ("blocked" in res) {
         setOutcome({ kind: "blocked", message: reasonLabel(res.reason, earnings.thresholdInr) });
       } else {
-        setOutcome({ kind: "error", message: res.error });
+        setOutcome({ kind: "error", message: agencyErrorMessage(res.error) });
       }
     });
   }

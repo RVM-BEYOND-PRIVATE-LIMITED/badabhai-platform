@@ -6,6 +6,7 @@ import { allowedJumpKinds } from "../../components/quick-jump-model";
 import { Shell } from "../../components/shell";
 import { SignOutButton } from "../../components/sign-out-button";
 import { ToastProvider } from "../../components/toast";
+import { OfflineBanner } from "../../components/offline-banner";
 
 // Per-request. A cached admin shell could show one operator another's navigation.
 export const dynamic = "force-dynamic";
@@ -39,6 +40,7 @@ export default async function PortalLayout({ children }: { children: React.React
   // (a T1 Undo) and it outlives a navigation inside the portal.
   return (
     <ToastProvider>
+      <OfflineBanner />
       <Shell
         sections={sections}
         roleLabel={ROLE_LABELS[session.role]}
