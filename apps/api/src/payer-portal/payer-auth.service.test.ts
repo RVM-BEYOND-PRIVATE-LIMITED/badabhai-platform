@@ -91,6 +91,8 @@ function setup(over: { method?: "email_otp" | "whatsapp" | "supabase" } = {}) {
     isRootPayer: vi.fn(async () => true),
     // #2563 follow-up — a payer who ever held another org's membership never gets the backfill.
     hasEverBeenMemberOfOtherOrg: vi.fn(async () => false),
+    // #2563 follow-up — the other orgs' encrypted names, used to detect a COPIED org name.
+    listOtherOrgNameEnc: vi.fn(async (): Promise<string[]> => []),
   };
   // ADR-0053 — the acting-org choice. `resolveActingOrg` serves refresh (no heal); login asks
   // `ensureActingOrg`, the ONE place a missing org is repaired (the real heal is exercised by
@@ -118,6 +120,9 @@ function setup(over: { method?: "email_otp" | "whatsapp" | "supabase" } = {}) {
     hashOrgName: (v: string) => `org<${v}>`,
     hashPassword: (v: string) => pwHashFor(v),
     verifyPassword: (v: string, t: string) => t === pwHashFor(v),
+    // #2563 follow-up — the copied-name check compares DECRYPTED names (AES-GCM ciphertexts
+    // are non-deterministic). Test rows carry their plaintext name in `orgNameEnc`.
+    decrypt: (v: string) => v.replace(/^enc:/, ""),
   };
   const freeTier = { grantQuietly: vi.fn().mockResolvedValue(undefined) };
   const notice = { notify: vi.fn(async () => undefined) };
@@ -878,17 +883,53 @@ describe("PayerAuthService — #2563 forced change, revoke and last sign-in", ()
     expect(root.payers.ensureOrgLookupHash).toHaveBeenCalledTimes(1);
   });
 
-  it("clears a stale founder hash for a payer who ever held another org membership", async () => {
+  it("clears a stale founder hash only while the row still carries the founder's COPIED name", async () => {
     const d = setup();
     d.orgs.hasEverBeenMemberOfOtherOrg.mockResolvedValueOnce(true);
+    d.orgs.listOtherOrgNameEnc.mockResolvedValueOnce(["enc:Acme Manufacturing Pvt Ltd"]);
     d.payers.findByEmail.mockResolvedValueOnce(
-      pwAccount({ orgNameLookupHash: "stale-founder-hash" }),
+      pwAccount({
+        orgNameEnc: "enc:Acme Manufacturing Pvt Ltd",
+        orgNameLookupHash: "stale-founder-hash",
+      }),
     );
 
     await d.svc.loginWithPassword(EMAIL, PW, CTX);
 
     expect(d.payers.ensureOrgLookupHash).not.toHaveBeenCalled();
     expect(d.payers.clearOrgLookupHash).toHaveBeenCalledWith(PAYER_ID);
+  });
+
+  it("a founder who accepted another org's invite keeps their OWN company-name hash", async () => {
+    // The founder remains root of their own org (their payer row holds their OWN name), so the
+    // other org's name is present in membership history but is NOT what this row carries.
+    const d = setup();
+    d.orgs.hasEverBeenMemberOfOtherOrg.mockResolvedValueOnce(true);
+    d.orgs.listOtherOrgNameEnc.mockResolvedValueOnce(["enc:Other Founder Co"]);
+    d.payers.findByEmail.mockResolvedValueOnce(
+      pwAccount({ orgNameEnc: "enc:My Own Co", orgNameLookupHash: "own-company-hash" }),
+    );
+
+    await d.svc.loginWithPassword(EMAIL, PW, CTX);
+
+    expect(d.payers.clearOrgLookupHash).not.toHaveBeenCalled();
+    expect(d.payers.ensureOrgLookupHash).not.toHaveBeenCalled();
+  });
+
+  it("an ever-member who is ALSO a root payer and has no hash never gets the backfill", async () => {
+    // T1(a): the historical membership is the authority — the root check must not resurrect
+    // the founder's copied-name hash. Removing the `everMember` guard makes this fail.
+    const d = setup();
+    d.orgs.hasEverBeenMemberOfOtherOrg.mockResolvedValueOnce(true);
+    d.orgs.isRootPayer.mockResolvedValueOnce(true);
+    d.payers.findByEmail.mockResolvedValueOnce(
+      pwAccount({ orgNameEnc: "enc:My Own Co", orgNameLookupHash: null }),
+    );
+
+    await d.svc.loginWithPassword(EMAIL, PW, CTX);
+
+    expect(d.orgs.isRootPayer).not.toHaveBeenCalled();
+    expect(d.payers.ensureOrgLookupHash).not.toHaveBeenCalled();
   });
 
   it("rejects a new_password equal to the temporary one", async () => {

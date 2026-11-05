@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, asc, count, desc, eq, gt, isNull, ne, or, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gt, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import {
   type Database,
@@ -154,7 +154,7 @@ export class PayerOrgsRepository {
     return row !== undefined;
   }
 
-  /** #2563 follow-up — has this payer EVER held a membership in another payer's org? */
+  /** #2563 follow-up - has this payer EVER held a membership in another payer's org? */
   async hasEverBeenMemberOfOtherOrg(payerId: string): Promise<boolean> {
     const [row] = await this.db
       .select({ id: payerMembers.id })
@@ -168,6 +168,28 @@ export class PayerOrgsRepository {
       )
       .limit(1);
     return row !== undefined;
+  }
+
+  /**
+   * #2563 follow-up — the ENCRYPTED names of the orgs this payer belongs to but does not root.
+   *
+   * The caller decrypts and compares: a payer row's name is "copied" only while it equals one
+   * of these. Ciphertext equality cannot be used here because AES-GCM writes a fresh IV per
+   * encryption, so two encryptions of the same name are different strings.
+   */
+  async listOtherOrgNameEnc(payerId: string): Promise<string[]> {
+    const rows = await this.db
+      .select({ nameEnc: payerOrgs.nameEnc })
+      .from(payerMembers)
+      .innerJoin(payerOrgs, eq(payerOrgs.id, payerMembers.orgId))
+      .where(
+        and(
+          eq(payerMembers.memberPayerId, payerId),
+          ne(payerOrgs.rootPayerId, payerId),
+          isNotNull(payerOrgs.nameEnc),
+        ),
+      );
+    return rows.flatMap((row) => (row.nameEnc === null ? [] : [row.nameEnc]));
   }
 
   /** #2563 - the org a team member is being attached to, or undefined. */

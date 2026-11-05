@@ -14,7 +14,7 @@ import { SERVER_CONFIG } from "../config/config.module";
 import type { RequestContext } from "../common/request-context";
 import { PiiCryptoService } from "../common/pii-crypto.service";
 import { EventsService } from "../events/events.service";
-import { PayersRepository } from "../payers/payers.repository";
+import { DEFAULT_ORG_NAME, PayersRepository } from "../payers/payers.repository";
 import {
   PayerOrgsRepository,
   type PayerOrgsTx,
@@ -361,9 +361,10 @@ export class PayerOrgMembersService {
           founderNameEnc &&
           this.pii.decrypt(memberPayer.orgNameEnc) === this.pii.decrypt(founderNameEnc)
         ) {
-          await this.payers.setOrgName(removed.memberPayerId, "My Organisation");
-          // The neutral name is a display fallback, not a login identifier.
-          await this.payers.clearOrgLookupHash(removed.memberPayerId);
+          // The neutral name is a display fallback, not a login identifier. setOrgName writes
+          // the NULL lookup hash in the SAME statement, so a concurrent reader never sees the
+          // neutral name paired with a stale company-name hash.
+          await this.payers.setOrgName(removed.memberPayerId, DEFAULT_ORG_NAME);
         }
       } catch (err) {
         this.logger.warn(

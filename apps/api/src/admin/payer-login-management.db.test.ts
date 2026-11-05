@@ -14,7 +14,7 @@ import { PayerOrgMembersService } from "../payer-portal/payer-org-members.servic
 import { PiiCryptoService } from "../common/pii-crypto.service";
 import type { RequestContext } from "../common/request-context";
 import { PayerAuthService } from "../payer-portal/payer-auth.service";
-import { PayersRepository } from "../payers/payers.repository";
+import { DEFAULT_ORG_NAME, PayersRepository } from "../payers/payers.repository";
 import { PayerOrgsRepository } from "../payers/payer-orgs.repository";
 import { PayerTenantScopeService } from "../payers/payer-tenant-scope.service";
 import { AdminPayerLoginsService } from "./admin-payer-logins.service";
@@ -297,11 +297,18 @@ describe.skipIf(!RUN)("payer login management — REAL default status (#2563)", 
     // Removal clears the founder's copied name; the next login heals a solo org under a
     // neutral name, and the founder's company-name sign-in still resolves to exactly one row.
     const removedRow = await payersRepo.findById(member.id);
-    expect(pii.decrypt(removedRow!.orgNameEnc)).toBe("My Organisation");
+    expect(pii.decrypt(removedRow!.orgNameEnc)).toBe(DEFAULT_ORG_NAME);
     expect(removedRow!.orgNameLookupHash).toBeNull();
     await expect(auth.loginWithPassword(MEMBER_EMAIL, MEMBER_PASSWORD, CTX)).resolves.toMatchObject({
       payer_id: member.id,
     });
+    // T1(b): the SECOND login after removal is the case pre-fix code got wrong. It must not
+    // resurrect a company-name hash (not even for the healed solo org / root path), or the
+    // founder's company-name sign-in starts resolving to two rows.
+    await expect(auth.loginWithPassword(MEMBER_EMAIL, MEMBER_PASSWORD, CTX)).resolves.toMatchObject({
+      payer_id: member.id,
+    });
+    expect((await payersRepo.findById(member.id))?.orgNameLookupHash).toBeNull();
     await expect(auth.loginWithPassword(FOUNDER_ORG, FOUNDER_PASSWORD, CTX)).resolves.toMatchObject({
       payer_id: founder.id,
     });
