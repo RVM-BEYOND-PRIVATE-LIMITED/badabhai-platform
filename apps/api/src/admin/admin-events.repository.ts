@@ -95,6 +95,14 @@ export const ADMIN_PAYLOAD_GROUP_FIELDS = ["reason"] as const;
 export type AdminPayloadGroupField = (typeof ADMIN_PAYLOAD_GROUP_FIELDS)[number];
 
 /**
+ * Largest single `IN (...)` id list issued by the bulk spine readers. 5000 keeps every
+ * statement far under the driver's parameter ceiling (65535) no matter how large the
+ * funnel cohort is, while keeping the batch count — and therefore the round trips —
+ * small: a 50K cohort is 10 indexed probes per signal, not 50K of them.
+ */
+export const ADMIN_EVENTS_ID_BATCH_MAX = 5000;
+
+/**
  * SELECT-ONLY data access over the `events` spine for the Admin Ops Portal (ADR-0025 ADMIN-2).
  *
  * SPINE IMMUTABILITY (ADR-0025 must-fix #3, CLAUDE.md invariant #1): this repository issues
@@ -346,6 +354,90 @@ export class AdminEventsRepository {
       count: Number(row?.count ?? 0),
       distinctSubjects: Number(row?.distinctSubjects ?? 0),
     };
+  }
+
+  /**
+   * Per-worker counts of worker-SUBJECT events for a SET of workers — the bulk form of
+   * {@link countWorkerSubjectEvents} for the onboarding funnel (B14, #2568), which needs
+   * one worker's search count for every worker in a 50K cohort.
+   *
+   * Ids travel as a single `uuid[]` array parameter (`= ANY($1::uuid[])`), never as an
+   * expanded `IN (...)` list — 50K params would approach the driver's parameter ceiling
+   * and re-parse a different statement per cohort size. The cast is load-bearing: without
+   * it the driver sends `text[]` and Postgres refuses the comparison (the same class of
+   * driver-mapping trap `lt/eq`-on-`Date` documents one method up).
+   *
+   * INDEX-BACKED: `event_name = ANY(...)` narrows on `events_event_name_idx`; the
+   * subject match uses `events_subject_idx`.
+   */
+  async workerSubjectEventCounts(
+    workerIds: readonly string[],
+    eventNames: readonly [string, ...string[]],
+  ): Promise<Array<{ workerId: string; eventName: string; n: number }>> {
+    const out: Array<{ workerId: string; eventName: string; n: number }> = [];
+    // Chunked: one `IN (...)` per batch keeps every statement under the driver's
+    // parameter ceiling no matter how large the cohort is.
+    for (let i = 0; i < workerIds.length; i += ADMIN_EVENTS_ID_BATCH_MAX) {
+      const batch = workerIds.slice(i, i + ADMIN_EVENTS_ID_BATCH_MAX);
+      if (batch.length === 0) continue;
+      const rows = await this.db
+        .select({
+          workerId: events.subjectId,
+          eventName: events.eventName,
+          n: count(),
+        })
+        .from(events)
+        .where(
+          and(
+            inArray(events.eventName, [...eventNames]),
+            eq(events.subjectType, "worker"),
+            inArray(events.subjectId, [...batch]),
+          ),
+        )
+        .groupBy(events.subjectId, events.eventName);
+      for (const r of rows) {
+        if (r.workerId !== null) out.push({ workerId: r.workerId, eventName: r.eventName, n: r.n });
+      }
+    }
+    return out;
+  }
+
+  /**
+   * Per-worker interview-kit downloads for a SET of workers — the bulk form of
+   * {@link countInterviewKitDownloads} for the onboarding funnel (B14, #2568).
+   *
+   * Matches `events_interview_kit_worker_idx` exactly like its single-worker sibling:
+   * the same `event_name` literal and the same `payload->>'worker_id'` expression, so
+   * the partial index serves this too rather than the query falling back to a
+   * sequential scan of the largest table in the system.
+   */
+  async interviewKitDownloadsForWorkers(
+    workerIds: readonly string[],
+  ): Promise<Array<{ workerId: string; n: number; trades: number }>> {
+    const out: Array<{ workerId: string; n: number; trades: number }> = [];
+    // Chunked like the worker-subject counts above — same ceiling, same reason.
+    for (let i = 0; i < workerIds.length; i += ADMIN_EVENTS_ID_BATCH_MAX) {
+      const batch = workerIds.slice(i, i + ADMIN_EVENTS_ID_BATCH_MAX);
+      if (batch.length === 0) continue;
+      const rows = await this.db
+        .select({
+          workerId: sql<string>`${events.payload}->>'worker_id'`,
+          n: count(),
+          trades: sql<number>`count(distinct ${events.payload}->>'trade_key')`,
+        })
+        .from(events)
+        .where(
+          and(
+            eq(events.eventName, "interview_kit.downloaded"),
+            inArray(sql<string>`${events.payload}->>'worker_id'`, [...batch]),
+          ),
+        )
+        .groupBy(sql`${events.payload}->>'worker_id'`);
+      for (const r of rows) {
+        out.push({ workerId: r.workerId, n: Number(r.n), trades: Number(r.trades) });
+      }
+    }
+    return out;
   }
 
   /**
