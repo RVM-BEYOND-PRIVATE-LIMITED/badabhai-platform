@@ -41,6 +41,68 @@ export interface InboxPageQuery {
 }
 
 /**
+ * The inbox COUNT (`total` in `PayerApplicantInboxDto`, issue #2636) — how many applicants
+ * the same filters would page through. Same ownership WHEREs, same `postingId` / `?stage=`
+ * filters and same membership conjuncts as {@link inboxPageStatement}, WITHOUT the keyset,
+ * the ORDER BY or the LIMIT: it spans every page, not the remainder after a cursor, which is
+ * what payer-web's "Showing A–B of N" needs.
+ *
+ * Cost: one aggregate over the payer's own postings (same index path as the page read —
+ * `jobs_payer_id_status_idx` / `job_postings_payer_id_idx` into `applications_*_idx`). No new
+ * index is needed. A `postingId` the tenant does not own matches nothing in either arm, so
+ * the count is 0 — the same neutral empty page the list returns (no existence oracle).
+ */
+export interface InboxCountQuery {
+  /** Only this posting's applicants (either table); absent = every owned posting. */
+  postingId?: string;
+  /** Same board filter as the page read; absent (flag off) = the statement never names it. */
+  stages?: { only?: ApplicantStage };
+}
+
+export function inboxCountStatement(tenant: TenantKey, query: InboxCountQuery): SQL {
+  const posting = (column: SQL) =>
+    query.postingId === undefined ? dsql`` : dsql`AND ${column} = ${query.postingId}::uuid`;
+  const stages = query.stages;
+  const stageJoin = (kind: "agency_job" | "company_posting", postingColumn: SQL) =>
+    stages === undefined
+      ? dsql``
+      : dsql`LEFT JOIN payer_applicant_stages s
+          ON s.posting_kind = ${dsql.raw(`'${kind}'`)} AND s.posting_id = ${postingColumn} AND s.worker_id = a.worker_id`;
+  const stageFilter =
+    stages?.only === undefined ? dsql`` : dsql`AND COALESCE(s.stage, 'new') = ${stages.only}`;
+
+  return dsql`
+    SELECT COUNT(*)::int AS total FROM (
+      SELECT 1
+      FROM jobs j
+      INNER JOIN applications a ON a.job_id = j.id
+      INNER JOIN workers w ON w.id = a.worker_id
+      ${stageJoin("agency_job", dsql`j.id`)}
+      WHERE j.payer_id = ${tenant}::uuid
+        AND a.action = 'applied'
+        AND w.deletion_scheduled_at IS NULL
+        AND EXISTS (SELECT 1 FROM worker_profiles wp WHERE wp.worker_id = a.worker_id)
+        ${posting(dsql`j.id`)}
+        ${stageFilter}
+      UNION ALL
+      SELECT 1
+      FROM job_postings jp
+      INNER JOIN applications a ON a.job_posting_id = jp.id
+      INNER JOIN workers w ON w.id = a.worker_id
+      ${stageJoin("company_posting", dsql`jp.id`)}
+      WHERE jp.payer_id = ${tenant}::uuid
+        AND a.action = 'applied'
+        AND w.deletion_scheduled_at IS NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM jobs oj WHERE oj.id = a.job_id AND oj.payer_id = ${tenant}::uuid
+        )
+        ${posting(dsql`jp.id`)}
+        ${stageFilter}
+    ) c
+  `;
+}
+
+/**
  * THE INBOX PAGE (`GET /payer/reach/applicants`) — one statement, both sources, newest first.
  *
  * ```sql
@@ -171,10 +233,11 @@ type InboxPageSqlRow = {
 };
 
 /**
- * DB access for the payer's cross-posting applicant inbox. ONE read: the page of applications
- * (see {@link inboxPageStatement}). The faceless rows themselves come from the per-posting
- * builders (`ReachService`, `MatchCandidatesService`); this repository decides only WHICH
- * applications are on the page, never what a row shows.
+ * DB access for the payer's cross-posting applicant inbox. TWO reads: the page of applications
+ * (see {@link inboxPageStatement}) plus the total applicants under the same filters (see
+ * {@link inboxCountStatement}, issue #2636). The faceless rows themselves come from the
+ * per-posting builders (`ReachService`, `MatchCandidatesService`); this repository decides only
+ * WHICH applications are on the page and how many there are, never what a row shows.
  */
 @Injectable()
 export class PayerApplicantInboxRepository {
@@ -191,6 +254,20 @@ export class PayerApplicantInboxRepository {
       postingTitle: r.posting_title,
       ...(r.stage === undefined ? {} : { stage: r.stage }),
     }));
+  }
+
+  /** Total applicants under the same filters (no cursor): the `N` in "Showing A–B of N". */
+  async count(tenant: TenantKey, query: InboxCountQuery): Promise<number> {
+    const rows = await this.db.execute<{ total: number | string }>(
+      inboxCountStatement(tenant, query),
+    );
+    const [row] = rows as unknown as { total: number | string }[];
+    // `COUNT(*)::int` arrives as a number via postgres.js; coerce defensively (pg returns text).
+    const total = typeof row?.total === "string" ? Number.parseInt(row.total, 10) : row?.total;
+    if (!Number.isSafeInteger(total) || (total as number) < 0) {
+      throw new Error(`inbox count: unexpected total ${JSON.stringify(row?.total)}`);
+    }
+    return total as number;
   }
 }
 

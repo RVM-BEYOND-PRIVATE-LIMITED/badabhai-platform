@@ -396,7 +396,7 @@ describe.skipIf(!RUN)("GET /payer/reach/applicants — against Postgres", () => 
     expect(only.every((r) => r.posting.id === POST_A1)).toBe(true);
     const job = (await walk(PAYER_A, 2, JOB_A1)).rows;
     expect(job.map(appOf).sort()).toEqual([APP.a1!, APP.a2!, APP.a3!].sort());
-    const NEUTRAL = { applicants: [], nextCursor: null };
+    const NEUTRAL = { applicants: [], nextCursor: null, total: 0 };
     for (const postingId of [POST_B, JOB_B, randomUUID(), POST_A_EMPTY]) {
       expect(
         await inbox.list(PAYER_A, { limit: 20, postingId, cursor: undefined }, CTX),

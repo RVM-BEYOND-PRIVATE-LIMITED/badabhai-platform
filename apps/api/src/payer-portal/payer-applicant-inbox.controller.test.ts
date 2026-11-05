@@ -20,7 +20,7 @@ const CTX: RequestContext = {
 const QUERY = PayerApplicantInboxQuerySchema.parse({});
 
 function makeCtrl() {
-  const page = { applicants: [], nextCursor: null };
+  const page = { applicants: [], nextCursor: null, total: 0 };
   const inbox = { list: vi.fn(async () => page) };
   const rateLimit = { assertWithinHourlyCap: vi.fn(async () => undefined) };
   const config = { PAYER_REACH_MAX_PER_HOUR: 60 } as unknown as ServerConfig;
