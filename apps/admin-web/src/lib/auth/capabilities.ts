@@ -67,6 +67,9 @@ export const ADMIN_CAPABILITIES = [
   // Candidates tab's read floor (#2577). Distinct from `read_entities` (ids, enums, counts),
   // and names on that response stay behind `read_identity`. Tail-appended, like the API's.
   "read_candidates",
+  // #2566 — posting control: edit, pause/resume, close, hide/unhide, verify/reject on company
+  // postings and agency jobs. Vocabulary only: this file carries no role mapping.
+  "manage_postings",
 ] as const;
 
 export type AdminCapability = (typeof ADMIN_CAPABILITIES)[number];
@@ -110,6 +113,7 @@ export const CAPABILITY_LABELS: Record<AdminCapability, string> = {
   reveal_pii: "Reveal contact details",
   manage_admins: "Manage admins",
   read_candidates: "Read candidate records — every profile field and where it came from",
+  manage_postings: "Edit, pause, close, hide and verify postings",
 };
 
 /** Narrow an unknown string to a known capability (anything else is dropped, not trusted). */

@@ -16,5 +16,8 @@ import { AgencyTwinSyncProcessor } from "./agency-twin-sync.processor";
 @Module({
   imports: [BullModule.registerQueue({ name: AGENCY_TWIN_SYNC_QUEUE })],
   providers: [AgencyTwinRepository, AgencyTwinService, AgencyTwinSyncProcessor],
+  // #2566 — the admin posting-control write converges a twin on ITS transaction, so it
+  // needs the same service the sweep/poll use rather than a second implementation.
+  exports: [AgencyTwinService],
 })
 export class AgencyTwinModule {}

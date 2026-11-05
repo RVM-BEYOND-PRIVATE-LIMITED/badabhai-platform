@@ -41,6 +41,11 @@ const source = (overrides: Partial<AgencyTwinSource> = {}): AgencyTwinSource => 
   tradeLevel: "setter",
   tradeAnswers: { controller_brand: ["fanuc"] },
   createdAt: CREATED,
+  hiddenAt: null,
+  hiddenBy: null,
+  hiddenReasonCode: null,
+  hiddenReasonText: null,
+  verificationStatus: "unverified",
   ...overrides,
 });
 
@@ -170,6 +175,22 @@ describe("diffAgencyTwin — an unchanged source writes nothing", () => {
       "benefits",
     ]);
     expect(diffAgencyTwin(planned, { ...planned, orgLabel: "x" })).toEqual(["org_label"]);
+  });
+
+  it("#2566 — the admin hide state and the trust review are each one key, copied from the source", () => {
+    const hidden = {
+      hiddenAt: new Date("2026-11-05T00:00:00.000Z"),
+      hiddenBy: "c01de5e9-f3d7-4089-befd-2b4a4cda3829",
+      hiddenReasonCode: "policy_violation",
+      hiddenReasonText: "Carries a direct contact number in the description",
+    };
+    expect(diffAgencyTwin(planned, { ...planned, ...hidden })).toEqual(["hidden"]);
+    expect(diffAgencyTwin(planned, { ...planned, verificationStatus: "verified" })).toEqual([
+      "verification_status",
+    ]);
+    // Planned from a hidden + verified source, the twin carries both verbatim.
+    const plan = planAgencyTwin(source({ ...hidden, verificationStatus: "verified" }), CTX);
+    expect(plan.values).toMatchObject({ ...hidden, verificationStatus: "verified" });
   });
 });
 

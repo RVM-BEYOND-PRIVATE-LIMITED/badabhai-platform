@@ -1587,6 +1587,41 @@ export const EVENT_REGISTRY = {
     domain: "ai",
     payload: p.AiFallbackAlertClearedPayload,
   },
+
+  // [#2566] Admin posting control. Six value-free events, appended at the tail per protocol.
+  // The admin is the ACTOR on the envelope; each payload carries opaque ids + closed enums.
+  // `job_posting.closed` is NOT reused: its `previous_status` admits draft | open only, and an
+  // admin may close a paused/suspended row. `hidden` is a state separate from status.
+  "job_posting.admin_closed": {
+    version: 1,
+    domain: "job_posting",
+    payload: p.JobPostingAdminClosedPayload,
+  },
+  "job_posting.hidden": {
+    version: 1,
+    domain: "job_posting",
+    payload: p.JobPostingHiddenPayload,
+  },
+  "job_posting.unhidden": {
+    version: 1,
+    domain: "job_posting",
+    payload: p.JobPostingUnhiddenPayload,
+  },
+  "job.verification_updated": {
+    version: 1,
+    domain: "job",
+    payload: p.JobVerificationUpdatedPayload,
+  },
+  "job.hidden": {
+    version: 1,
+    domain: "job",
+    payload: p.JobHiddenPayload,
+  },
+  "job.unhidden": {
+    version: 1,
+    domain: "job",
+    payload: p.JobUnhiddenPayload,
+  },
 } as const satisfies Record<string, EventDefinition>;
 
 /** Union of all known event names. */

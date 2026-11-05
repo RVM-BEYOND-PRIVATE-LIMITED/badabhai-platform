@@ -1592,6 +1592,11 @@ const JOB_POSTING_CHANGED_FIELDS = [
   // moved: the display-only rung and/or the poster's chip answers. KEYS ONLY — the answer
   // map never enters the payload; the derived `match_skills` key still reports reach.
   "trade_fields",
+  // #2566 (ADDITIVE enum members, same precedent). An admin hid/unhid the posting, or moved
+  // its ops trust review. KEYS ONLY: who hid it, when and why live on the row + audit_logs,
+  // never on the spine.
+  "hidden",
+  "verification_status",
 ] as const;
 
 /**
@@ -1748,6 +1753,38 @@ export const JobPostingVerificationUpdatedPayload = z.object({
 export type JobPostingVerificationUpdatedPayload = z.infer<
   typeof JobPostingVerificationUpdatedPayload
 >;
+
+// ---------------------------------------------------------------------------
+// #2566 — ADMIN posting control. Four value-free events, one per admin act that
+// changes what workers can see or what the platform claims about a posting.
+//
+// WHY NEW NAMES RATHER THAN WIDENING `job_posting.closed` / `job_posting.updated`:
+// `JobPostingClosedPayload.previous_status` admits only draft | open, so an admin
+// closing a PAUSED or SUSPENDED posting cannot validate against it, and changing
+// that schema would silently re-interpret rows already on the spine. `hidden` is a
+// state SEPARATE from status (owner ruling) and has no existing event at all.
+// Every payload below carries opaque ids and closed enums only: the admin actor is
+// on the envelope, the reason lives on the SoR row and `audit_logs`.
+// ---------------------------------------------------------------------------
+
+/** An ADMIN closed a posting from ANY non-closed state (final; no reopen). */
+export const JobPostingAdminClosedPayload = z
+  .object({
+    job_posting_id: uuidSchema,
+    previous_status: jobPostingStatus,
+    status: z.literal("closed"),
+  })
+  .strict();
+export type JobPostingAdminClosedPayload = z.infer<typeof JobPostingAdminClosedPayload>;
+
+/** An ADMIN hid a posting from every worker feed/search (status untouched). */
+export const JobPostingHiddenPayload = z.object({ job_posting_id: uuidSchema }).strict();
+export type JobPostingHiddenPayload = z.infer<typeof JobPostingHiddenPayload>;
+
+/** An ADMIN restored a hidden posting to the worker feed/search. */
+export const JobPostingUnhiddenPayload = z.object({ job_posting_id: uuidSchema }).strict();
+export type JobPostingUnhiddenPayload = z.infer<typeof JobPostingUnhiddenPayload>;
+
 // unlock.* / contact.* / payment.* — Contact Unlock + Reveal (ADR-0010, Stream A).
 //
 // The single highest-risk PII path in the product — and therefore the family with
@@ -2605,6 +2642,10 @@ export const JOB_CHANGED_FIELDS = [
   // `match_skill_ids` were set, changed or cleared (by the agency or by ops). KEY only, never
   // the ids — the same key `job_posting.updated` already carries for a posting.
   "match_skills",
+  // #2566 (ADDITIVE, same precedent). An ADMIN hid/unhid the agency job, or moved its ops
+  // trust review. KEYS ONLY: who/when/why live on the row + audit_logs.
+  "hidden",
+  "verification_status",
 ] as const;
 
 /**
@@ -2631,6 +2672,30 @@ export const JobClosedPayload = z.object({
   status: z.literal("closed"),
 });
 export type JobClosedPayload = z.infer<typeof JobClosedPayload>;
+
+// ---------------------------------------------------------------------------
+// #2566 — ADMIN agency-job control. The `jobs` twins of the posting events above.
+// Same rules: opaque ids + closed enums only, reason on the SoR row + audit_logs.
+// ---------------------------------------------------------------------------
+
+/** An ADMIN moved an agency job's ops trust review. */
+export const JobVerificationUpdatedPayload = z
+  .object({
+    job_id: uuidSchema,
+    verification_status: jobPostingVerificationStatus,
+    previous_status: jobPostingVerificationStatus,
+  })
+  .strict();
+export type JobVerificationUpdatedPayload = z.infer<typeof JobVerificationUpdatedPayload>;
+
+/** An ADMIN hid an agency job from every worker feed/search (status untouched). */
+export const JobHiddenPayload = z.object({ job_id: uuidSchema }).strict();
+export type JobHiddenPayload = z.infer<typeof JobHiddenPayload>;
+
+/** An ADMIN restored a hidden agency job to the worker feed/search. */
+export const JobUnhiddenPayload = z.object({ job_id: uuidSchema }).strict();
+export type JobUnhiddenPayload = z.infer<typeof JobUnhiddenPayload>;
+
 
 // ---------------------------------------------------------------------------
 // Worker-facing notification events (TD64). These are per-worker events emitted at

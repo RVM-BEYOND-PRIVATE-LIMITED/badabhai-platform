@@ -195,7 +195,12 @@ export class AdminEntitiesService {
     dto: AdminJobPostingsQueryDto,
   ): Promise<AdminPage<AdminJobPostingListItem>> {
     const rows = await this.repo.listJobPostings(
-      { status: dto.status, verificationStatus: dto.verificationStatus, payerId: dto.payerId },
+      {
+        status: dto.status,
+        verificationStatus: dto.verificationStatus,
+        payerId: dto.payerId,
+        hidden: dto.hidden,
+      },
       decodeEntityCursor(dto.cursor),
       dto.limit + 1,
     );

@@ -196,8 +196,10 @@ describe("capability matrix drift (must-fix #5 — pinned to ADR-0025 Decision 3
     // ADR-0062 §3.8 (signed 2026-11-04) — the Candidates full-detail read, all four roles. Names on
     // that response stay behind `read_identity` (asserted below), so the analyst row is faceless.
     read_candidates: ["super_admin", "ops_admin", "support", "analyst"],
-    // #2562 — worker account control. `analyst` denied (read-only analytics).
+    // #2562 - worker account control. `analyst` denied (read-only analytics).
     manage_worker_account: ["super_admin", "ops_admin", "support"],
+    // #2566 - posting/job correction + visibility. `support`/`analyst` denied.
+    manage_postings: ["super_admin", "ops_admin"],
   };
 
   it("the capability set matches the ADR exactly (no added/removed capability)", () => {
@@ -248,8 +250,10 @@ describe("capability matrix drift (must-fix #5 — pinned to ADR-0025 Decision 3
       "review_skill_candidates",
       "manage_admins",
       "toggle_kill_switch",
-      // #2562 — account control is a write; the read-only analytics role must never hold it.
+      // #2562 - account control is a write; the read-only analytics role must never hold it.
       "manage_worker_account",
+      // #2566 - posting moderation is a write.
+      "manage_postings",
     ] as const) {
       expect(can("analyst", write)).toBe(false);
     }
@@ -352,6 +356,8 @@ describe("capabilitiesFor — what the UI is told matches what the server permit
       "read_candidates",
       // #2562 — worker account control.
       "manage_worker_account",
+      // #2566 — posting/job correction + visibility.
+      "manage_postings",
     ]);
     // super_admin holds everything — the one role for which the list is the whole vocabulary.
     expect(capabilitiesFor("super_admin")).toEqual([...ADMIN_CAPABILITIES]);

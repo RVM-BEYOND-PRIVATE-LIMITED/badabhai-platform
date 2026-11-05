@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, count, desc, eq, isNotNull, lt, or, sql, type SQL } from "drizzle-orm";
+import { and, count, desc, eq, isNotNull, isNull, lt, or, sql, type SQL } from "drizzle-orm";
 import type { PgColumn } from "drizzle-orm/pg-core";
 import {
   CURRENT_PROFILE_ORDER,
@@ -279,7 +279,12 @@ export class AdminEntitiesRepository {
   // ---- job postings -------------------------------------------------------
 
   async listJobPostings(
-    filter: { status?: string; verificationStatus?: string; payerId?: string },
+    filter: {
+      status?: string;
+      verificationStatus?: string;
+      payerId?: string;
+      hidden?: boolean;
+    },
     cursor: EntityCursor | null,
     limit: number,
   ): Promise<AdminJobPostingListItem[]> {
@@ -289,6 +294,10 @@ export class AdminEntitiesRepository {
       clauses.push(eq(jobPostings.verificationStatus, filter.verificationStatus as never));
     }
     if (filter.payerId) clauses.push(eq(jobPostings.payerId, filter.payerId));
+    // #2566 — visible/hidden filter. `true` = only hidden rows; `false` = only visible.
+    if (filter.hidden !== undefined) {
+      clauses.push(filter.hidden ? isNotNull(jobPostings.hiddenAt) : isNull(jobPostings.hiddenAt));
+    }
     if (cursor) {
       clauses.push(AdminEntitiesRepository.before(jobPostings.createdAt, jobPostings.id, cursor));
     }
@@ -307,6 +316,10 @@ export class AdminEntitiesRepository {
         city: jobPostings.city,
         status: jobPostings.status,
         verificationStatus: jobPostings.verificationStatus,
+        hiddenAt: jobPostings.hiddenAt,
+        hiddenBy: jobPostings.hiddenBy,
+        hiddenReasonCode: jobPostings.hiddenReasonCode,
+        hiddenReasonText: jobPostings.hiddenReasonText,
         vacancyBand: jobPostings.vacancyBand,
         payMin: jobPostings.payMin,
         payMax: jobPostings.payMax,
@@ -330,6 +343,11 @@ export class AdminEntitiesRepository {
       city: r.city,
       status: r.status,
       verification_status: r.verificationStatus,
+      hidden: r.hiddenAt !== null,
+      hidden_at: r.hiddenAt,
+      hidden_by: r.hiddenBy,
+      hidden_reason_code: r.hiddenReasonCode,
+      hidden_reason_text: r.hiddenReasonText,
       vacancy_band: r.vacancyBand,
       pay_min: r.payMin,
       pay_max: r.payMax,
@@ -355,6 +373,10 @@ export class AdminEntitiesRepository {
         description: jobPostings.description,
         status: jobPostings.status,
         verificationStatus: jobPostings.verificationStatus,
+        hiddenAt: jobPostings.hiddenAt,
+        hiddenBy: jobPostings.hiddenBy,
+        hiddenReasonCode: jobPostings.hiddenReasonCode,
+        hiddenReasonText: jobPostings.hiddenReasonText,
         vacancyBand: jobPostings.vacancyBand,
         payMin: jobPostings.payMin,
         payMax: jobPostings.payMax,
@@ -406,6 +428,11 @@ export class AdminEntitiesRepository {
       description: j.description,
       status: j.status,
       verification_status: j.verificationStatus,
+      hidden: j.hiddenAt !== null,
+      hidden_at: j.hiddenAt,
+      hidden_by: j.hiddenBy,
+      hidden_reason_code: j.hiddenReasonCode,
+      hidden_reason_text: j.hiddenReasonText,
       vacancy_band: j.vacancyBand,
       pay_min: j.payMin,
       pay_max: j.payMax,

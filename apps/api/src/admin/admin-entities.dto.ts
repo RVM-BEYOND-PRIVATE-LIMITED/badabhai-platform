@@ -136,6 +136,14 @@ export const AdminJobPostingsQuerySchema = z
     status: z.enum(JOB_POSTING_STATUSES).optional(),
     verificationStatus: z.enum(JOB_POSTING_VERIFICATION_STATUSES).optional(),
     payerId: z.string().uuid().optional(),
+    /**
+     * #2566 — the Companies tab's Visible/Hidden filter. A query string, so only the two
+     * literal words are accepted; `true` means ONLY hidden rows, `false` ONLY visible ones.
+     */
+    hidden: z
+      .enum(["true", "false"])
+      .transform((value) => value === "true")
+      .optional(),
   })
   .strict();
 export type AdminJobPostingsQueryDto = z.infer<typeof AdminJobPostingsQuerySchema>;
@@ -276,6 +284,16 @@ export interface AdminJobPostingListItem {
   city: string | null;
   status: string;
   verification_status: string;
+  /**
+   * #2566 — BadaBhai's hide state, SEPARATE from `status`. The admin projection carries
+   * the WHOLE record: when, which admin, the closed code and the written note, because the
+   * console has to explain the row. Only an admin may clear it (`POST /admin/postings/:id/unhide`).
+   */
+  hidden: boolean;
+  hidden_at: Date | null;
+  hidden_by: string | null;
+  hidden_reason_code: string | null;
+  hidden_reason_text: string | null;
   vacancy_band: (typeof VACANCY_BANDS)[number];
   pay_min: number | null;
   pay_max: number | null;

@@ -153,6 +153,19 @@ export class AgencyTwinService implements OnModuleInit {
     return this.repo.sync(jobId, await this.context(), (tx, write) => this.emitWrite(tx, write));
   }
 
+  /**
+   * #2566 — converge ONE agency job's twin on the caller's transaction (the admin posting
+   * write). Disarmed, this writes nothing, matching the sweep's kill-switch contract: the
+   * twin is paused and unserved, and re-arming re-derives it — including the hidden and
+   * verification columns this sync now copies.
+   */
+  async syncWithin(tx: Database, jobId: string): Promise<AgencyTwinSyncOutcome | null> {
+    if (!this.isArmed()) return null;
+    return this.repo.syncWithin(tx, jobId, await this.context(), (tx2, write) =>
+      this.emitWrite(tx2, write),
+    );
+  }
+
   /** The event poll tick. No-op while disarmed (the sweep owns the disarm). */
   async pollRecentEvents(now: Date = new Date()): Promise<AgencyTwinTickSummary> {
     if (!this.isArmed()) return emptySummary(false);

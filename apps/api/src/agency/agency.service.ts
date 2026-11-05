@@ -80,6 +80,14 @@ export interface AgencyJobView {
   tradeLevel: string | null;
   /** Migration 0141 — the poster's chip answers, or null. */
   tradeAnswers: Record<string, string[]> | null;
+  /**
+   * #2566 — BadaBhai hid this job from every worker surface. STATUS IS UNCHANGED, so the
+   * agency still sees the row and can read the closed reason code. `hidden_by` (the admin)
+   * and the free-text note never appear on this owner view.
+   */
+  hidden: boolean;
+  hiddenAt: Date | null;
+  hiddenReasonCode: string | null;
   applicantsReceived: number;
   createdAt: Date;
   updatedAt: Date;
@@ -364,20 +372,20 @@ export class AgencyService {
     };
   }
 
-  /** Edit an owned job. Neutral 404 if unknown-or-not-owned. Emits job.updated. */
-  async updateJob(
-    actorPayerId: string,
-    jobId: string,
+  /**
+   * #2566 — the SAME patch builder the agency's own edit uses, exposed so the admin
+   * posting-control surface cannot drift from it. Pure preparation: it validates the trade
+   * form, the match-skill pick and the pay/experience windows, and returns the column patch
+   * plus the event's changed-field KEYS. The caller owns the transaction, the reason and the
+   * admin actor.
+   */
+  async prepareAdminEdit(
+    current: Job,
     dto: UpdateAgencyJobDto,
-    ctx: RequestContext,
-  ): Promise<AgencyJobView> {
-    const scope = await this.tenancy.resolve(actorPayerId);
-    const current = await this.readOwnedJob(scope, jobId);
-    if (!current) throw new NotFoundException("Job not found");
-    if (current.status === "closed") {
-      // closed is terminal — no edits. (A neutral conflict, not a leak.)
-      throw new BadRequestException("Job is closed and cannot be edited");
-    }
+  ): Promise<{
+    patch: AgencyJobUpdate;
+    changedFields: PayloadInputOf<"job.updated">["changed_fields"];
+  }> {
     // Migration 0141 — validate/normalize the trade form BEFORE the generic patch builder.
     // It may derive `match_skill_ids` from the chips, or clear a stale role's answers when
     // the role moved without the form being resent.
@@ -537,6 +545,26 @@ export class AgencyService {
     if (nextExpMin != null && nextExpMax != null && nextExpMax < nextExpMin) {
       throw new BadRequestException("max_experience_years must be >= min_experience_years");
     }
+
+    return { patch, changedFields };
+  }
+
+  /** Edit an owned job. Neutral 404 if unknown-or-not-owned. Emits job.updated. */
+  async updateJob(
+    actorPayerId: string,
+    jobId: string,
+    dto: UpdateAgencyJobDto,
+    ctx: RequestContext,
+  ): Promise<AgencyJobView> {
+    const scope = await this.tenancy.resolve(actorPayerId);
+    const current = await this.readOwnedJob(scope, jobId);
+    if (!current) throw new NotFoundException("Job not found");
+    if (current.status === "closed") {
+      // closed is terminal — no edits. (A neutral conflict, not a leak.)
+      throw new BadRequestException("Job is closed and cannot be edited");
+    }
+
+    const { patch, changedFields } = await this.prepareAdminEdit(current, dto);
 
     const updated = await this.jobsRepo.updateOwned(jobId, scope.tenantKey, patch);
     if (!updated) throw new NotFoundException("Job not found");
@@ -1200,6 +1228,10 @@ export class AgencyService {
       // Migration 0141 — the trade-specific form; nulls preserved ("not stated").
       tradeLevel: row.tradeLevel,
       tradeAnswers: row.tradeAnswers,
+      // #2566 — the owner sees the hide state (status unchanged); who/why-free-text stay admin-only.
+      hidden: row.hiddenAt !== null,
+      hiddenAt: row.hiddenAt,
+      hiddenReasonCode: row.hiddenReasonCode,
       applicantsReceived: row.applicantsReceived,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,

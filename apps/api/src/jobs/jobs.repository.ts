@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, eq, gt, sql } from "drizzle-orm";
+import { and, eq, gt, isNull, sql } from "drizzle-orm";
 import {
   type Database,
   type Job,
@@ -158,7 +158,7 @@ export class JobsRepository {
         tradeAnswers: jobs.tradeAnswers,
       })
       .from(jobs)
-      .where(and(eq(jobs.id, jobId), eq(jobs.status, "open")))
+      .where(and(eq(jobs.id, jobId), eq(jobs.status, "open"), isNull(jobs.hiddenAt)))
       .limit(1);
     if (legacy) return legacy;
 
@@ -200,7 +200,13 @@ export class JobsRepository {
         tradeAnswers: jobPostings.tradeAnswers,
       })
       .from(jobPostings)
-      .where(and(eq(jobPostings.id, jobId), eq(jobPostings.status, "open")))
+      .where(
+        and(
+          eq(jobPostings.id, jobId),
+          eq(jobPostings.status, "open"),
+          isNull(jobPostings.hiddenAt),
+        ),
+      )
       .limit(1);
     return posting;
   }
@@ -261,7 +267,7 @@ export class JobsRepository {
      */
     publishedAfter?: Date | null;
   }): Promise<{ rows: JobSearchRow[]; hasMore: boolean }> {
-    const conditions = [eq(jobPostings.status, "open")];
+    const conditions = [eq(jobPostings.status, "open"), isNull(jobPostings.hiddenAt)];
     if (args.publishedAfter) conditions.push(gt(jobPostings.publishedAt, args.publishedAfter));
 
     // ── Membership: the `search_vec` GIN probe (migration 0089) ──

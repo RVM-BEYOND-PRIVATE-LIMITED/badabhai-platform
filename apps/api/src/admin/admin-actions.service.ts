@@ -47,6 +47,7 @@ export type { AdminActionCode } from "./admin-action-codes";
 type AdminActionSubjectType =
   | "payer"
   | "job_posting"
+  | "job"
   | "worker"
   | "admin_session"
   | "skill_candidate";
