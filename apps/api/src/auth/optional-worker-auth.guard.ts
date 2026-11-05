@@ -2,7 +2,7 @@ import { type CanActivate, type ExecutionContext, Injectable, Logger } from "@ne
 import type { Request } from "express";
 import { SessionService } from "./session.service";
 import { readWorkerAccountState } from "./worker-account-deleted.exception";
-import type { WorkersRepository } from "../workers/workers.repository";
+import { WorkersRepository } from "../workers/workers.repository";
 
 /**
  * ATTRIBUTION, NOT AUTHENTICATION. Attaches `req.worker` when a valid worker session token
