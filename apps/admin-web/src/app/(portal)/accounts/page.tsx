@@ -172,6 +172,8 @@ export default async function AccountsPage({
           {a.password_state === "set" && a.password_set_at
             ? ` · ${formatRelative(a.password_set_at)}`
             : ""}
+          {/* `null` is "the lock-state read failed", not "unlocked" — only `true` is a claim. */}
+          {a.locked === true ? " · Locked" : ""}
         </span>
       ),
     },
