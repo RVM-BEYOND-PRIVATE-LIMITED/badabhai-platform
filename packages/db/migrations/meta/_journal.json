@@ -1087,6 +1087,13 @@
       "when": 1793784434972,
       "tag": "0154_payer_login_management",
       "breakpoints": true
+    },
+    {
+      "idx": 155,
+      "version": "7",
+      "when": 1793872516876,
+      "tag": "0155_company_payment_history",
+      "breakpoints": true
     }
   ]
 }

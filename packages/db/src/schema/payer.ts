@@ -588,6 +588,11 @@ export const postingPlans = pgTable(
     // immutable; the effective cap the (future) view chokepoint enforces is
     // applicantVisibilityQuota + quotaTopupCount. Each top-up also emits posting_plan.quota_topped.
     quotaTopupCount: integer("quota_topup_count").notNull().default(0),
+    // #2565 (B11) — the whole-₹ price STAMPED at purchase (quote.finalInr). NULLABLE on
+    // purpose: every row written before this column existed is null and renders as
+    // "not recorded" (never guessed from the current catalog). PII-free (an integer).
+    // Additive + nullable (invariant #8).
+    priceInr: integer("price_inr"),
     // Atomic check-and-increment at the single view chokepoint (ADR-0010 F-2 discipline).
     applicantsViewedCount: integer("applicants_viewed_count").notNull().default(0),
     paidAt: timestamp("paid_at", { withTimezone: true }),
@@ -616,6 +621,9 @@ export const postingBoosts = pgTable(
       .references(() => jobPostings.id, { onDelete: "cascade" }),
     payerId: uuid("payer_id").notNull(),
     tier: text("tier").$type<BoostTier>().notNull().default("all_candidates"),
+    // #2565 (B11) — the whole-₹ price STAMPED at purchase. NULL = pre-column row,
+    // rendered as "not recorded", never back-guessed. Additive + nullable.
+    priceInr: integer("price_inr"),
     boostStartsAt: timestamp("boost_starts_at", { withTimezone: true }),
     boostEndsAt: timestamp("boost_ends_at", { withTimezone: true }),
     status: text("status").$type<BoostStatus>().notNull().default("active"),
@@ -702,6 +710,11 @@ export const payerCapacity = pgTable(
     // The capacity-catalog tier code that granted this allowance (a stable code, NOT
     // PII). Nullable: a manually-granted/seeded allowance need not cite a tier.
     sourceTier: text("source_tier"),
+    // #2565 (B11) — the whole-₹ price of the LAST capacity purchase that wrote this
+    // row. NULL = pre-column row or a manual grant, rendered as "not recorded".
+    // Per-purchase history lives on the `capacity.purchased` event spine; this column
+    // is the receipt on the CURRENT allowance only. Additive + nullable.
+    priceInr: integer("price_inr"),
     // Optional validity window — null = no expiry.
     expiresAt: timestamp("expires_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -714,6 +727,48 @@ export const payerCapacity = pgTable(
     check("payer_capacity_max_nonneg_chk", sql`${t.maxActiveVacancies} >= 0`),
   ],
 ).enableRLS(); // RLS tracked in the model; carried by the migration (BL-26 parity fix)
+
+// plan_quota_topups — ONE ROW PER quota top-up purchase (B2 receipt, #2565 B11).
+//
+// A top-up previously existed only as an increment of `posting_plans.quota_topup_count`
+// plus a `posting_plan.quota_topped` event — so per-top-up ₹ history was event-only and
+// the company timeline had no row to join. This table is the additive receipt: one row
+// per purchase, stamped with the tier, the views added and the whole-₹ price.
+//
+// PII-FREE (ids + codes + counts + integer ₹, like every other monetization table).
+// `payer_id` is the same opaque faceless rail. `plan_id` cascades (a deleted plan's
+// top-ups go with it, exactly as the plan row does); `job_posting_id` SET NULLs so a
+// posting delete that somehow bypasses the plan cascade still keeps the PAID top-up
+// row (billing history is never destroyed by a content delete).
+export const planQuotaTopups = pgTable(
+  "plan_quota_topups",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    planId: uuid("plan_id")
+      .notNull()
+      .references(() => postingPlans.id, { onDelete: "cascade" }),
+    jobPostingId: uuid("job_posting_id").references(() => jobPostings.id, {
+      onDelete: "set null",
+    }),
+    // Opaque payer (employer OR agent) — faceless rails, NO FK, NO PII.
+    payerId: uuid("payer_id").notNull(),
+    // The quota_topup catalog tier bought (e.g. topup_10).
+    tier: text("tier").notNull(),
+    // Views added by THIS top-up (the plan's quotaTopupCount grows by this much).
+    quotaAdded: integer("quota_added").notNull(),
+    // Whole-₹ price STAMPED at purchase. NULL = backfilled-from-event row whose event
+    // carried no price (older events always carry one, so this is the "not recorded"
+    // bucket, never a guess). New writes always stamp a price.
+    priceInr: integer("price_inr"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("plan_quota_topups_plan_id_idx").on(t.planId),
+    index("plan_quota_topups_payer_id_idx").on(t.payerId),
+    index("plan_quota_topups_payer_created_idx").on(t.payerId, t.createdAt),
+    check("plan_quota_topups_added_pos_chk", sql`${t.quotaAdded} > 0`),
+  ],
+).enableRLS();
 
 // ===========================================================================
 // Matching V1 — Workstream 3 spine (migration 0058): payment_orders +

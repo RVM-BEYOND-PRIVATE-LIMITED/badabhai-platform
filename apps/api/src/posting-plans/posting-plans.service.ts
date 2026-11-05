@@ -278,6 +278,8 @@ export class PostingPlansService {
           payerId: tenant,
           tier: dto.tier,
           applicantVisibilityQuota: grants.applicantVisibilityQuota,
+          // #2565 B11 — stamp the charged ₹ on the receipt (NULL renders "not recorded").
+          priceInr: quote.finalInr,
           status,
           paidAt: now,
           expiresAt: new Date(now.getTime() + grants.validityDays * MS_PER_DAY),
@@ -365,6 +367,8 @@ export class PostingPlansService {
       jobPostingId,
       payerId: tenant,
       tier: dto.tier,
+      // #2565 B11 — stamp the charged ₹ on the receipt.
+      priceInr: quote.finalInr,
       status: "active",
       boostStartsAt: now,
       boostEndsAt: new Date(now.getTime() + quote.grants.boostDays * MS_PER_DAY),
@@ -450,6 +454,17 @@ export class PostingPlansService {
     );
     if (!updated) throw noActivePlanToTopUp();
 
+    // #2565 B11 — the per-top-up RECEIPT row (one row per purchase; the plan's
+    // quotaTopupCount is the running total, this table is the itemized history).
+    await this.repo.insertQuotaTopup({
+      planId: updated.id,
+      jobPostingId,
+      payerId: tenant,
+      tier: dto.tier,
+      quotaAdded: grants.additionalVisibilityQuota,
+      priceInr: quote.finalInr,
+    });
+
     await this.emitPayment("payment.authorized", jobPostingId, scope, quote.finalInr, realCall, ctx);
     await this.emitPayment("payment.captured", jobPostingId, scope, quote.finalInr, realCall, ctx);
 
@@ -516,6 +531,8 @@ export class PostingPlansService {
           maxActiveVacancies: grants.maxActiveVacancies,
           sourceTier: dto.tier,
           expiresAt,
+          // #2565 B11 — stamp the charged ₹ on the allowance receipt.
+          priceInr: quote.finalInr,
         },
         tx,
       );

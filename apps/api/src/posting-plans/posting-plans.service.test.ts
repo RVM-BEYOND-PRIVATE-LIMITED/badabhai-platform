@@ -77,6 +77,8 @@ function make(
   const addQuotaTopup = vi.fn().mockImplementation(async (planId: string, _payerId: string, delta: number) =>
     opts.topupRaced || !topupPlan ? undefined : { id: planId, quotaTopupCount: topupPlan.quotaTopupCount + delta },
   );
+  // #2565 B11 — the per-top-up receipt row (one row per purchase).
+  const insertQuotaTopup = vi.fn().mockImplementation(async (input: Record<string, unknown>) => ({ id: "t-1", ...input }));
   // The transaction simply runs its callback with a sentinel tx (the repo methods below
   // are all mocked, so the sentinel is never really used by Drizzle).
   const withTransaction = vi.fn().mockImplementation(async (work: (tx: unknown) => Promise<unknown>) => work({}));
@@ -103,6 +105,7 @@ function make(
       setPlanStatus,
       findActivePlanForPostingAndPayer,
       addQuotaTopup,
+      insertQuotaTopup,
       extendPostingBoostWindow,
     } as never,
     { emit } as never,
@@ -142,6 +145,7 @@ function make(
     countActivePlansForPayer,
     findActivePlanForPostingAndPayer,
     addQuotaTopup,
+    insertQuotaTopup,
     listPausedPlansForPayer,
     findActiveBoost,
     findPostingSyncSource,
@@ -166,6 +170,15 @@ describe("PostingPlansService.buyPlan", () => {
   it("404s for an unknown posting", async () => {
     const { service } = make({ postingExists: false });
     await expect(service.buyPlan(POSTING, { payer_id: PAYER, tier: "standard" }, CTX)).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it("#2565 B11 — the plan receipt stamps the charged ₹ (null renders not-recorded, never a guess)", async () => {
+    const { service, insertPlan } = make();
+    await service.buyPlan(POSTING, { payer_id: PAYER, tier: "standard" }, CTX);
+    expect(insertPlan).toHaveBeenCalledWith(expect.objectContaining({ priceInr: 1000 }), expect.anything());
+    const pro = make();
+    await pro.service.buyPlan(POSTING, { payer_id: PAYER, tier: "pro" }, CTX);
+    expect(pro.insertPlan).toHaveBeenCalledWith(expect.objectContaining({ priceInr: 2500 }), expect.anything());
   });
 
   it("ADR-0050 §4.3 — refuses a plan on an agency TWIN with the fence's 409, before any price or write", async () => {
@@ -510,11 +523,22 @@ describe("PostingPlansService.topUpQuotaInScope (B2 — pricing-engine refill on
   const SESSION_PAYER = "55555555-5555-4555-8555-555555555555";
 
   it("resolves the top-up price, atomically increments quota_topup_count, and emits payment + quota_topped", async () => {
-    const { service, emit, names, addQuotaTopup } = make();
+    const { service, emit, names, addQuotaTopup, insertQuotaTopup } = make();
     const { plan, quote } = await service.topUpQuotaInScope(POSTING, await ownScope(SESSION_PAYER), { tier: "topup_10" }, CTX);
     expect(quote.finalInr).toBe(1000);
     // Atomic increment called with the SESSION payer + the catalog grant (10 views).
     expect(addQuotaTopup).toHaveBeenCalledWith("p-1", SESSION_PAYER, 10, expect.any(Date));
+    // #2565 B11 — the per-top-up RECEIPT row carries the same stamped price.
+    expect(insertQuotaTopup).toHaveBeenCalledWith(
+      expect.objectContaining({
+        planId: "p-1",
+        jobPostingId: POSTING,
+        payerId: SESSION_PAYER,
+        tier: "topup_10",
+        quotaAdded: 10,
+        priceInr: 1000,
+      }),
+    );
     expect(plan.quotaTopupCount).toBe(10);
     expect(names()).toEqual(["payment.authorized", "payment.captured", "posting_plan.quota_topped"]);
     const topped = emit.mock.calls.find((c) => c[0].event_name === "posting_plan.quota_topped")![0];

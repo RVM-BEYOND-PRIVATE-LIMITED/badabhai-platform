@@ -65,6 +65,7 @@ import {
   payerOrgs,
   payers,
   paymentOrders,
+  planQuotaTopups,
   postingBoosts,
   postingPlans,
   pricingCatalog,
@@ -209,6 +210,8 @@ export type PostingPlan = typeof postingPlans.$inferSelect;
 export type NewPostingPlan = typeof postingPlans.$inferInsert;
 export type PostingBoost = typeof postingBoosts.$inferSelect;
 export type NewPostingBoost = typeof postingBoosts.$inferInsert;
+export type PlanQuotaTopup = typeof planQuotaTopups.$inferSelect;
+export type NewPlanQuotaTopup = typeof planQuotaTopups.$inferInsert;
 export type ResumeDisclosure = typeof resumeDisclosures.$inferSelect;
 export type NewResumeDisclosure = typeof resumeDisclosures.$inferInsert;
 export type PayerCapacity = typeof payerCapacity.$inferSelect;
@@ -333,6 +336,7 @@ export const schema = {
   pricingCatalog,
   postingPlans,
   postingBoosts,
+  planQuotaTopups,
   resumeDisclosures,
   payerCapacity,
   invites,

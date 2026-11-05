@@ -58,6 +58,9 @@ import { AdminPayerLoginsController } from "./admin-payer-logins.controller";
 import { AdminFinanceRepository } from "./admin-finance.repository";
 import { AdminFinanceService } from "./admin-finance.service";
 import { AdminFinanceController } from "./admin-finance.controller";
+import { AdminPaymentHistoryRepository } from "./admin-payment-history.repository";
+import { AdminPaymentHistoryService } from "./admin-payment-history.service";
+import { AdminPaymentHistoryController } from "./admin-payment-history.controller";
 import { AdminDirectoryRepository } from "./admin-directory.repository";
 import { AdminDirectoryService } from "./admin-directory.service";
 import { AdminDirectoryController } from "./admin-directory.controller";
@@ -218,6 +221,7 @@ import { WorkerQualificationsRepository } from "../profiles/worker-qualification
     AdminEntitiesController,
     AdminPayerLoginsController,
     AdminFinanceController,
+    AdminPaymentHistoryController,
     AdminDirectoryController,
     AdminDashboardController,
     AdminAiAlertsController,
@@ -322,6 +326,12 @@ import { WorkerQualificationsRepository } from "../profiles/worker-qualification
     // posture, so a mock rupee can never be read as a real one.
     AdminFinanceRepository,
     AdminFinanceService,
+    // #2565 B11: the per-company payment history (the Companies page "what have we
+    // paid for" timeline). SELECT-ONLY, behind `read_entities` like the finance
+    // aggregates. Every row carries the simulated flag + the payments posture, so
+    // a mock rupee can never be read as a real one.
+    AdminPaymentHistoryRepository,
+    AdminPaymentHistoryService,
     // BP-3: the admin directory (`manage_admins`, super_admin only) + the role→capability
     // matrix (`read_entities`), served so the portal carries no second copy of the
     // authorization table. Its OWN repository is SELECT-ONLY and still projects no

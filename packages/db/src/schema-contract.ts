@@ -912,6 +912,30 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "fine (a superset); new builds on an unmigrated one are not, which is why this is " +
       "APPLY-BEFORE-DEPLOY",
   },
+  // 0155 (#2565 B11, company payment history): the stamped ₹ on plan/boost/capacity
+  // rows + the per-top-up receipt table. Unconditional — no flag — because the
+  // writers (`PostingPlansRepository.insertPlan/insertBoost/upsertCapacity` + the
+  // top-up insert) name these columns explicitly, and bare `select()` readers name
+  // every model column. The three columns + the table ride one migration, so one
+  // column answers for all. Registered up front.
+  {
+    id: "0155-payment-history-prices",
+    migration: "0155_company_payment_history",
+    kind: "column",
+    table: "posting_plans",
+    object: "price_inr",
+    requiredBy:
+      "PostingPlansRepository.insertPlan/insertBoost (priceInr stamped from quote.finalInr), " +
+      "upsertCapacity (priceInr on the allowance), the plan_quota_topups receipt insert, and " +
+      "the admin payment-history read — all of which name `price_inr` / the new table. " +
+      "`posting_boosts.price_inr`, `payer_capacity.price_inr` and `plan_quota_topups` ride " +
+      "the same migration and fail together",
+    failureMode:
+      "plan/boost/capacity/top-up purchases 500 (column/table does not exist) and the " +
+      "GET /admin/payers/:id/payment-history read 500s. Old builds on a migrated database " +
+      "are fine (a superset); new builds on an unmigrated one are not, which is why this " +
+      "is APPLY-BEFORE-DEPLOY",
+  },
   // 0134: THE API names `payer_applicant_stages` only while PAYER_APPLICANT_STAGES_ENABLED is on
   // (owner ruling 2026-10-07, the payer pipeline board), so a deploy ahead of the migration breaks
   // no request and the table is NOT a `table` entry. It is listed for its lock, exactly as 0128's
