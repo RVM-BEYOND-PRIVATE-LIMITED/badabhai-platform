@@ -14,6 +14,7 @@ import '../../../../core/widgets/onboarding/option_icons.dart';
 import '../../../../core/widgets/onboarding/selection_cards.dart';
 import '../../../chat/domain/chat_resume_menu.dart'
     show kResumeMenuAvailabilitySalaryKey;
+import '../../domain/availability_free_text.dart';
 import '../../domain/trade_form_models.dart';
 import 'design2_cities_page.dart';
 import 'trade_form_kit.dart';
@@ -52,9 +53,18 @@ const String _kNoticeFieldLabel = 'Notice period (din)';
 const String _kNoticeHint = '0–180';
 const String _kNoticeRangeError =
     'Notice period 0 se $kTradeFormMaxNoticeDays din ke beech likhein.';
+const String _kAvailabilityCustomLabel = 'Kuch aur — khud likhein';
+const String _kAvailabilityCustomHint = 'Jaise: dedh mahina, 2 mahine, 15 din';
+const String _kAvailabilityCustomUnparsed =
+    'Samajh nahi aaya — khaali rahega.';
 
 /// The notice box — a stable handle for tests.
 const Key kTradeFormNoticeFieldKey = Key('trade_form_notice_period_field');
+
+/// The "Kuch aur" free-text box on the availability page — a stable handle
+/// for tests.
+const Key kTradeFormAvailabilityCustomFieldKey =
+    Key('trade_form_availability_custom_field');
 
 /// The marker's short internal pages, in walk order — see
 /// [TradeFormPreferencesPageState.pageCount].
@@ -293,6 +303,19 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
   /// state picked yet, so the city search stays closed (see [_citiesPage]).
   String? _cityState;
 
+  /// The "Kuch aur" free-text box: Hinglish durations ("dedh mahina"),
+  /// bare numbers ("2" = 2 mahine), rubbish stays empty. Parsed by
+  /// [parseAvailabilityFreeText] into the closed status + notice days.
+  final TextEditingController _custom = TextEditingController();
+
+  /// True while the "Kuch aur" card is the pick. UI state only — what is
+  /// stored is still [_prefs]' closed status + notice days.
+  bool _customSelected = false;
+
+  /// The last parse of [_custom]. Null while the box is empty or rubbish
+  /// (keep empty — the field is optional).
+  AvailabilityFreeText? _customParsed;
+
   /// The notice box. The BOX is what the worker sees; [_prefs] holds the last
   /// VALID value. Seeded once from the stored notice (#1710's prefill).
   late final TextEditingController _notice = TextEditingController(
@@ -346,6 +369,7 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
     widget.onDraftChanged?.call(_prefs);
     _search.dispose();
     _notice.dispose();
+    _custom.dispose();
     super.dispose();
   }
 
@@ -670,7 +694,10 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
   /// per SERVED option (`availability_status`, the dictionary the PUT's strict
   /// enum validates, so a card can never 400; the static copy only covers a
   /// server that predates the key). Re-tapping the picked card clears it,
-  /// like every single-select here.
+  /// like every single-select here. The trailing "Kuch aur" card opens a
+  /// free-text box whose Hinglish duration is parsed into the same closed
+  /// status + notice days ([parseAvailabilityFreeText]); rubbish parses to
+  /// null and keeps availability empty.
   Widget _availabilityStatusPage(WorkPrefOptionsDto options) {
     final Map<String, String> labels = options.availabilityStatus.isEmpty
         ? kAvailabilityStatusLabels
@@ -683,10 +710,138 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
           subtitle: _kOptionalNote,
         ),
         const SizedBox(height: FormFlowLayout.introToOptionsGap),
-        _singleCards(labels, _prefs.availabilityStatus, _availabilityIcon,
-            _onAvailabilityPicked),
+        _singleCards(labels, _customSelected ? null : _prefs.availabilityStatus,
+            _availabilityIcon, _onAvailabilityPicked),
+        SingleSelectQuestionCard(
+          title: _kAvailabilityCustomLabel,
+          leadingIcon: Icons.edit_rounded,
+          isSelected: _customSelected,
+          onTap: _onCustomPicked,
+          variant: OnboardingVariant.formFlow,
+          titleStyle: tradeFormOptionTitleStyle(),
+        ),
+        if (_customSelected) ...<Widget>[
+          const SizedBox(height: 12),
+          const TradeFormFieldLabel(_kAvailabilityCustomLabel),
+          TradeFormTextField(
+            key: kTradeFormAvailabilityCustomFieldKey,
+            controller: _custom,
+            hint: _kAvailabilityCustomHint,
+            label: _kAvailabilityCustomLabel,
+            textInputAction: TextInputAction.done,
+            maxLength: 60,
+            autofocus: true,
+            onChanged: _onCustomChanged,
+          ),
+          if (_custom.text.trim().isNotEmpty) ...<Widget>[
+            const SizedBox(height: 8),
+            Text(
+              _customSummary(),
+              style: OnboardingTypography.inter(
+                size: 13,
+                weight: FontWeight.w500,
+                color: OnboardingColors.ink500,
+              ),
+            ),
+          ],
+        ],
       ],
     );
+  }
+
+  /// One-line summary of what the custom box parsed to, naming the stored
+  /// duration honestly. Rubbish names the empty it keeps.
+  String _customSummary() {
+    final AvailabilityFreeText? parsed = _customParsed;
+    if (parsed == null) return _kAvailabilityCustomUnparsed;
+    if (parsed.status == 'immediate') return 'Turant uplabdh';
+    if (parsed.status == 'within_week') return 'Ek hafte ke andar';
+    if (parsed.status == 'within_month') return 'Ek mahine ke andar';
+    return 'Notice period: ${parsed.noticeDays} din';
+  }
+
+  /// A tap on the "Kuch aur" card. Re-tapping it clears the box and the
+  /// availability it had set — like every single-select here.
+  void _onCustomPicked() {
+    if (_customSelected) {
+      final int before = pageCount;
+      setState(() {
+        _customSelected = false;
+        _custom.clear();
+        _customParsed = null;
+        // A regular card's re-tap: the status is withdrawn. Onboarding also
+        // puts the notice back to what was stored — see [_onCustomChanged].
+        if (widget.sectionKey != kResumeMenuAvailabilitySalaryKey) {
+          final int? stored = widget.initialPreferences?.noticePeriodDays;
+          _prefs = _prefs.copyWith(
+            availabilityStatus: null,
+            noticePeriodDays: stored,
+          );
+          _notice.text = stored?.toString() ?? '';
+        } else {
+          _prefs = _prefs.copyWith(availabilityStatus: null);
+          _notice.text = _prefs.noticePeriodDays?.toString() ?? '';
+        }
+        _noticeInvalid = false;
+      });
+      if (pageCount != before) widget.onPageChanged?.call(_page, pageCount);
+      return;
+    }
+    setState(() => _customSelected = true);
+    // Parses (empty box → clears the status the regular cards had set) and
+    // reports its own page-count change.
+    _onCustomChanged(_custom.text);
+  }
+
+  /// Live-parse the custom box into the closed status + notice days.
+  /// Rubbish or empty parses to null and keeps availability EMPTY (the
+  /// field is optional — never a 400, never a guess).
+  void _onCustomChanged(String text) {
+    final int before = pageCount;
+    final AvailabilityFreeText? parsed = parseAvailabilityFreeText(text);
+    setState(() {
+      _customParsed = parsed;
+      final bool onboarding =
+          widget.sectionKey != kResumeMenuAvailabilitySalaryKey;
+      if (parsed == null) {
+        // Rubbish or empty withdraws the status — a regular card's re-tap.
+        // Onboarding mirrors [_onAvailabilityPicked]: the notice page is
+        // about to vanish, so the notice goes back to what was stored
+        // instead of stranding a number nobody can see.
+        if (onboarding) {
+          final int? stored = widget.initialPreferences?.noticePeriodDays;
+          _prefs = _prefs.copyWith(
+            availabilityStatus: null,
+            noticePeriodDays: stored,
+          );
+          _notice.text = stored?.toString() ?? '';
+        } else {
+          _prefs = _prefs.copyWith(availabilityStatus: null);
+          _notice.text = _prefs.noticePeriodDays?.toString() ?? '';
+        }
+        _noticeInvalid = false;
+      } else if (parsed.status == kAvailabilityServingNotice) {
+        _prefs = _prefs.copyWith(
+          availabilityStatus: parsed.status,
+          noticePeriodDays: parsed.noticeDays,
+        );
+        _notice.text = parsed.noticeDays?.toString() ?? '';
+        _noticeInvalid = false;
+      } else {
+        _prefs = _prefs.copyWith(
+          availabilityStatus: parsed.status,
+          noticePeriodDays: onboarding
+              ? widget.initialPreferences?.noticePeriodDays
+              : _prefs.noticePeriodDays,
+        );
+        if (onboarding) {
+          _notice.text =
+              widget.initialPreferences?.noticePeriodDays?.toString() ?? '';
+          _noticeInvalid = false;
+        }
+      }
+    });
+    if (pageCount != before) widget.onPageChanged?.call(_page, pageCount);
   }
 
   /// A tap on an availability card (re-tapping the picked one clears it).
@@ -697,8 +852,13 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
   /// was stored: a box the worker can no longer see must not send a number.
   void _onAvailabilityPicked(String slug) {
     final int before = pageCount;
-    final String? status = _prefs.availabilityStatus == slug ? null : slug;
+    final String? status = _prefs.availabilityStatus == slug && !_customSelected
+        ? null
+        : slug;
     setState(() {
+      _customSelected = false;
+      _custom.clear();
+      _customParsed = null;
       _prefs = _prefs.copyWith(availabilityStatus: status);
       final bool onboarding =
           widget.sectionKey != kResumeMenuAvailabilitySalaryKey;
