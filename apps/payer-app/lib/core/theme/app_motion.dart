@@ -80,6 +80,10 @@ class AppMotion {
   /// Delay between consecutive items of a staggered list entrance.
   static const Duration stagger = Duration(milliseconds: 30);
 
+  /// A small glyph morphing in place — a checklist tick as its rule is met
+  /// (#2597).
+  static const Duration morph = Duration(milliseconds: 160);
+
   /// The scale a tappable surface presses down to.
   static const double pressScale = 0.97;
 

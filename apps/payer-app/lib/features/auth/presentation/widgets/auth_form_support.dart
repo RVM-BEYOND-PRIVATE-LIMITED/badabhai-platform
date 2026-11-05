@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../../../core/auth/payer_auth_api.dart'
+    show PayerPasswordChangeRequiredException;
 import '../../../../core/data/models.dart' show PayerApiException;
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
@@ -35,19 +37,45 @@ String normalizeIdentifier(String raw) {
   return normalizeIndianMobileToE164(value) ?? value;
 }
 
+/// The server's password-policy bounds (the server is the authority; these
+/// mirror it). Shared by [passwordPolicyProblem] and the set-new-password rules.
+const int kPasswordMinLength = 8;
+const int kPasswordMaxLength = 128;
+
+/// At least one ASCII letter — the server's `[A-Za-z]`, so a letter it would
+/// not count never ticks here either.
+bool passwordHasLetter(String password) =>
+    RegExp('[A-Za-z]').hasMatch(password);
+
+/// At least one digit (`\d`, ASCII 0-9 — as on the server).
+bool passwordHasDigit(String password) => RegExp(r'\d').hasMatch(password);
+
 /// The client mirror of the server's password policy (the server is the
 /// authority): 8–128 chars, at least one letter and one digit.
 String? passwordPolicyProblem(String password) {
-  if (password.length < 8) return 'Use at least 8 characters.';
-  if (password.length > 128) return 'Use at most 128 characters.';
-  if (!RegExp('[A-Za-z]').hasMatch(password)) return 'Add at least one letter.';
-  if (!RegExp(r'\d').hasMatch(password)) return 'Add at least one number.';
+  if (password.length < kPasswordMinLength) {
+    return 'Use at least $kPasswordMinLength characters.';
+  }
+  if (password.length > kPasswordMaxLength) {
+    return 'Use at most $kPasswordMaxLength characters.';
+  }
+  if (!passwordHasLetter(password)) return 'Add at least one letter.';
+  if (!passwordHasDigit(password)) return 'Add at least one number.';
   return null;
 }
+
+/// #2597 — code sign-in was refused because the account holds a temporary
+/// password an admin issued (409). Tells the payer the one way forward.
+const String kTemporaryPasswordSignInCopy =
+    'This account needs a new password. '
+    'Sign in with the temporary password you were given.';
 
 /// One honest reason for a failed auth call — never "wrong password" for a
 /// 429/5xx, and never a network blame for a rejected credential.
 String authErrorFor(Object e, {bool otp = false}) {
+  if (e is PayerPasswordChangeRequiredException) {
+    return kTemporaryPasswordSignInCopy;
+  }
   if (e is PayerApiException) {
     if (e.statusCode == 401) {
       return 'Wrong email, phone or company name, or password.';
@@ -58,7 +86,9 @@ String authErrorFor(Object e, {bool otp = false}) {
     if (e.statusCode == 400) {
       return 'Please check the details and try again.';
     }
-    if (e.statusCode >= 500) {
+    // #2597 — a 2xx that carried no session is a fault on our side too, never
+    // the payer's details.
+    if (e.statusCode >= 500 || (e.statusCode >= 200 && e.statusCode < 300)) {
       return otp
           ? "We couldn't send your code right now. Please try again in a moment."
           : "We couldn't complete that right now. Please try again in a moment.";

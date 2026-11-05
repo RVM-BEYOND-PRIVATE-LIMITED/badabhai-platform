@@ -4,6 +4,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../core/auth/payer_auth_api.dart';
 import '../../../core/auth/payer_token_store.dart';
+import '../../../core/data/models.dart' show PayerApiException;
 import '../../../core/di/locator.dart';
 import '../../../core/session/app_session_cubit.dart';
 import '../../../core/theme/app_colors.dart';
@@ -16,6 +17,7 @@ import '../../../core/widgets/bb_field.dart';
 import '../../../core/widgets/bb_logo.dart';
 import 'signup_screen.dart';
 import 'widgets/auth_form_support.dart';
+import 'widgets/set_new_password_step.dart';
 
 /// Password sign-in + OTP fallback. The brand hero sits on top; below the form
 /// the payer can open the full sign-up flow.
@@ -23,6 +25,11 @@ import 'widgets/auth_form_support.dart';
 /// The primary path is `identifier + password`, where the identifier is a work
 /// email, an E.164 phone, or the account's exact company/agency name. The OTP
 /// path stays reachable for accounts created before passwords existed.
+///
+/// #2597 — a temporary password an admin issued (#2563) opens no session: the
+/// [SetNewPasswordStep] slides in, and only the resend with a new password
+/// signs the payer in. Code sign-in for such an account is refused (409) and
+/// sends the payer to password sign-in.
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
@@ -32,11 +39,34 @@ class LoginScreen extends StatefulWidget {
 
 enum _LoginStep { login, otpContact, otpCode }
 
+/// The sign-in that answered `password_change_required`, kept for the resend.
+typedef _PasswordChange = ({String identifier, String temporaryPassword});
+
+/// #2597 — the resend 401s when the temporary password no longer works — also
+/// when an earlier resend already set the new one but its reply was lost.
+const String _kResendRefusedHint =
+    'If you already set a new password, sign in with it.';
+
+/// #2597 — the new password is set, but this device could not finish signing in.
+const String _kNewPasswordSetCopy = 'Your new password is set. Sign in with it.';
+
+/// #2597 — the server asked for a new password again although one was sent.
+/// Never a session; the payer can retry.
+const String _kNewPasswordNotSavedCopy =
+    "We couldn't save your new password. Please try again in a moment.";
+
 class _LoginScreenState extends State<LoginScreen> {
   _LoginStep _step = _LoginStep.login;
   bool _busy = false;
   bool _obscurePassword = true;
   String? _error;
+
+  /// Non-null ⇔ the set-new-password step is showing. Memory only — never
+  /// logged or persisted — and dropped once the step succeeds or is left.
+  _PasswordChange? _passwordChange;
+
+  /// The server's reason the last new password was refused (inline on the step).
+  String? _newPasswordError;
 
   final TextEditingController _identifier = TextEditingController();
   final TextEditingController _password = TextEditingController();
@@ -71,11 +101,23 @@ class _LoginScreenState extends State<LoginScreen> {
       _error = null;
     });
     try {
-      final PayerLoginResult result = await _auth.loginWithPassword(
+      final PayerPasswordLoginOutcome outcome = await _auth.loginWithPassword(
         identifier: identifier,
         password: password,
       );
-      await _storeAndSignIn(result);
+      switch (outcome) {
+        case PayerPasswordSignedIn(:final PayerLoginResult session):
+          await _storeAndSignIn(session);
+        case PayerPasswordChangeRequired():
+          // A temporary password proves the account but opens NO session.
+          if (!mounted) return;
+          setState(() {
+            _busy = false;
+            _passwordChange =
+                (identifier: identifier, temporaryPassword: password);
+            _newPasswordError = null;
+          });
+      }
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -83,6 +125,95 @@ class _LoginScreenState extends State<LoginScreen> {
         _error = authErrorFor(e);
       });
     }
+  }
+
+  /// #2597 — resends the temporary password with [newPassword]. Completes
+  /// `true` only once a real session is stored and the payer is signed in.
+  Future<bool> _submitNewPassword(String newPassword) async {
+    final _PasswordChange? change = _passwordChange;
+    if (change == null) return false;
+    setState(() {
+      _busy = true;
+      _error = null;
+      _newPasswordError = null;
+    });
+    bool passwordSet = false;
+    try {
+      final PayerPasswordLoginOutcome outcome = await _auth.loginWithPassword(
+        identifier: change.identifier,
+        password: change.temporaryPassword,
+        newPassword: newPassword,
+      );
+      switch (outcome) {
+        case PayerPasswordSignedIn(:final PayerLoginResult session):
+          passwordSet = true;
+          // From here on, exactly like a normal password sign-in. The step
+          // stays up (spinner) until the shell replaces this screen.
+          await _storeAndSignIn(session);
+          if (!mounted) return true;
+          // No rebuild needed: the shell takes over on the next frame.
+          _forgetPasswordChange();
+          if (context.read<AppSessionCubit>().isSignedIn) return true;
+          // The session died while the identity resolved: the password is
+          // set, so say so instead of leaving a spinner.
+          _returnToSignIn(_kNewPasswordSetCopy);
+          return false;
+        case PayerPasswordChangeRequired():
+          if (!mounted) return false;
+          setState(() {
+            _busy = false;
+            _error = _kNewPasswordNotSavedCopy;
+          });
+          return false;
+      }
+    } catch (e) {
+      if (!mounted) return false;
+      if (passwordSet) {
+        _returnToSignIn(_kNewPasswordSetCopy);
+      } else if (e is PayerApiException && e.statusCode == 401) {
+        // The temporary password no longer opens the account: back to the
+        // start, with the same neutral copy as any refused sign-in.
+        _returnToSignIn('${authErrorFor(e)} $_kResendRefusedHint');
+      } else if (e is PayerApiException && e.statusCode == 400) {
+        setState(() {
+          _busy = false;
+          _newPasswordError = _newPasswordRejectionCopy(e);
+        });
+      } else {
+        setState(() {
+          _busy = false;
+          _error = authErrorFor(e);
+        });
+      }
+      return false;
+    }
+  }
+
+  /// The inline copy for a refused new password: the server's own reason (it
+  /// is the policy authority) or, without one, the generic 400 line.
+  static String _newPasswordRejectionCopy(PayerApiException e) {
+    final String? reason = e.validationMessage?.trim();
+    if (reason == null || reason.isEmpty) return authErrorFor(e);
+    return reason.endsWith('.') ? reason : '$reason.';
+  }
+
+  /// Drops the temporary password from memory (the field and the resend copy).
+  void _forgetPasswordChange() {
+    _passwordChange = null;
+    _password.clear();
+  }
+
+  /// Leaves the set-new-password step for password sign-in, showing [message].
+  void _returnToSignIn(String? message) => setState(() {
+        _forgetPasswordChange();
+        _busy = false;
+        _newPasswordError = null;
+        _error = message;
+        _step = _LoginStep.login;
+      });
+
+  void _clearNewPasswordError() {
+    if (_newPasswordError != null) setState(() => _newPasswordError = null);
   }
 
   Future<void> _requestOtp() async {
@@ -141,6 +272,19 @@ class _LoginScreenState extends State<LoginScreen> {
         return;
       }
       await _storeAndSignIn(result);
+    } on PayerPasswordChangeRequiredException catch (e) {
+      // #2597 — a temporary-password account cannot use the code door: send
+      // the payer to password sign-in, with the contact they just proved.
+      if (!mounted) return;
+      setState(() {
+        _busy = false;
+        _code.clear();
+        if (_identifier.text.trim().isEmpty) {
+          _identifier.text = _otpContact.text.trim();
+        }
+        _error = authErrorFor(e, otp: true);
+        _step = _LoginStep.login;
+      });
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -179,6 +323,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final _PasswordChange? change = _passwordChange;
     return Scaffold(
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -198,17 +343,22 @@ class _LoginScreenState extends State<LoginScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: <Widget>[
-                      BbAnimatedSwitcher(
-                        child: Column(
-                          key: ValueKey<_LoginStep>(_step),
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          mainAxisSize: MainAxisSize.min,
-                          children: switch (_step) {
-                            _LoginStep.login => _loginStep(),
-                            _LoginStep.otpContact => _otpContactStep(),
-                            _LoginStep.otpCode => _otpCodeStep(),
-                          },
-                        ),
+                      NewPasswordStepSwitcher(
+                        child: change == null
+                            ? BbAnimatedSwitcher(
+                                key: const ValueKey<String>('sign_in_steps'),
+                                child: Column(
+                                  key: ValueKey<_LoginStep>(_step),
+                                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: switch (_step) {
+                                    _LoginStep.login => _loginStep(),
+                                    _LoginStep.otpContact => _otpContactStep(),
+                                    _LoginStep.otpCode => _otpCodeStep(),
+                                  },
+                                ),
+                              )
+                            : _newPasswordStep(change),
                       ),
                       if (_error != null) ...<Widget>[
                         const SizedBox(height: AppSpacing.s3),
@@ -226,6 +376,26 @@ class _LoginScreenState extends State<LoginScreen> {
       ),
     );
   }
+
+  /// #2597 — the forced change. System Back returns to sign-in (abandoning the
+  /// step) instead of leaving the app with a half-done change.
+  Widget _newPasswordStep(_PasswordChange change) => PopScope(
+        key: const ValueKey<String>('set_new_password_step'),
+        canPop: false,
+        onPopInvokedWithResult: (bool didPop, Object? result) {
+          if (!didPop && !_busy && _passwordChange != null) {
+            _returnToSignIn(null);
+          }
+        },
+        child: SetNewPasswordStep(
+          temporaryPassword: change.temporaryPassword,
+          busy: _busy,
+          serverError: _newPasswordError,
+          onEdited: _clearNewPasswordError,
+          onSubmit: _submitNewPassword,
+          onBack: () => _returnToSignIn(null),
+        ),
+      );
 
   List<Widget> _loginStep() => <Widget>[
         Text(
