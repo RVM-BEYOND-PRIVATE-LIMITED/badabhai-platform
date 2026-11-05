@@ -57,6 +57,15 @@ type ReuseShape =
   | "unknown";
 
 /** JWT claims we sign. `sub` = worker id, `sid` = server-side session id. */
+/**
+ * #2562 — the scope on the short-lived token a SUSPENDED worker receives from phone-code
+ * verification. It opens ONLY the DPDP exits (account deletion request/confirm/cancel and
+ * consent withdrawal); every other route refuses it. The worker-app screen is a separate issue.
+ */
+export const SUSPENDED_DPDP_SCOPE = "suspended_dpdp" as const;
+/** 15 minutes: enough to reach a DPDP exit, too short to be a usable account session. */
+export const SUSPENDED_DPDP_TTL_SECONDS = 15 * 60;
+
 interface WorkerJwtClaims {
   sub: string;
   sid: string;
@@ -65,6 +74,8 @@ interface WorkerJwtClaims {
   exp?: number;
   /** Standard JWT issued-at (whole seconds); the legacy fallback for a missing OTP anchor. */
   iat?: number;
+  /** #2562 — present only on the short-lived SUSPENDED DPDP token; absent on a real session. */
+  scope?: string;
 }
 
 /** The Redis `session:<sid>` record (ADR-0026 — extended, old records default safely). */
@@ -74,6 +85,8 @@ interface SessionRecord {
   family_id?: string;
   /** ADR-0026 Phase 2 — the bound trusted-device ROW uuid (so revokeByDevice finds it). */
   device_id?: string;
+  /** #2562 — restricted SUSPENDED DPDP scope; absent on a normal session. */
+  scope?: string;
   created_via_otp_at_ms?: number;
   absolute_expiry_ms?: number;
   active_days?: string[];
@@ -155,6 +168,8 @@ export interface ValidatedSession {
    * a new PIN without proving it still holds the phone (ADR-0062 §3.8).
    */
   createdAtMs: number;
+  /** #2562 — set only on the restricted SUSPENDED DPDP token, never on a real session. */
+  scope?: string;
 }
 
 /** A typed reason a refresh failed (mapped to 401 by the controller). */
@@ -449,6 +464,45 @@ export class SessionService {
     return { access, refresh, session: this.viewOf(record, ttlSec, nowMs) };
   }
 
+  /**
+   * #2562 — create the RESTRICTED token a SUSPENDED worker gets from phone-code verification.
+   *
+   * It is deliberately NOT a normal session:
+   *   - short-lived (`ttlSeconds`, 15 minutes at the call site);
+   *   - NO refresh token and NO refresh family, so it cannot be rotated or extended;
+   *   - NO device binding and no device/push registration (the caller never registers one);
+   *   - the `scope` claim is copied onto the JWT, so the guard can confine it to the five
+   *     DPDP-exit handlers.
+   *
+   * It IS written to `worker_sessions:<workerId>` so an admin sweep / logout-all still kills
+   * it. It is not added to `worker_families`, because there is no refresh family to sweep.
+   */
+  async createRestricted(
+    workerId: string,
+    scope: string,
+    ttlSeconds: number,
+  ): Promise<SessionToken> {
+    const sid = randomUUID();
+    const nowMs = Date.now();
+    const redis = await this.client();
+
+    const record: SessionRecord = {
+      worker_id: workerId,
+      created_via_otp_at_ms: nowMs,
+      scope,
+    };
+    await redis.set(SessionService.sessionKey(sid), JSON.stringify(record), "EX", ttlSeconds);
+    const sessionsKey = SessionService.workerSessionsKey(workerId);
+    await redis.sadd(sessionsKey, sid);
+    await redis.expire(sessionsKey, this.refreshTtlSeconds());
+
+    const token = await this.jwt.signAsync(
+      { sub: workerId, sid, scope },
+      { expiresIn: `${ttlSeconds}s` },
+    );
+    return { token, expiresInSeconds: ttlSeconds };
+  }
+
   /** Idle TTL for a freshly created record when tiers are ON (tier 0 → its idle days). */
   private computeTtlOnCreate(record: SessionRecord, nowMs: number): number {
     const rolled = computeRollingSession({
@@ -544,6 +598,7 @@ export class SessionService {
         deviceId: claims.did,
         remainingSeconds,
         createdAtMs,
+        scope: record.scope,
       };
     } catch (err) {
       this.logger.error(
@@ -632,6 +687,7 @@ export class SessionService {
         parsed.absolute_expiry_ms ?? nowMs + this.absoluteMaxSeconds() * 1000,
       active_days: Array.isArray(parsed.active_days) ? parsed.active_days : [],
       tier: typeof parsed.tier === "number" ? parsed.tier : 0,
+      scope: typeof parsed.scope === "string" ? parsed.scope : undefined,
     };
   }
 
@@ -643,6 +699,9 @@ export class SessionService {
   async refresh(token: string): Promise<SessionToken | null> {
     const session = await this.validateAndTouch(token);
     if (!session) return null;
+    // #2562 — a restricted SUSPENDED DPDP token is NOT a session and must never be rolled
+    // into a full one. The route guard already refuses it; this is defence in depth.
+    if (session.scope !== undefined) return null;
     // Preserve the device binding (`did`) on the freshly minted token.
     return this.mintAccess(session.workerId, session.sid, session.deviceId);
   }

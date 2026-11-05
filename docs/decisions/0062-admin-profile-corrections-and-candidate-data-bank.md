@@ -160,6 +160,10 @@ Every route carries exactly one `@RequireAdminRole` capability plus `AdminAuthGu
 
 **The `manage_worker_account` row does not by itself approve #2562's actions.** In particular, #2562 must show that an admin PIN reset cannot let anyone skip proving they hold the phone: the worker must re-verify by phone code before setting a new PIN. Until that test exists, the PIN-reset action is not approved.
 
+**Owner ruling (a) — DPDP exits survive suspension (5 Nov 2026).** A suspended worker must still be able to request/confirm/cancel account deletion and withdraw consent. Phone-code verification therefore still answers `403 WORKER_ACCOUNT_SUSPENDED`, but the body also carries a short-lived **restricted token** (15 minutes; no refresh, no device trust, no push registration; claim `scope: "suspended_dpdp"`). The worker auth guard accepts that token ONLY on the five DPDP handlers (account-delete request/confirm/cancel and the two consent withdrawals); every other route, PIN set/verify and refresh refuse it. Old app builds ignore the additive field and keep their current behaviour. The worker-app screen is a separate frontend issue.
+
+**Owner ruling (c) — unsuspend always restores `active` (5 Nov 2026).** There is no previous-status column and no migration adds one. Unsuspend writes `active`; a later re-suspend is a fresh admin action with its own reason, audit row and sweep.
+
 ### 3.9 Events
 
 New event names, registered in `packages/event-schema/src/registry.ts` with schemas in `packages/event-schema/src/payloads.ts`. All are PII-free: opaque ids and closed field keys only, never a corrected value, a reason text, a name, a phone or a search term.

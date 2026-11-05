@@ -321,6 +321,7 @@ describe.skipIf(!RUN)("GET /payer/reach/applicants — against Postgres", () => 
   async function walk(payerId: string, limit: number, postingId?: string) {
     const rows: InboxApplicantRowDto[] = [];
     const pageSizes: number[] = [];
+    let total = 0;
     let cursor: string | undefined;
     for (let i = 0; i < 100; i += 1) {
       const page = await inbox.list(
@@ -330,7 +331,8 @@ describe.skipIf(!RUN)("GET /payer/reach/applicants — against Postgres", () => 
       );
       rows.push(...page.applicants);
       pageSizes.push(page.applicants.length);
-      if (page.nextCursor === null) return { rows, pageSizes };
+      total = page.total;
+      if (page.nextCursor === null) return { rows, pageSizes, total };
       cursor = page.nextCursor;
     }
     throw new Error("pagination never ended");
@@ -375,7 +377,8 @@ describe.skipIf(!RUN)("GET /payer/reach/applicants — against Postgres", () => 
   });
 
   it("membership: no skip, no leaver, no SUSPENDED, no profile-less agency applier; one row per application", async () => {
-    const rows = (await walk(PAYER_A, 50)).rows;
+    const walked = await walk(PAYER_A, 50);
+    const rows = walked.rows;
     const apps = rows.map(appOf);
     for (const k of ["a4", "a5", "a6", "a12", "a16", "a17"]) expect(apps).not.toContain(APP[k]);
     // w3 has two profile rows: still one row for his one application.
@@ -395,6 +398,9 @@ describe.skipIf(!RUN)("GET /payer/reach/applicants — against Postgres", () => 
       title: `Inbox job A2 ${TAG}`,
       kind: "agency_job",
     });
+    // The COUNT must walk the same population as the page: a suspended applicant is on
+    // neither. A pre-fix count that skipped the filter would say 10 vs 9 rows here.
+    expect(walked.total).toBe(rows.length);
   });
 
   it("postingId: owned → only it; B's, unknown, or owned-but-empty → the same empty page", async () => {

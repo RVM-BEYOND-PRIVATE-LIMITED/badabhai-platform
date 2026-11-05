@@ -231,6 +231,55 @@ describe("SessionService.create", () => {
   });
 });
 
+// #2562 — the restricted token a SUSPENDED worker gets from phone-code verification. It is NOT
+// a session: 15 minutes, no refresh, no device binding, and a scope that limits it to DPDP exits.
+describe("#2562 — createRestricted (suspended DPDP token)", () => {
+  it("stores a 15m record with a scope, no refresh and no family", async () => {
+    const { svc, redis, jwt } = setup();
+    const token = await svc.createRestricted("worker-1", "suspended_dpdp", 900);
+
+    expect(token.expiresInSeconds).toBe(900);
+    expect(token.token).toBeTruthy();
+    expect(jwt.lastSigned).toMatchObject({
+      sub: "worker-1",
+      scope: "suspended_dpdp",
+    });
+    const sid = jwt.lastSigned!.sid;
+    expect(redis.store.has(`session:${sid}`)).toBe(true);
+    expect(redis.ttls.get(`session:${sid}`)).toBe(900);
+    expect([...redis.store.keys()].some((k) => k.startsWith("refresh:"))).toBe(false);
+    expect([...redis.sets.keys()].some((k) => k.startsWith("worker_families:"))).toBe(false);
+    expect(redis.sets.get("worker_sessions:worker-1")?.has(sid)).toBe(true);
+
+    const validated = await svc.validate(token.token);
+    expect(validated).toMatchObject({
+      workerId: "worker-1",
+      sid,
+      scope: "suspended_dpdp",
+    });
+  });
+
+  it("cannot be refreshed or rotated into a real session", async () => {
+    const { svc } = setup();
+    const token = await svc.createRestricted("worker-1", "suspended_dpdp", 900);
+
+    await expect(svc.refresh(token.token)).resolves.toBeNull();
+    await expect(svc.refreshByToken(token.token, "idem-restricted")).resolves.toEqual({
+      ok: false,
+      reason: "invalid",
+    });
+  });
+
+  it("is still killed by the worker-level sweep", async () => {
+    const { svc, redis, jwt } = setup();
+    await svc.createRestricted("worker-1", "suspended_dpdp", 900);
+    const sid = jwt.lastSigned!.sid;
+
+    await svc.revokeAll("worker-1");
+    expect(redis.store.has(`session:${sid}`)).toBe(false);
+  });
+});
+
 describe("SessionService.validateAndTouch (legacy flat behavior, tiers OFF)", () => {
   it("returns claims and RESETS the flat session TTL (sliding)", async () => {
     const { svc, redis } = setup();

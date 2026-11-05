@@ -13,7 +13,7 @@ import type { ServerConfig } from "@badabhai/config";
 import { SERVER_CONFIG } from "../config/config.module";
 import { ConsentRepository } from "../consent/consent.repository";
 import { WorkersRepository } from "../workers/workers.repository";
-import { SessionService } from "./session.service";
+import { SessionService, SUSPENDED_DPDP_SCOPE } from "./session.service";
 import {
   readWorkerAccountState,
   WorkerAccountDeletedException,
@@ -35,6 +35,11 @@ export interface AuthenticatedWorker {
   deviceId?: string;
   /** #2562 — epoch-ms of the OTP that minted this session family (PIN-reset watermark input). */
   createdAtMs?: number;
+  /**
+   * #2562 — `suspended_dpdp` on the short-lived restricted token a suspended worker gets from
+   * phone-code verification; absent on every real session.
+   */
+  scope?: string;
 }
 
 // Augment Express's Request with the authenticated worker (global namespace).
@@ -126,7 +131,15 @@ export class WorkerAuthGuard implements CanActivate {
     // so the worker app's existing re-auth path runs instead of trapping them on a 403 screen.
     const allowSuspended =
       Reflect.getMetadata(ALLOW_SUSPENDED_KEY, context.getHandler()) === true;
-    if (accountState === "suspended" && !allowSuspended) {
+
+    // #2562 — a RESTRICTED token (issued by phone-code verify to a suspended worker) is not a
+    // session: it is accepted ONLY on the exact exempt handlers. An unknown scope fails closed
+    // exactly like a non-exempt route.
+    const restricted = validated.scope !== undefined;
+    if (restricted && validated.scope !== SUSPENDED_DPDP_SCOPE) {
+      throw new UnauthorizedException("Invalid or expired session");
+    }
+    if ((accountState === "suspended" || restricted) && !allowSuspended) {
       throw new UnauthorizedException("Invalid or expired session");
     }
 
@@ -137,7 +150,9 @@ export class WorkerAuthGuard implements CanActivate {
       throw new UnauthorizedException("Invalid or expired session");
     }
 
-    if (!(await this.session.touchSession(validated.workerId, validated.sid))) {
+    // A restricted token keeps its fixed 15-minute life: touching it would slide it to a full
+    // session TTL, which is exactly what the restriction exists to prevent.
+    if (!restricted && !(await this.session.touchSession(validated.workerId, validated.sid))) {
       throw new UnauthorizedException("Invalid or expired session");
     }
 
@@ -146,12 +161,14 @@ export class WorkerAuthGuard implements CanActivate {
       sid: validated.sid,
       deviceId: validated.deviceId,
       createdAtMs: validated.createdAtMs,
+      scope: validated.scope,
     };
 
     // Rolling refresh: past the half-life, hand back a fresh token via a header. Preserve
-    // the device binding (`did`) so the rolled token stays bound to the same device.
+    // the device binding (`did`) so the rolled token stays bound to the same device. A
+    // restricted token never rolls: it has a fixed 15-minute life by design.
     const fullTtl = this.config.SESSION_TTL_DAYS * 86400;
-    if (validated.remainingSeconds < fullTtl / 2) {
+    if (!restricted && validated.remainingSeconds < fullTtl / 2) {
       // A5 residual: SKIP the re-mint for a REVOKED-consent worker (latest row exists AND
       // revokedAt is stamped). Never-consented (no row) and active consent both re-mint.
       // FAIL-SAFE: a consent-read error also SKIPS the re-mint (consent state unknown →

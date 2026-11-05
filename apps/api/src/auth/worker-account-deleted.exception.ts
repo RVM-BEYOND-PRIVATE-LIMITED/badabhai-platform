@@ -54,51 +54,6 @@ export class WorkerAccountDeletedException extends HttpException {
 }
 
 /**
- * The minimal surface {@link throwIfWorkerDeleted} needs. Narrower than `WorkersRepository` on
- * purpose: the helper is a pure function over an existence probe, so it stays trivially testable
- * and cannot reach a PII-bearing column even by accident.
- */
-export interface WorkerExistenceProbe {
-  existsById(id: string): Promise<boolean>;
-}
-
-/**
- * Enforce the 410 contract in ONE place. Both callers — {@link WorkerAuthGuard} (every worker
- * route) and the unguarded `POST /auth/token/refresh` cold-start path — must apply IDENTICAL
- * semantics, so the rule lives here rather than being copy-pasted into two files where a later
- * edit could silently desync them.
- *
- * Throws {@link WorkerAccountDeletedException} **iff** the row is DEFINITIVELY absent.
- *
- * FAIL-SAFE: a probe ERROR leaves existence UNKNOWN, which is treated as PRESENT — a Postgres
- * incident must never 410-storm every worker route (least of all `POST /auth/logout`, which has
- * to survive a DB outage). The degradation is now LOGGED rather than silent: without this line a
- * persistently failing probe would disable the whole deleted-account signal with no operator
- * signal at all.
- *
- * PII-FREE (CLAUDE.md §2): logs the error NAME only — never the worker id, the token, or the
- * error message, which can carry query text or parameter values. Mirrors the same restraint in
- * `OptionalWorkerAuthGuard`.
- */
-export async function throwIfWorkerDeleted(
-  workers: WorkerExistenceProbe,
-  workerId: string,
-  logger: Logger,
-): Promise<void> {
-  let exists: boolean;
-  try {
-    exists = await workers.existsById(workerId);
-  } catch (err) {
-    logger.warn(
-      `worker existence probe unavailable (request allowed through, no 410 emitted): ` +
-        `${err instanceof Error ? err.name : "unknown error"}`,
-    );
-    return;
-  }
-  if (!exists) throw new WorkerAccountDeletedException();
-}
-
-/**
  * The RESERVED error code for "this worker account is suspended by an admin". Distinct from
  * the 410 deletion signal: suspension is reversible, so a client must NOT hard-delete its
  * local state on it. The body is PII-free — a closed code plus human copy.
@@ -111,11 +66,29 @@ const WORKER_ACCOUNT_SUSPENDED_MESSAGE = "This account is suspended.";
  * per-request gate that closes existing sessions. 403 (not 401) so the status is not
  * indistinguishable from an expired token on a fresh sign-in; the worker app can key on the
  * code when it grows suspended-specific copy.
+ *
+ * DPDP (owner ruling 5 Nov 2026): phone-code verification still returns the SAME 403 shape,
+ * but adds a short-lived `restricted_token` that opens only the five DPDP exits. Old app
+ * builds ignore the extra field and behave exactly as before.
  */
+export interface SuspendedRestrictedToken {
+  token: string;
+  expiresInSeconds: number;
+}
+
 export class WorkerAccountSuspendedException extends HttpException {
-  constructor() {
+  constructor(restricted?: SuspendedRestrictedToken) {
     super(
-      { code: WORKER_ACCOUNT_SUSPENDED_CODE, message: WORKER_ACCOUNT_SUSPENDED_MESSAGE },
+      {
+        code: WORKER_ACCOUNT_SUSPENDED_CODE,
+        message: WORKER_ACCOUNT_SUSPENDED_MESSAGE,
+        ...(restricted
+          ? {
+              restricted_token: restricted.token,
+              restricted_expires_in_seconds: restricted.expiresInSeconds,
+            }
+          : {}),
+      },
       HttpStatus.FORBIDDEN,
     );
   }
@@ -160,48 +133,5 @@ export async function readWorkerAccountState(
         `${err instanceof Error ? err.name : "unknown error"}`,
     );
     return "unknown";
-  }
-}
-
-/**
- * The minimal surface {@link isWorkerSuspended} needs. `findSelfView` projects the status
- * ONLY — no name, phone, or any PII column can reach this helper.
- */
-export interface WorkerStatusProbe {
-  findSelfView(
-    id: string,
-  ): Promise<{ status: string; deletionScheduledAt: Date | null } | undefined>;
-}
-
-/**
- * #2562 — is this worker's durable status `suspended`?
- *
- * Runs AFTER {@link throwIfWorkerDeleted} at every site, so a deleted row has already been
- * answered with the reserved 410. A status read error fails OPEN (the request is allowed
- * through) for the same reason the existence probe does: a Postgres blip must not become a
- * fleet-wide lockout. The durable status row remains the authority, so the next request
- * closes the window once the DB is reachable again.
- *
- * Callers decide how to refuse. The per-request gates (the worker guard, token refresh and
- * PIN unlock) deliberately answer with their EXISTING neutral 401 shape: those surfaces
- * already drive the app's signed-out path, and a distinct status there would trap a
- * suspended worker on a screen that only knows "wrong PIN" / "expired session". The
- * sign-in and PIN-reset-confirm paths, where no session exists yet, throw
- * {@link WorkerAccountSuspendedException} so the refusal is explicit.
- */
-export async function isWorkerSuspended(
-  workers: WorkerStatusProbe,
-  workerId: string,
-  logger: Logger,
-): Promise<boolean> {
-  try {
-    const row = await workers.findSelfView(workerId);
-    return row?.status === "suspended";
-  } catch (err) {
-    logger.warn(
-      `worker status probe unavailable (request allowed through, no suspension emitted): ` +
-        `${err instanceof Error ? err.name : "unknown error"}`,
-    );
-    return false;
   }
 }

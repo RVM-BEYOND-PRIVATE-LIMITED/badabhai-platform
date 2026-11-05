@@ -7,6 +7,7 @@ import {
   type WorkerCredential,
 } from "@badabhai/db";
 import { DATABASE } from "../database/database.module";
+import { ADMIN_ACTION_CODES } from "../admin/admin-action-codes";
 
 /**
  * Drizzle data access for `worker_credentials` (ADR-0026 Phase 3, the device-bound PIN).
@@ -45,7 +46,7 @@ export class PinRepository {
       .select({ createdAt: auditLogs.createdAt })
       .from(auditLogs)
       .where(
-        sql`${auditLogs.action} = 'worker_pin_reset'
+        sql`${auditLogs.action} = ${ADMIN_ACTION_CODES.worker_pin_reset}
           AND ${auditLogs.entityType} = 'worker'
           AND ${auditLogs.entityId} = ${workerId}`,
       )

@@ -45,6 +45,10 @@ function makeSessions() {
       refresh: { token: "rt_opaque_value", expiresInSeconds: 7776000 },
       session: { tier: 0, expiresAtMs: Date.UTC(2026, 6, 27), requiresOtpAfterMs: ABSOLUTE_MS },
     }),
+    // #2562 — the restricted SUSPENDED DPDP token (15m, no refresh, no device binding).
+    createRestricted: vi
+      .fn()
+      .mockResolvedValue({ token: "restricted.jwt", expiresInSeconds: 900 }),
   };
 }
 
@@ -462,27 +466,42 @@ describe("AuthService (real OTP)", () => {
     expect(names).toEqual(["worker.otp_verified"]);
   });
 
-  it("verifyOtp refuses a SUSPENDED worker at the mint gate (#2562)", async () => {
+  it("verifyOtp refuses a SUSPENDED worker's normal session but issues a restricted DPDP token (#2562)", async () => {
     const emit = vi.fn().mockResolvedValue(undefined);
     const workers = {
       findByPhoneHash: vi.fn().mockResolvedValue({ id: "worker-1", status: "suspended" }),
       createOrGetByPhoneHash: vi.fn(),
     };
     const sessions = makeSessions();
+    const devices = makeDevices();
     const svc = new AuthService(
       { emit } as never,
       workers as never,
       pii,
       makeOtp() as never,
       sessions as never,
-      makeDevices() as never,
+      devices as never,
       makePins() as never,
     );
 
-    const err = await svc.verifyOtp(PHONE, "123456", ctx).catch((e: unknown) => e);
+    const err = (await svc
+      .verifyOtp(PHONE, "123456", ctx)
+      .catch((e: unknown) => e)) as WorkerAccountSuspendedException;
     expect(err).toBeInstanceOf(WorkerAccountSuspendedException);
-    // Refused BEFORE any session/device/push state and BEFORE the outcome event.
+    expect(err.getStatus()).toBe(403);
+    expect(err.getResponse()).toMatchObject({
+      code: "WORKER_ACCOUNT_SUSPENDED",
+      restricted_token: "restricted.jwt",
+      restricted_expires_in_seconds: 900,
+    });
+    // Restricted means restricted: no normal session, no device trust, no outcome event.
     expect(sessions.create).not.toHaveBeenCalled();
+    expect(sessions.createRestricted).toHaveBeenCalledWith(
+      "worker-1",
+      "suspended_dpdp",
+      15 * 60,
+    );
+    expect(devices.registerOnLogin).not.toHaveBeenCalled();
     expect(emit).not.toHaveBeenCalled();
   });
 

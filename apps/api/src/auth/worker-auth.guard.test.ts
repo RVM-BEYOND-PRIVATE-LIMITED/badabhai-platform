@@ -6,6 +6,7 @@ import type { WorkerConsent } from "@badabhai/db";
 import type { ConsentRepository } from "../consent/consent.repository";
 import type { WorkersRepository } from "../workers/workers.repository";
 import type { SessionService } from "./session.service";
+import { AuthController } from "./auth.controller";
 import { WorkerAuthGuard, AllowSuspended } from "./worker-auth.guard";
 import {
   WorkerAccountDeletedException,
@@ -40,9 +41,12 @@ function makeCtx(authHeader?: string, handler: object = () => undefined) {
 
 function makeSession(
   validateResult: { workerId: string; sid: string; remainingSeconds: number } | null,
+  scope?: string,
 ) {
   const validated =
-    validateResult === null ? null : { ...validateResult, createdAtMs: CREATED_AT_MS };
+    validateResult === null
+      ? null
+      : { ...validateResult, createdAtMs: CREATED_AT_MS, ...(scope ? { scope } : {}) };
   return {
     validate: vi.fn().mockResolvedValue(validated),
     validateAndTouch: vi.fn().mockResolvedValue(validated),
@@ -246,6 +250,50 @@ describe("WorkerAuthGuard", () => {
 
       await expect(guard.canActivate(ctx)).rejects.toBeInstanceOf(UnauthorizedException);
       expect(req.worker).toBeUndefined();
+    });
+
+    it("a restricted SUSPENDED DPDP token is accepted ONLY on an exempt handler", async () => {
+      const session = makeSession(
+        { workerId: "w1", sid: "s1", remainingSeconds: 900 },
+        "suspended_dpdp",
+      );
+      const workers = makeWorkers(true, "suspended");
+      const guard = new WorkerAuthGuard(session, config, makeConsents(ACTIVE_CONSENT), workers);
+
+      const exempt = makeCtx("Bearer restricted.token", AuthController.prototype.accountDeleteRequest);
+      await expect(guard.canActivate(exempt.ctx)).resolves.toBe(true);
+      expect(exempt.req.worker).toMatchObject({ id: "w1", scope: "suspended_dpdp" });
+      // A restricted token keeps its fixed short life; it must not slide to a session TTL.
+      expect(session.touchSession).not.toHaveBeenCalled();
+
+      const nonExempt = makeCtx("Bearer restricted.token", AuthController.prototype.me);
+      await expect(guard.canActivate(nonExempt.ctx)).rejects.toBeInstanceOf(
+        UnauthorizedException,
+      );
+    });
+
+    it("a restricted token is refused on a non-exempt route even if the row is active", async () => {
+      const session = makeSession(
+        { workerId: "w1", sid: "s1", remainingSeconds: 900 },
+        "suspended_dpdp",
+      );
+      const guard = new WorkerAuthGuard(session, config, makeConsents(ACTIVE_CONSENT), makeWorkers());
+      const { ctx } = makeCtx("Bearer restricted.token", AuthController.prototype.me);
+      await expect(guard.canActivate(ctx)).rejects.toBeInstanceOf(UnauthorizedException);
+    });
+
+    it("an unknown scope fails closed everywhere", async () => {
+      const session = makeSession(
+        { workerId: "w1", sid: "s1", remainingSeconds: 900 },
+        "some_other_scope",
+      );
+      class Exempt {
+        @AllowSuspended()
+        handler(): void {}
+      }
+      const guard = new WorkerAuthGuard(session, config, makeConsents(ACTIVE_CONSENT), makeWorkers());
+      const { ctx } = makeCtx("Bearer weird.token", Exempt.prototype.handler);
+      await expect(guard.canActivate(ctx)).rejects.toBeInstanceOf(UnauthorizedException);
     });
 
     it("a suspended refusal does NOT slide the session TTL", async () => {

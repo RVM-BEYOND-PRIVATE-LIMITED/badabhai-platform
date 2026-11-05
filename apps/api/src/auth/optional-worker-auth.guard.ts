@@ -1,6 +1,8 @@
 import { type CanActivate, type ExecutionContext, Injectable, Logger } from "@nestjs/common";
 import type { Request } from "express";
 import { SessionService } from "./session.service";
+import { readWorkerAccountState } from "./worker-account-deleted.exception";
+import type { WorkersRepository } from "../workers/workers.repository";
 
 /**
  * ATTRIBUTION, NOT AUTHENTICATION. Attaches `req.worker` when a valid worker session token
@@ -27,12 +29,15 @@ import { SessionService } from "./session.service";
  * ── FAIL-CLOSED ON ATTRIBUTION ──────────────────────────────────────────────────────────
  * Every failure mode — malformed header, bad signature, expired JWT, revoked session, Redis
  * down — leaves `req.worker` UNSET, so the event records "we do not know who this was"
- * rather than a guess. `SessionService.validateAndTouch` already returns null (never throws)
+ * rather than a guess. `SessionService.validate` already returns null (never throws)
  * on all of them; the try/catch is the second wall, because an unexpected throw here would
  * 500 a route whose whole contract is that it works without a session.
  *
+ * #2562 — a suspended worker, a swept session family or a restricted DPDP token is also
+ * served anonymously: attribution must not outlive the account gates.
+ *
  * ── ONE SIDE EFFECT, STATED ─────────────────────────────────────────────────────────────
- * `validateAndTouch` SLIDES the session TTL, exactly as it does on every other worker route.
+ * `touchSession` SLIDES the session TTL, exactly as it does on every other worker route.
  * A logged-in worker downloading a kit therefore counts as activity, which is the same
  * reading every other authenticated request gets. It is a Redis round trip taken ONLY when
  * an `Authorization` header is actually present — an anonymous request touches nothing.
@@ -41,7 +46,10 @@ import { SessionService } from "./session.service";
 export class OptionalWorkerAuthGuard implements CanActivate {
   private readonly logger = new Logger(OptionalWorkerAuthGuard.name);
 
-  constructor(private readonly session: SessionService) {}
+  constructor(
+    private readonly session: SessionService,
+    private readonly workers: WorkersRepository,
+  ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const req = context.switchToHttp().getRequest<Request>();
@@ -49,15 +57,31 @@ export class OptionalWorkerAuthGuard implements CanActivate {
     if (!token) return true;
 
     try {
-      const validated = await this.session.validateAndTouch(token);
-      if (validated) {
-        req.worker = {
-          id: validated.workerId,
-          sid: validated.sid,
-          deviceId: validated.deviceId,
-          createdAtMs: validated.createdAtMs,
-        };
-      }
+      // #2562 (N3) — the SAME account/sweep gates as WorkerAuthGuard, BEFORE any attribution
+      // or TTL write. A suspended worker, a swept family, a restricted DPDP token and a deleted
+      // row are all served anonymously; this guard never denies the public request.
+      const validated = await this.session.validate(token);
+      if (!validated) return true;
+      if (validated.scope !== undefined) return true; // restricted DPDP token: attribution-only never
+
+      const accountState = await readWorkerAccountState(
+        this.workers,
+        validated.workerId,
+        this.logger,
+      );
+      if (accountState !== "present") return true;
+
+      const revokedAtMs = await this.session.sessionsRevokedAtMs(validated.workerId);
+      if (revokedAtMs !== null && validated.createdAtMs < revokedAtMs) return true;
+
+      if (!(await this.session.touchSession(validated.workerId, validated.sid))) return true;
+
+      req.worker = {
+        id: validated.workerId,
+        sid: validated.sid,
+        deviceId: validated.deviceId,
+        createdAtMs: validated.createdAtMs,
+      };
     } catch (err) {
       // Never logs the token, the worker id, or anything derived from either — this line is
       // reachable on a public route, and an attribution failure is not worth a PII risk.

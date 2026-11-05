@@ -47,8 +47,8 @@ const PAYER_ACCOUNT_DELETED_MESSAGE = "This account no longer exists.";
  * timestamp }` — the codebase's standard envelope, and byte-identical to what the shipped
  * payer client already parses. No filter change is needed or wanted.
  *
- * ── WHY THERE IS NO `throwIfPayerDeleted` HELPER, when the worker side has one ──────────
- * `throwIfWorkerDeleted` exists for two reasons, and NEITHER holds here.
+ * ── WHY THE PAYER GUARD READS THE ROW DIRECTLY ────────────────────────────────────────────
+ * Two reasons the worker side's old deleted-account helper could not be reused here:
  *
  *   1. TWO CALL SITES. The worker rule runs in `WorkerAuthGuard` AND on the unguarded
  *      `POST /auth/token/refresh` cold-start path, so the semantics had to live in one place

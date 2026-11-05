@@ -117,8 +117,8 @@ export class PayerAuthGuard implements CanActivate {
     // ACT on. This was a generic 401, which is indistinguishable from an expired session: the
     // payer app silently re-auths on a 401, so a payer whose row no longer exists would loop
     // through a login it can never complete. The reserved 410 is the escape hatch — see
-    // {@link PayerAccountDeletedException} for the full contract and for why the worker side's
-    // `throwIfWorkerDeleted` fail-safe is deliberately NOT mirrored here.
+    // {@link PayerAccountDeletedException} for the full contract and for why the payer side
+    // deliberately does NOT mirror the worker-side fail-safe.
     //
     // `undefined` here means "the query SUCCEEDED and matched zero rows", never "the database
     // did not answer": `findAuthFacts` awaits a drizzle `select()`, so a driver failure rejects

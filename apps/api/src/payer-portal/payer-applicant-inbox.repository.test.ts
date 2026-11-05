@@ -100,6 +100,16 @@ describe("inboxPageStatement — membership is each per-posting list's", () => {
     }
   });
 
+  it("the COUNT carries the SAME suspension freeze in BOTH arms (#2562)", () => {
+    const q = dialect.sqlToQuery(inboxCountStatement(PAYER_KEY, {}));
+    const sql = q.sql.replace(/\s+/g, " ");
+    for (const arm of Object.values(arms(sql))) {
+      expect(arm).toContain("AND a.action = 'applied'");
+      expect(arm).toContain("AND w.deletion_scheduled_at IS NULL");
+      expect(arm).toContain("AND w.status <> 'suspended'");
+    }
+  });
+
   it("agency arm: an applier needs a worker_profiles row (the per-job list ranks FROM worker_profiles)", () => {
     const { sql } = compile({ limit: 21 });
     expect(arms(sql).agency).toContain(
