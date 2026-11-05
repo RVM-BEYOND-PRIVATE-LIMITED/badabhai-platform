@@ -43,9 +43,9 @@ import type {
  * read's and, again, each detail read's — and its ACTING LOGIN is the `feed.shown` actor. With
  * org tenancy off the two are the session payer, exactly as before; on, a team member's inbox is
  * the org's. A `postingId` the payer does not own (or that does not
- * exist) gives the SAME `{ applicants: [], nextCursor: null }` as an owned posting nobody has
+ * exist) gives the SAME `{ applicants: [], nextCursor: null, total: 0 }` as an owned posting nobody has
  * applied to: a filter on a collection, not a resource lookup, so there is no 404 to tell the
- * cases apart, and every case costs the same one page read (no existence oracle, and no timing
+ * cases apart, and every case costs the same page read + COUNT (no existence oracle, and no timing
  * difference between "not yours" and "yours, empty").
  *
  * EVENTS: the per-posting list's posture, row for row. Each AGENCY row shown here emits the
@@ -90,13 +90,24 @@ export class PayerApplicantInboxService {
       throw new BadRequestException("stage filter is not available");
     }
     const scope = await this.tenancy.resolve(actorPayerId);
-    // One row past the page says whether there is a next one, without a COUNT.
-    const read = await this.repo.listPage(scope.tenantKey, {
-      postingId: query.postingId,
-      after: query.cursor,
-      limit: query.limit + 1,
-      ...(stagesOn ? { stages: { only: query.stage } } : {}),
-    });
+    const stages = stagesOn ? { only: query.stage } : undefined;
+    // The page (limit + 1 probes the next page) plus the total under the SAME filters (#2636).
+    // The count spans every page — no keyset, no limit — which is what "of N" needs. Same
+    // tenant key, same postingId/stage filters, same disclosure WHEREs (the repository's
+    // count statement mirrors the page statement's arms); a foreign/unknown postingId counts
+    // 0, exactly like the neutral empty page it lists (no oracle, same cost either way).
+    const [read, total] = await Promise.all([
+      this.repo.listPage(scope.tenantKey, {
+        postingId: query.postingId,
+        after: query.cursor,
+        limit: query.limit + 1,
+        ...(stagesOn ? { stages: { only: query.stage } } : {}),
+      }),
+      this.repo.count(scope.tenantKey, {
+        postingId: query.postingId,
+        ...(stagesOn ? { stages } : {}),
+      }),
+    ]);
     const page = read.slice(0, query.limit);
     const last = page.at(-1);
     const nextCursor =
@@ -138,7 +149,7 @@ export class PayerApplicantInboxService {
 
     if (shown.length > 0) await this.reach.emitPayerFeedShown(shown, scope.actorPayerId, ctx);
 
-    return { applicants, nextCursor };
+    return { applicants, nextCursor, total };
   }
 }
 

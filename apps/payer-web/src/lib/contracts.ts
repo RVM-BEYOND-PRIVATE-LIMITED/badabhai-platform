@@ -1199,6 +1199,12 @@ export type InboxCompanyRowWire = z.infer<typeof inboxCompanyRowWireSchema>;
 export const candidateInboxWireSchema = z.object({
   applicants: z.array(z.union([inboxAgencyRowWireSchema, inboxCompanyRowWireSchema])),
   nextCursor: z.string().nullable(),
+  /**
+   * Issue #2636 — how many applicants the inbox holds under the same filters. Optional on the
+   * wire so a deploy-skewed old server (no total) still parses; the pager keeps its "Showing
+   * A–B" fallback until it arrives.
+   */
+  total: z.number().int().nonnegative().optional(),
 });
 
 /**
@@ -1239,6 +1245,8 @@ export type CandidateInboxRow = z.infer<typeof candidateInboxRowSchema>;
 export const candidateInboxSchema = z.object({
   applicants: z.array(candidateInboxRowSchema),
   nextCursor: z.string().nullable(),
+  /** Issue #2636 — absent until the API ships `total`; the pager falls back to "Showing A–B". */
+  total: z.number().int().nonnegative().optional(),
 });
 export type CandidateInbox = z.infer<typeof candidateInboxSchema>;
 
