@@ -120,7 +120,7 @@ function makeHarness(opts: { failEmitOnce?: boolean } = {}) {
   } as unknown as PayerSessionService;
   // #2562 — worker-account doubles. These run AFTER the tx (Redis is not transactional), so
   // they are outside the atomicity contract under test here.
-  const workerSessions = { revokeAll: async () => 0 } as unknown as SessionService;
+  const workerSessions = { revokeAllStrict: async () => 0 } as unknown as SessionService;
   const pins = { deleteByWorkerId: async () => true } as unknown as PinRepository;
 
   // Deterministic accept-link seam. Delivery is a no-op: it runs AFTER the tx commits, so

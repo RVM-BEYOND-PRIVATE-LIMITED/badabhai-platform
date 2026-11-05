@@ -291,6 +291,29 @@ describe("WorkersRepository.findByPhoneHash — the OTP-verify identity lookup",
   });
 });
 
+// #2562 — the multi-phone existence lookup used by payer-login hardening. Suspended workers
+// must not be "live" for this read (a suspended account is frozen on payer surfaces).
+describe("WorkersRepository.findLiveIdsByPhoneHashes — phone-hash lookup excludes the frozen", () => {
+  it("binds the hashes, requires deletion_scheduled_at IS NULL and status <> suspended", async () => {
+    const { db, captured } = makeDb({ rows: [{ id: WORKER_ID }] });
+    const ids = await new WorkersRepository(db).findLiveIdsByPhoneHashes(["hash-1", "hash-2"]);
+
+    expect(captured.selectTable).toBe(workers);
+    expect(captured.selection).toEqual({ id: workers.id });
+    expect(text(captured.where)).toBe(
+      '("workers"."phone_hash" in ($1, $2) and "workers"."deletion_scheduled_at" is null and "workers"."status" <> $3)',
+    );
+    expect(params(captured.where)).toEqual(["hash-1", "hash-2", "suspended"]);
+    expect(ids).toEqual([WORKER_ID]);
+  });
+
+  it("an empty input returns [] without a query", async () => {
+    const { db, captured } = makeDb({ rows: [{ id: WORKER_ID }] });
+    await expect(new WorkersRepository(db).findLiveIdsByPhoneHashes([])).resolves.toEqual([]);
+    expect(captured.selects).toHaveLength(0);
+  });
+});
+
 describe("WorkersRepository.create — plain insert", () => {
   it("inserts the given row and returns it", async () => {
     const input = { phoneHash: "hash-1", phoneE164: "enc", preferredLanguage: "hi" as const };

@@ -29,8 +29,8 @@ import type { InboxApplicantRowDto } from "./payer-applicant-inbox.dto";
  *    of B's, or an unknown one, is the same empty page as an owned posting nobody applied to;
  *  - order + pagination: `(created_at DESC, id DESC)` with a same-MICROSECOND tie across the two
  *    arms, walked at several page sizes — every applicant exactly once, no gap, no repeat;
- *  - membership: a skip, a worker in the deletion grace window and an agency applier with no
- *    profile row are never listed; a worker with two profile rows is one row per application;
+ *  - membership: a skip, a worker in the deletion grace window, a SUSPENDED worker and an
+ *    agency applier with no profile row are never listed; a worker with two profile rows is one row per application;
  *    an application carrying BOTH references is listed once (jobs-first);
  *  - PARITY: every row, minus `posting`, is `toStrictEqual` to the row the per-posting route
  *    (the real `PayerApplicantsService.listForOwned`) serves for that applicant — which is where
@@ -67,7 +67,7 @@ const POST_A_EMPTY = id();
 const POST_B = id();
 
 const W = Object.fromEntries(
-  ["w1", "w2", "w3", "w4", "w5", "w6", "w7", "w8", "w9", "w10", "leaver", "noprof", "both"].map(
+  ["w1", "w2", "w3", "w4", "w5", "w6", "w7", "w8", "w9", "w10", "leaver", "suspended", "noprof", "both"].map(
     (k) => [k, id()],
   ),
 ) as Record<string, string>;
@@ -246,6 +246,15 @@ const FIXTURES: Fixture[] = [
     action: "skipped",
     t: t("13.000000"),
   },
+  // #2562 — a suspended worker applied to A's agency job: frozen off the inbox until unsuspend.
+  {
+    key: "a17",
+    worker: W.suspended!,
+    jobId: JOB_A1,
+    postingId: null,
+    action: "applied",
+    t: t("14.000000"),
+  },
 ];
 const APP = Object.fromEntries(FIXTURES.map((f) => [f.key, id()])) as Record<string, string>;
 const byApp = new Map(FIXTURES.map((f) => [APP[f.key]!, f]));
@@ -365,10 +374,10 @@ describe.skipIf(!RUN)("GET /payer/reach/applicants — against Postgres", () => 
     expect(b.map(appOf).sort()).toEqual([APP.a14!, APP.a15!].sort());
   });
 
-  it("membership: no skip, no leaver, no profile-less agency applier; one row per application", async () => {
+  it("membership: no skip, no leaver, no SUSPENDED, no profile-less agency applier; one row per application", async () => {
     const rows = (await walk(PAYER_A, 50)).rows;
     const apps = rows.map(appOf);
-    for (const k of ["a4", "a5", "a6", "a12", "a16"]) expect(apps).not.toContain(APP[k]);
+    for (const k of ["a4", "a5", "a6", "a12", "a16", "a17"]) expect(apps).not.toContain(APP[k]);
     // w3 has two profile rows: still one row for his one application.
     expect(rows.filter((r) => r.workerId === W.w3)).toHaveLength(1);
     // w1 applied twice (agency + company): two rows.
@@ -519,7 +528,8 @@ async function seed(client: DbClient): Promise<void> {
   for (const [k, workerId] of Object.entries(W)) {
     await sql`
       INSERT INTO workers (id, phone_e164, phone_hash, status, deletion_scheduled_at)
-      VALUES (${workerId}::uuid, ${`enc:inbox-${TAG}-${k}`}, ${`hash:inbox-${TAG}-${k}`}, 'active',
+      VALUES (${workerId}::uuid, ${`enc:inbox-${TAG}-${k}`}, ${`hash:inbox-${TAG}-${k}`},
+              ${k === "suspended" ? "suspended" : "active"},
               ${k === "leaver" ? sql`now() + interval '7 days'` : null})`;
     if (k === "noprof") continue;
     const n = Number.parseInt(k.replace(/\D/g, ""), 10) || 3;

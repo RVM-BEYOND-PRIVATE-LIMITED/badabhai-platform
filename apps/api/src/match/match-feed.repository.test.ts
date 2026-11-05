@@ -526,6 +526,9 @@ describe("listCandidates — the ORDER BY *is* the ratified rank key (ADR-0036 �
     expect(where, "statement has the posting WHERE").toBeGreaterThan(-1);
     expect(freeze, "the pending-deletion predicate must follow the WHERE").toBeGreaterThan(where);
     expect(freeze).toBeLessThan(sql.lastIndexOf("ORDER BY"));
+    // #2562 — the same freeze covers a SUSPENDED worker.
+    expect(sql.indexOf("w.status <> 'suspended'")).toBeGreaterThan(freeze);
+    expect(sql.indexOf("w.status <> 'suspended'")).toBeLessThan(sql.lastIndexOf("ORDER BY"));
     // ...and NOT in the ORDER BY: it decides who is listed, never who comes first, so the
     // rank-parity pin with `rankKeyCompare` is untouched.
     expect(orderByOf(sql)).not.toContain("deletion_scheduled_at");
@@ -678,6 +681,8 @@ describe("listRankedCandidatesByApplication — the posting rank, from the ONE r
     expect(sql).toContain("AND a.action = 'applied'");
     expect(sql).toContain("INNER JOIN workers w ON w.id = a.worker_id");
     expect(sql).toContain("AND w.deletion_scheduled_at IS NULL");
+    // #2562 — suspended workers are frozen on this list too.
+    expect(sql).toContain("AND w.status <> 'suspended'");
     expect([...sql.matchAll(/(\w+)\s+JOIN\s+job_reach/g)].map((m) => m[1])).toEqual(["LEFT"]);
   });
 

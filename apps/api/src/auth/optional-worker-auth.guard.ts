@@ -55,6 +55,7 @@ export class OptionalWorkerAuthGuard implements CanActivate {
           id: validated.workerId,
           sid: validated.sid,
           deviceId: validated.deviceId,
+          createdAtMs: validated.createdAtMs,
         };
       }
     } catch (err) {

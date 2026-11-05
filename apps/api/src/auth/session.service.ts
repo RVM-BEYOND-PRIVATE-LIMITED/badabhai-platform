@@ -63,6 +63,8 @@ interface WorkerJwtClaims {
   /** ADR-0026 Phase 2 — the bound trusted-device ROW uuid, when device-bound (opaque). */
   did?: string;
   exp?: number;
+  /** Standard JWT issued-at (whole seconds); the legacy fallback for a missing OTP anchor. */
+  iat?: number;
 }
 
 /** The Redis `session:<sid>` record (ADR-0026 — extended, old records default safely). */
@@ -127,6 +129,16 @@ export interface MintedSession {
   session: SessionView;
 }
 
+/**
+ * #2562 — who caused a sweep. The `worker.logged_out_all` envelope names the admin for an
+ * admin-triggered action; its payload is unchanged and still carries only the worker id and
+ * the count.
+ */
+export interface SessionRevokeActor {
+  actor_type: "worker" | "admin";
+  actor_id: string;
+}
+
 export interface ValidatedSession {
   workerId: string;
   sid: string;
@@ -134,6 +146,15 @@ export interface ValidatedSession {
   deviceId?: string;
   /** Seconds until the CURRENT token expires (per its JWT `exp`). */
   remainingSeconds: number;
+  /**
+   * Epoch-ms of the OTP that minted this session FAMILY — the immutable anchor every rotation
+   * carries. Legacy records without the field fall back to the token's whole-second `iat`.
+   *
+   * #2562 reads it as the admin PIN-reset watermark: a PIN chosen from a session whose phone
+   * sign-in predates the latest admin reset must be refused, or an existing session could set
+   * a new PIN without proving it still holds the phone (ADR-0062 §3.8).
+   */
+  createdAtMs: number;
 }
 
 /** A typed reason a refresh failed (mapped to 401 by the controller). */
@@ -282,6 +303,23 @@ export class SessionService {
   }
   private static workerSessionsKey(workerId: string): string {
     return `worker_sessions:${workerId}`;
+  }
+
+  /**
+   * #2562 — the DURABLE sweep watermark for one worker's session lineage.
+   *
+   * A sweep deletes the live records, but an in-flight refresh can recreate a family after the
+   * delete. This key is written in the SAME sweep, and both the guard and the refresh path
+   * compare a family's immutable OTP anchor against it: a family minted before the watermark is
+   * dead even if a record survives or is recreated. It is also what makes sign-out-all hold
+   * when Redis deletes only part of the lineage.
+   *
+   * Redis, not Postgres, on purpose: the session store is already the authority for sessions,
+   * and a Redis flush takes the sessions with it. TTL = the refresh horizon, so the watermark
+   * outlives every record it can still cover.
+   */
+  private static workerSessionsRevokedAtKey(workerId: string): string {
+    return `worker_sessions_revoked_at:${workerId}`;
   }
   private static workerFamiliesKey(workerId: string): string {
     return `worker_families:${workerId}`;
@@ -436,6 +474,15 @@ export class SessionService {
   }
 
   /**
+   * #2562 — validate WITHOUT touching the session or its TTL. The guard uses this first so a
+   * suspended worker's request never extends the very session it is about to refuse; only after
+   * the account gates pass does {@link touchSession} slide the TTL.
+   */
+  async validate(token: string): Promise<ValidatedSession | null> {
+    return this.validateInternal(token, false);
+  }
+
+  /**
    * Verify the token + load its Redis session, RESET the session TTL (sliding —
    * this is the rolling behavior), and return the claims. Returns null on any
    * failure (bad signature, expired JWT, missing/revoked session, Redis error).
@@ -445,6 +492,13 @@ export class SessionService {
    * absolute cap is enforced (a past-cap session is treated as invalid → 401).
    */
   async validateAndTouch(token: string): Promise<ValidatedSession | null> {
+    return this.validateInternal(token, true);
+  }
+
+  private async validateInternal(
+    token: string,
+    touch: boolean,
+  ): Promise<ValidatedSession | null> {
     let claims: WorkerJwtClaims;
     try {
       // Pin the accepted algorithm (defense-in-depth — reject anything but HS256,
@@ -461,17 +515,36 @@ export class SessionService {
       const raw = await redis.get(key);
       if (!raw) return null; // revoked or expired server-side
 
-      if (this.config.AUTH_ROLLING_TIERS_ENABLED) {
-        const slid = await this.slideTiered(redis, key, raw, claims.sub);
-        if (!slid) return null; // past absolute cap → force OTP
-      } else {
-        // Original behavior: slide the flat SESSION_TTL_DAYS forward.
-        await redis.expire(key, this.ttlSeconds());
+      const nowMs = Date.now();
+      const record = this.parseRecord(raw, claims.sub, nowMs);
+      const createdAtMs =
+        record.created_via_otp_at_ms ?? (claims.iat ? claims.iat * 1000 : nowMs);
+
+      if (touch) {
+        if (this.config.AUTH_ROLLING_TIERS_ENABLED) {
+          const slid = await this.slideTiered(redis, key, raw, claims.sub);
+          if (!slid) return null; // past absolute cap → force OTP
+        } else {
+          // Original behavior: slide the flat SESSION_TTL_DAYS forward.
+          await redis.expire(key, this.ttlSeconds());
+        }
+      } else if (this.config.AUTH_ROLLING_TIERS_ENABLED) {
+        // No write: still enforce the absolute cap so a non-touching validation cannot admit
+        // a session the touching path would have refused.
+        const absoluteExpiryMs =
+          record.absolute_expiry_ms ?? createdAtMs + this.absoluteMaxSeconds() * 1000;
+        if (nowMs >= absoluteExpiryMs) return null;
       }
 
-      const nowSeconds = Math.floor(Date.now() / 1000);
+      const nowSeconds = Math.floor(nowMs / 1000);
       const remainingSeconds = claims.exp ? Math.max(0, claims.exp - nowSeconds) : 0;
-      return { workerId: claims.sub, sid: claims.sid, deviceId: claims.did, remainingSeconds };
+      return {
+        workerId: claims.sub,
+        sid: claims.sid,
+        deviceId: claims.did,
+        remainingSeconds,
+        createdAtMs,
+      };
     } catch (err) {
       this.logger.error(
         `Session Redis error; treating as unauthenticated (reason: ${
@@ -479,6 +552,29 @@ export class SessionService {
         })`,
       );
       return null;
+    }
+  }
+
+  /**
+   * #2562 — slide the session TTL after the account gates have passed. Returns false when the
+   * session vanished or Redis failed; the guard then answers the ordinary 401.
+   */
+  async touchSession(workerId: string, sid: string): Promise<boolean> {
+    try {
+      const redis = await this.client();
+      const key = SessionService.sessionKey(sid);
+      const raw = await redis.get(key);
+      if (!raw) return false;
+      if (this.config.AUTH_ROLLING_TIERS_ENABLED) {
+        return (await this.slideTiered(redis, key, raw, workerId)) !== null;
+      }
+      await redis.expire(key, this.ttlSeconds());
+      return true;
+    } catch (err) {
+      this.logger.error(
+        `Session touch Redis error (reason: ${err instanceof Error ? err.message : String(err)})`,
+      );
+      return false;
     }
   }
 
@@ -531,7 +627,7 @@ export class SessionService {
       worker_id: parsed.worker_id ?? fallbackWorkerId,
       family_id: parsed.family_id,
       device_id: parsed.device_id,
-      created_via_otp_at_ms: parsed.created_via_otp_at_ms ?? nowMs,
+      created_via_otp_at_ms: parsed.created_via_otp_at_ms,
       absolute_expiry_ms:
         parsed.absolute_expiry_ms ?? nowMs + this.absoluteMaxSeconds() * 1000,
       active_days: Array.isArray(parsed.active_days) ? parsed.active_days : [],
@@ -669,6 +765,21 @@ export class SessionService {
       const raw = await redis.get(SessionService.refreshKey(tokenHash));
       if (!raw) return { ok: false, reason: "invalid" };
       const rec = JSON.parse(raw) as RefreshRecord;
+
+      // #2562 — the durable sweep watermark. A family minted before the latest admin sweep
+      // must not rotate, even if its records survived (a partial delete, or a fresh family
+      // created by an in-flight rotation). `created_via_otp_at_ms` is the immutable anchor;
+      // a legacy record without one compares as 0 and is refused after any sweep (fail closed).
+      const watermarkRaw = await redis.get(SessionService.workerSessionsRevokedAtKey(rec.worker_id));
+      const watermarkMs = watermarkRaw === null ? null : Number(watermarkRaw);
+      if (
+        watermarkMs !== null &&
+        Number.isFinite(watermarkMs) &&
+        (rec.created_via_otp_at_ms ?? 0) < watermarkMs
+      ) {
+        await this.revokeFamily(redis, rec.family_id, rec.sid, rec.worker_id);
+        return { ok: false, reason: "requires_otp" };
+      }
 
       // 2. Idempotency grace — return the cached mint for an honest retry. The cache is
       // ENCRYPTED at rest (it holds live bearer secrets — the rotated refresh token + the
@@ -829,6 +940,20 @@ export class SessionService {
         );
       }
 
+      // 4f. #2562 — RE-CHECK the watermark after the rotation. A sweep that ran while this
+      // refresh was in flight may have written its watermark after 4b's read; the family just
+      // re-created must not survive it. Revoke the whole family and answer the same 401.
+      const afterRaw = await redis.get(SessionService.workerSessionsRevokedAtKey(rec.worker_id));
+      const afterMs = afterRaw === null ? null : Number(afterRaw);
+      if (
+        afterMs !== null &&
+        Number.isFinite(afterMs) &&
+        (rec.created_via_otp_at_ms ?? 0) < afterMs
+      ) {
+        await this.revokeFamily(redis, rec.family_id, rec.sid, rec.worker_id);
+        return { ok: false, reason: "requires_otp" };
+      }
+
       return { ok: true, minted };
     } catch (err) {
       this.logger.error(
@@ -957,7 +1082,13 @@ export class SessionService {
    */
   async resolveRefreshToken(
     rawToken: string,
-  ): Promise<{ workerId: string; deviceId?: string; sid: string; familyId: string } | null> {
+  ): Promise<{
+    workerId: string;
+    deviceId?: string;
+    sid: string;
+    familyId: string;
+    createdViaOtpAtMs: number;
+  } | null> {
     try {
       const redis = await this.client();
       const raw = await redis.get(SessionService.refreshKey(sha256Hex(rawToken)));
@@ -969,6 +1100,7 @@ export class SessionService {
         deviceId: rec.device_id,
         sid: rec.sid,
         familyId: rec.family_id,
+        createdViaOtpAtMs: rec.created_via_otp_at_ms ?? 0,
       };
     } catch (err) {
       this.logger.error(
@@ -1183,18 +1315,54 @@ export class SessionService {
    * and kills each family (deleting every outstanding `refresh:<hash>` + family set +
    * session + membership), then cleans up any remaining `session:<sid>` in the session set
    * and deletes both lineage sets. Emits `worker.logged_out_all` with the count of session
-   * records actually deleted. Best-effort on Redis errors (count 0).
+   * records actually deleted.
    *
-   * SECURITY: because the refresh records are deleted, a replayed (un-rotated) refresh
-   * token after logout-all hits the `!raw` guard in `refreshByToken` → `invalid` (401):
-   * no refresh-token session resurrection.
+   * #2562 — a worker-level WATERMARK is written before the deletes. A refresh that is already
+   * in flight can recreate a family after the sweep; every guard/refresh path compares the
+   * family's immutable OTP anchor to this watermark, so the recreated family is dead too.
+   *
+   * Best-effort on Redis errors (count 0) for the worker's own logout-all. The ADMIN actions
+   * use {@link revokeAllStrict}, which throws instead so a failed sweep can never be reported
+   * as a completed account action.
    */
-  async revokeAll(workerId: string): Promise<number> {
+  async revokeAll(
+    workerId: string,
+    actor: SessionRevokeActor = { actor_type: "worker", actor_id: workerId },
+  ): Promise<number> {
+    return this.revokeAllInternal(workerId, actor, false);
+  }
+
+  /**
+   * #2562 — the same sweep, but a Redis failure PROPAGATES. Admin sign-out-all / PIN-reset /
+   * suspend use this: the caller must return 503 rather than claim an action that left every
+   * session alive. Retrying is safe — the watermark and the deletes are idempotent.
+   */
+  async revokeAllStrict(
+    workerId: string,
+    actor: SessionRevokeActor = { actor_type: "worker", actor_id: workerId },
+  ): Promise<number> {
+    return this.revokeAllInternal(workerId, actor, true);
+  }
+
+  private async revokeAllInternal(
+    workerId: string,
+    actor: SessionRevokeActor,
+    strict: boolean,
+  ): Promise<number> {
     let count = 0;
     try {
       const redis = await this.client();
       const sessionsKey = SessionService.workerSessionsKey(workerId);
       const familiesKey = SessionService.workerFamiliesKey(workerId);
+
+      // THE WATERMARK FIRST. It must exist before a single delete, so an in-flight rotation
+      // that re-creates a family lands on the dead side of it.
+      await redis.set(
+        SessionService.workerSessionsRevokedAtKey(workerId),
+        String(Date.now()),
+        "EX",
+        this.refreshTtlSeconds(),
+      );
 
       // Kill every refresh FAMILY the worker holds: delete every outstanding
       // refresh:<hash> + the family set. (Driven off worker_families so we catch families
@@ -1220,6 +1388,7 @@ export class SessionService {
       this.logger.error(
         `logout-all Redis error (reason: ${err instanceof Error ? err.message : String(err)})`,
       );
+      if (strict) throw err;
       count = 0;
     }
 
@@ -1240,7 +1409,9 @@ export class SessionService {
 
     const emitted = await this.events.emit({
       event_name: "worker.logged_out_all",
-      actor: { actor_type: "worker", actor_id: workerId },
+      // #2562 — an ADMIN-triggered sweep names the admin, never the worker. The payload keeps
+      // its `{worker_id, sessions_revoked}` shape; only the envelope's actor changes.
+      actor: { actor_type: actor.actor_type, actor_id: actor.actor_id },
       subject: { subject_type: "worker", subject_id: workerId },
       payload: { worker_id: workerId, sessions_revoked: count },
     });
@@ -1257,6 +1428,19 @@ export class SessionService {
       });
     }
     return count;
+  }
+
+  /** #2562 — read the worker's sweep watermark (epoch-ms), or null when none was ever set. */
+  async sessionsRevokedAtMs(workerId: string): Promise<number | null> {
+    try {
+      const redis = await this.client();
+      const raw = await redis.get(SessionService.workerSessionsRevokedAtKey(workerId));
+      if (raw === null) return null;
+      const n = Number(raw);
+      return Number.isFinite(n) ? n : null;
+    } catch {
+      return null; // a Redis error is handled by the validation that follows
+    }
   }
 
   /**

@@ -30,8 +30,8 @@ import { defaultModeResolver, ownTenantKey } from "../payers/payer-tenant-scope.
  * The unit suites prove the statements SAY the right thing and the services plumb them right.
  * Only a database proves they EVALUATE that way:
  *  - ownership + membership: a foreign posting, an unknown id, a non-applicant, a skip, a worker in
- *    the deletion grace window and a profile-less agency applier are the same neutral 404, and
- *    nothing is written for any of them;
+ *    the deletion grace window, a SUSPENDED worker and a profile-less agency applier are the same
+ *    neutral 404, and nothing is written for any of them;
  *  - the write: the first move inserts, a repeat is a no-op (no row change, no event), moving back
  *    stores `new`, and every real change writes ONE validated event row with the right payload;
  *  - concurrency: two simultaneous first moves on one applicant serialise on the primary key —
@@ -64,7 +64,7 @@ const POST_A = id(); // company posting, A
 const POST_B = id(); // company posting, B
 
 const W = Object.fromEntries(
-  ["w1", "w2", "w3", "w4", "w5", "skipper", "leaver", "noprof", "stranger", "erased"].map((k) => [
+  ["w1", "w2", "w3", "w4", "w5", "skipper", "leaver", "suspended", "noprof", "stranger", "erased"].map((k) => [
     k,
     id(),
   ]),
@@ -91,6 +91,8 @@ const FIXTURES: Fixture[] = [
   { worker: W.w5!, jobId: null, postingId: POST_A, action: "applied", t: t("09.000000") },
   { worker: W.erased!, jobId: null, postingId: POST_A, action: "applied", t: t("10.000000") },
   { worker: W.w2!, jobId: null, postingId: POST_B, action: "applied", t: t("11.000000") },
+  // #2562 — a suspended applicant on A's agency job: frozen until unsuspend.
+  { worker: W.suspended!, jobId: JOB_A, postingId: null, action: "applied", t: t("12.000000") },
 ];
 
 const ctx = (): RequestContext => ({ correlationId: randomUUID(), requestId: `stages-db-${TAG}` });
@@ -198,6 +200,7 @@ describe.skipIf(!RUN)("payer applicant pipeline board — against Postgres (flag
     ["a worker who never applied", () => [PAYER_A, JOB_A, W.stranger!]],
     ["a worker who skipped", () => [PAYER_A, JOB_A, W.skipper!]],
     ["a worker in the deletion grace window", () => [PAYER_A, JOB_A, W.leaver!]],
+    ["a SUSPENDED worker", () => [PAYER_A, JOB_A, W.suspended!]],
     ["an agency applier with no profile row", () => [PAYER_A, JOB_A, W.noprof!]],
     [
       "a posting applicant, asked about on the payer's OTHER posting",
@@ -452,7 +455,8 @@ async function seed(client: DbClient): Promise<void> {
   for (const [k, workerId] of Object.entries(W)) {
     await sql`
       INSERT INTO workers (id, phone_e164, phone_hash, status, deletion_scheduled_at)
-      VALUES (${workerId}::uuid, ${`enc:stages-${TAG}-${k}`}, ${`hash:stages-${TAG}-${k}`}, 'active',
+      VALUES (${workerId}::uuid, ${`enc:stages-${TAG}-${k}`}, ${`hash:stages-${TAG}-${k}`},
+              ${k === "suspended" ? "suspended" : "active"},
               ${k === "leaver" ? sql`now() + interval '7 days'` : null})`;
     if (k === "noprof") continue;
     await sql`

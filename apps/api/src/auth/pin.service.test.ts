@@ -1,6 +1,6 @@
 import "reflect-metadata";
 import { describe, it, expect, vi } from "vitest";
-import { BadRequestException, UnauthorizedException } from "@nestjs/common";
+import { BadRequestException, ForbiddenException, UnauthorizedException } from "@nestjs/common";
 import type { Queue } from "bullmq";
 import type { ServerConfig } from "@badabhai/config";
 import { PinService, type VerifyPinInput } from "./pin.service";
@@ -169,6 +169,8 @@ function makePins(initial: ReturnType<typeof makeCred> | null) {
       incrementOtpCycle,
       recordFailureEscalation,
       recordFailedAttempts,
+      // #2562 — no admin reset in these fixtures; the durable gate is tested separately.
+      latestAdminPinResetAt: vi.fn(async () => null),
     },
   };
 }
@@ -180,7 +182,13 @@ function makeSessions(
 ) {
   const ABSOLUTE_MS = Date.UTC(2026, 8, 25);
   return {
-    resolveRefreshToken: vi.fn().mockResolvedValue(resolved),
+    resolveRefreshToken: vi.fn().mockResolvedValue(
+      resolved === null
+        ? null
+        : { ...resolved, createdViaOtpAtMs: 1_700_000_000_000 },
+    ),
+    // #2562 - no sweep watermark in these fixtures.
+    sessionsRevokedAtMs: vi.fn().mockResolvedValue(null),
     // #2113 — the erased-credential tombstone read (a0). Default: no tombstone. `erasedRejects`
     // models the read itself failing, which must land on the neutral 401, never the 410.
     isErasedRefreshToken: tombstone.erasedRejects
@@ -271,10 +279,12 @@ function build(opts: BuildOpts = {}) {
     // models an admin suspension, which must beat the device/credential gates.
     findSelfView: opts.existsByIdThrows
       ? vi.fn().mockRejectedValue(new Error("db down"))
-      : vi.fn().mockResolvedValue({
-          status: opts.workerSuspended ? "suspended" : "active",
-          deletionScheduledAt: null,
-        }),
+      : opts.workerExists === false
+        ? vi.fn().mockResolvedValue(undefined)
+        : vi.fn().mockResolvedValue({
+            status: opts.workerSuspended ? "suspended" : "active",
+            deletionScheduledAt: null,
+          }),
   };
 
   const otp = {
@@ -366,7 +376,7 @@ async function expectNeutral401(p: Promise<unknown>) {
 describe("PinService.setPin", () => {
   it("rejects a wrong-LENGTH PIN with 400 BEFORE hashing", async () => {
     const { svc, hasher, pins, emit } = build();
-    await expect(svc.setPin(WORKER, "135", ctx)).rejects.toBeInstanceOf(BadRequestException);
+    await expect(svc.setPin(WORKER, "135", ctx, Date.now())).rejects.toBeInstanceOf(BadRequestException);
     expect(hasher.hash).not.toHaveBeenCalled();
     expect(pins.repo.upsertPin).not.toHaveBeenCalled();
     expect(emit).not.toHaveBeenCalled();
@@ -393,7 +403,7 @@ describe("PinService.setPin", () => {
     for (const pin of wasDenylisted) {
       const { svc, hasher, pins, emit } = build();
       await expect(
-        svc.setPin(WORKER, pin, ctx),
+        svc.setPin(WORKER, pin, ctx, Date.now()),
         `expected ${pin} accepted`,
       ).resolves.toBeUndefined();
       expect(hasher.hash, `${pin} must hash`).toHaveBeenCalledWith(pin);
@@ -407,7 +417,7 @@ describe("PinService.setPin", () => {
     // choice the worker made; it is a value that must never reach the credential store.
     for (const bad of ["135", "13570", "13a7", ""]) {
       const { svc, hasher, pins } = build();
-      await expect(svc.setPin(WORKER, bad, ctx), `expected ${bad} rejected`).rejects.toBeInstanceOf(
+      await expect(svc.setPin(WORKER, bad, ctx, Date.now()), `expected ${bad} rejected`).rejects.toBeInstanceOf(
         BadRequestException,
       );
       expect(hasher.hash, `${bad} must not hash`).not.toHaveBeenCalled();
@@ -417,7 +427,7 @@ describe("PinService.setPin", () => {
 
   it("a good PIN hashes, upserts, and emits a PII-free worker.pin_set ({worker_id} only)", async () => {
     const { svc, hasher, pins, emit } = build();
-    await svc.setPin(WORKER, GOOD_PIN, ctx);
+    await svc.setPin(WORKER, GOOD_PIN, ctx, Date.now());
 
     expect(hasher.hash).toHaveBeenCalledWith(GOOD_PIN);
     expect(pins.repo.upsertPin).toHaveBeenCalledWith(
@@ -438,12 +448,56 @@ describe("PinService.setPin", () => {
 
   it("identity is the passed (token) worker id — never a body id (the controller passes CurrentWorker)", async () => {
     const { svc, pins } = build();
-    await svc.setPin("worker-from-token", GOOD_PIN, ctx);
+    await svc.setPin("worker-from-token", GOOD_PIN, ctx, Date.now());
     expect(pins.repo.upsertPin).toHaveBeenCalledWith(
       "worker-from-token",
       expect.any(String),
       expect.any(Number),
     );
+  });
+
+  // ADR-0062 §3.8 (approval condition) — the DURABLE admin-reset gate. A session minted before
+  // the reset must prove the phone again; the Redis sweep alone is not the proof.
+  describe("admin PIN-reset watermark", () => {
+    it("REFUSES a session minted BEFORE the latest admin reset, with a distinct 403 code", async () => {
+      const { svc, hasher, pins, emit } = build();
+      const sessionCreatedAt = Date.UTC(2026, 10, 5, 9, 0, 0);
+      const resetAt = new Date(sessionCreatedAt + 60_000); // reset happened AFTER sign-in
+      (pins.repo.latestAdminPinResetAt as ReturnType<typeof vi.fn>).mockResolvedValue(resetAt);
+
+      const err = await svc
+        .setPin(WORKER, GOOD_PIN, ctx, sessionCreatedAt)
+        .catch((e: unknown) => e);
+
+      expect(err).toBeInstanceOf(ForbiddenException);
+      expect((err as ForbiddenException).getStatus()).toBe(403);
+      expect((err as ForbiddenException).getResponse()).toMatchObject({
+        code: "PIN_RESET_REQUIRES_PHONE_CODE",
+      });
+      // Nothing was written and no credential event was emitted.
+      expect(hasher.hash).not.toHaveBeenCalled();
+      expect(pins.repo.upsertPin).not.toHaveBeenCalled();
+      expect(emit).not.toHaveBeenCalled();
+    });
+
+    it("ALLOWS a fresh phone-code session minted AFTER the reset", async () => {
+      const { svc, pins } = build();
+      const resetAt = new Date(Date.UTC(2026, 10, 5, 9, 0, 0));
+      const sessionCreatedAt = resetAt.getTime() + 1; // signed in with the phone code afterwards
+      (pins.repo.latestAdminPinResetAt as ReturnType<typeof vi.fn>).mockResolvedValue(resetAt);
+
+      await expect(
+        svc.setPin(WORKER, GOOD_PIN, ctx, sessionCreatedAt),
+      ).resolves.toBeUndefined();
+      expect(pins.repo.upsertPin).toHaveBeenCalled();
+    });
+
+    it("a worker never reset by an admin sets a PIN from any valid session", async () => {
+      const { svc, pins } = build();
+      await svc.setPin(WORKER, GOOD_PIN, ctx, 0);
+      expect(pins.repo.latestAdminPinResetAt).toHaveBeenCalledWith(WORKER);
+      expect(pins.repo.upsertPin).toHaveBeenCalled();
+    });
   });
 });
 
@@ -572,7 +626,7 @@ describe("PinService.verifyPin — cold-start out-of-band deletion (#1164)", () 
     // worker_devices row — proving the 410 wins over the (b) untrusted-device neutral path.
     const { svc, workers, devices, hasher } = build({ workerExists: false, device: null });
     await expect410(svc.verifyPin(verifyInput({ pin: GOOD_PIN }), ctx));
-    expect(workers.existsById).toHaveBeenCalledWith(WORKER);
+    expect(workers.findSelfView).toHaveBeenCalledWith(WORKER);
     // The probe fires BEFORE the device gate + before scrypt — the deletion is not masked.
     expect(devices.findActiveById).not.toHaveBeenCalled();
     expect(hasher.verify).not.toHaveBeenCalled();
@@ -589,7 +643,7 @@ describe("PinService.verifyPin — cold-start out-of-band deletion (#1164)", () 
   it("(b) worker EXISTS + WRONG pin → the neutral 401 is UNCHANGED (existence probe returns true)", async () => {
     const { svc, workers, hasher } = build(); // workerExists defaults to true
     await expectNeutral401(svc.verifyPin(verifyInput({ pin: WRONG_PIN }), ctx));
-    expect(workers.existsById).toHaveBeenCalledWith(WORKER);
+    expect(workers.findSelfView).toHaveBeenCalledWith(WORKER);
     // The probe passed, so the flow reaches scrypt and fails there → the ordinary neutral 401.
     expect(hasher.verify).toHaveBeenCalled();
   });
@@ -598,7 +652,7 @@ describe("PinService.verifyPin — cold-start out-of-band deletion (#1164)", () 
     const { svc, workers } = build({ resolved: null });
     await expectNeutral401(svc.verifyPin(verifyInput({ pin: GOOD_PIN }), ctx));
     // No identity resolved ⇒ existence is never probed and the 410 is impossible here.
-    expect(workers.existsById).not.toHaveBeenCalled();
+    expect(workers.findSelfView).not.toHaveBeenCalled();
   });
 
   it("(d) worker EXISTS + CORRECT pin → 200 login-shape session, UNCHANGED", async () => {
@@ -606,7 +660,7 @@ describe("PinService.verifyPin — cold-start out-of-band deletion (#1164)", () 
     const res = await svc.verifyPin(verifyInput({ pin: GOOD_PIN }), ctx);
     expect(res.worker_id).toBe(WORKER);
     expect(res.access_token).toBe("jwt.token.value");
-    expect(workers.existsById).toHaveBeenCalledWith(WORKER);
+    expect(workers.findSelfView).toHaveBeenCalledWith(WORKER);
   });
 
   it("(e) the existence probe THROWS (DB blip) → fail SAFE to the neutral path, NEVER a false 410", async () => {
@@ -615,7 +669,7 @@ describe("PinService.verifyPin — cold-start out-of-band deletion (#1164)", () 
     const { svc, workers } = build({ existsByIdThrows: true });
     const res = await svc.verifyPin(verifyInput({ pin: GOOD_PIN }), ctx);
     expect(res.worker_id).toBe(WORKER);
-    expect(workers.existsById).toHaveBeenCalledWith(WORKER);
+    expect(workers.findSelfView).toHaveBeenCalledWith(WORKER);
   });
 
   it("(e') a DB blip on the probe + a WRONG pin → the neutral 401 (fail-safe, still no 410)", async () => {
@@ -667,7 +721,7 @@ describe("PinService.verifyPin — erased-credential tombstone (a0, #2113)", () 
     expect(sessions.isErasedRefreshToken).toHaveBeenCalledTimes(1);
     expect(sessions.isErasedRefreshToken).toHaveBeenCalledWith(REFRESH);
     // Nothing past the branch ran.
-    expect(workers.existsById).not.toHaveBeenCalled();
+    expect(workers.findSelfView).not.toHaveBeenCalled();
     expect(devices.findActiveById).not.toHaveBeenCalled();
     expect(pins.repo.findByWorkerId).not.toHaveBeenCalled();
     expect(consents.findLatestByWorker).not.toHaveBeenCalled();
@@ -690,7 +744,7 @@ describe("PinService.verifyPin — erased-credential tombstone (a0, #2113)", () 
     const { svc, sessions, workers } = build({ resolved: null, erased: false });
     await expectNeutral401(svc.verifyPin(verifyInput(), ctx));
     expect(sessions.isErasedRefreshToken).toHaveBeenCalledWith(REFRESH);
-    expect(workers.existsById).not.toHaveBeenCalled();
+    expect(workers.findSelfView).not.toHaveBeenCalled();
   });
 
   it("(h) unresolved + the tombstone read REJECTS → the neutral 401, never a 410 (fail closed)", async () => {
@@ -1329,7 +1383,7 @@ describe("PinService — every emitted event is PII-free (no PIN / hash / finger
   it("across set, a full lockout ladder, a verify, and a reset, NO event leaks the PIN/hash/refresh/phone", async () => {
     // 1) set
     const setB = build();
-    await setB.svc.setPin(WORKER, GOOD_PIN, ctx);
+    await setB.svc.setPin(WORKER, GOOD_PIN, ctx, Date.now());
 
     // 2) a wrong-PIN ladder to force-OTP on a fresh service
     const ladderB = build();

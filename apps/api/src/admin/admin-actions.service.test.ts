@@ -1,5 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { ConflictException, NotFoundException } from "@nestjs/common";
+import {
+  ConflictException,
+  NotFoundException,
+  ServiceUnavailableException,
+} from "@nestjs/common";
 import { DrizzleQueryError } from "drizzle-orm";
 import { createEvent, type CreateEventInput } from "@badabhai/event-schema";
 import type { RequestContext } from "../common/request-context";
@@ -67,8 +71,8 @@ const FORBIDDEN_VALUE_FRAGMENTS = [
 interface Mocks {
   /** ADR-0037 — the payer session revoker suspension calls after the tx commits. */
   sessions: { revokeAllForPayer: ReturnType<typeof vi.fn> };
-  /** #2562 — the WORKER session revoker account actions call after the tx commits. */
-  workerSessions: { revokeAll: ReturnType<typeof vi.fn> };
+  /** #2562 - the WORKER session revoker account actions call after the tx commits. */
+  workerSessions: { revokeAllStrict: ReturnType<typeof vi.fn> };
   /** #2562 — the worker PIN credential store (reset deletes the row). */
   pins: { deleteByWorkerId: ReturnType<typeof vi.fn> };
   actions: {
@@ -158,7 +162,7 @@ function make(): Mocks {
   const sessions = { revokeAllForPayer: vi.fn(async () => 2) };
   // #2562 — worker sessions + PIN credential stores. The sweep is spied so tests can assert
   // it happened (and did NOT happen on an idempotent no-op).
-  const workerSessions = { revokeAll: vi.fn(async () => 3) };
+  const workerSessions = { revokeAllStrict: vi.fn(async () => 3) };
   const pins = { deleteByWorkerId: vi.fn(async () => true) };
   // The accept-link seam. Token minting is stubbed to a FIXED value so an invite assertion
   // can name the exact hash/URL it expects instead of matching a random 43-char string.
@@ -777,7 +781,7 @@ describe("worker account actions (#2562)", () => {
     });
     // The event commits with the audit row (H3), not after the Redis sweep.
     expect(event.tx).toBe(FAKE_TX);
-    expect(m.workerSessions.revokeAll).toHaveBeenCalledWith(WORKER_ID);
+    expect(m.workerSessions.revokeAllStrict).toHaveBeenCalledWith(WORKER_ID, { actor_type: "admin", actor_id: ADMIN_ID });
     expect(res).toEqual({ target_id: WORKER_ID, changed: true });
   });
 
@@ -787,7 +791,7 @@ describe("worker account actions (#2562)", () => {
       m.service.signOutAllWorker(ADMIN_ID, WORKER_ID, SIGN_OUT, CTX),
     ).rejects.toBeInstanceOf(NotFoundException);
     expect(m.actions.withTransaction).not.toHaveBeenCalled();
-    expect(m.workerSessions.revokeAll).not.toHaveBeenCalled();
+    expect(m.workerSessions.revokeAllStrict).not.toHaveBeenCalled();
   });
 
   it("resetWorkerPin: deletes the credential + audits + emits BOTH events, then sweeps", async () => {
@@ -814,11 +818,11 @@ describe("worker account actions (#2562)", () => {
     expect(domain.payload).toEqual({ worker_id: WORKER_ID });
     expect(domain.tx).toBe(FAKE_TX);
     // The sweep is the ADR-0062 §3.8 proof: a surviving session could set a PIN without OTP.
-    expect(m.workerSessions.revokeAll).toHaveBeenCalledWith(WORKER_ID);
+    expect(m.workerSessions.revokeAllStrict).toHaveBeenCalledWith(WORKER_ID, { actor_type: "admin", actor_id: ADMIN_ID });
     expect(res).toEqual({ target_id: WORKER_ID, changed: true });
   });
 
-  it("suspendWorker: status write + audit + action in one tx, then sweeps existing sessions", async () => {
+  it("suspendWorker: sweeps first, then writes status + audit + action", async () => {
     m.actions.findWorkerStatus.mockResolvedValue({ id: WORKER_ID, status: "active" });
     m.actions.suspendWorker.mockResolvedValue({ id: WORKER_ID });
 
@@ -837,7 +841,10 @@ describe("worker account actions (#2562)", () => {
       subjectType: "worker",
       targetId: WORKER_ID,
     });
-    expect(m.workerSessions.revokeAll).toHaveBeenCalledWith(WORKER_ID);
+    expect(m.workerSessions.revokeAllStrict).toHaveBeenCalledWith(WORKER_ID, {
+      actor_type: "admin",
+      actor_id: ADMIN_ID,
+    });
     expect(res).toEqual({ target_id: WORKER_ID, changed: true });
   });
 
@@ -847,34 +854,62 @@ describe("worker account actions (#2562)", () => {
     expect(res).toEqual({ target_id: WORKER_ID, changed: false });
     expect(m.actions.withTransaction).not.toHaveBeenCalled();
     expect(m.events.emit).not.toHaveBeenCalled();
-    expect(m.workerSessions.revokeAll).not.toHaveBeenCalled();
+    expect(m.workerSessions.revokeAllStrict).not.toHaveBeenCalled();
   });
 
-  it("suspendWorker: concurrent status change → 409, no sweep", async () => {
+  it("suspendWorker: concurrent status change → 409 after the sweep", async () => {
     m.actions.findWorkerStatus.mockResolvedValue({ id: WORKER_ID, status: "active" });
     m.actions.suspendWorker.mockResolvedValue(undefined);
     await expect(
       m.service.suspendWorker(ADMIN_ID, WORKER_ID, SUSPEND, CTX),
     ).rejects.toBeInstanceOf(ConflictException);
-    expect(m.workerSessions.revokeAll).not.toHaveBeenCalled();
+    // The sweep is the account action's first effect; a 409 only means the status write lost.
+    expect(m.workerSessions.revokeAllStrict).toHaveBeenCalled();
   });
 
-  it("suspendWorker: an audit/event failure aborts before the Redis sweep", async () => {
+  it("suspendWorker: an audit/event failure rolls the status back; the sweep already ran", async () => {
     m.actions.findWorkerStatus.mockResolvedValue({ id: WORKER_ID, status: "active" });
     m.actions.suspendWorker.mockResolvedValue({ id: WORKER_ID });
     m.events.emit.mockRejectedValueOnce(new Error("spine down"));
     await expect(
       m.service.suspendWorker(ADMIN_ID, WORKER_ID, SUSPEND, CTX),
     ).rejects.toThrow("spine down");
-    expect(m.workerSessions.revokeAll).not.toHaveBeenCalled();
+    expect(m.workerSessions.revokeAllStrict).toHaveBeenCalled();
   });
 
-  it("unsuspendWorker: suspended → active + audit + action, and access is restored", async () => {
+  it("worker actions fail closed with 503 when the session sweep throws", async () => {
+    m.workerSessions.revokeAllStrict.mockRejectedValue(new Error("redis down"));
+    m.actions.findWorkerStatus.mockResolvedValue({ id: WORKER_ID, status: "active" });
+
+    for (const run of [
+      () => m.service.signOutAllWorker(ADMIN_ID, WORKER_ID, SIGN_OUT, CTX),
+      () => m.service.resetWorkerPin(ADMIN_ID, WORKER_ID, PIN_RESET, CTX),
+      () => m.service.suspendWorker(ADMIN_ID, WORKER_ID, SUSPEND, CTX),
+    ]) {
+      await expect(run()).rejects.toBeInstanceOf(ServiceUnavailableException);
+    }
+    // Nothing was committed or evented for any of them.
+    expect(m.actions.withTransaction).not.toHaveBeenCalled();
+    expect(m.events.emit).not.toHaveBeenCalled();
+
+    // ...and unsuspend is the same fail-closed path, leaving the worker suspended.
+    m.actions.findWorkerStatus.mockResolvedValue({ id: WORKER_ID, status: "suspended" });
+    await expect(
+      m.service.unsuspendWorker(ADMIN_ID, WORKER_ID, UNSUSPEND, CTX),
+    ).rejects.toBeInstanceOf(ServiceUnavailableException);
+    expect(m.actions.reinstateWorker).not.toHaveBeenCalled();
+  });
+
+  it("unsuspendWorker: sweeps first, then restores active + audit + action", async () => {
     m.actions.findWorkerStatus.mockResolvedValue({ id: WORKER_ID, status: "suspended" });
     m.actions.reinstateWorker.mockResolvedValue({ id: WORKER_ID });
 
     const res = await m.service.unsuspendWorker(ADMIN_ID, WORKER_ID, UNSUSPEND, CTX);
 
+    expect(m.workerSessions.revokeAllStrict).toHaveBeenCalledWith(WORKER_ID, {
+      actor_type: "admin",
+      actor_id: ADMIN_ID,
+    });
     expect(m.actions.reinstateWorker).toHaveBeenCalledWith(WORKER_ID, FAKE_TX);
     expect(m.actions.writeAuditReason).toHaveBeenCalledWith(FAKE_TX, {
       adminId: ADMIN_ID,
@@ -905,6 +940,8 @@ describe("worker account actions (#2562)", () => {
     await expect(
       m.service.unsuspendWorker(ADMIN_ID, WORKER_ID, UNSUSPEND, CTX),
     ).rejects.toBeInstanceOf(ConflictException);
+    // The sweep runs before the status write, so it has already happened.
+    expect(m.workerSessions.revokeAllStrict).toHaveBeenCalled();
   });
 
   it("the written reason is required and rejects hard identifiers", () => {

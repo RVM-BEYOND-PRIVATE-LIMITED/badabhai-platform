@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, eq, inArray, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull, ne } from "drizzle-orm";
 import {
   CURRENT_PROFILE_ORDER,
   type Database,
@@ -61,7 +61,15 @@ export function applicantSignalRowsStatement(db: Database, jobId: string) {
     .selectDistinctOn([workerProfiles.workerId], ReachRepository.SIGNAL_COLUMNS)
     .from(workerProfiles)
     .innerJoin(workers, eq(workerProfiles.workerId, workers.id))
-    .where(and(isNull(workers.deletionScheduledAt), inArray(workerProfiles.workerId, appliers)))
+    .where(
+      and(
+        isNull(workers.deletionScheduledAt),
+        // #2562 - a suspended worker is frozen on every payer surface, exactly like a
+        // pending-deletion worker; unsuspend puts them back.
+        ne(workers.status, "suspended"),
+        inArray(workerProfiles.workerId, appliers),
+      ),
+    )
     .orderBy(workerProfiles.workerId, ...CURRENT_PROFILE_ORDER);
 }
 
@@ -94,6 +102,8 @@ export function applicantSignalRowsForJobsStatement(db: Database, jobIds: readon
         inArray(applications.jobId, [...jobIds]),
         eq(applications.action, "applied"),
         isNull(workers.deletionScheduledAt),
+        // #2562 - suspended workers do not surface to payers.
+        ne(workers.status, "suspended"),
       ),
     )
     .orderBy(applications.jobId, workerProfiles.workerId, ...CURRENT_PROFILE_ORDER);
@@ -148,7 +158,13 @@ export class ReachRepository {
       .selectDistinctOn([workerProfiles.workerId], ReachRepository.SIGNAL_COLUMNS)
       .from(workerProfiles)
       .innerJoin(workers, eq(workerProfiles.workerId, workers.id))
-      .where(isNull(workers.deletionScheduledAt))
+      .where(
+        and(
+          isNull(workers.deletionScheduledAt),
+          // #2562 - suspended workers are not in the payer-visible pool.
+          ne(workers.status, "suspended"),
+        ),
+      )
       .orderBy(workerProfiles.workerId, ...CURRENT_PROFILE_ORDER);
     return rows;
   }

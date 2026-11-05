@@ -94,6 +94,9 @@ describe("inboxPageStatement — membership is each per-posting list's", () => {
       expect(arm).toContain("AND a.action = 'applied'");
       expect(arm).toContain("INNER JOIN workers w ON w.id = a.worker_id");
       expect(arm).toContain("AND w.deletion_scheduled_at IS NULL");
+      // #2562 — a suspended worker is frozen on payer surfaces exactly like a worker
+      // inside the deletion grace window; unsuspend reverses it.
+      expect(arm).toContain("AND w.status <> 'suspended'");
     }
   });
 

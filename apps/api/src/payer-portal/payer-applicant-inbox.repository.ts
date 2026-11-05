@@ -189,6 +189,8 @@ export function inboxPageStatement(tenant: TenantKey, query: InboxPageQuery): SQ
       WHERE j.payer_id = ${tenant}::uuid
         AND a.action = 'applied'
         AND w.deletion_scheduled_at IS NULL
+        -- #2562 - suspended workers are frozen on payer surfaces exactly like pending deletion.
+        AND w.status <> 'suspended'
         AND EXISTS (SELECT 1 FROM worker_profiles wp WHERE wp.worker_id = a.worker_id)
         ${posting(dsql`j.id`)}
         ${keyset}
@@ -209,6 +211,8 @@ export function inboxPageStatement(tenant: TenantKey, query: InboxPageQuery): SQ
       WHERE jp.payer_id = ${tenant}::uuid
         AND a.action = 'applied'
         AND w.deletion_scheduled_at IS NULL
+        -- #2562 - suspended workers are frozen on payer surfaces exactly like pending deletion.
+        AND w.status <> 'suspended'
         AND NOT EXISTS (
           SELECT 1 FROM jobs oj WHERE oj.id = a.job_id AND oj.payer_id = ${tenant}::uuid
         )

@@ -1,4 +1,10 @@
-import { ConflictException, Injectable, Logger, NotFoundException } from "@nestjs/common";
+import {
+  ConflictException,
+  Injectable,
+  Logger,
+  NotFoundException,
+  ServiceUnavailableException,
+} from "@nestjs/common";
 import type { PayloadInputOf } from "@badabhai/event-schema";
 import type { Database, PayerStatus } from "@badabhai/db";
 import type { RequestContext } from "../common/request-context";
@@ -468,6 +474,12 @@ export class AdminActionsService {
     const current = await this.actions.findWorkerStatus(workerId);
     if (!current) throw new NotFoundException("Worker not found");
 
+    // SWEEP FIRST, STRICTLY. Redis is not transactional with Postgres, so a sweep failure
+    // after the audit commit would report an action that did not happen. Running it first means
+    // a failure writes nothing and returns 503; a retry is safe (the sweep and the watermark are
+    // idempotent). The audit row + admin action then commit together.
+    await this.revokeWorkerSessions(workerId, adminId, "sign-out-all");
+
     await this.actions.withTransaction(async (tx) => {
       await this.actions.writeAuditReason(tx, {
         adminId,
@@ -486,7 +498,6 @@ export class AdminActionsService {
       );
     });
 
-    await this.revokeWorkerSessions(workerId, "sign-out-all");
     return { target_id: workerId, changed: true };
   }
 
@@ -508,6 +519,10 @@ export class AdminActionsService {
   ): Promise<AdminActionResult> {
     const current = await this.actions.findWorkerStatus(workerId);
     if (!current) throw new NotFoundException("Worker not found");
+
+    // SWEEP FIRST, STRICTLY — see signOutAllWorker. The durable PIN-reset audit row is written
+    // only after every session is provably gone; a Redis failure returns 503 and no reset.
+    await this.revokeWorkerSessions(workerId, adminId, "PIN reset");
 
     await this.actions.withTransaction(async (tx) => {
       await this.pins.deleteByWorkerId(workerId, tx);
@@ -540,7 +555,6 @@ export class AdminActionsService {
       });
     });
 
-    await this.revokeWorkerSessions(workerId, "PIN reset");
     return { target_id: workerId, changed: true };
   }
 
@@ -561,6 +575,12 @@ export class AdminActionsService {
     const current = await this.actions.findWorkerStatus(workerId);
     if (!current) throw new NotFoundException("Worker not found");
     if (current.status === "suspended") return { target_id: workerId, changed: false };
+
+    // SWEEP FIRST, STRICTLY. A session that survives a failed sweep must not exist after a
+    // successful suspend, and a failed sweep must leave the worker un-suspended so the retry
+    // can finish. The durable watermark makes a sweep that DID succeed hold even if a record
+    // survives; the status write follows in its own transaction.
+    await this.revokeWorkerSessions(workerId, adminId, "suspension");
 
     let conflict = false;
     await this.actions.withTransaction(async (tx) => {
@@ -588,16 +608,19 @@ export class AdminActionsService {
     });
     if (conflict) throw new ConflictException("Worker status changed concurrently; retry");
 
-    await this.revokeWorkerSessions(workerId, "suspension");
     return { target_id: workerId, changed: true };
   }
 
   /**
-   * #2562 — restore a suspended worker's access. `active` is the only status that carries
-   * access; a legacy `pending` row is restored to `active` too because there is no separate
-   * worker activation flow to return it to, and signing in still requires a fresh OTP. No
-   * session sweep: suspension already ended every session, and the worker signs in again
-   * through the normal OTP gate. Idempotent.
+   * #2562 — restore a suspended worker's access. Unsuspend ALWAYS writes `active`: it is the
+   * only status that carries access, there is no "previous status" column, and no migration
+   * adds one. Re-suspending is a fresh admin action with its own reason, audit row and sweep.
+   *
+   * The sweep runs AGAIN (strictly) before the status write. Suspension already ended every
+   * session, but a session that survived a failed suspend sweep must not come back to life;
+   * if this sweep fails the worker stays `suspended`, so the operator's retry repeats the same
+   * safe path. Signing in afterwards still requires a fresh OTP/MFA proof. Idempotent: an
+   * already-active worker is a no-op.
    */
   async unsuspendWorker(
     adminId: string,
@@ -608,6 +631,12 @@ export class AdminActionsService {
     const current = await this.actions.findWorkerStatus(workerId);
     if (!current) throw new NotFoundException("Worker not found");
     if (current.status !== "suspended") return { target_id: workerId, changed: false };
+
+    // #2562 — run the sweep AGAIN, strictly, before restoring the status. A suspend whose
+    // sweep failed left the worker suspended (and returned 503); this retry kills any session
+    // that survived it. Doing it before the status write keeps a failed sweep retry-safe: the
+    // worker stays suspended, so a second unsuspend repeats the same path.
+    await this.revokeWorkerSessions(workerId, adminId, "unsuspend");
 
     let conflict = false;
     await this.actions.withTransaction(async (tx) => {
@@ -638,13 +667,34 @@ export class AdminActionsService {
   }
 
   /**
-   * Kill every live session for a worker-account action. `revokeAll` already logs and swallows
-   * Redis failures (returning 0), so this wrapper only makes the reason explicit and keeps the
-   * log PII-free — the opaque worker id and the action name, never a token or a phone.
+   * #2562 — STRICT worker-session sweep for an admin account action. Unlike the worker's own
+   * logout-all, a Redis failure must not be reported as success: the caller gets 503 and no
+   * audit/SoR change (the sweep runs before those writes). The watermark and deletes are
+   * idempotent, so the operator's retry is safe.
+   *
+   * The event's actor is the ADMIN, not the worker — the payload still carries only
+   * `{worker_id, sessions_revoked}`.
    */
-  private async revokeWorkerSessions(workerId: string, action: string): Promise<void> {
-    const revoked = await this.workerSessions.revokeAll(workerId);
-    this.logger.log(`worker ${action}; sessions revoked worker=${workerId} count=${revoked}`);
+  private async revokeWorkerSessions(
+    workerId: string,
+    adminId: string,
+    action: string,
+  ): Promise<void> {
+    try {
+      const revoked = await this.workerSessions.revokeAllStrict(workerId, {
+        actor_type: "admin",
+        actor_id: adminId,
+      });
+      this.logger.log(`worker ${action}; sessions revoked worker=${workerId} count=${revoked}`);
+    } catch (err) {
+      this.logger.error(
+        `worker ${action} aborted: session sweep FAILED worker=${workerId} ` +
+          `(reason: ${err instanceof Error ? err.message : String(err)})`,
+      );
+      throw new ServiceUnavailableException(
+        "The worker's sessions could not be ended; nothing was changed. Please retry.",
+      );
+    }
   }
 
   // ----- admin_users: invite / change role / suspend (manage_admins) --------

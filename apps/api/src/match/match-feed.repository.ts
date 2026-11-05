@@ -423,6 +423,8 @@ export class MatchFeedRepository {
       WHERE a.job_posting_id = ${jobPostingId}::uuid
         AND a.action = 'applied'
         AND w.deletion_scheduled_at IS NULL
+        -- #2562 - suspended workers are frozen on payer candidate lists.
+        AND w.status <> 'suspended'
       ORDER BY ${candidateRankKeys(tierFloorMonths, levelSorts)}
       LIMIT ${limit}
     `);
@@ -485,6 +487,8 @@ export class MatchFeedRepository {
           AND jp.payer_id = ${tenant}::uuid
           AND a.action = 'applied'
           AND w.deletion_scheduled_at IS NULL
+        -- #2562 - suspended workers are frozen on payer candidate lists.
+        AND w.status <> 'suspended'
       ) r
       WHERE r.id = ANY(${dsql.param([...applicationIds])}::uuid[])
     `);

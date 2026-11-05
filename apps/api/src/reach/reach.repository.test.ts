@@ -120,17 +120,21 @@ describe("ReachRepository.listSignalRows — ADR-0031 pending-deletion pool excl
     expect(compile(captured.joinOn)).toBe('"worker_profiles"."worker_id" = "workers"."id"');
   });
 
-  it("filters on workers.deletion_scheduled_at IS NULL — a pending-deletion worker is NOT a pool member", async () => {
+  it("filters on deletion_scheduled_at IS NULL AND status <> suspended — neither is a pool member", async () => {
     const { db, captured } = makeDb([]);
     await new ReachRepository(db).listSignalRows();
-    expect(compile(captured.where)).toBe('"workers"."deletion_scheduled_at" is null');
+    expect(compile(captured.where)).toBe(
+      '("workers"."deletion_scheduled_at" is null and "workers"."status" <> $1)',
+    );
+    expect(dialect.sqlToQuery(captured.where as SQL).params).toEqual(["suspended"]);
   });
 
-  it("the exclusion is ELIGIBILITY, not relevance (D8): a bare IS NULL — no bound signal/score values", async () => {
+  it("the exclusion is ELIGIBILITY, not relevance (D8): no signal/score values are bound", async () => {
     const { db, captured } = makeDb([]);
     await new ReachRepository(db).listSignalRows();
-    // A relevance WHERE would bind values (city/pay/experience …); membership binds none.
-    expect(dialect.sqlToQuery(captured.where as SQL).params).toEqual([]);
+    // A relevance WHERE would bind city/pay/experience …; membership binds only the status
+    // literal `suspended` (a closed enum, not a worker-supplied signal).
+    expect(dialect.sqlToQuery(captured.where as SQL).params).toEqual(["suspended"]);
   });
 
   it("returns the eligible rows verbatim — count in == count out over the eligible pool", async () => {
@@ -243,17 +247,22 @@ describe("applicantSignalRowsStatement — #1898 the agency list is the workers 
   const compiled = applicantSignalRowsStatement(mockDb, JOB).toSQL();
 
   it("membership is an `applied` decision on THIS job — a skip, or no decision, is never a row", () => {
+    const jobParam = `$${compiled.params.indexOf(JOB) + 1}`;
+    const actionParam = `$${compiled.params.indexOf("applied") + 1}`;
     expect(compiled.sql).toContain(
-      '"worker_profiles"."worker_id" in (select "worker_id" from "applications" where ("applications"."job_id" = $1 and "applications"."action" = $2))',
+      `"worker_profiles"."worker_id" in (select "worker_id" from "applications" where ("applications"."job_id" = ${jobParam} and "applications"."action" = ${actionParam}))`,
     );
-    expect(compiled.params.slice(0, 2)).toEqual([JOB, "applied"]);
+    expect(compiled.params).toContain(JOB);
+    expect(compiled.params).toContain("applied");
   });
 
-  it("keeps the ADR-0031 (b) exclusion: a worker pending deletion is never listed", () => {
+  it("keeps the ADR-0031 (b) freeze AND excludes suspended workers", () => {
     expect(compiled.sql).toContain(
       'inner join "workers" on "worker_profiles"."worker_id" = "workers"."id"',
     );
     expect(compiled.sql).toContain('"workers"."deletion_scheduled_at" is null and');
+    expect(compiled.sql).toMatch(/"workers"\."status" <> \$\d+/);
+    expect(compiled.params).toContain("suspended");
   });
 
   it("one row per worker, the same current-profile pick as the pool (B-8b)", () => {
@@ -261,8 +270,8 @@ describe("applicantSignalRowsStatement — #1898 the agency list is the workers 
     expect(compiled.sql).toMatch(/order by "worker_profiles"\."worker_id", /);
   });
 
-  it("binds only the job id and the action — no relevance predicate, no payer id", () => {
-    expect(compiled.params).toEqual([JOB, "applied"]);
+  it("binds the job id, the action, and the suspended literal — no relevance predicate, no payer id", () => {
+    expect(compiled.params).toEqual(["suspended", JOB, "applied"]);
   });
 
   it("projects exactly the pool's signal columns — never embedding/raw_profile/PII", () => {
@@ -358,7 +367,7 @@ describe("applicantSignalRowsForJobsStatement — the per-job applier read, batc
     expect(compiled.params.slice(0, 3)).toEqual([JOB_1, JOB_2, "applied"]);
   });
 
-  it("keeps the ADR-0031 (b) exclusion and reads FROM the profile row like the per-job read", () => {
+  it("keeps the ADR-0031 (b) exclusion and the #2562 suspended exclusion", () => {
     expect(compiled.sql).toContain(
       'inner join "worker_profiles" on "worker_profiles"."worker_id" = "applications"."worker_id"',
     );
@@ -366,6 +375,8 @@ describe("applicantSignalRowsForJobsStatement — the per-job applier read, batc
       'inner join "workers" on "workers"."id" = "applications"."worker_id"',
     );
     expect(compiled.sql).toContain('"workers"."deletion_scheduled_at" is null');
+    expect(compiled.sql).toMatch(/"workers"\."status" <> \$\d+/);
+    expect(compiled.params).toContain("suspended");
   });
 
   it("one row per (job, worker), picked by the SAME current-profile order as the per-job read", () => {

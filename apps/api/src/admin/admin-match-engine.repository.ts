@@ -95,6 +95,8 @@ export class AdminMatchEngineRepository {
       FROM workers w
       WHERE w.id = ${workerId}::uuid
         AND w.deletion_scheduled_at IS NULL
+        -- #2562 - suspended workers are excluded from reach/candidate sets too.
+        AND w.status <> 'suspended'
         AND w.id = ANY(${dsql.param([...demoWorkerIds])}::uuid[])
       LIMIT 1
     `)) as unknown as { id: string }[];
@@ -206,6 +208,8 @@ export class AdminMatchEngineRepository {
                LIMIT 1) AS top_skill_id
       FROM workers w
       WHERE w.deletion_scheduled_at IS NULL
+        -- #2562 - suspended workers are excluded from reach/candidate sets too.
+        AND w.status <> 'suspended'
         AND w.id = ANY(${dsql.param([...demoWorkerIds])}::uuid[])
         AND EXISTS (SELECT 1 FROM worker_skill ws WHERE ws.worker_id = w.id)
       ORDER BY w.created_at DESC, w.id DESC

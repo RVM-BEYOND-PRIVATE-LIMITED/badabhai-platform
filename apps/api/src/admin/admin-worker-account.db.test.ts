@@ -67,7 +67,7 @@ describe.skipIf(!RUN)("#2562 worker account actions — against Postgres", () =>
   let client!: DbClient;
   let service!: AdminActionsService;
   let workerId!: string;
-  const workerSessions = { revokeAll: vi.fn(async () => 2) };
+  const workerSessions = { revokeAllStrict: vi.fn(async () => 2) };
 
   beforeAll(async () => {
     assertLocalDatabase(DATABASE_URL);
@@ -135,7 +135,10 @@ describe.skipIf(!RUN)("#2562 worker account actions — against Postgres", () =>
     // The PIN reset was ADMIN-initiated; the domain fact must not claim the worker did it.
     expect(events.every((e) => e.actor_type === "admin")).toBe(true);
     // The reset ends every session: the only path back to a new PIN is a fresh OTP login.
-    expect(workerSessions.revokeAll).toHaveBeenCalledWith(workerId);
+    expect(workerSessions.revokeAllStrict).toHaveBeenCalledWith(workerId, {
+      actor_type: "admin",
+      actor_id: ADMIN_ID,
+    });
   });
 
   it("suspend moves the durable status and leaves a written reason; unsuspend restores it", async () => {
@@ -173,7 +176,10 @@ describe.skipIf(!RUN)("#2562 worker account actions — against Postgres", () =>
   it("sign-out-all writes the audit row and reaches the session sweep", async () => {
     const res = await service.signOutAllWorker(ADMIN_ID, workerId, REASON.signOut, CTX);
     expect(res).toEqual({ target_id: workerId, changed: true });
-    expect(workerSessions.revokeAll).toHaveBeenCalledWith(workerId);
+    expect(workerSessions.revokeAllStrict).toHaveBeenCalledWith(workerId, {
+      actor_type: "admin",
+      actor_id: ADMIN_ID,
+    });
 
     const [audit] = await client.sql<{ action: string }[]>`
       SELECT action FROM audit_logs

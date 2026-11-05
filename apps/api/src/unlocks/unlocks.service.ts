@@ -284,7 +284,7 @@ export class UnlockService {
     // written: the deny-reason enums carry no pending value and a leaving worker should
     // accrue no new rows keyed on them — unlock.requested (above) already audits the
     // attempt on the spine.
-    if (await this.isPendingDeletion(workerId)) return neutralUnavailable();
+    if (await this.isPayerSurfaceFrozen(workerId)) return neutralUnavailable();
 
     // ---- R74 (owner ruling 2026-11-04) — a SAMPLE candidate is never unlocked ---------------
     // The synthetic-workforce seed's workers hold `employer_sharing` so payers can see the pool,
@@ -354,7 +354,11 @@ export class UnlockService {
         // same neutral too (the grant INSERT would otherwise 500 on the FK — no
         // oracle). Same neutral body; no deny row (see the pre-lock gate note).
         const marker = await this.repo.getWorkerDeletionMarker(tx, workerId);
-        if (!marker || marker.deletionScheduledAt !== null) {
+        if (
+          !marker ||
+          marker.deletionScheduledAt !== null ||
+          marker.status === "suspended"
+        ) {
           return { response: neutralUnavailable(), events };
         }
 
@@ -512,7 +516,7 @@ export class UnlockService {
     // payer, the same class as the gone worker above — frozen, not relayable. Deny with
     // the IDENTICAL neutral body (no oracle). Tx-external read (deadlock rule); the tx
     // below re-checks beside its own SET-NULL guards.
-    if (pre && pre.worker_id !== null && (await this.isPendingDeletion(pre.worker_id)))
+    if (pre && pre.worker_id !== null && (await this.isPayerSurfaceFrozen(pre.worker_id)))
       return neutralUnavailable();
     if (pre && pre.worker_id !== null && !(await this.isConsentedForSharing(pre.worker_id)))
       return neutralUnavailable();
@@ -542,7 +546,11 @@ export class UnlockService {
         // ONE cheap tx-SCOPED pk read (a global-pool read inside the locked tx would
         // recreate the pool-vs-lock deadlock); a gone row is the same neutral.
         const marker = await this.repo.getWorkerDeletionMarker(tx, unlock.workerId);
-        if (!marker || marker.deletionScheduledAt !== null)
+        if (
+          !marker ||
+          marker.deletionScheduledAt !== null ||
+          marker.status === "suspended"
+        )
           return { response: neutralUnavailable(), events };
 
         // Serialize reveals for this worker (per-attempt cap atomicity; F-2).
@@ -565,7 +573,11 @@ export class UnlockService {
         // above): a deletion scheduled in the lock-acquire window must still freeze —
         // the marker is re-read on this txn's view before any relay/decrypt.
         const freshMarker = await this.repo.getWorkerDeletionMarker(tx, freshWorkerId);
-        if (!freshMarker || freshMarker.deletionScheduledAt !== null)
+        if (
+          !freshMarker ||
+          freshMarker.deletionScheduledAt !== null ||
+          freshMarker.status === "suspended"
+        )
           return { response: neutralUnavailable(), events };
 
         // Must be a live grant: granted/revealed, not expired.
@@ -1127,7 +1139,7 @@ export class UnlockService {
       if (unlock.worker_id === null) return null; // DSAR SET NULL — a gone worker is not relayable
       if (!this.isLiveGrant(unlock)) return null;
       if (routing.expiresAt.getTime() <= Date.now()) return null; // handle expires with the window
-      if (await this.isPendingDeletion(unlock.worker_id)) return null;
+      if (await this.isPayerSurfaceFrozen(unlock.worker_id)) return null;
       if (!(await this.isConsentedForEmployerContact(unlock.worker_id))) return null;
       return { unlockId: unlock.unlock_id, workerId: unlock.worker_id };
     } catch {
@@ -1147,7 +1159,7 @@ export class UnlockService {
       if (!unlock) return null;
       if (unlock.worker_id !== workerId) return null;
       if (!this.isLiveGrant(unlock)) return null;
-      if (await this.isPendingDeletion(workerId)) return null;
+      if (await this.isPayerSurfaceFrozen(workerId)) return null;
       if (!(await this.isConsentedForEmployerContact(workerId))) return null;
       return { unlockId: unlock.unlock_id, workerId };
     } catch {
@@ -1236,19 +1248,24 @@ export class UnlockService {
   }
 
   /**
-   * ADR-0031 payer-surface freeze (ruling (b)): true when the worker has a PENDING
-   * scheduled deletion (`deletion_scheduled_at` set). A leaving worker must stop
-   * surfacing to payers — every caller denies with the byte-identical neutral body
-   * (no oracle). Tx-EXTERNAL read (pre-lock only; the in-tx re-checks use the
-   * tx-scoped marker read — deadlock rule). Fail closed: a read error counts as
-   * pending (when in doubt, disclose nothing).
+   * ADR-0031 payer-surface freeze (ruling (b)), extended by #2562: true when the worker has a
+   * PENDING scheduled deletion OR is SUSPENDED. Both are "stop surfacing to payers"; every
+   * caller denies with the byte-identical neutral body (no oracle). A suspended worker is
+   * unfrozen by unsuspend, exactly as a cancelled deletion unfreezes the other case.
+   *
+   * Tx-EXTERNAL read (pre-lock only; the in-tx re-checks use the tx-scoped marker read -
+   * deadlock rule). Fail closed: a read error counts as frozen (when in doubt, disclose nothing).
    */
-  private async isPendingDeletion(workerId: string): Promise<boolean> {
+  private async isPayerSurfaceFrozen(workerId: string): Promise<boolean> {
     try {
       const worker = await this.workers.findById(workerId);
-      return worker !== undefined && worker.deletionScheduledAt !== null;
+      // A MISSING row is deliberately NOT frozen here: the tx below already answers a gone
+      // worker with the same neutral body, and (for unlocks) it must still emit the
+      // `unknown_worker` audit event. Freezing it early would silently drop that event.
+      if (worker === undefined) return false;
+      return worker.deletionScheduledAt !== null || worker.status === "suspended";
     } catch {
-      return true; // fail closed
+      return true; // fail closed on a read error
     }
   }
 

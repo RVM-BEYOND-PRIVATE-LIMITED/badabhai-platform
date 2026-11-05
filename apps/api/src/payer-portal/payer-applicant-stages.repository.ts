@@ -49,6 +49,8 @@ export function feedMembershipStatement(key: ApplicantStageKey): SQL {
       AND a.worker_id = ${key.workerId}::uuid
       AND a.action = 'applied'
       AND w.deletion_scheduled_at IS NULL
+      -- #2562 - suspended workers are frozen on payer surfaces.
+      AND w.status <> 'suspended'
       ${hasProfile}
     LIMIT 1
   `;

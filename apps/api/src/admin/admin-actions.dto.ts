@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { AdminRole, WorkerFlagReasonCode } from "@badabhai/db";
 import { PasswordPolicySchema } from "../common/password-policy";
-import { containsHardIdentifier } from "../profiling/resume-import/resume-parse-gates";
+import { containsHardIdentifier } from "../common/hard-identifier";
 
 /**
  * Zod DTOs for the ADMIN-3a governed entity actions (ADR-0025 Decision 3/5/6). Every body is

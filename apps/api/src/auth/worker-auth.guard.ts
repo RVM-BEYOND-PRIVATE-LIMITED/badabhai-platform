@@ -4,6 +4,7 @@ import {
   Inject,
   Injectable,
   Logger,
+  SetMetadata,
   UnauthorizedException,
   createParamDecorator,
 } from "@nestjs/common";
@@ -13,7 +14,18 @@ import { SERVER_CONFIG } from "../config/config.module";
 import { ConsentRepository } from "../consent/consent.repository";
 import { WorkersRepository } from "../workers/workers.repository";
 import { SessionService } from "./session.service";
-import { isWorkerSuspended, throwIfWorkerDeleted } from "./worker-account-deleted.exception";
+import {
+  readWorkerAccountState,
+  WorkerAccountDeletedException,
+} from "./worker-account-deleted.exception";
+
+/**
+ * #2562 — opt a route OUT of the suspension refusal. Used ONLY for the DPDP exits: account
+ * deletion request/confirm/cancel and consent withdrawal. A suspended worker must still be
+ * able to erase their data or withdraw consent; every other worker route stays refused.
+ */
+export const ALLOW_SUSPENDED_KEY = "allow_suspended_worker" as const;
+export const AllowSuspended = () => SetMetadata(ALLOW_SUSPENDED_KEY, true);
 
 /** The authenticated worker attached to the request by {@link WorkerAuthGuard}. */
 export interface AuthenticatedWorker {
@@ -21,6 +33,8 @@ export interface AuthenticatedWorker {
   sid: string;
   /** ADR-0026 Phase 2 — the bound trusted-device row uuid (the token `did` claim), if any. */
   deviceId?: string;
+  /** #2562 — epoch-ms of the OTP that minted this session family (PIN-reset watermark input). */
+  createdAtMs?: number;
 }
 
 // Augment Express's Request with the authenticated worker (global namespace).
@@ -91,27 +105,48 @@ export class WorkerAuthGuard implements CanActivate {
     const token = WorkerAuthGuard.extractBearer(req);
     if (!token) throw new UnauthorizedException("Missing or malformed Authorization header");
 
-    const validated = await this.session.validateAndTouch(token);
+    // #2562 — validate WITHOUT sliding the TTL first. The account gates run before the
+    // session is touched, so a suspended worker's request cannot extend the session it is
+    // about to be refused on.
+    const validated = await this.session.validate(token);
     if (!validated) throw new UnauthorizedException("Invalid or expired session");
 
-    // The token is VALID. Detect an out-of-band account deletion: a valid session whose worker
-    // ROW no longer exists → the reserved 410 (see the class doc). A PK point-lookup selecting
-    // the id ONLY (no PII column, §2). FAIL-SAFE: a DB error leaves existence UNKNOWN, which we
-    // treat as "present" so a Postgres incident never turns into a 410 storm on logout / every
-    // worker route — only a DEFINITIVE row-absent throws. These are the UNCONDITIONAL
-    // per-request DB reads the guard now takes; existence is the one signal Redis cannot carry
-    // (the session record survives a raw row delete), and #2562's status probe adds the
-    // reversible suspension gate beside it.
-    await throwIfWorkerDeleted(this.workers, validated.workerId, this.logger);
-    // #2562 — suspension is a DURABLE status, not a session property: read it on every
-    // request so a session that survived a failed revoke is still refused. A missing row has
-    // already been answered above. Answers with the SAME neutral 401 as an expired session so
-    // the worker app's existing re-auth path runs instead of trapping them on a 403 screen.
-    if (await isWorkerSuspended(this.workers, validated.workerId, this.logger)) {
+    // ONE primary-key read covers both the out-of-band deletion 410 and the suspension gate.
+    // FAIL-SAFE: an unavailable probe is `unknown` and lets the request through (a Postgres
+    // incident must never 401/410 every worker route); only a definitive row state acts.
+    const accountState = await readWorkerAccountState(
+      this.workers,
+      validated.workerId,
+      this.logger,
+    );
+    if (accountState === "deleted") throw new WorkerAccountDeletedException();
+
+    // #2562 — the DPDP exits (account deletion + consent withdrawal) stay reachable while
+    // suspended. Every other route is refused with the SAME neutral 401 as an expired session
+    // so the worker app's existing re-auth path runs instead of trapping them on a 403 screen.
+    const allowSuspended =
+      Reflect.getMetadata(ALLOW_SUSPENDED_KEY, context.getHandler()) === true;
+    if (accountState === "suspended" && !allowSuspended) {
       throw new UnauthorizedException("Invalid or expired session");
     }
 
-    req.worker = { id: validated.workerId, sid: validated.sid, deviceId: validated.deviceId };
+    // #2562 — the durable sweep watermark. A family minted before the last admin sweep is
+    // dead even if its Redis record survived a partial delete or an in-flight rotation.
+    const revokedAtMs = await this.session.sessionsRevokedAtMs(validated.workerId);
+    if (revokedAtMs !== null && validated.createdAtMs < revokedAtMs) {
+      throw new UnauthorizedException("Invalid or expired session");
+    }
+
+    if (!(await this.session.touchSession(validated.workerId, validated.sid))) {
+      throw new UnauthorizedException("Invalid or expired session");
+    }
+
+    req.worker = {
+      id: validated.workerId,
+      sid: validated.sid,
+      deviceId: validated.deviceId,
+      createdAtMs: validated.createdAtMs,
+    };
 
     // Rolling refresh: past the half-life, hand back a fresh token via a header. Preserve
     // the device binding (`did`) so the rolled token stays bound to the same device.

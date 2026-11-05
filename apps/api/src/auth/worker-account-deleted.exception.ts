@@ -122,6 +122,48 @@ export class WorkerAccountSuspendedException extends HttpException {
 }
 
 /**
+ * The minimal surface {@link readWorkerAccountState} needs. `findSelfView` projects the
+ * status and the deletion marker ONLY — no name, phone, or any PII column can reach this
+ * helper.
+ */
+export interface WorkerAccountProbe {
+  findSelfView(
+    id: string,
+  ): Promise<{ status: string; deletionScheduledAt: Date | null } | undefined>;
+}
+
+/** The durable states a request gate must distinguish, plus an unavailable probe. */
+export type WorkerAccountState = "present" | "deleted" | "suspended" | "unknown";
+
+/**
+ * #2562 — ONE primary-key read for both gates. The guard previously took an `existsById`
+ * probe and then a second `findSelfView` for suspension; this reads the same row once and
+ * returns the state the caller needs.
+ *
+ * A probe ERROR is `unknown` and callers fail OPEN, exactly like the old existence probe: a
+ * Postgres incident must not turn every worker route into a 401/410 storm. `deleted` is
+ * definitive (the row is gone); `suspended` is the durable reversible status.
+ */
+export async function readWorkerAccountState(
+  workers: WorkerAccountProbe,
+  workerId: string,
+  logger: Logger,
+): Promise<WorkerAccountState> {
+  try {
+    const row = await workers.findSelfView(workerId);
+    if (row === undefined) return "deleted";
+    if (row.status === "suspended") return "suspended";
+    return "present";
+  } catch (err) {
+    logger.warn(
+      `worker account probe unavailable (request allowed through, no account gate): ` +
+        `${err instanceof Error ? err.name : "unknown error"}`,
+    );
+    return "unknown";
+  }
+}
+
+/**
  * The minimal surface {@link isWorkerSuspended} needs. `findSelfView` projects the status
  * ONLY — no name, phone, or any PII column can reach this helper.
  */

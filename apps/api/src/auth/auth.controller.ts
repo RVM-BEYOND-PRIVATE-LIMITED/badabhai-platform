@@ -16,8 +16,16 @@ import { AccountDeletionService } from "./account-deletion.service";
 import { ConsentNotRevokedGuard } from "./consent.guard";
 import { ConsentRepository } from "../consent/consent.repository";
 import { withConsentAccepted } from "../consent/consent-flag";
-import { WorkerAuthGuard, CurrentWorker, type AuthenticatedWorker } from "./worker-auth.guard";
-import { isWorkerSuspended, throwIfWorkerDeleted } from "./worker-account-deleted.exception";
+import {
+  WorkerAuthGuard,
+  CurrentWorker,
+  AllowSuspended,
+  type AuthenticatedWorker,
+} from "./worker-auth.guard";
+import {
+  readWorkerAccountState,
+  WorkerAccountDeletedException,
+} from "./worker-account-deleted.exception";
 import { TestLoginGuard } from "./test-login.guard";
 import {
   OtpRequestSchema,
@@ -381,22 +389,25 @@ export class AuthController {
       }
 
       // COLD-START SIGNAL: this is the one worker-authed path with no WorkerAuthGuard (the
-      // refresh token in the body IS the credential), so the guard's out-of-band-deletion 410
-      // never runs here. When a deleted worker's refresh token survives (a raw row delete does
-      // NOT revoke sessions — a normal AccountDeletionService erasure would, so `resolveRefreshToken`
-      // would return null and this branch is skipped), return the SAME reserved 410 rather than
-      // rotating a fresh token for a ghost, so a cold-started app gets the unambiguous hard-logout
-      // signal on its first call. A PRE-CHECK on the already-resolved (read-only, non-consuming)
-      // worker id — it never rotates/marks-used/flags-reuse, so it does not touch reuse-detection.
-      // FAIL-SAFE like the guard: a DB error leaves existence UNKNOWN → fall through to the normal
-      // rotation (never a false 410 during a DB incident).
-      await throwIfWorkerDeleted(this.workers, resolved.workerId, this.logger);
-      // #2562 — a suspended worker must not rotate a refresh token into a fresh session.
-      // This is the one worker-authed path with no WorkerAuthGuard, so the status gate has
-      // to be repeated here; like the existence probe it fails OPEN on a DB error. The 401 is
-      // deliberately the SAME shape as an expired token so the app's refresh handler wipes and
-      // returns to phone login rather than treating suspension as a consent problem.
-      if (await isWorkerSuspended(this.workers, resolved.workerId, this.logger)) {
+      // refresh token in the body IS the credential), so the guard's account gates never run
+      // here. ONE read answers both: a deleted row is the reserved 410; a suspended row is the
+      // SAME neutral 401 as an expired token so the app's refresh handler wipes and returns to
+      // phone login. FAIL-SAFE: a DB error leaves the state UNKNOWN and we fall through to the
+      // normal rotation (never a false 410/401 during a DB incident).
+      const accountState = await readWorkerAccountState(
+        this.workers,
+        resolved.workerId,
+        this.logger,
+      );
+      if (accountState === "deleted") throw new WorkerAccountDeletedException();
+      if (accountState === "suspended") {
+        throw new UnauthorizedException("Invalid or expired refresh token");
+      }
+
+      // #2562 — the durable sweep watermark. A family minted before the latest admin sweep
+      // must not rotate, even if its refresh record survived a partial delete.
+      const revokedAtMs = await this.sessions.sessionsRevokedAtMs(resolved.workerId);
+      if (revokedAtMs !== null && resolved.createdViaOtpAtMs < revokedAtMs) {
         throw new UnauthorizedException("Invalid or expired refresh token");
       }
     }
@@ -456,6 +467,7 @@ export class AuthController {
    */
   @Post("account/delete/request")
   @HttpCode(200)
+  @AllowSuspended()
   @UseGuards(WorkerAuthGuard)
   async accountDeleteRequest(
     @CurrentWorker() worker: AuthenticatedWorker,
@@ -506,6 +518,7 @@ export class AuthController {
    */
   @Post("account/delete/confirm")
   @HttpCode(200)
+  @AllowSuspended()
   @UseGuards(WorkerAuthGuard)
   async accountDeleteConfirm(
     @CurrentWorker() worker: AuthenticatedWorker,
@@ -530,6 +543,7 @@ export class AuthController {
    */
   @Post("account/delete/cancel")
   @HttpCode(200)
+  @AllowSuspended()
   @UseGuards(WorkerAuthGuard)
   async accountDeleteCancel(
     @CurrentWorker() worker: AuthenticatedWorker,

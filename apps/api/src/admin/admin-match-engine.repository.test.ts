@@ -59,12 +59,15 @@ describe("AdminMatchEngineRepository", () => {
     expect(sql).not.toMatch(/\b(INSERT|UPDATE|DELETE|TRUNCATE)\b/i);
   });
 
-  it("hides pending-deletion workers from the lookup and the picker", async () => {
+  it("hides pending-deletion AND suspended workers from the lookup and the picker", async () => {
     const { repo, statements } = capture();
     await repo.findLiveDemoWorker(ID, DEMO_IDS);
     await repo.listRecentDemoWorkers(5, DEMO_IDS);
     expect(statements[0]).toContain("deletion_scheduled_at IS NULL");
     expect(statements[1]).toContain("deletion_scheduled_at IS NULL");
+    // #2562 — suspended workers are excluded exactly like pending-deletion ones.
+    expect(statements[0]).toContain("w.status <> 'suspended'");
+    expect(statements[1]).toContain("w.status <> 'suspended'");
     expect(statements[1]).toContain("ORDER BY w.created_at DESC, w.id DESC");
   });
 

@@ -82,6 +82,8 @@ interface SetupOpts {
   consentRevoked?: boolean;
   workerExists?: boolean;
   pendingDeletion?: boolean; // ADR-0031: worker inside the deletion grace window
+  /** #2562 — the worker's durable status is `suspended` (frozen like pending deletion). */
+  workerSuspended?: boolean;
   hasResume?: boolean;
   dailyCount?: number;
   weeklyPayers?: number;
@@ -150,9 +152,15 @@ function setup(opts: SetupOpts = {}) {
     findByPayerWorkerPosting: vi.fn(async () => opts.existing),
     countDisclosuresToPayersSince: vi.fn(async () => opts.dailyCount ?? 0),
     countDistinctPayersSince: vi.fn(async () => opts.weeklyPayers ?? 0),
-    // ADR-0031: the tx-scoped deletion-grace marker read (the in-tx re-check).
+    // ADR-0031: the tx-scoped deletion-grace marker read (the in-tx re-check). #2562 adds
+    // the durable status so a suspended worker freezes exactly like a pending-deletion one.
     getWorkerDeletionMarker: vi.fn(async () =>
-      workerExists ? { deletionScheduledAt } : undefined,
+      workerExists
+        ? {
+            deletionScheduledAt,
+            status: opts.workerSuspended ? "suspended" : "active",
+          }
+        : undefined,
     ),
     insertRow: vi.fn(async (_tx: unknown, input: Record<string, unknown>) => ({
       id: "disc-1",
@@ -211,6 +219,7 @@ function setup(opts: SetupOpts = {}) {
             fullName: "enc:" + REAL_NAME,
             phoneE164: opts.phoneE164 ?? null,
             deletionScheduledAt,
+            status: opts.workerSuspended ? "suspended" : "active",
             resumeNightShiftReady: opts.nightShiftReady ?? false,
             currentCity: opts.currentCity ?? null,
             currentState: opts.currentState ?? null,
@@ -774,13 +783,54 @@ describe("ADR-0031 — a pending-deletion worker is not disclosable (byte-identi
     // Active at the pre-lock read; a LIVE disclosed row exists (the re-mint path).
     const t = setup({ existing: { id: "disc-existing", status: "disclosed", expiresAt: future } });
     // The tx-scoped marker read sees the schedule land after the pre-lock read.
-    t.txMethods.getWorkerDeletionMarker.mockResolvedValue({ deletionScheduledAt: new Date() });
+    t.txMethods.getWorkerDeletionMarker.mockResolvedValue({
+      deletionScheduledAt: new Date(),
+      status: "active",
+    });
     const res = await t.service.requestDisclosure(
       { payerId: PAYER, workerId: WORKER, jobPostingId: null },
       CTX,
     );
     expect(JSON.stringify(res)).toBe(JSON.stringify(neutralUnavailable()));
     // No fresh signed URL is minted during grace (a re-mint IS a new disclosure).
+    expect(t.storage.createSignedUrl).not.toHaveBeenCalled();
+    expect(t.renderer.renderPdf).not.toHaveBeenCalled();
+    expect(t.emitted).toHaveLength(0);
+  });
+});
+
+// #2562 — suspension is the SAME payer-surface freeze as pending deletion: the résumé is not
+// disclosable and an existing disclosure is not re-minted while the worker is suspended.
+describe("#2562 - a suspended worker's resume is not disclosable (byte-identical neutral)", () => {
+  it("requestDisclosure while suspended → neutral; no lock, no render, no row, no event", async () => {
+    const t = setup({ workerSuspended: true });
+    const res = await t.service.requestDisclosure(
+      { payerId: PAYER, workerId: WORKER, jobPostingId: null },
+      CTX,
+    );
+    expect(JSON.stringify(res)).toBe(JSON.stringify(neutralUnavailable()));
+    expect(t.repo.withTransaction).not.toHaveBeenCalled();
+    expect(t.renderer.renderPdf).not.toHaveBeenCalled();
+    expect(t.storage.createSignedUrl).not.toHaveBeenCalled();
+    expect(t.txMethods.insertRow).not.toHaveBeenCalled();
+    expect(t.emitted).toHaveLength(0);
+    expect(t.pii.decrypt).not.toHaveBeenCalled();
+  });
+
+  it("the in-tx RE-CHECK catches a suspension landing after the pre-lock read", async () => {
+    const t = setup({
+      consentPurposes: ["employer_sharing"],
+      existing: { id: "disc-existing", status: "disclosed", expiresAt: new Date(Date.now() + 60_000) },
+    });
+    t.txMethods.getWorkerDeletionMarker.mockResolvedValue({
+      deletionScheduledAt: null,
+      status: "suspended",
+    });
+    const res = await t.service.requestDisclosure(
+      { payerId: PAYER, workerId: WORKER, jobPostingId: null },
+      CTX,
+    );
+    expect(JSON.stringify(res)).toBe(JSON.stringify(neutralUnavailable()));
     expect(t.storage.createSignedUrl).not.toHaveBeenCalled();
     expect(t.renderer.renderPdf).not.toHaveBeenCalled();
     expect(t.emitted).toHaveLength(0);
