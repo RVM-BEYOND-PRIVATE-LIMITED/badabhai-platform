@@ -49,6 +49,9 @@ import { AdminIdentityService } from "./admin-identity.service";
 import { AdminEntitiesRepository } from "./admin-entities.repository";
 import { AdminEntitiesService } from "./admin-entities.service";
 import { AdminEntitiesController } from "./admin-entities.controller";
+import { AdminEmptyFeedRepository } from "./admin-empty-feed.repository";
+import { AdminEmptyFeedService } from "./admin-empty-feed.service";
+import { AdminEmptyFeedController } from "./admin-empty-feed.controller";
 import { AdminPayerLoginsRepository } from "./admin-payer-logins.repository";
 import { AdminPayerLoginsService } from "./admin-payer-logins.service";
 import { AdminPayerLoginsController } from "./admin-payer-logins.controller";
@@ -205,6 +208,9 @@ import { WorkerQualificationsRepository } from "../profiles/worker-qualification
     AdminActionsController,
     AdminPiiRevealController,
     AdminKillSwitchController,
+    // #2569 — MUST precede AdminEntitiesController: its literal `workers/empty-feed` route
+    // would otherwise be captured by that controller's `workers/:id` UUID route.
+    AdminEmptyFeedController,
     AdminEntitiesController,
     AdminPayerLoginsController,
     AdminFinanceController,
@@ -295,6 +301,10 @@ import { WorkerQualificationsRepository } from "../profiles/worker-qualification
     // worker/payer reads come from AdminIdentityService above, never from this repository.
     AdminEntitiesRepository,
     AdminEntitiesService,
+    // #2569 — the empty-feed read; its own repository keeps the feed-mode anti-join out of
+    // the faceless entity projections.
+    AdminEmptyFeedRepository,
+    AdminEmptyFeedService,
     // #2563: payer login management — create/issue/revoke + the User accounts list, behind
     // `manage_payer_credentials`. The credential write, the `audit_logs` reason row and the
     // value-free `admin.action_performed` share ONE transaction; the login ID and organisation
