@@ -92,6 +92,7 @@ function filterBars(): string[] {
 describe("the filter bars (A4)", () => {
   it("finds them all", () => {
     expect(filterBars().sort()).toEqual([
+      "app/(portal)/accounts/accounts-filter-bar.tsx",
       "app/(portal)/ai-calls/filter-bar.tsx",
       "app/(portal)/candidates/filter-bar.tsx",
       "app/(portal)/events/filter-bar.tsx",

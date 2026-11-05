@@ -60,10 +60,15 @@ export const NAV: NavSection[] = [
         icon: "users-three",
         capability: "read_entities",
       },
-      // USER ACCOUNTS (#2578) belongs here, between Candidates and Companies. It is NOT listed
-      // yet, on purpose: it has no page, and the capability it will sit on arrives with its
-      // backend (#2563) — a listed item would be a door to a 404 for every role. It joins this
-      // group in the same change as its page and its capability.
+      // USER ACCOUNTS (#2578) — the payer logins an admin can create, recover or disable.
+      // `manage_payer_credentials` mirrors `AdminPayerLoginsController`'s own guard (#2563);
+      // the route came with its page and its capability, as this comment always said it would.
+      {
+        href: "/accounts",
+        label: "User accounts",
+        icon: "identification-card",
+        capability: "manage_payer_credentials",
+      },
       //
       // Companies AND Agencies: one list with a Kind filter since A6 — one table, one API.
       { href: "/companies", label: "Companies", icon: "buildings", capability: "read_entities" },

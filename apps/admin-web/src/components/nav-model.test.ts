@@ -20,7 +20,7 @@ describe("the groups and their items (A6)", () => {
     expect(NAV.map((s) => [s.title, s.items.map((i) => i.label)])).toEqual([
       ["Home", ["Dashboard"]],
       // User accounts (#2578) joins Directory with its page and its capability — see below.
-      ["Directory", ["Candidates", "Companies", "Postings"]],
+      ["Directory", ["Candidates", "User accounts", "Companies", "Postings"]],
       ["Finance", ["Credits", "Payment orders"]],
       ["Quality & AI", ["Feedback", "AI calls", "Skill discovery", "Engine view"]],
       ["Audit & Admin", ["Events", "Admin users", "Roles", "System"]],
@@ -50,15 +50,13 @@ describe("the groups and their items (A6)", () => {
     );
   });
 
-  it("User accounts is not listed until its page and its capability ship (#2578, #2563)", () => {
-    // A listed item with no page would be a door to a 404 for every role; with no capability it
-    // could not be gated like its neighbours. It joins Directory in the change that adds both.
-    expect(items.some((i) => /user accounts/i.test(i.label) || i.href === "/accounts")).toBe(false);
-    const source = readFileSync(
-      join(dirname(fileURLToPath(import.meta.url)), "nav-model.ts"),
-      "utf8",
-    );
-    expect(source).toContain("USER ACCOUNTS (#2578)");
+  it("User accounts is listed in Directory, gated by its own capability (#2578, #2563)", () => {
+    // It shipped with its page and its capability in the same change: `manage_payer_credentials`
+    // is the API's own guard on every `/admin/accounts` and `/admin/payers` route.
+    expect(byHref("/accounts")?.label).toBe("User accounts");
+    expect(groupOf("/accounts")).toBe("Directory");
+    expect(byHref("/accounts")?.capability).toBe("manage_payer_credentials");
+    expect(items.length).toBeLessThanOrEqual(NAV_ITEM_LIMIT);
   });
 
   it("Account and Sign out are not nav items — they live in the topbar's avatar menu", () => {
