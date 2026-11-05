@@ -6,6 +6,7 @@ import {
   DUMMY_PASSWORD_HASH,
   PasswordPolicySchema,
   PresentedPasswordSchema,
+  generateTemporaryPassword,
   matchesStoredPassword,
 } from "./password-policy";
 import { CURRENT_PASSWORD_PEPPER_VERSION as PAYER_REEXPORT } from "../payers/payers.repository";
@@ -75,5 +76,21 @@ describe("matchesStoredPassword — fail closed, constant KDF cost", () => {
     expect(DUMMY_PASSWORD_HASH.startsWith("password-v1.")).toBe(true);
     expect(pii.verifyPassword("", DUMMY_PASSWORD_HASH)).toBe(false);
     expect(pii.verifyPassword("Correct-horse-9", DUMMY_PASSWORD_HASH)).toBe(false);
+  });
+});
+
+describe("generateTemporaryPassword (#2563)", () => {
+  it("is 14 characters, passes the shared policy, and avoids ambiguous glyphs", () => {
+    for (let i = 0; i < 50; i++) {
+      const pw = generateTemporaryPassword();
+      expect(pw).toHaveLength(14);
+      expect(PasswordPolicySchema.safeParse(pw).success).toBe(true);
+      expect(pw).not.toMatch(/[0O1lI]/);
+    }
+  });
+
+  it("is crypto-random: 200 calls produce 200 distinct values", () => {
+    const seen = new Set(Array.from({ length: 200 }, () => generateTemporaryPassword()));
+    expect(seen.size).toBe(200);
   });
 });

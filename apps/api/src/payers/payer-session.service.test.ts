@@ -76,7 +76,9 @@ function makeRedis() {
 function makeJwt() {
   return {
     signAsync: async (claims: Record<string, unknown>) =>
-      `t.${Buffer.from(JSON.stringify(claims)).toString("base64")}`,
+      `t.${Buffer.from(JSON.stringify({ ...claims, iat: Math.floor(Date.now() / 1000) })).toString(
+        "base64",
+      )}`,
     verifyAsync: async (token: string) => {
       const [, b64] = token.split(".");
       const claims = JSON.parse(Buffer.from(b64!, "base64").toString()) as Record<string, unknown>;
@@ -98,7 +100,11 @@ describe("PayerSessionService — role (ADR-0022)", () => {
     const { token } = await svc.create("payer-1", "agent" as PayerRole);
     // The stored blob carries the role (server-side authority).
     const [, raw] = [...redis.store.entries()][0]!;
-    expect(JSON.parse(raw)).toEqual({ payer_id: "payer-1", role: "agent" });
+    expect(JSON.parse(raw)).toEqual({
+      payer_id: "payer-1",
+      role: "agent",
+      created_at_ms: expect.any(Number),
+    });
 
     const validated = await svc.validateAndTouch(token);
     expect(validated).not.toBeNull();
@@ -110,7 +116,10 @@ describe("PayerSessionService — role (ADR-0022)", () => {
     const { svc, redis } = setup();
     const { token } = await svc.create("payer-1");
     const [, raw] = [...redis.store.entries()][0]!;
-    expect(JSON.parse(raw)).toEqual({ payer_id: "payer-1" }); // pre-ADR-0022 shape
+    expect(JSON.parse(raw)).toEqual({
+      payer_id: "payer-1",
+      created_at_ms: expect.any(Number),
+    }); // pre-ADR-0022 shape plus the #2563 creation stamp
 
     const validated = await svc.validateAndTouch(token);
     // null = "unknown, resolve from the row" — NOT a privileged default.
@@ -176,7 +185,11 @@ describe("PayerSessionService — org claim (#2079)", () => {
     const { svc, redis } = setup();
     await svc.create("payer-1", "employer", { orgId: ORG, orgRole: "owner" });
     const [, raw] = [...redis.store.entries()][0]!;
-    expect(JSON.parse(raw)).toEqual({ payer_id: "payer-1", role: "employer" });
+    expect(JSON.parse(raw)).toEqual({
+      payer_id: "payer-1",
+      role: "employer",
+      created_at_ms: expect.any(Number),
+    });
   });
 
   it("BACKWARD-COMPAT: a legacy token without the claim still validates, org:null (least privilege)", async () => {
@@ -204,7 +217,10 @@ describe("PayerSessionService — org claim (#2079)", () => {
 
   it("mint(..., org) carries the freshly-resolved claim; mint without org omits it", async () => {
     const { svc } = setup();
-    const withOrg = await svc.mint("payer-1", "sid-1", "employer", { orgId: ORG, orgRole: "owner" });
+    const withOrg = await svc.mint("payer-1", "sid-1", "employer", {
+      orgId: ORG,
+      orgRole: "owner",
+    });
     expect(claimsOf(withOrg.token)).toMatchObject({ org_id: ORG, org_role: "owner" });
     const without = await svc.mint("payer-1", "sid-1", "employer");
     expect(claimsOf(without.token)).not.toHaveProperty("org_role");
@@ -289,5 +305,60 @@ describe("PayerSessionService.revokeAllForPayer (ADR-0037)", () => {
       { client: Promise.reject(new Error("redis down")) } as unknown as Queue,
     );
     await expect(broken.revokeAllForPayer("payer-1")).rejects.toThrow();
+  });
+});
+
+describe("PayerSessionService.revokeAllForPayerExcept (#2563)", () => {
+  it("keeps the caller's session and ends every OTHER session of the same payer", async () => {
+    const { svc, redis } = setup();
+    const current = await svc.create("payer-1", "employer" as PayerRole);
+    const other = await svc.create("payer-1", "employer" as PayerRole);
+    const third = await svc.create("payer-1", "employer" as PayerRole);
+    const currentSid = claimsOf(current.token).sid as string;
+
+    expect(await svc.revokeAllForPayerExcept("payer-1", currentSid)).toBe(2);
+
+    // The caller's signup flow (OTP -> set password -> continue) must not be logged out.
+    expect(await svc.validateAndTouch(current.token)).not.toBeNull();
+    expect(await svc.validateAndTouch(other.token)).toBeNull();
+    expect(await svc.validateAndTouch(third.token)).toBeNull();
+    // The index keeps exactly the live session.
+    expect([...(redis.sets.get("payer_sessions:payer-1") ?? [])]).toEqual([currentSid]);
+  });
+
+  it("is a no-op when the caller is the only session", async () => {
+    const { svc } = setup();
+    const current = await svc.create("payer-1", "employer" as PayerRole);
+    const currentSid = claimsOf(current.token).sid as string;
+    expect(await svc.revokeAllForPayerExcept("payer-1", currentSid)).toBe(0);
+    expect(await svc.validateAndTouch(current.token)).not.toBeNull();
+  });
+});
+
+describe("PayerSessionService.validateAndTouch — issuedAtSeconds (#2563)", () => {
+  it("exposes the token's iat so the guard can compare it with the credential epoch", async () => {
+    const { svc } = setup();
+    const { token } = await svc.create("payer-1", "employer" as PayerRole);
+    const validated = await svc.validateAndTouch(token);
+    expect(validated?.issuedAtSeconds).toBe(claimsOf(token).iat);
+  });
+
+  it("also exposes the Redis record's millisecond creation stamp", async () => {
+    const { svc } = setup();
+    const before = Date.now();
+    const { token } = await svc.create("payer-1", "employer" as PayerRole);
+    const validated = await svc.validateAndTouch(token);
+    expect(validated?.createdAtMs).toBeGreaterThanOrEqual(before);
+    expect(validated?.createdAtMs).toBeLessThanOrEqual(Date.now());
+  });
+
+  it("a rolling mint reuses the sid and does NOT move the creation stamp", async () => {
+    const { svc } = setup();
+    const created = await svc.create("payer-1", "employer" as PayerRole);
+    const original = await svc.validateAndTouch(created.token);
+    await svc.mint("payer-1", original!.sid, "employer" as PayerRole);
+    const refreshed = await svc.validateAndTouch(created.token);
+    expect(refreshed?.sid).toBe(original!.sid);
+    expect(refreshed?.createdAtMs).toBe(original!.createdAtMs);
   });
 });

@@ -1080,6 +1080,13 @@
       "when": 1793778470731,
       "tag": "0153_application_trade_level",
       "breakpoints": true
+    },
+    {
+      "idx": 154,
+      "version": "7",
+      "when": 1793784434972,
+      "tag": "0154_payer_login_management",
+      "breakpoints": true
     }
   ]
 }

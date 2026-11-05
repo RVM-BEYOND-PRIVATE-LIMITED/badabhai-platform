@@ -29,9 +29,18 @@ const FULL_TTL = 30 * 86400;
  * must not reach for the full row, which carries the payer's encrypted email/phone/org-name.
  */
 function makeRepo(
-  facts: { role: PayerRole; status: PayerStatus } | undefined = {
+  facts:
+    | {
+        role: PayerRole;
+        status: PayerStatus;
+        sessionsValidAfter?: Date | null;
+        mustChangePassword?: boolean;
+      }
+    | undefined = {
     role: "employer",
     status: "active",
+    sessionsValidAfter: null,
+    mustChangePassword: false,
   },
 ) {
   const findAuthFacts = vi.fn(async () => facts);
@@ -74,9 +83,14 @@ function makeCtx(authHeader?: string) {
 }
 
 function makeSession(
-  validateResult:
-    | { payerId: string; sid: string; remainingSeconds: number; role?: PayerRole | null }
-    | null,
+  validateResult: {
+    payerId: string;
+    sid: string;
+    remainingSeconds: number;
+    role?: PayerRole | null;
+    issuedAtSeconds?: number;
+    createdAtMs?: number | null;
+  } | null,
 ) {
   return {
     validateAndTouch: vi.fn().mockResolvedValue(validateResult),
@@ -86,22 +100,123 @@ function makeSession(
 
 const VALID = { payerId: "p1", sid: "s1", remainingSeconds: FULL_TTL };
 
+describe("PayerAuthGuard — #2563 credential epoch", () => {
+  const watermark = new Date("2026-11-04T12:00:00.000Z");
+  const watermarkSeconds = Math.floor(watermark.getTime() / 1000);
+
+  it("rejects a session created BEFORE an admin issue/revoke", async () => {
+    const session = makeSession({
+      ...VALID,
+      createdAtMs: watermark.getTime() - 1,
+      issuedAtSeconds: watermarkSeconds,
+    });
+    const repo = makeRepo({ role: "employer", status: "active", sessionsValidAfter: watermark });
+    const guard = new PayerAuthGuard(session, config, repo, makeOrgs());
+    await expect(guard.canActivate(makeCtx("Bearer old.token").ctx)).rejects.toBeInstanceOf(
+      UnauthorizedException,
+    );
+  });
+
+  it("rejects a same-second session created just before the watermark (millisecond precision)", async () => {
+    const session = makeSession({
+      ...VALID,
+      createdAtMs: watermark.getTime() - 1,
+      issuedAtSeconds: watermarkSeconds,
+    });
+    const repo = makeRepo({ role: "employer", status: "active", sessionsValidAfter: watermark });
+    const guard = new PayerAuthGuard(session, config, repo, makeOrgs());
+    await expect(guard.canActivate(makeCtx("Bearer same.second.token").ctx)).rejects.toBeInstanceOf(
+      UnauthorizedException,
+    );
+  });
+
+  it("accepts a session created AFTER the watermark", async () => {
+    const session = makeSession({
+      ...VALID,
+      createdAtMs: watermark.getTime() + 1,
+      issuedAtSeconds: watermarkSeconds,
+    });
+    const repo = makeRepo({ role: "employer", status: "active", sessionsValidAfter: watermark });
+    const guard = new PayerAuthGuard(session, config, repo, makeOrgs());
+    await expect(guard.canActivate(makeCtx("Bearer new.token").ctx)).resolves.toBe(true);
+  });
+
+  it("a rolling refresh of an OLD sid cannot pass by getting a fresh iat", async () => {
+    // The sid's Redis record keeps its creation stamp across `mint`; only a NEW session would
+    // move it. A half-life refresh therefore still fails the watermark comparison.
+    const session = makeSession({
+      ...VALID,
+      remainingSeconds: FULL_TTL / 2 - 1,
+      createdAtMs: watermark.getTime() - 1000,
+      issuedAtSeconds: watermarkSeconds,
+    });
+    const repo = makeRepo({ role: "employer", status: "active", sessionsValidAfter: watermark });
+    const guard = new PayerAuthGuard(session, config, repo, makeOrgs());
+    await expect(guard.canActivate(makeCtx("Bearer refreshed.old.sid").ctx)).rejects.toBeInstanceOf(
+      UnauthorizedException,
+    );
+    expect(session.mint).not.toHaveBeenCalled();
+  });
+
+  it("legacy records without a creation stamp fall back to the token iat", async () => {
+    const before = makeSession({ ...VALID, createdAtMs: null, issuedAtSeconds: watermarkSeconds - 1 });
+    const repo = makeRepo({ role: "employer", status: "active", sessionsValidAfter: watermark });
+    await expect(
+      new PayerAuthGuard(before, config, repo, makeOrgs()).canActivate(makeCtx("Bearer old.legacy").ctx),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+
+    const after = makeSession({ ...VALID, createdAtMs: null, issuedAtSeconds: watermarkSeconds + 1 });
+    await expect(
+      new PayerAuthGuard(after, config, repo, makeOrgs()).canActivate(makeCtx("Bearer new.legacy").ctx),
+    ).resolves.toBe(true);
+  });
+
+  it("leaves every existing payer unaffected while sessions_valid_after is NULL", async () => {
+    const session = makeSession({
+      ...VALID,
+      createdAtMs: watermark.getTime() - 1000,
+      issuedAtSeconds: watermarkSeconds - 1000,
+    });
+    const repo = makeRepo({ role: "employer", status: "active", sessionsValidAfter: null });
+    const guard = new PayerAuthGuard(session, config, repo, makeOrgs());
+    await expect(guard.canActivate(makeCtx("Bearer legacy.token").ctx)).resolves.toBe(true);
+  });
+
+  it("refuses a session while must_change_password is true (neutral 401)", async () => {
+    const session = makeSession({ ...VALID, issuedAtSeconds: watermarkSeconds + 1 });
+    const repo = makeRepo({
+      role: "employer",
+      status: "active",
+      sessionsValidAfter: null,
+      mustChangePassword: true,
+    });
+    const guard = new PayerAuthGuard(session, config, repo, makeOrgs());
+    await expect(guard.canActivate(makeCtx("Bearer temp.token").ctx)).rejects.toBeInstanceOf(
+      UnauthorizedException,
+    );
+  });
+});
+
 describe("PayerAuthGuard", () => {
   it("throws 401 when there is no Authorization header", async () => {
     const guard = new PayerAuthGuard(makeSession(VALID), config, makeRepo(), makeOrgs());
-    await expect(guard.canActivate(makeCtx(undefined).ctx)).rejects.toBeInstanceOf(UnauthorizedException);
+    await expect(guard.canActivate(makeCtx(undefined).ctx)).rejects.toBeInstanceOf(
+      UnauthorizedException,
+    );
   });
 
   it("throws 401 when the scheme is not Bearer", async () => {
     const guard = new PayerAuthGuard(makeSession(VALID), config, makeRepo(), makeOrgs());
-    await expect(guard.canActivate(makeCtx("Basic abc").ctx)).rejects.toBeInstanceOf(UnauthorizedException);
+    await expect(guard.canActivate(makeCtx("Basic abc").ctx)).rejects.toBeInstanceOf(
+      UnauthorizedException,
+    );
   });
 
   it("throws 401 when the payer session is invalid (validateAndTouch null) — e.g. a worker token", async () => {
     const guard = new PayerAuthGuard(makeSession(null), config, makeRepo(), makeOrgs());
-    await expect(guard.canActivate(makeCtx("Bearer worker.or.bad.token").ctx)).rejects.toBeInstanceOf(
-      UnauthorizedException,
-    );
+    await expect(
+      guard.canActivate(makeCtx("Bearer worker.or.bad.token").ctx),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
   });
 
   it("attaches req.payer (incl. role) on a valid token and does NOT refresh when fresh", async () => {
@@ -117,7 +232,12 @@ describe("PayerAuthGuard", () => {
 
   it("sets x-session-token past the half-life (rolling refresh) carrying the resolved role", async () => {
     const session = makeSession({ ...VALID, remainingSeconds: FULL_TTL / 2 - 1, role: "agent" });
-    const guard = new PayerAuthGuard(session, config, makeRepo({ role: "agent", status: "active" }), makeOrgs());
+    const guard = new PayerAuthGuard(
+      session,
+      config,
+      makeRepo({ role: "agent", status: "active" }),
+      makeOrgs(),
+    );
     const { ctx, setHeader } = makeCtx("Bearer aging.token");
     await expect(guard.canActivate(ctx)).resolves.toBe(true);
     expect(session.mint).toHaveBeenCalledWith("p1", "s1", "agent", {
@@ -156,7 +276,12 @@ describe("PayerAuthGuard — rolling-token org claim (#2079)", () => {
 
   it("a REMOVED member (no active membership) gets a rolling token WITHOUT the claim", async () => {
     const session = makeSession(AGING);
-    const guard = new PayerAuthGuard(session, config, makeRepo(), makeOrgs(async () => null));
+    const guard = new PayerAuthGuard(
+      session,
+      config,
+      makeRepo(),
+      makeOrgs(async () => null),
+    );
     await expect(guard.canActivate(makeCtx("Bearer aging.token").ctx)).resolves.toBe(true);
     expect(session.mint).toHaveBeenCalledWith("p1", "s1", "employer", undefined);
   });
@@ -167,9 +292,9 @@ describe("PayerAuthGuard — rolling-token org claim (#2079)", () => {
       throw new Error("pg blip");
     });
     const { ctx, setHeader } = makeCtx("Bearer aging.token");
-    await expect(new PayerAuthGuard(session, config, makeRepo(), orgs).canActivate(ctx)).resolves.toBe(
-      true,
-    );
+    await expect(
+      new PayerAuthGuard(session, config, makeRepo(), orgs).canActivate(ctx),
+    ).resolves.toBe(true);
     expect(session.mint).toHaveBeenCalledWith("p1", "s1", "employer", undefined);
     expect(setHeader).toHaveBeenCalledWith("x-session-token", "fresh.jwt");
   });
@@ -188,9 +313,9 @@ describe("PayerAuthGuard — lifecycle gate (ADR-0037)", () => {
       makeRepo({ role: "employer", status: "suspended" }),
       makeOrgs(),
     );
-    await expect(guard.canActivate(makeCtx("Bearer valid.but.suspended").ctx)).rejects.toBeInstanceOf(
-      ForbiddenException,
-    );
+    await expect(
+      guard.canActivate(makeCtx("Bearer valid.but.suspended").ctx),
+    ).rejects.toBeInstanceOf(ForbiddenException);
   });
 
   it("403s a PENDING payer — a never-verified account may not act", async () => {
@@ -208,7 +333,12 @@ describe("PayerAuthGuard — lifecycle gate (ADR-0037)", () => {
   it("does NOT mint a rolling token for a rejected payer (no refreshed credential leaks out)", async () => {
     // Past the half-life, so the refresh branch WOULD fire if the gate ran too late.
     const session = makeSession({ ...VALID, remainingSeconds: FULL_TTL / 2 - 1, role: "agent" });
-    const guard = new PayerAuthGuard(session, config, makeRepo({ role: "agent", status: "suspended" }), makeOrgs());
+    const guard = new PayerAuthGuard(
+      session,
+      config,
+      makeRepo({ role: "agent", status: "suspended" }),
+      makeOrgs(),
+    );
     const { ctx, setHeader } = makeCtx("Bearer aging.suspended");
     await expect(guard.canActivate(ctx)).rejects.toBeInstanceOf(ForbiddenException);
     expect(session.mint).not.toHaveBeenCalled();
@@ -229,7 +359,12 @@ describe("PayerAuthGuard — lifecycle gate (ADR-0037)", () => {
 
   it("never reads the FULL payer row — encrypted contact PII stays out of guard scope", async () => {
     const repo = makeRepo({ role: "employer", status: "active" });
-    const guard = new PayerAuthGuard(makeSession({ ...VALID, role: "employer" }), config, repo, makeOrgs());
+    const guard = new PayerAuthGuard(
+      makeSession({ ...VALID, role: "employer" }),
+      config,
+      repo,
+      makeOrgs(),
+    );
     await expect(guard.canActivate(makeCtx("Bearer good.token").ctx)).resolves.toBe(true);
     // findById is `select()` — it returns email_enc / phone_enc / org_name_enc. Pulling that
     // onto the hot path of all 55 payer routes for two scalars would be a privacy regression.
@@ -261,7 +396,12 @@ describe("PayerAuthGuard — reserved 410 PAYER_ACCOUNT_DELETED (#1231)", () => 
   }
 
   it("row GONE mid-session ⇒ 410, not the old 401", async () => {
-    const guard = new PayerAuthGuard(makeSession({ ...VALID, role: "agent" }), config, ghostRepo(), makeOrgs());
+    const guard = new PayerAuthGuard(
+      makeSession({ ...VALID, role: "agent" }),
+      config,
+      ghostRepo(),
+      makeOrgs(),
+    );
     const err = await guard.canActivate(makeCtx("Bearer ghost.token").ctx).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(PayerAccountDeletedException);
     expect((err as PayerAccountDeletedException).getStatus()).toBe(HttpStatus.GONE);
@@ -272,7 +412,12 @@ describe("PayerAuthGuard — reserved 410 PAYER_ACCOUNT_DELETED (#1231)", () => 
   });
 
   it("carries the reserved code the shipped payer app keys on", async () => {
-    const guard = new PayerAuthGuard(makeSession({ ...VALID, role: "agent" }), config, ghostRepo(), makeOrgs());
+    const guard = new PayerAuthGuard(
+      makeSession({ ...VALID, role: "agent" }),
+      config,
+      ghostRepo(),
+      makeOrgs(),
+    );
     const err = (await guard
       .canActivate(makeCtx("Bearer ghost.token").ctx)
       .catch((e: unknown) => e)) as PayerAccountDeletedException;
@@ -344,7 +489,9 @@ describe("PayerAuthGuard — reserved 410 PAYER_ACCOUNT_DELETED (#1231)", () => 
     // The 401 → silent re-auth path must stay intact: turning THIS into a 410 would wipe every
     // payer's storage the moment their session aged out.
     const guard = new PayerAuthGuard(makeSession(null), config, makeRepo(), makeOrgs());
-    const err = await guard.canActivate(makeCtx("Bearer expired.token").ctx).catch((e: unknown) => e);
+    const err = await guard
+      .canActivate(makeCtx("Bearer expired.token").ctx)
+      .catch((e: unknown) => e);
     expect(err).toBeInstanceOf(UnauthorizedException);
     expect(err).not.toBeInstanceOf(PayerAccountDeletedException);
   });
@@ -358,7 +505,9 @@ describe("PayerAuthGuard — reserved 410 PAYER_ACCOUNT_DELETED (#1231)", () => 
       makeRepo({ role: "employer", status: "suspended" }),
       makeOrgs(),
     );
-    const err = await guard.canActivate(makeCtx("Bearer suspended.token").ctx).catch((e: unknown) => e);
+    const err = await guard
+      .canActivate(makeCtx("Bearer suspended.token").ctx)
+      .catch((e: unknown) => e);
     expect(err).toBeInstanceOf(ForbiddenException);
     expect(err).not.toBeInstanceOf(PayerAccountDeletedException);
   });

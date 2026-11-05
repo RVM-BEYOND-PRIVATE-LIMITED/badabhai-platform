@@ -9,6 +9,12 @@ import { PayersRepository } from "./payers.repository";
 import { PayerOrgsRepository } from "./payer-orgs.repository";
 import { PayerTenantScopeService } from "./payer-tenant-scope.service";
 import { PayerSessionService } from "./payer-session.service";
+import { PayerPasswordStateService } from "./payer-password-state.service";
+import {
+  EmailPayerSecurityNoticeMailer,
+  PAYER_SECURITY_NOTICE_MAILER,
+} from "./payer-security-notice.mailer";
+import { PayerSecurityNoticeService } from "./payer-security-notice.service";
 import { PayerAuthGuard } from "./payer-auth.guard";
 import { PayerRoleGuard } from "./payer-role.guard";
 import { PayerOrgRoleGuard } from "./payer-org-role.guard";
@@ -54,6 +60,13 @@ import { PayerAccountController } from "./payer-account.controller";
     PayersRepository,
     PayerOrgsRepository,
     PayerSessionService,
+    PayerPasswordStateService,
+    EmailPayerSecurityNoticeMailer,
+    {
+      provide: PAYER_SECURITY_NOTICE_MAILER,
+      useExisting: EmailPayerSecurityNoticeMailer,
+    },
+    PayerSecurityNoticeService,
     PayerAuthGuard,
     PayerRoleGuard,
     PayerOrgRoleGuard,
@@ -64,6 +77,8 @@ import { PayerAccountController } from "./payer-account.controller";
     PayersRepository,
     PayerOrgsRepository,
     PayerSessionService,
+    PayerPasswordStateService,
+    PayerSecurityNoticeService,
     PayerAuthGuard,
     PayerRoleGuard,
     PayerOrgRoleGuard,

@@ -155,6 +155,31 @@ export const ADMIN_CAPABILITIES = [
   "review_skill_candidates",
   /** Set agency job demand-match skills; super_admin only until an owner widens the grant. */
   "manage_agency_match_skills",
+  /**
+   * #2563 — create a payer/team-member LOGIN, issue a temporary password, revoke password
+   * sign-in, and read the User accounts list. `super_admin`, `ops_admin` and `support`.
+   *
+   * ── WHY ITS OWN ROW, NOT `suspend_payer` OR `manage_admins` ──────────────────────────────
+   * `suspend_payer` is lifecycle moderation of an existing account; `manage_admins` is admin
+   * identity. This is PAYER CREDENTIAL administration — it mints a credential another person
+   * will use, and it can lock every session of that login. Reusing either neighbour would hand
+   * every holder of that grant credential issuance as a side effect, with nothing in this table
+   * or `GET /admin/me` recording that the row had changed meaning.
+   *
+   * `analyst` is denied: it is a read-only analytics role and must never mint a credential.
+   *
+   * The route capability is the FLOOR. Login IDs and organisation names on the accounts list are
+   * still gated by `read_identity` inside `AdminIdentityService`, so a holder without that row
+   * gets the faceless account state and no contact identity.
+   *
+   * ── THE FIRST ADMIN DECRYPT OF PAYER EMAIL/PHONE (owner ruling 2026-11-04) ───────────────
+   * A payer login ID is the account's email, else its phone. `super_admin`, `ops_admin` and
+   * `support` may see it — but ONLY on the User accounts surface (`payer_logins`), through
+   * `AdminIdentityService` (capability check, name budget charged, `admin.identity_viewed`
+   * committed before decrypt). It is never disclosed by the entity lists, the payer detail, the
+   * directory or any event. A holder without `read_identity` never receives it.
+   */
+  "manage_payer_credentials",
   "toggle_kill_switch",
   "reveal_pii",
   "manage_admins",
@@ -231,6 +256,10 @@ export const ADMIN_CAPABILITY_MATRIX: Record<AdminCapability, readonly AdminRole
   // owner decision (CLAUDE.md §16), and the drift test records that the ADR row is still owed.
   review_skill_candidates: ["super_admin", "ops_admin"],
   manage_agency_match_skills: ["super_admin"],
+  // #2563 — payer credential administration. Supports the three roles that already operate the
+  // payer lifecycle; the accounts list's login IDs stay gated by `read_identity` inside
+  // AdminIdentityService. `analyst` denied (read-only analytics).
+  manage_payer_credentials: ["super_admin", "ops_admin", "support"],
   toggle_kill_switch: ["super_admin"],
   reveal_pii: ["super_admin", "support"],
   manage_admins: ["super_admin"],

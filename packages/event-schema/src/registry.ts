@@ -492,6 +492,9 @@ export const EVENT_REGISTRY = {
   // The test-login seam mints a session WITHOUT an OTP verification — a distinct event so a
   // synthetic session is never indistinguishable from a real login on the spine (Phase 2.1).
   "payer.test_login": { version: 1, domain: "payer", payload: p.PayerTestLoginPayload },
+  // #2563 — the payer set their OWN password (Settings, or the forced change on first sign-in).
+  // FACELESS: payer_id only. Admin issue/revoke are `admin.action_performed` codes instead.
+  "payer.password_set": { version: 1, domain: "payer", payload: p.PayerPasswordSetPayload },
   // Payer LIFECYCLE transitions (ADR-0037): pending → active on first successful OTP
   // verification, and the admin suspend/reinstate pair. FACELESS: opaque payer_id + the
   // two closed status enums. These are additive and v1; `admin.action_performed` still

@@ -54,6 +54,8 @@ interface PayerJwtClaims {
   org_id?: string;
   /** #2079 — the member's org role at issue/refresh time. OPTIONAL: absent on older tokens. */
   org_role?: OrgRole;
+  /** JWT issued-at, seconds since epoch. Set by the signer; absent only on malformed tokens. */
+  iat?: number;
   exp?: number;
 }
 
@@ -93,6 +95,19 @@ export interface ValidatedPayerSession {
    * current role from the DB regardless of this value.
    */
   org: PayerSessionOrgClaim | null;
+  /**
+   * #2563 — the token's `iat` in SECONDS, or 0 when the claim is absent (treated as "older than
+   * any watermark", i.e. fail closed). Used only as the fallback for a legacy session record
+   * that predates the millisecond creation stamp.
+   */
+  issuedAtSeconds: number;
+  /**
+   * #2563 — the session record's creation time in MILLISECONDS. This is the value the guard
+   * compares with `sessions_valid_after`, so two credentials minted in the same second are
+   * still ordered correctly. `null` only for a legacy record written before this field existed;
+   * the guard then falls back to {@link issuedAtSeconds}.
+   */
+  createdAtMs: number | null;
 }
 
 @Injectable()
@@ -151,10 +166,11 @@ export class PayerSessionService {
   ): Promise<PayerSessionToken> {
     const sid = randomUUID();
     const ttl = this.ttlSeconds();
+    const createdAtMs = Date.now();
     const redis = await this.client();
     await redis.set(
       PayerSessionService.sessionKey(sid),
-      JSON.stringify({ payer_id: payerId, ...(role ? { role } : {}) }),
+      JSON.stringify({ payer_id: payerId, ...(role ? { role } : {}), created_at_ms: createdAtMs }),
       "EX",
       ttl,
     );
@@ -200,7 +216,15 @@ export class PayerSessionService {
       // claim, then `null` for a pre-ADR-0022 session (the guard resolves it from the row).
       const role = PayerSessionService.readRole(raw) ?? claims.role ?? null;
       const org = PayerSessionService.readOrgClaim(claims);
-      return { payerId: claims.sub, sid: claims.sid, remainingSeconds, role, org };
+      return {
+        payerId: claims.sub,
+        sid: claims.sid,
+        remainingSeconds,
+        role,
+        org,
+        issuedAtSeconds: typeof claims.iat === "number" ? claims.iat : 0,
+        createdAtMs: PayerSessionService.readCreatedAtMs(raw),
+      };
     } catch (err) {
       this.logger.error(
         `Payer session Redis error; treating as unauthenticated (reason: ${
@@ -272,6 +296,24 @@ export class PayerSessionService {
     }
   }
 
+  /**
+   * #2563 — the millisecond creation stamp, or null for a legacy blob written before it
+   * existed. A non-finite / non-positive value is treated as absent (fail-safe to the `iat`
+   * fallback) rather than trusted.
+   */
+  private static readCreatedAtMs(raw: string): number | null {
+    try {
+      const blob = JSON.parse(raw) as { created_at_ms?: unknown };
+      return typeof blob.created_at_ms === "number" &&
+        Number.isFinite(blob.created_at_ms) &&
+        blob.created_at_ms > 0
+        ? blob.created_at_ms
+        : null;
+    } catch {
+      return null;
+    }
+  }
+
   /** Revoke a payer session (logout): delete its Redis record. Best-effort. */
   async revoke(sid: string, payerId?: string): Promise<void> {
     try {
@@ -315,6 +357,31 @@ export class PayerSessionService {
     }
     const deleted = await redis.del(...sids.map((s) => PayerSessionService.sessionKey(s)));
     await redis.del(indexKey);
+    return deleted;
+  }
+
+  /**
+   * #2563 — revoke every OTHER session of a payer, keeping `currentSid` alive.
+   *
+   * The self-service password set is the caller's own action on their own account: ending the
+   * session they used to make the change would sign them out mid-flow (and, in the payer app's
+   * signup journey — OTP, set password, continue — would dead-end the flow). Every session
+   * that is NOT the caller's is ended, which is the part that matters if the old password
+   * leaked.
+   *
+   * Returns the number deleted. THROWS on Redis failure for the same reason
+   * {@link revokeAllForPayer} does: a password change that claims to have ended other sessions
+   * must actually have ended them. The caller surfaces the failure rather than reporting a
+   * successful change that did not happen. The current sid stays in the index.
+   */
+  async revokeAllForPayerExcept(payerId: string, currentSid: string): Promise<number> {
+    const redis = await this.client();
+    const indexKey = PayerSessionService.payerIndexKey(payerId);
+    const sids = await redis.smembers(indexKey);
+    const others = sids.filter((sid) => sid !== currentSid);
+    if (others.length === 0) return 0;
+    const deleted = await redis.del(...others.map((s) => PayerSessionService.sessionKey(s)));
+    await redis.srem(indexKey, ...others);
     return deleted;
   }
 }

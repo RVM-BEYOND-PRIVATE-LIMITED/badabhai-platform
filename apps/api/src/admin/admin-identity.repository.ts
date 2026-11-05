@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { inArray } from "drizzle-orm";
+import { inArray, sql } from "drizzle-orm";
 import { adminUsers, payers, workers, type Database } from "@badabhai/db";
 import { DATABASE } from "../database/database.module";
 
@@ -85,6 +85,27 @@ export class AdminIdentityRepository {
       .select({ id: adminUsers.id, nameCipher: adminUsers.nameEnc })
       .from(adminUsers)
       .where(inArray(adminUsers.id, ids));
+    return rows;
+  }
+
+  /**
+   * #2563 — the LOGIN ID on the User accounts list: `payers.email_enc` when the account has an
+   * email, else `payers.phone_enc`. Exactly ONE ciphertext column crosses this boundary, the
+   * same contract as the name projections above; the service counts/audits/decrypts it.
+   *
+   * COALESCE is deliberate: a phone-only account has no email, and returning both would make
+   * the service pick one after decryption — a second identity field outside the charge/audit
+   * count. This projection discloses the ONE identifier the payer signs in with.
+   */
+  async payerLoginIds(ids: string[]): Promise<AdminIdentityRow[]> {
+    if (ids.length === 0) return [];
+    const rows = await this.db
+      .select({
+        id: payers.id,
+        nameCipher: sql<string | null>`coalesce(${payers.emailEnc}, ${payers.phoneEnc})`,
+      })
+      .from(payers)
+      .where(inArray(payers.id, ids));
     return rows;
   }
 }

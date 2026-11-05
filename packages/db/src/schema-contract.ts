@@ -889,6 +889,29 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "migrated database are fine (a superset); new builds on an unmigrated one are not, which is " +
       "why this is APPLY-BEFORE-DEPLOY",
   },
+  // 0154 (#2563, payer login management): the temporary-password flag and the session
+  // watermark. Unconditional — no flag — because `payers` is read through bare `select()` /
+  // `.returning()`, which name every model column, and `PayerAuthGuard` resolves auth facts
+  // on EVERY payer request. The four columns ride one migration, so one column answers for
+  // all. Registered up front (#2506).
+  {
+    id: "0154-payers-sessions-valid-after",
+    migration: "0154_payer_login_management",
+    kind: "column",
+    table: "payers",
+    object: "sessions_valid_after",
+    requiredBy:
+      "PayersRepository's bare `select()` / `.returning()` (findById, findByEmail, findByPhone, " +
+      "findByOrgName, update, setPassword, createOrGet paths) and findAuthFacts, which " +
+      "PayerAuthGuard calls on every authenticated payer request. `must_change_password`, " +
+      "`password_revoked_at` and `last_login_at` ride the same migration and fail together",
+    failureMode:
+      "every payer auth route 500s or 401s (column does not exist): POST /payer/login/password, " +
+      "POST /payer/login/request + /payer/login/verify, signup, and every guarded /payer/* " +
+      "request because the guard cannot read the row. Old builds on a migrated database are " +
+      "fine (a superset); new builds on an unmigrated one are not, which is why this is " +
+      "APPLY-BEFORE-DEPLOY",
+  },
   // 0134: THE API names `payer_applicant_stages` only while PAYER_APPLICANT_STAGES_ENABLED is on
   // (owner ruling 2026-10-07, the payer pipeline board), so a deploy ahead of the migration breaks
   // no request and the table is NOT a `table` entry. It is listed for its lock, exactly as 0128's

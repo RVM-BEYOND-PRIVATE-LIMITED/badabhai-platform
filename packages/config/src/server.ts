@@ -1169,6 +1169,11 @@ export const serverEnvSchema = z.object({
   // undeployed-env: no new secret, no box change.
   PAYER_PASSWORD_MAX_ATTEMPTS: z.coerce.number().int().positive().default(5),
   PAYER_PASSWORD_LOCKOUT_SECONDS: z.coerce.number().int().positive().default(900),
+  // #2563 (owner ruling 2026-11-04) - how long an admin-issued TEMPORARY password stays
+  // usable. After this many hours the password door treats it exactly like a wrong password
+  // (neutral 401), so a credential dictated over the phone cannot become a permanent one.
+  // The User accounts list shows `temporary_expired`. Default 168 = seven days.
+  PAYER_TEMP_PASSWORD_TTL_HOURS: z.coerce.number().int().positive().default(168),
   // GLOBAL daily send circuit-breaker for the payer EMAIL-OTP path (OTP-5 — the SPEND
   // ceiling; the payer analogue of OTP_GLOBAL_MAX_SENDS_PER_DAY). Bounds the TOTAL number
   // of REAL payer email sends platform-wide per UTC day, ABOVE the per-account cooldown/
