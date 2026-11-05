@@ -66,6 +66,16 @@ abstract interface class PayerAccountApi {
 
   /// `POST /payer/logout` (204) — best-effort server-side session end.
   Future<void> logout();
+
+  /// TEST-ONLY: immediately delete the signed-in payer's own account
+  /// (`POST /payer/me/delete/immediate` — payer-scoped, empty body, no grace).
+  /// Reachable only from the [kEnablePayerTestDelete] Account button.
+  ///
+  /// Contract: any 2xx = success (idempotent — an already-gone payer is still
+  /// 200). A non-2xx (401, or a neutral 404 while the server's seam is off)
+  /// throws [PayerApiException], which the caller collapses into one general
+  /// failure message.
+  Future<void> deleteAccountImmediatelyForTest();
 }
 
 /// Account get/update/logout over the real `/payer/*` surface.
@@ -107,6 +117,19 @@ class HttpPayerAccountApi implements PayerAccountApi {
   @override
   Future<void> logout() async {
     await _http.send(PayerMethod.post, '/payer/logout');
+  }
+
+  /// TEST-ONLY `POST /payer/me/delete/immediate` with an empty JSON body. The
+  /// server derives the payer from the bearer only. Any non-2xx throws so the
+  /// caller can surface an honest failure (including the seam-disabled 404).
+  @override
+  Future<void> deleteAccountImmediatelyForTest() async {
+    final PayerResponse res = await _http.send(
+      PayerMethod.post,
+      '/payer/me/delete/immediate',
+      body: <String, dynamic>{},
+    );
+    if (!res.isSuccess) throw PayerApiException(res.statusCode);
   }
 }
 
@@ -163,4 +186,9 @@ class MockPayerAccountApi implements PayerAccountApi {
 
   @override
   Future<void> logout() async {}
+
+  /// No-op: the mock has no server-side account to erase. The Account screen's
+  /// test-delete flow still runs its local sign-out teardown.
+  @override
+  Future<void> deleteAccountImmediatelyForTest() async {}
 }

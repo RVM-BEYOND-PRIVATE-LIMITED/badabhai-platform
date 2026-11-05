@@ -91,5 +91,28 @@ void main() {
             .having((PayerApiException e) => e.isBadRequest, 'isBadRequest', true)),
       );
     });
+
+    test('deleteAccountImmediatelyForTest posts the empty-body payer route',
+        () async {
+      final h = _harness((_) => _json(<String, dynamic>{'ok': true}));
+
+      await h.api.deleteAccountImmediatelyForTest();
+
+      final http.Request req = h.seen.single;
+      expect(req.method, 'POST');
+      expect(req.url.path, '/payer/me/delete/immediate');
+      expect(req.body, '{}');
+      // The payer comes from the bearer only — never a body id.
+      expect(req.headers['authorization'], 'Bearer tok-abc');
+    });
+
+    test('deleteAccountImmediatelyForTest 404 (seam disabled) throws', () async {
+      final h = _harness((_) => _json(<String, dynamic>{}, 404));
+      await expectLater(
+        h.api.deleteAccountImmediatelyForTest(),
+        throwsA(isA<PayerApiException>()
+            .having((PayerApiException e) => e.isNotFound, 'isNotFound', true)),
+      );
+    });
   });
 }

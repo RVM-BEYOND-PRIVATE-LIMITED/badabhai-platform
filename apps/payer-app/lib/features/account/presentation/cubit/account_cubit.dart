@@ -28,6 +28,23 @@ class AccountCubit extends Cubit<AccountState> {
     }
   }
 
+  /// TEST-ONLY (see kEnablePayerTestDelete): immediately delete the signed-in
+  /// payer's own account. Returns `true` only when the server confirmed it; on
+  /// ANY failure — the seam-disabled 404, a 401, a transport error, or a missing
+  /// session — returns `false` and never throws, so the screen can branch on it.
+  ///
+  /// The local teardown (revoke best-effort + wipe the bearer + leave for
+  /// Login) is the caller's [onSignOut], exactly the sign-out path the Account
+  /// screen already owns.
+  Future<bool> deleteAccountForTest() async {
+    try {
+      await _api.deleteAccountImmediatelyForTest();
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
   /// `PATCH /payer/me` with ONLY the changed fields. A no-op (nothing changed)
   /// short-circuits so we never send an empty body (a 400 server-side).
   Future<void> updateMe({String? orgName, String? phone}) async {

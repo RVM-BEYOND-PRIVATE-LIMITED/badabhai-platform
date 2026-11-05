@@ -157,6 +157,9 @@ class _SessionUndoingAccountApi implements PayerAccountApi {
 
   @override
   Future<void> logout() async {}
+
+  @override
+  Future<void> deleteAccountImmediatelyForTest() async {}
 }
 
 const Key _kIdentifier = Key('login_identifier');
