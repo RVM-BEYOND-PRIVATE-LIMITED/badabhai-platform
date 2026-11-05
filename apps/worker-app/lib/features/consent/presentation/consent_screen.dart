@@ -15,11 +15,6 @@ import 'widgets/consent_notice_parts.dart';
 import 'widgets/employer_sharing_notice.dart';
 import 'widgets/privacy_chrome.dart';
 
-/// OWNER ASK (2026-10-22) — the privacy screen's "I don't agree" choice: go on
-/// without voice consent, answering by typing only.
-const String kConsentDeclineLabel = "I don't agree";
-const Key kConsentDeclineButtonKey = Key('consent-decline');
-
 /// Handed to `/consent` as go_router `extra` when the screen is PUSHED over a
 /// surface the worker must be able to get back to, rather than entered as the
 /// FIRST step of onboarding.
@@ -131,8 +126,6 @@ class _ConsentView extends StatelessWidget {
                         _AgreeRow(
                           accepted: state.accepted,
                           onAcceptedChanged: cubit.setAccepted,
-                          declined: state.declined,
-                          onDeclinedChanged: cubit.setDeclined,
                         ),
                         const SizedBox(height: 12),
                         _AgeGateCard(
@@ -325,11 +318,6 @@ class _AgeBlockedView extends StatelessWidget {
 /// BOTH notices, because one tick grants both (2026-11-04).
 class _NoticeCard extends StatelessWidget {
   const _NoticeCard();
-
-  /// OWNER ASK (2026-10-22) — the "I don't agree" tick right under "I agree".
-  /// Ticking one clears the other (the cubit owns that rule).
-  final bool declined;
-  final ValueChanged<bool> onDeclinedChanged;
 
   static TextStyle get _bold => const TextStyle(fontWeight: FontWeight.w700);
 

@@ -75,15 +75,7 @@ class ConsentCubit extends Cubit<ConsentState> {
     'employer_messaging',
   ];
 
-  /// OWNER ASK (2026-10-22) — the purposes a worker gives when they do NOT
-  /// allow voice recording: everything except [kVoiceConsentPurpose], so they
-  /// still build a profile and résumé by TYPING (the notice's own promise:
-  /// "Agar aap ijaazat nahi dete, tab bhi aap poora interview type karke de
-  /// sakte hain").
-  static final List<String> _typingOnlyPurposes = <String>[
-    for (final String p in _purposes)
-      if (p != kVoiceConsentPurpose) p,
-  ];
+  void setAccepted(bool accepted) => emit(state.copyWith(accepted: accepted));
 
   /// Set by the age-gate chips. `false` is only reached after the screen's
   /// "Pakka?" confirm, so a mis-tap can never sign the worker out.
@@ -92,24 +84,6 @@ class ConsentCubit extends Cubit<ConsentState> {
 
   Future<void> submit() async {
     if (!state.canSubmit) return;
-    if (state.accepted) {
-      await _give(_purposes, voiceGranted: true);
-    } else {
-      await _give(_typingOnlyPurposes, voiceGranted: false);
-    }
-  }
-
-  /// OWNER ASK (2026-10-22) — "I don't agree": no voice consent. The worker
-  /// carries on by typing, and every voice control in the app is hidden.
-  Future<void> decline() async {
-    if (state.isSubmitting) return;
-    await _give(_typingOnlyPurposes, voiceGranted: false);
-  }
-
-  Future<void> _give(
-    List<String> purposes, {
-    required bool voiceGranted,
-  }) async {
     emit(state.copyWith(status: ConsentStatus.submitting));
     try {
       await _repo.acceptConsent(
@@ -123,7 +97,8 @@ class ConsentCubit extends Cubit<ConsentState> {
       if (locator.isRegistered<AuthSessionManager>()) {
         locator<AuthSessionManager>().markConsentAccepted();
       }
-      VoiceConsent.instance.set(granted: voiceGranted);
+      // The one affirmative tick grants BOTH notices, voice included.
+      VoiceConsent.instance.set(granted: true);
       // B7 funnel milestone, mirroring the server's `consent.accepted` event.
       // The COUNT of purposes only — never the worker, never the purposes.
       unawaited(

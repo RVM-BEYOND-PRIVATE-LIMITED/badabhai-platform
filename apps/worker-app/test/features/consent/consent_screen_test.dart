@@ -17,7 +17,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
-import 'package:badabhai_worker_app/core/consent/voice_consent.dart';
 import 'package:badabhai_worker_app/core/di/locator.dart';
 import 'package:badabhai_worker_app/core/error/failure.dart';
 import 'package:badabhai_worker_app/core/theme/app_theme.dart';
@@ -138,7 +137,7 @@ void main() {
     await tester.pump();
     await tester.ensureVisible(find.byType(Checkbox));
     await tester.pumpAndSettle();
-    await tester.tap(find.byType(Checkbox).first);
+    await tester.tap(find.byType(Checkbox));
     await tester.pump();
     await tester.tap(find.text('Aage Badhein'));
     await tester.pumpAndSettle();

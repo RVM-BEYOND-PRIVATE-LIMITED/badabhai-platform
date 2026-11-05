@@ -73,18 +73,6 @@ void main() {
     await tester.tap(find.byKey(const Key('create_profile')));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
-    await tester.pump(const Duration(milliseconds: 300));
-
-    // Password step — set + confirm, then create the profile.
-    await tester.enterText(
-        find.byKey(const Key('signup_password')), 'Secret123');
-    await tester.enterText(
-        find.byKey(const Key('signup_confirm')), 'Secret123');
-    await tester.ensureVisible(find.byKey(const Key('create_profile')));
-    await tester.pump();
-    await tester.tap(find.byKey(const Key('create_profile')));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 50));
     await tester.pumpAndSettle();
   }
 
