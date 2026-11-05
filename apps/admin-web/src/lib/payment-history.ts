@@ -79,14 +79,11 @@ export function getPaymentHistory(
   if (opts?.cursor) q.set("cursor", opts.cursor);
   if (opts?.limit !== undefined) q.set("limit", String(opts.limit));
   const qs = q.toString();
-  // No nested template: the fence reads string text, and a nested ternary inside a
-  // template splits into a literal that pairs "/admin/payers/" with a space.
-  const path =
-    "/admin/payers/" +
-    encodeURIComponent(payerId) +
-    "/payment-history" +
-    (qs ? "?" + qs : "");
-  return adminFetch(path, {
+  // The query suffix rides a `${suffix}` hole — never a nested template: the page-gates
+  // test only maps an `adminFetch` whose request is an inline template literal, and the
+  // terminology fence reads a nested ternary's spaces as prose.
+  const suffix = qs ? "?" + qs : "";
+  return adminFetch(`/admin/payers/${encodeURIComponent(payerId)}/payment-history${suffix}`, {
     schema: paymentHistorySchema,
   });
 }
