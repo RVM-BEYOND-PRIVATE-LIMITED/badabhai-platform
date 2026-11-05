@@ -21,6 +21,7 @@ import '../../../core/api/api_models.dart'
         EditProposalRow,
         FormOffer;
 import '../../../core/config/remote_config.dart';
+import '../../../core/consent/voice_consent.dart';
 import '../../../core/di/locator.dart';
 import '../../../core/session/resume_import_signal.dart';
 import '../../../core/nav/tab_focus.dart';
@@ -519,9 +520,22 @@ class _ChatViewState extends State<_ChatView>
   /// the stop glyph); null when nothing is speaking.
   int? _speakingIndex;
 
+  /// Owner request (2026-11-05) — a worker who declined voice on the privacy
+  /// screen gets no mic anywhere: the interview is typed. The answer can also
+  /// arrive from the server after this screen opens, so the screen listens.
+  void _onVoiceConsentChanged() {
+    if (!mounted) return;
+    // A mic that is live when consent turns out to be absent stops at once.
+    if (!VoiceConsent.instance.voiceAllowed && _dictation.listening) {
+      _stopDictation();
+    }
+    setState(() {});
+  }
+
   @override
   void initState() {
     super.initState();
+    VoiceConsent.instance.state.addListener(_onVoiceConsentChanged);
     _dictation = DictationController(
       onNotice: _showComposerNotice,
       // The app going to the background, or the feedback screen taking the
@@ -632,6 +646,7 @@ class _ChatViewState extends State<_ChatView>
     if (locator.isRegistered<SpeechReader>()) {
       unawaited(locator<SpeechReader>().stop()); // never leave TTS reading
     }
+    VoiceConsent.instance.state.removeListener(_onVoiceConsentChanged);
     _dictation
       ..removeListener(_onDictationChanged)
       ..dispose();
@@ -1721,7 +1736,8 @@ class _ChatViewState extends State<_ChatView>
     // mid-conversation applies from the next build, not the next frame. That is
     // deliberate — a control must not vanish from under a worker's thumb
     // between the moment they reach for it and the moment they tap.
-    final bool showVoice = !BbRemoteConfig.instance.voiceEntryHidden;
+    // Voice only with the worker's consent (and the B7 kill switch off).
+    final bool showVoice = VoiceConsent.instance.voiceAllowed;
     // B7 display lever: a non-empty notice is shown above the composer. Empty by
     // default, so nothing renders unless ops set one.
     final String maintenance = BbRemoteConfig.instance.chatMaintenanceNotice;
@@ -2370,7 +2386,7 @@ class _ChatViewState extends State<_ChatView>
             // on screen — the wait, defeated by the control beside it.
             else if (state.companion &&
                 BbRemoteConfig.instance.chatCompanionV2Enabled &&
-                !BbRemoteConfig.instance.voiceEntryHidden &&
+                VoiceConsent.instance.voiceAllowed &&
                 !_cooldownActive(state))
               _companionVoiceButton(),
           ],
@@ -2570,6 +2586,20 @@ class _ChatViewState extends State<_ChatView>
             icon: const Icon(
               Icons.send_rounded,
               color: OnboardingColors.shiftBlue,
+              size: 22,
+            ),
+          );
+        }
+        // No voice consent, no mic: the slot shows an inert send glyph and the
+        // worker answers by typing (owner request 2026-11-05).
+        if (!VoiceConsent.instance.voiceAllowed) {
+          return IconButton(
+            tooltip: 'Bhejein',
+            onPressed: null,
+            style: _composerActionStyle,
+            icon: const Icon(
+              Icons.send_rounded,
+              color: OnboardingColors.ink500,
               size: 22,
             ),
           );

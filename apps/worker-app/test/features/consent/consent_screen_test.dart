@@ -135,9 +135,9 @@ void main() {
       await tester.tap(find.text('Haan').last);
     }
     await tester.pump();
-    await tester.ensureVisible(find.byType(Checkbox));
+    await tester.ensureVisible(find.text('I agree'));
     await tester.pumpAndSettle();
-    await tester.tap(find.byType(Checkbox));
+    await tester.tap(find.text('I agree'));
     await tester.pump();
     await tester.tap(find.text('Aage Badhein'));
     await tester.pumpAndSettle();
@@ -248,9 +248,9 @@ void main() {
     ) async {
       await pump(tester, recovery: false);
 
-      await tester.ensureVisible(find.byType(Checkbox));
+      await tester.ensureVisible(find.text('I agree'));
       await tester.pumpAndSettle();
-      await tester.tap(find.byType(Checkbox));
+      await tester.tap(find.text('I agree'));
       await tester.pump();
 
       await tester.ensureVisible(find.text('Aage Badhein'));
@@ -288,9 +288,9 @@ void main() {
       // Backing out leaves the answer unset: the gate still holds.
       await tester.tap(find.text('Nahi').last);
       await tester.pumpAndSettle();
-      await tester.ensureVisible(find.byType(Checkbox));
+      await tester.ensureVisible(find.text('I agree'));
       await tester.pumpAndSettle();
-      await tester.tap(find.byType(Checkbox));
+      await tester.tap(find.text('I agree'));
       await tester.pump();
       await tester.ensureVisible(find.text('Aage Badhein'));
       await tester.pumpAndSettle();
@@ -399,20 +399,42 @@ void main() {
       }
     });
 
-    testWidgets('ONE tick (with the age answer) gates the submit, below both cards', (
+    testWidgets('the two ticks sit below both cards and are mutually exclusive', (
       WidgetTester tester,
     ) async {
       await pump(tester, recovery: false);
 
-      expect(find.byType(Checkbox), findsOneWidget);
+      expect(find.byType(Checkbox), findsNWidgets(2));
       expect(find.text('I agree'), findsOneWidget);
-      final double tick = tester.getTopLeft(find.byType(Checkbox)).dy;
+      expect(find.text("I don't agree"), findsOneWidget);
+      final double tick = tester.getTopLeft(find.byType(Checkbox).first).dy;
       final double voice = tester
           .getTopLeft(find.text('Aapki awaaz record karne ki ijaazat'))
           .dy;
-      expect(tick, greaterThan(voice), reason: 'the tick covers both cards');
+      expect(tick, greaterThan(voice), reason: 'the ticks cover both cards');
 
-      // Age answered, tick untouched: the CTA does nothing and nothing is recorded.
+      await tester.ensureVisible(find.text("I don't agree"));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('I agree'));
+      await tester.pump();
+      expect(_tickValue(tester, 'consent_agree_tick'), isTrue);
+      await tester.tap(find.text("I don't agree"));
+      await tester.pump();
+      expect(_tickValue(tester, 'consent_agree_tick'), isFalse);
+      expect(_tickValue(tester, 'consent_decline_tick'), isTrue);
+      // …and back: one tick at a time, either way.
+      await tester.tap(find.text('I agree'));
+      await tester.pump();
+      expect(_tickValue(tester, 'consent_agree_tick'), isTrue);
+      expect(_tickValue(tester, 'consent_decline_tick'), isFalse);
+    });
+
+    testWidgets('the CTA is gated on ONE tick AND the age answer', (
+      WidgetTester tester,
+    ) async {
+      await pump(tester, recovery: false);
+
+      // Age answered, no tick: the CTA does nothing and nothing is recorded.
       await tester.ensureVisible(find.text('Haan, 18+ hoon'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Haan, 18+ hoon'));
@@ -429,7 +451,7 @@ void main() {
       );
       expect(find.text('CHAT STEP'), findsNothing);
 
-      // The 'I agree' label is a tap target too, and one tick covers both cards.
+      // "I agree" + the age answer proceeds with all five purposes.
       await tester.ensureVisible(find.text('I agree'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('I agree'));
@@ -440,5 +462,77 @@ void main() {
           .called(1);
       expect(find.text('CHAT STEP'), findsOneWidget);
     });
+
+    testWidgets(
+      "I don't agree confirms first; Wapas stays, Phir bhi aage badhein sends "
+      'type-only purposes',
+      (WidgetTester tester) async {
+        await pump(tester, recovery: false);
+
+        await tester.ensureVisible(find.text('Haan, 18+ hoon'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Haan, 18+ hoon'));
+        await tester.pump();
+        await tester.ensureVisible(find.text("I don't agree"));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text("I don't agree"));
+        await tester.pump();
+        await tester.tap(find.text('Aage Badhein'));
+        await tester.pumpAndSettle();
+
+        // The popup says what the decline means, with both owner-named buttons.
+        expect(find.text('Phir bhi aage badhein'), findsOneWidget);
+        expect(find.text('Wapas'), findsOneWidget);
+        expect(
+          find.textContaining('voice features nahi milenge'),
+          findsOneWidget,
+        );
+        verifyNever(
+          () => repo.acceptConsent(
+            purposes: any(named: 'purposes'),
+            age18Plus: any(named: 'age18Plus'),
+          ),
+        );
+
+        // Wapas dismisses and leaves the worker on Privacy, selection kept.
+        await tester.tap(find.text('Wapas'));
+        await tester.pumpAndSettle();
+        expect(find.text('Aage Badhein'), findsOneWidget);
+        expect(_tickValue(tester, 'consent_decline_tick'), isTrue);
+        verifyNever(
+          () => repo.acceptConsent(
+            purposes: any(named: 'purposes'),
+            age18Plus: any(named: 'age18Plus'),
+          ),
+        );
+
+        // Phir bhi aage badhein submits WITHOUT voice_processing.
+        await tester.tap(find.text('Aage Badhein'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Phir bhi aage badhein'));
+        await tester.pumpAndSettle();
+        verify(
+          () => repo.acceptConsent(
+            purposes: <String>[
+              'profiling',
+              'resume_generation',
+              'employer_sharing',
+              'employer_messaging',
+            ],
+            age18Plus: true,
+          ),
+        ).called(1);
+        expect(find.text('CHAT STEP'), findsOneWidget);
+      },
+    );
   });
 }
+
+bool? _tickValue(WidgetTester tester, String key) => tester
+    .widget<Checkbox>(
+      find.descendant(
+        of: find.byKey(Key(key)),
+        matching: find.byType(Checkbox),
+      ),
+    )
+    .value;
