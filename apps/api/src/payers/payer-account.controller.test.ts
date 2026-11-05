@@ -726,3 +726,39 @@ describe("PayerAccountController — self-edit on PATCH /payer/me (PROF-3)", () 
     spies.forEach((s) => s.mockRestore());
   });
 });
+
+describe("PayerAccountController — QA immediate delete (POST /payer/me/delete/immediate)", () => {
+  const SELF: AuthenticatedPayer = { id: PAYER_A, sid: "sid", role: "employer" };
+
+  function controllerWithFlag(flag: boolean, execute = vi.fn(async () => ({ deleted: true }))) {
+    const { repo } = makeRepo();
+    return {
+      execute,
+      controller: new PayerAccountController(
+        new PayerAccountService(repo, noopEvents(), makeOrgs()),
+        { execute } as never,
+        { TEST_IMMEDIATE_DELETE_ENABLED: flag } as ServerConfig,
+      ),
+    };
+  }
+
+  it("404s neutrally while the flag is OFF (the seam is invisible)", async () => {
+    const { controller, execute } = controllerWithFlag(false);
+    await expect(controller.deleteImmediate(SELF, CTX)).rejects.toBeInstanceOf(NotFoundException);
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it("runs the erasure for the GUARD principal only and answers { ok: true }", async () => {
+    const { controller, execute } = controllerWithFlag(true);
+    await expect(controller.deleteImmediate(SELF, CTX)).resolves.toEqual({ ok: true });
+    expect(execute).toHaveBeenCalledExactlyOnceWith(PAYER_A, CTX);
+  });
+
+  it("is idempotent: an already-gone payer is still { ok: true }", async () => {
+    const { controller } = controllerWithFlag(
+      true,
+      vi.fn(async () => ({ deleted: false, sessionsRevoked: 0, soloOrgDeleted: false })),
+    );
+    await expect(controller.deleteImmediate(SELF, CTX)).resolves.toEqual({ ok: true });
+  });
+});
