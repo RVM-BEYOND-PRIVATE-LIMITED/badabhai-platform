@@ -298,9 +298,10 @@ class _VerifyAuthApi implements PayerAuthApi {
   }) async {}
 
   @override
-  Future<PayerLoginResult> loginWithPassword({
+  Future<PayerPasswordLoginOutcome> loginWithPassword({
     required String identifier,
     required String password,
+    String? newPassword,
   }) async =>
       throw UnimplementedError();
 
