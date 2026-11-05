@@ -2,7 +2,8 @@
 
 import { useEffect, useState, useTransition } from "react";
 import type { FormEvent } from "react";
-import { Badge, Button, Input, OtpInput, Tabs, Toast, tabId, tabPanelId } from "../../components/ds";
+import { Badge, Button, Input, Tabs, Toast, tabId, tabPanelId } from "../../components/ds";
+import { OtpCodeInput } from "../../components/otp-input";
 import { requestCodeAction, signupAction, verifyCodeAction } from "./actions";
 import { looksLikeLoginEmail } from "./email-shape";
 import { usePortalNavigation } from "../../components/portal-navigation";
@@ -32,8 +33,9 @@ import { NEW_PASSWORD_HEADING_ID, SetNewPasswordStep } from "./set-new-password"
  *   vice-versa. DO NOT add tab-gating to signin here or anywhere downstream.
  *
  * Both signin-entry (email → requestCodeAction) and signup-entry (org_name + email + optional
- * phone → signupAction) funnel into the EXACT SAME shared `code` step (OtpInput →
- * verifyCodeAction → /dashboard). There is no second OTP mechanism.
+ * phone → signupAction) funnel into the EXACT SAME shared `code` step (OtpCodeInput →
+ * verifyCodeAction → /dashboard; the sixth digit submits, as Verify does). There is no second OTP
+ * mechanism.
  *
  * THE CODE IS NEVER DISPLAYED OR AUTO-FILLED — auth is REAL-OTP only; the payer reads the
  * 6-digit code from their real email. The resend control re-uses the SERVER cooldown
@@ -77,6 +79,8 @@ const NO_ARRIVAL: PasswordArrival = { error: null, notice: null };
 
 const EMAIL_FIELD_ID = "login-email";
 const CODE_HEADING_ID = "login-code-heading";
+/** The code step's inline error line — it also describes every code box while it shows. */
+const CODE_ERROR_ID = "login-code-error";
 
 /**
  * Where focus goes when the view or the sign-in method changes — the natural first control of
@@ -123,7 +127,8 @@ const ROLE_COPY: Record<
 export function LoginForm() {
   // useState call order (kept stable for the node-env render test seeding):
   // role, mode, step, email, orgName, phone, code, emailError, orgError, phoneError,
-  // codeError, error, info, cooldown, succeeded, method, identifier, change, arrival.
+  // codeError, error, info, cooldown, succeeded, method, identifier, change, arrival,
+  // codeAttempt.
   // (Any NEW state is appended at the END so every existing seed position is preserved.)
   const [role, setRole] = useState<RoleKey>("company");
   const [mode, setMode] = useState<Mode>("signin");
@@ -149,6 +154,9 @@ export function LoginForm() {
   // A temporary password the API accepted: the set-new-password step is open while this is set.
   const [change, setChange] = useState<PendingChange | null>(null);
   const [arrival, setArrival] = useState<PasswordArrival>(NO_ARRIVAL);
+  // --- #2588 the code boxes, appended after `arrival` (same reason: seed order) ---
+  // Each refused code bumps it: the boxes remount empty, focus on their first box, armed again.
+  const [codeAttempt, setCodeAttempt] = useState(0);
   const [pending, startTransition] = useTransition();
   // A verified code lands on the dashboard with the page's "Opening Dashboard…" cue (the button
   // already reads "Signed in" — `succeeded` — until the page is gone).
@@ -320,10 +328,23 @@ export function LoginForm() {
     else sendLoginCode();
   }
 
+  /** The form's submit — Verify, or Enter in a box: the code in the boxes. */
   function onVerify(e: FormEvent) {
     e.preventDefault();
+    verifyCode(code);
+  }
+
+  /**
+   * Step 2 — verify a code. The form's submit and the sixth digit both land here: OtpCodeInput's
+   * `onComplete` hands over the code it just completed (this render still holds the edit before
+   * it). One request at a time — nothing is sent while one is in flight (a verify, or a resend), or
+   * once a code was accepted — so the sixth digit and a Verify press never submit twice.
+   */
+  function verifyCode(entered: string) {
+    if (pending || succeeded) return;
     setError(null);
-    if (!CODE_RE.test(code.trim())) {
+    const submitted = entered.trim();
+    if (!CODE_RE.test(submitted)) {
       setCodeError("Enter the numeric code (4–8 digits).");
       return;
     }
@@ -331,8 +352,11 @@ export function LoginForm() {
     startTransition(async () => {
       // ROLE-AGNOSTIC: verify is identical for company- and agency-created accounts. An agent
       // account lands on the agency-labelled portal automatically (the server resolves the role).
-      const res = await verifyCodeAction({ email: email.trim(), code: code.trim() });
+      const res = await verifyCodeAction({ email: email.trim(), code: submitted });
       if (res.ok) {
+        // The accepted code stays readable — locked in the boxes, with the check — while the
+        // dashboard opens (a box edited during the check shows the code that was accepted).
+        setCode(submitted);
         setSucceeded(true);
         setInfo(res.isNewPayer ? "Account created — welcome!" : "Welcome back!");
         goToDashboard();
@@ -349,6 +373,10 @@ export function LoginForm() {
         setArrival({ error: null, notice: res.error });
       } else {
         setError(res.error);
+        // Refused: the boxes clear and re-arm — a fresh input with focus on its first box, so the
+        // next sixth digit submits again. The error stays in the status region until then.
+        setCode("");
+        setCodeAttempt((n) => n + 1);
       }
     });
   }
@@ -395,18 +423,26 @@ export function LoginForm() {
           continue.
         </p>
         <div className="login-otp">
-          <span className="login-otp__label">Enter the {OTP_LENGTH}-digit login code</span>
-          <OtpInput
+          {/* Six boxes (components/otp-input.tsx): the visible label names the group, the first box
+              takes the browser's one-time-code autofill, and the sixth digit — or a whole pasted
+              or autofilled code — submits through verifyCode, as Verify does. An accepted code
+              locks read-only with a check; a refused one remounts the boxes (`key`) empty. */}
+          <OtpCodeInput
+            key={codeAttempt}
+            label={`Enter the ${OTP_LENGTH}-digit login code`}
             length={OTP_LENGTH}
             value={code}
             autoFocus
+            success={succeeded}
+            describedBy={codeError ? CODE_ERROR_ID : undefined}
             onChange={(v) => {
               setCode(v);
               if (codeError) setCodeError(null);
             }}
+            onComplete={verifyCode}
           />
           {codeError ? (
-            <span className="bb-field__error" role="alert">
+            <span id={CODE_ERROR_ID} className="bb-field__error" role="alert">
               {codeError}
             </span>
           ) : null}

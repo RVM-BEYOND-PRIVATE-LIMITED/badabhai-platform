@@ -4,7 +4,9 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ReactElement, ReactNode } from "react";
 import type * as ReactModule from "react";
-import { Badge, Button, Input, OtpInput, Tabs, Toast } from "../../components/ds";
+import { renderToStaticMarkup } from "react-dom/server";
+import { Badge, Button, Input, Tabs, Toast } from "../../components/ds";
+import { OtpCodeInput } from "../../components/otp-input";
 
 /**
  * AUTH-1 — Company|Agency tabs + self-serve signup, re-skinned onto the design system.
@@ -16,8 +18,9 @@ import { Badge, Button, Input, OtpInput, Tabs, Toast } from "../../components/ds
  * we can assert the ROLE-AGNOSTIC contract + the no-enumeration / no-code-echo invariants.
  *
  * Asserts: the role TABS (ARIA tablist + arrow-key nav + role from the active tab feeds signup),
- * the signin/signup mode toggle (radiogroup), the shared OTP code step (unchanged), and the
- * NO-ORACLE contract (neutral DS Toasts, no code ever rendered).
+ * the signin/signup mode toggle (radiogroup), the shared OTP code step (OtpCodeInput — the sixth
+ * digit submits, one request at a time; its flow across renders is login-form.code-step.test.tsx),
+ * and the NO-ORACLE contract (neutral DS Toasts, no code ever rendered).
  */
 
 let stateQueue: unknown[] = [];
@@ -61,7 +64,8 @@ const { LoginForm } = await import("./login-form");
 
 // useState call order in the source:
 // role, mode, step, email, orgName, phone, code, emailError, orgError, phoneError, codeError,
-// error, info, cooldown, succeeded, method (… identifier, change, arrival — left unseeded).
+// error, info, cooldown, succeeded, method (… identifier, change, arrival, codeAttempt — left
+// unseeded).
 //
 // #2587: password sign-in is now the DEFAULT sign-in view, so this suite — the email-code flow's —
 // seeds `method: "code"` to keep testing the email-code view it always tested. The password
@@ -81,6 +85,7 @@ function render(seed: {
   error?: string | null;
   info?: string | null;
   cooldown?: number;
+  succeeded?: boolean;
   method?: "password" | "code";
 }): ReactElement {
   stateQueue = [
@@ -98,7 +103,7 @@ function render(seed: {
     seed.error ?? null,
     seed.info ?? null,
     seed.cooldown ?? 0,
-    false, // succeeded
+    seed.succeeded ?? false,
     seed.method ?? "code",
   ];
   stateCursor = 0;
@@ -300,18 +305,89 @@ describe("AUTH-1 · signup submit sends the role from the active tab (no payer_i
   });
 });
 
-describe("AUTH-1 · code step (OtpInput) — shared + UNCHANGED for signin and signup", () => {
-  it("renders a single 6-cell OtpInput wired to the code value + a verify Button; no role tabs", () => {
+/** The code step's one OTP input (exactly one). */
+function otpOf(tree: ReactElement): ReactElement {
+  const otp = findAll(tree, OtpCodeInput);
+  expect(otp.length).toBe(1);
+  return otp[0]!;
+}
+/** The sixth digit, as OtpCodeInput reports it: `onComplete` with the code it completed. */
+const completeCode = (tree: ReactElement, code: string) =>
+  (p(otpOf(tree)).onComplete as (code: string) => void)(code);
+/** Verify, or Enter in a box: the code step's form submit. */
+const submitCode = (tree: ReactElement) =>
+  (p(findByProp(tree, "className", "login-form")[0]!).onSubmit as (e: {
+    preventDefault: () => void;
+  }) => void)({ preventDefault: vi.fn() });
+
+describe("AUTH-1 · code step (OtpCodeInput) — shared for signin and signup", () => {
+  it("renders a single 6-box OtpCodeInput wired to the code value + a verify Button; no role tabs", () => {
     const tree = render({ step: "code", email: "a@b.co", code: "12" });
-    const otp = findAll(tree, OtpInput);
-    expect(otp.length).toBe(1);
-    expect(p(otp[0]!).length).toBe(6);
-    expect(p(otp[0]!).value).toBe("12");
+    const otp = otpOf(tree);
+    expect(p(otp).length).toBe(6);
+    expect(p(otp).value).toBe("12");
+    expect(p(otp).autoFocus).toBe(true);
     // The role tabs are NOT rendered on the code step — switching tab is impossible
     // mid-verification (the toggle simply isn't present).
     expect(findAll(tree, Tabs).length).toBe(0);
     const submit = findAll(tree, Button).find((b) => p(b).type === "submit");
     expect(textOf(p(submit!).children as ReactNode)).toContain("Verify");
+  });
+
+  it("keeps the field's name and autofill: the visible label names the group; the first box takes one-time-code", () => {
+    const otp = otpOf(render({ step: "code", email: "a@b.co" }));
+    expect(p(otp).label).toBe("Enter the 6-digit login code");
+    const html = renderToStaticMarkup(otp);
+    // One label, drawn by the input itself — never a second one beside it.
+    const label = /<span class="otp-code__label" id="([^"]+)">Enter the 6-digit login code<\/span>/.exec(
+      html,
+    );
+    expect(label).not.toBeNull();
+    expect(html).toContain(`role="group" aria-labelledby="${label![1]}"`);
+    const boxes = Array.from(html.matchAll(/<input\b[^>]*>/g), (m) => m[0]);
+    expect(boxes).toHaveLength(6);
+    boxes.forEach((box, i) => expect(box).toContain(`aria-label="Digit ${i + 1} of 6"`));
+    expect(boxes[0]).toMatch(/autocomplete="one-time-code"/i);
+    expect(boxes.filter((b) => /one-time-code/.test(b))).toHaveLength(1);
+  });
+
+  it("the sixth digit submits: onComplete verifies the code it completed — the same action and payload as Verify", () => {
+    verifyCodeAction.mockResolvedValue({ ok: true, isNewPayer: false });
+    // The edit that completes the code reaches the form before it re-renders: this render still
+    // holds the five digits before it, so the code sent is the one onComplete hands over.
+    const tree = render({ step: "code", email: "a@b.co", code: "12345" });
+    completeCode(tree, "123456");
+    expect(verifyCodeAction).toHaveBeenCalledTimes(1);
+    expect(verifyCodeAction).toHaveBeenCalledWith({ email: "a@b.co", code: "123456" });
+  });
+
+  it("one request at a time: while a verify (or a resend) is in flight, neither the sixth digit nor Verify sends", () => {
+    useTransition.mockReturnValueOnce([true, (cb) => cb()]);
+    const tree = render({ step: "code", email: "a@b.co", code: "123456" });
+    completeCode(tree, "123456");
+    submitCode(tree);
+    expect(verifyCodeAction).not.toHaveBeenCalled();
+  });
+
+  it("an accepted code is never sent again, and stays readable: locked in the boxes, with the check", () => {
+    const tree = render({ step: "code", email: "a@b.co", code: "123456", succeeded: true });
+    expect(p(otpOf(tree))).toMatchObject({ value: "123456", success: true });
+    completeCode(tree, "123456");
+    submitCode(tree);
+    expect(verifyCodeAction).not.toHaveBeenCalled();
+    // Until then the boxes are open.
+    expect(p(otpOf(render({ step: "code", email: "a@b.co", code: "123" }))).success).toBe(false);
+  });
+
+  it("the inline code error describes every box while it shows", () => {
+    const message = "Enter the numeric code (4–8 digits).";
+    const tree = render({ step: "code", email: "a@b.co", code: "12", codeError: message });
+    const alert = findByProp(tree, "role", "alert")[0]!;
+    expect(textOf(p(alert).children as ReactNode)).toBe(message);
+    expect(p(alert).id).toBe("login-code-error");
+    expect(p(otpOf(tree)).describedBy).toBe("login-code-error");
+    // No error, no description (never an id that points at nothing).
+    expect(p(otpOf(render({ step: "code", email: "a@b.co", code: "12" }))).describedBy).toBeUndefined();
   });
 
   it("verify calls verifyCodeAction → replaces sign-in with the dashboard, cued, on success", async () => {
@@ -427,10 +503,9 @@ describe("AUTH-1 · no OTP code displayed (real-OTP only) in ANY state", () => {
     expect(textOf(tree)).not.toMatch(CODE_LIKE);
   });
 
-  it("pre-fills NOTHING into the OtpInput on the fresh code step", () => {
+  it("pre-fills NOTHING into the OtpCodeInput on the fresh code step", () => {
     const tree = render({ step: "code", email: "a@b.co", info: SEND_CONFIRMATION });
-    const otp = findAll(tree, OtpInput);
-    expect(p(otp[0]!).value).toBe("");
+    expect(p(otpOf(tree)).value).toBe("");
     expect(textOf(tree)).not.toMatch(CODE_LIKE);
   });
 });

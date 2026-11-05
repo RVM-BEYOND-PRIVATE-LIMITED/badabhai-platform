@@ -20,6 +20,10 @@ ops console's privileged data access.
    `password_change_required` and the "Set a new password" step resends it with `new_password`;
    only that real session answer signs in. The code door answers such an account with a 409, which
    sends the payer to the password form.
+   **The code step (#2588)** — sign-in and signup alike — is six boxes (`src/components/otp-input.tsx`).
+   The sixth digit, or a whole pasted or autofilled code, submits through the same verify as the
+   Verify button, one request at a time. A refused code clears the boxes and re-arms them; an
+   accepted one stays readable (locked, with a check) while the dashboard opens.
 2. **Dashboard (LIVE)** — credits (`GET /payer/credits`), unlocks (`GET /payer/unlocks`)
    and postings (`GET /payer/job-postings`), read side by side (`getDashboard`).
 3. **Post a job (LIVE)** — a company posts through `POST /payer/job-postings`

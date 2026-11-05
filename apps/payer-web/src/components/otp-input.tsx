@@ -28,8 +28,7 @@
  * scale is 1 there too. Nothing waits on an animation: every edit is applied at once.
  *
  * A NEW component beside the DS `OtpInput` (components/ds/otp-input.tsx), whose fill rule it reuses
- * (`distributeOtpDigits`). The sign-in form still renders the DS one; moving it to this one is a
- * separate change at that call site.
+ * (`distributeOtpDigits`). The sign-in form's code step renders it (app/login/login-form.tsx).
  */
 import { useId, useRef } from "react";
 import type { ClipboardEvent, FocusEvent, FormEvent, KeyboardEvent } from "react";
