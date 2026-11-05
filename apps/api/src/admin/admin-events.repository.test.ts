@@ -158,6 +158,62 @@ describe("countByPayloadField — the BP-5 cap-breach split", () => {
   });
 });
 
+describe("the funnel bulk reads — per-worker counts for a bounded cohort (B14, #2568)", () => {
+  const W1 = "11111111-1111-4111-8111-111111111111";
+  const W2 = "22222222-2222-4222-8222-222222222222";
+
+  it("workerSubjectEventCounts filters on the indexed event name + worker subject", async () => {
+    const c = captureQueries();
+    await new AdminEventsRepository(c.db).workerSubjectEventCounts([W1, W2], [
+      "job.search_performed",
+    ]);
+    // `events_event_name_idx` + `events_subject_idx` keep this off the full spine.
+    expect(c.sql()).toContain('"events"."event_name"');
+    expect(c.sql()).toContain('"events"."subject_type"');
+    expect(c.params).toContain("job.search_performed");
+    expect(c.params).toContain(W1);
+    expect(c.params).toContain(W2);
+    // Grouped per worker per event — one row per (worker, event) for the service to
+    // join. (The capture stub records the GROUP BY columns, not the keyword itself.)
+    const tail = c.statements.slice(-2);
+    expect(tail).toEqual(['"events"."subject_id"', '"events"."event_name"']);
+  });
+
+  it("chunks the id list so no statement nears the parameter ceiling", async () => {
+    const c = captureQueries();
+    const ids = Array.from({ length: 5001 }, (_, i) => `id-${i}`);
+    await new AdminEventsRepository(c.db).workerSubjectEventCounts(ids, ["job.search_performed"]);
+    // Two IN lists (5000 + 1) — one unbounded IN list would have carried 5001 id params
+    // in a single statement.
+    const wheres = c.statements.filter((s) => s.includes('subject_id" in'));
+    expect(wheres).toHaveLength(2);
+    for (const w of wheres) {
+      // 5000 ids max per chunk, plus the event-name and subject-type params.
+      expect(w.match(/\$\d+/g)?.length ?? 0).toBeLessThanOrEqual(5002);
+    }
+  });
+
+  it("an empty cohort issues no query", async () => {
+    const c = captureQueries();
+    const repo = new AdminEventsRepository(c.db);
+    await repo.workerSubjectEventCounts([], ["job.search_performed"]);
+    await repo.interviewKitDownloadsForWorkers([]);
+    expect(c.statements).toHaveLength(0);
+  });
+
+  it("interviewKitDownloadsForWorkers matches the partial index exactly", async () => {
+    const c = captureQueries();
+    await new AdminEventsRepository(c.db).interviewKitDownloadsForWorkers([W1]);
+    // The same shape as `countInterviewKitDownloads`: the event-name literal plus the
+    // identical `payload->>'worker_id'` expression the partial index is built on.
+    expect(c.sql()).toContain('"events"."event_name"');
+    expect(c.sql()).toContain(`"events"."payload"->>'worker_id'`);
+    expect(c.params).toContain("interview_kit.downloaded");
+    expect(c.params).toContain(W1);
+    expect(c.sql()).toContain("count(distinct");
+  });
+});
+
 describe("the profiling split — spend and completed profiles by live worker population", () => {
   const SINCE = new Date("2026-08-19T07:38:05.000Z");
 

@@ -398,6 +398,14 @@ function world(
     listPage: vi.fn(async (payerId: string, q: InboxPageQuery) =>
       (opts.page ?? pageOf)(payerId, q),
     ),
+    count: vi.fn(async (payerId: string, q: { postingId?: string; stages?: { only?: string } }) =>
+      (opts.page ?? pageOf)(payerId, {
+        limit: Number.MAX_SAFE_INTEGER,
+        postingId: q.postingId,
+        ...(q.stages !== undefined ? { stages: q.stages } : {}),
+      } as InboxPageQuery,
+    ).length,
+    ),
   };
   const reachRepo = {
     findOwnedJobSignalRowById: vi.fn(async (id: string, payerId: string) =>
@@ -572,13 +580,14 @@ describe("PayerApplicantInboxService — ownership (XB-A): the session payer's p
     const foreignJob = await w.inbox.list(PAYER_A, query({ postingId: JOB_B1 }), CTX);
     const unknown = await w.inbox.list(PAYER_A, query({ postingId: UNKNOWN }), CTX);
     const ownedEmpty = await w.inbox.list(PAYER_A, query({ postingId: POST_A_EMPTY }), CTX);
-    const NEUTRAL = { applicants: [], nextCursor: null };
+    const NEUTRAL = { applicants: [], nextCursor: null, total: 0 };
     expect(foreign).toStrictEqual(NEUTRAL);
     expect(foreignJob).toStrictEqual(NEUTRAL);
     expect(unknown).toStrictEqual(NEUTRAL);
     expect(ownedEmpty).toStrictEqual(NEUTRAL);
-    // ...and costs the same: one page read each, no ownership probe that could tell them apart.
+    // ...and costs the same: one page read + one COUNT each, no ownership probe that could tell them apart.
     expect(w.inboxRepo.listPage).toHaveBeenCalledTimes(4);
+    expect(w.inboxRepo.count).toHaveBeenCalledTimes(4);
     expect(w.reachRepo.findOwnedJobSignalRowById).not.toHaveBeenCalled();
     expect(w.emitMany).not.toHaveBeenCalled();
   });
@@ -832,11 +841,12 @@ describe("PayerApplicantInboxService — events: the per-posting posture, row fo
 });
 
 describe("PayerApplicantInboxService — bounded reads, fail closed", () => {
-  it("a page spanning several jobs and postings costs ONE page read and three detail reads", async () => {
+  it("a page spanning several jobs and postings costs ONE page read, ONE count and three detail reads", async () => {
     const w = world();
     const out = await w.inbox.list(PAYER_A, query(), CTX);
     expect(new Set(out.applicants.map((r) => r.posting.id)).size).toBe(4);
     expect(w.inboxRepo.listPage).toHaveBeenCalledOnce();
+    expect(w.inboxRepo.count).toHaveBeenCalledOnce();
     expect(w.reachRepo.findOwnedJobSignalRowsByIds).toHaveBeenCalledOnce();
     expect(w.reachRepo.listApplicantSignalRowsForJobs).toHaveBeenCalledOnce();
     expect(w.matchRepo.listRankedCandidatesByApplication).toHaveBeenCalledOnce();
@@ -1034,7 +1044,48 @@ describe("ADR-0053 P2a — the Candidates inbox follows the TENANT", () => {
   it("off (the default): the SAME teammate owns nothing, so their inbox is empty — today's behaviour", async () => {
     const w = world({ tenancy: defaultModeResolver(TEAM) });
     const out = await w.inbox.list(MEMBER, query(), CTX);
-    expect(out).toEqual({ applicants: [], nextCursor: null });
+    expect(out).toEqual({ applicants: [], nextCursor: null, total: 0 });
     expect(w.inboxRepo.listPage).toHaveBeenCalledWith(MEMBER, expect.anything());
+  });
+});
+
+describe("PayerApplicantInboxService — total for the Applied pager (issue #2636)", () => {
+  it("total is the inbox size under the same filters — the N in Showing A–B of N", async () => {
+    const w = world();
+    const out = await w.inbox.list(PAYER_A, query({ limit: 3 }), CTX);
+    expect(out.total).toBe(EXPECTED_A.length);
+    expect(out.total).toBe(10);
+  });
+
+  it("total ignores the cursor: every page of a walk reports the same N", async () => {
+    const w = world();
+    const pages = await walk(w, PAYER_A, 3);
+    expect(pages.length).toBeGreaterThan(1);
+    for (const p of pages) expect(p.total).toBe(EXPECTED_A.length);
+  });
+
+  it("total follows the postingId filter", async () => {
+    const w = world();
+    const only = await w.inbox.list(PAYER_A, query({ postingId: JOB_A1 }), CTX);
+    expect(only.total).toBe(pageOf(PAYER_A, { limit: 1000, postingId: JOB_A1 }).length);
+    expect(only.total).toBeGreaterThan(0);
+    expect(only.total).toBeLessThan(EXPECTED_A.length);
+  });
+
+  it("total is 0 for a foreign, unknown or owned-but-empty posting — same neutral as the page", async () => {
+    const w = world();
+    for (const postingId of [POST_B1, JOB_B1, UNKNOWN, POST_A_EMPTY]) {
+      const out = await w.inbox.list(PAYER_A, query({ postingId }), CTX);
+      expect(out.total, postingId).toBe(0);
+      expect(out.applicants).toEqual([]);
+    }
+  });
+
+  it("the COUNT is scoped to the SESSION payer's tenant key, with the same filters as the page", async () => {
+    const w = world();
+    await w.inbox.list(PAYER_A, query({ postingId: JOB_A1, limit: 2 }), CTX);
+    expect(w.inboxRepo.count).toHaveBeenCalledWith(PAYER_A, { postingId: JOB_A1 });
+    await w.inbox.list(PAYER_A, query(), CTX);
+    expect(w.inboxRepo.count).toHaveBeenLastCalledWith(PAYER_A, { postingId: undefined });
   });
 });

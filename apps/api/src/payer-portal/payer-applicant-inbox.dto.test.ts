@@ -126,7 +126,7 @@ describe("inbox cursor — an impossible calendar date is a 400 and nothing is r
   const forged = (t: string) => b64({ v: 1, t, id: ID });
 
   function listThroughThePipe(query: Record<string, unknown>) {
-    const list = vi.fn(async () => ({ applicants: [], nextCursor: null }));
+    const list = vi.fn(async () => ({ applicants: [], nextCursor: null, total: 0 }));
     const assertWithinHourlyCap = vi.fn(async () => undefined);
     const ctrl = new PayerApplicantInboxController(
       { list } as never,

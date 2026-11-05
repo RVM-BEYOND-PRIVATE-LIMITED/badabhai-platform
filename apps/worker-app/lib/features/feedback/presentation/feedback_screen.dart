@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show MaxLengthEnforcement;
 import 'package:go_router/go_router.dart';
 
+import '../../../core/consent/voice_consent.dart';
 import '../../../core/di/locator.dart';
 import '../../../core/error/failure.dart';
 import '../../../core/error/failure_mapper.dart';
@@ -651,10 +652,18 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
             // Non-positioned child above sizes the Stack, so this rides the
             // field's own top-right corner at any height it grows to. Inset by
             // the field's own border so the tile sits inside the outline.
-            Positioned(
-              top: _kBorderWidth,
-              right: _kBorderWidth,
-              child: _voiceControl(),
+            // OWNER ASK (2026-10-22) — the mic only with the worker's voice
+            // consent ([VoiceConsent]); without it they type.
+            ValueListenableBuilder<bool?>(
+              valueListenable: VoiceConsent.instance.state,
+              builder: (BuildContext context, bool? _, Widget? __) =>
+                  VoiceConsent.instance.voiceAllowed
+                  ? Positioned(
+                      top: _kBorderWidth,
+                      right: _kBorderWidth,
+                      child: _voiceControl(),
+                    )
+                  : const SizedBox.shrink(),
             ),
           ],
         ),

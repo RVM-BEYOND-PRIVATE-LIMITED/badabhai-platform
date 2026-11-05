@@ -7,7 +7,9 @@ import type { TenantKey } from "../payers/payer-tenant-scope";
 import { ownTenantKey } from "../payers/payer-tenant-scope.test-support";
 import {
   PayerApplicantInboxRepository,
+  inboxCountStatement,
   inboxPageStatement,
+  type InboxCountQuery,
   type InboxPageQuery,
 } from "./payer-applicant-inbox.repository";
 
@@ -308,5 +310,117 @@ describe("inboxPageStatement — the saved pipeline board (owner ruling 2026-10-
     expect(staged).toMatchObject({ stage: "passed" });
     const [plain] = await repo([raw]).listPage(PAYER_KEY, { limit: 2 });
     expect(plain).not.toHaveProperty("stage");
+  });
+});
+
+describe("inboxCountStatement — total under the same filters (issue #2636)", () => {
+  function compileCount(query: InboxCountQuery) {
+    const q = dialect.sqlToQuery(inboxCountStatement(PAYER_KEY, query));
+    return { sql: q.sql.replace(/\s+/g, " "), params: q.params };
+  }
+
+  it("is a COUNT over the same UNION ALL of two arms (agency first, company second)", () => {
+    const { sql } = compileCount({});
+    expect(sql).toContain("SELECT COUNT(*)::int AS total FROM (");
+    const at = sql.indexOf("UNION ALL");
+    expect(at, "the count is a UNION ALL of two arms").toBeGreaterThan(-1);
+    const agency = sql.slice(0, at);
+    const company = sql.slice(at);
+    expect(agency).toContain("FROM jobs j INNER JOIN applications a ON a.job_id = j.id");
+    expect(company).toContain(
+      "FROM job_postings jp INNER JOIN applications a ON a.job_posting_id = jp.id",
+    );
+  });
+
+  it("ownership is the SESSION payer in both arms plus the precedence probe (three binds)", () => {
+    const { sql, params } = compileCount({});
+    expect(sql).toContain("WHERE j.payer_id =");
+    expect(sql).toContain("WHERE jp.payer_id =");
+    expect(placeholdersOf(params, PAYER)).toHaveLength(3);
+  });
+
+  it("membership matches the page statement: applied only, deletion freeze, profile row, jobs-first", () => {
+    const { sql } = compileCount({});
+    for (const arm of Object.values(arms(sql))) {
+      expect(arm).toContain("AND a.action = 'applied'");
+      expect(arm).toContain("INNER JOIN workers w ON w.id = a.worker_id");
+      expect(arm).toContain("AND w.deletion_scheduled_at IS NULL");
+    }
+    expect(arms(sql).agency).toContain(
+      "AND EXISTS (SELECT 1 FROM worker_profiles wp WHERE wp.worker_id = a.worker_id)",
+    );
+    expect(arms(sql).company).toContain(
+      "AND NOT EXISTS ( SELECT 1 FROM jobs oj WHERE oj.id = a.job_id",
+    );
+  });
+
+  it("no keyset, no ORDER BY, no LIMIT — the total spans every page, not the remainder", () => {
+    const { sql, params } = compileCount({ postingId: POSTING, stages: { only: "shortlist" } });
+    expect(sql).not.toContain("(a.created_at, a.id) <");
+    expect(sql).not.toContain("ORDER BY");
+    expect(sql).not.toContain("LIMIT");
+    expect(sql).not.toContain("applied_key");
+    // Binds follow SQL text order per arm: agency (payer, posting, stage), then company
+    // (payer, precedence-probe payer, posting, stage) — same interleaving as the page read.
+    expect(params).toEqual([PAYER, POSTING, "shortlist", PAYER, PAYER, POSTING, "shortlist"]);
+  });
+
+  it("no postingId → unfiltered; a postingId → filtered in EACH arm", () => {
+    expect(compileCount({}).sql).not.toContain("AND j.id =");
+    const { sql, params } = compileCount({ postingId: POSTING });
+    const p = placeholdersOf(params, POSTING);
+    expect(p).toHaveLength(2);
+    expect(arms(sql).agency).toContain(`AND j.id = ${p[0]}::uuid`);
+    expect(arms(sql).company).toContain(`AND jp.id = ${p[1]}::uuid`);
+  });
+
+  it("WITHOUT `stages` the statement never names the board; WITH it, same join + filter as the page", () => {
+    expect(compileCount({}).sql).not.toContain("payer_applicant_stages");
+    const { sql, params } = compileCount({ stages: { only: "shortlist" } });
+    expect(arms(sql).agency).toContain(
+      "LEFT JOIN payer_applicant_stages s ON s.posting_kind = 'agency_job' AND s.posting_id = j.id AND s.worker_id = a.worker_id",
+    );
+    expect(arms(sql).company).toContain(
+      "LEFT JOIN payer_applicant_stages s ON s.posting_kind = 'company_posting' AND s.posting_id = jp.id AND s.worker_id = a.worker_id",
+    );
+    const p = placeholdersOf(params, "shortlist");
+    expect(p).toHaveLength(2);
+    expect(arms(sql).agency).toContain(`AND COALESCE(s.stage, 'new') = ${p[0]}`);
+  });
+
+  it("payer_id is never projected; the outer select is only the total", () => {
+    const { sql } = compileCount({});
+    const outer = sql.slice(0, sql.indexOf(" FROM (")).trim();
+    expect(outer).toBe("SELECT COUNT(*)::int AS total");
+    // Each arm projects only `1` — no identity column leaves the arms.
+    expect(sql).toContain("SELECT 1 FROM jobs j INNER JOIN");
+    expect(sql).toContain("SELECT 1 FROM job_postings jp INNER JOIN");
+  });
+});
+
+describe("PayerApplicantInboxRepository.count — row mapping", () => {
+  const repo = (rows: unknown[]) =>
+    new PayerApplicantInboxRepository({ execute: async () => rows } as unknown as Database);
+
+  it("returns the integer total", async () => {
+    await expect(repo([{ total: 10 }]).count(PAYER_KEY, {})).resolves.toBe(10);
+  });
+
+  it("coerces a text total (pg returns COUNT as text)", async () => {
+    await expect(repo([{ total: "7" }]).count(PAYER_KEY, {})).resolves.toBe(7);
+  });
+
+  it("a missing or negative total is a statement defect: it throws rather than guessing", async () => {
+    await expect(repo([]).count(PAYER_KEY, {})).rejects.toThrow(/inbox count/);
+    await expect(repo([{ total: -1 }]).count(PAYER_KEY, {})).rejects.toThrow(/inbox count/);
+  });
+
+  it("executes exactly the pinned count statement", async () => {
+    let seen: SQL | undefined;
+    const db = { execute: async (s: SQL) => ((seen = s), [{ total: 3 }]) } as unknown as Database;
+    await new PayerApplicantInboxRepository(db).count(PAYER_KEY, { postingId: POSTING });
+    expect(dialect.sqlToQuery(seen!)).toEqual(
+      dialect.sqlToQuery(inboxCountStatement(PAYER_KEY, { postingId: POSTING })),
+    );
   });
 });

@@ -585,6 +585,66 @@ describe("interview-turn contract (extraction-ready, cost, ai-job)", () => {
     if (!result.success) expect(result.error.stage).toBe("payload");
   });
 
+  it("[B13] validates ai.fallback_alert_raised (system actor, aggregate ai_job subject)", () => {
+    const evt = {
+      ...workerCreatedEvent(),
+      event_name: "ai.fallback_alert_raised",
+      actor: { actor_type: "system" },
+      subject: { subject_type: "ai_job", subject_id: null },
+      payload: {
+        task_type: "profile_extraction",
+        window_hours: 24,
+        total_calls: 20,
+        fallback_calls: 16,
+        fallback_share: 0.8,
+        threshold_share: 0.5,
+        min_calls: 10,
+      },
+    };
+    const result = validateEvent(evt);
+    expect(result.success).toBe(true);
+  });
+
+  it("[B13] validates ai.fallback_alert_cleared with the same shape as the raise", () => {
+    const evt = {
+      ...workerCreatedEvent(),
+      event_name: "ai.fallback_alert_cleared",
+      actor: { actor_type: "system" },
+      subject: { subject_type: "ai_job", subject_id: null },
+      payload: {
+        task_type: "profile_extraction",
+        window_hours: 24,
+        total_calls: 20,
+        fallback_calls: 2,
+        fallback_share: 0.1,
+        threshold_share: 0.5,
+        min_calls: 10,
+      },
+    };
+    expect(validateEvent(evt).success).toBe(true);
+  });
+
+  it("[B13] rejects a fallback alert share outside 0..1 (a share is not free text)", () => {
+    const evt = {
+      ...workerCreatedEvent(),
+      event_name: "ai.fallback_alert_raised",
+      actor: { actor_type: "system" },
+      subject: { subject_type: "ai_job", subject_id: null },
+      payload: {
+        task_type: "profile_extraction",
+        window_hours: 24,
+        total_calls: 20,
+        fallback_calls: 25,
+        fallback_share: 1.25,
+        threshold_share: 0.5,
+        min_calls: 10,
+      },
+    };
+    const result = validateEvent(evt);
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.stage).toBe("payload");
+  });
+
   it("validates ai.job_completed", () => {
     const evt = {
       ...workerCreatedEvent(),
@@ -3245,8 +3305,11 @@ describe("chat.session_abandoned (idle sweep — COUNTS ONLY, no transcript)", (
 });
 
 describe("registry", () => {
-  it("exposes all 244 event names (179 prior + the two trade-form offer steps + Layer A + resume.edited + resume-identity + resume-autofill + profile.viewed_v2 + E0's relay trio + the C-2 consent exit + the ADR-0043 resume-update answer + its erasure backfill + the four tiered-profiling events + the ADR-0044 companion turn + the five ADR-0045 general-road events + the #1318 safe-field resume.edited_v2 + the #1801 resume.skin_changed + the #1800 profile.qr_scanned + the four ADR-0046 companion-v2 Phase 1 events + the ADR-0046 P2 faltu strike + the ADR-0046 P3 career answer + the E4 match-skill wants event + the ADR-0048 identity-intake step + the six TD150/WP8 companion versions + the two ADR-0051 free-chat events + the ADR-0050 job_posting.twin_synced + the ADR-0051 Release 2 summary fold + the ADR-0054 live-news request + the 2026-10-07 payer.applicant_stage_changed + the ADR-0051 §11 reply-language change + the ADR-0055 companion turn v4 + the #2297 companion summary fold + the ADR-0057 turn understood + its three edit-gate events + the #2409 typed-answer review + the two Middle-Way optional-depth offer steps + the 2026-11-03 payer.candidate_search_performed + the #2541 consent.age_declared + the 2026-11-04 consent.purposes_granted + the #2635 job_posting.match_skills_scoped + the ADR-0062 admin.candidate_viewed)", () => {
-    expect(EVENT_NAMES).toHaveLength(244);
+  it("exposes all 246 event names (179 prior + the two trade-form offer steps + Layer A + resume.edited + resume-identity + resume-autofill + profile.viewed_v2 + E0's relay trio + the C-2 consent exit + the ADR-0043 resume-update answer + its erasure backfill + the four tiered-profiling events + the ADR-0044 companion turn + the five ADR-0045 general-road events + the #1318 safe-field resume.edited_v2 + the #1801 resume.skin_changed + the #1800 profile.qr_scanned + the four ADR-0046 companion-v2 Phase 1 events + the ADR-0046 P2 faltu strike + the ADR-0046 P3 career answer + the E4 match-skill wants event + the ADR-0048 identity-intake step + the six TD150/WP8 companion versions + the two ADR-0051 free-chat events + the ADR-0050 job_posting.twin_synced + the ADR-0051 Release 2 summary fold + the ADR-0054 live-news request + the 2026-10-07 payer.applicant_stage_changed + the ADR-0051 §11 reply-language change + the ADR-0055 companion turn v4 + the #2297 companion summary fold + the ADR-0057 turn understood + its three edit-gate events + the #2409 typed-answer review + the two Middle-Way optional-depth offer steps + the 2026-11-03 payer.candidate_search_performed + the #2541 consent.age_declared + the 2026-11-04 consent.purposes_granted + the #2635 job_posting.match_skills_scoped + the ADR-0062 admin.candidate_viewed + the B13 ai.fallback_alert_raised/cleared pair)", () => {
+    expect(EVENT_NAMES).toHaveLength(246);
+    // B13 (#2567) — the loud-AI-alert verdict pair (new names; no schema mutated).
+    expect(isEventName("ai.fallback_alert_raised")).toBe(true);
+    expect(isEventName("ai.fallback_alert_cleared")).toBe(true);
     // ADR-0062 §3.9 (#2560) — an admin opened one candidate's full-detail record (a new name).
     expect(isEventName("admin.candidate_viewed")).toBe(true);
     // #2563 — a payer set their own password (value-free: payer_id only).

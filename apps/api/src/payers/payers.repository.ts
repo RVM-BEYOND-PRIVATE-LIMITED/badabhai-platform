@@ -510,6 +510,34 @@ export class PayersRepository {
   }
 
   /**
+   * #2563 follow-up — replace a payer's display org name (and its exact-name login hash) in
+   * one write. Used when a removed team member's row still carries the founder's copied name:
+   * after removal they must not keep it (or its lookup hash) into a later solo org.
+   */
+  async setOrgName(id: string, orgName: string): Promise<void> {
+    await this.db
+      .update(payers)
+      .set({
+        orgNameEnc: this.pii.encrypt(orgName),
+        orgNameLookupHash: this.pii.hashOrgName(PayersRepository.normOrgName(orgName)),
+        updatedAt: new Date(),
+      })
+      .where(eq(payers.id, id));
+  }
+
+  /**
+   * #2563 follow-up — clear a stale company-name login hash. A removed member must never keep
+   * the founder's hash: `findByOrgName` would otherwise return both rows and the founder's
+   * company-name sign-in would resolve to NOBODY.
+   */
+  async clearOrgLookupHash(id: string): Promise<void> {
+    await this.db
+      .update(payers)
+      .set({ orgNameLookupHash: null, updatedAt: new Date() })
+      .where(eq(payers.id, id));
+  }
+
+  /**
    * Lazily fill `org_name_lookup_hash` for rows created before #2497 (#2497 — the
    * HMAC key lives server-side, so no SQL backfill can compute it). Called on the
    * next successful login; the `WHERE ... IS NULL` guard makes concurrent logins

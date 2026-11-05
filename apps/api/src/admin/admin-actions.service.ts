@@ -78,6 +78,7 @@ export const ADMIN_ACTION_CODES = {
   // never ride the event; the reason code/text lives on the `audit_logs` row written in the
   // same transaction, because `admin.action_performed` is `.strict()` and value-free.
   payer_login_created: "payer_login_created",
+  payer_login_create_conflict: "payer_login_create_conflict",
   payer_password_issued: "payer_password_issued",
   payer_password_revoked: "payer_password_revoked",
 } as const;

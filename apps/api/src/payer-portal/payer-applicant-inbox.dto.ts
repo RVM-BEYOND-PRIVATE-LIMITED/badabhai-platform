@@ -108,4 +108,18 @@ export interface PayerApplicantInboxDto {
   applicants: InboxApplicantRowDto[];
   /** Pass back as `?cursor=` for the next page; `null` when this page is the last. */
   nextCursor: string | null;
+  /**
+   * How many applicants the inbox holds under the SAME filters (and the same disclosure
+   * rules) the page was read with — the `N` in payer-web's "Showing A–B of N" (W8).
+   *
+   * Counted WITHOUT the keyset cursor (it spans every page, not the remainder), with the
+   * same ownership WHEREs, the same `postingId` / `?stage=` filters and the same
+   * membership conjuncts as the page read. It counts page-statement rows (applications
+   * meeting the SQL membership); a row whose detail vanished between the two reads is left
+   * out of `applicants` but still counted — the same race the cursor already advances past.
+   *
+   * Always present (additive: older clients ignore the extra key). It reveals no more than
+   * paging would — the caller could walk every page — so no k-anonymity floor applies.
+   */
+  total: number;
 }

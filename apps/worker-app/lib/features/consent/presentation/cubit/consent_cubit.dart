@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:equatable/equatable.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../../../../core/consent/voice_consent.dart';
 import '../../../../core/di/locator.dart';
 import '../../../../core/error/failure.dart';
 import '../../../../core/observability/analytics.dart';
@@ -14,6 +15,7 @@ enum ConsentStatus { idle, submitting, success, failure, ageBlocked }
 class ConsentState extends Equatable {
   const ConsentState({
     this.accepted = false,
+    this.declined = false,
     this.age18Plus,
     this.status = ConsentStatus.idle,
     this.message,
@@ -23,6 +25,11 @@ class ConsentState extends Equatable {
   /// widget stays logic-free).
   final bool accepted;
 
+  /// Whether the "I don't agree" box is ticked. Only one of [accepted] /
+  /// [declined] is ever true (owner ruling 2026-11-05): the two ticks are
+  /// mutually exclusive, and a decline proceeds type-only after a confirm.
+  final bool declined;
+
   /// The worker's answer to the sign-up age gate: `true` for 18+, `false` for
   /// under 18, `null` until they pick one. Never sent as a string.
   final bool? age18Plus;
@@ -30,16 +37,19 @@ class ConsentState extends Equatable {
   final String? message;
 
   bool get isSubmitting => status == ConsentStatus.submitting;
-  bool get canSubmit => accepted && age18Plus != null && !isSubmitting;
+  bool get canSubmit =>
+      (accepted || declined) && age18Plus != null && !isSubmitting;
 
   ConsentState copyWith({
     bool? accepted,
+    bool? declined,
     bool? age18Plus,
     ConsentStatus? status,
     String? message,
   }) {
     return ConsentState(
       accepted: accepted ?? this.accepted,
+      declined: declined ?? this.declined,
       age18Plus: age18Plus ?? this.age18Plus,
       status: status ?? this.status,
       message: message ?? this.message,
@@ -47,7 +57,8 @@ class ConsentState extends Equatable {
   }
 
   @override
-  List<Object?> get props => <Object?>[accepted, age18Plus, status, message];
+  List<Object?> get props =>
+      <Object?>[accepted, declined, age18Plus, status, message];
 }
 
 class ConsentCubit extends Cubit<ConsentState> {
@@ -74,7 +85,28 @@ class ConsentCubit extends Cubit<ConsentState> {
     'employer_messaging',
   ];
 
-  void setAccepted(bool accepted) => emit(state.copyWith(accepted: accepted));
+  /// The purposes a worker grants when they do NOT allow voice recording: the
+  /// same set without `voice_processing`. The notice's own promise is that the
+  /// whole interview can be typed, so nothing else is withheld. The backend
+  /// accepts any non-empty subset of the known purposes (no server change).
+  static const List<String> _typingOnlyPurposes = <String>[
+    'profiling',
+    'resume_generation',
+    'employer_sharing',
+    'employer_messaging',
+  ];
+
+  /// Ticking "I agree" unticks "I don't agree" (owner ruling 2026-11-05).
+  void setAccepted(bool accepted) => emit(state.copyWith(
+        accepted: accepted,
+        declined: accepted ? false : state.declined,
+      ));
+
+  /// Ticking "I don't agree" unticks "I agree" (owner ruling 2026-11-05).
+  void setDeclined(bool declined) => emit(state.copyWith(
+        declined: declined,
+        accepted: declined ? false : state.accepted,
+      ));
 
   /// Set by the age-gate chips. `false` is only reached after the screen's
   /// "Pakka?" confirm, so a mis-tap can never sign the worker out.
@@ -83,10 +115,13 @@ class ConsentCubit extends Cubit<ConsentState> {
 
   Future<void> submit() async {
     if (!state.canSubmit) return;
+    final bool voiceGranted = !state.declined;
+    final List<String> purposes =
+        voiceGranted ? _purposes : _typingOnlyPurposes;
     emit(state.copyWith(status: ConsentStatus.submitting));
     try {
       await _repo.acceptConsent(
-        purposes: _purposes,
+        purposes: purposes,
         age18Plus: state.age18Plus!,
       );
       if (isClosed) return;
@@ -96,11 +131,14 @@ class ConsentCubit extends Cubit<ConsentState> {
       if (locator.isRegistered<AuthSessionManager>()) {
         locator<AuthSessionManager>().markConsentAccepted();
       }
+      // A declined voice consent hides every voice control downstream, so the
+      // worker answers the whole interview by typing (the notice's promise).
+      VoiceConsent.instance.set(granted: voiceGranted);
       // B7 funnel milestone, mirroring the server's `consent.accepted` event.
       // The COUNT of purposes only — never the worker, never the purposes.
       unawaited(
         BbAnalytics.instance.log(
-          BbAnalytics.consentDone(purposeCount: _purposes.length),
+          BbAnalytics.consentDone(purposeCount: purposes.length),
         ),
       );
       emit(state.copyWith(status: ConsentStatus.success));

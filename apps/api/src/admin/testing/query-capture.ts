@@ -119,6 +119,20 @@ export function captureQueries(rows: unknown[] = []): CapturedQuery {
       if (projection) Object.values(projection).forEach(capture);
       return chain;
     },
+    selectDistinct: (projection?: Record<string, unknown>) => {
+      statements.push("DISTINCT");
+      if (projection) Object.values(projection).forEach(capture);
+      return chain;
+    },
+    /**
+     * Raw `db.execute(...)` — the escape hatch for the one grouped statement per
+     * repository that CTEs express better than builders (the funnel's profiling
+     * numerator/denominator). Captured whole, like every other clause.
+     */
+    execute: async (query: unknown) => {
+      capture(query);
+      return rows;
+    },
     /**
      * `DISTINCT ON (...)` — the form `CURRENT_PROFILE_ORDER` is designed to be the tail of.
      * Both the DISTINCT-ON expressions and the projection are captured, so a read that silently

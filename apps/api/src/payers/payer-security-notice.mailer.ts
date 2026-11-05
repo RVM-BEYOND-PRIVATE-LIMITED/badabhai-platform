@@ -2,7 +2,7 @@ import { Injectable } from "@nestjs/common";
 import { EmailNotificationService } from "../notifications/email-notification.service";
 
 /** The kind of credential change a security notice describes. */
-export type PayerSecurityNoticeKind = "reset" | "revoked" | "changed";
+export type PayerSecurityNoticeKind = "setup" | "reset" | "revoked" | "changed";
 
 /** One security notice. `email` is PII and belongs ONLY inside the outbound message. */
 export interface PayerSecurityNotice {
@@ -35,7 +35,7 @@ export class EmailPayerSecurityNoticeMailer implements PayerSecurityNoticeMailer
 
   async send(notice: PayerSecurityNotice): Promise<void> {
     const when = EmailPayerSecurityNoticeMailer.formatIst(notice.at);
-    const verb = notice.kind;
+    const verb = notice.kind === "setup" ? "set up" : notice.kind;
     await this.email.send({
       to: notice.email,
       subject: "Your BadaBhai password was changed",
