@@ -1,10 +1,14 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Injectable, Logger, Optional } from "@nestjs/common";
 import type { AICallMetadata } from "@badabhai/ai-contracts";
 import type { AiCostTaskType } from "@badabhai/event-schema";
 
 import { EventsService } from "../events/events.service";
 import { AiCostTotalsRepository } from "./ai-cost-totals.repository";
-import type { AiAlertsService } from "./ai-alerts.service";
+// VALUE import (not `import type`): Nest reads the constructor's design:paramtypes at
+// runtime to resolve this dependency — a type-only import erases it and the API fails
+// to boot (E2E "API process exited during startup"). No cycle: the alerts service
+// never imports the recorder.
+import { AiAlertsService } from "./ai-alerts.service";
 
 /**
  * WHO THIS SPEND BELONGS TO. Absent attribution is legitimate — payer-side calls have no
@@ -63,7 +67,7 @@ export class AiCostRecorder {
      * is exactly what it was before — evaluation then runs only when driven directly
      * (`AiAlertsService.evaluate`), which is also the seam the acceptance tests use.
      */
-    private readonly alerts?: AiAlertsService,
+    @Optional() private readonly alerts?: AiAlertsService,
   ) {}
 
   /**
