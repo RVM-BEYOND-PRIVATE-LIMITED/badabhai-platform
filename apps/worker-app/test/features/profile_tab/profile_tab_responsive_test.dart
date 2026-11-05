@@ -235,6 +235,23 @@ void main() {
         );
       }
 
+      // OWNER ASK (2026-10-22) — skills / anubhav now open from the small
+      // chip under the name card; the sheet must be just as clean.
+      await tester.tap(find.byKey(const Key('profile-fact-skills')));
+      await tester.pumpAndSettle();
+      for (final String raw in <String>[
+        'skill_milling',
+        'skill_drawing_reading',
+        'mach_vmc',
+        'below_10',
+      ]) {
+        expect(
+          find.textContaining(raw, findRichText: true),
+          findsNothing,
+          reason: 'a raw value ($raw) reached the skills sheet',
+        );
+      }
+
       // The humanized forms are what a worker sees instead.
       expect(find.text('CNC Turner/Operator'), findsOneWidget);
       expect(find.text('Milling'), findsOneWidget);

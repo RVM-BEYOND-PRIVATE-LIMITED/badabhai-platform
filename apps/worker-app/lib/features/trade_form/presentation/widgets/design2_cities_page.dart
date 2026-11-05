@@ -18,8 +18,10 @@ import 'trade_form_text_field.dart';
 ///    simply gains its sub-labels when the catalogue lands.
 ///  - an empty [selectedCities] hides the picked chips and prints the mock's
 ///    "No cities selected yet" note.
-  ///  - an empty [popularHubs] hides the whole "Other best places"
-///    block (the catalogue fallback, empty until #1634 ships).
+///  - OWNER ASK (2026-10-21): the "Cities" card is hidden until a state is
+///    picked and then lists ONLY that state's cities; [popularHubs] (the
+///    cross-state "Other best places" list) is no longer drawn. The parameter
+///    stays so callers are unchanged.
 ///
 /// Below the question heading the page follows city1: a "Selected locations"
 /// banner, a numbered "Choose State" card (dropdown sheet + popular-state
@@ -99,11 +101,8 @@ class Design2CitiesPage extends StatelessWidget {
   static const String _kSearchHint = 'Search city...';
   static const String _kPopularCities = 'Popular cities from selected state';
   static const String _kSearchResults = 'SEARCH RESULTS';
-  static const String _kOtherCities = 'Other best places';
   static const String _kSelectedCities = 'Selected cities';
   static const String _kNoCities = 'No cities selected yet';
-  static const String _kPickStateHint =
-      'Pehle state chunein — uske sheher yahan dikhenge.';
   static const String _kNoHubs = 'Is rajya ke sheher jald aa rahe hain.';
   static const String _kTrust = '100% Free • Verified Factory Jobs only';
 
@@ -214,8 +213,12 @@ class Design2CitiesPage extends StatelessWidget {
           ),
           const SizedBox(height: 10),
           _City1Card(child: _stateSection(context)),
-          const SizedBox(height: 10),
-          _City1Card(child: _citiesSection()),
+          // OWNER ASK (2026-10-21) — the Cities card stays hidden until a
+          // state is picked, then lists that state's cities only.
+          if (selectedState != null) ...<Widget>[
+            const SizedBox(height: 10),
+            _City1Card(child: _citiesSection()),
+          ],
           const SizedBox(height: 12),
           const _TrustFooter(text: _kTrust),
         ],
@@ -292,7 +295,7 @@ class Design2CitiesPage extends StatelessWidget {
           const _MicroLabel(_kSearchResults),
           const SizedBox(height: 8),
           _CityGrid(hubs: searchResults, onToggle: onToggleHub),
-        ] else if (selectedState != null) ...<Widget>[
+        ] else ...<Widget>[
           const _MicroLabel(_kPopularCities),
           const SizedBox(height: 8),
           if (stateHubs.isEmpty)
@@ -302,27 +305,9 @@ class Design2CitiesPage extends StatelessWidget {
             )
           else
             _CityGrid(hubs: stateHubs, onToggle: onToggleHub),
-        ] else ...<Widget>[
-          Text(
-            _kPickStateHint,
-            style: OnboardingTypography.formWhyText(),
-          ),
         ],
-        if (popularHubs.isNotEmpty) ...<Widget>[
-          const SizedBox(height: 10),
-          const _OrDivider(),
-          const SizedBox(height: 10),
-          Text(
-            _kOtherCities,
-            style: OnboardingTypography.inter(
-              size: 13,
-              weight: FontWeight.w700,
-              color: OnboardingColors.ink900,
-            ),
-          ),
-          const SizedBox(height: 8),
-          _OtherCityRows(hubs: popularHubs, onToggle: onToggleHub),
-        ],
+        // OWNER ASK (2026-10-21) — only the SELECTED state's cities: the
+        // cross-state "Other best places" list ([popularHubs]) is not drawn.
         const SizedBox(height: 4),
         const Divider(color: OnboardingColors.borderDefault, height: 17),
         const SizedBox(height: 4),
@@ -879,109 +864,6 @@ class _CityCheckCard extends StatelessWidget {
           ),
         ),
       ),
-    );
-  }
-}
-
-/// The "OR" divider between the state-scoped grid and the other-cities rows.
-class _OrDivider extends StatelessWidget {
-  const _OrDivider();
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: <Widget>[
-        const Expanded(
-          child: Divider(color: OnboardingColors.borderDefault),
-        ),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 10),
-          child: Text(
-            'OR',
-            style: OnboardingTypography.inter(
-              size: 11,
-              weight: FontWeight.w700,
-              color: OnboardingColors.ink500,
-            ),
-          ),
-        ),
-        const Expanded(
-          child: Divider(color: OnboardingColors.borderDefault),
-        ),
-      ],
-    );
-  }
-}
-
-/// The catalogue's popular hubs as full-width toggle rows — cities the worker
-/// can add without picking their state first.
-class _OtherCityRows extends StatelessWidget {
-  const _OtherCityRows({required this.hubs, required this.onToggle});
-
-  final List<Design2Hub> hubs;
-  final ValueChanged<String> onToggle;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: <Widget>[
-        for (final Design2Hub h in hubs) ...<Widget>[
-          Material(
-            color: h.selected
-                ? OnboardingColors.selectedCardBg
-                : OnboardingColors.paperWhite,
-            borderRadius: BorderRadius.circular(OnboardingRadii.row),
-            child: InkWell(
-              onTap: () => onToggle(h.cityValue),
-              borderRadius: BorderRadius.circular(OnboardingRadii.row),
-              child: Container(
-                constraints: const BoxConstraints(minHeight: 44),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 9,
-                ),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(OnboardingRadii.row),
-                  border: Border.all(
-                    color: h.selected
-                        ? OnboardingColors.safetyYellow
-                        : OnboardingColors.borderDefault,
-                    width: h.selected ? 1.5 : 1.2,
-                  ),
-                ),
-                child: Row(
-                  children: <Widget>[
-                    Expanded(
-                      child: Text(
-                        h.areas == null ? h.title : '${h.title}: ${h.areas}',
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: OnboardingTypography.inter(
-                          size: 12,
-                          weight: FontWeight.w600,
-                          color: OnboardingColors.ink900,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Icon(
-                      h.selected
-                          ? Icons.check_box_rounded
-                          : Icons.check_box_outline_blank_rounded,
-                      size: 20,
-                      color: h.selected
-                          ? OnboardingColors.successGreen
-                          : OnboardingColors.ink500,
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(height: 8),
-        ],
-      ],
     );
   }
 }

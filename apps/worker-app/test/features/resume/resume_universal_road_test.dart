@@ -76,13 +76,14 @@ void main() {
       expect(find.textContaining('qp_'), findsNothing);
     });
 
-    testWidgets('no dead ends: share, download and correction stay reachable',
+    testWidgets('no dead ends: share and download stay reachable',
         (WidgetTester tester) async {
       await wireUniversal(tester);
 
       expect(find.text('Share'), findsOneWidget);
       expect(find.text('Download'), findsOneWidget);
-      expect(find.text('Report correction'), findsOneWidget);
+      // OWNER ASK 2026-10-21 — the "Report correction" card was removed.
+      expect(find.text('Report correction'), findsNothing);
     });
   });
 }

@@ -297,10 +297,11 @@ void main() {
 
     await tester.tap(find.text('Profile'));
     // #1322: the count-based "Profile strength" card is gone (the number was a
-    // grade §9.2 forbids). Land on the persistent "Skills aur anubhav" card, which
-    // the Profile tab always renders, as the stable tab landmark.
-    await _pumpUntil(tester, find.text('Skills aur anubhav'));
-    expect(find.text('Skills aur anubhav'), findsOneWidget);
+    // grade §9.2 forbids). Land on the "Skills aur anubhav" icon in the name
+    // card (owner ask 2026-10-22: icon-only, the words are its tooltip) as the
+    // stable tab landmark.
+    await _pumpUntil(tester, find.byTooltip('Skills aur anubhav'));
+    expect(find.byTooltip('Skills aur anubhav'), findsOneWidget);
     expect(_navIndex(tester), _kProfileTab);
 
     // ── 8b. INTERVIEW KIT — opening it from Profile must NOT move the bottom
@@ -319,7 +320,7 @@ void main() {
     // 'Wapas' tooltip, the same one Alerts uses below.
     await tester.tap(find.byTooltip('Wapas'));
     await tester.pumpAndSettle();
-    expect(find.text('Skills aur anubhav'), findsOneWidget);
+    expect(find.byTooltip('Skills aur anubhav'), findsOneWidget);
     expect(_navIndex(tester), _kProfileTab);
 
     // T5: the badge is lit on the Profile header bell BEFORE Alerts is opened.

@@ -12,7 +12,6 @@ import '../../../core/api/api_models.dart'
     show
         isGeneralSheetDocument,
         ResumeDocument,
-        ResumeHistoryItem,
         TradeSheetResumeDocument;
 import '../../../core/di/locator.dart';
 import '../../../core/error/failure.dart';
@@ -42,7 +41,6 @@ import 'widgets/resume_card_slots.dart';
 import 'widgets/resume_document_view.dart';
 import 'widgets/resume_skin_card.dart';
 import 'widgets/resume_general_sheet_view.dart';
-import '../../trade_form/presentation/widgets/add_more_detail_button.dart';
 import 'widgets/resume_history_section.dart';
 import 'widgets/resume_profile_card.dart';
 import 'widgets/resume_sections.dart';
@@ -364,22 +362,11 @@ class _ResumeViewState extends State<_ResumeView> {
         const SizedBox(height: kResumeCardGap),
         resumeBody,
         const SizedBox(height: kResumeCardGap),
-        // #1687 — the older resumes. Renders nothing at all when there is no
-        // history (an older server, or a worker with one resume).
-        ResumeHistorySection(
-          history: state.history,
-          actionsBuilder: (ResumeHistoryItem item) => ResumePdfActions(
-            resumeId: item.resumeId,
-            pdfFailed: item.hasFailedRender,
-          ),
-        ),
-        if (state.history.items.isNotEmpty)
-          const SizedBox(height: kResumeCardGap),
-        // #1698 — "Aur detail add karein": a tier UPGRADE, offered only when
-        // the server says one is available. Renders nothing otherwise, which
-        // is every box today.
-        const AddMoreDetailButton(),
-        const _ReportCorrectionButton(),
+        // OWNER ASK (2026-10-21) — the "Pichle resume" list is no longer shown
+        // on this tab (the Profile tab's "Mere resume" still lists them).
+        // OWNER ASK (2026-10-22) — the #1698 "Aur detail add karein / Zyada
+        // detail = strong resume" entry is removed from this tab permanently.
+        // OWNER ASK (2026-10-21) — the "Report correction" card is removed.
         // HIDDEN FOR NOW: the 'Profile review karein' button with its gap —
         // hidden until the owner asks it back. Restored by deleting this
         // Visibility (the sibling gap above stays removed either way).
@@ -388,17 +375,9 @@ class _ResumeViewState extends State<_ResumeView> {
           maintainState: true,
           child: _ReviewExtractedButton(),
         ),
+        // OWNER ASK (2026-10-21) — the "Naam / photo / phone aap control karte
+        // hain" line is removed.
         const SizedBox(height: 16),
-        Center(
-          child: Text(
-            'Naam / photo / phone aap control karte hain',
-            textAlign: TextAlign.center,
-            style: OnboardingTypography.inter(
-              size: 11,
-              color: OnboardingColors.ink500,
-            ),
-          ),
-        ),
       ],
     );
   }
@@ -521,52 +500,9 @@ class _ResumeViewState extends State<_ResumeView> {
 /// that draws it, so a test can follow it across them.
 const Key kResumeTabUploadEntryKey = Key('resume-upload-entry');
 
-/// Spec §4's last row — the worker's way to say a line on their own resume is
-/// wrong.
-///
-/// 'Report correction' only, not the spec's 'Report Correction or Add
-/// Certificate': there is no certificate upload anywhere in the app and no
-/// endpoint behind one (backend gap B9), so half that button would have been a
-/// promise with nothing behind it. It goes to the real feedback screen,
-/// carrying the route the worker was on.
-class _ReportCorrectionButton extends StatelessWidget {
-  const _ReportCorrectionButton();
-
-  @override
-  Widget build(BuildContext context) {
-    return OutlinedButton.icon(
-      style: OutlinedButton.styleFrom(
-        // Spec draws h46; the worker touch floor is 48 and it wins.
-        minimumSize: const Size(double.infinity, OnboardingLayout.tapTarget),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(OnboardingRadii.docked),
-        ),
-        side: const BorderSide(color: OnboardingColors.borderDefault),
-        backgroundColor: OnboardingColors.paperWhite,
-        foregroundColor: OnboardingColors.ink600,
-        textStyle: OnboardingTypography.inter(
-          size: 13,
-          weight: FontWeight.w600,
-        ),
-      ),
-      onPressed: () => context.pushOnce(Routes.feedback, extra: Routes.resume),
-      icon: const Icon(Icons.report_problem_outlined, size: 16),
-      // maxLines 2: an `OutlinedButton.icon` label single-line-ellipsises by
-      // default, and at a large system font this one did not fit the card
-      // width beside its glyph.
-      label: const Text(
-        'Report correction',
-        maxLines: 2,
-        textAlign: TextAlign.center,
-      ),
-    );
-  }
-}
-
 /// The extracted-profile review surface (#1595, §8.4): what the interview
-/// heard, with a correction affordance per writable field. Sits beside
-/// 'Report correction' (which is the free-text feedback door); this one is
-/// the structured door — bounded fields, audited writes, re-read values.
+/// heard, with a correction affordance per writable field — the structured
+/// door: bounded fields, audited writes, re-read values.
 class _ReviewExtractedButton extends StatelessWidget {
   const _ReviewExtractedButton();
 

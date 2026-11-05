@@ -50,11 +50,53 @@ void main() {
     await tester.pump();
   }
 
+  /// OWNER ASK (2026-10-21) — the section is no longer on the Resume tab, so
+  /// its own rules are held by pumping the widget directly. Each card's
+  /// actions are a plain "Download" text, one per card.
+  Future<void> pumpSection(
+    WidgetTester tester, {
+    required ResumeHistory history,
+  }) async {
+    tester.view.physicalSize = const Size(420, 1400);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SingleChildScrollView(
+            child: ResumeHistorySection(
+              history: history,
+              actionsBuilder: (ResumeHistoryItem item) => const Text('Download'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+  }
+
+  testWidgets(
+    'OWNER ASK 2026-10-21: the Resume tab no longer shows "Pichle resume", '
+    'even with history',
+    (WidgetTester tester) async {
+      await pumpTab(
+        tester,
+        history: ResumeHistory(
+          items: <ResumeHistoryItem>[_item(id: 'r0'), _item(id: 'r1', day: 11)],
+        ),
+      );
+      expect(find.text(kResumeHistoryTitle.toUpperCase()), findsNothing);
+      expect(find.text('Report correction'), findsNothing);
+      expect(find.text('Naam / photo / phone aap control karte hain'), findsNothing);
+    },
+  );
+
   group('how many cards (the server windows, the app renders)', () {
     testWidgets('NO history: no section at all — the tab is exactly today\'s', (
       WidgetTester tester,
     ) async {
-      await pumpTab(tester, history: ResumeHistory.empty);
+      await pumpSection(tester, history: ResumeHistory.empty);
       expect(find.text(kResumeHistoryTitle.toUpperCase()), findsNothing);
     });
 
@@ -62,7 +104,7 @@ void main() {
       WidgetTester tester,
     ) async {
       for (final int n in <int>[1, 2, 3]) {
-        await pumpTab(
+        await pumpSection(
           tester,
           history: ResumeHistory(
             items: <ResumeHistoryItem>[
@@ -86,7 +128,7 @@ void main() {
       // rows arrive. If it is raised, the app must SHOW them: re-trimming
       // client-side would make a server config change look broken, and nothing
       // is ever deleted (ruling R4, "keep all, show three").
-      await pumpTab(
+      await pumpSection(
         tester,
         history: ResumeHistory(
           items: <ResumeHistoryItem>[
@@ -102,7 +144,7 @@ void main() {
 
     testWidgets('an absurd response is still bounded — the safety ceiling '
         'stops an unbounded list of cards', (WidgetTester tester) async {
-      await pumpTab(
+      await pumpSection(
         tester,
         history: ResumeHistory(
           items: <ResumeHistoryItem>[
@@ -116,7 +158,7 @@ void main() {
 
     testWidgets('THREE CHAT ENTRIES render three Chat cards — any mix is '
         'allowed, including a repeat', (WidgetTester tester) async {
-      await pumpTab(
+      await pumpSection(
         tester,
         history: ResumeHistory(
           items: <ResumeHistoryItem>[
@@ -132,7 +174,7 @@ void main() {
     testWidgets('each source gets its own human badge, never the wire token', (
       WidgetTester tester,
     ) async {
-      await pumpTab(
+      await pumpSection(
         tester,
         history: ResumeHistory(
           items: <ResumeHistoryItem>[
@@ -153,7 +195,7 @@ void main() {
 
   group('what a card may and may not claim', () {
     testWidgets('a NULL source shows no badge', (WidgetTester tester) async {
-      await pumpTab(
+      await pumpSection(
         tester,
         history: ResumeHistory(
           items: <ResumeHistoryItem>[
@@ -170,7 +212,7 @@ void main() {
     testWidgets('an UNKNOWN source shows no badge and does not crash', (
       WidgetTester tester,
     ) async {
-      await pumpTab(
+      await pumpSection(
         tester,
         history: ResumeHistory(
           items: <ResumeHistoryItem>[
@@ -184,7 +226,7 @@ void main() {
 
     testWidgets('the status pill is fail-closed: rendered → READY, failed → '
         'NAHI BANI, anything else → BAN RAHA HAI', (WidgetTester tester) async {
-      await pumpTab(
+      await pumpSection(
         tester,
         history: ResumeHistory(
           items: <ResumeHistoryItem>[
@@ -201,7 +243,7 @@ void main() {
 
     testWidgets('NO VERSION NUMBER is ever printed — it is counted per '
         'profile, not per history', (WidgetTester tester) async {
-      await pumpTab(
+      await pumpSection(
         tester,
         history: ResumeHistory(
           items: <ResumeHistoryItem>[_item(current: true)],
@@ -214,7 +256,7 @@ void main() {
     testWidgets('each card carries its OWN download + share actions', (
       WidgetTester tester,
     ) async {
-      await pumpTab(
+      await pumpSection(
         tester,
         history: ResumeHistory(
           items: <ResumeHistoryItem>[
@@ -223,8 +265,8 @@ void main() {
           ],
         ),
       );
-      // One pair per card, plus the profile card's own pair at the top.
-      expect(find.text('Download'), findsNWidgets(3));
+      // One action row per card (the section alone — no profile card).
+      expect(find.text('Download'), findsNWidgets(2));
     });
   });
 

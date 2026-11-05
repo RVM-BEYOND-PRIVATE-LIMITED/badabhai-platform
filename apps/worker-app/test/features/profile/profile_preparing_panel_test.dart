@@ -5,8 +5,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
 import 'package:badabhai_worker_app/core/di/locator.dart';
-import 'package:badabhai_worker_app/core/widgets/kit/kit_header_actions.dart';
-import 'package:badabhai_worker_app/core/widgets/onboarding/brand_badge.dart';
 import 'package:badabhai_worker_app/features/profile/domain/profile_repository.dart';
 import 'package:badabhai_worker_app/features/profile/presentation/cubit/profile_cubit.dart';
 import 'package:badabhai_worker_app/features/profile/presentation/profile_preview_screen.dart';
@@ -72,19 +70,19 @@ void main() {
     expect(find.text(kPreparingProfileTipText), findsOneWidget);
   });
 
-  testWidgets('the header carries the Feedback WORD, never the brand lockup', (
-    WidgetTester tester,
-  ) async {
+  testWidgets('the header carries the brand monogram and the FEEDBACK pill '
+      '(owner ask 2026-10-22)', (WidgetTester tester) async {
     setKitSurface(tester, const Size(390, 844));
     await tester.pumpWidget(kitTestApp(const ProfilePreviewScreen()));
     await pumpPaced(tester);
 
-    // The lockup is gone from this screen's header, and the slot it held now
-    // carries Feedback — the floating pill is hidden on /profiling for exactly
-    // that reason (`feedback_fab_test.dart` pins the other half).
-    expect(find.byType(BrandBadge), findsNothing);
-    expect(find.byType(KitFeedbackTextAction), findsOneWidget);
+    // The redesign draws the brand mark + "BADABHAI" beside the back arrow,
+    // and the FEEDBACK pill is this screen's only Feedback entry — the
+    // floating pill stays hidden on /profiling (`feedback_fab_test.dart`).
+    expect(find.text('BADABHAI'), findsOneWidget);
     expect(find.text('FEEDBACK'), findsOneWidget);
+    expect(find.bySemanticsLabel('Feedback'), findsOneWidget);
+    expect(find.text('Your profile'), findsOneWidget);
   });
 
   testWidgets('the ticker never runs to "all done" — the last row stays '

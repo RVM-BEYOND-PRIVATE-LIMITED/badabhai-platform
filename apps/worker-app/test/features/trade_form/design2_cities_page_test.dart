@@ -149,7 +149,20 @@ void main() {
     expect(find.textContaining('jald aa rahe hain'), findsOneWidget);
   });
 
-  testWidgets('renders the other-cities rows when the catalogue has popular hubs',
+  testWidgets(
+      'OWNER ASK 2026-10-21: with NO state picked the Cities card is hidden',
+      (WidgetTester tester) async {
+    await tester.pumpWidget(harness(selectedState: null));
+    expect(find.text('State Chunain'), findsOneWidget);
+    expect(find.text('Cities Chunain'), findsNothing);
+    expect(find.text('Search city...'), findsNothing);
+    expect(find.text('Pune'), findsNothing);
+    expect(find.byType(TextField), findsNothing);
+  });
+
+  testWidgets(
+      'OWNER ASK 2026-10-21: once a state is picked the Cities card lists only '
+      'that state\'s cities — no cross-state "Other best places"',
       (WidgetTester tester) async {
     await tester.pumpWidget(harness(popular: const <Design2Hub>[
       Design2Hub(
@@ -159,8 +172,10 @@ void main() {
         selected: false,
       ),
     ]));
-    expect(find.text('Other best places'), findsOneWidget);
-    expect(find.text('NCR: Manesar / Gurugram'), findsOneWidget);
+    expect(find.text('Cities Chunain'), findsOneWidget);
+    expect(find.text('Pune'), findsOneWidget);
+    expect(find.text('Other best places'), findsNothing);
+    expect(find.text('NCR: Manesar / Gurugram'), findsNothing);
   });
 
   testWidgets('typing is the search: no Dhoondhein button, no "Koi sheher?" '
