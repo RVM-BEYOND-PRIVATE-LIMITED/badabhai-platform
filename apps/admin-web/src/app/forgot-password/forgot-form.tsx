@@ -5,6 +5,8 @@ import Link from "next/link";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 import { requestResetCodeAction, resetPasswordAction } from "./actions";
 import { NewPasswordFields } from "../../components/new-password-fields";
+import { FieldError, FormSummary, useFormValidation } from "../../components/form-feedback";
+import { looksLikeAdminEmail } from "../../lib/email-shape";
 import { newPasswordPairReady } from "../../lib/password-policy";
 
 /**
@@ -28,6 +30,24 @@ export function ForgotPasswordForm() {
   const [resendIn, setResendIn] = useState(0);
   const [pending, startTransition] = useTransition();
   const ids = useId();
+
+  const validation = useFormValidation({
+    order: step === "email" ? (["email"] as const) : step === "reset" ? (["code"] as const) : [],
+    fieldId: (field) => `${ids}-${field}`,
+    focus: (field) => {
+      if (typeof document !== "undefined") document.getElementById(`${ids}-${field}`)?.focus();
+    },
+    validate: () => {
+      const errors: Partial<Record<"email" | "code", string>> = {};
+      if (step === "email") {
+        if (email.trim() === "") errors.email = "Enter your work email.";
+        else if (!looksLikeAdminEmail(email)) errors.email = "Enter a valid email address.";
+      }
+      if (step === "reset" && code.length < 4)
+        errors.code = "Enter the code from your email.";
+      return errors;
+    },
+  });
 
   // Announce each new step by moving focus to its heading — not on first render, where the
   // email field's own autofocus is where the operator starts.
@@ -60,10 +80,12 @@ export function ForgotPasswordForm() {
 
   function submitEmail(e: React.FormEvent) {
     e.preventDefault();
+    if (validation.submit() !== null) return;
     sendCode(() => {
       setCode("");
       setNewPassword("");
       setConfirmPassword("");
+      validation.reset();
       setStep("reset");
     });
   }
@@ -75,6 +97,7 @@ export function ForgotPasswordForm() {
 
   function submitReset(e: React.FormEvent) {
     e.preventDefault();
+    if (validation.submit() !== null) return;
     if (!newPasswordPairReady(newPassword, confirmPassword)) return;
     setError(null);
     startTransition(async () => {
@@ -84,11 +107,11 @@ export function ForgotPasswordForm() {
       setCode("");
       setNewPassword("");
       setConfirmPassword("");
+      validation.reset();
       setStep("done");
     });
   }
 
-  const ready = code.length >= 4 && newPasswordPairReady(newPassword, confirmPassword);
 
   return (
     <div className="auth-card">
@@ -117,10 +140,12 @@ export function ForgotPasswordForm() {
       </div>
 
       {step === "email" && (
-        <form className="auth-form" onSubmit={submitEmail} noValidate>
+        <form className={validation.shaking ? "auth-form form--shake" : "auth-form"} onSubmit={submitEmail} noValidate>
+          <FormSummary errors={validation.visible} />
           <label className="field">
             <span className="field__label">Work email</span>
             <input
+              id={`${ids}-email`}
               className="field__input"
               type="email"
               name="email"
@@ -130,11 +155,16 @@ export function ForgotPasswordForm() {
               autoFocus
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              aria-invalid={error ? true : undefined}
+              onBlur={() => validation.onBlur("email")}
+              aria-invalid={error || validation.errors.email ? true : undefined}
+              aria-describedby={
+                validation.errors.email ? `${ids}-email-error` : undefined
+              }
               placeholder="you@company.com"
             />
+            <FieldError id={`${ids}-email-error`}>{validation.errors.email}</FieldError>
           </label>
-          <button className="btn btn--primary" type="submit" disabled={pending || !email}>
+          <button className="btn btn--primary" type="submit" disabled={pending}>
             <Icon name={ACTION_ICON.send} />
             {pending ? "Sending…" : "Send reset code"}
           </button>
@@ -148,7 +178,8 @@ export function ForgotPasswordForm() {
       )}
 
       {step === "reset" && (
-        <form className="auth-form" onSubmit={submitReset} noValidate>
+        <form className={validation.shaking ? "auth-form form--shake" : "auth-form"} onSubmit={submitReset} noValidate>
+          <FormSummary errors={validation.visible} />
           {/* For password managers: the account the new password belongs to. */}
           <input
             className="sr-only"
@@ -163,6 +194,7 @@ export function ForgotPasswordForm() {
           <label className="field">
             <span className="field__label">Reset code</span>
             <input
+              id={`${ids}-code`}
               className="field__input field__input--code"
               type="text"
               inputMode="numeric"
@@ -173,9 +205,15 @@ export function ForgotPasswordForm() {
               autoFocus
               value={code}
               onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
-              aria-invalid={error ? true : undefined}
-              aria-describedby={`${ids}-code-help`}
+              onBlur={() => validation.onBlur("code")}
+              aria-invalid={error || validation.errors.code ? true : undefined}
+              aria-describedby={
+                validation.errors.code
+                  ? `${ids}-code-help ${ids}-code-error`
+                  : `${ids}-code-help`
+              }
             />
+            <FieldError id={`${ids}-code-error`}>{validation.errors.code}</FieldError>
           </label>
           <p className="field__help" id={`${ids}-code-help`}>
             The code expires shortly. It only resets your password — it does not sign you in.
@@ -187,7 +225,7 @@ export function ForgotPasswordForm() {
             onConfirmChange={setConfirmPassword}
             disabled={pending}
           />
-          <button className="btn btn--primary" type="submit" disabled={pending || !ready}>
+          <button className="btn btn--primary" type="submit" disabled={pending}>
             <Icon name={ACTION_ICON.approve} />
             {pending ? "Saving…" : "Set new password"}
           </button>
@@ -205,6 +243,7 @@ export function ForgotPasswordForm() {
               className="btn btn--ghost"
               type="button"
               onClick={() => {
+                validation.reset();
                 setStep("email");
                 setError(null);
               }}

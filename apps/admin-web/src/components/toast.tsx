@@ -89,13 +89,17 @@ export function ToastStack({
 
 function ToastView({ toast, onRemoved }: { toast: Toast; onRemoved: (id: number) => void }) {
   const [open, setOpen] = useState(true);
+  const [paused, setPaused] = useState(false);
   const presence = usePresence(open);
-  const { id, durationMs, undo } = toast;
+  const { id, durationMs, undo, action } = toast;
 
   useEffect(() => {
+    // Rule 2: the clock pauses while the toast is hovered or holds focus. Resuming restarts the
+    // full window rather than shaving a few milliseconds off a notice nobody is reading.
+    if (!open || paused) return;
     const timer = setTimeout(() => setOpen(false), durationMs);
     return () => clearTimeout(timer);
-  }, [durationMs]);
+  }, [durationMs, open, paused]);
 
   useEffect(() => {
     if (presence === "closed") onRemoved(id);
@@ -104,7 +108,19 @@ function ToastView({ toast, onRemoved }: { toast: Toast; onRemoved: (id: number)
   if (presence === "closed") return null;
 
   return (
-    <li className={`toast toast--${toast.tone}`} data-state={presence}>
+    <li
+      className={`toast toast--${toast.tone}`}
+      data-state={presence}
+      onMouseEnter={() => setPaused(true)}
+      onMouseLeave={() => setPaused(false)}
+      onFocus={() => setPaused(true)}
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget)) setPaused(false);
+      }}
+      onKeyDown={(event) => {
+        if (event.key === "Escape") setOpen(false);
+      }}
+    >
       <p className="toast__message">{toast.message}</p>
       {undo ? (
         <button
@@ -119,13 +135,37 @@ function ToastView({ toast, onRemoved }: { toast: Toast; onRemoved: (id: number)
           <span>Undo</span>
         </button>
       ) : null}
+      {action ? (
+        action.href ? (
+          <a
+            className="btn btn--ghost btn--sm"
+            href={action.href}
+            onClick={() => setOpen(false)}
+          >
+            <Icon name={ACTION_ICON.timeline} />
+            <span>{action.label}</span>
+          </a>
+        ) : (
+          <button
+            type="button"
+            className="btn btn--ghost btn--sm"
+            onClick={() => {
+              setOpen(false);
+              action.onClick?.();
+            }}
+          >
+            <Icon name={ACTION_ICON.retry} />
+            <span>{action.label}</span>
+          </button>
+        )
+      ) : null}
       <IconButton
         icon={ACTION_ICON.dismiss}
         label="Dismiss"
         size="sm"
         onClick={() => setOpen(false)}
       />
-      {undo ? (
+      {undo || action ? (
         <span
           className="toast__timer"
           aria-hidden="true"

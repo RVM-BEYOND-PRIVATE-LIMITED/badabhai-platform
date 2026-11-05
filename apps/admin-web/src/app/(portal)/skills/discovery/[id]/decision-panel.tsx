@@ -255,7 +255,8 @@ export function SkillDecisionPanel({
       </label>
 
       {selected && clientErrors.length > 0 && (
-        <div className="alert alert--danger" role="alert">
+        /* Inline validation, not a blocking error: the form stays usable and fixes live. */
+        <div className="alert alert--danger" role="status" aria-live="polite">
           <div className="alert__text">
             <p className="alert__title">Cannot submit yet</p>
             <ul>
@@ -389,7 +390,7 @@ function SkillPicker({
           </span>
           {searching && <p className="field__help">Searching…</p>}
           {searchError && (
-            <p className="field__help" role="alert">
+            <p className="field__help" role="status" aria-live="polite">
               {searchError}
             </p>
           )}
@@ -434,7 +435,7 @@ function SkillPicker({
 export function DecisionOutcomeNotice({ outcome }: { outcome: SkillDecisionOutcome }) {
   if (outcome.kind === "conflict") {
     return (
-      <div className="alert alert--danger" role="alert">
+      <div className="alert alert--danger" role="status" aria-live="polite">
         <div className="alert__text">
           <p className="alert__title">This candidate moved since you loaded it</p>
           <p className="alert__body">{SKILL_DECISION_CONFLICT_LABELS[outcome.info.conflict]}</p>
@@ -457,7 +458,7 @@ export function DecisionOutcomeNotice({ outcome }: { outcome: SkillDecisionOutco
 
   if (outcome.kind === "error") {
     return (
-      <div className="alert alert--danger" role="alert">
+      <div className="alert alert--danger" role="status" aria-live="polite">
         <div className="alert__text">
           <p className="alert__title">Action failed</p>
           <p className="alert__body">{outcome.message}</p>

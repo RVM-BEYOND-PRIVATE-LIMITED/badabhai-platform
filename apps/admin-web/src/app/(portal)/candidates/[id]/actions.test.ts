@@ -52,9 +52,9 @@ describe("flagWorkerAction", () => {
   });
 
   it("surfaces a 404 verbatim", async () => {
-    adminFetch.mockRejectedValueOnce(new FakeRequestError(404, "Worker not found"));
+    adminFetch.mockRejectedValueOnce(new FakeRequestError(404, "That record no longer exists. Refresh the page and try again."));
     const res = await flagWorkerAction("missing", "other");
-    expect(res).toEqual({ ok: false, error: "Worker not found" });
+    expect(res).toEqual({ ok: false, error: "That record no longer exists. Refresh the page and try again." });
   });
 });
 

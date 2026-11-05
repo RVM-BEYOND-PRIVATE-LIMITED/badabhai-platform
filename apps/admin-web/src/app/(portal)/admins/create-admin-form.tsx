@@ -10,10 +10,15 @@ import {
 } from "../../../components/admin-action-result-banner";
 import { NewPasswordFields } from "../../../components/new-password-fields";
 import { OneTimeSecret } from "../../../components/one-time-secret";
+import { FieldError, FormSummary, useFormValidation } from "../../../components/form-feedback";
 import { createAdminAction } from "./actions";
 import { ADMIN_ROLES, ROLE_LABELS, type AdminRole } from "../../../lib/auth/capabilities";
 import { looksLikeAdminEmail } from "../../../lib/email-shape";
-import { generateTemporaryPassword, newPasswordPairReady } from "../../../lib/password-policy";
+import {
+  generateTemporaryPassword,
+  newPasswordPairReady,
+  passwordPolicyProblem,
+} from "../../../lib/password-policy";
 import type { AdminActionOutcome } from "../../../lib/admin-action-result";
 
 /** The server's bound on a display name (`/admin/admins/direct`: 1..100, trimmed). */
@@ -60,6 +65,46 @@ export function CreateAdminForm({
   const emailValid = looksLikeAdminEmail(email);
   const nameValid = name.trim().length > 0 && name.trim().length <= NAME_MAX_CHARS;
   const ready = emailValid && nameValid && newPasswordPairReady(password, confirm);
+  const validation = useFormValidation({
+    order: ["email", "name", "password", "confirm"] as const,
+    fieldId: (field) =>
+      field === "email"
+        ? `${ids}-email`
+        : field === "name"
+          ? `${ids}-name`
+          : field === "password"
+            ? `${ids}-np-new`
+            : `${ids}-np-confirm`,
+    focus: (field) => {
+      if (typeof document === "undefined") return;
+      const byId = {
+        email: `${ids}-email`,
+        name: `${ids}-name`,
+        password: `${ids}-np-new`,
+        confirm: `${ids}-np-confirm`,
+      };
+      document.getElementById(byId[field])?.focus();
+    },
+    validate: () => {
+      const errors: Partial<Record<"email" | "name" | "password" | "confirm", string>> = {};
+      if (email.trim() === "") errors.email = "Enter the admin's work email.";
+      else if (!emailValid) errors.email = "Enter a valid email address.";
+      if (name.trim() === "") errors.name = "Enter the admin's full name.";
+      else if (name.trim().length > NAME_MAX_CHARS)
+        errors.name = `Keep the name under ${NAME_MAX_CHARS} characters.`;
+      const problem = passwordPolicyProblem(password);
+      if (password !== "" && problem) errors.password = problem;
+      if (confirm !== "" && confirm !== password)
+        errors.confirm = "The two passwords don't match.";
+      return errors;
+    },
+  });
+
+  async function runCreate(): Promise<AdminActionOutcome> {
+    const outcome = await createAdminAction({ email, name, role, temporaryPassword: password });
+    handleSettled(outcome);
+    return outcome;
+  }
 
   function generate() {
     const value = generateTemporaryPassword();
@@ -81,7 +126,12 @@ export function CreateAdminForm({
 
   return (
     <>
-      <form className="form" onSubmit={(e) => e.preventDefault()} noValidate>
+      <form
+        className={validation.shaking ? "form form--shake" : "form"}
+        onSubmit={(e) => e.preventDefault()}
+        noValidate
+      >
+        <FormSummary errors={validation.visible} />
         <div className="form-grid">
           <label className="field" htmlFor={`${ids}-email`}>
             <span className="field__label">
@@ -95,8 +145,15 @@ export function CreateAdminForm({
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              aria-invalid={email !== "" && !emailValid ? true : undefined}
+              onBlur={() => validation.onBlur("email")}
+              aria-invalid={
+                validation.errors.email ? true : email !== "" && !emailValid ? true : undefined
+              }
+              aria-describedby={
+                validation.errors.email ? `${ids}-email-error` : undefined
+              }
             />
+            <FieldError id={`${ids}-email-error`}>{validation.errors.email}</FieldError>
           </label>
           <label className="field" htmlFor={`${ids}-name`}>
             <span className="field__label">
@@ -111,8 +168,15 @@ export function CreateAdminForm({
               required
               value={name}
               onChange={(e) => setName(e.target.value)}
-              aria-invalid={name !== "" && !nameValid ? true : undefined}
+              onBlur={() => validation.onBlur("name")}
+              aria-invalid={
+                validation.errors.name ? true : name !== "" && !nameValid ? true : undefined
+              }
+              aria-describedby={
+                validation.errors.name ? `${ids}-name-error` : undefined
+              }
             />
+            <FieldError id={`${ids}-name-error`}>{validation.errors.name}</FieldError>
           </label>
         </div>
         <label className="field" htmlFor={`${ids}-role`}>
@@ -131,10 +195,13 @@ export function CreateAdminForm({
           </select>
         </label>
         <NewPasswordFields
+          idPrefix={`${ids}-np`}
           value={password}
           confirm={confirm}
           onChange={setPassword}
           onConfirmChange={setConfirm}
+          onBlur={() => validation.onBlur("password")}
+          onConfirmBlur={() => validation.onBlur("confirm")}
           label="Temporary password"
           confirmLabel="Confirm temporary password"
           autoComplete="off"
@@ -151,8 +218,7 @@ export function CreateAdminForm({
             confirmLabel={`Confirm: create ${email || "this admin"} as ${ROLE_LABELS[role]}?`}
             variant="primary"
             disabled={!ready}
-            action={() => createAdminAction({ email, name, role, temporaryPassword: password })}
-            onSettled={handleSettled}
+            action={runCreate}
             onPendingChange={onPendingChange}
           />
         </div>
@@ -161,6 +227,7 @@ export function CreateAdminForm({
         <AdminActionResultBanner
           outcome={outcome}
           eventsLink={mayReadEvents ? ALL_ADMIN_ACTIONS_LINK : null}
+          onRetry={runCreate}
         />
       ) : null}
       {outcome?.ok && issuedPassword ? (

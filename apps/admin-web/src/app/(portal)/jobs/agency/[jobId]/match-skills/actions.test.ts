@@ -83,20 +83,20 @@ describe("setAgencyJobMatchSkillsAction", () => {
 
   it("a closed posting renders the server's 400 verbatim", async () => {
     adminFetch.mockRejectedValueOnce(
-      new FakeRequestError(400, "Job is closed and cannot be edited"),
+      new FakeRequestError(400, "This posting is closed, so it can't be edited."),
     );
     const res = await setAgencyJobMatchSkillsAction(JOB_ID, {
       match_skill_ids: ["mskill_cnc_operate"],
     });
-    expect(res).toEqual({ ok: false, error: "Job is closed and cannot be edited" });
+    expect(res).toEqual({ ok: false, error: "This posting is closed, so it can't be edited." });
   });
 
   it("an unknown id renders the server's 404 verbatim", async () => {
-    adminFetch.mockRejectedValueOnce(new FakeRequestError(404, "Job not found"));
+    adminFetch.mockRejectedValueOnce(new FakeRequestError(404, "That record no longer exists. Refresh the page and try again."));
     const res = await setAgencyJobMatchSkillsAction(JOB_ID, {
       match_skill_ids: ["mskill_cnc_operate"],
     });
-    expect(res).toEqual({ ok: false, error: "Job not found" });
+    expect(res).toEqual({ ok: false, error: "That record no longer exists. Refresh the page and try again." });
   });
 
   it("a 403 renders the denied copy, a 5xx the neutral copy", async () => {
@@ -109,7 +109,7 @@ describe("setAgencyJobMatchSkillsAction", () => {
       setAgencyJobMatchSkillsAction(JOB_ID, { match_skill_ids: ["mskill_cnc_operate"] }),
     ).resolves.toEqual({
       ok: false,
-      error: "The admin API is unreachable or returned an error. Try again.",
+      error: "The admin service is unreachable right now. Try again shortly.",
     });
   });
 });

@@ -6,6 +6,7 @@ import { ACTION_ICON, Icon } from "@badabhai/icons";
 import { confirmMfaAction, disableMfaAction, enableMfaAction } from "./actions";
 import { AuthenticatorEnrollment } from "../../../components/authenticator-enrollment";
 import { AdminActionResultBanner } from "../../../components/admin-action-result-banner";
+import { FieldError, FormSummary, useFormValidation } from "../../../components/form-feedback";
 import type { AdminActionOutcome } from "../../../lib/admin-action-result";
 
 /**
@@ -33,6 +34,17 @@ export function MfaPanel({ enabled }: { enabled: boolean }) {
   const [outcome, setOutcome] = useState<AdminActionOutcome | null>(null);
   const [pending, startTransition] = useTransition();
   const ids = useId();
+  const validation = useFormValidation({
+    order: ["code"] as const,
+    fieldId: () => `${ids}-code`,
+    focus: () => {
+      if (typeof document !== "undefined") document.getElementById(`${ids}-code`)?.focus();
+    },
+    validate: () => {
+      if (code.length === 6) return {};
+      return { code: "Enter the 6-digit code from your authenticator app." };
+    },
+  });
 
   function cancel() {
     setMode("idle");
@@ -63,8 +75,7 @@ export function MfaPanel({ enabled }: { enabled: boolean }) {
     });
   }
 
-  function submit(e: React.FormEvent) {
-    e.preventDefault();
+  function submitCode() {
     if (pending || code.length !== 6) return;
     setOutcome(null);
     const turningOn = mode === "enrolling";
@@ -75,11 +86,18 @@ export function MfaPanel({ enabled }: { enabled: boolean }) {
       setOutcome(result);
       if (result.ok) {
         cancel();
+        validation.reset();
         router.refresh();
       } else {
         setCode("");
       }
     });
+  }
+
+  function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (validation.submit() !== null) return;
+    submitCode();
   }
 
   const labelId = `${ids}-label`;
@@ -128,7 +146,8 @@ export function MfaPanel({ enabled }: { enabled: boolean }) {
       ) : null}
 
       {mode !== "idle" ? (
-        <form className="form" onSubmit={submit} noValidate aria-busy={pending}>
+        <form className={validation.shaking ? "form form--shake" : "form"} onSubmit={submit} noValidate aria-busy={pending}>
+          <FormSummary errors={validation.visible} />
           {turningOn && enrollment ? (
             <>
               <p className="field__help">
@@ -149,6 +168,7 @@ export function MfaPanel({ enabled }: { enabled: boolean }) {
           <label className="field">
             <span className="field__label">Authenticator code</span>
             <input
+              id={`${ids}-code`}
               className="field__input field__input--code"
               type="text"
               inputMode="numeric"
@@ -159,14 +179,20 @@ export function MfaPanel({ enabled }: { enabled: boolean }) {
               autoFocus
               value={code}
               onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
+              onBlur={() => validation.onBlur("code")}
+              aria-invalid={validation.errors.code ? true : undefined}
+              aria-describedby={
+                validation.errors.code ? `${ids}-code-error` : undefined
+              }
               disabled={pending}
             />
+            <FieldError id={`${ids}-code-error`}>{validation.errors.code}</FieldError>
           </label>
           <div className="form-actions">
             <button
               className={`btn ${turningOn ? "btn--primary" : "btn--danger"}`}
               type="submit"
-              disabled={pending || code.length !== 6}
+              disabled={pending}
             >
               <Icon name={turningOn ? "shield-check" : ACTION_ICON.suspend} />
               {pending
@@ -183,7 +209,13 @@ export function MfaPanel({ enabled }: { enabled: boolean }) {
         </form>
       ) : null}
 
-      {outcome ? <AdminActionResultBanner outcome={outcome} eventsLink={null} /> : null}
+      {outcome ? (
+        <AdminActionResultBanner
+          outcome={outcome}
+          eventsLink={null}
+          onRetry={() => (mode === "idle" ? flip() : submitCode())}
+        />
+      ) : null}
     </section>
   );
 }

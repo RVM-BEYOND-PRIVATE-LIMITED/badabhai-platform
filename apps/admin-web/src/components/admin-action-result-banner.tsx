@@ -1,5 +1,10 @@
-import Link from "next/link";
-import type { AdminActionOutcome } from "../lib/admin-action-result";
+"use client";
+
+import { useEffect, useRef } from "react";
+import type { AdminActionOutcome, AdminActionSuccess } from "../lib/admin-action-result";
+import { InlineNotice } from "./inline-notice";
+import { useToast } from "./toast";
+import type { ToastOptions } from "./toast-store";
 
 /** Where a success sends the operator to see the audit event it wrote, and what that is called. */
 export interface ResultEventsLink {
@@ -28,50 +33,67 @@ export const ALL_ADMIN_ACTIONS_LINK: ResultEventsLink = {
   label: "View all admin actions",
 };
 
+/** The quiet success toast this action raises, with its one optional View action. */
+export function successToast(
+  outcome: AdminActionSuccess,
+  eventsLink: ResultEventsLink | null,
+): ToastOptions {
+  return {
+    message: outcome.message || (outcome.changed ? "Done" : "No change"),
+    tone: outcome.changed ? "success" : "info",
+    action: eventsLink ? { label: eventsLink.label, href: eventsLink.href } : undefined,
+  };
+}
+
 /**
- * The post-action result banner (Step 3 of the admin write-action plan).
+ * The result of a governed admin action (#2689).
  *
- * `changed: false` is a SUCCESSFUL no-op (e.g. "already suspended") and renders with the same
- * neutral/success tone as `changed: true` — only `ok: false` gets the danger treatment. A
- * success links to where the resulting audit event can be read — when the reader may read
- * events at all. `eventsLink` is null for a session without `read_events`: the page it would
- * open redirects them away, so it is not offered (an affordance, never the gate).
+ * SUCCESS is a quiet toast with an optional "View…" action. A toast is the right surface for
+ * something that needs no decision and does not move the operator: it announces politely, leaves
+ * on its own, and never pushes the page down. `changed: false` is still a SUCCESSFUL no-op, so it
+ * uses the same success/info family — never the danger tone.
  *
- * Reuses the existing `.alert` primitive (`apps/admin-web/src/app/globals.css`) rather than
- * inventing a banner of its own — the same block already used for the admins page's
- * (now-removed) read-only notice and the events/jobs/companies empty-state guidance.
+ * FAILURE stays IN PLACE as an inline notice with Retry, because the operator keeps everything
+ * they typed and the failed control is still on screen. It is a polite live region: a recoverable
+ * refusal is not an assertive error. `role="alert"` is reserved for errors that block the task
+ * outright (the portal error boundary) — never for an action that can simply be retried.
+ *
+ * `eventsLink` is null for a session without `read_events`: the page it would open redirects them
+ * away, so it is not offered (an affordance, never the gate).
  */
 export function AdminActionResultBanner({
   outcome,
   eventsLink,
+  onRetry,
 }: {
   outcome: AdminActionOutcome;
   eventsLink: ResultEventsLink | null;
+  /**
+   * Re-runs the failed action. Forms pass their submit so the typed values survive; a row action
+   * with no local state may omit it, in which case Retry refreshes the page.
+   */
+  onRetry?: () => void;
 }) {
-  if (!outcome.ok) {
-    return (
-      <div className="alert alert--danger" role="alert">
-        <div className="alert__text">
-          <p className="alert__title">Action failed</p>
-          <p className="alert__body">{outcome.error}</p>
-        </div>
-      </div>
-    );
-  }
+  const { show } = useToast();
+  const shown = useRef<AdminActionOutcome | null>(null);
+
+  useEffect(() => {
+    if (!outcome.ok || shown.current === outcome) return;
+    shown.current = outcome;
+    show(successToast(outcome, eventsLink));
+  }, [outcome, eventsLink, show]);
+
+  if (outcome.ok) return null;
 
   return (
-    <div className={`alert ${outcome.changed ? "alert--success" : "alert--info"}`} role="status">
-      <div className="alert__text">
-        <p className="alert__title">{outcome.changed ? "Done" : "No change"}</p>
-        <p className="alert__body">{outcome.message}</p>
-      </div>
-      {eventsLink ? (
-        <div className="alert__actions">
-          <Link className="btn btn--ghost btn--sm" href={eventsLink.href}>
-            {eventsLink.label}
-          </Link>
-        </div>
-      ) : null}
-    </div>
+    <InlineNotice
+      title="Action failed"
+      action={{
+        label: "Retry",
+        onClick: onRetry ?? (() => window.location.reload()),
+      }}
+    >
+      {outcome.error}
+    </InlineNotice>
   );
 }

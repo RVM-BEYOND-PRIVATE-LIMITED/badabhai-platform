@@ -29,6 +29,9 @@ export function NewPasswordFields({
   disabled,
   required,
   autoComplete = "new-password",
+  idPrefix,
+  onBlur,
+  onConfirmBlur,
 }: {
   value: string;
   confirm: string;
@@ -42,8 +45,13 @@ export function NewPasswordFields({
   required?: boolean;
   /** `off` when the password being chosen is someone else's (a temporary one for a new admin). */
   autoComplete?: "new-password" | "off";
+  /** A stable id prefix, so a form can focus the first invalid field. */
+  idPrefix?: string;
+  onBlur?: () => void;
+  onConfirmBlur?: () => void;
 }) {
-  const base = useId();
+  const generated = useId();
+  const base = idPrefix ?? generated;
   const newId = `${base}-new`;
   const confirmId = `${base}-confirm`;
   const hintId = `${base}-hint`;
@@ -65,6 +73,7 @@ export function NewPasswordFields({
         autoComplete={autoComplete}
         autoFocus={autoFocus}
         disabled={disabled}
+        onBlur={onBlur}
         invalid={problem !== null}
         describedBy={problem ? `${hintId} ${problemId}` : hintId}
       />
@@ -84,6 +93,7 @@ export function NewPasswordFields({
         onChange={onConfirmChange}
         autoComplete={autoComplete}
         disabled={disabled}
+        onBlur={onConfirmBlur}
         invalid={mismatch}
         describedBy={mismatch ? mismatchId : undefined}
       />

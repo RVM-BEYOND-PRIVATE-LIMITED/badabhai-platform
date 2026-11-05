@@ -332,12 +332,17 @@ describe("verifyCodeAction — mfa_required OR a session (ADR-0060)", () => {
     expect(bodyOf()).toEqual({ email: "ops@example.com", code: "123456", device_token: DEVICE });
   });
 
-  it("409 (still on a temporary password) shows the server's own copy, not the neutral one", async () => {
+  it("409 (still on a temporary password) shows catalogue copy, not the server's text", async () => {
     const conflict = new FakeRequestError(409);
     conflict.message = "Sign in with your password to replace the temporary one first";
     adminFetch.mockRejectedValueOnce(conflict);
     const res = await verifyCodeAction({ email: "ops@example.com", code: "123456" });
-    expect(res).toEqual({ ok: false, error: conflict.message });
+    expect(res).toEqual({
+      ok: false,
+      error:
+        "That code is valid, but this account is still using a temporary password. Sign in with your email and password instead.",
+    });
+    expect(JSON.stringify(res)).not.toContain("Sign in with your password to replace");
     expect(writeAdminToken).not.toHaveBeenCalled();
   });
 

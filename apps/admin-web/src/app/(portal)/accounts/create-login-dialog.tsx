@@ -10,6 +10,7 @@ import {
   AdminActionResultBanner,
 } from "../../../components/admin-action-result-banner";
 import { createPayerLoginAction } from "./actions";
+import { FieldError, FormSummary, useFormValidation } from "../../../components/form-feedback";
 import {
   ACCOUNT_TYPES,
   ACCOUNT_TYPE_LABELS,
@@ -52,9 +53,28 @@ export function CreateLoginDialog({ mayReadEvents }: { mayReadEvents: boolean })
 
   const isTeam = type === "team_member";
   const loginValid = loginLooksValid(loginId);
-  const orgValid = isTeam ? UUID.test(orgId.trim()) : orgName.trim().length > 0;
   const reasonValid = reason.trim().length >= REASON_MIN_CHARS;
-  const ready = loginValid && orgValid && reasonValid;
+  const validation = useFormValidation({
+    order: isTeam ? (["loginId", "orgId", "reason"] as const) : (["loginId", "orgName", "reason"] as const),
+    fieldId: (field) => `${ids}-${field}`,
+    focus: (field) => {
+      if (typeof document !== "undefined") document.getElementById(`${ids}-${field}`)?.focus();
+    },
+    validate: () => {
+      const errors: Partial<Record<"loginId" | "orgName" | "orgId" | "reason", string>> = {};
+      if (loginId.trim() === "") errors.loginId = "Enter an email or phone number.";
+      else if (!loginValid) errors.loginId = "Enter a valid email or +phone number.";
+      if (isTeam) {
+        if (orgId.trim() === "") errors.orgId = "Enter the organisation id.";
+        else if (!UUID.test(orgId.trim())) errors.orgId = "Enter a valid organisation id.";
+      } else if (orgName.trim() === "") {
+        errors.orgName = "Enter the organisation name.";
+      }
+      if (reason.trim().length < REASON_MIN_CHARS)
+        errors.reason = `Explain the reason in at least ${REASON_MIN_CHARS} characters.`;
+      return errors;
+    },
+  });
 
   function reset() {
     setType("company_owner");
@@ -76,7 +96,7 @@ export function CreateLoginDialog({ mayReadEvents }: { mayReadEvents: boolean })
   }
 
   function submit() {
-    if (!ready || pending) return;
+    if (validation.submit() !== null || pending) return;
     startTransition(async () => {
       const result = await createPayerLoginAction({
         loginId: loginId.trim(),
@@ -125,7 +145,7 @@ export function CreateLoginDialog({ mayReadEvents }: { mayReadEvents: boolean })
                 className="btn btn--primary"
                 type="button"
                 onClick={submit}
-                disabled={!ready || pending}
+                disabled={pending}
               >
                 <span>{pending ? "Working…" : "Create login"}</span>
               </button>
@@ -139,6 +159,7 @@ export function CreateLoginDialog({ mayReadEvents }: { mayReadEvents: boolean })
               <AdminActionResultBanner
                 outcome={outcome}
                 eventsLink={mayReadEvents ? ALL_ADMIN_ACTIONS_LINK : null}
+                onRetry={submit}
               />
             ) : null}
             <OneTimeSecret
@@ -161,7 +182,12 @@ export function CreateLoginDialog({ mayReadEvents }: { mayReadEvents: boolean })
             </label>
           </>
         ) : (
-          <form className="form" onSubmit={(e) => e.preventDefault()} noValidate>
+          <form
+            className={validation.shaking ? "form form--shake" : "form"}
+            onSubmit={(e) => e.preventDefault()}
+            noValidate
+          >
+            <FormSummary errors={validation.visible} />
             <label className="field" htmlFor={`${ids}-type`}>
               <span className="field__label">Login type</span>
               <select
@@ -191,8 +217,19 @@ export function CreateLoginDialog({ mayReadEvents }: { mayReadEvents: boolean })
                 required
                 value={loginId}
                 onChange={(e) => setLoginId(e.target.value)}
-                aria-invalid={loginId !== "" && !loginValid ? true : undefined}
+                onBlur={() => validation.onBlur("loginId")}
+                aria-invalid={
+                  validation.errors.loginId
+                    ? true
+                    : loginId !== "" && !loginValid
+                      ? true
+                      : undefined
+                }
+                aria-describedby={
+                  validation.errors.loginId ? `${ids}-loginId-error` : undefined
+                }
               />
+              <FieldError id={`${ids}-loginId-error`}>{validation.errors.loginId}</FieldError>
             </label>
 
             {isTeam ? (
@@ -209,8 +246,19 @@ export function CreateLoginDialog({ mayReadEvents }: { mayReadEvents: boolean })
                   required
                   value={orgId}
                   onChange={(e) => setOrgId(e.target.value)}
-                  aria-invalid={orgId !== "" && !UUID.test(orgId.trim()) ? true : undefined}
+                  onBlur={() => validation.onBlur("orgId")}
+                  aria-invalid={
+                    validation.errors.orgId
+                      ? true
+                      : orgId !== "" && !UUID.test(orgId.trim())
+                        ? true
+                        : undefined
+                  }
+                  aria-describedby={
+                    validation.errors.orgId ? `${ids}-orgId-error` : undefined
+                  }
                 />
+                <FieldError id={`${ids}-orgId-error`}>{validation.errors.orgId}</FieldError>
               </label>
             ) : (
               <label className="field" htmlFor={`${ids}-orgname`}>
@@ -225,7 +273,13 @@ export function CreateLoginDialog({ mayReadEvents }: { mayReadEvents: boolean })
                   required
                   value={orgName}
                   onChange={(e) => setOrgName(e.target.value)}
+                  onBlur={() => validation.onBlur("orgName")}
+                  aria-invalid={validation.errors.orgName ? true : undefined}
+                  aria-describedby={
+                    validation.errors.orgName ? `${ids}-orgName-error` : undefined
+                  }
                 />
+                <FieldError id={`${ids}-orgName-error`}>{validation.errors.orgName}</FieldError>
               </label>
             )}
 
@@ -240,14 +294,26 @@ export function CreateLoginDialog({ mayReadEvents }: { mayReadEvents: boolean })
                 required
                 value={reason}
                 onChange={(e) => setReason(e.target.value)}
-                aria-invalid={reason !== "" && !reasonValid ? true : undefined}
+                onBlur={() => validation.onBlur("reason")}
+                aria-invalid={
+                  validation.errors.reason
+                    ? true
+                    : reason !== "" && !reasonValid
+                      ? true
+                      : undefined
+                }
+                aria-describedby={
+                  validation.errors.reason ? `${ids}-reason-error` : undefined
+                }
               />
+              <FieldError id={`${ids}-reason-error`}>{validation.errors.reason}</FieldError>
             </label>
 
             {outcome && !outcome.ok ? (
               <AdminActionResultBanner
                 outcome={outcome}
                 eventsLink={mayReadEvents ? ALL_ADMIN_ACTIONS_LINK : null}
+                onRetry={submit}
               />
             ) : null}
           </form>

@@ -6,6 +6,7 @@ import { Icon } from "@badabhai/icons";
 import { Dialog } from "../../../components/dialog";
 import { ConfirmDialog } from "../../../components/confirm-dialog";
 import { OneTimeSecret } from "../../../components/one-time-secret";
+import { FieldError, FormSummary, useFormValidation } from "../../../components/form-feedback";
 import {
   ALL_ADMIN_ACTIONS_LINK,
   AdminActionResultBanner,
@@ -62,6 +63,18 @@ export function AccountRowActions({
     : `account ${shortId(account.id)}`;
   const reasonValid = reason.trim().length >= REASON_MIN_CHARS;
   const eventsLink = mayReadEvents ? ALL_ADMIN_ACTIONS_LINK : null;
+  const validation = useFormValidation({
+    order: ["reason"] as const,
+    fieldId: () => `${ids}-issue-reason`,
+    focus: () => {
+      if (typeof document !== "undefined")
+        document.getElementById(`${ids}-issue-reason`)?.focus();
+    },
+    validate: () =>
+      reason.trim().length >= REASON_MIN_CHARS
+        ? {}
+        : { reason: `Explain the reason in at least ${REASON_MIN_CHARS} characters.` },
+  });
 
   function closeIssue() {
     if (secret && !shared) return;
@@ -73,7 +86,7 @@ export function AccountRowActions({
   }
 
   function issue() {
-    if (!reasonValid || pending) return;
+    if (validation.submit() !== null || pending) return;
     startTransition(async () => {
       const result = await issueTemporaryPasswordAction(account.id, reason.trim());
       setOutcome(result);
@@ -138,7 +151,7 @@ export function AccountRowActions({
                 className="btn btn--primary"
                 type="button"
                 onClick={issue}
-                disabled={!reasonValid || pending}
+                disabled={pending}
               >
                 <span>{pending ? "Working…" : "Issue password"}</span>
               </button>
@@ -171,7 +184,12 @@ export function AccountRowActions({
             </label>
           </>
         ) : (
-          <form className="form" onSubmit={(e) => e.preventDefault()} noValidate>
+          <form
+            className={validation.shaking ? "form form--shake" : "form"}
+            onSubmit={(e) => e.preventDefault()}
+            noValidate
+          >
+            <FormSummary errors={validation.visible} />
             <label className="field" htmlFor={`${ids}-issue-reason`}>
               <span className="field__label">
                 Why are you issuing a new password?<span className="req">*</span>
@@ -183,11 +201,28 @@ export function AccountRowActions({
                 required
                 value={reason}
                 onChange={(e) => setReason(e.target.value)}
-                aria-invalid={reason !== "" && !reasonValid ? true : undefined}
+                onBlur={() => validation.onBlur("reason")}
+                aria-invalid={
+                  validation.errors.reason
+                    ? true
+                    : reason !== "" && !reasonValid
+                      ? true
+                      : undefined
+                }
+                aria-describedby={
+                  validation.errors.reason ? `${ids}-issue-reason-error` : undefined
+                }
               />
+              <FieldError id={`${ids}-issue-reason-error`}>
+                {validation.errors.reason}
+              </FieldError>
             </label>
             {outcome && !outcome.ok ? (
-              <AdminActionResultBanner outcome={outcome} eventsLink={eventsLink} />
+              <AdminActionResultBanner
+                outcome={outcome}
+                eventsLink={eventsLink}
+                onRetry={issue}
+              />
             ) : null}
           </form>
         )}

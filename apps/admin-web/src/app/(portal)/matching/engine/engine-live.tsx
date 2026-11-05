@@ -238,8 +238,10 @@ function FunnelPanel({
       <p className="engine__note">
         {funnel.already_actioned} already applied or skipped, so not on the feed.
       </p>
+      {/* A non-blocking data-quality warning: the view is still usable, so it announces
+          politely rather than interrupting the projector. */}
       {funnelBalances(funnel) ? null : (
-        <p className="engine__warn" role="alert">
+        <p className="engine__warn" role="status" aria-live="polite">
           These counts do not add up. Report it to the backend team.
         </p>
       )}

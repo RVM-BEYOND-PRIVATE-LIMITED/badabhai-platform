@@ -55,6 +55,21 @@ export function MatchSkillForm({
     return selected.every((id) => current.includes(id));
   }
 
+  async function save(): Promise<AdminActionOutcome> {
+    const next = await setAgencyJobMatchSkillsAction(jobId, {
+      // Stale ids ride along untouched: clearing them silently would
+      // delete data the operator never saw.
+      match_skill_ids: [...selected],
+    });
+    setOutcome(next);
+    if (next.ok) {
+      startTransition(() => {
+        router.refresh();
+      });
+    }
+    return next;
+  }
+
   return (
     <div>
       <fieldset className="checklist" disabled={pending}>
@@ -86,7 +101,9 @@ export function MatchSkillForm({
         ))}
       </fieldset>
       {overCap ? (
-        <p className="alert__body" role="alert">
+        /* Advisory, not blocking: the operator is still choosing skills and the count updates
+           as they untick. Polite is the right register. */
+        <p className="alert__body" role="status" aria-live="polite">
           A posting may name at most {cap} skills ({selected.length} selected).
         </p>
       ) : null}
@@ -96,24 +113,12 @@ export function MatchSkillForm({
           confirmLabel={`Save ${selected.length} match skills?`}
           variant="primary"
           disabled={pending || overCap || unchanged()}
-          action={() =>
-            setAgencyJobMatchSkillsAction(jobId, {
-              // Stale ids ride along untouched: clearing them silently would
-              // delete data the operator never saw.
-              match_skill_ids: [...selected],
-            })
-          }
-          onSettled={(next) => {
-            setOutcome(next);
-            if (next.ok) {
-              startTransition(() => {
-                router.refresh();
-              });
-            }
-          }}
+          action={save}
         />
       </div>
-      {outcome ? <AdminActionResultBanner outcome={outcome} eventsLink={null} /> : null}
+      {outcome ? (
+        <AdminActionResultBanner outcome={outcome} eventsLink={null} onRetry={save} />
+      ) : null}
     </div>
   );
 }

@@ -43,3 +43,11 @@ export const NEUTRAL_PASSWORD_ERROR =
  */
 export const NEW_PASSWORD_REJECTED_ERROR =
   "That password can't be used here. Choose a different one — not the temporary password you were given.";
+
+/**
+ * The emailed code was right, but the account is still on a temporary password (409). The
+ * caller has already proved mailbox control, so this can name the next step — but the sentence
+ * comes from this catalogue, never from the API's own text.
+ */
+export const TEMPORARY_PASSWORD_DOOR =
+  "That code is valid, but this account is still using a temporary password. Sign in with your email and password instead.";

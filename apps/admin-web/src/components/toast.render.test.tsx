@@ -3,6 +3,8 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { ToastProvider, ToastStack } from "./toast";
 import {
   MAX_TOASTS,
+  TOAST_ACTION_MS,
+  TOAST_ERROR_MS,
   TOAST_MS,
   UNDO_WINDOW_MS,
   makeToast,
@@ -12,10 +14,17 @@ import {
 
 /** A5 (#2575) — the Toast primitive: a stack with Undo. */
 describe("toast store", () => {
-  it("an Undo toast stays the 8-second undo window; a plain one the shorter notice time", () => {
+  it("uses the #2689 timings: 4s quiet, 6s error, 8s with an action or Undo", () => {
     expect(UNDO_WINDOW_MS).toBe(8000);
+    expect(TOAST_MS).toBe(4000);
+    expect(TOAST_ERROR_MS).toBe(6000);
+    expect(TOAST_ACTION_MS).toBe(8000);
     expect(makeToast(1, { message: "Hidden", undo: () => {} }).durationMs).toBe(8000);
-    expect(makeToast(2, { message: "Saved" }).durationMs).toBe(TOAST_MS);
+    expect(makeToast(2, { message: "Saved" }).durationMs).toBe(4000);
+    expect(makeToast(5, { message: "Refused", tone: "danger" }).durationMs).toBe(6000);
+    expect(
+      makeToast(6, { message: "Saved", action: { label: "View", href: "/events" } }).durationMs,
+    ).toBe(8000);
     expect(makeToast(3, { message: "Saved", durationMs: 100 }).durationMs).toBe(100);
     expect(makeToast(4, { message: "Saved" }).tone).toBe("info");
   });
@@ -65,5 +74,23 @@ describe("the toast stack", () => {
     expect(out).toContain('<li class="toast toast--info" data-state="open">');
     expect(out).not.toContain("Undo");
     expect(out).not.toContain("toast__timer");
+  });
+
+  it("a toast carries at most one named action, with its timer", () => {
+    const out = renderToStaticMarkup(
+      <ToastStack
+        toasts={[
+          makeToast(1, {
+            message: "Account suspended.",
+            tone: "success",
+            action: { label: "View in timeline", href: "/companies/p-1/timeline" },
+          }),
+        ]}
+        onRemoved={() => {}}
+      />,
+    );
+    expect(out).toContain('href="/companies/p-1/timeline"');
+    expect(out).toContain(">View in timeline<");
+    expect(out).toContain("toast__timer");
   });
 });

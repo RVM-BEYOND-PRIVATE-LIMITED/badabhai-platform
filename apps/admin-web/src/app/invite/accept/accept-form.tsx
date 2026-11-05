@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { acceptInviteAction, type AcceptOutcome } from "./actions";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
+import { InlineNotice } from "../../../components/inline-notice";
 
 /**
  * The redeem button and its two outcomes (#1494).
@@ -59,9 +60,12 @@ export function AcceptForm({ token }: { token: string }) {
         one-time code sent to your email.
       </p>
       {outcome && !outcome.ok ? (
-        <p className="field__error" role="alert">
+        <InlineNotice
+          title="The invite could not be accepted"
+          action={{ label: "Retry", onClick: redeem }}
+        >
           {outcome.error}
-        </p>
+        </InlineNotice>
       ) : null}
       <button
         type="button"

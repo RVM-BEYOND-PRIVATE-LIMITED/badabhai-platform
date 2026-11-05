@@ -4,11 +4,14 @@ import { useId, useRef, useState, useTransition, type ReactNode } from "react";
 import { Icon, type IconName } from "@badabhai/icons";
 import { Dialog } from "./dialog";
 import { AdminActionResultBanner } from "./admin-action-result-banner";
+import { FieldError, FormSummary, useFormValidation } from "./form-feedback";
 import {
   REASON_CATEGORIES,
   REASON_MIN_CHARS,
   confirmBlockers,
+  reasonLongEnough,
   toConfirmReason,
+  typedNameMatches,
   type ConfirmDraft,
   type ConfirmReason,
   type ReasonCategory,
@@ -85,11 +88,36 @@ export function ConfirmDialog(props: ConfirmDialogProps) {
   const [failure, setFailure] = useState<AdminActionOutcome | null>(null);
   const [pending, startTransition] = useTransition();
   const cancelRef = useRef<HTMLButtonElement>(null);
+  const categoryRef = useRef<HTMLSelectElement>(null);
+  const reasonRef = useRef<HTMLTextAreaElement>(null);
+  const nameRef = useRef<HTMLInputElement>(null);
   const id = useId();
 
   const blockers = confirmBlockers(tier, draft, categories, targetName);
   const reasonLength = draft.reason.trim().length;
   const destructive = tier === "destructive";
+  const validation = useFormValidation({
+    order: destructive
+      ? (["category", "reason", "typedName"] as const)
+      : (["category", "reason"] as const),
+    focus: (field) => {
+      if (field === "category") categoryRef.current?.focus();
+      else if (field === "reason") reasonRef.current?.focus();
+      else nameRef.current?.focus();
+    },
+    fieldId: (field) =>
+      field === "typedName" ? `${id}-name` : field === "reason" ? `${id}-reason` : `${id}-category`,
+    validate: () => {
+      const errors: Partial<Record<"category" | "reason" | "typedName", string>> = {};
+      if (!categories.some((c) => c.value === draft.category))
+        errors.category = "Choose a reason category.";
+      if (!reasonLongEnough(draft.reason))
+        errors.reason = `Explain the reason in at least ${REASON_MIN_CHARS} characters.`;
+      if (destructive && !typedNameMatches(draft.typedName, targetName ?? ""))
+        errors.typedName = "Type the name exactly to confirm.";
+      return errors;
+    },
+  });
 
   function close() {
     if (pending) return;
@@ -100,6 +128,8 @@ export function ConfirmDialog(props: ConfirmDialogProps) {
 
   function confirm() {
     if (pending || blockers.length > 0) return;
+    if (validation.submit() !== null) return;
+    setFailure(null);
     startTransition(async () => {
       const outcome = await onConfirm(toConfirmReason(draft));
       onSettled?.(outcome);
@@ -163,17 +193,24 @@ export function ConfirmDialog(props: ConfirmDialogProps) {
           ))}
         </tbody>
       </table>
-      <div className="form">
+      <div className={validation.shaking ? "form form--shake" : "form"}>
+        <FormSummary errors={validation.visible} />
         <label className="field" htmlFor={`${id}-category`}>
           <span className="field__label">
             Reason<span className="req">*</span>
           </span>
           <select
             id={`${id}-category`}
+            ref={categoryRef}
             className="field__input"
             required
             value={draft.category}
             onChange={(e) => set({ category: e.target.value })}
+            onBlur={() => validation.onBlur("category")}
+            aria-invalid={validation.errors.category ? true : undefined}
+            aria-describedby={
+              validation.errors.category ? `${id}-category-error` : undefined
+            }
           >
             <option value="" disabled>
               Choose a category
@@ -184,6 +221,7 @@ export function ConfirmDialog(props: ConfirmDialogProps) {
               </option>
             ))}
           </select>
+          <FieldError id={`${id}-category-error`}>{validation.errors.category}</FieldError>
         </label>
         <label className="field" htmlFor={`${id}-reason`}>
           <span className="field__label">
@@ -191,14 +229,22 @@ export function ConfirmDialog(props: ConfirmDialogProps) {
           </span>
           <textarea
             id={`${id}-reason`}
+            ref={reasonRef}
             className="field__input"
             rows={3}
             required
             minLength={REASON_MIN_CHARS}
             value={draft.reason}
             onChange={(e) => set({ reason: e.target.value })}
-            aria-describedby={`${id}-reason-count`}
+            onBlur={() => validation.onBlur("reason")}
+            aria-invalid={validation.errors.reason ? true : undefined}
+            aria-describedby={
+              validation.errors.reason
+                ? `${id}-reason-count ${id}-reason-error`
+                : `${id}-reason-count`
+            }
           />
+          <FieldError id={`${id}-reason-error`}>{validation.errors.reason}</FieldError>
           <span className="field__help" id={`${id}-reason-count`}>
             {reasonLength} of at least {REASON_MIN_CHARS} characters
           </span>
@@ -211,6 +257,7 @@ export function ConfirmDialog(props: ConfirmDialogProps) {
             </span>
             <input
               id={`${id}-name`}
+              ref={nameRef}
               className="field__input"
               type="text"
               autoComplete="off"
@@ -218,11 +265,19 @@ export function ConfirmDialog(props: ConfirmDialogProps) {
               required
               value={draft.typedName}
               onChange={(e) => set({ typedName: e.target.value })}
+              onBlur={() => validation.onBlur("typedName")}
+              aria-invalid={validation.errors.typedName ? true : undefined}
+              aria-describedby={
+                validation.errors.typedName ? `${id}-name-error` : undefined
+              }
             />
+            <FieldError id={`${id}-name-error`}>{validation.errors.typedName}</FieldError>
           </label>
         ) : null}
       </div>
-      {failure ? <AdminActionResultBanner outcome={failure} eventsLink={null} /> : null}
+      {failure ? (
+        <AdminActionResultBanner outcome={failure} eventsLink={null} onRetry={confirm} />
+      ) : null}
     </Dialog>
   );
 }

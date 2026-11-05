@@ -7,7 +7,8 @@ import { setOwnPasswordAction } from "./actions";
 import { PasswordInput } from "../../../components/password-input";
 import { NewPasswordFields } from "../../../components/new-password-fields";
 import { AdminActionResultBanner } from "../../../components/admin-action-result-banner";
-import { newPasswordPairReady } from "../../../lib/password-policy";
+import { FieldError, FormSummary, useFormValidation } from "../../../components/form-feedback";
+import { passwordPolicyProblem, newPasswordPairReady } from "../../../lib/password-policy";
 import type { AdminActionOutcome } from "../../../lib/admin-action-result";
 
 /**
@@ -33,9 +34,34 @@ export function PasswordPanel({ hasPassword }: { hasPassword: boolean }) {
 
   const title = hasPassword ? "Change password" : "Set a password";
   const ready = newPasswordPairReady(next, confirm) && (!hasPassword || current !== "");
+  const validation = useFormValidation({
+    order: hasPassword ? (["current", "next", "confirm"] as const) : (["next", "confirm"] as const),
+    fieldId: (field) =>
+      field === "current"
+        ? `${ids}-current`
+        : field === "next"
+          ? `${ids}-np-new`
+          : `${ids}-np-confirm`,
+    focus: (field) => {
+      if (typeof document === "undefined") return;
+      const byId = {
+        current: `${ids}-current`,
+        next: `${ids}-np-new`,
+        confirm: `${ids}-np-confirm`,
+      };
+      document.getElementById(byId[field])?.focus();
+    },
+    validate: () => {
+      const errors: Partial<Record<"current" | "next" | "confirm", string>> = {};
+      if (hasPassword && current === "") errors.current = "Enter your current password.";
+      const problem = passwordPolicyProblem(next);
+      if (next !== "" && problem) errors.next = problem;
+      if (confirm !== "" && confirm !== next) errors.confirm = "The two passwords don't match.";
+      return errors;
+    },
+  });
 
-  function submit(e: React.FormEvent) {
-    e.preventDefault();
+  function save() {
     if (!ready || pending) return;
     setOutcome(null);
     startTransition(async () => {
@@ -48,9 +74,16 @@ export function PasswordPanel({ hasPassword }: { hasPassword: boolean }) {
         setCurrent("");
         setNext("");
         setConfirm("");
+        validation.reset();
         router.refresh();
       }
     });
+  }
+
+  function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (validation.submit() !== null) return;
+    save();
   }
 
   return (
@@ -65,32 +98,46 @@ export function PasswordPanel({ hasPassword }: { hasPassword: boolean }) {
             : "You sign in with an emailed code today. Set a password to sign in with your email and password instead."}
         </p>
       </div>
-      <form className="form" onSubmit={submit} noValidate aria-busy={pending}>
+      <form className={validation.shaking ? "form form--shake" : "form"} onSubmit={submit} noValidate aria-busy={pending}>
+        <FormSummary errors={validation.visible} />
         {hasPassword ? (
-          <PasswordInput
-            id={`${ids}-current`}
-            label="Current password"
-            value={current}
-            onChange={setCurrent}
-            autoComplete="current-password"
-            disabled={pending}
-          />
+          <>
+            <PasswordInput
+              id={`${ids}-current`}
+              label="Current password"
+              value={current}
+              onChange={setCurrent}
+              autoComplete="current-password"
+              onBlur={() => validation.onBlur("current")}
+              invalid={Boolean(validation.errors.current)}
+              describedBy={
+                validation.errors.current ? `${ids}-current-error` : undefined
+              }
+              disabled={pending}
+            />
+            <FieldError id={`${ids}-current-error`}>{validation.errors.current}</FieldError>
+          </>
         ) : null}
         <NewPasswordFields
+          idPrefix={`${ids}-np`}
           value={next}
           confirm={confirm}
           onChange={setNext}
           onConfirmChange={setConfirm}
+          onBlur={() => validation.onBlur("next")}
+          onConfirmBlur={() => validation.onBlur("confirm")}
           disabled={pending}
         />
         <div className="form-actions">
-          <button className="btn btn--primary" type="submit" disabled={pending || !ready}>
+          <button className="btn btn--primary" type="submit" disabled={pending}>
             <Icon name="lock-key" />
             {pending ? "Saving…" : title}
           </button>
         </div>
       </form>
-      {outcome ? <AdminActionResultBanner outcome={outcome} eventsLink={null} /> : null}
+      {outcome ? (
+        <AdminActionResultBanner outcome={outcome} eventsLink={null} onRetry={save} />
+      ) : null}
     </section>
   );
 }

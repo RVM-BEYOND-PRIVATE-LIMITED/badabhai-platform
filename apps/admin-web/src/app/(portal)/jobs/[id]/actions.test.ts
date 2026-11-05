@@ -55,9 +55,9 @@ describe("forceClosePostingAction", () => {
   });
 
   it("a 404 surfaces the server's own text", async () => {
-    adminFetch.mockRejectedValueOnce(new FakeRequestError(404, "Job posting not found"));
+    adminFetch.mockRejectedValueOnce(new FakeRequestError(404, "That record no longer exists. Refresh the page and try again."));
     const res = await forceClosePostingAction("missing");
-    expect(res).toEqual({ ok: false, error: "Job posting not found" });
+    expect(res).toEqual({ ok: false, error: "That record no longer exists. Refresh the page and try again." });
   });
 
   it("a 5xx collapses to the generic message, not whatever the server said", async () => {

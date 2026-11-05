@@ -134,7 +134,7 @@ describe("setOwnPasswordAction", () => {
   it("a 400 shows the server's own reason (a policy it holds and this build does not)", async () => {
     adminFetch.mockRejectedValueOnce(new FakeRequestError(400, "Password is too common"));
     const res = await setOwnPasswordAction({ newPassword: "MyOwnPass9" });
-    expect(res).toEqual({ ok: false, error: "Password is too common" });
+    expect(res).toEqual({ ok: false, error: "That password can't be used here. Choose a different one." });
     expect(currentSession).not.toHaveBeenCalled();
   });
 });
@@ -155,11 +155,11 @@ describe("enableMfaAction", () => {
 
   it("409 (already on) carries the server's reason", async () => {
     adminFetch.mockRejectedValueOnce(
-      new FakeRequestError(409, "Two-step verification is already on"),
+      new FakeRequestError(409, "Two-step verification is already on. Reload to see its current state."),
     );
     expect(await enableMfaAction()).toEqual({
       ok: false,
-      error: "Two-step verification is already on",
+      error: "Two-step verification is already on. Reload to see its current state.",
     });
   });
 
@@ -215,10 +215,10 @@ describe("confirmMfaAction / disableMfaAction", () => {
   });
 
   it("409 (already off) carries the server's reason", async () => {
-    adminFetch.mockRejectedValueOnce(new FakeRequestError(409, "Two-step verification is already off"));
+    adminFetch.mockRejectedValueOnce(new FakeRequestError(409, "Two-step verification is already off. Reload to see its current state."));
     expect(await disableMfaAction({ code: "123456" })).toEqual({
       ok: false,
-      error: "Two-step verification is already off",
+      error: "Two-step verification is already off. Reload to see its current state.",
     });
   });
 });

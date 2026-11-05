@@ -14,6 +14,7 @@ import type { AdminActionOutcome } from "../../../lib/admin-action-result";
 import { ACTION_ICON } from "@badabhai/icons";
 import { Timestamp } from "../../../components/timestamp";
 import { OneTimeSecret } from "../../../components/one-time-secret";
+import { FieldError, FormSummary, useFormValidation } from "../../../components/form-feedback";
 
 /** What the invite dialog says under its title. */
 export const INVITE_ADMIN_DESCRIPTION =
@@ -44,6 +45,24 @@ export function InviteAdminForm({
   const roleId = useId();
 
   const emailValid = looksLikeAdminEmail(email);
+  const validation = useFormValidation({
+    order: ["email"] as const,
+    fieldId: () => emailId,
+    focus: () => {
+      if (typeof document !== "undefined") document.getElementById(emailId)?.focus();
+    },
+    validate: () => {
+      if (email.trim() === "") return { email: "Enter the admin's work email." };
+      if (!emailValid) return { email: "Enter a valid email address." };
+      return {};
+    },
+  });
+
+  async function runInvite(): Promise<AdminActionOutcome> {
+    const outcome = await inviteAdminAction({ email, role });
+    handleSettled(outcome);
+    return outcome;
+  }
 
   function handleSettled(o: AdminActionOutcome) {
     setOutcome(o);
@@ -58,7 +77,11 @@ export function InviteAdminForm({
 
   return (
     <>
-      <form className="form" onSubmit={(e) => e.preventDefault()}>
+      <form
+        className={validation.shaking ? "form form--shake" : "form"}
+        onSubmit={(e) => e.preventDefault()}
+      >
+        <FormSummary errors={validation.visible} />
         <div className="form-grid">
           <label className="field" htmlFor={emailId}>
             <span className="field__label">
@@ -72,8 +95,15 @@ export function InviteAdminForm({
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              aria-invalid={email !== "" && !emailValid ? true : undefined}
+              onBlur={() => validation.onBlur("email")}
+              aria-invalid={
+                validation.errors.email ? true : email !== "" && !emailValid ? true : undefined
+              }
+              aria-describedby={
+                validation.errors.email ? `${emailId}-error` : undefined
+              }
             />
+            <FieldError id={`${emailId}-error`}>{validation.errors.email}</FieldError>
           </label>
           <label className="field" htmlFor={roleId}>
             <span className="field__label">Role</span>
@@ -98,8 +128,7 @@ export function InviteAdminForm({
             confirmLabel={`Confirm invite for ${email || "this address"}?`}
             variant="primary"
             disabled={!emailValid}
-            action={() => inviteAdminAction({ email, role })}
-            onSettled={handleSettled}
+            action={runInvite}
             onPendingChange={onPendingChange}
           />
         </div>
@@ -108,6 +137,7 @@ export function InviteAdminForm({
         <AdminActionResultBanner
           outcome={outcome}
           eventsLink={mayReadEvents ? ALL_ADMIN_ACTIONS_LINK : null}
+          onRetry={runInvite}
         />
       )}
       {outcome?.ok && outcome.acceptUrl ? (
