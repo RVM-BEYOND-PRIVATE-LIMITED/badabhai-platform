@@ -12,6 +12,7 @@ import {
 } from "@badabhai/db";
 import { DATABASE } from "../database/database.module";
 import { decodeEntityCursor, encodeEntityCursor } from "./admin-entities.cursor";
+import type { AdminActionCode } from "./admin-action-codes";
 import type { AdminAccountPasswordState } from "./admin-payer-logins.dto";
 
 /** One payer row as the accounts list reads it — NO contact ciphertext, NO password hash. */
@@ -260,7 +261,11 @@ export class AdminPayerLoginsRepository {
    * Written OUTSIDE the rolled-back transaction, value-free: admin id, action code and the
    * EXISTING payer id only. No email, no phone, no attempted name and no reason text.
    */
-  async writeConflictAudit(adminId: string, payerId: string, actionCode: string): Promise<void> {
+  async writeConflictAudit(
+    adminId: string,
+    payerId: string,
+    actionCode: AdminActionCode,
+  ): Promise<void> {
     await this.db.insert(auditLogs).values({
       actorType: "admin",
       actorId: adminId,

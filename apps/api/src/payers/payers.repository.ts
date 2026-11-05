@@ -34,6 +34,12 @@ export type CreatePayerInput = {
     }
 );
 
+/**
+ * #2563 follow-up — the neutral display name a removed member is reset to. It is deliberately
+ * NOT a login identifier, so a row carrying it has no company-name lookup hash.
+ */
+export const DEFAULT_ORG_NAME = "My Organisation";
+
 /** A payer's decrypted contact details — backend-only, for the payer's OWN view. */
 export interface PayerContact {
   id: string;
@@ -510,16 +516,23 @@ export class PayersRepository {
   }
 
   /**
-   * #2563 follow-up — replace a payer's display org name (and its exact-name login hash) in
-   * one write. Used when a removed team member's row still carries the founder's copied name:
+   * #2563 follow-up — replace a payer's display org name and its exact-name login hash in ONE
+   * write. Used when a removed team member's row still carries the founder's copied name:
    * after removal they must not keep it (or its lookup hash) into a later solo org.
+   *
+   * The neutral {@link DEFAULT_ORG_NAME} is a display fallback, not a login identifier, so it
+   * writes a NULL lookup hash in the same statement. That keeps "My Organisation" rows out of
+   * the company-name sign-in lookup and makes the reset atomic.
    */
   async setOrgName(id: string, orgName: string): Promise<void> {
     await this.db
       .update(payers)
       .set({
         orgNameEnc: this.pii.encrypt(orgName),
-        orgNameLookupHash: this.pii.hashOrgName(PayersRepository.normOrgName(orgName)),
+        orgNameLookupHash:
+          orgName === DEFAULT_ORG_NAME
+            ? null
+            : this.pii.hashOrgName(PayersRepository.normOrgName(orgName)),
         updatedAt: new Date(),
       })
       .where(eq(payers.id, id));

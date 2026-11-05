@@ -38,7 +38,7 @@ export class EmailPayerSecurityNoticeMailer implements PayerSecurityNoticeMailer
     const verb = notice.kind === "setup" ? "set up" : notice.kind;
     await this.email.send({
       to: notice.email,
-      subject: "Your BadaBhai password was changed",
+      subject: `Your BadaBhai password was ${verb}`,
       text: `Your BadaBhai password was ${verb} on ${when} IST. If this wasn't you, contact BadaBhai support.`,
       html: [
         `<p>Your BadaBhai password was <strong>${verb}</strong> on ${when} IST.</p>`,

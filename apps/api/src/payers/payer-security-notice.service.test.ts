@@ -92,11 +92,11 @@ describe("PayerSecurityNoticeService (#2563)", () => {
 });
 
 describe("EmailPayerSecurityNoticeMailer copy (#2563)", () => {
-  it("renders reset/revoked/changed in the plain owner-ruling copy and never a secret", async () => {
+  it("renders setup/reset/revoked/changed in the plain owner-ruling copy and never a secret", async () => {
     const email = { send: vi.fn(async (_message: unknown) => undefined) };
     const mailer = new EmailPayerSecurityNoticeMailer(email as never);
     const at = new Date("2026-11-04T09:15:00.000Z");
-    for (const kind of ["reset", "revoked", "changed"] as const) {
+    for (const kind of ["setup", "reset", "revoked", "changed"] as const) {
       await mailer.send({ email: "owner@example.com", kind, at });
       const message = email.send.mock.calls.at(-1)![0] as {
         text: string;
@@ -104,7 +104,10 @@ describe("EmailPayerSecurityNoticeMailer copy (#2563)", () => {
         purpose: string;
         principal: string;
       };
-      expect(message.text).toContain(`was ${kind} on`);
+      const verb = kind === "setup" ? "set up" : kind;
+      expect(message.text).toContain(`was ${verb} on`);
+      // A "setup" notice must not claim the password was CHANGED.
+      expect(message.subject).toContain(`was ${verb}`);
       expect(message.text).toContain("IST");
       expect(message.text).toContain("If this wasn't you, contact BadaBhai support.");
       expect(message.text).not.toContain("Xk7mPq2rTn9wZa"); // no password shape

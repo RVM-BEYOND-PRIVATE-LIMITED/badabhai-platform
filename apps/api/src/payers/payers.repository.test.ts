@@ -3,7 +3,7 @@ import { describe, it, expect } from "vitest";
 import type { Database, Payer } from "@badabhai/db";
 import type { ServerConfig } from "@badabhai/config";
 import { PiiCryptoService } from "../common/pii-crypto.service";
-import { PayersRepository } from "./payers.repository";
+import { DEFAULT_ORG_NAME, PayersRepository } from "./payers.repository";
 
 // Real crypto with deterministic test secrets (32-byte AES key, non-zero).
 const TEST_KEY = Buffer.alloc(32, 7).toString("base64");
@@ -219,6 +219,25 @@ describe("PayersRepository — phone signup + org lookup + passwords (#2497)", (
     const { db, updated } = makeRepo();
     const repo = new PayersRepository(db, pii);
     await repo.update("payer-1", { orgName: "New Name Ltd" });
+    expect((updated() as Record<string, unknown>).orgNameLookupHash).toBe(
+      pii.hashOrgName("new name ltd"),
+    );
+  });
+
+  it("setOrgName writes a NULL lookup hash for the neutral name in the SAME write", async () => {
+    const { db, updated } = makeRepo();
+    const repo = new PayersRepository(db, pii);
+    await repo.setOrgName("payer-1", DEFAULT_ORG_NAME);
+    const set = updated()!;
+    // AES-GCM is non-deterministic, so assert by decrypting rather than comparing ciphertext.
+    expect(pii.decrypt(set.orgNameEnc as string)).toBe(DEFAULT_ORG_NAME);
+    expect(set.orgNameLookupHash).toBeNull();
+  });
+
+  it("setOrgName still writes the exact-name lookup hash for a real company name", async () => {
+    const { db, updated } = makeRepo();
+    const repo = new PayersRepository(db, pii);
+    await repo.setOrgName("payer-1", "New Name Ltd");
     expect((updated() as Record<string, unknown>).orgNameLookupHash).toBe(
       pii.hashOrgName("new name ltd"),
     );

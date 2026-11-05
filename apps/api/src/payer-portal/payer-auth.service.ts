@@ -492,6 +492,31 @@ export class PayerAuthService {
   }
 
   /**
+   * #2563 follow-up — does this payer's row still carry a name COPIED from another org?
+   *
+   * A member's payer row is created with the founder's encrypted org name; a founder's own row
+   * carries the name they chose. The two cannot be compared as ciphertext (AES-GCM uses a fresh
+   * IV per write), so the row and its other-org names are decrypted here, at the one boundary
+   * that already owns payer PII.
+   *
+   * FAIL CLOSED FOR THE DESTRUCTIVE HALF: an unreadable history returns false, so a founder's
+   * own company-name sign-in is never erased on a guess. A stale member hash is the lesser harm
+   * and is repaired by the removal path.
+   */
+  private async carriesCopiedOrgName(account: {
+    id: string;
+    orgNameEnc: string;
+  }): Promise<boolean> {
+    try {
+      const ownName = this.pii.decrypt(account.orgNameEnc);
+      const otherNames = await this.orgs.listOtherOrgNameEnc(account.id);
+      return otherNames.some((nameEnc) => this.pii.decrypt(nameEnc) === ownName);
+    } catch {
+      return false;
+    }
+  }
+
+  /**
    * The OTP key for one request: the keyed hash of the SUPPLIED contact (#2497).
    * Email keeps the exact pre-#2497 key (`pii.hmac` of the normalized email — existing
    * rows and reserves keep working); phones hash via `hashPhone` (a distinct peppered
@@ -673,7 +698,10 @@ export class PayerAuthService {
       // writing the founder's company-name hash onto a member row.
       .catch(() => true);
     if (everMember) {
-      if (account.orgNameLookupHash) {
+      // #2563 follow-up — an existing hash is cleared ONLY when this row still carries
+      // ANOTHER org's copied name. A self-signup founder who accepted an invite remains root
+      // of their own org and keeps their own company-name sign-in.
+      if (account.orgNameLookupHash && (await this.carriesCopiedOrgName(account))) {
         await this.payers.clearOrgLookupHash(account.id).catch((err: unknown) => {
           this.logger.warn(
             `payer stale org lookup clear failed payer=${account.id.slice(0, 8)}… reason=${err instanceof Error ? err.message : String(err)}`,
