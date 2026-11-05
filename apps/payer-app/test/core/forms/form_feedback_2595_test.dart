@@ -325,8 +325,8 @@ void main() {
       expect(find.text('Fix B'), findsOneWidget);
       expect(maxShakeB, closeTo(AppMotion.shakeTravel, 0.6));
       expect(maxShakeC, 0);
-      // The double error tick.
-      expect(haptics, <String>[light, light]);
+      // ONE light tick on a refused submit (#2690).
+      expect(haptics, <String>[light]);
     });
 
     testWidgets('an error already on screen does not move the form', (
@@ -417,7 +417,7 @@ void main() {
       expect(b.bottom, lessThanOrEqualTo(600));
       expect(find.text('Server B'), findsOneWidget);
       expect(maxShake, closeTo(AppMotion.shakeTravel, 0.6));
-      expect(haptics, <String>[light, light]);
+      expect(haptics, <String>[light]);
     });
   });
 

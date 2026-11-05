@@ -43,6 +43,7 @@ class BbButton extends StatelessWidget {
     this.leading,
     this.loading = false,
     this.buttonKey,
+    this.autofocus = false,
   }) : assert(
           size != BbButtonSize.sm ||
               (variant != BbButtonVariant.primary &&
@@ -72,6 +73,10 @@ class BbButton extends StatelessWidget {
 
   /// Key applied to the underlying Material button (handy for widget tests).
   final Key? buttonKey;
+
+  /// Focus the underlying Material button as it appears — used by a
+  /// destructive confirm so the safe choice (Cancel) starts focused (#2690).
+  final bool autofocus;
 
   double get _height => switch (size) {
         BbButtonSize.sm => AppSpacing.controlSm,
@@ -123,6 +128,7 @@ class BbButton extends StatelessWidget {
     final Widget button = switch (variant) {
       BbButtonVariant.secondary => OutlinedButton(
           key: buttonKey,
+          autofocus: autofocus,
           onPressed: effectiveOnPressed,
           style: OutlinedButton.styleFrom(
             minimumSize: minSize,
@@ -132,6 +138,7 @@ class BbButton extends StatelessWidget {
         ),
       BbButtonVariant.ghost => TextButton(
           key: buttonKey,
+          autofocus: autofocus,
           onPressed: effectiveOnPressed,
           style: TextButton.styleFrom(
             foregroundColor: AppColors.textPrimary,
@@ -142,6 +149,7 @@ class BbButton extends StatelessWidget {
         ),
       BbButtonVariant.tonal => FilledButton(
           key: buttonKey,
+          autofocus: autofocus,
           onPressed: effectiveOnPressed,
           style: FilledButton.styleFrom(
             backgroundColor: AppColors.brandTint2,
@@ -155,6 +163,7 @@ class BbButton extends StatelessWidget {
       // Kit "navy" — deep-blue strong commitment (download / continue).
       BbButtonVariant.navy => FilledButton(
           key: buttonKey,
+          autofocus: autofocus,
           onPressed: effectiveOnPressed,
           style: FilledButton.styleFrom(
             backgroundColor: AppColors.blue,
@@ -171,6 +180,7 @@ class BbButton extends StatelessWidget {
       // Kit "success" — green: money / WhatsApp / done ONLY.
       BbButtonVariant.success => FilledButton(
           key: buttonKey,
+          autofocus: autofocus,
           onPressed: effectiveOnPressed,
           style: FilledButton.styleFrom(
             backgroundColor: AppColors.success,
@@ -186,6 +196,7 @@ class BbButton extends StatelessWidget {
         ),
       BbButtonVariant.brand => FilledButton(
           key: buttonKey,
+          autofocus: autofocus,
           onPressed: effectiveOnPressed,
           style: AppButtonStyles.brand.copyWith(
             minimumSize: WidgetStatePropertyAll<Size>(minSize),
@@ -195,6 +206,7 @@ class BbButton extends StatelessWidget {
         ),
       BbButtonVariant.danger => FilledButton(
           key: buttonKey,
+          autofocus: autofocus,
           onPressed: effectiveOnPressed,
           style: AppButtonStyles.danger.copyWith(
             minimumSize: WidgetStatePropertyAll<Size>(minSize),
@@ -204,6 +216,7 @@ class BbButton extends StatelessWidget {
         ),
       BbButtonVariant.primary => FilledButton(
           key: buttonKey,
+          autofocus: autofocus,
           onPressed: effectiveOnPressed,
           style: FilledButton.styleFrom(minimumSize: minSize, textStyle: labelStyle),
           child: child,

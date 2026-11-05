@@ -8,6 +8,8 @@ import 'package:flutter/services.dart' show HapticFeedback;
 ///  - [confirm] — medium impact when a consequential choice is confirmed
 ///    (unlock, sign out).
 ///  - [error]   — a double light tick when something failed.
+///  - [errorOnce] — ONE light tick for a form submit refused by validation
+///    (#2690): the first invalid field shakes once, and the phone buzzes once.
 class AppHaptics {
   AppHaptics._();
 
@@ -23,4 +25,8 @@ class AppHaptics {
     await Future<void>.delayed(errorTickGap);
     await HapticFeedback.lightImpact();
   }
+
+  /// One light tick — the submit-with-errors voice (#2690). The platform's
+  /// haptic engine still honours the OS haptics setting.
+  static Future<void> errorOnce() => HapticFeedback.lightImpact();
 }

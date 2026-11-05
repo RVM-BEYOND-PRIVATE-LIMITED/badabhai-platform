@@ -10,6 +10,7 @@ import 'package:payer_app/core/session/app_session.dart';
 import 'package:payer_app/core/session/app_session_cubit.dart';
 import 'package:payer_app/core/theme/app_motion.dart';
 import 'package:payer_app/core/theme/app_theme.dart';
+import 'package:payer_app/core/widgets/bb_toast.dart';
 import 'package:payer_app/features/jobs/presentation/agency_jobs_screen.dart';
 import 'package:payer_app/features/jobs/presentation/jobs_screen.dart';
 import 'package:payer_app/features/jobs/presentation/widgets/job_card_actions.dart';
@@ -757,7 +758,7 @@ void main() {
         'instant under reduced motion', (WidgetTester tester) async {
       double riseOffset() => tester
           .widget<Transform>(find.descendant(
-            of: find.byType(JobToastRise),
+            of: find.byType(BbToastRise),
             matching: find.byType(Transform),
           ))
           .transform
@@ -768,21 +769,26 @@ void main() {
         await _openMenu(tester);
         await tester.tap(find.text('Pause'));
         for (int i = 0;
-            i < 5 && find.byType(JobToastRise).evaluate().isEmpty;
+            i < 5 && find.byType(BbToastRise).evaluate().isEmpty;
             i++) {
           await tester.pump();
         }
-        expect(find.byType(JobToastRise), findsOneWidget);
+        expect(find.byType(BbToastRise), findsOneWidget);
       }
 
       await _pumpCompany(tester, <JobPosting>[_posting()]);
       await pauseFirstJob();
       expect(
-        tester.widget<JobToastRise>(find.byType(JobToastRise)).duration,
+        tester
+            .widget<TweenAnimationBuilder<double>>(find.descendant(
+              of: find.byType(BbToastRise),
+              matching: find.byType(TweenAnimationBuilder<double>),
+            ))
+            .duration,
         AppMotion.base,
       );
-      expect(JobToastRise.distance, lessThanOrEqualTo(6));
-      expect(riseOffset(), closeTo(JobToastRise.distance, 0.01),
+      expect(BbToastRise.distance, lessThanOrEqualTo(6));
+      expect(riseOffset(), closeTo(BbToastRise.distance, 0.01),
           reason: 'it starts below its resting place…');
       await tester.pump(AppMotion.base);
       expect(riseOffset(), closeTo(0, 0.01), reason: '…and rises into it');

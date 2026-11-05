@@ -2,184 +2,224 @@ import 'package:flutter/material.dart';
 
 import '../theme/app_colors.dart';
 import '../theme/app_haptics.dart';
+import '../theme/app_motion.dart';
 import '../theme/app_spacing.dart';
 import '../theme/app_typography.dart';
 import 'bb_button.dart';
 
-/// Shows the BadaBhai centred alert — a modal the payer cannot miss. It takes the
-/// whole screen focus over the deep-blue scrim and closes ONLY on an explicit OK
+/// Shows the BadaBhai terminal alert — a message the payer cannot miss. It
+/// takes the focus over the deep-blue scrim and closes ONLY on an explicit OK
 /// tap (`barrierDismissible: false`), so a terminal message (e.g. the account is
 /// gone) is always read, never dismissed by accident.
 ///
-/// JUL31 "Josh" chrome: a white [AppColors.surfaceCard] card, [AppRadii.lg]
-/// corners, elevation 0 (separation is the scrim + fill, never a shadow — design
-/// law §4), a normal-face [title], a legible Inter [message], and one full-width
-/// primary [BbButton]. Returns when the payer taps OK.
+/// #2690 — it uses the ONE confirmation surface: a bottom sheet on phones, a
+/// centred dialog on wide screens. It is never dismissible by tapping outside.
 Future<void> showBbAlert(
   BuildContext context, {
   required String title,
   required String message,
   String okLabel = 'Theek hai',
-}) {
-  // #2591 — this alert carries a terminal error (e.g. the account is gone):
-  // the double error tick lands as it appears.
+}) async {
+  // This alert carries a terminal error (e.g. the account is gone): the error
+  // tick lands as it appears.
   AppHaptics.error();
-  return showDialog<void>(
-    context: context,
+  await _showBbMessage(
+    context,
+    title: title,
+    body: Text(
+      message,
+      style: AppTypography.body(
+        size: AppTypography.sizeMd,
+        color: AppColors.textSecondary,
+      ),
+    ),
+    confirmLabel: okLabel,
+    cancelLabel: null,
+    destructive: false,
     barrierDismissible: false,
-    barrierColor: AppColors.scrim,
-    builder: (BuildContext dialogContext) {
-      return AlertDialog(
+  );
+}
+
+/// Shows the BadaBhai confirm — the ONE two-button confirmation surface for a
+/// consequential choice (#2690, rule 4): a bottom sheet on phones, a centred
+/// dialog on wide screens. The [title] names the action, [message] (or [body])
+/// gives the consequence in one line, and the buttons are Cancel plus the verb.
+///
+/// [destructive] is only for irreversible actions (it makes the confirm crimson
+/// and starts focus on Cancel). A tap outside reads as cancel and returns
+/// `false`, the safe default. Returns `true` only when the payer confirms.
+Future<bool> showBbConfirm(
+  BuildContext context, {
+  required String title,
+  required String message,
+  Widget? body,
+  required String confirmLabel,
+  String cancelLabel = 'Rehne do',
+  bool destructive = false,
+  IconData? confirmIcon,
+  bool confirmHaptic = true,
+}) async {
+  final bool? result = await _showBbMessage(
+    context,
+    title: title,
+    body: body ??
+        Text(
+          message,
+          style: AppTypography.body(
+            size: AppTypography.sizeMd,
+            color: AppColors.textSecondary,
+          ),
+        ),
+    confirmLabel: confirmLabel,
+    cancelLabel: cancelLabel,
+    destructive: destructive,
+    barrierDismissible: true,
+    confirmIcon: confirmIcon,
+    confirmHaptic: confirmHaptic,
+  );
+  return result ?? false;
+}
+
+Future<bool?> _showBbMessage(
+  BuildContext context, {
+  required String title,
+  required Widget body,
+  required String confirmLabel,
+  required String? cancelLabel,
+  required bool destructive,
+  required bool barrierDismissible,
+  IconData? confirmIcon,
+  bool confirmHaptic = true,
+}) {
+  final bool wide = MediaQuery.sizeOf(context).shortestSide >= 600;
+  final Widget content = _BbConfirmContent(
+    title: title,
+    body: body,
+    confirmLabel: confirmLabel,
+    cancelLabel: cancelLabel,
+    destructive: destructive,
+    confirmIcon: confirmIcon,
+    confirmHaptic: confirmHaptic,
+  );
+
+  if (wide) {
+    return showDialog<bool>(
+      context: context,
+      barrierDismissible: barrierDismissible,
+      barrierColor: AppColors.scrim,
+      builder: (BuildContext dialogContext) => Dialog(
         backgroundColor: AppColors.surfaceCard,
+        surfaceTintColor: Colors.transparent,
         // Design law §4: separation is the scrim + fill, never a shadow.
         elevation: 0,
+        insetPadding: const EdgeInsets.all(AppSpacing.s6),
         shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.all(Radius.circular(AppRadii.lg)),
+          borderRadius: BorderRadius.all(Radius.circular(AppRadii.xl)),
+          side: BorderSide(color: AppColors.border),
         ),
-        titlePadding: const EdgeInsets.fromLTRB(
-          AppSpacing.s6,
-          AppSpacing.s6,
-          AppSpacing.s6,
-          AppSpacing.s3,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 420),
+          child: Padding(
+            padding: const EdgeInsets.all(AppSpacing.s5),
+            child: content,
+          ),
         ),
-        contentPadding: const EdgeInsets.fromLTRB(
-          AppSpacing.s6,
-          0,
-          AppSpacing.s6,
-          AppSpacing.s6,
+      ),
+    );
+  }
+
+  return showModalBottomSheet<bool>(
+    context: context,
+    isScrollControlled: true,
+    useSafeArea: true,
+    showDragHandle: barrierDismissible,
+    isDismissible: barrierDismissible,
+    enableDrag: barrierDismissible,
+    backgroundColor: AppColors.surfaceCard,
+    barrierColor: AppColors.scrim,
+    sheetAnimationStyle: AppMotion.sheetStyle(context),
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadii.xxl)),
+    ),
+    builder: (BuildContext sheetContext) {
+      final double bottomInset = MediaQuery.viewInsetsOf(sheetContext).bottom;
+      return SingleChildScrollView(
+        padding: EdgeInsets.fromLTRB(
+          AppSpacing.gutter,
+          AppSpacing.s2,
+          AppSpacing.gutter,
+          AppSpacing.s5 + bottomInset,
         ),
-        title: Text(
-          title,
-          textAlign: TextAlign.center,
-          style: AppTypography.heading(size: AppTypography.sizeMd),
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: <Widget>[
-            Text(
-              message,
-              textAlign: TextAlign.center,
-              style: AppTypography.body(
-                size: AppTypography.sizeMd,
-                color: AppColors.textSecondary,
-              ),
-            ),
-            const SizedBox(height: AppSpacing.s6),
-            // Row + Expanded (not BbButton.block) gives a full-width button while
-            // keeping a FINITE intrinsic width — AlertDialog wraps its column in
-            // an IntrinsicWidth, which throws on a `width: infinity` child.
-            Row(
-              children: <Widget>[
-                Expanded(
-                  child: BbButton(
-                    label: okLabel,
-                    onPressed: () => Navigator.of(dialogContext).pop(),
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
+        child: content,
       );
     },
   );
 }
 
-/// Shows the BadaBhai centred CONFIRM — a two-button modal for a reversible-but-
-/// consequential choice (e.g. Sign out). Same JUL31 "Josh" chrome as [showBbAlert]
-/// (white [AppColors.surfaceCard] card, [AppRadii.lg] corners, elevation 0 —
-/// separation is the scrim + fill, never a shadow, design law §4 — normal-face [title],
-/// Inter [message]) but with a quiet [cancelLabel] ([BbButtonVariant.secondary])
-/// beside the [confirmLabel] action.
-///
-/// Returns `true` only when the payer taps confirm; `false` on cancel OR a
-/// barrier tap (tap-outside reads as cancel — the safe default for a destructive
-/// prompt). Set [destructive] to render the confirm in crimson.
-Future<bool> showBbConfirm(
-  BuildContext context, {
-  required String title,
-  required String message,
-  required String confirmLabel,
-  String cancelLabel = 'Rehne do',
-  bool destructive = false,
-}) async {
-  final bool? result = await showDialog<bool>(
-    context: context,
-    barrierColor: AppColors.scrim,
-    builder: (BuildContext dialogContext) {
-      return AlertDialog(
-        backgroundColor: AppColors.surfaceCard,
-        // Design law §4: separation is the scrim + fill, never a shadow.
-        elevation: 0,
-        shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.all(Radius.circular(AppRadii.lg)),
-        ),
-        titlePadding: const EdgeInsets.fromLTRB(
-          AppSpacing.s6,
-          AppSpacing.s6,
-          AppSpacing.s6,
-          AppSpacing.s3,
-        ),
-        contentPadding: const EdgeInsets.fromLTRB(
-          AppSpacing.s6,
-          0,
-          AppSpacing.s6,
-          AppSpacing.s6,
-        ),
-        title: Text(
+class _BbConfirmContent extends StatelessWidget {
+  const _BbConfirmContent({
+    required this.title,
+    required this.body,
+    required this.confirmLabel,
+    required this.cancelLabel,
+    required this.destructive,
+    required this.confirmIcon,
+    required this.confirmHaptic,
+  });
+
+  final String title;
+  final Widget body;
+  final String confirmLabel;
+  final String? cancelLabel;
+  final bool destructive;
+  final IconData? confirmIcon;
+  final bool confirmHaptic;
+
+  @override
+  Widget build(BuildContext context) {
+    final String? cancel = cancelLabel;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        Text(
           title,
-          textAlign: TextAlign.center,
-          style: AppTypography.heading(size: AppTypography.sizeMd),
+          style: AppTypography.heading(size: AppTypography.sizeLg),
         ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+        const SizedBox(height: AppSpacing.s2),
+        body,
+        const SizedBox(height: AppSpacing.s6),
+        Row(
           children: <Widget>[
-            Text(
-              message,
-              textAlign: TextAlign.center,
-              style: AppTypography.body(
-                size: AppTypography.sizeMd,
-                color: AppColors.textSecondary,
+            if (cancel != null) ...<Widget>[
+              Expanded(
+                child: BbButton(
+                  label: cancel,
+                  variant: BbButtonVariant.secondary,
+                  size: BbButtonSize.md,
+                  autofocus: destructive,
+                  onPressed: () => Navigator.of(context).pop(false),
+                ),
               ),
-            ),
-            const SizedBox(height: AppSpacing.s6),
-            // Row + Expanded (not BbButton.block) keeps a FINITE intrinsic width
-            // — AlertDialog wraps its column in an IntrinsicWidth, which throws
-            // on a `width: infinity` child. md height (44) — sm is disallowed on
-            // the danger face.
-            Row(
-              children: <Widget>[
-                Expanded(
-                  child: BbButton(
-                    label: cancelLabel,
-                    variant: BbButtonVariant.secondary,
-                    size: BbButtonSize.md,
-                    onPressed: () => Navigator.of(dialogContext).pop(false),
-                  ),
-                ),
-                const SizedBox(width: AppSpacing.s3),
-                Expanded(
-                  child: BbButton(
-                    label: confirmLabel,
-                    variant: destructive
-                        ? BbButtonVariant.danger
-                        : BbButtonVariant.primary,
-                    size: BbButtonSize.md,
-                    onPressed: () {
-                      // #2591 — medium haptic on a confirmed choice.
-                      AppHaptics.confirm();
-                      Navigator.of(dialogContext).pop(true);
-                    },
-                  ),
-                ),
-              ],
+              const SizedBox(width: AppSpacing.s3),
+            ],
+            Expanded(
+              child: BbButton(
+                label: confirmLabel,
+                iconLeft: confirmIcon,
+                variant: destructive
+                    ? BbButtonVariant.danger
+                    : BbButtonVariant.primary,
+                size: BbButtonSize.md,
+                onPressed: () {
+                  if (confirmHaptic) AppHaptics.confirm();
+                  Navigator.of(context).pop(true);
+                },
+              ),
             ),
           ],
         ),
-      );
-    },
-  );
-  return result ?? false;
+      ],
+    );
+  }
 }

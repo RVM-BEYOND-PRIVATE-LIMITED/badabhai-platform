@@ -36,8 +36,8 @@ String closeJobMessage(String jobTitle) =>
 /// The action on the toast after a Pause; the caller wires it to a resume.
 const String kJobUndoLabel = 'Undo';
 
-/// How long the Undo toast stays up — long enough to reach the button.
-const Duration kJobUndoWindow = Duration(seconds: 5);
+/// How long the Undo toast stays up — rule 2's 8s for a toast with an action.
+const Duration kJobUndoWindow = Duration(seconds: 8);
 
 /// The secondary actions a card keeps behind its "⋯" button. The CARD decides
 /// which are legal for the posting's state; the sheet only lists them, and a
@@ -347,98 +347,27 @@ void showJobActionToast(
     title: success ? action.done : action.failed,
     message: message,
     icon: success ? Icons.check_circle_rounded : Icons.info_rounded,
+    tone: success ? BbToastTone.success : BbToastTone.error,
   );
 }
 
 /// The toast after a successful Pause: names the outcome and offers
 /// [kJobUndoLabel] for [kJobUndoWindow]; the caller wires [onUndo] to a
-/// resume. The theme's flat deep-blue snack bar with the haldi action, so an
-/// Undo stays reachable under TalkBack. Its content rises into place
-/// ([JobToastRise]).
+/// resume. It rides the ONE toast system (#2690) with an action, so Undo stays
+/// reachable under TalkBack and the toast rises from the shared motion tokens.
 void showJobUndoToast(
   BuildContext context, {
   required String title,
   required String message,
   required VoidCallback onUndo,
 }) {
-  final Duration rise = AppMotion.resolve(context, AppMotion.base);
-  ScaffoldMessenger.of(context)
-    ..clearSnackBars()
-    ..showSnackBar(
-      SnackBar(
-        duration: kJobUndoWindow,
-        margin: const EdgeInsets.fromLTRB(
-          AppSpacing.s4,
-          0,
-          AppSpacing.s4,
-          AppSpacing.s5,
-        ),
-        content: JobToastRise(
-          duration: rise,
-          child: Row(
-            children: <Widget>[
-              const Icon(
-                Icons.check_circle_rounded,
-                color: AppColors.green300,
-                size: 24,
-              ),
-              const SizedBox(width: AppSpacing.s3),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: <Widget>[
-                    Text(
-                      title,
-                      style: AppTypography.body(
-                        weight: FontWeight.w700,
-                        color: AppColors.paper1,
-                      ),
-                    ),
-                    Text(
-                      message,
-                      style: AppTypography.body(
-                        size: AppTypography.sizeSm,
-                        color: AppColors.ink200,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-        action: SnackBarAction(label: kJobUndoLabel, onPressed: onUndo),
-      ),
-    );
-}
-
-/// The Undo toast's "slide up": its content rises [distance] px into place
-/// while it fades in — transform + opacity only, ease-out, over [duration]
-/// (pass it through [AppMotion.resolve] so reduced motion makes it instant).
-class JobToastRise extends StatelessWidget {
-  const JobToastRise({super.key, required this.duration, required this.child});
-
-  /// Travel of the rise — the motion rules' 6px cap.
-  static const double distance = 6;
-
-  final Duration duration;
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    return TweenAnimationBuilder<double>(
-      tween: Tween<double>(begin: 0, end: 1),
-      duration: duration,
-      curve: AppMotion.easeOut,
-      builder: (BuildContext context, double t, Widget? child) => Opacity(
-        opacity: t,
-        child: Transform.translate(
-          offset: Offset(0, (1 - t) * distance),
-          child: child,
-        ),
-      ),
-      child: child,
-    );
-  }
+  showBbToast(
+    context,
+    title: title,
+    message: message,
+    icon: Icons.check_circle_rounded,
+    tone: BbToastTone.action,
+    duration: kJobUndoWindow,
+    action: BbToastAction(label: kJobUndoLabel, onPressed: onUndo),
+  );
 }

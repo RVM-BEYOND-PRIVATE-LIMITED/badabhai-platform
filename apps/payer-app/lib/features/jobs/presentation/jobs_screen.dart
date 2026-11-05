@@ -19,6 +19,7 @@ import '../../../core/widgets/bb_refresh.dart';
 import '../../../core/widgets/bb_skeleton.dart';
 import '../../../core/widgets/bb_status_view.dart';
 import '../../../core/widgets/bb_tab_scope.dart';
+import '../../../core/widgets/bb_toast.dart';
 import '../../job_posting_chat/presentation/cubit/chat_sessions_cubit.dart';
 import 'agency_jobs_screen.dart';
 import '../domain/job_matching.dart';
@@ -445,7 +446,7 @@ class _RealJobCardState extends State<_RealJobCard> {
   /// picker, refused there, so the payer picks one instead of reading why.
   Future<void> _run(JobsCubit cubit, JobLifecycleAction action) async {
     final String id = job.id!;
-    if (mounted) ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    if (mounted) hideBbToast(context);
     _setBusy(action);
     final JobActionResult result = await switch (action) {
       JobLifecycleAction.publish => cubit.publish(id),

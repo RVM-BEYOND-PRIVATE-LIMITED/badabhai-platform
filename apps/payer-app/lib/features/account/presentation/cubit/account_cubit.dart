@@ -2,7 +2,7 @@ import 'package:equatable/equatable.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../../core/data/payer_account_api.dart';
-import '../../../../core/error/payer_failure.dart';
+import '../../../../core/error/api_error_copy.dart';
 
 /// Loads and edits the signed-in payer's account via `GET/PATCH /payer/me`.
 /// PII-light by construction: the model only ever carries `phoneLast4`, never a
@@ -23,7 +23,7 @@ class AccountCubit extends Cubit<AccountState> {
       // "check your connection" that misleads on a 5xx.
       emit(state.copyWith(
         status: AccountStatus.error,
-        error: PayerFailure.from(e).message,
+        error: ApiErrorCopy.forError(e, context: 'account.load'),
       ));
     }
   }
@@ -36,10 +36,10 @@ class AccountCubit extends Cubit<AccountState> {
     try {
       final PayerMe me = await _api.updateMe(orgName: orgName, phone: phone);
       emit(AccountState(status: AccountStatus.ready, me: me));
-    } catch (_) {
+    } catch (e) {
       emit(state.copyWith(
         status: AccountStatus.error,
-        error: 'Could not save your changes. Check the details and retry.',
+        error: ApiErrorCopy.forError(e, context: 'account.save'),
       ));
     }
   }

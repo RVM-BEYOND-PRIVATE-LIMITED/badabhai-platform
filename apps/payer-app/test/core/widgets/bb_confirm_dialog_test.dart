@@ -57,6 +57,32 @@ void main() {
     expect(_last, isFalse);
   });
 
+  testWidgets('on a phone it is a bottom sheet, not an AlertDialog', (
+    WidgetTester tester,
+  ) async {
+    tester.view.physicalSize = const Size(360, 640);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await open(tester);
+
+    expect(find.byType(BottomSheet), findsOneWidget);
+    expect(find.byType(AlertDialog), findsNothing);
+  });
+
+  testWidgets('a destructive confirm starts focus on Cancel', (
+    WidgetTester tester,
+  ) async {
+    tester.view.physicalSize = const Size(360, 640);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await open(tester);
+
+    final OutlinedButton cancel = tester.widget<OutlinedButton>(
+      find.widgetWithText(OutlinedButton, 'Rehne do'),
+    );
+    expect(cancel.autofocus, isTrue);
+  });
+
   testWidgets('barrier tap returns false', (WidgetTester tester) async {
     await open(tester);
     // Tap top-left, well outside the centred card, to dismiss via the barrier.

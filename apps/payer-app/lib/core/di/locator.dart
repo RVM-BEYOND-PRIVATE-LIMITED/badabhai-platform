@@ -9,6 +9,7 @@ import '../data/payer_account_api.dart';
 import '../data/payer_api_client.dart';
 import '../session/app_session_cubit.dart';
 import '../session/credits_cubit.dart';
+import '../session/network_status.dart';
 
 import '../../features/account/presentation/cubit/account_cubit.dart';
 
@@ -76,6 +77,9 @@ void setupLocator({
   locator.registerLazySingleton<AccountDeletedSignal>(
     () => AccountDeletedSignal(),
   );
+  // #2690 — reachability from the caller's own API traffic; the shell renders
+  // one banner while it is offline.
+  locator.registerLazySingleton<NetworkStatus>(() => NetworkStatus());
   locator.registerLazySingleton<PayerHttp>(
     () => PayerHttp(
       // Non-null whenever a real request can actually happen; the MOCK/test
@@ -89,6 +93,16 @@ void setupLocator({
       // root shows ONE non-dismissible dialog and hard-logs-out on OK. Additive
       // and separate from the recoverable 401 path above.
       onAccountDeleted: () => locator<AccountDeletedSignal>().fire(),
+      // #2690 — a completed response means online; a transport failure means
+      // offline. No polling; the payer's own calls are the probe.
+      onConnectivityChanged: (bool online) {
+        final NetworkStatus status = locator<NetworkStatus>();
+        if (online) {
+          status.markOnline();
+        } else {
+          status.markOffline();
+        }
+      },
       // A 401 first tries ONE silent refresh; PayerHttp persists the new bearer
       // + retries. The auth API is resolved lazily (it is itself built over this
       // PayerHttp) so this closure only runs when a refresh is actually needed.

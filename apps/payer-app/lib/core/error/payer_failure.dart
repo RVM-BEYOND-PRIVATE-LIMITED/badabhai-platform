@@ -5,6 +5,7 @@ import 'package:flutter/material.dart' show IconData, Icons;
 import 'package:http/http.dart' as http;
 
 import '../data/models.dart' show PayerApiException;
+import 'api_error_copy.dart';
 
 /// The KIND of a failed payer API load, derived from the error a data call threw.
 ///
@@ -112,18 +113,12 @@ class PayerFailure {
   /// The user-facing explanation + the next step. Never blames the connection
   /// when the real cause is the server (or vice-versa).
   String get message => switch (kind) {
-        PayerFailureKind.network =>
-          'Check your internet connection and try again.',
-        PayerFailureKind.timeout =>
-          'The server took too long to respond. Please try again.',
-        PayerFailureKind.server =>
-          "This is a problem on our side, not yours. Please try again in a moment.",
-        PayerFailureKind.session =>
-          'Please log in again to continue.',
-        PayerFailureKind.notFound =>
-          "This isn't available anymore.",
-        PayerFailureKind.unknown =>
-          'Something went wrong. Please try again.',
+        PayerFailureKind.network => ApiErrorCopy.network,
+        PayerFailureKind.timeout => ApiErrorCopy.timeout,
+        PayerFailureKind.server => ApiErrorCopy.server,
+        PayerFailureKind.session => ApiErrorCopy.session,
+        PayerFailureKind.notFound => ApiErrorCopy.notFound,
+        PayerFailureKind.unknown => ApiErrorCopy.generic,
       };
 
   @override

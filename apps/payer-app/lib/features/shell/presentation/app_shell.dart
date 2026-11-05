@@ -8,15 +8,18 @@ import '../../../core/observability/crash_reporter.dart';
 import '../../../core/session/app_session.dart';
 import '../../../core/session/app_session_cubit.dart';
 import '../../../core/session/credits_cubit.dart';
+import '../../../core/session/network_status.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_motion.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_system_ui.dart';
+import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/bb_bottom_nav.dart';
 import '../../../core/widgets/bb_leave_guard.dart';
 import '../../../core/widgets/bb_new_item_highlight.dart';
 import '../../../core/widgets/bb_overlay_host.dart';
 import '../../../core/widgets/bb_tab_scope.dart';
+import '../../../core/widgets/bb_toast.dart';
 import '../../credits/presentation/credits_screen.dart';
 import '../../find/presentation/find_screen.dart';
 import '../../find/presentation/reveal_args.dart';
@@ -53,6 +56,11 @@ class AppShell extends StatefulWidget {
 
 class _AppShellState extends State<AppShell> {
   String _tab = 'home';
+
+  /// #2690 — the app-wide reachability flag. The shell shows one slim banner
+  /// while it is false, and a brief "Back online" toast when it recovers.
+  NetworkStatus? _network;
+  bool _online = true;
   String? _sub;
   RevealArgs? _revealed;
 
@@ -140,12 +148,34 @@ class _AppShellState extends State<AppShell> {
   @override
   void initState() {
     super.initState();
+    if (locator.isRegistered<NetworkStatus>()) {
+      _network = locator<NetworkStatus>();
+      _online = _network!.online;
+      _network!.addListener(_onNetworkChanged);
+    }
     locator<CreditsCubit>().load();
     CrashReporter.setScreen('payer/$_tab'); // seed the shell's initial screen
   }
 
+  void _onNetworkChanged() {
+    final bool online = _network?.online ?? true;
+    if (online == _online) return;
+    setState(() => _online = online);
+    if (!online) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      showBbToast(
+        context,
+        title: 'Back online',
+        message: "You're connected again.",
+        icon: Icons.wifi_rounded,
+      );
+    });
+  }
+
   @override
   void dispose() {
+    _network?.removeListener(_onNetworkChanged);
     for (final BbTabSignals s in _signals.values) {
       s.dispose();
     }
@@ -550,7 +580,18 @@ class _AppShellState extends State<AppShell> {
         // header can run under the status bar; the canvas gets dark icons.
         body: AnnotatedRegion<SystemUiOverlayStyle>(
           value: AppSystemUi.onLight,
-          child: SafeArea(top: false, bottom: false, child: _buildBody()),
+          child: Column(
+            children: <Widget>[
+              if (!_online) const _OfflineBanner(),
+              Expanded(
+                child: SafeArea(
+                  top: false,
+                  bottom: false,
+                  child: _buildBody(),
+                ),
+              ),
+            ],
+          ),
         ),
         bottomNavigationBar: _fullScreenTasks.contains(_sub)
             ? null
@@ -559,6 +600,55 @@ class _AppShellState extends State<AppShell> {
                 currentId: navId,
                 onSelect: _onNavSelect,
               ),
+      ),
+    );
+  }
+}
+
+
+/// #2690 (rule 3) — one slim banner at the top of the shell while the last API
+/// call failed at the transport layer. It is NOT a toast: it stays until a
+/// successful call, so a dead link never spams the payer.
+class _OfflineBanner extends StatelessWidget {
+  const _OfflineBanner();
+
+  static const Key bannerKey = Key('offline_banner');
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      liveRegion: true,
+      container: true,
+      child: Container(
+        key: bannerKey,
+        width: double.infinity,
+        color: AppColors.warningTint,
+        padding: EdgeInsets.fromLTRB(
+          AppSpacing.gutter,
+          MediaQuery.paddingOf(context).top + AppSpacing.s2,
+          AppSpacing.gutter,
+          AppSpacing.s2,
+        ),
+        child: Row(
+          children: <Widget>[
+            const Icon(
+              Icons.wifi_off_rounded,
+              size: 18,
+              color: AppColors.warning,
+            ),
+            const SizedBox(width: AppSpacing.s2),
+            Expanded(
+              child: Text(
+                "You're offline. We'll retry when you're back.",
+                style: AppTypography.body(
+                  size: AppTypography.sizeSm,
+                  weight: FontWeight.w600,
+                  color: AppColors.textPrimary,
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
