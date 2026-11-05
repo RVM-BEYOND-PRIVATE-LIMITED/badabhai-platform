@@ -1612,6 +1612,35 @@ describe("payer auth events (ADR-0019 Decision B — FACELESS, ids/role/method e
     expect(bad.success).toBe(false);
     if (!bad.success) expect(bad.error.stage).toBe("payload");
   });
+
+  it("validates payer.account_deleted with payer_id + counts/flags and NOTHING else", () => {
+    const result = validateEvent(
+      payerAuthEvent("payer.account_deleted", {
+        payer_id: UUID_A,
+        sessions_revoked: 2,
+        solo_org_deleted: true,
+      }),
+    );
+    expect(result.success).toBe(true);
+    if (result.success && result.event.event_name === "payer.account_deleted") {
+      expect(Object.keys(result.event.payload).sort()).toEqual(
+        ["payer_id", "sessions_revoked", "solo_org_deleted"].sort(),
+      );
+    }
+  });
+
+  it("rejects payer.account_deleted with an EXTRA field (strict — no PII smuggling)", () => {
+    const bad = validateEvent(
+      payerAuthEvent("payer.account_deleted", {
+        payer_id: UUID_A,
+        sessions_revoked: 0,
+        solo_org_deleted: false,
+        email: "owner@acme.example",
+      }),
+    );
+    expect(bad.success).toBe(false);
+    if (!bad.success) expect(bad.error.stage).toBe("payload");
+  });
 });
 
 describe("job entity + agency_invite events (ADR-0022 — FACELESS, ids/enums/bands only)", () => {
@@ -3305,8 +3334,8 @@ describe("chat.session_abandoned (idle sweep — COUNTS ONLY, no transcript)", (
 });
 
 describe("registry", () => {
-  it("exposes all 246 event names (179 prior + the two trade-form offer steps + Layer A + resume.edited + resume-identity + resume-autofill + profile.viewed_v2 + E0's relay trio + the C-2 consent exit + the ADR-0043 resume-update answer + its erasure backfill + the four tiered-profiling events + the ADR-0044 companion turn + the five ADR-0045 general-road events + the #1318 safe-field resume.edited_v2 + the #1801 resume.skin_changed + the #1800 profile.qr_scanned + the four ADR-0046 companion-v2 Phase 1 events + the ADR-0046 P2 faltu strike + the ADR-0046 P3 career answer + the E4 match-skill wants event + the ADR-0048 identity-intake step + the six TD150/WP8 companion versions + the two ADR-0051 free-chat events + the ADR-0050 job_posting.twin_synced + the ADR-0051 Release 2 summary fold + the ADR-0054 live-news request + the 2026-10-07 payer.applicant_stage_changed + the ADR-0051 §11 reply-language change + the ADR-0055 companion turn v4 + the #2297 companion summary fold + the ADR-0057 turn understood + its three edit-gate events + the #2409 typed-answer review + the two Middle-Way optional-depth offer steps + the 2026-11-03 payer.candidate_search_performed + the #2541 consent.age_declared + the 2026-11-04 consent.purposes_granted + the #2635 job_posting.match_skills_scoped + the ADR-0062 admin.candidate_viewed + the B13 ai.fallback_alert_raised/cleared pair)", () => {
-    expect(EVENT_NAMES).toHaveLength(246);
+  it("exposes all 247 event names (179 prior + the two trade-form offer steps + Layer A + resume.edited + resume-identity + resume-autofill + profile.viewed_v2 + E0's relay trio + the C-2 consent exit + the ADR-0043 resume-update answer + its erasure backfill + the four tiered-profiling events + the ADR-0044 companion turn + the five ADR-0045 general-road events + the #1318 safe-field resume.edited_v2 + the #1801 resume.skin_changed + the #1800 profile.qr_scanned + the four ADR-0046 companion-v2 Phase 1 events + the ADR-0046 P2 faltu strike + the ADR-0046 P3 career answer + the E4 match-skill wants event + the ADR-0048 identity-intake step + the six TD150/WP8 companion versions + the two ADR-0051 free-chat events + the ADR-0050 job_posting.twin_synced + the ADR-0051 Release 2 summary fold + the ADR-0054 live-news request + the 2026-10-07 payer.applicant_stage_changed + the ADR-0051 §11 reply-language change + the ADR-0055 companion turn v4 + the #2297 companion summary fold + the ADR-0057 turn understood + its three edit-gate events + the #2409 typed-answer review + the two Middle-Way optional-depth offer steps + the 2026-11-03 payer.candidate_search_performed + the #2541 consent.age_declared + the 2026-11-04 consent.purposes_granted + the #2635 job_posting.match_skills_scoped + the ADR-0062 admin.candidate_viewed + the B13 ai.fallback_alert_raised/cleared pair + the payer.account_deleted QA seam)", () => {
+    expect(EVENT_NAMES).toHaveLength(247);
     // B13 (#2567) — the loud-AI-alert verdict pair (new names; no schema mutated).
     expect(isEventName("ai.fallback_alert_raised")).toBe(true);
     expect(isEventName("ai.fallback_alert_cleared")).toBe(true);
@@ -3332,6 +3361,8 @@ describe("registry", () => {
     expect(isEventName("chat.free_chat_language_changed")).toBe(true);
     // Owner ruling 2026-10-07 — the payer pipeline board's own event (a new name; no schema mutated).
     expect(isEventName("payer.applicant_stage_changed")).toBe(true);
+    // Payer QA immediate-delete seam (the payer mirror of worker.account_deleted).
+    expect(isEventName("payer.account_deleted")).toBe(true);
     // ADR-0050 §9 — the agency twin sync's own event (a new name; no schema mutated).
     expect(isEventName("job_posting.twin_synced")).toBe(true);
     // ADR-0041 — the résumé-import funnel, as FOUR events rather than one. Each step fails for
@@ -3513,6 +3544,7 @@ describe("registry", () => {
     expect(isEventName("worker.otp_send_cap_exceeded")).toBe(true);
     expect(isEventName("payer.otp_send_cap_exceeded")).toBe(true);
     expect(isEventName("payer.account_updated")).toBe(true);
+    expect(isEventName("payer.account_deleted")).toBe(true);
     expect(isEventName("job.created")).toBe(true);
     expect(isEventName("job.updated")).toBe(true);
     expect(isEventName("job.closed")).toBe(true);

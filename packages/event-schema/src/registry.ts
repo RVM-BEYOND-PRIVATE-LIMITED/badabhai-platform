@@ -539,6 +539,14 @@ export const EVENT_REGISTRY = {
     domain: "payer",
     payload: p.PayerAccountUpdatedPayload,
   },
+  // A payer erased their OWN account via the QA-only immediate seam
+  // (`POST /payer/me/delete/immediate`). PII-free: opaque payer_id + counts/flags
+  // only (see PayerAccountDeletedPayload). v1.
+  "payer.account_deleted": {
+    version: 1,
+    domain: "payer",
+    payload: p.PayerAccountDeletedPayload,
+  },
   // Payer org membership lifecycle (ADR-0027 / B5). PII-FREE: opaque row/org/actor ids +
   // org_role enum only — the invitee email lives encrypted in `payer_members`, never here.
   "payer_member.invited": { version: 1, domain: "payer", payload: p.PayerMemberInvitedPayload },

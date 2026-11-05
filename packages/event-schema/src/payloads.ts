@@ -2478,6 +2478,24 @@ export const PayerAccountUpdatedPayload = z.object({
 });
 export type PayerAccountUpdatedPayload = z.infer<typeof PayerAccountUpdatedPayload>;
 
+/**
+ * A payer deleted their OWN account via the QA-only immediate seam
+ * (`POST /payer/me/delete/immediate`, the payer mirror of worker.account_deleted).
+ * PII-FREE: the now-erased payer's opaque id + counts/flags only — sessions revoked
+ * and whether their solo org row was removed. Org name, email, phone, and member
+ * emails NEVER appear here (B-R2). Billing rails (`credit_ledger`, `payment_orders`,
+ * plans) are PII-free and intentionally SURVIVE the erasure (B2), so they are not
+ * counted here. `.strict()` backstop like every payer event.
+ */
+export const PayerAccountDeletedPayload = z
+  .object({
+    payer_id: uuidSchema,
+    sessions_revoked: z.number().int().nonnegative(),
+    solo_org_deleted: z.boolean(),
+  })
+  .strict();
+export type PayerAccountDeletedPayload = z.infer<typeof PayerAccountDeletedPayload>;
+
 // ---------------------------------------------------------------------------
 // job.* — the `jobs` ENTITY lifecycle (ADR-0022 Agency Supply Portal demand slice).
 //

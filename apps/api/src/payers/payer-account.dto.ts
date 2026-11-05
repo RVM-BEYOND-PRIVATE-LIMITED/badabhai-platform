@@ -92,3 +92,14 @@ export const PayerUpdateSchema = z
     message: "nothing to update",
   });
 export type PayerUpdateDto = z.infer<typeof PayerUpdateSchema>;
+
+/**
+ * Response of `POST /payer/me/delete/immediate` — the QA-only immediate
+ * complete-erasure seam (the payer mirror of
+ * `POST /auth/account/delete/immediate`). ALWAYS `{ ok: true }` when the flag is
+ * armed (the erasure is idempotent; an already-gone payer is still a 200). The
+ * route 404s while `TEST_IMMEDIATE_DELETE_ENABLED` is off.
+ */
+export interface PayerDeleteImmediateResponse {
+  ok: true;
+}

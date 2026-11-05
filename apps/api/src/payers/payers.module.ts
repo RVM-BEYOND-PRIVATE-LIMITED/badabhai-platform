@@ -19,6 +19,7 @@ import { PayerAuthGuard } from "./payer-auth.guard";
 import { PayerRoleGuard } from "./payer-role.guard";
 import { PayerOrgRoleGuard } from "./payer-org-role.guard";
 import { PayerAccountService } from "./payer-account.service";
+import { PayerAccountDeletionService } from "./payer-account-deletion.service";
 import { PayerAccountController } from "./payer-account.controller";
 
 /**
@@ -71,6 +72,7 @@ import { PayerAccountController } from "./payer-account.controller";
     PayerRoleGuard,
     PayerOrgRoleGuard,
     PayerAccountService,
+    PayerAccountDeletionService,
     PayerTenantScopeService,
   ],
   exports: [
