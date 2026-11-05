@@ -456,6 +456,18 @@ export class JobPostingsService {
   ): Promise<JobPostingApi> {
     const scope = await this.tenancy.resolve(actorPayerId);
     const current = await this.getOneInScope(id, scope); // no-oracle 404
+    // #2668 — the #2635 gate must run BEFORE trade-form validation. Both payer clients now
+    // always send trade fields, so a publish carrying `trade_answers` on a role outside the
+    // 16 used to hit `normalizeSelection`'s "trade fields are only available for a postable
+    // role" 400 (no `reason`) before reaching the gate. `nextRoleKind` needs only the raw
+    // DTO, so check it first; the post-normalization check below stays as the defense.
+    const rawRoleAfter = nextRoleKind(current, dto);
+    const rawGoesOrStaysLive =
+      isPublishing(current, dto) ||
+      (current.status !== "draft" && rawRoleAfter !== current.role_kind);
+    if (rawGoesOrStaysLive && !postingTradeFor(rawRoleAfter)) {
+      throw postingTradeRequired();
+    }
     const tradeDto = await this.prepareTradeUpdate(current, dto);
     // #2635 — matching runs only for the 16 postable trades, so a company may PUBLISH only a
     // posting that names one, and may not move a live posting off one. Checked before any
