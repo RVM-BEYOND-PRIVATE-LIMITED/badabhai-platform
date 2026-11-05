@@ -100,3 +100,15 @@ KYC progression, payout eligibility, referral rewards and agency operational act
 **Model the frozen state as `closed`.** Terminal and indistinguishable from the payer's own action — suspension would become unrecoverable and reinstatement could not tell what to restore.
 
 **Filter discovery on a join to `payers`.** Rejected in §4: a join on the hottest read, protecting only the paths someone remembers to change.
+
+## Amendment, 2026-11-05: admin-vouched activation (#2563)
+
+Owner rulings of 4 and 5 November 2026 add a second way for a payer to become `active`. Until then the only path was the payer's first successful email-code (OTP) verification.
+
+- **Admin-created login.** When an admin creates a company or agency login from the User accounts tab, the account is `active` immediately, because the admin vouches for it. The user must still set their own password before any session is issued.
+- **Temporary password on a pending self-signup.** When an admin issues a temporary password to a payer that signed up but never verified its email code, the account becomes `active` too.
+- **Same event, different actor.** Both emit `payer.activated` (previous status `pending`) with the admin as the actor, so the two paths stay distinguishable from the OTP path, whose actor is the payer.
+- **Suspension still wins.** Issuing a temporary password to a `suspended` payer is refused; reinstate first. An admin never activates a suspended account.
+- **The account owner is told.** A security notice goes to the account's own email on every create, issue, revoke and password change, without the password, the admin's identity or the reason. Phone-only accounts get none.
+
+The residual (an admin with this permission can sign in as the company) is risk R78, accepted by the owner on 5 November 2026.
