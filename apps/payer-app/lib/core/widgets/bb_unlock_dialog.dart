@@ -3,15 +3,16 @@ import 'package:flutter/material.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_spacing.dart';
 import '../theme/app_typography.dart';
-import 'bb_button.dart';
+import 'bb_alert_dialog.dart';
 
 /// The unlock CTA label on every candidate card — the spend in CREDITS, never a
 /// ₹ price (#2589: no payment information of any kind in the app).
 const String kUnlockCreditLabel = '1 credit';
 
-/// The unlock confirmation — `.bb-dialog` over a scrim. Names the candidate
-/// (their redacted feed name), states the spend in credits only ("1 credit
-/// will be used — N left after"; no ₹ amount, #2589), and carries the deep-blue fair-use note. Confirm returns `true`.
+/// The unlock confirmation — the ONE confirm sheet (#2690, rule 4): it names
+/// the candidate (their redacted feed name), states the spend in credits only
+/// ("1 credit will be used — N left after"; no ₹ amount, #2589), and carries the
+/// deep-blue fair-use note. Confirm returns `true`.
 ///
 /// The redacted name is passed in (the dialog never receives the real name);
 /// the fair-use note states the unlock NEVER changes a worker's ranking.
@@ -22,136 +23,98 @@ Future<bool?> showUnlockDialog(
   required String shownName,
   required int? creditsAfter,
 }) {
-  return showDialog<bool>(
-    context: context,
-    barrierColor: AppColors.scrim,
-    builder: (BuildContext context) => _UnlockDialog(
-      shownName: shownName,
-      creditsAfter: creditsAfter,
-    ),
+  return showBbConfirm(
+    context,
+    title: 'Unlock this candidate?',
+    message: '',
+    body: _UnlockBody(shownName: shownName, creditsAfter: creditsAfter),
+    confirmLabel: 'Unlock for $kUnlockCreditLabel',
+    cancelLabel: 'Cancel',
+    confirmIcon: Icons.lock_open_rounded,
+    // #2596 — the unlock's ONE medium haptic lands with the success stamp once
+    // the server granted it, so the confirm itself does not buzz.
+    confirmHaptic: false,
   );
 }
 
-class _UnlockDialog extends StatelessWidget {
-  const _UnlockDialog({
-    required this.shownName,
-    required this.creditsAfter,
-  });
+class _UnlockBody extends StatelessWidget {
+  const _UnlockBody({required this.shownName, required this.creditsAfter});
 
   final String shownName;
   final int? creditsAfter;
 
   @override
   Widget build(BuildContext context) {
-    return Dialog(
-      backgroundColor: AppColors.surfaceCard,
-      surfaceTintColor: Colors.transparent,
-      elevation: 0,
-      insetPadding: const EdgeInsets.all(AppSpacing.s6),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(AppRadii.xl),
-        side: const BorderSide(color: AppColors.border),
-      ),
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 360),
-        child: Padding(
-          padding: const EdgeInsets.all(AppSpacing.s5),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        RichText(
+          text: TextSpan(
+            style: AppTypography.body(
+              size: AppTypography.sizeBase,
+              color: AppColors.textSecondary,
+              height: 1.5,
+            ),
+            children: <InlineSpan>[
+              const TextSpan(text: "You'll see "),
+              TextSpan(
+                text: shownName,
+                style: AppTypography.body(
+                  size: AppTypography.sizeBase,
+                  weight: FontWeight.w700,
+                  color: AppColors.textPrimary,
+                ),
+              ),
+              const TextSpan(text: "'s real name and phone number. "),
+              TextSpan(
+                text: kUnlockCreditLabel,
+                style: AppTypography.body(
+                  size: AppTypography.sizeBase,
+                  weight: FontWeight.w700,
+                  color: AppColors.textPrimary,
+                ),
+              ),
+              const TextSpan(text: ' will be used — '),
+              TextSpan(
+                text: '${creditsAfter ?? '—'} left',
+                style: AppTypography.body(
+                  size: AppTypography.sizeBase,
+                  weight: FontWeight.w700,
+                  color: AppColors.textPrimary,
+                ),
+              ),
+              const TextSpan(text: ' after this.'),
+            ],
+          ),
+        ),
+        const SizedBox(height: AppSpacing.s4),
+        Container(
+          padding: const EdgeInsets.all(AppSpacing.s3),
+          decoration: BoxDecoration(
+            color: AppColors.infoTint,
+            borderRadius: BorderRadius.circular(AppRadii.sm),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
-              Text(
-                'Unlock this candidate?',
-                style: AppTypography.heading(size: AppTypography.sizeLg),
-              ),
-              const SizedBox(height: AppSpacing.s3),
-              RichText(
-                text: TextSpan(
+              const Icon(Icons.info_rounded, size: 18, color: AppColors.teal700),
+              const SizedBox(width: AppSpacing.s2),
+              Expanded(
+                child: Text(
+                  'Fair-use: up to 3 unlocks per worker per week. '
+                  "Unlocking never changes a worker's ranking.",
                   style: AppTypography.body(
-                    size: AppTypography.sizeBase,
-                    color: AppColors.textSecondary,
-                    height: 1.5,
+                    size: AppTypography.sizeSm,
+                    color: AppColors.teal700,
+                    height: 1.4,
                   ),
-                  children: <InlineSpan>[
-                    const TextSpan(text: "You'll see "),
-                    TextSpan(
-                      text: shownName,
-                      style: AppTypography.body(
-                        size: AppTypography.sizeBase,
-                        weight: FontWeight.w700,
-                        color: AppColors.textPrimary,
-                      ),
-                    ),
-                    const TextSpan(text: "'s real name and phone number. "),
-                    TextSpan(
-                      text: kUnlockCreditLabel,
-                      style: AppTypography.body(
-                        size: AppTypography.sizeBase,
-                        weight: FontWeight.w700,
-                        color: AppColors.textPrimary,
-                      ),
-                    ),
-                    const TextSpan(text: ' will be used — '),
-                    TextSpan(
-                      text: '${creditsAfter ?? '—'} left',
-                      style: AppTypography.body(
-                        size: AppTypography.sizeBase,
-                        weight: FontWeight.w700,
-                        color: AppColors.textPrimary,
-                      ),
-                    ),
-                    const TextSpan(text: ' after this.'),
-                  ],
                 ),
-              ),
-              const SizedBox(height: AppSpacing.s4),
-              Container(
-                padding: const EdgeInsets.all(AppSpacing.s3),
-                decoration: BoxDecoration(
-                  color: AppColors.infoTint,
-                  borderRadius: BorderRadius.circular(AppRadii.sm),
-                ),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    const Icon(Icons.info_rounded, size: 18, color: AppColors.teal700),
-                    const SizedBox(width: AppSpacing.s2),
-                    Expanded(
-                      child: Text(
-                        'Fair-use: up to 3 unlocks per worker per week. '
-                        "Unlocking never changes a worker's ranking.",
-                        style: AppTypography.body(
-                          size: AppTypography.sizeSm,
-                          color: AppColors.teal700,
-                          height: 1.4,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: AppSpacing.s5),
-              BbButton(
-                label: 'Unlock for $kUnlockCreditLabel',
-                iconLeft: Icons.lock_open_rounded,
-                block: true,
-                // #2596 — the press gets BbButton's light tap only: the unlock's
-                // ONE medium haptic (AppHaptics.confirm) lands with the success
-                // stamp once the server granted it, so a single unlock never
-                // buzzes twice (it was here, per #2591).
-                onPressed: () => Navigator.of(context).pop(true),
-              ),
-              const SizedBox(height: AppSpacing.s2),
-              BbButton(
-                label: 'Cancel',
-                variant: BbButtonVariant.ghost,
-                block: true,
-                onPressed: () => Navigator.of(context).pop(false),
               ),
             ],
           ),
         ),
-      ),
+      ],
     );
   }
 }

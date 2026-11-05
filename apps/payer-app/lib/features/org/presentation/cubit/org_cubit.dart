@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../../core/data/models.dart';
 import '../../../../core/data/payer_api_client.dart';
+import '../../../../core/error/api_error_copy.dart';
 
 /// Loads the signed-in payer's org/team (`GET /payer/org/members`) and drives
 /// the owner-only invite/remove + the self-serve accept-invite actions. Owner
@@ -19,10 +20,10 @@ class OrgCubit extends Cubit<OrgState> {
     try {
       final List<OrgMemberView> members = await _api.fetchOrgMembers();
       emit(OrgState(status: OrgStatus.ready, members: members));
-    } catch (_) {
+    } catch (e) {
       emit(state.copyWith(
         status: OrgStatus.error,
-        error: 'Could not load your team. Retry in a moment.',
+        error: ApiErrorCopy.forError(e, context: 'org.load'),
       ));
     }
   }
@@ -35,14 +36,15 @@ class OrgCubit extends Cubit<OrgState> {
       await load();
       return const OrgActionResult.ok("Invite sent — they'll get an email to join.");
     } on PayerApiException catch (e) {
-      return OrgActionResult.fail(switch (e.statusCode) {
-        409 => 'Already on your team, or your team is full.',
-        503 => "Couldn't send the invite email. Try again in a bit.",
-        403 => 'Only the org owner can invite teammates.',
-        _ => "Couldn't send the invite right now.",
-      });
-    } catch (_) {
-      return OrgActionResult.fail('Network error. Check your connection.');
+      return OrgActionResult.fail(
+        ApiErrorCopy.forError(e, context: 'org.invite'),
+      );
+    } catch (e) {
+      return OrgActionResult.fail(ApiErrorCopy.forError(
+        e,
+        context: 'org.invite',
+        fallback: ApiErrorCopy.copy['org.invite:network'],
+      ));
     }
   }
 
@@ -54,13 +56,15 @@ class OrgCubit extends Cubit<OrgState> {
       await load();
       return const OrgActionResult.ok('Removed from your team.');
     } on PayerApiException catch (e) {
-      return OrgActionResult.fail(switch (e.statusCode) {
-        409 => "You can't remove the org owner.",
-        403 => 'Only the org owner can remove teammates.',
-        _ => "Couldn't remove them right now.",
-      });
-    } catch (_) {
-      return OrgActionResult.fail('Network error. Check your connection.');
+      return OrgActionResult.fail(
+        ApiErrorCopy.forError(e, context: 'org.remove'),
+      );
+    } catch (e) {
+      return OrgActionResult.fail(ApiErrorCopy.forError(
+        e,
+        context: 'org.remove',
+        fallback: ApiErrorCopy.copy['org.remove:network'],
+      ));
     }
   }
 
@@ -81,13 +85,15 @@ class OrgCubit extends Cubit<OrgState> {
       if (e.code == kOrgInviteNotAcceptableCode) {
         return const OrgActionResult.fail(kInviteNotAcceptableMessage);
       }
-      return OrgActionResult.fail(switch (e.statusCode) {
-        404 => 'That invite link is invalid or has expired.',
-        403 => 'This invite was sent to a different email.',
-        _ => "Couldn't accept the invite right now.",
-      });
-    } catch (_) {
-      return OrgActionResult.fail('Network error. Check your connection.');
+      return OrgActionResult.fail(
+        ApiErrorCopy.forError(e, context: 'org.accept'),
+      );
+    } catch (e) {
+      return OrgActionResult.fail(ApiErrorCopy.forError(
+        e,
+        context: 'org.accept',
+        fallback: ApiErrorCopy.copy['org.accept:network'],
+      ));
     }
   }
 }

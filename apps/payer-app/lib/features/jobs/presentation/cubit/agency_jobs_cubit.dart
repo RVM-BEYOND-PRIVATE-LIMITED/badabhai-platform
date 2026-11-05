@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../../core/data/models.dart';
 import '../../../../core/data/payer_api_client.dart';
+import '../../../../core/error/api_error_copy.dart';
 import '../../../../core/error/payer_failure.dart';
 import '../../../../core/util/read_order.dart';
 
@@ -188,14 +189,16 @@ class AgencyJobsCubit extends Cubit<AgencyJobsState> {
         );
       }
       return JobActionResult.fail(
-        e.isNotFound
-            ? "This job isn't available."
-            : e.isBadRequest
-                ? badRequestMessage
-                : 'Could not update. Please try again.',
+        e.isBadRequest
+            ? badRequestMessage
+            : ApiErrorCopy.forError(e, context: 'agency.jobs'),
       );
-    } catch (_) {
-      return JobActionResult.fail('Network error. Check your connection.');
+    } catch (e) {
+      return JobActionResult.fail(ApiErrorCopy.forError(
+        e,
+        context: 'agency.jobs',
+        fallback: ApiErrorCopy.copy['agency.jobs:network'],
+      ));
     }
   }
 }

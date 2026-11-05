@@ -54,11 +54,13 @@ class PayerHttp {
     http.Client? client,
     void Function()? onReauth,
     void Function()? onAccountDeleted,
+    void Function(bool online)? onConnectivityChanged,
     Future<String?> Function()? refreshToken,
   })  : _tokenStore = tokenStore,
         _client = client ?? http.Client(),
         _onReauth = onReauth,
         _onAccountDeleted = onAccountDeleted,
+        _onConnectivityChanged = onConnectivityChanged,
         _refreshToken = refreshToken;
 
   final String baseUrl;
@@ -73,6 +75,11 @@ class PayerHttp {
   /// covers every verb + path through this single authed client, and never
   /// touches the 401 → refresh → retry dance below. The app root hard-logs-out.
   final void Function()? _onAccountDeleted;
+
+  /// #2690 — fired true after ANY response (even a 5xx: the server answered)
+  /// and false on a transport failure, so the shell can show one offline
+  /// banner without a polling dependency.
+  final void Function(bool online)? _onConnectivityChanged;
 
   /// Mints a fresh access token from the current bearer (`POST /payer/refresh`),
   /// or `null` if refresh failed. Injected (not called at construction) so the
@@ -215,11 +222,13 @@ class PayerHttp {
         // Never persist a rolling token from a call made with an EXPLICIT
         // bearer (the signup-password step): the session must not exist locally
         // until the password is set and the caller saves it deliberately.
+        _onConnectivityChanged?.call(true);
         if (bearerOverride == null) {
           await _adoptRollingToken(path, res, authed: authed);
         }
         return await _decode(res);
       } on TimeoutException {
+        _onConnectivityChanged?.call(false);
         // A timeout means the server ACCEPTED the request but did not answer inside
         // kRequestTimeout. Retrying would just multiply the wait (up to N×15s) on a
         // genuinely slow/hung server without helping — so surface it AT ONCE. This
@@ -228,6 +237,7 @@ class PayerHttp {
         // reason and a manual Retry.
         rethrow;
       } on Exception {
+        _onConnectivityChanged?.call(false);
         // A FAST transport failure — connection refused/reset: a cold first-
         // connection or a dropped socket on a weak link. It fails in well under the
         // timeout, so retrying an idempotent GET is cheap and heals the common blip.

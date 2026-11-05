@@ -133,9 +133,28 @@ class BbFormErrors<F extends Object> {
     if (target == null) return;
     await _scrollIntoView(target.context);
     if (!target.mounted) return;
+    _focusFirstField(target);
     target.shake();
-    // ignore: discarded_futures — fire-and-forget double tick.
-    AppHaptics.error();
+    // ignore: discarded_futures — one light tick on a refused submit (#2690).
+    AppHaptics.errorOnce();
+  }
+
+  /// Focuses the first invalid control when it is a text field, so the payer
+  /// can fix it without a second tap (#2690). A chip/dropdown has no text
+  /// editor to focus; the scroll + shake still take them to it.
+  static void _focusFirstField(BbShakeState target) {
+    EditableText? editable;
+    void visit(Element element) {
+      if (editable != null) return;
+      if (element.widget case final EditableText text) {
+        editable = text;
+        return;
+      }
+      element.visitChildElements(visit);
+    }
+
+    target.context.visitChildElements(visit);
+    editable?.focusNode.requestFocus();
   }
 
   /// Where a revealed control lands in its viewport: near the top, with a

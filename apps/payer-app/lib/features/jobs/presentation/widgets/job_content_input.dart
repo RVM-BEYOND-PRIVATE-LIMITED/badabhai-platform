@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show TextInputFormatter;
 
 import '../../../../core/theme/app_colors.dart';
+import '../../../../core/theme/app_motion.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/theme/app_typography.dart';
 import '../../../../core/util/number_input.dart';
@@ -9,6 +10,7 @@ import '../../../../core/util/pay_format.dart';
 import '../../../../core/widgets/bb_chip.dart';
 import '../../../../core/widgets/bb_field.dart';
 import '../../../../core/widgets/bb_field_error.dart';
+import '../../../../core/widgets/bb_button.dart';
 import '../../../../core/widgets/bb_focus_chain.dart';
 
 /// Shared rules + inputs for the WORKER-VISIBLE content of a posting — the
@@ -109,9 +111,17 @@ Future<String?> promptForPostingPhrase(
   required String hint,
   required Key fieldKey,
 }) async {
-  final String? entered = await showDialog<String>(
+  final String? entered = await showModalBottomSheet<String>(
     context: context,
-    builder: (BuildContext _) => _AddPhraseDialog(
+    isScrollControlled: true,
+    useSafeArea: true,
+    showDragHandle: true,
+    backgroundColor: AppColors.surfaceCard,
+    sheetAnimationStyle: AppMotion.sheetStyle(context),
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadii.xxl)),
+    ),
+    builder: (BuildContext _) => _AddPhraseSheet(
       title: title,
       hint: hint,
       fieldKey: fieldKey,
@@ -316,16 +326,17 @@ class JobChipListField extends StatelessWidget {
 }
 
 /// #357 — the shared '+ Add …' prompt behind every chip row. A widget (not an
-/// inline `AlertDialog`) so it OWNS its [TextEditingController]: disposing one
-/// alongside the awaited `showDialog` future tears it down while the route is
-/// still animating out, and the still-mounted [TextField] then throws "used
-/// after being disposed". Pops the trimmed phrase, or null on cancel.
+/// inline dialog) so it OWNS its [TextEditingController]: disposing one
+/// alongside the awaited route future tears it down while the sheet is still
+/// animating out, and the still-mounted [TextField] then throws "used after
+/// being disposed". Pops the trimmed phrase, or null on cancel.
 ///
 /// #2595 — [validate] runs on Add (and the keyboard's "done"): a refused
-/// phrase keeps the dialog open with the reason under the box; typing clears
-/// it.
-class _AddPhraseDialog extends StatefulWidget {
-  const _AddPhraseDialog({
+/// phrase keeps the sheet open with the reason under the box; typing clears
+/// it. #2690 — it rides the ONE bottom-sheet surface (rule 4), not an
+/// `AlertDialog`.
+class _AddPhraseSheet extends StatefulWidget {
+  const _AddPhraseSheet({
     required this.title,
     required this.hint,
     required this.fieldKey,
@@ -338,10 +349,10 @@ class _AddPhraseDialog extends StatefulWidget {
   final String? Function(String phrase) validate;
 
   @override
-  State<_AddPhraseDialog> createState() => _AddPhraseDialogState();
+  State<_AddPhraseSheet> createState() => _AddPhraseSheetState();
 }
 
-class _AddPhraseDialogState extends State<_AddPhraseDialog> {
+class _AddPhraseSheetState extends State<_AddPhraseSheet> {
   final TextEditingController _field = TextEditingController();
   String? _error;
 
@@ -363,33 +374,61 @@ class _AddPhraseDialogState extends State<_AddPhraseDialog> {
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      backgroundColor: AppColors.surfaceCard,
-      title: Text(
-        widget.title,
-        style: AppTypography.heading(
-          size: AppTypography.sizeMd,
-          weight: FontWeight.w800,
-        ),
+    final double bottomInset = MediaQuery.viewInsetsOf(context).bottom;
+    return SingleChildScrollView(
+      padding: EdgeInsets.fromLTRB(
+        AppSpacing.gutter,
+        AppSpacing.s2,
+        AppSpacing.gutter,
+        AppSpacing.s5 + bottomInset,
       ),
-      content: BbField(
-        controller: _field,
-        hint: widget.hint,
-        fieldKey: widget.fieldKey,
-        errorText: _error,
-        textInputAction: TextInputAction.done,
-        onSubmitted: (_) => _submit(),
-        onChanged: (_) {
-          if (_error != null) setState(() => _error = null);
-        },
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          Text(
+            widget.title,
+            style: AppTypography.heading(
+              size: AppTypography.sizeLg,
+              weight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: AppSpacing.s4),
+          BbField(
+            controller: _field,
+            hint: widget.hint,
+            fieldKey: widget.fieldKey,
+            errorText: _error,
+            autofocus: true,
+            textInputAction: TextInputAction.done,
+            onSubmitted: (_) => _submit(),
+            onChanged: (_) {
+              if (_error != null) setState(() => _error = null);
+            },
+          ),
+          const SizedBox(height: AppSpacing.s5),
+          Row(
+            children: <Widget>[
+              Expanded(
+                child: BbButton(
+                  label: 'Cancel',
+                  variant: BbButtonVariant.secondary,
+                  size: BbButtonSize.md,
+                  onPressed: () => Navigator.of(context).pop(),
+                ),
+              ),
+              const SizedBox(width: AppSpacing.s3),
+              Expanded(
+                child: BbButton(
+                  label: 'Add',
+                  size: BbButtonSize.md,
+                  onPressed: _submit,
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
-      actions: <Widget>[
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
-        ),
-        TextButton(onPressed: _submit, child: const Text('Add')),
-      ],
     );
   }
 }
