@@ -279,7 +279,7 @@ async function backfillTopups(db: Database, apply: boolean, counts: Counts): Pro
 void main().then(
   () => process.exit(0),
   (err) => {
-    console.error(`[${NAME}] failed:`, err);
+    console.error(`[${NAME}] failed:`, err instanceof Error ? err.message : err);
     process.exit(1);
   },
 );

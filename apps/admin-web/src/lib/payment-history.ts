@@ -79,7 +79,14 @@ export function getPaymentHistory(
   if (opts?.cursor) q.set("cursor", opts.cursor);
   if (opts?.limit !== undefined) q.set("limit", String(opts.limit));
   const qs = q.toString();
-  return adminFetch(`/admin/payers/${encodeURIComponent(payerId)}/payment-history${qs ? `?${qs}` : ""}`, {
+  // No nested template: the fence reads string text, and a nested ternary inside a
+  // template splits into a literal that pairs "/admin/payers/" with a space.
+  const path =
+    "/admin/payers/" +
+    encodeURIComponent(payerId) +
+    "/payment-history" +
+    (qs ? "?" + qs : "");
+  return adminFetch(path, {
     schema: paymentHistorySchema,
   });
 }
