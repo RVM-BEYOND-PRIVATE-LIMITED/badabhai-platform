@@ -1,12 +1,14 @@
 import { requireSession } from "../../lib/auth";
 import { ROLE_LABELS, can } from "../../lib/auth/capabilities";
 import { getApiEnvironment } from "../../lib/environment";
+import { getAiAlertsStatus } from "../../lib/ai-alerts";
 import { NAV } from "../../components/nav-model";
 import { allowedJumpKinds } from "../../components/quick-jump-model";
 import { Shell } from "../../components/shell";
 import { SignOutButton } from "../../components/sign-out-button";
 import { ToastProvider } from "../../components/toast";
 import { OfflineBanner } from "../../components/offline-banner";
+import { AiAlertBanner } from "../../components/ai-alert-banner";
 
 // Per-request. A cached admin shell could show one operator another's navigation.
 export const dynamic = "force-dynamic";
@@ -27,6 +29,14 @@ export const dynamic = "force-dynamic";
  */
 export default async function PortalLayout({ children }: { children: React.ReactNode }) {
   const [session, environment] = await Promise.all([requireSession(), getApiEnvironment()]);
+  // The AI banner read (A10, #2580): one `GET /admin/ai-alerts` beside the session
+  // read, degraded to nothing when the operator lacks `read_entities` or the read fails —
+  // a banner that cannot load is absent, never an error state on every page. A second
+  // read per navigation is what "on every page" costs; it is the same `no-store` shape as
+  // every other admin read.
+  const mayReadEntities = can(session.capabilities, "read_entities");
+  const alerts = mayReadEntities ? await getAiAlertsStatus().catch(() => null) : null;
+
   const may = (capability: Parameters<typeof can>[1]) => can(session.capabilities, capability);
 
   const sections = NAV.map((section) => ({
@@ -49,6 +59,10 @@ export default async function PortalLayout({ children }: { children: React.React
         jumpKinds={allowedJumpKinds(may)}
         onSignOut={<SignOutButton />}
       >
+        {/* The AI banner (A10, #2580) rides inside the shell's content, above every page: the
+            shell persists across navigations, so its mount-once slide-down runs when the alert
+            starts, never again while it stays. */}
+        <AiAlertBanner status={alerts} />
         {children}
       </Shell>
     </ToastProvider>
