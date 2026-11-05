@@ -148,6 +148,9 @@ import { PinHasher } from "./pin-hasher.service";
     SessionService,
     ConsentModule,
     DevicesRepository,
+    // #2562 — the admin account actions delete the worker's PIN credential in the same
+    // transaction as the audit row + admin action.
+    PinRepository,
   ],
 })
 export class AuthModule {}

@@ -10,6 +10,7 @@ import { SessionService } from "./session.service";
 import { DevicesService } from "./devices.service";
 import { PinRepository } from "./pin.repository";
 import { isSyntheticTestPhone, type LoginResponse, type OtpRequestResponse } from "./auth.dto";
+import { WorkerAccountSuspendedException } from "./worker-account-deleted.exception";
 import type { DeviceInfoDto } from "./devices.dto";
 
 /**
@@ -265,6 +266,12 @@ export class AuthService {
     deviceInfo?: DeviceInfoDto,
     isNew = false,
   ): Promise<Omit<LoginResponse, "consent_accepted">> {
+    // #2562 — THE SIGN-IN GATE. A suspended worker must not receive a session, however they
+    // proved the phone (OTP verify, test login, or PIN-reset confirm all funnel through this
+    // method). Checked before device registration and before `sessions.create`, so a refusal
+    // leaves no session, no device trust, and no push target behind.
+    if (worker.status === "suspended") throw new WorkerAccountSuspendedException();
+
     // ADR-0026 Phase 2 — register the trusted device (only if the client sent device_info)
     // and bind the new session to it via the `did` claim. BEST-EFFORT: a device failure
     // returns undefined and login proceeds unbound — device binding never breaks login.

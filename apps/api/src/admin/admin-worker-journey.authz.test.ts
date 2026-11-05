@@ -169,6 +169,9 @@ describe("Phase 6 — the journey is NOT a PII surface and confers nothing on th
          "manage_admins",
         // #2563 — payer credential administration (super_admin, ops_admin, support).
         "manage_payer_credentials",
+        // #2562 — worker account control. Not the journey's: it ends sessions / resets a PIN /
+        // suspends, and reads no funnel step.
+        "manage_worker_account",
         // ADR-0062 §3.8 (#2560) — the Candidates full-detail read. Not the journey's: the journey
         // stays on `read_entities` and returns no profile values.
         "read_candidates",

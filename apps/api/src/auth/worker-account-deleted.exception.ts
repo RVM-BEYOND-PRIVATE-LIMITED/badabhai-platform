@@ -97,3 +97,69 @@ export async function throwIfWorkerDeleted(
   }
   if (!exists) throw new WorkerAccountDeletedException();
 }
+
+/**
+ * The RESERVED error code for "this worker account is suspended by an admin". Distinct from
+ * the 410 deletion signal: suspension is reversible, so a client must NOT hard-delete its
+ * local state on it. The body is PII-free — a closed code plus human copy.
+ */
+export const WORKER_ACCOUNT_SUSPENDED_CODE = "WORKER_ACCOUNT_SUSPENDED" as const;
+const WORKER_ACCOUNT_SUSPENDED_MESSAGE = "This account is suspended.";
+
+/**
+ * #2562 — a suspended worker is refused at OTP sign-in, PIN reset confirmation, and by the
+ * per-request gate that closes existing sessions. 403 (not 401) so the status is not
+ * indistinguishable from an expired token on a fresh sign-in; the worker app can key on the
+ * code when it grows suspended-specific copy.
+ */
+export class WorkerAccountSuspendedException extends HttpException {
+  constructor() {
+    super(
+      { code: WORKER_ACCOUNT_SUSPENDED_CODE, message: WORKER_ACCOUNT_SUSPENDED_MESSAGE },
+      HttpStatus.FORBIDDEN,
+    );
+  }
+}
+
+/**
+ * The minimal surface {@link isWorkerSuspended} needs. `findSelfView` projects the status
+ * ONLY — no name, phone, or any PII column can reach this helper.
+ */
+export interface WorkerStatusProbe {
+  findSelfView(
+    id: string,
+  ): Promise<{ status: string; deletionScheduledAt: Date | null } | undefined>;
+}
+
+/**
+ * #2562 — is this worker's durable status `suspended`?
+ *
+ * Runs AFTER {@link throwIfWorkerDeleted} at every site, so a deleted row has already been
+ * answered with the reserved 410. A status read error fails OPEN (the request is allowed
+ * through) for the same reason the existence probe does: a Postgres blip must not become a
+ * fleet-wide lockout. The durable status row remains the authority, so the next request
+ * closes the window once the DB is reachable again.
+ *
+ * Callers decide how to refuse. The per-request gates (the worker guard, token refresh and
+ * PIN unlock) deliberately answer with their EXISTING neutral 401 shape: those surfaces
+ * already drive the app's signed-out path, and a distinct status there would trap a
+ * suspended worker on a screen that only knows "wrong PIN" / "expired session". The
+ * sign-in and PIN-reset-confirm paths, where no session exists yet, throw
+ * {@link WorkerAccountSuspendedException} so the refusal is explicit.
+ */
+export async function isWorkerSuspended(
+  workers: WorkerStatusProbe,
+  workerId: string,
+  logger: Logger,
+): Promise<boolean> {
+  try {
+    const row = await workers.findSelfView(workerId);
+    return row?.status === "suspended";
+  } catch (err) {
+    logger.warn(
+      `worker status probe unavailable (request allowed through, no suspension emitted): ` +
+        `${err instanceof Error ? err.name : "unknown error"}`,
+    );
+    return false;
+  }
+}

@@ -4,6 +4,8 @@ import type { Database, PayerStatus } from "@badabhai/db";
 import type { RequestContext } from "../common/request-context";
 import { EventsService } from "../events/events.service";
 import { PayerSessionService } from "../payers/payer-session.service";
+import { SessionService } from "../auth/session.service";
+import { PinRepository } from "../auth/pin.repository";
 import { AdminRepository } from "./admin.repository";
 import { AdminActionsRepository } from "./admin-actions.repository";
 import { AdminInviteService } from "./admin-invite.service";
@@ -14,6 +16,10 @@ import type {
   AdminFlagWorkerDto,
   AdminGrantCreditsDto,
   AdminInviteDto,
+  AdminWorkerPinResetDto,
+  AdminWorkerSignOutAllDto,
+  AdminWorkerSuspendDto,
+  AdminWorkerUnsuspendDto,
 } from "./admin-actions.dto";
 
 /**
@@ -81,6 +87,11 @@ export const ADMIN_ACTION_CODES = {
   payer_login_create_conflict: "payer_login_create_conflict",
   payer_password_issued: "payer_password_issued",
   payer_password_revoked: "payer_password_revoked",
+  // ── #2562 — worker account actions ──────────────────────────────────────────────────────
+  worker_signed_out_all: "worker_signed_out_all",
+  worker_pin_reset: "worker_pin_reset",
+  worker_suspended: "worker_suspended",
+  worker_reinstated: "worker_reinstated",
 } as const;
 export type AdminActionCode = (typeof ADMIN_ACTION_CODES)[keyof typeof ADMIN_ACTION_CODES];
 
@@ -105,8 +116,9 @@ type AdminActionSubjectType =
 
 /**
  * Governed admin entity actions (ADR-0025 ADMIN-3a, Decision 3/5/6). Each method mutates a
- * SYSTEM-OF-RECORD table (payers.status / credit_ledger / job_postings.status / worker_flags /
- * admin_users) and emits EXACTLY ONE registry-validated `admin.action_performed` carrying the
+ * SYSTEM-OF-RECORD (payers.status / credit_ledger / job_postings.status / worker_flags /
+ * admin_users, and #2562's workers.status + worker_credentials + the worker session lineage)
+ * and emits EXACTLY ONE registry-validated `admin.action_performed` carrying the
  * action CODE + the opaque target id ONLY.
  *
  * VALUE-FREE SPINE (Decision 5/6 + CLAUDE.md invariant #2): the new status, the credit amount,
@@ -142,6 +154,10 @@ export class AdminActionsService {
     // The accept-link seam (mint / hash / expire / render / deliver). Holds every rule about
     // where a raw invite token may travel.
     private readonly invites: AdminInviteService,
+    // #2562 — WORKER sessions (a separate Redis lineage from the payer one above).
+    private readonly workerSessions: SessionService,
+    // #2562 — the worker's device-unlock PIN credential. An admin reset deletes it.
+    private readonly pins: PinRepository,
   ) {}
 
   // ----- payers: suspend / reinstate ----------------------------------------
@@ -429,6 +445,206 @@ export class AdminActionsService {
       await this.emitAction(adminId, ADMIN_ACTION_CODES.worker_unflagged, "worker", workerId, ctx, tx);
     });
     return { target_id: workerId, changed };
+  }
+
+  // ----- workers: account actions (#2562, manage_worker_account) --------------
+
+  /**
+   * #2562 — end EVERY session and device the worker holds.
+   *
+   * The audit row and `admin.action_performed` commit in ONE transaction first; the Redis
+   * sweep runs after it. Redis is not transactional with Postgres: sweeping first and then
+   * failing the audit write would sign the worker out with no record of why, whereas a sweep
+   * that runs a moment later still ends every session. `SessionService.revokeAll` is the same
+   * seam the worker's own logout-all uses (sessions, refresh families, trusted devices, and
+   * the push warning), so this action cannot drift from that contract.
+   */
+  async signOutAllWorker(
+    adminId: string,
+    workerId: string,
+    dto: AdminWorkerSignOutAllDto,
+    ctx: RequestContext,
+  ): Promise<AdminActionResult> {
+    const current = await this.actions.findWorkerStatus(workerId);
+    if (!current) throw new NotFoundException("Worker not found");
+
+    await this.actions.withTransaction(async (tx) => {
+      await this.actions.writeAuditReason(tx, {
+        adminId,
+        workerId,
+        action: ADMIN_ACTION_CODES.worker_signed_out_all,
+        reasonCode: dto.reason_code,
+        reasonText: dto.reason_text,
+      });
+      await this.emitAction(
+        adminId,
+        ADMIN_ACTION_CODES.worker_signed_out_all,
+        "worker",
+        workerId,
+        ctx,
+        tx,
+      );
+    });
+
+    await this.revokeWorkerSessions(workerId, "sign-out-all");
+    return { target_id: workerId, changed: true };
+  }
+
+  /**
+   * #2562 — reset the worker's PIN by DELETING the credential and ending every live session.
+   *
+   * WHY BOTH, and why this is the ADR-0062 §3.8 approval condition: `POST /auth/pin/set`
+   * lets an ALREADY-AUTHENTICATED worker choose a PIN without a fresh OTP. If a session
+   * survived the reset, its holder could set a PIN WITHOUT proving they hold the phone. The
+   * sweep makes a new phone-code sign-in the only way back in, and that sign-in returns
+   * `pin_set:false`, routing the worker to set-PIN. The credential is deleted in the same
+   * transaction as the audit row + both events; the Redis sweep follows the commit.
+   */
+  async resetWorkerPin(
+    adminId: string,
+    workerId: string,
+    dto: AdminWorkerPinResetDto,
+    ctx: RequestContext,
+  ): Promise<AdminActionResult> {
+    const current = await this.actions.findWorkerStatus(workerId);
+    if (!current) throw new NotFoundException("Worker not found");
+
+    await this.actions.withTransaction(async (tx) => {
+      await this.pins.deleteByWorkerId(workerId, tx);
+      await this.actions.writeAuditReason(tx, {
+        adminId,
+        workerId,
+        action: ADMIN_ACTION_CODES.worker_pin_reset,
+        reasonCode: dto.reason_code,
+        reasonText: dto.reason_text,
+      });
+      await this.emitAction(
+        adminId,
+        ADMIN_ACTION_CODES.worker_pin_reset,
+        "worker",
+        workerId,
+        ctx,
+        tx,
+      );
+      // The domain fact, alongside the admin-action record. Actor = the ADMIN: this reset
+      // was not worker-initiated. Payload stays `{worker_id}` (never the PIN/hash).
+      await this.events.emit({
+        event_name: "worker.pin_reset",
+        actor: { actor_type: "admin", actor_id: adminId },
+        subject: { subject_type: "worker", subject_id: workerId },
+        payload: { worker_id: workerId },
+        correlationId: ctx.correlationId,
+        requestId: ctx.requestId,
+        idempotencyKey: `worker.pin_reset:${workerId}:${ctx.requestId}`,
+        tx,
+      });
+    });
+
+    await this.revokeWorkerSessions(workerId, "PIN reset");
+    return { target_id: workerId, changed: true };
+  }
+
+  /**
+   * #2562 — suspend a worker's account.
+   *
+   * The status write + audit row + `admin.action_performed` commit together; the session
+   * sweep follows. Enforcement is not the sweep alone: the guard, refresh, OTP mint and PIN
+   * unlock all read the CURRENT status, so a session that survives a failed Redis sweep
+   * still cannot be used. Idempotent: already suspended → no-op success, no event.
+   */
+  async suspendWorker(
+    adminId: string,
+    workerId: string,
+    dto: AdminWorkerSuspendDto,
+    ctx: RequestContext,
+  ): Promise<AdminActionResult> {
+    const current = await this.actions.findWorkerStatus(workerId);
+    if (!current) throw new NotFoundException("Worker not found");
+    if (current.status === "suspended") return { target_id: workerId, changed: false };
+
+    let conflict = false;
+    await this.actions.withTransaction(async (tx) => {
+      const moved = await this.actions.suspendWorker(workerId, tx);
+      if (!moved) {
+        // A concurrent writer moved the row between the read above and this update.
+        conflict = true;
+        return;
+      }
+      await this.actions.writeAuditReason(tx, {
+        adminId,
+        workerId,
+        action: ADMIN_ACTION_CODES.worker_suspended,
+        reasonCode: dto.reason_code,
+        reasonText: dto.reason_text,
+      });
+      await this.emitAction(
+        adminId,
+        ADMIN_ACTION_CODES.worker_suspended,
+        "worker",
+        workerId,
+        ctx,
+        tx,
+      );
+    });
+    if (conflict) throw new ConflictException("Worker status changed concurrently; retry");
+
+    await this.revokeWorkerSessions(workerId, "suspension");
+    return { target_id: workerId, changed: true };
+  }
+
+  /**
+   * #2562 — restore a suspended worker's access. `active` is the only status that carries
+   * access; a legacy `pending` row is restored to `active` too because there is no separate
+   * worker activation flow to return it to, and signing in still requires a fresh OTP. No
+   * session sweep: suspension already ended every session, and the worker signs in again
+   * through the normal OTP gate. Idempotent.
+   */
+  async unsuspendWorker(
+    adminId: string,
+    workerId: string,
+    dto: AdminWorkerUnsuspendDto,
+    ctx: RequestContext,
+  ): Promise<AdminActionResult> {
+    const current = await this.actions.findWorkerStatus(workerId);
+    if (!current) throw new NotFoundException("Worker not found");
+    if (current.status !== "suspended") return { target_id: workerId, changed: false };
+
+    let conflict = false;
+    await this.actions.withTransaction(async (tx) => {
+      const moved = await this.actions.reinstateWorker(workerId, tx);
+      if (!moved) {
+        conflict = true;
+        return;
+      }
+      await this.actions.writeAuditReason(tx, {
+        adminId,
+        workerId,
+        action: ADMIN_ACTION_CODES.worker_reinstated,
+        reasonCode: dto.reason_code,
+        reasonText: dto.reason_text,
+      });
+      await this.emitAction(
+        adminId,
+        ADMIN_ACTION_CODES.worker_reinstated,
+        "worker",
+        workerId,
+        ctx,
+        tx,
+      );
+    });
+    if (conflict) throw new ConflictException("Worker status changed concurrently; retry");
+
+    return { target_id: workerId, changed: true };
+  }
+
+  /**
+   * Kill every live session for a worker-account action. `revokeAll` already logs and swallows
+   * Redis failures (returning 0), so this wrapper only makes the reason explicit and keeps the
+   * log PII-free — the opaque worker id and the action name, never a token or a phone.
+   */
+  private async revokeWorkerSessions(workerId: string, action: string): Promise<void> {
+    const revoked = await this.workerSessions.revokeAll(workerId);
+    this.logger.log(`worker ${action}; sessions revoked worker=${workerId} count=${revoked}`);
   }
 
   // ----- admin_users: invite / change role / suspend (manage_admins) --------

@@ -23,8 +23,10 @@ import { PinRepository } from "./pin.repository";
 import { ConsentRepository } from "../consent/consent.repository";
 import { withConsentAccepted } from "../consent/consent-flag";
 import {
+  isWorkerSuspended,
   throwIfWorkerDeleted,
   WorkerAccountDeletedException,
+  WorkerAccountSuspendedException,
 } from "./worker-account-deleted.exception";
 import type { DeviceInfoDto } from "./devices.dto";
 import type { PinResetConfirmResponse, PinVerifyResponse } from "./pin.dto";
@@ -67,6 +69,11 @@ export interface VerifyPinInput {
  * ALL return the IDENTICAL failure to the client (one 401, one generic body). Internally we still
  * emit distinct PII-FREE events for ops. The raw PIN, the pin_hash, the device fingerprint, and
  * the phone NEVER enter an event/log (CLAUDE.md §2) — logs carry only static reasons + ids.
+ *
+ * #2562 adds SUSPENDED to that neutral set on THIS surface: a suspended worker's unlock attempt
+ * gets the same 401 as a wrong PIN and a `pin_verify_failed` fact for ops. The app's existing
+ * failure budget then routes them back to OTP login; the explicit suspended refusal (403) lives
+ * on sign-in and PIN-reset confirmation, where no session exists to protect.
  *
  * THE ONE EXCEPTION is the reserved 410 WORKER_ACCOUNT_DELETED (ADR-0026 Phase-3 Finding-3
  * addendum, owner ruling 2026-10-08), and it fires only for the holder of a once-valid credential:
@@ -171,6 +178,11 @@ export class PinService {
       // worker row is created on first OTP login). Fail neutrally rather than leak anything.
       throw new BadRequestException("PIN reset could not be completed");
     }
+
+    // #2562 — a suspended worker must not be able to set a new PIN. The OTP proves the phone,
+    // but the ACCOUNT is closed: writing the credential here would leave a usable secret on a
+    // suspended row and force the mint below to fail after the code was spent.
+    if (worker.status === "suspended") throw new WorkerAccountSuspendedException();
 
     // (3) Write the new PIN + emit worker.pin_reset (the audit fact for this request).
     await this.writePin(worker.id, newPin, "worker.pin_reset", ctx);
@@ -350,6 +362,14 @@ export class PinService {
     // when the credential (the refresh token) is itself VALID — so it reveals nothing a wrong-PIN
     // guesser could probe for. `existsById` is a PK point-lookup projecting the id only (no PII).
     await throwIfWorkerDeleted(this.workers, workerId, this.logger);
+    // #2562 — a suspended worker cannot unlock, even with a valid device-bound refresh token
+    // and the correct PIN. This surface is deliberately neutral (the same 401 as a wrong PIN):
+    // its client knows only "PIN wrong / re-auth", so a distinct status would trap a suspended
+    // worker on the keypad. The refusal is still durable and PII-free in the verify event.
+    if (await isWorkerSuspended(this.workers, workerId, this.logger)) {
+      await this.emitVerifyFailed(workerId, deviceId, "suspended", ctx);
+      throw PinService.neutralFailure();
+    }
 
     // (b) Trusted-device gate: the resolved device must be a NON-revoked device owned by the
     // worker. A revoked/foreign device is untrusted ⇒ neutral failure (+ a verify-failed

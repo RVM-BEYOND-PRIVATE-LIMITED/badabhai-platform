@@ -251,7 +251,7 @@ describe("ADMIN-3a entity-action routes — guarded + exactly one capability (mu
     );
   }
 
-  it("discovers the eleven entity-action routes (no route silently dropped)", () => {
+  it("discovers the fifteen entity-action routes (no route silently dropped)", () => {
     expect(routeMethods.sort()).toEqual(
       [
         "suspendPayer",
@@ -260,6 +260,11 @@ describe("ADMIN-3a entity-action routes — guarded + exactly one capability (mu
         "forceClosePosting",
         "flagWorker",
         "unflagWorker",
+        // #2562 — worker account actions.
+        "signOutAllWorker",
+        "resetWorkerPin",
+        "suspendWorker",
+        "unsuspendWorker",
         "inviteAdmin",
         "changeAdminRole",
         "suspendAdmin",
@@ -304,6 +309,12 @@ describe("ADMIN-3a entity-action routes — guarded + exactly one capability (mu
     expect(capabilityOf("forceClosePosting")).toBe("force_close_posting");
     expect(capabilityOf("flagWorker")).toBe("flag_worker");
     expect(capabilityOf("unflagWorker")).toBe("flag_worker");
+    // #2562 — accumulation of account control sits on its own capability, NOT `flag_worker`:
+    // a standing/moderation flag and a sign-out/suspension are different acts.
+    expect(capabilityOf("signOutAllWorker")).toBe("manage_worker_account");
+    expect(capabilityOf("resetWorkerPin")).toBe("manage_worker_account");
+    expect(capabilityOf("suspendWorker")).toBe("manage_worker_account");
+    expect(capabilityOf("unsuspendWorker")).toBe("manage_worker_account");
     // manage_admins is super_admin ONLY (asserted per-role in admin-actions.authz.test.ts).
     expect(capabilityOf("inviteAdmin")).toBe("manage_admins");
     expect(capabilityOf("changeAdminRole")).toBe("manage_admins");

@@ -202,6 +202,15 @@ export const ADMIN_CAPABILITIES = [
    * APPENDED AT THE TAIL so no existing row of `capabilitiesFor` moves.
    */
   "read_candidates",
+  /**
+   * #2562 — act on a WORKER's account: sign out every session, reset the device PIN, suspend
+   * and unsuspend. `super_admin`, `ops_admin`, `support`.
+   *
+   * Distinct from `flag_worker` (standing/moderation) and `read_identity` (names): this is
+   * ACCOUNT CONTROL. A PIN reset deletes the credential, so the next phone-code sign-in sets a
+   * new PIN. `analyst` is denied.
+   */
+  "manage_worker_account",
 ] as const;
 
 export type AdminCapability = (typeof ADMIN_CAPABILITIES)[number];
@@ -266,6 +275,8 @@ export const ADMIN_CAPABILITY_MATRIX: Record<AdminCapability, readonly AdminRole
   // ADR-0062 §3.8 (signed 2026-11-04) — the Candidates read floor, all four roles. Names on the
   // same response stay behind `read_identity`, so `analyst` reads the record faceless.
   read_candidates: ["super_admin", "ops_admin", "support", "analyst"],
+  // #2562 — worker account control. `analyst` denied (read-only analytics).
+  manage_worker_account: ["super_admin", "ops_admin", "support"],
 } as const;
 
 /**

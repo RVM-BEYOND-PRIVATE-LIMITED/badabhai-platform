@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { AdminRole, WorkerFlagReasonCode } from "@badabhai/db";
 import { PasswordPolicySchema } from "../common/password-policy";
+import { containsHardIdentifier } from "../profiling/resume-import/resume-parse-gates";
 
 /**
  * Zod DTOs for the ADMIN-3a governed entity actions (ADR-0025 Decision 3/5/6). Every body is
@@ -114,6 +115,46 @@ export type AdminCreateDirectDto = z.infer<typeof AdminCreateDirectSchema>;
 /** PATCH /admin/admins/:id/role body — the new role CODE. */
 export const AdminChangeRoleSchema = z.object({ role: AdminRoleEnum }).strict();
 export type AdminChangeRoleDto = z.infer<typeof AdminChangeRoleSchema>;
+
+// ----- worker account actions (#2562) ----------------------------------------
+
+/**
+ * Every worker-account action needs a reason CODE and a written reason (15–500 characters).
+ * The reason is stored on `audit_logs` — which account erasure does not cover — so it is
+ * rejected when it contains an email, phone or other hard identifier.
+ */
+export const AdminWorkerAccountReasonText = z
+  .string()
+  .trim()
+  .min(15, "Reason must be at least 15 characters")
+  .max(500, "Reason must be at most 500 characters")
+  .refine((value) => containsHardIdentifier(value) === null, {
+    message: "Reason must not contain an email, phone number or other hard identifier",
+  });
+
+const workerAccountReasonShape = {
+  reason_text: AdminWorkerAccountReasonText,
+} as const;
+
+export const AdminWorkerSignOutAllSchema = z
+  .object({ reason_code: z.literal("worker_sign_out_all"), ...workerAccountReasonShape })
+  .strict();
+export type AdminWorkerSignOutAllDto = z.infer<typeof AdminWorkerSignOutAllSchema>;
+
+export const AdminWorkerPinResetSchema = z
+  .object({ reason_code: z.literal("worker_pin_reset"), ...workerAccountReasonShape })
+  .strict();
+export type AdminWorkerPinResetDto = z.infer<typeof AdminWorkerPinResetSchema>;
+
+export const AdminWorkerSuspendSchema = z
+  .object({ reason_code: z.literal("worker_suspend"), ...workerAccountReasonShape })
+  .strict();
+export type AdminWorkerSuspendDto = z.infer<typeof AdminWorkerSuspendSchema>;
+
+export const AdminWorkerUnsuspendSchema = z
+  .object({ reason_code: z.literal("worker_unsuspend"), ...workerAccountReasonShape })
+  .strict();
+export type AdminWorkerUnsuspendDto = z.infer<typeof AdminWorkerUnsuspendSchema>;
 
 // ----- response shapes (PII-FREE: ids + enums + codes only) ------------------
 

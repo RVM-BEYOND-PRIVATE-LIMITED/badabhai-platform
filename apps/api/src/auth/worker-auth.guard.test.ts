@@ -53,16 +53,24 @@ function makeConsents(latest: Partial<WorkerConsent> | undefined) {
 }
 
 /**
- * Workers repository double — the out-of-band-deletion existence probe. `exists` is the
- * DEFAULT-true happy path (the worker row is present); pass false to simulate a row deleted
- * out of band, or a rejected value to simulate a DB error (the fail-safe path).
+ * Workers repository double — the out-of-band-deletion existence probe and #2562's status
+ * probe. `exists` is the DEFAULT-true happy path (the worker row is present); pass false to
+ * simulate a row deleted out of band, or a rejected value to simulate a DB error (the
+ * fail-safe path). `status` defaults to `active`.
  */
-function makeWorkers(exists: boolean | { throws: Error } = true) {
+function makeWorkers(
+  exists: boolean | { throws: Error } = true,
+  status: "pending" | "active" | "suspended" = "active",
+) {
   const existsById =
     typeof exists === "boolean"
       ? vi.fn().mockResolvedValue(exists)
       : vi.fn().mockRejectedValue(exists.throws);
-  return { existsById } as unknown as WorkersRepository;
+  const findSelfView =
+    typeof exists === "boolean"
+      ? vi.fn().mockResolvedValue({ status, deletionScheduledAt: null })
+      : vi.fn().mockRejectedValue(exists.throws);
+  return { existsById, findSelfView } as unknown as WorkersRepository;
 }
 
 /** Active (not-revoked) consent — the common case; re-mint must stay enabled. */
@@ -99,8 +107,8 @@ describe("WorkerAuthGuard", () => {
     expect(req.worker).toEqual({ id: "w1", sid: "s1" });
     expect(setHeader).not.toHaveBeenCalled();
     expect(session.mint).not.toHaveBeenCalled();
-    // A5 residual: the consent read rides ONLY the half-life re-mint branch — the
-    // ordinary per-request path never touches the DB (at most one read per half-life).
+    // A5 residual: the consent read rides ONLY the half-life re-mint branch — the ordinary
+    // per-request path takes the two account probes and no consent read.
     expect(consents.findLatestByWorker).not.toHaveBeenCalled();
   });
 
@@ -162,6 +170,43 @@ describe("WorkerAuthGuard", () => {
       expect(err).not.toBeInstanceOf(WorkerAccountDeletedException);
       // The 401 short-circuits BEFORE any DB read — an expired token must never probe existence.
       expect(workers.existsById).not.toHaveBeenCalled();
+    });
+  });
+
+  // #2562 — a suspended worker is refused on an EXISTING session, even though the token and
+  // the Redis session are still valid. The durable status row is the authority. The refusal
+  // is the SAME neutral 401 an expired session gets, so the app's existing re-auth path runs.
+  describe("suspended worker → neutral 401 (existing signed-out path)", () => {
+    it("valid token + SUSPENDED row ⇒ 401, req.worker is never attached", async () => {
+      const session = makeSession({ workerId: "w1", sid: "s1", remainingSeconds: FULL_TTL });
+      const workers = makeWorkers(true, "suspended");
+      const guard = new WorkerAuthGuard(session, config, makeConsents(ACTIVE_CONSENT), workers);
+      const { ctx, req } = makeCtx("Bearer good.token");
+
+      const err = await guard.canActivate(ctx).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(UnauthorizedException);
+      expect((err as UnauthorizedException).getStatus()).toBe(HttpStatus.UNAUTHORIZED);
+      expect(workers.findSelfView).toHaveBeenCalledWith("w1");
+      expect(req.worker).toBeUndefined();
+      expect(session.mint).not.toHaveBeenCalled();
+    });
+
+    it("unsuspended (active) row with the same session token ⇒ passes", async () => {
+      const session = makeSession({ workerId: "w1", sid: "s1", remainingSeconds: FULL_TTL });
+      const workers = makeWorkers(true, "active");
+      const guard = new WorkerAuthGuard(session, config, makeConsents(ACTIVE_CONSENT), workers);
+      const { ctx, req } = makeCtx("Bearer good.token");
+      await expect(guard.canActivate(ctx)).resolves.toBe(true);
+      expect(req.worker).toEqual({ id: "w1", sid: "s1" });
+    });
+
+    it("FAIL-SAFE: status probe THROWS (DB down) ⇒ request PASSES, never a false lockout", async () => {
+      const session = makeSession({ workerId: "w1", sid: "s1", remainingSeconds: FULL_TTL });
+      const workers = makeWorkers({ throws: new Error("pg down") });
+      const guard = new WorkerAuthGuard(session, config, makeConsents(ACTIVE_CONSENT), workers);
+      const { ctx, req } = makeCtx("Bearer good.token");
+      await expect(guard.canActivate(ctx)).resolves.toBe(true);
+      expect(req.worker).toEqual({ id: "w1", sid: "s1" });
     });
   });
 

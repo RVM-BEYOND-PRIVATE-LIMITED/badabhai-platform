@@ -8,6 +8,7 @@ import { PinHasher, CURRENT_PIN_PEPPER_VERSION } from "./pin-hasher.service";
 import { PinSetSchema, PinResetConfirmSchema } from "./pin.dto";
 import {
   WorkerAccountDeletedException,
+  WorkerAccountSuspendedException,
   WORKER_ACCOUNT_DELETED_CODE,
 } from "./worker-account-deleted.exception";
 
@@ -215,6 +216,8 @@ interface BuildOpts {
   workerExists?: boolean;
   /** Make the existence probe THROW (a DB blip) — must fail SAFE to the neutral path, no 410. */
   existsByIdThrows?: boolean;
+  /** #2562 — the resolved worker's durable status is `suspended`. */
+  workerSuspended?: boolean;
   /** #2113 — an erased-credential tombstone exists for the presented refresh token. */
   erased?: boolean;
   /** #2113 — the tombstone read REJECTS (a Redis blip) — must fail SAFE to the neutral 401. */
@@ -250,7 +253,7 @@ function build(opts: BuildOpts = {}) {
   const workers = {
     findByPhoneHash: vi.fn().mockResolvedValue({
       id: WORKER,
-      status: "active",
+      status: opts.workerSuspended ? "suspended" : "active",
       deletionScheduledAt: null,
       phoneE164: `enc:${PHONE}`, // the at-rest ciphertext envelope
       phoneHash: "hmac:13",
@@ -264,6 +267,14 @@ function build(opts: BuildOpts = {}) {
     existsById: opts.existsByIdThrows
       ? vi.fn().mockRejectedValue(new Error("db down"))
       : vi.fn().mockResolvedValue(opts.workerExists ?? true),
+    // #2562 — the durable-status probe. Good path defaults to `active`; `workerSuspended`
+    // models an admin suspension, which must beat the device/credential gates.
+    findSelfView: opts.existsByIdThrows
+      ? vi.fn().mockRejectedValue(new Error("db down"))
+      : vi.fn().mockResolvedValue({
+          status: opts.workerSuspended ? "suspended" : "active",
+          deletionScheduledAt: null,
+        }),
   };
 
   const otp = {
@@ -610,6 +621,29 @@ describe("PinService.verifyPin — cold-start out-of-band deletion (#1164)", () 
   it("(e') a DB blip on the probe + a WRONG pin → the neutral 401 (fail-safe, still no 410)", async () => {
     const { svc } = build({ existsByIdThrows: true });
     await expectNeutral401(svc.verifyPin(verifyInput({ pin: WRONG_PIN }), ctx));
+  });
+});
+
+// #2562 — suspension beats a valid refresh token, a trusted device and the correct PIN, but
+// answers the SAME neutral 401 as every other PIN failure (no new oracle; the app's existing
+// failure budget sends the worker back to OTP login).
+describe("PinService.verifyPin — suspended worker is refused", () => {
+  it("suspended row → neutral 401 before the device/credential gates", async () => {
+    const { svc, workers, devices, hasher, emit } = build({ workerSuspended: true });
+    await expectNeutral401(svc.verifyPin(verifyInput({ pin: GOOD_PIN }), ctx));
+    expect(workers.findSelfView).toHaveBeenCalledWith(WORKER);
+    // The status probe fires BEFORE the device gate + before scrypt.
+    expect(devices.findActiveById).not.toHaveBeenCalled();
+    expect(hasher.verify).not.toHaveBeenCalled();
+    // The reason is a STATIC code for the log only; the payload stays the two-uuid shape.
+    expect(emittedNames(emit)).toContain("worker.pin_verify_failed");
+  });
+
+  it("status probe THROWS (DB blip) → fail SAFE to the normal path, never a false lockout", async () => {
+    const { svc, workers } = build();
+    (workers.findSelfView as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error("pg down"));
+    const res = await svc.verifyPin(verifyInput({ pin: GOOD_PIN }), ctx);
+    expect(res.worker_id).toBe(WORKER);
   });
 });
 
@@ -1113,6 +1147,18 @@ describe("PinService.resetConfirm", () => {
     expect(emittedNames(emit)).not.toContain("worker.pin_reset");
     // The credential row is untouched.
     expect(pins.state.row!.otpCycleCount).toBe(2);
+  });
+
+  it("a SUSPENDED worker is refused after the OTP but BEFORE the credential write (#2562)", async () => {
+    const { svc, otp, pins, emit } = build({ workerSuspended: true });
+
+    const err = await svc.resetConfirm(PHONE, "123456", "4826", ctx).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(WorkerAccountSuspendedException);
+    // The code is verified (phone ownership WAS proved), but no PIN is written and no
+    // worker.pin_reset is emitted: the account is closed.
+    expect(otp.verify).toHaveBeenCalledWith(PHONE, "123456");
+    expect(pins.repo.upsertPin).not.toHaveBeenCalled();
+    expect(emittedNames(emit)).not.toContain("worker.pin_reset");
   });
 
   it("a MALFORMED new PIN is rejected (400) BEFORE hashing — and before the OTP too", async () => {

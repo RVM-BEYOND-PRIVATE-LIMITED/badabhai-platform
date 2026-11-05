@@ -17,7 +17,7 @@ import { ConsentNotRevokedGuard } from "./consent.guard";
 import { ConsentRepository } from "../consent/consent.repository";
 import { withConsentAccepted } from "../consent/consent-flag";
 import { WorkerAuthGuard, CurrentWorker, type AuthenticatedWorker } from "./worker-auth.guard";
-import { throwIfWorkerDeleted } from "./worker-account-deleted.exception";
+import { isWorkerSuspended, throwIfWorkerDeleted } from "./worker-account-deleted.exception";
 import { TestLoginGuard } from "./test-login.guard";
 import {
   OtpRequestSchema,
@@ -391,6 +391,14 @@ export class AuthController {
       // FAIL-SAFE like the guard: a DB error leaves existence UNKNOWN → fall through to the normal
       // rotation (never a false 410 during a DB incident).
       await throwIfWorkerDeleted(this.workers, resolved.workerId, this.logger);
+      // #2562 — a suspended worker must not rotate a refresh token into a fresh session.
+      // This is the one worker-authed path with no WorkerAuthGuard, so the status gate has
+      // to be repeated here; like the existence probe it fails OPEN on a DB error. The 401 is
+      // deliberately the SAME shape as an expired token so the app's refresh handler wipes and
+      // returns to phone login rather than treating suspension as a consent problem.
+      if (await isWorkerSuspended(this.workers, resolved.workerId, this.logger)) {
+        throw new UnauthorizedException("Invalid or expired refresh token");
+      }
     }
 
     const outcome = await this.sessions.refreshByToken(dto.refresh_token, idempotencyKey);

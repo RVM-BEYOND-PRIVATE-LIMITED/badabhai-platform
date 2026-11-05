@@ -26,6 +26,16 @@ export class PinRepository {
     return rows[0];
   }
 
+  /** #2562 — admin PIN reset: remove the credential so the old PIN cannot unlock and the next
+   * phone-code sign-in routes the worker to set-PIN. */
+  async deleteByWorkerId(workerId: string, tx?: Database): Promise<boolean> {
+    const rows = await (tx ?? this.db)
+      .delete(workerCredentials)
+      .where(eq(workerCredentials.workerId, workerId))
+      .returning({ id: workerCredentials.id });
+    return rows.length > 0;
+  }
+
   /**
    * Set (or replace) a worker's PIN. Race-safe via `onConflictDoUpdate` on the UNIQUE
    * worker_id (two concurrent set-PIN calls converge on one row, no 23505). Setting a PIN

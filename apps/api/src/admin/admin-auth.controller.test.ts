@@ -241,6 +241,8 @@ describe("AdminAuthController — delegation to AdminAuthService", () => {
         // ADR-0062 §3.8 (#2560) — the Candidates full-detail read, all four roles. Appended at the
         // TAIL of the vocabulary, so it closes the list and moves no existing entry.
         "read_candidates",
+        // #2562 — worker account control (super_admin, ops_admin, support). Tail-appended too.
+        "manage_worker_account",
       ],
     });
   });

@@ -2,6 +2,8 @@ import "reflect-metadata";
 import { describe, it, expect } from "vitest";
 import type { EventsService } from "../events/events.service";
 import type { PayerSessionService } from "../payers/payer-session.service";
+import type { SessionService } from "../auth/session.service";
+import type { PinRepository } from "../auth/pin.repository";
 import type { RequestContext } from "../common/request-context";
 import type { AdminRepository } from "./admin.repository";
 import type { AdminActionsRepository } from "./admin-actions.repository";
@@ -116,6 +118,10 @@ function makeHarness(opts: { failEmitOnce?: boolean } = {}) {
   const sessions = {
     revokeAllForPayer: async () => 0,
   } as unknown as PayerSessionService;
+  // #2562 — worker-account doubles. These run AFTER the tx (Redis is not transactional), so
+  // they are outside the atomicity contract under test here.
+  const workerSessions = { revokeAll: async () => 0 } as unknown as SessionService;
+  const pins = { deleteByWorkerId: async () => true } as unknown as PinRepository;
 
   // Deterministic accept-link seam. Delivery is a no-op: it runs AFTER the tx commits, so
   // like the payer-session revoke above it is deliberately outside the atomicity contract.
@@ -127,7 +133,7 @@ function makeHarness(opts: { failEmitOnce?: boolean } = {}) {
     deliver: async () => undefined,
   } as unknown as AdminInviteService;
 
-  const service = new AdminActionsService(actions, admins, events, sessions, invites);
+  const service = new AdminActionsService(actions, admins, events, sessions, invites, workerSessions, pins);
   return { service, world };
 }
 

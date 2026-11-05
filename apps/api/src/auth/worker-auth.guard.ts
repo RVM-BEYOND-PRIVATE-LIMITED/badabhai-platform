@@ -13,7 +13,7 @@ import { SERVER_CONFIG } from "../config/config.module";
 import { ConsentRepository } from "../consent/consent.repository";
 import { WorkersRepository } from "../workers/workers.repository";
 import { SessionService } from "./session.service";
-import { throwIfWorkerDeleted } from "./worker-account-deleted.exception";
+import { isWorkerSuspended, throwIfWorkerDeleted } from "./worker-account-deleted.exception";
 
 /** The authenticated worker attached to the request by {@link WorkerAuthGuard}. */
 export interface AuthenticatedWorker {
@@ -50,8 +50,9 @@ declare global {
  * same asymmetry as ConsentNotRevokedGuard). Cost: ONE consent read at most once per
  * half-life, never on the ordinary per-request path.
  *
- * FAIL-SAFE BOTH WAYS: the two Postgres reads here (the account-existence probe below, and
- * the consent read on the re-mint branch) are the guard's ONLY Postgres dependencies
+ * FAIL-SAFE BOTH WAYS: the three Postgres reads here (the account-existence and suspension
+ * probes below, and the consent read on the re-mint branch) are the guard's ONLY Postgres
+ * dependencies
  * (validateAndTouch is Redis-only, mint is pure JWT), so a read error must never turn
  * into a 500/410 on `[W]`-only routes — POST /auth/logout and /auth/logout-all are exactly
  * the routes that must survive a DB incident. On ANY consent-read error the guard
@@ -59,7 +60,8 @@ declare global {
  * property holds) and lets the already-authenticated request pass, the same
  * degradation shape validateAndTouch applies to a Redis error (request outcome,
  * never a 500). The existence probe degrades the same way: an UNKNOWN existence (a DB error)
- * is treated as "present" so a DB blip never 410-storms every worker route.
+ * is treated as "present" so a DB blip never 410-storms every worker route; #2562's
+ * suspension probe degrades identically.
  *
  * OUT-OF-BAND DELETION → 410 (not 401): a VALID session whose worker ROW is gone means the row
  * was deleted directly in the DB, bypassing AccountDeletionService (which revokes every session
@@ -96,10 +98,18 @@ export class WorkerAuthGuard implements CanActivate {
     // ROW no longer exists → the reserved 410 (see the class doc). A PK point-lookup selecting
     // the id ONLY (no PII column, §2). FAIL-SAFE: a DB error leaves existence UNKNOWN, which we
     // treat as "present" so a Postgres incident never turns into a 410 storm on logout / every
-    // worker route — only a DEFINITIVE row-absent throws. This is the single UNCONDITIONAL
-    // per-request DB read the guard now takes; it is the only signal Redis cannot carry (the
-    // session record survives a raw row delete), so the contract requires reading Postgres here.
+    // worker route — only a DEFINITIVE row-absent throws. These are the UNCONDITIONAL
+    // per-request DB reads the guard now takes; existence is the one signal Redis cannot carry
+    // (the session record survives a raw row delete), and #2562's status probe adds the
+    // reversible suspension gate beside it.
     await throwIfWorkerDeleted(this.workers, validated.workerId, this.logger);
+    // #2562 — suspension is a DURABLE status, not a session property: read it on every
+    // request so a session that survived a failed revoke is still refused. A missing row has
+    // already been answered above. Answers with the SAME neutral 401 as an expired session so
+    // the worker app's existing re-auth path runs instead of trapping them on a 403 screen.
+    if (await isWorkerSuspended(this.workers, validated.workerId, this.logger)) {
+      throw new UnauthorizedException("Invalid or expired session");
+    }
 
     req.worker = { id: validated.workerId, sid: validated.sid, deviceId: validated.deviceId };
 

@@ -196,6 +196,8 @@ describe("capability matrix drift (must-fix #5 — pinned to ADR-0025 Decision 3
     // ADR-0062 §3.8 (signed 2026-11-04) — the Candidates full-detail read, all four roles. Names on
     // that response stay behind `read_identity` (asserted below), so the analyst row is faceless.
     read_candidates: ["super_admin", "ops_admin", "support", "analyst"],
+    // #2562 — worker account control. `analyst` denied (read-only analytics).
+    manage_worker_account: ["super_admin", "ops_admin", "support"],
   };
 
   it("the capability set matches the ADR exactly (no added/removed capability)", () => {
@@ -208,7 +210,7 @@ describe("capability matrix drift (must-fix #5 — pinned to ADR-0025 Decision 3
     }
   });
 
-  it("the every-cell assertion: can(role, cap) === (role ∈ the ADR cell) for ALL 60 cells", () => {
+  it("the every-cell assertion: can(role, cap) === (role ∈ the ADR cell) for ALL 68 cells", () => {
     const roles: AdminRole[] = ["super_admin", "ops_admin", "support", "analyst"];
     for (const cap of ADMIN_CAPABILITIES) {
       for (const role of roles) {
@@ -246,6 +248,8 @@ describe("capability matrix drift (must-fix #5 — pinned to ADR-0025 Decision 3
       "review_skill_candidates",
       "manage_admins",
       "toggle_kill_switch",
+      // #2562 — account control is a write; the read-only analytics role must never hold it.
+      "manage_worker_account",
     ] as const) {
       expect(can("analyst", write)).toBe(false);
     }
@@ -297,7 +301,7 @@ describe("capability matrix drift (must-fix #5 — pinned to ADR-0025 Decision 3
 describe("capabilitiesFor — what the UI is told matches what the server permits", () => {
   const ROLES: AdminRole[] = ["super_admin", "ops_admin", "support", "analyst"];
 
-  it("agrees with can() on ALL 60 cells — the UI can never show a control the guard denies", () => {
+  it("agrees with can() on ALL 68 cells — the UI can never show a control the guard denies", () => {
     for (const role of ROLES) {
       const granted = capabilitiesFor(role);
       for (const cap of ADMIN_CAPABILITIES) {
@@ -327,6 +331,8 @@ describe("capabilitiesFor — what the UI is told matches what the server permit
       "manage_payer_credentials",
       "reveal_pii",
       "read_candidates",
+      // #2562 — worker account control.
+      "manage_worker_account",
     ]);
     expect(capabilitiesFor("ops_admin")).toEqual([
       "read_events",
@@ -344,6 +350,8 @@ describe("capabilitiesFor — what the UI is told matches what the server permit
       // #2563 — payer credential administration.
       "manage_payer_credentials",
       "read_candidates",
+      // #2562 — worker account control.
+      "manage_worker_account",
     ]);
     // super_admin holds everything — the one role for which the list is the whole vocabulary.
     expect(capabilitiesFor("super_admin")).toEqual([...ADMIN_CAPABILITIES]);

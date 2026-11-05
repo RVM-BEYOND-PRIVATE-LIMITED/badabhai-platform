@@ -296,6 +296,33 @@ describe("AuthController — token/refresh out-of-band deletion → 410 WORKER_A
   });
 });
 
+// #2562 — suspension must also stop the one worker-authed path with no WorkerAuthGuard.
+describe("AuthController — token/refresh for a suspended worker", () => {
+  it("SUSPENDED worker → neutral 401 and the token is NOT rotated", async () => {
+    const { controller, sessions, workers, consents } = make();
+    (consents.findLatestByWorker as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      revokedAt: null,
+    });
+    (workers.findSelfView as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      status: "suspended",
+      deletionScheduledAt: null,
+    });
+    const err = await controller
+      .tokenRefresh({ refresh_token: "rt" } as never, reqIdem())
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(UnauthorizedException);
+    expect((err as UnauthorizedException).getStatus()).toBe(401);
+    expect(sessions.refreshByToken).not.toHaveBeenCalled();
+  });
+
+  it("FAIL-SAFE: status probe THROWS (DB down) → rotates normally, never a false lockout", async () => {
+    const { controller, sessions, workers } = make();
+    (workers.findSelfView as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error("pg down"));
+    await controller.tokenRefresh({ refresh_token: "rt" } as never, reqIdem());
+    expect(sessions.refreshByToken).toHaveBeenCalled();
+  });
+});
+
 describe("AuthController", () => {
   it("requestOtp applies the sender cap and delegates — with NO network cap (#1306)", async () => {
     const { controller, auth, ipRateLimit, config } = make();
