@@ -10,12 +10,7 @@ import { Stat } from "../../components/stat";
 import { PageHeader } from "../../components/page-header";
 import { SegmentedControl } from "../../components/segmented-control";
 import { buildAdminAttention } from "./attention";
-import {
-  formatCount,
-  formatSuppressible,
-  healthTone,
-  humanizeEventName,
-} from "../../lib/format";
+import { formatCount, formatSuppressible, healthTone, humanizeEventName } from "../../lib/format";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 
 export const dynamic = "force-dynamic";
@@ -135,9 +130,9 @@ export default async function DashboardPage({
 
       {denied ? (
         <p className="notice notice--warn" role="status">
-          You do not have the <code className="code">{denied}</code> capability, so that
-          section is not available to your role ({ROLE_LABELS[session.role]}). Ask an
-          administrator if you need it.
+          You do not have the <code className="code">{denied}</code> capability, so that section is
+          not available to your role ({ROLE_LABELS[session.role]}). Ask an administrator if you need
+          it.
         </p>
       ) : null}
 
@@ -207,8 +202,8 @@ export default async function DashboardPage({
                 Conversion funnel
               </h2>
               <p className="panel__sub">
-                Distinct subjects per stage. Counts below the k-anonymity floor are
-                withheld rather than shown as zero.
+                Distinct subjects per stage. Counts below the k-anonymity floor are withheld rather
+                than shown as zero.
               </p>
             </div>
 
@@ -295,9 +290,9 @@ export default async function DashboardPage({
                 AI spend and volume could not be loaded
               </h3>
               <p className="state__body">
-                The dashboard summary read failed, so those two sections are MISSING rather
-                than empty — do not read their absence as zero spend or zero volume. The
-                figures above come from separate reads and are unaffected.
+                The dashboard summary read failed, so those two sections are MISSING rather than
+                empty — do not read their absence as zero spend or zero volume. The figures above
+                come from separate reads and are unaffected.
               </p>
               <div className="state__actions">
                 <Link className="btn btn--ghost" href={retryHref}>
@@ -314,6 +309,71 @@ export default async function DashboardPage({
             AI spend and platform volume need the <code className="code">read_entities</code>{" "}
             capability, which your role ({ROLE_LABELS[session.role]}) does not have.
           </p>
+        </section>
+      )}
+
+      {/* ---- workforce operations (A10, #2580) ------------------------------------
+          The three operational screens behind reads on `read_entities`: alerts, funnel and
+          empty feed. Static links, no new reads — the counts live on the screens themselves.
+          The sidebar's 1080p budget (nav-model) has no room for three more rows, so the
+          dashboard hubs them; the banner covers the alerts list while an alert is active. */}
+      {mayReadEntities && (
+        <section className="panel" aria-labelledby="ops-heading">
+          <div className="panel__head">
+            <h2 className="panel__title" id="ops-heading">
+              Workforce operations
+            </h2>
+            <p className="panel__sub">
+              Alerts, drop-off and empty feeds — the screens that watch the base.
+            </p>
+          </div>
+          <ul className="funnel">
+            <li className="funnel__row">
+              <span className="funnel__label">
+                <strong>AI alerts</strong>
+                <br />
+                <span className="funnel__events">
+                  Fallback posture and spend-cap trips while an alert is active.
+                </span>
+              </span>
+              <span className="funnel__nums">
+                <Link className="btn btn--ghost btn--sm" href="/alerts">
+                  <Icon name="warning-octagon" />
+                  View alerts
+                </Link>
+              </span>
+            </li>
+            <li className="funnel__row">
+              <span className="funnel__label">
+                <strong>Onboarding funnel</strong>
+                <br />
+                <span className="funnel__events">
+                  Where workers drop out of onboarding across the whole base.
+                </span>
+              </span>
+              <span className="funnel__nums">
+                <Link className="btn btn--ghost btn--sm" href="/funnel">
+                  <Icon name="funnel" />
+                  View funnel
+                </Link>
+              </span>
+            </li>
+            <li className="funnel__row">
+              <span className="funnel__label">
+                <strong>Empty feed</strong>
+                <br />
+                <span className="funnel__events">
+                  Workers with nothing to apply to — where postings run short.
+                </span>
+              </span>
+              <span className="funnel__nums">
+                <Link className="btn btn--ghost btn--sm" href="/empty-feed">
+                  <Icon name="funnel-x" />
+                  View list
+                </Link>
+              </span>
+            </li>
+          </ul>
         </section>
       )}
 

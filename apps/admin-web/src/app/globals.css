@@ -3978,11 +3978,16 @@ textarea.field__input {
   --col-head-w: calc(var(--col-head, 0rem) + 2 * var(--grid-pad-inline));
 }
 .grid__col--id {
-  width: max(calc(10ch + var(--control-sm) + var(--space-1) + 2 * var(--grid-pad-inline)), var(--col-head-w));
+  width: max(
+    calc(10ch + var(--control-sm) + var(--space-1) + 2 * var(--grid-pad-inline)),
+    var(--col-head-w)
+  );
 }
 .grid__col--customer {
   width: max(
-    calc(10ch + var(--control-sm) + var(--space-1) + var(--space-2) + 7ch + 2 * var(--grid-pad-inline)),
+    calc(
+      10ch + var(--control-sm) + var(--space-1) + var(--space-2) + 7ch + 2 * var(--grid-pad-inline)
+    ),
     var(--col-head-w)
   );
 }
@@ -4149,7 +4154,9 @@ th.grid__cell--wrap {
    test — without the transform WebKit would draw it over the whole grid; a click on the row
    itself still opens it (DataGridView). A menu or a confirmation a row opens belongs in the top
    layer (`popover`, a dialog) all the same: nothing inside a scroller escapes its clip. */
-.grid__table tbody tr:has(.copy-id__toast--on, .iconbtn:is(:hover, :focus-visible), [aria-expanded="true"]) {
+.grid__table
+  tbody
+  tr:has(.copy-id__toast--on, .iconbtn:is(:hover, :focus-visible), [aria-expanded="true"]) {
   z-index: 2;
   transform: none;
 }
@@ -4883,7 +4890,7 @@ a.pager__step:hover {
 
 /* ---- sidebar: groups that open and close ------------------------------------------------ */
 
-/* The 15-row budget at 1080p (nav-model.test.ts adds it up): groups --space-4 apart, each title
+/* The 18-row budget at 1080p (nav-model.test.ts adds it up): groups --space-4 apart, each title
    a 24px disclosure row. The nav is the marker's positioning box. */
 .sidebar__nav {
   position: relative;
@@ -5646,5 +5653,57 @@ a.pager__step:hover {
   .toasts__list {
     align-items: stretch;
     width: 100%;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * A10 (#2580) — AI alert banner + onboarding funnel bars.
+ *
+ * Additions only; nothing above is changed. Both animations use the shared motion
+ * tokens (#2570): the banner slides down over --duration-base (220ms), the bars grow
+ * over slow + instant (320 + 80 = 400ms exactly), the figures count up over
+ * --duration-count (600ms, in CountUp). Only opacity and transform animate, travel is
+ * at most --motion-rise (6px), and reduced motion zeroes the tokens — leaving the band
+ * present and the bars full — with no media query to keep in sync.
+ * ------------------------------------------------------------------------ */
+
+/* The banner IS an `.alert` (same spine + icon + actions); this class adds only the
+   mount-once entrance. The shell persists across navigations, so the animation runs
+   when the alert STARTS, never again while it stays. */
+.ai-banner {
+  animation: ai-banner-in var(--duration-base) var(--ease-out);
+}
+@keyframes ai-banner-in {
+  from {
+    opacity: 0;
+    transform: translateY(calc(-1 * var(--motion-rise)));
+  }
+}
+
+/* The onboarding funnel's bars. The track is the pale navy step; the fill is Shift
+   Blue (--blue-500) — the structure colour, never the yellow action ramp, so a bar
+   never reads as a button. Values beside the bars carry the numbers, so the fill is
+   decorative (aria-hidden) and colour is never the only channel. */
+.funnel__bar {
+  display: block;
+  height: var(--space-2);
+  margin-top: var(--space-2);
+  border-radius: var(--radius-pill);
+  background: var(--navy-100);
+  overflow: hidden;
+}
+.funnel__fill {
+  display: block;
+  height: 100%;
+  background: var(--blue-500);
+  transform-origin: left center;
+  animation: funnel-bar-grow calc(var(--duration-slow) + var(--duration-instant)) var(--ease-out);
+  animation-fill-mode: backwards;
+}
+/* One `from` only: each bar grows from zero to its own inline share. Stagger comes
+   from the row's inline `animation-delay` (the first eight rows, --stagger-step each). */
+@keyframes funnel-bar-grow {
+  from {
+    transform: scaleX(0);
   }
 }
