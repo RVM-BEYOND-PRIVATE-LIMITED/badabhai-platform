@@ -29,6 +29,7 @@ export function PasswordInput({
   describedBy,
   disabled,
   labelSuffix,
+  onBlur,
 }: {
   id: string;
   label: string;
@@ -48,6 +49,8 @@ export function PasswordInput({
   disabled?: boolean;
   /** Rendered after the label text (e.g. the required marker). */
   labelSuffix?: React.ReactNode;
+  /** The admin form's inline-validation timing (blur starts reporting). */
+  onBlur?: () => void;
 }) {
   const [visible, setVisible] = useState(false);
 
@@ -74,6 +77,7 @@ export function PasswordInput({
           disabled={disabled}
           value={value}
           onChange={(e) => onChange(e.target.value)}
+          onBlur={onBlur}
           aria-invalid={invalid ? true : undefined}
           aria-describedby={describedBy}
         />

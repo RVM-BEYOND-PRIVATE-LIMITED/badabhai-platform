@@ -15,6 +15,8 @@ import {
 import { PasswordInput } from "../../components/password-input";
 import { NewPasswordFields } from "../../components/new-password-fields";
 import { AuthenticatorEnrollment } from "../../components/authenticator-enrollment";
+import { FieldError, FormSummary, useFormValidation } from "../../components/form-feedback";
+import { looksLikeAdminEmail } from "../../lib/email-shape";
 import { newPasswordPairReady } from "../../lib/password-policy";
 
 /**
@@ -60,6 +62,35 @@ export function LoginForm({ method }: { method: LoginMethod }) {
   const [pending, startTransition] = useTransition();
   const ids = useId();
 
+  const fieldsByStep: Record<Step, readonly ("email" | "password" | "code" | "totp")[]> = {
+    credentials: ["email", "password"],
+    change: [],
+    email: ["email"],
+    code: ["code"],
+    mfa: ["totp"],
+  };
+  const validation = useFormValidation({
+    order: fieldsByStep[step],
+    fieldId: (field) => `${ids}-${field}`,
+    focus: (field) => {
+      if (typeof document !== "undefined") document.getElementById(`${ids}-${field}`)?.focus();
+    },
+    validate: () => {
+      const errors: Partial<Record<"email" | "password" | "code" | "totp", string>> = {};
+      if (step === "credentials" || step === "email") {
+        if (email.trim() === "") errors.email = "Enter your work email.";
+        else if (!looksLikeAdminEmail(email)) errors.email = "Enter a valid email address.";
+      }
+      if (step === "credentials" && password === "")
+        errors.password = "Enter your password.";
+      if (step === "code" && code.length < 4)
+        errors.code = "Enter the code from your email.";
+      if (step === "mfa" && totp.length !== 6)
+        errors.totp = "Enter the 6-digit code from your authenticator app.";
+      return errors;
+    },
+  });
+
   // Move focus to the new step's heading so the keyboard path never breaks, and so a
   // screen-reader user is told where they are instead of silently landing on <body>. Not on the
   // first render: there the first field's own autofocus is where the operator starts.
@@ -92,6 +123,7 @@ export function LoginForm({ method }: { method: LoginMethod }) {
     if (res.next === "signed_in") return signedIn();
     setEnrollment(res.enrollment ?? null);
     setTotp("");
+    validation.reset();
     setStep("mfa");
   }
 
@@ -105,11 +137,13 @@ export function LoginForm({ method }: { method: LoginMethod }) {
     setTrustDevice(false);
     setEnrollment(null);
     setError(null);
+    validation.reset();
     setStep(FIRST_STEP[method]);
   }
 
   function submitCredentials(e: React.FormEvent) {
     e.preventDefault();
+    if (validation.submit() !== null) return;
     setError(null);
     startTransition(async () => {
       const res = await passwordLoginAction({ email, password });
@@ -117,6 +151,7 @@ export function LoginForm({ method }: { method: LoginMethod }) {
       if (res.next === "change_password") {
         setNewPassword("");
         setConfirmPassword("");
+        validation.reset();
         return setStep("change");
       }
       follow(res);
@@ -142,6 +177,7 @@ export function LoginForm({ method }: { method: LoginMethod }) {
 
   function submitEmail(e: React.FormEvent) {
     e.preventDefault();
+    if (validation.submit() !== null) return;
     setError(null);
     startTransition(async () => {
       const res = await requestCodeAction({ email });
@@ -154,6 +190,7 @@ export function LoginForm({ method }: { method: LoginMethod }) {
 
   function submitCode(e: React.FormEvent) {
     e.preventDefault();
+    if (validation.submit() !== null) return;
     setError(null);
     startTransition(async () => {
       const res = await verifyCodeAction({ email, code });
@@ -164,6 +201,7 @@ export function LoginForm({ method }: { method: LoginMethod }) {
 
   function submitMfa(e: React.FormEvent) {
     e.preventDefault();
+    if (validation.submit() !== null) return;
     setError(null);
     startTransition(async () => {
       const res = await verifyMfaAction({ email, code: totp, trustDevice });
@@ -232,10 +270,12 @@ export function LoginForm({ method }: { method: LoginMethod }) {
       </div>
 
       {step === "credentials" && (
-        <form className="auth-form" onSubmit={submitCredentials} noValidate>
+        <form className={validation.shaking ? "auth-form form--shake" : "auth-form"} onSubmit={submitCredentials} noValidate>
+          <FormSummary errors={validation.visible} />
           <label className="field">
             <span className="field__label">Work email</span>
             <input
+              id={`${ids}-email`}
               className="field__input"
               type="email"
               name="email"
@@ -245,9 +285,14 @@ export function LoginForm({ method }: { method: LoginMethod }) {
               autoFocus
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              aria-invalid={error ? true : undefined}
+              onBlur={() => validation.onBlur("email")}
+              aria-invalid={error || validation.errors.email ? true : undefined}
+              aria-describedby={
+                validation.errors.email ? `${ids}-email-error` : undefined
+              }
               placeholder="you@company.com"
             />
+            <FieldError id={`${ids}-email-error`}>{validation.errors.email}</FieldError>
           </label>
           <PasswordInput
             id={`${ids}-password`}
@@ -256,12 +301,17 @@ export function LoginForm({ method }: { method: LoginMethod }) {
             value={password}
             onChange={setPassword}
             autoComplete="current-password"
-            invalid={Boolean(error)}
+            onBlur={() => validation.onBlur("password")}
+            invalid={Boolean(error || validation.errors.password)}
+            describedBy={
+              validation.errors.password ? `${ids}-password-error` : undefined
+            }
           />
+          <FieldError id={`${ids}-password-error`}>{validation.errors.password}</FieldError>
           <button
             className="btn btn--primary"
             type="submit"
-            disabled={pending || !email || !password}
+            disabled={pending}
           >
             <Icon name="sign-in" />
             {pending ? "Signing in…" : "Sign in"}
@@ -280,7 +330,8 @@ export function LoginForm({ method }: { method: LoginMethod }) {
       )}
 
       {step === "change" && (
-        <form className="auth-form" onSubmit={submitNewPassword} noValidate>
+        <form className={validation.shaking ? "auth-form form--shake" : "auth-form"} onSubmit={submitNewPassword} noValidate>
+          <FormSummary errors={validation.visible} />
           {/* For password managers: the account this new password belongs to. Read-only and out
               of the tab order — the operator already typed it on the previous screen. */}
           <input
@@ -304,7 +355,7 @@ export function LoginForm({ method }: { method: LoginMethod }) {
           <button
             className="btn btn--primary"
             type="submit"
-            disabled={pending || !newPasswordPairReady(newPassword, confirmPassword)}
+            disabled={pending}
           >
             <Icon name={ACTION_ICON.approve} />
             {pending ? "Saving…" : "Save and continue"}
@@ -314,10 +365,12 @@ export function LoginForm({ method }: { method: LoginMethod }) {
       )}
 
       {step === "email" && (
-        <form className="auth-form" onSubmit={submitEmail} noValidate>
+        <form className={validation.shaking ? "auth-form form--shake" : "auth-form"} onSubmit={submitEmail} noValidate>
+          <FormSummary errors={validation.visible} />
           <label className="field">
             <span className="field__label">Work email</span>
             <input
+              id={`${ids}-email`}
               className="field__input"
               type="email"
               name="email"
@@ -327,11 +380,16 @@ export function LoginForm({ method }: { method: LoginMethod }) {
               autoFocus
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              aria-invalid={error ? true : undefined}
+              onBlur={() => validation.onBlur("email")}
+              aria-invalid={error || validation.errors.email ? true : undefined}
+              aria-describedby={
+                validation.errors.email ? `${ids}-email-error` : undefined
+              }
               placeholder="you@company.com"
             />
+            <FieldError id={`${ids}-email-error`}>{validation.errors.email}</FieldError>
           </label>
-          <button className="btn btn--primary" type="submit" disabled={pending || !email}>
+          <button className="btn btn--primary" type="submit" disabled={pending}>
             <Icon name={ACTION_ICON.send} />
             {pending ? "Sending…" : "Continue"}
           </button>
@@ -345,10 +403,12 @@ export function LoginForm({ method }: { method: LoginMethod }) {
       )}
 
       {step === "code" && (
-        <form className="auth-form" onSubmit={submitCode} noValidate>
+        <form className={validation.shaking ? "auth-form form--shake" : "auth-form"} onSubmit={submitCode} noValidate>
+          <FormSummary errors={validation.visible} />
           <label className="field">
             <span className="field__label">One-time code</span>
             <input
+              id={`${ids}-code`}
               className="field__input field__input--code"
               // `text` + numeric inputMode, not `number`: a number input strips leading
               // zeros and offers a spinner, both wrong for a fixed-width code.
@@ -361,14 +421,20 @@ export function LoginForm({ method }: { method: LoginMethod }) {
               autoFocus
               value={code}
               onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
-              aria-invalid={error ? true : undefined}
-              aria-describedby={`${ids}-code-help`}
+              onBlur={() => validation.onBlur("code")}
+              aria-invalid={error || validation.errors.code ? true : undefined}
+              aria-describedby={
+                validation.errors.code
+                  ? `${ids}-code-help ${ids}-code-error`
+                  : `${ids}-code-help`
+              }
             />
+            <FieldError id={`${ids}-code-error`}>{validation.errors.code}</FieldError>
           </label>
           <p className="field__help" id={`${ids}-code-help`}>
             The code expires shortly. It is only ever sent to your mailbox.
           </p>
-          <button className="btn btn--primary" type="submit" disabled={pending || code.length < 4}>
+          <button className="btn btn--primary" type="submit" disabled={pending}>
             <Icon name={ACTION_ICON.approve} />
             {pending ? "Verifying…" : "Verify"}
           </button>
@@ -381,6 +447,7 @@ export function LoginForm({ method }: { method: LoginMethod }) {
               className="btn btn--ghost"
               type="button"
               onClick={() => {
+                validation.reset();
                 setStep("email");
                 setError(null);
               }}
@@ -394,7 +461,8 @@ export function LoginForm({ method }: { method: LoginMethod }) {
       )}
 
       {step === "mfa" && (
-        <form className="auth-form" onSubmit={submitMfa} noValidate>
+        <form className={validation.shaking ? "auth-form form--shake" : "auth-form"} onSubmit={submitMfa} noValidate>
+          <FormSummary errors={validation.visible} />
           {enrollment && (
             <AuthenticatorEnrollment
               secret={enrollment.secret}
@@ -404,6 +472,7 @@ export function LoginForm({ method }: { method: LoginMethod }) {
           <label className="field">
             <span className="field__label">Authenticator code</span>
             <input
+              id={`${ids}-totp`}
               className="field__input field__input--code"
               type="text"
               inputMode="numeric"
@@ -414,8 +483,13 @@ export function LoginForm({ method }: { method: LoginMethod }) {
               autoFocus
               value={totp}
               onChange={(e) => setTotp(e.target.value.replace(/\D/g, ""))}
-              aria-invalid={error ? true : undefined}
+              onBlur={() => validation.onBlur("totp")}
+              aria-invalid={error || validation.errors.totp ? true : undefined}
+              aria-describedby={
+                validation.errors.totp ? `${ids}-totp-error` : undefined
+              }
             />
+            <FieldError id={`${ids}-totp-error`}>{validation.errors.totp}</FieldError>
           </label>
           {/* The server decides whether to honour it (it can be switched off platform-wide);
               ticking it only ASKS. The device token it returns never reaches this component. */}
@@ -432,7 +506,7 @@ export function LoginForm({ method }: { method: LoginMethod }) {
           <p className="field__help" id={`${ids}-trust-help`}>
             Skips this code on this browser. Don&apos;t tick it on a shared computer.
           </p>
-          <button className="btn btn--primary" type="submit" disabled={pending || totp.length !== 6}>
+          <button className="btn btn--primary" type="submit" disabled={pending}>
             <Icon name="sign-in" />
             {pending ? "Signing in…" : "Sign in"}
           </button>

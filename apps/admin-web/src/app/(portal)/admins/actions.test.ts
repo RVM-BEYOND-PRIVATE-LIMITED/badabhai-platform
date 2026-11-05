@@ -69,10 +69,10 @@ describe("inviteAdminAction", () => {
 
   it("surfaces the duplicate-email conflict verbatim", async () => {
     adminFetch.mockRejectedValueOnce(
-      new FakeRequestError(409, "An admin with that email already exists"),
+      new FakeRequestError(409, "An admin with that email already exists."),
     );
     const res = await inviteAdminAction({ email: "ops@example.com", role: "support" });
-    expect(res).toEqual({ ok: false, error: "An admin with that email already exists" });
+    expect(res).toEqual({ ok: false, error: "An admin with that email already exists." });
   });
 });
 
@@ -134,10 +134,10 @@ describe("createAdminAction (ADR-0060 A6)", () => {
 
   it("surfaces the duplicate-email conflict verbatim", async () => {
     adminFetch.mockRejectedValueOnce(
-      new FakeRequestError(409, "An admin with that email already exists"),
+      new FakeRequestError(409, "An admin with that email already exists."),
     );
     const res = await createAdminAction(input);
-    expect(res).toEqual({ ok: false, error: "An admin with that email already exists" });
+    expect(res).toEqual({ ok: false, error: "An admin with that email already exists." });
     expect(JSON.stringify(res)).not.toContain("Temp1234x");
   });
 });
@@ -162,18 +162,18 @@ describe("changeAdminRoleAction", () => {
 
   it("surfaces the self-role-change 409 verbatim (the L1 self-guard)", async () => {
     adminFetch.mockRejectedValueOnce(
-      new FakeRequestError(409, "An admin cannot change their own role"),
+      new FakeRequestError(409, "You can't do that to your own admin account."),
     );
     const res = await changeAdminRoleAction("a-self", "support");
-    expect(res).toEqual({ ok: false, error: "An admin cannot change their own role" });
+    expect(res).toEqual({ ok: false, error: "You can't do that to your own admin account." });
   });
 
   it("surfaces the last-active-super_admin 409 verbatim", async () => {
     adminFetch.mockRejectedValueOnce(
-      new FakeRequestError(409, "Cannot demote the last active super_admin"),
+      new FakeRequestError(409, "You can't remove the last active super admin. Give another admin that role first."),
     );
     const res = await changeAdminRoleAction("a-3", "analyst");
-    expect(res).toEqual({ ok: false, error: "Cannot demote the last active super_admin" });
+    expect(res).toEqual({ ok: false, error: "You can't remove the last active super admin. Give another admin that role first." });
   });
 });
 
@@ -204,14 +204,14 @@ describe("resetAdminMfaAction", () => {
     adminFetch.mockRejectedValueOnce(
       new FakeRequestError(
         409,
-        "An admin cannot reset their own second factor; ask another super_admin, or use the break-glass CLI",
+        "You can't do that to your own admin account.",
       ),
     );
     const res = await resetAdminMfaAction("a-self");
     expect(res).toEqual({
       ok: false,
       error:
-        "An admin cannot reset their own second factor; ask another super_admin, or use the break-glass CLI",
+        "You can't do that to your own admin account.",
     });
   });
 });
@@ -235,17 +235,17 @@ describe("suspendAdminAction", () => {
 
   it("surfaces the self-suspend 409 verbatim", async () => {
     adminFetch.mockRejectedValueOnce(
-      new FakeRequestError(409, "An admin cannot suspend themselves"),
+      new FakeRequestError(409, "You can't do that to your own admin account."),
     );
     const res = await suspendAdminAction("a-self");
-    expect(res).toEqual({ ok: false, error: "An admin cannot suspend themselves" });
+    expect(res).toEqual({ ok: false, error: "You can't do that to your own admin account." });
   });
 
   it("surfaces the last-active-super_admin suspend 409 verbatim", async () => {
     adminFetch.mockRejectedValueOnce(
-      new FakeRequestError(409, "Cannot suspend the last active super_admin"),
+      new FakeRequestError(409, "You can't remove the last active super admin. Give another admin that role first."),
     );
     const res = await suspendAdminAction("a-3");
-    expect(res).toEqual({ ok: false, error: "Cannot suspend the last active super_admin" });
+    expect(res).toEqual({ ok: false, error: "You can't remove the last active super admin. Give another admin that role first." });
   });
 });

@@ -10,9 +10,9 @@ import { describe, it, expect, beforeEach, afterAll, vi } from "vitest";
  * against an exported helper would still pass if the wiring in `adminFetch` changed.
  *
  * The properties under test:
- *  1. A real Nest `AllExceptionsFilter` envelope on a 4xx is shown VERBATIM — that is what
- *     makes the server's own refusals ("Cannot demote the last active super_admin") useful.
- *  2. EVERY other shape degrades to the status-only fallback instead of throwing: an HTML
+ *  1. A real Nest `AllExceptionsFilter` envelope on a 4xx selects a sentence from the copy
+ *     catalogue (#2689) — the raw text is never rendered, even when it is a useful refusal.
+ *  2. EVERY other shape degrades to safe catalogue copy instead of throwing: an HTML
  *     proxy page, an empty body, a non-string `message`, a body with no `error` at all.
  *  3. `{ "error": "<string>" }` — which this platform's API cannot emit, and which only an
  *     ingress/mesh/gateway produces — is NOT shown, because those bodies carry internal
@@ -38,6 +38,14 @@ const { adminFetch, isAdminRequestError, isAdminUnauthorized, isAdminForbidden }
   await import("./admin-http");
 type AdminRequestErrorLike = { body?: Record<string, unknown> };
 const { describeAdminActionError } = await import("./describe-admin-error");
+const {
+  ID_REFUSED,
+  INVALID_DETAILS,
+  RECORD_CHANGED,
+  RECORD_GONE,
+  SERVICE_UNAVAILABLE,
+  SAFE_ACTION_ERROR,
+} = await import("./admin-action-messages");
 
 const fetchMock = vi.fn();
 vi.stubGlobal("fetch", fetchMock);
@@ -91,7 +99,9 @@ describe("describeErrorBody — body shapes", () => {
     );
     expect(isAdminRequestError(err)).toBe(true);
     expect((err as Error).message).toBe("Cannot demote the last active super_admin");
-    expect(describeAdminActionError(err)).toBe("Cannot demote the last active super_admin");
+    expect(describeAdminActionError(err)).toBe(
+      "You can't remove the last active super admin. Give another admin that role first.",
+    );
   });
 
   it("a string payload envelope (Nest wraps it as { message }) is surfaced verbatim", async () => {
@@ -101,7 +111,7 @@ describe("describeErrorBody — body shapes", () => {
       status: 404,
       headers: JSON_HEADERS,
     });
-    expect(copy).toBe("Payer not found");
+    expect(copy).toBe(RECORD_GONE);
   });
 
   const degradesToFallback: Array<[name: string, body: string | null, status: number]> = [
@@ -138,9 +148,17 @@ describe("describeErrorBody — body shapes", () => {
     ],
   ];
 
-  it.each(degradesToFallback)("%s degrades to the status-only fallback", async (_n, body, status) => {
+  it.each(degradesToFallback)("%s degrades to safe catalogue copy", async (_n, body, status) => {
     const copy = await operatorCopyFor(body, { status });
-    expect(copy).toBe(`The admin API returned ${status}.`);
+    const expected =
+      status === 404
+        ? RECORD_GONE
+        : status === 409
+          ? RECORD_CHANGED
+          : status === 400
+            ? INVALID_DETAILS
+            : SAFE_ACTION_ERROR;
+    expect(copy).toBe(expected);
   });
 
   it("an HTML proxy page never leaks the upstream hostname it names", async () => {
@@ -150,7 +168,7 @@ describe("describeErrorBody — body shapes", () => {
     );
     expect(copy).not.toContain("internal.svc.cluster.local");
     expect(copy).not.toContain("nginx");
-    expect(copy).toBe("The admin API returned 404.");
+    expect(copy).toBe(RECORD_GONE);
   });
 });
 
@@ -170,7 +188,7 @@ describe("an intermediary's bare-string `error` is never shown", () => {
     });
     const copy = await operatorCopyFor(body, { status: 404, headers: JSON_HEADERS });
 
-    expect(copy).toBe("The admin API returned 404.");
+    expect(copy).toBe(RECORD_GONE);
     expect(copy).not.toContain("no healthy upstream");
     expect(copy).not.toContain("10.4.2.19");
     expect(copy).not.toContain("internal.svc.cluster.local");
@@ -181,7 +199,7 @@ describe("an intermediary's bare-string `error` is never shown", () => {
       JSON.stringify({ error: "connect ECONNREFUSED 10.0.0.7:3001 (admin-api-7d9f)" }),
       { status: 400, headers: JSON_HEADERS },
     );
-    expect(copy).toBe("The admin API returned 400.");
+    expect(copy).toBe(INVALID_DETAILS);
     expect(copy).not.toMatch(/\d+\.\d+\.\d+\.\d+/);
   });
 });
@@ -190,8 +208,8 @@ describe("an intermediary's bare-string `error` is never shown", () => {
 // 3. Finding 3 — the length cap.
 // ---------------------------------------------------------------------------
 
-describe("a verbatim message is capped, not dropped", () => {
-  it("truncates a very long refusal to 300 chars with an ellipsis", async () => {
+describe("a long refusal is replaced by catalogue copy", () => {
+  it("never renders the tail of an over-long server message", async () => {
     const long = `Cannot demote the last active super_admin. ${"detail ".repeat(200)}`;
     expect(long.length).toBeGreaterThan(300);
 
@@ -200,21 +218,20 @@ describe("a verbatim message is capped, not dropped", () => {
       headers: JSON_HEADERS,
     });
 
-    expect(copy.length).toBeLessThanOrEqual(300);
-    // The useful part — the first sentence — survives; only the tail is cut.
-    expect(copy.startsWith("Cannot demote the last active super_admin.")).toBe(true);
-    expect(copy.endsWith("…")).toBe(true);
-    expect(copy).not.toBe(`The admin API returned 409.`);
+    expect(copy).toBe(
+      "You can't remove the last active super admin. Give another admin that role first.",
+    );
+    expect(copy).not.toContain("detail");
   });
 
-  it("leaves a message at exactly the cap untouched", async () => {
+  it("an unrecognised 300-character message still gets safe catalogue copy", async () => {
     const exact = "x".repeat(300);
     const copy = await operatorCopyFor(nestEnvelope(409, { message: exact }), {
       status: 409,
       headers: JSON_HEADERS,
     });
-    expect(copy).toBe(exact);
-    expect(copy).not.toContain("…");
+    expect(copy).toBe(RECORD_CHANGED);
+    expect(copy).not.toContain("x".repeat(20));
   });
 });
 
@@ -223,7 +240,7 @@ describe("a verbatim message is capped, not dropped", () => {
 // ---------------------------------------------------------------------------
 
 describe("5xx text never reaches the operator", () => {
-  const GENERIC = "The admin API is unreachable or returned an error. Try again.";
+  const GENERIC = SERVICE_UNAVAILABLE;
 
   it("a 500 with a Nest envelope collapses to the generic copy", async () => {
     const copy = await operatorCopyFor(nestEnvelope(500, "Internal server error"), {
@@ -440,9 +457,7 @@ describe("a path the URL parser would rewrite is refused before anything is sent
     }
     expect(isAdminRequestError(thrown)).toBe(true);
     expect((thrown as { status: number }).status).toBe(400);
-    expect(describeAdminActionError(thrown)).toBe(
-      "That id is not valid, so nothing was sent to the admin API.",
-    );
+    expect(describeAdminActionError(thrown)).toBe(ID_REFUSED);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
