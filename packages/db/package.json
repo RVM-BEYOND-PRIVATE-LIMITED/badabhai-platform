@@ -68,6 +68,7 @@
     "db:seed:match:vocabulary": "tsx src/seed-match-vocabulary.ts",
     "db:backfill:worker-skills": "tsx src/backfill-worker-skills.ts",
     "db:backfill:job-postings": "tsx src/backfill-job-postings-v1.ts",
+    "db:backfill:payment-prices": "tsx src/backfill-0155-payment-prices.ts",
     "db:convert:seed-jobs": "tsx src/convert-seed-jobs.ts",
     "db:materialize:reach": "tsx src/materialize-job-reach.ts",
     "db:seed:e4-fixture": "tsx src/seed-e4-reach-fixture.ts",

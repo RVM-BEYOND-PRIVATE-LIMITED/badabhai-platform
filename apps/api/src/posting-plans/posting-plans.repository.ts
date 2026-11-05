@@ -5,6 +5,7 @@ import {
   jobPostings,
   postingPlans,
   postingBoosts,
+  planQuotaTopups,
   payerCapacity,
   events,
   type PostingPlan,
@@ -13,6 +14,8 @@ import {
   type NewPostingBoost,
   type PayerCapacity,
   type PostingPlanStatus,
+  type PlanQuotaTopup,
+  type NewPlanQuotaTopup,
 } from "@badabhai/db";
 import { DATABASE } from "../database/database.module";
 import type { TenantKey } from "../payers/payer-tenant-scope";
@@ -31,6 +34,7 @@ export interface CouponUsageCounts {
  */
 export type NewTenantPostingPlan = Omit<NewPostingPlan, "payerId"> & { payerId: TenantKey };
 export type NewTenantPostingBoost = Omit<NewPostingBoost, "payerId"> & { payerId: TenantKey };
+export type NewTenantQuotaTopup = Omit<NewPlanQuotaTopup, "payerId"> & { payerId: TenantKey };
 
 /**
  * A Drizzle transaction handle. The capacity chokepoint ({@link PostingPlansService})
@@ -117,10 +121,13 @@ export class PostingPlansRepository {
       maxActiveVacancies: number;
       sourceTier: string | null;
       expiresAt: Date | null;
+      /** #2565 B11 — the whole-₹ price of THIS capacity purchase (stamped receipt). */
+      priceInr?: number | null;
     },
     tx?: Tx,
   ): Promise<PayerCapacity> {
     const exec = tx ?? this.db;
+    const priceInr = input.priceInr ?? null;
     const rows = await exec
       .insert(payerCapacity)
       .values({
@@ -128,6 +135,7 @@ export class PostingPlansRepository {
         maxActiveVacancies: input.maxActiveVacancies,
         sourceTier: input.sourceTier,
         expiresAt: input.expiresAt,
+        priceInr,
       })
       .onConflictDoUpdate({
         target: payerCapacity.payerId,
@@ -135,6 +143,7 @@ export class PostingPlansRepository {
           maxActiveVacancies: sql`greatest(${payerCapacity.maxActiveVacancies}, ${input.maxActiveVacancies})`,
           sourceTier: input.sourceTier,
           expiresAt: input.expiresAt,
+          priceInr,
           updatedAt: sql`now()`,
         },
       })
@@ -197,6 +206,21 @@ export class PostingPlansRepository {
     const rows = await this.db.insert(postingBoosts).values(input).returning();
     const row = rows[0];
     if (!row) throw new Error("Failed to create posting boost");
+    return row;
+  }
+
+  /**
+   * Insert a quota top-up RECEIPT row (#2565 B11) — one row per top-up purchase.
+   * Called AFTER {@link addQuotaTopup} succeeds, in the same service flow (not the
+   * same atomic UPDATE, deliberately: the count increment is the money gate and must
+   * stay a single statement; the receipt follows it and a post-commit flush failure
+   * is logged, never silently dropped — the `posting_plan.quota_topped` event stays
+   * the second audit leg). PII-free (ids + codes + counts + integer ₹).
+   */
+  async insertQuotaTopup(input: NewPlanQuotaTopup): Promise<PlanQuotaTopup> {
+    const rows = await this.db.insert(planQuotaTopups).values(input).returning();
+    const row = rows[0];
+    if (!row) throw new Error("Failed to create plan quota top-up");
     return row;
   }
 

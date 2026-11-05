@@ -240,6 +240,8 @@ describe("PostingPlansRepository.upsertCapacity — GREATEST-guarded allowance u
     maxActiveVacancies: 5,
     sourceTier: "tier_pro",
     expiresAt: EXPIRES_AT,
+    // #2565 B11 — the stamped purchase price rides the same upsert.
+    priceInr: 5000,
   });
 
   it("inserts the allowance row with the fields given", async () => {
@@ -251,6 +253,7 @@ describe("PostingPlansRepository.upsertCapacity — GREATEST-guarded allowance u
       maxActiveVacancies: 5,
       sourceTier: "tier_pro",
       expiresAt: EXPIRES_AT,
+      priceInr: 5000,
     });
   });
 
@@ -265,6 +268,8 @@ describe("PostingPlansRepository.upsertCapacity — GREATEST-guarded allowance u
     expect(params(conflict.set.maxActiveVacancies)).toEqual([5]);
     expect(conflict.set.sourceTier).toBe("tier_pro");
     expect(conflict.set.expiresAt).toBe(EXPIRES_AT);
+    // #2565 B11 — the conflict update stamps the latest purchase price too.
+    expect(conflict.set.priceInr).toBe(5000);
   });
 
   it("runs on a passed tx when supplied — the pool is never touched", async () => {

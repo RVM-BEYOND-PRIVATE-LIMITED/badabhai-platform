@@ -203,6 +203,10 @@ const LOCKED_TABLES = [
   "skill_candidate", // 0093: one row per candidate CLUSTER — the proposal, the suggested action, the confidence band, and the admin decision (reviewer_admin_id, reviewed_at, review_reason). An authorization-adjacent audit trail: a readable default would publish who approved which taxonomy change and why, and a WRITABLE one would let a client forge an approval; RLS+FORCE+REVOKE in migration 0093
   "skill_candidate_source", // 0093: every phrase that fed a candidate, kept whole. `original_text` is the one column on this layer that can carry WORKER FREE TEXT (source_type='worker_phrase'), pseudonymized upstream and stripped of digits/'@'/URLs by the classifier — but pseudonymized is not anonymous, so the table-default lock applies as it does to unresolved_phrase; RLS+FORCE+REVOKE in migration 0093
   "skill_candidate_match", // 0093: the competing existing-canonical matches with their scores and strengths — the evidence a reviewer decides on. PII-free (two closed-vocabulary ids + a float), locked because a writable default would let a client inject the evidence that a human's decision is made against; RLS+FORCE+REVOKE in migration 0093
+  // 0155 (#2565 B11): one receipt row per quota top-up purchase — opaque payer/plan/posting
+  // ids + closed tier + counts + whole-₹ price (PII-free, like every monetization table).
+  // Deny-by-default, FORCE, no policy.
+  "plan_quota_topups",
 ] as const;
 
 // The three network-reachable PostgREST roles Supabase ships.
