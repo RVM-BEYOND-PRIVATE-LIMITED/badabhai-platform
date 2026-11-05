@@ -17,6 +17,7 @@ import { AdminWorkerJourneyController } from "./admin-worker-journey.controller"
 import { AdminAiTracesController } from "./admin-ai-traces.controller";
 import { AdminCandidateDetailController } from "./admin-candidate-detail.controller";
 import { AdminAiAlertsController } from "./admin-ai-alerts.controller";
+import { AdminFunnelController } from "./admin-funnel.controller";
 import { AdminAuthGuard } from "./admin-auth.guard";
 import { AdminRolesGuard, ADMIN_CAPABILITY_KEY } from "./admin-roles.guard";
 import { AdminAiTraceFlagGuard } from "./admin-ai-trace-flag.guard";
@@ -991,6 +992,49 @@ describe("B13 (#2567) ai-alerts route - guarded, read-only, and read_entities-sc
   it("the surface is READ-ONLY by construction — the route is a GET, never a write verb", () => {
     const verb = Reflect.getMetadata("method", proto.status as object) as number;
     expect(verb, "status must be a GET (evaluation never runs on this controller)").toBe(0);
+  });
+});
+
+describe("B14 (#2568) funnel routes - guarded, read-only, and read_entities-scoped", () => {
+  const proto = AdminFunnelController.prototype as unknown as Record<string, unknown>;
+  const routeMethods = Object.getOwnPropertyNames(AdminFunnelController.prototype).filter(
+    (m) =>
+      m !== "constructor" &&
+      typeof proto[m] === "function" &&
+      Reflect.getMetadata("path", proto[m] as object) !== undefined,
+  );
+
+  it("discovers EXACTLY the one funnel read (aggregates only — no per-worker read, no write)", () => {
+    expect(routeMethods.sort()).toEqual(["onboarding"]);
+  });
+
+  it("the route carries AdminAuthGuard AND AdminRolesGuard (no open privileged route)", () => {
+    const guards = effectiveGuards(AdminFunnelController, "onboarding");
+    expect(guards).toContain(AdminAuthGuard.name);
+    expect(guards).toContain(AdminRolesGuard.name);
+  });
+
+  it("the route declares method-level @RequireAdminRole('read_entities') (the dashboard floor)", () => {
+    const onMethod = Reflect.getMetadata(ADMIN_CAPABILITY_KEY, proto.onboarding as object) as
+      | AdminCapability
+      | undefined;
+    const onClass = Reflect.getMetadata(ADMIN_CAPABILITY_KEY, AdminFunnelController) as
+      | AdminCapability
+      | undefined;
+    expect(onMethod).toBe("read_entities");
+    expect(onClass, "AdminFunnelController must NOT declare a class-level capability").toBeUndefined();
+  });
+
+  it("the surface is READ-ONLY by construction — the route is a GET, never a write verb", () => {
+    const verb = Reflect.getMetadata("method", proto.onboarding as object) as number;
+    expect(verb, "onboarding must be a GET (this controller never writes)").toBe(0);
+  });
+
+  it("the repository issues no write against ANY table (read-only data access)", () => {
+    // The spine guard above covers `events`. This is the wider promise for B14: the
+    // funnel repository never writes anything at all.
+    const repo = readFileSync(join(ADMIN_DIR, "admin-funnel.repository.ts"), "utf8");
+    expect(repo).not.toMatch(/\.(insert|update|delete)\s*\(/);
   });
 });
 
