@@ -648,6 +648,12 @@ export class SessionService {
     const nowMs = Date.now();
     const record = this.parseRecord(raw, workerId, nowMs);
 
+    // #2701 — a scoped record is NOT a normal session. Refuse to slide it here, inside the
+    // one slide path, so a future caller cannot strip the scope and stretch the 15-minute
+    // token into a multi-day one. (`touchSession` then answers false, and `validateAndTouch`
+    // returns null.)
+    if (record.scope !== undefined) return null;
+
     const rolled = computeRollingSession({
       createdViaOtpAtMs: record.created_via_otp_at_ms ?? nowMs,
       activeDays: record.active_days ?? [],
@@ -697,11 +703,13 @@ export class SessionService {
    * path used by `POST /auth/refresh` (kept working during cutover).
    */
   async refresh(token: string): Promise<SessionToken | null> {
-    const session = await this.validateAndTouch(token);
+    // #2701 — validate WITHOUT touching first. A restricted SUSPENDED DPDP token is not a
+    // session and must never be slid or rolled into a full one; `validateAndTouch` would
+    // touch the record before we could refuse it.
+    const session = await this.validate(token);
     if (!session) return null;
-    // #2562 — a restricted SUSPENDED DPDP token is NOT a session and must never be rolled
-    // into a full one. The route guard already refuses it; this is defence in depth.
     if (session.scope !== undefined) return null;
+    if (!(await this.touchSession(session.workerId, session.sid))) return null;
     // Preserve the device binding (`did`) on the freshly minted token.
     return this.mintAccess(session.workerId, session.sid, session.deviceId);
   }
@@ -1492,14 +1500,27 @@ export class SessionService {
   /** #2562 — read the worker's sweep watermark (epoch-ms), or null when none was ever set. */
   async sessionsRevokedAtMs(workerId: string): Promise<number | null> {
     try {
-      const redis = await this.client();
-      const raw = await redis.get(SessionService.workerSessionsRevokedAtKey(workerId));
-      if (raw === null) return null;
-      const n = Number(raw);
-      return Number.isFinite(n) ? n : null;
+      return await this.readSessionsRevokedAtMs(workerId);
     } catch {
       return null; // a Redis error is handled by the validation that follows
     }
+  }
+
+  /**
+   * #2701 — the STRICT watermark read. Restricted DPDP sessions fail closed when this throws:
+   * a store error must not silently drop the sweep check on the one token whose whole purpose
+   * is a narrowly bounded life.
+   */
+  async sessionsRevokedAtMsStrict(workerId: string): Promise<number | null> {
+    return this.readSessionsRevokedAtMs(workerId);
+  }
+
+  private async readSessionsRevokedAtMs(workerId: string): Promise<number | null> {
+    const redis = await this.client();
+    const raw = await redis.get(SessionService.workerSessionsRevokedAtKey(workerId));
+    if (raw === null) return null;
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : null;
   }
 
   /**

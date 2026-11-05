@@ -288,6 +288,19 @@ export class AuthService {
           SUSPENDED_DPDP_SCOPE,
           SUSPENDED_DPDP_TTL_SECONDS,
         );
+        // #2701 — audit the issue of the restricted credential. PII-free: worker id +
+        // lifetime only; never the token or a scope string.
+        await this.events.emit({
+          event_name: "worker.restricted_session_issued",
+          actor: { actor_type: "worker", actor_id: worker.id },
+          subject: { subject_type: "worker", subject_id: worker.id },
+          payload: {
+            worker_id: worker.id,
+            expires_in_seconds: restricted.expiresInSeconds,
+          },
+          correlationId: ctx.correlationId,
+          requestId: ctx.requestId,
+        });
         throw new WorkerAccountSuspendedException(restricted);
       }
       throw new WorkerAccountSuspendedException();

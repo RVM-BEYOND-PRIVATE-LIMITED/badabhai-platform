@@ -753,6 +753,14 @@ export const EVENT_REGISTRY = {
   // no sub-day timestamp. PII-FREE: opaque worker id + a `YYYY-MM-DD` bucket. v1.
   "worker.active": { version: 1, domain: "worker", payload: p.WorkerActivePayload },
 
+  // #2701 — a suspended worker received the 15-minute restricted DPDP token. PII-FREE: the
+  // opaque worker id and the lifetime in seconds only. v1.
+  "worker.restricted_session_issued": {
+    version: 1,
+    domain: "worker",
+    payload: p.WorkerRestrictedSessionIssuedPayload,
+  },
+
   // §X.6 — the ₹20 worker-referral ACTIVATION BONUS, accrued only when the referred worker
   // completed a profile AND was unlocked (the fraud rule). MOCK ledger, NO disbursement —
   // and deliberately NO `referral.bonus_paid` sibling, because an event name is a promise

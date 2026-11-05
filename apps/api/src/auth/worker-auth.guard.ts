@@ -145,7 +145,18 @@ export class WorkerAuthGuard implements CanActivate {
 
     // #2562 — the durable sweep watermark. A family minted before the last admin sweep is
     // dead even if its Redis record survived a partial delete or an in-flight rotation.
-    const revokedAtMs = await this.session.sessionsRevokedAtMs(validated.workerId);
+    // #2701 — a RESTRICTED token fails CLOSED when the session store cannot be read: the
+    // restricted life is the security boundary, so an unreadable watermark refuses.
+    let revokedAtMs: number | null;
+    if (restricted) {
+      try {
+        revokedAtMs = await this.session.sessionsRevokedAtMsStrict(validated.workerId);
+      } catch {
+        throw new UnauthorizedException("Invalid or expired session");
+      }
+    } else {
+      revokedAtMs = await this.session.sessionsRevokedAtMs(validated.workerId);
+    }
     if (revokedAtMs !== null && validated.createdAtMs < revokedAtMs) {
       throw new UnauthorizedException("Invalid or expired session");
     }

@@ -640,6 +640,21 @@ export const WorkerActivePayload = z
   .strict();
 export type WorkerActivePayload = z.infer<typeof WorkerActivePayload>;
 
+/**
+ * #2701 — a SUSPENDED worker was issued the short-lived restricted token that opens only the
+ * DPDP exits. PII-FREE: the opaque worker id and the token lifetime in seconds ONLY. Never the
+ * token, a scope string, a phone, a phone hash, a route or a reason.
+ */
+export const WorkerRestrictedSessionIssuedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    expires_in_seconds: z.number().int().positive().max(3600),
+  })
+  .strict();
+export type WorkerRestrictedSessionIssuedPayload = z.infer<
+  typeof WorkerRestrictedSessionIssuedPayload
+>;
+
 // ---------------------------------------------------------------------------
 // consent.*
 // ---------------------------------------------------------------------------

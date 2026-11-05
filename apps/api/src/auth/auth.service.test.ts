@@ -1,7 +1,7 @@
 import "reflect-metadata";
 import { describe, it, expect, vi } from "vitest";
 import { HttpException, HttpStatus } from "@nestjs/common";
-import { validateEvent } from "@badabhai/event-schema";
+import { validateEvent, WorkerRestrictedSessionIssuedPayload } from "@badabhai/event-schema";
 import { OtpSendCapExceededException } from "../common/otp-send-cap";
 import { OtpSendFailedException } from "../common/otp-send-failure";
 import { AuthService } from "./auth.service";
@@ -467,9 +467,12 @@ describe("AuthService (real OTP)", () => {
   });
 
   it("verifyOtp refuses a SUSPENDED worker's normal session but issues a restricted DPDP token (#2562)", async () => {
+    const SUSPENDED_WORKER_ID = "99999999-9999-4999-8999-999999999999";
     const emit = vi.fn().mockResolvedValue(undefined);
     const workers = {
-      findByPhoneHash: vi.fn().mockResolvedValue({ id: "worker-1", status: "suspended" }),
+      findByPhoneHash: vi
+        .fn()
+        .mockResolvedValue({ id: SUSPENDED_WORKER_ID, status: "suspended" }),
       createOrGetByPhoneHash: vi.fn(),
     };
     const sessions = makeSessions();
@@ -497,12 +500,46 @@ describe("AuthService (real OTP)", () => {
     // Restricted means restricted: no normal session, no device trust, no outcome event.
     expect(sessions.create).not.toHaveBeenCalled();
     expect(sessions.createRestricted).toHaveBeenCalledWith(
-      "worker-1",
+      SUSPENDED_WORKER_ID,
       "suspended_dpdp",
       15 * 60,
     );
     expect(devices.registerOnLogin).not.toHaveBeenCalled();
-    expect(emit).not.toHaveBeenCalled();
+    expect(emit).toHaveBeenCalledTimes(1);
+    const issued = emit.mock.calls[0]![0] as {
+      event_name: string;
+      payload: Record<string, unknown>;
+      actor: Record<string, unknown>;
+    };
+    expect(issued.event_name).toBe("worker.restricted_session_issued");
+    expect(issued.payload).toEqual({
+      worker_id: SUSPENDED_WORKER_ID,
+      expires_in_seconds: 900,
+    });
+    expect(issued.actor).toEqual({ actor_type: "worker", actor_id: SUSPENDED_WORKER_ID });
+    expect(JSON.stringify(issued)).not.toContain("restricted.jwt");
+    // The event is registered and validates; its payload is .strict().
+    const built = validateEvent({
+      event_id: "11111111-1111-4111-8111-111111111111",
+      event_name: issued.event_name,
+      event_version: 1,
+      occurred_at: "2026-11-05T00:00:00.000Z",
+      actor: issued.actor,
+      subject: { subject_type: "worker", subject_id: SUSPENDED_WORKER_ID },
+      correlation_id: "22222222-2222-4222-8222-222222222222",
+      causation_id: null,
+      source: "api",
+      payload: issued.payload,
+      metadata: { environment: "test", service: "api" },
+    });
+    expect(built.success).toBe(true);
+    expect(
+      WorkerRestrictedSessionIssuedPayload.safeParse({
+        worker_id: "11111111-1111-4111-8111-111111111111",
+        expires_in_seconds: 900,
+        token: "must-be-rejected",
+      }).success,
+    ).toBe(false);
   });
 
   it("verifyOtp returns pin_set=true when the worker already has a credential row (enter-PIN flow)", async () => {    const emit = vi.fn().mockResolvedValue(undefined);
