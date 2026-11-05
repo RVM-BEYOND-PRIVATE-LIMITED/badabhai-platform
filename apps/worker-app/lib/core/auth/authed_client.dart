@@ -12,6 +12,7 @@ import 'device_id.dart';
 import 'locale_store.dart';
 import 'reauth_signal.dart';
 import 'secure_token_store.dart';
+import 'worker_suspended_signal.dart';
 
 /// HTTP methods this client speaks. Mutating methods (everything but GET) carry
 /// an `Idempotency-Key`.
@@ -52,6 +53,7 @@ class AuthedClient {
     required LocaleStore localeStore,
     required ReauthSignal reauthSignal,
     this.onAccountDeleted,
+    this.onWorkerSuspended,
     http.Client? client,
     Uuid? uuid,
     this.refreshSkew = const Duration(seconds: 90),
@@ -79,6 +81,13 @@ class AuthedClient {
   /// bare 410 can never cause a false destructive logout; the [AuthResponse] is
   /// still returned unchanged so the caller keeps failing as it did before.
   final void Function()? onAccountDeleted;
+
+  /// Invoked when any auth-path response carries the suspended-account contract
+  /// (HTTP 403 + `WORKER_ACCOUNT_SUSPENDED`). This is how a refusal on OTP
+  /// verify, PIN unlock, token refresh, or any other /auth/* call reaches the
+  /// ONE app-level suspended destination instead of each screen inventing its
+  /// own handling. The optional restricted token rides along for the DPDP exits.
+  final void Function(WorkerSuspension suspension)? onWorkerSuspended;
 
   final Uuid _uuid;
   final http.Client _client;
@@ -280,6 +289,14 @@ class AuthedClient {
     if (isWorkerAccountDeletedResponse(res.statusCode, body)) {
       onAccountDeleted?.call();
     }
+    // The suspended-account contract rides the same decode choke-point, so every
+    // /auth/* refusal (OTP verify, PIN unlock, refresh, devices, …) reaches the
+    // app-level suspended destination exactly once per response.
+    final WorkerSuspension? suspension =
+        parseWorkerSuspension(res.statusCode, body);
+    if (suspension != null) {
+      onWorkerSuspended?.call(suspension);
+    }
     return AuthResponse(res.statusCode, body);
   }
 
@@ -375,6 +392,16 @@ class AuthedClient {
       // The rotation is durably persisted → the key has done its job; drop it so
       // the NEXT rotation starts a fresh one.
       await _tokenStore.clearRefreshIdempotencyKey();
+      return;
+    }
+
+    // A SUSPENDED account refuses refresh with 403 WORKER_ACCOUNT_SUSPENDED.
+    // That is not a dead session, so it must NOT fire ReauthSignal (which would
+    // race the suspended destination and put "please log in again" copy on the
+    // screen). The decode seam has already fired the suspension signal; drop the
+    // local credentials here and let the app-level screen own the exit.
+    if (parseWorkerSuspension(res.statusCode, res.body) != null) {
+      await _tokenStore.clear();
       return;
     }
 

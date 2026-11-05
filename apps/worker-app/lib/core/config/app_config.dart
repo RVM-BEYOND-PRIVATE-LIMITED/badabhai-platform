@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart' show kReleaseMode;
 
 import '../api/api_client.dart';
 import '../api/mock_api_client.dart';
+import '../auth/worker_suspended_signal.dart';
 
 /// Single switch: MOCK (no backend, canned data) vs REAL (live NestJS API).
 ///
@@ -127,6 +128,7 @@ ApiClient createApiClient({
   void Function(String)? onSessionTokenRefreshed,
   Future<bool> Function()? onUnauthorized,
   void Function()? onAccountDeleted,
+  void Function(WorkerSuspension suspension)? onWorkerSuspended,
   String? Function()? currentAuthToken,
 }) =>
     kUseMocks
@@ -139,5 +141,6 @@ ApiClient createApiClient({
             // A 410 { code: WORKER_ACCOUNT_DELETED } → hard-logout dialog. The
             // mock has no network, so it never invokes the callback.
             onAccountDeleted: onAccountDeleted,
+            onWorkerSuspended: onWorkerSuspended,
             currentAuthToken: currentAuthToken,
           );

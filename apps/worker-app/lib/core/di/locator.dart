@@ -14,6 +14,7 @@ import '../otp/sms_otp_autofill.dart';
 import '../referral/pending_referral_store.dart';
 import '../auth/account_deleted_signal.dart';
 import '../auth/reauth_signal.dart';
+import '../auth/worker_suspended_signal.dart';
 import '../nav/job_feed_invalidation.dart';
 import '../nav/tab_focus.dart';
 import '../auth/secure_token_store.dart';
@@ -242,6 +243,12 @@ void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
   // subscribes and hard-logs-out on OK. App-scoped, one instance.
   locator.registerLazySingleton<AccountDeletedSignal>(
       () => AccountDeletedSignal());
+  // Suspended-account signal: fired by BOTH HTTP seams on a 403
+  // WORKER_ACCOUNT_SUSPENDED refusal. The app root subscribes and moves the
+  // worker to the one suspended screen, carrying any restricted token for the
+  // DPDP exits. App-scoped, one instance.
+  locator.registerLazySingleton<WorkerSuspendedSignal>(
+      () => WorkerSuspendedSignal());
   // "A résumé upload just completed" — read ONCE by the chat so it can answer
   // the résumé prompt the worker left open. App-scoped: the upload screen and
   // the chat are different routes with no shared ancestor.
@@ -271,6 +278,8 @@ void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
           // A 410 { code: WORKER_ACCOUNT_DELETED } on any worker-scoped call →
           // the account-deleted hard-logout dialog (app root subscribes).
           onAccountDeleted: () => locator<AccountDeletedSignal>().fire(),
+          onWorkerSuspended: (suspension) =>
+              locator<WorkerSuspendedSignal>().fire(suspension),
           currentAuthToken: () => locator<SessionRepository>().sessionToken,
         ),
   );
@@ -878,6 +887,8 @@ Future<void> initAuthLocator({
           // A 410 { code: WORKER_ACCOUNT_DELETED } on the auth/refresh path fires
           // the SAME signal the ApiClient seam does (registered in setupLocator).
           onAccountDeleted: () => locator<AccountDeletedSignal>().fire(),
+          onWorkerSuspended: (suspension) =>
+              locator<WorkerSuspendedSignal>().fire(suspension),
         ),
   );
 

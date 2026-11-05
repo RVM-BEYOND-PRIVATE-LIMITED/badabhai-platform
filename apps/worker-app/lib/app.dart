@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import 'core/auth/account_deleted_signal.dart';
+import 'core/auth/worker_suspended_signal.dart';
 import 'core/auth/locale_store.dart';
 import 'core/config/app_config.dart';
 import 'core/consent/voice_consent.dart';
@@ -48,6 +49,11 @@ class _BadaBhaiAppState extends State<BadaBhaiApp> {
   /// `WORKER_ACCOUNT_DELETED`). One app-scoped subscription for the whole app.
   StreamSubscription<void>? _accountDeletedSub;
 
+  /// Listens for the backend's suspended-account refusal (403
+  /// `WORKER_ACCOUNT_SUSPENDED`) fired by BOTH HTTP seams. One subscription for
+  /// the whole app, regardless of which call site was refused.
+  StreamSubscription<WorkerSuspension>? _workerSuspendedSub;
+
   /// Guards against parallel 410s (several in-flight calls fail at once) showing
   /// more than ONE dialog. Reset after the dialog is dismissed.
   bool _accountDeletedDialogShown = false;
@@ -89,6 +95,24 @@ class _BadaBhaiAppState extends State<BadaBhaiApp> {
           .stream
           .listen((_) => _onAccountDeleted());
     }
+    // Suspended account (#2687): clear local session state and let the router's
+    // suspended destination take over. Guarded like the signal above so legacy
+    // widget tests that never wire DI are unaffected.
+    if (locator.isRegistered<WorkerSuspendedSignal>()) {
+      _workerSuspendedSub = locator<WorkerSuspendedSignal>()
+          .stream
+          .listen(_onWorkerSuspended);
+    }
+  }
+
+  /// The account is suspended. The HTTP seam already parsed any optional
+  /// restricted token; hand it to the manager IN MEMORY ONLY (never as a
+  /// session, never persisted, never for push) so the suspended screen can offer
+  /// the DPDP exits. The manager clears everything and the router redirects.
+  Future<void> _onWorkerSuspended(WorkerSuspension suspension) async {
+    if (!locator.isRegistered<AuthSessionManager>()) return;
+    await locator<AuthSessionManager>()
+        .suspendAccount(restrictedToken: suspension.restrictedToken);
   }
 
   AuthSessionManager? _authForVoiceConsent;
@@ -109,6 +133,7 @@ class _BadaBhaiAppState extends State<BadaBhaiApp> {
     _authForVoiceConsent?.removeListener(_onAuthChangedForVoiceConsent);
     _detachScreenTracking?.call();
     unawaited(_accountDeletedSub?.cancel());
+    unawaited(_workerSuspendedSub?.cancel());
     final LifecycleRelockObserver? observer = _relock;
     if (observer != null) WidgetsBinding.instance.removeObserver(observer);
     super.dispose();

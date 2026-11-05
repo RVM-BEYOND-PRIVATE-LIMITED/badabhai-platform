@@ -6,6 +6,7 @@ import 'locale_store.dart';
 import 'mock_auth_api.dart';
 import 'reauth_signal.dart';
 import 'secure_token_store.dart';
+import 'worker_suspended_signal.dart';
 
 /// The single place that picks the [AuthApi] implementation — REAL (live /auth/*
 /// over [AuthedClient]) vs MOCK ([MockAuthApi], canned PII-free data), driven by
@@ -23,6 +24,7 @@ AuthApi createAuthApi({
   required LocaleStore localeStore,
   required ReauthSignal reauthSignal,
   void Function()? onAccountDeleted,
+  void Function(WorkerSuspension suspension)? onWorkerSuspended,
   String? baseUrl,
 }) {
   if (kUseMocks) {
@@ -37,6 +39,7 @@ AuthApi createAuthApi({
     // A 410 { code: WORKER_ACCOUNT_DELETED } on the auth/refresh path → the
     // account-deleted hard-logout dialog (mirrors the ApiClient seam).
     onAccountDeleted: onAccountDeleted,
+    onWorkerSuspended: onWorkerSuspended,
   );
   // Thread the SAME device-id provider that signs `X-Device-Id` so OTP verify's
   // `device_info.device_id` matches the header (ADR-0026 Phase 2 device binding).
