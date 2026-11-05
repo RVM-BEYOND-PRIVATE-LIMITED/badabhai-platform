@@ -128,19 +128,6 @@ class _BadaBhaiAppState extends State<BadaBhaiApp> {
     }
   }
 
-  AuthSessionManager? _authForVoiceConsent;
-
-  /// Loads the voice-consent answer once per authenticated session (it is
-  /// cleared on logout, so the next worker's session reads its own).
-  void _onAuthChangedForVoiceConsent() {
-    final AuthSessionManager? auth = _authForVoiceConsent;
-    if (auth == null) return;
-    if (auth.status == AuthStatus.authenticated &&
-        VoiceConsent.instance.state.value == null) {
-      unawaited(refreshVoiceConsent());
-    }
-  }
-
   @override
   void dispose() {
     _authForVoiceConsent?.removeListener(_onAuthChangedForVoiceConsent);
