@@ -18,6 +18,8 @@ import { AdminAiTracesController } from "./admin-ai-traces.controller";
 import { AdminCandidateDetailController } from "./admin-candidate-detail.controller";
 import { AdminAiAlertsController } from "./admin-ai-alerts.controller";
 import { AdminFunnelController } from "./admin-funnel.controller";
+import { AdminEmptyFeedController } from "./admin-empty-feed.controller";
+import { AdminModule } from "./admin.module";
 import { AdminAuthGuard } from "./admin-auth.guard";
 import { AdminRolesGuard, ADMIN_CAPABILITY_KEY } from "./admin-roles.guard";
 import { AdminAiTraceFlagGuard } from "./admin-ai-trace-flag.guard";
@@ -1928,5 +1930,62 @@ describe("#2560 candidate full-detail route — guarded, read-only, audited firs
         forbidden,
       );
     }
+  });
+});
+
+describe("#2569 empty-feed route — guarded, read_entities, and registered before workers/:id", () => {
+  const proto = AdminEmptyFeedController.prototype as unknown as Record<string, unknown>;
+  const routeMethods = Object.getOwnPropertyNames(AdminEmptyFeedController.prototype).filter(
+    (m) =>
+      m !== "constructor" &&
+      typeof proto[m] === "function" &&
+      Reflect.getMetadata("path", proto[m] as object) !== undefined,
+  );
+
+  it("declares exactly one GET route with the literal path", () => {
+    expect(routeMethods).toEqual(["list"]);
+    expect(Reflect.getMetadata("path", proto.list as object)).toBe("workers/empty-feed");
+  });
+
+  it("is behind AdminAuthGuard + AdminRolesGuard and declares exactly one read_entities", () => {
+    for (const method of routeMethods) {
+      expect(effectiveGuards(AdminEmptyFeedController, method)).toContain(AdminAuthGuard.name);
+      expect(effectiveGuards(AdminEmptyFeedController, method)).toContain(AdminRolesGuard.name);
+      const capability = Reflect.getMetadata(
+        ADMIN_CAPABILITY_KEY,
+        proto[method] as object,
+      ) as AdminCapability | undefined;
+      expect(capability).toBe("read_entities");
+    }
+    expect(
+      Reflect.getMetadata(ADMIN_CAPABILITY_KEY, AdminEmptyFeedController) as
+        | AdminCapability
+        | undefined,
+    ).toBeUndefined();
+  });
+
+  it("the module registers the literal controller BEFORE AdminEntitiesController", () => {
+    // Express matches in registration order; a workers/:id route registered first would
+    // capture workers/empty-feed and its UUID validation would answer 400.
+    const controllers = Reflect.getMetadata("controllers", AdminModule) as unknown[];
+    expect(controllers).toContain(AdminEmptyFeedController);
+    expect(controllers).toContain(AdminEntitiesController);
+    expect(controllers.indexOf(AdminEmptyFeedController)).toBeLessThan(
+      controllers.indexOf(AdminEntitiesController),
+    );
+  });
+
+  it("the repository is faceless and pins the active-feed flags", () => {
+    const repo = readFileSync(join(ADMIN_DIR, "admin-empty-feed.repository.ts"), "utf8")
+      .replace(/^\s*(\/\/|\*|\/\*).*$/gm, "")
+      .replace(/\s+/g, " ");
+    const svc = readFileSync(join(ADMIN_DIR, "admin-empty-feed.service.ts"), "utf8")
+      .replace(/^\s*(\/\/|\*|\/\*).*$/gm, "")
+      .replace(/\s+/g, " ");
+    for (const forbidden of ["phone", "full_name", "email", "photo_storage_key"]) {
+      expect(repo).not.toContain(forbidden);
+    }
+    expect(svc).toContain("isMatchV1Enabled");
+    expect(svc).toContain("isFeedPostingsUnionEnabled");
   });
 });
