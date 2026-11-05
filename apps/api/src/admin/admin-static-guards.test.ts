@@ -16,6 +16,7 @@ import { AdminDashboardController } from "./admin-dashboard.controller";
 import { AdminWorkerJourneyController } from "./admin-worker-journey.controller";
 import { AdminAiTracesController } from "./admin-ai-traces.controller";
 import { AdminCandidateDetailController } from "./admin-candidate-detail.controller";
+import { AdminAiAlertsController } from "./admin-ai-alerts.controller";
 import { AdminAuthGuard } from "./admin-auth.guard";
 import { AdminRolesGuard, ADMIN_CAPABILITY_KEY } from "./admin-roles.guard";
 import { AdminAiTraceFlagGuard } from "./admin-ai-trace-flag.guard";
@@ -940,6 +941,42 @@ describe("identity reads — one reader, one decrypter, and no name search", () 
     // the only thing standing between it and being quietly dropped in a refactor.
     const svc = code("admin-identity.service.ts");
     expect(svc).toContain(`can(admin.role, "read_identity")`);
+  });
+});
+
+describe("B13 (#2567) ai-alerts route - guarded, read-only, and read_entities-scoped", () => {
+  const proto = AdminAiAlertsController.prototype as unknown as Record<string, unknown>;
+  const routeMethods = Object.getOwnPropertyNames(AdminAiAlertsController.prototype).filter(
+    (m) =>
+      m !== "constructor" &&
+      typeof proto[m] === "function" &&
+      Reflect.getMetadata("path", proto[m] as object) !== undefined,
+  );
+
+  it("discovers EXACTLY the one status read (no evaluate/write route — verdicts never run on a GET)", () => {
+    expect(routeMethods.sort()).toEqual(["status"]);
+  });
+
+  it("the route carries AdminAuthGuard AND AdminRolesGuard (no open privileged route)", () => {
+    const guards = effectiveGuards(AdminAiAlertsController, "status");
+    expect(guards).toContain(AdminAuthGuard.name);
+    expect(guards).toContain(AdminRolesGuard.name);
+  });
+
+  it("the route declares method-level @RequireAdminRole('read_entities') (the dashboard floor)", () => {
+    const onMethod = Reflect.getMetadata(ADMIN_CAPABILITY_KEY, proto.status as object) as
+      | AdminCapability
+      | undefined;
+    const onClass = Reflect.getMetadata(ADMIN_CAPABILITY_KEY, AdminAiAlertsController) as
+      | AdminCapability
+      | undefined;
+    expect(onMethod).toBe("read_entities");
+    expect(onClass, "AdminAiAlertsController must NOT declare a class-level capability").toBeUndefined();
+  });
+
+  it("the surface is READ-ONLY by construction — the route is a GET, never a write verb", () => {
+    const verb = Reflect.getMetadata("method", proto.status as object) as number;
+    expect(verb, "status must be a GET (evaluation never runs on this controller)").toBe(0);
   });
 });
 

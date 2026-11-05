@@ -1556,6 +1556,21 @@ export const EVENT_REGISTRY = {
     domain: "admin",
     payload: p.AdminCandidateViewedPayload,
   },
+
+  // [B13] (#2567) — an AI task's fallback share crossed its threshold over the window, and the
+  // matching recovery. Appended at the tail per protocol (never inserted above — the registry
+  // is append-only, because an edited entry is a mutated event schema). Both v1, domain `ai`.
+  // Spend-cap breaches need NO new name: `ai.spend_cap_exceeded` already IS that alert.
+  "ai.fallback_alert_raised": {
+    version: 1,
+    domain: "ai",
+    payload: p.AiFallbackAlertRaisedPayload,
+  },
+  "ai.fallback_alert_cleared": {
+    version: 1,
+    domain: "ai",
+    payload: p.AiFallbackAlertClearedPayload,
+  },
 } as const satisfies Record<string, EventDefinition>;
 
 /** Union of all known event names. */

@@ -106,6 +106,17 @@ NestJS boot assertion).
   of this same template), `ANTHROPIC_API_KEY` (optional fallback), `SARVAM_*` (STT/TTS),
   `AI_INTERNAL_TOKEN` (TD67 service bearer — unset keeps the historical internal-only open
   posture; see `docs/audit/24_RISK_REGISTER.md` R40).
+- **Loud AI alerts (B13, #2567)** — `AI_FALLBACK_ALERT_WINDOW_HOURS` (24),
+  `AI_FALLBACK_ALERT_MIN_CALLS` (10), `AI_FALLBACK_ALERT_SHARE` (0.5): a task breaches
+  when it records at least the minimum `ai.cost_recorded` rows inside the trailing window
+  and its fallback share (`real_call=false` / total) reaches the share. The breach raises
+  `ai.fallback_alert_raised` and clears with `ai.fallback_alert_cleared`; spend caps
+  already alert as `ai.spend_cap_exceeded`. Surfaced per task on `GET /health`
+  (informational, never gates) and `GET /admin/ai-alerts` (active + recent).
+  `AI_ALERT_EMAIL_ENABLED` (default off) + `AI_ALERT_EMAIL_TO` (comma-separated) send the
+  raise to super admins through the ADR-0038 email pipeline; off keeps the signal on the
+  spine + admin API only. Empty values read as absent (defaults hold), never a boot
+  failure.
 - **A typed tenure on the trade form (token-audit fix Q10, decision D9)** —
   `FORM_TYPED_TENURE_DERIVE_ENABLED` (api, environment secret; default `false`, today's form).
   `true` reads the years out of a worker's TYPED answer to the pack's tenure question ("10 saal

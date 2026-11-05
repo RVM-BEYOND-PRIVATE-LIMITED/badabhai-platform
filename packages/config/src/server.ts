@@ -1868,6 +1868,26 @@ export const serverEnvSchema = z.object({
   // Hard per-call spend ceiling (INR): a real call whose worst-case cost exceeds
   // this is refused (falls back to mock).
   AI_MAX_CALL_COST_INR: z.coerce.number().positive().default(10),
+  // [B13] (#2567) — the LOUD fallback/spend-cap alert thresholds. All three are read
+  // together by `AiAlertsService`: a task is BREACHING when it has at least
+  // AI_FALLBACK_ALERT_MIN_CALLS recorded `ai.cost_recorded` rows inside the trailing
+  // AI_FALLBACK_ALERT_WINDOW_HOURS and its fallback share (`real_call=false` rows over
+  // total rows) is at or above AI_FALLBACK_ALERT_SHARE. Raising the share without the
+  // minimum would page on two mocked calls; raising the minimum without the share
+  // would silence a real outage. Empty env values read as ABSENT (the shared
+  // positiveInt/fraction helpers), so a `${VAR:-}` compose pass-through keeps the
+  // default instead of crash-looping the boot (the 2026-08-25 staging lesson).
+  AI_FALLBACK_ALERT_WINDOW_HOURS: positiveIntFromString(24),
+  AI_FALLBACK_ALERT_MIN_CALLS: positiveIntFromString(10),
+  AI_FALLBACK_ALERT_SHARE: fractionFromString(0.5),
+  // [B13] (#2567) — optional email to super admins when a fallback alert raises (and
+  // when a spend cap trips). OFF by default: alerting nobody is the fail-safe posture,
+  // and the spine events + admin API carry the signal regardless. When ON, recipients
+  // come from AI_ALERT_EMAIL_TO (comma-separated, validated at send time — never from
+  // `admin_users`, so enabling email never widens a decrypt surface). Requires the
+  // REAL email pipeline (ADR-0038); a send failure is logged and never throws.
+  AI_ALERT_EMAIL_ENABLED: booleanFromString,
+  AI_ALERT_EMAIL_TO: z.string().default(""),
 
   // Google Cloud / Gemini — Node-side declarations only (legacy). The AI service
   // calls Gemini directly via GEMINI_FLASH_API_KEY above; these are unused by the

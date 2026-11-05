@@ -29,7 +29,11 @@ export type EmailPurpose =
   | "team_invite"
   | "admin_invite"
   | "password_reset"
-  | "security_notice";
+  | "security_notice"
+  // [B13] (#2567) — the loud AI fallback/spend-cap alert to super admins. Its own purpose
+  // (not folded into `security_notice`) so the triage line distinguishes "AI is mocked"
+  // from a credential/probing signal — different incidents, different responders.
+  | "ai_alert";
 
 export interface EmailMessage {
   /** The recipient address. Used to send and to derive a log hash — never logged raw. */

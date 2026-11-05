@@ -61,6 +61,7 @@ import { AdminDirectoryController } from "./admin-directory.controller";
 import { AdminDashboardRepository } from "./admin-dashboard.repository";
 import { AdminDashboardService } from "./admin-dashboard.service";
 import { AdminDashboardController } from "./admin-dashboard.controller";
+import { AdminAiAlertsController } from "./admin-ai-alerts.controller";
 import { AdminWorkerJourneyRepository } from "./admin-worker-journey.repository";
 import { AdminWorkerJourneyService } from "./admin-worker-journey.service";
 import { AdminWorkerJourneyController } from "./admin-worker-journey.controller";
@@ -210,6 +211,7 @@ import { WorkerQualificationsRepository } from "../profiles/worker-qualification
     AdminFinanceController,
     AdminDirectoryController,
     AdminDashboardController,
+    AdminAiAlertsController,
     AdminWorkerJourneyController,
     AdminFeedbackController,
     AdminAiTracesController,
@@ -321,6 +323,10 @@ import { WorkerQualificationsRepository } from "../profiles/worker-qualification
     // one admin reader (build-blocked in `admin-static-guards.test.ts`).
     AdminDashboardRepository,
     AdminDashboardService,
+    // B13 (#2567): the LOUD-AI-ALERT read has NO provider here — `AdminAiAlertsController`
+    // (declared in `controllers` above) reads through the @Global `AiAlertsService`
+    // (AiModule). Evaluation (the raised/cleared verdicts) runs in `AiCostRecorder`'s
+    // wake, never on a GET, so there is no admin write to audit on this surface.
     // Phase 6: the per-worker JOURNEY — the 7-step funnel plus the interview session reads
     // (list + detail, with the derived stuck question). Behind `read_entities`, SELECT-ONLY,
     // explicit column projections, keyset-paginated. It returns NO transcript text of any
