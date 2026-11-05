@@ -15,22 +15,36 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 const requestCode = vi.fn();
 const verifyCode = vi.fn();
 const signup = vi.fn();
+const loginWithPassword = vi.fn();
 
 vi.mock("../../lib/auth", () => ({
   payerAuth: () => ({
     requestCode: (i: unknown) => requestCode(i),
     verifyCode: (i: unknown) => verifyCode(i),
     signup: (i: unknown) => signup(i),
+    loginWithPassword: (i: unknown) => loginWithPassword(i),
   }),
 }));
 
-const { requestCodeAction, verifyCodeAction, signupAction } = await import("./actions");
-const { NEUTRAL_SEND_ERROR, NEUTRAL_VERIFY_ERROR } = await import("./messages");
+const { requestCodeAction, verifyCodeAction, signupAction, passwordSignInAction, setNewPasswordAction } =
+  await import("./actions");
+const {
+  ACCOUNT_SUSPENDED,
+  NEUTRAL_SEND_ERROR,
+  NEUTRAL_VERIFY_ERROR,
+  NEW_PASSWORD_UNAVAILABLE,
+  PASSWORD_RATE_LIMITED,
+  PASSWORD_SIGNIN_ERROR,
+  PASSWORD_SIGNIN_UNAVAILABLE,
+  TEMPORARY_PASSWORD_REQUIRED,
+} = await import("./messages");
+const { NEW_PASSWORD_ERRORS } = await import("./password-rules");
 
 beforeEach(() => {
   requestCode.mockReset();
   verifyCode.mockReset();
   signup.mockReset();
+  loginWithPassword.mockReset();
 });
 
 describe("requestCodeAction — the code never reaches the client (real-OTP only)", () => {
@@ -141,5 +155,105 @@ describe("verifyCodeAction — single neutral 'invalid or expired code' for ever
     verifyCode.mockResolvedValue({ ok: true, isNewPayer: true, session: { payerId: "p", role: "employer", displayLabel: "Co" } });
     const res = await verifyCodeAction({ email: "a@b.co", code: "123456" });
     expect(res).toEqual({ ok: true, isNewPayer: true });
+  });
+});
+
+describe("#2587 · verifyCodeAction — a temporary-password account (the seam's 409 reason)", () => {
+  it("moves the payer to password sign-in with the instruction — no session (isNewPayer absent)", async () => {
+    verifyCode.mockResolvedValue({
+      ok: false,
+      error: NEUTRAL_VERIFY_ERROR,
+      reason: "password_change_required",
+    });
+    const res = await verifyCodeAction({ email: "a@b.co", code: "123456" });
+    expect(res).toEqual({ ok: false, error: TEMPORARY_PASSWORD_REQUIRED, usePassword: true });
+  });
+});
+
+describe("#2587 · passwordSignInAction — the seam's outcome, as the form needs it", () => {
+  it("a session → { ok, isNewPayer } only (no token, no password echoed)", async () => {
+    loginWithPassword.mockResolvedValue({
+      ok: true,
+      isNewPayer: false,
+      session: { payerId: "p", role: "employer", displayLabel: "Co", status: "active" },
+    });
+    const res = await passwordSignInAction({ identifier: " a@b.co ", password: "Pass word 1" });
+    expect(res).toEqual({ ok: true, isNewPayer: false });
+    // First attempt: never a newPassword; the password exactly as typed.
+    expect(loginWithPassword).toHaveBeenCalledWith({ identifier: "a@b.co", password: "Pass word 1" });
+  });
+
+  it("password_change_required → change_required (no session)", async () => {
+    loginWithPassword.mockResolvedValue({ ok: false, reason: "password_change_required" });
+    expect(await passwordSignInAction({ identifier: "a@b.co", password: "Temp1234" })).toEqual({
+      ok: false,
+      outcome: "change_required",
+    });
+  });
+
+  it.each([
+    ["invalid_credentials", PASSWORD_SIGNIN_ERROR],
+    ["suspended", ACCOUNT_SUSPENDED],
+    ["rate_limited", PASSWORD_RATE_LIMITED],
+    ["unavailable", PASSWORD_SIGNIN_UNAVAILABLE],
+  ])("%s → its neutral copy", async (reason, copy) => {
+    loginWithPassword.mockResolvedValue({ ok: false, reason });
+    expect(await passwordSignInAction({ identifier: "a@b.co", password: "Temp1234" })).toEqual({
+      ok: false,
+      outcome: "refused",
+      error: copy,
+    });
+  });
+
+  it("the neutral credential miss reveals neither which part was wrong nor whether the account exists", () => {
+    expect(PASSWORD_SIGNIN_ERROR).not.toMatch(/unknown|not found|no account|registered|exists|locked|revoked/i);
+  });
+});
+
+describe("#2587 · setNewPasswordAction — the forced change", () => {
+  const input = { identifier: "a@b.co", temporaryPassword: "Xk7mPq2rTn9wZa", newPassword: "my-own-pass-42" };
+
+  it("resends the temporary password WITH the new one; a session → { ok, isNewPayer }", async () => {
+    loginWithPassword.mockResolvedValue({
+      ok: true,
+      isNewPayer: false,
+      session: { payerId: "p", role: "employer", displayLabel: "Co", status: "active" },
+    });
+    expect(await setNewPasswordAction(input)).toEqual({ ok: true, isNewPayer: false });
+    expect(loginWithPassword).toHaveBeenCalledWith({
+      identifier: "a@b.co",
+      password: "Xk7mPq2rTn9wZa",
+      newPassword: "my-own-pass-42",
+    });
+  });
+
+  it.each([
+    [{ ok: false, reason: "new_password_rejected", refusal: "too_long" }, { outcome: "new_password_rejected", error: NEW_PASSWORD_ERRORS.too_long }],
+    [{ ok: false, reason: "invalid_credentials" }, { outcome: "temporary_password_rejected", error: PASSWORD_SIGNIN_ERROR }],
+    [{ ok: false, reason: "suspended" }, { outcome: "refused", error: ACCOUNT_SUSPENDED }],
+    [{ ok: false, reason: "rate_limited" }, { outcome: "refused", error: PASSWORD_RATE_LIMITED }],
+    [{ ok: false, reason: "unavailable" }, { outcome: "refused", error: NEW_PASSWORD_UNAVAILABLE }],
+    [{ ok: false, reason: "password_change_required" }, { outcome: "refused", error: NEW_PASSWORD_UNAVAILABLE }],
+  ])("seam %o → %o", async (seam, mapped) => {
+    loginWithPassword.mockResolvedValue(seam);
+    expect(await setNewPasswordAction(input)).toEqual({ ok: false, ...mapped });
+  });
+
+  it("a new password the policy refuses never reaches the seam", async () => {
+    expect(await setNewPasswordAction({ ...input, newPassword: "short1" })).toEqual({
+      ok: false,
+      outcome: "new_password_rejected",
+      error: NEW_PASSWORD_ERRORS.too_short,
+    });
+    expect(loginWithPassword).not.toHaveBeenCalled();
+  });
+
+  it("an unusable temporary credential goes back to sign-in without a request", async () => {
+    expect(await setNewPasswordAction({ ...input, temporaryPassword: "" })).toEqual({
+      ok: false,
+      outcome: "temporary_password_rejected",
+      error: PASSWORD_SIGNIN_ERROR,
+    });
+    expect(loginWithPassword).not.toHaveBeenCalled();
   });
 });

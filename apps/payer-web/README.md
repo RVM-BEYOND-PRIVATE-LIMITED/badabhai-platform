@@ -14,6 +14,12 @@ ops console's privileged data access.
    the backend payer-auth OTP routes (`/payer/login/request` → `/payer/login/verify`)
    mint a payer JWT stored in an httpOnly server cookie. `mock` stays as a local/test
    fallback. A third-party IdP/MFA is B-R1 (a separate human gate).
+   **Password sign-in (#2587)** is the default sign-in view beside the email code:
+   `POST /payer/login/password` (login ID = email, phone or exact company name) mints the same
+   cookie. A temporary password an admin issued (#2628) opens NO session — the API answers
+   `password_change_required` and the "Set a new password" step resends it with `new_password`;
+   only that real session answer signs in. The code door answers such an account with a 409, which
+   sends the payer to the password form.
 2. **Dashboard (LIVE)** — credits (`GET /payer/credits`), unlocks (`GET /payer/unlocks`)
    and postings (`GET /payer/job-postings`), read side by side (`getDashboard`).
 3. **Post a job (LIVE)** — a company posts through `POST /payer/job-postings`

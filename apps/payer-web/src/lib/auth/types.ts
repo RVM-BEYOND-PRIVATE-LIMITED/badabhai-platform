@@ -61,10 +61,56 @@ export interface PayerSession {
   readonly orgRole?: OrgRole | null;
 }
 
-/** Result of a login attempt. NO-ORACLE on failure (XB-H): a single neutral error. */
+/**
+ * Result of a login attempt. NO-ORACLE on failure (XB-H): a single neutral error.
+ *
+ * `reason: "password_change_required"` (#2587, backend #2628) — the code verified, but the
+ * account holds a TEMPORARY password an admin issued, so no session was opened (the API's 409).
+ * The caller already proved the mailbox, so this is not an enumeration signal; it is the only
+ * way to tell the payer to sign in with that password and set their own. Absent on every
+ * other failure, and on every answer from an API without #2628.
+ */
 export type LoginResult =
   | { ok: true; session: PayerSession; isNewPayer: boolean }
-  | { ok: false; error: string };
+  | { ok: false; error: string; reason?: "password_change_required" };
+
+/**
+ * Why a password sign-in opened no session (#2587). Read from the HTTP status only — the API's
+ * own text is never surfaced, and the four credential misses the API makes indistinguishable
+ * (unknown login, wrong / revoked password, OTP-only account, lockout) stay one neutral reason.
+ */
+export type PasswordLoginFailure =
+  /** 401 — unknown login, wrong or revoked password, lockout: indistinguishable on purpose. */
+  | "invalid_credentials"
+  /** 403 — a proven credential on a suspended account (the API's only distinct refusal). */
+  | "suspended"
+  /** 429 — the per-IP auth cap. */
+  | "rate_limited"
+  /** 5xx, a network failure, or a body that is neither a session nor a change request. */
+  | "unavailable";
+
+/**
+ * Which rule the API refused a NEW password for (#2628: the shared password policy, or the
+ * "must differ from the temporary one" check). Never carries the password itself.
+ */
+export type NewPasswordRefusal =
+  | "too_short"
+  | "too_long"
+  | "letter_and_digit"
+  | "same_as_temporary"
+  | "other";
+
+/**
+ * Result of `POST /payer/login/password` (#2587). FAIL CLOSED: only `ok: true` means a session
+ * cookie was set, and only a body carrying a non-empty `access_token` produces it. A
+ * `{ status: "password_change_required" }` answer is NOT a session — the temporary password was
+ * right, and the caller must resend it with a `new_password` before any session exists.
+ */
+export type PasswordLoginResult =
+  | { ok: true; session: PayerSession; isNewPayer: boolean }
+  | { ok: false; reason: "password_change_required" }
+  | { ok: false; reason: "new_password_rejected"; refusal: NewPasswordRefusal }
+  | { ok: false; reason: PasswordLoginFailure };
 
 /**
  * Result of requesting a login code (real OTP flow). NO-ENUMERATION (XB-H): the
@@ -82,7 +128,8 @@ export type RequestCodeResult =
  *
  * Login is a TWO-STEP OTP flow against the backend payer-auth routes
  * (`/payer/login/request` → `/payer/login/verify`). The code is delivered to the
- * payer's real email — it is never echoed to the client.
+ * payer's real email — it is never echoed to the client. Beside it, `/payer/login/password`
+ * signs in with a password (#2587), including the forced first change of a temporary one.
  */
 export interface PayerAuthProvider {
   /** Step 1: request a login code for an email. NO-ENUMERATION on the result. */
@@ -103,6 +150,17 @@ export interface PayerAuthProvider {
   }): Promise<RequestCodeResult>;
   /** Step 2: verify the code and establish a session. NO-ORACLE on failure. */
   verifyCode(input: { email: string; code: string }): Promise<LoginResult>;
+  /**
+   * Password sign-in (#2587): `identifier` is an email, an E.164 phone or the exact org name.
+   * With `newPassword` it is the forced first change of a temporary password (#2628): the
+   * temporary password goes in `password`, its replacement in `newPassword`. A session cookie is
+   * set ONLY on a real session response — never on `password_change_required`.
+   */
+  loginWithPassword(input: {
+    identifier: string;
+    password: string;
+    newPassword?: string;
+  }): Promise<PasswordLoginResult>;
   /** The current session from the request cookies, or null if unauthenticated. */
   currentSession(): Promise<PayerSession | null>;
   /** Clear the session (logout). Best-effort. */
