@@ -4,7 +4,13 @@ import { join } from "node:path";
 
 /**
  * #2569 — the empty-feed read must stay the SAME eligibility rule the worker app's feed uses.
- * This pins the source-level invariants that are easy to lose in a refactor:
+ *
+ * NOT THE PARITY PROOF. These are source-text pins on the admin side only: they cannot see the
+ * feed's own SQL change, nor a semantic edit that keeps a pinned substring. The executed proof
+ * is the parity suite in `admin-empty-feed.db.test.ts` (listed ⇔ `ApplicationsService.getFeed`
+ * serves zero cards, per mode, per seeded worker). These stay as a cheap, DB-free early warning.
+ *
+ * Pinned here, the source-level invariants that are easy to lose in a refactor:
  *
  *  - the active mode is chosen from the feed's own two flags;
  *  - every arm keeps `open` inventory only and removes this worker's own applications;
@@ -21,7 +27,7 @@ const service = readFileSync(join(DIR, "admin-empty-feed.service.ts"), "utf8")
   .replace(/^\s*(\/\/|\*|\/\*).*$/gm, "")
   .replace(/\s+/g, " ");
 
-describe("#2569 empty-feed rule parity", () => {
+describe("#2569 empty-feed source pins (the executed parity proof is the .db suite)", () => {
   it("chooses the mode from the feed's flags in the feed's precedence", () => {
     expect(service).toContain("isMatchV1Enabled");
     expect(service).toContain("isFeedPostingsUnionEnabled");
