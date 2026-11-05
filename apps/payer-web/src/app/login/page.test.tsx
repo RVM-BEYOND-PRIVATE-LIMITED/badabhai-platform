@@ -130,10 +130,41 @@ describe("login page — designr5 split auth desk", () => {
     currentSession.mockResolvedValue(null);
     const txt = textOf((await LoginPage()) as ReactElement);
     expect(txt).toContain("Hire workers directly. No middleman delays.");
-    expect(txt).toContain("180,000+ Verified Workers");
     expect(txt).toContain("Instant WhatsApp Connect");
-    expect(txt).toContain("50 Free Hiring Credits");
-    expect(txt).toContain("Rahul Kumar");
+  });
+
+  it("#2581: carries no invented figures or testimonial", async () => {
+    currentSession.mockResolvedValue(null);
+    const tree = (await LoginPage()) as ReactElement;
+    const txt = textOf(tree);
+    for (const gone of [
+      "180,000+",
+      "50 Free Hiring Credits",
+      "3,200+",
+      "Rahul Kumar",
+      "Match 98%",
+    ]) {
+      expect(txt).not.toContain(gone);
+    }
+    expect(findByClass(tree, "login-quote")).toHaveLength(0);
+    expect(findByClass(tree, "login-aside__join")).toHaveLength(0);
+  });
+
+  it("#2581: no text styled as a link that goes nowhere (help, privacy, terms)", async () => {
+    currentSession.mockResolvedValue(null);
+    const tree = (await LoginPage()) as ReactElement;
+    const txt = textOf(tree);
+    for (const gone of [
+      "Need assistance?",
+      "Privacy Policy",
+      "Terms of Service",
+      "Enterprise Security",
+    ]) {
+      expect(txt).not.toContain(gone);
+    }
+    expect(findByClass(tree, "login-topbar__help")).toHaveLength(0);
+    expect(findByClass(tree, "login-foot__links")).toHaveLength(0);
+    expect(txt).toContain("BadaBhai Employer Portal");
   });
 
   it("keeps one <h1> before the aside's <h2>, and the auth form is the first control", () => {
@@ -165,12 +196,12 @@ describe("login page — designr5 brand bar", () => {
     expect(findAll(cards[0], BadaBhaiLogoMock)).toHaveLength(0);
   });
 
-  it("the top bar carries the network status and assistance links, no heading", async () => {
+  it("the top bar carries the network status, no dead assistance link, no heading", async () => {
     currentSession.mockResolvedValue(null);
     const tree = (await LoginPage()) as ReactElement;
     const topbar = findByClass(tree, "login-topbar")[0]!;
     expect(textOf(topbar)).toContain("Direct verified applicant network");
-    expect(textOf(topbar)).toContain("Need assistance?");
+    expect(textOf(topbar)).not.toContain("Need assistance?");
     expect(findAll(topbar, "h1")).toHaveLength(0);
     expect(findAll(topbar, "h2")).toHaveLength(0);
   });

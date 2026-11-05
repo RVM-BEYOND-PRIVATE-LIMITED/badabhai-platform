@@ -21,7 +21,9 @@ export const dynamic = "force-dynamic";
  * human gate (B-R1).
  *
  * The aside's claims are the design's own marketing copy. It carries no live read and no
- * payer/worker data; the form remains the only interactive surface it describes.
+ * payer/worker data; the form remains the only interactive surface it describes. No invented
+ * figures (worker/company counts, credit offers, testimonials) and no text styled as a link that
+ * goes nowhere (#2581) — real numbers may return later from a real read.
  */
 export default async function LoginPage() {
   const existing = await payerAuth().currentSession();
@@ -45,7 +47,6 @@ export default async function LoginPage() {
               <span className="login-topbar__dot" aria-hidden="true" />
               Direct verified applicant network
             </span>
-            <span className="login-topbar__help">Need assistance?</span>
           </div>
         </header>
 
@@ -54,7 +55,7 @@ export default async function LoginPage() {
             <div className="login-intro">
               <span className="login-eyebrow">
                 <Icon name="list-bullets" />
-                Badabhai Employer Portal
+                BadaBhai Employer Portal
               </span>
               <h1 className="login-card__title">Your hiring desk</h1>
             </div>
@@ -75,15 +76,6 @@ export default async function LoginPage() {
             <ul className="login-aside__features">
               <li>
                 <span className="login-aside__icon">
-                  <Icon name="seal-check" />
-                </span>
-                <div>
-                  <strong>180,000+ Verified Workers</strong>
-                  <p>Pre-verified, ID-checked, driving licenses, and immediate availability.</p>
-                </div>
-              </li>
-              <li>
-                <span className="login-aside__icon">
                   <Icon name="whatsapp-logo" />
                 </span>
                 <div>
@@ -91,41 +83,12 @@ export default async function LoginPage() {
                   <p>Contact candidates directly via WhatsApp and direct call routing.</p>
                 </div>
               </li>
-              <li>
-                <span className="login-aside__icon">
-                  <Icon name="hand-coins" />
-                </span>
-                <div>
-                  <strong>50 Free Hiring Credits</strong>
-                  <p>Get 50 free contact unlocks for your first set of candidates today.</p>
-                </div>
-              </li>
             </ul>
-
-            <figure className="login-quote">
-              <span className="login-quote__avatar" aria-hidden="true">
-                RK
-              </span>
-              <figcaption className="login-quote__body">
-                <span className="login-quote__name">Rahul Kumar &middot; Warehouse Lead</span>
-                <span className="login-quote__meta">Placed at Techcorp in 9 days</span>
-              </figcaption>
-              <span className="login-quote__badge">Match 98%</span>
-            </figure>
-
-            <p className="login-aside__join">
-              Join 3,200+ companies hiring efficiently with Badabhai.
-            </p>
           </aside>
         </div>
 
         <footer className="login-foot">
-          <span>© 2026 Badabhai Technologies Private Limited. All rights reserved.</span>
-          <span className="login-foot__links">
-            <span>Privacy Policy</span>
-            <span>Terms of Service</span>
-            <span>Enterprise Security</span>
-          </span>
+          <span>© 2026 BadaBhai Technologies Private Limited. All rights reserved.</span>
         </footer>
       </div>
     </div>

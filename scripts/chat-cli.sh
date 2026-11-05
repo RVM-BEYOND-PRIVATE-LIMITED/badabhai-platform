@@ -49,7 +49,7 @@ AUTH="authorization: Bearer $TOKEN"
 
 # Idempotent: re-accepting is harmless, and without it /chat/session 403s.
 curl -s -o /dev/null -X POST "$API/consent/accept" -H 'content-type: application/json' -H "$AUTH" \
-  -d "{\"consent_version\":\"$CONSENT_VERSION\",\"purposes\":[\"profiling\",\"resume_generation\"]}"
+  -d "{\"consent_version\":\"$CONSENT_VERSION\",\"purposes\":[\"profiling\",\"resume_generation\"],\"age_18_plus\":true}"
 
 S=$(curl -s -X POST "$API/chat/session" -H 'content-type: application/json' -H "$AUTH" -d '{}')
 SID=$(printf '%s' "$S" | jf 'j.session_id')

@@ -30,7 +30,9 @@ export interface TradeFormCase {
 export const TRADE_FORM_CASES: readonly TradeFormCase[] = [
   {
     kind: "cnc_turner",
-    answers: { turning_experience: ["three_to_seven"], turning_machine: ["cnc_lathe"] },
+    // Track A #1 (@6): the 6-band scale replaced three_to_seven (5) with
+    // three_to_five (4) and five_to_ten (7) — the fixture keeps a senior band.
+    answers: { turning_experience: ["five_to_ten"], turning_machine: ["cnc_lathe"] },
     expected: ["mskill_cnc_turner"],
   },
   {
@@ -49,14 +51,18 @@ export const TRADE_FORM_CASES: readonly TradeFormCase[] = [
   },
   {
     kind: "conventional_machinist",
-    answers: { machining_experience: ["over_seven"], machining_machine: ["centre_lathe"] },
+    // Track B #4 (@2): the 6-band scale replaced over_seven (10) with
+    // five_to_ten (7) and above_ten (12) — the fixture keeps the top band.
+    answers: { machining_experience: ["above_ten"], machining_machine: ["centre_lathe"] },
     // #2022: a manual lathe reaches CNC Turner (point 1) and the manual machinist's own skill.
     expected: ["mskill_cnc_turner", "mskill_conventional_machinist"],
   },
   {
     kind: "tool_die_maker",
+    // Phase 2 #1 (@2): the 6-band scale replaced three_to_seven (5) with
+    // three_to_five (4) and five_to_ten (7) — the fixture keeps a senior band.
     answers: {
-      toolroom_experience: ["three_to_seven"],
+      toolroom_experience: ["five_to_ten"],
       tooling_made: ["press_tool", "progressive_die"],
       toolroom_machine: ["surface_grinder", "milling", "lathe"],
     },
@@ -75,8 +81,10 @@ export const TRADE_FORM_CASES: readonly TradeFormCase[] = [
   },
   {
     kind: "welder",
+    // Track B #3 (@2): the 6-band scale replaced three_to_seven (5) with
+    // three_to_five (4) and five_to_ten (7) — the fixture keeps a senior band.
     answers: {
-      welding_experience: ["three_to_seven"],
+      welding_experience: ["five_to_ten"],
       welding_process: ["mig_mag"],
       welding_position: ["flat", "vertical"],
     },
@@ -104,21 +112,27 @@ export const TRADE_FORM_CASES: readonly TradeFormCase[] = [
   },
   {
     kind: "fitter",
-    answers: { fitting_experience: ["three_to_seven"], fitter_work_type: ["maintenance_fitting"] },
+    // Track B #1 (@2): the 6-band scale replaced three_to_seven (5) with
+    // three_to_five (4) and five_to_ten (7) — the fixture keeps a senior band.
+    answers: { fitting_experience: ["five_to_ten"], fitter_work_type: ["maintenance_fitting"] },
     expected: ["mskill_fitter"],
   },
   {
     kind: "maintenance_technician",
+    // Phase 2 #5 (@2): the 6-band scale replaced three_to_seven (5) with
+    // three_to_five (4) and five_to_ten (7) — the fixture keeps a senior band.
     answers: {
-      maintenance_experience: ["three_to_seven"],
+      maintenance_experience: ["five_to_ten"],
       maintenance_discipline: ["mechanical", "hydraulic"],
     },
     expected: ["mskill_maintenance_technician"],
   },
   {
     kind: "industrial_electrician",
+    // Track B #2 (@2): the 6-band scale replaced three_to_seven (5) with
+    // three_to_five (4) and five_to_ten (7) — the fixture keeps a senior band.
     answers: {
-      electrical_experience: ["three_to_seven"],
+      electrical_experience: ["five_to_ten"],
       electrical_work_type: ["panel_wiring", "motor_drive"],
     },
     // His own skill — never the fitter proxy.

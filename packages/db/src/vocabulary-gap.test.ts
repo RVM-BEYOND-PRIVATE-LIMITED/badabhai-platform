@@ -46,22 +46,35 @@ describe("the demand surface is closed, and that is the whole argument", () => {
     expect(Object.keys(TRADE_TO_MATCH_SKILL).sort()).toEqual([...TRADE_KEYS].sort());
   });
 
-  it("15 trades reach 7 match skills, leaving 11 no job can ever require (plus E0)", () => {
+  it("15 trades reach 7 match skills, leaving 11 no job can ever require (plus E0 + reconcile)", () => {
     // Through TRADE_TO_MATCH_SKILL (the one-time seed-job conversion). The eight #2022 skills are
     // postable directly by an employer, but no TRADE_KEY routes to one, so they join the
-    // unreachable set from this bridge's point of view: 11 at audit time, + 8.
+    // unreachable set from this bridge's point of view: 11 at audit time, + 8. E0's 3D
+    // designer and the reconcile's cad_3d + welder join them the same way: postable, unrouted.
     const reachable = demandReachableMatchSkills();
     expect(TRADE_KEYS).toHaveLength(15);
     expect(reachable.size).toBe(7);
-    expect(MATCH_SKILLS).toHaveLength(AUDIT_ERA_MATCH_SKILLS + MINTED_FOR_2022 + 1); // E0
-    expect(unreachableMatchSkills()).toHaveLength(11 + MINTED_FOR_2022 + 1); // E0, unrouted like #2022
+    // + 1: Phase 2 #6 (CEO Launch Plan Pack v1, sheet 14, 2026-11-03) minted the PLC trade.
+    // + 1: Phase 2 #7 (sheet 16, 2026-11-03) minted the EDM / wire-cut trade.
+    // + 1: Phase 2 #9 (sheet 22, 2026-11-04) minted the injection-moulding trade.
+    // + 1: Phase 2 #8 (sheet 17, 2026-11-04) minted the heat-treatment trade.
+    // + 1: Phase 2 #10 (sheet 23, 2026-11-04) minted the production supervisor.
+    // + 1: Phase 2 #11 (sheet 19, 2026-11-04) minted the foundry / forging trade.
+    expect(MATCH_SKILLS).toHaveLength(AUDIT_ERA_MATCH_SKILLS + MINTED_FOR_2022 + 9);
+    // + 1: Phase 2 #6 (CEO Launch Plan Pack v1, sheet 14, 2026-11-03) minted the PLC trade.
+    // + 1: Phase 2 #7 (sheet 16, 2026-11-03) minted the EDM / wire-cut trade.
+    // + 1: Phase 2 #9 (sheet 22, 2026-11-04) minted the injection-moulding trade.
+    // + 1: Phase 2 #8 (sheet 17, 2026-11-04) minted the heat-treatment trade.
+    // + 1: Phase 2 #10 (sheet 23, 2026-11-04) minted the production supervisor.
+    // + 1: Phase 2 #11 (sheet 19, 2026-11-04) minted the foundry / forging trade.
+    expect(unreachableMatchSkills()).toHaveLength(11 + MINTED_FOR_2022 + 9);
   });
 
   it("the unreachable eleven include the whole welding and plumbing vocabulary", () => {
     // Not dead vocabulary — unreachable, which is different and is a statement about the TRADE
     // taxonomy rather than about the match one.
     const u = unreachableMatchSkills();
-    for (const id of ["mskill_mig_welder", "mskill_tig_welder", "mskill_arc_welder", "mskill_plumber"]) {
+    for (const id of ["mskill_mig_welder", "mskill_tig_welder", "mskill_arc_welder", "mskill_welder", "mskill_plumber"]) {
       expect(u, id).toContain(id);
     }
   });
@@ -172,11 +185,18 @@ describe("the measured answer", () => {
 });
 
 describe("nothing was invented", () => {
-  it("MATCH_SKILLS grew only by owner ruling (E0), not by the pipeline", () => {
+  it("MATCH_SKILLS grew only by owner ruling (E0 + reconcile), not by the pipeline", () => {
     // By THIS audit. The artifact is the dated record and still says 18; #2022 appended eight
     // afterwards by owner ruling, which is the only reason the live count moved.
     // E0 (Q3) added the 3D designer afterwards, same owner-ruling carve-out as #2022.
-    expect(MATCH_SKILLS).toHaveLength(AUDIT_ERA_MATCH_SKILLS + MINTED_FOR_2022 + 1);
+    // The CEO-pack reconcile added the permanent 3D ID + the welder umbrella the same way.
+    // + 1: Phase 2 #6 (CEO Launch Plan Pack v1, sheet 14, 2026-11-03) minted the PLC trade.
+    // + 1: Phase 2 #7 (sheet 16, 2026-11-03) minted the EDM / wire-cut trade.
+    // + 1: Phase 2 #9 (sheet 22, 2026-11-04) minted the injection-moulding trade.
+    // + 1: Phase 2 #8 (sheet 17, 2026-11-04) minted the heat-treatment trade.
+    // + 1: Phase 2 #10 (sheet 23, 2026-11-04) minted the production supervisor.
+    // + 1: Phase 2 #11 (sheet 19, 2026-11-04) minted the foundry / forging trade.
+    expect(MATCH_SKILLS).toHaveLength(AUDIT_ERA_MATCH_SKILLS + MINTED_FOR_2022 + 9);
     expect(art.match_skills_defined).toBe(AUDIT_ERA_MATCH_SKILLS);
   });
 

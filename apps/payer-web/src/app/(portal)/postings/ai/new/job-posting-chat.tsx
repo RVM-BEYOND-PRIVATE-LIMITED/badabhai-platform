@@ -5,7 +5,14 @@ import { looksLikePii } from "@badabhai/validators";
 import type {
   JobPostingChatSessionSummary,
   JobPostingDraft,
+  PostingTradeFormWire,
 } from "../../../../../lib/contracts";
+import { focusControl } from "../../../../../lib/form-focus";
+import {
+  POSTING_TRADE_REQUIRED_MESSAGE,
+  isPostingTrade,
+  type PostingTradesProblem,
+} from "../../../../../lib/posting-trades";
 import { Badge, Button, Card, Textarea } from "../../../../../components/ds";
 // Imported from the module path (not the ds barrel) so a test can mock just this
 // interactive pill while rendering the other hookless DS primitives for real.
@@ -49,6 +56,9 @@ import {
  */
 
 const MAX_TURN_CHARS = 2000;
+
+/** The chat's server round-trips — each spins only its own button (W4). */
+type ChatAction = "start" | "send" | "publish" | `resume:${string}`;
 
 interface ChatLine {
   role: "payer" | "assistant";
@@ -105,9 +115,18 @@ export interface JobPostingChatProps {
   resumable: JobPostingChatSessionSummary[];
   /** True when that list read failed — we degrade to "start a new chat", never to fake rows. */
   loadFailed?: boolean;
+  /** #2645 — the 16 trades (`GET /payer/posting-trades`) the draft's trade is picked from. */
+  postingTrades?: PostingTradeFormWire[];
+  /** Why `postingTrades` is empty — said at the picker, with a Retry. */
+  postingTradesProblem?: PostingTradesProblem | null;
 }
 
-export function JobPostingChat({ resumable, loadFailed = false }: JobPostingChatProps) {
+export function JobPostingChat({
+  resumable,
+  loadFailed = false,
+  postingTrades = [],
+  postingTradesProblem = null,
+}: JobPostingChatProps) {
   // useState order (mirrored by job-posting-chat.test.tsx): convo, text, error, navigating.
   const [convo, setConvo] = useState<Conversation | null>(null);
   const [text, setText] = useState("");
@@ -115,28 +134,36 @@ export function JobPostingChat({ resumable, loadFailed = false }: JobPostingChat
   // Keep the publish CTA disabled across the success→navigation window so it can never be
   // re-clicked (no double publish) — the same latch the manual posting form uses.
   const [navigating, setNavigating] = useState(false);
-  // The publish-step role pick (#2490) — `""` until the payer chooses one. Optional: blank
-  // publishes with `role_kind` absent, so the worker card keeps the generic art.
+  // The publish-step role pick (#2490) — `""` until the payer chooses one. REQUIRED since #2645:
+  // it is the draft's trade, and Publish is refused at the picker until it is one of the 16.
   const [roleKind, setRoleKind] = useState("");
   // The publish-step area/locality (#2493). Until the payer edits it, the input follows the
   // interview draft (`draft.area`); once edited, the payer's value wins and rides the body.
   const [area, setArea] = useState("");
   const [areaTouched, setAreaTouched] = useState(false);
+  // Which action is in flight (W4) — so only ITS button spins; the others are just disabled.
+  // APPENDED after the seeded states (the tests mirror the order).
+  const [acting, setActing] = useState<ChatAction | null>(null);
+  // #2645 — the conversation whose Publish was refused for want of a trade (APPENDED).
+  const [tradeRefusedFor, setTradeRefusedFor] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   // The publish lands on the posting's edit page with the shell's "Opening Edit posting…" cue.
   const { navigate } = usePortalNavigation();
 
-  const busy = pending || navigating;
+  const busy = pending || navigating || acting !== null;
+  /** True for the ONE button whose action is running (W4 — one spinner per action). */
+  const spins = (action: ChatAction) => acting === action || (action === "publish" && navigating);
 
-  function begin(run: () => Promise<void>) {
+  function begin(action: ChatAction, run: () => Promise<void>) {
     setError(null);
+    setActing(action);
     startTransition(() => {
-      void run();
+      void run().finally(() => setActing(null));
     });
   }
 
   function onStart() {
-    begin(async () => {
+    begin("start", async () => {
       const res = await startJobPostingChatAction();
       if (!res.ok) {
         setError(res.error);
@@ -158,7 +185,7 @@ export function JobPostingChat({ resumable, loadFailed = false }: JobPostingChat
   }
 
   function onResume(sessionId: string) {
-    begin(async () => {
+    begin(`resume:${sessionId}`, async () => {
       const res = await resumeJobPostingChatAction({ sessionId });
       if (!res.ok) {
         setError(res.error);
@@ -193,7 +220,7 @@ export function JobPostingChat({ resumable, loadFailed = false }: JobPostingChat
     setConvo({ ...convo, lines: [...convo.lines, { role: "payer", text: said }], suggestions: [] });
     setText("");
 
-    begin(async () => {
+    begin("send", async () => {
       const res = await sendJobPostingChatMessageAction({ sessionId, text: said });
       if (!res.ok) {
         setError(res.error);
@@ -216,16 +243,22 @@ export function JobPostingChat({ resumable, loadFailed = false }: JobPostingChat
   function onPublish() {
     if (convo === null) return;
     const sessionId = convo.sessionId;
-    // The publish-step role pick rides the body (#2490). Blank stays ABSENT — never a null —
-    // so the posting stores NULL and the worker card keeps the generic art.
+    // The publish-step role pick rides the body (#2490). #2645 — it is the draft's trade, one of
+    // the 16 (#2635: a company job with none can never go live): Publish without one is refused
+    // AT the picker and sends nothing.
     const pickedRole = roleKind.trim();
+    if (!isPostingTrade(postingTrades, pickedRole)) {
+      setTradeRefusedFor(sessionId);
+      focusControl("chatRoleKind");
+      return;
+    }
     // #2493 — until the payer edits it, the area follows the interview draft; after that the
     // payer's correction wins. Blank stays ABSENT (NULL area = city-only card, never a block).
     const pickedArea = (areaTouched ? area : (convo.draft?.area ?? "")).trim();
-    begin(async () => {
+    begin("publish", async () => {
       const res = await publishJobPostingChatAction({
         sessionId,
-        ...(pickedRole ? { roleKind: pickedRole } : {}),
+        roleKind: pickedRole,
         ...(pickedArea ? { area: pickedArea } : {}),
       });
       if (!res.ok) {
@@ -277,7 +310,7 @@ export function JobPostingChat({ resumable, loadFailed = false }: JobPostingChat
                     variant={s.sessionId === lead ? "primary" : "secondary"}
                     size="md"
                     iconRight="arrow-right"
-                    loading={busy}
+                    loading={spins(`resume:${s.sessionId}`)}
                     disabled={busy}
                     onClick={() => onResume(s.sessionId)}
                   >
@@ -308,7 +341,7 @@ export function JobPostingChat({ resumable, loadFailed = false }: JobPostingChat
               variant={resumable.length > 0 ? "secondary" : "primary"}
               size="lg"
               iconRight="chat-circle-dots"
-              loading={busy}
+              loading={spins("start")}
               disabled={busy}
               onClick={onStart}
             >
@@ -332,19 +365,8 @@ export function JobPostingChat({ resumable, loadFailed = false }: JobPostingChat
     <div className="ai-chat">
       <div className="ai-chat__convo">
         <Card variant="flat" className="ai-chat__thread">
-          <ul className="ai-chat__lines" aria-live="polite" aria-label="Conversation">
-            {convo.lines.map((line, i) => (
-              <li
-                key={`${convo.sessionId}:${i}`}
-                className={
-                  line.role === "payer" ? "ai-chat__line ai-chat__line--payer" : "ai-chat__line"
-                }
-              >
-                <span className="ai-chat__who">{line.role === "payer" ? "You" : "BadaBhai"}</span>
-                <span className="ai-chat__text">{line.text}</span>
-              </li>
-            ))}
-          </ul>
+          {/* Keyed on the session: a transcript mounts with the lines it opens on (W6). */}
+          <ChatTranscript key={convo.sessionId} lines={convo.lines} typing={spins("send")} />
 
           {convo.suggestions.length > 0 ? (
             <div className="ai-chat__chips" aria-label="Suggested answers">
@@ -367,9 +389,11 @@ export function JobPostingChat({ resumable, loadFailed = false }: JobPostingChat
               hint="Never include a phone number or email — share contact only after you unlock an applicant."
               onChange={(e) => setText(e.target.value)}
             />
+            {/* Secondary (W4): the screen's one primary is Publish. */}
             <Button
+              variant="secondary"
               iconRight="paper-plane-tilt"
-              loading={busy}
+              loading={spins("send")}
               disabled={busy || text.trim().length === 0}
               onClick={() => onSend(text)}
             >
@@ -389,6 +413,13 @@ export function JobPostingChat({ resumable, loadFailed = false }: JobPostingChat
           draftReady={convo.draftReady}
           roleKind={roleKind}
           onRoleKindChange={setRoleKind}
+          trades={postingTrades}
+          tradesProblem={postingTradesProblem}
+          roleError={
+            tradeRefusedFor === convo.sessionId && !isPostingTrade(postingTrades, roleKind)
+              ? POSTING_TRADE_REQUIRED_MESSAGE
+              : undefined
+          }
           area={areaTouched ? area : (convo.draft?.area ?? "")}
           onAreaChange={(value) => {
             setArea(value);
@@ -402,7 +433,7 @@ export function JobPostingChat({ resumable, loadFailed = false }: JobPostingChat
             block
             size="lg"
             iconRight="rocket-launch"
-            loading={busy}
+            loading={spins("publish")}
             disabled={busy || !convo.draftReady}
             onClick={onPublish}
           >
@@ -422,4 +453,104 @@ export function JobPostingChat({ resumable, loadFailed = false }: JobPostingChat
       </aside>
     </div>
   );
+}
+
+/* ── The transcript (W6 #2586): new bubbles rise in, the typing dots, the scroll ─── */
+
+interface ChatTranscriptProps {
+  /** Append-only, so a line's index is its identity. */
+  lines: readonly ChatLine[];
+  /** A reply is awaited — the payer's turn is in flight. */
+  typing: boolean;
+}
+
+/**
+ * The conversation as a polite live list.
+ *
+ * W6 (#2586). A line added after the transcript MOUNTED (the payer's answer, then the reply) rises
+ * in once, 180ms (`ai-chat__line--new`, globals.css W6 block). The lines it mounted with — a new
+ * chat's opener, a resumed conversation — arrive settled: no rise and no scroll. While a reply is
+ * awaited, a typing bubble closes the list. Its dots pulse (the only looping motion here, and only
+ * while it is drawn), and the whole bubble is `aria-hidden`, so the live list never announces it.
+ * The pulse is CSS only and changes nothing in the DOM.
+ *
+ * The latest stays in view. The payer's own line and the typing bubble scroll themselves into view
+ * as they attach ({@link revealLine}): they are the payer's send, made from the composer just under
+ * them. The reply lands later, so it follows only a payer still at the end of the thread
+ * ({@link revealReply}). A payer who scrolled away while it was awaited stays where they are, up
+ * at an earlier answer or, in one column, down at the draft.
+ */
+function ChatTranscript({ lines, typing }: ChatTranscriptProps) {
+  // How many lines it mounted with. React keeps the first value, and the parent keys this on the
+  // session, so a different conversation mounts afresh.
+  const [settled] = useState(lines.length);
+  return (
+    <ul className="ai-chat__lines" aria-live="polite" aria-label="Conversation">
+      {lines.map((line, i) => {
+        const added = i >= settled;
+        const reveal = line.role === "payer" ? revealLine : revealReply;
+        return (
+          <li
+            key={i}
+            ref={added ? reveal : undefined}
+            className={[
+              "ai-chat__line",
+              line.role === "payer" ? "ai-chat__line--payer" : "",
+              added ? "ai-chat__line--new" : "",
+            ]
+              .filter(Boolean)
+              .join(" ")}
+          >
+            <span className="ai-chat__who">{line.role === "payer" ? "You" : "BadaBhai"}</span>
+            <span className="ai-chat__text">{line.text}</span>
+          </li>
+        );
+      })}
+      {typing ? (
+        <li ref={revealLine} className="ai-chat__line ai-chat__line--new" aria-hidden="true">
+          <span className="ai-chat__who">BadaBhai</span>
+          <span className="ai-chat__dots">
+            <span className="ai-chat__dot" />
+            <span className="ai-chat__dot" />
+            <span className="ai-chat__dot" />
+          </span>
+        </li>
+      ) : null}
+    </ul>
+  );
+}
+
+/**
+ * Scrolls a transcript line into view as it attaches (W6 #2586). It is the ref of the payer's own
+ * new line and of the typing bubble, and {@link revealReply} uses it. `nearest`, so a line already
+ * in view moves nothing; smooth, or at once under reduced motion. Defined at module level, so its
+ * identity never changes and React calls it only when a line attaches, never on a re-render. A
+ * detaching line (`null`) is ignored.
+ */
+export function revealLine(line: Element | null): void {
+  if (line === null) return;
+  const reduce =
+    typeof window !== "undefined" &&
+    window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
+  line.scrollIntoView?.({ block: "nearest", behavior: reduce ? "auto" : "smooth" });
+}
+
+/**
+ * A reply's ref (W6 #2586). It runs {@link revealLine} only while the payer is still at the end of
+ * the thread, which means the reply or the line before it is on screen as the reply lands. A payer
+ * who scrolled away while the reply was awaited is not pulled back.
+ */
+export function revealReply(line: Element | null): void {
+  if (line !== null && (onScreen(line) || onScreen(line.previousElementSibling))) revealLine(line);
+}
+
+/**
+ * Some of `el` is inside the viewport. The page itself is the scroller here, because the
+ * transcript is no scroll box. A detached or hidden element measures 0×0 at the origin, so it
+ * counts as off screen.
+ */
+function onScreen(el: Element | null): boolean {
+  if (el === null || typeof window === "undefined") return false;
+  const { top, bottom } = el.getBoundingClientRect();
+  return bottom > 0 && top < window.innerHeight;
 }

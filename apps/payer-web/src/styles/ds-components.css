@@ -49,9 +49,18 @@
   cursor: pointer; white-space: nowrap; user-select: none;
   transition: var(--transition-control);
   text-decoration: none;
+  position: relative; /* anchors the busy spinner over the label */
 }
 .bb-btn:focus-visible { outline: var(--focus-outline); outline-offset: var(--focus-outline-offset); box-shadow: var(--ring-focus); }
-.bb-btn:disabled, .bb-btn[aria-disabled="true"] { opacity: 0.45; cursor: not-allowed; pointer-events: none; }
+/* DISABLED is the 40% step of the opacity hierarchy (CLAUDE.md 80/60/40). BUSY is not disabled: a
+   loading button stays at full opacity — the spinner says "working", not "unavailable" — and its
+   clicks are blocked by the `disabled` attribute the Button sets alongside `aria-busy` (#2583). */
+.bb-btn:disabled, .bb-btn[aria-disabled="true"] { opacity: 0.4; cursor: not-allowed; pointer-events: none; }
+.bb-btn[aria-busy="true"] { opacity: 1; cursor: progress; }
+/* The label keeps its box while busy (the width never changes under the click); it cross-fades
+   to the spinner, which sits centred over it. */
+.bb-btn__label { display: inline-flex; align-items: center; justify-content: center; gap: var(--icon-gap); min-width: 0; transition: opacity var(--duration-fade) var(--ease-out); }
+.bb-btn[aria-busy="true"] .bb-btn__label { opacity: 0; }
 /* ICON SIZE PER CONTROL SIZE — from the shared icon tokens (@badabhai/icons/icons.css), not a
    ratio of the label: sm 16 · md 20 · lg 24. The flex row centres the 1em glyph box on the label
    (`.ph-fill` is line-height 1), --icon-gap sets the spacing, and no rule here sets a colour, so
@@ -87,35 +96,45 @@
 .bb-btn--block { display: flex; width: 100%; }
 
 /* primary — marigold, the one CTA */
-.bb-btn--primary { background: var(--brand); color: var(--text-on-brand); box-shadow: var(--shadow-brand); }
-.bb-btn--primary:hover { background: var(--brand-hover); box-shadow: var(--shadow-brand-lg); }
-.bb-btn--primary:active { background: var(--brand-press); transform: scale(0.97); box-shadow: var(--shadow-brand); }
+/* PRESS (#2583, tokens #2570): primary and secondary stand on a solid edge (--shadow-press-*)
+   that collapses as the button sinks --press-depth onto it — down over --duration-press, back
+   up over --duration-fast. Every other variant sinks the same distance without an edge. Under
+   reduced motion the depth, scale and durations are 0: the colour change alone shows the press. */
+.bb-btn:active { transform: translateY(var(--press-depth)) scale(var(--press-scale)); transition-duration: var(--duration-press); }
+.bb-btn--primary { background: var(--brand); color: var(--text-on-brand); box-shadow: var(--shadow-press-primary); }
+.bb-btn--primary:hover { background: var(--brand-hover); }
+.bb-btn--primary:active { background: var(--brand-press); box-shadow: var(--shadow-press-primary-pressed); }
 
 /* secondary — outlined, ink */
-.bb-btn--secondary { background: var(--surface-card); color: var(--text-primary); border-color: var(--border-strong); box-shadow: var(--shadow-xs); }
+.bb-btn--secondary { background: var(--surface-card); color: var(--text-primary); border-color: var(--border-strong); box-shadow: var(--shadow-press-secondary); }
 .bb-btn--secondary:hover { background: var(--surface-sunken); border-color: var(--ink-400); }
-.bb-btn--secondary:active { transform: scale(0.97); background: var(--surface-inset); }
+.bb-btn--secondary:active { background: var(--surface-inset); box-shadow: var(--shadow-press-secondary-pressed); }
 
 /* tonal — soft marigold */
 .bb-btn--tonal { background: var(--brand-tint-2); color: var(--text-accent); }
 .bb-btn--tonal:hover { background: var(--marigold-200); }
-.bb-btn--tonal:active { transform: scale(0.97); }
 
 /* ghost */
 .bb-btn--ghost { background: transparent; color: var(--text-primary); }
 .bb-btn--ghost:hover { background: var(--surface-sunken); }
-.bb-btn--ghost:active { transform: scale(0.97); }
 
 /* success / danger */
 .bb-btn--success { background: var(--success); color: var(--text-on-brand); box-shadow: var(--shadow-sm); }
 .bb-btn--success:hover { background: var(--success-press); }
-.bb-btn--success:active { transform: scale(0.97); }
 .bb-btn--danger { background: var(--danger); color: var(--text-on-brand); box-shadow: var(--shadow-sm); }
 .bb-btn--danger:hover { background: var(--danger-press); }
-.bb-btn--danger:active { transform: scale(0.97); }
 
-.bb-btn__spinner { width: 1.1em; height: 1.1em; border: var(--border-bold) solid currentColor; border-right-color: transparent; border-radius: var(--radius-round); animation: bb-spin var(--duration-slower) linear infinite; }
+/* THE spinner — the one busy indicator in payer-web (#2583). It turns; under reduced motion it
+   does not move, it pulses slowly (opacity only) so "working" still reads. --duration-fade is
+   the one duration reduced motion keeps, so the pulse is a multiple of it. */
+.bb-spinner { display: inline-block; flex: none; width: 1.1em; height: 1.1em; border: var(--border-bold) solid currentColor; border-right-color: transparent; border-radius: var(--radius-round); animation: bb-spin var(--duration-slower) linear infinite; }
+/* In a busy button it sits centred over the faded label and fades in as the label fades out. */
+.bb-btn__spinner { position: absolute; inset: 0; margin: auto; animation: bb-spin var(--duration-slower) linear infinite, bb-fade var(--duration-fade) var(--ease-out); }
 @keyframes bb-spin { to { transform: rotate(360deg); } }
+@keyframes bb-spin-pulse { 50% { opacity: 0.4; } }
+@media (prefers-reduced-motion: reduce) {
+  .bb-spinner, .bb-btn__spinner { animation: bb-spin-pulse calc(var(--duration-fade) * 12) var(--ease-in-out) infinite; }
+}
 
 /* ---------- IconButton ----------
    The ONE icon-only control's SKIN (components/ds/icon-button.tsx wraps the shared IconButtonBase
@@ -274,7 +293,9 @@
 .bb-card--ink { background: var(--surface-ink); border-color: transparent; color: var(--text-inverse); }
 .bb-card--ink .bb-card__muted { color: var(--ink-300); }
 .bb-card--interactive { cursor: pointer; transition: var(--transition-control); }
-.bb-card--interactive:hover { box-shadow: var(--shadow-md); transform: translateY(-2px); border-color: var(--border-default); }
+.bb-card--interactive:hover { border-color: var(--border-default); }
+@media (hover: hover) { .bb-card--interactive:hover { box-shadow: var(--shadow-md); transform: translateY(-2px); } }
+@media (prefers-reduced-motion: reduce) { .bb-card--interactive:hover { transform: none; } }
 .bb-card--interactive:active { transform: translateY(0); box-shadow: var(--shadow-xs); }
 .bb-card--pad-sm { padding: var(--space-3); }
 .bb-card--pad-lg { padding: var(--space-7); }
@@ -291,7 +312,9 @@
    transitions collapse to 0ms under prefers-reduced-motion (the --transition-control
    durations flip to 0 in tokens.css). */
 .bb-card--link { position: relative; cursor: pointer; transition: var(--transition-control); }
-.bb-card--link:hover { box-shadow: var(--shadow-lg); transform: translateY(-2px); border-color: var(--border-default); }
+.bb-card--link:hover { border-color: var(--border-default); }
+@media (hover: hover) { .bb-card--link:hover { box-shadow: var(--shadow-lg); transform: translateY(-2px); } }
+@media (prefers-reduced-motion: reduce) { .bb-card--link:hover { transform: none; } }
 .bb-card--link:active { transform: translateY(0); box-shadow: var(--shadow-md); }
 .bb-card--link:has(> .bb-stretched-link:focus-visible) { outline: var(--focus-outline); outline-offset: var(--focus-outline-offset); box-shadow: var(--ring-focus); border-color: var(--brand); }
 @supports not selector(:has(*)) {
@@ -456,7 +479,9 @@
 /* CARDS-1 — whole-tile link (stretched-link a11y), mirrors .bb-card--link (keyboard-only ring
    via :has(:focus-visible); :focus-within only where :has() is unsupported). */
 .bb-stat--link { position: relative; cursor: pointer; transition: var(--transition-control); }
-.bb-stat--link:hover { box-shadow: var(--shadow-md); transform: translateY(-2px); border-color: var(--border-default); }
+.bb-stat--link:hover { border-color: var(--border-default); }
+@media (hover: hover) { .bb-stat--link:hover { box-shadow: var(--shadow-md); transform: translateY(-2px); } }
+@media (prefers-reduced-motion: reduce) { .bb-stat--link:hover { transform: none; } }
 .bb-stat--link:active { transform: translateY(0); box-shadow: var(--shadow-xs); }
 .bb-stat--link:has(> .bb-stretched-link:focus-visible) { outline: var(--focus-outline); outline-offset: var(--focus-outline-offset); box-shadow: var(--ring-focus); border-color: var(--brand); }
 @supports not selector(:has(*)) {
@@ -502,31 +527,57 @@
   position: fixed; inset: 0; background: var(--scrim);
   display: flex; align-items: center; justify-content: center;
   padding: var(--space-5); z-index: var(--z-modal);
-  animation: bb-fade var(--duration-base) var(--ease-out);
+  animation: bb-fade var(--duration-base) var(--ease-enter);
 }
 .bb-scrim--sheet { align-items: flex-end; padding: 0; }
+/* ENTER: opacity + a --motion-rise rise + --motion-enter-scale → 1 over --duration-base.
+   EXIT (#2583): the closing snapshot (dialog.tsx `playExit`) leaves over --duration-fast with
+   --ease-exit — ~30% shorter than the entry — and takes no input. */
 .bb-dialog {
   background: var(--surface-card); border-radius: var(--radius-xl);
   /* JUL31 elevation 0: shadow token is `none`, so a hairline carries the separation. */
   border: var(--border-hairline) solid var(--border-default);
-  box-shadow: var(--shadow-xl); width: 100%; max-width: 440px;
-  max-height: 90vh; overflow: auto;
-  animation: bb-pop var(--duration-base) var(--ease-stamp);
+  box-shadow: var(--shadow-xl); width: 100%; max-width: 440px; min-width: 0;
+  max-height: 90vh; max-height: 90dvh; overflow: auto; overflow-wrap: anywhere;
+  animation: bb-dialog-in var(--duration-base) var(--ease-enter);
 }
 .bb-dialog--sheet {
   max-width: 520px; border-radius: var(--radius-2xl) var(--radius-2xl) 0 0;
-  animation: bb-slideup var(--duration-base) var(--ease-out);
+  animation: bb-sheet-in var(--duration-sheet) var(--ease-enter);
 }
+.bb-scrim[data-state="closing"] { pointer-events: none; animation: bb-fade-out var(--duration-fast) var(--ease-exit) forwards; }
+.bb-scrim[data-state="closing"] .bb-dialog { animation: bb-dialog-out var(--duration-fast) var(--ease-exit) forwards; }
+.bb-scrim[data-state="closing"] .bb-dialog--sheet { animation: bb-sheet-out var(--duration-base) var(--ease-exit) forwards; }
 .bb-dialog__head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3); padding: var(--space-6) var(--space-6) 0; }
-.bb-dialog__title { font-family: var(--font-display); font-weight: var(--weight-bold); font-size: var(--text-xl); color: var(--text-heading); }
+.bb-dialog__title { min-width: 0; font-family: var(--font-display); font-weight: var(--weight-bold); font-size: var(--text-xl); color: var(--text-heading); }
 .bb-dialog__body { padding: var(--space-3) var(--space-6) 0; color: var(--text-secondary); font-size: var(--text-base); line-height: var(--leading-normal); }
 .bb-dialog__foot { display: flex; gap: var(--space-3); justify-content: flex-end; padding: var(--space-6); }
-.bb-dialog__foot--stack { flex-direction: column-reverse; }
-.bb-dialog__foot--stack .bb-btn { width: 100%; }
+
+/* PHONES (≤ 600px) — every dialog is a BOTTOM SHEET (#2583): full width, top corners rounded,
+   never taller than 90dvh (the body scrolls inside it), sliding up over --duration-sheet. Its
+   actions stack full width with the primary (the last one written) on top, and a long label
+   wraps rather than pushing the sheet past a 320px screen. */
+@media (max-width: 600px) {
+  .bb-scrim { align-items: flex-end; padding: 0; }
+  .bb-dialog {
+    max-width: none; max-height: 90dvh;
+    border-radius: var(--radius-2xl) var(--radius-2xl) 0 0; border-bottom-width: 0;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    animation: bb-sheet-in var(--duration-sheet) var(--ease-enter);
+  }
+  .bb-dialog__head { padding: var(--space-5) var(--space-5) 0; }
+  .bb-dialog__body { padding: var(--space-3) var(--space-5) 0; }
+  .bb-dialog__foot { flex-direction: column-reverse; align-items: stretch; padding: var(--space-5); }
+  .bb-dialog__foot .bb-btn { width: 100%; white-space: normal; height: auto; padding-block: var(--space-2); }
+  .bb-scrim[data-state="closing"] .bb-dialog { animation: bb-sheet-out var(--duration-base) var(--ease-exit) forwards; }
+}
 
 @keyframes bb-fade { from { opacity: 0; } }
-@keyframes bb-pop { from { opacity: 0; transform: scale(0.94) translateY(8px); } }
-@keyframes bb-slideup { from { transform: translateY(100%); } }
+@keyframes bb-fade-out { to { opacity: 0; } }
+@keyframes bb-dialog-in { from { opacity: 0; transform: translateY(var(--motion-rise)) scale(var(--motion-enter-scale)); } }
+@keyframes bb-dialog-out { to { opacity: 0; transform: translateY(var(--motion-rise)) scale(var(--motion-enter-scale)); } }
+@keyframes bb-sheet-in { from { transform: translateY(100%); } }
+@keyframes bb-sheet-out { to { transform: translateY(100%); } }
 
 /* ---------- Toast ---------- */
 .bb-toast {
@@ -536,7 +587,26 @@
   /* JUL31 elevation 0: the dropped shadow becomes a hairline edge on the ink surface. */
   border: var(--border-hairline) solid var(--surface-ink-2);
   box-shadow: var(--shadow-lg); max-width: 420px;
-  animation: bb-pop var(--duration-base) var(--ease-out);
+  animation: bb-toast-in var(--duration-base) var(--ease-enter);
+}
+/* Leaving (ToastProvider): it fades and sinks back over --duration-fast, taking no input. */
+.bb-toast--leaving { pointer-events: none; animation: bb-toast-out var(--duration-fast) var(--ease-exit) forwards; }
+@keyframes bb-toast-in { from { opacity: 0; transform: translateY(var(--motion-rise)); } }
+@keyframes bb-toast-out { to { opacity: 0; transform: translateY(var(--motion-rise)); } }
+
+/* THE toast stack (ToastProvider, #2583) — one polite live region, fixed bottom-right above
+   everything but tooltips; newest at the bottom. On a phone it spans the gutter. Empty, it is
+   still in the page (so its first message is announced) but takes no room and no pointer. */
+.bb-toast-viewport {
+  position: fixed; right: var(--gutter-web); bottom: var(--gutter-web);
+  z-index: var(--z-toast);
+  display: flex; flex-direction: column; align-items: flex-end; gap: var(--space-2);
+  max-width: calc(100vw - 2 * var(--space-4));
+}
+.bb-toast-viewport:empty { pointer-events: none; }
+@media (max-width: 600px) {
+  .bb-toast-viewport { left: var(--space-4); right: var(--space-4); bottom: var(--space-4); align-items: stretch; max-width: none; }
+  .bb-toast-viewport .bb-toast { max-width: none; }
 }
 .bb-toast__icon { font-size: var(--text-lg); flex: none; margin-top: 1px; color: var(--ink-200); }
 .bb-toast--success .bb-toast__icon { color: var(--green-300); }
@@ -609,6 +679,31 @@
    later, so it REPLACED the ring — on the very tab keyboard focus lands on (roving tabindex).
    One class more puts the ring back; the forced-colors outline pair is restated with it. */
 .bb-tabs--segmented .bb-tab--active:focus-visible { outline: var(--focus-outline); outline-offset: var(--focus-outline-offset); box-shadow: var(--ring-focus); }
+
+/* THE SLIDING INDICATOR (#2583) — one element per tablist, placed on the active tab by tabs.tsx
+   (`placeTabsIndicator`: --bb-tabs-x/y/w/h) and gliding between tabs over --duration-slow with
+   --ease-glide; transform only (the width follows at once). Hidden until placed: before that the
+   active tab's own static marker (above) shows, and once `data-indicator` is set it hands over. */
+.bb-tabs { position: relative; isolation: isolate; }
+.bb-tabs__indicator { display: none; }
+.bb-tabs[data-indicator] .bb-tabs__indicator {
+  display: block; position: absolute; left: 0; top: 0; z-index: var(--z-base);
+  width: var(--bb-tabs-w); pointer-events: none;
+  transform: translate(var(--bb-tabs-x), var(--bb-tabs-y));
+  transition: transform var(--duration-slow) var(--ease-glide);
+}
+.bb-tabs[data-indicator] .bb-tab { position: relative; z-index: var(--z-raised); }
+.bb-tabs--underline[data-indicator] .bb-tabs__indicator {
+  height: 2.5px; background: var(--text-accent);
+  transform: translate(var(--bb-tabs-x), calc(var(--bb-tabs-y) + var(--bb-tabs-h) - 2.5px));
+}
+.bb-tabs--underline[data-indicator] .bb-tab--active { border-bottom-color: transparent; }
+.bb-tabs--segmented[data-indicator] .bb-tabs__indicator {
+  height: var(--bb-tabs-h); background: var(--surface-card);
+  border-radius: var(--radius-md); box-shadow: var(--shadow-xs);
+}
+.bb-tabs--segmented[data-indicator] .bb-tab--active { background: transparent; border-color: transparent; }
+.bb-tabs--segmented[data-indicator] .bb-tab--active:not(:focus-visible) { box-shadow: none; }
 
 /* ---------- BottomNav (worker app) ---------- */
 .bb-bottomnav {

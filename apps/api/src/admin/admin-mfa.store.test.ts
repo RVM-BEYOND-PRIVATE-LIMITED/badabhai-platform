@@ -25,7 +25,7 @@ const SECRET = "JBSWY3DPEHPK3PXP"; // a representative base32 TOTP secret (the p
 const MFA_PENDING_TTL_SECONDS = 300;
 
 const SECRET_KEY = `admin_mfa_secret:${ADMIN_ID}`;
-const PENDING_KEY = `admin_mfa_pending:${ADMIN_ID}`;
+const PENDING_KEY = `admin_mfa_pending:${ADMIN_ID}:0`;
 
 /**
  * In-memory AES stand-in for PiiCryptoService. `encrypt` wraps the plaintext in an
@@ -210,7 +210,7 @@ describe("AdminMfaSecretStore — secret encryption round-trip (at rest)", () =>
     // that SHOULD evaporate, so it stays a TTL'd Redis key.
     const { store, redis, admins } = setup();
     await store.save(ADMIN_ID, SECRET);
-    await store.markOtpPassed(ADMIN_ID);
+    await store.markOtpPassed(ADMIN_ID, 0);
 
     expect(admins.column()).not.toBeNull();
     expect(redis.kv.has(PENDING_KEY)).toBe(true);
@@ -284,7 +284,7 @@ describe("AdminMfaSecretStore — load() fails closed (deny, never a usable secr
 describe("AdminMfaSecretStore — OTP-pending marker (single-flow binding)", () => {
   it("markOtpPassed() sets the pending marker with the bounded TTL (cannot live forever)", async () => {
     const { store, redis } = setup();
-    await store.markOtpPassed(ADMIN_ID);
+    await store.markOtpPassed(ADMIN_ID, 0);
     expect(redis.setex).toHaveBeenCalledTimes(1);
     const [key, ttl, value] = redis.setex.mock.calls[0]!;
     expect(key).toBe(PENDING_KEY);
@@ -296,30 +296,43 @@ describe("AdminMfaSecretStore — OTP-pending marker (single-flow binding)", () 
 
   it("consumeOtpPending() returns true when the marker is present (a valid in-flow MFA step)", async () => {
     const { store } = setup();
-    await store.markOtpPassed(ADMIN_ID);
-    await expect(store.consumeOtpPending(ADMIN_ID)).resolves.toBe(true);
+    await store.markOtpPassed(ADMIN_ID, 0);
+    await expect(store.consumeOtpPending(ADMIN_ID, 0)).resolves.toBe(true);
   });
 
   it("the marker is SINGLE-USE: consume once → true, immediately again → false (gone, no replay)", async () => {
     const { store, redis } = setup();
-    await store.markOtpPassed(ADMIN_ID);
+    await store.markOtpPassed(ADMIN_ID, 0);
 
-    expect(await store.consumeOtpPending(ADMIN_ID)).toBe(true);
+    expect(await store.consumeOtpPending(ADMIN_ID, 0)).toBe(true);
     expect(redis.kv.has(PENDING_KEY)).toBe(false); // deleted on first consume
     // A second consume in the same/next flow finds nothing → deny.
-    expect(await store.consumeOtpPending(ADMIN_ID)).toBe(false);
+    expect(await store.consumeOtpPending(ADMIN_ID, 0)).toBe(false);
+  });
+
+  it("a marker earned under an OLD password epoch cannot be consumed after a reset (ADR-0060)", async () => {
+    const { store } = setup();
+    const before = 1_793_700_000_000;
+    const afterReset = before + 1;
+    // The first factor passed (and wrote its marker) against the old password — possibly AFTER
+    // the reset committed, if it read the row just before. The TOTP step reads the NEW epoch.
+    await store.markOtpPassed(ADMIN_ID, before);
+    await expect(store.consumeOtpPending(ADMIN_ID, afterReset)).resolves.toBe(false);
+    // Control: the same epoch still works, so the denial above is the epoch, not the store.
+    await store.markOtpPassed(ADMIN_ID, afterReset);
+    await expect(store.consumeOtpPending(ADMIN_ID, afterReset)).resolves.toBe(true);
   });
 
   it("consumeOtpPending() with NO prior markOtpPassed denies (false) — a TOTP secret alone cannot mint", async () => {
     const { store } = setup();
-    await expect(store.consumeOtpPending(ADMIN_ID)).resolves.toBe(false);
+    await expect(store.consumeOtpPending(ADMIN_ID, 0)).resolves.toBe(false);
   });
 
   it("consume targets the pending marker only — the enrolled seed survives", async () => {
     const { store, redis, admins } = setup();
     await store.save(ADMIN_ID, SECRET);
-    await store.markOtpPassed(ADMIN_ID);
-    await store.consumeOtpPending(ADMIN_ID);
+    await store.markOtpPassed(ADMIN_ID, 0);
+    await store.consumeOtpPending(ADMIN_ID, 0);
     expect(redis.kv.has(PENDING_KEY)).toBe(false);
     // The seed is in the column, so consuming a Redis marker cannot reach it — an admin is
     // not silently un-enrolled by completing a login.
@@ -333,19 +346,19 @@ describe("AdminMfaSecretStore — OTP-pending marker (single-flow binding)", () 
 describe("AdminMfaSecretStore — consumeOtpPending() fails closed (deny, never allow)", () => {
   it("a Redis DEL outage returns false (deny the MFA step — an outage must not mint a session)", async () => {
     const { store } = setup({ redis: { delThrows: true } });
-    await expect(store.consumeOtpPending(ADMIN_ID)).resolves.toBe(false);
+    await expect(store.consumeOtpPending(ADMIN_ID, 0)).resolves.toBe(false);
   });
 
   it("a queue/client connection failure returns false (does not throw, denies)", async () => {
     const { store } = setup({ clientThrows: true });
-    await expect(store.consumeOtpPending(ADMIN_ID)).resolves.toBe(false);
+    await expect(store.consumeOtpPending(ADMIN_ID, 0)).resolves.toBe(false);
   });
 
   it("a Redis outage during consume leaks nothing into a log line", async () => {
     const { store } = setup({ redis: { delThrows: true } });
     const logs = captureLogs();
     try {
-      await store.consumeOtpPending(ADMIN_ID);
+      await store.consumeOtpPending(ADMIN_ID, 0);
     } finally {
       logs.restore();
     }
@@ -370,7 +383,7 @@ describe("AdminMfaSecretStore — clear() (best-effort reset)", () => {
   it("clear() touches only the seed (it does not consume the OTP-pending marker)", async () => {
     const { store, redis, admins } = setup();
     await store.save(ADMIN_ID, SECRET);
-    await store.markOtpPassed(ADMIN_ID);
+    await store.markOtpPassed(ADMIN_ID, 0);
     await store.clear(ADMIN_ID);
     expect(admins.column()).toBeNull();
     // A reset must not silently satisfy or destroy an in-flight login's binding.
@@ -402,8 +415,8 @@ describe("AdminMfaSecretStore — no plaintext seed in ANY store at any lifecycl
   it("neither Redis nor the column ever holds the raw seed", async () => {
     const { store, redis, admins } = setup();
     await store.save(ADMIN_ID, SECRET);
-    await store.markOtpPassed(ADMIN_ID);
-    await store.consumeOtpPending(ADMIN_ID);
+    await store.markOtpPassed(ADMIN_ID, 0);
+    await store.consumeOtpPending(ADMIN_ID, 0);
 
     // Every value ever written to the KV must be free of the plaintext seed.
     for (const value of redis.kv.values()) {

@@ -129,6 +129,12 @@ interface SetupOpts {
   ownedRefs?: Record<string, { payerId: string; kind: "job" | "posting" }>;
   /** ADR-0053: the tenant resolver the service is built with (default: mode `off`). */
   tenancy?: PayerTenantScopeService;
+  /**
+   * 2026-11-03 — whether the tenant holds a LIVE unlock of the worker (the payer route's gate).
+   * Default true: every payer-route case written before the gate describes an unlocked worker,
+   * which is the only state the clients ever offered the résumé in.
+   */
+  liveUnlock?: boolean;
 }
 
 function setup(opts: SetupOpts = {}) {
@@ -179,6 +185,8 @@ function setup(opts: SetupOpts = {}) {
     // #1898: a global-pool read, so it lives on the repo only — NOT in txMethods, where a call
     // through the locked `tx` handle would be the pool-vs-lock deadlock shape.
     jobPostingExists: vi.fn(async (_id: string) => opts.postingRowExists ?? true),
+    // 2026-11-03: the payer route's live-unlock gate — global-pool, repo-only.
+    hasLiveUnlock: vi.fn(async (_tenant: string, _workerId: string) => opts.liveUnlock ?? true),
     // #1899: the payer-scoped ownership read — also global-pool, also repo-only.
     findOwnedJobRef: vi.fn(async (refId: string, payerId: string) => {
       const owned = opts.ownedRefs?.[refId];
@@ -1246,5 +1254,68 @@ describe("ResumeDisclosureService — ADR-0053 org tenancy", () => {
     expect(t.consents.findLatestByWorker).not.toHaveBeenCalled();
     expect(t.repo.withTransaction).not.toHaveBeenCalled();
     expect(t.emitted).toEqual([]);
+  });
+});
+
+describe("2026-11-03 — the payer route discloses only a worker the tenant has LIVE-unlocked", () => {
+  // The employer copy prints the worker's phone (#1594). Before this gate only the clients hid the
+  // button until an unlock; the all-candidates search (ADR-0040, E2) hands every payer the worker
+  // ids of the whole consented pool, so the server must enforce what the clients assumed.
+  async function asPayer(opts: SetupOpts) {
+    const t = setup(opts);
+    const res = await t.service.requestDisclosure(
+      { payerId: PAYER, workerId: WORKER, jobPostingId: null },
+      CTX,
+      "payer_owned",
+    );
+    return { t, res };
+  }
+
+  it("no live unlock → the neutral body, before any consent read, lock, row, render or event", async () => {
+    const { t, res } = await asPayer({ liveUnlock: false });
+    expect(res).toEqual(NEUTRAL);
+    expect(t.repo.hasLiveUnlock).toHaveBeenCalledWith(PAYER, WORKER);
+    expect(t.consents.findLatestByWorker).not.toHaveBeenCalled();
+    expect(t.repo.withTransaction).not.toHaveBeenCalled();
+    expect(t.txMethods.insertRow).not.toHaveBeenCalled();
+    expect(t.renderer.renderPdf).not.toHaveBeenCalled();
+    expect(t.pii.decrypt).not.toHaveBeenCalled();
+    expect(t.emitted).toHaveLength(0);
+  });
+
+  it("is byte-identical to a no-consent deny (the gate is not an oracle)", async () => {
+    const locked = (await asPayer({ liveUnlock: false })).res;
+    const noConsent = (await asPayer({ consentPurposes: null })).res;
+    expect(JSON.stringify(locked)).toBe(JSON.stringify(noConsent));
+  });
+
+  it("a live unlock → the masked résumé, as before", async () => {
+    const { t, res } = await asPayer({ liveUnlock: true });
+    expect(res).toMatchObject({ ok: true, status: "disclosed" });
+    expect(t.repo.hasLiveUnlock).toHaveBeenCalledOnce();
+  });
+
+  it("an unlock-read error fails closed before any lock, write or event", async () => {
+    const t = setup({});
+    t.repo.hasLiveUnlock.mockRejectedValueOnce(new Error("connection terminated"));
+    await expect(
+      t.service.requestDisclosure(
+        { payerId: PAYER, workerId: WORKER, jobPostingId: null },
+        CTX,
+        "payer_owned",
+      ),
+    ).rejects.toThrow("connection terminated");
+    expect(t.repo.withTransaction).not.toHaveBeenCalled();
+    expect(t.emitted).toHaveLength(0);
+  });
+
+  it("the ops route ('normalise') is unchanged: it never asks for an unlock", async () => {
+    const t = setup({ liveUnlock: false });
+    const res = await t.service.requestDisclosure(
+      { payerId: PAYER, workerId: WORKER, jobPostingId: null },
+      CTX,
+    );
+    expect(res).toMatchObject({ ok: true, status: "disclosed" });
+    expect(t.repo.hasLiveUnlock).not.toHaveBeenCalled();
   });
 });

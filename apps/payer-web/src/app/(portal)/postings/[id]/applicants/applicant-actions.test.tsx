@@ -38,6 +38,11 @@ vi.mock("next/link", () => ({
 // this walk (it calls components outside a renderer) cannot run; its own behaviour is
 // components/nav-pending.render.test.tsx.
 vi.mock("../../../../../components/nav-pending", () => ({ NavPendingCue: () => null }));
+// The portal's ToastProvider (#2583): a granted unlock is announced through it.
+const toastShow = vi.fn();
+vi.mock("../../../../../components/ds/toast-provider", () => ({
+  useToast: () => ({ show: (t: unknown) => toastShow(t), dismiss: () => {} }),
+}));
 vi.mock("./actions", () => ({
   unlockAction: (i: unknown) => unlockAction(i),
   revealContactAction: (i: unknown) => revealContactAction(i),
@@ -59,11 +64,18 @@ const useState = vi.fn((initial: unknown) => {
 });
 vi.mock("react", async () => {
   const actual = await vi.importActual<typeof ReactModule>("react");
-  return { ...actual, useState: (initial: unknown) => useState(initial) };
+  return {
+    ...actual,
+    useState: (initial: unknown) => useState(initial),
+    // The live balance (components/live-balance.ts, #2585) is read, never published, here: the
+    // store's snapshot is all a render needs (its subscription is pinned in applicant-feed.test.tsx).
+    useSyncExternalStore: (_subscribe: unknown, getSnapshot: () => unknown) => getSnapshot(),
+  };
 });
 
 const { ApplicantActions } = await import("./applicant-actions");
 const { PageHeader } = await import("../../../../../components/page-header");
+const { UNLOCK_GRANTED_TOAST } = await import("../../../../../components/unlock");
 
 /** The head text the page hands the feed (it names the posting from its own postings read). */
 const HEADER = {
@@ -195,6 +207,7 @@ function render(opts: {
     postingId: "33333333-3333-4333-8333-333333333333",
     applicants: opts.applicants ?? [APPLICANT],
     balance: opts.balance ?? 5,
+    balanceAsOf: 0,
     // No viewer/role input: every member can open Credits (owner ruling 2026-10-07).
     ...(opts.unlocked ? { unlocked: opts.unlocked } : {}),
   }) as ReactElement;
@@ -255,6 +268,26 @@ describe("ApplicantActions — CONFIRM-ON-SPEND on the FIRST unlock per row (C11
     // XT5: ids only — no price/amount/credit number in the body.
     const arg = unlockAction.mock.calls[0]![0] as Record<string, unknown>;
     expect(Object.keys(arg).sort()).toEqual(["postingId", "workerId"]);
+  });
+
+  it("#2583: a GRANTED unlock is the portal's success toast; the neutral failure stays list state", async () => {
+    unlockAction.mockResolvedValueOnce({ ok: true, view: { kind: "granted", handle: "h", channel: "c" } });
+    toastShow.mockClear();
+    let { buttons } = collect(render({ confirmWorker: WORKER }));
+    buttons.find((b) => b.text.includes("Unlock · 1 credit"))!.onClick!();
+    await new Promise((r) => setTimeout(r, 0));
+    // `result` is setter index 5: cleared, never "granted"; the grant is ONE toast.
+    expect(setters[5]).toHaveBeenCalledWith(null);
+    expect(setters[5]).not.toHaveBeenCalledWith("granted");
+    expect(toastShow).toHaveBeenCalledTimes(1);
+    expect(toastShow).toHaveBeenCalledWith(UNLOCK_GRANTED_TOAST);
+
+    toastShow.mockClear();
+    ({ buttons } = collect(render({ confirmWorker: WORKER })));
+    buttons.find((b) => b.text.includes("Unlock · 1 credit"))!.onClick!();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(setters[5]).toHaveBeenCalledWith("unavailable");
+    expect(toastShow).not.toHaveBeenCalled();
   });
 
   it("a row already confirmed this session unlocks DIRECTLY with no dialog (fires once per row)", () => {
@@ -723,7 +756,7 @@ describe("ApplicantActions — (c) a contactError is inline, retryable, cause-fr
       rows: { [WORKER]: { ...baseRow, unlock: granted, contactError: "Reveal failed (service unavailable). Please retry." } },
     });
     const { buttons, ariaLiveCount } = collect(tree);
-    const retry = buttons.find((b) => b.text === "Retry — open routed contact");
+    const retry = buttons.find((b) => b.text === "Retry — open contact");
     expect(retry).toBeDefined(); // retryable: the reveal button stays, relabeled
     expect(retry!.onClick).toBeTypeOf("function");
     expect(ariaLiveCount).toBeGreaterThanOrEqual(1);
@@ -932,6 +965,35 @@ describe("ApplicantActions — Middle Way P5 level badge (display only)", () => 
       }),
     );
     expect(badges).toHaveLength(0);
+  });
+});
+
+describe("ApplicantActions — \"Level needed\" fit tag (#2548)", () => {
+  const v1 = (over: Partial<FacelessApplicant>): FacelessApplicant => ({
+    workerId: WORKER,
+    rank: 1,
+    score: 0,
+    hot: false,
+    signals: [],
+    matchTier: 1,
+    effectiveTier: 1,
+    skillMonths: 48,
+    ...over,
+  });
+  const levelTags = (a: FacelessApplicant) =>
+    elements(render({ applicants: [a] })).filter((e) => hasClass(e, "applicant__level"));
+
+  it("tags ONLY the not_confirmed group", () => {
+    const tags = levelTags(v1({ levelFit: "not_confirmed" }));
+    expect(tags).toHaveLength(1);
+    expect(textOf(tags[0]!.props.children as ReactNode)).toBe("Level not confirmed");
+  });
+
+  it("meets, below, null and absent show no level tag", () => {
+    expect(levelTags(v1({ levelFit: "meets" }))).toHaveLength(0);
+    expect(levelTags(v1({ levelFit: "below" }))).toHaveLength(0);
+    expect(levelTags(v1({ levelFit: null }))).toHaveLength(0);
+    expect(levelTags(v1({}))).toHaveLength(0);
   });
 });
 
@@ -1201,7 +1263,7 @@ describe("ApplicantActions — every row control leads with its icon (F08)", () 
       expiresAt: "2026-11-04T09:30:00.000Z",
     };
     const idle = render({ unlocked: { [WORKER]: held } });
-    expect(iconOf(idle, "Open routed contact")).toBe(ACTION_ICON.view);
+    expect(iconOf(idle, "Open contact")).toBe(ACTION_ICON.view);
     expect(iconOf(idle, "View masked resume")).toBe(ACTION_ICON.view);
     // A session row REPLACES the held base row, so it carries the grant itself.
     const failed = render({
@@ -1215,7 +1277,7 @@ describe("ApplicantActions — every row control leads with its icon (F08)", () 
         },
       },
     });
-    expect(iconOf(failed, "Retry — open routed contact")).toBe(ACTION_ICON.view);
+    expect(iconOf(failed, "Retry — open contact")).toBe(ACTION_ICON.view);
     expect(iconOf(failed, "Retry — view masked resume")).toBe(ACTION_ICON.view);
   });
 });
@@ -1260,7 +1322,7 @@ describe("ApplicantActions — an applicant the payer already unlocked STARTS un
     expiresAt: "2026-11-04T09:30:00.000Z",
   };
 
-  it("a held row renders the granted band (Unlocked · Open routed contact), never a fresh spend", () => {
+  it("a held row renders the granted band (Unlocked · Open contact), never a fresh spend", () => {
     const tree = render({ applicants: [A, B], unlocked: { [A.workerId]: HELD } });
     const cards = elements(tree).filter((e) => hasClass(e, "applicant"));
     expect(cards).toHaveLength(2);
@@ -1268,7 +1330,7 @@ describe("ApplicantActions — an applicant the payer already unlocked STARTS un
     const labels = (els: El[]) =>
       els.filter((e) => e.type === Button).map((e) => textOf(e.props.children as ReactNode).trim());
     // A: the payer holds a live grant — the band is the granted one, with its window end.
-    expect(labels(held!)).toContain("Open routed contact");
+    expect(labels(held!)).toContain("Open contact");
     expect(labels(held!)).not.toContain("Unlock contact (1 credit)");
     expect(held!.some((e) => e.type === Badge && textOf(e.props.children as ReactNode) === "Unlocked")).toBe(true);
     expect(gatherText(cards[0]!)).toContain("2026-11-04");
@@ -1279,7 +1341,7 @@ describe("ApplicantActions — an applicant the payer already unlocked STARTS un
   it("opening the held row's contact reveals THAT grant — no unlock, no confirm, no spend", () => {
     revealContactAction.mockResolvedValue({ ok: false, error: "x" });
     const { buttons } = collect(render({ unlocked: { [WORKER]: HELD } }));
-    buttons.find((b) => b.text === "Open routed contact")!.onClick!();
+    buttons.find((b) => b.text === "Open contact")!.onClick!();
     expect(revealContactAction).toHaveBeenCalledWith({ unlockId: HELD.unlockId });
     expect(unlockAction).not.toHaveBeenCalled();
     expect(setters[4]).not.toHaveBeenCalled(); // the confirm dialog never opened
@@ -1288,7 +1350,7 @@ describe("ApplicantActions — an applicant the payer already unlocked STARTS un
   it("session state layers OVER the held grant (the patch keeps it; this session's state wins)", () => {
     revealContactAction.mockReturnValue(new Promise(() => {}));
     const { buttons } = collect(render({ unlocked: { [WORKER]: HELD } }));
-    buttons.find((b) => b.text === "Open routed contact")!.onClick!();
+    buttons.find((b) => b.text === "Open contact")!.onClick!();
     // The busy patch starts from the held row, so the grant survives the patch.
     const updater = setters[0]!.mock.calls[0]![0] as (
       p: Record<string, unknown>,

@@ -271,7 +271,15 @@ describe("the tripwire itself still decides nothing", () => {
     // skills for trade forms that derived nothing; no promotable skill maps to any of them.
     // Middle Way E0 (Q3, owner-approved 2026-10-31) minted ONE more — mskill_3d_designer,
     // split off the generic designer — again as its own approved decision, not batch fit.
-    expect(MATCH_SKILLS).toHaveLength(18 + 8 + 1);
+    // The CEO-pack reconcile (2026-11-02) minted TWO more — mskill_cad_designer_3d (the
+    // trade's permanent ID) and the mskill_welder umbrella — same carve-out, not batch fit.
+    // + 1: Phase 2 #6 (CEO Launch Plan Pack v1, sheet 14, 2026-11-03) minted the PLC trade.
+    // + 1: Phase 2 #7 (sheet 16, 2026-11-03) minted the EDM / wire-cut trade.
+    // + 1: Phase 2 #9 (sheet 22, 2026-11-04) minted the injection-moulding trade.
+    // + 1: Phase 2 #8 (sheet 17, 2026-11-04) minted the heat-treatment trade.
+    // + 1: Phase 2 #10 (sheet 23, 2026-11-04) minted the production supervisor.
+    // + 1: Phase 2 #11 (sheet 19, 2026-11-04) minted the foundry / forging trade.
+    expect(MATCH_SKILLS).toHaveLength(18 + 8 + 9);
     expect(artifact.match_vocabulary_size).toBe(18);
   });
 

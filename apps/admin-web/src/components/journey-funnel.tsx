@@ -7,7 +7,7 @@ import {
   stepTitle,
   stepTone,
 } from "../lib/journey-view";
-import { formatRelative, formatTimestamp } from "../lib/format";
+import { formatRelative, timestampTitle } from "../lib/format";
 import { StatusPill } from "./status-pill";
 
 /**
@@ -67,7 +67,7 @@ export function JourneyFunnel({ steps }: { steps: readonly JourneyStep[] }) {
                 <time
                   className="funnel__events"
                   dateTime={step.last_at}
-                  title={formatTimestamp(step.last_at)}
+                  title={timestampTitle(step.last_at)}
                 >
                   {formatRelative(step.last_at)}
                 </time>

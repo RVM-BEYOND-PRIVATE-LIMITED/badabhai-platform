@@ -145,9 +145,9 @@ export class JobPostingChatController {
     @CurrentPayer() payer: AuthenticatedPayer,
     @Param(new ZodValidationPipe(JobPostingChatSessionParamSchema))
     params: JobPostingChatSessionParamDto,
-    @Body(new ZodValidationPipe(PublishJobPostingChatSchema)) _dto: PublishJobPostingChatDto,
+    @Body(new ZodValidationPipe(PublishJobPostingChatSchema)) dto: PublishJobPostingChatDto,
     @Ctx() ctx: RequestContext,
   ) {
-    return this.chat.publish(payer.id, params.id, ctx);
+    return this.chat.publish(payer.id, params.id, ctx, dto);
   }
 }

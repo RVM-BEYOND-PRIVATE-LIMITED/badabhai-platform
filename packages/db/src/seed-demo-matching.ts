@@ -998,8 +998,9 @@ export interface TradeReportRow {
 }
 
 /**
- * The 21 declared role kinds → the role pack their trade FORM asks (the `packId` on each
+ * The 22 declared role kinds → the role pack their trade FORM asks (the `packId` on each
  * `apps/api/src/profiling/roles/*.role.ts` descriptor; packages/db cannot import apps/api).
+ * Formless kinds map to the pack the CHAT serves (same `packId`, no form behind it).
  */
 export const FORM_KIND_PACK: Readonly<Record<TradeFormKindName, string>> = {
   cnc_turner: "qp_cnc_turning",
@@ -1023,6 +1024,12 @@ export const FORM_KIND_PACK: Readonly<Record<TradeFormKindName, string>> = {
   blow_moulding_operator: "qp_blow_moulding",
   rubber_moulding_operator: "qp_rubber_moulding",
   plastic_process_technician: "qp_plastic_process",
+  cad_designer_3d: "qp_cad_design_3d",
+  plc_automation_technician: "qp_plc_automation",
+  edm_wirecut_operator: "qp_edm_wirecut",
+  heat_treatment_technician: "qp_heat_treatment",
+  production_supervisor: "qp_production_supervisor",
+  foundry_forging_operator: "qp_foundry_forging",
 };
 
 /**

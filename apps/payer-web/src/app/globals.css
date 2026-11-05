@@ -261,30 +261,30 @@ body {
   text-overflow: ellipsis;
 }
 
-/* ACTIVE — the rail's one strong signal, identical in both themes because the rail is navy
-   in both. Safety Yellow text + icon on a yellow wash, plus a yellow spine on the leading
-   edge: the wash alone reads as "hovered", and colour alone would be the only cue for a user
-   who cannot separate the accent from the band. */
+/* ACTIVE — the rail's ONE active-row definition (W2 #2582). The Safety Yellow plate is the
+   row's own background, painted by CSS from the server-rendered `.pnav__link--active` class,
+   so it is readable before (or without) any script and never slides in from the top. Navy
+   text/icon on the yellow is 9.39:1; the weight step is the non-colour cue. */
 .pnav__link--active,
 .pnav__link--active:hover {
-  background: var(--surface-ink-active);
-  color: var(--text-on-ink-active);
+  background: var(--vermilion-500);
+  color: var(--navy-900);
   font-weight: var(--ui-nav-weight-active);
-  box-shadow: inset var(--border-spine) 0 0 var(--brand);
+  box-shadow: none;
+  transform: none;
 }
 .pnav__link--active .pnav__icon,
 .pnav__link--active:hover .pnav__icon {
-  color: var(--text-on-ink-active);
+  color: var(--navy-900);
+  transform: none;
 }
-/* The spine is itself a box-shadow, so on the active row it would replace the focus ring;
-   keyboard focus composes the two instead. */
-.pnav__link:focus-visible {
-  box-shadow: var(--ring-focus);
+.pnav__link--active .pnav__soon {
+  color: var(--navy-900);
+  border-color: rgb(var(--brand-primary-rgb) / 0.28);
 }
+.pnav__link:focus-visible,
 .pnav__link--active:focus-visible {
-  box-shadow:
-    inset var(--border-spine) 0 0 var(--brand),
-    var(--ring-focus);
+  box-shadow: var(--ring-focus);
 }
 
 /* The SOON badge on a PARKED item — a live link to a page that explains what is not built (see
@@ -562,15 +562,7 @@ body {
   padding: var(--space-4) var(--gutter-web) var(--space-6);
   flex: 1;
   min-width: 0;
-  /* Restrained entrance — a short, low-travel fade so route changes feel composed, not
-     jumpy. Collapses to nothing under prefers-reduced-motion (token durations → 0ms). */
-  animation: portal-fade var(--duration-base) var(--ease-out);
-}
-@keyframes portal-fade {
-  from {
-    opacity: 0;
-    transform: translateY(4px);
-  }
+  /* Its entrance on every route change: the W6 #2586 block (after the sidebar polish). */
 }
 
 /* ---- scrim (drawer only) ---- */
@@ -915,13 +907,13 @@ body {
 }
 .topbar .brand {
   font-weight: 700;
-  font-size: 16px;
+  font-size: var(--text-base);
 }
 .topbar .brand small {
   display: block;
   color: var(--muted);
   font-weight: 400;
-  font-size: 11px;
+  font-size: var(--text-2xs);
 }
 .topnav {
   display: flex;
@@ -942,7 +934,7 @@ body {
   align-items: center;
   gap: 10px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 .main {
@@ -953,7 +945,7 @@ body {
   flex: 1;
 }
 .page-title {
-  font-size: 22px;
+  font-size: var(--ui-h1-size);
   font-weight: 700;
   margin: 0 0 4px;
 }
@@ -976,13 +968,13 @@ body {
 }
 .card h3 {
   margin: 0 0 6px;
-  font-size: 13px;
+  font-size: var(--ui-body-sm-size);
   color: var(--muted);
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
 .card .big {
-  font-size: 26px;
+  font-size: var(--text-xl);
   font-weight: 700;
 }
 .card p {
@@ -996,7 +988,7 @@ body {
   color: var(--accent);
   border-radius: 999px;
   padding: 2px 10px;
-  font-size: 11px;
+  font-size: var(--text-2xs);
   font-weight: 600;
 }
 .badge-ok {
@@ -1036,7 +1028,7 @@ td {
 }
 th {
   background: var(--panel-2);
-  font-size: 12px;
+  font-size: var(--text-xs);
   color: var(--muted);
   text-transform: uppercase;
   letter-spacing: 0.03em;
@@ -1047,7 +1039,7 @@ tr:last-child td {
 
 .mono {
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 .empty {
@@ -1066,7 +1058,7 @@ tr:last-child td {
   padding: 10px 14px;
   color: var(--muted);
   margin: 12px 0;
-  font-size: 13px;
+  font-size: var(--ui-body-sm-size);
 }
 .note.warn {
   border-left-color: var(--warn);
@@ -1075,7 +1067,7 @@ tr:last-child td {
 .error-text {
   color: var(--danger);
   margin: 8px 0 0;
-  font-size: 13px;
+  font-size: var(--ui-body-sm-size);
 }
 
 .field {
@@ -1083,7 +1075,7 @@ tr:last-child td {
 }
 .field label {
   display: block;
-  font-size: 13px;
+  font-size: var(--ui-body-sm-size);
   margin-bottom: 6px;
   font-weight: 600;
 }
@@ -1096,7 +1088,7 @@ textarea.input {
   border-radius: 7px;
   background: var(--bg);
   color: var(--text);
-  font-size: 14px;
+  font-size: var(--text-sm);
 }
 textarea.input {
   min-height: 80px;
@@ -1113,7 +1105,7 @@ textarea.input {
   border: none;
   border-radius: 7px;
   padding: 9px 16px;
-  font-size: 14px;
+  font-size: var(--text-sm);
   font-weight: 600;
   cursor: pointer;
 }
@@ -1153,14 +1145,14 @@ textarea.input {
   border: 1px solid var(--border);
   border-radius: 999px;
   padding: 1px 8px;
-  font-size: 11px;
+  font-size: var(--text-2xs);
 }
 
 .footer {
   border-top: 1px solid var(--border);
   padding: 16px 24px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-xs);
   text-align: center;
 }
 
@@ -1248,12 +1240,6 @@ textarea.input {
   flex-direction: column;
   align-items: center;
   gap: var(--space-2);
-}
-.login-otp__label {
-  align-self: flex-start;
-  font-size: var(--text-sm);
-  font-weight: var(--weight-semibold);
-  color: var(--text-primary);
 }
 /* PR-D2 — the code is ONE row at every width. The DS row is a wrapping inline-flex of fixed
    cells, which inside this card split a 6-digit code 4 + 2 on every phone (measured at 320,
@@ -1494,6 +1480,175 @@ textarea.input {
   flex: none;
 }
 
+/* ------------------------------------------------------------------
+ * PASSWORD SIGN-IN (#2587) — the password row, the "Set a new password" step and its rule
+ * checklist, and the three motions the issue names. Tokens only; no new colour.
+ *
+ * MOTION, on the #2570 tokens: the eye morphs in 120ms, the step cross-fades in 160ms, and a
+ * refused sign-in shakes the form ONCE — 6px over 200ms. Every duration is a multiple of
+ * --duration-instant (80ms) and the travel is --motion-rise (6px), so all of it is 0 under
+ * prefers-reduced-motion in one place (tokens.css); the `animation: none` at the end is the belt
+ * to those braces. Opacity and transform only; nothing loops; no motion holds back input.
+ * ------------------------------------------------------------------ */
+
+/* The password field and its show/hide eye on one row. The DS field's label, input row and
+   feedback line join this grid (`display: contents` on the field shell — a plain div with no
+   role, so nothing leaves the accessibility tree), so the eye sits beside the INPUT whatever the
+   label's or the error's height. The eye is the DS IconButton at lg — the login input's height. */
+.login-secret {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-2);
+}
+.login-secret > .bb-field {
+  display: contents;
+}
+.login-secret .bb-field__label,
+.login-secret .bb-field__hint,
+.login-secret .bb-field__error {
+  grid-column: 1 / -1;
+}
+.login-secret .bb-input-wrap {
+  grid-column: 1;
+}
+.login-secret > .login-secret__toggle {
+  grid-column: 2;
+  grid-row: 2;
+  border-radius: var(--radius-sm);
+}
+/* The eye's glyph swap (eye ⇄ eye-slash) re-enters in 120ms. `data-morph` is set only by a
+   toggle, and alternates, so each toggle restarts it and arrival never animates. */
+.login-secret__toggle[data-morph="show"] .ph-fill {
+  animation: login-eye-morph-a calc(var(--duration-instant) * 1.5) var(--ease-enter);
+}
+.login-secret__toggle[data-morph="hide"] .ph-fill {
+  animation: login-eye-morph-b calc(var(--duration-instant) * 1.5) var(--ease-enter);
+}
+@keyframes login-eye-morph-a {
+  from {
+    opacity: 0;
+    transform: scale(0.7);
+  }
+}
+@keyframes login-eye-morph-b {
+  from {
+    opacity: 0;
+    transform: scale(0.7);
+  }
+}
+
+/* A refused sign-in: one shake. `shake.ts` alternates the two names so every refusal restarts
+   it without remounting the form (focus and typed values stay). */
+.login-form--shake-a {
+  animation: login-shake-a calc(var(--duration-instant) * 2.5) var(--ease-out);
+}
+.login-form--shake-b {
+  animation: login-shake-b calc(var(--duration-instant) * 2.5) var(--ease-out);
+}
+@keyframes login-shake-a {
+  20% {
+    transform: translateX(calc(-1 * var(--motion-rise)));
+  }
+  40% {
+    transform: translateX(var(--motion-rise));
+  }
+  60% {
+    transform: translateX(calc(-0.5 * var(--motion-rise)));
+  }
+  80% {
+    transform: translateX(calc(0.5 * var(--motion-rise)));
+  }
+}
+@keyframes login-shake-b {
+  20% {
+    transform: translateX(calc(-1 * var(--motion-rise)));
+  }
+  40% {
+    transform: translateX(var(--motion-rise));
+  }
+  60% {
+    transform: translateX(calc(-0.5 * var(--motion-rise)));
+  }
+  80% {
+    transform: translateX(calc(0.5 * var(--motion-rise)));
+  }
+}
+
+/* The "Set a new password" step replaces the sign-in form with a 160ms cross-fade in. */
+.login-step {
+  animation: login-step-in calc(var(--duration-instant) * 2) var(--ease-enter) both;
+}
+@keyframes login-step-in {
+  from {
+    opacity: 0;
+  }
+}
+.login-step__head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.login-step__title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--text-xl);
+  color: var(--text-heading);
+}
+/* Focused on arrival to anchor the screen reader (not a control) — as `.login-otp__sent`. */
+.login-step__title:focus {
+  outline: none;
+}
+.login-step__lead {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}
+.login-step__lead strong {
+  color: var(--text-primary);
+  font-weight: var(--weight-semibold);
+  word-break: break-word;
+}
+
+/* The rule checklist under the new password. The state is the glyph (✓ / ✕) AND a hidden word —
+   never colour alone; met steps up from the 60% secondary icon to full Shift Blue. */
+.login-rules {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-1);
+  color: var(--text-secondary);
+  font-size: var(--ui-caption-size);
+  line-height: var(--leading-normal);
+}
+.login-rule {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.login-rule .ph-fill {
+  flex: none;
+  font-size: var(--icon-size-sm);
+  color: var(--icon-secondary);
+}
+.login-rule--met {
+  color: var(--text-primary);
+}
+.login-rule--met .ph-fill {
+  color: var(--text-heading);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .login-step,
+  .login-form--shake-a,
+  .login-form--shake-b,
+  .login-secret__toggle[data-morph] .ph-fill {
+    animation: none;
+  }
+}
+
 /* PR-D2 — phones. Below the card's own max width (440px + the wrap inset) the card is the
    whole screen, so the insets tighten to hand the form the width. The top inset reserves the
    theme toggle's row (its offset + its 32px switch + a gap) so the toggle never sits on the
@@ -1651,8 +1806,15 @@ textarea.input {
   color: var(--text-muted);
   transition: transform var(--duration-fast) var(--ease-out);
 }
-.account-menu__link:hover .account-menu__link-arrow {
-  transform: translateX(3px);
+@media (hover: hover) {
+  .account-menu__link:hover .account-menu__link-arrow {
+    transform: translateX(3px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .account-menu__link:hover .account-menu__link-arrow {
+    transform: none;
+  }
 }
 
 /* ------------------------------------------------------------------
@@ -2588,6 +2750,80 @@ textarea.input {
     justify-content: center;
   }
 }
+/* ------------------------------------------------------------------
+ * CANDIDATES — the tab's two views (owner rulings 2026-11-03): ALL CANDIDATES (`/candidates`, the
+ * pool search) and APPLIED (`/candidates/applied`, the inbox above). Both pages wrap in
+ * `.applicants-page.candidates-page`, so the card, touch-target and pager rules above apply to
+ * both; these are only the view switch, the search filter's extra row, the counts and the divider.
+ * Tokens only.
+ * ------------------------------------------------------------------ */
+/* The head's toolbar row: the view switch, then the page's own filter. */
+.candidates-toolbar {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+}
+/* The view switch is the DS underline tabs drawn as two LINKS (candidates-views.tsx): the active
+   tab's underline marks the current view, so a link's own hover underline is not drawn on it.
+   (Its 44px phone / coarse-pointer target is the page's `.applicants-page .bb-tab` rule above.) */
+.applicants-page .candidates-views > .bb-tab:hover {
+  text-decoration: none;
+}
+/* The search form's last row: Show, and Clear filters when there is something to clear. */
+.candidates-filter__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+/* THE COUNTS (ADR-0040 Decision 3), right above the list they describe: three numbers, read
+   from the same response as the cards — tabular, so a changing count does not jitter. */
+.candidate-search__summary {
+  display: grid;
+  gap: var(--space-1);
+  margin: var(--section-gap) 0 var(--space-4);
+}
+.candidate-search__count {
+  margin: 0;
+  font-weight: var(--weight-semibold);
+  color: var(--text-heading);
+  font-variant-numeric: tabular-nums;
+}
+.candidate-search__note {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}
+/* "Other candidates" — a heading and a hairline before the first card that does not match every
+   filter, so it is plain that the matches lead (filters reorder; nobody is removed). */
+.candidate-search__divider {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin: var(--space-2) 0 0;
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-normal);
+  color: var(--text-secondary);
+}
+.candidate-search__divider::after {
+  content: "";
+  flex: 1;
+  border-top: var(--border-hairline) solid var(--border-default);
+}
+/* A card's other roles: a short lead, then the applicant card's own outline tags. */
+.candidate-card__roles {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+.candidate-card__roles-lead {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
 
 .reveal-card {
   width: 100%;
@@ -2638,6 +2874,86 @@ textarea.input {
     inset-block: calc((100% - var(--control-md)) / 2);
     inset-inline: min(0%, calc((100% - var(--control-md)) / 2));
   }
+}
+
+/* ==================================================================
+ * W5 (#2585) — FEEDBACK AFTER SPENDING A CREDIT. Motion tokens only (#2570), opacity and
+ * transform only, every piece plays ONCE (nothing here loops) and every duration and distance
+ * here is a token, so all of it is 0 under prefers-reduced-motion.
+ *  - The shell's credits chip, when its figure changes (balance-chip.tsx): the figure counts to
+ *    the new balance over --duration-count (CountUp) while a Safety Yellow tint fades out of the
+ *    chip over two thirds of that (400ms). The chip re-keys `.pshell__balancetint` per change.
+ *  - A card's FRESH grant (`.applicant__granted--fresh`, components/unlock/contact-band.tsx): the
+ *    band arrives blurred and clears over --duration-slow (320ms) — a blur LAYER over it that only
+ *    fades, so no filter is animated — and the Unlocked badge's seal stamps in, 0.6 → 1.08 → 1
+ *    over --duration-celebrate (520ms). The blur radius is the --motion-rise distance.
+ *  - The Post-job CTA's shine (DS5 block below) sweeps once, and never on a disabled button.
+ * ================================================================== */
+
+/* The tint sits UNDER the chip's icon and figure: while it exists, the chip is its stacking
+   context (`:has`, so a chip that never changed stacks exactly as before). */
+.pshell__balance:has(> .pshell__balancetint) {
+  isolation: isolate;
+}
+.pshell__balancetint {
+  position: absolute;
+  inset: 0;
+  z-index: calc(var(--z-base) - 1);
+  border-radius: inherit;
+  background: var(--color-brand-accent-40);
+  opacity: 0;
+  pointer-events: none;
+  animation: balance-tint-out calc(var(--duration-count) * 2 / 3) var(--ease-exit) both;
+}
+@keyframes balance-tint-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+.applicant__granted--fresh {
+  position: relative;
+}
+.applicant__granted--fresh::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  -webkit-backdrop-filter: blur(var(--motion-rise));
+  backdrop-filter: blur(var(--motion-rise));
+  opacity: 0;
+  pointer-events: none;
+  animation: unlock-clear var(--duration-slow) var(--ease-enter) both;
+}
+@keyframes unlock-clear {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+.applicant__granted--fresh .applicant__unlocked > .ph-fill {
+  animation: unlock-stamp var(--duration-celebrate) var(--ease-out) both;
+}
+@keyframes unlock-stamp {
+  0% {
+    transform: scale(0.6);
+  }
+  60% {
+    transform: scale(1.08);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+/* A disabled (or busy) CTA never shines; enabled again, it sweeps once. */
+.posting-cta:disabled::after,
+.posting-cta[aria-disabled="true"]::after {
+  animation: none;
 }
 
 /* ------------------------------------------------------------------
@@ -4404,7 +4720,9 @@ textarea.input {
    header that the user can actually see beats a pinned one they cannot. */
 .agency-workers__table thead th {
   background: var(--surface-sunken);
-  color: var(--text-muted);
+  /* --text-muted is 4.35:1 on the sunken fill (under 4.5:1); headers take the secondary step,
+     as `.table th` does. */
+  color: var(--text-secondary);
   font-size: var(--text-xs);
   font-weight: var(--weight-semibold);
   text-transform: uppercase;
@@ -4931,30 +5249,6 @@ img.agency-qr__code,
   gap: var(--space-2);
 }
 
-/* Inline per-action loading spinner (unlock / reveal / resume). Decorative — the button's
-   live status text ("Unlocking…") carries the meaning; aria-hidden keeps it out of SR output. */
-.spinner {
-  display: inline-block;
-  width: 12px;
-  height: 12px;
-  margin-right: 6px;
-  vertical-align: -1px;
-  border: 2px solid currentColor;
-  border-right-color: transparent;
-  border-radius: 50%;
-  animation: spinner-rotate 0.6s linear infinite;
-}
-@keyframes spinner-rotate {
-  100% {
-    transform: rotate(360deg);
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .spinner {
-    animation: none;
-  }
-}
-
 /* Visually-hidden but screen-reader-available (a11y for aria-live / labels). */
 .sr-only {
   position: absolute;
@@ -5179,29 +5473,19 @@ img.agency-qr__code,
 .dash-action .ph-fill {
   transition: transform var(--duration-fast) var(--ease-out);
 }
-.dash-action:hover .ph-fill {
-  transform: translateX(3px);
-}
-
-/* ---- "View" card action — tonal pill with a CONTINUOUSLY nudging arrow ---- */
-.dash-view__arrow {
-  animation: arrow-nudge 1.2s var(--ease-in-out) infinite;
-  will-change: transform;
-}
-@keyframes arrow-nudge {
-  0%,
-  100% {
-    transform: translateX(0);
-  }
-  50% {
-    transform: translateX(4px);
+@media (hover: hover) {
+  .dash-action:hover .ph-fill {
+    transform: translateX(3px);
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .dash-view__arrow {
-    animation: none;
+  .dash-action:hover .ph-fill {
+    transform: none;
   }
 }
+
+/* ---- "View" card action arrow — it nudges only on hover or keyboard focus of its card (the
+   W6 #2586 block, after the sidebar polish); it no longer loops forever. ---- */
 
 /* ---- Post-job CTA — an "exciting" brand button: a slow shine sweep + a rocket lift ---- */
 .posting-cta {
@@ -5219,7 +5503,8 @@ img.agency-qr__code,
     transparent 70%
   );
   transform: translateX(-130%);
-  animation: cta-shine 2.8s var(--ease-in-out) infinite;
+  /* ONE sweep (#2585 — it looped forever); never on a disabled button (the W5 block). */
+  animation: cta-shine calc(var(--duration-shimmer) * 2) var(--ease-in-out);
   pointer-events: none;
 }
 @keyframes cta-shine {
@@ -5234,13 +5519,18 @@ img.agency-qr__code,
 .posting-cta .ph-fill {
   transition: transform var(--duration-fast) var(--ease-out);
 }
-.posting-cta:hover .ph-fill {
-  transform: translateX(2px) translateY(-2px) rotate(-12deg);
+@media (hover: hover) {
+  .posting-cta:hover .ph-fill {
+    transform: translateX(2px) translateY(-2px) rotate(-12deg);
+  }
 }
 @media (prefers-reduced-motion: reduce) {
   .posting-cta::after {
     animation: none;
     display: none;
+  }
+  .posting-cta:hover .ph-fill {
+    transform: none;
   }
 }
 
@@ -5735,6 +6025,10 @@ img.agency-qr__code,
   .ai-chat {
     grid-template-columns: minmax(0, 1fr);
   }
+  /* One column: the draft follows the conversation instead of pinning over it. */
+  .ai-chat__side {
+    position: static;
+  }
 }
 .ai-chat__thread {
   display: grid;
@@ -5793,7 +6087,8 @@ img.agency-qr__code,
   display: grid;
   gap: var(--space-4);
   position: sticky;
-  top: var(--space-5);
+  /* W4 — below the sticky shell header (it slid under it at --space-5). */
+  top: var(--posting-rail-top);
 }
 .ai-draft {
   display: grid;
@@ -5964,7 +6259,7 @@ img.agency-qr__code,
   justify-content: center;
   padding: var(--space-4);
   margin: 0 0 var(--space-4);
-  background: #fff;
+  background: var(--paper-1);
   border-radius: var(--radius-md);
 }
 /* The root layout's footer says "BadaBhai for Employers" — true everywhere else in this app,
@@ -6233,7 +6528,8 @@ body:has(.invite-landing) .chrome-footer {
   /* Wide tables scroll INSIDE their container; the page body never scrolls sideways. The
      block cap also makes this the VERTICAL scroller, which is what makes the sticky header
      below actually stick — an uncapped `overflow-x: auto` box never scrolls, so a sticky
-     `top: 0` inside it pins to a rail that is always fully visible and never moves. */
+     `top: 0` inside it pins to a rail that is always fully visible and never moves.
+     Below 1024px the W8 block (end of file) drops the cap: no inner scroller to trap a swipe. */
   overflow: auto;
   max-block-size: calc(100dvh - 18rem);
   overscroll-behavior: contain;
@@ -7232,24 +7528,6 @@ body:has(.invite-landing) .chrome-footer {
    DESIGNER — new posting screen + rail (designr1)
    ============================================================ */
 
-/* Sidebar: the active row is a raised navy plate with a white label and the
-   Safety Yellow icon — the same signal as the design sheet, without the spine. */
-.pshell .pnav__link--active,
-.pshell .pnav__link--active:hover {
-  background: var(--navy-800);
-  color: #fff;
-  box-shadow: none;
-}
-.pshell .pnav__link--active .pnav__icon,
-.pshell .pnav__link--active:hover .pnav__icon {
-  color: var(--vermilion-500);
-}
-.pshell .pnav__link--active:focus-visible {
-  box-shadow: var(--ring-focus);
-  outline: var(--focus-outline);
-  outline-offset: var(--focus-outline-offset);
-}
-
 .mw-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(300px, 360px);
@@ -7282,7 +7560,7 @@ body:has(.invite-landing) .chrome-footer {
   color: var(--text-primary);
 }
 .mw-badge {
-  font-size: 10px;
+  font-size: var(--text-2xs);
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -7304,7 +7582,7 @@ body:has(.invite-landing) .chrome-footer {
   padding: var(--space-3) var(--space-4);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-lg);
-  background: linear-gradient(90deg, var(--navy-50), #f3eefe);
+  background: var(--navy-50);
 }
 .mw-ai__icon {
   display: inline-flex;
@@ -7314,7 +7592,7 @@ body:has(.invite-landing) .chrome-footer {
   height: 34px;
   flex: none;
   border-radius: var(--radius-md);
-  background: #fff;
+  background: var(--paper-1);
   color: var(--navy-700);
   font-size: var(--text-lg);
 }
@@ -7378,7 +7656,7 @@ body:has(.invite-landing) .chrome-footer {
   min-width: 0;
 }
 .mw-step__eyebrow {
-  font-size: 9px;
+  font-size: var(--text-2xs);
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--text-muted);
@@ -7421,6 +7699,7 @@ body:has(.invite-landing) .chrome-footer {
   margin: 0;
   font-size: var(--text-lg);
   color: var(--text-primary);
+  scroll-margin-top: var(--posting-rail-top);
 }
 .mw-card__sub {
   margin: 2px 0 0;
@@ -7452,7 +7731,7 @@ body:has(.invite-landing) .chrome-footer {
   gap: var(--space-3);
 }
 .mw-pill {
-  font-size: 10px;
+  font-size: var(--text-2xs);
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -7520,7 +7799,7 @@ body:has(.invite-landing) .chrome-footer {
 }
 .mw-mini__sub {
   margin: 2px 0 0;
-  font-size: 10px;
+  font-size: var(--text-2xs);
   color: var(--text-muted);
   line-height: 1.35;
 }
@@ -7534,7 +7813,7 @@ body:has(.invite-landing) .chrome-footer {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  font-size: 10px;
+  font-size: var(--text-2xs);
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -7543,7 +7822,7 @@ body:has(.invite-landing) .chrome-footer {
 }
 .mw-preview__hint {
   margin-left: auto;
-  font-size: 10px;
+  font-size: var(--text-2xs);
   font-weight: 400;
   letter-spacing: 0;
   text-transform: none;
@@ -7558,7 +7837,7 @@ body:has(.invite-landing) .chrome-footer {
 }
 .mw-worker {
   background: var(--navy-900);
-  color: #fff;
+  color: var(--paper-1);
   border-radius: var(--radius-md);
   padding: var(--space-4);
   display: flex;
@@ -7576,7 +7855,7 @@ body:has(.invite-landing) .chrome-footer {
   gap: var(--space-2);
 }
 .mw-worker__verified {
-  font-size: 9px;
+  font-size: var(--text-2xs);
   font-weight: 700;
   letter-spacing: 0.08em;
   background: var(--vermilion-500);
@@ -7585,12 +7864,12 @@ body:has(.invite-landing) .chrome-footer {
   padding: 2px 6px;
 }
 .mw-worker__ghost {
-  font-size: 44px;
+  font-size: var(--text-4xl);
   color: rgb(255 255 255 / 0.08);
 }
 .mw-worker__payer {
   margin: 0;
-  font-size: 9px;
+  font-size: var(--text-2xs);
   color: rgb(255 255 255 / 0.6);
 }
 .mw-worker__titlerow {
@@ -7603,10 +7882,10 @@ body:has(.invite-landing) .chrome-footer {
 .mw-worker__title {
   margin: 0;
   font-size: var(--text-lg);
-  color: #fff;
+  color: var(--paper-1);
 }
 .mw-worker__openings {
-  font-size: 10px;
+  font-size: var(--text-2xs);
   font-weight: 700;
   background: var(--vermilion-500);
   color: var(--navy-900);
@@ -7632,7 +7911,7 @@ body:has(.invite-landing) .chrome-footer {
 }
 .mw-worker__label {
   display: block;
-  font-size: 9px;
+  font-size: var(--text-2xs);
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: rgb(255 255 255 / 0.55);
@@ -7640,7 +7919,7 @@ body:has(.invite-landing) .chrome-footer {
 }
 .mw-worker__stats strong {
   font-size: var(--ui-body-sm-size);
-  color: #fff;
+  color: var(--paper-1);
 }
 .mw-worker__chips {
   display: flex;
@@ -7648,10 +7927,10 @@ body:has(.invite-landing) .chrome-footer {
   gap: 6px;
 }
 .mw-chip {
-  font-size: 10px;
+  font-size: var(--text-2xs);
   border: 1px solid rgb(255 255 255 / 0.2);
   background: rgb(255 255 255 / 0.08);
-  color: #fff;
+  color: var(--paper-1);
   border-radius: var(--radius-pill);
   padding: 3px 8px;
 }
@@ -7659,7 +7938,7 @@ body:has(.invite-landing) .chrome-footer {
   display: flex;
   justify-content: space-between;
   gap: var(--space-2);
-  font-size: 10px;
+  font-size: var(--text-2xs);
   color: rgb(255 255 255 / 0.8);
   border-top: 1px solid rgb(255 255 255 / 0.16);
   padding-top: var(--space-2);
@@ -7682,7 +7961,7 @@ body:has(.invite-landing) .chrome-footer {
   color: var(--text-primary);
 }
 .mw-audit__pill {
-  font-size: 9px;
+  font-size: var(--text-2xs);
   color: var(--text-muted);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-pill);
@@ -7697,7 +7976,7 @@ body:has(.invite-landing) .chrome-footer {
   gap: var(--space-2);
   border-top: 1px solid var(--border-subtle);
   padding: 5px 0;
-  font-size: 10px;
+  font-size: var(--text-2xs);
 }
 .mw-audit__row dt {
   color: var(--text-muted);
@@ -7710,7 +7989,7 @@ body:has(.invite-landing) .chrome-footer {
 }
 .mw-audit__note {
   margin: var(--space-2) 0 0;
-  font-size: 10px;
+  font-size: var(--text-2xs);
   color: var(--text-muted);
 }
 .mw-rail__actions .posting-actions {
@@ -7725,7 +8004,7 @@ body:has(.invite-landing) .chrome-footer {
   justify-content: space-between;
   gap: var(--space-2);
   margin: 0;
-  font-size: 10px;
+  font-size: var(--text-2xs);
   color: var(--text-muted);
 }
 .mw-rail__foot > span {
@@ -7764,6 +8043,106 @@ body:has(.invite-landing) .chrome-footer {
   display: none;
 }
 
+/* W4 (#2584) — POSTING ON A PHONE OR TABLET. At 1100px and below the designer rail drops under
+   the form, so its Publish sat below the whole form AND the preview. There the shared dock comes
+   back: pinned to the bottom of the screen along the whole form (it shares the form column's grid
+   cell, so `sticky` carries it the full length), carrying the status, the card summary (its
+   sheet) and Publish. The rail's own actions step aside so exactly one Publish is on screen. */
+@media (max-width: 1100px) {
+  .mw-layout > .mw-main {
+    grid-row: 1;
+    grid-column: 1;
+    padding-bottom: calc(var(--posting-dock-h) + var(--space-4));
+  }
+  .mw-layout > .posting-dock[data-mw-hidden] {
+    display: flex;
+    grid-row: 1;
+    grid-column: 1;
+    align-self: end;
+    position: sticky;
+    bottom: var(--space-2);
+    z-index: var(--z-sticky);
+    animation: mw-dock-in var(--duration-base) var(--ease-enter) both;
+  }
+  .mw-layout .mw-rail__actions,
+  .mw-card__foothint--wide {
+    display: none;
+  }
+  html:has(.mw-layout) {
+    scroll-padding-bottom: calc(var(--posting-dock-h) + var(--space-8));
+  }
+  .mw-layout > .posting-dock button {
+    scroll-margin-bottom: calc(-1 * (var(--posting-dock-h) + var(--space-8)));
+  }
+}
+@media (min-width: 1101px) {
+  .mw-card__foothint--narrow {
+    display: none;
+  }
+}
+@keyframes mw-dock-in {
+  from {
+    opacity: 0;
+    transform: translateY(var(--motion-rise));
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* W4 — a step change lands on the new step's heading (focus + scroll, below the sticky header —
+   `.mw-card__title`'s scroll margin) and the step arrives with a short rise. */
+.mw-form > .mw-card:not([hidden]) {
+  animation: mw-step-in var(--duration-base) var(--ease-enter) both;
+}
+@keyframes mw-step-in {
+  from {
+    opacity: 0;
+    transform: translateY(var(--motion-rise));
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* W4 — "Draft saved on this device": fades in after each local save, then out again. */
+.mw-draft-cue {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin: 0;
+  font-size: var(--ui-caption-size);
+  color: var(--text-muted);
+  opacity: 0;
+  transition: opacity var(--duration-page) var(--ease-exit);
+}
+.mw-draft-cue[data-shown="true"] {
+  opacity: 1;
+  transition-timing-function: var(--ease-enter);
+}
+/* The form opened with changes kept on this device: said plainly, with Discard beside it. */
+.mw-draft-restored {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+  margin: 0;
+  font-size: var(--ui-caption-size);
+  color: var(--text-muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mw-layout > .posting-dock[data-mw-hidden],
+  .mw-form > .mw-card:not([hidden]) {
+    animation: none;
+  }
+  .mw-draft-cue {
+    transition: none;
+  }
+}
+
 /* ============================================================
    SIDEBAR — polish pass (same palette, motion only)
    Scoped under .pshell so the shared selector fences keep their
@@ -7779,12 +8158,12 @@ body:has(.invite-landing) .chrome-footer {
 }
 
 .pshell .pnav__group {
-  animation: mw-nav-in 0.45s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  animation: mw-nav-in var(--duration-page) var(--ease-enter) both;
 }
-.pshell .pnav__group:nth-child(2) { animation-delay: 0.05s; }
-.pshell .pnav__group:nth-child(3) { animation-delay: 0.1s; }
-.pshell .pnav__group:nth-child(4) { animation-delay: 0.15s; }
-.pshell .pnav__group:nth-child(5) { animation-delay: 0.2s; }
+.pshell .pnav__group:nth-child(2) { animation-delay: var(--stagger-step); }
+.pshell .pnav__group:nth-child(3) { animation-delay: calc(var(--stagger-step) * 2); }
+.pshell .pnav__group:nth-child(4) { animation-delay: calc(var(--stagger-step) * 3); }
+.pshell .pnav__group:nth-child(5) { animation-delay: calc(var(--stagger-step) * 4); }
 @keyframes mw-nav-in {
   from { opacity: 0; transform: translateX(-6px); }
   to { opacity: 1; transform: translateX(0); }
@@ -7815,39 +8194,25 @@ body:has(.invite-landing) .chrome-footer {
     color var(--duration-fast) var(--ease-out),
     transform var(--duration-fast) var(--ease-out);
 }
-.pshell .pnav__link:hover { transform: translateX(2px); }
-.pshell .pnav__link:hover .pnav__icon { transform: scale(1.1); }
-.pshell .pnav__link:hover .pnav__label { transform: translateX(1px); }
 .pshell .pnav__icon,
 .pshell .pnav__label {
   transition:
     color var(--duration-fast) var(--ease-out),
     transform var(--duration-fast) var(--ease-out);
 }
-.pshell .pnav__link--active {
-  box-shadow:
-    inset 3px 0 0 var(--vermilion-500),
-    inset 0 0 0 var(--border-hairline) rgb(255 255 255 / 0.06),
-    0 10px 22px -16px rgb(0 0 0 / 0.65);
-}
-.pshell .pnav__link--active .pnav__icon {
-  animation: mw-icon-pop 0.38s cubic-bezier(0.2, 0.8, 0.2, 1);
-}
-@keyframes mw-icon-pop {
-  0% { transform: scale(0.86); }
-  55% { transform: scale(1.12); }
-  100% { transform: scale(1); }
-}
 .pshell .pshell__brandlink {
   transition:
     background var(--duration-fast) var(--ease-out),
     transform var(--duration-fast) var(--ease-out);
 }
-.pshell .pshell__brandlink:hover { transform: translateY(-1px); }
 .pshell .pshell__collapse .ph-fill {
-  transition: transform var(--duration-base) var(--ease-out);
+  transition: transform var(--duration-fast) var(--ease-out);
 }
-.pshell .pshell__collapse:hover .ph-fill { transform: translateX(-2px); }
+/* Hover motion only on devices that hover — a tap on a phone leaves nothing lifted. */
+@media (hover: hover) {
+  .pshell .pshell__brandlink:hover { transform: translateY(-1px); }
+  .pshell .pshell__collapse:hover .ph-fill { transform: translateX(-2px); }
+}
 
 @media (prefers-reduced-motion: reduce) {
   .pshell > .pshell__rail { animation: none; }
@@ -7859,101 +8224,284 @@ body:has(.invite-landing) .chrome-footer {
   .pshell .pshell__collapse .ph-fill { transition: none; }
   .pshell .pnav__link:hover,
   .pshell .pnav__link:hover .pnav__icon,
-  .pshell .pnav__link:hover .pnav__label { transform: none; }
-  .pshell .pnav__link--active .pnav__icon { animation: none; }
+  .pshell .pnav__link:hover .pnav__label,
+  .pshell .pshell__brandlink:hover,
+  .pshell .pshell__collapse:hover .ph-fill { transform: none; }
 }
 
 /* ============================================================
-   SIDEBAR — one Safety Yellow plate SLIDES to the selected row.
-   The plate is the fill; the active row owns navy text/icon (9.39:1). Switching a
-   destination is one continuous move, not a colour blink on two rows.
+   SIDEBAR — hover on the rail (inactive rows only). The active row's plate is painted in
+   place by `.pnav__link--active` above; once scripts run, the W6 marker (below) carries it
+   from row to row.
    ============================================================ */
-.pshell .pnav {
-  position: relative;
-}
-.pshell .pnav__group {
-  position: relative;
-  z-index: 1;
-}
-.pshell .pnav__plate {
-  position: absolute;
-  inset-inline: 0;
-  top: 0;
-  z-index: 0;
-  border-radius: var(--radius-md);
-  background: var(--vermilion-500);
-  background-image: linear-gradient(135deg, rgb(255 255 255 / 0.26), transparent 52%);
-  box-shadow:
-    inset 0 1px 0 rgb(255 255 255 / 0.45),
-    inset 0 -1px 0 rgb(0 0 0 / 0.08),
-    0 10px 22px -14px rgb(var(--brand-accent-rgb) / 0.65);
-  pointer-events: none;
-  will-change: transform;
-  transition:
-    transform 340ms cubic-bezier(0.22, 1, 0.36, 1),
-    height 260ms cubic-bezier(0.22, 1, 0.36, 1),
-    opacity 160ms ease-out;
-}
-.pshell .pnav__plate::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  pointer-events: none;
-  background: linear-gradient(
-    105deg,
-    transparent 20%,
-    rgb(255 255 255 / 0.3) 48%,
-    transparent 76%
-  );
-  opacity: 0.55;
-}
 .pshell .pnav__link:not(.pnav__link--active):hover {
   background: var(--surface-ink-hover);
   color: var(--text-on-ink);
-  transform: translateX(3px);
   box-shadow: inset 2px 0 0 rgb(var(--brand-accent-rgb) / 0.55);
 }
 .pshell .pnav__link:not(.pnav__link--active):hover .pnav__icon {
   color: var(--vermilion-500);
-  transform: scale(1.12);
 }
-.pshell .pnav__link--active,
-.pshell .pnav__link--active:hover {
-  background: transparent;
-  color: var(--navy-900);
-  font-weight: var(--ui-nav-weight-active);
-  transform: none;
-  box-shadow: none;
-}
-.pshell .pnav__link--active .pnav__icon,
-.pshell .pnav__link--active:hover .pnav__icon {
-  color: var(--navy-900);
-}
-.pshell .pnav__link--active .pnav__soon {
-  color: var(--navy-900);
-  border-color: rgb(14 25 70 / 0.28);
+@media (hover: hover) {
+  .pshell .pnav__link:not(.pnav__link--active):hover { transform: translateX(3px); }
+  .pshell .pnav__link:not(.pnav__link--active):hover .pnav__icon { transform: scale(1.12); }
 }
 
-/* The drawer scrim settles in rather than snapping. */
-@media (max-width: 1023px) {
-  .pshell--drawer-open .pshell__scrim {
-    backdrop-filter: blur(3px);
-    animation: pnav-scrim-in 200ms ease-out both;
-  }
-  @keyframes pnav-scrim-in {
-    from { opacity: 0; }
-    to { opacity: 1; }
-  }
-}
+/* (The drawer scrim's fade — both ways, no backdrop blur — is in the W6 #2586 block below.) */
 
 @media (prefers-reduced-motion: reduce) {
-  .pshell .pnav__plate { transition: none; }
   .pshell .pnav__link:not(.pnav__link--active):hover,
-  .pshell .pnav__link--active,
-  .pshell .pnav__link--active:hover { transform: none; }
-  .pshell--drawer-open .pshell__scrim { animation: none; }
+  .pshell .pnav__link:not(.pnav__link--active):hover .pnav__icon { transform: none; }
 }
+
+/* ===== W6 #2586 — page transitions + list motion ===== */
+/* The route entrance, the list entrance, the rail's gliding marker, the drawer scrim, the row
+   arrows, and the AI chat's new bubbles and typing dots. Durations and curves are the #2570 motion
+   tokens only. It animates opacity and transform only, enters with --ease-enter and leaves with
+   --ease-exit, and never holds input (nothing here delays a control or blocks the pointer). Nothing
+   loops except the typing dots, a progress cue drawn only while a reply is awaited. Travel is
+   --motion-rise (6px) at most — the rail marker is the one indicator, and it glides between rows.
+   ALL of it is zero under prefers-reduced-motion: the tokens collapse to 0 there, and the block's
+   reduced-motion rule (its last) switches each animation and transition off, so nothing even jumps
+   a 0ms keyframe. */
+
+/* 1 · ROUTE CHANGE. The content column is keyed on the PATH ((portal)/route-content.tsx), so a
+   route change mounts a fresh one and this plays: the content fades in with a --motion-rise rise
+   over --duration-page (200ms). No exit animation — the old page simply goes. A query-only change
+   (?reached=, the candidates pager) keeps the column, so nothing replays. A key, not a loading
+   boundary (app/no-suspense-above-a-page.test.ts). */
+.pshell__main > .pshell__content {
+  animation: page-enter var(--duration-page) var(--ease-enter);
+}
+@keyframes page-enter {
+  from {
+    opacity: 0;
+    transform: translateY(var(--motion-rise));
+  }
+}
+
+/* 5 · LISTS, ON FIRST RENDER ONLY. While the fresh column carries `data-entering` (from its mount
+   until its entrance has played — route-content.tsx), a list's first --stagger-max (8) items rise
+   in --stagger-step (30ms) apart, each over --duration-page; the rest enter together with the 8th.
+   Keyed on that attribute, so a list that changes later on the same page (the next page of
+   candidates, a row a save adds) never replays it. `backwards` holds an item at its start only
+   while it waits its turn; nothing stays transformed after. The lists: the dashboard's needs-you
+   band, posting rows and recent unlocks; Postings and agency Postings; every candidates and
+   applicants feed. (Tables are not staggered: their rows stay put.) */
+.pshell__content[data-entering] :is(.attention__list, .dash-postings, .dash-candlist, .postings-list, .agency-jobs__list, .applicants-list) > * {
+  animation: list-enter var(--duration-page) var(--ease-enter) backwards;
+}
+.pshell__content[data-entering] :is(.attention__list, .dash-postings, .dash-candlist, .postings-list, .agency-jobs__list, .applicants-list) > :nth-child(2) {
+  animation-delay: var(--stagger-step);
+}
+.pshell__content[data-entering] :is(.attention__list, .dash-postings, .dash-candlist, .postings-list, .agency-jobs__list, .applicants-list) > :nth-child(3) {
+  animation-delay: calc(var(--stagger-step) * 2);
+}
+.pshell__content[data-entering] :is(.attention__list, .dash-postings, .dash-candlist, .postings-list, .agency-jobs__list, .applicants-list) > :nth-child(4) {
+  animation-delay: calc(var(--stagger-step) * 3);
+}
+.pshell__content[data-entering] :is(.attention__list, .dash-postings, .dash-candlist, .postings-list, .agency-jobs__list, .applicants-list) > :nth-child(5) {
+  animation-delay: calc(var(--stagger-step) * 4);
+}
+.pshell__content[data-entering] :is(.attention__list, .dash-postings, .dash-candlist, .postings-list, .agency-jobs__list, .applicants-list) > :nth-child(6) {
+  animation-delay: calc(var(--stagger-step) * 5);
+}
+.pshell__content[data-entering] :is(.attention__list, .dash-postings, .dash-candlist, .postings-list, .agency-jobs__list, .applicants-list) > :nth-child(7) {
+  animation-delay: calc(var(--stagger-step) * 6);
+}
+.pshell__content[data-entering] :is(.attention__list, .dash-postings, .dash-candlist, .postings-list, .agency-jobs__list, .applicants-list) > :nth-child(n + 8) {
+  animation-delay: calc(var(--stagger-step) * (var(--stagger-max) - 1));
+}
+@keyframes list-enter {
+  from {
+    opacity: 0;
+    transform: translateY(var(--motion-rise));
+  }
+}
+
+/* 2 · THE RAIL MARKER. The active row's plate as one element ((portal)/rail-marker.ts places it)
+   that glides — transform only, --duration-slow (320ms), --ease-glide — to the row a press is
+   taking the payer to, the moment that link's navigation starts ((portal)/rail-press.tsx moves the
+   active row on the link's pending status, a rail row's or the brand lockup's), not once the next
+   page has rendered. Until it is
+   placed it is not drawn and the active row paints its own static plate (W2 #2582): readable before
+   scripts and with them off, and never sliding in from the top — it appears from `display: none`,
+   with nothing to slide from. Once placed (`.pnav[data-marker]`) the row hands its plate over, and
+   the navy ink goes with the plate (below). The marker sits BEHIND every row: the nav isolates, and the
+   marker is one step below the base. So a row's label, icon and focus ring paint over it whatever
+   positions that row (the `:has()` anchor) and whether or not its group is mid-entrance (a
+   transform). That holds under reduced motion and without `:has()` too. It is rendered after the
+   groups, so their entrance stagger (`.pnav__group:nth-child`) still counts groups only. */
+.pnav {
+  position: relative;
+  isolation: isolate;
+}
+.pnav__marker {
+  display: none;
+}
+.pnav[data-marker] .pnav__marker {
+  display: block;
+  position: absolute;
+  z-index: calc(var(--z-base) - 1);
+  top: 0;
+  left: 0;
+  width: var(--pnav-marker-w);
+  height: var(--pnav-marker-h);
+  border-radius: var(--radius-md);
+  background: var(--vermilion-500);
+  transform: translate(var(--pnav-marker-x), var(--pnav-marker-y));
+  transition: transform var(--duration-slow) var(--ease-glide);
+  pointer-events: none;
+}
+.pnav[data-marker] .pnav__link--active {
+  background: transparent;
+}
+/* …AND THE INK FOLLOWS THE PLATE. Once the marker is placed, a row wears the active navy only while
+   the plate is under it (`[data-on-plate]`, which rail-marker.ts sets on the rows the plate covers
+   by half or more as it travels), not from the moment the class moves. The pressed row keeps the
+   rail's on-ink text until the plate reaches it, and the row being left takes the light ink as
+   soon as the plate is off it. So each label reads on what is under it, the yellow or the rail,
+   throughout the glide. The same tokens as the static active row (W2). */
+.pnav[data-marker] .pnav__link--active:not([data-on-plate]),
+.pnav[data-marker] .pnav__link--active:not([data-on-plate]) .pnav__icon {
+  color: var(--text-on-ink);
+}
+.pnav[data-marker] .pnav__link--active:not([data-on-plate]) .pnav__soon {
+  color: var(--text-on-ink-muted);
+  border-color: var(--border-on-ink);
+}
+/* An inactive row under the pointer is the exception (`:not(:hover:not(.pnav__link--active))`: the
+   row is active, or not hovered): its hover background is opaque and hides the plate, so it keeps
+   its hover ink. */
+.pnav[data-marker] .pnav__link[data-on-plate]:not(:hover:not(.pnav__link--active)),
+.pnav[data-marker] .pnav__link[data-on-plate]:not(:hover:not(.pnav__link--active)) .pnav__icon {
+  color: var(--navy-900);
+}
+.pnav[data-marker] .pnav__link[data-on-plate]:not(:hover:not(.pnav__link--active)) .pnav__soon {
+  color: var(--navy-900);
+  border-color: rgb(var(--brand-primary-rgb) / 0.28);
+}
+/* While the plate travels (`[data-gliding]`), the ink changes at once: the rows' 140ms colour fade
+   would trail the plate. Only the colour leaves their transitions; hover's background and travel
+   keep theirs. It adds no motion (no duration of its own). */
+.pnav[data-gliding] :is(.pnav__link, .pnav__icon, .pnav__label) {
+  transition-property: background, transform;
+}
+
+/* 3 · THE DRAWER SCRIM fades both ways over --duration-base (220ms — the drawer's own slide): in
+   with --ease-enter, out with --ease-exit. No backdrop blur (removed with the old fade-in-only
+   animation). Below 1024px it stays laid out while the drawer is closed, so it has something to
+   fade out of — transparent and never a pointer target (a click during the fade-out reaches the
+   page), and still out of the reading and Tab order (app-shell.tsx: `aria-hidden` while closed,
+   `tabIndex={-1}` always). From 1024px it is not drawn at all, which is how the shell reads "the
+   rail is a drawer right now" (app-shell.tsx, drawer-focus.ts `isModal`). */
+@media (max-width: 1023px) {
+  .pshell__scrim {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: var(--z-overlay);
+    background: var(--scrim);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity var(--duration-base) var(--ease-exit);
+  }
+  .pshell--drawer-open .pshell__scrim {
+    opacity: 1;
+    pointer-events: auto;
+    transition: opacity var(--duration-base) var(--ease-enter);
+  }
+}
+
+/* 4 · ROW ARROWS. The "go" arrow on a whole-card link (a dashboard posting row, a linked unlock)
+   nudges 4px toward where the card goes — only while the card is hovered (on a device that hovers)
+   or keyboard-focused; it used to loop forever (`arrow-nudge … infinite`, removed). Out and back
+   over --duration-fast. */
+.bb-card--link .dash-view__arrow {
+  transition:
+    color var(--duration-fast) var(--ease-out),
+    transform var(--duration-fast) var(--ease-out);
+}
+@media (hover: hover) {
+  .bb-card--link:hover .dash-view__arrow {
+    transform: translateX(4px);
+  }
+}
+.bb-card--link:has(> .bb-stretched-link:focus-visible) .dash-view__arrow {
+  transform: translateX(4px);
+}
+
+/* 6 · THE AI CHAT ((portal)/postings/ai/new/job-posting-chat.tsx). A line added after the
+   transcript mounted rises in once (`ai-chat__line--new`): the payer's answer, the reply, and the
+   typing bubble. It fades in with a --motion-rise lift over 2 × --duration-press (180ms) on
+   --ease-enter; 180ms has no token of its own, and admin-web's nav groups name it the same way.
+   The lines a transcript mounts with (a new chat's opener, a resumed conversation) never get the
+   class, so they never move. The typing bubble is drawn only while a reply is awaited. Its three
+   dots pulse on the nav cue's beat (opacity only, --duration-slower each way), each dot a fifth of
+   a cycle behind the one before. They are the one loop here, and they stop when the bubble goes.
+   The payer's send (their line, the typing bubble) scrolls itself into view (`nearest`). The reply
+   does too, but only while the payer is still at the end of the thread. The scroll margin lands
+   each line below the sticky header. */
+.ai-chat__lines > li {
+  scroll-margin-top: var(--posting-rail-top);
+}
+.ai-chat__line--new {
+  animation: chat-line-enter calc(var(--duration-press) * 2) var(--ease-enter);
+}
+@keyframes chat-line-enter {
+  from {
+    opacity: 0;
+    transform: translateY(var(--motion-rise));
+  }
+}
+/* One text line tall (the line's own leading), so the reply that replaces the bubble keeps its
+   height. */
+.ai-chat__dots {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  block-size: calc(var(--leading-normal) * 1em);
+}
+.ai-chat__dot {
+  inline-size: var(--space-2);
+  block-size: var(--space-2);
+  border-radius: var(--radius-round);
+  background: var(--text-muted);
+  animation: chat-typing-pulse var(--duration-slower) var(--ease-in-out) infinite alternate;
+}
+.ai-chat__dot:nth-child(2) {
+  animation-delay: calc(var(--duration-slower) * 0.4);
+}
+.ai-chat__dot:nth-child(3) {
+  animation-delay: calc(var(--duration-slower) * 0.8);
+}
+@keyframes chat-typing-pulse {
+  to {
+    opacity: 0.4;
+  }
+}
+
+/* Reduced motion: nothing above moves — no entrance, no stagger, no glide, no fade, no nudge, no
+   rise, no pulse (the dots stand still at full strength). */
+@media (prefers-reduced-motion: reduce) {
+  .pshell__main > .pshell__content,
+  .pshell__content[data-entering] :is(.attention__list, .dash-postings, .dash-candlist, .postings-list, .agency-jobs__list, .applicants-list) > *,
+  .ai-chat__line--new,
+  .ai-chat__dot {
+    animation: none;
+  }
+  .pnav[data-marker] .pnav__marker,
+  .pshell__scrim,
+  .pshell--drawer-open .pshell__scrim,
+  .bb-card--link .dash-view__arrow {
+    transition: none;
+  }
+  .bb-card--link:hover .dash-view__arrow,
+  .bb-card--link:has(> .bb-stretched-link:focus-visible) .dash-view__arrow {
+    transform: none;
+  }
+}
+/* ===== end W6 #2586 ===== */
 
 /* ============================================================
    APP-WIDE DESIGNER PATTERN — the new-posting visual language,
@@ -7978,10 +8526,6 @@ body:has(.invite-landing) .chrome-footer {
   border-color: var(--border-subtle);
   box-shadow: var(--shadow-sm);
 }
-.pshell__content .panel {
-  transition: box-shadow var(--duration-base) var(--ease-out);
-}
-.pshell__content .panel:hover { box-shadow: var(--shadow-md); }
 .pshell__content .panel__head {
   background: linear-gradient(180deg, var(--surface-card), var(--surface-sunken));
 }
@@ -8023,13 +8567,6 @@ body:has(.invite-landing) .chrome-footer {
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-xs);
 }
-.pshell__content .table thead th {
-  background: var(--surface-sunken);
-  color: var(--text-muted);
-  font-size: 10px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
 .pshell__content .table tbody tr {
   transition: background var(--duration-fast) var(--ease-out);
 }
@@ -8042,12 +8579,6 @@ body:has(.invite-landing) .chrome-footer {
   border-radius: var(--radius-lg);
   border-color: var(--border-subtle);
   box-shadow: var(--shadow-xs);
-  transition:
-    box-shadow var(--duration-base) var(--ease-out),
-    transform var(--duration-base) var(--ease-out);
-}
-.pshell__content :is(.applicant, .posting-card, .credit-pack, .capacity-tier):hover {
-  box-shadow: var(--shadow-md);
 }
 .login-wrap .login-card {
   border-radius: var(--radius-lg);
@@ -8130,7 +8661,7 @@ body:has(.invite-landing) .chrome-footer {
   padding: var(--space-5);
   border-radius: var(--radius-lg);
   background: var(--navy-900);
-  color: #fff;
+  color: var(--paper-1);
   margin-bottom: var(--section-gap);
 }
 .cred-hero__icon {
@@ -8148,7 +8679,7 @@ body:has(.invite-landing) .chrome-footer {
 .cred-hero__body { flex: 1; min-width: 0; }
 .cred-hero__label {
   margin: 0;
-  font-size: 10px;
+  font-size: var(--text-2xs);
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--navy-200);
@@ -8158,7 +8689,7 @@ body:has(.invite-landing) .chrome-footer {
 }
 .cred-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green-300); }
 .cred-hero__value { margin: 2px 0 0; display: flex; align-items: baseline; gap: var(--space-2); }
-.cred-hero__num { font-size: var(--text-3xl); font-weight: var(--weight-bold); color: #fff; }
+.cred-hero__num { font-size: var(--text-3xl); font-weight: var(--weight-bold); color: var(--paper-1); }
 .cred-hero__unit { font-size: var(--ui-body-sm-size); color: var(--navy-200); }
 .cred-hero__sub { margin: var(--space-1) 0 0; font-size: var(--ui-body-sm-size); color: var(--navy-200); }
 .cred-hero__stats {
@@ -8175,13 +8706,13 @@ body:has(.invite-landing) .chrome-footer {
 .cred-hero__stats > div + div { border-inline-start: 1px solid rgb(255 255 255 / 0.14); }
 .cred-hero__stats div > span {
   display: block;
-  font-size: 9px;
+  font-size: var(--text-2xs);
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--navy-200);
   margin-bottom: 2px;
 }
-.cred-hero__stats strong { font-size: var(--ui-body-sm-size); color: #fff; }
+.cred-hero__stats strong { font-size: var(--ui-body-sm-size); color: var(--paper-1); }
 .cred-buy { margin-bottom: var(--section-gap); }
 .cred-buy__head, .cred-panel__head {
   display: flex;
@@ -8203,6 +8734,7 @@ body:has(.invite-landing) .chrome-footer {
 }
 .cred-muted { font-size: var(--ui-body-sm-size); color: var(--text-muted); }
 .cred-link { font-size: var(--ui-body-sm-size); color: var(--brand-strong, var(--navy-700)); font-weight: var(--weight-semibold); }
+/* Its track is the shared auto-fit floor since W8 (end of file): 3 → 2 → 1 as the room allows. */
 .cred-pack-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -8232,7 +8764,7 @@ body:has(.invite-landing) .chrome-footer {
   gap: var(--space-1);
   background: var(--vermilion-500);
   color: var(--navy-900);
-  font-size: 9px;
+  font-size: var(--text-2xs);
   font-weight: 700;
   letter-spacing: 0.06em;
   border-radius: var(--radius-pill);
@@ -8242,7 +8774,7 @@ body:has(.invite-landing) .chrome-footer {
 .cred-pack__head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
 .cred-pack__name { font-size: var(--ui-body-sm-size); font-weight: var(--weight-semibold); color: var(--text-primary); }
 .cred-pack__tier {
-  font-size: 10px;
+  font-size: var(--text-2xs);
   color: var(--text-muted);
   border: var(--border-hairline) solid var(--border-default);
   border-radius: var(--radius-pill);
@@ -8251,10 +8783,10 @@ body:has(.invite-landing) .chrome-footer {
 .cred-pack--best .cred-pack__tier { border-color: var(--vermilion-500); color: var(--vermilion-800); }
 .cred-pack__price { margin: var(--space-1) 0 0; display: flex; align-items: baseline; gap: var(--space-2); }
 .cred-pack__price strong { font-size: var(--text-2xl); color: var(--text-primary); }
-.cred-pack__gst { font-size: 10px; color: var(--text-muted); }
+.cred-pack__gst { font-size: var(--text-2xs); color: var(--text-muted); }
 .cred-pack__line { margin: 0; display: flex; align-items: center; gap: var(--space-2); font-size: var(--ui-body-sm-size); color: var(--text-primary); }
 .cred-pack__line .ph-fill { color: var(--green-500); }
-.cred-pack__rate { margin: 0; font-size: 10px; color: var(--text-muted); display: flex; gap: var(--space-2); }
+.cred-pack__rate { margin: 0; font-size: var(--text-2xs); color: var(--text-muted); display: flex; gap: var(--space-2); }
 .cred-pack__rate s { color: var(--text-disabled); }
 .cred-pack .bb-btn { margin-top: var(--space-2); }
 .cred-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); }
@@ -8285,7 +8817,7 @@ body:has(.invite-landing) .chrome-footer {
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
-  font-size: 10px;
+  font-size: var(--text-2xs);
   border-radius: var(--radius-pill);
   padding: 3px var(--space-2);
   background: var(--green-50);
@@ -8317,7 +8849,7 @@ body:has(.invite-landing) .chrome-footer {
    PLANS & CAPACITY — designr3
    ============================================================ */
 .plans-live {
-  font-size: 9px;
+  font-size: var(--text-2xs);
   font-weight: 700;
   letter-spacing: 0.08em;
   border-radius: var(--radius-pill);
@@ -8353,7 +8885,7 @@ body:has(.invite-landing) .chrome-footer {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  font-size: 10px;
+  font-size: var(--text-2xs);
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--text-muted);
@@ -8387,7 +8919,7 @@ body:has(.invite-landing) .chrome-footer {
   justify-content: space-between;
   gap: var(--space-2);
   margin: 0;
-  font-size: 10px;
+  font-size: var(--text-2xs);
   color: var(--text-muted);
 }
 .plans-stat__link { display: inline-flex; align-items: center; gap: var(--space-1); color: var(--vermilion-800); font-weight: var(--weight-semibold); }
@@ -8417,7 +8949,7 @@ body:has(.invite-landing) .chrome-footer {
 .plans-card__sub { margin: 2px 0 0; font-size: var(--ui-caption-size); color: var(--text-muted); }
 .plans-card__link { display: inline-flex; align-items: center; gap: var(--space-1); font-size: var(--ui-caption-size); color: var(--vermilion-800); font-weight: var(--weight-semibold); }
 .plans-card__body { padding: var(--space-4); display: flex; flex-direction: column; gap: var(--space-3); }
-.plans-pill { font-size: 9px; font-weight: 700; letter-spacing: 0.05em; border-radius: var(--radius-pill); padding: 3px var(--space-2); background: var(--surface-sunken); color: var(--text-muted); white-space: nowrap; }
+.plans-pill { font-size: var(--text-2xs); font-weight: 700; letter-spacing: 0.05em; border-radius: var(--radius-pill); padding: 3px var(--space-2); background: var(--surface-sunken); color: var(--text-muted); white-space: nowrap; }
 .plans-pill--green { background: var(--green-50); color: var(--green-600); }
 .plans-note {
   display: flex;
@@ -8442,17 +8974,18 @@ body:has(.invite-landing) .chrome-footer {
   inset-inline-end: var(--space-3);
   background: var(--vermilion-500);
   color: var(--navy-900);
-  font-size: 9px;
+  font-size: var(--text-2xs);
   font-weight: 700;
   letter-spacing: 0.06em;
   border-radius: var(--radius-pill);
   padding: 2px var(--space-2);
 }
-.capacity-tier__tag { font-size: 10px; color: var(--text-muted); }
+.capacity-tier__tag { font-size: var(--text-2xs); color: var(--text-muted); }
 .plans-page .capacity-tier__name { font-size: var(--ui-caption-size); letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted); }
 .capacity-tier__price s { font-size: var(--ui-caption-size); font-weight: var(--weight-regular); color: var(--text-disabled); }
 .plans-page .capacity-tier__allowance { margin: 0; font-size: var(--ui-caption-size); color: var(--text-muted); }
 .plans-page .capacity-tier .bb-btn { margin-top: var(--space-2); }
+/* Both grids below take one track on a phone (the W8 block, end of file). */
 .plans-quick { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-3); }
 .plans-quick__item {
   display: flex;
@@ -8463,9 +8996,9 @@ body:has(.invite-landing) .chrome-footer {
   border-radius: var(--radius-md);
   background: var(--surface-card);
 }
-.plans-quick__label { font-size: 9px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-muted); }
+.plans-quick__label { font-size: var(--text-2xs); letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-muted); }
 .plans-quick__price { font-size: var(--ui-body-sm-size); font-weight: var(--weight-semibold); color: var(--text-primary); }
-.plans-quick__credits { font-size: 10px; color: var(--text-muted); }
+.plans-quick__credits { font-size: var(--text-2xs); color: var(--text-muted); }
 .plans-planlist { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3); }
 .plans-plan {
   border: var(--border-hairline) solid var(--border-subtle);
@@ -8475,10 +9008,10 @@ body:has(.invite-landing) .chrome-footer {
   flex-direction: column;
   gap: 2px;
 }
-.plans-plan__name { margin: 0; font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-muted); }
+.plans-plan__name { margin: 0; font-size: var(--text-2xs); letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-muted); }
 .plans-plan__price { margin: 0; font-size: var(--text-xl); font-weight: var(--weight-bold); color: var(--text-primary); }
-.plans-plan__meta { margin: 0; font-size: 10px; color: var(--text-muted); }
-.plans-plan__enabled { margin: var(--space-2) 0 0; display: inline-flex; align-items: center; gap: var(--space-1); font-size: 10px; color: var(--green-600); }
+.plans-plan__meta { margin: 0; font-size: var(--text-2xs); color: var(--text-muted); }
+.plans-plan__enabled { margin: var(--space-2) 0 0; display: inline-flex; align-items: center; gap: var(--space-1); font-size: var(--text-2xs); color: var(--green-600); }
 .plans-empty { display: flex; flex-direction: column; align-items: center; text-align: center; gap: var(--space-2); padding: var(--space-5) 0; }
 .plans-empty__icon {
   display: inline-flex;
@@ -8502,7 +9035,7 @@ body:has(.invite-landing) .chrome-footer {
   margin-top: var(--space-6);
   padding-top: var(--space-4);
   border-top: var(--border-hairline) solid var(--border-subtle);
-  font-size: 10px;
+  font-size: var(--text-2xs);
   color: var(--text-muted);
 }
 .plans-foot__links { display: flex; gap: var(--space-3); flex-wrap: wrap; }
@@ -8559,7 +9092,7 @@ body:has(.invite-landing) .chrome-footer {
   gap: var(--space-2);
 }
 .pshell__content .agency-stat__label {
-  font-size: 10px;
+  font-size: var(--text-2xs);
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--text-muted);
@@ -8576,7 +9109,7 @@ body:has(.invite-landing) .chrome-footer {
   color: var(--text-muted);
 }
 .pshell__content .agency-stat__hint {
-  font-size: 10px;
+  font-size: var(--text-2xs);
   color: var(--text-disabled);
 }
 
@@ -8625,7 +9158,7 @@ body:has(.invite-landing) .chrome-footer {
   padding: var(--space-3);
 }
 .pshell__content .agency-funnel__label {
-  font-size: 10px;
+  font-size: var(--text-2xs);
   letter-spacing: 0.05em;
   text-transform: uppercase;
   color: var(--text-muted);
@@ -8636,17 +9169,13 @@ body:has(.invite-landing) .chrome-footer {
   color: var(--text-primary);
 }
 .pshell__content .agency-funnel__hint {
-  font-size: 10px;
+  font-size: var(--text-2xs);
   color: var(--text-muted);
 }
 
 /* Job rows */
 .pshell__content .agency-job {
   padding: var(--space-3);
-  transition: box-shadow var(--duration-base) var(--ease-out);
-}
-.pshell__content .agency-job:hover {
-  box-shadow: var(--shadow-md);
 }
 .pshell__content .agency-job__title {
   font-size: var(--ui-body-size);
@@ -8680,7 +9209,7 @@ body:has(.invite-landing) .chrome-footer {
   padding: var(--space-5) var(--space-4);
 }
 .pshell__content .soon-badge {
-  font-size: 10px;
+  font-size: var(--text-2xs);
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -8702,7 +9231,7 @@ body:has(.invite-landing) .chrome-footer {
   border-radius: var(--radius-pill);
   background: var(--navy-50);
   color: var(--navy-700);
-  font-size: 10px;
+  font-size: var(--text-2xs);
   font-weight: var(--weight-semibold);
   letter-spacing: 0.02em;
   white-space: nowrap;
@@ -8718,7 +9247,7 @@ body:has(.invite-landing) .chrome-footer {
   background: var(--surface-sunken);
   color: var(--text-secondary);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--text-2xs);
   font-weight: var(--weight-semibold);
   letter-spacing: 0.02em;
   white-space: nowrap;
@@ -8789,7 +9318,7 @@ body:has(.invite-landing) .chrome-footer {
   align-items: center;
 }
 .dash-kpi .bb-stat__label {
-  font-size: 11px;
+  font-size: var(--text-2xs);
   font-weight: var(--weight-medium);
   color: var(--text-muted);
 }
@@ -8819,7 +9348,7 @@ body:has(.invite-landing) .chrome-footer {
 }
 .dash-stat-status {
   font-family: var(--font-sans);
-  font-size: 10px;
+  font-size: var(--text-2xs);
   font-weight: var(--weight-medium);
   letter-spacing: 0;
 }
@@ -8829,7 +9358,7 @@ body:has(.invite-landing) .chrome-footer {
   padding: 2px var(--space-2);
   border-radius: var(--radius-pill);
   font-family: var(--font-sans);
-  font-size: 10px;
+  font-size: var(--text-2xs);
   font-weight: var(--weight-semibold);
 }
 .dash-stat-pill--ready {
@@ -8842,13 +9371,21 @@ body:has(.invite-landing) .chrome-footer {
 }
 .dash-stat-note {
   font-family: var(--font-sans);
-  font-size: 10px;
+  font-size: var(--text-2xs);
   font-weight: var(--weight-medium);
   color: var(--text-muted);
 }
 .dash-kpi .bb-stat__value {
   margin-top: var(--space-2);
   font-size: var(--text-3xl);
+}
+/* KPI values use the compact size on phones (W2 #2582) — the 38px desktop figure otherwise wins
+   over `.stat-row--kpi`'s phone ledger row, which sits later in specificity order. */
+@media (max-width: 600px) {
+  .stat-row--kpi .dash-kpi .bb-stat__value {
+    margin-top: 0;
+    font-size: var(--ui-kpi-sm-size);
+  }
 }
 .dash-kpi .bb-stat__caption {
   margin-top: var(--space-1);
@@ -8868,7 +9405,7 @@ body:has(.invite-landing) .chrome-footer {
   white-space: nowrap;
 }
 .dash-kpi__link .ph-fill {
-  font-size: 10px;
+  font-size: var(--text-2xs);
 }
 .dash-kpi__meta {
   font-size: var(--ui-caption-size);
@@ -8886,15 +9423,24 @@ body:has(.invite-landing) .chrome-footer {
   border: 0;
   border-radius: var(--radius-lg);
   background: var(--navy-900);
-  color: #fff;
+  color: var(--paper-1);
   box-shadow: var(--shadow-sm);
   transition: var(--transition-control);
 }
 .dash-quick-action:hover {
   background: var(--navy-800);
-  box-shadow: var(--shadow-md);
-  transform: translateY(-2px);
   text-decoration: none;
+}
+@media (hover: hover) {
+  .dash-quick-action:hover {
+    box-shadow: var(--shadow-md);
+    transform: translateY(-2px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dash-quick-action:hover {
+    transform: none;
+  }
 }
 .dash-quick-action:focus-visible {
   outline: var(--focus-outline);
@@ -8908,7 +9454,7 @@ body:has(.invite-landing) .chrome-footer {
   gap: var(--space-2);
 }
 .dash-quick-action__eyebrow {
-  font-size: 9px;
+  font-size: var(--text-2xs);
   font-weight: var(--weight-bold);
   letter-spacing: 0.08em;
   color: var(--navy-200);
@@ -8917,8 +9463,8 @@ body:has(.invite-landing) .chrome-footer {
   padding: 2px var(--space-2);
   border-radius: var(--radius-pill);
   background: rgb(255 255 255 / 0.14);
-  color: #fff;
-  font-size: 9px;
+  color: var(--paper-1);
+  font-size: var(--text-2xs);
   font-weight: var(--weight-semibold);
   white-space: nowrap;
 }
@@ -8927,7 +9473,7 @@ body:has(.invite-landing) .chrome-footer {
   font-family: var(--font-display);
   font-size: var(--text-lg);
   font-weight: var(--weight-bold);
-  color: #fff;
+  color: var(--paper-1);
 }
 .dash-quick-action__desc {
   font-size: var(--ui-caption-size);
@@ -8944,7 +9490,7 @@ body:has(.invite-landing) .chrome-footer {
   border-top: 1px solid rgb(255 255 255 / 0.14);
 }
 .dash-quick-action__limit {
-  font-size: 10px;
+  font-size: var(--text-2xs);
   color: var(--navy-200);
 }
 .dash-quick-action__manage {
@@ -8956,7 +9502,7 @@ body:has(.invite-landing) .chrome-footer {
   color: var(--brand);
 }
 .dash-quick-action__manage .ph-fill {
-  font-size: 10px;
+  font-size: var(--text-2xs);
 }
 
 /* 3 · COLUMNS — Your postings (wider) beside Recent unlocks. */
@@ -9039,7 +9585,8 @@ body:has(.invite-landing) .chrome-footer {
   border-radius: var(--radius-pill);
   font-size: var(--ui-caption-size);
   font-weight: var(--weight-medium);
-  color: var(--text-muted);
+  /* Secondary, not muted: on the sunken track muted text is 4.22:1 at 12px, under AA (#2588). */
+  color: var(--text-secondary);
   white-space: nowrap;
 }
 .dash-tab:hover {
@@ -9115,7 +9662,7 @@ body:has(.invite-landing) .chrome-footer {
 }
 .dash-perks .ph-fill {
   color: var(--green-600);
-  font-size: 10px;
+  font-size: var(--text-2xs);
 }
 .dash-callout {
   display: flex;
@@ -9229,7 +9776,7 @@ body:has(.invite-landing) .chrome-footer {
 }
 .dash-panel__footstart .ph-fill {
   color: var(--green-600);
-  font-size: 10px;
+  font-size: var(--text-2xs);
 }
 .dash-panel__footlink {
   display: inline-flex;
@@ -9240,7 +9787,7 @@ body:has(.invite-landing) .chrome-footer {
   white-space: nowrap;
 }
 .dash-panel__footlink .ph-fill {
-  font-size: 10px;
+  font-size: var(--text-2xs);
 }
 
 /* Page footer — the gateway/database strip at the bottom of designr4. */
@@ -9253,7 +9800,7 @@ body:has(.invite-landing) .chrome-footer {
   margin-top: var(--space-4);
   padding-top: var(--space-3);
   border-top: var(--border-hairline) solid var(--border-subtle);
-  font-size: 10px;
+  font-size: var(--text-2xs);
   color: var(--text-muted);
 }
 .dash-foot__status {
@@ -9340,7 +9887,7 @@ body:has(.invite-landing) .chrome-footer {
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
-  font-size: 10px;
+  font-size: var(--text-2xs);
   color: var(--text-muted);
   white-space: nowrap;
 }
@@ -9352,7 +9899,7 @@ body:has(.invite-landing) .chrome-footer {
   flex: none;
 }
 .login-topbar__help {
-  font-size: 10px;
+  font-size: var(--text-2xs);
   font-weight: var(--weight-medium);
   color: var(--text-muted);
   white-space: nowrap;
@@ -9398,14 +9945,14 @@ body:has(.invite-landing) .chrome-footer {
   border-radius: var(--radius-pill);
   background: var(--surface-card);
   color: var(--text-muted);
-  font-size: 9px;
+  font-size: var(--text-2xs);
   font-weight: var(--weight-bold);
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 .login-eyebrow .ph-fill {
   color: var(--vermilion-800);
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 .login-split .login-card__title {
   margin: 0;
@@ -9434,7 +9981,7 @@ body:has(.invite-landing) .chrome-footer {
   gap: var(--space-3);
 }
 .login-steps__label {
-  font-size: 9px;
+  font-size: var(--text-2xs);
   letter-spacing: 0.1em;
 }
 .login-steps__dot {
@@ -9454,7 +10001,7 @@ body:has(.invite-landing) .chrome-footer {
   gap: var(--space-2);
 }
 .login-roleblock__label {
-  font-size: 9px;
+  font-size: var(--text-2xs);
   font-weight: var(--weight-bold);
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -9482,6 +10029,12 @@ body:has(.invite-landing) .chrome-footer {
   border: var(--border-hairline) solid var(--border-subtle);
   box-shadow: var(--shadow-xs);
 }
+/* The sliding indicator (#2583) takes this page's active-segment look: the tighter radius and the
+   hairline edge the static marker above draws. */
+.login-roletabs .bb-tabs__indicator {
+  border-radius: var(--radius-sm);
+  border: var(--border-hairline) solid var(--border-subtle);
+}
 .login-roletabs .bb-tab--active:focus-visible {
   outline: var(--focus-outline);
   outline-offset: var(--focus-outline-offset);
@@ -9495,7 +10048,7 @@ body:has(.invite-landing) .chrome-footer {
   border: var(--border-hairline) solid var(--border-subtle);
   background: var(--surface-card);
   color: var(--text-secondary);
-  font-size: 9px;
+  font-size: var(--text-2xs);
   font-weight: var(--weight-semibold);
   letter-spacing: 0.02em;
 }
@@ -9528,7 +10081,7 @@ body:has(.invite-landing) .chrome-footer {
   color: var(--text-primary);
 }
 .login-form .bb-field__label {
-  font-size: 9px;
+  font-size: var(--text-2xs);
   font-weight: var(--weight-bold);
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -9542,7 +10095,7 @@ body:has(.invite-landing) .chrome-footer {
   font-weight: var(--weight-semibold);
 }
 .login-trust {
-  font-size: 10px;
+  font-size: var(--text-2xs);
 }
 .login-trust .ph-fill {
   color: var(--brand);
@@ -9555,12 +10108,12 @@ body:has(.invite-landing) .chrome-footer {
   gap: var(--space-3);
   padding: var(--space-6);
   background: var(--navy-900);
-  color: #fff;
+  color: var(--paper-1);
 }
 .login-aside__eyebrow {
   margin: 0;
   color: var(--brand);
-  font-size: 9px;
+  font-size: var(--text-2xs);
   font-weight: var(--weight-bold);
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -9571,7 +10124,7 @@ body:has(.invite-landing) .chrome-footer {
   font-size: var(--text-2xl);
   line-height: 1.15;
   letter-spacing: -0.01em;
-  color: #fff;
+  color: var(--paper-1);
 }
 .login-aside__lead {
   margin: 0;
@@ -9608,11 +10161,11 @@ body:has(.invite-landing) .chrome-footer {
   display: block;
   font-size: var(--ui-caption-size);
   font-weight: var(--weight-semibold);
-  color: #fff;
+  color: var(--paper-1);
 }
 .login-aside__features p {
   margin: 2px 0 0;
-  font-size: 10px;
+  font-size: var(--text-2xs);
   line-height: 1.45;
   color: var(--navy-200);
 }
@@ -9635,7 +10188,7 @@ body:has(.invite-landing) .chrome-footer {
   border-radius: 50%;
   background: var(--brand);
   color: var(--text-on-brand);
-  font-size: 10px;
+  font-size: var(--text-2xs);
   font-weight: var(--weight-bold);
   flex: none;
 }
@@ -9647,12 +10200,12 @@ body:has(.invite-landing) .chrome-footer {
   flex: 1;
 }
 .login-quote__name {
-  font-size: 10px;
+  font-size: var(--text-2xs);
   font-weight: var(--weight-semibold);
-  color: #fff;
+  color: var(--paper-1);
 }
 .login-quote__meta {
-  font-size: 9px;
+  font-size: var(--text-2xs);
   color: var(--navy-200);
 }
 .login-quote__badge {
@@ -9660,7 +10213,7 @@ body:has(.invite-landing) .chrome-footer {
   border-radius: var(--radius-pill);
   background: var(--green-50);
   color: var(--green-600);
-  font-size: 8px;
+  font-size: var(--text-2xs);
   font-weight: var(--weight-bold);
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -9669,7 +10222,7 @@ body:has(.invite-landing) .chrome-footer {
 .login-aside__join {
   margin: auto 0 0;
   padding-top: var(--space-3);
-  font-size: 9px;
+  font-size: var(--text-2xs);
   color: var(--navy-200);
 }
 
@@ -9680,7 +10233,7 @@ body:has(.invite-landing) .chrome-footer {
   justify-content: space-between;
   flex-wrap: wrap;
   gap: var(--space-2) var(--space-4);
-  font-size: 9px;
+  font-size: var(--text-2xs);
   color: var(--text-muted);
 }
 .login-foot__links {
@@ -9738,13 +10291,13 @@ body:has(.invite-landing) .chrome-footer {
   border-radius: var(--radius-pill);
   background: var(--green-50);
   color: var(--green-600);
-  font-size: 9px;
+  font-size: var(--text-2xs);
   font-weight: var(--weight-bold);
   letter-spacing: 0.04em;
   white-space: nowrap;
 }
 .agency-protected .ph-fill {
-  font-size: 10px;
+  font-size: var(--text-2xs);
 }
 
 /* ---------- designr8 · AGENCY DASHBOARD ---------- */
@@ -9781,7 +10334,7 @@ body:has(.invite-landing) .chrome-footer {
   border-inline-start: var(--border-hairline) solid var(--border-subtle);
 }
 .agency-pipeline span {
-  font-size: 9px;
+  font-size: var(--text-2xs);
   font-weight: var(--weight-bold);
   letter-spacing: 0.06em;
   color: var(--text-muted);
@@ -9793,7 +10346,7 @@ body:has(.invite-landing) .chrome-footer {
   line-height: 1.1;
 }
 .agency-pipeline em {
-  font-size: 10px;
+  font-size: var(--text-2xs);
   font-style: normal;
   color: var(--text-muted);
 }
@@ -9804,7 +10357,7 @@ body:has(.invite-landing) .chrome-footer {
   padding: var(--space-3) var(--space-4);
   border-top: var(--border-hairline) solid var(--border-subtle);
   background: var(--surface-sunken);
-  font-size: 10px;
+  font-size: var(--text-2xs);
   color: var(--text-muted);
 }
 .agency-pipeline__foot .ph-fill {
@@ -9833,7 +10386,7 @@ body:has(.invite-landing) .chrome-footer {
   background: var(--surface-card);
 }
 .agency-stage span {
-  font-size: 8px;
+  font-size: var(--text-2xs);
   font-weight: var(--weight-bold);
   letter-spacing: 0.06em;
   color: var(--text-muted);
@@ -9845,7 +10398,7 @@ body:has(.invite-landing) .chrome-footer {
   line-height: 1.1;
 }
 .agency-stage em {
-  font-size: 9px;
+  font-size: var(--text-2xs);
   font-style: normal;
   color: var(--text-muted);
 }
@@ -9854,7 +10407,7 @@ body:has(.invite-landing) .chrome-footer {
   align-items: flex-start;
   gap: var(--space-2);
   margin: var(--space-3) 0 0;
-  font-size: 10px;
+  font-size: var(--text-2xs);
   line-height: 1.5;
   color: var(--text-muted);
 }
@@ -9911,7 +10464,7 @@ body:has(.invite-landing) .chrome-footer {
   gap: var(--space-2);
 }
 .agency-stage-card__head span {
-  font-size: 9px;
+  font-size: var(--text-2xs);
   font-weight: var(--weight-bold);
   letter-spacing: 0.06em;
   color: var(--text-muted);
@@ -9939,7 +10492,7 @@ body:has(.invite-landing) .chrome-footer {
   color: var(--text-primary);
 }
 .agency-stage-card em {
-  font-size: 10px;
+  font-size: var(--text-2xs);
   font-style: normal;
   color: var(--text-muted);
 }
@@ -9947,7 +10500,7 @@ body:has(.invite-landing) .chrome-footer {
   margin-top: var(--space-2);
   padding-top: var(--space-2);
   border-top: var(--border-hairline) solid var(--border-subtle);
-  font-size: 9px;
+  font-size: var(--text-2xs);
   color: var(--text-disabled);
 }
 .agency-privacy-banner {
@@ -9959,7 +10512,7 @@ body:has(.invite-landing) .chrome-footer {
   border: var(--border-hairline) solid var(--border-subtle);
   border-radius: var(--radius-md);
   background: var(--surface-sunken);
-  font-size: 10px;
+  font-size: var(--text-2xs);
   color: var(--text-muted);
 }
 .agency-privacy-banner .ph-fill {
@@ -10020,7 +10573,7 @@ body:has(.invite-landing) .chrome-footer {
   background: var(--surface-sunken);
 }
 .agency-earnings-tier span {
-  font-size: 9px;
+  font-size: var(--text-2xs);
   font-weight: var(--weight-bold);
   letter-spacing: 0.06em;
   color: var(--text-muted);
@@ -10031,7 +10584,7 @@ body:has(.invite-landing) .chrome-footer {
 }
 .agency-earnings-card__hint {
   margin: 0;
-  font-size: 9px;
+  font-size: var(--text-2xs);
   color: var(--text-disabled);
 }
 .agency-dispatch-grid {
@@ -10070,11 +10623,11 @@ body:has(.invite-landing) .chrome-footer {
   margin-bottom: var(--space-1);
 }
 .agency-dispatch__tile strong {
-  font-size: 10px;
+  font-size: var(--text-2xs);
   font-weight: var(--weight-semibold);
 }
 .agency-dispatch__tile em {
-  font-size: 9px;
+  font-size: var(--text-2xs);
   font-style: normal;
   color: var(--text-muted);
 }
@@ -10142,7 +10695,7 @@ body:has(.invite-landing) .chrome-footer {
   gap: var(--space-2);
 }
 .agency-qr__label {
-  font-size: 9px;
+  font-size: var(--text-2xs);
   font-weight: var(--weight-bold);
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -10159,7 +10712,7 @@ body:has(.invite-landing) .chrome-footer {
   border-radius: var(--radius-pill);
   background: var(--surface-sunken);
   color: var(--text-secondary);
-  font-size: 10px;
+  font-size: var(--text-2xs);
   font-weight: var(--weight-medium);
   cursor: pointer;
   transition: var(--transition-control);
@@ -10170,7 +10723,7 @@ body:has(.invite-landing) .chrome-footer {
 .agency-qr__segment--active {
   background: var(--navy-700);
   border-color: var(--navy-700);
-  color: #fff;
+  color: var(--paper-1);
 }
 .agency-qr__segment:focus-visible {
   outline: var(--focus-outline);
@@ -10190,7 +10743,7 @@ body:has(.invite-landing) .chrome-footer {
   border: var(--border-hairline) solid var(--border-subtle);
   border-radius: var(--radius-sm);
   background: var(--surface-sunken);
-  font-size: 10px;
+  font-size: var(--text-2xs);
   color: var(--text-secondary);
   overflow-wrap: anywhere;
 }
@@ -10201,7 +10754,7 @@ body:has(.invite-landing) .chrome-footer {
 }
 .agency-qr__subnote {
   margin: 0;
-  font-size: 9px;
+  font-size: var(--text-2xs);
   text-align: center;
   color: var(--text-muted);
 }
@@ -10210,7 +10763,7 @@ body:has(.invite-landing) .chrome-footer {
   align-items: center;
   justify-content: space-between;
   gap: var(--space-2);
-  font-size: 9px;
+  font-size: var(--text-2xs);
   font-weight: var(--weight-bold);
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -10236,13 +10789,13 @@ body:has(.invite-landing) .chrome-footer {
   border: 0;
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-md);
-  color: #fff;
+  color: var(--paper-1);
 }
 .agency-qr__rail .agency-qr__layout {
   gap: var(--space-3);
 }
 .agency-qr__postertop {
-  font-size: 9px;
+  font-size: var(--text-2xs);
   font-weight: var(--weight-bold);
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -10253,7 +10806,7 @@ body:has(.invite-landing) .chrome-footer {
   font-family: var(--font-display);
   font-size: var(--text-lg);
   line-height: 1.2;
-  color: #fff;
+  color: var(--paper-1);
 }
 .agency-qr__rail .agency-qr__frame {
   padding: var(--space-3);
@@ -10275,11 +10828,11 @@ body:has(.invite-landing) .chrome-footer {
   margin: 0;
   font-family: var(--font-display);
   font-size: var(--text-md);
-  color: #fff;
+  color: var(--paper-1);
 }
 .agency-qr__rail .agency-qr__link {
   margin: 0;
-  font-size: 8px;
+  font-size: var(--text-2xs);
   color: var(--navy-200);
   text-align: center;
   overflow-wrap: anywhere;
@@ -10302,16 +10855,16 @@ body:has(.invite-landing) .chrome-footer {
 }
 .agency-qr__benefits strong {
   display: block;
-  font-size: 9px;
+  font-size: var(--text-2xs);
   color: var(--brand);
 }
 .agency-qr__benefits span {
-  font-size: 8px;
+  font-size: var(--text-2xs);
   color: var(--navy-200);
 }
 .agency-qr__authorized {
   margin: 0;
-  font-size: 8px;
+  font-size: var(--text-2xs);
   color: var(--navy-200);
 }
 .agency-qr__actions {
@@ -10328,7 +10881,7 @@ body:has(.invite-landing) .chrome-footer {
   justify-content: center;
   gap: var(--space-1);
   margin: 0;
-  font-size: 9px;
+  font-size: var(--text-2xs);
   color: var(--text-muted);
 }
 .agency-qr__consent .ph-fill {
@@ -10337,7 +10890,7 @@ body:has(.invite-landing) .chrome-footer {
 .agency-qr__pvc {
   margin: 0;
   text-align: end;
-  font-size: 9px;
+  font-size: var(--text-2xs);
   font-weight: var(--weight-semibold);
   color: var(--text-link);
   text-decoration: underline;
@@ -10389,4 +10942,211 @@ body:has(.invite-landing) .chrome-footer {
   .agency-qr__rail .agency-qr__link {
     color: var(--ink-950) !important;
   }
+}
+/* TRADE-SPECIFIC POSTING FORM (migration 0139)
+ *
+ * One fieldset per pack question, chips only. The "Match" suffix sits inside the same
+ * DS chip; the summary strip carries the derived skill labels and the one server-counted
+ * reach number. Nothing here invents a visual language — layout + tokens only.
+ * ------------------------------------------------------------------ */
+.trade-fields {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+.trade-fields__group {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+.trade-fields__legend {
+  font-family: var(--font-display);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: var(--text-primary);
+  padding: 0;
+}
+.trade-fields__hint {
+  margin: var(--space-1) 0 0;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}
+.trade-fields__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+.trade-fields__match {
+  color: var(--brand-accent);
+  font-weight: 700;
+}
+.trade-fields__summary {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border-subtle);
+}
+.trade-fields__summary-line {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+.trade-fields__cap {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+.trade-fields__loading {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+.trade-fields__error {
+  margin: 0;
+  color: var(--danger);
+  font-size: var(--text-sm);
+}
+
+/* ==================================================================
+ * W8 (#2588) — REMAINING POLISH: the Candidates pager, the list heading, the credit and plan
+ * grids, the table scroll box and the OTP code input. ONE block, last in the file on purpose:
+ * where it re-states an earlier rule (the grids, the table box) it wins by order at equal
+ * specificity, and the earlier rule says where it is overridden. Tokens only.
+ * ================================================================== */
+
+/* ---- The Candidates pager: which rows are on screen, then First page / Next page. The range
+   takes the row's free space on the left, so the links keep their right edge; on a phone (where the
+   links share the row as equal thumb targets) it is a centred line of its own above them. ---- */
+.candidates-pager__range {
+  margin: 0;
+  margin-inline-end: auto;
+  align-self: center;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+}
+@media (max-width: 600px) {
+  .candidates-pager__range {
+    flex: 1 1 100%;
+    text-align: center;
+  }
+}
+
+/* ---- A list's heading (components/paged-list.tsx) — the count line, or the inbox's range. It is
+   the line it replaced, typographically: an h2 only so it can be found, and focused after paging.
+   It hugs its text (so a keyboard focus ring does too) and lands clear of the sticky header. ---- */
+.paged-list-heading {
+  justify-self: start;
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+  letter-spacing: inherit;
+  scroll-margin-top: calc(var(--shell-header-h) + var(--space-4));
+}
+
+/* ---- /credits: the pack grid auto-fits on the shared tile floor. It was three fixed tracks that
+   dropped straight to ONE at 900px, so a tablet showed three packs as a tall single column; now the
+   packs stay three across down to ~730px, then two, then one — and never wider than the column
+   (`min(100%, …)`), so nothing overflows at 320. Re-states the earlier `.cred-pack-grid` (also its
+   ≤900px one-track rule): last, at equal specificity, it wins at every width. ---- */
+.cred-pack-grid {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--stat-min)), 1fr));
+}
+
+/* ---- /plans: the quick credit packs (three tracks) and the posting plans (two) collapse to one
+   track on a phone, where three ~80px tiles squeezed a price that cannot wrap. ---- */
+@media (max-width: 600px) {
+  .plans-quick,
+  .plans-planlist {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ---- The table scroll box is a desktop affordance. Below 1024px a capped, `contain`ed inner
+   scroller was a scroll trap: a vertical swipe that started on a table scrolled the table and never
+   the page. There the box only scrolls sideways (the page never does) and grows to its table; the
+   vertical cap and the contained overscroll stay at ≥1024px. ---- */
+@media (max-width: 1023px) {
+  .tablewrap {
+    overflow-x: auto;
+    overflow-y: hidden;
+    max-block-size: none;
+    overscroll-behavior-y: auto;
+  }
+}
+
+/* ---- The OTP code input (components/otp-input.tsx). The boxes are ONE row at every width — the DS
+   row wraps a six-digit code 4 + 2 on a phone, so here (as on the sign-in card) they are equal
+   zero-minimum tracks capped at the DS box width, and shrink instead. A digit pops as it lands;
+   on success the boxes take the success colours with the digits at full contrast, and a check
+   fades in by the label (out again a little faster). Opacity and transform only; every duration is
+   a token that is 0 under reduced motion, and the pop's scale is 1 there as well. ---- */
+.otp-code {
+  --otp-pop-scale: 1.04;
+  display: grid;
+  justify-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.otp-code__head {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.otp-code__label {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--text-primary);
+}
+.otp-code__check {
+  color: var(--success);
+  opacity: 0;
+  transition: opacity var(--duration-fast) var(--ease-exit);
+}
+.otp-code--success .otp-code__check {
+  opacity: 1;
+  transition: opacity var(--duration-base) var(--ease-enter);
+}
+.otp-code__boxes {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, var(--control-lg));
+  justify-content: center;
+  gap: var(--space-2);
+  width: 100%;
+  overflow: visible;
+}
+.otp-code__boxes > .bb-otp__cell {
+  width: 100%;
+  min-width: 0;
+}
+.otp-code .bb-otp__cell--filled {
+  animation: otp-code-pop var(--duration-press) var(--ease-out);
+}
+.otp-code--success .bb-otp__cell {
+  border-color: var(--success);
+  background: var(--success-tint);
+  color: var(--text-primary);
+}
+@keyframes otp-code-pop {
+  50% {
+    transform: scale(var(--otp-pop-scale));
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .otp-code {
+    --otp-pop-scale: 1;
+  }
+}
+
+/* ══ #2645 16-trade posting — the trade picker's spot while the 16 trades are not there ══
+   The company trade picker (postings/trade-picker.tsx) stands an `.alert` (the real cause and a
+   Retry) inside its DS field shell when GET /payer/posting-trades did not load or listed nothing.
+   The field's own gap already spaces it from the label above and the refusal line below, so the
+   alert's block margin is dropped. Tokens only; no new colours. */
+.trade-picker__unavailable {
+  margin-bottom: 0;
 }

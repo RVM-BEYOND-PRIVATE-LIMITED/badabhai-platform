@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Icon } from "@badabhai/icons";
 import { Button, Card, Dialog, Toast } from "../../../components/ds";
+import { useToast } from "../../../components/ds/toast-provider";
 import { formatInr } from "../../../lib/format";
 import type { ChargedPrice } from "../../../lib/pricing-config";
 import { earlierPurchaseMessage, priceChangedMessage } from "../../../lib/purchase-messages";
@@ -38,6 +39,10 @@ import { upgradeCapacityAction } from "./actions";
  * restore falls to the body. Once closed and settled, focus goes back to the tier's button — only
  * if it is still lost.
  *
+ * ONE SUCCESS PATTERN, ONE PRIMARY (#2583): a recorded upgrade is a toast from the portal's
+ * ToastProvider (once, self-dismissing); the neutral notice and the error stay in this panel's
+ * region. Only the MOST CAPACITY tile's Upgrade is primary — the other tiers are secondary.
+ *
  * A TIER THE PLAN ALREADY COVERS IS NOT SOLD (review N2). The backend keeps the LARGER allowance
  * (`greatest()` in the capacity upsert), so a tier at or below the payer's current allowance would
  * be paid for and grant nothing. The page passes the allowance it already read (GET
@@ -61,12 +66,12 @@ export function CapacityPanel({
   const router = useRouter();
   const [pendingCode, setPendingCode] = useState<string | null>(null);
   const [pendingConfirm, setPendingConfirm] = useState<CapacityTier | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  // A NEUTRAL "still processing" notice — distinct from `message` (success) and `error` (danger).
+  // A NEUTRAL "still processing" notice — distinct from the success toast and `error` (danger).
   // A 409 duplicate-in-flight (#1185) lands here: it is NOT a success, so it must not read as one.
   const [notice, setNotice] = useState<string | null>(null);
   const [, startTransition] = useTransition();
+  const toast = useToast();
 
   // ONE idempotency key per PURCHASE, not per attempt (#1148). A duplicate capacity buy is worse
   // than a duplicate pack — it double-fires the payment/coupon spine for zero extra allowance
@@ -107,7 +112,6 @@ export function CapacityPanel({
   /** Clicking a tier ARMS a DS confirm Dialog (no native window.confirm) — nothing is sent. */
   function onUpgrade(tier: CapacityTier) {
     setError(null);
-    setMessage(null);
     setNotice(null);
     focusBack.current = tier.code;
     setPendingConfirm(tier);
@@ -119,7 +123,6 @@ export function CapacityPanel({
     if (!tier) return;
     setPendingConfirm(null);
     setError(null);
-    setMessage(null);
     setNotice(null);
     // ONE KEY, ONE CONFIRMED PRICE (#2085 L2). A key still held for this tier belongs to an earlier
     // attempt whose outcome is unknown (still processing, a failure, a dropped connection). Reusing
@@ -149,7 +152,10 @@ export function CapacityPanel({
       if (res.ok) {
         // TERMINAL success — the purchase is DONE. Drop the key so a genuine next buy mints a fresh one.
         purchaseKeyRef.current = null;
-        setMessage(`Capacity recorded — ${res.resumedCount} posting(s) resumed.`);
+        toast.show({
+          tone: "success",
+          message: `Capacity recorded — ${res.resumedCount} posting(s) resumed.`,
+        });
         router.refresh();
       } else if ("pending" in res) {
         // A 409 DUPLICATE-IN-FLIGHT (#1185): the FIRST attempt is still running and MAY STILL THROW —
@@ -225,7 +231,7 @@ export function CapacityPanel({
               ) : (
                 <Button
                   id={tierButtonId(t.code)}
-                  variant="primary"
+                  variant={t.code === topTierCode ? "primary" : "secondary"}
                   block
                   disabled={pendingCode !== null}
                   loading={pendingCode === t.code}
@@ -246,7 +252,6 @@ export function CapacityPanel({
       )}
 
       <div aria-live="polite" className="capacity-result">
-        {message ? <Toast tone="success">{message}</Toast> : null}
         {notice ? <Toast tone="neutral">{notice}</Toast> : null}
         {error ? <Toast tone="danger">{error}</Toast> : null}
       </div>

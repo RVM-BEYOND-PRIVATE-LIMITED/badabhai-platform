@@ -9,9 +9,15 @@ import {
   PAY_TYPES,
   SHIFTS,
   type MatchSkillWire,
+  type PostingTradeFormWire,
   type ReachPreview,
 } from "../../../../lib/contracts";
-import { roleOptionGroups } from "../../../../lib/job-roles";
+import {
+  POSTING_TRADE_REQUIRED_MESSAGE,
+  isPostingTrade,
+  withTradeRequired,
+  type PostingTradesProblem,
+} from "../../../../lib/posting-trades";
 import { neededByLabel, payTypeLabel, shiftLabel } from "../../../../lib/job-card-view";
 import {
   CARD_NUMBER_FIELDS,
@@ -27,7 +33,15 @@ import {
   type CardNumberPair,
   type RevealedNumbers,
 } from "../../../../lib/job-card-form";
-import { focusControl, revealWholeControl } from "../../../../lib/form-focus";
+import {
+  focusControl,
+  focusControlOnNextFrame,
+  focusStepHeading,
+  revealWholeControl,
+} from "../../../../lib/form-focus";
+import { postingDraftKey } from "../../../../lib/posting-draft";
+import { usePostingDraft } from "../../../../components/use-posting-draft";
+import { DraftRestoredNotice } from "../../../../components/draft-restored-notice";
 import { companyPostingFacts } from "../../../../lib/posting-facts";
 import { workerCardGap, type WorkerCardGap } from "../../../../lib/worker-card-gap";
 import { bandForVacancies, baseApplicantQuotaForBand } from "../../../../lib/pricing-config";
@@ -42,11 +56,16 @@ import {
 import { createPostingAction } from "./actions";
 import { withPublishedReach } from "../../../../lib/published-reach";
 import { usePortalNavigation } from "../../../../components/portal-navigation";
-import { MatchSkillPicker, type MatchSelection } from "./match-skill-picker";
+import type { MatchSelection } from "./match-skill-picker";
+import { TradePostingFields, derivedMatchSkills, type TradeFormValue } from "../trade-fields";
+import { PostingTradePicker } from "../trade-picker";
 
 /**
  * New posting (EMPLOYER self-serve) — the posting form is the TRACEABLE SOURCE of every Job Card
- * field. The role leads (all 21 roles, grouped), then every card field, then the skill picker.
+ * field. The role leads — REQUIRED, one of the 16 trades the API serves (#2645: a company job
+ * matches only within them, #2635) — then every card field, then the trade's own fields, from
+ * which the server derives the match skills. There is no free role list, no flat skill picker:
+ * when the 16 trades did not load, the picker says why with a Retry and posting is refused.
  * Beside it, the {@link PostingPreviewRail}: the worker's card built LIVE from the SAME
  * `readCardForm` values the submit sends, the facts the card does not show, and the publish
  * button — together on screen. NO mock data; the session payer is stamped server-side (XB-A) and
@@ -55,8 +74,12 @@ import { MatchSkillPicker, type MatchSelection } from "./match-skill-picker";
  * PUBLISH (owner ruling).
  */
 
-const ROLE_GROUPS = roleOptionGroups();
 const FORM_ID = "posting-form";
+const BLANK_TRADE: TradeFormValue = { tradeLevel: "", answers: {} };
+/** A new posting starts from nothing — the base its local draft is checked against. */
+const DRAFT_BASE = "new";
+/** The heading a step change moves focus to (W4). */
+const stepHeadingId = (n: number) => `posting-step-${n}-title`;
 
 interface FormFields {
   roleKind: string;
@@ -112,6 +135,49 @@ const BLANK: FormFields = {
   description: "",
 };
 
+/** What the new-posting draft keeps on this device (W4). */
+interface NewPostingDraft {
+  fields: FormFields;
+  requirements: string[];
+  benefits: string[];
+  reqDraft: string;
+  benDraft: string;
+  selection: MatchSelection;
+  trade: TradeFormValue & { matchSkillIds: string[] };
+}
+
+/**
+ * True once the payer has entered anything — the form then differs from a blank one. Not the old
+ * flat pick (`selection`): no control sets it since #2645 and it is never sent, so a pick restored
+ * from an older draft is no change to lose.
+ */
+export function isNewPostingDirty(d: NewPostingDraft): boolean {
+  return (
+    Object.values(d.fields).some((v) => v.trim() !== "") ||
+    d.requirements.length > 0 ||
+    d.benefits.length > 0 ||
+    d.reqDraft.trim() !== "" ||
+    d.benDraft.trim() !== "" ||
+    d.trade.tradeLevel !== "" ||
+    Object.keys(d.trade.answers).length > 0
+  );
+}
+
+/**
+ * A draft kept on this device as the form restores it (W4): what `onRestore` applies, and what
+ * `isDirty` judges before restoring. A part an older draft lacks starts blank.
+ */
+function restoredNewPostingDraft(saved: Partial<NewPostingDraft>): NewPostingDraft {
+  return {
+    fields: { ...BLANK, ...saved.fields },
+    requirements: saved.requirements ?? [],
+    benefits: saved.benefits ?? [],
+    reqDraft: saved.reqDraft ?? "",
+    benDraft: saved.benDraft ?? "",
+    selection: saved.selection ?? { matchSkillIds: [], untickedRelatedIds: [] },
+    trade: saved.trade ?? { ...BLANK_TRADE, matchSkillIds: [] },
+  };
+}
 
 /** The openings box as a whole number ≥ 1, or null. */
 function openingsOf(raw: string): number | null {
@@ -135,18 +201,28 @@ function validate(fields: FormFields): FieldErrors {
 }
 
 export function PostingForm({
+  payerId,
   quotaStep = null,
   matchSkills = [],
+  postingTrades = [],
+  postingTradesProblem = null,
   lead,
   free = true,
 }: {
+  /** The signed-in payer (the session's opaque id) — the local draft is kept per payer (W4). */
+  payerId: string;
   quotaStep?: number | null;
+  /** The match vocabulary — labels only here; the trade decides the match set (#2635). */
   matchSkills?: MatchSkillWire[];
+  /** The 16-trade posting catalogue (migration 0141) — the ONLY roles a company job can name. */
+  postingTrades?: PostingTradeFormWire[];
+  /** Why `postingTrades` is empty (#2645) — said at the picker, with a Retry. */
+  postingTradesProblem?: PostingTradesProblem | null;
   /** The page head + notices, drawn at the top of the form column (the rail starts beside it). */
   lead?: ReactNode;
   /** The "free through launch" notice (sourced from the page's config flag). */
   free?: boolean;
-} = {}) {
+}) {
   // useState call order (mirrored positionally by posting-form.test.tsx): fields, fieldErrors,
   // error, navigating, selection, preview, requirements, benefits, reqDraft, benDraft, gap,
   // revealed. NEW state is APPENDED, never inserted, so the positional seeding keeps working.
@@ -154,6 +230,8 @@ export function PostingForm({
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [error, setError] = useState<string | null>(null);
   const [navigating, setNavigating] = useState(false);
+  // No flat skill picker since #2645 (the trade owns the match set); kept for the positional
+  // state order and the stored draft's shape (W4).
   const [selection, setSelection] = useState<MatchSelection>({
     matchSkillIds: [],
     untickedRelatedIds: [],
@@ -167,10 +245,69 @@ export function PostingForm({
   const [revealed, setRevealed] = useState<RevealedNumbers>({});
   // APPENDED — keeps every earlier positional useState index intact (posting-form.test.tsx).
   const [step, setStep] = useState(1);
+  // Appended after the seeded prefix: the trade-specific form's rung + answers.
+  const [trade, setTrade] = useState<TradeFormValue & { matchSkillIds: string[] }>({
+    ...BLANK_TRADE,
+    matchSkillIds: [],
+  });
   const [pending, startTransition] = useTransition();
   // The publish lands on the new posting's Applicants with the shell's "Opening Applicants…" cue
   // (the button stays "Publishing…" — `navigating` — until the page is gone).
   const { navigate } = usePortalNavigation();
+
+  // W4 — the half-filled posting is kept on this device and leaving it asks first.
+  const draftPayload: NewPostingDraft = {
+    fields,
+    requirements,
+    benefits,
+    reqDraft,
+    benDraft,
+    selection,
+    trade,
+  };
+  const draft = usePostingDraft<NewPostingDraft>({
+    storageKey: postingDraftKey({ kind: "new", payerId }),
+    base: DRAFT_BASE,
+    payload: draftPayload,
+    dirty: isNewPostingDirty(draftPayload),
+    // #2645 — a draft whose one change is the old flat pick restores as a blank form: dropped.
+    isDirty: (saved) => isNewPostingDirty(restoredNewPostingDraft(saved)),
+    off: navigating,
+    onRestore: (saved) => {
+      const restored = restoredNewPostingDraft(saved);
+      setFields(restored.fields);
+      setRequirements(restored.requirements);
+      setBenefits(restored.benefits);
+      setReqDraft(restored.reqDraft);
+      setBenDraft(restored.benDraft);
+      setSelection(restored.selection);
+      setTrade(restored.trade);
+    },
+  });
+
+  /** Show step `n` and land on its heading (focus + scroll — W4). */
+  function goToStep(n: number) {
+    setStep(n);
+    focusStepHeading(stepHeadingId(n));
+  }
+
+  /** The payer dropped the changes restored from this device: a fresh form from step 1 (W4). */
+  function discardRestored() {
+    draft.discard();
+    setFields(BLANK);
+    setFieldErrors({});
+    setError(null);
+    setSelection({ matchSkillIds: [], untickedRelatedIds: [] });
+    setPreview(null);
+    setRequirements([]);
+    setBenefits([]);
+    setReqDraft("");
+    setBenDraft("");
+    setGap(null);
+    setRevealed({});
+    setTrade({ ...BLANK_TRADE, matchSkillIds: [] });
+    goToStep(1);
+  }
 
   // THE ONE READ — the preview, the inline errors, the gap rule and the submit all use it.
   const read = readCardForm(
@@ -178,9 +315,24 @@ export function PostingForm({
     { requirements, benefits, reqDraft, benDraft },
   );
   const hasCardIssue = Object.keys(read.issues).length > 0;
+  // #2645 — the picked trade's form, or undefined until one of the 16 is picked. Its match set
+  // (base skill + match chips) is derived from the catalogue, never kept apart from it.
+  const tradeForm = postingTrades.find((form) => form.role_kind === fields.roleKind);
+  const activeMatchSkillIds = tradeForm ? derivedMatchSkills(tradeForm, trade.answers) : [];
 
   function set<K extends keyof FormFields>(key: K, value: string) {
     setFields((prev) => ({ ...prev, [key]: value }));
+    // The trade fields belong to a role. A role change must never keep the previous
+    // role's chips (a turner's controller is not a welder's process).
+    if (key === "roleKind") {
+      const form = postingTrades.find((tradeForm) => tradeForm.role_kind === value);
+      setTrade({
+        ...BLANK_TRADE,
+        matchSkillIds: form ? derivedMatchSkills(form, {}) : [],
+      });
+      setSelection({ matchSkillIds: [], untickedRelatedIds: [] });
+      setPreview(null);
+    }
     const pair = numberPairOf(key);
     if (pair !== null) setRevealed((prev) => revealNumberPair(prev, pair, false));
     if (key in fieldErrors) setFieldErrors((p) => ({ ...p, [key]: undefined }));
@@ -213,7 +365,9 @@ export function PostingForm({
   function validateStep(which: 1 | 2): FieldErrors {
     const errs: FieldErrors = {};
     if (which === 1) {
-      if (fields.roleKind.trim() === "") errs.roleKind = "Pick the role from the list.";
+      if (!isPostingTrade(postingTrades, fields.roleKind)) {
+        errs.roleKind = POSTING_TRADE_REQUIRED_MESSAGE;
+      }
       const title = fields.roleTitle.trim();
       if (title.length < 2 || title.length > 120) {
         errs.roleTitle = "Role title must be 2–120 characters.";
@@ -257,7 +411,7 @@ export function PostingForm({
         focusControl(first);
         return;
       }
-      setStep(2);
+      goToStep(2);
       return;
     }
     if (step === 2) {
@@ -269,7 +423,7 @@ export function PostingForm({
         focusControl(first);
         return;
       }
-      setStep(3);
+      goToStep(3);
     }
   }
 
@@ -296,13 +450,22 @@ export function PostingForm({
     setReqDraft("");
     setBenDraft("");
 
-    const errs = validate(fields);
+    // #2645 — a company job is always one of the 16 trades: refused AT the picker, before anything
+    // is sent. It leads the form, so it is the first control focus goes to.
+    const errs: FieldErrors = {
+      ...(tradeForm === undefined ? { roleKind: POSTING_TRADE_REQUIRED_MESSAGE } : {}),
+      ...validate(fields),
+    };
     setFieldErrors(errs);
     if (hasCardIssue) setRevealed(ALL_NUMBERS_REVEALED);
     const firstBad =
       (Object.keys(errs) as FieldKey[])[0] ?? CARD_NUMBER_FIELDS.find((f) => read.issues[f]);
     if (firstBad !== undefined) {
-      focusControl(firstBad);
+      if (firstBad === "roleKind" && step !== 1) {
+        // The picker leads step 1: show that step, then land on the picker once it is drawn.
+        setStep(1);
+        focusControlOnNextFrame(firstBad);
+      } else focusControl(firstBad);
       return;
     }
 
@@ -315,19 +478,8 @@ export function PostingForm({
       return;
     }
 
-    // A posting with no skill reaches NOBODY (the server refuses it too). The button stays
-    // clickable so this is said out loud and the picker is brought into view — a disabled
-    // button here produced exactly the "clicked Publish and nothing happened" report.
-    if (selection.matchSkillIds.length === 0) {
-      setError("Pick at least one skill — a posting needs one so workers can find it.");
-      if (typeof document !== "undefined") {
-        document
-          .getElementById("match-skills")
-          ?.scrollIntoView?.({ behavior: "smooth", block: "center" });
-      }
-      return;
-    }
-
+    // No separate "pick a skill" refusal: the picked trade always carries its own match skill
+    // (`derivedMatchSkills`), and the trade is required above (#2645).
     const v = read.values;
     startTransition(async () => {
       const res = await createPostingAction({
@@ -347,11 +499,25 @@ export function PostingForm({
         neededBy: v.neededBy,
         requirements: v.requirements,
         benefits: v.benefits,
-        matchSkillIds: selection.matchSkillIds,
-        untickedRelatedIds: selection.untickedRelatedIds,
+        // ALWAYS the trade form (#2645) — `{}` when no chip is picked — so the server derives the
+        // match set from the trade; the rung only when one is picked (it is display-only).
+        tradeLevel: trade.tradeLevel || undefined,
+        tradeAnswers: trade.answers,
+        matchSkillIds: activeMatchSkillIds,
+        untickedRelatedIds: [],
       });
       if (res.ok) {
         setNavigating(true);
+        draft.discard();
+        if (res.tradeRequired) {
+          // #2645 — created, but the API would not put it live without one of the 16 trades:
+          // open the new draft's edit page refused AT its trade picker.
+          navigate(withTradeRequired(`/postings/${res.postingId}/edit`), {
+            pendingLabel: "Edit posting",
+            refresh: true,
+          });
+          return;
+        }
         navigate(withPublishedReach(`/postings/${res.postingId}/applicants`, res.reached), {
           pendingLabel: "Applicants",
           refresh: true,
@@ -365,13 +531,14 @@ export function PostingForm({
     });
   }
 
-  // Only a request in flight (or a page with no vocabulary to pick from) disables the CTA.
-  // Validation is surfaced by onSubmit, not by a dead button.
-  const submitDisabled = pending || navigating || matchSkills.length === 0;
+  // Only a request in flight disables the CTA. Validation — the missing trade included, even when
+  // the 16 trades did not load — is surfaced by onSubmit, not by a dead button.
+  const submitDisabled = pending || navigating;
 
   const openings = openingsOf(fields.vacancies);
   const derivedBand = openings !== null ? bandForVacancies(openings) : null;
-  const derivedQuota = derivedBand !== null ? baseApplicantQuotaForBand(derivedBand, quotaStep) : null;
+  const derivedQuota =
+    derivedBand !== null ? baseApplicantQuotaForBand(derivedBand, quotaStep) : null;
 
   const busy = pending || navigating;
   const primary = (
@@ -383,11 +550,7 @@ export function PostingForm({
       disabled={submitDisabled}
       loading={busy}
     >
-      {busy
-        ? "Publishing…"
-        : preview?.zero_reach
-          ? zeroReachLabel
-          : "Publish posting"}
+      {busy ? "Publishing…" : preview?.zero_reach ? zeroReachLabel : "Publish posting"}
     </Button>
   );
   // ONE status: the rail footer shows it on desktop, the dock below 1024px (the form's own end
@@ -410,7 +573,10 @@ export function PostingForm({
     roleKind: read.values.roleKind ?? null,
     openings: fields.vacancies,
     locationNote: fields.locationLabel,
-    matchSkills: { ids: selection.matchSkillIds, vocabulary: matchSkills },
+    tradeLevel: trade.tradeLevel || null,
+    tradeAnswers: trade.answers,
+    postingTrades,
+    matchSkills: { ids: activeMatchSkillIds, vocabulary: matchSkills },
     description: fields.description,
   });
 
@@ -424,7 +590,11 @@ export function PostingForm({
               const n = i + 1;
               const state = step === n ? "active" : step > n ? "done" : "todo";
               return (
-                <li className={`mw-step mw-step--${state}`} key={title}>
+                <li
+                  className={`mw-step mw-step--${state}`}
+                  key={title}
+                  aria-current={state === "active" ? "step" : undefined}
+                >
                   <span className="mw-step__dot">
                     {state === "done" ? <Icon name="check" /> : n}
                   </span>
@@ -439,11 +609,21 @@ export function PostingForm({
               );
             })}
           </ol>
+          <p
+            className="mw-draft-cue"
+            data-shown={draft.saved ? "true" : "false"}
+            aria-hidden={!draft.saved}
+          >
+            <Icon name="check-circle" /> Draft saved on this device
+          </p>
+          {draft.restored ? <DraftRestoredNotice onDiscard={discardRestored} /> : null}
 
           <section className="mw-card" hidden={step !== 1}>
             <div className="mw-card__head">
               <div>
-                <h2 className="mw-card__title">Step 1: Role &amp; Worksite Details</h2>
+                <h2 className="mw-card__title" id={stepHeadingId(1)} tabIndex={-1}>
+                  Step 1: Role &amp; Worksite Details
+                </h2>
                 <p className="mw-card__sub">
                   Specify the technical trade and factory premises location.
                 </p>
@@ -451,26 +631,16 @@ export function PostingForm({
               <span className="mw-pill mw-pill--warm">In Progress</span>
             </div>
             <div className="mw-card__body">
-              <Select
+              <PostingTradePicker
                 id="roleKind"
                 label="Role Category"
+                hint="One of the 16 trades we match on — it decides which workers see this posting."
+                trades={postingTrades}
+                problem={postingTradesProblem}
                 value={fields.roleKind}
                 error={errorOf("roleKind")}
-                aria-invalid={errorOf("roleKind") ? true : undefined}
-                hint="Helps match our vetted operator pool by core technical trade."
-                onChange={(e) => set("roleKind", e.target.value)}
-              >
-                <option value="">— pick the role category —</option>
-                {ROLE_GROUPS.map((group) => (
-                  <optgroup key={group.family} label={group.label}>
-                    {group.options.map((o) => (
-                      <option key={o.value} value={o.value}>
-                        {o.label}
-                      </option>
-                    ))}
-                  </optgroup>
-                ))}
-              </Select>
+                onChange={(value) => set("roleKind", value)}
+              />
 
               <Input
                 id="roleTitle"
@@ -518,14 +688,7 @@ export function PostingForm({
               />
             </div>
             <div className="mw-card__foot">
-              <button type="button" className="bb-btn bb-btn--secondary bb-btn--sm">
-                Save Draft
-              </button>
-              <button
-                type="button"
-                className="bb-btn bb-btn--primary bb-btn--sm"
-                onClick={goNext}
-              >
+              <button type="button" className="bb-btn bb-btn--primary" onClick={goNext}>
                 Next: Pay &amp; Openings <Icon name="arrow-right" />
               </button>
             </div>
@@ -534,10 +697,11 @@ export function PostingForm({
           <section className="mw-card" hidden={step !== 2}>
             <div className="mw-card__head">
               <div>
-                <h2 className="mw-card__title">Step 2: Pay &amp; Openings</h2>
+                <h2 className="mw-card__title" id={stepHeadingId(2)} tabIndex={-1}>
+                  Step 2: Pay &amp; Openings
+                </h2>
                 <p className="mw-card__sub">Set the pay band, openings and joining window.</p>
               </div>
-              <span className="mw-pill">In Progress</span>
             </div>
             <div className="mw-card__body">
               <div className="posting-form__vacancies">
@@ -676,15 +840,11 @@ export function PostingForm({
               <button
                 type="button"
                 className="bb-btn bb-btn--secondary bb-btn--sm"
-                onClick={() => setStep(1)}
+                onClick={() => goToStep(1)}
               >
                 Back
               </button>
-              <button
-                type="button"
-                className="bb-btn bb-btn--primary bb-btn--sm"
-                onClick={goNext}
-              >
+              <button type="button" className="bb-btn bb-btn--primary" onClick={goNext}>
                 Next: Skills &amp; Perks <Icon name="arrow-right" />
               </button>
             </div>
@@ -693,10 +853,11 @@ export function PostingForm({
           <section className="mw-card" hidden={step !== 3}>
             <div className="mw-card__head">
               <div>
-                <h2 className="mw-card__title">Step 3: Skills &amp; Perks</h2>
+                <h2 className="mw-card__title" id={stepHeadingId(3)} tabIndex={-1}>
+                  Step 3: Skills &amp; Perks
+                </h2>
                 <p className="mw-card__sub">Pick the skills workers search by, then add perks.</p>
               </div>
-              <span className="mw-pill">In Progress</span>
             </div>
             <div className="mw-card__body">
               <div className="form__section">
@@ -725,30 +886,26 @@ export function PostingForm({
                 />
               </div>
 
-              {matchSkills.length > 0 ? (
-                <>
-                  <MatchSkillPicker
-                    vocabulary={matchSkills}
-                    selection={selection}
-                    onChange={setSelection}
-                    onPreviewChange={setPreview}
-                  />
-                  {selection.matchSkillIds.length === 0 && error !== null ? (
-                    <p className="match-picker__error">{error}</p>
-                  ) : null}
-                </>
-              ) : (
-                <div className="alert alert--danger">
-                  <Icon name="warning-circle" className="alert__icon" />
-                  <div className="alert__text">
-                    <p className="alert__title">Could not load the skill list</p>
-                    <p className="alert__body">
-                      Reload the page — a posting needs at least one skill before workers can find
-                      it.
-                    </p>
-                  </div>
-                </div>
-              )}
+              <div id="match-skills">
+                {/* The trade's own fields — the ONLY match input of a company job (#2645): no
+                    flat skill picker, no "could not load the skill list" fallback. */}
+                <TradePostingFields
+                  trades={postingTrades}
+                  roleKind={fields.roleKind}
+                  value={{ tradeLevel: trade.tradeLevel, answers: trade.answers }}
+                  onChange={(next) => {
+                    const form = postingTrades.find((t) => t.role_kind === fields.roleKind);
+                    setTrade({
+                      ...next,
+                      matchSkillIds: form ? derivedMatchSkills(form, next.answers) : [],
+                    });
+                  }}
+                  onMatchSkillIdsChange={() => undefined}
+                  onPreviewChange={setPreview}
+                  vocabulary={matchSkills}
+                  reachRoleKind={fields.roleKind || undefined}
+                />
+              </div>
 
               <div className="form__section">
                 <p className="form__legend">Description</p>
@@ -769,11 +926,18 @@ export function PostingForm({
               <button
                 type="button"
                 className="bb-btn bb-btn--secondary bb-btn--sm"
-                onClick={() => setStep(2)}
+                onClick={() => goToStep(2)}
               >
                 Back
               </button>
-              <span className="mw-card__foothint">Publish from the panel on the right →</span>
+              {/* The hint names where Publish IS at this width (W4): the rail beside the form on
+                  a wide screen, the bar pinned to the bottom of the screen at 1100px and below. */}
+              <span className="mw-card__foothint mw-card__foothint--wide">
+                Publish from the panel on the right →
+              </span>
+              <span className="mw-card__foothint mw-card__foothint--narrow">
+                Publish from the bar at the bottom of the screen ↓
+              </span>
             </div>
           </section>
         </form>
@@ -786,9 +950,7 @@ export function PostingForm({
               <Icon name="rocket-launch" />
             </span>
             <div className="mw-mini__body">
-              <p className="mw-mini__title">
-                {free ? "100% Free Through Launch" : "Paid posting"}
-              </p>
+              <p className="mw-mini__title">{free ? "100% Free Through Launch" : "Paid posting"}</p>
               <p className="mw-mini__meta">{free ? "₹0 cost" : "See billing"}</p>
               <p className="mw-mini__sub">
                 {free
@@ -843,7 +1005,9 @@ export function PostingForm({
               <dd>{fields.neededBy !== "" ? neededByLabel(fields.neededBy) : "—"}</dd>
             </div>
           </dl>
-          <p className="mw-audit__note">Workers read detailed technical specs inside full job view.</p>
+          <p className="mw-audit__note">
+            Workers read detailed technical specs inside full job view.
+          </p>
         </div>
 
         <div className="mw-rail__actions">
@@ -862,7 +1026,6 @@ export function PostingForm({
             <Icon name="check-circle" /> 0 credits billed today
           </span>
         </p>
-
       </aside>
 
       {/* The shared rail keeps the live-slot/dock behaviour the form has always had, in the

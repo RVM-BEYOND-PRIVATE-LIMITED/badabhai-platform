@@ -8,8 +8,12 @@ import { joinSegments, tenurePhrase, toolsPhrase } from "./resume-sheet-rows";
  * One place that composes the two text slots the generic layouts print (`{{headline}}` and
  * `{{summary}}`), from CONFIRMED data and nothing else:
  *
- *   headline = role · tenure · tools · level
- *   summary  = role · tenure · tools · level · city
+ *   headline = role · level · tenure · tools
+ *   summary  = role · level · tenure · tools · city
+ *
+ * LEVEL SECOND (CEO Launch Plan Pack v1, RULED 2026-11-02 — overturns the P5
+ * level-last decision, recorded here and not silently: the pack's own § states it
+ * wins where sheets disagree, and every sheet prints `Trade · Level · Years`).
  *
  * NO LLM, and that is not a style preference: the résumé's headline is the first thing a
  * supervisor reads, and §8 admits only three sources for a printed atom (a closed-vocabulary
@@ -41,12 +45,12 @@ export interface ProfileLineFacts {
   readonly tenureLabel?: string | null;
   /** Machines, controllers, skills — in that precedence, from the caller's own resolution. */
   readonly tools: readonly string[];
-  /** The rung on the trade's ladder ("Setter") — Middle Way P5, printed last. */
+  /** The rung on the trade's ladder ("Setter") — printed second (CEO pack, was last in P5). */
   readonly level?: string | null;
 }
 
 /**
- * `{{headline}}` — "CNC Turner · 5 yrs 3 mo · Fanuc, Siemens · Setter".
+ * `{{headline}}` — "CNC Turner · Setter · 5 yrs 3 mo · Fanuc, Siemens".
  *
  * NULL WITHOUT A ROLE, and that is a policy rather than a side effect: tenure, tools and city
  * are MODIFIERS of who the worker is, and "5 yrs · Fanuc · Pune" alone would be a headline about
@@ -58,20 +62,20 @@ export function buildProfileHeadline(facts: ProfileLineFacts): string | null {
   if (!role) return null;
   return joinSegments([
     role,
+    facts.level?.trim() || null,
     tenurePhrase(facts.years, facts.tenureLabel ?? null),
     toolsPhrase(facts.tools),
-    facts.level?.trim() || null,
   ]);
 }
 
 /**
- * `{{summary}}` — the headline plus the city: role · tenure · tools · level · city.
+ * `{{summary}}` — the headline plus the city: role · level · tenure · tools · city.
  *
  * NOT A SENTENCE, and that is the ruling this function records: the sheet's own design language
  * is a middle-dot strip (the verdict line, the terms rows), every atom in it is independently
  * verifiable against what the worker stated, and a composed sentence would need either new
  * fabrication-gate permissions or an LLM — both of which cost more than the register is worth.
- * A supplier reading "CNC Turner · 5 yrs 3 mo · Fanuc · Setter · Pune" gets the five facts in
+ * A supplier reading "CNC Turner · Setter · 5 yrs 3 mo · Fanuc · Pune" gets the five facts in
  * one scan.
  *
  * The role-required policy is {@link buildProfileHeadline}'s, restated.
@@ -83,9 +87,9 @@ export function buildProfileSummary(
   if (!role) return null;
   return joinSegments([
     role,
+    facts.level?.trim() || null,
     tenurePhrase(facts.years, facts.tenureLabel ?? null),
     toolsPhrase(facts.tools),
-    facts.level?.trim() || null,
     facts.city,
   ]);
 }

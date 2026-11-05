@@ -1,4 +1,5 @@
 import type { PaymentsPosture } from "../lib/entities";
+import { InfoPopover } from "./info-popover";
 
 /**
  * The provenance banner for every money screen.
@@ -16,7 +17,8 @@ import type { PaymentsPosture } from "../lib/entities";
  * simulated thing announce itself".
  *
  * So this renders on EVERY money view, at the top, in a warning tone, before the numbers.
- * It is never collapsed, never a footnote, and never suppressed once dismissed.
+ * Its one-line claim is never collapsed, never a footnote, and never suppressed once dismissed;
+ * only the explanation behind it is one click away (#2573).
  */
 export function PaymentsPostureBanner({ posture }: { posture: PaymentsPosture }) {
   if (posture.mode === "real") {
@@ -28,17 +30,26 @@ export function PaymentsPostureBanner({ posture }: { posture: PaymentsPosture })
     );
   }
 
+  // ONE line (A3, #2573): the claim stays in band, before the numbers, and is never collapsed;
+  // why it is simulated, and what is still real, sit behind the ⓘ beside it.
   return (
-    <section className="notice notice--warn" role="status">
-      <strong>Simulated money — not revenue.</strong> Real payments are switched off
-      {posture.blocked_reason ? (
-        <>
-          {" "}
-          (<code>{posture.blocked_reason}</code>)
-        </>
-      ) : null}
-      , so every order below was settled by the mock path and <strong>no one was charged</strong>.
-      Credits and balances are real platform state; the ₹ amounts are not income.
+    <section className="notice notice--warn notice--row" role="status">
+      <span>
+        <strong>Simulated money — not revenue.</strong> No one was charged.
+      </span>
+      <InfoPopover label="About simulated money">
+        <p>
+          Real payments are switched off
+          {posture.blocked_reason ? (
+            <>
+              {" "}
+              ({posture.blocked_reason})
+            </>
+          ) : null}
+          , so every order was settled by the mock path.
+        </p>
+        <p>Credits and balances are real platform state; the ₹ amounts are not income.</p>
+      </InfoPopover>
     </section>
   );
 }

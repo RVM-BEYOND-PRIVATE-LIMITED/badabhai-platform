@@ -10,6 +10,7 @@ import {
 import { changeAdminRoleAction, resetAdminMfaAction, suspendAdminAction } from "./actions";
 import { ADMIN_ROLES, ROLE_LABELS, type AdminRole } from "../../../lib/auth/capabilities";
 import type { AdminActionOutcome } from "../../../lib/admin-action-result";
+import { shortId } from "../../../lib/format";
 import { ACTION_ICON } from "@badabhai/icons";
 
 /**
@@ -57,8 +58,8 @@ export function AdminRowActions({
   const eventsLink = mayReadEvents ? ALL_ADMIN_ACTIONS_LINK : null;
 
   // Every row's controls share their visible names, so each one also names its row for
-  // assistive tech ("Suspend admin aaaaaaaa…"). The id is the handle the row shows.
-  const subject = `admin ${admin.id.slice(0, 8)}…`;
+  // assistive tech ("Suspend admin aaaa…0001"). The id is the handle the row shows.
+  const subject = `admin ${shortId(admin.id)}`;
 
   if (admin.is_self) {
     return <span className="table__meta">Your own account</span>;

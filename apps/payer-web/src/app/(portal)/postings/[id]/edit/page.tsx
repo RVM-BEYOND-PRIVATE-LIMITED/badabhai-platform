@@ -3,6 +3,8 @@ import { z } from "zod";
 import { getPostingDetail, listMatchSkills } from "../../../../../lib/payer-api";
 import { requirePayer } from "../../../../../lib/auth";
 import type { MatchSkillWire } from "../../../../../lib/contracts";
+import { TRADE_REQUIRED_PARAM, isTradeRequiredParam } from "../../../../../lib/posting-trades";
+import { readPostingTrades } from "../../../../../lib/posting-trades.server";
 import { Badge } from "../../../../../components/ds";
 import { PageHeader } from "../../../../../components/page-header";
 import { EditPostingForm } from "./edit-posting-form";
@@ -27,9 +29,17 @@ function bandRepresentativeCount(band: string): number {
   return Number.isNaN(n) || n <= 0 ? 1 : n;
 }
 
-export default async function EditPostingPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function EditPostingPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  /** `?trade=required` — a publish refused for want of one of the 16 trades (#2645). */
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const session = await requirePayer();
   const { id } = await params;
+  const query = (await searchParams) ?? {};
   // Fail closed on a non-uuid segment BEFORE it reaches the authed API path.
   if (!z.string().uuid().safeParse(id).success) notFound();
   // Company-only: an agent's older posting is view-only (owner ruling 2026-10-01) → its details.
@@ -45,6 +55,11 @@ export default async function EditPostingPage({ params }: { params: Promise<{ id
   } catch {
     matchSkills = [];
   }
+
+  // Migration 0141 / #2645 — the 16-trade catalogue, the only roles a company job can name. A
+  // failure never blocks an edit of the rest of the posting (an untouched role is not sent); the
+  // picker names the cause with a Retry, and a publish waits for the trades.
+  const { trades: postingTrades, problem: postingTradesProblem } = await readPostingTrades();
 
   const { summary, card, description } = detail;
 
@@ -74,9 +89,13 @@ export default async function EditPostingPage({ params }: { params: Promise<{ id
       // page restored by Back after a save, a refresh after a concurrent edit) remounts from the
       // current one instead of keeping stale values — and a stale `initial` for the clear diff.
       key={detail.updatedAt}
+      payerId={session.payerId}
       postingId={id}
       status={summary.status}
       matchSkills={matchSkills}
+      postingTrades={postingTrades}
+      postingTradesProblem={postingTradesProblem}
+      tradeRequired={isTradeRequiredParam(query[TRADE_REQUIRED_PARAM])}
       matchSelection={{
         matchSkillIds: detail.matchSkillIds,
         untickedRelatedIds: detail.untickedRelatedIds,
@@ -98,6 +117,8 @@ export default async function EditPostingPage({ params }: { params: Promise<{ id
         neededBy: card.needed_by,
         requirements: card.requirements,
         benefits: card.benefits,
+        tradeLevel: detail.tradeLevel,
+        tradeAnswers: detail.tradeAnswers,
       }}
       lead={lead}
     />

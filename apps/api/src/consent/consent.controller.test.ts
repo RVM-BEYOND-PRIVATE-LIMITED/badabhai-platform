@@ -1,6 +1,7 @@
 import "reflect-metadata";
 import { describe, it, expect, vi } from "vitest";
 import { ConsentController } from "./consent.controller";
+import { GrantEmployerContactSchema } from "./consent.dto";
 import type { ConsentService } from "./consent.service";
 import type { AuthenticatedWorker } from "../auth/worker-auth.guard";
 import type { RequestContext } from "../common/request-context";
@@ -38,6 +39,11 @@ function make() {
     // an untyped `vi.fn(async () => …)` records a zero-length tuple, so
     // `mock.calls[0][0]` does not compile.
     withdraw: vi.fn(async (_workerId: string, ..._rest: unknown[]) => ({ ok: true as const })),
+    grantEmployerContact: vi.fn(async (_workerId: string, ..._rest: unknown[]) => ({
+      ok: true as const,
+      consent_id: "c2",
+      granted: ["employer_sharing", "employer_messaging"],
+    })),
   };
   return { controller: new ConsentController(consent as unknown as ConsentService), consent };
 }
@@ -78,5 +84,39 @@ describe("ConsentController (thin) — delegation", () => {
     await controller.withdraw(sessionWorker("w"), CTX);
     expect(consent.withdraw).toHaveBeenCalledWith("w", CTX);
     expect(consent.withdraw.mock.calls[0]![0]).toBeDefined();
+  });
+
+  it("grantEmployerContact forwards the SESSION worker and only the notice version", async () => {
+    const { controller, consent } = make();
+    await controller.grantEmployerContact(
+      sessionWorker("w-2"),
+      { consent_version: "2026-11-04" },
+      "1.2.3.4",
+      "ua",
+      CTX,
+    );
+    expect(consent.grantEmployerContact).toHaveBeenCalledWith(
+      "w-2",
+      "2026-11-04",
+      "1.2.3.4",
+      "ua",
+      CTX,
+    );
+  });
+});
+
+describe("GrantEmployerContactSchema", () => {
+  it("takes the notice version and nothing else — a client cannot name purposes", () => {
+    expect(GrantEmployerContactSchema.safeParse({ consent_version: "2026-11-04" }).success).toBe(
+      true,
+    );
+    expect(
+      GrantEmployerContactSchema.safeParse({
+        consent_version: "2026-11-04",
+        purposes: ["employer_sharing"],
+      }).success,
+    ).toBe(false);
+    expect(GrantEmployerContactSchema.safeParse({}).success).toBe(false);
+    expect(GrantEmployerContactSchema.safeParse({ consent_version: "" }).success).toBe(false);
   });
 });

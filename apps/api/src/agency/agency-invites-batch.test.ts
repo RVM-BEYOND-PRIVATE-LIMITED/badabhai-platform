@@ -106,6 +106,7 @@ function make(
     {} as never,
     { emit } as never,
     {} as never,
+    {} as never, // PostingTradesService
     defaultModeResolver(),
   );
   return { svc, emit, invitesRepo, createdCount: () => createCalls };
@@ -345,9 +346,9 @@ describe("createInviteBatch — row/event coupling under partial failure (C5)", 
 
   it("a TOTAL failure surfaces a NEUTRAL 503 — no rows, no events, no DB error text", async () => {
     const { svc, emit } = make({ failCreateOnCall: 1 });
-    await expect(
-      svc.createInviteBatch(PAYER_A, 10, {}, CTX as never),
-    ).rejects.toBeInstanceOf(ServiceUnavailableException);
+    await expect(svc.createInviteBatch(PAYER_A, 10, {}, CTX as never)).rejects.toBeInstanceOf(
+      ServiceUnavailableException,
+    );
     expect(emit).not.toHaveBeenCalled();
 
     // A FRESH fixture (the failure counter is per-instance) to inspect the surfaced error.
@@ -381,6 +382,7 @@ describe("createInviteBatch — code collision is bounded-retried, never a 500 (
       {} as never,
       { emit } as never,
       {} as never,
+      {} as never, // PostingTradesService
       defaultModeResolver(),
     );
     const res = await svc.createInvite(PAYER_A, {}, CTX as never);
@@ -402,12 +404,11 @@ describe("createInviteBatch — code collision is bounded-retried, never a 500 (
       {} as never,
       { emit } as never,
       {} as never,
+      {} as never, // PostingTradesService
       defaultModeResolver(),
     );
 
-    const err = (await svc
-      .createInvite(PAYER_A, {}, CTX as never)
-      .catch((e: Error) => e)) as Error;
+    const err = (await svc.createInvite(PAYER_A, {}, CTX as never).catch((e: Error) => e)) as Error;
     expect(err).toBeInstanceOf(ServiceUnavailableException);
     expect(err.message).toBe("This is temporarily unavailable; please retry shortly");
     expect(err.message).not.toContain("agency_invites_code_uq");

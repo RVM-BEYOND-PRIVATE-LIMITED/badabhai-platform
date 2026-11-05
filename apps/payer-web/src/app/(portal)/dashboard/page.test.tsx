@@ -178,7 +178,7 @@ function hrefsOf(node: ReactNode, acc: string[] = []): string[] {
     const hp = el.props as { primaryAction?: { href: string } };
     if (hp.primaryAction) acc.push(hp.primaryAction.href);
   }
-  // StatTile's NEW `foot` slot carries a contextual link (Top-up / Create role); walk it too.
+  // StatTile's NEW `foot` slot carries a contextual link (Top-up / New posting); walk it too.
   if (el.props && "foot" in el.props) hrefsOf(el.props.foot, acc);
   if (el.props && "children" in el.props) hrefsOf(el.props.children, acc);
   return acc;
@@ -329,7 +329,7 @@ describe("CARDS-1 · clickable tiles + cards link to their REAL routes", () => {
     }
   });
 
-  it("all postings closed: the needs-you item says so, and the KPI card carries Create role", async () => {
+  it("all postings closed: the needs-you item says so, and the KPI card carries New posting", async () => {
     const tree = await render({
       postings: DATA.postings.map((x) => ({ ...x, status: "closed" })),
       unlocks: [DATA.unlocks[0]!],
@@ -373,7 +373,7 @@ describe("CARDS-1 · clickable tiles + cards link to their REAL routes", () => {
     const tree = await render();
     const all = hrefsOf(tree);
     expect(all.filter((h) => h === "/postings")).toHaveLength(1);
-    // A healthy account has no attention item; the KPI card's "+ Create role" is the form's door,
+    // A healthy account has no attention item; the KPI card's "+ New posting" is the form's door,
     // and the head adds none.
     const healthy = await render({ unlocks: [DATA.unlocks[0]!] });
     expect(hrefsOf(healthy).filter((h) => h === "/postings/new")).toHaveLength(1);
@@ -629,8 +629,9 @@ describe("UI-1 · empty + error states", () => {
     expect(textOf(tree)).toContain("No contacts unlocked yet");
     expect(textOf(tree)).toContain("No active job postings yet");
     // PHASE 16 — an empty state must say what to do next, not just that it is empty: the
-    // panel carries its own "Create First Posting" action.
-    expect(textOf(tree)).toContain("Create First Posting");
+    // panel carries its own "New posting" action (one label per destination, #2581).
+    expect(textOf(tree)).toContain("New posting");
+    expect(textOf(tree)).not.toContain("Create First Posting");
     expect(p(headOf(tree)).primaryAction).toBeUndefined();
   });
 
@@ -738,11 +739,11 @@ describe("PR-D2 · hierarchy + KPI variant", () => {
     return out;
   }
 
-  it("employer: head → needs-you → position → columns → footer", async () => {
+  it("employer: head → needs-you → position → columns (no invented-figures footer, #2581)", async () => {
     // balance 3 is below the pricing config's low-balance threshold (lowBalanceThreshold(),
     // default 5), so the needs-you band renders.
     const tree = await render({ credits: { payerId: "p", balance: 3 } });
-    expect(bands(tree)).toEqual(["head", "needs-you", "position", "columns", "footer"]);
+    expect(bands(tree)).toEqual(["head", "needs-you", "position", "columns"]);
     // …the columns hold the postings panel then the unlocks panel, in that reading order.
     const columns = findByClass(tree, "dash-columns")[0]!;
     const panels = findByClass(columns, "panel");
@@ -897,5 +898,103 @@ describe("the navigation pending cue on the dashboard (components/portal-link.ts
     expect(cues.get("/plans")).toEqual(["Plans & capacity"]);
     expect(cues.get("/postings")).toEqual(["Postings"]);
     expect([...cues].filter(([, labels]) => labels.length === 0)).toEqual([]);
+  });
+});
+
+describe("#2581 — no invented figures or dead controls on the dashboard", () => {
+  it("no fake engine/database footer, no Free Tier badge, no direct-phone claim", async () => {
+    for (const role of ["employer", "agent"] as const) {
+      const tree = await render(undefined, role, "owner");
+      const txt = textOf(tree);
+      expect(findByClass(tree, "dash-foot"), role).toEqual([]);
+      for (const gone of [
+        "160,000+",
+        "Recruiter Engine",
+        "Free Tier",
+        "Direct phone",
+        "Employer Helpdesk",
+        "Pricing Terms",
+      ]) {
+        expect(txt, `${role}: ${gone}`).not.toContain(gone);
+      }
+    }
+  });
+
+  it("the empty recent-unlocks panel promises no direct phone, email or WhatsApp (contact is routed)", async () => {
+    const panel = findByClass(await render({ unlocks: [] }), "dash-panel").find((el) =>
+      textOf(el).includes("Recent unlocks"),
+    );
+    expect(panel).toBeDefined();
+    const txt = textOf(panel!);
+    expect(txt).toContain("No contacts unlocked yet");
+    expect(txt).not.toMatch(/direct|phone|email|whatsapp|lifetime/i);
+  });
+
+  it("the empty postings panel names each door as its destination does (one label per destination)", async () => {
+    const panel = findByClass(await render({ postings: [], unlocks: [] }), "dash-empty-panel")[0]!;
+    // Each link to `href` in the panel: its visible text, then the destination its cue names.
+    const labels = (href: string): string[] => {
+      const out: string[] = [];
+      (function walk(node: ReactNode): void {
+        if (node === null || node === undefined || typeof node !== "object") return;
+        if (Array.isArray(node)) return void node.forEach(walk);
+        const el = node as ReactElement<{
+          href?: unknown;
+          pendingLabel?: unknown;
+          children?: ReactNode;
+        }>;
+        if (el.props?.href === href) {
+          out.push(textOf(el.props.children).trim(), String(el.props.pendingLabel));
+        } else if (el.props && "children" in el.props) walk(el.props.children);
+      })(panel);
+      return out;
+    };
+    expect(labels("/postings/new")).toEqual(["New posting", "New posting"]);
+    expect(labels("/postings/ai/new")).toEqual(["Post with AI", "Post with AI"]);
+  });
+});
+
+describe("#2588 · the postings panel's views are a nav with the current one marked", () => {
+  /** The employer dashboard at `/dashboard?posting=<view>` (no view = All). */
+  async function atView(posting?: string): Promise<ReactElement> {
+    await render(); // seeds the session and the three reads
+    return (await DashboardPage({
+      searchParams: Promise.resolve(posting ? { posting } : {}),
+    })) as ReactElement;
+  }
+
+  it("a labelled <nav> of three links — not a tablist (no tab roles, no arrow-key panels)", async () => {
+    const [nav, ...more] = findByClass(await atView(), "dash-tabs");
+    expect(more).toEqual([]);
+    expect(nav!.type).toBe("nav");
+    expect(p(nav!)["aria-label"]).toBe("Posting status");
+    expect(p(nav!).role).toBeUndefined();
+    const links = findByClass(nav!, "dash-tab");
+    expect(links.map((l) => p(l).href)).toEqual([
+      "/dashboard",
+      "/dashboard?posting=drafts",
+      "/dashboard?posting=closed",
+    ]);
+    for (const l of links) expect(p(l).role).toBeUndefined();
+  });
+
+  it.each([
+    [undefined, "/dashboard"],
+    ["drafts", "/dashboard?posting=drafts"],
+    ["closed", "/dashboard?posting=closed"],
+    ["anything-else", "/dashboard"],
+  ])("view %s: exactly ONE link is aria-current=page — %s — and it wears the active look", async (view, href) => {
+    const links = findByClass(await atView(view), "dash-tab");
+    const current = links.filter((l) => p(l)["aria-current"] === "page");
+    expect(current.map((l) => p(l).href)).toEqual([href]);
+    expect(String(p(current[0]!).className).split(" ")).toContain("dash-tab--active");
+    for (const l of links.filter((x) => x !== current[0])) {
+      expect(p(l)["aria-current"]).toBeUndefined();
+      expect(String(p(l).className).split(" ")).not.toContain("dash-tab--active");
+    }
+  });
+
+  it("a FAILED postings read draws no views at all (there is nothing to filter)", async () => {
+    expect(findByClass(await render({ fail: ["postings"] }), "dash-tabs")).toEqual([]);
   });
 });

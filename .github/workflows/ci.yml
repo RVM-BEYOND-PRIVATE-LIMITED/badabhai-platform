@@ -244,11 +244,11 @@ jobs:
             # nothing under apps/worker-app, so without this filter the tests that exist to
             # catch exactly that drift are skipped and the PR ships green.
             #
-            # A SEPARATE output, not four more lines under `worker-app`, because
-            # `worker-app-apk` publishes a Release whenever the `worker-app` gate succeeds on
-            # main: folding these in would publish a new, byte-identical APK on every
-            # server-only change. This output runs the GATE (`worker-app` job) only;
-            # `worker-app-apk` still requires the `worker-app` output itself.
+            # A SEPARATE output, not more lines under `worker-app`, so this list stays exactly
+            # the set the TD144 guard checks against the Dart tests. It runs the GATE
+            # (`worker-app` job) only. CI publishes no APK: the worker-app and payer-app
+            # build + release jobs were removed on 2026-11-03 to cut runner minutes; ask the
+            # mobile owner for a test build.
             #
             # Keep this list equal to the set of `File('../api/...')` paths under
             # apps/worker-app/test — a test that starts reading another server file must add
@@ -275,10 +275,16 @@ jobs:
               # the app's topics table does not map — such a key silently leaves that trade's
               # Technical Skills walk. A PR that edits only a pack must still run that guard.
               - 'packages/db/data/question-packs/**'
+              # Read by employer_sharing_notice_test.dart.
+              - 'docs/product/employer-sharing-consent-notice.md'
             payer-app:
               - 'apps/payer-app/**'
               - '.github/workflows/payer-app.yml'
               - '.github/workflows/ci.yml'
+              # The all-candidates search wire contract (ADR-0040 / E2): the app's
+              # candidate_search_contract_test.dart parses this file, so a PR that edits only
+              # the fixture must still run it.
+              - 'packages/types/fixtures/candidate-search-contract.json'
             # GAP-XC-06 (#920): gates ONLY the payer-web LEG of the `image-gate` job below
             # (via the `gate` field of that app's row in the `image-matrix` step) — the TS
             # lint/typecheck/test/build for apps/payer-web already runs UNCONDITIONALLY
@@ -529,7 +535,7 @@ jobs:
   worker-app:
     needs: changes
     # `worker-app-parity` (TD144): a server-only change to a file the parity tests read
-    # must still run this gate. It does NOT publish an APK — see `worker-app-apk`.
+    # must still run this gate. Analyze + test only; CI builds and publishes no APK.
     if: >-
       needs.changes.outputs.worker-app == 'true' ||
       needs.changes.outputs.worker-app-parity == 'true'
@@ -539,317 +545,6 @@ jobs:
     needs: changes
     if: needs.changes.outputs.payer-app == 'true'
     uses: ./.github/workflows/payer-app.yml
-
-  # ---- Worker app: build + publish the release APK (#920) ----
-  #
-  # `worker-app.yml`'s `analyze-test` job (called just above) is a PR gate — it never
-  # produces an artifact. Per #920: "CI never builds or distributes the worker
-  # APK... an app fix can be merged, green, and on main, while every tester's device
-  # runs a build from days earlier." This job closes that gap: on every push to `main`
-  # that touches `apps/worker-app`, it builds the release APK and publishes it as a
-  # GitHub Release asset — a stable, direct, public download link with zero new
-  # infrastructure (no box config, no storage bucket, no new secret).
-  #
-  # PUSH-TO-MAIN ONLY, NOT in `ci-required` — same shape as `build-and-push-image` /
-  # `deploy-lightsail` further below: this is a publish action, not a PR gate, so a PR
-  # cannot merge on it and it must not be able to block one. Lives HERE rather than as
-  # a second job inside `worker-app.yml` because that file is a pure `workflow_call`
-  # PR gate (see its own header comment) with no push-vs-PR awareness of its own — the
-  # push-vs-PR decision belongs at the caller, exactly where `build-and-push-image`
-  # already makes the identical decision for the Docker images.
-  #
-  # `needs: [changes, worker-app]` lists `changes` DIRECTLY, not only transitively
-  # through `worker-app` — see `build-and-push-image`'s comment further below for the
-  # measured reason: an `always()` job's implicit-success absorption at one hop does
-  # not "cleanse" a `changes` failure or cancellation for a job two hops downstream.
-  #
-  # `needs.worker-app.result == 'success'` — deliberately NOT tolerant of `skipped`,
-  # unlike `build-and-push-image`'s tolerance of `ai-service`/`e2e` being skipped.
-  # `worker-app` IS path-filtered by `changes.outputs.worker-app`, and BOTH its
-  # outcomes are legitimate (skipped = nothing under apps/worker-app changed; success
-  # = it changed and the analyze/test gate passed) — but only `success` means there is
-  # a new APK worth publishing. A skipped `worker-app` correctly skips this job too:
-  # the most recent Release is still current, and a failed `worker-app` must not ship.
-  #
-  # NO NEW SIGNING SECRET. `apps/worker-app/android/app/build.gradle` already signs
-  # release builds with the Flutter debug keystore (`signingConfig =
-  # signingConfigs.debug`, "so `flutter run --release` works") — the same ratified,
-  # deliberate decision that already covers `assetlinks.json` on this same issue
-  # thread: ship the debug fingerprint for sideload QA now, swap in the real Play App
-  # Signing key only at Play launch. `flutter build apk --release` in CI therefore
-  # produces the SAME artifact a developer already gets locally today.
-  worker-app-apk:
-    name: Worker app (build + release APK)
-    needs: [changes, worker-app]
-    # `needs.changes.outputs.worker-app == 'true'` (TD144): since the `worker-app` gate also
-    # runs on a parity-only server change, its `success` no longer implies the app changed.
-    # Publishing still requires the app's own filter, so a server-only edit gates the
-    # Flutter tests without shipping a byte-identical APK Release.
-    if: >-
-      always() &&
-      github.event_name == 'push' && github.ref == 'refs/heads/main' &&
-      needs.changes.result == 'success' &&
-      needs.changes.outputs.worker-app == 'true' &&
-      needs.worker-app.result == 'success'
-    runs-on: ubuntu-latest
-    # Only scope granted: the Releases API (create release + upload asset) needs
-    # contents:write. No packages:*, no id-token — narrower than build-and-push-image.
-    permissions:
-      contents: write
-    defaults:
-      run:
-        working-directory: apps/worker-app
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-
-      # Pinned identically to worker-app.yml's analyze-test job — see that file's
-      # comment for why the pin exists and what breaks below it (Dart >=3.9.0 floor).
-      - name: Setup Flutter
-        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
-        with:
-          flutter-version: "3.35.7"
-          channel: stable
-          cache: true
-
-      - name: Get dependencies
-        run: flutter pub get
-
-      # First job in this repo to actually invoke the Android/Gradle build (analyze-test
-      # above runs no native build) — `ubuntu-latest` ships a preinstalled, license-
-      # accepted Android SDK, which is what `flutter build apk` needs beyond Flutter
-      # itself.
-      # ---- ENABLE_TEST_DELETE — the Profile tab's "Delete account (test)" button ----
-      #
-      # A DART-DEFINE, NOT AN ENV VAR, and that distinction is the whole reason this line
-      # exists. `kEnableTestDelete` reads `bool.fromEnvironment('ENABLE_TEST_DELETE')`
-      # (apps/worker-app/lib/core/config/app_config.dart), and Dart resolves that against the
-      # COMPILE-TIME define map — never the process environment. A GitHub secret, a job-level
-      # `env:`, or a shell `export` of the same name is invisible to `flutter build`: the const
-      # folds to `false` and the entire button subtree is tree-shaken out of the binary. The
-      # value has to appear on the command line, here, or the button cannot exist in the APK.
-      #
-      # WHAT THIS ARMS, STATED PLAINLY. The button calls POST /auth/account/delete/immediate,
-      # which erases the CALLING worker's account synchronously — no step-up OTP, no ADR-0031
-      # 7-day grace, no undo (AccountDeletionService.execute: sessions revoked, storage swept,
-      # transactional row delete). It is scoped to the caller's own token, so it is never a
-      # path to someone else's account.
-      #
-      # THE BUTTON IS NOT THE GATE, and nobody should read this line as though it were. The
-      # route is ordinary HTTP and the server cannot see which APK a request came from, so once
-      # TEST_IMMEDIATE_DELETE_ENABLED is armed on the box (deploy-lightsail below), ANY
-      # authenticated worker can self-delete whether or not their build carries the button.
-      # This line only decides who can TAP it. The server flag is the real control, and the
-      # optional TEST_IMMEDIATE_DELETE_WORKER_IDS narrowing is the only thing that bounds the
-      # blast radius — deliberately left empty (owner decision, 2026-08-27: the gate is which
-      # APK carries the button, not which account is asking). See `assertAuthConfig` in
-      # packages/config/src/server.ts for that ruling and its accepted consequence.
-      #
-      # THIS ARTIFACT IS PUBLIC: the release step below publishes the APK as a GitHub Release
-      # asset on every push to main. Arming it here puts a one-tap irreversible self-delete in
-      # a sideloadable build. If that trade stops being acceptable, split this into a separate
-      # QA-only build+publish job rather than quietly dropping the flag — a stock
-      # `flutter build apk --release` is what the public artifact should be.
-      #
-      # ---- APP_BUILD — which build is on the phone (#966) ----
-      #
-      # `kAppBuild` (apps/worker-app/lib/core/config/build_info.dart) reads
-      # `String.fromEnvironment('APP_BUILD')` — a compile-time define, like ENABLE_TEST_DELETE
-      # above — and falls back to `dev`. #966 wired the app to show it on the Settings screen
-      # and send it as `x-app-build`, but nothing ever passed it, so every published APK said
-      # "build dev" and a tester could not tell a days-old install from today's. The value is
-      # the same short SHA the release tag and the APK filename carry, so Settings can be read
-      # straight against the Releases page. PII-free: a commit SHA only.
-      # `app-build-stamp.guard.test.ts` (apps/api) holds this line and the Dart key together.
-      - name: Build release APK
-        run: flutter build apk --release --dart-define=ENABLE_TEST_DELETE=true --dart-define=APP_BUILD="${GITHUB_SHA::7}"
-
-      # Rename with the commit's short SHA so the artifact carries its own provenance
-      # in the filename — trivial, obviously-correct traceability. Does not attempt
-      # #966's separate in-app build-id work.
-      - name: Stage the APK
-        id: vars
-        run: |
-          set -euo pipefail
-          SHORT_SHA="$(echo "${{ github.sha }}" | cut -c1-7)"
-          echo "short_sha=${SHORT_SHA}" >> "$GITHUB_OUTPUT"
-          cp build/app/outputs/flutter-apk/app-release.apk "worker-app-sha-${SHORT_SHA}.apk"
-
-      # `worker-app-sha-<short7>` (not the bare `sha-<short7>` the ghcr images use):
-      # GitHub Release tags are repo-wide, and this monorepo also ships
-      # apps/payer-app — an eventual identical pipeline for it would collide with a
-      # bare `sha-<short7>` tag on the same commit. Prefixed once, here, to avoid that
-      # collision pre-emptively.
-      - name: Publish GitHub Release with the APK asset
-        id: release
-        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
-        with:
-          tag_name: worker-app-sha-${{ steps.vars.outputs.short_sha }}
-          name: Worker app — sha-${{ steps.vars.outputs.short_sha }}
-          target_commitish: ${{ github.sha }}
-          body: |
-            Automated build from commit ${{ github.sha }}.
-            Debug-signed release APK (sideload QA build — see
-            apps/worker-app/android/app/build.gradle). Enable "install from unknown
-            sources" to sideload; this is not a Play Store build.
-          files: apps/worker-app/worker-app-sha-${{ steps.vars.outputs.short_sha }}.apk
-          # Fail loud, not silent, if `flutter build apk` didn't produce the file
-          # this step expects (e.g. a future Flutter bump moves the output path).
-          fail_on_unmatched_files: true
-
-      # The direct download link #920 asked for. A GitHub release-asset URL is a
-      # deterministic function of the tag and the asset filename — constructed
-      # directly here rather than parsed out of the action's JSON `assets` output, so
-      # this step's correctness does not depend on that output's exact schema.
-      - name: Job summary
-        run: |
-          SHORT_SHA="${{ steps.vars.outputs.short_sha }}"
-          TAG="worker-app-sha-${SHORT_SHA}"
-          ASSET="worker-app-sha-${SHORT_SHA}.apk"
-          DOWNLOAD_URL="https://github.com/${{ github.repository }}/releases/download/${TAG}/${ASSET}"
-          {
-            echo "### Worker app APK published"
-            echo ""
-            echo "Commit: \`${{ github.sha }}\`"
-            echo ""
-            echo "Direct download: ${DOWNLOAD_URL}"
-            echo ""
-            echo "Release page: ${{ steps.release.outputs.url }}"
-          } >> "$GITHUB_STEP_SUMMARY"
-
-  # ---- Payer app: build + publish the release APK ----
-  #
-  # The second shipping surface with no artifact on a push to `main`. `worker-app-apk`
-  # immediately above closed that gap for apps/worker-app; apps/payer-app had the same
-  # hole — `payer-app.yml`'s `analyze-test` job is a PR gate that produces nothing, so a
-  # merged payer/agency app fix was green on `main` while every tester's device still ran
-  # a build from days earlier. This job is a DELIBERATE MIRROR of `worker-app-apk`: same
-  # shape, same pins, same gate semantics. Read the two together; keep them in lockstep.
-  #
-  # THE TAG PREFIX IS THE WHOLE REASON THAT COMMENT EXISTS. `worker-app-apk`'s release
-  # step already anticipated this job by name: "GitHub Release tags are repo-wide, and
-  # this monorepo also ships apps/payer-app — an eventual identical pipeline for it would
-  # collide with a bare `sha-<short7>` tag on the same commit." This IS that pipeline, and
-  # a commit touching both apps runs BOTH jobs. `payer-app-sha-<short7>` is the other half
-  # of that reservation; do not shorten it to the bare `sha-<short7>` the ghcr images use.
-  #
-  # PUSH-TO-MAIN ONLY, NOT in `ci-required` — same shape as `worker-app-apk` /
-  # `build-and-push-image` / `deploy-lightsail`: a publish action is not a PR gate, so it
-  # must not be able to block a merge, and structurally cannot, since it never runs on a
-  # `pull_request`. Lives HERE rather than as a second job inside `payer-app.yml` for the
-  # reason that file's own header gives — it is a pure `workflow_call` PR gate with no
-  # push-vs-PR awareness; that decision belongs at the caller.
-  #
-  # `needs: [changes, payer-app]` lists `changes` DIRECTLY, not only transitively through
-  # `payer-app` — see `build-and-push-image`'s comment further below for the measured
-  # reason: an `always()` job's implicit-success absorption at one hop does not "cleanse"
-  # a `changes` failure or cancellation for a job two hops downstream.
-  #
-  # `needs.payer-app.result == 'success'` — deliberately NOT tolerant of `skipped`. Both
-  # outcomes of the path-filtered `payer-app` job are legitimate (skipped = nothing under
-  # apps/payer-app changed; success = it changed and the analyze/test gate passed), but
-  # only `success` means there is a new APK worth publishing. A skipped `payer-app`
-  # correctly skips this job — the most recent Release is still current — and a failed one
-  # must not ship.
-  #
-  # NO NEW SIGNING SECRET, VERIFIED NOT ASSUMED. `apps/payer-app/android/app/build.gradle`
-  # signs release with `signingConfig = signingConfigs.debug`, byte-for-byte the same
-  # release block as worker-app's, and references NO keystore, key.properties or signing
-  # secret anywhere — so `flutter build apk --release` needs nothing this repo does not
-  # already contain. (`android/.gitignore` does exclude `key.properties`/`*.jks`, but
-  # nothing reads them; the build does not depend on an ignored file.) Firebase is wired
-  # the same way too: the `com.google.gms.google-services` plugin is applied and
-  # `apps/payer-app/android/app/google-services.json` is COMMITTED, not ignored, with
-  # `package_name: com.badabhai.payerapp` matching this module's `applicationId` — which
-  # is exactly what that plugin fails the build over when it is missing or mismatched.
-  payer-app-apk:
-    name: Payer app (build + release APK)
-    needs: [changes, payer-app]
-    if: >-
-      always() &&
-      github.event_name == 'push' && github.ref == 'refs/heads/main' &&
-      needs.changes.result == 'success' &&
-      needs.payer-app.result == 'success'
-    runs-on: ubuntu-latest
-    # Only scope granted: the Releases API (create release + upload asset) needs
-    # contents:write. No packages:*, no id-token — narrower than build-and-push-image.
-    permissions:
-      contents: write
-    defaults:
-      run:
-        working-directory: apps/payer-app
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-
-      # Pinned identically to payer-app.yml's analyze-test job (and to worker-app's) —
-      # see that file's comment for why the pin exists and what breaks below it
-      # (pubspec floors Flutter at >=3.35.0).
-      - name: Setup Flutter
-        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
-        with:
-          flutter-version: "3.35.7"
-          channel: stable
-          cache: true
-
-      - name: Get dependencies
-        run: flutter pub get
-
-      # `payer-app.yml`'s analyze-test runs no native build, so this is the first place
-      # the payer app's Android/Gradle build is exercised at all — `ubuntu-latest` ships
-      # a preinstalled, license-accepted Android SDK, which is what `flutter build apk`
-      # needs beyond Flutter itself.
-      - name: Build release APK
-        run: flutter build apk --release
-
-      # Rename with the commit's short SHA so the artifact carries its own provenance
-      # in the filename — same trivial, obviously-correct traceability as worker-app.
-      - name: Stage the APK
-        id: vars
-        run: |
-          set -euo pipefail
-          SHORT_SHA="$(echo "${{ github.sha }}" | cut -c1-7)"
-          echo "short_sha=${SHORT_SHA}" >> "$GITHUB_OUTPUT"
-          cp build/app/outputs/flutter-apk/app-release.apk "payer-app-sha-${SHORT_SHA}.apk"
-
-      # `payer-app-sha-<short7>`, NOT the bare `sha-<short7>` the ghcr images use and NOT
-      # `worker-app-sha-<short7>`: Release tags are repo-wide, and a commit that touches
-      # both Flutter apps publishes from both jobs on the same sha. This prefix is the
-      # collision `worker-app-apk`'s own release step reserved against.
-      - name: Publish GitHub Release with the APK asset
-        id: release
-        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
-        with:
-          tag_name: payer-app-sha-${{ steps.vars.outputs.short_sha }}
-          name: Payer app — sha-${{ steps.vars.outputs.short_sha }}
-          target_commitish: ${{ github.sha }}
-          body: |
-            Automated build from commit ${{ github.sha }}.
-            Debug-signed release APK (sideload QA build — see
-            apps/payer-app/android/app/build.gradle). Enable "install from unknown
-            sources" to sideload; this is not a Play Store build.
-          files: apps/payer-app/payer-app-sha-${{ steps.vars.outputs.short_sha }}.apk
-          # Fail loud, not silent, if `flutter build apk` didn't produce the file
-          # this step expects (e.g. a future Flutter bump moves the output path).
-          fail_on_unmatched_files: true
-
-      # A GitHub release-asset URL is a deterministic function of the tag and the asset
-      # filename — constructed directly here rather than parsed out of the action's JSON
-      # `assets` output, so this step's correctness does not depend on that output's
-      # exact schema.
-      - name: Job summary
-        run: |
-          SHORT_SHA="${{ steps.vars.outputs.short_sha }}"
-          TAG="payer-app-sha-${SHORT_SHA}"
-          ASSET="payer-app-sha-${SHORT_SHA}.apk"
-          DOWNLOAD_URL="https://github.com/${{ github.repository }}/releases/download/${TAG}/${ASSET}"
-          {
-            echo "### Payer app APK published"
-            echo ""
-            echo "Commit: \`${{ github.sha }}\`"
-            echo ""
-            echo "Direct download: ${DOWNLOAD_URL}"
-            echo ""
-            echo "Release page: ${{ steps.release.outputs.url }}"
-          } >> "$GITHUB_STEP_SUMMARY"
 
   # ---- SAST, INSIDE the aggregator (#773) ----
   #
@@ -1652,6 +1347,13 @@ jobs:
       #                    precedence, owner-scoped detail reads, and every row equal to the
       #                    per-posting route's row — the window rank equal to listCandidates'
       #                    position — plus validated feed.shown writes. All SQL evaluating.
+      #   * candidate-search.db — `POST /payer/candidates/search` (ADR-0040 / E2, the payer
+      #                    "All candidates" view): the E2 invariant executed — no consent,
+      #                    profiling-only, revoked, opted out by a NEWER consent row, every
+      #                    skill switched off, leaving, suspended and skill-less workers are
+      #                    never served and never counted — plus count deltas, the rank-key
+      #                    order at every page size, NULL-safe city/tenure filters, strict
+      #                    mode, the anchor-left cursor fallback, the city facet and the event.
       #   * payer-applicant-stages.db — saved applicant stages (#2137, migration 0134): ownership
       #                    through the posting chokepoint, feed membership, the neutral 404,
       #                    an idempotent set with one event per real change, the inbox stage
@@ -1680,7 +1382,7 @@ jobs:
       # with no database and must keep skipping these files (TD126).
       # No --coverage on purpose: the thresholds are a whole-suite gate owned by the
       # `node` job, and a six-file run cannot meet them.
-      - name: DB-backed gates (rank parity + boost fences + apply freeze + current profile + ai cost totals + jobs search + admin dashboard + applied subtitle + turner reach + form-onboarding reach + unique violations + feed union + job-posting chat publish race + feed order + engine view + demo matching seed + generic-pack chat reach + feed cursor + agency twin + payer applicant inbox + payer org tenancy + org tenancy census + free-chat probe + companion history + deletion event tx)
+      - name: DB-backed gates (rank parity + boost fences + apply freeze + current profile + ai cost totals + jobs search + admin dashboard + applied subtitle + turner reach + form-onboarding reach + unique violations + feed union + job-posting chat publish race + feed order + engine view + demo matching seed + generic-pack chat reach + feed cursor + agency twin + payer applicant inbox + candidate search + payer org tenancy + org tenancy census + free-chat probe + companion history + deletion event tx + admin candidate detail)
         env:
           RUN_DB_TESTS: "1"
         run: |
@@ -1708,7 +1410,7 @@ jobs:
           # Serialising costs nothing here (the whole step runs in ~4s) and is scoped to
           # THIS step on purpose: `apps/api/vitest.config.ts` stays parallel, because the
           # 2820-test `node` suite is database-free and has no shared state to race on.
-          pnpm --filter @badabhai/api run test --no-file-parallelism rank-parity boost-fences apply-freeze current-profile-order ai-cost-totals.db jobs-search-sql admin-dashboard.db applied-subtitle.db turner-reach.db form-onboarding-reach.db unique-violation.db feed-union.db job-posting-chat.repository.db match-feed-order.db admin-match-engine.db demo-matching-seed.db generic-pack-chat-reach.db feed-cursor.db agency-twin-sync.db payer-applicant-inbox.db payer-applicant-stages.db payer-org-tenancy.db org-tenancy-census.db free-chat-probe.db companion-history.db hard-delete-event-tx.db 2>&1 | tee db-gates-raw.log
+          pnpm --filter @badabhai/api run test --no-file-parallelism rank-parity boost-fences apply-freeze current-profile-order ai-cost-totals.db jobs-search-sql admin-dashboard.db applied-subtitle.db turner-reach.db form-onboarding-reach.db unique-violation.db feed-union.db job-posting-chat.repository.db match-feed-order.db admin-match-engine.db demo-matching-seed.db generic-pack-chat-reach.db feed-cursor.db agency-twin-sync.db payer-applicant-inbox.db payer-applicant-stages.db candidate-search.db payer-org-tenancy.db org-tenancy-census.db free-chat-probe.db companion-history.db hard-delete-event-tx.db admin-candidate-detail.db payer-login-management.db 2>&1 | tee db-gates-raw.log
           sed -e 's/\x1b\[[0-9;]*m//g' db-gates-raw.log > db-gates.log
 
           # (1) EACH GATE MUST HAVE EXECUTED. `describe.skipIf` makes an unarmed run
@@ -1721,14 +1423,15 @@ jobs:
           # src/applications and `turner-reach.db` under src/resume and `unique-violation.db`
           # under src/common and `job-posting-chat.repository.db` under
           # src/payer-portal/job-posting-chat and `payer-applicant-inbox.db` + `payer-applicant-stages.db` under
-          # src/payer-portal and `payer-org-tenancy.db` + `org-tenancy-census.db` under src/payers and `free-chat-probe.db` under
+          # src/payer-portal and `candidate-search.db` under src/candidates and `payer-org-tenancy.db` + `org-tenancy-census.db` under src/payers and `free-chat-probe.db` under
           # src/profiling/free-chat and `companion-history.db` under src/chat-companion and
-          # `hard-delete-event-tx.db` under src/workers, and against a regex
+          # `hard-delete-event-tx.db` under src/workers and `admin-candidate-detail.db` under
+          # src/admin (already in the alternation), and against a regex
           # missing any one of them
           # this loop reports "did not run at all" on a perfectly good run. Widen it whenever a
           # gate lands in a new directory.
-          for f in rank-parity boost-fences apply-freeze current-profile-order ai-cost-totals.db jobs-search-sql admin-dashboard.db applied-subtitle.db turner-reach.db form-onboarding-reach.db unique-violation.db feed-union.db job-posting-chat.repository.db match-feed-order.db admin-match-engine.db demo-matching-seed.db generic-pack-chat-reach.db feed-cursor.db agency-twin-sync.db payer-applicant-inbox.db payer-applicant-stages.db payer-org-tenancy.db org-tenancy-census.db free-chat-probe.db companion-history.db hard-delete-event-tx.db; do
-            line=$(grep -E "src/(ai|admin|agency-twin|applications|chat-companion|common|match|profiles|jobs|resume|payers|payer-portal|payer-portal/job-posting-chat|profiling/free-chat|workers)/${f}\.test\.ts" db-gates.log | head -1 || true)
+          for f in rank-parity boost-fences apply-freeze current-profile-order ai-cost-totals.db jobs-search-sql admin-dashboard.db applied-subtitle.db turner-reach.db form-onboarding-reach.db unique-violation.db feed-union.db job-posting-chat.repository.db match-feed-order.db admin-match-engine.db demo-matching-seed.db generic-pack-chat-reach.db feed-cursor.db agency-twin-sync.db payer-applicant-inbox.db payer-applicant-stages.db candidate-search.db payer-org-tenancy.db org-tenancy-census.db free-chat-probe.db companion-history.db hard-delete-event-tx.db admin-candidate-detail.db payer-login-management.db; do
+            line=$(grep -E "src/(ai|admin|agency-twin|applications|candidates|chat-companion|common|match|profiles|jobs|resume|payers|payer-portal|payer-portal/job-posting-chat|profiling/free-chat|workers)/${f}\.test\.ts" db-gates.log | head -1 || true)
             if [ -z "$line" ]; then
               echo "::error::${f}.test.ts did not run at all — the vitest file filter matched nothing."
               exit 1
@@ -1745,8 +1448,8 @@ jobs:
           #     stops reaching vitest, this step silently becomes a slow duplicate of the
           #     `node` job (and check (1) starts passing on unrelated tests). Update the
           #     expected count when adding a gate file to the command above.
-          if ! grep -qE 'Test Files +26 passed \(26\)' db-gates.log; then
-            echo "::error::Expected exactly the 26 gate files to run — the vitest file filter is not reaching vitest."
+          if ! grep -qE 'Test Files +29 passed \(29\)' db-gates.log; then
+            echo "::error::Expected exactly the 29 gate files to run — the vitest file filter is not reaching vitest."
             grep -E 'Test Files|      Tests ' db-gates.log || true
             exit 1
           fi
@@ -2461,6 +2164,16 @@ jobs:
           # `stage` on the feeds, the stage route a 404). Needs migration 0134 applied BEFORE it is
           # set: on without the table, both payer applicant feeds 500. true/false/1/0/empty only.
           PAYER_APPLICANT_STAGES_ENABLED: ${{ secrets.PAYER_APPLICANT_STAGES_ENABLED }}
+          # #2541 — the sign-up age gate. Unset/empty resolves to off through compose's `:-false`,
+          # which is today's POST /consent/accept (a missing 18+ answer still passes; an explicit
+          # under-18 answer is refused either way). Set only once the worker-app release that
+          # sends `age_18_plus` is live. Values: lowercase true/false/1/0/empty only.
+          SIGNUP_AGE_GATE_ENABLED: ${{ secrets.SIGNUP_AGE_GATE_ENABLED }}
+          # "Level needed" applicant sort (engine v1.1, CEO ruling 30 Oct 2026, ADR-0061, #2613).
+          # Unset/empty resolves to off through compose's `:-false`: today's applicant list. On, a
+          # 4-CNC-trade posting that names a rung sorts its applicants meets → not confirmed →
+          # below. Migration 0153 is already applied. true/false/1/0/empty only.
+          LEVEL_NEEDED_SORT_ENABLED: ${{ secrets.LEVEL_NEEDED_SORT_ENABLED }}
           # Admin Engine view demo-worker allow-list (owner ruling 2026-10-06): extra E.164 handsets
           # (the owner's demo phone) beyond the reserved demo block +910000026xxx. Not a secret in
           # content, but a secret is the bridge. Absent/empty = demo block only; a malformed entry
@@ -2478,6 +2191,14 @@ jobs:
           # anything else before a container moves. Arming it (shadow, then on) is owner decision
           # O-8, after the ORG_TENANCY_PLAN §5 census.
           PAYER_ORG_TENANCY_MODE: ${{ secrets.PAYER_ORG_TENANCY_MODE }}
+
+          # #2509 — per-IP hourly cap on the PUBLIC payer auth endpoints (signup /
+          # login request / verify). INERT UNTIL THE SECRET EXISTS: absent, it renders
+          # empty and compose's `:-20` resolves it to 20 — byte-identical to today. Set
+          # to 1000 in the production environment secrets to stop one shared egress IP
+          # 429ing every tester on the shared payer backend (the bucket clears at the
+          # top of the UTC hour, not "in a minute"). Still a cap, not an uncap.
+          PAYER_AUTH_MAX_PER_IP_PER_HOUR: ${{ secrets.PAYER_AUTH_MAX_PER_IP_PER_HOUR }}
 
           # Payer OTP email (ADR-0019) — the ZeptoMail analogue of the FAST2SMS_* trio
           # above. EMAIL_PROVIDER/ZEPTOMAIL_SANDBOX_MODE are NOT here: they now default
@@ -2628,7 +2349,7 @@ jobs:
           # poll below can never be silently cut short by an upstream default change).
           timeout: 10m
           command_timeout: 10m
-          envs: JWT_SECRET,PII_ENCRYPTION_KEY,PII_HASH_PEPPER,PIN_PEPPER,ADMIN_JWT_SECRET,DATABASE_URL,REDIS_URL,INTERNAL_SERVICE_TOKEN,FAST2SMS_API_KEY,FAST2SMS_SENDER_ID,FAST2SMS_DLT_TEMPLATE_ID,ZEPTOMAIL_API_URL,ZEPTOMAIL_API_TOKEN,ZEPTOMAIL_MAIL_AGENT,EMAIL_FROM_ADDRESS,CORS_ALLOWED_ORIGINS,LANGFUSE_PUBLIC_KEY,LANGFUSE_SECRET_KEY,LANGFUSE_TRACING_ENVIRONMENT,LANGFUSE_BASE_URL,AI_ENABLE_REAL_CALLS,WORK_HISTORY_POLISH_ENABLED,RESUME_AUTOFILL_ENABLED,RESUME_OPTION_MAP_REQUIRES_AUTOFILL,PROFILING_TIERS_ENABLED,FORM_TYPED_TENURE_DERIVE_ENABLED,RESUME_SKINS_ENABLED,RESUME_QR_SCAN_ENABLED,RESUME_CHAT_UPDATE_OFFER_ENABLED,CHAT_COMPANION_ENABLED,CHAT_COMPANION_V2_ENABLED,CHAT_COMPANION_V2_EDIT_ENABLED,CHAT_COMPANION_V2_NEW_RESUME_ENABLED,CHAT_COMPANION_V2_FALTU_ENABLED,CHAT_COMPANION_V2_CAREER_ENABLED,CHAT_COMPANION_V2_ROUTE_PRECEDENCE_ENABLED,CHAT_GENERAL_ROAD_ENABLED,CHAT_TURN_UNDERSTANDING_ENABLED,PROFILE_EXTRACT_SKIP_CHAT_TURNS_ENABLED,CHAT_SIDE_MESSAGE_CITY_GUARD_ENABLED,CHAT_TRADE_OFFER_BEFORE_MODEL_ENABLED,CHAT_IDENTITY_INTAKE_ENABLED,CHAT_FREE_CHAT_DISABLED,GEMINI_FLASH_API_KEY,ANTHROPIC_API_KEY,DOMAIN_MATCH_ENABLED,SKILL_CANONICALIZE_ENABLED,SKILLS_INTERNAL_TOKEN,AI_INTERNAL_TOKEN,PAYER_WEB_PORT,ADMIN_WEB_PORT,AGENCY_PAYOUTS_ENABLED,GH_SHA,GH_ACTOR,GH_REPOSITORY,GHCR_TOKEN,TEST_IMMEDIATE_DELETE_ENABLED,TEST_IMMEDIATE_DELETE_WORKER_IDS,AI_RAW_PII_ENABLED,MATCH_V1_ENABLED,FEED_POSTINGS_UNION_ENABLED,AGENCY_TWIN_SYNC_ENABLED,PAYER_APPLICANT_STAGES_ENABLED,ADMIN_ENGINE_VIEW_ALLOW_PHONES,PAYER_LOGIN_METHOD,PAYER_ORG_TENANCY_MODE
+          envs: JWT_SECRET,PII_ENCRYPTION_KEY,PII_HASH_PEPPER,PIN_PEPPER,ADMIN_JWT_SECRET,DATABASE_URL,REDIS_URL,INTERNAL_SERVICE_TOKEN,FAST2SMS_API_KEY,FAST2SMS_SENDER_ID,FAST2SMS_DLT_TEMPLATE_ID,ZEPTOMAIL_API_URL,ZEPTOMAIL_API_TOKEN,ZEPTOMAIL_MAIL_AGENT,EMAIL_FROM_ADDRESS,CORS_ALLOWED_ORIGINS,LANGFUSE_PUBLIC_KEY,LANGFUSE_SECRET_KEY,LANGFUSE_TRACING_ENVIRONMENT,LANGFUSE_BASE_URL,AI_ENABLE_REAL_CALLS,WORK_HISTORY_POLISH_ENABLED,RESUME_AUTOFILL_ENABLED,RESUME_OPTION_MAP_REQUIRES_AUTOFILL,PROFILING_TIERS_ENABLED,FORM_TYPED_TENURE_DERIVE_ENABLED,RESUME_SKINS_ENABLED,RESUME_QR_SCAN_ENABLED,RESUME_CHAT_UPDATE_OFFER_ENABLED,CHAT_COMPANION_ENABLED,CHAT_COMPANION_V2_ENABLED,CHAT_COMPANION_V2_EDIT_ENABLED,CHAT_COMPANION_V2_NEW_RESUME_ENABLED,CHAT_COMPANION_V2_FALTU_ENABLED,CHAT_COMPANION_V2_CAREER_ENABLED,CHAT_COMPANION_V2_ROUTE_PRECEDENCE_ENABLED,CHAT_GENERAL_ROAD_ENABLED,CHAT_TURN_UNDERSTANDING_ENABLED,PROFILE_EXTRACT_SKIP_CHAT_TURNS_ENABLED,CHAT_SIDE_MESSAGE_CITY_GUARD_ENABLED,CHAT_TRADE_OFFER_BEFORE_MODEL_ENABLED,CHAT_IDENTITY_INTAKE_ENABLED,CHAT_FREE_CHAT_DISABLED,GEMINI_FLASH_API_KEY,ANTHROPIC_API_KEY,DOMAIN_MATCH_ENABLED,SKILL_CANONICALIZE_ENABLED,SKILLS_INTERNAL_TOKEN,AI_INTERNAL_TOKEN,PAYER_WEB_PORT,ADMIN_WEB_PORT,AGENCY_PAYOUTS_ENABLED,GH_SHA,GH_ACTOR,GH_REPOSITORY,GHCR_TOKEN,TEST_IMMEDIATE_DELETE_ENABLED,TEST_IMMEDIATE_DELETE_WORKER_IDS,AI_RAW_PII_ENABLED,MATCH_V1_ENABLED,FEED_POSTINGS_UNION_ENABLED,AGENCY_TWIN_SYNC_ENABLED,PAYER_APPLICANT_STAGES_ENABLED,LEVEL_NEEDED_SORT_ENABLED,ADMIN_ENGINE_VIEW_ALLOW_PHONES,PAYER_LOGIN_METHOD,PAYER_ORG_TENANCY_MODE,PAYER_AUTH_MAX_PER_IP_PER_HOUR,SIGNUP_AGE_GATE_ENABLED
           #
           # ⚠ FIVE LINKS, AND A SECRET ONLY BUYS THE FIRST. A value reaches a container by:
           #   1. existing as a GitHub environment secret

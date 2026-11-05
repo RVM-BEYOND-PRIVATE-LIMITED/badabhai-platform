@@ -7,11 +7,59 @@
  */
 import { formatInr } from "@badabhai/pricing";
 
-/** Absolute UTC, second precision. Operators correlate these with server logs. */
+/** India Standard Time is a fixed +05:30 with no daylight saving, so a plain offset is exact. */
+const IST_OFFSET_MS = 330 * 60 * 1000;
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/** The instant's IST wall-clock fields, or null for an unparseable value. */
+function istParts(iso: string): { date: string; hhmm: string; ss: string } | null {
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return null;
+  // Shift by the offset and read the UTC fields: the result never depends on the host's zone,
+  // so the server render and the browser agree.
+  const d = new Date(t + IST_OFFSET_MS);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return {
+    date: `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`,
+    hhmm: `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`,
+    ss: pad(d.getUTCSeconds()),
+  };
+}
+
+/**
+ * The console's one timestamp shape (#2572): "19 Aug 2026, 13:08 IST". The operators work in
+ * IST; the exact UTC instant stays one hover away ({@link formatTimestampUtc}).
+ */
 export function formatTimestamp(iso: string): string {
+  const p = istParts(iso);
+  return p ? `${p.date}, ${p.hhmm} IST` : "—";
+}
+
+/** Just the IST calendar day: "19 Aug 2026". For "since …" captions and date-only cells. */
+export function formatDate(iso: string): string {
+  return istParts(iso)?.date ?? "—";
+}
+
+/** IST wall-clock to the second: "13:08:54 IST". The live indicator's last-updated time. */
+export function formatClock(iso: string): string {
+  const p = istParts(iso);
+  return p ? `${p.hhmm}:${p.ss} IST` : "—";
+}
+
+/** Absolute UTC, second precision: "2026-08-19 07:38:54 UTC". Operators correlate it with logs. */
+export function formatTimestampUtc(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "—";
-  return d.toISOString().replace("T", " ").replace(/\.\d+Z$/, "Z");
+  return d.toISOString().replace("T", " ").replace(/\.\d+Z$/, " UTC");
+}
+
+/**
+ * The hover text for a timestamp shown in another form (relative, or IST): both readings, so an
+ * operator never has to convert. "19 Aug 2026, 13:08 IST · 2026-08-19 07:38:54 UTC".
+ */
+export function timestampTitle(iso: string): string {
+  const ist = formatTimestamp(iso);
+  return ist === "—" ? ist : `${ist} · ${formatTimestampUtc(iso)}`;
 }
 
 /**
@@ -30,16 +78,18 @@ export function formatRelative(iso: string, now: number = Date.now()): string {
   if (hours < 24) return `${hours}h ago`;
   const days = Math.floor(hours / 24);
   if (days < 30) return `${days}d ago`;
-  return formatTimestamp(iso).slice(0, 10);
+  return formatDate(iso);
 }
 
 /**
- * Shorten an opaque id for a dense table. The full value always stays in `title` and in
- * the copy affordance — a truncated id that cannot be recovered is worse than none.
+ * Shorten an opaque id in the MIDDLE for a dense table: "be16…a3f2". Both ends survive, so two
+ * ids that share a prefix still read apart. The full value always stays in `title` and in the
+ * copy affordance (`CopyId`) — a truncated id that cannot be recovered is worse than none.
+ * `edge` is how many characters each end keeps.
  */
-export function shortId(id: string | null, chars = 8): string {
+export function shortId(id: string | null, edge = 4): string {
   if (!id) return "—";
-  return id.length <= chars ? id : `${id.slice(0, chars)}…`;
+  return id.length <= edge * 2 + 1 ? id : `${id.slice(0, edge)}…${id.slice(-edge)}`;
 }
 
 /**
@@ -230,6 +280,57 @@ export function formatExactRupees(value: string): string {
   return `${negative ? "−" : ""}₹${groupIndianDigits(whole)}.${
     trimmed.length <= 2 ? trimmed.padEnd(2, "0") : trimmed
   }`;
+}
+
+/** Round a plain non-negative decimal string to `places`, half-up, as an integer of 10^-places. */
+function roundDecimal(whole: string, fraction: string, places: number): bigint {
+  const units = BigInt(whole + fraction);
+  const n = fraction.length;
+  if (n <= places) return units * 10n ** BigInt(places - n);
+  const div = 10n ** BigInt(n - places);
+  const q = units / div;
+  return (units % div) * 2n >= div ? q + 1n : q;
+}
+
+/**
+ * A decimal ₹ amount (string, as {@link formatExactRupees} takes it) at a READABLE precision
+ * (#2572) — for lists and tiles, with the exact figure kept for the hover and detail views:
+ *
+ *  - ₹100 and up: whole rupees ("₹871"), rounded half-up;
+ *  - under ₹100: two decimals ("₹1.51");
+ *  - above zero but under ₹0.01: "<₹0.01" — never "₹0.00", which would claim nothing was spent;
+ *  - exactly zero: "₹0.00", a measurement like any other.
+ *
+ * Still string arithmetic (BigInt), never a float, and an unrecognised value is returned
+ * unchanged — the same contract as the exact formatter.
+ */
+export function formatDisplayRupees(value: string): string {
+  if (!EXACT_DECIMAL.test(value)) return value;
+  const negative = value.startsWith("-");
+  const [rawWhole = "0", fraction = ""] = (negative ? value.slice(1) : value).split(".");
+  const whole = rawWhole.replace(/^0+(?=\d)/, "");
+  const sign = negative ? "−" : "";
+  const isZero = /^0+$/.test(whole + fraction);
+  if (isZero) return "₹0.00";
+  // The sub-paisa band is judged on the UNROUNDED value: rounding first turned 0.005–0.0099…
+  // into "₹0.01", overstating a small call by up to 2×.
+  if (whole === "0" && fraction.padEnd(2, "0").startsWith("00")) {
+    return negative ? "> −₹0.01" : "<₹0.01";
+  }
+  const cents = roundDecimal(whole, fraction, 2);
+  if (BigInt(whole) >= 100n || cents >= 10000n) {
+    return `${sign}₹${groupIndianDigits(roundDecimal(whole, fraction, 0).toString())}`;
+  }
+  const c = cents.toString().padStart(3, "0");
+  return `${sign}₹${groupIndianDigits(c.slice(0, -2))}.${c.slice(-2)}`;
+}
+
+/**
+ * The same display rules for a ₹ figure that arrives as a NUMBER (`ai_jobs.cost_inr` is
+ * `double precision`). Ten fixed places keep a sub-paisa value from collapsing to zero.
+ */
+export function formatDisplayRupeesFromNumber(n: number): string {
+  return Number.isFinite(n) ? formatDisplayRupees(n.toFixed(10)) : "—";
 }
 
 /**

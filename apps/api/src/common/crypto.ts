@@ -9,6 +9,7 @@ export {
   sha256Hex,
   hmacSha256Hex,
   hashPhone,
+  hashOrgName,
   hashIp,
   hmacValue,
   encryptPii,
@@ -20,6 +21,9 @@ export {
   hashPin,
   verifyPin,
   isPinHash,
+  hashPassword,
+  verifyPassword,
+  isPasswordHash,
   PII_KID_PATTERN,
 } from "@badabhai/db";
 export type { PiiKeyring } from "@badabhai/db";

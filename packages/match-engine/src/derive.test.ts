@@ -124,6 +124,8 @@ describe("deriveWorkerSkills — the COARSE launch rule", () => {
   });
 
   it("adds a DECLARED SECONDARY role through the same bridge (Layer A (f))", () => {
+    // CEO Launch Pack v1 (RULED 2026-11-02, reconciled): role_welder derives the
+    // umbrella trade, so the pair is umbrella + plumber.
     const rows = deriveWorkerSkills(
       {
         canonicalRoleId: "role_welder",
@@ -132,7 +134,7 @@ describe("deriveWorkerSkills — the COARSE launch rule", () => {
       },
       cfg,
     );
-    expect(rows.map((r) => r.skillId)).toEqual(["mskill_mig_welder", "mskill_plumber"]);
+    expect(rows.map((r) => r.skillId)).toEqual(["mskill_plumber", "mskill_welder"]);
     // The coarse rule is not special-cased for secondaries: one bucketed total on every row.
     for (const r of rows) expect(r.monthsBucketed).toBe(36);
   });

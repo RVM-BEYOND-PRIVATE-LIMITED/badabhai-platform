@@ -75,6 +75,16 @@ export interface RankInputs {
    */
   lastActiveAt: string;
   /**
+   * "LEVEL NEEDED" (engine v1.1, CEO ruling 30 Oct 2026, ADR-0061) — the worker's group against
+   * the posting's minimum rung: 0 meets · 1 not confirmed · 2 below (`LEVEL_FIT_ORDER` in
+   * `@badabhai/taxonomy`). It sorts INSIDE the tier group, before months.
+   *
+   * ABSENT on a posting with no level sort ("Any level", a trade it is not on for, or the flag
+   * off): every row then ties on it and the order is exactly v1.0's. Set it on every row of a
+   * levelled list, never on some — the comparator reads an absent value as 0.
+   */
+  levelOrder?: 0 | 1 | 2;
+  /**
    * The spec's `stable_hash` slot — an opaque, stable id (application id, or
    * `stable_hash(worker_id, job_id)`). The final total-order tiebreak: never random at
    * read time, because a list that reorders between page loads looks broken to a man

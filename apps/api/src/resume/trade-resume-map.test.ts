@@ -5,7 +5,7 @@
  * hands to an employer, not the happy path: a raw slug, a non-answer printed as an answer, a claim
  * the worker never made, or a row order that changes between two renders of the same profile.
  */
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -24,10 +24,48 @@ interface Pack {
 function packJson(packId: string): Pack {
   return JSON.parse(
     readFileSync(
-      join(__dirname, `../../../../packages/db/data/question-packs/packs/${packId}.json`),
+      join(
+        __dirname,
+        `../../../../packages/db/data/question-packs/packs/${activePackFile(packId)}.json`,
+      ),
       "utf8",
     ),
   ) as Pack;
+}
+
+/**
+ * The newest published version file — what the runtime registry serves new
+ * sessions. Base files are v1-frozen (P2/P3 precedent: level questions live in
+ * @2+ only), so a map checked against the base would fail on any value minted
+ * after v1. E1 hit exactly that: the Turner slot-2 values exist in @4 alone.
+ */
+function activePackFile(packId: string): string {
+  const ledger = readFileSync(
+    join(__dirname, "../../../../packages/db/data/question-packs/_published-versions.jsonl"),
+    "utf8",
+  );
+  let best: string | null = null;
+  let bestVersion = -1;
+  for (const line of ledger.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith(`${packId}@`)) continue;
+    const version = Number.parseInt(trimmed.slice(packId.length + 1), 10);
+    if (Number.isInteger(version) && version > bestVersion) {
+      bestVersion = version;
+      best = trimmed;
+    }
+  }
+  // v1 lives as the undecorated base file for packs that predate versioning
+  // (the ledger still records them as @1) — fall back when no @N file exists.
+  if (
+    best === null ||
+    !existsSync(
+      join(__dirname, "../../../../packages/db/data/question-packs/packs", `${best}.json`),
+    )
+  ) {
+    return packId;
+  }
+  return best;
 }
 
 const map = tradeResumeMapFor("qp_cnc_turning");
@@ -98,6 +136,7 @@ describe("trade resume map — qp_cnc_turning", () => {
       "qp_cnc_grinding",
       "qp_cam_programming",
       "qp_cad_drafting",
+      "qp_cad_design_3d",
       "qp_conventional_machining",
       "qp_tool_die_making",
       "qp_welding_trade",
@@ -109,6 +148,12 @@ describe("trade resume map — qp_cnc_turning", () => {
       "qp_fitter",
       "qp_quality_inspection",
       "qp_maintenance_tech",
+      "qp_plc_automation",
+      "qp_edm_wirecut",
+      "qp_injection_moulding",
+      "qp_heat_treatment",
+      "qp_production_supervisor",
+      "qp_foundry_forging",
     ]);
     // `qp_welding` IS THE GENERIC ISCO-UNIT PACK AND STILL HAS NO MAP — and this row is now doing
     // real work rather than naming an arbitrary absent pack. Batch 2 added `qp_welding_trade`
@@ -189,13 +234,15 @@ describe("trade resume map — qp_cnc_turning", () => {
   });
 
   it("orders values by the DICTIONARY, so the same profile always renders identically", () => {
+    // Track A #1 (@6): Mazatrol is its own chip value; the E2 "mazak" value no
+    // longer exists on the pack, so the ordering case moves to it.
     const a = buildTradeCapabilityRows("qp_cnc_turning", {
-      controller_brand: ["mazak", "fanuc", "siemens"],
+      controller_brand: ["mazatrol", "fanuc", "siemens"],
     });
     const b = buildTradeCapabilityRows("qp_cnc_turning", {
-      controller_brand: ["siemens", "mazak", "fanuc"],
+      controller_brand: ["siemens", "mazatrol", "fanuc"],
     });
-    expect(a.chipRows[0]?.values).toEqual(["Fanuc", "Siemens", "Mazak"]);
+    expect(a.chipRows[0]?.values).toEqual(["Fanuc", "Siemens", "Mazatrol"]);
     expect(a).toEqual(b);
   });
 
@@ -483,7 +530,10 @@ describe("trade resume map — qp_vmc_milling against the ratified sample", () =
     milling_machine: ["vmc", "spm"],
     axis_capability: ["three_axis", "four_axis"],
     controller_brand: ["fanuc", "siemens", "mitsubishi"],
-    material_worked: ["en_eight", "en_thirty_one", "mild_steel", "aluminium"],
+    // Track A #2 (@6): materials unified to the Turner set (CEO pack sheet 2)
+    // — the sample's EN8/EN31 split no longer exists on the pack, so the
+    // fixture answers the combined chip the sample's worker would tap today.
+    material_worked: ["alloy_steel", "mild_steel", "aluminium"],
     setting_operation: [
       "tool_offset",
       "work_offset",
@@ -545,7 +595,7 @@ describe("trade resume map — qp_vmc_milling against the ratified sample", () =
     const facts = new Map(rows.factRows.map((r) => [r.label, r.value]));
 
     expect(chips.get("Controllers")).toEqual(["Fanuc", "Siemens", "Mitsubishi"]);
-    expect(chips.get("Materials")).toEqual(["EN8", "EN31", "MS", "Aluminium"]);
+    expect(chips.get("Materials")).toEqual(["MS", "EN8 / EN31", "Aluminium"]);
     expect(ticks.get("Setting")).toEqual([
       "Tool offset",
       "Work offset",

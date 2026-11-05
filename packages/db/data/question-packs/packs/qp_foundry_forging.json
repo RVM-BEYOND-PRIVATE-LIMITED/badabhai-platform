@@ -1,0 +1,389 @@
+{
+  "_why": "Role track for FOUNDRY / FORGING, a new trade (CEO Launch Plan Pack v1, Phase 2 #11, sheet 19). fam_foundry_forging binds the casting and forging NCO codes at job-domain specificity 50: the 7211 moulders and core makers (not 7211.0101/.0102, the press shop's), the 8121 casting codes (helper, assistant technician, die casting, PDC, non-ferrous casting, machine core maker), the 7221 forging codes (power hammer, forging operator, hammer man, stamper) and 7223.0300 drop-forging setter, plus the four casting / forging shop supervisor codes (3122.4401/.4402/.4501/.4502: a trade supervisor keeps his trade, sheet 23). Village blacksmiths (7221.0100/.0200) stay on fam_blacksmithing.",
+  "_scope": "THE CASTING AND FORGING SHOP. Melting, moulding, core making, die casting, pouring and fettling, and hammer / press / upset forging and trimming. Heat treatment of the finished part is the Heat-Treatment trade (sheet 17); machining it is the machinist's.",
+  "_depth": "THE TIER GATE IS foundry_experience, asked FIRST. Its options carry value_number ONLY: pack-registry.service.ts resolves valueText ?? valueNumber, and a value_text would turn every gte below into a string compare that is false forever (the #776 defect).",
+  "_budget": "MAX_ENGINE_ASKS is 28 and qp_universal spends 8. Easy is 2 trade items + at most 1 confirm; Medium adds 2 (process, material); Advanced adds 2 (equipment, testing). Worst case 2 + 1 + 2 + 2 = 7 trade asks.",
+  "_sheet": "READ OFF CEO LAUNCH PLAN PACK v1 SHEET 19 (a new trade, no ratified page). Section title 'Foundry / forging, processes & capability'. Its rows are Processes, Metals, Equipment and Testing, and every row has exactly one question here.",
+  "pack_id": "qp_foundry_forging",
+  "version": 1,
+  "family_id": "fam_foundry_forging",
+  "locale": "hi-IN",
+  "status": "active",
+  "review_note": "v1 (CEO Launch Plan Pack v1, Phase 2 #11): new trade. Easy/Medium/Advanced tiers; 6-band experience; sheet-19 level ladder (Trainee/Operator/Skilled/Senior/Supervisor, mandatory); 1 separating confirm, the sheet's question verbatim, asked of skilled AND senior (the owner's standing rule: the sheet writes none for senior); supervisor by rule. Medium Q6 process, Q7 metal; Advanced Q9 equipment, Q10 testing, gated years OR rung. Deviations recorded: Q9 names the equipment, not its brand or tonnage (the sheet lists both; a tonnage chip set is a follow-up); Q11 'shift' is the shared qp_universal shift question and Q12 the shared ITI block (no per-trade row; PLC / EDM / heat-treatment precedent); no fresher items. Drafted for owner review (Prakash).",
+  "items": [
+    {
+      "question_key": "foundry_experience",
+      "min_tier": "easy",
+      "prompt_text": "Foundry ya forging ka kitna tajurba hai?",
+      "why_text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "foundry_experience",
+      "answer_type": "single_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "fresher",
+          "label_text": "Fresher",
+          "value_number": 0
+        },
+        {
+          "option_key": "below_one",
+          "label_text": "1 saal se kam",
+          "value_number": 0
+        },
+        {
+          "option_key": "one_to_three",
+          "label_text": "1 se 3 saal",
+          "value_number": 2
+        },
+        {
+          "option_key": "three_to_five",
+          "label_text": "3 se 5 saal",
+          "value_number": 4
+        },
+        {
+          "option_key": "five_to_ten",
+          "label_text": "5 se 10 saal",
+          "value_number": 7
+        },
+        {
+          "option_key": "above_ten",
+          "label_text": "10 saal se zyada",
+          "value_number": 12
+        }
+      ],
+      "retry_text": "Lagbhag kitne saal foundry ya forging ka kaam kiya hai?",
+      "is_mandatory": true
+    },
+    {
+      "question_key": "foundry_level",
+      "min_tier": "easy",
+      "prompt_text": "Foundry ya forging shop me aap kis level par kaam karte hain?",
+      "why_text": "Level se employer ko aapka darja saaf pata chalta hai.",
+      "target_kind": "attribute",
+      "target_field": "foundry_level",
+      "answer_type": "single_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "helper",
+          "label_text": "Helper/Trainee",
+          "value_text": "trainee"
+        },
+        {
+          "option_key": "operator",
+          "label_text": "Operator",
+          "value_text": "operator"
+        },
+        {
+          "option_key": "skilled",
+          "label_text": "Skilled",
+          "value_text": "skilled"
+        },
+        {
+          "option_key": "senior",
+          "label_text": "Senior",
+          "value_text": "senior"
+        },
+        {
+          "option_key": "supervisor",
+          "label_text": "Supervisor",
+          "value_text": "supervisor"
+        }
+      ],
+      "retry_text": "Helper, operator, skilled, senior ya supervisor hain?",
+      "is_mandatory": true
+    },
+    {
+      "question_key": "foundry_skilled_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Process setting (pattern/die/melt) aap khud karte ho?",
+      "why_text": "Process setting khud karne wale ko alag kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "foundry_skilled_confirm",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "foundry_level"
+        },
+        "right": {
+          "const": [
+            "skilled",
+            "senior"
+          ]
+        }
+      },
+      "options": [
+        {
+          "option_key": "self_confirm",
+          "label_text": "Haan, khud karta hoon",
+          "value_text": "self"
+        },
+        {
+          "option_key": "other_confirm",
+          "label_text": "Nahi, koi aur karta hai",
+          "value_text": "other"
+        }
+      ]
+    },
+    {
+      "question_key": "foundry_process",
+      "min_tier": "medium",
+      "prompt_text": "Foundry ya forging me kaunsa kaam karte hain?",
+      "why_text": "Kaam ki kism se sahi plant ka kaam dikhaya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "foundry_process",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "sand_moulding",
+          "label_text": "Sand moulding",
+          "value_text": "sand_moulding"
+        },
+        {
+          "option_key": "shell_moulding",
+          "label_text": "Shell moulding",
+          "value_text": "shell_moulding"
+        },
+        {
+          "option_key": "die_casting",
+          "label_text": "Die casting (HPDC/GDC)",
+          "value_text": "die_casting"
+        },
+        {
+          "option_key": "investment_casting",
+          "label_text": "Investment casting",
+          "value_text": "investment_casting"
+        },
+        {
+          "option_key": "hammer_forging",
+          "label_text": "Hammer forging",
+          "value_text": "hammer_forging"
+        },
+        {
+          "option_key": "press_forging",
+          "label_text": "Press forging",
+          "value_text": "press_forging"
+        },
+        {
+          "option_key": "upset_forging",
+          "label_text": "Upset forging",
+          "value_text": "upset_forging"
+        },
+        {
+          "option_key": "melting",
+          "label_text": "Melting (induction)",
+          "value_text": "melting"
+        },
+        {
+          "option_key": "fettling",
+          "label_text": "Fettling / grinding",
+          "value_text": "fettling"
+        },
+        {
+          "option_key": "core_making",
+          "label_text": "Core making",
+          "value_text": "core_making"
+        },
+        {
+          "option_key": "other_process",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "retry_text": "Moulding, die casting ya forging, kaunsa kaam karte hain?",
+      "is_mandatory": true
+    },
+    {
+      "question_key": "foundry_material",
+      "min_tier": "medium",
+      "prompt_text": "Kaunse metal ka kaam kiya hai?",
+      "why_text": "Metal ke hisaab se sahi foundry ka kaam dikhaya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "foundry_material",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "cast_iron",
+          "label_text": "CI (cast iron)",
+          "value_text": "cast_iron"
+        },
+        {
+          "option_key": "sg_iron",
+          "label_text": "SG iron",
+          "value_text": "sg_iron"
+        },
+        {
+          "option_key": "aluminium",
+          "label_text": "Aluminium",
+          "value_text": "aluminium"
+        },
+        {
+          "option_key": "steel",
+          "label_text": "Steel",
+          "value_text": "steel"
+        },
+        {
+          "option_key": "brass_bronze",
+          "label_text": "Brass / bronze",
+          "value_text": "brass_bronze"
+        },
+        {
+          "option_key": "alloy_steel_forging",
+          "label_text": "Alloy steel forging",
+          "value_text": "alloy_steel_forging"
+        },
+        {
+          "option_key": "other_metal",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "is_mandatory": true
+    },
+    {
+      "question_key": "foundry_equipment",
+      "min_tier": "hard",
+      "prompt_text": "Kaunsi machine ya furnace chalayi hai?",
+      "why_text": "Machine jaanne wale operator ko jaldi kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "foundry_equipment",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "induction_furnace",
+          "label_text": "Induction furnace",
+          "value_text": "induction_furnace"
+        },
+        {
+          "option_key": "cupola",
+          "label_text": "Cupola",
+          "value_text": "cupola"
+        },
+        {
+          "option_key": "hpdc_machine",
+          "label_text": "HPDC machine",
+          "value_text": "hpdc_machine"
+        },
+        {
+          "option_key": "forging_hammer",
+          "label_text": "Forging hammer",
+          "value_text": "forging_hammer"
+        },
+        {
+          "option_key": "forging_press",
+          "label_text": "Forging press",
+          "value_text": "forging_press"
+        },
+        {
+          "option_key": "other_equipment",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "foundry_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "foundry_level"
+            },
+            "right": {
+              "const": [
+                "skilled",
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "foundry_testing",
+      "min_tier": "hard",
+      "prompt_text": "Kaunsi testing khud karte hain?",
+      "why_text": "Testing khud karne wale technician ki alag maang hai.",
+      "target_kind": "attribute",
+      "target_field": "foundry_testing",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "spectro",
+          "label_text": "Spectro (chemistry)",
+          "value_text": "spectro"
+        },
+        {
+          "option_key": "hardness",
+          "label_text": "Hardness testing",
+          "value_text": "hardness"
+        },
+        {
+          "option_key": "dimensional",
+          "label_text": "Dimensional check",
+          "value_text": "dimensional"
+        },
+        {
+          "option_key": "no_testing",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "foundry_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "foundry_level"
+            },
+            "right": {
+              "const": [
+                "skilled",
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

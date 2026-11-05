@@ -188,9 +188,14 @@ describe("capability matrix drift (must-fix #5 — pinned to ADR-0025 Decision 3
     // this test pins the code against the code, which is drift detection but not ADR compliance.
     review_skill_candidates: ["super_admin", "ops_admin"],
     manage_agency_match_skills: ["super_admin"],
+    // #2563 — payer credential administration. `analyst` denied.
+    manage_payer_credentials: ["super_admin", "ops_admin", "support"],
     toggle_kill_switch: ["super_admin"],
     reveal_pii: ["super_admin", "support"],
     manage_admins: ["super_admin"],
+    // ADR-0062 §3.8 (signed 2026-11-04) — the Candidates full-detail read, all four roles. Names on
+    // that response stay behind `read_identity` (asserted below), so the analyst row is faceless.
+    read_candidates: ["super_admin", "ops_admin", "support", "analyst"],
   };
 
   it("the capability set matches the ADR exactly (no added/removed capability)", () => {
@@ -203,7 +208,7 @@ describe("capability matrix drift (must-fix #5 — pinned to ADR-0025 Decision 3
     }
   });
 
-  it("the every-cell assertion: can(role, cap) === (role ∈ the ADR cell) for ALL 52 cells", () => {
+  it("the every-cell assertion: can(role, cap) === (role ∈ the ADR cell) for ALL 60 cells", () => {
     const roles: AdminRole[] = ["super_admin", "ops_admin", "support", "analyst"];
     for (const cap of ADMIN_CAPABILITIES) {
       for (const role of roles) {
@@ -266,6 +271,22 @@ describe("capability matrix drift (must-fix #5 — pinned to ADR-0025 Decision 3
     // Names are NOT the reveal: `ops_admin` holds identity and is still denied the phone.
     expect(can("ops_admin", "reveal_pii")).toBe(false);
   });
+
+  it("read_candidates is a READ floor that confers neither names, the phone, nor any write (ADR-0062 §3.8)", () => {
+    // Every role reads the candidate record — that is the ruling.
+    for (const role of ["super_admin", "ops_admin", "support", "analyst"] as AdminRole[]) {
+      expect(can(role, "read_candidates"), role).toBe(true);
+    }
+    // The analyst reads it FACELESS: holding the record must not imply holding the name.
+    expect(can("analyst", "read_identity")).toBe(false);
+    // ...and seeing a whole profile never smuggles in the phone or an action on the worker.
+    for (const role of ["ops_admin", "analyst"] as AdminRole[]) {
+      expect(can(role, "reveal_pii"), role).toBe(false);
+    }
+    for (const write of ["flag_worker", "export", "manage_admins", "toggle_kill_switch"] as const) {
+      expect(can("analyst", write), write).toBe(false);
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -276,7 +297,7 @@ describe("capability matrix drift (must-fix #5 — pinned to ADR-0025 Decision 3
 describe("capabilitiesFor — what the UI is told matches what the server permits", () => {
   const ROLES: AdminRole[] = ["super_admin", "ops_admin", "support", "analyst"];
 
-  it("agrees with can() on ALL 52 cells — the UI can never show a control the guard denies", () => {
+  it("agrees with can() on ALL 60 cells — the UI can never show a control the guard denies", () => {
     for (const role of ROLES) {
       const granted = capabilitiesFor(role);
       for (const cap of ADMIN_CAPABILITIES) {
@@ -295,12 +316,17 @@ describe("capabilitiesFor — what the UI is told matches what the server permit
   it("returns each role's exact ADR-0025 §3.1 grant", () => {
     // Literal expectations: an assertion derived from the matrix would survive a matrix bug.
     // `analyst` is the role the 2026-08-18 ruling deliberately left faceless — no read_identity.
-    expect(capabilitiesFor("analyst")).toEqual(["read_events", "read_entities"]);
+    // ADR-0062 §3.8 — `read_candidates` is appended at the TAIL of the vocabulary, so it closes
+    // every role's list and moves no existing row.
+    expect(capabilitiesFor("analyst")).toEqual(["read_events", "read_entities", "read_candidates"]);
     expect(capabilitiesFor("support")).toEqual([
       "read_events",
       "read_entities",
       "read_identity",
+      // #2563 — payer credential administration.
+      "manage_payer_credentials",
       "reveal_pii",
+      "read_candidates",
     ]);
     expect(capabilitiesFor("ops_admin")).toEqual([
       "read_events",
@@ -315,6 +341,9 @@ describe("capabilitiesFor — what the UI is told matches what the server permit
       // this literal is order-sensitive against `ADMIN_CAPABILITIES`, and placing the new
       // capability anywhere but the end of the governed-write block would move an existing row.
       "review_skill_candidates",
+      // #2563 — payer credential administration.
+      "manage_payer_credentials",
+      "read_candidates",
     ]);
     // super_admin holds everything — the one role for which the list is the whole vocabulary.
     expect(capabilitiesFor("super_admin")).toEqual([...ADMIN_CAPABILITIES]);

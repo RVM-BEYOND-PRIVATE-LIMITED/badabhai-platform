@@ -14,10 +14,12 @@ import {
   realCallLabel,
 } from "../../../../lib/ai-trace-view";
 import { taskTypeLabel } from "../../../../lib/ai-cost";
-import { formatCount, formatTimestamp, healthTone } from "../../../../lib/format";
+import { formatCount, healthTone } from "../../../../lib/format";
+import { Timestamp } from "../../../../components/timestamp";
 import { DetailList } from "../../../../components/detail-list";
 import { StatusPill } from "../../../../components/status-pill";
 import { PageHeader } from "../../../../components/page-header";
+import { InfoPopover } from "../../../../components/info-popover";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 
 // Per-request, never cached. The body of this page can contain a worker's own words, and the
@@ -113,14 +115,14 @@ export default async function AiCallDetailPage({
   const reply = aiTraceHalf(trace.response, trace.response_chars);
 
   return (
-    <div className="page">
+    <div className="page page--reading">
       <PageHeader
         back={{ href: "/ai-calls", label: "AI calls" }}
         title={taskTypeLabel(trace.task_type)}
         description={
           <>
             One AI call in full — what this API sent to the AI service and what came back —
-            recorded <time dateTime={trace.created_at}>{formatTimestamp(trace.created_at)}</time>.
+            recorded <Timestamp iso={trace.created_at} />.
           </>
         }
       />
@@ -201,7 +203,7 @@ export default async function AiCallDetailPage({
             {
               label: "Worker",
               value: (
-                <Link className="link mono" href={`/workers/${trace.worker_id}`}>
+                <Link className="link mono" href={`/candidates/${trace.worker_id}`}>
                   {trace.worker_id}
                 </Link>
               ),
@@ -211,7 +213,7 @@ export default async function AiCallDetailPage({
               value: trace.session_id ? (
                 <Link
                   className="link mono"
-                  href={`/workers/${trace.worker_id}/journey/${trace.session_id}`}
+                  href={`/candidates/${trace.worker_id}/journey/${trace.session_id}`}
                 >
                   {trace.session_id}
                 </Link>
@@ -257,9 +259,17 @@ export default async function AiCallDetailPage({
         the scalars it put them 763px down at 375 (final sweep AW-08). It still precedes both
         halves on every render.
       */}
-      <section className="notice notice--warn" role="status">
-        <strong>Read this as the worker&apos;s own words.</strong> {AI_TRACE_TEXT_CAVEAT}{" "}
-        {AI_TRACE_TEXT_CONTROLS}
+      {/* The claim stays in band above the words it qualifies; the why and the controls are one
+          click away behind the ⓘ (#2573). */}
+      <section className="notice notice--warn notice--row" role="status">
+        <span>
+          <strong>Read this as the worker&apos;s own words.</strong> Treat everything below as
+          identifying.
+        </span>
+        <InfoPopover label="About this text">
+          <p>{AI_TRACE_TEXT_CAVEAT}</p>
+          <p>{AI_TRACE_TEXT_CONTROLS}</p>
+        </InfoPopover>
       </section>
 
       <Half
@@ -369,7 +379,7 @@ function Frame({
   back?: boolean;
 }) {
   return (
-    <div className="page">
+    <div className="page page--reading">
       <PageHeader
         back={back ? { href: "/ai-calls", label: "AI calls" } : undefined}
         title="AI call"

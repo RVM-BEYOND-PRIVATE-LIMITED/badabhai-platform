@@ -165,6 +165,7 @@ Purchase `409` reasons: `price_mismatch` (#2085), `in_flight` and `no_active_pla
 | Per-IP / hour (public auth)             | `PAYER_AUTH_MAX_PER_IP_PER_HOUR` ≈ 20                                  | signup, login/request, login/verify                                                                      |
 | Per-payer disclosure / hour             | `PAYER_DISCLOSURE_MAX_PER_HOUR` (default 30)                           | `POST /payer/unlocks` + reveal (shared cap)                                                              |
 | Per-payer reach / hour                  | `PAYER_REACH_MAX_PER_HOUR` (default 60)                                | applicant feed reads + `GET /payer/reach/applicants` pages (one shared bucket)                           |
+| Per-payer candidate search / hour       | `PAYER_CANDIDATE_SEARCH_MAX_PER_HOUR` (default 120)                    | `POST /payer/candidates/search` pages (its own bucket — never the reach budget)                          |
 | Per-payer invite-mint / hour            | `AGENCY_INVITE_MINT_MAX_PER_HOUR` (default 60)                         | agency invite mint                                                                                       |
 | Per-payer applicant-stage writes / hour | `PAYER_APPLICANT_STAGE_MAX_PER_HOUR` (default 600)                     | `PUT /payer/reach/jobs/:jobId/applicants/:workerId/stage` (its own bucket — never the reach read budget) |
 | Global OTP sends / day                  | `PAYER_OTP_GLOBAL_MAX_SENDS_PER_DAY` (default 2000; `0` = kill-switch) | total payer email sends                                                                                  |
@@ -302,6 +303,13 @@ Conventions: request fields use the casing the endpoint expects (auth/unlock/pos
   - Clearing a field that is already NULL is not a change; if nothing else changed you get the usual `400 no effective changes`.
   - `org_label` / `role_title` / `vacancy_band` / `status` and the skill sets are **not clearable** — the closed set is what keeps `clear` away from a NOT NULL column or the server-resolved reach set.
 - **Mobile gotchas:** Lifecycle: `draft→open` publish only; `closed` is terminal (editing a closed posting → `400`/conflict). No-op edits rejected. Closing is a **separate** endpoint.
+- **#2635 (2026-11-04) — matching runs only for the 16 postable trades.**
+  - **A live job needs a trade.** `status: 'open'` on a posting whose `role_kind` (stored, or set in the same PATCH) is not one of the 16, or changing / clearing the `role_kind` of a posting that is already `open` or `paused` to a non-16 value, is a `400` with `reason: "posting_trade_required"` (message `"a live job must name one of the 16 trades"`), nested under `error`. Nothing is written. Branch on `reason`. A draft may change its role freely; an edit that leaves the role alone is never refused.
+  - **A 16-trade posting's skills come from its trade.** On create, edit, publish and unpause the server keeps the trade's own `mskill_*` (always) plus every sent id that trade owns, and **drops** the rest — never a `400`. A sent id outside the closed vocabulary is still a `400`. `max_skills_per_posting` counts the ids the client sent (the base skill the server adds is free) and is checked before the write.
+  - **Related reach stays inside the 16.** A Fitter job never reaches plumbers; a VMC job never reaches CNC setter / general operators.
+  - **Events:** `job_posting.match_skills_scoped` v1 (ids only: `role_kind`, `trigger`, `kept_skill_ids`, `dropped_skill_ids` = requested ids the trade does not own), emitted only when something was dropped.
+  - **Ops routes:** the publish / live-role gate is company-only, but an ops posting with a 16-trade `role_kind` is scoped the same way. Ops / agency postings with no 16-trade role resolve exactly as before.
+  - **`POST /payer/match/reach-preview`** keeps related reach inside the 16 and takes an optional `role_kind`; send it so the preview scopes the posted ids exactly as publish will.
 
 #### `POST /payer/job-postings/:id/close`
 
@@ -459,6 +467,7 @@ Routes: `POST /payer/job-postings/:id/plan`, `…/boost`, `…/quota-topup`, `PO
 #### `POST /payer/resume-disclosures` (masked résumé — VERIFIED LIVE)
 
 - **Auth:** `PayerAuthGuard` (Bearer). Shares the per-payer disclosure cap. **Free — no credit debit.**
+- **Requires a LIVE unlock (2026-11-03):** the session payer (its tenant) must hold an unexpired `granted`/`revealed` unlock of `worker_id`; otherwise the neutral body, before any consent read, row or event. The employer copy carries the worker's phone (#1594), and once `POST /payer/candidates/search` hands out every consented worker id this is what keeps it a post-unlock artifact. The ops route `POST /resume-disclosures` is unchanged.
 - **Body:** `{ worker_id: UUID, job_posting_id: UUID|null }` — no `payer_id`. `job_posting_id` is the context the résumé was opened from and must be `null` or a posting / job the **session payer owns** (#1899): an owned company posting is stored; an owned agency `jobs` id (from the agency applicants page) is accepted and **stored as `null`** (#1898, the #1903 approach) — the disclosure still succeeds and `GET` lists it with `posting_id: null`. An unknown or another payer's id gets the neutral body — byte-identical to every other deny — with nothing written or emitted. A malformed id is a `400` (syntax only).
 - **Response:** SUCCESS `{ ok: true, disclosure_id: UUID, status: 'disclosed', resume_url: string (short-TTL signed), expires_at }` **OR** NEUTRAL `{ status: 'unavailable' }` (HTTP `200`).
 - **Events:** `resume.disclosed` (fact only — payload never includes the PDF bytes, the worker's name, or the signed URL).
@@ -501,9 +510,12 @@ Routes: `POST /payer/job-postings/:id/plan`, `…/boost`, `…/quota-topup`, `PO
       workerId, applicationId, rank,
       matchTier, effectiveTier,            // number | null (null when no rank snapshot)
       skillMonths, industryMonths,         // number | null
-      lastWorkedAt, matchedSkillLabel, engineVersion   // string | null
+      lastWorkedAt, matchedSkillLabel, engineVersion,  // string | null
+      tradeLevels,                         // [ TradeLevelBadge ] — live, display only (Middle Way P5)
+      levelFit                             // 'meets' | 'not_confirmed' | 'below' | null (engine v1.1)
   } ] }
   ```
+- **"Level needed" sort (engine v1.1, CEO ruling 30 Oct 2026, [ADR-0061](../decisions/0061-level-needed-applicant-sort.md) — behind `LEVEL_NEEDED_SORT_ENABLED`, default off). Company postings only.** When the flag is on, a posting whose `role_kind` is `cnc_turner`, `vmc_milling`, `cnc_grinding` or `cam_programmer` and whose `trade_level` names a rung ("Setter needed" = Setter **and above**) groups its applicants **inside each trade group** (after the effective tier, before months): `meets` first, then `not_confirmed` (no rung stated, a rung this trade's ladder does not know, or an upper rung whose separating question he answered "koi aur" — tag the card **"Level not confirmed"**), then `below`. Months, industry months and recency order each group as before. **Nobody is added or removed**, and the related-trade floor (36 months) is unchanged. The group comes from the rung **frozen on the application at apply time**, so a worker who edits his level later never moves; applications from before migration 0153 have no frozen rung and sit in `not_confirmed`. `levelFit` is `null` on every row when the list has no level sort: the flag is off, the posting says "Any level" (`trade_level` null), or its trade is not one of the four — and then the order is exactly the previous one. `levelFit` is additive: a client that ignores it keeps working.
 - **Events:** agency `jobs` list only: `feed.shown` (one per rendered applier — none for an empty list, actor `payer`, batch all-or-nothing; payload `worker_id`/`job_id`/`rank`/`score`/`hot` — PII-free). The posting list emits nothing (people who already applied are not a feed impression), so a posting-list read is rate-limited (Redis, hourly) but **not durably audited**.
 - **Errors:** `404` as above. `429` on the reach cap. A DB failure is a `5xx`, never folded into the `404`.
 - **Mobile gotchas:**
@@ -538,12 +550,12 @@ Routes: `POST /payer/job-postings/:id/plan`, `…/boost`, `…/quota-topup`, `PO
     posting: { id, title, kind: 'agency_job' } }
   // company posting applicant — the V1 candidate row
   { workerId, applicationId, rank, matchTier, effectiveTier, skillMonths, industryMonths,
-    lastWorkedAt, matchedSkillLabel, engineVersion,
+    lastWorkedAt, matchedSkillLabel, engineVersion, tradeLevels, levelFit,
     posting: { id, title, kind: 'company_posting' } }
   ```
 
   - `posting.id` is the id the per-posting route and the unlock's `job_id` context take; `posting.title` is the payer's own title (`jobs.title` / `job_postings.role_title`); branch on `posting.kind` (or, as on the per-posting route, on `score` vs `applicationId`).
-  - `rank` (and `hot` on an agency row) is the applicant's position on **his posting's** list ("#2 on Welder"), not his position in this inbox. A worker who applied to two of your postings is two rows.
+  - `rank` (and `hot` on an agency row) is the applicant's position on **his posting's** list ("#2 on Welder"), not his position in this inbox. A worker who applied to two of your postings is two rows. On a "Level needed" posting (engine v1.1, see the per-posting route) that rank includes the level group, and `levelFit` is his group on that posting.
   - `stage` — present on every row **only while `PAYER_APPLICANT_STAGES_ENABLED` is on**: the same value the per-posting route shows for him on that posting (a worker's two rows have two independent stages, one per posting). Absent while off.
 
 - **Membership:** the per-posting lists' — `action = 'applied'` only, never a worker inside the deletion grace window (ADR-0031 (b)), and an agency applier only if he has a profile row (the agency list ranks profiles). An application that names both one of your agency jobs and one of your postings is listed once, under the agency job. The per-posting company list stops at 500 rows; this list is paginated instead, so a company posting's applicants ranked 501st and below appear only here, with their true posting `rank`.
@@ -667,6 +679,49 @@ Owner ruling 2026-10-07: payer-web's New / Shortlist / Passed board is saved ser
 - **`payer_role` (added 2026-10-06, #2032):** `'employer' | 'agent' | null`, next to `payer_id`, on `GET /admin/job-postings` (list) and `GET /admin/job-postings/:id`, and on every row of `GET /admin/finance/ledger` and `GET /admin/finance/orders` — and, **added 2026-10-07 (#2106)**, on every `top_balances[]` row of `GET /admin/finance/summary` (`{ payer_id, payer_role, balance }`). It is `payers.role`, read through one `LEFT JOIN payers ON payers.id = <row>.payer_id` inside the page query (no per-row lookup). `null` when `payer_id` is null or resolves to no `payers` row (these columns carry no FK). Additive — consumers that ignore it are unaffected; admin-web uses it to link to `/companies/:id` (`employer`) or `/agencies/:id` (`agent`) and falls back to `/companies/:id` on `null` — on `top_balances` too since the admin-web pass-through (#2138), which also treats an absent `payer_role` as `null`.
 
 ---
+
+### 4.8 All-candidates search (ADR-0040 / E2 — the "Candidates" tab and the app's Find)
+
+Owner rulings 2026-11-03: payer-web's **Candidates** opens on **All candidates** (this search) with the applicant inbox one click away as **Applied**; the payer app's Find tab has the same two views. Company **and** agency sessions. The card, the 1-credit unlock (`POST /payer/unlocks` with `job_id: null`), the relay reveal and the masked résumé are the applicant flow, unchanged. Wire examples for both routes: `packages/types/fixtures/candidate-search-contract.json` (parsed by the API, payer-web and the payer app).
+
+#### `POST /payer/candidates/search`
+
+- **Auth:** `PayerAuthGuard` (Bearer), either role. Own per-payer hourly bucket (`payer_candidate_search`, `PAYER_CANDIDATE_SEARCH_MAX_PER_HOUR`, default 120), one unit per page, charged before any read; fails closed (Redis down → the same `429`). `200`, not `201` — it creates nothing.
+- **Body** (snake_case, `.strict()` — any other key, including `payer_id`, is a `400`; a missing body is `{}`):
+  - `skill_ids` — up to 5 closed `mskill_*` ids (`GET /payer/candidates/filters` → `roles`). Unknown ids and duplicates are a `400`, never ignored. An id whose label another id shares ("3D CAD Designer") searches both.
+  - `experience` — years on the lead role: `under_1` | `1_3` | `3_5` | `5_10` | `10_plus` (`[min, max)` months, bucketed to 6).
+  - `industry_id` — `ind_industrial_manufacturing` | `ind_quick_commerce`.
+  - `industry_experience` — the same buckets, over calendar months in the lead role's industry.
+  - `city` — a city the gazetteer recognises (any other text is a `400`, so the filter can never probe a free-text location the card hides), matched against every spelling of it the pool records (offer the `cities` from the filters route).
+  - `strict` — default `false`. Opt-in, never remembered (ADR-0040 Decision 2).
+  - `limit` `1..50` (default 20); `cursor` — the previous `nextCursor`, untouched.
+- **Who is in the pool (membership, never a filter, both modes):** the worker's LATEST consent row is unrevoked and lists `employer_sharing` (a tie on `accepted_at` must pass on every tied row); `deletion_scheduled_at IS NULL`; `status` `pending` or `active`; at least one `worker_skill` with `wants = true`. Nobody else is served or counted. Skills a worker switched off are invisible (never matched, never on the card).
+- **Filters reorder by default (ADR-0040 Decision 1):** candidates whose RECORDED values match every filter lead; everyone else follows by the rank key; nobody is removed. `strict: true` drops only the definite non-matches. An **unrecorded** value is neither a match nor a "no": strict keeps it, and it is counted in `unrecorded`, never in `matched` (Decision 4). Unrecorded means: a NULL city or one the gazetteer does not recognise; 0 role months; and no industry-tenure row or a 0-month one (the derivation writes 0 for "we do not know"). The counts arrive with every page, empty or not (Decision 3).
+- **Order:** `filter_match DESC`, then the ADR-0036 §2 key with the role filter standing in for the posting's skills: effective tier (asked role 1, related role 2 — promoted to 1 at the live `tier_floor_months` — neither 3) ASC, role months DESC, industry months DESC (unrecorded last), last-active day DESC, worker id ASC. No score, no weight; nothing a payer buys enters it.
+- **Response:**
+
+  ```
+  { total, matched, unrecorded, filtered, strict,
+    candidates: [ { workerId, matchesFilters, matchTier: 1|2|null,
+                    role: {id,label}, otherRoles: [{id,label}],          // wanted roles only, ≤4 others
+                    skillMonths,                                          // bucketed to 6
+                    industry: {id,label}, industryMonths: number|null,    // floored to 6; null = not recorded
+                    city: string|null,                                    // gazetteer-recognised only
+                    tradeLevels: [ TradeLevelBadge ],
+                    isSample: boolean } ],                                // R74: a seeded demo profile
+    nextCursor: string|null }
+  ```
+
+  `workerId` is the id `POST /payer/unlocks` takes (`job_id: null` for a search row). **Masked:** no name, phone, photo, employer, salary, address or free text — identity is only released by an unlock.
+- **Sample candidates (R74, 2026-11-04):** `isSample: true` marks a synthetic-workforce seed row shown for demos, not a person. Clients badge the card "Sample candidate" and offer no unlock. `POST /payer/unlocks` for a sample worker returns the normal neutral `unavailable` body with **no credit debited and no unlock row written** (only `unlock.requested` is recorded). Sample rows are ranked and counted like any other candidate.
+- **Cursor:** opaque base64url of `{ v: 1, f: <search fingerprint>, w: <last worker served>, o: <rows served> }` — it names who you were last shown, never a sort key. Bound to its search: reused under different filters or `strict` → `400`. The next page resumes after that worker's current position (or, if he has left the pool, at position `o`).
+- **Events:** one `payer.candidate_search_performed` v1 per page — the shape (closed role ids, which filters were engaged as booleans, strict, first page, page size, the three counts); never a worker id or a city.
+- **Errors:** `400` bad body / unknown role / malformed or foreign cursor; `401` no session; `429` cap or Redis down; a DB failure is a `5xx`.
+
+#### `GET /payer/candidates/filters`
+
+- **Auth:** `PayerAuthGuard` (Bearer), either role. Its own per-payer bucket (`payer_candidate_filters`, the same `PAYER_CANDIDATE_SEARCH_MAX_PER_HOUR` cap), never the search's. The city list is cached per process for a minute.
+- **Response:** `{ roles: [{id,label,industryId}], industries: [{id,label}], experienceBuckets: [{id,label}], cities: string[], maxRoles: 5 }`. `roles` is one option per label; `cities` are the gazetteer-canonical cities the eligible pool actually records (A→Z).
 
 ## 5. Role Model
 

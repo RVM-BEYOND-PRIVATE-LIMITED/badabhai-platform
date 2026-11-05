@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../../../core/data/candidate_search_models.dart';
 import '../../../core/data/job_posting_chat_models.dart';
 import '../../../core/data/models.dart';
 import '../../../core/di/locator.dart';
@@ -20,6 +21,7 @@ import '../../../core/widgets/bb_status_view.dart';
 import '../../../core/widgets/bb_tab_scope.dart';
 import '../../job_posting_chat/presentation/cubit/chat_sessions_cubit.dart';
 import 'agency_jobs_screen.dart';
+import '../domain/job_matching.dart';
 import 'cubit/jobs_cubit.dart';
 import 'edit_company_job_screen.dart';
 import 'widgets/job_card_actions.dart';
@@ -66,6 +68,7 @@ class JobsScreen extends StatelessWidget {
     required this.onPost,
     this.onAiPost,
     this.onApplicants,
+    this.onFindMatching,
     this.highlight,
   });
 
@@ -79,6 +82,11 @@ class JobsScreen extends StatelessWidget {
   /// id, or null for a MOCK row, which has none (#2593). Optional so existing
   /// mounts and tests keep working; the shell wires it for both sessions.
   final ValueChanged<String?>? onApplicants;
+
+  /// #2671 — opens Find's All-candidates view with the search prefilled from a
+  /// job (its trade's match skill, its city when the filters list it, strict
+  /// on). Optional so existing mounts and tests keep working.
+  final ValueChanged<CandidateSearchQuery>? onFindMatching;
 
   /// Opens the AI-assisted chat. A non-null argument RESUMES that session
   /// (cross-device pickup); null starts a fresh one. Optional so existing
@@ -111,6 +119,7 @@ class JobsScreen extends StatelessWidget {
             onPost: onPost,
             onAiPost: onAiPost,
             onApplicants: onApplicants,
+            onFindMatching: onFindMatching,
             highlight: highlight,
           ),
         ),
@@ -124,12 +133,14 @@ class _JobsView extends StatelessWidget {
     required this.onPost,
     this.onAiPost,
     this.onApplicants,
+    this.onFindMatching,
     this.highlight,
   });
 
   final VoidCallback onPost;
   final void Function(String? resumeSessionId)? onAiPost;
   final ValueChanged<String?>? onApplicants;
+  final ValueChanged<CandidateSearchQuery>? onFindMatching;
   final BbHighlightRequest? highlight;
 
   /// #2592 — the quiet re-read behind pull-to-refresh and a return to the
@@ -208,7 +219,11 @@ class _JobsView extends StatelessWidget {
                   active: highlight?.claim(job.id) ?? false,
                   child: job.id == null
                       ? _JobCard(job: job, onApplicants: onApplicants)
-                      : _RealJobCard(job: job, onApplicants: onApplicants),
+                      : _RealJobCard(
+                          job: job,
+                          onApplicants: onApplicants,
+                          onFindMatching: onFindMatching,
+                        ),
                 ),
               );
             }
@@ -352,7 +367,8 @@ class _ResumeChatCard extends StatelessWidget {
                     ],
                   ),
                 ),
-                const Icon(Icons.chevron_right_rounded, color: AppColors.textMuted),
+                const Icon(Icons.chevron_right_rounded,
+                    color: AppColors.textMuted),
               ],
             ),
           ),
@@ -368,10 +384,15 @@ class _ResumeChatCard extends StatelessWidget {
 // ---------------------------------------------------------------------------
 
 class _RealJobCard extends StatefulWidget {
-  const _RealJobCard({required this.job, this.onApplicants});
+  const _RealJobCard({
+    required this.job,
+    this.onApplicants,
+    this.onFindMatching,
+  });
 
   final JobPosting job;
   final ValueChanged<String?>? onApplicants;
+  final ValueChanged<CandidateSearchQuery>? onFindMatching;
 
   @override
   State<_RealJobCard> createState() => _RealJobCardState();
@@ -607,13 +628,41 @@ class _RealJobCardState extends State<_RealJobCard> {
     }
     final bool idle = _busy == null;
     final List<JobMenuAction> menu = _menu;
-    return JobCardActionRow(
-      main: _mainAction(idle),
-      jobTitle: job.title,
-      showMore: menu.isNotEmpty,
-      moreBusy: _busy == JobLifecycleAction.pause ||
-          _busy == JobLifecycleAction.close,
-      onMore: idle ? _openMenu : null,
+    final JobsState jobsState = context.watch<JobsCubit>().state;
+    // #2671 — offered on an open or paused job that names one of the 16 trades.
+    // Null for a draft, a closed job, a non-trade role, or before the trade
+    // catalogue has loaded, so the button never promises a search it cannot
+    // prefill.
+    final CandidateSearchQuery? findMatch = matchingWorkersQuery(
+      job,
+      jobsState.postingTrades,
+      jobsState.candidateFilters,
+    );
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        JobCardActionRow(
+          main: _mainAction(idle),
+          jobTitle: job.title,
+          showMore: menu.isNotEmpty,
+          moreBusy: _busy == JobLifecycleAction.pause ||
+              _busy == JobLifecycleAction.close,
+          onMore: idle ? _openMenu : null,
+        ),
+        if (findMatch != null) ...<Widget>[
+          const SizedBox(height: AppSpacing.s2),
+          BbButton(
+            label: 'Find matching workers',
+            variant: BbButtonVariant.secondary,
+            size: BbButtonSize.md,
+            iconLeft: Icons.person_search_rounded,
+            block: true,
+            onPressed: widget.onFindMatching == null
+                ? null
+                : () => widget.onFindMatching!(findMatch),
+          ),
+        ],
+      ],
     );
   }
 
@@ -742,7 +791,8 @@ class _JobCard extends StatelessWidget {
             size: BbButtonSize.sm,
             iconLeft: Icons.groups_rounded,
             block: true,
-            onPressed: onApplicants == null ? null : () => onApplicants!(job.id),
+            onPressed:
+                onApplicants == null ? null : () => onApplicants!(job.id),
           ),
         ],
       ),

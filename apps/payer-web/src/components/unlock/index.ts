@@ -7,5 +7,11 @@
 export { RoutedContactCard, MaskedResumeCard } from "./routed-contact-card";
 export { ConfirmSpendDialog } from "./confirm-spend-dialog";
 export type { ConfirmSpendDialogProps } from "./confirm-spend-dialog";
-export { UnlockResultToast, UNLOCK_SUCCESS_TITLE } from "./unlock-result-toast";
+export {
+  UnlockResultToast,
+  UNLOCK_SUCCESS_TITLE,
+  UNLOCK_GRANTED_TOAST,
+} from "./unlock-result-toast";
 export type { UnlockResultToastProps, UnlockResultKind } from "./unlock-result-toast";
+export { contactBand, EMPTY_UNLOCK_ROW } from "./contact-band";
+export type { ContactBandInput, UnlockRowState } from "./contact-band";

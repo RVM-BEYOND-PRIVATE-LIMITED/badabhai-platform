@@ -57,3 +57,44 @@ export async function clearAdminToken(): Promise<void> {
   const store = await cookies();
   store.set(ADMIN_TOKEN_COOKIE_NAME, "", adminCookieOptions(0));
 }
+
+/**
+ * The TRUSTED-DEVICE cookie (ADR-0060 A3, "Trust this device for 30 days").
+ *
+ * The value is a BEARER SECRET: with the password, it replaces the authenticator code on this
+ * browser. So it is held exactly like the session — httpOnly, SameSite=strict, Secure per
+ * {@link shouldUseSecureCookie} — and it is written and read ONLY in server actions. It never
+ * reaches a client component, a log line or an analytics call.
+ *
+ * Its own name, so it outlives the session: signing out clears `bb_admin_token` and leaves this
+ * one, which is the whole point of "trust this device". Its lifetime is the server's
+ * `device_expires_in_seconds`; the server also forgets the device on any password change,
+ * authenticator reset or re-enrolment, after which this cookie is simply ignored and the
+ * operator sees the authenticator step again — nothing on this side breaks.
+ */
+export const ADMIN_DEVICE_COOKIE_NAME = "bb_admin_device";
+
+/**
+ * The shape the API accepts back as `device_token` (`string 20..128`). The server issues 32
+ * random bytes as base64url; anything else in the cookie (a hand-edited value, a truncated one)
+ * is not sent, because a malformed `device_token` would fail the whole sign-in request's
+ * validation rather than just being "not trusted".
+ */
+const DEVICE_TOKEN_SHAPE = /^[A-Za-z0-9_-]{20,128}$/;
+
+export function isDeviceTokenShape(value: string): boolean {
+  return DEVICE_TOKEN_SHAPE.test(value);
+}
+
+/** The trusted-device token, or null when there is none (or it is not a well-formed one). */
+export async function readAdminDeviceToken(): Promise<string | null> {
+  const store = await cookies();
+  const value = store.get(ADMIN_DEVICE_COOKIE_NAME)?.value;
+  return value && isDeviceTokenShape(value) ? value : null;
+}
+
+/** Persist a freshly issued trusted-device token for the server's stated lifetime. */
+export async function writeAdminDeviceToken(token: string, maxAgeSeconds: number): Promise<void> {
+  const store = await cookies();
+  store.set(ADMIN_DEVICE_COOKIE_NAME, token, adminCookieOptions(maxAgeSeconds));
+}

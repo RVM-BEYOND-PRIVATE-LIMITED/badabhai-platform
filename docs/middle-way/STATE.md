@@ -30,7 +30,7 @@ Base: `origin/main 03a90966` | Scope v1: 4 trades (Turner, VMC, Grinding, CAM) |
 | P5 C6+display           | crosswalk, headline `Trade · Years · Tools · Level`, badge, unlock hook ₹40 live | done   | -        | taxonomy crosswalk 9 pass; headline/verdict/glance 151+637 pass; persist hook 212 pass; badge DTO+wire 245+38 pass; unlock hook tier logged, debit still 1cr; typecheck+eslint clean |
 | P6 DoD+handover         | 10 tests, expand plan 12, Claude Code pack                                       | done   | -        | rank/visibility guards (match-feed+candidates), §8 table 123 pass, key snapshot (mutation-verified), EXPAND-12, HANDOVER.md                                                          |
 
-Rules: additive-only, no key rename, level never affects visibility/ranking, one branch per phase `mw/pN-*`.
+Rules: additive-only, no key rename, level never affects visibility/ranking, one branch per phase `mw/pN-*`. (Ranking superseded for "Level needed" posts only — CEO ruling 30 Oct 2026, ADR-0061, engine v1.1.)
 
 ## P0 Inventory (origin/main)
 

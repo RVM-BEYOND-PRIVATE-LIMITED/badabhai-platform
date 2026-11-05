@@ -83,9 +83,83 @@ const Map<String, (String, String)> _kTopics = <String, (String, String)>{
   'coating_experience': _experience, 'programming_experience': _experience,
   'drafting_experience': _experience,
   'machining_level': _level, 'toolroom_level': _level, 'welder_level': _level,
+  // Phase 2 #2 (qp_cnc_grinding@6) — the one separating confirm (asked of
+  // setter and setter-cum-programmer) is a level follow-up, not craft.
+  'grinding_setting_confirm': _level,
+  // Phase 2 #1 (qp_tool_die_making@2) — the separating confirms are level
+  // follow-ups, not craft: Experience, left out of Technical Skills. The
+  // training-institute row walks as training.
+  'toolroom_skilled_confirm': _level, 'toolroom_senior_confirm': _level,
+  'tool_training_institute': _training,
+  // Track B #4 (qp_conventional_machining@2) — the separating confirms are
+  // level follow-ups, not craft: Experience, left out of Technical Skills.
+  'machining_skilled_confirm': _level, 'machining_senior_confirm': _level,
   'coating_level': _level,
+  // Phase 2 #4 (qp_powder_coating@2) — the one separating confirm (asked of
+  // skilled and senior) is a level follow-up, not craft.
+  'coating_skilled_confirm': _level,
+  // Track B #3 (qp_welding_trade@2) — the separating confirms are level
+  // follow-ups, not craft: Experience, left out of Technical Skills.
+  'welder_skilled_confirm': _level, 'welder_senior_confirm': _level,
   'turning_level': _level, 'milling_level': _level, 'grinding_level': _level,
   'cam_level': _level,
+  // Track A #1 (qp_cnc_turning@6) — the separating confirms are level
+  // follow-ups, not craft: Experience, left out of Technical Skills.
+  'setting_confirm': _level, 'program_edit_confirm': _level,
+  'program_write_confirm': _level, 'team_confirm': _level,
+  // Track A #2 (qp_vmc_milling@6) — same mechanism, same category.
+  'milling_setting_confirm': _level, 'milling_program_edit_confirm': _level,
+  'milling_program_write_confirm': _level, 'milling_team_confirm': _level,
+  // Track A #3 (qp_cam_programming@4) — same mechanism, same category.
+  'cam_program_confirm': _level, 'cam_senior_confirm': _level,
+  'cam_lead_confirm': _level, 'cam_team_confirm': _level,
+  // Phase 2 #10 (qp_production_supervisor) — chat-only pack, like EDM below.
+  // `sector_worked` is shared and already listed.
+  'supervision_experience': _experience, 'supervision_level': _level,
+  'supervision_report_confirm': _level, 'supervision_team_size': _level,
+  'supervision_area': _operations, 'supervision_machines': _machines,
+  'supervision_systems': _operations,
+  'supervision_trade_background': _experience,
+  // Phase 2 #9 (qp_injection_moulding) — chat-only pack, like EDM below.
+  'moulding_experience': _experience, 'moulding_level': _level,
+  'moulding_setting_confirm': _level, 'moulding_senior_confirm': _level,
+  'moulding_machine_brand': _machines, 'moulding_tonnage': _capability,
+  'moulding_material': _material, 'moulding_process_work': _operations,
+  'moulding_defects': _trouble, 'moulding_training_institute': _training,
+  // Phase 2 #11 (qp_foundry_forging) — chat-only pack, like heat treatment below.
+  'foundry_experience': _experience, 'foundry_level': _level,
+  'foundry_skilled_confirm': _level,
+  'foundry_process': _process, 'foundry_material': _material,
+  'foundry_equipment': _equipment, 'foundry_testing': _quality,
+  // Phase 2 #8 (qp_heat_treatment) — chat-only pack, like EDM below.
+  'heat_experience': _experience, 'heat_level': _level,
+  'heat_skilled_confirm': _level,
+  'heat_process': _process, 'heat_furnace': _equipment,
+  'heat_testing': _quality, 'heat_material': _material,
+  // Phase 2 #7 (qp_edm_wirecut) — chat-only pack, like PLC below.
+  'edm_experience': _experience, 'edm_level': _level,
+  'edm_setting_confirm': _level, 'edm_program_confirm': _level,
+  'edm_machine': _machines, 'edm_brand': _machines,
+  'edm_program_source': _software, 'edm_tolerance': _precision,
+  'edm_work_type': _operations,
+  // Phase 2 #6 (qp_plc_automation) — chat-only pack, no form walks it; each
+  // key is listed with its true category, as for the 3D pack below.
+  'plc_experience': _experience, 'plc_level': _level,
+  'plc_technician_confirm': _level, 'plc_senior_confirm': _level,
+  'plc_brand': _software, 'plc_work': _operations,
+  'plc_hmi_brand': _software, 'plc_field_devices': _equipment,
+  // Track A #4 (qp_cad_design_3d) — chat-only pack, no form walks it, but the
+  // coverage test reads every tier-tagged active pack: each key is listed with
+  // its true category so the table stays complete rather than failing closed.
+  'design_experience': _experience, 'design_level': _level,
+  'design_software': _software, 'design_work_area': _operations,
+  'design_depth': _operations, 'design_tolerance': _precision,
+  'design_industry': _sector, 'design_senior_confirm': _level,
+  'design_lead_confirm': _level, 'design_team_confirm': _level,
+  // Track A #5 (qp_cad_drafting@2) — the level question, the sheet-5 rows and
+  // the separating confirms, with their true categories.
+  'cad_level': _level, 'drawing_subject': _drawing, 'drawing_from_model': _software,
+  'cad_senior_confirm': _level, 'cad_lead_confirm': _level, 'cad_team_confirm': _level,
   // Machines
   'turning_machine': _machines, 'milling_machine': _machines,
   'grinding_machine': _machines, 'machining_machine': _machines,
@@ -97,6 +171,10 @@ const Map<String, (String, String)> _kTopics = <String, (String, String)>{
   'controller_brand': ('Machines', 'Controller & control system'),
   'axis_capability': _capability, 'advanced_capability': _capability,
   'turning_capacity': _capability, 'press_tonnage': _capability,
+  // Track B #4 (@2): the CNC crossover and the work-type row walk with their
+  // true categories (machines / operations), like every tier-tagged key must.
+  'machining_cnc': _machines,
+  'machining_work_type': _operations,
   // Operations
   'turning_operation': ('Turning operations', 'Operations & capability'),
   'milling_operation': ('Milling operations', 'Operations & capability'),
@@ -134,13 +212,24 @@ const Map<String, (String, String)> _kTopics = <String, (String, String)>{
   'cad_model_handling': _software, 'cam_software': _software,
   'simulation_work': _software, 'post_processor_work': _software,
   'programming_level': _software, 'programming_mode': _software,
+  // Track A #3 (qp_cam_programming@4): the sheet-3 Advanced rows describe
+  // the worker's craft, so they walk with Technical Skills (unlike the
+  // level-adjacent software keys above, which stay out of it).
+  'part_types': _operations, 'extra_work': _operations,
   // Welding / coating process
   'welding_process': _process, 'coating_process': _process,
   'surface_prep': _process, 'oven_schedule': _process,
+  // Phase 2 #4 (qp_powder_coating@2) — the new bath / chemical row is process
+  // craft, beside surface prep and the oven schedule.
+  'coating_bath_work': _process,
   'joint_type': ('Welding', 'Joints & positions'),
   'welding_position': ('Welding', 'Joints & positions'),
   'electrode_type': ('Welding', 'Consumables'),
   'plate_thickness': ('Welding', 'Plate thickness'),
+  // Track B #3 (@2) — a credential, but the résumé prints it in the trade's
+  // CAPABILITY block ('Certificate', trade-resume-map.ts), so it stays a skill
+  // here (electrical_licence precedent).
+  'welder_certificate': ('Welding', 'Welder certificate'),
   // Troubleshooting
   'troubleshooting': _trouble, 'die_troubleshooting': _trouble,
   'weld_defect': _trouble, 'coating_defects': _trouble,
@@ -158,7 +247,14 @@ const Map<String, (String, String)> _kTopics = <String, (String, String)>{
   //
   // Sheet metal fabrication (qp_sheet_metal_fab)
   'sheet_metal_experience': _experience, 'sheet_metal_level': _level,
+  // Track B #5 (@2) — the separating confirms are level follow-ups, same
+  // mechanism as the earlier confirms: Experience, left out of Technical Skills.
+  'sheet_skilled_confirm': _level, 'sheet_senior_confirm': _level,
   'sheet_metal_machine': _machines,
+  // Track B #5 (@2): the new product + extra-work rows walk with their true
+  // categories (sector / operations), like every tier-tagged key must.
+  'sheet_metal_product': _sector,
+  'sheet_metal_extra': _operations,
   'sheet_operation': ('Sheet metal operations', 'Operations & capability'),
   'sheet_thickness': ('Sheet metal operations', 'Sheet thickness'),
   'assembly_finishing': ('Sheet metal operations', 'Assembly & finishing'),
@@ -167,12 +263,18 @@ const Map<String, (String, String)> _kTopics = <String, (String, String)>{
   'nesting_software': _software,
   // Press operation (qp_press_operation)
   'press_experience': _experience, 'press_level': _level,
+  // Phase 2 #3 (qp_press_operation@2) — the one separating confirm (asked of
+  // setter and senior) is a level follow-up, not craft.
+  'press_setting_confirm': _level,
   'press_machine': _machines, 'press_stroke_rate': _capability,
   'press_setting': _changeover, 'press_die_type': _tooling,
   'press_safety': _safety, 'press_defect': _trouble,
   'press_maintenance': ('Maintenance', 'Machine upkeep'),
   // Fitter (qp_fitter)
   'fitting_experience': _experience, 'fitter_level': _level,
+  // Track B #1 (@2) — the separating confirms are level follow-ups, same
+  // mechanism as the Turner/CAM confirms: Experience, left out of Technical Skills.
+  'fitter_skilled_confirm': _level, 'fitter_team_confirm': _level,
   'fitter_equipment': _equipment,
   'fitter_work_type': ('Fitting operations', 'Type of fitting work'),
   'fitting_work': ('Fitting operations', 'Bench & assembly work'),
@@ -188,9 +290,18 @@ const Map<String, (String, String)> _kTopics = <String, (String, String)>{
   'maintenance_response': ('Maintenance', 'Breakdown response'),
   'maintenance_documentation': ('Maintenance', 'Records & documentation'),
   'maintenance_fluid_power': _fluidPower, 'maintenance_overhaul': _overhaul,
+  // Phase 2 #5 (qp_maintenance_tech@2) — the separating confirm is a level
+  // follow-up; the CNC and utility rows are maintenance craft.
+  'maintenance_senior_confirm': _level,
+  'maintenance_cnc_work': _overhaul,
+  'maintenance_utilities': ('Maintenance', 'Utilities'),
   'maintenance_fault_finding': _trouble,
   // Industrial electrician (qp_industrial_electrician)
   'electrical_experience': _experience, 'electrician_level': _level,
+  // Track B #2 (@2) — the separating confirm is a level follow-up, same
+  // mechanism as the Turner/CAM/fitter confirms: Experience, left out of
+  // Technical Skills.
+  'electrician_senior_confirm': _level,
   'electrical_equipment': _equipment,
   'electrical_work_type': ('Electrical work', 'Type of electrical work'),
   'panel_motor_work': ('Electrical work', 'Panels & motors'),
@@ -202,8 +313,15 @@ const Map<String, (String, String)> _kTopics = <String, (String, String)>{
   'electrical_safety': _safety, 'motor_fault': _trouble,
   // Assembly line (qp_assembly_line)
   'assembly_experience': _experience, 'assembly_level': _level,
+  // Track B #6 (@2) — the separating confirms are level follow-ups, not
+  // craft: Experience, left out of Technical Skills.
+  'assembly_skilled_confirm': _level, 'assembly_team_confirm': _level,
   'assembly_stage': ('Assembly operations', 'Line stages'),
   'assembly_line_product': ('Assembly operations', 'Assemblies worked on'),
+  // Track B #6 (@2): the new skill/company rows walk with their true
+  // categories, like every tier-tagged key must.
+  'assembly_skill': _operations,
+  'company_type': ('Assembly operations', 'Company type'),
   'assembly_joining': ('Assembly operations', 'Joining work'),
   'assembly_takt_time': ('Assembly operations', 'Takt time'),
   'assembly_station_count': ('Assembly operations', 'Stations handled'),
@@ -213,6 +331,9 @@ const Map<String, (String, String)> _kTopics = <String, (String, String)>{
   'assembly_defect': _trouble,
   // Quality inspection (qp_quality_inspection)
   'inspection_experience': _experience, 'inspection_level': _level,
+  // Track B #7 (@2) — the separating confirms are level follow-ups, not
+  // craft: Experience, left out of Technical Skills.
+  'inspection_senior_confirm': _level, 'inspection_engineer_confirm': _level,
   'inspection_stage': ('Quality & inspection', 'Inspection stages'),
   'inspection_least_count': ('Quality & inspection', 'Least count'),
   'inspection_standard': ('Quality & inspection', 'Quality standards'),

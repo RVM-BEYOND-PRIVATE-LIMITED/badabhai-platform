@@ -1,8 +1,8 @@
 import { notFound } from "next/navigation";
 import { requireAgent } from "../../../../../lib/auth/roles";
 import { agencyFlags } from "../../../../../lib/config";
-import { listMatchSkills } from "../../../../../lib/payer-api";
-import type { MatchSkillWire } from "../../../../../lib/contracts";
+import { listMatchSkills, listPostingTrades } from "../../../../../lib/payer-api";
+import type { MatchSkillWire, PostingTradeFormWire } from "../../../../../lib/contracts";
 import { PageHeader } from "../../../../../components/page-header";
 import { NewAgencyPosting } from "./new-agency-posting";
 
@@ -40,9 +40,18 @@ export default async function NewAgencyPostingPage() {
     matchSkills = [];
   }
 
+  // Migration 0141 — the same 16-trade form a company posting uses.
+  let postingTrades: PostingTradeFormWire[] = [];
+  try {
+    postingTrades = await listPostingTrades();
+  } catch {
+    postingTrades = [];
+  }
+
   return (
     <NewAgencyPosting
       matchSkills={matchSkills}
+      postingTrades={postingTrades}
       payerRef={session.payerId.slice(0, 8)}
       lead={
         <PageHeader

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
+import { InfoPopover } from "./info-popover";
 
 /**
  * Where a page's back link goes: its real parent, and that parent's name.
@@ -22,8 +23,10 @@ export interface PageHeaderContent {
   title: ReactNode;
   /** An opaque id as the title, set in the id face. A name never takes it. */
   titleMono?: boolean;
-  /** One sentence. Mechanics belong in a notice or a panel's sub-line, not here. */
+  /** One sentence on one line (≤ 90 characters, #2573). Mechanics belong in `info`. */
   description?: ReactNode;
+  /** The caveats the one-line description leaves out, behind an ⓘ beside it (#2573). */
+  info?: ReactNode;
 }
 
 export interface PageHeaderProps extends PageHeaderContent {
@@ -50,6 +53,7 @@ export function PageHeader({
   title,
   titleMono,
   description,
+  info,
   primaryAction,
   secondaryActions,
   filters,
@@ -61,7 +65,14 @@ export function PageHeader({
         <div className="page__heading">
           {back ? <BackLink {...back} /> : null}
           <h1 className={titleMono ? "page__title mono" : "page__title"}>{title}</h1>
-          {description ? <p className="page__sub">{description}</p> : null}
+          {description && info ? (
+            <div className="page__subrow">
+              <p className="page__sub">{description}</p>
+              <InfoPopover label="About this page">{info}</InfoPopover>
+            </div>
+          ) : description ? (
+            <p className="page__sub">{description}</p>
+          ) : null}
         </div>
         {hasActions ? (
           <div className="page__actions">

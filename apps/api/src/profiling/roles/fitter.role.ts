@@ -63,7 +63,7 @@ export const FITTER = {
   formEnabled: true,
   displayName: "Fitter",
   offerName: "fitter",
-  levelLadder: ["Helper", "Fitter", "Senior Fitter"],
+  levelLadder: ["Helper", "Fitter", "Skilled Fitter", "Senior Fitter", "Supervisor"],
   tenureQuestionKey: "fitting_experience",
   fresher: {
     // KEYED BY STORED `value_text`, read off `iti_workshop_machines` in qp_fitter@1. An ITI Fitter
@@ -128,7 +128,7 @@ export const FITTER = {
       "bearing fitting",
       "filing and scraping",
     ],
-    levelTerms: ["helper", "fitter", "senior fitter", "हेल्पर"],
+    levelTerms: ["helper", "fitter", "skilled fitter", "senior fitter", "leading hand", "हेल्पर"],
     /** The production line's assembly work, which sits in `production` and derives nothing here. */
     extraConflictTerms: ["assembly line", "final assembly", "sub assembly", "takt"],
   },

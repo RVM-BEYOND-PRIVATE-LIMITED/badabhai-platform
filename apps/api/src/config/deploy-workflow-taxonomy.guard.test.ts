@@ -307,12 +307,28 @@ describe("the four Phase-9 flags, as they reach the box", () => {
       /PAYER_APPLICANT_STAGES_ENABLED:\s*\$\{\{\s*secrets\.PAYER_APPLICANT_STAGES_ENABLED\s*\}\}/,
       /envs:[^\n]*\bPAYER_APPLICANT_STAGES_ENABLED\b/,
     ],
+    // Engine v1.1 (ADR-0061, #2613) — the "Level needed" applicant sort. A plain boolean on the
+    // api only, turned on in production ONLY by the environment secret.
+    [
+      "LEVEL_NEEDED_SORT_ENABLED",
+      /LEVEL_NEEDED_SORT_ENABLED:\s*\$\{\{\s*secrets\.LEVEL_NEEDED_SORT_ENABLED\s*\}\}/,
+      /envs:[^\n]*\bLEVEL_NEEDED_SORT_ENABLED\b/,
+    ],
     // ADR-0053 (PAY-DB-01) — payer org tenancy (off | shadow | on), api only. The environment
     // secret is its one arming path (owner decision O-8); absent, the bridge holds it off.
     [
       "PAYER_ORG_TENANCY_MODE",
       /PAYER_ORG_TENANCY_MODE:\s*\$\{\{\s*secrets\.PAYER_ORG_TENANCY_MODE\s*\}\}/,
       /envs:[^\n]*\bPAYER_ORG_TENANCY_MODE\b/,
+    ],
+    // #2509 — the per-IP hourly cap on public payer auth. A plain tuning number, not a
+    // secret in the confidentiality sense, but bridged through `secrets.*` like the other
+    // numbers so a deploy does not depend on the box's shell state; absent, compose holds
+    // it at the zod default (20) — byte-identical to today.
+    [
+      "PAYER_AUTH_MAX_PER_IP_PER_HOUR",
+      /PAYER_AUTH_MAX_PER_IP_PER_HOUR:\s*\$\{\{\s*secrets\.PAYER_AUTH_MAX_PER_IP_PER_HOUR\s*\}\}/,
+      /envs:[^\n]*\bPAYER_AUTH_MAX_PER_IP_PER_HOUR\b/,
     ],
   ])("%s is bridged from the environment's secrets", (_name, fromSecrets, inEnvs) => {
     expect(DEPLOY).toMatch(fromSecrets);
@@ -394,8 +410,12 @@ describe("the four Phase-9 flags, as they reach the box", () => {
     ["AGENCY_TWIN_SYNC_ENABLED", "false"],
     // Owner ruling 2026-10-07 — off is today's applicant feeds and no stage route, byte for byte.
     ["PAYER_APPLICANT_STAGES_ENABLED", "false"],
+    // ADR-0061 — off is today's applicant list: the v1.0 ORDER BY, no level read, levelFit null.
+    ["LEVEL_NEEDED_SORT_ENABLED", "false"],
     // ADR-0053 — off keys every payer read to the login: the pre-ADR behaviour, byte for byte.
     ["PAYER_ORG_TENANCY_MODE", "off"],
+    // #2509 — the zod default: 20/hour/IP until the secret (or a box export) says otherwise.
+    ["PAYER_AUTH_MAX_PER_IP_PER_HOUR", "20"],
     // #1800 — not a flag but the resolver's redirect destination: the origin serving payer-web's
     // `/i/<code>`. Undeclared, the stale config default (app.badabhai.in, no `/i/`) won.
     ["REFERRAL_SHORT_LINK_BASE", "https://payer.43-204-36-199.sslip.io"],

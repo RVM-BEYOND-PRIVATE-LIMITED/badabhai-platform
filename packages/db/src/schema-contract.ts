@@ -819,6 +819,99 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "superset); new builds on an unmigrated one are not, which is why this is " +
       "APPLY-BEFORE-DEPLOY",
   },
+  // 0138 (#2497, #2506): payer password-login columns. Unconditional — no flag — because
+  // `payers` is read through bare `select()` / `.returning()`, which name every model column.
+  // The four columns + two indexes ride in one transaction, so one column answers for all.
+  // APPLY-BEFORE-DEPLOY (migration header: "Manual apply ... BEFORE the build ... deploys").
+  // The migration file itself is FROZEN (ledger hash): it predates the registration, so the
+  // header names no schema-contract id — the registration lives here + in the 0138 pin test.
+  {
+    id: "0138-payers-password-hash",
+    migration: "0138_payer_password_auth",
+    kind: "column",
+    table: "payers",
+    object: "password_hash",
+    requiredBy:
+      "PayersRepository's bare `select()` / `.returning()` (findById, findByEmail, findByPhone, " +
+      "findByOrgName, update, setPassword, createOrGet paths) — every payer login (password AND " +
+      "OTP), signup, and guarded read. `password_set_at`, `password_pepper_version` and " +
+      "`org_name_lookup_hash` ride the same migration and fail together",
+    failureMode:
+      "every payer auth route 500s (column does not exist): POST /payer/login/password, POST " +
+      "/payer/login/request + /payer/login/verify, and signup — the #2506 outage. Old " +
+      "builds on a migrated database are fine (a superset); new builds on an unmigrated one " +
+      "are not, which is why this is APPLY-BEFORE-DEPLOY",
+  },
+  // 0144 (owner rulings 2026-11-03): admin password sign-in + the per-admin two-step switch.
+  // Unconditional — no flag — because `admin_users` is read through bare `select()` /
+  // `.returning()`, which name every model column, and the session guard reads the row on EVERY
+  // admin request. The five columns ride one migration, so one column answers for all. Registered
+  // up front — the #2506 lesson: 0138 shipped without an entry and took payer login down.
+  {
+    id: "0144-admin-users-password-hash",
+    migration: "0144_admin_password_auth",
+    kind: "column",
+    table: "admin_users",
+    object: "password_hash",
+    requiredBy:
+      "AdminRepository's bare `select()` / `.returning()` (findByEmailHash, findById, " +
+      "acceptInvite, markActive, setMfaEnrolled, updateRole, suspend, setPassword) — every admin " +
+      "sign-in (password AND emailed code), the MFA step, invite accept, and " +
+      "AdminSessionService.validateAndTouch on every signed-in admin request. " +
+      "`password_set_at`, `password_pepper_version`, `must_change_password` and `mfa_enabled` " +
+      "ride the same migration and fail together",
+    failureMode:
+      "the whole Admin Portal 500s (column does not exist): every POST /admin/login/*, " +
+      "/admin/mfa/verify and /admin/invites/accept, and every guarded /admin/* route returns 401 " +
+      "or 500 because the session guard cannot read the admin row. Old builds on a migrated " +
+      "database are fine (a superset); new builds on an unmigrated one are not, which is why " +
+      "this is APPLY-BEFORE-DEPLOY",
+  },
+  // 0153 (engine v1.1 "Level needed", ADR-0061): the worker's frozen rung on each application.
+  // Unconditional — no flag — because the apply upserts write it on EVERY V1 and agency-twin
+  // apply (history not captured is gone), and bare `select()`s of `applications` name it. The two
+  // columns ride one migration, so one column answers for both. Registered up front (#2506).
+  {
+    id: "0153-applications-trade-level",
+    migration: "0153_application_trade_level",
+    kind: "column",
+    table: "applications",
+    object: "trade_level",
+    requiredBy:
+      "MatchApplyService.upsertDecision (every V1 apply/skip) and " +
+      "ApplicationsRepository.upsertDecision (every agency-twin apply) write it; " +
+      "MatchFeedRepository.listCandidates / listRankedCandidatesByApplication select it for the " +
+      "payer applicant list and inbox; every bare `select()` of `applications` names it. " +
+      "`level_confirmed` rides the same migration and fails together",
+    failureMode:
+      "every worker apply 500s (column does not exist) — the V1 feed apply, the union apply and " +
+      "the agency-twin apply — and the payer applicant list and inbox 500. Old builds on a " +
+      "migrated database are fine (a superset); new builds on an unmigrated one are not, which is " +
+      "why this is APPLY-BEFORE-DEPLOY",
+  },
+  // 0154 (#2563, payer login management): the temporary-password flag and the session
+  // watermark. Unconditional — no flag — because `payers` is read through bare `select()` /
+  // `.returning()`, which name every model column, and `PayerAuthGuard` resolves auth facts
+  // on EVERY payer request. The four columns ride one migration, so one column answers for
+  // all. Registered up front (#2506).
+  {
+    id: "0154-payers-sessions-valid-after",
+    migration: "0154_payer_login_management",
+    kind: "column",
+    table: "payers",
+    object: "sessions_valid_after",
+    requiredBy:
+      "PayersRepository's bare `select()` / `.returning()` (findById, findByEmail, findByPhone, " +
+      "findByOrgName, update, setPassword, createOrGet paths) and findAuthFacts, which " +
+      "PayerAuthGuard calls on every authenticated payer request. `must_change_password`, " +
+      "`password_revoked_at` and `last_login_at` ride the same migration and fail together",
+    failureMode:
+      "every payer auth route 500s or 401s (column does not exist): POST /payer/login/password, " +
+      "POST /payer/login/request + /payer/login/verify, signup, and every guarded /payer/* " +
+      "request because the guard cannot read the row. Old builds on a migrated database are " +
+      "fine (a superset); new builds on an unmigrated one are not, which is why this is " +
+      "APPLY-BEFORE-DEPLOY",
+  },
   // 0134: THE API names `payer_applicant_stages` only while PAYER_APPLICANT_STAGES_ENABLED is on
   // (owner ruling 2026-10-07, the payer pipeline board), so a deploy ahead of the migration breaks
   // no request and the table is NOT a `table` entry. It is listed for its lock, exactly as 0128's

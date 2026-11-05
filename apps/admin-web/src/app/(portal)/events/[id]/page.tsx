@@ -4,8 +4,10 @@ import type { ReactNode } from "react";
 import { requireCapability } from "../../../../lib/auth";
 import { getEvent, getTrace } from "../../../../lib/events";
 import { AdminRequestError } from "../../../../lib/admin-http";
-import { formatTimestamp, humanizeEventName } from "../../../../lib/format";
+import { formatTimestamp, formatTimestampUtc, humanizeEventName } from "../../../../lib/format";
+import { Timestamp } from "../../../../components/timestamp";
 import { PageHeader } from "../../../../components/page-header";
+import { adminActionLabel } from "../../../../lib/admin-action-vocabulary";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 
 export const dynamic = "force-dynamic";
@@ -42,8 +44,16 @@ export default async function EventDetailPage({
   const trace = await getTrace(event.correlation_id).catch(() => null);
   const siblings = trace?.events.filter((e) => e.id !== event.id) ?? [];
 
+  // `admin.action_performed` carries WHICH action in its payload's free-string `action_code`.
+  // Named here beside the raw code (the payload below stays verbatim); a code this build does
+  // not know shows as itself.
+  const actionCode =
+    event.event_name === "admin.action_performed" && typeof event.payload.action_code === "string"
+      ? event.payload.action_code
+      : null;
+
   return (
-    <div className="page">
+    <div className="page page--reading">
       <PageHeader
         back={{ href: "/events", label: "Events" }}
         title={humanizeEventName(event.event_name)}
@@ -51,7 +61,7 @@ export default async function EventDetailPage({
           <>
             One audit record in full — its envelope, verbatim payload and causal chain —
             recorded{" "}
-            <time dateTime={event.occurred_at}>{formatTimestamp(event.occurred_at)}</time>.
+            <Timestamp iso={event.occurred_at} />.
           </>
         }
       />
@@ -74,6 +84,16 @@ export default async function EventDetailPage({
               </>
             }
           />
+          {actionCode ? (
+            <Row
+              k="Action"
+              v={
+                <>
+                  {adminActionLabel(actionCode)} <code className="mono">{actionCode}</code>
+                </>
+              }
+            />
+          ) : null}
           <Row k="Event id" v={event.id} mono />
           <Row k="Actor" v={`${event.actor_type} · ${event.actor_id ?? "—"}`} mono />
           <Row k="Subject" v={`${event.subject_type} · ${event.subject_id ?? "—"}`} mono />
@@ -156,7 +176,11 @@ export default async function EventDetailPage({
           <ol className="chain">
             {siblings.map((e) => (
               <li className="chain__item" key={e.id}>
-                <time className="chain__time" dateTime={e.occurred_at}>
+                <time
+                  className="chain__time"
+                  dateTime={e.occurred_at}
+                  title={formatTimestampUtc(e.occurred_at)}
+                >
                   {formatTimestamp(e.occurred_at)}
                 </time>
                 <Link className="link" href={`/events/${e.id}`}>

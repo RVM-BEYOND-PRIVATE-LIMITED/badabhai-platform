@@ -9,6 +9,7 @@ import {
 import { captureAnswer } from "../answer-capture";
 import { changesAnswer, recordAnswer, type AnswerMap } from "../answer-map";
 import { parseDurationMonths } from "../duration-months";
+import { isAskedOnlyItem } from "../facts/worker-fact.ownership";
 import { MAX_EXPERIENCE_ENTRIES } from "../llm-turn.service";
 import { certifySkillLabel, MAX_SKILLS } from "../skill-certifier";
 import { EXPERIENCE_KEY, SKILLS_KEY, type ProfilingSchemaView } from "./profiling-schema";
@@ -22,6 +23,8 @@ import { EXPERIENCE_KEY, SKILLS_KEY, type ProfilingSchemaView } from "./profilin
  *   - THE FIELD HOLDS NO VALUE YET (R4). A fill for a field that already holds a different value
  *     is a CHANGE, which only the worker's Haan may make (#2312); it is counted, never written.
  *   - NOT THE QUESTION ON SCREEN. The deterministic capture answers that one, as it always has.
+ *   - NOT AN ASKED-ONLY FACT (`ASKED_ONLY_FACTS`: availability, ruling 2026-11-04). An empty one
+ *     waits for its own question; a change to a filled one still goes to the edit gate.
  *   - THE SAME PARSERS AS A TYPED ANSWER. The value is read through `captureAnswer` against the
  *     item, so a model value and a typed value can never disagree about what was said — and a
  *     value the parser cannot read is not written at all.
@@ -78,6 +81,8 @@ export function applyFills(input: ApplyFillsInput): AppliedUnderstanding {
         if (values.some((value) => changesAnswer(answers, value))) conflicts.push(fill);
         continue;
       }
+      // Owner ruling 2026-11-04 — an empty availability is filled only by its own question.
+      if (isAskedOnlyItem(item)) continue;
       for (const value of values) answers = recordAnswer(answers, value, input.turn);
       noted.push(`${labelOf(input.view, fill.key)}: ${fill.value}`);
       appliedKeys.push(fill.key);

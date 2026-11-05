@@ -3,11 +3,14 @@ import { z } from "zod";
 import { cookies } from "next/headers";
 import type {
   LoginResult,
+  NewPasswordRefusal,
+  PasswordLoginResult,
   PayerAuthProvider,
   PayerSession,
   RequestCodeResult,
 } from "./types";
 import { payerFetch, isPayerUnauthorized } from "../payer-http";
+import { isPayerStatus, isPayerValidationError } from "../payer-errors";
 import { payerMeWireSchema } from "../contracts";
 import { API_TOKEN_COOKIE_NAME, sessionCookieOptions } from "./session-cookie";
 import { rawOrgRoleOf, reportUnexpectedOrgRole } from "./org-role-drift";
@@ -18,6 +21,8 @@ import { rawOrgRoleOf, reportUnexpectedOrgRole } from "./org-role-drift";
  * Drives the backend payer-auth routes:
  *   POST /payer/login/request  → issues a login code (NO-ENUMERATION response)
  *   POST /payer/login/verify   → mints a payer JWT (Bearer)
+ *   POST /payer/login/password → mints the same JWT from a password (#2587), or answers
+ *                                `password_change_required` (a temporary password, #2628)
  *   GET  /payer/me             → resolves the current session from that JWT
  *
  * SECURITY:
@@ -44,15 +49,42 @@ const requestCodeWireSchema = z.object({
   resend_in_seconds: z.number(),
 });
 
-/** POST /payer/login/verify response — the minted Bearer session. */
+/**
+ * POST /payer/login/verify and POST /payer/login/password response — the minted Bearer session
+ * (one shape for both doors). FAIL CLOSED (#2587): a body without a non-empty `access_token` is
+ * not a session, so it never reaches the cookie.
+ */
 const verifyWireSchema = z.object({
-  access_token: z.string(),
+  access_token: z.string().min(1),
   token_type: z.literal("Bearer"),
   expires_in_seconds: z.number(),
   payer_id: z.string().uuid(),
   role: z.enum(["employer", "agent"]),
   is_new_payer: z.boolean(),
 });
+type SessionWire = z.infer<typeof verifyWireSchema>;
+
+/**
+ * POST /payer/login/password for a TEMPORARY password sent without `new_password` (#2628): the
+ * password was right, and NO session exists. Checked BEFORE the session shape, so a body naming
+ * this status is never read as a session — even one that also carries a token.
+ */
+const passwordChangeRequiredWireSchema = z.object({
+  status: z.literal("password_change_required"),
+});
+
+/**
+ * The API's password-policy refusals for `new_password` (the shared `PasswordPolicySchema`
+ * messages, #2628) → the rule that was refused. Only the RULE leaves the seam; the copy the payer
+ * reads is the app's own (app/login/password-rules.ts). An unknown message is `other`.
+ */
+const NEW_PASSWORD_REFUSALS: ReadonlyArray<readonly [RegExp, NewPasswordRefusal]> = [
+  [/at least \d+ characters/i, "too_short"],
+  [/at most \d+ characters/i, "too_long"],
+  [/letter and one digit/i, "letter_and_digit"],
+];
+
+type PasswordLoginFailureResult = Exclude<PasswordLoginResult, { ok: true }>;
 
 export const httpPayerAuthProvider: PayerAuthProvider = {
   async requestCode({ email }): Promise<RequestCodeResult> {
@@ -102,7 +134,7 @@ export const httpPayerAuthProvider: PayerAuthProvider = {
   },
 
   async verifyCode({ email, code }): Promise<LoginResult> {
-    let res: z.infer<typeof verifyWireSchema>;
+    let res: SessionWire;
     try {
       res = await payerFetch("/payer/login/verify", {
         method: "POST",
@@ -110,28 +142,46 @@ export const httpPayerAuthProvider: PayerAuthProvider = {
         body: { email, code },
         schema: verifyWireSchema,
       });
-    } catch {
+    } catch (err) {
+      // #2587 / #2628 — the code was right, but the account holds a TEMPORARY password: no
+      // session until the payer sets their own through the password door. Read from the status
+      // alone; the API sends no other 409 on this route, and an API without #2628 sends none.
+      if (isPayerStatus(err, 409)) {
+        return { ok: false, error: NEUTRAL_LOGIN_ERROR, reason: "password_change_required" };
+      }
       // No-oracle: any failure (bad code, unknown email, service error) → one error.
       return { ok: false, error: NEUTRAL_LOGIN_ERROR };
     }
 
-    const store = await cookies();
-    store.set(
-      API_TOKEN_COOKIE_NAME,
-      res.access_token,
-      sessionCookieOptions(res.expires_in_seconds),
-    );
+    return openSession(res);
+  },
 
-    return {
-      ok: true,
-      isNewPayer: res.is_new_payer,
-      session: sessionFromMe({
-        id: res.payer_id,
-        role: res.role,
-        status: "active",
-        orgName: "",
-      }),
-    };
+  async loginWithPassword({ identifier, password, newPassword }): Promise<PasswordLoginResult> {
+    const changing = newPassword !== undefined;
+    let body: unknown;
+    try {
+      body = await payerFetch("/payer/login/password", {
+        method: "POST",
+        public: true,
+        // `new_password` rides ONLY the forced-change resend; a first attempt never carries it.
+        body: changing
+          ? { identifier, password, new_password: newPassword }
+          : { identifier, password },
+        // Read raw, then classified below: the change request must be ruled out BEFORE the body
+        // is read as a session.
+        schema: z.unknown(),
+      });
+    } catch (err) {
+      return passwordLoginFailure(err, changing);
+    }
+
+    // FAIL CLOSED: a change request is never a session — no cookie, whatever else rides along.
+    if (passwordChangeRequiredWireSchema.safeParse(body).success) {
+      return { ok: false, reason: "password_change_required" };
+    }
+    const session = verifyWireSchema.safeParse(body);
+    if (!session.success) return { ok: false, reason: "unavailable" };
+    return openSession(session.data);
   },
 
   async currentSession(): Promise<PayerSession | null> {
@@ -162,6 +212,62 @@ export const httpPayerAuthProvider: PayerAuthProvider = {
     store.delete(API_TOKEN_COOKIE_NAME);
   },
 };
+
+/**
+ * Open the session a sign-in minted: store the payer JWT in the httpOnly cookie and build the
+ * principal. The ONE place a session starts, so the code door and the password door (#2587)
+ * cannot drift — same cookie, same options, same principal.
+ */
+async function openSession(
+  res: SessionWire,
+): Promise<{ ok: true; session: PayerSession; isNewPayer: boolean }> {
+  const store = await cookies();
+  store.set(API_TOKEN_COOKIE_NAME, res.access_token, sessionCookieOptions(res.expires_in_seconds));
+
+  return {
+    ok: true,
+    isNewPayer: res.is_new_payer,
+    session: sessionFromMe({
+      id: res.payer_id,
+      role: res.role,
+      status: "active",
+      orgName: "",
+    }),
+  };
+}
+
+/**
+ * A refused `POST /payer/login/password`, read from the status (no body text leaves the seam):
+ * 401 → the neutral credential miss; 403 → suspended; 429 → rate limited; 400 → on a first
+ * attempt a credential outside the DTO's bounds (it cannot be anyone's password, so the same
+ * neutral miss), on the change resend the refused `new_password` rule; anything else (5xx, a
+ * network failure) → unavailable.
+ */
+function passwordLoginFailure(err: unknown, changing: boolean): PasswordLoginFailureResult {
+  if (isPayerUnauthorized(err)) return { ok: false, reason: "invalid_credentials" };
+  if (isPayerStatus(err, 403)) return { ok: false, reason: "suspended" };
+  if (isPayerStatus(err, 429)) return { ok: false, reason: "rate_limited" };
+  if (isPayerStatus(err, 400)) {
+    return changing ? changeResendRefusal(err) : { ok: false, reason: "invalid_credentials" };
+  }
+  return { ok: false, reason: "unavailable" };
+}
+
+/**
+ * The change resend's 400 (#2628). The validation pipe names the field: a `new_password` issue is
+ * a policy refusal; an issue on any other field means the temporary credential itself is out of
+ * bounds (the neutral miss). A 400 with no field issues is the route's one other refusal — the new
+ * password equals the temporary one.
+ */
+function changeResendRefusal(err: unknown): PasswordLoginFailureResult {
+  if (!isPayerValidationError(err)) {
+    return { ok: false, reason: "new_password_rejected", refusal: "same_as_temporary" };
+  }
+  const issue = err.issues.find((i) => i.path === "new_password");
+  if (!issue) return { ok: false, reason: "invalid_credentials" };
+  const match = NEW_PASSWORD_REFUSALS.find(([pattern]) => pattern.test(issue.message));
+  return { ok: false, reason: "new_password_rejected", refusal: match ? match[1] : "other" };
+}
 
 /** Build the session principal from GET /payer/me — the payer's OWN data only. */
 function sessionFromMe(me: z.infer<typeof payerMeWireSchema>): PayerSession {

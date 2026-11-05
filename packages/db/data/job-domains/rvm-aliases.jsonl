@@ -231,6 +231,17 @@
 {"kind":"alias","job_domain_id":"jd_nco_7223_2200","text":"centreless grinding","lang":"en"}
 {"kind":"alias","job_domain_id":"jd_nco_7223_2200","text":"centerless grinding","lang":"en"}
 {"kind":"alias","job_domain_id":"jd_nco_7223_2200","text":"internal grinding","lang":"en"}
+# PHASE 2 #2 (CEO Launch Plan Pack v1, sheet 15 "Words"): the trade's part and
+# process compounds, same shape as the E4 rows above. Each names the trade
+# whole; the bare part words ("gear", "bearing", "shaft") stay out — they are a
+# gear cutter's, a bearing fitter's and a turner's words too. Dressing, CBN,
+# balancing and "micron ka kaam" are capture vocabulary, never a route.
+{"kind":"alias","job_domain_id":"jd_nco_7223_2200","text":"bore grinding","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2200","text":"thread grinding","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2200","text":"gear grinding","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2200","text":"bearing grinding","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2200","text":"shaft grinding","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2200","text":"crank grinding","lang":"en"}
 {"kind":"alias","job_domain_id":"jd_nco_7223_0500","text":"machine shop","lang":"en"}
 {"kind":"alias","job_domain_id":"jd_nco_7223_0500","text":"machinist","lang":"en"}
 
@@ -284,6 +295,29 @@
 {"kind":"alias","job_domain_id":"jd_nco_7131_0300","text":"industrial painter","lang":"en"}
 {"kind":"alias","job_domain_id":"jd_nco_7131_0500","text":"spray painter","lang":"en"}
 {"kind":"alias","job_domain_id":"jd_nco_7131_0500","text":"स्प्रे पेंटिंग","lang":"hi"}
+# PHASE 2 #4 (CEO Launch Plan Pack v1, sheet 20 "Words"). THE TRADE'S OWN NAME
+# REACHED THE WRONG FAMILY: offline, "powder coating", "coating operator" and
+# "powder coating operator" all resolved to 7212.0400 Gas Cutter (welding), so a
+# powder coater could be interviewed from the welding pack. Pinned to 7132.0201
+# (Painter, Spray), whose chip label stays "Painter Spray" — every row below is
+# longer, and pickChipLabel takes the shortest.
+{"kind":"alias","job_domain_id":"jd_nco_7132_0201","text":"powder coating","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7132_0201","text":"पाउडर कोटिंग","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7132_0201","text":"coating operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7132_0201","text":"powder coating operator","lang":"en"}
+# PLATING (sheet 20: "retag, add plating"; owner ruling 2026-11-03 binds
+# 8122.0100 Electroplater to fam_powder_coating). Every plating word resolved
+# NOWHERE before this block. Each row is also a painter-coating.role.ts
+# occupation term, so whichever becomes this code's chip label ("zinc
+# plating", the shortest) still routes to the form. NOT authored: bare
+# "plating" (skeleton of "pleating" and "plaiting"); "anodising" and the CED /
+# E-coat words (at 9 / 6 characters they would become the Electroplater chip —
+# they stay capture chips and machine terms; a known reach gap).
+{"kind":"alias","job_domain_id":"jd_nco_8122_0100","text":"electroplating","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8122_0100","text":"इलेक्ट्रोप्लेटिंग","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_8122_0100","text":"zinc plating","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8122_0100","text":"nickel plating","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8122_0100","text":"chrome plating","lang":"en"}
 {"kind":"alias","job_domain_id":"jd_nco_9313_0701","text":"painter helper","lang":"en"}
 
 # ── Carpentry — ISCO 7115 ───────────────────────────────────────────────────
@@ -446,6 +480,12 @@
 {"kind":"alias","job_domain_id":"jd_nco_7222_0200","text":"टूल मेकर","lang":"hi"}
 {"kind":"alias","job_domain_id":"jd_nco_7222_0200","text":"tool room","lang":"en"}
 {"kind":"alias","job_domain_id":"jd_nco_7222_0200","text":"टूल रूम","lang":"hi"}
+# PHASE 2 #1 (CEO Launch Plan Pack v1, sheet 13): the trade's own compounds,
+# named by workers who run one. "toolroom" is the unspaced spelling the
+# particle stripper never produces.
+{"kind":"alias","job_domain_id":"jd_nco_7222_0200","text":"toolroom","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7222_0200","text":"mould maker","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7222_0200","text":"मोल्ड मेकर","lang":"hi"}
 {"kind":"alias","job_domain_id":"jd_nco_7222_0200","text":"die maker","lang":"en"}
 {"kind":"alias","job_domain_id":"jd_nco_7222_0200","text":"डाई मेकर","lang":"hi"}
 {"kind":"alias","job_domain_id":"jd_nco_7222_0300","text":"jig fixture","lang":"en"}
@@ -787,6 +827,15 @@
 # on Mail Carriers after the first draft of this block shipped.
 {"kind":"alias","job_domain_id":"jd_nco_7223_6003","text":"post processor","lang":"en"}
 {"kind":"alias","job_domain_id":"jd_nco_7223_6003","text":"post processing","lang":"en"}
+# E5 MIDDLE-WAY EXPAND-12 (CAM starter, owner-scoped). The toolpath is the desk
+# programmer's own word the way G-code is the MDI programmer's: a worker who
+# types it has named this trade's work surface. The 2-token "tool path" reached
+# CART before this row (same pre-emption mechanism as "post processor" above),
+# so the exact row takes it back. NX/CATIA/Creo/Inventor/Fusion/Solid Edge stay
+# OUT (E5 Q&A): bare forms swallow live skeletons, 2-token forms are not worker
+# phrasing, and the suite holds the line until a ratified surface exists.
+{"kind":"alias","job_domain_id":"jd_nco_7223_6003","text":"toolpath","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_6003","text":"tool path","lang":"en"}
 # G CODE IS THE MDI PROGRAMMER's OWN WORD, and the surface this code was deliberately scoped
 # to include — the man editing the program at the controller rather than at a workstation. It
 # was reaching the golf caddie before this tranche and the DRAWING OFFICE after it, because
@@ -846,6 +895,14 @@
 {"kind":"alias","job_domain_id":"jd_nco_7213_0101","text":"press brake","lang":"en"}
 # 2-token row: beats the 1-token "cutting" span that sends gas cutters to welding.
 {"kind":"alias","job_domain_id":"jd_nco_7213_0101","text":"laser cutting","lang":"en"}
+# TRACK B #5 (CEO Launch Plan Pack v1, sheet 10): the machine operators name
+# themselves after their machine, and these resolved nowhere. Pinned to the
+# role-pack code beside "laser cutting" — "nesting" stays routing-quiet (a
+# 2D-draughtsman signal too) and brand names stay out (E2 controller ruling).
+{"kind":"alias","job_domain_id":"jd_nco_7213_0101","text":"laser operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7213_0101","text":"लेजर ऑपरेटर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7213_0101","text":"bending operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7213_0101","text":"बेंडिंग ऑपरेटर","lang":"hi"}
 {"kind":"alias","job_domain_id":"jd_nco_7213_0101","text":"chadar","lang":"en"}
 {"kind":"alias","job_domain_id":"jd_nco_7213_0101","text":"fabricator","lang":"en"}
 {"kind":"alias","job_domain_id":"jd_nco_7213_0101","text":"fabrication","lang":"en"}
@@ -872,6 +929,24 @@
 {"kind":"alias","job_domain_id":"jd_nco_7233_0101","text":"machine repair","lang":"en"}
 {"kind":"alias","job_domain_id":"jd_nco_7233_0101","text":"breakdown maintenance","lang":"en"}
 {"kind":"alias","job_domain_id":"jd_nco_7233_0101","text":"plant maintenance","lang":"en"}
+# PHASE 2 #5 (CEO Launch Plan Pack v1, sheet 21 "Words"). Measured before this
+# block: "machine/mechanical/hydraulic maintenance" and "मेंटेनेंस टेक्नीशियन"
+# reached nothing, "cnc maintenance" reached the CNC operator code
+# (fam_machining) and "machine tool maintenance" a cart puller. Each row is a
+# maintenance-technician.role.ts occupation term. NO CHIP LABEL MOVES: the
+# machine rows sit on 7233.0101 beside "plant/breakdown maintenance", where the
+# shorter "machine repair" keeps the chip (on 3113.0401, which has no
+# vernacular of its own, they would have replaced its chip — measured,
+# family-chip-labels.test.ts); "cnc maintenance" sits on 7233.1200, where the
+# shorter "Millwright" keeps the chip; the Devanagari row sits on 7233.0101 too.
+# NOT authored: "mmtm" (4 letters, it would become a chip), "maintenance
+# mechanic" (the NCO's own electronics title, 7422.0200).
+{"kind":"alias","job_domain_id":"jd_nco_7233_0101","text":"machine maintenance","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7233_0101","text":"mechanical maintenance","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7233_0101","text":"hydraulic maintenance","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7233_0101","text":"machine tool maintenance","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7233_1200","text":"cnc maintenance","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7233_0101","text":"मेंटेनेंस टेक्नीशियन","lang":"hi"}
 #
 # ── Industrial electrician — NCO 7412.0200 (Electrical Fitter) — items 17-19 ──
 # Ruling A2: the generic words (bijli mistri, wiring, electrician) STAY on the domestic
@@ -882,16 +957,139 @@
 {"kind":"alias","job_domain_id":"jd_nco_7412_0200","text":"इंडस्ट्रियल इलेक्ट्रीशियन","lang":"hi"}
 {"kind":"alias","job_domain_id":"jd_nco_7412_0200","text":"panel electrician","lang":"en"}
 {"kind":"alias","job_domain_id":"jd_nco_7412_0200","text":"plant electrician","lang":"en"}
+# TRACK B #2 (CEO Launch Plan Pack v1, sheet 7): "panel wireman" names the
+# industrial electrician (control-panel work row) and resolved nowhere — no NCO
+# code carries the title. Pinned to the role-pack code beside "panel electrician".
+{"kind":"alias","job_domain_id":"jd_nco_7412_0200","text":"panel wireman","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7412_0200","text":"पैनल वायरमैन","lang":"hi"}
+# PHASE 2 #6 (CEO Launch Plan Pack v1, sheet 14 "Words"): the PLC / automation trade, a new
+# family bound to 7412.0101 "Automation Specialist". The rows name the PROGRAMMING side of the
+# trade (A3: "PLC/Automation if programming is main job; else Electrician"). Bare "plc" is NOT a
+# row: its skeleton is "police" and "place", and "PLC panel wiring" is the electrician's work.
+# Software and device words (ladder logic, TIA Portal, WinCC, servo) are capture chips and role
+# machine terms, never routes. Chip label: "plc programmer", the shortest Latin row.
+{"kind":"alias","job_domain_id":"jd_nco_7412_0101","text":"plc programming","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7412_0101","text":"plc programmer","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7412_0101","text":"plc technician","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7412_0101","text":"automation technician","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7412_0101","text":"automation engineer","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7412_0101","text":"पीएलसी प्रोग्रामिंग","lang":"hi"}
+# PHASE 2 #7 (CEO Launch Plan Pack v1, sheet 16 "Words"): the EDM / wire-cut trade, a new
+# family bound to 7223.2800 "Die Sinking Electric Discharge Machine Operator". The rows name the
+# trade itself. Bare "edm" (3 letters) and "spark" are NOT rows; brands and "electrode" are
+# capture chips and role machine terms, never routes.
+{"kind":"alias","job_domain_id":"jd_nco_7223_2800","text":"wire cut","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2800","text":"wirecut","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2800","text":"wire edm","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2800","text":"edm operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2800","text":"wire cut operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2800","text":"spark erosion","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2800","text":"वायर कट","lang":"hi"}
+# PHASE 2 #8 (CEO Launch Plan Pack v1, sheet 17 "Words"): the heat-treatment trade, a new family
+# bound to four 8121 codes (3701 Heat Treating Furnace Operator, 4800 Hardener, 4900 Temperer,
+# 4700 Annealer). The process words are SPREAD across them on purpose: a code's chip label is its
+# shortest Latin alias, so 3701 reads "heat treatment", 4800 "hardening", 4900 "tempering" and
+# 4700 "annealing" — never "salt bath". NOT rows: bare "ht" (2 letters), "hardness testing",
+# "rockwell", "hrc" (the QC inspector's instrument words, sheet 12), "ipsen" (a brand), and bare
+# "furnace" / "melting" (the foundry's melt shop, sheet 19).
+{"kind":"alias","job_domain_id":"jd_nco_8121_3701","text":"heat treatment","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8121_3701","text":"heat treatment operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8121_3701","text":"heat treatment technician","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8121_3701","text":"furnace operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8121_3701","text":"हीट ट्रीटमेंट","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_8121_4800","text":"hardening","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8121_4800","text":"case hardening","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8121_4800","text":"induction hardening","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8121_4800","text":"carburising","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8121_4800","text":"carburizing","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8121_4800","text":"nitriding","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8121_4800","text":"gas nitriding","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8121_4800","text":"quenching","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8121_4800","text":"sealed quench","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8121_4800","text":"pit furnace","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8121_4800","text":"vacuum furnace","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8121_4800","text":"salt bath","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8121_4800","text":"ht job work","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8121_4800","text":"ht operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8121_4800","text":"हार्डनिंग","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_8121_4900","text":"tempering","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8121_4700","text":"annealing","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8121_4700","text":"normalising","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8121_4700","text":"normalizing","lang":"en"}
+# PHASE 2 #9 (CEO Launch Plan Pack v1, sheet 22 "Words"): Injection Moulding, bound to the
+# 8142 plastic-moulding codes. The rows name the trade. 'injection moulding operator' moves here
+# from the rubber code 8141.0713 (retired there, same change; that code keeps 'rubber injection
+# moulding operator'). Bare 'imm' (3 letters) is NOT a row, and 'imm operator' would become this
+# code's chip label (the shortest Latin alias). Brands, materials, 'mould change' and 'hot
+# runner' are capture chips and role machine terms; 'process technician' is a level term;
+# 'mould ka kaam' stays an ask-first disambiguation (A3).
+{"kind":"alias","job_domain_id":"jd_nco_8142_0501","text":"injection moulding","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8142_0501","text":"injection molding","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8142_0501","text":"injection moulding operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8142_0501","text":"injection molding operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8142_0501","text":"moulding machine operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8142_0501","text":"इंजेक्शन मोल्डिंग","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_8142_1300","text":"mould setter","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8142_1300","text":"moulding setter","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8142_1300","text":"injection moulding setter","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8142_1301","text":"plastic moulding","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8141_0713","text":"rubber injection moulding operator","lang":"en"}
+# PHASE 2 #10 (CEO Launch Plan Pack v1, sheet 23 "Words"): Production Supervisor, the cross-
+# trade supervisor codes. The generic words name 3122.9900 'Manufacturing Supervisors, Other';
+# 'line in-charge' sits on 3122.0601 Assembly Line Supervisor and 'foreman' on 3122.1900
+# 'Supervisor and Foreman, Machine Tool Operations', so each code's chip label is its own word.
+# 'foreman' reached protective service and 'floor incharge' a flayer (skeleton matches) before.
+# Bare 'supervisor' is NOT a row (A3: every trade's top rung; ask the department first).
+# 'shift report', '5S', 'kaizen', 'OEE' and 'SAP entry' are capture chips, never routes.
+{"kind":"alias","job_domain_id":"jd_nco_3122_9900","text":"production supervisor","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3122_9900","text":"production in-charge","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3122_9900","text":"production incharge","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3122_9900","text":"production in charge","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3122_9900","text":"plant in-charge","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3122_9900","text":"plant incharge","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3122_9900","text":"shift in-charge","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3122_9900","text":"shift incharge","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3122_9900","text":"shift in charge","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3122_9900","text":"floor in-charge","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3122_9900","text":"floor incharge","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3122_9900","text":"production team leader","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3122_9900","text":"प्रोडक्शन सुपरवाइजर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_3122_9900","text":"शिफ्ट इंचार्ज","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_3122_0601","text":"line in-charge","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3122_0601","text":"line incharge","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3122_0601","text":"line in charge","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3122_1900","text":"foreman","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3122_1900","text":"फोरमैन","lang":"hi"}
 #
 # ── Press — NCO 7223.2300 (Power Press Operator, Metal) / 7223.3000 (Metal Stamper) — 20, 22 ─
 # "press ka kaam" (23) is struck — it is ironing clothes — and "machine operator" (24) routes
 # to no role. "press operator" (21) is the retirement case above.
 {"kind":"alias","job_domain_id":"jd_nco_7223_2300","text":"power press","lang":"en"}
 {"kind":"alias","job_domain_id":"jd_nco_7223_3000","text":"stamping","lang":"en"}
+# PHASE 2 #3 (CEO Launch Plan Pack v1, sheet 18 "Words"): the press names a
+# press-shop worker uses for the trade itself. "servo press" and "mechanical
+# press" sit beside "power press" (each is no shorter, so that code's chip
+# label stays "power press"); "press setter" (already a role occupation term,
+# so it routes if it ever becomes a chip) on the Tool Setter, Press code.
+# NOT authored: "press shop" — the shortest Latin alias becomes a code's chip
+# label (pickChipLabel), so on 7211.0101 it displaced "press operator" and,
+# being a place rather than an occupation term, stopped that code routing to
+# the Press form (family-chip-labels.test.ts); "hydraulic press" (a rubber
+# compression-moulding press too — R4-a sends moulding elsewhere); "die
+# setter" (the role vetoes "die setting" as tool-room vocabulary); "press ka
+# kaam" (struck: ironing); bare "piercing".
+{"kind":"alias","job_domain_id":"jd_nco_7223_2300","text":"servo press","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2300","text":"mechanical press","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_0200","text":"press setter","lang":"en"}
 #
 # ── Assembly line — NCO 8219.0100 — item 25 ─────────────────────────────────
 # The code that already owns "assembly line" and "असेंबली". Stem of "assembly ka kaam".
 {"kind":"alias","job_domain_id":"jd_nco_8219_0100","text":"assembly","lang":"en"}
+# TRACK B #6 (CEO Launch Plan Pack v1, sheet 11): "assembly technician" names
+# the trade itself and resolved nowhere — no NCO code carries the title.
+# Pinned to the role-pack code beside "assembler".
+{"kind":"alias","job_domain_id":"jd_nco_8219_0100","text":"assembly technician","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8219_0100","text":"असेंबली टेक्नीशियन","lang":"hi"}
 #
 # ── Fitter — NCO 7233.0200 (Fitter, Bench) — one guard; item 28 WITHDRAWN ────
 # ITEM 28 ("fitting", the stem of "fitting ka kaam") IS NOT AUTHORED, and was in the first
@@ -905,6 +1103,11 @@
 # through "fitter"; a 2-token row keeps it there on longest-first. Preserves a ruling — it is
 # not new vocabulary.
 {"kind":"alias","job_domain_id":"jd_nco_7233_0200","text":"assembly fitter","lang":"en"}
+# TRACK B #1 (CEO Launch Plan Pack v1, sheet 6): "structural fitter" names the
+# fitter trade (structural / erection work row) and resolved nowhere — no NCO
+# code carries the title. Pinned to the role-pack code beside "assembly fitter".
+{"kind":"alias","job_domain_id":"jd_nco_7233_0200","text":"structural fitter","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7233_0200","text":"स्ट्रक्चरल फिटर","lang":"hi"}
 #
 # ── GUARD ROWS for two neighbours this tranche would otherwise have captured ──
 # Both measured, both ruled 2026-09-24. Each is a 2-token exact row, so it wins on
@@ -977,3 +1180,84 @@
 # Fitter-Mechanical, which goes to Maintenance Technician in the same change) to Bench Fitter,
 # where "फिटर" and "bench fitter" already are. The 0101 row is retired, not deleted.
 {"kind":"alias","job_domain_id":"jd_nco_7233_0200","text":"fitter","lang":"en"}
+# PHASE 2 #11 (CEO Launch Plan Pack v1, sheet 19 "Words"): Foundry / Forging. Spread over the
+# codes so each chip reads as its own shop: 7211.0201 "casting", 7211.0500 "core maker",
+# 8121.3801 "cupola" (the melt shop), 8121.3301 "fettling", 8121.4201 "hpdc", 7221.0301
+# "forging", 7221.0300 "power hammer". Before this, "die casting" reached street sales, "shell
+# moulding" tailoring, "core making" 3D CAD, "cupola" a cobbler and "power hammer" masonry.
+# NOT rows: bare "moulding" (plastics first), bare "hammer" (every trade's tool), bare "upset",
+# "trimming", "spectro", "sg iron" (capture chips), "gdc" (3 letters; "gravity die casting" is
+# the row), bare "furnace" (stays on 8121.0300), "toshiba machine" (a brand: a role term).
+{"kind":"alias","job_domain_id":"jd_nco_7211_0201","text":"foundry","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7211_0201","text":"casting","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7211_0201","text":"sand casting","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7211_0201","text":"sand moulding","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7211_0201","text":"shell moulding","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7211_0201","text":"investment casting","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7211_0201","text":"ci casting","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7211_0201","text":"aluminium casting","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7211_0201","text":"rajkot casting","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7211_0201","text":"फाउंड्री","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7211_0500","text":"core maker","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7211_0500","text":"core making","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8121_3801","text":"cupola","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8121_3801","text":"melting","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8121_3801","text":"pouring","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8121_3801","text":"induction furnace","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8121_3301","text":"fettling","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8121_4201","text":"hpdc","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8121_4201","text":"die casting","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8121_4201","text":"pressure die casting","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8121_4201","text":"gravity die casting","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7221_0301","text":"forging","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7221_0301","text":"hot forging","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7221_0301","text":"press forging","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7221_0301","text":"upset forging","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7221_0301","text":"फोर्जिंग","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7221_0300","text":"power hammer","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7221_0300","text":"hammer forging","lang":"en"}
+# CEO LAUNCH PLAN PACK v1 — SHEET-WORD AUDIT (2026-11-04). Every word a sheet routes to its
+# trade was run through the production-shaped resolver; these rows fix the ones that reached
+# another trade. Most were ONE stray token matched loosely ("die" -> street sales, "threading"
+# -> beauty, "seal" -> tailoring, "coat" -> 3D CAD, "ladder" -> loading); a full-phrase row
+# is an exact multi-token match and wins. Each row sits on a code of the right family whose chip
+# label it cannot take over (a code's chip is its shortest Latin alias). Held out on purpose:
+# "die setting" / "die setter" (the press role vetoes them as tool-room words; owner call),
+# bare "ladder" (a ladder), "booth", "ced" (3 letters), "dryer", "team leader", "imm",
+# "pu paint", "design engineer" (three degree-engineer codes own it), "wireman" (house wiring,
+# owner ruling 2026-11-04), "kharad" / "lathe operator" (the sheets say ask CNC ya manual).
+{"kind":"alias","job_domain_id":"jd_nco_7222_0200","text":"die fitting","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7222_0200","text":"die assembly","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7222_0200","text":"die repair","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7222_0200","text":"die maintenance","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7222_0200","text":"press tool","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7222_0200","text":"progressive die","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7222_0200","text":"blanking die","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7222_0200","text":"forming die","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7222_0200","text":"core cavity","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7222_0200","text":"die casting die","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7222_0200","text":"hand finishing","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7412_0101","text":"ladder logic","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7412_0101","text":"instrument mechanic","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2200","text":"grinder","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2200","text":"cylindrical grinder","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2200","text":"diamond dresser","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2800","text":"die sinking","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2800","text":"copper electrode","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2800","text":"graphite electrode","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2800","text":"taper cutting","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2800","text":"wire threading","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2800","text":"super drill","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_3000","text":"coil feeder","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7132_0300","text":"powder coat","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7132_0300","text":"spray painting","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7132_0300","text":"ed coating","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7132_0300","text":"salt spray test","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7233_1200","text":"seal change","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_0500","text":"manual lathe","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_0500","text":"conventional lathe","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7213_0101","text":"body banata hoon","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_rvm_3d_cad_designer","text":"cad engineer","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7233_0200","text":"mechanical fitter","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7412_0200","text":"electrical technician","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_0200","text":"press tool setter","lang":"en"}

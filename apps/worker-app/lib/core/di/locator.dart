@@ -40,10 +40,14 @@ import '../../features/chat/data/chat_repository_impl.dart';
 import '../../features/chat/domain/chat_repository.dart';
 import '../../features/chat/presentation/bloc/chat_bloc.dart';
 import '../../features/consent/data/consent_repository_impl.dart';
+import '../../features/consent/data/employer_sharing_prompt_store.dart';
 import '../../features/consent/domain/consent_repository.dart';
+import '../../features/consent/domain/employer_sharing_prompt_gate.dart';
+import '../../features/consent/domain/employer_sharing_prompt_store.dart';
 import '../../features/consent/presentation/cubit/consent_cubit.dart';
 import '../../features/consent/presentation/cubit/consent_withdraw_cubit.dart';
 import '../../features/consent/presentation/cubit/employer_contact_cubit.dart';
+import '../../features/consent/presentation/cubit/employer_sharing_prompt_cubit.dart';
 import '../../features/match_skills/data/match_skills_repository_impl.dart';
 import '../../features/match_skills/domain/match_skills_repository.dart';
 import '../../features/match_skills/presentation/cubit/match_skills_cubit.dart';
@@ -283,6 +287,21 @@ void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
       locator.isRegistered<PendingReferralStore>()
           ? locator<PendingReferralStore>()
           : null,
+    ),
+  );
+  // The one-time employer-sharing prompt's show decision (2026-11-04).
+  // App-scoped: its once-per-launch memory must outlive the shell. Lazy, so the
+  // persisted dismissal store (initAuthLocator) is resolved on first use; a
+  // graph without it remembers dismissals in memory, and a graph without the
+  // auth manager never prompts.
+  locator.registerLazySingleton<EmployerSharingPromptGate>(
+    () => EmployerSharingPromptGate(
+      repository: locator<ConsentRepository>(),
+      store: locator.isRegistered<EmployerSharingPromptStore>()
+          ? locator<EmployerSharingPromptStore>()
+          : InMemoryEmployerSharingPromptStore(),
+      isSignedIn: _workerSignedIn,
+      workerId: () => locator<SessionRepository>().workerId,
     ),
   );
   locator.registerLazySingleton<NameRepository>(
@@ -584,6 +603,13 @@ void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
   locator.registerFactory<EmployerContactCubit>(
     () => EmployerContactCubit(locator<ConsentRepository>()),
   );
+  // The employer-sharing notice prompt (existing workers + Settings ON).
+  locator.registerFactory<EmployerSharingPromptCubit>(
+    () => EmployerSharingPromptCubit(
+      locator<ConsentRepository>(),
+      locator<EmployerSharingPromptGate>(),
+    ),
+  );
   // E4 (#1828) — the match-skill toggle screen.
   locator.registerFactory<MatchSkillsCubit>(
     () => MatchSkillsCubit(locator<MatchSkillsRepository>()),
@@ -730,6 +756,7 @@ Future<void> initAuthLocator({
   TradeFormMarkerStore? tradeFormMarkerStore,
   KnownWorkerFactsStore? knownWorkerFactsStore,
   ChatTurnResumeStore? chatTurnResumeStore,
+  EmployerSharingPromptStore? employerSharingPromptStore,
   bool persistentAuthEnabled = kPersistentAuth,
 }) async {
   if (locator.isRegistered<AuthApi>()) return;
@@ -827,6 +854,16 @@ Future<void> initAuthLocator({
     );
   }
 
+  // "Abhi nahi" on the employer-sharing prompt, per worker + notice version.
+  // Same lazy prefs registration. NOT cleared on logout: the key is per worker,
+  // so the next worker on a shared phone is still asked.
+  if (!locator.isRegistered<EmployerSharingPromptStore>()) {
+    locator.registerSingleton<EmployerSharingPromptStore>(
+      employerSharingPromptStore ??
+          const SharedPrefsEmployerSharingPromptStore(),
+    );
+  }
+
   // MOCK vs REAL pick lives in createAuthApi (kUseMocks), mirroring
   // createApiClient. The full signing chain (device id, locale, refresh, reauth)
   // is wired here from the singletons registered in setupLocator. A test-supplied
@@ -867,18 +904,6 @@ Future<void> initAuthLocator({
   );
 }
 
-/// Drop every user-scoped cache held by a DI SINGLETON on logout/reauth.
-///
-/// The app never restarts the isolate on logout (get_it singletons live for the
-/// whole process), so without this the PREVIOUS worker's data — a signed photo
-/// URL, the unread badge + read ids, a cached name, decoded photo bytes — would
-/// survive into the NEXT worker's session (a cross-user PII leak). Wired into
-/// [AuthSessionManager.onSessionCleared], which fires right after the session is
-/// cleared on BOTH sign-out paths (_wipeAndLogOut + _onReauthRequired).
-///
-/// Each lookup is `isRegistered`-guarded so the synchronous, plugin-free
-/// widget-test graph (which may not register every repo) is unaffected. Must
-/// never throw — a teardown failure must not block sign-out.
 /// The persisted [KnownWorkerFactsStore] once [initAuthLocator] registered it,
 /// else null — a widget-test graph without it asks every question, as before.
 KnownWorkerFactsStore? _knownWorkerFactsOrNull() =>
@@ -901,6 +926,28 @@ ChatTurnResumeStore? _chatTurnResumeOrNull() =>
 ResumeRedoStore? _resumeRedoOrNull() =>
     locator.isRegistered<ResumeRedoStore>() ? locator<ResumeRedoStore>() : null;
 
+/// "Signed in" for the employer-sharing prompt: an unlocked worker whose
+/// consent was not definitively refused. False without the auth graph (legacy
+/// widget tests), so those never reach `GET /consent/me` from the shell.
+bool _workerSignedIn() {
+  if (!locator.isRegistered<AuthSessionManager>()) return false;
+  final AuthSessionManager auth = locator<AuthSessionManager>();
+  return auth.status == AuthStatus.authenticated &&
+      auth.consentAccepted != false;
+}
+
+/// Drop every user-scoped cache held by a DI SINGLETON on logout/reauth.
+///
+/// The app never restarts the isolate on logout (get_it singletons live for the
+/// whole process), so without this the PREVIOUS worker's data — a signed photo
+/// URL, the unread badge + read ids, a cached name, decoded photo bytes — would
+/// survive into the NEXT worker's session (a cross-user PII leak). Wired into
+/// [AuthSessionManager.onSessionCleared], which fires right after the session is
+/// cleared on BOTH sign-out paths (_wipeAndLogOut + _onReauthRequired).
+///
+/// Each lookup is `isRegistered`-guarded so the synchronous, plugin-free
+/// widget-test graph (which may not register every repo) is unaffected. Must
+/// never throw — a teardown failure must not block sign-out.
 void _clearSessionScopedCaches() {
   // OWNER ASK (2026-10-22) — one worker's voice-consent answer must never
   // carry into the next worker's session on a shared handset.

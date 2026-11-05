@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 import { AdminModule } from "../admin/admin.module";
 import { PayersModule } from "../payers/payers.module";
+import { PostingTradesModule } from "../posting-trades/posting-trades.module";
 import { JobPostingsController } from "./job-postings.controller";
 import { JobPostingsService } from "./job-postings.service";
 import { JobPostingsRepository } from "./job-postings.repository";
@@ -18,7 +19,7 @@ import { JobPostingsRepository } from "./job-postings.repository";
  * nothing that reaches back here.
  */
 @Module({
-  imports: [AdminModule, PayersModule],
+  imports: [AdminModule, PayersModule, PostingTradesModule],
   controllers: [JobPostingsController],
   providers: [JobPostingsService, JobPostingsRepository],
   // Exported so the payer portal can mount a PayerAuthGuard'd self-serve posting

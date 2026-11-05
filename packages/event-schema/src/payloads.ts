@@ -671,6 +671,49 @@ export const ConsentPurposesWithdrawnPayload = z.object({
   withdrawn_purposes: z.array(z.string().min(1).max(64)).min(1).max(20),
 });
 
+/**
+ * #2541 (CEO pack v1 A4 #9) — the worker's answer to the sign-up age question, given with
+ * `POST /consent/accept`. THIS IS THE RECORD OF THE DECLARATION; no table holds it.
+ *
+ * `age_18_plus: true` → consent was recorded and `consent_id` names that row.
+ * `age_18_plus: false` → nothing was recorded (no consent row, so nothing may be processed) and
+ * `consent_id` is null. The refine pins that pairing so a "minor with a consent row" can never
+ * be written to the spine.
+ *
+ * PII-free: a self-declared yes/no only — never a birth year or a date of birth (owner ruling
+ * 2026-11-04). `.strict()` keeps a later "helpful" field from carrying one.
+ */
+export const ConsentAgeDeclaredPayload = z
+  .object({
+    worker_id: uuidSchema,
+    age_18_plus: z.boolean(),
+    consent_id: uuidSchema.nullable(),
+  })
+  .strict()
+  .refine((v) => v.age_18_plus === (v.consent_id !== null), {
+    message: "consent_id is set exactly when age_18_plus is true",
+  });
+export type ConsentAgeDeclaredPayload = z.infer<typeof ConsentAgeDeclaredPayload>;
+
+/**
+ * `consent.purposes_granted` v1 (2026-11-04) — the mirror of `consent.purposes_withdrawn`: an existing
+ * worker, shown the approved employer-sharing notice, opted in, and the server wrote a NEW consent
+ * row adding the employer-contact purposes to everything his latest row already held. The two
+ * purposes are a CLOSED set (a grant can add nothing else), and `consent_version` is the notice
+ * version he was shown. `.strict()`: no name, phone or purpose list beyond the grant rides along.
+ */
+export const ConsentPurposesGrantedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    consent_id: uuidSchema,
+    consent_version: z.string().min(1).max(32),
+    granted_purposes: z
+      .array(z.enum(["employer_sharing", "employer_messaging"]))
+      .min(1)
+      .max(2),
+  })
+  .strict();
+
 // ---------------------------------------------------------------------------
 // chat.*
 // ---------------------------------------------------------------------------
@@ -1522,6 +1565,10 @@ const JOB_POSTING_CHANGED_FIELDS = [
   // (ADR-0036 addendum 2026-09-29), so a reader must not treat it as a match change —
   // `match_skills` above is the only key that says the reach inputs moved.
   "role_kind",
+  // Migration 0141 (ADDITIVE enum member, same precedent). The trade-specific posting form
+  // moved: the display-only rung and/or the poster's chip answers. KEYS ONLY — the answer
+  // map never enters the payload; the derived `match_skills` key still reports reach.
+  "trade_fields",
 ] as const;
 
 /**
@@ -2164,8 +2211,12 @@ export type PayerRoleEnum = z.infer<typeof PayerRoleEnum>;
  * The login mechanism a payer authenticated through (ADR-0019 B-R1). `email_otp` is
  * the alpha mock default; `whatsapp` rides the ADR-0020 mock provider; `supabase` is
  * the config-gated adapter (inert without keys). Enum-only → no PII.
+ *
+ * `password` (#2497) is the payer-chosen password verified server-side (scrypt +
+ * pepper, same KDF discipline as the worker PIN). It rides `payer.session_started`
+ * exactly like the OTP methods — there is no separate login event per mechanism.
  */
-export const PayerLoginMethodEnum = z.enum(["email_otp", "whatsapp", "supabase"]);
+export const PayerLoginMethodEnum = z.enum(["email_otp", "whatsapp", "supabase", "password"]);
 export type PayerLoginMethodEnum = z.infer<typeof PayerLoginMethodEnum>;
 
 /**
@@ -2338,6 +2389,23 @@ export const PayerTestLoginPayload = z.object({
 });
 export type PayerTestLoginPayload = z.infer<typeof PayerTestLoginPayload>;
 
+/**
+ * A payer set their OWN password (#2563) — the self-service path, whether from Settings or
+ * during the forced change on first sign-in. FACELESS and value-free: the opaque payer id
+ * only. The password, its hash, the pepper version and the temporary password never reach
+ * the spine; the row in `payers` is the system of record for the credential itself.
+ *
+ * Admin-issued temporary passwords and admin revocations do NOT emit this event: they are
+ * recorded by `admin.action_performed` with their own action codes, so the spine can tell
+ * "the payer changed it" from "an admin changed it" without a payload flag.
+ */
+export const PayerPasswordSetPayload = z
+  .object({
+    payer_id: uuidSchema,
+  })
+  .strict();
+export type PayerPasswordSetPayload = z.infer<typeof PayerPasswordSetPayload>;
+
 /** A member's role within a payer org (ADR-0027 / B5). Enum-only → no PII. */
 export const OrgRoleEnum = z.enum(["owner", "recruiter"]);
 export type OrgRoleEnum = z.infer<typeof OrgRoleEnum>;
@@ -2478,6 +2546,9 @@ export const JOB_CHANGED_FIELDS = [
   // version bump): the four worker-visible content columns joined `jobs`. KEYS
   // only — the screened free text (description / benefits / requirements items)
   // NEVER enters a payload.
+  // Migration 0141 — the trade-specific posting form moved (rung and/or chip answers).
+  // Same KEYS-ONLY rule: the answer map never enters a payload.
+  "trade_fields",
   "description",
   "shift",
   "benefits",
@@ -3017,8 +3088,13 @@ export type AdminPiiRevealCapExceededPayload = z.infer<typeof AdminPiiRevealCapE
  *   payers  — `GET /admin/payers`  + `/admin/payers/:id`  → `payers.org_name_enc` (the portal's
  *             Companies AND Agencies tabs; ONE table, one surface, one projection)
  *   admins  — `GET /admin/admins`                         → `admin_users.name_enc`
+ *   payer_logins — `GET /admin/accounts`                   → `payers.email_enc`, else
+ *             `payers.phone_enc` (the login ID on the User accounts screen, #2563). A separate
+ *             surface because a login ID is a different field from the organisation's display
+ *             name, and an auditor reading "which screen disclosed it" should not have to infer
+ *             that from the entity type.
  */
-export const ADMIN_IDENTITY_SURFACES = ["workers", "payers", "admins"] as const;
+export const ADMIN_IDENTITY_SURFACES = ["workers", "payers", "admins", "payer_logins"] as const;
 export const AdminIdentitySurface = z.enum(ADMIN_IDENTITY_SURFACES);
 export type AdminIdentitySurface = z.infer<typeof AdminIdentitySurface>;
 
@@ -3091,6 +3167,35 @@ export const AdminIdentityCapExceededPayload = z
   })
   .strict();
 export type AdminIdentityCapExceededPayload = z.infer<typeof AdminIdentityCapExceededPayload>;
+
+/**
+ * An admin OPENED one candidate's full-detail record (ADR-0062 §3.9, #2560) —
+ * `GET /admin/candidates/:id`: every field employers and the résumé read, where each came from,
+ * the résumé versions and the account state.
+ *
+ * WHY A READ IS AUDITED. It is the largest single-worker read on the admin surface — the whole
+ * profile in one response, on `read_candidates`, which all four roles hold. Broad access is
+ * exactly why looking must leave a trail naming who looked and at whom: the
+ * `admin.worker_journey_viewed` argument, at a higher granularity.
+ *
+ * EMITTED AFTER THE 404 CHECK AND BEFORE ANY DATA IS READ OR A NAME IS DECRYPTED, awaited and
+ * fail-closed: an unknown id leaves no row (no enumeration oracle) and a failed emit returns
+ * nothing. The NAME on the same response is audited separately by `admin.identity_viewed`, whose
+ * budget and capability it rides; this event records the view, not the disclosure.
+ *
+ * SUBJECT IS THE WORKER (the path parameter, structurally one worker), the journey precedent.
+ *
+ * PII-FREE BY CONSTRUCTION: the opaque admin id and the opaque worker id ONLY — never a field
+ * value, a field key, a source, a name or a phone. WHICH fields were shown is the same for every
+ * view and belongs in the response contract, not on the spine. `.strict()` is the backstop.
+ */
+export const AdminCandidateViewedPayload = z
+  .object({
+    admin_id: uuidSchema,
+    worker_id: uuidSchema,
+  })
+  .strict();
+export type AdminCandidateViewedPayload = z.infer<typeof AdminCandidateViewedPayload>;
 
 /**
  * The CLOSED SET of failure codes an `ai_call_traces` row may carry (migration 0083).
@@ -3543,6 +3648,32 @@ export const JobPostingReachAlertPayload = z
   })
   .strict();
 export type JobPostingReachAlertPayload = z.infer<typeof JobPostingReachAlertPayload>;
+
+/**
+ * #2635 — matching runs only for the 16 postable trades. The server SCOPED a 16-trade job's
+ * requested match skills to that trade: it kept the trade's own skill plus every requested id
+ * the trade owns, and DROPPED the rest (a Welder job asking for CNC grinding, a Grinding job
+ * asking for delivery riders). Emitted ONLY when something was dropped, on the write that
+ * dropped it — so the audit trail records every time the server overrode a company's ask.
+ *
+ * IDS ONLY — closed-vocabulary `mskill_*` ids and the role slug; no org label, no title.
+ */
+export const JobPostingMatchSkillsScopedPayload = z
+  .object({
+    job_posting_id: uuidSchema,
+    /** The posting's trade — always one of the 16 (a non-16 posting is never scoped). */
+    role_kind: z.enum(TRADE_FORM_KINDS_ALL),
+    /** Which write did the scoping. */
+    trigger: z.enum(["create", "publish", "edit", "unpause"]),
+    /** The match set that was stored. Always includes the trade's own skill. */
+    kept_skill_ids: z.array(matchSkillIdSchema).min(1),
+    /** The requested ids the trade does not own. Never empty — no drop, no event. */
+    dropped_skill_ids: z.array(matchSkillIdSchema).min(1),
+  })
+  .strict();
+export type JobPostingMatchSkillsScopedPayload = z.infer<
+  typeof JobPostingMatchSkillsScopedPayload
+>;
 
 /**
  * POLICY 27 — "Ops may widen a reach set, never narrow one. Expiring, audited, evented."
@@ -5044,9 +5175,7 @@ export const ChatCompanionEditRolledBackPayload = z
     reason: z.enum(["apply_failed"]),
   })
   .strict();
-export type ChatCompanionEditRolledBackPayload = z.infer<
-  typeof ChatCompanionEditRolledBackPayload
->;
+export type ChatCompanionEditRolledBackPayload = z.infer<typeof ChatCompanionEditRolledBackPayload>;
 
 /**
  * A FALTU STRIKE WAS COUNTED, v2 (TD150) — v1's count and boolean, plus the idempotency key the
@@ -5149,7 +5278,7 @@ export const ChatCompanionTurnServedV4Payload = z
   .refine((v) => v.refusal_topic === null || v.outcome === "refused", {
     message: "refusal_topic is set only on a 'refused' turn",
   })
-  .refine((v) => (v.news_source_count > 0) === (v.news_outcome === "answered"), {
+  .refine((v) => v.news_source_count > 0 === (v.news_outcome === "answered"), {
     message: "tiles are served exactly when the news request was 'answered'",
   })
   .refine((v) => v.news_outcome === null || v.reply_language !== null, {
@@ -5571,7 +5700,7 @@ export const ChatFreeChatNewsServedPayload = z
   .refine((v) => (v.kind !== null) === (v.outcome === "answered"), {
     message: "kind is set exactly when outcome is 'answered'",
   })
-  .refine((v) => (v.source_count > 0) === (v.outcome === "answered"), {
+  .refine((v) => v.source_count > 0 === (v.outcome === "answered"), {
     message: "tiles are served exactly when outcome is 'answered'",
   })
   .refine((v) => v.outcome !== "capped" || v.search_count === null, {
@@ -5721,3 +5850,42 @@ export const ProfilingFieldEditCancelledPayload = z
   .object({ ...profilingFieldEditShape, reason: z.enum(PROFILING_EDIT_CANCEL_REASONS) })
   .strict();
 export type ProfilingFieldEditCancelledPayload = z.infer<typeof ProfilingFieldEditCancelledPayload>;
+
+/**
+ * OWNER RULINGS 2026-11-03 (ADR-0040, phase E2) — A PAYER RAN ONE PAGE OF THE ALL-CANDIDATES
+ * SEARCH (`POST /payer/candidates/search`): the payer-web "Candidates" tab and the payer app's Find
+ * tab, company and agency alike. The durable read trail the payer applicant reads never had (they
+ * are rate-limited but not audited); search volume and "searched and found nothing" are the
+ * demand-side twin of the worker's `job.search_performed`.
+ *
+ * THE SHAPE OF THE SEARCH, NEVER WHO WAS SHOWN. No worker id — a page of masked candidates is not
+ * a disclosure (identity costs an unlock, which is its own event) and not a feed impression (E2_BUILD:
+ * never a reused `feed.shown`, which would pollute the LEARN corpus). No city, the same rule
+ * `job.search_performed` follows for location values: which filters were engaged is recorded as
+ * booleans. `skill_ids` ARE recorded: a closed `mskill_*` vocabulary, never free text, and the one
+ * fact this event exists for ("which roles do payers look for?").
+ *
+ * Actor and subject are the acting payer login. `.strict()` keeps a later "helpful" field from
+ * carrying a worker id or a value.
+ */
+export const PayerCandidateSearchPerformedPayload = z
+  .object({
+    skill_ids: z.array(z.string().regex(/^mskill_[a-z0-9_]+$/, "not a match skill id")).max(10),
+    experience_filtered: z.boolean(),
+    industry_filtered: z.boolean(),
+    industry_experience_filtered: z.boolean(),
+    city_filtered: z.boolean(),
+    strict: z.boolean(),
+    /** True for the first page of a search (no cursor) — the "searches" count, not page views. */
+    first_page: z.boolean(),
+    /** Rows on this page, and the three ADR-0040 counts the response carried. */
+    result_count: z.number().int().nonnegative(),
+    matched: z.number().int().nonnegative(),
+    unrecorded: z.number().int().nonnegative(),
+    total: z.number().int().nonnegative(),
+    limit: z.number().int().positive(),
+  })
+  .strict();
+export type PayerCandidateSearchPerformedPayload = z.infer<
+  typeof PayerCandidateSearchPerformedPayload
+>;

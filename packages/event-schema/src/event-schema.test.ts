@@ -81,6 +81,38 @@ describe("validateEvent", () => {
   });
 });
 
+describe("job_posting.match_skills_scoped (#2635)", () => {
+  function scopedEvent(payload: Record<string, unknown>): Record<string, unknown> {
+    return {
+      ...workerCreatedEvent(),
+      event_name: "job_posting.match_skills_scoped",
+      actor: { actor_type: "payer", actor_id: UUID_A },
+      subject: { subject_type: "job_posting", subject_id: UUID_B },
+      payload,
+    };
+  }
+  const valid = {
+    job_posting_id: UUID_B,
+    role_kind: "welder",
+    trigger: "create",
+    kept_skill_ids: ["mskill_welder", "mskill_arc_welder"],
+    dropped_skill_ids: ["mskill_cnc_grinding_operator"],
+  };
+
+  it("accepts the ids-only payload", () => {
+    expect(validateEvent(scopedEvent(valid)).success).toBe(true);
+  });
+
+  it("refuses an event with nothing dropped — no drop, no event", () => {
+    expect(validateEvent(scopedEvent({ ...valid, dropped_skill_ids: [] })).success).toBe(false);
+  });
+
+  it("refuses a role outside the declared vocabulary and any extra field", () => {
+    expect(validateEvent(scopedEvent({ ...valid, role_kind: "astronaut" })).success).toBe(false);
+    expect(validateEvent(scopedEvent({ ...valid, org_label: "Acme" })).success).toBe(false);
+  });
+});
+
 describe("voice_note.uploaded duration guard", () => {
   function voiceEvent(duration: number): Record<string, unknown> {
     return {
@@ -768,7 +800,7 @@ describe("job_posting events (ops-created, vacancy-banded, PII-free)", () => {
     }
   });
 
-  it("carries job_posting.created role_kind as one of the 21 declared kinds, or null (0131)", () => {
+  it("carries job_posting.created role_kind as one of the 27 declared kinds, or null (0131)", () => {
     const base = {
       ...workerCreatedEvent(),
       event_name: "job_posting.created",
@@ -1456,6 +1488,13 @@ describe("payer auth events (ADR-0019 Decision B — FACELESS, ids/role/method e
     }
   });
 
+  it("validates payer.session_started with method password (#2497 — same event as the OTP login)", () => {
+    const result = validateEvent(
+      payerAuthEvent("payer.session_started", { payer_id: UUID_A, method: "password" }),
+    );
+    expect(result.success).toBe(true);
+  });
+
   it("validates payer.account_updated with KEYS-ONLY changed_fields and no value fields", () => {
     const result = validateEvent(
       payerAuthEvent("payer.account_updated", {
@@ -1545,7 +1584,7 @@ describe("job entity + agency_invite events (ADR-0022 — FACELESS, ids/enums/ba
       expect(result.event.payload.role_kind).toBeNull();
       // No field could carry an employer name / address / worker id — opaque ids +
       // coarse bands + closed enums only (the city label is the only non-id string,
-      // capped + coarse; `role_kind` is a closed 21-slug enum).
+      // capped + coarse; `role_kind` is a closed 27-slug enum).
       expect(Object.keys(result.event.payload).sort()).toEqual(
         [
           "city",
@@ -1563,7 +1602,7 @@ describe("job entity + agency_invite events (ADR-0022 — FACELESS, ids/enums/ba
     }
   });
 
-  it("carries job.created role_kind as one of the 21 declared kinds, or null (0131)", () => {
+  it("carries job.created role_kind as one of the 27 declared kinds, or null (0131)", () => {
     const payload = {
       job_id: UUID_A,
       payer_id: UUID_B,
@@ -1580,8 +1619,10 @@ describe("job entity + agency_invite events (ADR-0022 — FACELESS, ids/enums/ba
     }
     // `trade_key` and `role_kind` are DIFFERENT vocabularies: a trade key is not a role kind.
     for (const bad of ["cnc_operator", "Welder", "Ramesh 9876543210"]) {
-      expect(validateEvent(jobEvent("job.created", { ...payload, role_kind: bad })).success, bad)
-        .toBe(false);
+      expect(
+        validateEvent(jobEvent("job.created", { ...payload, role_kind: bad })).success,
+        bad,
+      ).toBe(false);
     }
   });
 
@@ -2319,8 +2360,8 @@ describe("admin auth events (ADR-0025 — the 4th principal, FACELESS, ids/role/
         evt({ admin_id: UUID_A, surface: "workers", subject_id: "Ramesh Kumar", result_count: 1 }),
       ).success,
     ).toBe(false);
-    // ...and the three legitimate surfaces all pass.
-    for (const surface of ["workers", "payers", "admins"]) {
+    // ...and the four legitimate surfaces all pass (#2563 added `payer_logins`).
+    for (const surface of ["workers", "payers", "admins", "payer_logins"]) {
       expect(
         validateEvent(evt({ admin_id: UUID_A, surface, result_count: 0 })).success,
         surface,
@@ -3204,8 +3245,18 @@ describe("chat.session_abandoned (idle sweep — COUNTS ONLY, no transcript)", (
 });
 
 describe("registry", () => {
-  it("exposes all 238 event names (179 prior + the two trade-form offer steps + Layer A + resume.edited + resume-identity + resume-autofill + profile.viewed_v2 + E0's relay trio + the C-2 consent exit + the ADR-0043 resume-update answer + its erasure backfill + the four tiered-profiling events + the ADR-0044 companion turn + the five ADR-0045 general-road events + the #1318 safe-field resume.edited_v2 + the #1801 resume.skin_changed + the #1800 profile.qr_scanned + the four ADR-0046 companion-v2 Phase 1 events + the ADR-0046 P2 faltu strike + the ADR-0046 P3 career answer + the E4 match-skill wants event + the ADR-0048 identity-intake step + the six TD150/WP8 companion versions + the two ADR-0051 free-chat events + the ADR-0050 job_posting.twin_synced + the ADR-0051 Release 2 summary fold + the ADR-0054 live-news request + the 2026-10-07 payer.applicant_stage_changed + the ADR-0051 §11 reply-language change + the ADR-0055 companion turn v4 + the #2297 companion summary fold + the ADR-0057 turn understood + its three edit-gate events + the #2409 typed-answer review + the two Middle-Way optional-depth offer steps)", () => {
-    expect(EVENT_NAMES).toHaveLength(238);
+  it("exposes all 244 event names (179 prior + the two trade-form offer steps + Layer A + resume.edited + resume-identity + resume-autofill + profile.viewed_v2 + E0's relay trio + the C-2 consent exit + the ADR-0043 resume-update answer + its erasure backfill + the four tiered-profiling events + the ADR-0044 companion turn + the five ADR-0045 general-road events + the #1318 safe-field resume.edited_v2 + the #1801 resume.skin_changed + the #1800 profile.qr_scanned + the four ADR-0046 companion-v2 Phase 1 events + the ADR-0046 P2 faltu strike + the ADR-0046 P3 career answer + the E4 match-skill wants event + the ADR-0048 identity-intake step + the six TD150/WP8 companion versions + the two ADR-0051 free-chat events + the ADR-0050 job_posting.twin_synced + the ADR-0051 Release 2 summary fold + the ADR-0054 live-news request + the 2026-10-07 payer.applicant_stage_changed + the ADR-0051 §11 reply-language change + the ADR-0055 companion turn v4 + the #2297 companion summary fold + the ADR-0057 turn understood + its three edit-gate events + the #2409 typed-answer review + the two Middle-Way optional-depth offer steps + the 2026-11-03 payer.candidate_search_performed + the #2541 consent.age_declared + the 2026-11-04 consent.purposes_granted + the #2635 job_posting.match_skills_scoped + the ADR-0062 admin.candidate_viewed)", () => {
+    expect(EVENT_NAMES).toHaveLength(244);
+    // ADR-0062 §3.9 (#2560) — an admin opened one candidate's full-detail record (a new name).
+    expect(isEventName("admin.candidate_viewed")).toBe(true);
+    // #2563 — a payer set their own password (value-free: payer_id only).
+    expect(isEventName("payer.password_set")).toBe(true);
+    // #2541 — the sign-up 18+ answer (a new name; consent.accepted v1 not mutated).
+    expect(isEventName("consent.age_declared")).toBe(true);
+    // 2026-11-04 (E4 items 6-7) — an existing worker opted in to the employer notice (a new name).
+    expect(isEventName("consent.purposes_granted")).toBe(true);
+    // 2026-11-03 (ADR-0040, E2) — one page of the payer's all-candidates search (a new name).
+    expect(isEventName("payer.candidate_search_performed")).toBe(true);
     // #2409 — a typed "Koi aur" answer's review settled (a new name; no schema mutated).
     expect(isEventName("profile.other_answer_reviewed")).toBe(true);
     // ADR-0057 (#2311) — one typed profiling-chat message, understood (a new name; no schema mutated).
@@ -3347,6 +3398,8 @@ describe("registry", () => {
     expect(isEventName("worker.match_skill_wants_set")).toBe(true);
     expect(isEventName("job_posting.reach_materialized")).toBe(true);
     expect(isEventName("job_posting.reach_alert")).toBe(true);
+    // #2635 — the server dropped requested skills a 16-trade job's trade does not own.
+    expect(isEventName("job_posting.match_skills_scoped")).toBe(true);
     expect(isEventName("job_posting.reach_widened")).toBe(true);
     expect(isEventName("job_posting.boost_refused")).toBe(true);
     expect(isEventName("payer.credits_exhausted")).toBe(true);
@@ -3569,7 +3622,9 @@ describe("registry", () => {
     expect(
       v1.payload.safeParse({ worker_id: UUID_A, viewer_payer_id: UUID_B, job_id: UUID_C }).success,
     ).toBe(true);
-    expect(v1.payload.safeParse({ worker_id: UUID_A, viewer_payer_id: UUID_B }).success).toBe(false);
+    expect(v1.payload.safeParse({ worker_id: UUID_A, viewer_payer_id: UUID_B }).success).toBe(
+      false,
+    );
   });
 
   // The behavioural v1 lock (required anchors, v2 shapes refused) lives with the v2 tests in
@@ -5222,13 +5277,18 @@ describe("tiered profiling events (migration 0126)", () => {
     expect(validateEvent(envelope(name, payload)).success).toBe(true);
   });
 
-  it.each(Object.entries(valid))("%s is strict — no field can carry an answer or a label", (name, payload) => {
-    expect(validateEvent(envelope(name, { ...payload, answer: "Fanuc" })).success).toBe(false);
-  });
+  it.each(Object.entries(valid))(
+    "%s is strict — no field can carry an answer or a label",
+    (name, payload) => {
+      expect(validateEvent(envelope(name, { ...payload, answer: "Fanuc" })).success).toBe(false);
+    },
+  );
 
   it("closes the tier and the form kind", () => {
     const selected = valid["profile.tier_selected"]!;
-    expect(validateEvent(envelope("profile.tier_selected", { ...selected, tier: "expert" })).success).toBe(false);
+    expect(
+      validateEvent(envelope("profile.tier_selected", { ...selected, tier: "expert" })).success,
+    ).toBe(false);
     expect(
       validateEvent(envelope("profile.tier_selected", { ...selected, form_kind: "cook" })).success,
     ).toBe(false);
@@ -5236,8 +5296,13 @@ describe("tiered profiling events (migration 0126)", () => {
 
   it("allows an unknown duration (a backfilled worker) but never a negative one", () => {
     const completed = valid["profile.tier_completed"]!;
-    expect(validateEvent(envelope("profile.tier_completed", { ...completed, duration_ms: null })).success).toBe(true);
-    expect(validateEvent(envelope("profile.tier_completed", { ...completed, duration_ms: -1 })).success).toBe(false);
+    expect(
+      validateEvent(envelope("profile.tier_completed", { ...completed, duration_ms: null }))
+        .success,
+    ).toBe(true);
+    expect(
+      validateEvent(envelope("profile.tier_completed", { ...completed, duration_ms: -1 })).success,
+    ).toBe(false);
   });
 });
 
@@ -5316,8 +5381,12 @@ describe("chat.companion_turn_served (ADR-0044)", () => {
     expect(validateEvent(envelope({ ...valid, new_jobs_count: 0 })).success).toBe(true);
     // A count without a profile-scope read is a lie about where it came from.
     for (const scope of ["no_skills", "unavailable", null]) {
-      expect(validateEvent(envelope({ ...valid, jobs_scope: scope, new_jobs_count: 0 })).success).toBe(false);
-      expect(validateEvent(envelope({ ...valid, jobs_scope: scope, new_jobs_count: null })).success).toBe(true);
+      expect(
+        validateEvent(envelope({ ...valid, jobs_scope: scope, new_jobs_count: 0 })).success,
+      ).toBe(false);
+      expect(
+        validateEvent(envelope({ ...valid, jobs_scope: scope, new_jobs_count: null })).success,
+      ).toBe(true);
     }
     // And a profile-scope read always records its count.
     expect(validateEvent(envelope({ ...valid, new_jobs_count: null })).success).toBe(false);
@@ -5443,21 +5512,52 @@ describe("the general road (ADR-0045)", () => {
 
   it("ties the lane to its reason — only 'outside the 21' is the skills lane", () => {
     const lane = VALID["profile.profiling_lane_decided"]!;
-    expect(validateEvent(envelope("profile.profiling_lane_decided", { ...lane, lane: "classic", reason: "declared_role" })).success).toBe(true);
-    expect(validateEvent(envelope("profile.profiling_lane_decided", { ...lane, lane: "skills", reason: "declared_role" })).success).toBe(false);
-    expect(validateEvent(envelope("profile.profiling_lane_decided", { ...lane, lane: "classic", reason: "outside_declared_roles" })).success).toBe(false);
+    expect(
+      validateEvent(
+        envelope("profile.profiling_lane_decided", {
+          ...lane,
+          lane: "classic",
+          reason: "declared_role",
+        }),
+      ).success,
+    ).toBe(true);
+    expect(
+      validateEvent(
+        envelope("profile.profiling_lane_decided", {
+          ...lane,
+          lane: "skills",
+          reason: "declared_role",
+        }),
+      ).success,
+    ).toBe(false);
+    expect(
+      validateEvent(
+        envelope("profile.profiling_lane_decided", {
+          ...lane,
+          lane: "classic",
+          reason: "outside_declared_roles",
+        }),
+      ).success,
+    ).toBe(false);
   });
 
   it("carries the brief's length only for an answered brief, and the yes/no only for 'worked before'", () => {
     const answered = VALID["profile.general_form_answered"]!;
-    const ok = (p: Record<string, unknown>) => validateEvent(envelope("profile.general_form_answered", p)).success;
+    const ok = (p: Record<string, unknown>) =>
+      validateEvent(envelope("profile.general_form_answered", p)).success;
     // A declined brief has no length.
     expect(ok({ ...answered, status: "declined", chars: null })).toBe(true);
     expect(ok({ ...answered, status: "declined", chars: 12 })).toBe(false);
     // An answered brief must carry one.
     expect(ok({ ...answered, chars: null })).toBe(false);
     // "Kya pehle kaam kiya hai?" carries its yes/no and no length.
-    const worked = { ...answered, question_key: "has_work_history", status: "answered", value: "no", chars: null };
+    const worked = {
+      ...answered,
+      question_key: "has_work_history",
+      status: "answered",
+      value: "no",
+      chars: null,
+    };
     expect(ok(worked)).toBe(true);
     expect(ok({ ...worked, value: null })).toBe(false);
     expect(ok({ ...worked, chars: 3 })).toBe(false);
@@ -5466,7 +5566,15 @@ describe("the general road (ADR-0045)", () => {
 
   it("never counts more dated jobs than jobs", () => {
     const completed = VALID["profile.general_form_completed"]!;
-    expect(validateEvent(envelope("profile.general_form_completed", { ...completed, employments: 1, employments_dated: 2 })).success).toBe(false);
+    expect(
+      validateEvent(
+        envelope("profile.general_form_completed", {
+          ...completed,
+          employments: 1,
+          employments_dated: 2,
+        }),
+      ).success,
+    ).toBe(false);
   });
 });
 
@@ -5602,19 +5710,53 @@ describe("chat.free_chat_turn_served / chat.free_chat_mode_changed (ADR-0051, #2
     expect(served({ ...answered, submission_id: null })).toBe(true);
     // The greeting: decided by the flow, no category, no confidence.
     expect(
-      served({ ...answered, mode: "greeting", category: null, decided_by: "flow", confidence_bucket: null, outcome: "greeting", nudge: false }),
+      served({
+        ...answered,
+        mode: "greeting",
+        category: null,
+        decided_by: "flow",
+        confidence_bucket: null,
+        outcome: "greeting",
+        nudge: false,
+      }),
     ).toBe(true);
     // A refusal carries its topic.
-    expect(served({ ...answered, category: "career", outcome: "refused", refusal_topic: "news", nudge: false })).toBe(true);
+    expect(
+      served({
+        ...answered,
+        category: "career",
+        outcome: "refused",
+        refusal_topic: "news",
+        nudge: false,
+      }),
+    ).toBe(true);
     // The strike that starts the cool-down.
     expect(
-      served({ ...answered, category: "trash", decided_by: "lexicon", confidence_bucket: null, outcome: "cooldown", strike_count: 3, cooldown_started: true, nudge: false }),
+      served({
+        ...answered,
+        category: "trash",
+        decided_by: "lexicon",
+        confidence_bucket: null,
+        outcome: "cooldown",
+        strike_count: 3,
+        cooldown_started: true,
+        nudge: false,
+      }),
     ).toBe(true);
     // A résumé-mode deflection.
-    expect(served({ ...answered, mode: "resume", category: "jobs", outcome: "deflected", nudge: false })).toBe(true);
+    expect(
+      served({ ...answered, mode: "resume", category: "jobs", outcome: "deflected", nudge: false }),
+    ).toBe(true);
     // An unavailable classifier in free mode → clarify, decided by the fallback.
     expect(
-      served({ ...answered, category: null, decided_by: "fallback", confidence_bucket: null, outcome: "clarify", nudge: false }),
+      served({
+        ...answered,
+        category: null,
+        decided_by: "fallback",
+        confidence_bucket: null,
+        outcome: "clarify",
+        nudge: false,
+      }),
     ).toBe(true);
   });
 
@@ -5638,7 +5780,13 @@ describe("chat.free_chat_turn_served / chat.free_chat_mode_changed (ADR-0051, #2
   });
 
   it("records a mode change, from null on a first stamp, and never a no-op change", () => {
-    const toResume = { worker_id: UUID_B, session_id: UUID_C, from: "greeting", to: "resume", trigger: "chip" };
+    const toResume = {
+      worker_id: UUID_B,
+      session_id: UUID_C,
+      from: "greeting",
+      to: "resume",
+      trigger: "chip",
+    };
     expect(changed(toResume)).toBe(true);
     expect(changed({ ...toResume, from: null, trigger: "resume_import" })).toBe(true);
     expect(changed({ ...toResume, from: "free", trigger: "classifier" })).toBe(true);
@@ -5675,17 +5823,33 @@ describe("job_posting.twin_synced (ADR-0050 §9, #1957)", () => {
 
   it("validates a create, an update, a status change and each refusal", () => {
     expect(ok(valid)).toBe(true);
-    expect(ok({ ...valid, operation: "updated", status: "open", changed_fields: ["pay_band"] })).toBe(true);
-    expect(ok({ ...valid, operation: "status_changed", status: "closed", changed_fields: ["status"] })).toBe(true);
-    for (const reason of ["no_match_skills", "unknown_match_skill", "text_screen_failed", "kill_switch"]) {
-      expect(ok({ ...valid, operation: "refused", status: "paused", refused_reason: reason }), reason).toBe(true);
+    expect(
+      ok({ ...valid, operation: "updated", status: "open", changed_fields: ["pay_band"] }),
+    ).toBe(true);
+    expect(
+      ok({ ...valid, operation: "status_changed", status: "closed", changed_fields: ["status"] }),
+    ).toBe(true);
+    for (const reason of [
+      "no_match_skills",
+      "unknown_match_skill",
+      "text_screen_failed",
+      "kill_switch",
+    ]) {
+      expect(
+        ok({ ...valid, operation: "refused", status: "paused", refused_reason: reason }),
+        reason,
+      ).toBe(true);
     }
   });
 
   it("ties refused_reason to a refused, paused twin", () => {
     expect(ok({ ...valid, refused_reason: "no_match_skills" })).toBe(false);
-    expect(ok({ ...valid, operation: "refused", status: "paused", refused_reason: null })).toBe(false);
-    expect(ok({ ...valid, operation: "refused", status: "open", refused_reason: "kill_switch" })).toBe(false);
+    expect(ok({ ...valid, operation: "refused", status: "paused", refused_reason: null })).toBe(
+      false,
+    );
+    expect(
+      ok({ ...valid, operation: "refused", status: "open", refused_reason: "kill_switch" }),
+    ).toBe(false);
   });
 
   it("is ids and enums only — strict, closed keys, no free text", () => {
@@ -5693,7 +5857,9 @@ describe("job_posting.twin_synced (ADR-0050 §9, #1957)", () => {
     expect(ok({ ...valid, payer_id: SOURCE })).toBe(false);
     expect(ok({ ...valid, changed_fields: ["CNC Operator night shift"] })).toBe(false);
     expect(ok({ ...valid, operation: "deleted" })).toBe(false);
-    expect(ok({ ...valid, refused_reason: "over_cap", operation: "refused", status: "paused" })).toBe(false);
+    expect(
+      ok({ ...valid, refused_reason: "over_cap", operation: "refused", status: "paused" }),
+    ).toBe(false);
   });
 });
 

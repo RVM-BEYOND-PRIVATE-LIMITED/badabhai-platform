@@ -252,6 +252,14 @@ describe("payments config (ADR-0010 §D5 / F-6 — mock credits in alpha)", () =
     expect(() => loadServerConfig({ ADMIN_ENGINE_VIEW_ALLOW_PHONES: "+1 555 0100" })).toThrow();
   });
 
+  it("the admin sign-in IP cap defaults to 200/hour (R73) and stays overridable", () => {
+    // ONE shared bucket for every admin sign-in while the API cannot see visitor addresses; the
+    // per-account lockouts (ADR-0060) carry brute force, so 20 only locked honest admins out.
+    expect(loadServerConfig({}).ADMIN_AUTH_MAX_PER_IP_PER_HOUR).toBe(200);
+    expect(loadServerConfig({ ADMIN_AUTH_MAX_PER_IP_PER_HOUR: "40" }).ADMIN_AUTH_MAX_PER_IP_PER_HOUR).toBe(40);
+    expect(() => loadServerConfig({ ADMIN_AUTH_MAX_PER_IP_PER_HOUR: "0" })).toThrow();
+  });
+
   it("the AI-TRACE decrypt caps are a THIRD budget (20/hour, 60/day) and REJECT an empty string", () => {
     // Sized in DISCLOSURES and deliberately small — a debugging session, not a corpus — and
     // genuinely independent of the other two budgets rather than an alias of either.
@@ -788,6 +796,17 @@ describe("loadServerConfig", () => {
     ).toBe(true);
   });
 
+  it("LEVEL_NEEDED_SORT_ENABLED (engine v1.1, ADR-0061) is OFF by default and for the empty string", () => {
+    // Off is today's applicant list exactly; the CEO turns it on (30 Oct ruling Q4).
+    expect(loadServerConfig({}).LEVEL_NEEDED_SORT_ENABLED).toBe(false);
+    expect(loadServerConfig({ LEVEL_NEEDED_SORT_ENABLED: "" }).LEVEL_NEEDED_SORT_ENABLED).toBe(false);
+    expect(loadServerConfig({ LEVEL_NEEDED_SORT_ENABLED: "0" }).LEVEL_NEEDED_SORT_ENABLED).toBe(false);
+    expect(loadServerConfig({ LEVEL_NEEDED_SORT_ENABLED: "true" }).LEVEL_NEEDED_SORT_ENABLED).toBe(
+      true,
+    );
+    expect(() => loadServerConfig({ LEVEL_NEEDED_SORT_ENABLED: "yes" })).toThrow();
+  });
+
   it("PAYER_APPLICANT_STAGE_MAX_PER_HOUR defaults to 600 and refuses a non-positive cap", () => {
     expect(loadServerConfig({}).PAYER_APPLICANT_STAGE_MAX_PER_HOUR).toBe(600);
     expect(
@@ -862,6 +881,18 @@ describe("loadServerConfig", () => {
     for (const on of ["true", "1"]) expect(union(on), on).toBe(true);
     // Anything else stops the boot, which is why staging-deploy.sh refuses it first.
     expect(() => loadServerConfig({ FEED_POSTINGS_UNION_ENABLED: "yes" })).toThrow();
+  });
+
+  it("SIGNUP_AGE_GATE_ENABLED (#2541) is OFF by default, for the empty string, 'false' and '0'", () => {
+    // Off keeps POST /consent/accept's contract for app builds that do not send `age_18_plus`
+    // yet. The deploy bridge exports an unset secret as "", so "" must read as OFF, not throw.
+    const gate = (value?: string) =>
+      loadServerConfig(value === undefined ? {} : { SIGNUP_AGE_GATE_ENABLED: value })
+        .SIGNUP_AGE_GATE_ENABLED;
+    expect(gate()).toBe(false);
+    for (const off of ["", "false", "0"]) expect(gate(off), off).toBe(false);
+    for (const on of ["true", "1"]) expect(gate(on), on).toBe(true);
+    expect(() => loadServerConfig({ SIGNUP_AGE_GATE_ENABLED: "yes" })).toThrow();
   });
 
   it("isFeedPostingsUnionEnabled is true ONLY with the union on AND Matching V1 off", () => {

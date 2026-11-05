@@ -43,6 +43,7 @@ import { PayerCapacityController } from "../payer-portal/payer-capacity.controll
 import { PayerPricingController } from "../payer-portal/payer-pricing.controller";
 import { PayerReachController } from "../payer-portal/payer-reach.controller";
 import { MatchSkillsController } from "../match/match-skills.controller";
+import { CandidateSearchController } from "../candidates/candidate-search.controller";
 import { WorkerMatchSkillsController } from "../match/worker-match-skills.controller";
 import { AgencyJobsController } from "../agency/agency-jobs.controller";
 import { AgencyInvitesController } from "../agency/agency-invites.controller";
@@ -209,7 +210,7 @@ const CONTRACT: ControllerContract[] = [
   { name: "Chat", ctor: ChatController, routes: { startSession: [C, W], postMessage: [C, W] } },
   // ADR-0044 — the post-completion companion: the same worker-self, consent-gated pair as chat.
   { name: "ChatCompanion", ctor: ChatCompanionController, routes: { open: [C, W], message: [C, W] } },
-  { name: "Consent", ctor: ConsentController, routes: { accept: [W], withdraw: [W], withdrawEmployerContact: [W], mine: [W] } },
+  { name: "Consent", ctor: ConsentController, routes: { accept: [W], withdraw: [W], withdrawEmployerContact: [W], grantEmployerContact: [W], mine: [W] } },
   // E0 — the relay: the payer sends against the handle they hold (payer-self), and the
   // worker reads/replies/reads-marks their own threads (worker-self + consent).
   { name: "PayerRelay", ctor: PayerRelayController, routes: { templates: [P], send: [P], read: [P] } },
@@ -401,6 +402,16 @@ const CONTRACT: ControllerContract[] = [
     ctor: MatchSkillsController,
     routes: { listSkills: [P], reachPreview: [P] },
   },
+  // ADR-0040 / E2 (owner rulings 2026-11-03) — the payer ALL-CANDIDATES search. PayerAuthGuard on
+  // both, company and agency alike, no role guard (the reach routes' posture): the pool is the
+  // platform's, not a posting's, so there is no tenancy surface, and the body/query carry no
+  // payer id. Listed on arrival, and swept exists → listed below so a third route cannot join
+  // unpinned.
+  {
+    name: "CandidateSearch",
+    ctor: CandidateSearchController,
+    routes: { search: [P], filters: [P] },
+  },
   // E4 — the WORKER's own exit from matching. A separate controller from the payer form
   // above so the two guard sets can never be confused; every route is the worker-self pair
   // at the class level. Listed on arrival, not in a later sweep (the #1397 lesson).
@@ -561,9 +572,21 @@ const CONTRACT: ControllerContract[] = [
       requestLogin: [],
       verifyLogin: [],
       verifyMfa: [],
+      // The invite accept link — no session exists yet; the single-use token is the credential.
+      acceptInvite: [],
+      // Migration 0144 — the password door + forgot/reset: public on the same footing (no
+      // session yet), same per-IP cap. The reset never mints a session.
+      loginWithPassword: [],
+      forgotPassword: [],
+      resetPassword: [],
       refresh: [A],
       logout: [A],
       me: [A],
+      // 0144 — self-service: own password + own two-step switch (Amendment 1), session-bound.
+      changeOwnPassword: [A],
+      enableMfa: [A],
+      confirmMfa: [A],
+      disableMfa: [A],
     },
   },
   // Admin Ops Portal READ-ONLY event-spine API (ADR-0025 ADMIN-2). EVERY route is behind the
@@ -599,8 +622,11 @@ const CONTRACT: ControllerContract[] = [
       flagWorker: [A, AR],
       unflagWorker: [A, AR],
       inviteAdmin: [A, AR],
+      // 0144 — create an ACTIVE admin with a temporary password (manage_admins).
+      createAdminDirect: [A, AR],
       changeAdminRole: [A, AR],
       suspendAdmin: [A, AR],
+      resetAdminMfa: [A, AR],
     },
   },
   // Admin Ops Portal reason-gated worker-PII REVEAL (ADR-0025 ADMIN-3b). The single most sensitive
@@ -859,6 +885,9 @@ describe("API authz contract — guards on every controller route", () => {
       // E4 — serves the worker's own match skills back to him and takes his visibility
       // writes; a fourth route must not join this class unpinned.
       WorkerMatchSkillsController,
+      // ADR-0040 / E2 — pages the whole consented pool to any payer; a third route must not
+      // join this class unpinned.
+      CandidateSearchController,
     ] as Ctor[]) {
       it(`${ctor.name} lists every route it serves`, () => {
         const proto = ctor.prototype as Record<string, unknown>;

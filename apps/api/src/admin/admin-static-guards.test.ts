@@ -8,12 +8,14 @@ import { AdminActionsController } from "./admin-actions.controller";
 import { AdminPiiRevealController } from "./admin-pii-reveal.controller";
 import { AdminKillSwitchController } from "./admin-kill-switch.controller";
 import { AdminEntitiesController } from "./admin-entities.controller";
+import { AdminPayerLoginsController } from "./admin-payer-logins.controller";
 import { AdminFeedbackController } from "./admin-feedback.controller";
 import { AdminFinanceController } from "./admin-finance.controller";
 import { AdminDirectoryController } from "./admin-directory.controller";
 import { AdminDashboardController } from "./admin-dashboard.controller";
 import { AdminWorkerJourneyController } from "./admin-worker-journey.controller";
 import { AdminAiTracesController } from "./admin-ai-traces.controller";
+import { AdminCandidateDetailController } from "./admin-candidate-detail.controller";
 import { AdminAuthGuard } from "./admin-auth.guard";
 import { AdminRolesGuard, ADMIN_CAPABILITY_KEY } from "./admin-roles.guard";
 import { AdminAiTraceFlagGuard } from "./admin-ai-trace-flag.guard";
@@ -127,7 +129,20 @@ describe("Admin every-route-guarded build-blocker (must-fix #4)", () => {
   //
   // Adding a name here is a SECURITY decision, which is the whole point of this test: the
   // list is the reviewable record of every route reachable without a session.
-  const PUBLIC_ROUTES = new Set(["requestLogin", "verifyLogin", "verifyMfa", "acceptInvite"]);
+  //
+  // Migration 0144 (owner ruling 2026-11-03) adds three, each on the login routes' footing and
+  // behind the same per-IP cap: `loginWithPassword` (the password IS the first factor — it hands
+  // off to the same MFA gate as `verifyLogin`), and `forgotPassword` / `resetPassword` (the
+  // emailed reset code is the credential; the reset NEVER mints a session).
+  const PUBLIC_ROUTES = new Set([
+    "requestLogin",
+    "verifyLogin",
+    "verifyMfa",
+    "acceptInvite",
+    "loginWithPassword",
+    "forgotPassword",
+    "resetPassword",
+  ]);
 
   // Discover the route handlers on the admin auth controller (its own enumerable methods).
   const proto = AdminAuthController.prototype as unknown as Record<string, unknown>;
@@ -153,7 +168,7 @@ describe("Admin every-route-guarded build-blocker (must-fix #4)", () => {
     }
   });
 
-  it("the public set is exactly {requestLogin, verifyLogin, verifyMfa, acceptInvite} — no unguarded privileged route", () => {
+  it("the public set is exactly the login/MFA/invite/password-reset doors — no unguarded privileged route", () => {
     const unguarded = routeMethods.filter(
       (m) => !effectiveGuards(AdminAuthController, m).includes(AdminAuthGuard.name),
     );
@@ -232,7 +247,7 @@ describe("ADMIN-3a entity-action routes — guarded + exactly one capability (mu
     );
   }
 
-  it("discovers the ten entity-action routes (no route silently dropped)", () => {
+  it("discovers the eleven entity-action routes (no route silently dropped)", () => {
     expect(routeMethods.sort()).toEqual(
       [
         "suspendPayer",
@@ -248,6 +263,9 @@ describe("ADMIN-3a entity-action routes — guarded + exactly one capability (mu
         // PERMANENT lockout: clear() had zero callers and setMfaEnrolled was only ever
         // called with true.
         "resetAdminMfa",
+        // Migration 0144 — create an ACTIVE admin with a temporary password (the invite link
+        // still renders as mock:// in production, so it cannot onboard anyone on its own).
+        "createAdminDirect",
       ].sort(),
     );
   });
@@ -290,6 +308,8 @@ describe("ADMIN-3a entity-action routes — guarded + exactly one capability (mu
     // under the SAME super_admin-only capability. A weaker one (say ops_admin) would let a
     // lower-privileged role strip MFA off a super_admin, which inverts the whole hierarchy.
     expect(capabilityOf("resetAdminMfa")).toBe("manage_admins");
+    // 0144 — minting an account with a credential is the most direct admin-management act.
+    expect(capabilityOf("createAdminDirect")).toBe("manage_admins");
   });
 });
 
@@ -674,15 +694,14 @@ describe("identity reads — one reader, one decrypter, and no name search", () 
 
   it("the identity repository projects NO other PII column", () => {
     // It is one id-keyed lookup per table, and each of those tables carries something worse than
-    // a name next to it: `phone_e164`/`phone_hash` on workers, four ciphertext columns on
-    // payers, and `mfa_secret_enc` — the TOTP seed — on admin_users.
+    // a name next to it: `phone_e164`/`phone_hash` on workers, the two keyed hashes on payers,
+    // and `mfa_secret_enc` — the TOTP seed — on admin_users. The login-ID projection (#2563) is
+    // the one deliberate exception, narrowed by the next test to that ONE method.
     const src = code(IDENTITY_REPO);
     for (const forbidden of [
       "phoneE164",
       "phoneHash",
-      "emailEnc",
       "emailHash",
-      "phoneEnc",
       "mfaSecretEnc",
       "photoStorageKey",
     ]) {
@@ -692,20 +711,42 @@ describe("identity reads — one reader, one decrypter, and no name search", () 
     }
   });
 
+  it("emailEnc/phoneEnc appear ONLY inside the payerLoginIds projection (#2563)", () => {
+    // The User accounts screen may show a payer login ID (owner ruling 2026-11-04), but that is
+    // ONE projection. The exception must not become a file-wide allowance that lets the next
+    // method read contact ciphertext.
+    const src = code(IDENTITY_REPO);
+    const start = src.indexOf("async payerLoginIds(");
+    expect(start, "payerLoginIds projection is missing").toBeGreaterThan(-1);
+    const end = src.indexOf("\n  }", start);
+    expect(end, "payerLoginIds projection has no end").toBeGreaterThan(start);
+    const method = src.slice(start, end);
+    expect(method).toContain("payers.emailEnc");
+    expect(method).toContain("payers.phoneEnc");
+
+    const outside = src.slice(0, start) + src.slice(end);
+    for (const forbidden of ["emailEnc", "phoneEnc"]) {
+      expect(outside, `only payerLoginIds may project ${forbidden}`).not.toContain(forbidden);
+    }
+  });
+
   it("EVERY select in the identity repository projects EXACTLY `{id, nameCipher}` — nothing else", () => {
     // The forbidden-list test above is the NEGATIVE half and it can only ever catch the columns
     // somebody thought to name. This is the positive half, and it is the one that holds: the
     // shape is pinned, so a column added here fails whether or not anyone predicted it — a
     // `phoneHash`, a `status`, a `createdAt`, a column that does not exist yet.
     //
-    // It also pins the COUNT of projections at three, one per surface, so a fourth lookup cannot
+    // It also pins the COUNT of projections at four, one per surface, so a fifth lookup cannot
     // arrive without this list being edited.
     const src = code(IDENTITY_REPO);
-    const selects = [...src.matchAll(/\.select\(\s*\{([^}]*)\}\s*\)/g)].map((m) =>
+    // Strip the `${...}` interpolation bodies before parsing: the login-ID projection is a
+    // `sql` template whose braces would otherwise truncate the key list at the first `}`.
+    const flat = src.replace(/\$\{[^}]*\}/g, "");
+    const selects = [...flat.matchAll(/\.select\(\s*\{([^}]*)\}\s*\)/g)].map((m) =>
       [...m[1]!.matchAll(/(\w+)\s*:/g)].map((k) => k[1]!).sort(),
     );
     expect(selects, "the identity repository must have exactly one select per surface").toHaveLength(
-      3,
+      4,
     );
     for (const keys of selects) {
       expect(keys, `a select projects ${keys.join(", ")}`).toEqual(["id", "nameCipher"]);
@@ -780,16 +821,16 @@ describe("identity reads — one reader, one decrypter, and no name search", () 
     return headers.find((h) => h.name.toLowerCase() === "cache-control")?.value;
   }
 
-  it("EXACTLY TWO non-test files reach the identity layer (the no-store derivation's own input)", () => {
+  it("EXACTLY FOUR non-test files reach the identity layer (the no-store derivation's own input)", () => {
     // `nameBearingHandlers` derives METHODS from source, which is the right shape — but it is
-    // only ever CALLED with two hardcoded filenames, so the derivation is wrapped in exactly the
+    // only ever CALLED with hardcoded filenames, so the derivation is wrapped in exactly the
     // hand-kept list its own header says a hand-kept list is what a new route gets left off.
     //
     // MEASURED: a new `admin-lookup.service.ts` calling `this.identity.resolve(` plus a wired
     // `@Get("lookup")` controller with NO `@Header("Cache-Control", "no-store")`, no page clamp
     // and `ids` taken straight off a query string passed all 77 guards, all 917 admin tests and
     // `tsc --noEmit`. `admin.module.boot.test.ts` uses `toContain`, so registering it was
-    // additive too. This closes that: a third caller of the identity layer now fails HERE, and
+    // additive too. This closes that: a fourth caller of the identity layer now fails HERE, and
     // whoever adds it must extend the no-store derivation below in the same edit.
     const callers = tsFiles(ADMIN_DIR)
       .filter((f) => {
@@ -801,7 +842,17 @@ describe("identity reads — one reader, one decrypter, and no name search", () 
     expect(
       callers,
       `a new name-bearing service must be added to the no-store derivation below. Callers: ${callers.join(", ")}`,
-    ).toEqual(["admin/admin-directory.service.ts", "admin/admin-entities.service.ts"].sort());
+    ).toEqual(
+      [
+        // ADR-0062 (#2560) — the Candidates full-detail read. Added to the derivation below in the
+        // same edit, as this test demands.
+        "admin/admin-candidate-detail.service.ts",
+        "admin/admin-directory.service.ts",
+        "admin/admin-entities.service.ts",
+        // #2563 — the User accounts list.
+        "admin/admin-payer-logins.service.ts",
+      ].sort(),
+    );
   });
 
   it("the DERIVED name-bearing handler set is exactly the five reads the ruling names", () => {
@@ -815,6 +866,8 @@ describe("identity reads — one reader, one decrypter, and no name search", () 
       "listWorkers",
     ]);
     expect(nameBearingHandlers("admin-directory.service.ts")).toEqual(["directory"]);
+    expect(nameBearingHandlers("admin-candidate-detail.service.ts")).toEqual(["getCandidate"]);
+    expect(nameBearingHandlers("admin-payer-logins.service.ts")).toEqual(["listAccounts"]);
   });
 
   it("EVERY name-bearing route sets Cache-Control: no-store (the reveal route's Control 8)", () => {
@@ -830,6 +883,17 @@ describe("identity reads — one reader, one decrypter, and no name search", () 
     }
     for (const method of nameBearingHandlers("admin-directory.service.ts")) {
       expect(cacheControlOf(AdminDirectoryController, method), `${method} must be no-store`).toBe(
+        "no-store",
+      );
+    }
+    for (const method of nameBearingHandlers("admin-candidate-detail.service.ts")) {
+      expect(
+        cacheControlOf(AdminCandidateDetailController, method),
+        `${method} must be no-store`,
+      ).toBe("no-store");
+    }
+    for (const method of nameBearingHandlers("admin-payer-logins.service.ts")) {
+      expect(cacheControlOf(AdminPayerLoginsController, method), `${method} must be no-store`).toBe(
         "no-store",
       );
     }
@@ -879,7 +943,46 @@ describe("identity reads — one reader, one decrypter, and no name search", () 
   });
 });
 
-describe("#997 feedback route — guarded, read-only, and read_entities-scoped", () => {
+describe("#2563 payer-login routes - guarded + exactly one `manage_payer_credentials` capability", () => {
+  const proto = AdminPayerLoginsController.prototype as unknown as Record<string, unknown>;
+  const routeMethods = Object.getOwnPropertyNames(AdminPayerLoginsController.prototype).filter(
+    (m) =>
+      m !== "constructor" &&
+      typeof proto[m] === "function" &&
+      Reflect.getMetadata("path", proto[m] as object) !== undefined,
+  );
+
+  it("discovers the four routes (no route silently dropped)", () => {
+    expect(routeMethods.sort()).toEqual(
+      ["listAccounts", "createLogin", "issueTemporaryPassword", "revokePassword"].sort(),
+    );
+  });
+
+  it("EVERY route carries AdminAuthGuard AND AdminRolesGuard", () => {
+    for (const method of routeMethods) {
+      const guards = effectiveGuards(AdminPayerLoginsController, method);
+      expect(guards, `${method} must be behind AdminAuthGuard`).toContain(AdminAuthGuard.name);
+      expect(guards, `${method} must be behind AdminRolesGuard`).toContain(AdminRolesGuard.name);
+    }
+  });
+
+  it("EVERY route declares EXACTLY ONE method-level @RequireAdminRole('manage_payer_credentials')", () => {
+    const onClass = Reflect.getMetadata(ADMIN_CAPABILITY_KEY, AdminPayerLoginsController) as
+      | AdminCapability
+      | undefined;
+    expect(onClass, "AdminPayerLoginsController must NOT declare a class-level capability").toBeUndefined();
+    for (const method of routeMethods) {
+      const onMethod = Reflect.getMetadata(ADMIN_CAPABILITY_KEY, proto[method] as object) as
+        | AdminCapability
+        | undefined;
+      expect(onMethod, `${method} must declare a method-level @RequireAdminRole`).toBe(
+        "manage_payer_credentials",
+      );
+    }
+  });
+});
+
+describe("#997 feedback route - guarded, read-only, and read_entities-scoped", () => {
   const proto = AdminFeedbackController.prototype as unknown as Record<string, unknown>;
   const routeMethods = Object.getOwnPropertyNames(AdminFeedbackController.prototype).filter(
     (m) =>
@@ -1581,5 +1684,154 @@ describe("0083 ai-trace routes — one ruling, one gate, and the flag ahead of t
       WRITER_REF.test('import { AdminAiTracesRepository } from "./admin-ai-traces.repository";'),
     ).toBe(false);
     expect(WRITER_REF.test("private readonly repo: AdminAiTracesRepository,")).toBe(false);
+  });
+});
+
+/**
+ * ADR-0062 (#2560) — the Candidates FULL-DETAIL read: guarded, one `read_candidates` capability,
+ * read-only, audited before the read, and free of the phone, the WhatsApp number, résumé
+ * download keys and every encrypted column it has no review to decrypt.
+ */
+describe("#2560 candidate full-detail route — guarded, read-only, audited first, phone-free", () => {
+  const proto = AdminCandidateDetailController.prototype as unknown as Record<string, unknown>;
+  const routeMethods = Object.getOwnPropertyNames(AdminCandidateDetailController.prototype).filter(
+    (m) =>
+      m !== "constructor" &&
+      typeof proto[m] === "function" &&
+      Reflect.getMetadata("path", proto[m] as object) !== undefined,
+  );
+  /** Non-comment source of a file under admin/**. */
+  const code = (file: string): string =>
+    readFileSync(join(ADMIN_DIR, file), "utf8").replace(/^\s*(\/\/|\*|\/\*).*$/gm, "");
+
+  it("discovers exactly the one detail route (no list, export or write on this controller)", () => {
+    expect(routeMethods).toEqual(["getCandidate"]);
+    expect(Reflect.getMetadata("path", proto.getCandidate as object)).toBe("candidates/:id");
+  });
+
+  it("the route carries AdminAuthGuard AND AdminRolesGuard", () => {
+    const guards = effectiveGuards(AdminCandidateDetailController, "getCandidate");
+    expect(guards).toContain(AdminAuthGuard.name);
+    expect(guards).toContain(AdminRolesGuard.name);
+  });
+
+  it("declares EXACTLY ONE method-level @RequireAdminRole('read_candidates'), none on the class", () => {
+    expect(Reflect.getMetadata(ADMIN_CAPABILITY_KEY, proto.getCandidate as object)).toBe(
+      "read_candidates",
+    );
+    expect(
+      Reflect.getMetadata(ADMIN_CAPABILITY_KEY, AdminCandidateDetailController),
+      "AdminCandidateDetailController must NOT declare a class-level capability",
+    ).toBeUndefined();
+  });
+
+  it("is a GET with Cache-Control: no-store (the body may carry a decrypted name)", () => {
+    expect(Reflect.getMetadata("method", proto.getCandidate as object) as number).toBe(0);
+    const headers = (Reflect.getMetadata("__headers__", proto.getCandidate as object) ??
+      []) as Array<{ name: string; value: string }>;
+    expect(headers.find((h) => h.name.toLowerCase() === "cache-control")?.value).toBe("no-store");
+  });
+
+  it("the repository issues no write and never reads a whole row", () => {
+    const src = code("admin-candidate-detail.repository.ts");
+    expect(src).not.toMatch(/\.(insert|update|delete)\s*\(/);
+    expect(src).not.toMatch(/\.select\(\s*\)/);
+    expect(src).not.toMatch(/\.from\s*\(\s*events\s*\)/);
+  });
+
+  it("the repository projects NO identity, contact, key or answer-VALUE column", () => {
+    const src = code("admin-candidate-detail.repository.ts");
+    for (const forbidden of [
+      "fullName",
+      "phoneE164",
+      "phoneHash",
+      "whatsappEnc",
+      "employerNameEnc",
+      "licenceNumberEnc",
+      "pushToken",
+      "deviceHash",
+      "ipHash",
+      "userAgent",
+      "answerText",
+      "answerNumber",
+      "answerOptionKeys",
+      "answerOtherText",
+      "valueText",
+      "valueJson",
+      "valueNumber",
+      // Reduced to booleans in Postgres — projecting the key under its own name is what is banned.
+      "photoStorageKey:",
+      "pdfStorageKey:",
+    ]) {
+      expect(src, `admin-candidate-detail.repository must not project ${forbidden}`).not.toContain(
+        forbidden,
+      );
+    }
+  });
+
+  it("the service calls EXACTLY this set of dependency methods — reads, one audit emit, the name layer", () => {
+    // An ALLOW-LIST, not a list of banned writers: the five non-admin repositories provided in
+    // AdminModule can also write (`upsertMany`, `replaceForWorker`, `appendIfEmpty`, …), and a
+    // deny-list only catches the writers somebody thought to name. Any new call fails here and
+    // must be added deliberately.
+    const src = code("admin-candidate-detail.service.ts");
+    const calls = [...new Set([...src.matchAll(/this\.(\w+)\.(\w+)\s*\(/g)].map((m) => `${m[1]}.${m[2]}`))];
+    expect(calls.sort()).toEqual(
+      [
+        "attributes.loadTradeSheet",
+        "candidateSearch.findCardRow",
+        "candidateSearch.listWantedRoles",
+        "entities.listApplications",
+        "events.emit",
+        "identity.resolve",
+        "languages.loadForResume",
+        "occupations.loadForWorker",
+        "qualifications.loadForResume",
+        "repo.account",
+        "repo.attributeProvenance",
+        "repo.currentJobDomain",
+        "repo.employment",
+        "repo.findCore",
+        "repo.industryTenure",
+        "repo.matchSkills",
+        "repo.resumeVersions",
+        "workerSkills.listStatedTradeLevels",
+        "workers.latestProfile",
+      ].sort(),
+    );
+  });
+
+  it("the audit is emitted BEFORE the identity layer and every data read (source order)", () => {
+    const src = code("admin-candidate-detail.service.ts");
+    const body = src.slice(src.indexOf("async getCandidate("));
+    const audit = body.indexOf("this.auditView(");
+    expect(audit, "getCandidate must audit").toBeGreaterThan(0);
+    expect(body.indexOf("this.repo.findCore(")).toBeLessThan(audit);
+    for (const later of [
+      "this.identity.resolve(",
+      "this.workers.latestProfile(",
+      "this.attributes.loadTradeSheet(",
+      "this.repo.employment(",
+    ]) {
+      expect(body.indexOf(later), later).toBeGreaterThan(audit);
+    }
+  });
+
+  it("the DTO names no phone, WhatsApp, download link, PDF key or reason text", () => {
+    const src = code("admin-candidate-detail.dto.ts");
+    for (const forbidden of [
+      "phone",
+      "whatsapp",
+      "download",
+      "pdf_storage_key",
+      "storage_key",
+      "reason_text",
+      "employer_name",
+      "licence_number",
+    ]) {
+      expect(src.toLowerCase(), `the candidate contract must not declare ${forbidden}`).not.toContain(
+        forbidden,
+      );
+    }
   });
 });

@@ -55,8 +55,9 @@ declare global {
  * authenticates *who* the payer is; the scope chokepoint authorizes *which rows*.
  *
  * LIFECYCLE (ADR-0037): this guard is ALSO the platform-wide suspension gate. Every
- * request loads the payer's CURRENT `{role, status}` from the row via
- * {@link PayersRepository.findAuthFacts} and rejects anything but `active` with a 403.
+ * request loads the payer's CURRENT `{role, status, must_change_password}` from the row via
+ * {@link PayersRepository.findAuthFacts} and rejects anything but `active` with a 403. A
+ * temporary-password account is refused with a neutral 401 until the change is done.
  *
  * Enforced HERE rather than in a new `PayerStatusGuard` on purpose: `guard-contract.test.ts`
  * (and `match-skills.controller.test.ts` / `agency-role-authz.test.ts`) assert the exact
@@ -130,6 +131,26 @@ export class PayerAuthGuard implements CanActivate {
     // it cannot obtain a session at all — this closes the window for any that predate it.
     if (facts.status !== "active") {
       throw new ForbiddenException("Account is not active");
+    }
+
+    // #2563 — a TEMPORARY credential must not hold a live session. The admin transaction
+    // sets this flag and the login paths refuse to mint while it is set; this read closes the
+    // race where a login read the row before that transaction committed and minted afterwards.
+    if (facts.mustChangePassword) {
+      throw new UnauthorizedException("Invalid or expired payer session");
+    }
+
+    // #2563 — CREDENTIAL EPOCH. An admin issue/revoke stamps `sessions_valid_after`; a session
+    // created before that instant is dead even if its Redis record survived a failed revoke.
+    // Compared against the session record's MILLISECOND creation stamp; only a legacy record
+    // without it falls back to the token's whole-second `iat`. NULL — every payer on deploy —
+    // leaves every existing session untouched.
+    if (facts.sessionsValidAfter != null) {
+      const sessionCreatedAtMs =
+        validated.createdAtMs ?? validated.issuedAtSeconds * 1000;
+      if (sessionCreatedAtMs < facts.sessionsValidAfter.getTime()) {
+        throw new UnauthorizedException("Invalid or expired payer session");
+      }
     }
 
     // Role now comes from the same read (the session claim is only a hint, and the row is

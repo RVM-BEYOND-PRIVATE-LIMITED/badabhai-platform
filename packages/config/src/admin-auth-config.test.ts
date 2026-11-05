@@ -77,11 +77,37 @@ describe("assertAdminAuthConfig (fail-closed admin-auth boot guard — ADR-0025 
     ).not.toThrow();
   });
 
-  it("ADMIN_MFA_REQUIRED defaults ON (owner OQ-1: MFA for ALL roles) and parses falsey strings off", () => {
+  it("the half-set refusal names the toggle meaning (Amendment 1: true = honour each admin's switch)", () => {
+    expect(() =>
+      assertAdminAuthConfig(cfg({ ADMIN_MFA_REQUIRED: "true", ADMIN_TOTP_ISSUER: " " }), "test"),
+    ).toThrow(/honour each admin's two-step toggle/i);
+    // false = two-step off for everyone, so an empty issuer cannot be handed to anyone.
+    expect(() =>
+      assertAdminAuthConfig(cfg({ ADMIN_MFA_REQUIRED: "false", ADMIN_TOTP_ISSUER: " " }), "test"),
+    ).not.toThrow();
+  });
+
+  it("ADMIN_MFA_REQUIRED defaults ON (honour each admin's toggle) and parses falsey strings off", () => {
     expect(cfg().ADMIN_MFA_REQUIRED).toBe(true);
     expect(cfg({ ADMIN_MFA_REQUIRED: "false" }).ADMIN_MFA_REQUIRED).toBe(false);
     expect(cfg({ ADMIN_MFA_REQUIRED: "0" }).ADMIN_MFA_REQUIRED).toBe(false);
     expect(cfg({ ADMIN_MFA_REQUIRED: "true" }).ADMIN_MFA_REQUIRED).toBe(true);
+  });
+
+  it("admin password lockout defaults to 5 attempts / 900s and rejects a non-positive value", () => {
+    expect(cfg().ADMIN_PASSWORD_MAX_ATTEMPTS).toBe(5);
+    expect(cfg().ADMIN_PASSWORD_LOCKOUT_SECONDS).toBe(900);
+    expect(cfg({ ADMIN_PASSWORD_MAX_ATTEMPTS: "3" }).ADMIN_PASSWORD_MAX_ATTEMPTS).toBe(3);
+    expect(() => cfg({ ADMIN_PASSWORD_MAX_ATTEMPTS: "0" })).toThrow();
+    expect(() => cfg({ ADMIN_PASSWORD_LOCKOUT_SECONDS: "-1" })).toThrow();
+  });
+
+  it("ADMIN_TRUSTED_DEVICE_DAYS defaults to 30, accepts 0 (the off-switch), rejects negatives", () => {
+    expect(cfg().ADMIN_TRUSTED_DEVICE_DAYS).toBe(30);
+    expect(cfg({ ADMIN_TRUSTED_DEVICE_DAYS: "0" }).ADMIN_TRUSTED_DEVICE_DAYS).toBe(0);
+    expect(cfg({ ADMIN_TRUSTED_DEVICE_DAYS: "7" }).ADMIN_TRUSTED_DEVICE_DAYS).toBe(7);
+    expect(() => cfg({ ADMIN_TRUSTED_DEVICE_DAYS: "-1" })).toThrow();
+    expect(() => cfg({ ADMIN_TRUSTED_DEVICE_DAYS: "1.5" })).toThrow();
   });
 
   it("isUsingDevAdminJwtDefault flags the dev secret (boot warning) and clears once overridden", () => {

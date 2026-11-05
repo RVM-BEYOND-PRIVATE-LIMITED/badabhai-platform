@@ -30,6 +30,8 @@ const FULL_ROW: WorkerVisibleJobRow = {
   benefits: ["PF + ESI", "Canteen"],
   requirements: ["Fanuc control", "ITI / Diploma"],
   roleKind: "cnc_turner",
+  tradeLevel: "setter",
+  tradeAnswers: { controller_brand: ["fanuc"] },
 };
 
 function setup(
@@ -57,6 +59,9 @@ function setup(
     repo as unknown as JobsRepository,
     events as unknown as EventsService,
     workerSkills as unknown as WorkerSkillsRepository,
+    {
+      describeSelection: async () => ({ levelLabel: null, facets: [] }),
+    } as never,
   );
   return { svc, repo, events, workerSkills };
 }
@@ -119,6 +124,10 @@ describe("JobsService.getWorkerVisibleJob — the ADR-0024 SHOW projection", () 
       requirements: ["Fanuc control", "ITI / Diploma"],
       // Owner ruling 2026-10-05 — the role illustration the card and detail share.
       role_kind: "cnc_turner",
+      // Migration 0141 — display-only trade facts; labels resolve in the service.
+      trade_level: "setter",
+      trade_level_label: null,
+      trade_facets: [],
     });
   });
 
@@ -140,6 +149,8 @@ describe("JobsService.getWorkerVisibleJob — the ADR-0024 SHOW projection", () 
       benefits: null,
       requirements: null,
       roleKind: null,
+      tradeLevel: null,
+      tradeAnswers: null,
     };
     const { svc } = setup(bare);
     const out = await svc.getWorkerVisibleJob(JOB_ID);
@@ -162,6 +173,9 @@ describe("JobsService.getWorkerVisibleJob — the ADR-0024 SHOW projection", () 
       benefits: null,
       requirements: null,
       role_kind: null,
+      trade_level: null,
+      trade_level_label: null,
+      trade_facets: [],
     });
   });
 
@@ -188,6 +202,8 @@ describe("JobsService.getWorkerVisibleJob — the ADR-0024 SHOW projection", () 
       benefits: null,
       requirements: null,
       roleKind: null,
+      tradeLevel: null,
+      tradeAnswers: null,
     };
     const { svc } = setup(posting);
     const out = await svc.getWorkerVisibleJob(JOB_ID);
@@ -209,6 +225,9 @@ describe("JobsService.getWorkerVisibleJob — the ADR-0024 SHOW projection", () 
       benefits: null,
       requirements: null,
       role_kind: null,
+      trade_level: null,
+      trade_level_label: null,
+      trade_facets: [],
     });
   });
 
@@ -328,7 +347,11 @@ describe("JobsService.searchJobs", () => {
 
   it("derives offset from the 1-based page and passes the filters through verbatim", async () => {
     const { svc, repo } = setup(undefined);
-    await svc.searchJobs(WORKER_ID, q({ q: "welder", city: "pun", state: "MH", limit: 10, page: 3 }), CTX);
+    await svc.searchJobs(
+      WORKER_ID,
+      q({ q: "welder", city: "pun", state: "MH", limit: 10, page: 3 }),
+      CTX,
+    );
     expect(repo.searchOpenPostings).toHaveBeenCalledWith({
       workerId: WORKER_ID,
       q: "welder",
@@ -355,9 +378,16 @@ describe("JobsService.searchJobs", () => {
     // §2 — the events table is exactly where raw PII must not land, and `q` is unbounded
     // worker free text that can hold a name or a phone number.
     const { svc, events } = setup(undefined, { rows: [HIT], hasMore: true });
-    await svc.searchJobs(WORKER_ID, q({ q: "ravi 9876543210", city: "Pune", limit: 20, page: 2 }), CTX);
+    await svc.searchJobs(
+      WORKER_ID,
+      q({ q: "ravi 9876543210", city: "Pune", limit: 20, page: 2 }),
+      CTX,
+    );
 
-    const emitted = events.emit.mock.calls[0]![0] as { event_name: string; payload: Record<string, unknown> };
+    const emitted = events.emit.mock.calls[0]![0] as {
+      event_name: string;
+      payload: Record<string, unknown>;
+    };
     expect(emitted.event_name).toBe("job.search_performed");
     expect(emitted.payload).toMatchObject({
       worker_id: WORKER_ID,

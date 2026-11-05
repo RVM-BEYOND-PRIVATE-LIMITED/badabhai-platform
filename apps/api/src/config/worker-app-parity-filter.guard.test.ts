@@ -15,12 +15,10 @@
  *      a new parity test that forgets the filter fails here, in the `node` job, which has no
  *      path filter of its own;
  *   2. that filter actually triggers the `worker-app` gate;
- *   3. `worker-app-apk` still requires the app's OWN filter, so a server-only change gates
- *      the tests without publishing a byte-identical APK Release;
- *   4. a `<dir>/**` entry — a shared DATA directory rather than one server file (the question
+ *   3. a `<dir>/**` entry — a shared DATA directory rather than one server file (the question
  *      packs, read by `trade_form_topics_coverage_test`) — names a directory that exists AND
  *      that a worker-app test actually reads, so the filter cannot collect dead globs;
- *   5. the other direction: every shared path a worker-app test reads (`'../../…'`) is
+ *   4. the other direction: every shared path a worker-app test reads (`'../../…'`) is
  *      covered by the filter or written down in `KNOWN_UNFILTERED_READS` — so dropping the
  *      question-packs entry, or a new test reading shared data unlisted, fails here.
  */
@@ -144,7 +142,13 @@ function isDataDirGlob(path: string): boolean {
 
 describe("TD144 — the worker-app parity filter", () => {
   const filter = filterPaths(CI, "worker-app-parity");
-  const serverFiles = filter.filter((path) => !isDataDirGlob(path));
+  const serverFiles = filter.filter((path) => !isDataDirGlob(path) && path.startsWith("apps/api/"));
+  // A single SHARED file (outside apps/) a worker-app test reads — e.g. the approved
+  // employer-sharing notice the app renders verbatim. Held to the data-directory rule: listed
+  // only while a test still reads it.
+  const sharedFiles = filter.filter(
+    (path) => !isDataDirGlob(path) && !path.startsWith("apps/api/"),
+  );
   const dataDirs = filter.filter(isDataDirGlob).map((glob) => glob.slice(0, -"/**".length));
 
   it("lists exactly the server files the worker-app parity tests read", () => {
@@ -158,7 +162,12 @@ describe("TD144 — the worker-app parity filter", () => {
   const sharedReads = sharedPathsReadByAppTests();
   const listed = (path: string): boolean =>
     serverFiles.includes(path) ||
+    sharedFiles.includes(path) ||
     dataDirs.some((dir) => path === dir || path.startsWith(`${dir}/`));
+
+  it("lists a single shared file only when a worker-app test reads it", () => {
+    for (const path of sharedFiles) expect(sharedReads, path).toContain(path);
+  });
 
   it("lists a data directory only when a worker-app test reads it", () => {
     for (const dir of dataDirs) {
@@ -190,7 +199,9 @@ describe("TD144 — the worker-app parity filter", () => {
   });
 
   it("names only files that exist", () => {
-    for (const path of serverFiles) expect(existsSync(join(ROOT, path)), path).toBe(true);
+    for (const path of [...serverFiles, ...sharedFiles]) {
+      expect(existsSync(join(ROOT, path)), path).toBe(true);
+    }
     for (const dir of dataDirs) {
       expect(existsSync(join(ROOT, dir)) && statSync(join(ROOT, dir)).isDirectory(), dir).toBe(
         true,
@@ -214,12 +225,5 @@ describe("TD144 — the worker-app parity filter", () => {
     expect(jobIf(CI, "worker-app")).toBe(
       "needs.changes.outputs.worker-app == 'true' || needs.changes.outputs.worker-app-parity == 'true'",
     );
-  });
-
-  it("does not publish an APK on its own: worker-app-apk still requires the app's filter", () => {
-    const apk = jobIf(CI, "worker-app-apk");
-    expect(apk).toContain("needs.worker-app.result == 'success'");
-    expect(apk).toContain("needs.changes.outputs.worker-app == 'true'");
-    expect(apk).not.toContain("worker-app-parity");
   });
 });

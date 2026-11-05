@@ -8,6 +8,7 @@ import {
   uuid,
   text,
   integer,
+  boolean,
   smallint,
   timestamp,
   date,
@@ -229,6 +230,24 @@ export const jobPostings = pgTable(
     // NULL-tolerant CHECK below, spelled out as a literal list because a migration is a
     // frozen record. PII-free: a closed enum of occupation slugs.
     roleKind: text("role_kind").$type<TradeFormKindName>(),
+    // ── The trade-specific posting form (migration 0141, 16 live trades) ──
+    // `trade_level` is ONE rung from the role's CEO launch-pack ladder ("Level needed"). It is
+    // NEVER a match/reach input: a "Setter" posting must still reach every worker the match
+    // skills reach. Since engine v1.1 (ADR-0061, CEO ruling 30 Oct 2026) it ORDERS the
+    // applicant list of a 4-CNC-trade posting (meets → not confirmed → below, inside each trade
+    // group) while `LEVEL_NEEDED_SORT_ENABLED` is on — sort only, never hide.
+    //
+    // `trade_answers` is the poster's selected chips, keyed by the role pack's question_key
+    // and valued by option_key: `{ "controller_brand": ["fanuc"], … }`. The API validates
+    // every key and option against the checked-in pack and derives `match_skill_ids` from
+    // the match-affecting chips; this column keeps the full answer set so the employer's
+    // candidate list can use facet chips without a second write path.
+    //
+    // NULLABLE WITH NO DEFAULT. NULL means "the poster stated none" — every pre-0141 row
+    // and every client that has not adopted the trade form. An empty object would claim
+    // they saw and skipped the questions.
+    tradeLevel: text("trade_level"),
+    tradeAnswers: jsonb("trade_answers").$type<Record<string, string[]>>(),
     // When the posting became worker-visible. The feed orders by this, NOT by
     // created_at, so a draft that sat for a week does not surface as a week-old job.
     // NULL = never published. D3 backfills it to created_at for non-draft rows.
@@ -395,9 +414,15 @@ export const jobPostings = pgTable(
     // record. NULL-tolerant, because "no role picked" is every legacy and chat-published row.
     // A 22nd declared kind widens this list (and `jobs_role_kind_chk`) in the same change —
     // `migration-0131-job-role-kind.test.ts` reads this model and turns red until it does.
+    // Migration 0139 (Track A #4): the 22nd kind is `cad_designer_3d`.
+    // Migration 0142 (Phase 2 #6): the 23rd kind is `plc_automation_technician`.
+    // Migration 0145 (Phase 2 #7): the 24th kind is `edm_wirecut_operator`.
+    // Migration 0147 (Phase 2 #8): the 25th kind is `heat_treatment_technician`.
+    // Migration 0149 (Phase 2 #10): the 26th kind is `production_supervisor`.
+    // Migration 0151 (Phase 2 #11): the 27th kind is `foundry_forging_operator`.
     check(
       "job_postings_role_kind_chk",
-      sql`${t.roleKind} IS NULL OR ${t.roleKind} IN ('cnc_turner', 'vmc_milling', 'cnc_grinding', 'cam_programmer', 'cad_draughtsman', 'conventional_machinist', 'tool_die_maker', 'welder', 'sheet_metal_worker', 'press_operator', 'painter_coating', 'fitter', 'maintenance_technician', 'industrial_electrician', 'assembly_line_worker', 'quality_inspector', 'injection_moulding_operator', 'mould_die_maker', 'blow_moulding_operator', 'rubber_moulding_operator', 'plastic_process_technician')`,
+      sql`${t.roleKind} IS NULL OR ${t.roleKind} IN ('cnc_turner', 'vmc_milling', 'cnc_grinding', 'cam_programmer', 'cad_draughtsman', 'conventional_machinist', 'tool_die_maker', 'welder', 'sheet_metal_worker', 'press_operator', 'painter_coating', 'fitter', 'maintenance_technician', 'industrial_electrician', 'assembly_line_worker', 'quality_inspector', 'injection_moulding_operator', 'mould_die_maker', 'blow_moulding_operator', 'rubber_moulding_operator', 'plastic_process_technician', 'cad_designer_3d', 'plc_automation_technician', 'edm_wirecut_operator', 'heat_treatment_technician', 'production_supervisor', 'foundry_forging_operator')`,
     ),
     // Migration 0133 (ADR-0050 §4.1) — the closed provenance set. NULL-tolerant: every native
     // posting and every D4 conversion is NULL.
@@ -411,6 +436,13 @@ export const jobPostings = pgTable(
     check(
       "job_postings_twin_owner_chk",
       sql`${t.syncSource} IS NULL OR (${t.sourceJobId} IS NOT NULL AND ${t.payerId} IS NULL)`,
+    ),
+    // Migration 0141 — the answer map is a MAP, never an array or a scalar. Values are
+    // validated app-level against the role's checked-in pack (the trade-levels precedent:
+    // promoting a rung or editing a pack must not need a migration).
+    check(
+      "job_postings_trade_answers_object_chk",
+      sql`${t.tradeAnswers} IS NULL OR jsonb_typeof(${t.tradeAnswers}) = 'object'`,
     ),
   ],
 ).enableRLS(); // RLS tracked in the model; carried by the migration (BL-26 parity fix)
@@ -597,6 +629,13 @@ export const jobs = pgTable(
     // rank input and never inferred from `trade_key` / `TRADE_TO_MATCH_SKILL`: it feeds only
     // the agency twin's `job_postings.match_skill_ids`. PII-free: closed-set ids.
     matchSkillIds: jsonb("match_skill_ids").$type<string[]>().notNull().default(jsonArray),
+    // ── The trade-specific agency posting form (migration 0141) ──
+    // The same two facts a company posting states: a display-only rung and the poster's
+    // pack-answer map. `trade_key` stays the agency job's classifier; these describe the
+    // vacancy's trade requirements and are copied to its V1 twin. Both nullable — NULL is
+    // "not stated", never a guessed rung or an empty set of answers.
+    tradeLevel: text("trade_level"),
+    tradeAnswers: jsonb("trade_answers").$type<Record<string, string[]>>(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -641,13 +680,24 @@ export const jobs = pgTable(
       sql`${t.payType} IS NULL OR ${t.payType} IN ('in_hand', 'gross', 'ctc')`,
     ),
     // Migration 0131 — mirrors `job_postings_role_kind_chk` (the same 21 literals, same order).
+    // Migration 0139 (Track A #4): the 22nd kind is `cad_designer_3d`.
+    // Migration 0142 (Phase 2 #6): the 23rd kind is `plc_automation_technician`.
+    // Migration 0145 (Phase 2 #7): the 24th kind is `edm_wirecut_operator`.
+    // Migration 0147 (Phase 2 #8): the 25th kind is `heat_treatment_technician`.
+    // Migration 0149 (Phase 2 #10): the 26th kind is `production_supervisor`.
+    // Migration 0151 (Phase 2 #11): the 27th kind is `foundry_forging_operator`.
     check(
       "jobs_role_kind_chk",
-      sql`${t.roleKind} IS NULL OR ${t.roleKind} IN ('cnc_turner', 'vmc_milling', 'cnc_grinding', 'cam_programmer', 'cad_draughtsman', 'conventional_machinist', 'tool_die_maker', 'welder', 'sheet_metal_worker', 'press_operator', 'painter_coating', 'fitter', 'maintenance_technician', 'industrial_electrician', 'assembly_line_worker', 'quality_inspector', 'injection_moulding_operator', 'mould_die_maker', 'blow_moulding_operator', 'rubber_moulding_operator', 'plastic_process_technician')`,
+      sql`${t.roleKind} IS NULL OR ${t.roleKind} IN ('cnc_turner', 'vmc_milling', 'cnc_grinding', 'cam_programmer', 'cad_draughtsman', 'conventional_machinist', 'tool_die_maker', 'welder', 'sheet_metal_worker', 'press_operator', 'painter_coating', 'fitter', 'maintenance_technician', 'industrial_electrician', 'assembly_line_worker', 'quality_inspector', 'injection_moulding_operator', 'mould_die_maker', 'blow_moulding_operator', 'rubber_moulding_operator', 'plastic_process_technician', 'cad_designer_3d', 'plc_automation_technician', 'edm_wirecut_operator', 'heat_treatment_technician', 'production_supervisor', 'foundry_forging_operator')`,
     ),
     // Migration 0133 (ADR-0050 §4.1) — the column is always a JSON array (`[]` or ids), never
     // a scalar or object a careless write could store.
     check("jobs_match_skill_ids_array_chk", sql`jsonb_typeof(${t.matchSkillIds}) = 'array'`),
+    // Migration 0141 — the answer map is a MAP, never an array or a scalar.
+    check(
+      "jobs_trade_answers_object_chk",
+      sql`${t.tradeAnswers} IS NULL OR jsonb_typeof(${t.tradeAnswers}) = 'object'`,
+    ),
   ],
 ).enableRLS(); // RLS tracked in the model; carried by the migration (BL-26 parity fix)
 
@@ -712,6 +762,14 @@ export const applications = pgTable(
     // Which rank rule produced the numbers above (match_config.engine_version, "v1.0").
     // Without it, a v2 reader silently re-interprets v1 rows under v2 semantics.
     engineVersion: text("engine_version"),
+    // ── ENGINE v1.1 "LEVEL NEEDED" (migration 0153, CEO ruling 30 Oct 2026, ADR-0061) ─────
+    // The worker's Middle-Way rung on the skill he was reached through, and its confirm bit,
+    // AS OF this apply — frozen with the rest of the snapshot, so a worker who edits his level
+    // later never moves on a list the company already saw (E16). NULL = no rung stated, or an
+    // application from before 0153 — both sort as "level not confirmed" on a level post.
+    // PII-free: a closed rung key and a boolean.
+    tradeLevel: text("trade_level"),
+    levelConfirmed: boolean("level_confirmed"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -726,7 +784,9 @@ export const applications = pgTable(
     // Ops read: applicants per job.
     index("applications_job_id_idx").on(t.jobId),
     // Partial index for feed exclusion (TD73): quickly find applied jobs per worker
-    index("applications_applied_idx").on(t.workerId, t.jobId).where(sql`${t.action} = 'applied'`),
+    index("applications_applied_idx")
+      .on(t.workerId, t.jobId)
+      .where(sql`${t.action} = 'applied'`),
     // `reason` is only valid on a skip (NULL otherwise).
     check("applications_reason_chk", sql`${t.reason} IS NULL OR ${t.action} = 'skipped'`),
     // ── Matching V1 (0056) ────────────────────────────────────────────────────
@@ -769,10 +829,7 @@ export const applications = pgTable(
     ),
     // The snapshot tier shares the closed domain of job_reach.match_tier. NULL-tolerant:
     // every legacy row, and any V1 row written before a tier was resolvable, is NULL.
-    check(
-      "applications_match_tier_chk",
-      sql`${t.matchTier} IS NULL OR ${t.matchTier} IN (1, 2)`,
-    ),
+    check("applications_match_tier_chk", sql`${t.matchTier} IS NULL OR ${t.matchTier} IN (1, 2)`),
     // Month counts are durations; a negative one is always a bug, never data.
     check(
       "applications_snapshot_months_nonneg_chk",
@@ -780,4 +837,3 @@ export const applications = pgTable(
     ),
   ],
 ).enableRLS(); // RLS tracked in the model; carried by the migration (BL-26 parity fix)
-

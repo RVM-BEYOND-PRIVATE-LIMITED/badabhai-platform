@@ -1,7 +1,7 @@
 import Link from "next/link";
 import type { JobPostingListItem, PayerDetail } from "../lib/entities";
 import { NAME_UNREADABLE, displayName, identityPosture } from "../lib/identity";
-import { formatCount, formatRelative, formatTimestamp, shortId } from "../lib/format";
+import { formatCount, formatRelative, shortId, timestampTitle } from "../lib/format";
 import { can, type AdminCapability } from "../lib/auth/capabilities";
 import { CUSTOMER_KIND_LABELS } from "../lib/customer";
 import { StatusPill } from "./status-pill";
@@ -14,7 +14,8 @@ import { PayerCreditsPanel } from "./payer-credits-panel";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 
 /**
- * One payer account — shared by Companies and Agencies, which differ only by `role`.
+ * One customer — a Company or an Agency, which differ only by `role` (one Companies section since
+ * A6, #2576).
  *
  * ── TWO NAMES, AND THEY ARE NOT THE SAME NAME ───────────────────────────────────────────
  * `org_name` is the account's REGISTERED organisation name, decrypted for this response behind
@@ -44,8 +45,9 @@ export function PayerDetailView({
 }) {
   // Distinct labels this payer has published under, most recent first.
   const labels = postings ? [...new Set(postings.map((p) => p.org_label))] : [];
-  // Phase 1's per-entity timeline route. `backHref` is /companies or /agencies, so this
-  // resolves to the section's own timeline page rather than the subject-type-wide feed.
+  // Phase 1's per-entity timeline route. `backHref` is the customers' section (/companies, for a
+  // Company and an Agency alike since A6), so this resolves to the customer's own timeline page
+  // rather than the subject-type-wide feed.
   // Offered only to a reader who may open it: the timeline route is `read_events`.
   const timelineHref = can(capabilities, "read_events")
     ? `${backHref}/${payer.id}/timeline`
@@ -60,32 +62,46 @@ export function PayerDetailView({
 
   // The id keeps its `mono` treatment; an organisation name does not get one.
   const header = {
-    back: { href: backHref, label: kind === "Company" ? "Companies" : "Agencies" },
+    // The list by its nav label: one Companies section holds both kinds (A6, #2576).
+    back: { href: backHref, label: "Companies" },
     title: orgName ?? shortId(payer.id),
     titleMono: orgName === null,
     description: (
       <>
-        One {noun} — what it has posted and
-        spent{orgName === null ? ", not who registered it" : ""} —{" "}
+        One {noun}
         {postings === null ? (
           /* The postings read FAILED (the panel below says so). "No postings yet" would be a
              claim about the account made from a read that never arrived. */
-          <>its postings could not be loaded, so no self-declared label is shown.</>
+          <> — its postings could not be loaded, so no self-declared label is shown.</>
         ) : labels.length > 0 ? (
           <>
-            publishing as <strong>{labels.slice(0, 3).join(", ")}</strong>
-            {labels.length > 3 && ` and ${labels.length - 3} more`}, self-declared on its
-            postings and not a verified name.
+            , publishing as <strong>{labels[0]}</strong>
+            {labels.length > 1 && ` and ${labels.length - 1} more`}.
           </>
         ) : (
-          <>with no postings yet, so no self-declared label identifies it.</>
+          <> with no postings yet, so no self-declared label identifies it.</>
         )}
+      </>
+    ),
+    info: (
+      <>
+        <p>
+          What this {noun} has posted and spent
+          {orgName === null ? ", not who registered it" : ""}.
+        </p>
+        {labels.length > 0 ? (
+          <p>
+            Publishing as {labels.slice(0, 3).join(", ")}
+            {labels.length > 3 && ` and ${labels.length - 3} more`} — self-declared on its
+            postings and not a verified name.
+          </p>
+        ) : null}
       </>
     ),
   };
 
   return (
-    <div className="page">
+    <div className="page page--reading">
       <PayerDetailHeader
         header={header}
         payerId={payer.id}
@@ -149,7 +165,7 @@ export function PayerDetailView({
               {
                 label: "Registered",
                 value: (
-                  <time dateTime={payer.created_at} title={formatTimestamp(payer.created_at)}>
+                  <time dateTime={payer.created_at} title={timestampTitle(payer.created_at)}>
                     {formatRelative(payer.created_at)}
                   </time>
                 ),
@@ -157,7 +173,7 @@ export function PayerDetailView({
               {
                 label: "Last updated",
                 value: (
-                  <time dateTime={payer.updated_at} title={formatTimestamp(payer.updated_at)}>
+                  <time dateTime={payer.updated_at} title={timestampTitle(payer.updated_at)}>
                     {formatRelative(payer.updated_at)}
                   </time>
                 ),
@@ -257,7 +273,7 @@ export function PayerDetailView({
                       <StatusPill value={j.status} />
                     </td>
                     <td>
-                      <time dateTime={j.created_at} title={formatTimestamp(j.created_at)}>
+                      <time dateTime={j.created_at} title={timestampTitle(j.created_at)}>
                         {formatRelative(j.created_at)}
                       </time>
                     </td>

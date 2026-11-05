@@ -17,8 +17,8 @@ import { MockMoneyTag } from "./payments-posture";
  * — a tag rendered anywhere else would not travel with it.
  *
  * `wide` exists for the ₹ tiles: a ₹ figure must never break between digits. The class is the
- * whole mechanism (`.stat--wide .stat__value` keeps the figure on one line at the 22px step, and
- * the flex stat row widens the tile to hold it), so it must appear exactly when asked for — and
+ * whole mechanism (`.stat--wide .stat__value` keeps the figure on one line at the 22px step, on
+ * the shared --stat-min grid), so it must appear exactly when asked for — and
  * never on a tile that did not ask, or every count tile would take the ₹ treatment.
  */
 
@@ -112,5 +112,16 @@ describe("Stat", () => {
     ]) {
       expect(out).not.toContain("stat--wide");
     }
+  });
+
+  it("carries the exact ₹ behind a rounded figure in the value's title (#2572)", () => {
+    expect(
+      renderToStaticMarkup(<Stat label="Spend" value="₹871" valueTitle="₹870.7651" wide />),
+    ).toBe(
+      '<div class="stat stat--wide"><span class="stat__value" title="₹870.7651">₹871</span>' +
+        '<span class="stat__label">Spend</span></div>',
+    );
+    // No title attribute at all when none is given.
+    expect(renderToStaticMarkup(<Stat label="Calls" value="156" />)).not.toContain("title=");
   });
 });

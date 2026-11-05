@@ -199,7 +199,7 @@ export default async function AgencyReferralsPage() {
                 {kAnonCount(summary.accepted, summary.minBucket)}
               </strong>
               <em>ready to deploy</em>
-              <div className="agency-stage-card__foot">Self-selected on Badabhai</div>
+              <div className="agency-stage-card__foot">Self-selected on BadaBhai</div>
             </div>
           </div>
 

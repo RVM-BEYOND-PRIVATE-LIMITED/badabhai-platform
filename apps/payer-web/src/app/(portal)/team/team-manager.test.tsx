@@ -47,6 +47,11 @@ vi.mock("react", async () => {
     },
   };
 });
+// The portal's ToastProvider (#2583): a completed invite / removal is confirmed through it.
+const toastShow = vi.fn();
+vi.mock("../../../components/ds/toast-provider", () => ({
+  useToast: () => ({ show: (t: unknown) => toastShow(t), dismiss: () => {} }),
+}));
 const removeMemberAction = vi.fn();
 vi.mock("./actions", () => ({
   inviteMemberAction: vi.fn(),
@@ -346,7 +351,9 @@ describe("TeamManager — Remove asks first (generic DS Dialog), then returns fo
     expect(setters[2]).toHaveBeenCalledWith(null);
     expect(removeMemberAction).toHaveBeenCalledWith({ memberId: "mem-1" });
     await new Promise((r) => setTimeout(r, 0));
-    expect(setters[1]).toHaveBeenCalledWith({ ok: true, text: "Member removed." });
+    // A success is the portal's one success toast (#2583); the panel's message is cleared.
+    expect(setters[1]).toHaveBeenLastCalledWith(null);
+    expect(toastShow).toHaveBeenCalledWith({ tone: "success", message: "Member removed." });
   });
 
   /**
@@ -476,7 +483,8 @@ describe("TeamManager — Remove asks first (generic DS Dialog), then returns fo
     footerButtons(dialogOf(open))[1]!.onClick();
     expect(setters[1]!.mock.calls[0]).toEqual([null]);
     await new Promise((r) => setTimeout(r, 0));
-    expect(setters[1]).toHaveBeenLastCalledWith({ ok: true, text: "Member removed." });
+    expect(setters[1]).toHaveBeenLastCalledWith(null);
+    expect(toastShow).toHaveBeenLastCalledWith({ tone: "success", message: "Member removed." });
   });
 
   it("uses the generic Dialog — never the credit-spend confirm", async () => {

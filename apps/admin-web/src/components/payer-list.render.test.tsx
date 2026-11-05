@@ -1,17 +1,19 @@
 import { describe, it, expect } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
+import { columnHeaders } from "../../test/grid-markup";
 import { PayerList } from "./payer-list";
 import type { PayerListItem } from "../lib/entities";
 import type { IdentityPosture } from "../lib/identity";
+import type { CustomerKindFilter } from "../lib/customer";
 
 /**
- * The shared Companies/Agencies roster, under the three name postures.
+ * The customers roster (Directory › Companies — Companies and Agencies in one list since A6,
+ * #2576), under the three name postures and the page's Kind filter.
  *
- * This component is shared by two routes, which is exactly why the posture is a PROP rather than
- * something it works out for itself: two sections deciding independently is two chances to
- * disagree about what a dash means. What is tested here is that it obeys the prop — including
- * refusing to render the column when told not to, which is the half a "does it show names" test
- * would never catch.
+ * The posture is a PROP rather than something it works out for itself: the page decides it from
+ * the rows and the capability, once, so the list cannot disagree with it about what a dash means.
+ * What is tested here is that it obeys the prop — including refusing to render the column when
+ * told not to, which is the half a "does it show names" test would never catch.
  */
 
 const PAYER_ID = "6155050c-c91b-4c6e-96a7-8da023f1d2d2";
@@ -27,42 +29,61 @@ const FACELESS: PayerListItem = {
 
 const NAMED: PayerListItem = { ...FACELESS, org_name: "Acme Fabrication Pvt Ltd" };
 const UNNAMED: PayerListItem = { ...FACELESS, org_name: null };
+const AGENCY: PayerListItem = { ...NAMED, id: "a9e7c1d2-0000-4000-8000-00000000a9e7", role: "agent" };
 
-const render = (payers: PayerListItem[], posture: IdentityPosture) =>
+/** The Companies view (`?kind=company`) unless a test asks for another — "all" is no Kind filter. */
+const render = (
+  payers: PayerListItem[],
+  posture: IdentityPosture,
+  view: CustomerKindFilter | "all" = "company",
+) =>
   renderToStaticMarkup(
     <PayerList
       payers={payers}
       basePath="/companies"
       emptyMessage="No companies registered yet."
       posture={posture}
+      kind={view === "all" ? undefined : view}
     />,
   );
 
-/** The cells of the first body row, in order. */
+/**
+ * The DATA cells of the first body row, in order — the row link's end chevron (an aria-hidden
+ * cell with no header of its own, A4) is decoration, not a column.
+ */
 function firstRowCells(html: string): string[] {
   const body = html.slice(html.indexOf("<tbody>"));
-  return body.slice(0, body.indexOf("</tr>")).split("<td").slice(1);
+  return body
+    .slice(0, body.indexOf("</tr>"))
+    .split("<td")
+    .slice(1)
+    .filter((cell) => !cell.startsWith(' class="grid__end"'));
 }
 
 describe("the named posture", () => {
   it("renders an Organisation column, before the id", async () => {
     const out = render([NAMED], "named");
-    expect(out).toContain('<th scope="col">Organisation</th>');
+    expect(columnHeaders(out)[0]).toBe("Organisation");
     expect(out).toContain("Acme Fabrication Pvt Ltd");
-    expect(out.indexOf("Acme Fabrication")).toBeLessThan(out.indexOf(PAYER_ID));
+    expect(out.indexOf("Acme Fabrication")).toBeLessThan(out.indexOf(`title="${PAYER_ID}"`));
   });
 
   it("heads the id column Customer — never Account (owner ruling 2026-10-01; sweep AW-12)", () => {
     const out = render([NAMED], "named");
-    expect(out).toContain('<th scope="col">Customer</th>');
+    expect(columnHeaders(out)).toContain("Customer");
     expect(out).toContain('<caption class="sr-only">Customers, newest first</caption>');
-    expect(out).not.toContain('<th scope="col">Account</th>');
+    expect(columnHeaders(out)).not.toContain("Account");
   });
 
-  it("keeps the id link, which is where the detail page and the spine are reached", () => {
+  it("links the row through the organisation's NAME, and keeps the id beside it", () => {
+    // Since A4 the row's one link is its name, stretched over the row — the detail page and the
+    // spine are reached from anywhere on it. The id stays a cell of its own, its full value in
+    // its title.
     const out = render([NAMED], "named");
-    expect(out).toContain(`href="/companies/${PAYER_ID}"`);
-    expect(out).toContain(`title="${PAYER_ID}"`);
+    expect(out).toMatch(
+      new RegExp(`<a class="grid__link" href="/companies/${PAYER_ID}"><span class="grid__link-text" title="Acme Fabrication Pvt Ltd">`),
+    );
+    expect(out).toContain(`<span class="mono" title="${PAYER_ID}">`);
   });
 
   it("dashes an account whose organisation name did not come back", () => {
@@ -85,16 +106,45 @@ describe("the named posture", () => {
     // The off-by-one-column failure: every value after the missing cell shifts left, so
     // Registered reads as Status and the table still looks fine.
     const out = render([NAMED, UNNAMED], "named");
-    const headers = (out.match(/<th scope="col">/g) ?? []).length;
+    const headers = columnHeaders(out).length;
     expect(headers).toBe(5);
     expect(firstRowCells(out)).toHaveLength(headers);
   });
 
-  it("uses the basePath it was given, so agency links stay in the agency section", () => {
-    const out = renderToStaticMarkup(
-      <PayerList payers={[NAMED]} basePath="/agencies" emptyMessage="x" posture="named" />,
-    );
-    expect(out).toContain(`href="/agencies/${PAYER_ID}"`);
+  it("opens an agency in the one customers section too — never the retired /agencies", () => {
+    // Since A6 a Company and an Agency share Directory › Companies; /agencies only redirects.
+    const out = render([AGENCY], "named", "agency");
+    expect(out).toContain(`href="/companies/${AGENCY.id}"`);
+    expect(out).not.toContain("/agencies");
+  });
+});
+
+/**
+ * THE KIND COLUMN (A6 follow-up, after A4's grid). The All view mixes Companies and Agencies, so each
+ * row names its kind — the stored role in the console's words; a Kind-filtered view has one kind,
+ * which the page's header says, and no column repeating it on every row.
+ */
+describe("the Kind column", () => {
+  it("is drawn in the All view, after the id, naming each row's kind", () => {
+    const out = render([NAMED, AGENCY], "named", "all");
+    const headers = columnHeaders(out);
+    expect(headers).toEqual(["Organisation", "Customer", "Kind", "Status", "Registered", "Last updated"]);
+    expect(firstRowCells(out)).toHaveLength(headers.length);
+    const kindCell = (html: string) => firstRowCells(html)[2];
+    expect(kindCell(out)).toContain(">Company</td>");
+    expect(kindCell(render([AGENCY, NAMED], "named", "all"))).toContain(">Agency</td>");
+  });
+
+  it("names the stored role, never the role's raw value", () => {
+    const out = render([AGENCY], "faceless", "all");
+    expect(columnHeaders(out)).toEqual(["Customer", "Kind", "Status", "Registered", "Last updated"]);
+    expect(out).toContain(">Agency</td>");
+    expect(out).not.toContain(">agent<");
+  });
+
+  it.each(["company", "agency"] as const)("is not drawn in the %s view", (kind) => {
+    expect(columnHeaders(render([NAMED], "named", kind))).not.toContain("Kind");
+    expect(columnHeaders(render([FACELESS], "faceless", kind))).not.toContain("Kind");
   });
 });
 
@@ -107,7 +157,7 @@ describe("the faceless posture", () => {
 
   it("is the pre-ruling table, unchanged", () => {
     const out = render([FACELESS], "faceless");
-    const headers = (out.match(/<th scope="col">/g) ?? []).length;
+    const headers = columnHeaders(out).length;
     expect(headers).toBe(4);
     expect(firstRowCells(out)).toHaveLength(4);
     expect(out).toContain(`href="/companies/${PAYER_ID}"`);

@@ -1,6 +1,9 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
+import { columnHeaders } from "../../../../test/grid-markup";
 import type * as EntitiesModule from "../../../lib/entities";
+import type * as RowActionsModule from "./admin-row-actions";
+import { shortId } from "../../../lib/format";
 
 /**
  * The admin directory under the name ruling — the surface where the dash is the ORDINARY case.
@@ -41,8 +44,15 @@ vi.mock("../../../lib/entities", async (importOriginal) => ({
 }));
 
 // Client Components (useState / useTransition), stubbed so the page renders in this harness.
-vi.mock("./invite-admin-form", () => ({ InviteAdminForm: () => null }));
+// The header's Create / Invite dialogs (A5, #2575) render their trigger buttons only — the dialog
+// itself is closed until clicked (admin-access-dialogs.render.test.tsx covers it).
+vi.mock("./admin-access-dialogs", () => ({
+  CreateAdminDialog: () => <button className="btn btn--primary">Create an admin</button>,
+  InviteAdminDialog: () => <button className="btn btn--ghost">Invite an admin</button>,
+}));
 vi.mock("./admin-row-actions", () => ({ AdminRowActions: () => null }));
+// The real row actions are rendered on their own below (`vi.importActual`); they refresh on settle.
+vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: () => undefined }) }));
 
 const { default: AdminsPage } = await import("./page");
 const { AdminRequestError } = await import("../../../lib/admin-http");
@@ -81,9 +91,29 @@ function firstRowCells(html: string): string[] {
 describe("a super_admin, who holds read_identity", () => {
   it("renders the name column first, and keeps the id behind it", async () => {
     const out = await render();
-    expect(out).toContain('<th scope="col">Name</th>');
+    expect(columnHeaders(out)[0]).toBe("Name");
     expect(out).toContain("Divyanshu Sharma");
-    expect(out).toContain(`<span class="mono" title="${ADMIN_ID}">aaaaaaaa…</span>`);
+    expect(out).toContain(`<span class="mono" title="${ADMIN_ID}">aaaa…0001</span>`);
+    // The full id is one click from the clipboard (#2572).
+    expect(out).toContain('aria-label="Copy admin id"');
+  });
+
+  it("names a row's controls by the same short id the row shows (#2572)", async () => {
+    // A screen reader hears "Suspend admin aaaa…0001" beside a row whose id reads the same —
+    // never a hand-rolled prefix ("aaaaaaaa…") that the row no longer shows.
+    const { AdminRowActions } =
+      await vi.importActual<typeof RowActionsModule>("./admin-row-actions");
+    const handle = shortId(ADMIN_ID);
+    expect(await render()).toContain(`<span class="mono" title="${ADMIN_ID}">${handle}</span>`);
+    const controls = renderToStaticMarkup(
+      <AdminRowActions
+        admin={{ id: ADMIN_ID, role: "ops_admin", status: "active", is_self: false }}
+        mayReadEvents={false}
+      />,
+    );
+    expect(controls).toContain(`<span class="sr-only">New role for admin ${handle}</span>`);
+    expect(controls).toContain(`Suspend</span><span class="sr-only"> admin ${handle}</span>`);
+    expect(controls).not.toContain("aaaaaaaa…");
   });
 
   it("does not link a row's id to EVERY admin's events (owner brief 2026-10-01)", async () => {
@@ -103,7 +133,7 @@ describe("a super_admin, who holds read_identity", () => {
   it("keeps header and row widths in step", async () => {
     stub.directory = { admins: [NAMED, UNNAMED], active_super_admins: 2 };
     const out = await render();
-    const headers = (out.match(/<th scope="col">/g) ?? []).length;
+    const headers = columnHeaders(out).length;
     expect(headers).toBe(8);
     expect(firstRowCells(out)).toHaveLength(headers);
   });
@@ -163,7 +193,7 @@ describe("the capped posture on the one unpaginated route", () => {
 
   it("hides the Name column rather than dashing it", async () => {
     const out = await render();
-    expect(out).not.toContain('<th scope="col">Name</th>');
+    expect(columnHeaders(out)).not.toContain("Name");
     expect(out).not.toContain("No name on record");
   });
 
@@ -197,11 +227,18 @@ describe("a directory read that failed", () => {
 });
 
 describe("the header (owner ruling 2026-10-01)", () => {
-  it("puts the page's own action first: Invite an admin, to the form at the foot", async () => {
+  it("puts the page's own actions first: Create (primary), then Invite, each opening a dialog", async () => {
+    // ADR-0060 A6: creating with a temporary password works with no email delivery configured,
+    // which an invite link does not — so it is the primary action, and inviting stays beside it.
     stub.capabilities = ["manage_admins", "read_events"];
     const out = await render();
     const actions = out.slice(out.indexOf('<div class="page__actions">'));
-    expect(actions).toContain('href="#ad-invite"');
+    expect(actions).toContain('<button class="btn btn--primary">Create an admin</button>');
+    expect(actions).toContain('<button class="btn btn--ghost">Invite an admin</button>');
+    // A5 (#2575): the forms open in dialogs, not as panels at the foot the header links down to.
+    expect(out).not.toContain('href="#ad-create"');
+    expect(out).not.toContain('href="#ad-invite"');
+    expect(actions.indexOf("Create an admin")).toBeLessThan(actions.indexOf("Invite an admin"));
     expect(actions.indexOf("Invite an admin")).toBeLessThan(
       actions.indexOf("View all admin actions"),
     );
@@ -242,7 +279,7 @@ describe("the role chips keep a status narrowing (owner brief 2026-10-01)", () =
 
 /** The href of the link whose visible label (after any glyph) is exactly `label`. */
 const hrefOf = (out: string, label: string) =>
-  [...out.matchAll(/href="([^"]*)">(?:<i [^>]*><\/i>)?([^<]*)<\/a>/g)].find((m) => m[2] === label)?.[1];
+  [...out.matchAll(/href="([^"]*)">(?:<i [^>]*><\/i>)?([^<]*)(?:<span class="nav-pending" aria-hidden="true"><\/span>)?<\/a>/g)].find((m) => m[2] === label)?.[1];
 
 /**
  * A failed directory read, by the console's one rule (final re-sweep O-3). The directory is

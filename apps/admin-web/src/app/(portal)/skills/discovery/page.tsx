@@ -1,4 +1,5 @@
 import Link from "next/link";
+import type { ReactNode } from "react";
 import { requireCapability } from "../../../../lib/auth";
 import { isAdminRequestError } from "../../../../lib/admin-http";
 import {
@@ -23,11 +24,20 @@ import {
   basisMarkerLabel,
   type AdminSkillReviewTier,
 } from "../../../../lib/skill-discovery-vocabulary";
-import { formatCount, formatRelative, formatTimestamp, shortId } from "../../../../lib/format";
+import {
+  formatCount,
+  formatRelative,
+  formatTimestamp,
+  shortId,
+  timestampTitle,
+} from "../../../../lib/format";
 import { StatusPill } from "../../../../components/status-pill";
 import { Pager } from "../../../../components/pager";
 import { Stat } from "../../../../components/stat";
 import { PageHeader } from "../../../../components/page-header";
+import { DataGrid, type GridColumn, type GridSort } from "../../../../components/data-grid";
+import { NavPendingCue } from "../../../../components/nav-pending";
+import { AboutData } from "../../../../components/about-data";
 import {
   CURSOR_REFUSAL,
   FirstPageLink,
@@ -291,18 +301,29 @@ export default async function SkillDiscoveryPage({
     view === "grouped" && groupSort !== "candidates" ? groupSort : undefined,
   ].filter(Boolean).length;
 
-  // THE QUEUE COMES FIRST (final sweep AW-02, owner requirement 21). The first batch sat 2325px
-  // below the top of <main> at 375 and 1153px at 1280 — nine metric tiles, the panel's sub-line,
-  // three chip rows, the tier caption and a ten-field form came before it (measured). Now the
-  // queue panel leads; inside it only the status scope and the tier tabs stay out (tier
-  // sequencing must be VISIBLE, AC#11), every other narrowing control is one disclosure, the
-  // standing explanations are the foot notes after the results, and the metrics follow the panel.
+  // THE QUEUE STAYS NEAR THE TOP (final sweep AW-02, owner requirement 21). The first batch sat
+  // 2325px below the top of <main> at 375 and 1153px at 1280 — nine metric tiles, the panel's
+  // sub-line, three chip rows, the tier caption and a ten-field form came before it (measured).
+  // A3 (#2573): the KPIs lead again, but as ONE compact summary bar of five headline counts; the
+  // decided-outcome tiles and the captions fold into its "About this data". Inside the queue
+  // panel only the status scope and the tier segmented control stay out (tier sequencing must be
+  // VISIBLE, AC#11), every other narrowing control is one disclosure, and the standing
+  // explanations are the foot notes after the results.
   return (
     <div className="page">
       <PageHeader
         title="Skill discovery"
-        description="AI-surfaced claims that the skill taxonomy may be missing something — each a claim, never a skill: an approval only records a decision, and the corpus write stays in the offline, gated chain."
+        description="AI-surfaced claims that the skill taxonomy may be missing something."
+        info={
+          <p>
+            Each is a claim, never a skill: an approval only records a decision, and the corpus
+            write stays in the offline, gated chain.
+          </p>
+        }
       />
+
+      {/* The KPI summary bar, above the queue it summarises (A3, #2573). */}
+      <MetricsTiles metrics={metrics} />
 
       <section className="panel" aria-labelledby="sd-queue" aria-live="polite">
         <div className="panel__head panel__head--row">
@@ -341,10 +362,10 @@ export default async function SkillDiscoveryPage({
             ))}
           </div>
 
-          {/* ── tier tabs — sequencing is VISIBLE, never a silent default filter ──────────
-              The Derived tab says it is sequenced behind Direct in its own label; the full reason
-              is a standing note, in the foot notes after the results. */}
-          <div className="filters--inline" role="group" aria-label="Review tier">
+          {/* ── tier segmented control — sequencing is VISIBLE, never a silent default filter ─
+              The Derived segment says it is sequenced behind Direct in its own label; the full
+              reason is a standing note, in the foot notes after the results. */}
+          <div className="segmented" role="group" aria-label="Review tier">
             <FilterChip selected={activeTier === "all"} href={tierTabHref("all")} cursor={cursor}>
               All tiers
             </FilterChip>
@@ -456,6 +477,7 @@ export default async function SkillDiscoveryPage({
                   <Link className="btn btn--ghost" href="/skills/discovery">
                     <Icon name={ACTION_ICON.clearFilters} />
                     Clear filters
+                    <NavPendingCue message="Clearing the filters…" />
                   </Link>
                 )}
               </div>
@@ -480,17 +502,25 @@ export default async function SkillDiscoveryPage({
         ) : view === "grouped" && groupsResult ? (
           <GroupedQueue groups={groupsResult.groups} sort={groupSort} />
         ) : view === "flat" && page ? (
-          <FlatQueue items={page.items} />
-        ) : null}
-
-        {view === "flat" && page && (
-          <Pager
-            basePath="/skills/discovery"
-            params={carry}
-            nextCursor={page.nextCursor}
-            note="Server-paged with a keyset cursor — this view never loads the whole queue at once."
+          <FlatQueue
+            items={page.items}
+            /* The header's link is the queue the other way round, from its first page. */
+            sort={
+              sort === "oldest"
+                ? { href: listHref({ sort: undefined }), direction: "ascending", label: "show newest first" }
+                : { href: listHref({ sort: "oldest" }), direction: "descending", label: "show oldest first" }
+            }
+            pager={
+              <Pager
+                basePath="/skills/discovery"
+                params={carry}
+                cursor={cursor}
+                nextCursor={page.nextCursor}
+                note="Server-paged with a keyset cursor — this view never loads the whole queue at once."
+              />
+            }
           />
-        )}
+        ) : null}
 
         {/* The queue's standing notes, after its results: the exhaustive totals and the grouping
             marker (grouped only), what this view is, and why Derived is sequenced behind Direct —
@@ -520,9 +550,6 @@ export default async function SkillDiscoveryPage({
           <p className="field__help">{DERIVED_TIER_SEQUENCING_REASON}</p>
         </div>
       </section>
-
-      {/* The queue's metrics, after the queue they describe (AW-02). */}
-      <MetricsTiles metrics={metrics} />
     </div>
   );
 }
@@ -569,7 +596,7 @@ function resolveStatusScope(
 
 /**
  * One section, named for assistive tech the way the credits and transactions stat blocks are:
- * the two tile rows and their captions are ONE block with its own tighter rhythm, not four loose
+ * the summary bar and its "About this data" are ONE block with its own tighter rhythm, not loose
  * page children each a full page gap apart (and the error state's h3 now sits under an h2).
  */
 function MetricsTiles({ metrics }: { metrics: SkillDiscoveryMetrics | null }) {
@@ -582,7 +609,7 @@ function MetricsTiles({ metrics }: { metrics: SkillDiscoveryMetrics | null }) {
         <div className="state state--error">
           <h3 className="state__title">Queue metrics are unavailable</h3>
           <p className="state__body">
-            The metrics read failed. The queue above is a separate read and may still work.
+            The metrics read failed. The queue below is a separate read and may still work.
           </p>
         </div>
       ) : (
@@ -598,7 +625,8 @@ function MetricsBody({ metrics }: { metrics: SkillDiscoveryMetrics }) {
 
   return (
     <>
-      <div className="stats">
+      {/* The summary bar: one compact row of the counts a reviewer acts on. */}
+      <div className="stats stats--compact">
         <Stat label="Awaiting decision" value={formatCount(metrics.awaiting_decision)} />
         <Stat label={ADMIN_SKILL_REVIEW_TIER_LABELS.direct} value={formatCount(byTier("direct"))} />
         <Stat
@@ -609,28 +637,30 @@ function MetricsBody({ metrics }: { metrics: SkillDiscoveryMetrics }) {
           label={ADMIN_SKILL_REVIEW_TIER_LABELS.derived}
           value={formatCount(byTier("derived"))}
         />
-      </div>
-      <div className="stats stats--compact">
-        <Stat label="New skill" value={formatCount(byStatus("approved_create"))} />
-        <Stat label="Added as alias" value={formatCount(byStatus("approved_map"))} />
-        <Stat label="Merged" value={formatCount(byStatus("approved_merge"))} />
-        <Stat label="Rejected" value={formatCount(byStatus("rejected"))} />
         <Stat label="On hold" value={formatCount(metrics.deferred)} />
       </div>
-      <div className="queue-notes">
-        <p className="field__help">
-          {formatCount(metrics.total)} candidates in total.{" "}
-          {metrics.oldest_awaiting_created_at
-            ? `Oldest still awaiting a decision: ${formatRelative(metrics.oldest_awaiting_created_at)} (${formatTimestamp(metrics.oldest_awaiting_created_at)}).`
-            : "Nothing is currently awaiting a decision."}
-        </p>
-        {/*
-         * `tier_basis`, rendered beside the three tier counts it qualifies (#1280, correction 3).
-         * The tiles look like counts of a stored column and are not — the tier is recomputed on
-         * every read from the phrase class and whether a strong match exists.
-         */}
-        <p className="field__help">{basisMarkerLabel(metrics.tier_basis)}</p>
-      </div>
+      <AboutData>
+        <div className="stats stats--compact">
+          <Stat label="New skill" value={formatCount(byStatus("approved_create"))} />
+          <Stat label="Added as alias" value={formatCount(byStatus("approved_map"))} />
+          <Stat label="Merged" value={formatCount(byStatus("approved_merge"))} />
+          <Stat label="Rejected" value={formatCount(byStatus("rejected"))} />
+        </div>
+        <div className="queue-notes">
+          <p className="field__help">
+            {formatCount(metrics.total)} candidates in total.{" "}
+            {metrics.oldest_awaiting_created_at
+              ? `Oldest still awaiting a decision: ${formatRelative(metrics.oldest_awaiting_created_at)} (${formatTimestamp(metrics.oldest_awaiting_created_at)}).`
+              : "Nothing is currently awaiting a decision."}
+          </p>
+          {/*
+           * `tier_basis`, rendered beside the three tier counts it qualifies (#1280, correction 3).
+           * The tiles look like counts of a stored column and are not — the tier is recomputed on
+           * every read from the phrase class and whether a strong match exists.
+           */}
+          <p className="field__help">{basisMarkerLabel(metrics.tier_basis)}</p>
+        </div>
+      </AboutData>
     </>
   );
 }
@@ -653,9 +683,9 @@ function EmptyQueueState({
       <div className="state">
         <h3 className="state__title">No discovery run has ever been persisted</h3>
         <p className="state__body">
-          This is an operations state, not an empty result: the `skill_candidate` table itself
-          has nothing in it. A discovery run is an offline `packages/db` CLI step, outside this
-          console — see `docs/operations/skill-discovery-activation-plan.md` for how to run one.
+          This is an operations state, not an empty result: no skill candidate has ever been
+          stored. A discovery run is an offline step outside this console — the skill-discovery
+          activation plan says how to run one.
         </p>
       </div>
     );
@@ -682,6 +712,7 @@ function EmptyQueueState({
         <Link className="btn btn--ghost" href="/skills/discovery">
           <Icon name={ACTION_ICON.clearFilters} />
           Clear filters
+          <NavPendingCue message="Clearing the filters…" />
         </Link>
       </div>
     </div>
@@ -787,58 +818,97 @@ function GroupedQueue({
   );
 }
 
-function FlatQueue({ items }: { items: SkillDiscoveryListItem[] }) {
-  return (
-    <div className="tablewrap">
-      <table className="table">
-        <caption className="sr-only">Skill discovery candidates</caption>
-        <thead>
-          <tr>
-            <th scope="col">When</th>
-            <th scope="col">Phrase</th>
-            <th scope="col">Proposed</th>
-            <th scope="col">Suggested action</th>
-            <th scope="col">Trade family</th>
-            <th scope="col">Tier</th>
-            <th scope="col">Band</th>
-            <th scope="col">Status</th>
-          </tr>
-        </thead>
-        <tbody>
-          {items.map((item) => (
-            <FlatRow key={item.id} item={item} />
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-function FlatRow({ item }: { item: SkillDiscoveryListItem }) {
-  return (
-    <tr>
-      <td>
-        <time dateTime={item.created_at} title={formatTimestamp(item.created_at)}>
+/**
+ * The flat queue on the data grid (A4, #2574): one row per candidate, a row opening its decision
+ * screen. Its "When" header is the queue's real order — the API's `sort=newest|oldest` — so it is
+ * the one sortable header here; a column the API cannot order by is never offered as one.
+ */
+function FlatQueue({
+  items,
+  sort,
+  pager,
+}: {
+  items: SkillDiscoveryListItem[];
+  sort: GridSort;
+  pager: ReactNode;
+}) {
+  const columns: GridColumn<SkillDiscoveryListItem>[] = [
+    {
+      id: "when",
+      header: "When",
+      width: "date",
+      sort,
+      cell: (item) => (
+        <time dateTime={item.created_at} title={timestampTitle(item.created_at)}>
           {formatRelative(item.created_at)}
         </time>
-      </td>
-      <td>
-        <Link className="link" href={`/skills/discovery/${item.id}`}>
-          {item.normalized_phrase}
-        </Link>
-      </td>
-      <td className="table__meta">{item.proposed_skill_name ?? "—"}</td>
-      <td className="table__meta">{SKILL_CANDIDATE_ACTION_LABELS[item.proposed_action]}</td>
-      <td className="table__meta">{item.trade_family ?? "—"}</td>
-      <td className="table__meta">{ADMIN_SKILL_REVIEW_TIER_LABELS[item.review_tier]}</td>
-      <td className="table__meta">{item.confidence_band}</td>
-      <td>
+      ),
+    },
+    {
+      id: "phrase",
+      header: "Phrase",
+      cell: (item) => item.normalized_phrase,
+      title: (item) => item.normalized_phrase,
+    },
+    {
+      id: "proposed",
+      header: "Proposed",
+      className: "table__meta",
+      cell: (item) => item.proposed_skill_name ?? "—",
+      title: (item) => item.proposed_skill_name ?? undefined,
+    },
+    {
+      id: "action",
+      header: "Suggested action",
+      width: "short",
+      text: "truncate",
+      className: "table__meta",
+      cell: (item) => SKILL_CANDIDATE_ACTION_LABELS[item.proposed_action],
+      title: (item) => SKILL_CANDIDATE_ACTION_LABELS[item.proposed_action],
+    },
+    {
+      id: "family",
+      header: "Trade family",
+      className: "table__meta",
+      cell: (item) => item.trade_family ?? "—",
+      title: (item) => item.trade_family ?? undefined,
+    },
+    {
+      id: "tier",
+      header: "Tier",
+      width: "short",
+      text: "truncate",
+      className: "table__meta",
+      cell: (item) => ADMIN_SKILL_REVIEW_TIER_LABELS[item.review_tier],
+      title: (item) => ADMIN_SKILL_REVIEW_TIER_LABELS[item.review_tier],
+    },
+    { id: "band", header: "Band", width: "number", className: "table__meta", cell: (item) => item.confidence_band },
+    {
+      id: "status",
+      header: "Status",
+      width: "short",
+      cell: (item) => (
         <StatusPill
           value={item.status}
           label={SKILL_CANDIDATE_STATUS_LABELS[item.status]}
           tone={SKILL_CANDIDATE_STATUS_TONE[item.status]}
         />
-      </td>
-    </tr>
+      ),
+    },
+  ];
+  return (
+    <DataGrid
+      id="skill-discovery"
+      caption="Skill discovery candidates"
+      columns={columns}
+      rows={items}
+      rowKey={(item) => item.id}
+      rowLink={{
+        column: "phrase",
+        href: (item) => `/skills/discovery/${item.id}`,
+        name: (item) => item.normalized_phrase,
+      }}
+      pager={pager}
+    />
   );
 }

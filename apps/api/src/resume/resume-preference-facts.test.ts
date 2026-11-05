@@ -159,6 +159,71 @@ describe("the form's answers reach the sheet (R6 §4)", () => {
 });
 
 /**
+ * WHEN HE CAN START, ON EVERY SHEET: the worker's own form answer outranks the interview's on both
+ * branches (`worker-field-precedence.ts`, AVAILABILITY), and the header states it in days (owner
+ * ruling 2026-11-04). The row keeps its wording; the two always name the same start.
+ */
+describe("availability reaches the row and the header — form first, in days", () => {
+  const NOON_IST = new Date("2026-11-04T06:30:00Z");
+  const CONTAINER = (availability: string) => ({
+    resume_profile: { role_label: "CNC Turner", availability },
+  });
+  const render = (snapshot: unknown, attributes: Record<string, unknown> = {}) =>
+    buildResumeRenderInput(snapshot, null, "bb_trade.v2", null, false, "worker", {
+      ...sheet(attributes),
+      asOf: NOON_IST,
+    });
+
+  it("the form's answer wins over the interview's on the LEGACY branch", () => {
+    const input = render(
+      { availability: { status: "immediate" } },
+      { availability: { status: "within_week" } },
+    );
+    expect(rowValue(input.availFactRows, "Available from")).toBe("Within a week");
+    expect(input.subheadLine).toBe("available in 7 days");
+  });
+
+  it("the form's answer wins over the container's word", () => {
+    const input = render(CONTAINER("immediate"), {
+      availability: { status: "serving_notice", notice_period_days: 45 },
+    });
+    expect(rowValue(input.availFactRows, "Available from")).toBe("Serving notice (45 days)");
+    expect(input.subheadLine).toContain("available in 45 days");
+  });
+
+  it("within a month is 30 days; a date already reached is immediate", () => {
+    expect(render({}, { availability: { status: "within_month" } }).subheadLine).toBe(
+      "available in 30 days",
+    );
+    expect(render({}, { availability: { available_from: "2026-11-01" } }).subheadLine).toBe(
+      "available immediately",
+    );
+  });
+
+  it("a form date still ahead prints as a date", () => {
+    const input = render({}, { availability: { available_from: "2026-11-12" } });
+    expect(rowValue(input.availFactRows, "Available from")).toBe("From 12 Nov 2026");
+    expect(input.subheadLine).toBe("available from 12 Nov 2026");
+  });
+
+  it("with no form answer the interview's prints, a month as 30 days", () => {
+    const container = render(CONTAINER("1_month"));
+    expect(rowValue(container.availFactRows, "Available from")).toBe("1 month");
+    expect(container.subheadLine).toContain("available in 30 days");
+
+    const legacy = render({ availability: { status: "notice_period", notice_period_days: 15 } });
+    expect(rowValue(legacy.availFactRows, "Available from")).toBe("15 days");
+    expect(legacy.subheadLine).toBe("available in 15 days");
+  });
+
+  it("nothing stated anywhere: no row and no segment", () => {
+    const input = render({});
+    expect(rowValue(input.availFactRows, "Available from")).toBeUndefined();
+    expect(input.subheadLine ?? null).toBeNull();
+  });
+});
+
+/**
  * ADR-0045 §3.4 — THE GENERAL ROAD'S "Available from" ROW, phrased for a page read LATER than it
  * was written: the employer copy renders live, possibly months after the answer. The rules are the
  * owner's (2026-09-27), first match wins.

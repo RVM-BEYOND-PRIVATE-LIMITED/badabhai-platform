@@ -1,5 +1,6 @@
 import type { AiCostSummary } from "../lib/dashboard";
 import {
+  basisInline,
   capBreachReasonLabel,
   describeAiCostBasis,
   describeAiCostCaveat,
@@ -10,8 +11,12 @@ import {
   providerNote,
   taskTypeLabel,
 } from "../lib/ai-cost";
-import { formatCount, formatExactRupees, formatTimestamp } from "../lib/format";
+import { formatCount, formatDisplayRupees, formatExactRupees } from "../lib/format";
+import { Timestamp } from "./timestamp";
 import { Stat } from "./stat";
+import { InfoPopover } from "./info-popover";
+import { AboutData } from "./about-data";
+import { PanelSection } from "./panel-section";
 
 /**
  * Platform AI spend — total, by provider, by task type, and the cap breaches in the window.
@@ -67,6 +72,22 @@ import { Stat } from "./stat";
  * this block's tiles are dated from the former, and `describeCostPerProfile` returns `absent`
  * for the nothing-accrued state — which is what keeps rule 2 above absolute here too, and what
  * stops a ₹0.00 average from rendering on a platform whose only spend so far is résumés.
+ *
+ * ══ ONE BASIS, STATED ONCE (A2, #2572) ═══════════════════════════════════════════════════
+ * Rule 1 used to be held by repeating "since <date>" in every ₹ label and in a yellow banner —
+ * three copies of one fact, which read as alarm. The basis is now ONE chip at the head of the
+ * section ("Since 19 Aug 2026 ⓘ") that every figure below sits under, with the detail behind
+ * its ⓘ. The per-profile block carries its own chip ONLY when its bound differs from the
+ * section's, so a figure is still never shown under a window it does not have. The real-call
+ * share is a neutral fact, not a permanent warning. Spend on deleted accounts (#2554) is its
+ * own figure.
+ *
+ * ══ LESS TEXT (A3, #2573) ═══════════════════════════════════════════════════════════════
+ * The panel carried ~350 words of caveats in band. The CLAIMS stay on screen — the basis
+ * headline in its warn banner, the date in every ₹ label, the per-profile basis headline, the
+ * breach scope beside its count, and any self-contradiction warning — while the explanations
+ * behind them sit one click away: the basis detail behind the banner's ⓘ, the per-profile
+ * mechanics and the real-vs-test totals in that block's "About this data".
  */
 export function AiSpendPanel({ cost }: { cost: AiCostSummary }) {
   const basis = describeAiCostBasis(cost);
@@ -75,6 +96,13 @@ export function AiSpendPanel({ cost }: { cost: AiCostSummary }) {
   const perProfile = cost.per_profile;
   const perProfileState = describeCostPerProfile(cost);
   const testSplit = perProfileState.kind === "measured" ? perProfileState.view.testSplit : null;
+  const sectionWindow = basisInline(basis.headline);
+  // The per-profile block shares the section's chip unless its own bound differs (rule 5 in
+  // `describeCostPerProfile`): then it carries its own, so no figure sits under the wrong one.
+  const perProfileOwnWindow =
+    perProfileState.kind === "measured" && perProfileState.view.windowLabel !== sectionWindow
+      ? perProfileState.view.windowLabel
+      : null;
 
   return (
     <section className="panel" aria-labelledby="ai-spend-heading">
@@ -83,54 +111,60 @@ export function AiSpendPanel({ cost }: { cost: AiCostSummary }) {
           AI spend
         </h2>
         <p className="panel__sub">
-          What the platform has paid providers, split by who was called and what for.{" "}
-          {basis.headline}.
+          What the platform has paid providers, split by who was called and what for.
         </p>
       </div>
 
-      {/* The basis rides ABOVE the numbers and is never collapsible: a partial figure
-          presented as authoritative is the defect this whole block was built to prevent. */}
-      <p className="notice notice--warn" role="note">
-        <strong>{basis.headline}.</strong> {basis.detail} {describeAiCostCaveat(cost.caveat)}
-      </p>
-
-      {measured ? null : (
-        <div className="state">
-          <h3 className="state__title">Nothing has accrued yet</h3>
-          <p className="state__body">{basis.detail}</p>
+      {/* THE BASIS, ONCE (#2572): one chip above every figure in the section, never
+          collapsible, with its explanation one click away behind the ⓘ. It opens the first
+          PanelSection (A1, #2571), so every block below it sits under it. */}
+      <PanelSection>
+        <div className="spend-basis" role="note">
+          <span className="spend-basis__chip">{basis.headline}</span>
+          <InfoPopover label="About this spend basis">
+            <p>
+              {basis.detail} {describeAiCostCaveat(cost.caveat)}
+            </p>
+          </InfoPopover>
         </div>
-      )}
 
-      <div className="stats">
-        {measured ? (
-          <>
-            <Stat
-              /* The "since" is IN THE LABEL. A tile reading "Total AI spend" would be a
-                 different, wrong claim the moment it left this page. */
-              label={`Spend recorded ${basis.headline.toLowerCase()}`}
-              value={formatExactRupees(cost.total_cost_inr)}
-              /* Six exact places — a half-width phone tile would split it mid-number. */
-              wide
-            />
-            <Stat label="Calls recorded" value={formatCount(cost.total_calls)} />
-            <Stat
-              label="…that reached a real provider"
-              value={formatCount(cost.real_calls)}
-              /* Fewer real calls than recorded ones means part of this spend is the MOCK
-                 posture. Not broken — but not real money either, and a console that cannot
-                 tell them apart is how a mocked staging figure gets quoted as production. */
-              tone={cost.real_calls < cost.total_calls ? "warn" : undefined}
-            />
-          </>
-        ) : null}
-        {/* OUTSIDE `measured` — see rule 2. This count is off the event spine, so it stands
-            whether or not the cost table has ever been written to. */}
-        <Stat
-          label={`Cap breaches (last ${breaches.window_days} days)`}
-          value={formatCount(breaches.total)}
-          tone={breaches.total > 0 ? "warn" : undefined}
-        />
-      </div>
+        {measured ? null : (
+          <div className="state">
+            <h3 className="state__title">Nothing has accrued yet</h3>
+            <p className="state__body">{basis.detail}</p>
+          </div>
+        )}
+
+        <div className="stats">
+          {measured ? (
+            <>
+              <Stat
+                /* Under the section chip above — "Spend recorded", not "Total AI spend". */
+                label="Spend recorded"
+                value={formatDisplayRupees(cost.total_cost_inr)}
+                valueTitle={formatExactRupees(cost.total_cost_inr)}
+                countUp={{ to: Number(cost.total_cost_inr), kind: "rupees" }}
+                wide
+              />
+              <Stat
+                /* NEUTRAL, not a warning (#2572). The share of calls that reached a real
+                   provider is a fact about the posture; the rest were mocked. A dependency
+                   that is actually simulated is announced once, in Needs attention. */
+                label="Real-provider calls"
+                value={realCallsText(cost.real_calls, cost.total_calls)}
+              />
+            </>
+          ) : null}
+          {/* OUTSIDE `measured` — see rule 2. This count is off the event spine, so it stands
+              whether or not the cost table has ever been written to. */}
+          <Stat
+            label={`Cap breaches (last ${breaches.window_days} days)`}
+            value={formatCount(breaches.total)}
+            countUp={{ to: breaches.total, kind: "count" }}
+            tone={breaches.total > 0 ? "warn" : undefined}
+          />
+        </div>
+      </PanelSection>
 
       {/* ── WHAT A FINISHED PROFILE COSTS ────────────────────────────────────────────────
           Sits directly ABOVE "By task type" on purpose: the numerator is some of that
@@ -140,29 +174,27 @@ export function AiSpendPanel({ cost }: { cost: AiCostSummary }) {
           no ratio), `unsupported` renders the version-skew sentence and no ₹ anywhere, and
           only `measured` renders figures. */}
       {perProfileState.kind === "unsupported" ? (
-        <div>
-          <h3 className="panel__title" id="ai-spend-per-profile">
-            What a finished profile costs
-          </h3>
+        <PanelSection title="What a finished profile costs" titleId="ai-spend-per-profile">
           {/* NOT SILENTLY DROPPED. An absent block is pixel-identical to "no profiling
               spend has accrued", which would be a false claim about a spending platform. */}
           <p className="notice notice--warn" role="note">
             {perProfileState.sentence}
           </p>
-        </div>
+        </PanelSection>
       ) : null}
 
       {perProfileState.kind === "measured" && perProfile ? (
-        <div>
-          <h3 className="panel__title" id="ai-spend-per-profile">
-            What a finished profile costs
-          </h3>
+        <PanelSection title="What a finished profile costs" titleId="ai-spend-per-profile">
+          {perProfileOwnWindow ? (
+            <div className="spend-basis" role="note">
+              <span className="spend-basis__chip">{basisHeadline(perProfileOwnWindow)}</span>
+            </div>
+          ) : null}
           {/* THE BASIS RIDES ABOVE THE FIGURES, exactly as it does for the section total —
               and here it is doing more work, because "cost per profile" and "cost per
               worker" are both plausible readings of the same tile and only one is true. */}
           <p className="panel__sub">
-            <strong>{perProfileState.view.basisHeadline}.</strong>{" "}
-            {perProfileState.view.basisDetail}
+            <strong>{perProfileState.view.basisHeadline}.</strong>
           </p>
 
           <div className="stats stats--compact">
@@ -171,19 +203,23 @@ export function AiSpendPanel({ cost }: { cost: AiCostSummary }) {
                 the one `windowLabel`, which is derived from this block's own bound and
                 never from the section's; see rule 5 in `describeCostPerProfile`. */}
             <Stat
-              label={`Profiling spend ${perProfileState.view.windowLabel}`}
-              value={formatExactRupees(perProfile.profiling_cost_inr)}
+              label="Profiling spend"
+              value={formatDisplayRupees(perProfile.profiling_cost_inr)}
+              valueTitle={formatExactRupees(perProfile.profiling_cost_inr)}
+              countUp={{ to: Number(perProfile.profiling_cost_inr), kind: "rupees" }}
               wide
             />
             <Stat
-              label={`Profiles completed ${perProfileState.view.windowLabel}`}
+              label="Profiles completed"
               value={formatCount(perProfile.profiles_extracted_or_confirmed)}
+              countUp={{ to: perProfile.profiles_extracted_or_confirmed, kind: "count" }}
             />
             <Stat
               label="Average per profile produced"
               /* `averageText` is either an exact ₹ amount or the ABSENCE, and `absent`
                  stops the second from being set in the KPI face like the first. */
               value={perProfileState.view.averageText}
+              valueTitle={perProfileState.view.averageExactText ?? undefined}
               absent={perProfileState.view.averageIsAbsent}
               wide
             />
@@ -194,150 +230,168 @@ export function AiSpendPanel({ cost }: { cost: AiCostSummary }) {
             {testSplit?.kind === "measured" ? (
               <>
                 <Stat
-                  label={`Real accounts — average per profile ${perProfileState.view.windowLabel}`}
+                  label="Real accounts — average per profile"
                   value={testSplit.real.averageText}
+                  valueTitle={testSplit.real.averageExactText ?? undefined}
                   absent={testSplit.real.averageIsAbsent}
                   wide
                 />
                 <Stat
-                  label={`Test accounts — average per profile ${perProfileState.view.windowLabel}`}
+                  label="Test accounts — average per profile"
                   value={testSplit.test.averageText}
+                  valueTitle={testSplit.test.averageExactText ?? undefined}
                   absent={testSplit.test.averageIsAbsent}
                   wide
                 />
+                {/* #2554: deleted and worker-less spend is its own figure, never folded into
+                    the real leg — an older API sends none, and then no tile renders. */}
+                {testSplit.deleted ? (
+                  <Stat
+                    label="Spend on deleted accounts"
+                    value={testSplit.deleted.spendText}
+                    valueTitle={testSplit.deleted.spendExactText}
+                    wide
+                  />
+                ) : null}
               </>
             ) : null}
           </div>
 
-          {/* The legs' numerators and denominators, so each average is auditable — and the
-              convergence caveat, in band, because the split is not a clean room: a test
-              account's spend before its first marked login still reads as real. */}
+          {/* Not a clean split: an older API sent none, and the sentence says so in band. */}
           {testSplit?.kind === "unsupported" ? (
             <p className="notice notice--warn" role="note">
               {testSplit.sentence}
             </p>
-          ) : testSplit?.kind === "measured" ? (
-            <p className="notice" role="note">
-              <strong>Real vs test.</strong> Real accounts recorded {testSplit.real.spendText} over{" "}
-              {formatCount(testSplit.real.profiles)} profiles ({formatCount(testSplit.real.calls)}{" "}
-              calls); test accounts recorded {testSplit.test.spendText} over{" "}
-              {formatCount(testSplit.test.profiles)} profiles ({formatCount(testSplit.test.calls)}{" "}
-              calls). {testSplit.caveatSentence} The headline average above stays blended across
-              both legs.
+          ) : null}
+
+          {/* Only reachable if the server contradicts itself about the bound, or sends one that
+              will not parse. In band and bolded, because the ratio above it is then not a ratio
+              of anything. */}
+          {perProfileState.view.windowMismatchSentence ? (
+            <p className="notice notice--warn" role="note">
+              <strong>{perProfileState.view.windowMismatchSentence}</strong>
             </p>
           ) : null}
 
-          <p
-            className={`notice${perProfileState.view.windowMismatchSentence ? " notice--warn" : ""}`}
-            role="note"
-          >
-            {perProfileState.view.scopeSentence} {perProfileState.view.completedSentence}{" "}
-            {perProfileState.view.windowSentence} {perProfileState.view.erasureSentence}
-            {perProfileState.view.sectionBoundSentence ? (
-              <> {perProfileState.view.sectionBoundSentence}</>
+          {/* The mechanics behind the figures (#2573): the basis detail, the legs' numerators
+              and denominators (so each average is auditable) with the convergence caveat, and
+              the scope, window, erasure and posture sentences. */}
+          <AboutData title="How this is computed">
+            <p>{perProfileState.view.basisDetail}</p>
+            {testSplit?.kind === "measured" ? (
+              <p>
+                <strong>Real vs test.</strong> Real accounts recorded {testSplit.real.spendText}{" "}
+                over {formatCount(testSplit.real.profiles)} profiles (
+                {formatCount(testSplit.real.calls)} calls); test accounts recorded{" "}
+                {testSplit.test.spendText} over {formatCount(testSplit.test.profiles)} profiles (
+                {formatCount(testSplit.test.calls)} calls)
+                {testSplit.deleted ? (
+                  <>
+                    ; deleted accounts and worker-less calls recorded {testSplit.deleted.spendText}{" "}
+                    over {formatCount(testSplit.deleted.profiles)} profiles (
+                    {formatCount(testSplit.deleted.calls)} calls)
+                  </>
+                ) : null}
+                . {testSplit.caveatSentence} The headline average above stays blended across
+                every leg.
+              </p>
             ) : null}
-            {perProfileState.view.averageAbsentSentence ? (
-              <> {perProfileState.view.averageAbsentSentence}</>
-            ) : null}
-            {perProfileState.view.mockPostureSentence ? (
-              <> {perProfileState.view.mockPostureSentence}</>
-            ) : null}
-            {/* Only reachable if the server contradicts itself about the bound, or sends
-                one that will not parse. Bolded because the ratio above it is then not a
-                ratio of anything. */}
-            {perProfileState.view.windowMismatchSentence ? (
-              <>
-                {" "}
-                <strong>{perProfileState.view.windowMismatchSentence}</strong>
-              </>
-            ) : null}
-          </p>
-        </div>
+            <p>
+              {perProfileState.view.scopeSentence} {perProfileState.view.completedSentence}{" "}
+              {perProfileState.view.windowSentence} {perProfileState.view.erasureSentence}
+              {perProfileState.view.sectionBoundSentence ? (
+                <> {perProfileState.view.sectionBoundSentence}</>
+              ) : null}
+              {perProfileState.view.averageAbsentSentence ? (
+                <> {perProfileState.view.averageAbsentSentence}</>
+              ) : null}
+              {perProfileState.view.mockPostureSentence ? (
+                <> {perProfileState.view.mockPostureSentence}</>
+              ) : null}
+            </p>
+          </AboutData>
+        </PanelSection>
       ) : null}
 
       {measured ? (
-        <div className="cols">
-          <div>
-            <h3 className="panel__title" id="ai-spend-provider">
-              By provider
-            </h3>
-            <p className="panel__sub">
-              The raw stored label, biggest spender first. No remapping is applied.
-            </p>
-            {cost.by_provider.length === 0 ? (
-              <p className="empty">No provider has recorded a call yet.</p>
-            ) : (
-              <ul className="funnel" aria-labelledby="ai-spend-provider">
-                {cost.by_provider.map((p) => {
-                  const note = providerNote(p.provider);
-                  return (
-                    <li className="funnel__row" key={p.provider}>
-                      <span className="funnel__label">
-                        {providerLabel(p.provider)}
-                        {note ? (
-                          <>
-                            <br />
-                            <span className="funnel__events">{note}</span>
-                          </>
-                        ) : null}
-                      </span>
+        <PanelSection>
+          <div className="cols">
+            <PanelSection title="By provider" titleId="ai-spend-provider">
+              <p className="panel__sub">
+                The raw stored label, biggest spender first. No remapping is applied.
+              </p>
+              {cost.by_provider.length === 0 ? (
+                <p className="empty">No provider has recorded a call yet.</p>
+              ) : (
+                <ul className="funnel" aria-labelledby="ai-spend-provider">
+                  {cost.by_provider.map((p) => {
+                    const note = providerNote(p.provider);
+                    return (
+                      <li className="funnel__row" key={p.provider}>
+                        <span className="funnel__label">
+                          {providerLabel(p.provider)}
+                          {note ? (
+                            <>
+                              <br />
+                              <span className="funnel__events">{note}</span>
+                            </>
+                          ) : null}
+                        </span>
+                        <span className="funnel__nums">
+                          <span
+                            className="funnel__distinct"
+                            title={formatExactRupees(p.total_cost_inr)}
+                          >
+                            {formatDisplayRupees(p.total_cost_inr)}
+                          </span>
+                          <span className="funnel__events">
+                            {formatCount(p.call_count)} calls · {formatCount(p.real_call_count)}{" "}
+                            real · since <Timestamp iso={p.first_recorded_at} dateOnly />
+                          </span>
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </PanelSection>
+
+            <PanelSection title="By task type" titleId="ai-spend-task">
+              <p className="panel__sub">
+                The other half of the cost table&rsquo;s key — and what makes the &ldquo;unknown
+                provider&rdquo; row readable.
+              </p>
+              {cost.by_task_type.length === 0 ? (
+                <p className="empty">No task type has recorded a call yet.</p>
+              ) : (
+                <ul className="funnel" aria-labelledby="ai-spend-task">
+                  {cost.by_task_type.map((t) => (
+                    <li className="funnel__row" key={t.task_type}>
+                      <span className="funnel__label">{taskTypeLabel(t.task_type)}</span>
                       <span className="funnel__nums">
-                        <span className="funnel__distinct">
-                          {formatExactRupees(p.total_cost_inr)}
+                        <span
+                          className="funnel__distinct"
+                          title={formatExactRupees(t.total_cost_inr)}
+                        >
+                          {formatDisplayRupees(t.total_cost_inr)}
                         </span>
                         <span className="funnel__events">
-                          {formatCount(p.call_count)} calls · {formatCount(p.real_call_count)} real
-                          · since{" "}
-                          <time dateTime={p.first_recorded_at}>
-                            {formatTimestamp(p.first_recorded_at).slice(0, 10)}
-                          </time>
+                          {formatCount(t.call_count)} calls · {formatCount(t.real_call_count)} real
                         </span>
                       </span>
                     </li>
-                  );
-                })}
-              </ul>
-            )}
+                  ))}
+                </ul>
+              )}
+            </PanelSection>
           </div>
-
-          <div>
-            <h3 className="panel__title" id="ai-spend-task">
-              By task type
-            </h3>
-            <p className="panel__sub">
-              The other half of the cost table&rsquo;s key — and what makes the &ldquo;unknown
-              provider&rdquo; row readable.
-            </p>
-            {cost.by_task_type.length === 0 ? (
-              <p className="empty">No task type has recorded a call yet.</p>
-            ) : (
-              <ul className="funnel" aria-labelledby="ai-spend-task">
-                {cost.by_task_type.map((t) => (
-                  <li className="funnel__row" key={t.task_type}>
-                    <span className="funnel__label">{taskTypeLabel(t.task_type)}</span>
-                    <span className="funnel__nums">
-                      <span className="funnel__distinct">
-                        {formatExactRupees(t.total_cost_inr)}
-                      </span>
-                      <span className="funnel__events">
-                        {formatCount(t.call_count)} calls · {formatCount(t.real_call_count)} real
-                      </span>
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        </div>
+        </PanelSection>
       ) : null}
 
       {/* NOT GATED ON `measured` — see rule 2. Its numbers come off the event spine, so an
           empty cost table cannot suppress them, and the scope sentence the API put in band
           ships with the count either way. */}
-      <div>
-        <h3 className="panel__title" id="ai-spend-breaches">
-          Spend-cap breaches
-        </h3>
+      <PanelSection title="Spend-cap breaches" titleId="ai-spend-breaches">
         {/* THE SCOPE SHIPS WITH THE NUMBER, always — a bare `0` reads as "no surface
             anywhere hit a cap", and exactly one surface emits this event today. */}
         <p className="panel__sub">{describeCapBreachScope(breaches.scope)}</p>
@@ -363,7 +417,21 @@ export function AiSpendPanel({ cost }: { cost: AiCostSummary }) {
             ))}
           </ul>
         )}
-      </div>
+      </PanelSection>
     </section>
   );
+}
+
+/** "Since 19 Aug 2026" from the inline form the view carries ("since 19 Aug 2026"). */
+function basisHeadline(inline: string): string {
+  return inline.charAt(0).toUpperCase() + inline.slice(1);
+}
+
+/**
+ * "5,602 / 6,187 (91%)". The share is FLOORED, so a posture with even one mocked call never
+ * reads 100%. No calls at all is "0 / 0" — a percentage of nothing is not a figure.
+ */
+export function realCallsText(real: number, total: number): string {
+  const base = `${formatCount(real)} / ${formatCount(total)}`;
+  return total > 0 ? `${base} (${Math.floor((real / total) * 100)}%)` : base;
 }

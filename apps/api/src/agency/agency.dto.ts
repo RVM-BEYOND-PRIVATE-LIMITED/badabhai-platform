@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { uuidSchema, looksLikeActionContextPii } from "@badabhai/validators";
 import { clearFieldSchema, contradictoryClears } from "../common/clearable-fields";
+import { tradeAnswersSchema, tradeLevelSchema } from "../common/trade-fields.schemas";
 import {
   areaSchema,
   benefitsSchema,
@@ -151,6 +152,11 @@ export const CreateAgencyJobSchema = z
     // ADR-0050 §6.1 step 2 (#1983) — optional, so every shipped client keeps working. Omitted
     // stores `[]` ("not chosen yet"); the agency twin of such a job stays `paused`.
     match_skill_ids: matchSkillIds.optional(),
+    // Migration 0141 — the SAME trade-specific posting form a company posting carries. Both
+    // optional and shape-checked only; the service validates them against the role's pack and
+    // derives `match_skill_ids` from the match-affecting chips.
+    trade_level: tradeLevelSchema.optional(),
+    trade_answers: tradeAnswersSchema.optional(),
   })
   .refine(payBandOrdered, { message: "pay_max must be >= pay_min", path: ["pay_max"] })
   .refine(experienceWindowOrdered, {
@@ -182,6 +188,9 @@ const CLEARABLE_AGENCY_JOB_FIELDS = [
   "requirements",
   // Migration 0131 — `jobs.role_kind` is nullable, so it is clearable (unlike `trade_key`).
   "role_kind",
+  // Migration 0141 — the trade form fields, nullable and clearable.
+  "trade_level",
+  "trade_answers",
   // ADR-0050 (#1983) — THE ONE NOT NULL COLUMN IN THIS LIST, and still safe: clearing it
   // stores the column's own "not chosen yet" value `[]` (the ADR-0050 §4.1 migration's default), never NULL.
   // That is the value every row older than that migration and every create without a pick already holds.
@@ -220,6 +229,9 @@ export const UpdateAgencyJobSchema = z
      * omitted leaves it unchanged; `clear: ["match_skill_ids"]` resets it to `[]`.
      */
     match_skill_ids: matchSkillIds.optional(),
+    /** Migration 0141 — the trade-specific form fields; replace-all when present. */
+    trade_level: tradeLevelSchema.optional(),
+    trade_answers: tradeAnswersSchema.optional(),
     // #1652 — the fields a payer may UNSET. See `clearFieldSchema`.
     clear: clearFieldSchema(CLEARABLE_AGENCY_JOB_FIELDS),
   })

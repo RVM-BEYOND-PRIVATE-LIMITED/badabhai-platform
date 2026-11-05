@@ -583,6 +583,15 @@ def test_job_posting_draft_bounds_match_the_zod_source():
             JobPostingDraft(**{field: -1})
 
 
+def test_job_posting_area_bound_matches_the_zod_source():
+    """#2493 — the area cap is the manual forms' 120 (JP_AREA_MAX), not the city's 80."""
+    area_max = _ts_int("JP_AREA_MAX")
+    assert area_max == 120
+    JobPostingDraft(area="x" * area_max)
+    with pytest.raises(ValidationError):
+        JobPostingDraft(area="x" * (area_max + 1))
+
+
 # --- Chat companion v2 (ADR-0046 Phase 1) -------------------------------------
 #
 # Mirrors `packages/ai-contracts/src/companion.ts`. The classifier's output set and the edit

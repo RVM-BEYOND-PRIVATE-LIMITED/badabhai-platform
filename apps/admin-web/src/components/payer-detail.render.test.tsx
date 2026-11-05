@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import type { PageHeaderContent } from "./page-header";
 import type { JobPostingListItem, PayerDetail } from "../lib/entities";
 import type { AdminCapability } from "../lib/auth/capabilities";
+import { CUSTOMERS_HREF } from "../lib/customer";
 
 /**
  * One payer account, under the three name postures.
@@ -133,7 +134,7 @@ describe("when the account never recorded one", () => {
 
   it("falls back to the short id heading rather than an empty line", () => {
     const out = render(UNNAMED, ENTITLED);
-    expect(out).toContain('<h1 class="page__title mono">6155050c…</h1>');
+    expect(out).toContain('<h1 class="page__title mono">6155…d2d2</h1>');
   });
 
   it("keeps the `not who registered it` clause, which IS true here", () => {
@@ -153,7 +154,7 @@ describe("when the account never recorded one", () => {
 
   it("a BLANK registered name behaves exactly as a null one", () => {
     const out = render({ ...FACELESS, org_name: " " }, ENTITLED);
-    expect(out).toContain('<h1 class="page__title mono">6155050c…</h1>');
+    expect(out).toContain('<h1 class="page__title mono">6155…d2d2</h1>');
     expect(out).toContain('title="No readable name is stored for this customer."');
   });
 });
@@ -161,7 +162,7 @@ describe("when the account never recorded one", () => {
 describe("an analyst", () => {
   it("gets the id heading, no Registered name row, and the role-scoped explanation", () => {
     const out = render(FACELESS, ANALYST);
-    expect(out).toContain('<h1 class="page__title mono">6155050c…</h1>');
+    expect(out).toContain('<h1 class="page__title mono">6155…d2d2</h1>');
     expect(out).not.toContain("No name on record");
     expect(out).toContain("not served to your role");
     expect(out).not.toContain("Names are withheld on this page");
@@ -277,7 +278,8 @@ describe("the page never calls the customer an account", () => {
         payer={payer}
         postings={postings}
         kind={kind}
-        backHref={kind === "Company" ? "/companies" : "/agencies"}
+        // One customers list for both kinds since A6 (#2576) — what PayerDetailRoute passes.
+        backHref={CUSTOMERS_HREF}
         capabilities={capabilities}
       />,
     );
@@ -303,7 +305,9 @@ describe("the page never calls the customer an account", () => {
 
   it("names the persona in the description, the notices and the postings states", () => {
     const capped = renderAs("Agency", SUSPENDED, ENTITLED, null);
-    expect(capped).toContain("One agency — what it has posted and spent");
+    // #2573: the subtitle is one line; what the page covers moved into its ⓘ note.
+    expect(capped).toContain("One agency — its postings could not be loaded");
+    expect(capped).toContain("What this agency has posted and spent");
     expect(capped).toContain("Your role may see this agency&#x27;s registered name");
     expect(capped).toContain("(the agency returns to active)");
     expect(capped).toContain("The agency record above loaded");

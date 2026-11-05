@@ -22,11 +22,10 @@ const clearLabels = (src: string): number =>
   (src.match(/(>\s*|")Clear filters?(\s*<|")/g) ?? []).length;
 
 const LIST_SCREENS = [
-  "workers/page.tsx",
+  "candidates/page.tsx",
   "jobs/page.tsx",
   "events/page.tsx",
   "companies/page.tsx",
-  "agencies/page.tsx",
   "ai-calls/page.tsx",
   "feedback/page.tsx",
   "transactions/page.tsx",

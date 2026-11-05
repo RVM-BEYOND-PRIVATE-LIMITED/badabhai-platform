@@ -97,6 +97,12 @@ const SHEET_METAL_WORKER = ["mskill_sheet_metal_worker"] as const;
 const PRESS_OPERATOR = ["mskill_press_operator"] as const;
 const PAINTER_COATER = ["mskill_painter_coater"] as const;
 const MAINTENANCE_TECHNICIAN = ["mskill_maintenance_technician"] as const;
+const PLC_AUTOMATION_TECH = ["mskill_plc_automation_tech"] as const;
+const EDM_WIRECUT_OPERATOR = ["mskill_edm_wirecut_operator"] as const;
+const HEAT_TREATMENT_TECH = ["mskill_heat_treatment_tech"] as const;
+const FOUNDRY_FORGING_OPERATOR = ["mskill_foundry_forging_operator"] as const;
+const IMM_OPERATOR = ["mskill_imm_operator"] as const;
+const PRODUCTION_SUPERVISOR = ["mskill_production_supervisor"] as const;
 const INDUSTRIAL_ELECTRICIAN = ["mskill_industrial_electrician"] as const;
 const ASSEMBLY_LINE_WORKER = ["mskill_assembly_line_worker"] as const;
 
@@ -119,12 +125,18 @@ export const PACK_ANSWER_SKILLS: Readonly<Record<string, PackMap>> = {
   //   troubleshooting     symptoms he has handled, with no corpus id to carry them
   // `edit_program` maps to the setter-level attribute (no reach); only `write_program` and `cam`
   // claim a programmer's chair. `haas`/`mazak`/`unknown_controller` have no corpus id.
+  // `turn_mill`/`live_tool`/`c_axis`/`twin_spindle` (E1 slot-2 chips) carry none either: they
+  // describe the machine's capability, not a distinct matchable skill, and the axis features
+  // already capture via `axis_capability` on VMC. `both_types` (Track A #1) is CNC + manual in
+  // one tap, so it carries exactly the manual lathe's set; `hard_turning` is turning work.
+  // `fagor`/`syntec` have no corpus id (same rule as `haas`/`mazak`).
   // `conventional_lathe` keeps its legacy CNC Turner reach (owner ruling, #2022 point 1) and also
   // carries the manual machinist's skill — the same set a centre lathe derives on the manual form.
   qp_cnc_turning: {
     turning_machine: {
       cnc_lathe: ["skill_turning"],
       conventional_lathe: MANUAL_LATHE,
+      both_types: MANUAL_LATHE,
       vtl: ["skill_turning"],
       sliding_head: ["skill_turning"],
       spm: ["skill_turning"],
@@ -133,6 +145,7 @@ export const PACK_ANSWER_SKILLS: Readonly<Record<string, PackMap>> = {
       facing_od: ["skill_turning"],
       grooving: ["skill_turning"],
       knurling: ["skill_turning"],
+      hard_turning: ["skill_turning"],
       boring: ["skill_boring"],
       drilling: ["skill_drilling"],
       threading: ["skill_tapping_threading"],
@@ -186,6 +199,11 @@ export const PACK_ANSWER_SKILLS: Readonly<Record<string, PackMap>> = {
   qp_vmc_milling: {
     milling_machine: {
       vmc: ["skill_milling"],
+      // Track A #2 (@6): the sheet-2 machine variants are VMC claims too.
+      fourth_axis: ["skill_milling"],
+      five_axis: ["skill_milling"],
+      drill_tap: ["skill_milling"],
+      double_column: ["skill_milling"],
       hmc: ["role_hmc_operator"],
       conventional_mill: MANUAL_MILL,
       bed_mill: MANUAL_MILL,
@@ -334,6 +352,110 @@ export const PACK_ANSWER_SKILLS: Readonly<Record<string, PackMap>> = {
   // INDUSTRIAL Electrician, and those chips do not claim the plant. "Kaunse electrical equipment
   // par kaam karte hain?" — MCC/PCC panels, VFDs, starters and induction motors are plant
   // equipment. `dg_set` is left out: a DG set is run by an operator as often as by an electrician.
+  // ══ PRODUCTION SUPERVISOR (Phase 2 #10) ═════════════════════════════════════════════════
+  // "Kis department ki supervision karte hain?" — every named department is the trade's claim:
+  // the answer says he supervises a production area, which is the job. The none-of-above
+  // escape ("unknown") claims nothing.
+  qp_production_supervisor: {
+    supervision_area: {
+      machine_shop: PRODUCTION_SUPERVISOR,
+      assembly: PRODUCTION_SUPERVISOR,
+      press_sheet_metal: PRODUCTION_SUPERVISOR,
+      fabrication_welding: PRODUCTION_SUPERVISOR,
+      moulding: PRODUCTION_SUPERVISOR,
+      paint_shop: PRODUCTION_SUPERVISOR,
+      packaging: PRODUCTION_SUPERVISOR,
+    },
+  },
+
+  // ══ INJECTION MOULDING (Phase 2 #9) ═════════════════════════════════════════════════════
+  // "Kaunse brand ki machine chalayi hai?" — every named moulding-machine brand is the trade's
+  // claim (the brand IS the injection moulding machine). The tool room's mould chips
+  // (qp_tool_die_making) stay the tool maker's: building the mould is not running it.
+  qp_injection_moulding: {
+    moulding_machine_brand: {
+      ferromatik_milacron: IMM_OPERATOR,
+      windsor: IMM_OPERATOR,
+      jsw: IMM_OPERATOR,
+      toshiba: IMM_OPERATOR,
+      haitian: IMM_OPERATOR,
+      engel: IMM_OPERATOR,
+      arburg: IMM_OPERATOR,
+      larsen_toubro: IMM_OPERATOR,
+    },
+  },
+
+  // ══ FOUNDRY / FORGING (Phase 2 #11) ═══════════════════════════════════════════════════════
+  // "Foundry ya forging me kaunsa kaam karte hain?" — every named casting or forging process
+  // is the trade's claim. Metal, equipment and testing are depth (hardness is QC's word too).
+  qp_foundry_forging: {
+    foundry_process: {
+      sand_moulding: FOUNDRY_FORGING_OPERATOR,
+      shell_moulding: FOUNDRY_FORGING_OPERATOR,
+      die_casting: FOUNDRY_FORGING_OPERATOR,
+      investment_casting: FOUNDRY_FORGING_OPERATOR,
+      hammer_forging: FOUNDRY_FORGING_OPERATOR,
+      press_forging: FOUNDRY_FORGING_OPERATOR,
+      upset_forging: FOUNDRY_FORGING_OPERATOR,
+      melting: FOUNDRY_FORGING_OPERATOR,
+      fettling: FOUNDRY_FORGING_OPERATOR,
+      core_making: FOUNDRY_FORGING_OPERATOR,
+    },
+  },
+
+  // ══ HEAT TREATMENT (Phase 2 #8) ══════════════════════════════════════════════════════════
+  // "Kaunsa heat treatment process karte hain?" — every named HT process is the trade's claim.
+  // Furnaces, testing and material are depth: Rockwell and hardness are QC's words too.
+  qp_heat_treatment: {
+    heat_process: {
+      hardening_tempering: HEAT_TREATMENT_TECH,
+      case_carburising: HEAT_TREATMENT_TECH,
+      nitriding: HEAT_TREATMENT_TECH,
+      induction_hardening: HEAT_TREATMENT_TECH,
+      annealing_normalising: HEAT_TREATMENT_TECH,
+      vacuum_heat_treatment: HEAT_TREATMENT_TECH,
+      salt_bath: HEAT_TREATMENT_TECH,
+    },
+  },
+
+  // ══ EDM / WIRE-CUT (Phase 2 #7) ════════════════════════════════════════════════════════
+  // "Kaunsi EDM machine chalate hain?" — every named EDM machine is the trade's claim. The
+  // tool room's own EDM chips (qp_tool_die_making edm_work) stay the tool maker's.
+  qp_edm_wirecut: {
+    edm_machine: {
+      wire_cut: EDM_WIRECUT_OPERATOR,
+      sinker_edm: EDM_WIRECUT_OPERATOR,
+      hole_drill: EDM_WIRECUT_OPERATOR,
+      small_hole: EDM_WIRECUT_OPERATOR,
+    },
+  },
+
+  // ══ PLC / AUTOMATION (Phase 2 #6) ═══════════════════════════════════════════════════════
+  // "Kaunsa PLC chalate hain?" and "Automation me kya kya karte hain?" — a named PLC or a
+  // programming / HMI / drive / commissioning task is the trade's claim. Panel wiring and
+  // I/O checks alone are the electrician's work too (A3), so they stay unmapped here:
+  // reach comes from the programming side of the trade, never from wiring.
+  qp_plc_automation: {
+    plc_brand: {
+      siemens: PLC_AUTOMATION_TECH,
+      allen_bradley: PLC_AUTOMATION_TECH,
+      mitsubishi: PLC_AUTOMATION_TECH,
+      delta: PLC_AUTOMATION_TECH,
+      omron: PLC_AUTOMATION_TECH,
+      schneider: PLC_AUTOMATION_TECH,
+      fuji: PLC_AUTOMATION_TECH,
+      keyence: PLC_AUTOMATION_TECH,
+    },
+    plc_work: {
+      program_editing: PLC_AUTOMATION_TECH,
+      program_writing: PLC_AUTOMATION_TECH,
+      hmi_scada: PLC_AUTOMATION_TECH,
+      vfd_servo: PLC_AUTOMATION_TECH,
+      robot_teaching: PLC_AUTOMATION_TECH,
+      commissioning: PLC_AUTOMATION_TECH,
+    },
+  },
+
   qp_industrial_electrician: {
     electrical_work_type: {
       panel_wiring: INDUSTRIAL_ELECTRICIAN,
@@ -369,16 +491,38 @@ export const PACK_ANSWER_SKILLS: Readonly<Record<string, PackMap>> = {
       both_modes: ["skill_cam_software", "skill_cnc_programming"],
     },
     // "Aap kaunsa CAM software chalate hain?" A named package is a CAM claim; `other_software`
-    // names nothing.
+    // names nothing. Track A #3 (@4): the sheet-3 packages claim the same chair.
     cam_software: {
       mastercam: ["skill_cam_software"],
       powermill: ["skill_cam_software"],
       solidcam: ["skill_cam_software"],
       edgecam: ["skill_cam_software"],
+      nx_cam: ["skill_cam_software"],
+      fusion: ["skill_cam_software"],
+      hypermill: ["skill_cam_software"],
+      cimatron: ["skill_cam_software"],
+      worknc: ["skill_cam_software"],
+      esprit: ["skill_cam_software"],
+      // MDI-only: a programming claim without a CAM seat — the CNC programmer's skill.
+      manual_gcode: ["skill_cnc_programming"],
     },
   },
 
-  // ══ CAD DRAFTING ════════════════════════════════════════════════════════════════════════════
+  // ══ 3D CAD DESIGN (Track A #4) ════════════════════════════════════════════════
+  // "Aap kaunsa 3D software chalate hain?" A named package is a 3D claim; `other_software`
+  // names nothing. The role bridge derives the trade's permanent ID directly.
+  qp_cad_design_3d: {
+    design_software: {
+      solidworks: ["role_cad_designer_3d"],
+      creo: ["role_cad_designer_3d"],
+      nx: ["role_cad_designer_3d"],
+      catia: ["role_cad_designer_3d"],
+      inventor: ["role_cad_designer_3d"],
+      fusion: ["role_cad_designer_3d"],
+      solid_edge: ["role_cad_designer_3d"],
+    },
+  },
+  // ══ CAD DRAFTING ════════════════════════════════════════════════════════════════════
   // The MODULE he works in is the claim, not the brand of software: "AutoCAD" alone does not say
   // whether he drafts or models. `other_module` names nothing.
   qp_cad_drafting: {

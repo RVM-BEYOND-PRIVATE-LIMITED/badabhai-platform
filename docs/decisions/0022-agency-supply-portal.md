@@ -470,3 +470,11 @@ so it changes no exposure.
 
 Module 2 (bulk contact upload), module 4 (matching/pipeline), module 6 (placement outcomes)
 remain DEAD. `AGENCY_PAYOUTS_ENABLED` remains **OFF** and out of scope here.
+
+## Amendment — 2026-11-03 (owner ruling): agencies get the all-candidates search
+
+Prakash ruled that the payer "Candidates" area — the ADR-0040 all-candidates search plus the applicant
+inbox — is the same for agency and company accounts. `POST /payer/candidates/search` is therefore served
+to `role = 'agent'` sessions too. This does not revive module 4 as written: there is still no
+agency matching PIPELINE, no hire stage and no LLM; the search is ADR-0040's deterministic, faceless,
+read-only ordering, and identity still costs a per-worker unlock. Modules 2 and 6 remain DEAD.

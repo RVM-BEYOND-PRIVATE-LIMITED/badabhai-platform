@@ -77,11 +77,40 @@ export const CAM_PROGRAMMER = {
       "powermill",
       "solidcam",
       "edgecam",
+      // TRACK A #3 (CEO Launch Plan Pack v1, sheet 3): the sheet's package
+      // names route to this trade. "Fusion" and "NX" alone are too broad
+      // (CAD lives on them too), so the longer forms route alone.
+      "nx cam",
+      "fusion 360",
+      "hypermill",
+      "cimatron",
+      "worknc",
+      "esprit",
       "कैम प्रोग्रामर",
       "सीएनसी प्रोग्रामर",
     ],
     machineTerms: ["toolpath", "tool path", "post processor"],
-    levelTerms: ["junior programmer", "programmer", "senior programmer", "प्रोग्रामर"],
+    levelTerms: [
+      "junior programmer",
+      "programmer",
+      "senior programmer",
+      "प्रोग्रामर",
+      // E5 MIDDLE-WAY EXPAND-12 (Turner P4 mirror, adapted: this ladder's rungs
+      // are named in full). Level-tier: corroborate a family pin, never route
+      // alone, never veto. "programmer hoon" resolves via the chip label too —
+      // the term below is what lets it corroborate at the router.
+      "junior programmer hoon",
+      "programmer hoon",
+      "senior programmer hoon",
+      "toolpath banata hoon",
+      // TRACK A #3 (CEO Launch Plan Pack v1, sheet 3): the new ladder's rungs.
+      // Old junior/senior-programmer phrases stay (stored answers keep them).
+      "trainee",
+      "trainee hoon",
+      "senior hoon",
+      "lead",
+      "lead hoon",
+    ],
   },
   /**
    * THE FRESHER BLOCK IS NOT OPTIONAL FOR THIS PACK, and leaving it out is the §11 #1 failure

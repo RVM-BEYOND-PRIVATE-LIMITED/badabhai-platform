@@ -158,6 +158,14 @@ const GRINDING_PHRASES = [
   "centreless grinding",
   "centerless grinding",
   "internal grinding",
+  // PHASE 2 #2 (CEO Launch Plan Pack v1, sheet 15 "Words"): the part and process
+  // compounds, authored on jd_nco_7223_2200 like the E4 rows.
+  "bore grinding",
+  "thread grinding",
+  "gear grinding",
+  "bearing grinding",
+  "shaft grinding",
+  "crank grinding",
 ] as const;
 
 /**
@@ -196,6 +204,11 @@ const CAM_PHRASES = [
   "कैम प्रोग्रामर",
   "सीएनसी प्रोग्रामर",
   "जी कोड",
+  // E5 MIDDLE-WAY EXPAND-12 (CAM starter, owner-scoped). The toolpath pair joins
+  // the G-code rows as words that were reaching the WRONG trade, not merely
+  // missing: "tool path" resolved to cart before its exact row.
+  "toolpath",
+  "tool path",
 ] as const;
 
 /**
@@ -401,10 +414,11 @@ describe("role-pack reachability — do a worker's own words reach the pack for 
 
   it("CHARACTERIZES which grinding phrases reach grinding depth today", () => {
     const routing = Object.fromEntries(GRINDING_PHRASES.map((p) => [p, familyFor(p)]));
-    // Read this as a report. All ten reach the pack — the four shipped rows plus
-    // the six E4 machine-variant rows. A grinder who types only "grinder" still
-    // has to be recognised by the interview, because that phrase is an alias
-    // nowhere in the corpus (fab-shop angle-grinder collision, pinned above).
+    // Read this as a report. All sixteen reach the pack — the four shipped rows,
+    // the six E4 machine-variant rows and the six Phase 2 #2 part compounds. A
+    // grinder who types only "grinder" still has to be recognised by the
+    // interview, because that phrase is an alias nowhere in the corpus (fab-shop
+    // angle-grinder collision, pinned above).
     expect(routing).toEqual({
       "grinding machine": "fam_cnc_grinding",
       ghisai: "fam_cnc_grinding",
@@ -416,6 +430,12 @@ describe("role-pack reachability — do a worker's own words reach the pack for 
       "centreless grinding": "fam_cnc_grinding",
       "centerless grinding": "fam_cnc_grinding",
       "internal grinding": "fam_cnc_grinding",
+      "bore grinding": "fam_cnc_grinding",
+      "thread grinding": "fam_cnc_grinding",
+      "gear grinding": "fam_cnc_grinding",
+      "bearing grinding": "fam_cnc_grinding",
+      "shaft grinding": "fam_cnc_grinding",
+      "crank grinding": "fam_cnc_grinding",
     });
   });
 
@@ -499,10 +519,10 @@ describe("role-pack reachability — do a worker's own words reach the pack for 
 
   it("CHARACTERIZES which part-programming phrases reach programming depth today", () => {
     const routing = Object.fromEntries(CAM_PHRASES.map((p) => [p, familyFor(p)]));
-    // Read this as a report. All fifteen reach the pack, and every one of them is NEW — before
-    // this batch the entire list was NO MATCH except "cnc programmer", which is the published NCO
-    // title on 7223.6003 and therefore already an alias of it; retrieval reached the code and
-    // `fam_machining` answered at unit level with six generic machining questions.
+    // Read this as a report. Seventeen reach the pack — the fifteen shipped rows plus
+    // the two E5 toolpath rows. "tool path" is the fourth ACTIVELY-WRONG fix after
+    // "post processor" / "post processing" / "g code": it resolved to cart, and the
+    // exact row takes it back by the same L0-beats-L1 mechanism documented above.
     //
     // THREE WERE ACTIVELY WRONG rather than merely missing, and each names its own mechanism.
     // "post processor" and "post processing": as a single token, "post" folds to the skeleton
@@ -528,6 +548,8 @@ describe("role-pack reachability — do a worker's own words reach the pack for 
       "कैम प्रोग्रामर": "fam_cam_programming",
       "सीएनसी प्रोग्रामर": "fam_cam_programming",
       "जी कोड": "fam_cam_programming",
+      toolpath: "fam_cam_programming",
+      "tool path": "fam_cam_programming",
     });
   });
 
@@ -583,15 +605,19 @@ describe("role-pack reachability — do a worker's own words reach the pack for 
     // to the garment trade. Both are fixed the same way the shipped driver/Drover and
     // fitter/Father rows are: a bare L0 row pre-empts the fold, and a longer L0 span beats a
     // shorter one.
+    //
+    // TRACK A #4 (CEO Launch Plan Pack v1, sheet 4): the three 3D-meaning phrases below
+    // moved to jd_rvm_3d_cad_designer (retired off 3118_0401, same change) — a
+    // SolidWorks-main-job worker is a 3D designer, not a draughtsman.
     expect(routing).toEqual({
       cad: "fam_cad_drafting",
       "cad operator": "fam_cad_drafting",
-      "cad designer": "fam_cad_drafting",
-      "mechanical designer": "fam_cad_drafting",
+      "cad designer": "fam_cad_design_3d",
+      "mechanical designer": "fam_cad_design_3d",
       "draughtsman mechanical": "fam_cad_drafting",
       "mechanical draughtsman": "fam_cad_drafting",
       autocad: "fam_cad_drafting",
-      solidworks: "fam_cad_drafting",
+      solidworks: "fam_cad_design_3d",
       कैड: "fam_cad_drafting",
       ऑटोकैड: "fam_cad_drafting",
     });
@@ -874,6 +900,23 @@ describe("Batch 2 part one — the four roles whose words already reached a bind
     expect(familyFor("flame cutter")).toBe("fam_welding_trade");
   });
 
+  it("PHASE 2 #4 — the coating trade's own name and the plating words reach its family", () => {
+    // CEO Launch Plan Pack v1, sheet 20. Before this tranche the trade's own name went to the
+    // welder (7212.0400 Gas Cutter) and every plating word reached nothing.
+    for (const p of [
+      "powder coating", "पाउडर कोटिंग", "coating operator", "powder coating operator",
+      "electroplating", "इलेक्ट्रोप्लेटिंग", "zinc plating", "nickel plating", "chrome plating",
+    ]) {
+      expect(familyFor(p), p).toBe("fam_powder_coating");
+    }
+    // House painting is untouched, and the welder keeps its own cutting words.
+    expect(familyFor("painter")).toBe("fam_painting");
+    expect(familyFor("gas cutting")).toBe("fam_welding_trade");
+    // Held out on purpose (see the rvm-aliases block): bare "plating" folds onto pleating and
+    // plaiting, so it is not a row and must not reach this family.
+    expect(familyFor("pleating")).not.toBe("fam_powder_coating");
+  });
+
   it("no phrase of the four new trades falls through to the universal pack", () => {
     for (const phrase of ["machinist", "tool room", "welder", "spray painter"]) {
       expect(familyFor(phrase), `"${phrase}" falls through`).not.toBe("fam_universal");
@@ -1131,10 +1174,13 @@ describe("Batch 2 part two — industrial electrician", () => {
   });
 
   it("leaves every other 7412 neighbour, and the ISCO node, on the generic pack", () => {
+    // 7412.0101 "automation specialist" (process-control systems) LEFT this list in Phase 2 #6:
+    // it is the PLC / automation family's own code now (see the Phase 2 #6 block at the end).
     for (const p of [
-      "automation specialist", // 7412.0101 — process-control systems
       "fitter-electrical and electronic assembly", // 7412.0201 — panels and electronics
-      "mechanical fitter", // 7412.0202 — the alias every mechanical fitter says
+      // "mechanical fitter" LEFT this list in the CEO-pack sheet-word audit (2026-11-04): sheet 6
+      // gives it to the Fitter, so the Bench Fitter code 7233.0200 now carries it too and wins the
+      // tie. The control-panel code 7412.0202 itself stays here, unbound (pinned in the fitter block).
       "iron and steel fitter electrical assembly", // 7412.0203 — machine assembly
       "adjuster relays", // 7412.0300
       "armature winder", // 7412.0400 — the winding trade
@@ -1210,12 +1256,15 @@ describe("Batch 2 part two — press / machine operator", () => {
   });
 
   it("leaves forging, punching, supervision and the non-metal presses where they were", () => {
-    // Forge work — bare "stamper" is 7221.0500's alias, and that code is hot drop forging.
+    // Forge work — bare "stamper" is 7221.0500's alias, and that code is hot drop forging. It sat
+    // on fam_blacksmithing only because no forging trade existed; Phase 2 #11 (CEO Launch Plan
+    // Pack v1, sheet 19) moves the industrial forging codes to fam_foundry_forging. Never press.
     for (const p of ["stamper", "forging operator", "power hammer operator", "hammer man"]) {
-      expect(familyFor(p), p).toBe("fam_blacksmithing");
+      expect(familyFor(p), p).toBe("fam_foundry_forging");
     }
-    // The drop-forging die setter sits in unit 7223 beside the press tool setter, and stays generic.
-    expect(familyFor("setter drop forging machine")).toBe("fam_machining");
+    // The drop-forging die setter sits in unit 7223 beside the press tool setter; Phase 2 #11
+    // binds it to the forging trade too, and still never to the press shop.
+    expect(familyFor("setter drop forging machine")).toBe("fam_foundry_forging");
     // "Puncher, Metal" punches boiler frames; it stays with its unit.
     expect(familyFor("puncher metal")).toBe("fam_plumbing");
     // SUPERVISORY, and unbound on purpose. They reach the universal pack today because no family
@@ -1237,13 +1286,24 @@ describe("Batch 2 part two — press / machine operator", () => {
     expect(familyFor("press operator")).toBe("fam_press_operation");
     expect(familyFor("प्रेस ऑपरेटर")).toBe("fam_press_operation");
     expect(familyFor("machine operator")).toBeNull();
-    // The struck "press ka kaam" still reaches nothing, and "press tool setter" folds to the tile
-    // setter at L1 ("tool setter" ~ "tile setter").
+    // The struck "press ka kaam" still reaches nothing. "press tool setter" folded to the tile
+    // setter at L1 ("tool setter" ~ "tile setter") until the CEO-pack sheet-word audit
+    // (2026-11-04) gave it a row on the Tool Setter, Press code.
     expect(familyFor("press ka kaam")).toBeNull();
-    expect(familyFor("press tool setter")).toBe("fam_building_finishing");
+    expect(familyFor("press tool setter")).toBe("fam_press_operation");
     // The helper code's title matches only WITH its slash; without it the one span left is
     // "shop assistant", which is retail.
     expect(familyFor("press shop assistant helper")).toBe("fam_retail");
+  });
+
+  it("PHASE 2 #3 — the sheet-18 press words reach the press family, and only those", () => {
+    // CEO Launch Plan Pack v1, sheet 18 "Words": three new rows.
+    for (const p of ["servo press", "mechanical press", "press setter"]) {
+      expect(familyFor(p), p).toBe("fam_press_operation");
+    }
+    // Held out on purpose (see the rvm-aliases block): neither moved by this change.
+    expect(familyFor("hydraulic press")).not.toBe("fam_press_operation");
+    expect(familyFor("die setter")).not.toBe("fam_press_operation");
   });
 
   it("no ratified press phrase falls through to the universal pack", () => {
@@ -1323,13 +1383,13 @@ describe("Batch 2 part two — assembly line", () => {
     }
   });
 
-  it("PINS THE IMPRECISION IT KNOWINGLY LEAVES — bare English 'assembler'", () => {
-    // Two claimants share the span: 8211.1300's published split alias "Assembler" and 8219.0100's
-    // rvm row. 8211.1300 ("Assembler, Motor Cycle" — batch OR line) is a rejected neighbour and is
-    // the first claimant, so the word lands on the generic pack. The Devanagari has one claimant
-    // and comes here. This goes red, deliberately, when a retirement path removes the split alias.
-    expect(resolveOccupation(occupationIndex, "assembler")?.jobDomainId).toBe("jd_nco_8211_1300");
-    expect(familyFor("assembler")).toBe("fam_assemblers_other");
+  it("bare English 'assembler' reaches the Assembly Technician since the split alias retired", () => {
+    // Two claimants shared the span: 8211.1300's published split alias "Assembler" and 8219.0100's
+    // rvm row, and the rejected neighbour 8211.1300 won it. The CEO-pack sheet-word audit
+    // (2026-11-04, sheet 11 "assembler" -> Trade: Assembly Technician) retired that split alias;
+    // 8211.1300 keeps its published title "Assembler, Motor Cycle".
+    expect(resolveOccupation(occupationIndex, "assembler")?.jobDomainId).toBe("jd_nco_8219_0100");
+    expect(familyFor("assembler")).toBe("fam_assembly_line");
     expect(familyFor("असेंबलर")).toBe("fam_assembly_line");
   });
 
@@ -1429,7 +1489,9 @@ describe("Batch 2 part two — fitter", () => {
       "fitter construction": "fam_sheet_metal",
       "boiler fitter": "fam_sheet_metal",
       // Other trades whose title carries the word.
-      "mechanical fitter": "fam_electrical_equipment",
+      // Sheet 6 gives the phrase to the Fitter (CEO-pack sheet-word audit, 2026-11-04): the Bench
+      // Fitter code carries it now. The control-panel code 7412.0202 stays unbound.
+      "mechanical fitter": "fam_fitter",
       "electrical fitter": "fam_industrial_electrician", // the industrial electrician binds 7412.0200
       "pipe fitter": "fam_plumbing",
       "pipe fitting": "fam_plumbing",
@@ -1809,3 +1871,476 @@ describe("Batch 2 part two — maintenance technician", () => {
     }
   });
 });
+
+describe("Phase 2 #5 — the sheet-21 maintenance words (CEO Launch Plan Pack v1)", () => {
+  // PRODUCTION'S VIEW as well as the offline helper's: shadowed ISCO units removed, every
+  // claimant listed — the same check the Batch 2 maintenance block above makes.
+  const offline = resolveJobDomainCorpus();
+  const parents = new Set(
+    offline.filter((d) => d.selectable && d.parentJobDomainId).map((d) => d.parentJobDomainId),
+  );
+  const live = offline.filter(
+    (d) => d.selectable && !(d.source === "isco08" && parents.has(d.jobDomainId)),
+  );
+  const liveClaimants = (phrase: string) => {
+    const norm = normalizeOccupationText(phrase);
+    return live
+      .filter((d) => d.aliases.some((a) => normalizeOccupationText(a.text) === norm))
+      .map((d) => d.jobDomainId)
+      .sort();
+  };
+
+  it("reaches the maintenance family, each the ONLY claimant in production", () => {
+    const claimed: Record<string, string> = {
+      "machine maintenance": "jd_nco_7233_0101",
+      "mechanical maintenance": "jd_nco_7233_0101",
+      "hydraulic maintenance": "jd_nco_7233_0101",
+      "machine tool maintenance": "jd_nco_7233_0101",
+      "cnc maintenance": "jd_nco_7233_1200",
+      "मेंटेनेंस टेक्नीशियन": "jd_nco_7233_0101",
+    };
+    for (const [phrase, code] of Object.entries(claimed)) {
+      expect(familyFor(phrase), phrase).toBe("fam_maintenance_tech");
+      expect(liveClaimants(phrase), phrase).toEqual([code]);
+    }
+  });
+
+  it("leaves the CNC operator and the electronics mechanic where they were", () => {
+    expect(familyFor("cnc operator")).toBe("fam_machining");
+    expect(familyFor("maintenance mechanic")).toBe("fam_electronics_install");
+  });
+});
+
+describe("Phase 2 #6 — PLC / automation, a new family on 7412.0101 (CEO Launch Plan Pack v1)", () => {
+  const offline = resolveJobDomainCorpus();
+  const parents = new Set(
+    offline.filter((d) => d.selectable && d.parentJobDomainId).map((d) => d.parentJobDomainId),
+  );
+  const live = offline.filter(
+    (d) => d.selectable && !(d.source === "isco08" && parents.has(d.jobDomainId)),
+  );
+  const liveClaimants = (phrase: string) => {
+    const norm = normalizeOccupationText(phrase);
+    return live
+      .filter((d) => d.aliases.some((a) => normalizeOccupationText(a.text) === norm))
+      .map((d) => d.jobDomainId)
+      .sort();
+  };
+
+  it("binds exactly the one code", () => {
+    const codes = corpus.bindings
+      .filter((b) => b.family_id === "fam_plc_automation")
+      .map((b) => b.job_domain_id);
+    expect(codes).toEqual(["jd_nco_7412_0101"]);
+  });
+
+  it("reaches the family on the trade's programming words, each the ONLY claimant in production", () => {
+    for (const phrase of [
+      "plc programming",
+      "plc programmer",
+      "plc technician",
+      "automation technician",
+      "automation engineer",
+      "पीएलसी प्रोग्रामिंग",
+      "automation specialist",
+    ]) {
+      expect(familyFor(phrase), phrase).toBe("fam_plc_automation");
+      if (phrase !== "automation specialist") {
+        expect(liveClaimants(phrase), phrase).toEqual(["jd_nco_7412_0101"]);
+      }
+    }
+  });
+
+  it("leaves the panel electrician, police and place where they were", () => {
+    expect(familyFor("panel wiring")).not.toBe("fam_plc_automation");
+    expect(familyFor("electrical fitter")).not.toBe("fam_plc_automation");
+    expect(familyFor("police")).not.toBe("fam_plc_automation");
+  });
+});
+
+describe("Phase 2 #7 — EDM / wire-cut, a new family on 7223.2800 (CEO Launch Plan Pack v1)", () => {
+  const offline = resolveJobDomainCorpus();
+  const parents = new Set(
+    offline.filter((d) => d.selectable && d.parentJobDomainId).map((d) => d.parentJobDomainId),
+  );
+  const live = offline.filter(
+    (d) => d.selectable && !(d.source === "isco08" && parents.has(d.jobDomainId)),
+  );
+  const liveClaimants = (phrase: string) => {
+    const norm = normalizeOccupationText(phrase);
+    return live
+      .filter((d) => d.aliases.some((a) => normalizeOccupationText(a.text) === norm))
+      .map((d) => d.jobDomainId)
+      .sort();
+  };
+
+  it("binds exactly the one code", () => {
+    const codes = corpus.bindings
+      .filter((b) => b.family_id === "fam_edm_wirecut")
+      .map((b) => b.job_domain_id);
+    expect(codes).toEqual(["jd_nco_7223_2800"]);
+  });
+
+  it("reaches the family on the trade's own words, each the ONLY claimant in production", () => {
+    for (const phrase of [
+      "wire cut",
+      "wirecut",
+      "wire edm",
+      "edm operator",
+      "wire cut operator",
+      "spark erosion",
+      "वायर कट",
+    ]) {
+      expect(familyFor(phrase), phrase).toBe("fam_edm_wirecut");
+      expect(liveClaimants(phrase), phrase).toEqual(["jd_nco_7223_2800"]);
+    }
+  });
+
+  it("leaves the tool room's own words with the tool room", () => {
+    for (const phrase of ["tool maker", "tool room", "die maker"]) {
+      expect(familyFor(phrase), phrase).not.toBe("fam_edm_wirecut");
+    }
+  });
+});
+
+describe("Phase 2 #9 — injection moulding, a new family on four 8142 codes (CEO Launch Plan Pack v1)", () => {
+  const offline = resolveJobDomainCorpus();
+  const parents = new Set(
+    offline.filter((d) => d.selectable && d.parentJobDomainId).map((d) => d.parentJobDomainId),
+  );
+  const live = offline.filter(
+    (d) => d.selectable && !(d.source === "isco08" && parents.has(d.jobDomainId)),
+  );
+  const liveClaimants = (phrase: string) => {
+    const norm = normalizeOccupationText(phrase);
+    return live
+      .filter((d) => d.aliases.some((a) => normalizeOccupationText(a.text) === norm))
+      .map((d) => d.jobDomainId)
+      .sort();
+  };
+
+  it("binds exactly the four plastic-moulding codes", () => {
+    const codes = corpus.bindings
+      .filter((b) => b.family_id === "fam_injection_moulding")
+      .map((b) => b.job_domain_id);
+    expect(codes).toEqual([
+      "jd_nco_8142_0501",
+      "jd_nco_8142_0502",
+      "jd_nco_8142_1300",
+      "jd_nco_8142_1301",
+    ]);
+  });
+
+  it("reaches the family on the trade's own words, each the ONLY claimant in production", () => {
+    for (const [phrase, code] of [
+      ["injection moulding", "jd_nco_8142_0501"],
+      ["injection molding", "jd_nco_8142_0501"],
+      ["injection moulding operator", "jd_nco_8142_0501"],
+      ["moulding machine operator", "jd_nco_8142_0501"],
+      ["इंजेक्शन मोल्डिंग", "jd_nco_8142_0501"],
+      ["moulding operator", "jd_nco_8142_0502"],
+      ["mould setter", "jd_nco_8142_1300"],
+      ["moulding setter", "jd_nco_8142_1300"],
+      ["injection moulding setter", "jd_nco_8142_1300"],
+      ["plastic moulding", "jd_nco_8142_1301"],
+    ] as const) {
+      expect(familyFor(phrase), phrase).toBe("fam_injection_moulding");
+      expect(liveClaimants(phrase), phrase).toEqual([code]);
+    }
+  });
+
+  it("moves 'injection moulding operator' off the rubber code, which keeps its own phrase", () => {
+    expect(liveClaimants("injection moulding operator")).not.toContain("jd_nco_8141_0713");
+    expect(liveClaimants("rubber injection moulding operator")).toEqual(["jd_nco_8141_0713"]);
+    expect(familyFor("rubber injection moulding operator")).toBe("fam_rubber_plastic");
+  });
+
+  it("leaves the tool room's mould words with the tool room, and the other plastics machines put", () => {
+    for (const phrase of ["mould maker", "tool maker", "tool room"]) {
+      expect(familyFor(phrase), phrase).not.toBe("fam_injection_moulding");
+    }
+    // Compression moulding and every other 814 code stay on the generic plastics pack.
+    expect(familyFor("Compression Moulding Machine Operator (Plastic)")).toBe("fam_rubber_plastic");
+    expect(familyFor("Bottle Blowing Machine Operator (Plastic)")).toBe("fam_rubber_plastic");
+  });
+});
+
+describe("Phase 2 #8 — heat treatment, a new family on four 8121 codes (CEO Launch Plan Pack v1)", () => {
+  const offline = resolveJobDomainCorpus();
+  const parents = new Set(
+    offline.filter((d) => d.selectable && d.parentJobDomainId).map((d) => d.parentJobDomainId),
+  );
+  const live = offline.filter(
+    (d) => d.selectable && !(d.source === "isco08" && parents.has(d.jobDomainId)),
+  );
+  const liveClaimants = (phrase: string) => {
+    const norm = normalizeOccupationText(phrase);
+    return live
+      .filter((d) => d.aliases.some((a) => normalizeOccupationText(a.text) === norm))
+      .map((d) => d.jobDomainId)
+      .sort();
+  };
+
+  it("binds exactly the four codes", () => {
+    const codes = corpus.bindings
+      .filter((b) => b.family_id === "fam_heat_treatment")
+      .map((b) => b.job_domain_id)
+      .sort();
+    expect(codes).toEqual([
+      "jd_nco_8121_3701",
+      "jd_nco_8121_4700",
+      "jd_nco_8121_4800",
+      "jd_nco_8121_4900",
+    ]);
+  });
+
+  it("reaches the family on the trade's own words, each the ONLY claimant in production", () => {
+    for (const [phrase, code] of [
+      ["heat treatment", "jd_nco_8121_3701"],
+      ["heat treatment operator", "jd_nco_8121_3701"],
+      ["furnace operator", "jd_nco_8121_3701"],
+      ["हीट ट्रीटमेंट", "jd_nco_8121_3701"],
+      ["hardening", "jd_nco_8121_4800"],
+      ["case hardening", "jd_nco_8121_4800"],
+      ["induction hardening", "jd_nco_8121_4800"],
+      ["carburising", "jd_nco_8121_4800"],
+      ["nitriding", "jd_nco_8121_4800"],
+      ["gas nitriding", "jd_nco_8121_4800"],
+      ["quenching", "jd_nco_8121_4800"],
+      ["sealed quench", "jd_nco_8121_4800"],
+      ["pit furnace", "jd_nco_8121_4800"],
+      ["vacuum furnace", "jd_nco_8121_4800"],
+      ["salt bath", "jd_nco_8121_4800"],
+      ["ht job work", "jd_nco_8121_4800"],
+      ["tempering", "jd_nco_8121_4900"],
+      ["annealing", "jd_nco_8121_4700"],
+      ["normalising", "jd_nco_8121_4700"],
+    ] as const) {
+      expect(familyFor(phrase), phrase).toBe("fam_heat_treatment");
+      expect(liveClaimants(phrase), phrase).toEqual([code]);
+    }
+  }, 30_000); // 19 phrases, each scanned against the whole live corpus — CI runs every file at once.
+
+  it("leaves the melt shop's and the QC inspector's own words where they were", () => {
+    // Bare "furnace" is the foundry's (sheet 19) and stays on the metal-processing code;
+    // hardness and Rockwell are QC instrument words (sheet 12), capture chips only.
+    expect(familyFor("furnace")).toBe("fam_metal_processing");
+    for (const phrase of ["hardness testing", "rockwell", "quality inspector"]) {
+      expect(familyFor(phrase), phrase).not.toBe("fam_heat_treatment");
+    }
+  });
+});
+
+describe("Phase 2 #10 — production supervisor, a new family on the cross-trade 3122 codes (CEO Launch Plan Pack v1)", () => {
+  const offline = resolveJobDomainCorpus();
+  const parents = new Set(
+    offline.filter((d) => d.selectable && d.parentJobDomainId).map((d) => d.parentJobDomainId),
+  );
+  const live = offline.filter(
+    (d) => d.selectable && !(d.source === "isco08" && parents.has(d.jobDomainId)),
+  );
+  const liveClaimants = (phrase: string) => {
+    const norm = normalizeOccupationText(phrase);
+    return live
+      .filter((d) => d.aliases.some((a) => normalizeOccupationText(a.text) === norm))
+      .map((d) => d.jobDomainId)
+      .sort();
+  };
+
+  it("binds exactly the four cross-trade supervisor codes (owner ruling 2026-11-04)", () => {
+    const codes = corpus.bindings
+      .filter((b) => b.family_id === "fam_production_supervisor")
+      .map((b) => b.job_domain_id);
+    expect(codes).toEqual([
+      "jd_nco_3122_9900",
+      "jd_nco_3122_1900",
+      "jd_nco_3122_0601",
+      "jd_nco_3122_6503",
+    ]);
+  });
+
+  it("reaches the family on the sheet's words, each the ONLY claimant in production", () => {
+    for (const [phrase, code] of [
+      ["production supervisor", "jd_nco_3122_9900"],
+      ["production in-charge", "jd_nco_3122_9900"],
+      ["production incharge", "jd_nco_3122_9900"],
+      ["production in charge", "jd_nco_3122_9900"],
+      ["plant in-charge", "jd_nco_3122_9900"],
+      ["shift in-charge", "jd_nco_3122_9900"],
+      ["shift incharge", "jd_nco_3122_9900"],
+      ["shift in charge", "jd_nco_3122_9900"],
+      ["floor incharge", "jd_nco_3122_9900"],
+      ["production team leader", "jd_nco_3122_9900"],
+      ["प्रोडक्शन सुपरवाइजर", "jd_nco_3122_9900"],
+      ["शिफ्ट इंचार्ज", "jd_nco_3122_9900"],
+      ["line in-charge", "jd_nco_3122_0601"],
+      ["line incharge", "jd_nco_3122_0601"],
+      ["foreman", "jd_nco_3122_1900"],
+      ["फोरमैन", "jd_nco_3122_1900"],
+    ] as const) {
+      expect(familyFor(phrase), phrase).toBe("fam_production_supervisor");
+      expect(liveClaimants(phrase), phrase).toEqual([code]);
+    }
+    expect(familyFor("Assembly Line Supervisor")).toBe("fam_production_supervisor");
+    expect(familyFor("Planning Supervisor")).toBe("fam_production_supervisor");
+  });
+
+  it("routes bare 'supervisor' nowhere, and leaves the trade supervisors where they were", () => {
+    // A3: bare supervisor is every trade's top rung; the interview asks the department first.
+    expect(familyFor("supervisor")).toBeNull();
+    // Sheet 23: a trade supervisor keeps his trade — these codes are untouched by this change.
+    for (const phrase of [
+      "Press Shop Supervisor",
+      "Welding Supervisor",
+      "Plastic Moulding Shop Supervisor",
+      "Forging Shop Supervisor",
+    ]) {
+      expect(familyFor(phrase), phrase).not.toBe("fam_production_supervisor");
+    }
+  });
+});
+
+describe("Phase 2 #11 — foundry / forging, a new family on the casting and forging codes (CEO Launch Plan Pack v1)", () => {
+  const offline = resolveJobDomainCorpus();
+  const parents = new Set(
+    offline.filter((d) => d.selectable && d.parentJobDomainId).map((d) => d.parentJobDomainId),
+  );
+  const live = offline.filter(
+    (d) => d.selectable && !(d.source === "isco08" && parents.has(d.jobDomainId)),
+  );
+  const liveClaimants = (phrase: string) => {
+    const norm = normalizeOccupationText(phrase);
+    return live
+      .filter((d) => d.aliases.some((a) => normalizeOccupationText(a.text) === norm))
+      .map((d) => d.jobDomainId)
+      .sort();
+  };
+
+  it("binds exactly the casting and forging codes", () => {
+    const codes = corpus.bindings
+      .filter((b) => b.family_id === "fam_foundry_forging")
+      .map((b) => b.job_domain_id)
+      .sort();
+    expect(codes).toEqual([
+      "jd_nco_3122_4401",
+      "jd_nco_3122_4402",
+      "jd_nco_3122_4501",
+      "jd_nco_3122_4502",
+      "jd_nco_7211_0100",
+      "jd_nco_7211_0200",
+      "jd_nco_7211_0201",
+      "jd_nco_7211_0500",
+      "jd_nco_7221_0300",
+      "jd_nco_7221_0301",
+      "jd_nco_7221_0400",
+      "jd_nco_7221_0500",
+      "jd_nco_7223_0300",
+      "jd_nco_8121_3301",
+      "jd_nco_8121_3801",
+      "jd_nco_8121_4200",
+      "jd_nco_8121_4201",
+      "jd_nco_8121_4300",
+      "jd_nco_8121_4600",
+    ]);
+  });
+
+  it("reaches the family on the trade's own words, each the ONLY claimant in production", () => {
+    for (const [phrase, code] of [
+      ["foundry", "jd_nco_7211_0201"],
+      ["casting", "jd_nco_7211_0201"],
+      ["sand casting", "jd_nco_7211_0201"],
+      ["shell moulding", "jd_nco_7211_0201"],
+      ["investment casting", "jd_nco_7211_0201"],
+      ["aluminium casting", "jd_nco_7211_0201"],
+      ["फाउंड्री", "jd_nco_7211_0201"],
+      ["core making", "jd_nco_7211_0500"],
+      ["cupola", "jd_nco_8121_3801"],
+      ["melting", "jd_nco_8121_3801"],
+      ["induction furnace", "jd_nco_8121_3801"],
+      ["fettling", "jd_nco_8121_3301"],
+      ["die casting", "jd_nco_8121_4201"],
+      ["hpdc", "jd_nco_8121_4201"],
+      ["pressure die casting", "jd_nco_8121_4201"],
+      ["forging", "jd_nco_7221_0301"],
+      ["hot forging", "jd_nco_7221_0301"],
+      ["press forging", "jd_nco_7221_0301"],
+      ["फोर्जिंग", "jd_nco_7221_0301"],
+      ["power hammer", "jd_nco_7221_0300"],
+    ] as const) {
+      expect(familyFor(phrase), phrase).toBe("fam_foundry_forging");
+      expect(liveClaimants(phrase), phrase).toEqual([code]);
+    }
+  }, 30_000); // 20 phrases, each scanned against the whole live corpus — CI runs every file at once.
+
+  it("leaves the press shop, the village blacksmith and the plastics moulder where they were", () => {
+    expect(familyFor("press operator")).toBe("fam_press_operation");
+    expect(familyFor("furnace")).toBe("fam_metal_processing");
+    for (const phrase of ["blacksmith", "moulding", "injection moulding"]) {
+      expect(familyFor(phrase), phrase).not.toBe("fam_foundry_forging");
+    }
+  });
+});
+
+describe("CEO Launch Plan Pack v1 — sheet-word audit (2026-11-04)", () => {
+  // Every word a sheet routes to its trade was run through this resolver. These had reached
+  // another trade, mostly on one stray token matched loosely ("die" -> street sales, "threading"
+  // -> beauty, "seal" -> tailoring, "coat" -> 3D CAD). Each now has a full-phrase row on its own
+  // trade's code, or the stray split alias that beat it was retired.
+  it("sends each sheet word to its own trade", () => {
+    const expected: Record<string, string> = {
+      "die fitting": "fam_tool_die_making",
+      "die repair": "fam_tool_die_making",
+      "die maintenance": "fam_tool_die_making",
+      "die assembly": "fam_tool_die_making",
+      "progressive die": "fam_tool_die_making",
+      "blanking die": "fam_tool_die_making",
+      "forming die": "fam_tool_die_making",
+      "press tool": "fam_tool_die_making",
+      "core cavity": "fam_tool_die_making",
+      "die casting die": "fam_tool_die_making",
+      "hand finishing": "fam_tool_die_making",
+      "ladder logic": "fam_plc_automation",
+      "instrument mechanic": "fam_plc_automation",
+      grinder: "fam_cnc_grinding",
+      "cylindrical grinder": "fam_cnc_grinding",
+      "diamond dresser": "fam_cnc_grinding",
+      "die sinking": "fam_edm_wirecut",
+      "copper electrode": "fam_edm_wirecut",
+      "taper cutting": "fam_edm_wirecut",
+      "wire threading": "fam_edm_wirecut",
+      "super drill": "fam_edm_wirecut",
+      "coil feeder": "fam_press_operation",
+      "press tool setter": "fam_press_operation",
+      "powder coat": "fam_powder_coating",
+      "spray painting": "fam_powder_coating",
+      "ed coating": "fam_powder_coating",
+      "salt spray test": "fam_powder_coating",
+      "seal change": "fam_maintenance_tech",
+      "manual lathe": "fam_conventional_machining",
+      "conventional lathe": "fam_conventional_machining",
+      "body banata hoon": "fam_sheet_metal_fab",
+      "cad engineer": "fam_cad_design_3d",
+      "mechanical fitter": "fam_fitter",
+      "electrical technician": "fam_industrial_electrician",
+      assembler: "fam_assembly_line",
+    };
+    const got = Object.fromEntries(Object.keys(expected).map((p) => [p, familyFor(p)]));
+    expect(got).toEqual(expected);
+  }, 30_000); // 35 phrases through the full chain — CI runs every file at once.
+
+  it("leaves the words held out on purpose where they were", () => {
+    // Owner ruling A2: the generic electrician words stay on the house wireman.
+    expect(familyFor("electrician")).toBe("fam_electrical");
+    expect(familyFor("wireman")).toBe("fam_electrical");
+    // The draughting ROUTER keeps the generic drawing-office words (see the role-pack block).
+    expect(familyFor("draftsman")).toBe("fam_draughting");
+    // Sheet A3: plain "designer" asks the software first, so it routes nowhere now.
+    expect(familyFor("designer")).toBeNull();
+    // The sheets say ask "CNC ya manual?" for a bare lathe word.
+    expect(familyFor("kharad")).toBe("fam_cnc_turning");
+    // Bare "furnace" is the melt shop's; "painter" stays with building painting.
+    expect(familyFor("furnace")).toBe("fam_metal_processing");
+    expect(familyFor("painter")).toBe("fam_painting");
+  });
+});
+

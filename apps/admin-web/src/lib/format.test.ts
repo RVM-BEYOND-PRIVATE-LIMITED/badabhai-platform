@@ -4,7 +4,11 @@ import {
   creditReasonLabel,
   matchTierLabel,
   formatCount,
+  formatClock,
+  formatDate,
   formatDelta,
+  formatDisplayRupees,
+  formatDisplayRupeesFromNumber,
   formatDuration,
   formatExactRupees,
   formatPayBand,
@@ -12,10 +16,12 @@ import {
   formatRelative,
   formatSuppressible,
   formatTimestamp,
+  formatTimestampUtc,
   healthTone,
   humanizeEventName,
   packCodeLabel,
   shortId,
+  timestampTitle,
 } from "./format";
 
 /**
@@ -57,14 +63,47 @@ describe("formatSuppressible — a withheld figure must never render as zero", (
   });
 });
 
-describe("timestamps", () => {
-  it("formats an ISO instant as absolute UTC to the second", () => {
-    expect(formatTimestamp("2026-08-04T09:39:54.919Z")).toBe("2026-08-04 09:39:54Z");
+describe("timestamps — IST on screen, UTC on hover (#2572)", () => {
+  it("formats an ISO instant as '19 Aug 2026, 13:08 IST'", () => {
+    expect(formatTimestamp("2026-08-19T07:38:54.919Z")).toBe("19 Aug 2026, 13:08 IST");
+    // No raw UTC "Z" ever reaches the visible string.
+    expect(formatTimestamp("2026-08-19T07:38:54.919Z")).not.toMatch(/Z$/);
+  });
+
+  it("rolls the IST calendar day over at 18:30 UTC, and pads nothing but the clock", () => {
+    expect(formatTimestamp("2026-08-03T18:30:00Z")).toBe("4 Aug 2026, 00:00 IST");
+    expect(formatTimestamp("2026-12-31T19:05:00Z")).toBe("1 Jan 2027, 00:35 IST");
+    expect(formatDate("2026-08-03T18:29:59Z")).toBe("3 Aug 2026");
+  });
+
+  it("is the same whatever zone the host runs in — an offset parse is honoured", () => {
+    expect(formatTimestamp("2026-08-19T13:08:00+05:30")).toBe("19 Aug 2026, 13:08 IST");
+  });
+
+  it("keeps the exact UTC instant, to the second, for the hover", () => {
+    expect(formatTimestampUtc("2026-08-19T07:38:54.919Z")).toBe("2026-08-19 07:38:54 UTC");
+    expect(timestampTitle("2026-08-19T07:38:54.919Z")).toBe(
+      "19 Aug 2026, 13:08 IST · 2026-08-19 07:38:54 UTC",
+    );
+  });
+
+  it("date-only and clock forms are IST too", () => {
+    expect(formatDate("2026-08-19T07:38:54Z")).toBe("19 Aug 2026");
+    expect(formatClock("2026-08-19T07:38:54Z")).toBe("13:08:54 IST");
   });
 
   it("returns a dash for an unparseable value instead of 'Invalid Date'", () => {
     expect(formatTimestamp("not-a-date")).toBe("—");
+    expect(formatTimestampUtc("not-a-date")).toBe("—");
+    expect(timestampTitle("not-a-date")).toBe("—");
+    expect(formatDate("not-a-date")).toBe("—");
+    expect(formatClock("not-a-date")).toBe("—");
     expect(formatRelative("not-a-date")).toBe("—");
+  });
+
+  it("an old relative time falls back to the IST date", () => {
+    const now = Date.parse("2026-11-04T12:00:00Z");
+    expect(formatRelative("2026-08-19T07:38:54Z", now)).toBe("19 Aug 2026");
   });
 
   it("relative time steps through the units", () => {
@@ -83,9 +122,16 @@ describe("timestamps", () => {
 });
 
 describe("ids", () => {
-  it("truncates long ids and leaves short ones alone", () => {
-    expect(shortId("80e2b2a0-3633-482b-8f5a-4f092c06e62e")).toBe("80e2b2a0…");
+  it("shortens long ids in the MIDDLE and leaves short ones alone (#2572)", () => {
+    expect(shortId("be16b2a0-3633-482b-8f5a-4f092c06a3f2")).toBe("be16…a3f2");
     expect(shortId("abc")).toBe("abc");
+    // Nothing is gained by eliding a single character.
+    expect(shortId("abcd-efgh")).toBe("abcd-efgh");
+    expect(shortId("abcd-efghi")).toBe("abcd…fghi");
+  });
+
+  it("keeps more of each end on request", () => {
+    expect(shortId("be16b2a0-3633-482b-8f5a-4f092c06a3f2", 6)).toBe("be16b2…06a3f2");
   });
 
   it("renders a null id as a dash, not 'null'", () => {
@@ -252,6 +298,68 @@ describe("formatExactRupees — AI spend is a STRING and never round-trips throu
     for (const raw of ["", "abc", "1e5", ".5", "1.", "12,50", "₹12.48", "NaN"]) {
       expect(formatExactRupees(raw), raw).toBe(raw);
     }
+  });
+});
+
+describe("formatDisplayRupees — no ₹ on screen shows more than two decimals (#2572)", () => {
+  it("₹100 and up renders whole rupees, rounded half-up, Indian grouping", () => {
+    expect(formatDisplayRupees("870.765100")).toBe("₹871");
+    expect(formatDisplayRupees("100")).toBe("₹100");
+    expect(formatDisplayRupees("100.49")).toBe("₹100");
+    expect(formatDisplayRupees("12345678.5")).toBe("₹1,23,45,679");
+  });
+
+  it("under ₹100 renders two decimals", () => {
+    expect(formatDisplayRupees("1.512879")).toBe("₹1.51");
+    expect(formatDisplayRupees("12.480000")).toBe("₹12.48");
+    expect(formatDisplayRupees("3")).toBe("₹3.00");
+    expect(formatDisplayRupees("0.5")).toBe("₹0.50");
+    expect(formatDisplayRupees("0.01")).toBe("₹0.01");
+  });
+
+  it("a figure that rounds up to ₹100 is shown whole, not as ₹100.00", () => {
+    expect(formatDisplayRupees("99.996")).toBe("₹100");
+    expect(formatDisplayRupees("99.994")).toBe("₹99.99");
+  });
+
+  it("below ₹0.01 reads '<₹0.01' — never ₹0.00, which would claim nothing was spent", () => {
+    expect(formatDisplayRupees("0.000012")).toBe("<₹0.01");
+    expect(formatDisplayRupees("0.004999")).toBe("<₹0.01");
+    // Judged before rounding: these round to a paisa, but are still under one.
+    expect(formatDisplayRupees("0.005")).toBe("<₹0.01");
+    expect(formatDisplayRupees("0.009999")).toBe("<₹0.01");
+  });
+
+  it("an exact zero is a measurement and reads ₹0.00", () => {
+    expect(formatDisplayRupees("0")).toBe("₹0.00");
+    expect(formatDisplayRupees("0.000000")).toBe("₹0.00");
+  });
+
+  it("never shows more than two decimals for any well-formed input", () => {
+    for (const v of ["0.123456", "1.999999", "45.000001", "999.123456", "0.010000"]) {
+      expect(formatDisplayRupees(v), v).toMatch(/^(<)?₹[\d,]+(\.\d{1,2})?$/);
+    }
+  });
+
+  it("keeps the sign as a real minus, and returns an unrecognised value unchanged", () => {
+    expect(formatDisplayRupees("-1.5")).toBe("−₹1.50");
+    expect(formatDisplayRupees("-250.6")).toBe("−₹251");
+    for (const raw of ["", "abc", "1e5", ".5", "₹12.48"]) {
+      expect(formatDisplayRupees(raw), raw).toBe(raw);
+    }
+  });
+
+  it("the exact formatter is unchanged — detail views and exports keep every place", () => {
+    expect(formatExactRupees("1.512879")).toBe("₹1.512879");
+    expect(formatExactRupees("870.7651")).toBe("₹870.7651");
+  });
+
+  it("a double-precision ₹ figure follows the same rules", () => {
+    expect(formatDisplayRupeesFromNumber(1.512879)).toBe("₹1.51");
+    expect(formatDisplayRupeesFromNumber(870.7651)).toBe("₹871");
+    expect(formatDisplayRupeesFromNumber(0.0000004)).toBe("<₹0.01");
+    expect(formatDisplayRupeesFromNumber(0.005)).toBe("<₹0.01");
+    expect(formatDisplayRupeesFromNumber(Number.NaN)).toBe("—");
   });
 });
 

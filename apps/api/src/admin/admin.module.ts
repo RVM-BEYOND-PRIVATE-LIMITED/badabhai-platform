@@ -19,6 +19,11 @@ import { AdminRolesGuard } from "./admin-roles.guard";
 import { AdminAiTraceFlagGuard } from "./admin-ai-trace-flag.guard";
 import { AdminAuthService } from "./admin-auth.service";
 import { AdminAuthController } from "./admin-auth.controller";
+import { AdminAttemptLockoutService } from "./admin-attempt-lockout.service";
+import { AdminTrustedDeviceService } from "./admin-trusted-device.service";
+import { AdminPasswordService } from "./admin-password.service";
+import { AdminMfaSelfService } from "./admin-mfa-self.service";
+import { AdminProvisioningService } from "./admin-provisioning.service";
 import { AdminInviteService } from "./admin-invite.service";
 import {
   ADMIN_INVITE_MAILER,
@@ -44,6 +49,9 @@ import { AdminIdentityService } from "./admin-identity.service";
 import { AdminEntitiesRepository } from "./admin-entities.repository";
 import { AdminEntitiesService } from "./admin-entities.service";
 import { AdminEntitiesController } from "./admin-entities.controller";
+import { AdminPayerLoginsRepository } from "./admin-payer-logins.repository";
+import { AdminPayerLoginsService } from "./admin-payer-logins.service";
+import { AdminPayerLoginsController } from "./admin-payer-logins.controller";
 import { AdminFinanceRepository } from "./admin-finance.repository";
 import { AdminFinanceService } from "./admin-finance.service";
 import { AdminFinanceController } from "./admin-finance.controller";
@@ -70,6 +78,14 @@ import { AdminMatchEngineRepository } from "./admin-match-engine.repository";
 import { AdminEngineDemoGate } from "./admin-engine-demo-gate";
 import { AdminMatchEngineService } from "./admin-match-engine.service";
 import { AdminMatchEngineController } from "./admin-match-engine.controller";
+import { AdminCandidateDetailRepository } from "./admin-candidate-detail.repository";
+import { AdminCandidateDetailService } from "./admin-candidate-detail.service";
+import { AdminCandidateDetailController } from "./admin-candidate-detail.controller";
+import { CandidateSearchRepository } from "../candidates/candidate-search.repository";
+import { WorkerAttributesRepository } from "../profiles/worker-attributes.repository";
+import { WorkerLanguagesRepository } from "../profiles/worker-languages.repository";
+import { WorkerOccupationsRepository } from "../profiles/worker-occupations.repository";
+import { WorkerQualificationsRepository } from "../profiles/worker-qualifications.repository";
 
 /**
  * Admin Ops Portal — AUTH + RBAC + MFA foundation (ADR-0025 ADMIN-1). The 4th, highly-
@@ -190,6 +206,7 @@ import { AdminMatchEngineController } from "./admin-match-engine.controller";
     AdminPiiRevealController,
     AdminKillSwitchController,
     AdminEntitiesController,
+    AdminPayerLoginsController,
     AdminFinanceController,
     AdminDirectoryController,
     AdminDashboardController,
@@ -198,6 +215,7 @@ import { AdminMatchEngineController } from "./admin-match-engine.controller";
     AdminAiTracesController,
     AdminSkillDiscoveryController,
     AdminMatchEngineController,
+    AdminCandidateDetailController,
   ],
   providers: [
     AdminRepository,
@@ -207,6 +225,17 @@ import { AdminMatchEngineController } from "./admin-match-engine.controller";
     AdminAuthService,
     AdminAuthGuard,
     AdminRolesGuard,
+    // Migration 0144 — password sign-in, forgot/reset, self-service password change, the
+    // per-admin two-step switch (owner Amendment 1), "trust this device", and direct admin
+    // creation. The lockout + trusted-device providers reuse the BullMQ Redis client (the
+    // queue registered below); AdminPasswordService hands every first factor to the SAME
+    // AdminAuthService MFA gate the emailed-code door uses. A dropped registration here is a
+    // BOOT failure no unit test constructing these by hand can see (admin.module.boot.test.ts).
+    AdminAttemptLockoutService,
+    AdminTrustedDeviceService,
+    AdminPasswordService,
+    AdminMfaSelfService,
+    AdminProvisioningService,
     // The invite accept-link seam: mints/hashes the single-use token, renders the link, and
     // delivers it. Shared by BOTH sides of the flow — AdminActionsService issues the token,
     // AdminAuthService hashes a presented one — which is why it is a provider rather than a
@@ -266,6 +295,12 @@ import { AdminMatchEngineController } from "./admin-match-engine.controller";
     // worker/payer reads come from AdminIdentityService above, never from this repository.
     AdminEntitiesRepository,
     AdminEntitiesService,
+    // #2563: payer login management — create/issue/revoke + the User accounts list, behind
+    // `manage_payer_credentials`. The credential write, the `audit_logs` reason row and the
+    // value-free `admin.action_performed` share ONE transaction; the login ID and organisation
+    // name on the list go through AdminIdentityService above, never through this repository.
+    AdminPayerLoginsRepository,
+    AdminPayerLoginsService,
     // BP-2: finance reads (credit position, platform-wide ledger, payment orders) behind
     // `read_entities`. SELECT-ONLY. Every money-bearing response carries the payments
     // posture, so a mock rupee can never be read as a real one.
@@ -357,6 +392,19 @@ import { AdminMatchEngineController } from "./admin-match-engine.controller";
     AdminMatchEngineRepository,
     AdminEngineDemoGate,
     AdminMatchEngineService,
+    // ADR-0062 (#2560): the Candidates FULL-DETAIL read, `read_candidates` (all four roles). It
+    // reads through the repositories the employer-facing reads use, so the values cannot drift
+    // from them. The five non-admin ones below need only DATABASE and are PROVIDED here rather
+    // than imported with their modules — the `ResumeDisclosureModule` pattern — so this module's
+    // boot never depends on the profiles or candidates subtrees. Only their READ methods are
+    // called from this module (`admin-static-guards.test.ts` pins that).
+    AdminCandidateDetailRepository,
+    AdminCandidateDetailService,
+    WorkerAttributesRepository,
+    WorkerQualificationsRepository,
+    WorkerLanguagesRepository,
+    WorkerOccupationsRepository,
+    CandidateSearchRepository,
   ],
   exports: [AdminAuthGuard, AdminRolesGuard, AdminSessionService, AdminRepository],
 })

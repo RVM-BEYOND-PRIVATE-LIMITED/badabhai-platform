@@ -95,6 +95,18 @@ const RESUME_REFRESH_DELAY_MS = 60_000;
  */
 type UnparseableNumberPolicy = "reject" | "decline";
 
+/**
+ * Legacy universal keys that were STRICT-NUMBER screens on the form (#1503), by target field.
+ *
+ * The universal item's `answer_type` is the chat's keyboard hint and moves with it (`duration`
+ * serves a GENERAL keyboard); the form's validation must not. Keyed on the field so a hint change
+ * can never turn "6" into stored text or "2 saal 6 mahine" into an answer.
+ */
+const LEGACY_NUMERIC_TARGET_FIELDS: ReadonlySet<string | null> = new Set([
+  "experience_years",
+  "salary_expected",
+]);
+
 /** The one reading of "what this form asks this worker right now", shared by both endpoints. */
 interface FormView {
   /** Every `worker_pack_answer` row stored under this form's pack, any version. */
@@ -891,14 +903,23 @@ export class TradeFormService {
     dto: TradeFormAnswerDto,
   ): Promise<TradeFormAnswerResponse> {
     const universal = await this.packs.loadUniversal(Date.now());
-    const item = universal?.items.find((candidate) => candidate.question_key === dto.question_key);
-    if (!item) {
+    const found = universal?.items.find((candidate) => candidate.question_key === dto.question_key);
+    if (!found) {
       this.logger.warn(
         `legacy universal form key ${dto.question_key} rejected: the universal pack ` +
           `${universal ? "no longer defines it" : "did not load"}`,
       );
       throw new BadRequestException(`question_key ${dto.question_key} is not in ${pack.pack_id}`);
     }
+    // THE FORM'S NUMERIC SCREENS STAY NUMERIC, whatever keyboard the chat serves. The universal
+    // item's `answer_type` is the CHAT's rendering hint — `duration` serves a GENERAL keyboard so
+    // a worker can type "2 saal 6 mahine" — but these legacy keys were strict-number screens on
+    // the form (#1503: "6" is 6, "2 saal 6 mahine" is declined, never 26). Validating by the
+    // item's answer_type would store the raw sentence as a text answer the moment the chat's hint
+    // changes. The target field, not the hint, decides.
+    const item = LEGACY_NUMERIC_TARGET_FIELDS.has(found.target_field)
+      ? { ...found, answer_type: "number" as const }
+      : found;
 
     const record = this.recordFor(item, dto, "decline");
     const row = packAnswerRowFor({

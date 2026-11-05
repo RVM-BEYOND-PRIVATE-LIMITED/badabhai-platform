@@ -46,6 +46,19 @@ export function opaqueId(id: string, length = 8): string {
 }
 
 /**
+ * The search card's handle: "Worker ••" + the LAST four hex digits of the opaque id — the payer
+ * app's `maskedLabel`, so one worker reads the same on web and phone. The search lists the whole
+ * pool, where ids minted in one namespace (the synthetic `face2000-0000-4000-8000-…` cohort) share
+ * every leading character, so {@link opaqueId}'s prefix would print the same chip on every card.
+ *
+ *   workerHandle("face2000-0000-4000-8000-000000000003") === "Worker ••0003"
+ */
+export function workerHandle(id: string): string {
+  const hex = id.replace(/[^0-9a-f]/gi, "");
+  return `Worker ••${hex.slice(-4)}`;
+}
+
+/**
  * Render a MASKED last-4 for an agency KYC field (PAN / bank account) — four bullet
  * glyphs then the last-4 the API returns, e.g. "234F" → "••••234F". NEVER a full PAN /
  * account number (the API only ever returns the last-4). Empty / nullish → "—" so a

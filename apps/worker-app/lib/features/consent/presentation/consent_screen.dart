@@ -4,11 +4,16 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/di/locator.dart';
 import '../../../core/theme/onboarding_theme.dart';
+import '../../../core/widgets/bb_alert_dialog.dart';
 import '../../../core/widgets/kit/kit_docked_bar.dart';
+import '../../../core/widgets/kit/kit_select_chip.dart';
 import '../../../core/widgets/onboarding/onboarding_body.dart';
 import '../../../core/widgets/onboarding/primary_action_button.dart';
 import '../../../router.dart';
 import 'cubit/consent_cubit.dart';
+import 'widgets/consent_notice_parts.dart';
+import 'widgets/employer_sharing_notice.dart';
+import 'widgets/privacy_chrome.dart';
 
 /// OWNER ASK (2026-10-22) — the privacy screen's "I don't agree" choice: go on
 /// without voice consent, answering by typing only.
@@ -87,6 +92,12 @@ class _ConsentView extends StatelessWidget {
       },
       builder: (BuildContext context, ConsentState state) {
         final ConsentCubit cubit = context.read<ConsentCubit>();
+        // TERMINAL under-18 screen. No retry: the server wrote no consent and
+        // answering again cannot change the declaration. Acknowledging clears
+        // the local session and lands on phone login.
+        if (state.status == ConsentStatus.ageBlocked) {
+          return _AgeBlockedView(onAcknowledge: cubit.acknowledgeAgeBlock);
+        }
         // BACK BUTTON: none on the onboarding path — consent is a gate you pass
         // through once (#381). It appears ONLY on the pushed recovery path
         // ([ConsentReturnIntent]), where the worker must be able to decline and
@@ -96,7 +107,7 @@ class _ConsentView extends StatelessWidget {
           backgroundColor: OnboardingColors.canvasBg,
           body: Column(
             children: <Widget>[
-              _PrivacyTopBar(
+              PrivacyTopBar(
                 onBack: canGoBack ? () => context.pop(false) : null,
               ),
               Expanded(
@@ -108,39 +119,33 @@ class _ConsentView extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: <Widget>[
-                        const _ShieldCard(),
+                        const PrivacyShieldDisc(),
                         const SizedBox(height: 12),
-                        _NoticeCard(
+                        // 2026-11-04 — the approved employer-sharing notice.
+                        // The ONE tick below covers this card and the voice
+                        // card alike.
+                        const EmployerSharingNotice(),
+                        const SizedBox(height: 12),
+                        const _NoticeCard(),
+                        const SizedBox(height: 12),
+                        _AgreeRow(
                           accepted: state.accepted,
                           onAcceptedChanged: cubit.setAccepted,
                           declined: state.declined,
                           onDeclinedChanged: cubit.setDeclined,
+                        ),
+                        const SizedBox(height: 12),
+                        _AgeGateCard(
+                          answer: state.age18Plus,
+                          onAnswer: (bool value) =>
+                              _answerAge(context, cubit, value),
                         ),
                         // Honest failure text — say what happened, in red,
                         // instead of a silently un-pressed button.
                         if (state.status == ConsentStatus.failure &&
                             state.message != null) ...<Widget>[
                           const SizedBox(height: 12),
-                          Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: <Widget>[
-                              const Icon(
-                                Icons.error_outline_rounded,
-                                size: 18,
-                                color: OnboardingColors.errorRed,
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(
-                                  state.message!,
-                                  style: OnboardingTypography.inter(
-                                    size: 13,
-                                    color: OnboardingColors.errorRed,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
+                          ConsentErrorLine(state.message!),
                         ],
                       ],
                     ),
@@ -151,18 +156,11 @@ class _ConsentView extends StatelessWidget {
               // top border, which also carries the safe-area inset and
               // publishes its own height (so nothing floating can cover it).
               KitDockedBar(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: <Widget>[
-                    PrimaryActionButton(
-                      label: 'Aage Badhein',
-                      isLoading: state.isSubmitting,
-                      // Gated on an explicit tick — "I agree" or "I don't
-                      // agree" (see [_NoticeCard]).
-                      onPressed: state.canSubmit ? cubit.submit : null,
-                    ),
-                  ],
+                child: PrimaryActionButton(
+                  label: 'Aage Badhein',
+                  isLoading: state.isSubmitting,
+                  // Gated on the explicit tick ([_AgreeRow]) AND a yes/no age answer.
+                  onPressed: state.canSubmit ? cubit.submit : null,
                 ),
               ),
             ],
@@ -173,134 +171,130 @@ class _ConsentView extends StatelessWidget {
   }
 }
 
-/// The kit's privacy top bar: a navy strip with a back arrow, `YOUR PRIVACY`
-/// centred in safety yellow, and an India flag chip.
-///
-/// Both side slots are a fixed 48px so the title is TRULY centred whether or
-/// not the back arrow is drawn (it is absent on the onboarding path).
-class _PrivacyTopBar extends StatelessWidget {
-  const _PrivacyTopBar({this.onBack});
+/// Records the age answer. A "Nahi" tap is confirmed first, so a mis-tap can
+/// never put the worker on the terminal under-18 path.
+Future<void> _answerAge(
+  BuildContext context,
+  ConsentCubit cubit,
+  bool value,
+) async {
+  if (value) {
+    cubit.setAge18Plus(true);
+    return;
+  }
+  if (cubit.state.age18Plus == false) return;
+  final bool confirmed = await showBbConfirm(
+    context,
+    title: 'Pakka?',
+    message: 'Pakka? 18 saal se kam hone par abhi profile nahi ban sakti.',
+    confirmLabel: 'Haan',
+    cancelLabel: 'Nahi',
+    destructive: true,
+  );
+  if (confirmed) cubit.setAge18Plus(false);
+}
 
-  final VoidCallback? onBack;
+/// The sign-up age gate: one yes/no question, two chips, no birth year or DOB.
+///
+/// Every NEW consent is asked (owner ruling 2026-11-04) — onboarding and the
+/// pushed consent after a withdrawal — because the trade is only picked later
+/// and DPDP's minors rule does not depend on it.
+class _AgeGateCard extends StatelessWidget {
+  const _AgeGateCard({required this.answer, required this.onAnswer});
+
+  final bool? answer;
+  final ValueChanged<bool> onAnswer;
 
   @override
   Widget build(BuildContext context) {
-    return MediaQuery.withClampedTextScaling(
-      maxScaleFactor: OnboardingLayout.chromeMaxTextScale,
-      child: Container(
-        color: OnboardingColors.shiftBlue,
-        padding: EdgeInsets.only(
-          top: MediaQuery.paddingOf(context).top + 10,
-          bottom: 16,
-          left: 16,
-          right: 16,
-        ),
-        child: Center(
-          heightFactor: 1,
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(
-              maxWidth: OnboardingLayout.maxContentWidth,
-            ),
-            child: Row(
-              children: <Widget>[
-                SizedBox(
-                  width: OnboardingLayout.tapTarget,
-                  child: onBack == null
-                      ? null
-                      : IconButton(
-                          tooltip: 'Wapas',
-                          onPressed: onBack,
-                          padding: EdgeInsets.zero,
-                          alignment: Alignment.centerLeft,
-                          constraints: const BoxConstraints.tightFor(
-                            width: OnboardingLayout.tapTarget,
-                            height: OnboardingLayout.tapTarget,
-                          ),
-                          // Spec §2.1's glyph, so back means the same shape
-                          // here as on every other header in the flow.
-                          icon: const Icon(
-                            Icons.arrow_back_rounded,
-                            color: OnboardingColors.textOnBlue,
-                            size: 22,
-                          ),
-                        ),
-                ),
-                Expanded(
-                  child: Text(
-                    'YOUR PRIVACY',
-                    textAlign: TextAlign.center,
-                    style: OnboardingTypography.anek(
-                      size: 18,
-                      weight: FontWeight.w800,
-                      color: OnboardingColors.safetyYellow,
-                      letterSpacing: 1,
-                    ),
-                  ),
-                ),
-                SizedBox(
-                  width: OnboardingLayout.tapTarget,
-                  child: Center(
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 6,
-                        vertical: 4,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.15),
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      // A WORD, not the flag emoji. The app bundles
-                      // Latin-subset faces only, so a regional-indicator pair
-                      // has no glyph of its own and fell through to whatever
-                      // emoji font the ROM happened to ship — two tofu boxes
-                      // on a device without one, in the header of the screen
-                      // that has to look the most trustworthy in the app.
-                      child: Text(
-                        'INDIA',
-                        style: OnboardingTypography.inter(
-                          size: 9,
-                          weight: FontWeight.w800,
-                          letterSpacing: 0.6,
-                          color: OnboardingColors.textOnBlue,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: OnboardingColors.paperWhite,
+        borderRadius: BorderRadius.circular(OnboardingRadii.card),
+        border: Border.all(color: OnboardingColors.borderSubtle),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text(
+            'Kya aapki umar 18 saal ya usse zyada hai?',
+            style: OnboardingTypography.questionHeadline(
+              color: OnboardingColors.shiftBlue,
             ),
           ),
-        ),
+          const SizedBox(height: 14),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: <Widget>[
+              KitSelectChip(
+                label: 'Haan, 18+ hoon',
+                selected: answer == true,
+                onTap: () => onAnswer(true),
+              ),
+              KitSelectChip(
+                label: 'Nahi',
+                selected: answer == false,
+                onTap: () => onAnswer(false),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
 }
 
-/// The kit's shield disc: a soft-blue 54x54 circle carrying the navy shield
-/// outline, ON THE CANVAS.
-///
-/// Spec §3.5 asks for the disc and nothing else. The white card that used to
-/// wrap it burned about 70dp of a DPDP gate screen that already has to scroll
-/// to reach its 'I agree' tick — on a 320x568 handset at a large system font
-/// that is the difference between the tick being on the page and being below
-/// the fold.
-class _ShieldCard extends StatelessWidget {
-  const _ShieldCard();
+/// The terminal under-18 screen. No retry — the declaration is final for this
+/// sign-up. The single acknowledge clears the local session and returns to
+/// phone login.
+class _AgeBlockedView extends StatelessWidget {
+  const _AgeBlockedView({required this.onAcknowledge});
+
+  final VoidCallback onAcknowledge;
 
   @override
   Widget build(BuildContext context) {
-    return Align(
-      child: Container(
-        width: 54,
-        height: 54,
-        decoration: const BoxDecoration(
-          color: OnboardingColors.shieldCircle,
-          shape: BoxShape.circle,
-        ),
-        child: const Icon(
-          Icons.shield_outlined,
-          color: OnboardingColors.shiftBlue,
-          size: 28,
+    return Scaffold(
+      backgroundColor: OnboardingColors.canvasBg,
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              const Icon(
+                Icons.lock_clock_rounded,
+                size: 64,
+                color: OnboardingColors.shiftBlue,
+              ),
+              const SizedBox(height: 24),
+              Text(
+                '18 saal ke baad aana',
+                textAlign: TextAlign.center,
+                style: OnboardingTypography.anek(
+                  size: 26,
+                  weight: FontWeight.w800,
+                  color: OnboardingColors.shiftBlue,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'Abhi profile nahi ban sakti. 18 saal poore hone par dobara '
+                'sign in karein.',
+                textAlign: TextAlign.center,
+                style: OnboardingTypography.inter(
+                  size: 15,
+                  height: 1.45,
+                  color: OnboardingColors.ink600,
+                ),
+              ),
+              const SizedBox(height: 32),
+              PrimaryActionButton(label: 'Theek hai', onPressed: onAcknowledge),
+            ],
+          ),
         ),
       ),
     );
@@ -327,18 +321,10 @@ class _ShieldCard extends StatelessWidget {
 /// The ONE addition is the kit's "Dhyaan dein:" lead-in on the closing line —
 /// a label, not a claim. The erasure sentence stays unrendered until #1271.
 ///
-/// The explicit "I agree" tick also stays. The kit's screen has only a Continue
-/// button, but DPDP consent needs a clear affirmative act, and that tick is it.
+/// The "I agree" tick that used to close this card is now [_AgreeRow], below
+/// BOTH notices, because one tick grants both (2026-11-04).
 class _NoticeCard extends StatelessWidget {
-  const _NoticeCard({
-    required this.accepted,
-    required this.onAcceptedChanged,
-    required this.declined,
-    required this.onDeclinedChanged,
-  });
-
-  final bool accepted;
-  final ValueChanged<bool> onAcceptedChanged;
+  const _NoticeCard();
 
   /// OWNER ASK (2026-10-22) — the "I don't agree" tick right under "I agree".
   /// Ticking one clears the other (the cubit owns that rule).
@@ -349,13 +335,7 @@ class _NoticeCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: OnboardingColors.paperWhite,
-        borderRadius: BorderRadius.circular(OnboardingRadii.card),
-        border: Border.all(color: OnboardingColors.borderSubtle),
-      ),
+    return ConsentNoticeCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
@@ -388,173 +368,86 @@ class _NoticeCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 14),
-          const _ConsentBullet(<(String, bool)>[
+          const ConsentBullet(<NoticeRun>[
             ('Aapki ', false),
             ('awaaz record hoti hai', true),
             (' aur humaare paas save rehti hai.', false),
           ]),
-          const _ConsentBullet(<(String, bool)>[
+          const ConsentBullet(<NoticeRun>[
             ('Us recording ko likhne ke liye hum use ', false),
             ('Sarvam', true),
             (' naam ki ek doosri company ko bhejte hain.', false),
           ]),
-          const _ConsentBullet(<(String, bool)>[
+          const ConsentBullet(<NoticeRun>[
             ('Recording ', false),
             ('hamesha ke liye save rehti hai', true),
             (' — hum use apne aap nahi hataate.', false),
           ]),
-          const _ConsentBullet(<(String, bool)>[
+          const ConsentBullet(<NoticeRun>[
             ('Aapki awaaz ka istemaal kisi AI ko sikhaane ke liye ', false),
             ('nahi', true),
             (' kiya jaata.', false),
           ]),
           const SizedBox(height: 8),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: OnboardingColors.noteBg,
-              borderRadius: BorderRadius.circular(OnboardingRadii.note),
-              border: Border.all(color: OnboardingColors.borderDefault),
+          const ConsentNoteBox(<NoticeRun>[
+            ('Agar aap ijaazat nahi dete, tab bhi aap ', false),
+            ('poora interview type karke', true),
+            (
+              ' de sakte hain. Kuch bhi kam nahi hota — sirf mic '
+                  'band rehta hai.',
+              false,
             ),
-            child: Text.rich(
-              TextSpan(
-                style: OnboardingTypography.inter(
-                  size: 12,
-                  height: 1.4,
-                  color: OnboardingColors.ink600,
-                ),
-                children: <InlineSpan>[
-                  const TextSpan(
-                    text: 'Dhyaan dein: ',
-                    style: TextStyle(
-                      fontWeight: FontWeight.w700,
-                      color: OnboardingColors.ink900,
-                    ),
-                  ),
-                  const TextSpan(
-                    text: 'Agar aap ijaazat nahi dete, tab bhi aap ',
-                  ),
-                  TextSpan(text: 'poora interview type karke', style: _bold),
-                  const TextSpan(
-                    text:
-                        ' de sakte hain. Kuch bhi kam nahi hota — sirf mic '
-                        'band rehta hai.',
-                  ),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
-          const Divider(color: OnboardingColors.borderSubtle, height: 1),
-          const SizedBox(height: 8),
-          _ConsentTick(
-            value: accepted,
-            label: 'I agree',
-            onChanged: onAcceptedChanged,
-          ),
-          _ConsentTick(
-            key: kConsentDeclineButtonKey,
-            value: declined,
-            label: kConsentDeclineLabel,
-            onChanged: onDeclinedChanged,
-          ),
+          ]),
         ],
       ),
     );
   }
 }
 
-/// One answer row on the notice: the tick and its label, the whole row
-/// tappable.
-class _ConsentTick extends StatelessWidget {
-  const _ConsentTick({
-    super.key,
-    required this.value,
-    required this.label,
-    required this.onChanged,
-  });
+/// The screen's ONE affirmative act: the "I agree" tick, in its own card below
+/// BOTH notices, because it grants both (owner ruling 2026-11-04).
+///
+/// The kit's screen has only a Continue button, but DPDP consent needs a clear
+/// affirmative act, and this tick is it — 'Aage Badhein' stays disabled until
+/// it is ticked.
+class _AgreeRow extends StatelessWidget {
+  const _AgreeRow({required this.accepted, required this.onAcceptedChanged});
 
-  final bool value;
-  final String label;
-  final ValueChanged<bool> onChanged;
+  final bool accepted;
+  final ValueChanged<bool> onAcceptedChanged;
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      onTap: () => onChanged(!value),
-      borderRadius: BorderRadius.circular(OnboardingRadii.note),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 4),
-        child: Row(
-          children: <Widget>[
-            // No local fill / side overrides: the app-wide checkbox theme
-            // is the v3 drawing (navy fill, yellow border, yellow tick),
-            // and an override here is how this tick quietly ended up
-            // wearing a grey border while every other one wore yellow.
-            Checkbox(
-              value: value,
-              onChanged: (bool? v) => onChanged(v ?? false),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                label,
-                style: OnboardingTypography.inter(
-                  size: 14,
-                  weight: FontWeight.w600,
+    return ConsentNoticeCard(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      child: InkWell(
+        onTap: () => onAcceptedChanged(!accepted),
+        borderRadius: BorderRadius.circular(OnboardingRadii.note),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: Row(
+            children: <Widget>[
+              // No local fill / side overrides: the app-wide checkbox theme
+              // is the v3 drawing (navy fill, yellow border, yellow tick),
+              // and an override here is how this tick quietly ended up
+              // wearing a grey border while every other one wore yellow.
+              Checkbox(
+                value: accepted,
+                onChanged: (bool? v) => onAcceptedChanged(v ?? false),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'I agree',
+                  style: OnboardingTypography.inter(
+                    size: 14,
+                    weight: FontWeight.w600,
+                  ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
-      ),
-    );
-  }
-}
-
-/// One line of the notice's bulleted list: the kit's 7px navy dot, then the
-/// approved text with its bold spans. The text wraps under its own column, not
-/// under the dot.
-class _ConsentBullet extends StatelessWidget {
-  const _ConsentBullet(this.parts);
-
-  /// (text, isBold) runs, in order.
-  final List<(String, bool)> parts;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 14),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          Container(
-            margin: const EdgeInsets.only(top: 6, right: 10),
-            width: 7,
-            height: 7,
-            decoration: const BoxDecoration(
-              color: OnboardingColors.shiftBlue,
-              shape: BoxShape.circle,
-            ),
-          ),
-          Expanded(
-            child: Text.rich(
-              TextSpan(
-                style: OnboardingTypography.inter(size: 13, height: 1.45),
-                children: <InlineSpan>[
-                  for (final (String text, bool bold) in parts)
-                    TextSpan(
-                      text: text,
-                      style: bold
-                          ? const TextStyle(fontWeight: FontWeight.w700)
-                          : null,
-                    ),
-                ],
-              ),
-            ),
-          ),
-        ],
       ),
     );
   }

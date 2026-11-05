@@ -500,12 +500,12 @@
 
 /* ============================================================
    RADIUS — soft, rounded geometry (the brand icons' "rounded terminals").
-   controls 10 · cards 14 · dialogs 16 · sheets/hero 20 · pills for chips.
+   small 8 · controls 10 · cards 14 · dialogs 16 · sheets/hero 20 · pills for chips.
    One scale for BOTH portals (admin had forked to 14/18/24/32, payer capped at 12).
    ============================================================ */
 :root {
   --radius-xs: 6px;
-  --radius-sm: 10px;
+  --radius-sm: 8px; /* was 10px — equal to --radius-md, so the step did nothing (#2570) */
   --radius-md: 10px; /* button / input / control */
   --radius-lg: 14px; /* card / panel */
   --radius-xl: 16px; /* dialog / large card */
@@ -553,19 +553,59 @@
 
 /* ============================================================
    MOTION — fast, subtle ease-out; one earned "stamp" spring for success.
-   Every duration collapses to 0 under prefers-reduced-motion.
+   The single source for every animation and transition in payer-web and admin-web (#2570):
+   a duration in either app's CSS names a --duration-* token (the duration-token fences in
+   apps/payer-web and apps/admin-web fail on a hard-coded one).
+   Enter = --ease-enter; exit = --ease-exit and ~30% shorter; --ease-glide for indicators
+   that travel between positions; --ease-stamp for success moments ONLY.
+   Every duration and distance collapses to 0 under prefers-reduced-motion; an opacity-only
+   fade may keep --duration-fade (≤ 120ms there).
    ============================================================ */
 :root {
   --ease-out: cubic-bezier(0.22, 0.61, 0.36, 1);
   --ease-in-out: cubic-bezier(0.62, 0, 0.3, 1);
   --ease-stamp: cubic-bezier(0.18, 0.9, 0.32, 1.28);
   --ease-in: cubic-bezier(0.55, 0, 1, 0.45);
+  --ease-enter: var(--ease-out); /* things arriving: page, sheet, popover, rise */
+  --ease-exit: var(--ease-in); /* things leaving */
+  --ease-glide: cubic-bezier(0.22, 1, 0.36, 1); /* an indicator sliding between positions */
 
   --duration-instant: 80ms;
-  --duration-fast: 140ms;
-  --duration-base: 220ms;
+  --duration-fast: 140ms; /* hover, popover, press release */
+  --duration-base: 220ms; /* panel, drawer, dialog */
   --duration-slow: 320ms;
   --duration-slower: 480ms;
+  --duration-press: 90ms; /* press down */
+  --duration-page: 200ms; /* route / page enter */
+  --duration-sheet: 300ms; /* bottom sheet */
+  --duration-count: 600ms; /* number count-up */
+  --duration-celebrate: 520ms; /* success stamp (pairs with --ease-stamp) */
+  --duration-shimmer: 1400ms; /* one skeleton sheen sweep */
+  --duration-fade: 140ms; /* opacity-only fade — the one motion reduced motion keeps (≤ 120ms) */
+
+  /* distances */
+  --motion-rise: 6px; /* max travel for an entering element */
+  --motion-enter-scale: 0.98; /* dialog enters 0.98 → 1 */
+  --press-depth: 3px; /* a pressable sinks this far, onto its edge */
+  --press-scale: 0.97;
+  --stagger-step: 30ms; /* per item in a staggered list … */
+  --stagger-max: 8; /* … for the first 8 items only (unitless count); the rest enter together */
+
+  /* PRESS EDGE (CRED / NeoPOP) — a solid brand edge under primary and secondary buttons that
+     collapses on press: at rest `box-shadow: var(--shadow-press-*)`; on :active
+     `box-shadow: var(--shadow-press-*-pressed); transform: translateY(var(--press-depth))
+     scale(var(--press-scale))`, over --duration-press (release over --duration-fast).
+     Existing brand steps only — no new colour. */
+  --press-edge-primary: var(--brand-press); /* the darker Safety Yellow step on a yellow button */
+  --press-edge-secondary: var(--navy-900); /* Shift Blue under a secondary button */
+  --shadow-press-primary: 0 var(--press-depth) 0 0 var(--press-edge-primary);
+  --shadow-press-primary-pressed: 0 0 0 0 var(--press-edge-primary);
+  --shadow-press-secondary: 0 var(--press-depth) 0 0 var(--press-edge-secondary);
+  --shadow-press-secondary-pressed: 0 0 0 0 var(--press-edge-secondary);
+
+  /* SKELETON — a loading placeholder and the sheen that sweeps it (--duration-shimmer). */
+  --skeleton-base: var(--surface-sunken);
+  --skeleton-sheen: var(--surface-card);
 
   /* common composed transition */
   --transition-control:
@@ -581,8 +621,32 @@
     --duration-base: 0ms;
     --duration-slow: 0ms;
     --duration-slower: 0ms;
+    --duration-press: 0ms;
+    --duration-page: 0ms;
+    --duration-sheet: 0ms;
+    --duration-count: 0ms;
+    --duration-celebrate: 0ms;
+    --duration-shimmer: 0ms;
+    --duration-fade: 120ms;
+    --motion-rise: 0px;
+    --motion-enter-scale: 1;
+    --press-depth: 0px;
+    --press-scale: 1;
+    --stagger-step: 0ms;
   }
 }
+
+/* ============================================================
+   BREAKPOINTS — phone 375 · tablet 600 · desktop 1024 · wide 1280 (min-width, mobile first).
+   Custom media for stylesheets (needs postcss-custom-media to compile; a browser ignores the
+   declaration until then) and the same numbers as a TS constant for scripts:
+   `import { BREAKPOINTS } from "@badabhai/design-tokens/breakpoints"`. Keep the two in step —
+   apps/payer-web/src/app/design-tokens-motion.test.ts fences it.
+   ============================================================ */
+@custom-media --bp-phone (min-width: 375px);
+@custom-media --bp-tablet (min-width: 600px);
+@custom-media --bp-desktop (min-width: 1024px);
+@custom-media --bp-wide (min-width: 1280px);
 
 /* ============================================================
    BASE — z-index layers, reset, and brand-inheriting globals.

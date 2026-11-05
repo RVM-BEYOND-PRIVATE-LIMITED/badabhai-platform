@@ -44,6 +44,9 @@ type JobRow = {
   payType: JobPayType | null;
   // Migration 0131 — the display role. NULL for every job nobody picked one for.
   roleKind: string | null;
+  // Migration 0141 — the display-only rung and the poster's chip answers.
+  tradeLevel: string | null;
+  tradeAnswers: Record<string, string[]> | null;
   // ADR-0050 C4 — the explicit match pick. `[]` = "not chosen yet".
   matchSkillIds: string[];
   // #1202 — mirrors the real `JobStatus` union rather than a narrowed copy of it. A local
@@ -74,6 +77,8 @@ function jobRow(overrides: Partial<JobRow> = {}): JobRow {
     // #1648 — what the ₹ band MEANS. NULL is the default state for every existing row.
     payType: null,
     roleKind: null,
+    tradeLevel: null,
+    tradeAnswers: null,
     matchSkillIds: [],
     status: "open",
     applicantsReceived: 0,
@@ -94,8 +99,10 @@ function make(opts?: {
   agencyJob?: JobRow | undefined;
   /** `match_config.max_skills_per_posting` for the REAL MatchSkillsService below. */
   maxSkillsPerPosting?: number;
-  /** ADR-0053 — the REAL resolver; the default mode (`off`) unless a case builds another. */
+  /** ADR-0053 - the REAL resolver; the default mode (`off`) unless a case builds another. */
   tenancy?: PayerTenantScopeService;
+  /** Migration 0141 - override the trade-form validator (default: a no-op stub). */
+  postingTrades?: unknown;
 }) {
   const emit = vi.fn().mockResolvedValue(undefined);
 
@@ -170,6 +177,7 @@ function make(opts?: {
     consent as never,
     { emit } as never,
     matchSkills,
+    (opts?.postingTrades ?? {}) as never, // PostingTradesService
     opts?.tenancy ?? defaultModeResolver(),
   );
   return { svc, emit, jobsRepo, invitesRepo, consent };
@@ -277,7 +285,12 @@ describe("AgencyService.createJob", () => {
     });
     await svc.createJob(PAYER_A, dto, CTX);
     expect(jobsRepo.create).toHaveBeenCalledWith(
-      expect.objectContaining({ description: null, shift: null, benefits: null, requirements: null }),
+      expect.objectContaining({
+        description: null,
+        shift: null,
+        benefits: null,
+        requirements: null,
+      }),
       "open",
     );
   });
@@ -412,9 +425,7 @@ describe("AgencyService close / pause / resume — pause is REVERSIBLE (#1202)",
   it("pauseJob refuses a job that is not open, neutrally", async () => {
     for (const status of ["closed", "paused", "suspended"] as const) {
       const { svc, jobsRepo } = make({ ownedJob: jobRow({ status }) });
-      await expect(svc.pauseJob(PAYER_A, JOB_ID, CTX)).rejects.toBeInstanceOf(
-        BadRequestException,
-      );
+      await expect(svc.pauseJob(PAYER_A, JOB_ID, CTX)).rejects.toBeInstanceOf(BadRequestException);
       expect(jobsRepo.pauseOwnedIfOpen).not.toHaveBeenCalled();
     }
   });
@@ -424,9 +435,7 @@ describe("AgencyService close / pause / resume — pause is REVERSIBLE (#1202)",
     // out of suspension would defeat it, so this is a security property, not tidiness.
     for (const status of ["open", "closed", "suspended"] as const) {
       const { svc, jobsRepo } = make({ ownedJob: jobRow({ status }) });
-      await expect(svc.resumeJob(PAYER_A, JOB_ID, CTX)).rejects.toBeInstanceOf(
-        BadRequestException,
-      );
+      await expect(svc.resumeJob(PAYER_A, JOB_ID, CTX)).rejects.toBeInstanceOf(BadRequestException);
       expect(jobsRepo.resumeOwnedIfPaused).not.toHaveBeenCalled();
     }
   });
@@ -711,7 +720,6 @@ describe("AgencyService.createInvite — mint binds to the SESSION payer (XB-A)"
   });
 });
 
-
 // ---------------------------------------------------------------------------
 // #1647 — `description`, `shift`, `benefits` and `requirements` were WRITE-ONLY.
 //
@@ -776,7 +784,6 @@ describe("#1647 — the agency job view returns the content it accepts", () => {
     expect(JSON.stringify(view)).not.toContain(PAYER_A);
   });
 });
-
 
 // ---------------------------------------------------------------------------
 // #1652 — the agency contract had the same value-or-absent shape, so an agency job's
@@ -978,7 +985,9 @@ describe("migration 0131 — the role_kind CONTRACT on the agency DTOs", () => {
 
   it("does not make trade_key optional — the matching classifier is still required on create", () => {
     const { trade_key: _omit, ...noTrade } = BASE;
-    expect(CreateAgencyJobSchema.safeParse({ ...noTrade, role_kind: "welder" }).success).toBe(false);
+    expect(CreateAgencyJobSchema.safeParse({ ...noTrade, role_kind: "welder" }).success).toBe(
+      false,
+    );
   });
 });
 
@@ -1455,5 +1464,39 @@ describe("ADR-0053 P2d — AgencyService's invite paths follow the TENANT", () =
     ]);
     // Neither path has a payer session to resolve: the stored owner is the only owner.
     expect(resolve).not.toHaveBeenCalled();
+  });
+});
+
+describe("migration 0141 — the trade form derives the agency job's match set", () => {
+  const BASE = { trade_key: "cnc_operator", title: TITLE, city: CITY };
+  const SELECTION = {
+    tradeLevel: "setter",
+    tradeAnswers: { controller_brand: ["fanuc"] },
+    matchSkillIds: ["mskill_cnc_turner"],
+  };
+
+  it("stores the derived set, never the wider ids the client also sent", async () => {
+    const normalizeSelection = vi.fn().mockResolvedValue(SELECTION);
+    const { svc, jobsRepo } = make({ postingTrades: { normalizeSelection } });
+    const dto = CreateAgencyJobSchema.parse({
+      ...BASE,
+      role_kind: "cnc_turner",
+      trade_level: "setter",
+      trade_answers: { controller_brand: ["fanuc"] },
+      match_skill_ids: ["mskill_vmc_operator", "mskill_cnc_turner"],
+    });
+
+    const view = await svc.createJob(PAYER_A, dto, CTX);
+
+    expect(normalizeSelection).toHaveBeenCalledWith("cnc_turner", "setter", {
+      controller_brand: ["fanuc"],
+    });
+    expect(jobsRepo.create.mock.calls[0]![0]).toMatchObject({
+      tradeLevel: "setter",
+      tradeAnswers: { controller_brand: ["fanuc"] },
+      matchSkillIds: ["mskill_cnc_turner"],
+    });
+    expect(view.tradeLevel).toBe("setter");
+    expect(view.tradeAnswers).toEqual({ controller_brand: ["fanuc"] });
   });
 });

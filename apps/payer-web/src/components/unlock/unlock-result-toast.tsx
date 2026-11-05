@@ -11,12 +11,26 @@
  */
 import { NEUTRAL_UNLOCK_MESSAGE } from "../../lib/unlock-view";
 import { Toast } from "../ds";
+import type { ToastInput } from "../ds/toast-provider";
 
 /** The unlock RESULT a screen surfaces in the toast — mirrors the mapped UnlockView kinds. */
 export type UnlockResultKind = "granted" | "unavailable";
 
 /** The single neutral success line (no candidate, no cause). */
 export const UNLOCK_SUCCESS_TITLE = "Contact unlocked";
+
+/** The neutral success body (no candidate). */
+const UNLOCK_SUCCESS_MESSAGE = "You can now contact this applicant from their card.";
+
+/**
+ * A granted unlock, as the portal's ONE success pattern (#2583): screens hand this to
+ * `useToast().show`, so it is announced once and dismisses itself like every other success.
+ */
+export const UNLOCK_GRANTED_TOAST: ToastInput = {
+  tone: "success",
+  title: UNLOCK_SUCCESS_TITLE,
+  message: UNLOCK_SUCCESS_MESSAGE,
+};
 
 export interface UnlockResultToastProps {
   /** Which outcome to confirm. */
@@ -29,7 +43,7 @@ export function UnlockResultToast({ kind, onClose }: UnlockResultToastProps) {
   if (kind === "granted") {
     return (
       <Toast tone="success" title={UNLOCK_SUCCESS_TITLE} onClose={onClose}>
-        The routed relay is ready under this applicant&rsquo;s contact.
+        {UNLOCK_SUCCESS_MESSAGE}
       </Toast>
     );
   }

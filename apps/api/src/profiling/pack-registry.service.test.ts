@@ -264,7 +264,7 @@ describe("validation on the way OUT of the database", () => {
     };
     const { registry } = makeRegistry({ packs: { typed } });
     const pack = await registry.loadPinned("qp_welding", 1, NOW);
-    expect(pack?.items.map((i) => i.answer_type)).toEqual(["text", "number", "number", "text"]);
+    expect(pack?.items.map((i) => i.answer_type)).toEqual(["text", "number", "text", "text"]);
   });
 
   it("derives content_hash rather than reading the column nothing writes", async () => {

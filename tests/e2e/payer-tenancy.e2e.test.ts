@@ -45,7 +45,9 @@ const DATABASE_URL =
   process.env.E2E_DATABASE_URL ??
   process.env.DATABASE_URL ??
   "postgresql://badabhai:badabhai@localhost:5432/badabhai";
-const CONSENT_VERSION = "2026-06-01";
+// These workers consent to `employer_sharing`, which the API records only at a notice version
+// that SHOWED the employer-sharing copy (EMPLOYER_CONTACT_NOTICE_VERSIONS, 2026-11-04).
+const CONSENT_VERSION = "2026-11-04";
 
 // Keys that must NEVER surface in a cross-payer (denied) response.
 const PII_KEYS = [

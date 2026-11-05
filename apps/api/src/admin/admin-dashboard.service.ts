@@ -1,11 +1,16 @@
 import { Injectable } from "@nestjs/common";
 import { AdminDashboardRepository, type AdminKeyCount } from "./admin-dashboard.repository";
-import { AdminEventsRepository, type AdminPayloadGroupField } from "./admin-events.repository";
+import {
+  AdminEventsRepository,
+  type AdminProfilingProfilesSplit,
+  type AdminProfilingSpendSplit,
+  type AdminPayloadGroupField,
+} from "./admin-events.repository";
 import {
   AI_COST_CAVEAT_SINCE_0077,
   CAP_BREACH_SCOPE_PROFILE_EXTRACTION,
   COST_PER_PROFILE_BASIS_INCLUDES_ABANDONED,
-  COST_PER_PROFILE_ERASURE_BIAS,
+  COST_PER_PROFILE_ERASURE_TREATMENT,
   COST_PER_PROFILE_TEST_SPLIT_CONVERGES,
   COST_PER_PROFILE_WINDOW_EDGE_SKEW,
   DASHBOARD_JOB_POSTING_STATUSES,
@@ -48,11 +53,12 @@ import type { AdminProfilingCostSubtotal } from "./admin-dashboard.repository";
  *  3. WHICH EVENT AND WHICH FIELD the breach split reads.
  *  4. THE COST-PER-PROFILE RATIO, and both of its classifications. Which task types count as
  *     profiling spend, which profile statuses count as a produced profile, that BOTH halves are
- *     scoped to the bound the PROFILING SUBTOTAL begins at (which is NOT `accruing_since` —
- *     that one is table-wide and can belong to a task type the numerator excludes), that no
- *     profiling accrual at all means the block is ABSENT rather than ₹0.00, and that a zero
- *     denominator yields a NULL average. The repository holds none of that: it is handed the
- *     bound and the two sets and runs the query. See {@link AdminDashboardService.perProfile}.
+ *     sourced from the event spine and scoped to the bound the PROFILING ACCRUAL begins at
+ *     (which is NOT `accruing_since` — that one is table-wide and can belong to a task type the
+ *     numerator excludes), that no profiling accrual at all means the block is ABSENT rather
+ *     than ₹0.00, and that a zero denominator yields a NULL average. The event reader holds none
+ *     of that: it is handed the bound and the two sets and runs the query. See {@link
+ *     AdminDashboardService.perProfile}.
  *
  * ── NO EVENTS EMITTED ───────────────────────────────────────────────────────────────────
  * A read is not a state change (CLAUDE.md §1). The audited `admin.action_performed` belongs to
@@ -141,6 +147,22 @@ export class AdminDashboardService {
   private static readonly INR_SCALE = 6;
   private static readonly SMALLEST_INR = "0.000001";
 
+  /** The zero split used when no profiling window exists, so no read is issued. */
+  private static readonly EMPTY_PROFILING_SPEND: AdminProfilingSpendSplit = {
+    totalCostInr: "0",
+    totalCalls: 0,
+    totalRealCalls: 0,
+    byPopulation: {
+      real: { totalCostInr: "0", calls: 0, realCalls: 0 },
+      test: { totalCostInr: "0", calls: 0, realCalls: 0 },
+      deleted_or_unattributed: { totalCostInr: "0", calls: 0, realCalls: 0 },
+    },
+  };
+  private static readonly EMPTY_PROFILING_PROFILES: AdminProfilingProfilesSplit = {
+    totalProfiles: 0,
+    byPopulation: { real: 0, test: 0, deleted_or_unattributed: 0 },
+  };
+
   /**
    * The cost-per-profile block — or NULL when there is no PROFILING accrual window to compute
    * it over.
@@ -178,11 +200,9 @@ export class AdminDashboardService {
    * already tolerated, and it never says the platform got something for nothing.
    */
   private static perProfile(
-    since: Date | null,
     subtotal: AdminProfilingCostSubtotal,
-    profilesCompleted: number,
-    split: { testCostInr: string; testCalls: number; realCostInr: string; realCalls: number },
-    splitProfiles: { realProfiles: number; testProfiles: number },
+    spendSplit: AdminProfilingSpendSplit,
+    profilesSplit: AdminProfilingProfilesSplit,
   ): AdminCostPerProfile | null {
     // NO PROFILING WINDOW, NO RATIO. `since` here is `min(first_recorded_at)` over the PROFILING
     // task types, so null means no profiling call has ever been recorded — and then there is no
@@ -190,36 +210,49 @@ export class AdminDashboardService {
     // profile count, which is the state a table holding only `resume_generation` or a payer-side
     // `skill_embedding` is in, and which would otherwise render a confident "profiles are free".
     // The caller does not even issue the count query in this case.
-    if (since === null) return null;
+    if (subtotal.since === null) return null;
+
+    const real = spendSplit.byPopulation.real;
+    const test = spendSplit.byPopulation.test;
+    const deleted = spendSplit.byPopulation.deleted_or_unattributed;
 
     return {
-      since,
+      since: subtotal.since,
       profiling_task_types: PROFILING_TASK_TYPES,
-      profiling_cost_inr: subtotal.totalCostInr,
-      profiling_calls: subtotal.callCount,
-      profiling_real_calls: subtotal.realCallCount,
-      profiles_extracted_or_confirmed: profilesCompleted,
-      cost_per_profile_inr: AdminDashboardService.average(subtotal.totalCostInr, profilesCompleted),
+      // THE SPINE'S TOTAL, not the totals table's. The headline and every leg below are the
+      // same grouped statement, so `real + test + deleted` equals this figure by construction.
+      profiling_cost_inr: spendSplit.totalCostInr,
+      profiling_calls: spendSplit.totalCalls,
+      profiling_real_calls: spendSplit.totalRealCalls,
+      profiles_extracted_or_confirmed: profilesSplit.totalProfiles,
+      cost_per_profile_inr: AdminDashboardService.average(
+        spendSplit.totalCostInr,
+        profilesSplit.totalProfiles,
+      ),
       basis: COST_PER_PROFILE_BASIS_INCLUDES_ABANDONED,
       window_caveat: COST_PER_PROFILE_WINDOW_EDGE_SKEW,
-      erasure_caveat: COST_PER_PROFILE_ERASURE_BIAS,
-      // ADDITIVE breakdown — the headline average above is untouched. The investor
-      // number is the real_* leg; each leg averages over its own denominator.
+      erasure_caveat: COST_PER_PROFILE_ERASURE_TREATMENT,
+      // ADDITIVE population breakdown — the headline average above is untouched. The investor
+      // number is the real_* leg; each leg averages over its own denominator. Deleted spend is
+      // its own figure and is never folded back into `real_*`.
       test_split: {
-        real_cost_inr: split.realCostInr,
-        real_calls: split.realCalls,
-        real_profiles: splitProfiles.realProfiles,
+        real_cost_inr: real.totalCostInr,
+        real_calls: real.calls,
+        real_profiles: profilesSplit.byPopulation.real,
         real_cost_per_profile_inr: AdminDashboardService.average(
-          split.realCostInr,
-          splitProfiles.realProfiles,
+          real.totalCostInr,
+          profilesSplit.byPopulation.real,
         ),
-        test_cost_inr: split.testCostInr,
-        test_calls: split.testCalls,
-        test_profiles: splitProfiles.testProfiles,
+        test_cost_inr: test.totalCostInr,
+        test_calls: test.calls,
+        test_profiles: profilesSplit.byPopulation.test,
         test_cost_per_profile_inr: AdminDashboardService.average(
-          split.testCostInr,
-          splitProfiles.testProfiles,
+          test.totalCostInr,
+          profilesSplit.byPopulation.test,
         ),
+        deleted_or_unattributed_cost_inr: deleted.totalCostInr,
+        deleted_or_unattributed_calls: deleted.calls,
+        deleted_or_unattributed_profiles: profilesSplit.byPopulation.deleted_or_unattributed,
       },
       test_split_caveat: COST_PER_PROFILE_TEST_SPLIT_CONVERGES,
     };
@@ -267,14 +300,13 @@ export class AdminDashboardService {
       this.repo.profilingCostSubtotal(PROFILING_TASK_TYPES),
     ]);
 
-    // Thirteen independent aggregates. Run concurrently so the page's latency is the slowest
+    // Fourteen independent aggregates. Run concurrently so the page's latency is the slowest
     // ONE, not their sum — the same reason `AdminFinanceService.summary` does it.
     const [
       byProvider,
       byTaskType,
-      profilesCompleted,
-      costTestSplit,
-      splitProfilesCompleted,
+      profilingSpend,
+      profilingProfiles,
       breaches,
       workerStatuses,
       pendingDeletion,
@@ -288,26 +320,15 @@ export class AdminDashboardService {
     ] = await Promise.all([
       this.repo.costByProvider(),
       this.repo.costByTaskType(),
-      // NOT ISSUED AT ALL when no PROFILING spend has accrued: with no window there is no
-      // "profiles in the same period" to count, and a count over all time would be the wrong
-      // number rather than an unused one. Note this is the PROFILING bound, not `costTotals`':
-      // a table holding only `resume_generation` has a non-null `accruing_since` and still has
-      // no profiling window at all.
+      // BOTH HALVES OF THE RATIO COME FROM THE SPINE, so a deleted worker leaves neither. Not
+      // issued at all when there is no profiling window; `perProfile` returns null and never
+      // reads the zero dummies.
       profilingSubtotal.since === null
-        ? Promise.resolve(0)
-        : this.repo.countCurrentProfilesCompletedSince(
-            profilingSubtotal.since,
-            PROFILE_COMPLETED_STATUSES,
-          ),
-      // The test split rides the SAME bound or not at all — same rule as the
-      // denominator above. Zeroed dummies when there is no window; perProfile
-      // returns null before reading them.
+        ? Promise.resolve(AdminDashboardService.EMPTY_PROFILING_SPEND)
+        : this.events.profilingCostSplit(profilingSubtotal.since, PROFILING_TASK_TYPES),
       profilingSubtotal.since === null
-        ? Promise.resolve({ testCostInr: "0", testCalls: 0, realCostInr: "0", realCalls: 0 })
-        : this.events.profilingCostTestSplit(profilingSubtotal.since, PROFILING_TASK_TYPES),
-      profilingSubtotal.since === null
-        ? Promise.resolve({ realProfiles: 0, testProfiles: 0 })
-        : this.repo.countCurrentProfilesCompletedSinceSplit(
+        ? Promise.resolve(AdminDashboardService.EMPTY_PROFILING_PROFILES)
+        : this.events.profilingProfilesCompletedSince(
             profilingSubtotal.since,
             PROFILE_COMPLETED_STATUSES,
           ),
@@ -369,11 +390,9 @@ export class AdminDashboardService {
         // be billed to producing one. Its `since` is at or after `accruing_since` above and is
         // deliberately a different field; the portal labels this block's tiles from it.
         per_profile: AdminDashboardService.perProfile(
-          profilingSubtotal.since,
           profilingSubtotal,
-          profilesCompleted,
-          costTestSplit,
-          splitProfilesCompleted,
+          profilingSpend,
+          profilingProfiles,
         ),
         cap_breaches: {
           window_days: dto.windowDays,

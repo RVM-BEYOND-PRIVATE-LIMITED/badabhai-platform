@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mapPostingIssues } from "./posting-field-errors";
+import { mapPostingIssues, postingTradeRequiredFieldErrors } from "./posting-field-errors";
 
 /**
  * #1912 — the server's validation 400 names a FIELD (snake_case) with a static reason; the
@@ -37,5 +37,15 @@ describe("mapPostingIssues (#1912)", () => {
     ]);
     expect(fieldErrors.roleTitle).toBe("first");
     expect(rest).toEqual(["pick at least one skill"]);
+  });
+});
+
+describe("postingTradeRequiredFieldErrors (#2645)", () => {
+  it("puts the 16-trade refusal AT the trade picker — role_kind's form field — in the app's words", () => {
+    expect(postingTradeRequiredFieldErrors()).toEqual({ roleKind: "Pick one of the 16 trades" });
+    // The same field a server issue on `role_kind` lands on, so both refusals share one control.
+    expect(Object.keys(mapPostingIssues([{ path: "role_kind", message: "x" }]).fieldErrors)).toEqual(
+      Object.keys(postingTradeRequiredFieldErrors()),
+    );
   });
 });

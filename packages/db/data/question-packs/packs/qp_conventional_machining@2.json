@@ -1,0 +1,1033 @@
+{
+  "_why": "Role track for CONVENTIONAL MACHINING -- centre lathe, vertical milling, radial drill, boring and shaping, all by hand. fam_machining stays the generic machining interview bound at ISCO unit 7223; this pack binds the NCO conventional-machining occupations directly (job_domain specificity 50 beats unit 40), so a manual machinist gets manual depth and every other machining worker is untouched. It is the manual-side rival qp_cnc_turning and qp_vmc_milling never had: a man who says only 'khraad' is speaking the truth for both trades, and this pack is what makes his half of that word answerable.",
+  "_scope": "NO CONTROLLER, NO PROGRAM, AND THAT IS THE ROLE. Every other machining pack in the corpus asks controller_brand and programming_level; a conventional machinist has neither, and asking him would burn two of eight base asks to record two 'Pata nahi' answers. What replaces them is what the ratified sheet actually prints for this trade: the OPERATIONS he performs by hand, the CAPACITY of the machine he stands at, and the rung he calls himself. machining_level is asked rather than inferred because the reference headline reads 'Conventional Machinist -- Skilled': role-form-descriptor.ts states that the ladder is PRINTED, NOT INFERRED, so the rung has to be a fact the worker taps.",
+  "_depth": "THE TIER GATE IS machining_experience, asked FIRST, and conventional-machinist.role.ts already names it as this role's tenureQuestionKey. It cannot be experience_years from qp_universal: phase order runs occupation_specific BEFORE universal_tail, so the universal answer does not exist yet when these items are selected. Its options carry value_number ONLY. pack-registry.service.ts resolves valueText ?? valueNumber ?? valueBool, so adding a value_text would make the answer a STRING; every gte below would then compare a string to a number, compare() returns null, and the predicate is false forever. A permanently-false ask_if is a question that is never asked, silently -- the #776 defect that sat in qp_welding for the life of the pack. The predicate shape is {op, left:{field}, right:{const}} for exactly the same reason: {op, args:[...]} parses and evaluates to nothing. v2 unifies the scale with the other CEO-pack trades (Fresher = 0, below_one = 0); the fresher band is 'lte 0' here (ITI rows), while the depth rows open at gte 2/5 OR a rung that outranks the row (Track A/B recipe: years OR level).",
+  "_budget": "MAX_ENGINE_ASKS is 28 and qp_universal spends 8. Tier 0 is 8 items (16 total), tier 1 adds 3 (19), tier 2 adds 4 (23), leaving 5 asks of headroom. The three fresher items are gated on machining_experience <= 0 and a senior never sees them; a fresher skips tiers 1 and 2 entirely, so his worst case is 16 + 3 = 19. The tiers are mutually exclusive by construction, which is why the fresher branch costs the senior nothing.",
+  "_sheet": "SECTION B IS READ OFF THE RATIFIED REFERENCE SHEET (Ram Naresh Gupta, Conventional Machinist -- Skilled, 12 yrs), not invented. Its eight rows are Machines, Materials, Operations, Measuring instruments, Drawings, Turning capacity, Tolerance held and Sector worked, and every one has a question here that fills it. THE OPERATIONS ITEM CARRIES NINE CHIPS, one more than this corpus likes, and the page is the reason: it prints eight ticks -- Turning & facing, Screw cutting, Knurling, Milling & slotting, Drilling & reaming, Boring, Tapping, Marking & scribing -- and a chip list short of eight is a row that cannot reproduce the sheet. The ninth is the none-of-above escape a helper needs. Turning capacity and tolerance are BANDED single-selects rather than free numbers: the sheet prints 'Up to 400 mm dia, 1500 mm bed' and '+/-0.05 mm', which are bands, and a banded chip keeps a low-literacy worker tapping instead of typing while avoiding the answer_type 'number' path that has no Flutter widget. FOUR ITEMS ARE CAPTURED AND DELIBERATELY NOT PRINTED -- machining_level feeds the headline rung rather than a capability row, and setting_operation, tool_grinding and advanced_work are real matching data for which the ratified page has no row. Inventing rows for them is what the guide's section 8 forbids.",
+  "pack_id": "qp_conventional_machining",
+  "version": 2,
+  "family_id": "fam_conventional_machining",
+  "locale": "hi-IN",
+  "status": "active",
+  "review_note": "v2 (CEO Launch Plan Pack v1, Track B #4): Easy/Medium/Advanced tiers; 6-band experience; sheet-9 level ladder (Helper/Operator/Skilled/Senior/Supervisor, mandatory) + 2 separating confirms (skilled + senior self/other; supervisor by rule); machine retagged Medium (+surface/cylindrical grinder, hacksaw/bandsaw); NEW CNC-crossover row (Medium; stored only — static pairing unchanged per #2022); operations retagged Advanced (+taper/keyway/gear/grinding; threading relabel); materials unified to Turner set (EN8/EN31 split retired, hard); instrument/drawing rows retagged Advanced; tolerance +0.005/H7 chip; NEW work-type row (Advanced); hard rows gated years OR rung. No union extension (`skilled`/`senior` already confirm; helper/operator Lower). Deviations recorded: no shift row and no new ITI block (Track A/B precedent); sector kept as hard depth (no sheet row); capacity kept as hard depth; no new static match pairs for the CNC crossover (#2022 stands — manual-only postings must not reach CNC hands).",
+  "_fresher": "Guideline section 11 #1: a fresher's Zone 4 is training, trade test, machines used in the ITI workshop and project work, and the History heading never renders empty. These three items are the ask half; resume-fresher-rows.ts, fed by this role's descriptor, is the render half. The keys iti_workshop_machines and trade_test_status are read LITERALLY by that file and may never be renamed.",
+  "items": [
+    {
+      "question_key": "machining_experience",
+      "min_tier": "easy",
+      "prompt_text": "Khraad aur milling ka kitna tajurba hai?",
+      "why_text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain.",
+      "retry_text": "Lagbhag kitne saal machine par kaam kiya hai?",
+      "target_kind": "attribute",
+      "target_field": "machining_experience",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        { "option_key": "fresher", "label_text": "Fresher", "value_number": 0 },
+        { "option_key": "below_one", "label_text": "1 saal se kam", "value_number": 0 },
+        { "option_key": "one_to_three", "label_text": "1 se 3 saal", "value_number": 2 },
+        { "option_key": "three_to_five", "label_text": "3 se 5 saal", "value_number": 4 },
+        { "option_key": "five_to_ten", "label_text": "5 se 10 saal", "value_number": 7 },
+        { "option_key": "above_ten", "label_text": "10 saal se zyada", "value_number": 12 }
+      ]
+    },
+    {
+      "_why": "Turner precedent (Track A #1): the machine row is asked, never required — Medium, optional. Sheet-9 Q6 set (+surface/cylindrical grinders, hacksaw/bandsaw); shaper/planer/slotter kept as the sheet's two chips.",
+      "question_key": "machining_machine",
+      "min_tier": "medium",
+      "prompt_text": "Aap kaunsi machine chalate hain?",
+      "why_text": "Machine ke hisaab se sahi kaam dikhaya jaata hai.",
+      "retry_text": "Khraad, milling ya drill, kaunsi machine chalate hain?",
+      "target_kind": "attribute",
+      "target_field": "machining_machine",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "centre_lathe",
+          "label_text": "Lathe (manual)",
+          "value_text": "centre_lathe"
+        },
+        {
+          "option_key": "vertical_milling",
+          "label_text": "Milling (manual)",
+          "value_text": "vertical_milling"
+        },
+        {
+          "option_key": "radial_drill",
+          "label_text": "Drilling / radial drill",
+          "value_text": "radial_drill"
+        },
+        {
+          "option_key": "surface_grinder",
+          "label_text": "Surface grinder",
+          "value_text": "surface_grinder"
+        },
+        {
+          "option_key": "cylindrical_grinder",
+          "label_text": "Cylindrical grinder",
+          "value_text": "cylindrical_grinder"
+        },
+        {
+          "option_key": "boring_machine",
+          "label_text": "Boring",
+          "value_text": "boring_machine"
+        },
+        {
+          "option_key": "shaper_planer",
+          "label_text": "Shaper / planer",
+          "value_text": "shaper_planer"
+        },
+        {
+          "option_key": "slotter",
+          "label_text": "Slotter",
+          "value_text": "slotter"
+        },
+        {
+          "option_key": "hacksaw_bandsaw",
+          "label_text": "Hacksaw / bandsaw",
+          "value_text": "hacksaw_bandsaw"
+        },
+        {
+          "option_key": "other_machine",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "_why": "CEO Launch Plan Pack v1 sheet 9 Q7 (Track B #4): the CNC crossover is matching data, stored and never routed on — static pairing unchanged per #2022.",
+      "question_key": "machining_cnc",
+      "min_tier": "medium",
+      "prompt_text": "CNC bhi chalate ho?",
+      "why_text": "CNC aane wale ko dono taraf ka kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "machining_cnc",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "no_cnc",
+          "label_text": "Nahi",
+          "value_text": "none"
+        },
+        {
+          "option_key": "some_cnc",
+          "label_text": "Thoda (operator)",
+          "value_text": "some"
+        },
+        {
+          "option_key": "yes_cnc",
+          "label_text": "Haan",
+          "value_text": "yes"
+        }
+      ]
+    },
+    {
+      "_why": "CEO Launch Plan Pack v1 sheet 9 (Track B #4). The rung opens the depth rows for a worker who claims it even when his years would not -- gate is years OR level.",
+      "question_key": "machining_level",
+      "min_tier": "easy",
+      "prompt_text": "Aap kya karte hain?",
+      "why_text": "Level ke hisaab se sahi sawaal poochhe jaate hain.",
+      "retry_text": "Helper, operator, skilled, senior ya supervisor hain?",
+      "target_kind": "attribute",
+      "target_field": "machining_level",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "helper",
+          "label_text": "Helper",
+          "value_text": "helper"
+        },
+        {
+          "option_key": "operator",
+          "label_text": "Operator",
+          "value_text": "operator"
+        },
+        {
+          "option_key": "skilled",
+          "label_text": "Skilled",
+          "value_text": "skilled"
+        },
+        {
+          "option_key": "senior",
+          "label_text": "Senior",
+          "value_text": "senior"
+        },
+        {
+          "option_key": "supervisor",
+          "label_text": "Supervisor",
+          "value_text": "supervisor"
+        }
+      ]
+    },
+    {
+      "question_key": "machining_skilled_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Drawing dekh ke job khud set karke tolerance mein nikaal lete ho?",
+      "why_text": "Khud setting karke tolerance mein nikalne wale ko alag kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "machining_skilled_confirm",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "in",
+        "left": { "field": "machining_level" },
+        "right": { "const": ["skilled"] }
+      },
+      "options": [
+        {
+          "option_key": "self_setting",
+          "label_text": "Haan, khud nikaal leta hoon",
+          "value_text": "self"
+        },
+        {
+          "option_key": "other_setting",
+          "label_text": "Nahi, senior karte hain",
+          "value_text": "other"
+        }
+      ]
+    },
+    {
+      "question_key": "machining_senior_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Tool-room ka kaam, repair job, doosron ko sikhana — aap karte ho?",
+      "why_text": "Tool-room aur repair ka kaam karne wale senior ko alag zimmedari milti hai.",
+      "target_kind": "attribute",
+      "target_field": "machining_senior_confirm",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "in",
+        "left": { "field": "machining_level" },
+        "right": { "const": ["senior"] }
+      },
+      "options": [
+        {
+          "option_key": "self_toolroom",
+          "label_text": "Haan, main karta hoon",
+          "value_text": "self"
+        },
+        {
+          "option_key": "other_toolroom",
+          "label_text": "Nahi, senior karte hain",
+          "value_text": "other"
+        }
+      ]
+    },
+    {
+      "question_key": "machining_operation",
+      "min_tier": "hard",
+      "prompt_text": "Machine par kaunsa kaam karte hain?",
+      "why_text": "Kaam ke naam se employer samajhta hai aap kya kar sakte hain.",
+      "retry_text": "Turning, threading, gear cutting ya grinding, kya kya karte hain?",
+      "target_kind": "attribute",
+      "target_field": "machining_operation",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "turning_facing",
+          "label_text": "Turning",
+          "value_text": "turning_facing"
+        },
+        {
+          "option_key": "facing_op",
+          "label_text": "Facing",
+          "value_text": "facing_op"
+        },
+        {
+          "option_key": "screw_cutting",
+          "label_text": "Threading",
+          "value_text": "screw_cutting"
+        },
+        {
+          "option_key": "taper_op",
+          "label_text": "Taper",
+          "value_text": "taper_op"
+        },
+        {
+          "option_key": "boring",
+          "label_text": "Boring",
+          "value_text": "boring"
+        },
+        {
+          "option_key": "keyway",
+          "label_text": "Keyway",
+          "value_text": "keyway"
+        },
+        {
+          "option_key": "gear_cutting",
+          "label_text": "Gear cutting",
+          "value_text": "gear_cutting"
+        },
+        {
+          "option_key": "milling_slotting",
+          "label_text": "Slotting",
+          "value_text": "milling_slotting"
+        },
+        {
+          "option_key": "grinding_op",
+          "label_text": "Grinding",
+          "value_text": "grinding_op"
+        },
+        {
+          "option_key": "knurling",
+          "label_text": "Knurling",
+          "value_text": "knurling"
+        },
+        {
+          "option_key": "drilling_reaming",
+          "label_text": "Drilling aur reaming",
+          "value_text": "drilling_reaming"
+        },
+        {
+          "option_key": "tapping",
+          "label_text": "Tapping",
+          "value_text": "tapping"
+        },
+        {
+          "option_key": "marking_scribing",
+          "label_text": "Marking aur scribing",
+          "value_text": "marking_scribing"
+        },
+        {
+          "option_key": "other_operation",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "material_worked",
+      "min_tier": "hard",
+      "prompt_text": "Kaunse material par kaam kiya hai?",
+      "why_text": "Material ka tajurba employer ke liye alag mayne rakhta hai.",
+      "retry_text": "MS, alloy ya cast iron, kis par kaam kiya hai?",
+      "target_kind": "attribute",
+      "target_field": "material_worked",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "mild_steel",
+          "label_text": "MS, mild steel",
+          "value_text": "mild_steel"
+        },
+        {
+          "option_key": "alloy_steel",
+          "label_text": "EN8, EN31 alloy steel",
+          "value_text": "alloy_steel"
+        },
+        {
+          "option_key": "stainless",
+          "label_text": "Stainless steel",
+          "value_text": "stainless"
+        },
+        {
+          "option_key": "aluminium",
+          "label_text": "Aluminium",
+          "value_text": "aluminium"
+        },
+        {
+          "option_key": "brass",
+          "label_text": "Brass ya copper",
+          "value_text": "brass"
+        },
+        {
+          "option_key": "cast_iron",
+          "label_text": "Cast iron",
+          "value_text": "cast_iron"
+        },
+        {
+          "option_key": "titanium",
+          "label_text": "Titanium / Inconel",
+          "value_text": "titanium"
+        },
+        {
+          "option_key": "plastic",
+          "label_text": "Plastics",
+          "value_text": "plastic"
+        },
+        {
+          "option_key": "other_material",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "measuring_tools",
+      "min_tier": "hard",
+      "prompt_text": "Kaunse measuring instrument chala lete hain?",
+      "why_text": "Naap lene wale operator ko quality ka kaam diya jaata hai.",
+      "retry_text": "Vernier, micrometer ya dial gauge, kya istemaal karte hain?",
+      "target_kind": "attribute",
+      "target_field": "measuring_tools",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "vernier",
+          "label_text": "Vernier caliper",
+          "value_text": "vernier"
+        },
+        {
+          "option_key": "micrometer",
+          "label_text": "Micrometer",
+          "value_text": "micrometer"
+        },
+        {
+          "option_key": "height_gauge",
+          "label_text": "Height gauge",
+          "value_text": "height_gauge"
+        },
+        {
+          "option_key": "dial_indicator",
+          "label_text": "Dial gauge",
+          "value_text": "dial_indicator"
+        },
+        {
+          "option_key": "bore_gauge",
+          "label_text": "Bore dial gauge",
+          "value_text": "bore_gauge"
+        },
+        {
+          "option_key": "other_instrument",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "drawing_reading",
+      "min_tier": "hard",
+      "prompt_text": "Kya aap drawing padh lete hain?",
+      "why_text": "Drawing padhna kai jagah zaroori hota hai.",
+      "retry_text": "Drawing dekh kar job bana lete hain?",
+      "target_kind": "attribute",
+      "target_field": "drawing_reading",
+      "answer_type": "single_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "no_drawing",
+          "label_text": "Nahi padh pata",
+          "value_text": "none"
+        },
+        {
+          "option_key": "basic_drawing",
+          "label_text": "Basic 2D drawing padh leta hoon",
+          "value_text": "basic_drawing"
+        },
+        {
+          "option_key": "gdt",
+          "label_text": "GD aur T bhi samajhta hoon",
+          "value_text": "gdt"
+        }
+      ]
+    },
+    {
+      "question_key": "sector_worked",
+      "min_tier": "hard",
+      "prompt_text": "Kis industry ke parts banaye hain?",
+      "why_text": "Sector ka tajurba usi line ke employer dhoondhte hain.",
+      "retry_text": "Job shop, auto parts ya pump valve, kis line me kaam kiya?",
+      "target_kind": "attribute",
+      "target_field": "sector_worked",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "job_shop_repair",
+          "label_text": "Job shop, repair aur spare parts",
+          "value_text": "job_shop_repair"
+        },
+        {
+          "option_key": "automotive",
+          "label_text": "Automobile parts",
+          "value_text": "automotive"
+        },
+        {
+          "option_key": "general_engg",
+          "label_text": "General engineering",
+          "value_text": "general_engg"
+        },
+        {
+          "option_key": "pump_valve",
+          "label_text": "Pump aur valve",
+          "value_text": "pump_valve"
+        },
+        {
+          "option_key": "agri",
+          "label_text": "Agriculture ke parts",
+          "value_text": "agri"
+        },
+        {
+          "option_key": "textile_mill",
+          "label_text": "Textile mill ke parts",
+          "value_text": "textile_mill"
+        },
+        {
+          "option_key": "other_sector",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "turning_capacity",
+      "min_tier": "hard",
+      "prompt_text": "Khraad par kitne bade job tak kaam kiya hai?",
+      "why_text": "Badi machine chalane wale ko bade job ka kaam milta hai.",
+      "retry_text": "Sabse bada job kitne dia ka kiya hai?",
+      "target_kind": "attribute",
+      "target_field": "turning_capacity",
+      "answer_type": "single_select",
+      "max_asks": 2,
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          { "op": "gte", "left": { "field": "machining_experience" }, "right": { "const": 2 } },
+          {
+            "op": "in",
+            "left": { "field": "machining_level" },
+            "right": { "const": ["operator", "skilled", "senior", "supervisor"] }
+          }
+        ]
+      },
+      "options": [
+        {
+          "option_key": "upto_two_hundred",
+          "label_text": "200 mm dia, 1000 mm bed tak",
+          "value_text": "two_hundred"
+        },
+        {
+          "option_key": "upto_four_hundred",
+          "label_text": "400 mm dia, 1500 mm bed tak",
+          "value_text": "four_hundred"
+        },
+        {
+          "option_key": "upto_six_hundred",
+          "label_text": "600 mm dia, 2000 mm bed tak",
+          "value_text": "six_hundred"
+        },
+        {
+          "option_key": "over_six_hundred",
+          "label_text": "600 mm dia se bada, heavy khraad",
+          "value_text": "over_six_hundred"
+        },
+        {
+          "option_key": "capacity_unknown",
+          "label_text": "Pata nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "tolerance_band",
+      "min_tier": "hard",
+      "prompt_text": "Aap kitni tolerance tak kaam kar lete hain?",
+      "why_text": "Tolerance se aapke kaam ki fine quality pata chalti hai.",
+      "retry_text": "Job ki tolerance lagbhag kitni rakhte hain?",
+      "target_kind": "attribute",
+      "target_field": "tolerance_band",
+      "answer_type": "single_select",
+      "max_asks": 2,
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          { "op": "gte", "left": { "field": "machining_experience" }, "right": { "const": 2 } },
+          {
+            "op": "in",
+            "left": { "field": "machining_level" },
+            "right": { "const": ["operator", "skilled", "senior", "supervisor"] }
+          }
+        ]
+      },
+      "options": [
+        {
+          "option_key": "point_one",
+          "label_text": "0.10 mm tak",
+          "value_text": "0.1"
+        },
+        {
+          "option_key": "point_zero_five",
+          "label_text": "0.05 mm tak",
+          "value_text": "0.05"
+        },
+        {
+          "option_key": "point_zero_two",
+          "label_text": "0.02 mm tak",
+          "value_text": "0.02"
+        },
+        {
+          "option_key": "point_zero_one",
+          "label_text": "0.01 mm ya usse kam",
+          "value_text": "0.01"
+        },
+        {
+          "option_key": "point_zero_zero_five",
+          "label_text": "0.005 mm / H7 tak",
+          "value_text": "0.005"
+        },
+        {
+          "option_key": "tolerance_unknown",
+          "label_text": "Pata nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "setting_operation",
+      "min_tier": "hard",
+      "prompt_text": "Machine setting ka kaunsa kaam karte hain?",
+      "why_text": "Setting karne wale ko operator se zyada paisa milta hai.",
+      "retry_text": "Job set karna, tool set karna, kya khud karte hain?",
+      "target_kind": "attribute",
+      "target_field": "setting_operation",
+      "answer_type": "multi_select",
+      "max_asks": 2,
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          { "op": "gte", "left": { "field": "machining_experience" }, "right": { "const": 2 } },
+          {
+            "op": "in",
+            "left": { "field": "machining_level" },
+            "right": { "const": ["operator", "skilled", "senior", "supervisor"] }
+          }
+        ]
+      },
+      "options": [
+        {
+          "option_key": "four_jaw",
+          "label_text": "Four jaw chuck par job set karna",
+          "value_text": "four_jaw"
+        },
+        {
+          "option_key": "taper_setting",
+          "label_text": "Taper attachment ya compound rest set karna",
+          "value_text": "taper_setting"
+        },
+        {
+          "option_key": "tool_setting",
+          "label_text": "Tool ki height aur angle set karna",
+          "value_text": "tool_setting"
+        },
+        {
+          "option_key": "dividing_head",
+          "label_text": "Dividing head ya rotary table set karna",
+          "value_text": "dividing_head"
+        },
+        {
+          "option_key": "vice_clamp",
+          "label_text": "Vice, clamp aur angle plate se job baandhna",
+          "value_text": "vice_clamp"
+        },
+        {
+          "option_key": "steady_rest",
+          "label_text": "Steady rest aur tailstock set karna",
+          "value_text": "steady_rest"
+        },
+        {
+          "option_key": "no_setting",
+          "label_text": "Setting koi aur karta hai",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "quality_work",
+      "min_tier": "hard",
+      "prompt_text": "Quality ka kaunsa kaam aap karte hain?",
+      "why_text": "Quality ka kaam jaanne wale ko supervisor banaya jaata hai.",
+      "retry_text": "Pehla piece check karna ya rejection dekhna, kya karte hain?",
+      "target_kind": "attribute",
+      "target_field": "quality_work",
+      "answer_type": "multi_select",
+      "max_asks": 2,
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          { "op": "gte", "left": { "field": "machining_experience" }, "right": { "const": 5 } },
+          {
+            "op": "in",
+            "left": { "field": "machining_level" },
+            "right": { "const": ["skilled", "senior", "supervisor"] }
+          }
+        ]
+      },
+      "options": [
+        {
+          "option_key": "first_piece_check",
+          "label_text": "Pehla piece check karna",
+          "value_text": "first_piece_check"
+        },
+        {
+          "option_key": "in_process",
+          "label_text": "Beech beech mein checking",
+          "value_text": "in_process"
+        },
+        {
+          "option_key": "gauge_check",
+          "label_text": "Gauge se checking",
+          "value_text": "gauge_check"
+        },
+        {
+          "option_key": "rejection",
+          "label_text": "Rejection analysis",
+          "value_text": "rejection"
+        },
+        {
+          "option_key": "no_quality",
+          "label_text": "Koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "troubleshooting",
+      "min_tier": "hard",
+      "prompt_text": "Machine ki kaunsi dikkat aap sudhaar lete hain?",
+      "why_text": "Dikkat sudhaarne wale operator ki shop par zaroorat rehti hai.",
+      "retry_text": "Belt, gear ya bearing ki dikkat kya khud theek karte hain?",
+      "target_kind": "attribute",
+      "target_field": "troubleshooting",
+      "answer_type": "multi_select",
+      "max_asks": 2,
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          { "op": "gte", "left": { "field": "machining_experience" }, "right": { "const": 5 } },
+          {
+            "op": "in",
+            "left": { "field": "machining_level" },
+            "right": { "const": ["skilled", "senior", "supervisor"] }
+          }
+        ]
+      },
+      "options": [
+        {
+          "option_key": "chatter",
+          "label_text": "Chatter aur vibration",
+          "value_text": "chatter"
+        },
+        {
+          "option_key": "size_variation",
+          "label_text": "Size badal jaana",
+          "value_text": "size_variation"
+        },
+        {
+          "option_key": "belt_gear",
+          "label_text": "Belt ya gear badalna",
+          "value_text": "belt_gear"
+        },
+        {
+          "option_key": "lubrication",
+          "label_text": "Lubrication aur coolant ki dikkat",
+          "value_text": "lubrication"
+        },
+        {
+          "option_key": "alignment",
+          "label_text": "Machine ka alignment bigadna",
+          "value_text": "alignment"
+        },
+        {
+          "option_key": "no_trouble",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "tool_grinding",
+      "min_tier": "hard",
+      "prompt_text": "Cutting tool khud grind karke banate hain?",
+      "why_text": "Apna tool khud grind karna purana aur bada hunar hai.",
+      "retry_text": "HSS tool ki dhaar aap banate hain ya koi aur?",
+      "target_kind": "attribute",
+      "target_field": "tool_grinding",
+      "answer_type": "single_select",
+      "max_asks": 2,
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          { "op": "gte", "left": { "field": "machining_experience" }, "right": { "const": 5 } },
+          {
+            "op": "in",
+            "left": { "field": "machining_level" },
+            "right": { "const": ["skilled", "senior", "supervisor"] }
+          }
+        ]
+      },
+      "options": [
+        {
+          "option_key": "full_grind",
+          "label_text": "Haan, HSS tool khud grind karta hoon",
+          "value_text": "full_grind"
+        },
+        {
+          "option_key": "resharpen",
+          "label_text": "Sirf dhaar tez karta hoon",
+          "value_text": "resharpen"
+        },
+        {
+          "option_key": "ready_tool",
+          "label_text": "Nahi, banaya hua tool milta hai",
+          "value_text": "ready_tool"
+        }
+      ]
+    },
+    {
+      "question_key": "advanced_work",
+      "min_tier": "hard",
+      "prompt_text": "Kaunsa mushkil kaam aap kar lete hain?",
+      "why_text": "Mushkil kaam karne wale machinist ki alag pehchaan hoti hai.",
+      "retry_text": "Taper, gear cutting ya lamba shaft, kya bana lete hain?",
+      "target_kind": "attribute",
+      "target_field": "advanced_work",
+      "answer_type": "multi_select",
+      "max_asks": 2,
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          { "op": "gte", "left": { "field": "machining_experience" }, "right": { "const": 5 } },
+          {
+            "op": "in",
+            "left": { "field": "machining_level" },
+            "right": { "const": ["skilled", "senior", "supervisor"] }
+          }
+        ]
+      },
+      "options": [
+        {
+          "option_key": "taper_turning",
+          "label_text": "Taper turning",
+          "value_text": "taper_turning"
+        },
+        {
+          "option_key": "gear_cutting",
+          "label_text": "Dividing head se gear cutting",
+          "value_text": "gear_cutting"
+        },
+        {
+          "option_key": "eccentric",
+          "label_text": "Eccentric ya offset turning",
+          "value_text": "eccentric"
+        },
+        {
+          "option_key": "long_shaft",
+          "label_text": "Steady rest par lamba shaft",
+          "value_text": "long_shaft"
+        },
+        {
+          "option_key": "repair_fitting",
+          "label_text": "Purane part ki repair aur fitting",
+          "value_text": "repair_fitting"
+        },
+        {
+          "option_key": "no_advanced",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "_why": "CEO Launch Plan Pack v1 sheet 9 Q11 (Track B #4). What KIND of shop work, distinct from the industry rows (sector_worked names where he worked).",
+      "question_key": "machining_work_type",
+      "min_tier": "hard",
+      "prompt_text": "Kis tarah ka kaam zyada karte ho?",
+      "why_text": "Kaam ki tarah se sahi shop milti hai.",
+      "target_kind": "attribute",
+      "target_field": "machining_work_type",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          { "op": "gte", "left": { "field": "machining_experience" }, "right": { "const": 2 } },
+          {
+            "op": "in",
+            "left": { "field": "machining_level" },
+            "right": { "const": ["operator", "skilled", "senior", "supervisor"] }
+          }
+        ]
+      },
+      "options": [
+        {
+          "option_key": "batch_production",
+          "label_text": "Production batch",
+          "value_text": "batch_production"
+        },
+        {
+          "option_key": "job_work",
+          "label_text": "Job work",
+          "value_text": "job_work"
+        },
+        {
+          "option_key": "tool_room",
+          "label_text": "Tool room",
+          "value_text": "tool_room"
+        },
+        {
+          "option_key": "repair_maintenance",
+          "label_text": "Repair / maintenance",
+          "value_text": "repair_maintenance"
+        },
+        {
+          "option_key": "forge_cast_finish",
+          "label_text": "Forging / casting finishing",
+          "value_text": "forge_cast_finish"
+        },
+        {
+          "option_key": "other_work_type",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "iti_workshop_machines",
+      "min_tier": "easy",
+      "prompt_text": "ITI ke workshop me kaunsi machine par kaam kiya hai?",
+      "why_text": "Training me chalayi hui machine bhi tajurba hai, employer ise dekhte hain.",
+      "retry_text": "Workshop me khraad ya milling par kaam kiya tha?",
+      "target_kind": "attribute",
+      "target_field": "iti_workshop_machines",
+      "answer_type": "multi_select",
+      "max_asks": 2,
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "machining_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      },
+      "options": [
+        {
+          "option_key": "conventional_lathe",
+          "label_text": "Khraad ya conventional lathe",
+          "value_text": "conventional_lathe"
+        },
+        {
+          "option_key": "milling",
+          "label_text": "Milling machine",
+          "value_text": "milling"
+        },
+        {
+          "option_key": "drilling",
+          "label_text": "Drilling machine",
+          "value_text": "drilling"
+        },
+        {
+          "option_key": "shaper",
+          "label_text": "Shaper ya planer",
+          "value_text": "shaper"
+        },
+        {
+          "option_key": "grinding",
+          "label_text": "Grinding machine",
+          "value_text": "grinding"
+        },
+        {
+          "option_key": "unknown_machine",
+          "label_text": "Yaad nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "trade_test_status",
+      "min_tier": "medium",
+      "prompt_text": "Trade test diya hai?",
+      "why_text": "Trade test pass hona certificate jitna hi mayne rakhta hai.",
+      "retry_text": "ITI ka trade test pass kiya hai ya nahi?",
+      "target_kind": "attribute",
+      "target_field": "trade_test_status",
+      "answer_type": "single_select",
+      "max_asks": 2,
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "machining_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      },
+      "options": [
+        {
+          "option_key": "passed",
+          "label_text": "Haan, pass kiya",
+          "value_text": "passed"
+        },
+        {
+          "option_key": "appeared",
+          "label_text": "Diya hai, result aana hai",
+          "value_text": "appeared"
+        },
+        {
+          "option_key": "not_yet",
+          "label_text": "Abhi nahi diya",
+          "value_text": "not_yet"
+        }
+      ]
+    },
+    {
+      "question_key": "iti_project_work",
+      "min_tier": "medium",
+      "prompt_text": "ITI me kya banaya tha? Apne shabdon me bataiye.",
+      "why_text": "Banaya hua job dikhata hai ki aap kya kar sakte hain.",
+      "retry_text": "ITI me banaya hua koi job yaad hai?",
+      "target_kind": "attribute",
+      "target_field": "iti_project_work",
+      "answer_type": "text",
+      "max_asks": 2,
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "machining_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      },
+      "options": []
+    }
+  ]
+}

@@ -10,12 +10,12 @@ import '../../../../core/observability/analytics.dart';
 import '../../../auth/domain/auth_session_manager.dart';
 import '../../domain/consent_repository.dart';
 
-enum ConsentStatus { idle, submitting, success, failure }
+enum ConsentStatus { idle, submitting, success, failure, ageBlocked }
 
 class ConsentState extends Equatable {
   const ConsentState({
     this.accepted = false,
-    this.declined = false,
+    this.age18Plus,
     this.status = ConsentStatus.idle,
     this.message,
   });
@@ -24,31 +24,31 @@ class ConsentState extends Equatable {
   /// widget stays logic-free).
   final bool accepted;
 
-  /// OWNER ASK (2026-10-22) — whether the "I don't agree" box is ticked. Only
-  /// one of [accepted] / [declined] is ever true.
-  final bool declined;
+  /// The worker's answer to the sign-up age gate: `true` for 18+, `false` for
+  /// under 18, `null` until they pick one. Never sent as a string.
+  final bool? age18Plus;
   final ConsentStatus status;
   final String? message;
 
   bool get isSubmitting => status == ConsentStatus.submitting;
-  bool get canSubmit => (accepted || declined) && !isSubmitting;
+  bool get canSubmit => accepted && age18Plus != null && !isSubmitting;
 
   ConsentState copyWith({
     bool? accepted,
-    bool? declined,
+    bool? age18Plus,
     ConsentStatus? status,
     String? message,
   }) {
     return ConsentState(
       accepted: accepted ?? this.accepted,
-      declined: declined ?? this.declined,
+      age18Plus: age18Plus ?? this.age18Plus,
       status: status ?? this.status,
       message: message ?? this.message,
     );
   }
 
   @override
-  List<Object?> get props => <Object?>[accepted, declined, status, message];
+  List<Object?> get props => <Object?>[accepted, age18Plus, status, message];
 }
 
 class ConsentCubit extends Cubit<ConsentState> {
@@ -61,10 +61,18 @@ class ConsentCubit extends Cubit<ConsentState> {
   /// `voice_processing` added 2026-08-28 (#1270, approved in #1269) alongside
   /// the DPDP voice notice copy landing in `consent_screen.dart` — the purpose
   /// is only requested once the worker has actually been shown what it means.
+  ///
+  /// `employer_sharing` + `employer_messaging` added 2026-11-04 on the same
+  /// rule: the approved employer-sharing notice
+  /// (`docs/product/employer-sharing-consent-notice.md`) is now a card on the
+  /// same screen, under the same one tick. They ride with `kConsentVersion`
+  /// 2026-11-04 — the server rejects them paired with any other version.
   static const List<String> _purposes = <String>[
     'profiling',
     'resume_generation',
     'voice_processing',
+    'employer_sharing',
+    'employer_messaging',
   ];
 
   /// OWNER ASK (2026-10-22) — the purposes a worker gives when they do NOT
@@ -77,24 +85,11 @@ class ConsentCubit extends Cubit<ConsentState> {
       if (p != kVoiceConsentPurpose) p,
   ];
 
-  /// Ticking "I agree" clears "I don't agree" — only one answer at a time.
-  void setAccepted(bool accepted) => emit(
-        state.copyWith(
-          accepted: accepted,
-          declined: accepted ? false : state.declined,
-        ),
-      );
+  /// Set by the age-gate chips. `false` is only reached after the screen's
+  /// "Pakka?" confirm, so a mis-tap can never sign the worker out.
+  void setAge18Plus(bool age18Plus) =>
+      emit(state.copyWith(age18Plus: age18Plus));
 
-  /// Ticking "I don't agree" clears "I agree" — only one answer at a time.
-  void setDeclined(bool declined) => emit(
-        state.copyWith(
-          declined: declined,
-          accepted: declined ? false : state.accepted,
-        ),
-      );
-
-  /// "Aage Badhein": sends whichever answer is ticked — "I agree" gives every
-  /// purpose (voice included), "I don't agree" gives typing only.
   Future<void> submit() async {
     if (!state.canSubmit) return;
     if (state.accepted) {
@@ -117,7 +112,10 @@ class ConsentCubit extends Cubit<ConsentState> {
   }) async {
     emit(state.copyWith(status: ConsentStatus.submitting));
     try {
-      await _repo.acceptConsent(purposes: purposes);
+      await _repo.acceptConsent(
+        purposes: _purposes,
+        age18Plus: state.age18Plus!,
+      );
       if (isClosed) return;
       // TD62: release the router's consent gate immediately after a successful
       // consent.accepted — guarded lookup so plain cubit tests (no auth graph
@@ -128,12 +126,37 @@ class ConsentCubit extends Cubit<ConsentState> {
       VoiceConsent.instance.set(granted: voiceGranted);
       // B7 funnel milestone, mirroring the server's `consent.accepted` event.
       // The COUNT of purposes only — never the worker, never the purposes.
-      unawaited(BbAnalytics.instance
-          .log(BbAnalytics.consentDone(purposeCount: purposes.length)));
+      unawaited(
+        BbAnalytics.instance.log(
+          BbAnalytics.consentDone(purposeCount: _purposes.length),
+        ),
+      );
       emit(state.copyWith(status: ConsentStatus.success));
+    } on AgeBelowMinimumFailure {
+      if (isClosed) return;
+      // The server wrote NO consent, so the session is now useless. The screen
+      // shows the terminal under-18 message; [acknowledgeAgeBlock] then wipes
+      // the local session and sends the worker back to phone login.
+      emit(state.copyWith(status: ConsentStatus.ageBlocked));
     } on Failure catch (failure) {
       if (isClosed) return;
-      emit(state.copyWith(status: ConsentStatus.failure, message: failure.message));
+      emit(
+        state.copyWith(status: ConsentStatus.failure, message: failure.message),
+      );
     }
   }
+
+  /// The worker has read the terminal under-18 screen. Clear tokens + PIN
+  /// unlock state locally and let the router land on phone login. Local-only:
+  /// the server deliberately does not revoke an under-18 sign-up's sessions,
+  /// and every processing route is consent-gated anyway.
+  Future<void> acknowledgeAgeBlock() async {
+    if (state.status != ConsentStatus.ageBlocked || _leaving) return;
+    _leaving = true;
+    if (locator.isRegistered<AuthSessionManager>()) {
+      await locator<AuthSessionManager>().discardSession();
+    }
+  }
+
+  bool _leaving = false;
 }

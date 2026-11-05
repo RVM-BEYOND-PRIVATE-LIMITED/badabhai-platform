@@ -24,7 +24,9 @@ vi.mock("next/link", async () => {
 const { BalanceChip } = await import("./balance-chip");
 
 const html = (balance: number, linkToCredits: boolean) =>
-  renderToStaticMarkup(<BalanceChip balance={balance} linkToCredits={linkToCredits} />);
+  renderToStaticMarkup(
+    <BalanceChip balance={balance} balanceAsOf={0} linkToCredits={linkToCredits} />,
+  );
 const text = (markup: string) =>
   markup
     .replace(/<[^>]+>/g, " ")

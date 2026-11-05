@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { CountUp, type CountUpKind } from "./count-up";
 
 /**
  * One headline figure in a `.stats` row.
@@ -26,10 +27,17 @@ import type { ReactNode } from "react";
  * is a slot beside the figure, not a second value: the figure itself stays a string.
  *
  * `wide` is for a figure that must never break mid-number — a ₹ amount. At every width its
- * value stays on one line at the 22px KPI step (the 30px step is too long for a desktop tile),
- * and because `.stats` rows are flex, that unbroken figure is the tile's minimum width: the
- * tile widens to hold it — on a phone, to a row of its own — rather than the figure wrapping
- * or spilling. Split between digits, a figure reads as two numbers.
+ * value stays on one line at the 22px KPI step (the 30px step is too long for a desktop tile).
+ * On the shared `.stats` grid (A1, #2571) a tile is at least --stat-min wide — on a phone, the
+ * whole row — which holds a realistic ₹ figure on that one line. Split between digits, a figure
+ * reads as two numbers.
+ *
+ * `valueTitle` is the hover text on the figure — the EXACT ₹ amount behind a rounded display
+ * figure (#2572), so the precision is one hover away rather than gone.
+ *
+ * `countUp` animates the figure up to `value` over --duration-count (A2, #2572). `value` is
+ * still what renders on the server and what the animation lands on; `to` only drives the
+ * frames in between, so the string rule above holds.
  */
 export function Stat({
   label,
@@ -38,6 +46,8 @@ export function Stat({
   absent,
   adornment,
   wide,
+  valueTitle,
+  countUp,
 }: {
   label: string;
   value: string;
@@ -45,11 +55,13 @@ export function Stat({
   absent?: boolean;
   adornment?: ReactNode;
   wide?: boolean;
+  valueTitle?: string;
+  countUp?: { to: number; kind: CountUpKind };
 }) {
   return (
     <div className={`stat${tone ? ` stat--${tone}` : ""}${wide ? " stat--wide" : ""}`}>
-      <span className={`stat__value${absent ? " stat__value--absent" : ""}`}>
-        {value}
+      <span className={`stat__value${absent ? " stat__value--absent" : ""}`} title={valueTitle}>
+        {countUp && !absent ? <CountUp to={countUp.to} text={value} kind={countUp.kind} /> : value}
         {adornment === undefined ? null : <> {adornment}</>}
       </span>
       <span className="stat__label">{label}</span>

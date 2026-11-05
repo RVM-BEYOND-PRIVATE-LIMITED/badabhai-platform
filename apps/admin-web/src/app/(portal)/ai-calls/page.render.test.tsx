@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
+import { columnHeaders } from "../../../../test/grid-markup";
 
 /**
  * What the AI calls list actually RENDERS (migration 0083).
@@ -195,7 +196,7 @@ describe("a row", () => {
     const out = await render();
     const stamped = out.match(/<time[^>]*datetime="([^"]+)"/i);
     expect(stamped?.[1]).toBe(OK_ROW.created_at);
-    expect(out).toContain('title="2026-08-19 09:00:00Z"');
+    expect(out).toContain('title="19 Aug 2026, 14:30 IST · 2026-08-19 09:00:00 UTC"');
   });
 
   it("names the task and the model", async () => {
@@ -234,13 +235,13 @@ describe("a row", () => {
   it("paints a MOCK provider call as warn, and a real one as ok", async () => {
     // TD81: simulated work must never render in the same type as the real thing.
     const real = await render();
-    expect(real).toContain(">real<");
+    expect(real).toContain(">Real<");
     expect(real).toContain("A provider was really called for this.");
 
     stub.page = { items: [FAILED_MOCK_ROW], nextCursor: null };
     const mock = await render();
     expect(mock).toContain("pill--warn");
-    expect(mock).toContain(">mock<");
+    expect(mock).toContain(">Mock<");
     expect(mock).toContain("No provider was called — the mock adapter answered.");
   });
 
@@ -248,17 +249,29 @@ describe("a row", () => {
     stub.page = { items: [FAILED_MOCK_ROW], nextCursor: null };
     const out = await render();
     expect(out).toContain("pill--bad");
-    expect(out).toContain(">failed<");
+    expect(out).toContain(">Failed<");
     expect(out).toContain("Speech service unreachable");
     // …and keeps the raw code reachable, because that is what an operator greps a log for.
     expect(out).toContain('title="stt_service_unreachable"');
   });
 
+  it("WRAPS the failure reason — triage reads it down the column, so it is never cut", async () => {
+    // The column was a one-line cut: "Provider failed — code not recognised" read
+    // "Provider failed —…" in its 14ch, with no title on the cell (A4 review).
+    stub.page = { items: [{ ...FAILED_MOCK_ROW, error_code: "provider_error" }], nextCursor: null };
+    const out = await render();
+    expect(out).toContain(
+      '<td class="grid__cell--wrap"><span class="pill pill--bad"',
+    );
+    expect(out).toContain('<span class="table__meta" title="provider_error">Provider failed — code not recognised</span>');
+    expect(out).not.toMatch(/<td class="grid__cell--truncate"><span class="pill/);
+  });
+
   it("links the worker as an opaque id, and the call to its interview session", async () => {
     const out = await render();
-    expect(out).toContain(`href="/workers/${WORKER_ID}"`);
-    expect(out).toContain(`href="/workers/${WORKER_ID}/journey/${SESSION_ID}"`);
-    expect(out).toContain("5eeded00…");
+    expect(out).toContain(`href="/candidates/${WORKER_ID}"`);
+    expect(out).toContain(`href="/candidates/${WORKER_ID}/journey/${SESSION_ID}"`);
+    expect(out).toContain("5eed…0001");
   });
 
   it("says `no session` rather than nothing when a call belongs to no interview", async () => {
@@ -288,7 +301,9 @@ describe("a row", () => {
  * be asserted rather than reviewed.
  */
 /**
- * The Text column derives from `read_ai_traces` rather than from "we rendered, so we may".
+ * The row's link to a call's text derives from `read_ai_traces` rather than from "we rendered, so
+ * we may". (It was a "Text" column of "View" links; on the data grid (A4, #2574) the row itself is
+ * the one link, through its task — and without the capability the rows simply do not link.)
  *
  * ⚠ THE WITHOUT-CAPABILITY CASES BELOW ARE NOT REACHABLE TODAY, and saying so is the point. The
  * page's own gate is `read_ai_traces`, so a session lacking it is redirected before any of this
@@ -299,28 +314,34 @@ describe("a row", () => {
  * ops_admin and a link to a 404. Deleting these would make that day a silent regression; keeping
  * them mislabelled as live coverage would be the other kind of lie.
  */
-describe("the Text column moves with the session, not with the page gate", () => {
+describe("the row's link to the text moves with the session, not with the page gate", () => {
   beforeEach(() => {
     stub.page = { items: [OK_ROW], nextCursor: null };
   });
 
-  it("offers the read to a session that holds read_ai_traces", async () => {
+  it("offers the read to a session that holds read_ai_traces — the row, through its task", async () => {
     stub.capabilities = ["read_entities", "read_ai_traces"];
     const out = await render();
-    expect(out).toContain(`href="/ai-calls/${TRACE_ID}"`);
-    expect(out).toContain("<th scope=\"col\">Text</th>");
+    const link = /<a class="grid__link" aria-label="([^"]*)" href="([^"]*)">/.exec(out);
+    expect(link?.[2]).toBe(`/ai-calls/${TRACE_ID}`);
+    // Every row of a task reads the same, so the link names WHICH call.
+    expect(link?.[1]).toMatch(/, call [0-9a-f]{4}…[0-9a-f]{4}$/);
+    // One link per target: no separate "View" column beside the row link.
+    expect(out.split(`href="/ai-calls/${TRACE_ID}"`)).toHaveLength(2);
+    expect(columnHeaders(out)).not.toContain("Text");
   });
 
-  it("offers NOTHING without it — drops the COLUMN, not just the link (dormant; see above)", async () => {
+  it("offers NOTHING without it — the rows do not link, and no column of dashes (dormant; see above)", async () => {
     // Dashes under a "Text" heading would state that these calls have no text stored, which is
     // the opposite of true and is exactly what the two counts beside them disprove. The Workers
     // roster makes the identical ruling about its Name column.
     stub.capabilities = ["read_entities"];
     const out = await render();
     expect(out).not.toContain(`href="/ai-calls/${TRACE_ID}"`);
-    expect(out).not.toContain("<th scope=\"col\">Text</th>");
+    expect(out).not.toContain('class="grid__link"');
+    expect(columnHeaders(out)).not.toContain("Text");
     // …and the row is otherwise intact.
-    expect(out).toContain(`href="/workers/${WORKER_ID}"`);
+    expect(out).toContain(`href="/candidates/${WORKER_ID}"`);
     expect(out).toContain(">412<");
   });
 
@@ -434,9 +455,9 @@ describe("the worker narrowing", () => {
     stub.page = { items: [OTHERS_ROW], nextCursor: null };
     const out = await render({ workerId: WORKER_ID });
     expect(out).toContain("Showing only the calls made for worker");
-    expect(out).toContain("5eeded00…");
+    expect(out).toContain("5eed…0001");
     // With the worker as the ONLY filter, the way out is the results head's one Clear filters.
-    expect(out).toMatch(/href="\/ai-calls">(<i [^>]*><\/i>)?Clear filters<\/a>/);
+    expect(out).toMatch(/href="\/ai-calls">(<i [^>]*><\/i>)?Clear filters(?:<span class="nav-pending" aria-hidden="true"><\/span>)?<\/a>/);
     expect(out).not.toContain("Show every worker");
     expect(out).not.toContain("Clear the worker filter");
   });
@@ -473,7 +494,7 @@ describe("the worker narrowing", () => {
   it("percent-encodes the id it puts back into a path", async () => {
     stub.page = { items: [OTHERS_ROW], nextCursor: null };
     const out = await render({ workerId: "a#b" });
-    expect(out).toContain('href="/workers/a%23b"');
+    expect(out).toContain('href="/candidates/a%23b"');
   });
 });
 
@@ -504,7 +525,7 @@ describe("the two failures, which are different claims", () => {
     // leave the CURSOR refused.
     const out = await render({ taskType: "not_a_task", success: "false", cursor: "c2" });
     const state = out.slice(out.indexOf('class="state state--error"'));
-    expect(state).toMatch(/href="\/ai-calls">(<i [^>]*><\/i>)?Clear filters<\/a>/);
+    expect(state).toMatch(/href="\/ai-calls">(<i [^>]*><\/i>)?Clear filters(?:<span class="nav-pending" aria-hidden="true"><\/span>)?<\/a>/);
     // ONE Clear filters on the screen — the results head does not repeat it.
     expect(out.split(">Clear filters<").length - 1).toBe(1);
     expect(out).not.toContain("Back to the first page");
@@ -518,6 +539,20 @@ describe("the two failures, which are different claims", () => {
     expect(out).toContain("AI calls are unavailable");
     expect(out).toContain('href="/ai-calls?taskType=profile_parse&amp;cursor=Y3Vyc29y"');
     expect(out).not.toContain("The server rejected this request");
+  });
+});
+
+describe("the unavailable state is one line (#2573)", () => {
+  it("an icon, one sentence and Retry — announced as an alert", async () => {
+    stub.failure = new TypeError("fetch failed");
+    const out = await render();
+    const at = out.indexOf('<div class="state state--error state--row" role="alert">');
+    expect(at).toBeGreaterThanOrEqual(0);
+    const state = out.slice(at, out.indexOf("</div></div>", at));
+    expect(state).toContain('<span class="state__icon"><i class="ph-fill ph-warning-circle"');
+    expect((state.match(/<p /g) ?? []).length).toBe(1);
+    expect(state).not.toContain("<h3");
+    expect(state).toMatch(/>(<i [^>]*><\/i>)?Retry<\/a>/);
   });
 });
 
@@ -545,7 +580,7 @@ describe("page height: the calls before their explanations (AW-08)", () => {
   it("'Measurements, not text' follows the table, before the 'not every AI call' footnote", async () => {
     stub.page = { items: [OK_ROW], nextCursor: null };
     const out = await render();
-    const table = out.indexOf('<div class="tablewrap">');
+    const table = out.indexOf('<div class="grid"');
     expect(table).toBeGreaterThanOrEqual(0);
     expect(out.indexOf("Measurements, not text")).toBeGreaterThan(table);
     expect(out.indexOf("Measurements, not text")).toBeLessThan(out.indexOf("This is not every AI call"));

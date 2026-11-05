@@ -21,6 +21,7 @@ import type { ServerConfig } from "@badabhai/config";
 import { PARSE_TARGET_FIELDS } from "@badabhai/profiling-lexicon";
 import {
   applyParseGates,
+  checkTypeRange,
   countByGate,
   PARSE_ENUM_VALUES,
   type Rejection,
@@ -2417,6 +2418,74 @@ function preferModel<T>(
 }
 
 /**
+ * The overlay salary the résumé may print — `preferModel` with two guardrails.
+ *
+ * PRODUCTION INCIDENT 2026-10-31 (Rishab Das, test account, worker ffbad775):
+ * the worker answered "500" to `commute_max_km` ("kitne km tak ja sakte hain")
+ * and "Mahine ka" to `salary_period`; no salary AMOUNT was ever stated or asked.
+ * The overlay read the two adjacent turns as "₹500/month" and both the stored
+ * `salary_expectation` and the résumé printed it. Two independent walls missed it:
+ * the six parse gates guard only the `/profile/parse` path (the overlay call has
+ * none), and `overlayCarriesValues` checks presence, never attestation.
+ *
+ * The guardrails, both reusing the platform's own rules rather than inventing any:
+ *
+ * 1. RANGE. `checkTypeRange` is what would have rejected 500 on the parse path
+ *    (`salary_out_of_range`, floor 1000). An absurd number never wins, from either
+ *    side — on a genuine disagreement the deterministic value stands instead.
+ * 2. MISATTRIBUTION. A model-only number that exactly equals another captured
+ *    numeric fact's value is that fact's answer filed under salary, not a read.
+ *    The deterministic side stands (usually null — honestly missing).
+ *
+ * Deliberately NOT a reversal of the 2026-08-12 owner decision: a range-valid
+ * model number with no collision still wins (the free-chat reads the decision
+ * protects), and on genuine disagreement the model still wins. Only fabricated
+ * pay — the one field printed on a sheet handed to employers — is stopped.
+ */
+function attestedOverlaySalary(
+  model: number | null | undefined,
+  deterministic: number | null | undefined,
+  answerMap: readonly AnswerRecord[],
+): number | null {
+  const stated = deterministic ?? null;
+  if (model == null) return stated;
+  if (checkTypeRange("salary_expected", model, undefined) !== null) return stated;
+  if (stated !== null) return model;
+  return claimedElsewhere(model, answerMap) ? null : model;
+}
+
+/** Answer-map keys whose numeric value IS a stated salary (never a collision). */
+const SALARY_ANSWER_KEYS: ReadonlySet<string> = new Set([
+  "salary_expected",
+  "salary_expected_min",
+  "salary_expected_max",
+]);
+
+/**
+ * True when an answered, non-salary record carries exactly this number. Numbers
+ * are compared numerically ("500" and 500 are the same answer); only `answered`
+ * records count — a declined or superseded row is not something the worker said.
+ */
+function claimedElsewhere(model: number, answerMap: readonly AnswerRecord[]): boolean {
+  return answerMap.some((record) => {
+    if (record.status !== "answered") return false;
+    if (
+      (record.question_key && SALARY_ANSWER_KEYS.has(record.question_key)) ||
+      (record.target_field && SALARY_ANSWER_KEYS.has(record.target_field))
+    ) {
+      return false;
+    }
+    const value =
+      typeof record.value_normalized === "number"
+        ? record.value_normalized
+        : typeof record.value_normalized === "string" && record.value_normalized.trim() !== ""
+          ? Number(record.value_normalized)
+          : NaN;
+    return Number.isFinite(value) && value === model;
+  });
+}
+
+/**
  * The model's list when it produced one, the deterministic list when it did not.
  *
  * WAS `union(deterministic, model)`, which appended the model's entries after the answer map's
@@ -2611,6 +2680,15 @@ export function toExtractionOutput(
     education_field: at<string>("education_field") ?? null,
   });
 
+  // Salary attestation (2026-10-31 incident): the overlay amount is gated once,
+  // here, and both readers below (the stored row and the résumé container) share
+  // the verdict — a number that fails here must not reach either.
+  const salaryAmount = attestedOverlaySalary(
+    interview?.expected_salary,
+    draft.expected_salary,
+    answerMap,
+  );
+
   const profile = DraftProfileSchema.parse({
     // CANONICAL IDS ARE NOT INVENTED HERE. Writing a guess into these columns would put an
     // unvalidated id in the one place the match engine trusts absolutely. So the role stays null,
@@ -2653,10 +2731,7 @@ export function toExtractionOutput(
     domain_label: interview?.domain_label ?? null,
     role_label: interview?.role_label ?? null,
     shift: interview?.shift ?? null,
-    salary_expectation:
-      preferModel(interview?.expected_salary, draft.expected_salary) === null
-        ? {}
-        : { amount_min: preferModel(interview?.expected_salary, draft.expected_salary) },
+    salary_expectation: salaryAmount === null ? {} : { amount_min: salaryAmount },
     location_preference: {
       // THE MODEL WINS WHEREVER IT SPOKE (owner decision — see `preferModel`). This was
       // deterministic-wins, so a city the model read out of the conversation was discarded
@@ -2718,7 +2793,9 @@ export function toExtractionOutput(
           current_city: interview.current_city,
           preferred_locations: interview.preferred_locations,
           availability: interview.availability,
-          expected_salary: interview.expected_salary,
+          // ATTESTED, not raw (2026-10-31 salary incident): an unattested pay figure
+          // is a fabricated fact on a sheet handed to employers. See `salaryAmount`.
+          expected_salary: salaryAmount,
         }
       : null,
   });

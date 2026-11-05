@@ -313,6 +313,54 @@ class _JobDetailViewState extends State<_JobDetailView> {
       );
     }
 
+    // Migration 0141 — the trade facts the employer stated (machine, controller,
+    // operations …) plus the display-only rung. Already resolved to labels by the
+    // API; absent/legacy postings carry none and the section is not drawn.
+    final List<JobTradeFacet>? tradeFacets = d.tradeFacets;
+    if ((tradeFacets != null && tradeFacets.isNotEmpty) ||
+        (d.tradeLevelLabel != null && d.tradeLevelLabel!.isNotEmpty)) {
+      out.add(
+        _sectionCard(
+          eyebrow: 'KAAM KI SHARTEIN',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              if (d.tradeLevelLabel != null && d.tradeLevelLabel!.isNotEmpty) ...<Widget>[
+                Text(
+                  '${d.tradeLevelLabel!} needed',
+                  style: OnboardingTypography.inter(
+                    size: 14,
+                    weight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 8),
+              ],
+              for (final JobTradeFacet facet in tradeFacets ?? const <JobTradeFacet>[]) ...<Widget>[
+                Text(
+                  facet.prompt,
+                  style: OnboardingTypography.bodyMuted(),
+                ),
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: <Widget>[
+                    for (final String value in facet.values)
+                      KitInfoChip(
+                        label: value,
+                        dot: OnboardingColors.ink500,
+                        showCheck: false,
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+              ],
+            ],
+          ),
+        ),
+      );
+    }
+
     if (requirements != null && requirements.isNotEmpty) {
       out.add(
         _sectionCard(

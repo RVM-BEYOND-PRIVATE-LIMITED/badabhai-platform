@@ -1,0 +1,36 @@
+-- ===========================================================================
+-- 0153 - freeze the worker's Middle-Way rung onto each application
+-- (engine v1.1 "Level needed", CEO ruling 30 Oct 2026, ADR-0061)
+--
+-- PURELY ADDITIVE: two NULLABLE columns on `applications`, no default, no
+-- backfill, no index. `trade_level` is the worker's rung on the skill he was
+-- reached through and `level_confirmed` its confirm bit, AS OF the apply —
+-- written once with the rest of the rank snapshot (match_tier, skill_months,
+-- …) and frozen the same way (E16: only a skip→apply flip rewrites it). On a
+-- "Level needed" posting the payer's applicant list groups applicants by it
+-- (meets / not confirmed / below) inside each trade group. Every existing row
+-- stays NULL = "level not confirmed": history not captured is not invented.
+--
+-- PRIVACY: a closed rung key (`setter`, `operator`, …) and a boolean. No
+-- worker identity, no employer identity.
+--
+-- APPLY-BEFORE-DEPLOY. The apply upsert writes both columns on every V1
+-- apply and every agency-twin apply, and every bare `select()` of
+-- `applications` names them, so a build carrying them against a database
+-- without them 500s every worker apply (column does not exist). An OLD build
+-- on a migrated database is fine (it never names them). Registered in
+-- `schema-contract.ts` (0153-applications-trade-level).
+--
+-- LOCKS. `ADD COLUMN` with no default is a catalog-only change; it takes
+-- ACCESS EXCLUSIVE for milliseconds and rewrites nothing. Run both statements
+-- in ONE `BEGIN; SET LOCAL lock_timeout = '3s'; ... COMMIT;` and retry on
+-- 55P03.
+--
+-- ROLLBACK. A CODE rollback needs no schema change (old builds never name the
+-- columns). A schema rollback loses the frozen rungs, so only after the code
+-- is rolled back:
+--   ALTER TABLE "applications" DROP COLUMN "level_confirmed";
+--   ALTER TABLE "applications" DROP COLUMN "trade_level";
+-- ===========================================================================
+ALTER TABLE "applications" ADD COLUMN "trade_level" text;--> statement-breakpoint
+ALTER TABLE "applications" ADD COLUMN "level_confirmed" boolean;

@@ -6,10 +6,12 @@ import { decl, globalsCss, rule, rules } from "../../test/css-rules";
  * layout engine, so these pin the declared rules; the layout itself was measured in headless
  * Chrome over every stat grid at 320/360/375/768/1024/1280/1440px when they were written.
  *
- *  - Stat tiles sit in wrapping FLEX rows: a tile grows to share its row and never shrinks
- *    below its unbroken figure. That is what keeps a ₹ figure (or a count) from splitting or
- *    overflowing, and a lone last tile from stranding beside empty tracks. No tile is placed
- *    with a grid span anywhere — every such attempt stranded a sibling or split a count.
+ *  - Stat tiles sit on ONE shared grid (A1, #2571): every `.stats` row, compact or not, uses
+ *    the same auto-fill tracks at --stat-min and the same gap, so two rows in one container
+ *    line up column for column (the discovery metrics' 4-tile and 5-tile rows did not, as
+ *    flex rows). The track minimum is capped at the container, so a narrow column or a phone
+ *    gives a tile the whole row. No tile is placed with a grid span anywhere — every such
+ *    attempt stranded a sibling or split a count.
  *  - `Stat wide` only emits a class; the wide-value rule is its whole effect: the ₹ figure is
  *    one unbroken line at the 22px step at every width. Deleting it leaves the render test green
  *    while ₹ tiles split mid-number again.
@@ -92,18 +94,35 @@ describe("stat tiles", () => {
     expect(body).toMatch(/flex-wrap:\s*wrap/);
   });
 
-  it("stat tiles sit in wrapping flex rows, growing to fill each row", () => {
+  it("stat tiles sit on one auto-fill grid at the shared --stat-min (A1)", () => {
     const row = rule(topLevel(), ".stats");
-    expect(row).toMatch(/display:\s*flex/);
-    expect(row).toMatch(/flex-wrap:\s*wrap/);
-    // grow 1: a lone last tile takes its row instead of stranding half-width.
-    expect(rule(topLevel(), ".stats > .stat")).toMatch(/flex:\s*1 1 11rem/);
-    expect(rule(topLevel(), ".stats--compact > .stat")).toMatch(/flex-basis:\s*7\.5rem/);
-    const phone = phoneBlocks()
-      .map((b) => rule(b, ".stats > .stat"))
-      .filter((b): b is string => b !== null);
-    expect(phone).toHaveLength(1);
-    expect(phone[0]).toMatch(/flex-basis:\s*9rem/);
+    expect(row).not.toBeNull();
+    expect(decl(row!, "display")).toBe("grid");
+    // auto-FILL, not auto-fit: empty tracks are kept, so a short row's tiles are exactly as wide
+    // as a full row's and the two share their columns. Capped at the container (`min(…, 100%)`)
+    // so a phone or a narrow panel gives a tile the whole row instead of overflowing.
+    expect(decl(row!, "grid-template-columns")).toBe(
+      "repeat(auto-fill, minmax(min(var(--stat-min), 100%), 1fr))",
+    );
+    expect(decl(row!, "gap")).toBe("var(--space-4)");
+    // The old flex sizing is gone everywhere — a leftover basis would do nothing on a grid and
+    // read as if it still sized the tiles.
+    const flexSizing = rules(CSS, true)
+      .filter((r) => targetsTile(r.selector) && /(^|[\s;])flex(-basis|-grow|-shrink)?\s*:/.test(r.body))
+      .map((r) => [...r.atRules, r.selector].join(" > "));
+    expect(flexSizing).toEqual([]);
+  });
+
+  it("a compact row shares the regular row's tracks and gap, so the two align (A1)", () => {
+    // `.stats--compact` changes the tile PADDING only; its own gap or tracks would shift its
+    // columns against a regular row above it (the 4 + 5 misalignment).
+    const compact = rules(CSS, true).filter(
+      (r) =>
+        r.selector.split(",").some((part) => /\.stats--compact(?![\w-])[^\s>+~]*$/.test(part.trim())) &&
+        /(^|[\s;])(gap|column-gap|grid-template(-[\w-]+)?|grid-auto-columns)\s*:/.test(r.body),
+    );
+    expect(compact.map((r) => [...r.atRules, r.selector].join(" > "))).toEqual([]);
+    expect(rule(topLevel(), ".stats--compact .stat")).toMatch(/padding:\s*var\(--space-4\)/);
   });
 
   it("nothing lets a tile shrink below its unbroken figure", () => {
@@ -141,20 +160,20 @@ describe("stat tiles", () => {
     expect(breaking).toEqual([]);
   });
 
-  it("a stat row stays a flex row in every at-rule — never a grid again", () => {
-    // The grid-placement ban below only has teeth while `.stats` is flex, and the phone
-    // flex-basis still "passes" under a grid while doing nothing. So pin the row itself — and
-    // pin it WRAPPING and horizontal: a `nowrap` row of tiles that cannot shrink below their
-    // figures (five voice-attempt tiles) scrolls a phone page sideways, and a column row stops
-    // being a row.
+  it("a stat row stays the ONE shared grid in every at-rule", () => {
+    // The alignment guarantee holds only while every row, at every width, is the same grid: a
+    // phone-tier or variant rule that changed the display or the tracks would put that row's
+    // columns out of step with its neighbours again (the 4 + 5 misalignment) while the top-level
+    // check above stayed green. The phone tier may tighten the GAP only.
+    const base = rule(topLevel(), ".stats")!;
     const regressions = rules(CSS, true)
       .filter(
         (r) =>
           targetsRow(r.selector) &&
-          (/(^|[\s;])display\s*:(?!\s*flex\b)/.test(r.body) ||
-            /(^|[\s;])grid-template(-[\w-]+)?\s*:/.test(r.body) ||
-            /(^|[\s;])flex-(wrap|flow)\s*:[^;]*\bnowrap\b/.test(r.body) ||
-            /(^|[\s;])flex-(direction|flow)\s*:[^;]*\bcolumn\b/.test(r.body)),
+          r.body !== base &&
+          (/(^|[\s;])display\s*:/.test(r.body) ||
+            /(^|[\s;])grid(-template(-[\w-]+)?|-auto-[\w-]+)?\s*:/.test(r.body) ||
+            /(^|[\s;])flex(-[\w-]+)?\s*:/.test(r.body)),
       )
       .map((r) => [...r.atRules, r.selector].join(" > "));
     expect(regressions).toEqual([]);

@@ -44,7 +44,7 @@ a genuinely CLOSED answer space carry options: ``vacancy`` (the five ADR-0012 ba
 (coarse year bands the payer picks from) and ``benefits`` (standard statutory/site
 offerings). Every option is executed against ``answers.detect_answers`` by the test
 suite and must resolve ITS OWN topic. The open-ended topics — ``role_title``,
-``location_label``, ``city``, ``skills``, ``pay_range``, ``requirements``,
+``location_label``, ``city``, ``area``, ``skills``, ``pay_range``, ``requirements``,
 ``description`` — carry NONE: any four role titles, cities or pay figures we picked
 would be four we put in the employer's mouth.
 """
@@ -95,8 +95,8 @@ _TOPICS: list[Topic] = [
         core=True,
     ),
     Topic(
-        # Asks for the city AND the area in one go, so one answer usually closes both
-        # `location_label` and `city`. The example puts the CITY FIRST on purpose: the
+        # Asks for the city AND the area in one go, so one answer usually closes
+        # `location_label`, `city` AND `area`. The example puts the CITY FIRST on purpose: the
         # gateway exempts a known city from its leading-name rule, so "Pune, Chakan"
         # records both fields, while "Chakan, Pune" is masked to "[PERSON_1], Pune" and
         # records neither (measured; pinned in tests/test_job_posting_chat.py).
@@ -121,6 +121,18 @@ _TOPICS: list[Topic] = [
         # Copied VERBATIM into clarification_questions, where there is no preceding
         # question — so it must stand alone.
         retry_question="Which is the nearest big city — for example Pune, Chennai or Ludhiana?",
+    ),
+    Topic(
+        # The worker card's area (#2493): the COARSE locality bucket the card renders
+        # beside the city, never an address. Usually closed by the location answer
+        # itself (the non-city part — Pune, Chakan closes everything at once), so it
+        # is only SERVED when that answer named no area. Optional, never essential:
+        # an unanswered area stays NULL and never blocks the draft. Open answer
+        # space: no options.
+        "area",
+        "Area",
+        "Which area or locality is the workplace in?",
+        core=True,
     ),
     Topic(
         "vacancy",

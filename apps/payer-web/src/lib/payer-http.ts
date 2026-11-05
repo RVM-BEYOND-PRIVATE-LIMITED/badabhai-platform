@@ -3,6 +3,7 @@ import type { z } from "zod";
 import { payerServerConfig } from "./server-config";
 import { readApiToken } from "./auth/session-cookie";
 import {
+  PayerBadRequestError,
   PayerConflictError,
   PayerForbiddenError,
   PayerHttpError,
@@ -94,8 +95,11 @@ export async function payerFetch<T>(path: string, opts: RequestOptions<T>): Prom
     // can show the refused field inline; anything else stays a class-only error
     // (no-oracle / no PII, unchanged).
     if (res.status === 400) {
-      const issues = await readFieldIssues(res);
-      if (issues.length > 0) throw new PayerValidationError(path, issues);
+      const refusal = await readBadRequest(res);
+      if (refusal.issues.length > 0) throw new PayerValidationError(path, refusal.issues);
+      // #2635 — a refusal that names no field but a machine-readable `reason`
+      // (`posting_trade_required`). Only the code is carried, never the message.
+      if (refusal.reason !== null) throw new PayerBadRequestError(path, refusal.reason);
     }
     // 403 = a gated surface refusing this member: a company payer on a recruiter-only
     // surface (#2187), or a recruiter on an owner-only money surface (#2178, ADR-0053
@@ -119,24 +123,32 @@ export async function payerFetch<T>(path: string, opts: RequestOptions<T>): Prom
 }
 
 /**
- * Classify a 409 body, defensively. The API's exception filter nests the thrown payload under
- * `error` (`{ statusCode, error: { reason, message, current_price_inr, … }, requestId, … }`); a
- * flat body is accepted too. `reason: "price_mismatch"` → {@link PriceMismatchError}; anything
- * else (including an unreadable body) → {@link PayerConflictError}, a status-409
+ * The fields of an error body. The API's exception filter nests the thrown payload under `error`
+ * (`{ statusCode, error: { reason, message, … }, requestId, … }`); a flat body is read as it is.
+ * A body that is not an object has none. The one reading of the envelope a 400 and a 409 share.
+ */
+function envelopeFields(body: unknown): Record<string, unknown> {
+  if (typeof body !== "object" || body === null) return {};
+  const nested = (body as { error?: unknown }).error;
+  return (typeof nested === "object" && nested !== null ? nested : body) as Record<string, unknown>;
+}
+
+/** The machine-readable `reason` an error body's fields name, or null when they name none. */
+function reasonOf(fields: Record<string, unknown>): string | null {
+  return typeof fields.reason === "string" && fields.reason.length > 0 ? fields.reason : null;
+}
+
+/**
+ * Classify a 409 body, defensively ({@link envelopeFields}: nested under `error` or flat).
+ * `reason: "price_mismatch"` → {@link PriceMismatchError} with the body's `current_price_inr`;
+ * anything else (including an unreadable body) → {@link PayerConflictError}, a status-409
  * {@link PayerHttpError} carrying the API's `reason` (#2135 — `in_flight`, `no_active_plan`) when
  * the body names one, else null (an API before #2135), and its `message`.
  */
 async function readConflict(path: string, res: Response): Promise<Error> {
   let fields: Record<string, unknown> = {};
   try {
-    const body: unknown = await res.json();
-    if (typeof body === "object" && body !== null) {
-      const nested = (body as { error?: unknown }).error;
-      fields = (typeof nested === "object" && nested !== null ? nested : body) as Record<
-        string,
-        unknown
-      >;
-    }
+    fields = envelopeFields(await res.json());
   } catch {
     fields = {};
   }
@@ -148,32 +160,44 @@ async function readConflict(path: string, res: Response): Promise<Error> {
   return new PayerConflictError(
     path,
     typeof fields.message === "string" ? fields.message : null,
-    typeof fields.reason === "string" && fields.reason.length > 0 ? fields.reason : null,
+    reasonOf(fields),
   );
 }
 
 /**
- * Extract `issues: [{ path, message }]` from a 400 body, defensively.
+ * Read a 400 body ONCE, defensively: its field `issues` and its machine-readable `reason` (#2635 —
+ * read from the same {@link envelopeFields} as a 409's). A malformed or unreadable body yields
+ * neither (the class-only 400, as before).
+ */
+async function readBadRequest(
+  res: Response,
+): Promise<{ issues: ApiFieldIssue[]; reason: string | null }> {
+  try {
+    const body: unknown = await res.json();
+    return { issues: fieldIssuesIn(body), reason: reasonOf(envelopeFields(body)) };
+  } catch {
+    return { issues: [], reason: null };
+  }
+}
+
+/**
+ * Extract `issues: [{ path, message }]` from a 400 body.
  *
  * The Nest exception filter wraps the pipe's payload as `{ error: { message, issues } }`;
  * both that nesting and a flat `{ issues }` are accepted so a filter change degrades to
  * the old class-only error rather than a parse crash. A malformed body yields `[]`.
  */
-async function readFieldIssues(res: Response): Promise<ApiFieldIssue[]> {
-  try {
-    const body: unknown = await res.json();
-    const record = body as { error?: { issues?: unknown }; issues?: unknown };
-    const raw = record.error?.issues ?? record.issues;
-    if (!Array.isArray(raw)) return [];
-    const issues: ApiFieldIssue[] = [];
-    for (const item of raw) {
-      if (typeof item !== "object" || item === null) continue;
-      const { path, message } = item as { path?: unknown; message?: unknown };
-      if (typeof message !== "string" || message.length === 0) continue;
-      issues.push({ path: typeof path === "string" ? path : "", message });
-    }
-    return issues;
-  } catch {
-    return [];
+function fieldIssuesIn(body: unknown): ApiFieldIssue[] {
+  if (typeof body !== "object" || body === null) return [];
+  const record = body as { error?: { issues?: unknown }; issues?: unknown };
+  const raw = record.error?.issues ?? record.issues;
+  if (!Array.isArray(raw)) return [];
+  const issues: ApiFieldIssue[] = [];
+  for (const item of raw) {
+    if (typeof item !== "object" || item === null) continue;
+    const { path, message } = item as { path?: unknown; message?: unknown };
+    if (typeof message !== "string" || message.length === 0) continue;
+    issues.push({ path: typeof path === "string" ? path : "", message });
   }
+  return issues;
 }

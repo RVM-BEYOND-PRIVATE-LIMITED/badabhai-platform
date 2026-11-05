@@ -14,6 +14,7 @@ import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/bb_animated_switcher.dart';
 import '../../../core/widgets/bb_button.dart';
 import '../../../core/widgets/bb_field.dart';
+import '../../../core/widgets/bb_otp_input.dart';
 import 'widgets/auth_form_support.dart';
 
 /// The sign-up flow: role → company name → email/phone → OTP → password.
@@ -96,7 +97,13 @@ class _SignupScreenState extends State<SignupScreen> {
     }
   }
 
+  /// Verifies the code: the Verify button, or the boxes' auto-submit as the
+  /// sixth digit lands (#2595).
   Future<void> _verifyOtp() async {
+    // One verify at a time, and only on the code step. The sixth digit and a
+    // tap on Verify can land before the frame that shows the button busy, and
+    // the code step stays tappable while it fades out after a verify.
+    if (_busy || _step != _SignupStep.code) return;
     final String code = _code.text.trim();
     if (code.isEmpty) {
       setState(() => _error = 'Enter the code we sent you.');
@@ -119,6 +126,8 @@ class _SignupScreenState extends State<SignupScreen> {
       );
       if (result.accessToken.isEmpty) {
         if (!mounted) return;
+        // A failed verify empties the boxes, which re-arms their auto-submit.
+        _code.clear();
         setState(() {
           _busy = false;
           _error = 'That code did not work. Try again.';
@@ -133,6 +142,8 @@ class _SignupScreenState extends State<SignupScreen> {
       });
     } catch (e) {
       if (!mounted) return;
+      // Same as a rejected code: the same code, entered again, retries.
+      _code.clear();
       setState(() {
         _busy = false;
         _error = authErrorFor(e, otp: true);
@@ -337,14 +348,14 @@ class _SignupScreenState extends State<SignupScreen> {
           ),
         ),
         const SizedBox(height: AppSpacing.s4),
-        BbField(
-          label: 'OTP code',
+        // #2595 (M7) — six boxes. The sixth digit (typed, pasted or autofilled
+        // from the SMS) runs the same verify as the button, which stays for a
+        // manual submit.
+        BbOtpInput(
           controller: _code,
           fieldKey: const Key('code_field'),
-          icon: Icons.lock_rounded,
-          keyboardType: TextInputType.number,
-          mono: true,
-          autofillHints: const <String>[AutofillHints.oneTimeCode],
+          semanticLabel: 'OTP code',
+          onCompleted: (_) => _verifyOtp(),
         ),
         const SizedBox(height: AppSpacing.s5),
         BbButton(

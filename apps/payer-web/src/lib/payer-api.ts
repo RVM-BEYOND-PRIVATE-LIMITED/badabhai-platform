@@ -16,9 +16,15 @@ import {
   applicantStageChangeWireSchema,
   buyCapacityWireSchema,
   buyPackResultWireSchema,
+  candidateFiltersWireSchema,
   candidateInboxQuerySchema,
   candidateInboxSchema,
   candidateInboxWireSchema,
+  candidateSearchBodySchema,
+  candidateSearchRowWireSchema,
+  candidateSearchWireSchema,
+  labelledIdWireSchema,
+  tradeLevelBadgeWireSchema,
   capacitySchema,
   creditLedgerWireSchema,
   creditOrderWireSchema,
@@ -32,6 +38,7 @@ import {
   jobPostingListWireSchema,
   jobPostingWireSchema,
   matchSkillListWireSchema,
+  postingTradeListWireSchema,
   reachPreviewWireSchema,
   maskedResumeResultSchema,
   maskedResumeWireSchema,
@@ -62,8 +69,11 @@ import {
   type AgencyWorker,
   type ApplicantFeed,
   type ApplicantStageChange,
+  type CandidateFilters,
   type CandidateInbox,
   type CandidateInboxQuery,
+  type CandidateSearchBody,
+  type CandidateSearchPage,
   type Capacity,
   type CreatePostingInput,
   type CreditBalance,
@@ -82,6 +92,7 @@ import {
   type MatchCandidateWire,
   type MatchSelectionInput,
   type MatchSkillWire,
+  type PostingTradeFormWire,
   type ReachApplicantWire,
   type PostingSummary,
   type ReachPreview,
@@ -195,25 +206,27 @@ export async function getCredits(): Promise<CreditBalance> {
 /** GET /payer/unlocks — the caller's OWN unlock history (PII-free projection). */
 export async function getUnlocks(): Promise<UnlockHistoryItem[]> {
   const wire = await payerFetch("/payer/unlocks", { schema: unlocksListWireSchema });
-  return wire.unlocks
-    // A DSAR-deleted worker SET-NULLs the identity join (ADR-0026 Phase 5): the row
-    // stays for audit, but there is no candidate to show — skip it in the UI history.
-    .filter((u) => u.worker_id !== null)
-    .map((u) => ({
-      unlockId: u.unlock_id,
-      workerId: u.worker_id!,
-      // The UI history shows granted vs expired: a revealed grant is still granted, and the
-      // server-derived `expired` (#2033) and `revoked` are both ended access (no-oracle: the
-      // cause is never surfaced beyond this). Only granted/revealed can ever read live.
-      status: u.status === "granted" || u.status === "revealed" ? "granted" : "expired",
-      createdAt: u.created_at,
-      expiresAt: u.expires_at ?? u.created_at,
-      // The current grant's time (a re-grant moves it; created_at does not): the day a Recent
-      // unlocks row prints and is ordered by.
-      grantedAt: u.granted_at,
-      // #2033's company-posting context; absent (a pre-#2033 API) and null both mean none.
-      jobPostingId: u.job_posting_id ?? null,
-    }));
+  return (
+    wire.unlocks
+      // A DSAR-deleted worker SET-NULLs the identity join (ADR-0026 Phase 5): the row
+      // stays for audit, but there is no candidate to show — skip it in the UI history.
+      .filter((u) => u.worker_id !== null)
+      .map((u) => ({
+        unlockId: u.unlock_id,
+        workerId: u.worker_id!,
+        // The UI history shows granted vs expired: a revealed grant is still granted, and the
+        // server-derived `expired` (#2033) and `revoked` are both ended access (no-oracle: the
+        // cause is never surfaced beyond this). Only granted/revealed can ever read live.
+        status: u.status === "granted" || u.status === "revealed" ? "granted" : "expired",
+        createdAt: u.created_at,
+        expiresAt: u.expires_at ?? u.created_at,
+        // The current grant's time (a re-grant moves it; created_at does not): the day a Recent
+        // unlocks row prints and is ordered by.
+        grantedAt: u.granted_at,
+        // #2033's company-posting context; absent (a pre-#2033 API) and null both mean none.
+        jobPostingId: u.job_posting_id ?? null,
+      }))
+  );
 }
 
 /**
@@ -228,7 +241,11 @@ export async function getUnlocks(): Promise<UnlockHistoryItem[]> {
  * fail). With `withPostings: false` no job-postings request is made and `postings` is `[]` —
  * a statement about what was READ, not about what exists; callers that skip it never show it.
  */
-export async function getDashboard({ withPostings }: { withPostings: boolean }): Promise<Dashboard> {
+export async function getDashboard({
+  withPostings,
+}: {
+  withPostings: boolean;
+}): Promise<Dashboard> {
   const [credits, unlocks, postings] = await Promise.all([
     getCredits(),
     getUnlocks(),
@@ -248,7 +265,9 @@ function toWeightedApplicant(a: ReachApplicantWire): FacelessApplicant {
     // components are explainable signal reasons; surface only their `reason` strings.
     signals: a.components
       .map((c) =>
-        typeof c === "object" && c && "reason" in c ? String((c as { reason: unknown }).reason) : "",
+        typeof c === "object" && c && "reason" in c
+          ? String((c as { reason: unknown }).reason)
+          : "",
       )
       .filter((s): s is string => s.length > 0)
       .slice(0, 8),
@@ -257,6 +276,9 @@ function toWeightedApplicant(a: ReachApplicantWire): FacelessApplicant {
     experienceBand: a.experienceBand ?? undefined,
     tradeLabel: a.tradeLabel ?? undefined,
     cityLabel: a.cityLabel ?? undefined,
+    // "Level needed" fit (#2548). Absent on an old backend; `null` means no
+    // level sort. Both read as "no tag", never a guessed level.
+    levelFit: a.levelFit ?? undefined,
     ...savedStage(a),
   };
 }
@@ -288,6 +310,8 @@ function toMatchCandidate(a: MatchCandidateWire): FacelessApplicant {
     // Middle Way P5 — display-only rungs, carried verbatim. Absent on an old backend (and
     // on the legacy weighted row), where the card prints no badge; never a placeholder.
     ...(a.tradeLevels !== undefined ? { tradeLevels: a.tradeLevels } : {}),
+    // "Level needed" fit (#2548) — carried verbatim; absent/null = no tag.
+    levelFit: a.levelFit ?? undefined,
     ...savedStage(a),
   };
 }
@@ -363,7 +387,9 @@ const candidateInboxTransportSchema = z
   .passthrough();
 
 /** The row's own kind decides its mapper — the kind and the shape are paired by the schema. */
-function isAgencyInboxRow(row: InboxAgencyRowWire | InboxCompanyRowWire): row is InboxAgencyRowWire {
+function isAgencyInboxRow(
+  row: InboxAgencyRowWire | InboxCompanyRowWire,
+): row is InboxAgencyRowWire {
   return row.posting.kind === "agency_job";
 }
 
@@ -411,6 +437,65 @@ export async function getCandidateInbox(query: CandidateInboxQuery = {}): Promis
 }
 
 /**
+ * TRANSPORT schema for the all-candidates search — the contract's shape, but LENIENT at every
+ * level (unknown keys pass through), for the inbox's reason: a plain `z.object` strips unknown
+ * keys, so a regressed payload carrying a worker name would be swallowed before
+ * {@link assertNoAgencyPII} could see it. {@link candidateSearchWireSchema} is applied after the
+ * guard as the final projection.
+ */
+const candidateSearchTransportSchema = candidateSearchWireSchema
+  .extend({
+    candidates: z.array(
+      candidateSearchRowWireSchema
+        .extend({
+          role: labelledIdWireSchema.passthrough(),
+          otherRoles: z.array(labelledIdWireSchema.passthrough()),
+          industry: labelledIdWireSchema.passthrough(),
+          tradeLevels: z.array(tradeLevelBadgeWireSchema.passthrough()),
+        })
+        .passthrough(),
+    ),
+  })
+  .passthrough();
+
+/**
+ * POST /payer/candidates/search — the payer's ALL-CANDIDATES search (ADR-0040 E2; owner rulings
+ * 2026-11-03): everyone in the eligible pool (the API decides membership), ranked, MASKED, with
+ * the counts from the same response. Both personas; payer-scoped by the Bearer (XB-A — the body
+ * has no slot for a payer id, and the server's `.strict()` refuses one).
+ *
+ *  - The body is snake_case and carries only what the caller set (see `candidateSearchBody`);
+ *    it is SHAPE-checked here, so a malformed one never reaches the network.
+ *  - `cursor` is the previous page's `nextCursor`, verbatim. One the server did not mint is a 400
+ *    (`isPayerBadRequest`) — the page's cursor refusal; any other refused body is a 400 too.
+ *  - FACELESS, ENFORCED: the response crosses {@link assertNoAgencyPII} through a lenient
+ *    transport, so a forbidden key is SEEN (throws in dev/test, stripped in prod).
+ *  - SCRAPE BOUND: the payer's hourly cap answers 429 (`isPayerRateLimited`). Any failure
+ *    throws — the page renders its own state; nothing here fabricates a row or a count.
+ */
+export async function searchCandidates(
+  body: CandidateSearchBody = {},
+): Promise<CandidateSearchPage> {
+  const sent = candidateSearchBodySchema.parse(body);
+  const wire = await payerFetch("/payer/candidates/search", {
+    method: "POST",
+    body: sent,
+    schema: candidateSearchTransportSchema,
+  });
+  return candidateSearchWireSchema.parse(assertNoAgencyPII(wire, "payer/candidates/search"));
+}
+
+/**
+ * GET /payer/candidates/filters — the options the search's filter controls offer: roles,
+ * industries, the experience buckets and the cities the pool records. Vocabulary, not worker
+ * data; payer-authed like the match vocabulary. A failure throws — the page then offers only
+ * "Any …" and says why.
+ */
+export async function getCandidateFilters(): Promise<CandidateFilters> {
+  return payerFetch("/payer/candidates/filters", { schema: candidateFiltersWireSchema });
+}
+
+/**
  * PUT /payer/reach/jobs/:jobId/applicants/:workerId/stage — move one applicant on a posting's SAVED
  * New / Shortlist / Passed board (owner ruling 2026-10-07; API #2137). Either persona: the board is
  * governed by posting OWNERSHIP, which the server checks against the session (XB-A — the body is
@@ -454,13 +539,17 @@ export async function setApplicantStage(input: {
 
 /**
  * POST /payer/unlocks — spend a credit to unlock a candidate (LIVE). The body carries
- * ONLY `worker_id` (+ optional `job_id`); the payer is the session token (XB-A — there
+ * ONLY `worker_id` + `job_id`; the payer is the session token (XB-A — there
  * is nowhere to put a payer_id). Every deny cause (no credits / no consent / capped /
  * already-unlocked) returns the SAME neutral body (no-oracle, F-3) → mapped to the one
  * neutral UnlockResult.
+ *
+ * `postingId` is the unlock's job context: the posting an applicant applied to, or `null` for a
+ * candidate found through the all-candidates search (ADR-0040 E2) — sent as an explicit
+ * `job_id: null`, the API's own default for "no posting".
  */
 export async function requestUnlock(input: {
-  postingId: string;
+  postingId: string | null;
   workerId: string;
 }): Promise<UnlockResult> {
   const wire = await payerFetch("/payer/unlocks", {
@@ -872,6 +961,9 @@ const CLEARABLE_AGENCY_JOB_FIELDS = [
   ["benefits", "benefits"],
   ["requirements", "requirements"],
   ["role_kind", "roleKind"],
+  // Migration 0141 — nullable, so clearable.
+  ["trade_level", "tradeLevel"],
+  ["trade_answers", "tradeAnswers"],
   // `match_skill_ids` is DELIBERATELY ABSENT, though the backend's own list does hold it. An
   // omitted `match_skill_ids` means UNCHANGED (ADR-0050 §6.1 step 2) and the form omits it on
   // every edit that did not touch the pick — a name here would turn each of those into a `clear`
@@ -885,7 +977,10 @@ const CLEARABLE_AGENCY_JOB_FIELDS = [
  * a field the payer BLANKED (had a value, now absent) is unset; `trade_key`/`title`/`city` are
  * NOT NULL and never clearable. `role_kind` is required, so it is always set (never cleared).
  */
-function toAgencyJobBody(input: AgencyJobInput, initial?: AgencyJob | null): Record<string, unknown> {
+function toAgencyJobBody(
+  input: AgencyJobInput,
+  initial?: AgencyJob | null,
+): Record<string, unknown> {
   const body: Record<string, unknown> = {
     trade_key: input.tradeKey,
     role_kind: input.roleKind,
@@ -903,6 +998,8 @@ function toAgencyJobBody(input: AgencyJobInput, initial?: AgencyJob | null): Rec
   if (input.description !== undefined) body.description = input.description;
   if (input.requirements !== undefined) body.requirements = input.requirements;
   if (input.benefits !== undefined) body.benefits = input.benefits;
+  if (input.tradeLevel !== undefined) body.trade_level = input.tradeLevel;
+  if (input.tradeAnswers !== undefined) body.trade_answers = input.tradeAnswers;
   // ADR-0050 §6.1 step 2 — the explicit match pick, the only matching input (`trade_key` is never
   // read for it). Sent when the caller supplies it; OMITTED otherwise, which the backend reads as
   // `[]` on create and UNCHANGED on edit — so the form sends it on every create and only on an
@@ -912,7 +1009,8 @@ function toAgencyJobBody(input: AgencyJobInput, initial?: AgencyJob | null): Rec
     const clear: string[] = [];
     for (const [snake, camel] of CLEARABLE_AGENCY_JOB_FIELDS) {
       const setNow = (input as unknown as Record<string, unknown>)[camel] !== undefined;
-      if (!setNow && initialPresent((initial as unknown as Record<string, unknown>)[camel])) clear.push(snake);
+      if (!setNow && initialPresent((initial as unknown as Record<string, unknown>)[camel]))
+        clear.push(snake);
     }
     if (clear.length > 0) body.clear = clear; // `.min(1)` server-side — omit an empty list.
   }
@@ -1063,9 +1161,7 @@ function applyInviteMeta(body: Record<string, unknown>, input: AgencyInviteMetaI
 }
 
 /** The seam result of an invite mint — an opaque code on success, or a NEUTRAL failure. */
-export type CreateAgencyInviteResult =
-  | { ok: true; code: string; link: string }
-  | { ok: false };
+export type CreateAgencyInviteResult = { ok: true; code: string; link: string } | { ok: false };
 
 /**
  * POST /payer/agency/invites — mint an OWNED opaque invite code. FACELESS: the body
@@ -1400,6 +1496,8 @@ export function toPayerJobPostingBody(
   if (input.neededBy !== undefined) body.needed_by = input.neededBy;
   if (input.requirements !== undefined) body.requirements = input.requirements;
   if (input.benefits !== undefined) body.benefits = input.benefits;
+  if (input.tradeLevel !== undefined) body.trade_level = input.tradeLevel;
+  if (input.tradeAnswers !== undefined) body.trade_answers = input.tradeAnswers;
   return body;
 }
 
@@ -1443,6 +1541,10 @@ export interface PostingDetail {
   /** The MATCHABLE half echoed back, so the edit skill picker prefills what was published. */
   matchSkillIds: string[];
   untickedRelatedIds: string[];
+  /** Migration 0141 — display-only rung, or null. */
+  tradeLevel: string | null;
+  /** Migration 0141 — the poster's chip answers, or null. */
+  tradeAnswers: Record<string, string[]> | null;
   /**
    * The saved revision (`updated_at`). The edit page keys its form on it, so a form seeded from
    * an older revision remounts instead of keeping stale values (and a stale `clear` diff).
@@ -1470,6 +1572,8 @@ export async function getPostingDetail(postingId: string): Promise<PostingDetail
       skills: wire.skill_phrases,
       matchSkillIds: wire.match_skill_ids ?? [],
       untickedRelatedIds: wire.unticked_related_ids ?? [],
+      tradeLevel: wire.trade_level ?? null,
+      tradeAnswers: wire.trade_answers ?? null,
       updatedAt: wire.updated_at,
     };
   } catch (e) {
@@ -1531,6 +1635,9 @@ export interface PostingEditInitial {
   neededBy: string | null;
   requirements: string[] | null;
   benefits: string[] | null;
+  /** Migration 0141 — the trade-specific form, for the edit prefill + clear diff. */
+  tradeLevel?: string | null;
+  tradeAnswers?: Record<string, string[]> | null;
 }
 
 /** The MATCHABLE half added on the publish variant (draft → open in the SAME patch). */
@@ -1559,7 +1666,13 @@ const CLEARABLE_POSTING_FIELDS = [
   ["needed_by", "neededBy"],
   ["benefits", "benefits"],
   ["requirements", "requirements"],
-  ["role_kind", "roleKind"],
+  // NOT `role_kind` (#2645), although the backend lets it be cleared: a company job's role is its
+  // trade, a live job must name one of the 16 (#2635) and a draft needs one to publish. The edit
+  // form sends the role only when the payer moved it to another trade, so an untouched role is
+  // ABSENT here — and absent must never read as "cleared".
+  // Migration 0141 — both nullable, so both are clearable.
+  ["trade_level", "tradeLevel"],
+  ["trade_answers", "tradeAnswers"],
 ] as const;
 
 /** Whether a seeded initial value counts as "present" (so blanking it is a real clear). */
@@ -1599,13 +1712,16 @@ export function toPayerJobPostingPatchBody(
   if (input.neededBy !== undefined) body.needed_by = input.neededBy;
   if (input.requirements !== undefined) body.requirements = input.requirements;
   if (input.benefits !== undefined) body.benefits = input.benefits;
+  if (input.tradeLevel !== undefined) body.trade_level = input.tradeLevel;
+  if (input.tradeAnswers !== undefined) body.trade_answers = input.tradeAnswers;
 
   // The clear diff: a field the payer BLANKED (present in `initial`, absent from `input`).
   if (initial) {
     const clear: string[] = [];
     for (const [snake, camel] of CLEARABLE_POSTING_FIELDS) {
       const setNow = (input as unknown as Record<string, unknown>)[camel] !== undefined;
-      if (!setNow && initialPresent((initial as unknown as Record<string, unknown>)[camel])) clear.push(snake);
+      if (!setNow && initialPresent((initial as unknown as Record<string, unknown>)[camel]))
+        clear.push(snake);
     }
     if (clear.length > 0) body.clear = clear; // `.min(1)` server-side — omit an empty list.
   }
@@ -1658,6 +1774,19 @@ export async function listMatchSkills(): Promise<MatchSkillWire[]> {
 }
 
 /**
+ * GET /payer/posting-trades — the 16-trade posting-form catalogue (migration 0141).
+ *
+ * Fetched SERVER-side so the Bearer never reaches the browser. The company pages read it through
+ * `readPostingTrades` (posting-trades.server.ts): a failure is named at the trade picker with a
+ * Retry, and the form refuses to post — a company job must name one of the 16 (#2635), so there
+ * is no free role list or flat skill picker to fall back on any more.
+ */
+export async function listPostingTrades(): Promise<PostingTradeFormWire[]> {
+  const wire = await payerFetch("/payer/posting-trades", { schema: postingTradeListWireSchema });
+  return wire.trades;
+}
+
+/**
  * POST /payer/match/reach-preview — the live "this posting reaches N workers" figure,
  * shown BEFORE the payer commits (E13: never take money for a posting into a void).
  *
@@ -1667,13 +1796,20 @@ export async function listMatchSkills(): Promise<MatchSkillWire[]> {
  *
  * Reach is a property of WORKER SUPPLY, identical for every payer, so no payer id is
  * sent or needed and there is no tenancy surface here to get wrong.
+ *
+ * `roleKind` (#2635, optional) is a COMPANY job's trade: one of the 16 scopes the posted ids
+ * exactly as publish scopes them, so the figure is the one publish will reach. An agency job
+ * sends none (the API scopes only company jobs by trade); absent, the key is not sent.
  */
-export async function previewReach(input: MatchSelectionInput): Promise<ReachPreview> {
+export async function previewReach(
+  input: MatchSelectionInput & { roleKind?: string },
+): Promise<ReachPreview> {
   return payerFetch("/payer/match/reach-preview", {
     method: "POST",
     body: {
       match_skill_ids: input.matchSkillIds,
       unticked_related_ids: input.untickedRelatedIds,
+      ...(input.roleKind ? { role_kind: input.roleKind } : {}),
     },
     schema: reachPreviewWireSchema,
   });
@@ -2025,9 +2161,10 @@ export async function getJobPostingChatTranscript(
  * job posting. The draft already lives server-side on the session row, the payer is the session
  * (XB-A), and the org name is auto-filled server-side (rule A).
  *
- * `roleKind` is the publish-step role pick (#2490): display/classification only, the same closed
- * 21-value set the manual form sends, never a match input. OPTIONAL — absent stays absent, so the
- * posting stores NULL and the worker card draws the generic art. Sent only when the payer picked.
+ * `roleKind` is the publish-step role pick (#2490) — the job's TRADE. The chat always sends it
+ * since #2645: one of the 16 the API served, checked before this call, because a company job that
+ * names none of them can never go live and its trade scopes who it reaches (#2635). The wire field
+ * itself stays optional (absent would store NULL), so the parameter does too; absent is not sent.
  *
  * `area` (#2493) is the COARSE locality bucket prefilled from the draft (or corrected at publish).
  * The server lets the body win over the draft. OPTIONAL — absent stores NULL; the card then shows

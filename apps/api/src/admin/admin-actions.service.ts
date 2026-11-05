@@ -37,6 +37,24 @@ export const ADMIN_ACTION_CODES = {
   admin_role_changed: "admin_role_changed",
   admin_suspended: "admin_suspended",
   admin_mfa_reset: "admin_mfa_reset",
+  // ── Migration 0144 — admin password sign-in + optional two-step (owner 2026-11-03) ──────────
+  // Every one targets an ADMIN (subject/target `admin_session`). The password, the code, the
+  // device token and the email NEVER ride the event — the code names WHAT happened, nothing else.
+  //   admin_created        — a super_admin created an ACTIVE admin directly with a temporary
+  //                          password (actor = creator, target = the new admin).
+  //   admin_password_set   — a password was set or changed by its owner: the must-change step
+  //                          on first sign-in, or the Account page (actor = target = self).
+  //   admin_password_reset — a forgot-password code was redeemed (actor = target = the admin;
+  //                          the request is unauthenticated, the emailed code is the proof).
+  //   admin_device_trusted — a browser was trusted to skip the two-step step for N days.
+  //   admin_mfa_enabled    — the admin switched their own two-step ON (code confirmed).
+  //   admin_mfa_disabled   — the admin switched their own two-step OFF (current code proven).
+  admin_created: "admin_created",
+  admin_password_set: "admin_password_set",
+  admin_password_reset: "admin_password_reset",
+  admin_device_trusted: "admin_device_trusted",
+  admin_mfa_enabled: "admin_mfa_enabled",
+  admin_mfa_disabled: "admin_mfa_disabled",
   // ── Migration 0093 — skill-candidate review decisions ────────────────────────────────────
   // FIVE codes, not one `skill_candidate_reviewed` plus a payload field, because the spine is
   // VALUE-FREE: which way a reviewer decided IS the value, and the only free-form string the
@@ -55,6 +73,13 @@ export const ADMIN_ACTION_CODES = {
   skill_candidate_approved_merge: "skill_candidate_approved_merge",
   skill_candidate_rejected: "skill_candidate_rejected",
   skill_candidate_deferred: "skill_candidate_deferred",
+  // ── #2563 — payer login management ──────────────────────────────────────────────────────
+  // Three codes, each targeting a PAYER. The temporary password, its hash and the login ID
+  // never ride the event; the reason code/text lives on the `audit_logs` row written in the
+  // same transaction, because `admin.action_performed` is `.strict()` and value-free.
+  payer_login_created: "payer_login_created",
+  payer_password_issued: "payer_password_issued",
+  payer_password_revoked: "payer_password_revoked",
 } as const;
 export type AdminActionCode = (typeof ADMIN_ACTION_CODES)[keyof typeof ADMIN_ACTION_CODES];
 

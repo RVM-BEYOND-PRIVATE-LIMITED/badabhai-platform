@@ -2,13 +2,16 @@
 
 import { useEffect, useState, useTransition } from "react";
 import type { FormEvent } from "react";
-import { Badge, Button, Input, OtpInput, Tabs, Toast, tabId, tabPanelId } from "../../components/ds";
+import { Badge, Button, Input, Tabs, Toast, tabId, tabPanelId } from "../../components/ds";
+import { OtpCodeInput } from "../../components/otp-input";
 import { requestCodeAction, signupAction, verifyCodeAction } from "./actions";
 import { looksLikeLoginEmail } from "./email-shape";
 import { usePortalNavigation } from "../../components/portal-navigation";
 import { INVALID_ORG_NAME, INVALID_PHONE } from "./messages";
 import type { PayerRole } from "../../lib/auth";
 import { Icon, type IconName } from "@badabhai/icons";
+import { IDENTIFIER_FIELD_ID, PASSWORD_FIELD_ID, PasswordSignInForm } from "./password-sign-in";
+import { NEW_PASSWORD_HEADING_ID, SetNewPasswordStep } from "./set-new-password";
 
 /**
  * Client auth form (AUTH-1) — a tri-axis state machine over the design system, presented as a
@@ -30,8 +33,9 @@ import { Icon, type IconName } from "@badabhai/icons";
  *   vice-versa. DO NOT add tab-gating to signin here or anywhere downstream.
  *
  * Both signin-entry (email → requestCodeAction) and signup-entry (org_name + email + optional
- * phone → signupAction) funnel into the EXACT SAME shared `code` step (OtpInput →
- * verifyCodeAction → /dashboard). There is no second OTP mechanism.
+ * phone → signupAction) funnel into the EXACT SAME shared `code` step (OtpCodeInput →
+ * verifyCodeAction → /dashboard; the sixth digit submits, as Verify does). There is no second OTP
+ * mechanism.
  *
  * THE CODE IS NEVER DISPLAYED OR AUTO-FILLED — auth is REAL-OTP only; the payer reads the
  * 6-digit code from their real email. The resend control re-uses the SERVER cooldown
@@ -40,6 +44,15 @@ import { Icon, type IconName } from "@badabhai/icons";
  * NO-ORACLE / NO-ENUMERATION (XB-H): both the send/create step and a failed verify show ONE
  * neutral message — identical whether the email is unknown OR already registered, a limit was
  * hit, or the code is wrong — so the UI is never an enumeration oracle.
+ *
+ * PASSWORD SIGN-IN (#2587) — a fourth axis, for SIGN IN only:
+ *   method ∈ { password, code }  ← password is the default sign-in view (the payer app's order);
+ *     "Use email code instead" / "Sign in with a password instead" switch between them, and the
+ *     email-code flow above is unchanged. Signup is always the code flow.
+ *   change: a TEMPORARY password was right (#2628) → the "Set a new password" step replaces the
+ *     form (no tabs, like the code step). No session exists until it succeeds.
+ * A code that verifies for a temporary-password account (the API's 409) moves the payer to the
+ * password form with the email filled in and the instruction shown — still no session.
  */
 const E164_RE = /^\+[1-9]\d{7,14}$/;
 const CODE_RE = /^\d{4,8}$/;
@@ -48,6 +61,44 @@ const TABS_ID = "auth-role";
 
 type RoleKey = "company" | "agency";
 type Mode = "signin" | "signup";
+/** How a payer signs IN (#2587). Signup is always the code flow. */
+type Method = "password" | "code";
+/** Which screen the card shows — the entry forms, the code step, or the set-new-password step. */
+export type LoginView = "entry" | "code" | "new_password";
+/** A temporary password the API accepted (#2628), held in memory while the change step is open. */
+interface PendingChange {
+  identifier: string;
+  temporaryPassword: string;
+}
+/** What the password form shows on arrival: the forced change's refusal, or the code door's guidance. */
+interface PasswordArrival {
+  error: string | null;
+  notice: string | null;
+}
+const NO_ARRIVAL: PasswordArrival = { error: null, notice: null };
+
+const EMAIL_FIELD_ID = "login-email";
+const CODE_HEADING_ID = "login-code-heading";
+/** The code step's inline error line — it also describes every code box while it shows. */
+const CODE_ERROR_ID = "login-code-error";
+
+/**
+ * Where focus goes when the view or the sign-in method changes — the natural first control of
+ * what is now on screen. The code step and the set-new-password step land on their heading (a
+ * screen reader hears what the step is for); the password form on the password when the login ID
+ * is already filled in, else on the login ID. A mode switch never moves focus (the radio keeps it).
+ */
+export function loginFocusTarget(state: {
+  view: LoginView;
+  method: Method;
+  isSignup: boolean;
+  identifier: string;
+}): string {
+  if (state.view === "code") return CODE_HEADING_ID;
+  if (state.view === "new_password") return NEW_PASSWORD_HEADING_ID;
+  if (state.isSignup || state.method === "code") return EMAIL_FIELD_ID;
+  return state.identifier.trim() ? PASSWORD_FIELD_ID : IDENTIFIER_FIELD_ID;
+}
 
 /** UI role-tab → backend PayerRole. company = employer, agency = agent. */
 const PAYER_ROLE: Record<RoleKey, PayerRole> = { company: "employer", agency: "agent" };
@@ -76,8 +127,9 @@ const ROLE_COPY: Record<
 export function LoginForm() {
   // useState call order (kept stable for the node-env render test seeding):
   // role, mode, step, email, orgName, phone, code, emailError, orgError, phoneError,
-  // codeError, error, info, cooldown.  (Any NEW state is appended AFTER cooldown so the
-  // test's 14-slot seed order is preserved.)
+  // codeError, error, info, cooldown, succeeded, method, identifier, change, arrival,
+  // codeAttempt.
+  // (Any NEW state is appended at the END so every existing seed position is preserved.)
   const [role, setRole] = useState<RoleKey>("company");
   const [mode, setMode] = useState<Mode>("signin");
   const [step, setStep] = useState<"entry" | "code">("entry");
@@ -92,19 +144,23 @@ export function LoginForm() {
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const [cooldown, setCooldown] = useState(0);
-  // --- appended AFTER the 14 seeded slots (test seeds only the first 14) ---
+  // --- appended AFTER the original 14 slots ---
   // `succeeded` shows a brief success affordance between a correct code and the redirect.
   const [succeeded, setSucceeded] = useState(false);
+  // --- #2587 password sign-in, appended after `succeeded` (same reason: seed order) ---
+  const [method, setMethod] = useState<Method>("password");
+  // The password form's login ID — kept here so it survives a mode or method switch.
+  const [identifier, setIdentifier] = useState("");
+  // A temporary password the API accepted: the set-new-password step is open while this is set.
+  const [change, setChange] = useState<PendingChange | null>(null);
+  const [arrival, setArrival] = useState<PasswordArrival>(NO_ARRIVAL);
+  // --- #2588 the code boxes, appended after `arrival` (same reason: seed order) ---
+  // Each refused code bumps it: the boxes remount empty, focus on their first box, armed again.
+  const [codeAttempt, setCodeAttempt] = useState(0);
   const [pending, startTransition] = useTransition();
   // A verified code lands on the dashboard with the page's "Opening Dashboard…" cue (the button
   // already reads "Signed in" — `succeeded` — until the page is gone).
   const { navigate } = usePortalNavigation();
-
-  // Stable element ids used only for focus management on step change (a11y). We target by id
-  // via the DOM rather than a React ref so this stays hook-free (the DS Input is not a
-  // forwardRef component, and the node render test mocks effects/state but not useRef).
-  const EMAIL_FIELD_ID = "login-email";
-  const CODE_HEADING_ID = "login-code-heading";
 
   // Tick the resend cooldown down to zero (disables the resend button until elapsed).
   useEffect(() => {
@@ -113,16 +169,19 @@ export function LoginForm() {
     return () => clearTimeout(t);
   }, [cooldown]);
 
-  // On step change, move focus to the natural starting point of the new step (DOM-only; a no-op
-  // in the node render test where useEffect is mocked out).
-  useEffect(() => {
-    if (typeof document === "undefined") return;
-    const targetId = step === "code" ? CODE_HEADING_ID : EMAIL_FIELD_ID;
-    document.getElementById(targetId)?.focus();
-  }, [step]);
-
   const copy = ROLE_COPY[role];
   const isSignup = mode === "signup";
+  const view: LoginView = step === "code" ? "code" : change ? "new_password" : "entry";
+
+  // On a view or method change, move focus to the natural starting point of what is now shown
+  // (by element id via the DOM — the DS Input is not a forwardRef component, and the node render
+  // tests mock effects/state but not useRef). A no-op in the node env.
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    document.getElementById(loginFocusTarget({ view, method, isSignup, identifier }))?.focus();
+    // Deliberately NOT on mode or typing: focus moves only when what the card shows changes.
+  }, [view, method]);
+
   // Inline valid affordance — a subtle check once the typed email is well-formed (and not in
   // an error state). Presentation only; the server is still the source of truth.
   const emailValid = !emailError && looksLikeLoginEmail(email.trim());
@@ -158,6 +217,51 @@ export function LoginForm() {
     setPhoneError(null);
     setEmailError(null);
     clearOutcome();
+    // A message the password form arrived with is stale once the payer has moved on.
+    setArrival(NO_ARRIVAL);
+  }
+
+  /** Every sign-in that opens a session lands here: the dashboard, cued, replacing /login. */
+  function goToDashboard() {
+    navigate("/dashboard", { pendingLabel: "Dashboard", replace: true, refresh: true });
+  }
+
+  /** "Sign in with a password instead" — the typed email becomes the login ID. */
+  function switchToPassword() {
+    setMethod("password");
+    if (email.trim()) setIdentifier(email.trim());
+    setEmailError(null);
+    clearOutcome();
+    setArrival(NO_ARRIVAL);
+  }
+
+  /** "Use email code instead" — a login ID that is an email fills the email field. */
+  function switchToEmailCode(typed: string) {
+    setMethod("code");
+    if (looksLikeLoginEmail(typed)) setEmail(typed);
+    setEmailError(null);
+    clearOutcome();
+    setArrival(NO_ARRIVAL);
+  }
+
+  /** A temporary password was right (#2628): open the change step. Still no session. */
+  function openChangeStep(pending: PendingChange) {
+    setIdentifier(pending.identifier);
+    setArrival(NO_ARRIVAL);
+    setChange(pending);
+  }
+
+  /** The new password is set and a session is open: drop the temporary password, then go. */
+  function onChangeSignedIn() {
+    setChange((c) => (c ? { identifier: c.identifier, temporaryPassword: "" } : c));
+    goToDashboard();
+  }
+
+  /** Leave the change step for the password form (abandoned, or the temporary password refused). */
+  function closeChangeStep(error: string | null) {
+    setChange(null);
+    setMethod("password");
+    setArrival({ error, notice: null });
   }
 
   function startCodeStep(resendInSeconds: number) {
@@ -224,10 +328,23 @@ export function LoginForm() {
     else sendLoginCode();
   }
 
+  /** The form's submit — Verify, or Enter in a box: the code in the boxes. */
   function onVerify(e: FormEvent) {
     e.preventDefault();
+    verifyCode(code);
+  }
+
+  /**
+   * Step 2 — verify a code. The form's submit and the sixth digit both land here: OtpCodeInput's
+   * `onComplete` hands over the code it just completed (this render still holds the edit before
+   * it). One request at a time — nothing is sent while one is in flight (a verify, or a resend), or
+   * once a code was accepted — so the sixth digit and a Verify press never submit twice.
+   */
+  function verifyCode(entered: string) {
+    if (pending || succeeded) return;
     setError(null);
-    if (!CODE_RE.test(code.trim())) {
+    const submitted = entered.trim();
+    if (!CODE_RE.test(submitted)) {
       setCodeError("Enter the numeric code (4–8 digits).");
       return;
     }
@@ -235,13 +352,31 @@ export function LoginForm() {
     startTransition(async () => {
       // ROLE-AGNOSTIC: verify is identical for company- and agency-created accounts. An agent
       // account lands on the agency-labelled portal automatically (the server resolves the role).
-      const res = await verifyCodeAction({ email: email.trim(), code: code.trim() });
+      const res = await verifyCodeAction({ email: email.trim(), code: submitted });
       if (res.ok) {
+        // The accepted code stays readable — locked in the boxes, with the check — while the
+        // dashboard opens (a box edited during the check shows the code that was accepted).
+        setCode(submitted);
         setSucceeded(true);
         setInfo(res.isNewPayer ? "Account created — welcome!" : "Welcome back!");
-        navigate("/dashboard", { pendingLabel: "Dashboard", replace: true, refresh: true });
+        goToDashboard();
+      } else if (res.usePassword) {
+        // #2587 — the code was right, but the account holds a temporary password (#2628): NO
+        // session. Password sign-in, with the email filled in and the instruction shown.
+        setStep("entry");
+        setCode("");
+        setCodeError(null);
+        setCooldown(0);
+        setMode("signin");
+        setMethod("password");
+        setIdentifier(email.trim());
+        setArrival({ error: null, notice: res.error });
       } else {
         setError(res.error);
+        // Refused: the boxes clear and re-arm — a fresh input with focus on its first box, so the
+        // next sixth digit submits again. The error stays in the status region until then.
+        setCode("");
+        setCodeAttempt((n) => n + 1);
       }
     });
   }
@@ -288,18 +423,26 @@ export function LoginForm() {
           continue.
         </p>
         <div className="login-otp">
-          <span className="login-otp__label">Enter the {OTP_LENGTH}-digit login code</span>
-          <OtpInput
+          {/* Six boxes (components/otp-input.tsx): the visible label names the group, the first box
+              takes the browser's one-time-code autofill, and the sixth digit — or a whole pasted
+              or autofilled code — submits through verifyCode, as Verify does. An accepted code
+              locks read-only with a check; a refused one remounts the boxes (`key`) empty. */}
+          <OtpCodeInput
+            key={codeAttempt}
+            label={`Enter the ${OTP_LENGTH}-digit login code`}
             length={OTP_LENGTH}
             value={code}
             autoFocus
+            success={succeeded}
+            describedBy={codeError ? CODE_ERROR_ID : undefined}
             onChange={(v) => {
               setCode(v);
               if (codeError) setCodeError(null);
             }}
+            onComplete={verifyCode}
           />
           {codeError ? (
-            <span className="bb-field__error" role="alert">
+            <span id={CODE_ERROR_ID} className="bb-field__error" role="alert">
               {codeError}
             </span>
           ) : null}
@@ -339,16 +482,33 @@ export function LoginForm() {
     );
   }
 
+  // ---- #2587 SET-NEW-PASSWORD step: replaces the form (no tabs), like the code step ----
+  if (change) {
+    return (
+      <SetNewPasswordStep
+        identifier={change.identifier}
+        temporaryPassword={change.temporaryPassword}
+        onSignedIn={onChangeSignedIn}
+        onRestart={(refusal) => closeChangeStep(refusal)}
+        onCancel={() => closeChangeStep(null)}
+      />
+    );
+  }
+
   // ---- ENTRY step: progress cue + role tabs (PRIMARY) + light mode switch + the entry form ----
+  const passwordSignIn = !isSignup && method === "password";
   return (
     <div className="login-auth">
-      <div className="login-steps" aria-hidden="true">
-        <span className="login-steps__label">Step 1 of 2</span>
-        <span className="login-steps__track">
-          <span className="login-steps__dot login-steps__dot--active" />
-          <span className="login-steps__dot" />
-        </span>
-      </div>
+      {/* The 2-step cue belongs to the code flow; password sign-in is one step. */}
+      {passwordSignIn ? null : (
+        <div className="login-steps" aria-hidden="true">
+          <span className="login-steps__label">Step 1 of 2</span>
+          <span className="login-steps__track">
+            <span className="login-steps__dot login-steps__dot--active" />
+            <span className="login-steps__dot" />
+          </span>
+        </div>
+      )}
 
       <div className="login-roleblock">
         <span className="login-roleblock__label" id={`${TABS_ID}-label`}>
@@ -410,87 +570,110 @@ export function LoginForm() {
           </label>
         </div>
 
-        <form className="login-form" onSubmit={onEntry}>
-          {isSignup ? (
-            <Input
-              label={role === "agency" ? "Agency name" : "Company name"}
-              name="organization"
-              iconLeft="buildings"
-              autoComplete="organization"
-              placeholder={role === "agency" ? "Your agency" : "Your company"}
-              value={orgName}
-              maxLength={200}
-              error={orgError ?? undefined}
-              aria-invalid={orgError ? true : undefined}
-              onChange={(ev) => {
-                setOrgName(ev.target.value);
-                if (orgError) setOrgError(null);
-              }}
-            />
-          ) : null}
-
-          <Input
-            id={EMAIL_FIELD_ID}
-            label="Email"
-            type="email"
-            name="email"
-            iconLeft="envelope"
-            iconRight={emailValid ? "check-circle" : undefined}
-            autoComplete="username"
-            placeholder="you@company.example"
-            value={email}
-            error={emailError ?? undefined}
-            aria-invalid={emailError ? true : undefined}
-            className={emailValid ? "login-input--valid" : undefined}
-            onChange={(ev) => {
-              setEmail(ev.target.value);
-              if (emailError) setEmailError(null);
-            }}
+        {passwordSignIn ? (
+          <PasswordSignInForm
+            identifier={identifier}
+            onIdentifierChange={setIdentifier}
+            initialError={arrival.error}
+            initialNotice={arrival.notice}
+            onSignedIn={goToDashboard}
+            onChangeRequired={openChangeStep}
+            onUseEmailCode={switchToEmailCode}
           />
+        ) : (
+          <form className="login-form" onSubmit={onEntry}>
+            {isSignup ? (
+              <Input
+                label={role === "agency" ? "Agency name" : "Company name"}
+                name="organization"
+                iconLeft="buildings"
+                autoComplete="organization"
+                placeholder={role === "agency" ? "Your agency" : "Your company"}
+                value={orgName}
+                maxLength={200}
+                error={orgError ?? undefined}
+                aria-invalid={orgError ? true : undefined}
+                onChange={(ev) => {
+                  setOrgName(ev.target.value);
+                  if (orgError) setOrgError(null);
+                }}
+              />
+            ) : null}
 
-          {isSignup ? (
             <Input
-              label="Phone"
-              type="tel"
-              name="tel"
-              optional
-              iconLeft="phone"
-              autoComplete="tel"
-              inputMode="tel"
-              placeholder="+919876543210"
-              hint="Optional. Use the full international format, e.g. +919876543210."
-              value={phone}
-              error={phoneError ?? undefined}
-              aria-invalid={phoneError ? true : undefined}
+              id={EMAIL_FIELD_ID}
+              label="Email"
+              type="email"
+              name="email"
+              iconLeft="envelope"
+              iconRight={emailValid ? "check-circle" : undefined}
+              autoComplete="username"
+              placeholder="you@company.example"
+              value={email}
+              error={emailError ?? undefined}
+              aria-invalid={emailError ? true : undefined}
+              className={emailValid ? "login-input--valid" : undefined}
               onChange={(ev) => {
-                setPhone(ev.target.value);
-                if (phoneError) setPhoneError(null);
+                setEmail(ev.target.value);
+                if (emailError) setEmailError(null);
               }}
             />
-          ) : null}
 
-          <Button
-            type="submit"
-            variant="primary"
-            block
-            loading={pending}
-            iconLeft={isSignup ? "user-plus" : "paper-plane-right"}
-          >
-            {pending
-              ? isSignup
-                ? "Creating…"
-                : "Sending code…"
-              : isSignup
-                ? "Create account & send code"
-                : "Send login code"}
-          </Button>
+            {isSignup ? (
+              <Input
+                label="Phone"
+                type="tel"
+                name="tel"
+                optional
+                iconLeft="phone"
+                autoComplete="tel"
+                inputMode="tel"
+                placeholder="+919876543210"
+                hint="Optional. Use the full international format, e.g. +919876543210."
+                value={phone}
+                error={phoneError ?? undefined}
+                aria-invalid={phoneError ? true : undefined}
+                onChange={(ev) => {
+                  setPhone(ev.target.value);
+                  if (phoneError) setPhoneError(null);
+                }}
+              />
+            ) : null}
 
-          <p className="login-trust">
-            <Icon name="lock-key" />
-            Secure one-time-code sign-in — no passwords. We’ll never share your details.
-          </p>
-          {statusRegion}
-        </form>
+            <Button
+              type="submit"
+              variant="primary"
+              block
+              loading={pending}
+              iconLeft={isSignup ? "user-plus" : "paper-plane-right"}
+            >
+              {pending
+                ? isSignup
+                  ? "Creating…"
+                  : "Sending code…"
+                : isSignup
+                  ? "Create account & send code"
+                  : "Send login code"}
+            </Button>
+            {isSignup ? null : (
+              <Button
+                type="button"
+                variant="ghost"
+                iconLeft="key"
+                disabled={pending}
+                onClick={switchToPassword}
+              >
+                Sign in with a password instead
+              </Button>
+            )}
+
+            <p className="login-trust">
+              <Icon name="lock-key" />
+              Secure one-time-code sign-in. We’ll never share your details.
+            </p>
+            {statusRegion}
+          </form>
+        )}
       </div>
     </div>
   );

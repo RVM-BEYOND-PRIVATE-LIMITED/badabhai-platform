@@ -21,7 +21,7 @@ the AI service running (the AI client falls back to safe mocks).
 | GET    | `/health`                | —                                                    |
 | POST   | `/auth/otp/request`      | `worker.otp_requested`                               |
 | POST   | `/auth/otp/verify`       | `worker.created` (if new) + `worker.otp_verified`    |
-| POST   | `/consent/accept`        | `consent.accepted`                                   |
+| POST   | `/consent/accept`        | `consent.accepted` (+ `consent.age_declared`, #2541) |
 | POST   | `/chat/session`          | `chat.session_started`                               |
 | POST   | `/chat/message`          | `chat.message_received` + `chat.message_sent`        |
 | POST   | `/voice/upload`          | `voice_note.uploaded` (duration ≤ 120s)              |

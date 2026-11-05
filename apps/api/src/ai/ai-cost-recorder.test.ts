@@ -219,6 +219,9 @@ describe("AiCostRecorder — the running totals", () => {
         realCall: true,
       },
     ]);
+    // The platform leg carries the same call and is written FIRST — see the savepoint test.
+    expect(totals.platformAccrued).toHaveLength(1);
+    expect(totals.order).toEqual(["platform", "owned"]);
   });
 
   it("accrues NOTHING when the event was deduped — a redelivery must not double-count", async () => {
@@ -232,6 +235,7 @@ describe("AiCostRecorder — the running totals", () => {
       sessionId: SESSION,
     });
     expect(totals.accrued).toHaveLength(0);
+    expect(totals.platformAccrued).toHaveLength(0);
     // The transaction still opened — the dedupe is decided by the insert, not before it.
     expect(totals.transactions).toBe(1);
   });
@@ -253,13 +257,14 @@ describe("AiCostRecorder — the running totals", () => {
         "req-1",
       );
     }
-    expect(totals.accrued).toHaveLength(3);
-    expect(totals.accrued.reduce((sum, a) => sum + a.costInr, 0)).toBeCloseTo(1.5, 10);
+    expect(totals.accrued).toHaveLength(0);
+    expect(totals.platformAccrued).toHaveLength(3);
+    expect(totals.platformAccrued.reduce((sum, a) => sum + a.costInr, 0)).toBeCloseTo(1.5, 10);
   });
 
-  it("accrues in a SAVEPOINT on the transaction the event insert rode", async () => {
-    // The fake throws if the savepoint is opened on any other handle, or if `accrue` arrives
-    // on anything but that savepoint. Both halves matter: same transaction is why a successful
+  it("accrues in a SAVEPOINT on the transaction the event insert rode, platform first", async () => {
+    // The fake throws if a savepoint is opened on any other handle, or if a leg arrives on
+    // anything but that savepoint. Both halves matter: same transaction is why a successful
     // total cannot disagree with its ledger row, and the savepoint is why a FAILED total
     // cannot delete that ledger row (see ai-cost-recorder.atomicity.test.ts).
     const { rec, emitOnce, totals } = make();
@@ -268,8 +273,22 @@ describe("AiCostRecorder — the running totals", () => {
     });
     expect((emitOnce.mock.calls[0]![0] as { tx: unknown }).tx).toBe(FAKE_TX);
     expect(totals.transactions).toBe(1);
-    expect(totals.savepoints).toBe(1);
+    // TWO legs, two savepoints: the platform total and the worker/session total are isolated
+    // from each other so a deleted worker cannot roll the platform figure back.
+    expect(totals.savepoints).toBe(2);
+    expect(totals.order).toEqual(["platform", "owned"]);
+    expect(totals.platformAccrued).toHaveLength(1);
     expect(totals.accrued).toHaveLength(1);
+  });
+
+  it("a payer-side call writes the platform total and opens no owned savepoint", async () => {
+    const { rec, totals } = make();
+    await rec.record(META, "skill_embedding", null, CORRELATION, "req-1");
+    // No worker, no session: the owned leg has nothing to write and is skipped entirely.
+    expect(totals.platformAccrued).toHaveLength(1);
+    expect(totals.accrued).toHaveLength(0);
+    expect(totals.savepoints).toBe(1);
+    expect(totals.order).toEqual(["platform"]);
   });
 
   it("records nothing at all — no event, no total, no transaction — on null metadata", async () => {
@@ -288,7 +307,9 @@ describe("AiCostRecorder — the running totals", () => {
     const { rec, totals, emitOnce } = make();
     await rec.record({ ...META, provider: "" }, "profile_parse", null, CORRELATION, "req-1");
     expect(payloadOf(emitOnce).provider).toBe("unknown");
-    expect(totals.accrued[0]!.provider).toBe("unknown");
+    expect(totals.platformAccrued[0]!.provider).toBe("unknown");
+    // No worker/session on this call, so the owned leg is a no-op.
+    expect(totals.accrued).toHaveLength(0);
   });
 });
 
@@ -299,20 +320,34 @@ describe("AiCostRecorder — it never fails the work it observes", () => {
       rec.record(META, "profiling_chat_turn", null, CORRELATION, "req-1", { workerId: WORKER }),
     ).resolves.toBeUndefined();
     expect(totals.accrued).toHaveLength(0);
+    expect(totals.platformAccrued).toHaveLength(0);
   });
 
-  it("swallows a failed TOTALS write — a cost row must not take an interview down", async () => {
-    // …and the event does NOT roll back with it: the accrual runs in a savepoint, so a totals
-    // failure costs the derived number and leaves the ledger row committed. That the ROW
+  it("swallows a failed OWNED totals write — and the platform total still lands", async () => {
+    // The deleted-worker path: the worker FK fails, the platform row has no FK and was written
+    // first. The event does NOT roll back either — each leg runs in its own savepoint, so the
+    // failure costs the derived owned rows and leaves the ledger row committed. That the ROW
     // survives is a transaction property, proved in ai-cost-recorder.atomicity.test.ts; what
-    // this asserts is the caller-visible half — no throw, and nothing accrued.
+    // this asserts is the caller-visible half plus the ordering that protects the headline.
     const { rec, totals } = make();
     totals.failNext = true;
     await expect(
       rec.record(META, "profiling_chat_turn", null, CORRELATION, "req-1", { workerId: WORKER }),
     ).resolves.toBeUndefined();
     expect(totals.accrued).toHaveLength(0);
-    expect(totals.savepoints).toBe(1);
+    expect(totals.platformAccrued).toHaveLength(1);
+    expect(totals.savepoints).toBe(2);
+  });
+
+  it("swallows a failed PLATFORM write — the owned totals still land", async () => {
+    // The other degraded leg, for symmetry: one table's lock timeout must not cost the other.
+    const { rec, totals } = make();
+    totals.failNextPlatform = true;
+    await expect(
+      rec.record(META, "profiling_chat_turn", null, CORRELATION, "req-1", { workerId: WORKER }),
+    ).resolves.toBeUndefined();
+    expect(totals.platformAccrued).toHaveLength(0);
+    expect(totals.accrued).toHaveLength(1);
   });
 
   it("a failed totals write does not stop the NEXT call from accruing", async () => {
@@ -333,5 +368,6 @@ describe("AiCostRecorder — it never fails the work it observes", () => {
       { workerId: WORKER },
     );
     expect(totals.accrued).toHaveLength(1);
+    expect(totals.platformAccrued).toHaveLength(2);
   });
 });

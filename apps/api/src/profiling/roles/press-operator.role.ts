@@ -64,9 +64,11 @@ export const PRESS_OPERATOR = {
   familyId: "fam_press_operation",
   cluster: "fabrication",
   formEnabled: true,
-  displayName: "Press / Machine Operator",
+  // Phase 2 #3 (CEO Launch Plan Pack v1, sheet 18): the sheet's name for the
+  // trade. R4-a's scope (metal forming only) is unchanged; only the label moves.
+  displayName: "Press-shop Operator",
   offerName: "press operator",
-  levelLadder: ["Helper", "Operator", "Setter"],
+  levelLadder: ["Trainee", "Operator", "Setter", "Senior", "Supervisor"],
   tenureQuestionKey: "press_experience",
   fresher: {
     // KEYED BY STORED `value_text`, read off `iti_workshop_machines` in qp_press_operation@1.
@@ -116,8 +118,15 @@ export const PRESS_OPERATOR = {
       "progressive tooling",
       "strip layout",
       "shut height",
+      // Phase 2 #3 (sheet 18): the new press-type chips. Coil feeder, decoiler
+      // and straightener stay out — a sheet-metal line runs them too, and a
+      // machine term becomes a rival role's veto word.
+      "servo press",
+      "transfer press",
     ],
-    levelTerms: ["helper", "operator", "setter", "सेटर"],
+    // Phase 2 #3 (sheet 18): + the trainee and senior rung words. Corroborate
+    // only; never route.
+    levelTerms: ["helper", "trainee", "operator", "setter", "senior", "सेटर"],
     /**
      * Three rivals this role cannot derive a veto from.
      *

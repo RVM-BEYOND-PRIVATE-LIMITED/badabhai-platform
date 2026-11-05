@@ -1,17 +1,17 @@
 import Link from "next/link";
 import { CUSTOMER_KIND_LABELS, customerHref, type PayerRole } from "../lib/customer";
 import { shortId } from "../lib/format";
+import { CopyId } from "./copy-id";
 
 /**
  * A customer cell — the payer behind a posting, a ledger movement, a payment order or a balance
  * — as its short id, linked to the customer's own page through `customerHref`, the one place
- * that address is built.
+ * that address is built (`/companies/:id` for a Company and an Agency alike since A6, #2576).
  *
- * When the row carries the payer's role (`payer_role`, #2032) the link goes straight to the
- * Company or the Agency, and the persona is named beside the id, so an operator scanning a list
- * tells the two apart without opening either. Without it (an older API, an orphaned id, a row
- * that never carries the role) the link falls back to `/companies/:id`, which redirects an
- * agency on, and no persona is claimed: the console does not guess one.
+ * When the row carries the payer's role (`payer_role`, #2032) the persona is named beside the id,
+ * so an operator scanning a list tells the two apart without opening either. Without it (an older
+ * API, an orphaned id, a row that never carries the role) no persona is claimed: the console does
+ * not guess one, and the customer's page reads the role for itself.
  *
  * The full id stays in the `title`, the way every other short id on the console does.
  */
@@ -24,9 +24,10 @@ export function CustomerLink({
 }) {
   return (
     <>
-      <Link className="link mono" href={customerHref(payerId, payerRole)} title={payerId}>
+      <Link className="link mono" href={customerHref(payerId)} title={payerId}>
         {shortId(payerId)}
       </Link>
+      <CopyId id={payerId} label="customer id" />
       {payerRole ? <span className="table__meta">{CUSTOMER_KIND_LABELS[payerRole]}</span> : null}
     </>
   );

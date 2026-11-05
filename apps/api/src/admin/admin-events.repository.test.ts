@@ -158,14 +158,17 @@ describe("countByPayloadField — the BP-5 cap-breach split", () => {
   });
 });
 
-describe("the test split — the profiling numerator by test flag, for the dashboard", () => {
+describe("the profiling split — spend and completed profiles by live worker population", () => {
   const SINCE = new Date("2026-08-19T07:38:05.000Z");
 
-  it("reads cost EVENTS joined to workers, in the SAME window and task allowlist", async () => {
+  it("spend reads cost EVENTS joined to workers — never the totals table", async () => {
     const c = captureQueries();
-    await new AdminEventsRepository(c.db).profilingCostTestSplit(SINCE, PROFILING_TASK_TYPES);
-    // Not the totals table: that table has no worker dimension by design.
+    await new AdminEventsRepository(c.db).profilingCostSplit(SINCE, PROFILING_TASK_TYPES);
+    // Not the totals table: that one has no worker dimension by design, so it cannot say whose
+    // spend a deleted account's call was.
     expect(c.sql()).toContain('"events"."payload"');
+    expect(c.sql()).not.toContain("platform_ai_cost_totals");
+    expect(c.sql()).toContain("LEFT JOIN");
     expect(c.sql()).toContain("is_test_account");
     // The event name rides as a bound parameter, not inline SQL.
     expect(c.params).toContain("ai.cost_recorded");
@@ -174,5 +177,50 @@ describe("the test split — the profiling numerator by test flag, for the dashb
     }
     // Sums ₹ in Postgres as text — the same exactness rule as every other ₹ read.
     expect(c.sql()).toContain("::text");
+  });
+
+  it("the headline is computed over the SAME grouped rows as the legs", async () => {
+    const c = captureQueries();
+    await new AdminEventsRepository(c.db).profilingCostSplit(SINCE, PROFILING_TASK_TYPES);
+    // `sum(sum(...)) over ()` is what makes real + test + deleted equal the headline by
+    // construction; a second query could land a call between the two reads.
+    expect(c.sql()).toMatch(/sum\(sum\(/);
+    expect(c.sql()).toContain("over ()");
+    // The three-way CASE, not a boolean test flag that cannot represent a deleted worker.
+    expect(c.sql()).toContain("deleted_or_unattributed");
+    expect(c.sql()).toContain("case");
+  });
+
+  it("the denominator counts DISTINCT workers from completion events", async () => {
+    const c = captureQueries();
+    await new AdminEventsRepository(c.db).profilingProfilesCompletedSince(SINCE, [
+      "extracted",
+      "confirmed",
+    ]);
+    expect(c.sql()).toContain('"events"."payload"');
+    expect(c.sql()).toContain("count(distinct");
+    // The worker id, not the profile id: a re-interviewed worker must count once.
+    expect(c.sql()).toContain("->>'worker_id'");
+    expect(c.sql()).toContain("is_test_account");
+    expect(c.params).toContain("profile.extraction_completed");
+    expect(c.params).toContain("extracted");
+    expect(c.params).toContain("confirmed");
+    // `extracting` is in flight and `draft` produced nothing; neither belongs in the count.
+    expect(c.params).not.toContain("extracting");
+    expect(c.params).not.toContain("draft");
+  });
+
+  it("both reads carry the SAME population expression, so the legs cannot disagree", async () => {
+    const spend = captureQueries();
+    await new AdminEventsRepository(spend.db).profilingCostSplit(SINCE, PROFILING_TASK_TYPES);
+    const profiles = captureQueries();
+    await new AdminEventsRepository(profiles.db).profilingProfilesCompletedSince(SINCE, [
+      "extracted",
+    ]);
+    for (const c of [spend, profiles]) {
+      expect(c.sql()).toContain("deleted_or_unattributed");
+      expect(c.sql()).toContain("is_test_account");
+      expect(c.sql()).toContain('"workers"."id"');
+    }
   });
 });

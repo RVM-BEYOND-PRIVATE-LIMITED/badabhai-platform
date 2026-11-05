@@ -111,7 +111,7 @@ $workerId = $login.worker_id
 try {
   Invoke-RestMethod -Method Post -Uri "$ApiUrl/consent/accept" -Headers $auth `
     -ContentType 'application/json' `
-    -Body (@{ consent_version = $ConsentVersion; purposes = @('profiling','resume_generation') } | ConvertTo-Json -Compress) | Out-Null
+    -Body (@{ consent_version = $ConsentVersion; purposes = @('profiling','resume_generation'); age_18_plus = $true } | ConvertTo-Json -Compress) | Out-Null
 } catch {
   Show-Failure "consent failed (is CONSENT_VERSION right?)" $_
   exit 1

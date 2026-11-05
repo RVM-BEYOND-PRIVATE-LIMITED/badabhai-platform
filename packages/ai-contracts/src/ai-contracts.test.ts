@@ -707,6 +707,8 @@ describe("Job-posting chat contract parity (ADR-0035 — contracts.py mirror)", 
     expect(draft.missing_fields).toEqual([]);
     // #1726 — the card fields default to null ("never answered"), never a guessed value.
     expect(draft.city).toBeNull();
+    // #2493 — same for the locality beside the city.
+    expect(draft.area).toBeNull();
     expect(draft.pay_type).toBeNull();
     expect(draft.min_experience_years).toBeNull();
     expect(draft.max_experience_years).toBeNull();
@@ -734,6 +736,11 @@ describe("Job-posting chat contract parity (ADR-0035 — contracts.py mirror)", 
       expect(JobPostingDraftSchema.safeParse({ [key]: -1 }).success).toBe(false);
       expect(JobPostingDraftSchema.safeParse({ [key]: 2.5 }).success).toBe(false);
     }
+  });
+
+  it("caps area at 120 chars like the manual forms, never an address (#2493)", () => {
+    expect(JobPostingDraftSchema.safeParse({ area: "x".repeat(120) }).success).toBe(true);
+    expect(JobPostingDraftSchema.safeParse({ area: "x".repeat(121) }).success).toBe(false);
   });
 
   it("vacancy_band accepts ONLY the five shipped bands (ADR-0012 — never an integer)", () => {

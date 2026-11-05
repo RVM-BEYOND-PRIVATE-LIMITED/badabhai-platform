@@ -44,8 +44,8 @@ export function buildVerdictLine(facts: {
   /** Controllers first, then machines. Capped at three by the guideline. */
   tools: string[];
   city: string | null;
-  /** Already humanised: "15 days", "Immediate". */
-  availability: string | null;
+  /** When the worker can start, resolved once per render — see {@link SheetAvailability}. */
+  availability: SheetAvailability | null;
   /** Already formatted with its currency, e.g. "₹24,000 – ₹28,000 / month". */
   salary: string | null;
   /**
@@ -65,10 +65,11 @@ export function buildVerdictLine(facts: {
   /**
    * The worker's RUNG on this trade's ladder ("Setter", "Senior Programmer") — Middle Way P5.
    *
-   * THE LAST SEGMENT, by owner ruling (P5 scoping): the sheet's own order is role first and
-   * modifiers after, and the rung modifies everything before it. A closed-vocabulary label
-   * from the C6 crosswalk, printed as-is — never a derivation. Absent for every worker who
-   * stated no rung, taking its separator with it like every absent segment here.
+   * THE SECOND SEGMENT (CEO Launch Plan Pack v1, RULED 2026-11-02 — overturns the P5
+   * level-last scoping, recorded here): every sheet prints `Trade · Level · Years`.
+   * A closed-vocabulary label from the C6 crosswalk, printed as-is — never a
+   * derivation. Absent for every worker who stated no rung, taking its separator
+   * with it like every absent segment here.
    */
   level?: string | null;
   /**
@@ -112,10 +113,10 @@ export function buildVerdictLine(facts: {
   return {
     headlineLine: joinSegments([
       role,
+      facts.level?.trim() || null,
       tenurePhrase(facts.years, facts.tenureLabel ?? null),
       toolsPhrase(facts.tools),
       axesPhrase(facts.axes ?? []),
-      facts.level?.trim() || null,
     ]),
     subheadLine: joinSegments([
       facts.city,
@@ -248,16 +249,82 @@ function printedTools(tools: readonly string[]): string[] {
 }
 
 /**
- * "available immediately" / "available in 15 days".
+ * The Verdict Line's availability segment: "available immediately", "available in 15 days",
+ * "available from 12 Nov 2026", "on notice period".
  *
- * The preposition is chosen from the value rather than concatenated blindly: "available in
- * Immediate" is the kind of line that makes a printed sheet look machine-generated, which is
- * exactly the impression a worker's own résumé cannot afford.
+ * IN DAYS (owner ruling 2026-11-04): an employer scanning the header compares starts, and a day
+ * count compares at a glance where "1 month" and "within a week" do not. The count comes from the
+ * resolved {@link AvailabilityStart}, never from parsing the row's label.
  */
-function availabilityPhrase(availability: string | null): string | null {
-  const value = availability?.trim();
-  if (!value) return null;
-  return /^immediate/i.test(value) ? "available immediately" : `available in ${value}`;
+function availabilityPhrase(availability: SheetAvailability | null): string | null {
+  if (availability === null) return null;
+  const { start } = availability;
+  switch (start.kind) {
+    case "immediate":
+      return "available immediately";
+    case "in_days":
+      return `available in ${start.days} ${start.days === 1 ? "day" : "days"}`;
+    case "from_date":
+      return `available from ${start.date}`;
+    case "on_notice":
+      return "on notice period";
+    case "worded":
+      return `available in ${availability.label}`;
+  }
+}
+
+/**
+ * WHEN THE WORKER CAN START — one fact, printed twice: the Terms row's "Available from" value and
+ * the Verdict Line's segment. Resolved ONCE per render, the worker's own form answer first and the
+ * interview's after it (`worker-field-precedence.ts`, AVAILABILITY), so the two renderings can
+ * never name different starts.
+ */
+export interface SheetAvailability {
+  /** The Terms row's value: "Immediate", "15 days", "Within a week", "From 12 Nov 2026". */
+  readonly label: string;
+  readonly start: AvailabilityStart;
+}
+
+/** The start as the Verdict Line states it — see {@link availabilityPhrase}. */
+export type AvailabilityStart =
+  | { readonly kind: "immediate" }
+  /** A stated length: a notice period, or a chip ("Pandrah din mein" = 15, a month = 30). */
+  | { readonly kind: "in_days"; readonly days: number }
+  /** A future day, as the sheet writes dates ("12 Nov 2026"). */
+  | { readonly kind: "from_date"; readonly date: string }
+  /** Serving notice, length not stated. */
+  | { readonly kind: "on_notice" }
+  /** A word no vocabulary turns into days (an out-of-vocabulary container token): print the label. */
+  | { readonly kind: "worded" };
+
+/** A day count as a start; zero days is free now. */
+export function startInDays(days: number): AvailabilityStart {
+  return days > 0 ? { kind: "in_days", days } : { kind: "immediate" };
+}
+
+/** The interview profile's availability (`draft.availability`), or null when it states none. */
+export function profileAvailability(input: {
+  status: string;
+  notice_period_days?: number | null;
+}): SheetAvailability | null {
+  const label = bareAvailability(input);
+  if (label === null) return null;
+  const days = input.notice_period_days;
+  if (input.status === "immediate") return { label, start: { kind: "immediate" } };
+  return {
+    label,
+    start: days && days > 0 ? { kind: "in_days", days } : { kind: "on_notice" },
+  };
+}
+
+/** The résumé container's availability word (`resume_profile.availability`), or null. */
+export function containerAvailability(token: string | null | undefined): SheetAvailability | null {
+  const label = bareAvailabilityLabel(token);
+  if (label === null) return null;
+  const raw = token?.trim().toLowerCase() ?? "";
+  const days = CONTAINER_NOTICE_DAYS[raw];
+  if (days !== undefined) return { label, start: startInDays(days) };
+  return { label, start: raw === "notice_period" ? { kind: "on_notice" } : { kind: "worded" } };
 }
 
 /**
@@ -520,7 +587,8 @@ export function formatOpenTopSalary(min: number | null | undefined): string {
  * candidate are here, which is why the guideline's zone map puts this section ABOVE History.
  */
 export function buildAvailabilityRows(facts: {
-  availability: string | null;
+  /** The same resolved fact the Verdict Line prints; the row shows its label. */
+  availability: SheetAvailability | null;
   salary: string | null;
   preferredLocations: string[];
   willingToRelocate?: boolean;
@@ -535,7 +603,7 @@ export function buildAvailabilityRows(facts: {
   occupations?: readonly string[];
 }): ResumeFactRow[] {
   const rows: ResumeFactRow[] = [];
-  push(rows, "Available from", facts.availability);
+  push(rows, "Available from", facts.availability?.label ?? null);
   push(rows, "Salary expected", facts.salary);
   push(
     rows,

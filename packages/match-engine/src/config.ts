@@ -33,7 +33,7 @@ import { z } from "zod";
  */
 export const MatchConfigSchema = z.object({
   /** Stamped on every explanation/audit trail so a rank is reproducible. */
-  engineVersion: z.string().min(1).default("v1.0"),
+  engineVersion: z.string().min(1).default("v1.1"),
   /** Months bucket to 6. No false precision on a number a man estimated. */
   monthBucket: z.number().int().positive().default(6),
   /**

@@ -63,7 +63,7 @@ const { SubmitPendingCue } = await import("./nav-pending");
 const { EventFilterBar } = await import("../app/(portal)/events/filter-bar");
 const { AiCallFilterBar } = await import("../app/(portal)/ai-calls/filter-bar");
 const { JobFilterBar } = await import("../app/(portal)/jobs/filter-bar");
-const { WorkerFilterBar } = await import("../app/(portal)/workers/filter-bar");
+const { WorkerFilterBar } = await import("../app/(portal)/candidates/filter-bar");
 const { PayerFilterBar } = await import("./payer-filter-bar");
 const { SkillDiscoveryFilterBar } = await import("../app/(portal)/skills/discovery/filter-bar");
 
@@ -104,7 +104,15 @@ const SKILLS_EMPTY = {
 const BARS: Array<[string, () => ReactNode]> = [
   [
     "events",
-    () => EventFilterBar({ eventName: "", actorType: "", subjectType: "", correlationId: "" }),
+    () =>
+      EventFilterBar({
+        eventName: "",
+        actorType: "",
+        subjectType: "",
+        correlationId: "",
+        occurredFrom: "",
+        occurredTo: "",
+      }),
   ],
   ["ai-calls", () => AiCallFilterBar({ taskType: "", success: "", workerId: "" })],
   ["jobs", () => JobFilterBar({ status: "", verificationStatus: "", payerId: "" })],

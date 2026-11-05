@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import ts from "typescript";
 import { PageHeader } from "./page-header";
 import { NAV } from "./nav-model";
-import { CUSTOMER_SECTION_HREF } from "../lib/customer";
+import { CUSTOMERS_HREF } from "../lib/customer";
 
 /**
  * The ONE page header (owner ruling 2026-10-01): [back link, detail pages only] · title · one
@@ -27,9 +27,9 @@ describe("PageHeader — structure", () => {
   });
 
   it("a detail page: the back link names the parent, points at it, and draws arrow-left", () => {
-    const out = html(<PageHeader back={{ href: "/workers", label: "Workers" }} title="Ramesh" />);
+    const out = html(<PageHeader back={{ href: "/candidates", label: "Workers" }} title="Ramesh" />);
     expect(out).toContain(
-      '<p class="page__back"><a class="backlink" href="/workers"><i class="ph-fill ph-arrow-left" aria-hidden="true"></i><span>Workers</span></a></p>',
+      '<p class="page__back"><a class="backlink" href="/candidates"><i class="ph-fill ph-arrow-left" aria-hidden="true"></i><span>Workers</span></a></p>',
     );
     // The back link comes before the title, inside the header.
     expect(out.indexOf("page__back")).toBeLessThan(out.indexOf("page__title"));
@@ -98,7 +98,7 @@ function pageSources(): Map<string, string> {
   return out;
 }
 const PAGES = pageSources();
-/** `workers/[id]/page.tsx` → `/workers/[id]`; the dashboard's `page.tsx` → `/`. */
+/** `candidates/[id]/page.tsx` → `/candidates/[id]`; the dashboard's `page.tsx` → `/`. */
 const routeOf = (file: string) => `/${file.replace(/\/?page\.tsx$/, "")}`;
 
 /** The detectors, on their own inputs, before they are trusted with the tree. */
@@ -116,7 +116,7 @@ describe("header fences — the detectors catch what they must", () => {
   it("walk every portal page", () => {
     expect(PAGES.size).toBeGreaterThan(25);
     expect(PAGES.has("page.tsx")).toBe(true);
-    expect(routeOf("workers/[id]/page.tsx")).toBe("/workers/[id]");
+    expect(routeOf("candidates/[id]/page.tsx")).toBe("/candidates/[id]");
     expect(routeOf("page.tsx")).toBe("/");
   });
 });
@@ -142,8 +142,8 @@ describe("header fences — the tree", () => {
    * page's back link is the link to the list (sweep AW-16: one target, one link). That is only
    * sound while every such page — `/<section>/[param]` or a static `/<section>/<view>` — has a
    * back link TO THAT SECTION. Read from the AST: every `href` in a `back` the page writes (a
-   * prop, or a header object's property), or, for the two pages that delegate to the shared
-   * customer route, the section that route resolves their `kind` to.
+   * prop, or a header object's property), or, for the page that delegates to the shared customer
+   * route, the one customers section that route links back to (`CUSTOMERS_HREF`).
    */
   it("every page directly below a section links back to exactly that section", () => {
     const pages = firstLevelPages();
@@ -156,13 +156,12 @@ describe("header fences — the tree", () => {
     // joins them later, static or dynamic, is checked the same way).
     expect(pages.map(([f]) => routeOf(f))).toEqual(
       expect.arrayContaining([
-        "/agencies/[id]",
         "/ai-calls/[id]",
         "/companies/[id]",
         "/events/[id]",
         "/jobs/[id]",
         "/skills/discovery/[id]",
-        "/workers/[id]",
+        "/candidates/[id]",
       ]),
     );
   });
@@ -190,9 +189,9 @@ function firstLevelPages(): [file: string, code: string, section: string][] {
 /**
  * Every href a page declares for its back link: the `href` of each object literal inside a `back`
  * JSX attribute or a `back:` property, whatever wraps it (a ternary included). A non-literal href
- * reads as `<expression>`, which matches no section. A page that renders `<PayerDetailRoute
- * kind="…" />` declares the section that kind resolves to — the route's own mapping, pinned by
- * `payer-detail-route.render.test.tsx`.
+ * reads as `<expression>`, which matches no section. A page that renders `<PayerDetailRoute />`
+ * declares the customers section the route links back to — one section for a Company and an
+ * Agency since A6 (#2576), pinned by `payer-detail-route.render.test.tsx`.
  */
 function declaredBackHrefs(fileName: string, source: string): string[] {
   const sf = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
@@ -216,13 +215,7 @@ function declaredBackHrefs(fileName: string, source: string): string[] {
       (ts.isJsxSelfClosingElement(node) || ts.isJsxOpeningElement(node)) &&
       node.tagName.getText(sf) === "PayerDetailRoute"
     ) {
-      const kind = node.attributes.properties.find(
-        (a): a is ts.JsxAttribute => ts.isJsxAttribute(a) && a.name.getText(sf) === "kind",
-      )?.initializer;
-      const value = kind && ts.isStringLiteral(kind) ? kind.text : "";
-      out.push(Object.hasOwn(CUSTOMER_SECTION_HREF, value)
-        ? CUSTOMER_SECTION_HREF[value as keyof typeof CUSTOMER_SECTION_HREF]
-        : `<kind ${value}>`);
+      out.push(CUSTOMERS_HREF);
     }
     ts.forEachChild(node, visit);
   };
@@ -235,8 +228,8 @@ describe("header fences — the back-link reader", () => {
 
   it("reads a back prop, a header object's back, and one inside a ternary", () => {
     expect(read('<PageHeader back={{ href: "/events", label: "Events" }} />')).toEqual(["/events"]);
-    expect(read('const header = { back: { href: "/workers", label: "Workers" }, title: t };')).toEqual([
-      "/workers",
+    expect(read('const header = { back: { href: "/candidates", label: "Workers" }, title: t };')).toEqual([
+      "/candidates",
     ]);
     expect(read('<PageHeader back={b ? { href: "/ai-calls", label: "AI calls" } : undefined} />')).toEqual([
       "/ai-calls",
@@ -244,8 +237,8 @@ describe("header fences — the back-link reader", () => {
   });
 
   it("reports a computed href as an expression, never as a section", () => {
-    expect(read("<PageHeader back={{ href: `/workers/${id}`, label: l }} />")).toEqual([
-      "<`/workers/${id}`>",
+    expect(read("<PageHeader back={{ href: `/candidates/${id}`, label: l }} />")).toEqual([
+      "<`/candidates/${id}`>",
     ]);
   });
 
@@ -254,19 +247,17 @@ describe("header fences — the back-link reader", () => {
     expect(read("<Frame back={false} />")).toEqual([]);
   });
 
-  it("resolves the customer route's kind to its section", () => {
-    expect(read('<PayerDetailRoute id={id} kind="Company" />')).toEqual(["/companies"]);
-    expect(read('<PayerDetailRoute id={id} kind="Agency" />')).toEqual(["/agencies"]);
-    expect(read('<PayerDetailRoute id={id} kind="Reseller" />')).toEqual(["<kind Reseller>"]);
+  it("resolves the customer route to the one customers section, whatever the kind", () => {
+    expect(read("<PayerDetailRoute id={id} />")).toEqual(["/companies"]);
   });
 
   it("finds static first-level children as well as [param] ones", () => {
     // A static view one segment below a section is held to the same rule as a record page.
-    expect(sectionAbove("/workers/[id]")).toBe("/workers");
-    expect(sectionAbove("/workers/export")).toBe("/workers");
+    expect(sectionAbove("/candidates/[id]")).toBe("/candidates");
+    expect(sectionAbove("/candidates/export")).toBe("/candidates");
     expect(sectionAbove("/skills/discovery/[id]")).toBe("/skills/discovery");
-    expect(sectionAbove("/workers")).toBeNull();
-    expect(sectionAbove("/workers/[id]/journey")).toBeNull();
+    expect(sectionAbove("/candidates")).toBeNull();
+    expect(sectionAbove("/candidates/[id]/journey")).toBeNull();
     expect(sectionAbove("/")).toBeNull();
   });
 });

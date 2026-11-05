@@ -164,6 +164,25 @@ describe("POST /payer/match/reach-preview — the live counter", () => {
     expect(preview.max_skills_per_posting).toBe(3);
   });
 
+  it("#2635 — a company job's trade rides as role_kind; none is sent when the caller has none", async () => {
+    // A fresh Response per call — a body is read once.
+    fetchMock.mockImplementation(async () => jsonResponse(PREVIEW));
+    const { previewReach } = await import("./payer-api");
+    await previewReach({
+      matchSkillIds: ["mskill_cnc_turning"],
+      untickedRelatedIds: [],
+      roleKind: "cnc_turner",
+    });
+    expect(sentBody()).toEqual({
+      match_skill_ids: ["mskill_cnc_turning"],
+      unticked_related_ids: [],
+      role_kind: "cnc_turner",
+    });
+    // An agency form passes no role: the key is absent, never null.
+    await previewReach({ matchSkillIds: ["mskill_cnc_turning"], untickedRelatedIds: [] });
+    expect(sentBody(1)).not.toHaveProperty("role_kind");
+  });
+
   it("carries the zero_reach flag through untouched (E13 depends on it)", async () => {
     fetchMock.mockResolvedValue(
       jsonResponse({ ...PREVIEW, reach_total: 0, reach_tier1: 0, zero_reach: true }),
@@ -240,6 +259,25 @@ describe("GET /payer/reach/jobs/:id/applicants — BOTH server shapes parse (mom
     expect(a.score).toBe(0);
     expect(a.hot).toBe(false);
     expect(a.signals).toEqual([]);
+  });
+
+  it("carries levelFit from the company row and treats absent/null as no tag", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        jobId: POSTING_ID,
+        applicants: [
+          { ...V1_ROW, levelFit: "not_confirmed" },
+          { ...V1_ROW, levelFit: null },
+          V1_ROW,
+        ],
+      }),
+    );
+    const { getApplicantFeed } = await import("./payer-api");
+    const rows = (await getApplicantFeed(POSTING_ID))!.applicants;
+    expect(rows[0]!.levelFit).toBe("not_confirmed");
+    // null (no level sort) and an older API's ABSENT field both read as no tag.
+    expect(rows[1]!.levelFit).toBeUndefined();
+    expect(rows[2]!.levelFit).toBeUndefined();
   });
 
   it("parses a V1 row from an OLD backend with no tradeLevels (the field is optional)", async () => {

@@ -326,6 +326,8 @@ function candidatesOf(postingId: string): CandidateRow[] {
     engineVersion: a.matchTier == null ? null : "v1.0",
     matchedSkillId: a.matchedSkillId ?? null,
     tradeLevels: [],
+    frozenTradeLevel: null,
+    frozenLevelConfirmed: null,
   }));
   const order = MatchCandidatesService.toRankInputs(rows).sort((x, y) =>
     rankKeyCompare(x, y, DEFAULT_MATCH_CONFIG),
@@ -733,6 +735,8 @@ describe("PayerApplicantInboxService — faceless (no name, phone or other ident
     // Middle Way P5 — the level badge. Closed vocabularies + booleans, faceless
     // like the E18 badge: a rung is a trade fact, never an identifier.
     "tradeLevels",
+    // Engine v1.1 — "Level needed" group: a closed three-value enum (or null), faceless.
+    "levelFit",
     "posting",
   ]);
 

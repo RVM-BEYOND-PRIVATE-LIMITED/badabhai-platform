@@ -41,6 +41,9 @@ class JobDetail extends Equatable {
     this.description,
     this.benefits,
     this.requirements,
+    this.tradeLevel,
+    this.tradeLevelLabel,
+    this.tradeFacets,
   });
 
   /// Parses the `GET /jobs/:jobId` body. Defensive: reads NAMED keys only
@@ -77,7 +80,27 @@ class JobDetail extends Equatable {
       description: json['description'] as String?,
       benefits: _stringList(json['benefits']),
       requirements: _stringList(json['requirements']),
+      // Migration 0141 — display-only trade facts. Already resolved to labels
+      // server-side; this parser never invents one.
+      tradeLevel: json['trade_level'] as String?,
+      tradeLevelLabel: json['trade_level_label'] as String?,
+      tradeFacets: _facets(json['trade_facets']),
     );
+  }
+
+  static List<JobTradeFacet>? _facets(Object? raw) {
+    if (raw is! List) return null;
+    final List<JobTradeFacet> out = <JobTradeFacet>[];
+    for (final Object? row in raw) {
+      if (row is! Map) continue;
+      final Object? prompt = row['prompt'];
+      final Object? values = row['values'];
+      if (prompt is! String || values is! List) continue;
+      final List<String> labels =
+          values.whereType<String>().where((String s) => s.isNotEmpty).toList();
+      if (labels.isNotEmpty) out.add(JobTradeFacet(prompt: prompt, values: labels));
+    }
+    return out.isEmpty ? null : out;
   }
 
   final String jobId;
@@ -154,6 +177,12 @@ class JobDetail extends Equatable {
   /// Requirement tags (e.g. "Fanuc control"). Null = none stated.
   final List<String>? requirements;
 
+  /// Migration 0141 — the display-only rung and the poster's trade answers,
+  /// already resolved to labels by the API. Null/empty hides the section.
+  final String? tradeLevel;
+  final String? tradeLevelLabel;
+  final List<JobTradeFacet>? tradeFacets;
+
   /// A full copy with [applicationAction] set to [action] and EVERY other
   /// field preserved. The `GET /jobs/:jobId` body never carries the worker's
   /// decision, so when the fetched full detail replaces the light one the
@@ -182,6 +211,9 @@ class JobDetail extends Equatable {
       description: description,
       benefits: benefits,
       requirements: requirements,
+      tradeLevel: tradeLevel,
+      tradeLevelLabel: tradeLevelLabel,
+      tradeFacets: tradeFacets,
     );
   }
 
@@ -225,5 +257,19 @@ class JobDetail extends Equatable {
         description,
         benefits,
         requirements,
+        tradeLevel,
+        tradeLevelLabel,
+        tradeFacets,
       ];
+}
+
+/// One resolved trade-requirement row on the worker's job detail.
+class JobTradeFacet extends Equatable {
+  const JobTradeFacet({required this.prompt, required this.values});
+
+  final String prompt;
+  final List<String> values;
+
+  @override
+  List<Object?> get props => <Object?>[prompt, values];
 }

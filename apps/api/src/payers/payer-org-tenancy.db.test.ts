@@ -164,6 +164,7 @@ describe.skipIf(!RUN)(
         {} as never, // AiTraceRecorder — likewise
         {} as never, // PublishReachService — a draft never materializes reach
         {} as never, // MatchSkillsService — no match_skill_ids on this create
+        {} as never, // PostingTradesService
         tenancy,
       );
       const unlocksRepo = new UnlocksRepository(client.db);
@@ -675,7 +676,9 @@ describe.skipIf(!RUN)(
         {} as never, // AiCostRecorder — likewise
         {} as never, // AiTraceRecorder — likewise
         { materialize: async () => undefined } as never, // a publish materializes nothing here
-        {} as never, // MatchSkillsService — no match_skill_ids
+        // MatchSkillsService — only the #2635 pre-check of a 16-trade publish reaches it.
+        { resolveForPublish: async () => undefined } as never,
+        {} as never, // PostingTradesService
         tenancy,
       );
       const agency = new AgencyService(
@@ -684,6 +687,7 @@ describe.skipIf(!RUN)(
         new ConsentRepository(client.db),
         events,
         {} as never, // MatchSkillsService — no match_skill_ids
+        {} as never, // PostingTradesService
         tenancy,
       );
       const reach = new ReachService(new ReachRepository(client.db), events, {} as never);
@@ -895,7 +899,8 @@ describe.skipIf(!RUN)(
         await on.postings.updateForPayer(
           PL,
           ids.B,
-          UpdateJobPostingSchema.parse({ status: "open" }),
+          // #2635 — a company can publish only a 16-trade posting, so the publish names one.
+          UpdateJobPostingSchema.parse({ status: "open", role_kind: "vmc_milling" }),
           P2A_CTX,
         );
         expect((await on.postings.pauseForPayer(PL, ids.B, P2A_CTX)).status).toBe("paused");
@@ -1197,6 +1202,7 @@ describe.skipIf(!RUN)(
         {} as never, // AiTraceRecorder — likewise
         { materialize: async () => undefined } as never, // a draft never materializes reach
         {} as never, // MatchSkillsService — no match_skill_ids
+        {} as never, // PostingTradesService
         tenancy,
       );
       const plans = new PostingPlansService(
@@ -1563,6 +1569,7 @@ describe.skipIf(!RUN)(
         new ConsentRepository(client.db),
         events,
         {} as never, // MatchSkillsService — no agency job is created here
+        {} as never, // PostingTradesService
         tenancy,
       );
       const kyc = new AgencyKycService(
@@ -2029,6 +2036,7 @@ describe.skipIf(!RUN)(
         {} as never, // AiTraceRecorder — likewise
         {} as never, // PublishReachService — a draft never materializes reach
         {} as never, // MatchSkillsService — no match_skill_ids on this create
+        {} as never, // PostingTradesService
         tenancy,
       );
       return { unlocks, tenancy, disclosures, relay, postings };
@@ -2335,6 +2343,13 @@ describe.skipIf(!RUN)(
 
     it("disclosures: a teammate's row is stamped with the ORG; the org lists it, the outsider and `off` do not", async () => {
       const w = await worker(["profiling"]); // no employer_sharing → the deny row path (no render)
+      // 2026-11-03 — the payer route now discloses only a worker the TENANT holds a live unlock of
+      // (the all-candidates search hands out every consented worker id). The org (anchor A) holds
+      // one, granted before the worker withdrew employer_sharing — the realistic way a live grant
+      // meets a missing consent — so the request reaches the consent gate and its deny row.
+      await client.sql`
+        INSERT INTO unlocks (payer_id, worker_id, status, granted_at, expires_at)
+        VALUES (${A}::uuid, ${w}::uuid, 'granted', now(), now() + interval '14 days')`;
       expect(
         await on.disclosures.requestDisclosure(
           { payerId: B, workerId: w, jobPostingId: null },

@@ -3,9 +3,45 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+/**
+ * OLD ADDRESSES STILL OPEN (A6, #2576). The navigation was regrouped and three sections moved;
+ * a bookmark, a link pasted into an incident report or an audit note, or a browser's history
+ * must still land on the screen it meant. Every rule keeps the query string (Next passes it
+ * through and merges it with the destination's), so a filtered list stays filtered.
+ *
+ *   /workers/*        → /candidates/*            Workers is Candidates (the whole tree, ids kept)
+ *   /agencies         → /companies?kind=agency   Companies and Agencies are one list, Kind filter
+ *   /agencies/<id>/*  → /companies/<id>/*        …and one customer page, for either kind
+ *   /agency-jobs      → /jobs/agency             Agency match skills is a view of Postings
+ *   /agency-jobs/<id> → …/<id>/match-skills      …and a tab on the agency posting
+ *   /postings/*       → /jobs/*                  the name operators read, for the route that serves it
+ *
+ * The renames are PERMANENT (308): the old names are retired, and a browser may remember the
+ * hop. `/postings` is an ALIAS, not a retired name, so it is TEMPORARY (307) — a cached alias
+ * could not be taken back if the route itself is ever renamed to it. Redirects run before any
+ * page renders, so they decide nothing about access: the destination's own gate still does.
+ * `src/app/legacy-redirects.test.ts` resolves each rule with Next's own matcher.
+ */
+const LEGACY_ROUTE_REDIRECTS = [
+  { source: "/workers/:path*", destination: "/candidates/:path*", permanent: true },
+  { source: "/agencies", destination: "/companies?kind=agency", permanent: true },
+  { source: "/agencies/:path+", destination: "/companies/:path+", permanent: true },
+  { source: "/agency-jobs", destination: "/jobs/agency", permanent: true },
+  {
+    source: "/agency-jobs/:jobId",
+    destination: "/jobs/agency/:jobId/match-skills",
+    permanent: true,
+  },
+  { source: "/postings/:path*", destination: "/jobs/:path*", permanent: false },
+];
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  // A1 (#2571) — the dev-only Next indicator defaults to bottom-left, where it sat on top of the
+  // sidebar footer (who-am-I, Account, Sign out). Bottom-right puts it over page whitespace.
+  // Development only: a production build renders no indicator.
+  devIndicators: { position: "bottom-right" },
   eslint: {
     // The monorepo lints via the root flat ESLint config (`pnpm lint`), so we
     // don't run Next's own ESLint during `next build`.
@@ -42,6 +78,9 @@ const nextConfig = {
   // the app. It is bundled into the app's own chunks, which also means `standalone` needs
   // nothing extra traced for it; its stylesheet is `@import`ed by src/app/globals.css.
   transpilePackages: ["@badabhai/icons"],
+  async redirects() {
+    return LEGACY_ROUTE_REDIRECTS;
+  },
   // The admin portal is INTERNAL and highly privileged. It must never be framed,
   // sniffed into a different content type, or leak a referrer to another origin.
   async headers() {

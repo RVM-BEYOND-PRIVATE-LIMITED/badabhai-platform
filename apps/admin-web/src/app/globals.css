@@ -46,6 +46,22 @@ body {
    matching scheme instead of an OS-dark dropdown opening inside a hard-light card. */
 :root {
   color-scheme: light dark;
+  /* A1 (#2571) — the console's layout rails, composed from existing tokens.
+     --admin-gutter: the ONE inline gutter the topbar and the content share (32px on desktop,
+     stepped down below 1024px in the responsive block), so the crumb and the page title start
+     on the same line. --admin-reading-max: the 1200px cap of a READING page (`.page--reading`);
+     a data page is fluid. Not --content-max: the token layer re-points that one to 1440px.
+     --admin-btn-h: the console button, 40px (--space-8) — the dense register the 14px UI is
+     written in; a touch screen still gets 44px (the touch block). */
+  --admin-gutter: var(--space-7);
+  --admin-reading-max: 75rem;
+  --admin-btn-h: var(--space-8);
+}
+
+/* A1 (#2571) — the scrollbar's space is reserved whether or not the page scrolls, so a short
+   page and a long one lay out at the same width and nothing jumps sideways between routes. */
+html {
+  scrollbar-gutter: stable;
 }
 
 body {
@@ -135,18 +151,24 @@ h3 {
   align-items: center;
   justify-content: center;
   gap: var(--icon-gap);
-  min-height: var(--control-md);
+  /* A1 (#2571) — 14px/600 at 40px, the console's own register (it was 18px inside a 14px UI). */
+  min-height: var(--admin-btn-h);
   padding: 0 var(--space-5);
   border-radius: var(--radius-md);
   border: var(--border-hairline) solid transparent;
   font-family: var(--font-sans);
-  font-size: var(--text-md);
+  font-size: var(--ui-body-size);
   font-weight: var(--weight-semibold);
   cursor: pointer;
   transition: var(--transition-control);
 }
+/* A1 (#2571) — DISABLED is the 40% Shift Blue tint with a Shift Blue label, not a faded copy of
+   the live button (opacity .55 washed the label out with the fill). The label measures ~6.7:1 on
+   the tint over a white card. (0,2,0) beats every variant's single-class fill. */
 .btn:disabled {
-  opacity: 0.55;
+  background: var(--color-brand-primary-40);
+  color: var(--text-on-brand);
+  border-color: transparent;
   cursor: not-allowed;
 }
 .btn--primary {
@@ -600,44 +622,11 @@ details[open] > summary > .disclosure__caret {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.sidebar__foot {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-  border-top: var(--border-hairline) solid var(--border-on-ink);
-  padding-top: var(--space-4);
-}
-/* Sign out is the shared ghost button, re-pointed at the on-ink tokens: its light-surface
-   --text-secondary label would be ~2:1 on the band. */
-.sidebar .btn--ghost {
-  color: var(--text-on-ink-muted);
-  border-color: var(--border-on-ink);
-}
-.sidebar .btn--ghost:hover:not(:disabled) {
-  background: var(--surface-ink-hover);
-  color: var(--text-on-ink);
-  border-color: var(--text-on-ink-muted);
-}
 /* The global ring's surface-coloured band (see the base :focus-visible rule) exists to lift
    the ring off a filled control on a light card; on the navy band it would paint a white
    halo. The ring itself is re-pointed on `.sidebar` via --focus-ring. */
 .sidebar :where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
   box-shadow: none;
-}
-.whoami {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-  padding: 0 var(--space-3);
-}
-.whoami__role {
-  font-size: var(--text-sm);
-  font-weight: var(--weight-semibold);
-}
-.whoami__id {
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  color: var(--text-on-ink-muted);
 }
 
 .shell__main {
@@ -650,7 +639,8 @@ details[open] > summary > .disclosure__caret {
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  padding: var(--space-3) var(--space-5);
+  /* A1 (#2571) — on the content's own gutter, so the crumb lines up with the page title. */
+  padding: var(--space-3) var(--admin-gutter);
   border-bottom: var(--border-hairline) solid var(--divider);
   background: var(--surface-card);
   position: sticky;
@@ -674,15 +664,14 @@ details[open] > summary > .disclosure__caret {
   padding: 0;
 }
 
-/* UI-1 — `max-width` with no auto inline margin meant the console hugged the sidebar and
-   grew an ever-widening empty gutter on the right above ~1440px. Centring the rail inside
-   the main column is the whole fix; the fluid gutter keeps the edges proportional instead
-   of leaving a fixed 20px rim on a 27" display. */
+/* A1 (#2571) — a DATA page is fluid: the content fills the main column at one 32px gutter
+   (--admin-gutter, shared with the topbar). The old centred 1440px cap left ~400px of dead
+   space at 1920 and moved the page's left edge with the window. A READING page caps itself at
+   1200px (`.page--reading`, below) and stays on the same left edge, so moving between a data
+   page and a reading page never shifts the content sideways. */
 .content {
-  padding: var(--space-7) var(--gutter-web);
-  max-width: var(--content-max);
+  padding: var(--space-7) var(--admin-gutter);
   width: 100%;
-  margin-inline: auto;
 }
 
 /* ---- page furniture ------------------------------------------------------ */
@@ -691,6 +680,12 @@ details[open] > summary > .disclosure__caret {
   display: flex;
   flex-direction: column;
   gap: var(--space-6);
+}
+/* A reading page — a detail record or a settings form, read top to bottom rather than scanned
+   across — is capped at 1200px so its lines and key/value rows stay at a reading width on a
+   wide screen. Start-aligned: the left edge is every page's left edge. */
+.page--reading {
+  max-inline-size: var(--admin-reading-max);
 }
 .page__head {
   display: flex;
@@ -747,6 +742,38 @@ details[open] > summary > .disclosure__caret {
   color: var(--text-secondary);
   font-size: var(--text-sm);
   max-width: 60ch;
+}
+/* A1 (#2571) — a panel's SUB-SECTIONS (components/panel-section.tsx): 24px apart, each after
+   the first opened by a hairline divider, so a panel holding several blocks reads as one card
+   with parts rather than as blocks that happen to share a border. */
+.panel__section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.panel__section + .panel__section {
+  margin-block-start: var(--space-6);
+  padding-block-start: var(--space-6);
+  border-block-start: var(--border-hairline) solid var(--divider);
+}
+/* Sections SIDE BY SIDE in a `.cols` grid are columns, not a stack: the grid's gap spaces them,
+   and a divider over the second column would drop it 48px below the first. */
+.cols > .panel__section + .panel__section {
+  margin-block-start: 0;
+  padding-block-start: 0;
+  border-block-start: 0;
+}
+/* The section's gap spaces its children, so a child's own top margin would add to it (the
+   `.queue-metrics > .about` rule, for a section). */
+.panel__section > .panel__sub,
+.panel__section > .about {
+  margin-block-start: 0;
+}
+.panel__section-title {
+  font-size: var(--ui-h3-size);
+  line-height: var(--ui-h3-leading);
+  font-weight: var(--ui-h3-weight);
+  letter-spacing: var(--ui-h3-tracking);
 }
 
 .caplist {
@@ -828,6 +855,20 @@ details[open] > summary > .disclosure__caret {
   background: var(--danger-tint);
   color: var(--danger);
 }
+/* A one-line state (#2573): icon, sentence and its action on one row, wrapping on a phone. */
+.state--row {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+}
+.state--row > .state__body {
+  flex: 1 1 16rem;
+}
+.state--row .state__icon {
+  font-size: var(--icon-size-sm);
+}
 .state__actions {
   display: flex;
   gap: var(--space-3);
@@ -859,7 +900,7 @@ details[open] > summary > .disclosure__caret {
   border-radius: var(--radius-round);
   background: currentColor;
   animation:
-    nav-pending-show 1ms linear var(--nav-pending-delay) both,
+    nav-pending-show 0s linear var(--nav-pending-delay) both,
     nav-pending-pulse var(--duration-slower) var(--ease-in-out) var(--nav-pending-delay) infinite
       alternate;
 }
@@ -915,7 +956,7 @@ details[open] > summary > .disclosure__caret {
 }
 @media (prefers-reduced-motion: reduce) {
   .nav-pending--on {
-    animation: nav-pending-show 1ms linear var(--nav-pending-delay) both;
+    animation: nav-pending-show 0s linear var(--nav-pending-delay) both;
   }
   .nav-progress--on {
     animation: none;
@@ -925,6 +966,11 @@ details[open] > summary > .disclosure__caret {
 /* ---- responsive ---------------------------------------------------------- */
 
 @media (max-width: 1023px) {
+  /* A1 (#2571) — the shared gutter steps down to 16px for the drawer layout (topbar and content
+     together, so they stay aligned). */
+  :root {
+    --admin-gutter: var(--space-4);
+  }
   /* PR-D1 — below 1024px the drawer toggle is the only way to reach the navigation, and it
      is reached by touch on tablets as well as phones, so it takes the 44px target here rather
      than only at phone width. The bar's block padding steps down with it so a 44px button
@@ -976,7 +1022,65 @@ details[open] > summary > .disclosure__caret {
     cursor: pointer;
   }
   .content {
-    padding: var(--space-6) var(--space-4);
+    padding: var(--space-6) var(--admin-gutter);
+  }
+}
+
+/* A1 (#2571) — COLLAPSIBLE ICON RAIL, 1024–1439px. At these widths the 264px sidebar took a fifth
+   of the screen from the tables, so it rests as the --shell-nav-w-collapsed (76px) icon rail and
+   expands to its full width while a pointer is over it or keyboard focus is inside it.
+   - It expands OVER the page, never pushing it: the negative inline-end margin keeps its flex
+     footprint at the rail's width, so the content never moves when the rail opens or closes.
+   - Labels and group titles fade (opacity) and stay in the accessibility tree, so every link
+     keeps its accessible name; the overflow is clipped while narrow.
+   - Motion: width over --duration-base (220ms) ease-out. Closing, the labels fade out first and
+     the width follows after --duration-fade; opening, the width goes first and the labels fade
+     in after it. Under reduced motion the width change is instant.
+   Keyboard: `:has(:focus-visible)`, not `:focus-within`, so a mouse click alone does not open the
+   rail. That alone did not keep it shut: the clicked link kept focus across the navigation, and
+   Chromium shows a mouse-focused element :focus-visible after the next key press, so PageDown on
+   the new page reopened the rail over it. The shell (components/shell.tsx) blurs a rail link a
+   pointer activated; Enter keeps focus, so the rail stays open for the keyboard user.
+   Hover-capable devices only: a tap neither hovers nor sets focus-visible, so on a touch tablet
+   or touch laptop at these widths the rail could never open — they keep the full sidebar. */
+@media (min-width: 1024px) and (max-width: 1439px) and (hover: hover) {
+  .sidebar {
+    flex: none;
+    width: var(--shell-nav-w-collapsed);
+    margin-inline-end: 0;
+    overflow-x: hidden;
+    z-index: var(--z-nav);
+    transition:
+      width var(--duration-base) var(--ease-out) var(--duration-fade),
+      margin-inline-end var(--duration-base) var(--ease-out) var(--duration-fade);
+  }
+  .sidebar:has(:focus-visible) {
+    width: var(--shell-nav-w);
+    margin-inline-end: calc(var(--shell-nav-w-collapsed) - var(--shell-nav-w));
+    transition:
+      width var(--duration-base) var(--ease-out),
+      margin-inline-end var(--duration-base) var(--ease-out);
+  }
+  .sidebar :is(.sidebar__label, .sidebar__grouptitle, .sidebar__soon, .bb-lockup__text) {
+    opacity: 0;
+    white-space: nowrap;
+    transition: opacity var(--duration-fade) var(--ease-exit);
+  }
+  .sidebar:has(:focus-visible)
+    :is(.sidebar__label, .sidebar__grouptitle, .sidebar__soon, .bb-lockup__text) {
+    opacity: 1;
+    transition: opacity var(--duration-fade) var(--ease-enter) var(--duration-base);
+  }
+  .sidebar:hover {
+    width: var(--shell-nav-w);
+    margin-inline-end: calc(var(--shell-nav-w-collapsed) - var(--shell-nav-w));
+    transition:
+      width var(--duration-base) var(--ease-out),
+      margin-inline-end var(--duration-base) var(--ease-out);
+  }
+  .sidebar:hover :is(.sidebar__label, .sidebar__grouptitle, .sidebar__soon, .bb-lockup__text) {
+    opacity: 1;
+    transition: opacity var(--duration-fade) var(--ease-enter) var(--duration-base);
   }
 }
 
@@ -1011,26 +1115,19 @@ details[open] > summary > .disclosure__caret {
   align-items: start;
 }
 
-/* PR-D1 — stat tiles sit in wrapping FLEX rows, not a grid. Each tile starts at an 11rem basis,
-   grows to share its row, and never shrinks below its own content minimum — which, for a ₹
-   value (`nowrap`, see `.stat--wide .stat__value`) or a count (no break opportunity inside
-   "1,23,456"), is the whole unbroken figure. Two things follow, both measured over every stat
-   grid at 320–1440px:
-     - a figure never splits and never overflows its tile: the tile widens to fit it instead;
-     - a row always fills: a lone last tile takes the row rather than stranding half-width
-       beside empty tracks.
-   A grid could do neither. Its fixed track minimum let a ₹ figure overflow or wrap between
-   digits, and every way of widening a ₹ tile (a full-row span, `span 2` behind a container
-   query) occupied the tracks `auto-fit` would otherwise collapse, stranding a sibling tile or
-   narrowing the counts until "1,23,456" split. The price: tiles in different rows no longer
-   line up in columns. */
+/* A1 (#2571) — stat tiles sit on ONE GRID: every `.stats` row, compact or not, lays its tiles
+   on the same auto-fill tracks at the shared --stat-min, with the same gap. Two rows in one
+   container therefore share their columns — the discovery metrics' 4-tile and 5-tile rows used to
+   size each tile to its own row (flex), so the columns of the two rows never lined up. `auto-fill`
+   (not `auto-fit`) keeps empty tracks, so a short row does not stretch its tiles wider than the
+   row above. The track minimum is capped at the container (`min(…, 100%)`), so a narrow column or
+   a phone drops to one tile per row instead of overflowing.
+
+   No tile is ever placed with a span: every span tried stranded a sibling tile (PR-D1). */
 .stats {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(var(--stat-min), 100%), 1fr));
   gap: var(--space-4);
-}
-.stats > .stat {
-  flex: 1 1 11rem;
 }
 .stat {
   background: var(--surface-card);
@@ -1054,27 +1151,35 @@ details[open] > summary > .disclosure__caret {
   color: var(--text-secondary);
 }
 .stat__value {
-  font-family: var(--font-mono);
+  /* A1 (#2571) — a KPI is a NUMBER, set in the UI face (Inter) with tabular figures (the type
+     role below); the mono face is for ids and codes only (`.mono`, e.g. the stuck panel's
+     question key). It fades in once as the tile mounts; a refresh re-renders the same node, so
+     the figure does not flash again. */
+  font-family: var(--font-sans);
+  animation: stat-value-in var(--duration-fade) var(--ease-enter) both;
   font-size: var(--text-xl);
   font-weight: var(--weight-bold);
   line-height: 1.1;
-  /* Inert for LAYOUT inside a `.stats` row (every tile today): `break-word` does not lower a
-     flex item's min-content, so in a row a tile widens to its unbroken figure rather than
-     wrapping it — a count or a ₹ value never splits. Kept, with `word-break: normal`, because
-     both override an inherited `overflow-wrap: anywhere` / `word-break: break-all` from any
-     ancestor (either would split "1,23,456"), and for a tile placed outside a row.
-     The trade-off: a figure wider than the whole row widens the TILE (fill and border) past the
-     row and scrolls the page sideways. AI spend is `numeric(16,6)` and prints every place
-     (`formatExactRupees`), so a ₹12-crore six-place total does that at 320px (measured);
-     realistic amounts (to ₹9,99,999.999999, and ₹99,99,999 for credits) fit at every width from
-     320px. A ₹ value (`Stat wide`) is also `nowrap` (see `.stat--wide .stat__value`): a money
-     figure split between digits reads as two numbers. */
+  /* `break-word` never splits a count ("1,23,456" has no break opportunity it would use), and
+     with `word-break: normal` both override an inherited `overflow-wrap: anywhere` /
+     `word-break: break-all` from any ancestor (either would split "1,23,456"). A ₹ value
+     (`Stat wide`) is also `nowrap` (see `.stat--wide .stat__value`): a money figure split
+     between digits reads as two numbers. On the A1 grid a tile is at least --stat-min wide
+     (or the whole row, below that), which holds realistic ₹ figures at the 22px step. */
   overflow-wrap: break-word;
   word-break: normal;
 }
 .stat__label {
   font-size: var(--text-sm);
   color: var(--text-secondary);
+}
+@keyframes stat-value-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 .funnel,
@@ -1105,7 +1210,9 @@ details[open] > summary > .disclosure__caret {
   gap: var(--space-4);
 }
 .funnel__distinct {
-  font-family: var(--font-mono);
+  /* A1 (#2571) — a count or ₹ figure is a KPI number: UI face with tabular figures, not mono. */
+  font-family: var(--font-sans);
+  font-variant-numeric: tabular-nums;
   font-weight: var(--weight-bold);
 }
 /* A withheld statistic must not look like a measured one. Italic + muted + a dotted
@@ -1274,6 +1381,10 @@ details[open] > summary > .disclosure__caret {
 .table tbody tr:last-child th {
   border-bottom: 0;
 }
+/* A1 (#2571) — every hover state eases in over --duration-fast (140ms); nothing else moves. */
+.table tbody tr {
+  transition: background-color var(--duration-fast) var(--ease-out);
+}
 .table tbody tr:hover {
   background: var(--surface-sunken);
 }
@@ -1297,10 +1408,14 @@ details[open] > summary > .disclosure__caret {
 }
 .link {
   color: var(--text-link);
-  text-decoration: none;
+  /* The underline is always laid out and only its colour changes on hover, so the hover can
+     ease in (A1, #2571) — a `none` → `underline` switch cannot transition. */
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  transition: text-decoration-color var(--duration-fast) var(--ease-out);
 }
 .link:hover {
-  text-decoration: underline;
+  text-decoration-color: currentColor;
 }
 /* A text link with a glyph before its label (the AI calls "View"): the glyph sits on the text's
    centre line at the shared gap, sized for the dense row, coloured by the link. */
@@ -1384,8 +1499,8 @@ details[open] > summary > .disclosure__caret {
   flex: 0 0 auto;
 }
 
-/* `.stats` used to collapse to one column here as well; the flex stat rows and the phone tier
-   at the end of this file own that now (two tiles per row at 375px, one at 320px). The single
+/* `.stats` used to collapse to one column here as well; the shared --stat-min grid owns that
+   now (one tile per row wherever two tracks do not fit). The single
    column is `minmax(0, 1fr)`, not `1fr`: a bare `1fr` keeps an `auto` minimum, so one long unbroken
    value (a select's widest option, an id) could still widen the track past the viewport. */
 @media (max-width: 560px) {
@@ -1427,10 +1542,12 @@ details[open] > summary > .disclosure__caret {
   font-size: var(--ui-body-sm-size);
   font-weight: var(--weight-semibold);
   line-height: var(--leading-snug);
-  text-decoration: none;
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  transition: text-decoration-color var(--duration-fast) var(--ease-out);
 }
 .backlink:hover {
-  text-decoration: underline;
+  text-decoration-color: currentColor;
 }
 .backlink .ph-fill {
   font-size: var(--icon-size-sm);
@@ -1442,16 +1559,8 @@ details[open] > summary > .disclosure__caret {
   flex-wrap: wrap;
 }
 
-/* Denser stat rows for detail sidebars, where four tiles share a narrow column. The smaller
-   basis only changes how many tiles START on a row; a ₹ tile still widens to its figure (the
-   session-spend tile holds ₹0.472316 in a 3-up row at 1280px, where a 7.5rem grid track ran it
-   through the tile's padding). */
-.stats--compact {
-  gap: var(--space-3);
-}
-.stats--compact > .stat {
-  flex-basis: 7.5rem;
-}
+/* Denser stat tiles for detail panels: tighter padding only. The TRACKS and the GAP stay the
+   `.stats` grid's (A1, #2571), so a compact row under a regular one shares its columns. */
 .stats--compact .stat {
   padding: var(--space-4);
 }
@@ -1638,6 +1747,7 @@ details[open] > summary > .disclosure__caret {
   min-inline-size: 9rem;
   background: var(--surface-card);
   box-shadow: inset calc(-1 * var(--border-hairline)) 0 0 var(--divider);
+  transition: background-color var(--duration-fast) var(--ease-out);
 }
 .table--matrix tbody tr:hover .table__rowhead {
   background: var(--surface-sunken);
@@ -1760,10 +1870,12 @@ details[open] > summary > .disclosure__caret {
 .crumb__link {
   color: var(--text-link);
   font-weight: var(--weight-semibold);
-  text-decoration: none;
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  transition: text-decoration-color var(--duration-fast) var(--ease-out);
 }
 .crumb__link:hover {
-  text-decoration: underline;
+  text-decoration-color: currentColor;
 }
 .crumb__step {
   display: inline-flex;
@@ -1843,9 +1955,7 @@ details[open] > summary > .disclosure__caret {
 /* PR-D1 — a WIDE value is a ₹ figure (`Stat wide`), and a money figure never breaks between
    digits at any width: "₹1,23,45,678" split over two lines reads as two numbers. So it stays on
    one line (`nowrap`), at the 22px KPI step everywhere — the 30px step is what made it too long
-   for an 11rem desktop tile in the first place. The unbroken figure is then the tile's minimum
-   width in the flex `.stats` row, so the tile widens to hold it (on a phone, to a row of its
-   own) instead of the figure spilling. An ABSENT value is a sentence, not a figure, and keeps
+   for an 11rem desktop tile in the first place. An ABSENT value is a sentence, not a figure, and keeps
    the wrapping sans rule above — hence the `:not()`. (0,3,0) beats the KPI role and the phone
    tier's (0,2,0) step wherever it sits.
 
@@ -1896,10 +2006,14 @@ details[open] > summary > .disclosure__caret {
    .btn was --control-md (44px) while .field__input was --control-lg (52px), and .filters
    puts them side by side on every filter bar in the console. The 8px mismatch is why a
    `.field--check { align-self: end; padding-bottom: … }` hack exists further down this
-   file. A desktop console wants the denser control anyway. */
+   file. A desktop console wants the denser control anyway.
+   A1 (#2571) — both take the console button's height: --admin-btn-h (40px) for a mouse, and
+   the touch block lifts both to --control-md (44px). When only .btn dropped to 40px, every
+   filter bar's Apply sat 4px below the inputs beside it (`.filters` aligns its cells to the
+   end). The password field's reveal toggle takes the same height (`.password-input`). */
 .field__input {
-  min-height: var(--control-md);
-  height: var(--control-md);
+  min-height: var(--admin-btn-h);
+  height: var(--admin-btn-h);
   font-size: var(--ui-body-size);
 }
 textarea.field__input {
@@ -2458,6 +2572,7 @@ textarea.field__input {
 }
 .page__title,
 .panel__title,
+.panel__section-title,
 .state__title {
   text-wrap: balance;
 }
@@ -2484,6 +2599,16 @@ textarea.field__input {
 @media (max-width: 600px), (pointer: coarse) {
   .sidebar__link {
     min-height: var(--control-md);
+  }
+  /* A1 (#2571) — the console button is drawn at 40px for a mouse; a finger keeps the 44px it had.
+     `:not(.btn--sm)`: a small button keeps its 36px drawing and grows its hit strip below. */
+  .btn:not(.btn--sm) {
+    min-height: var(--control-md);
+  }
+  /* The inputs beside it rise with it, so a filter bar's row stays level (the shared-row block). */
+  .field__input {
+    min-height: var(--control-md);
+    height: var(--control-md);
   }
   .btn--sm {
     position: relative;
@@ -2608,6 +2733,14 @@ textarea.field__input {
   .disclosure > summary {
     min-block-size: var(--control-md);
   }
+  /* A3 (#2573) — the ⓘ and the "About this data" row take the 44px touch height too. */
+  .infopop__toggle {
+    inline-size: var(--control-md);
+    block-size: var(--control-md);
+  }
+  .about__toggle {
+    min-block-size: var(--control-md);
+  }
 
   /* Final sweep AW-18 — the targets the first pass missed (elementFromPoint scan at 375 touch,
      768 and 1280 coarse). */
@@ -2667,7 +2800,7 @@ textarea.field__input {
   /* Rhythm — every outer spacing steps down one notch, none to zero. The inline gutter stays
      at the <1024px value (16px) so a table keeps as much width as the viewport allows. */
   .content {
-    padding: var(--space-5) var(--space-4);
+    padding: var(--space-5) var(--admin-gutter);
   }
   .page {
     gap: var(--space-5);
@@ -2696,7 +2829,7 @@ textarea.field__input {
      too. */
   .topbar {
     gap: var(--space-2);
-    padding-inline: var(--space-4);
+    padding-inline: var(--admin-gutter);
   }
   /* Several crumbs plus the role pill truncated every segment to a few letters. The group name
      goes first once a section follows it — the drawer names it — so the linked section stays
@@ -2712,24 +2845,20 @@ textarea.field__input {
      flex row it sits in — `anywhere`, because only it lowers the min-content size. */
   .page__title,
   .panel__title,
+  .panel__section-title,
   .state__title {
     overflow-wrap: anywhere;
   }
 
-  /* Stat rows — two tiles start per row at 375px, three near 600px, one on a 320px phone where
-     two 9rem bases no longer fit. Both variants take the same basis: at phone width the compact
-     one has no narrower column to fit into. A ₹ tile needs more than half a phone row for
-     "₹2,145.382716" or "₹1,23,45,678", so its unbroken figure (the tile's minimum width)
-     already gives it a row of its own — no placement rule is needed for that. */
+  /* Stat rows keep the shared --stat-min grid (A1, #2571): below two tracks' width a phone
+     shows one tile per row, so a ₹ figure ("₹2,145.382716", "₹1,23,45,678") always has the
+     whole row. Only the gap tightens. */
   .stats {
     gap: var(--space-3);
   }
   /* The discovery metrics' two tile rows stay one grid: row gap = tile gap. */
   .queue-metrics {
     gap: var(--space-3);
-  }
-  .stats > .stat {
-    flex-basis: 9rem;
   }
   .stat {
     padding: var(--space-4);
@@ -2870,22 +2999,7 @@ textarea.field__input {
   font-variant-numeric: tabular-nums;
   font-size: var(--text-md);
 }
-.engine__head {
-  display: grid;
-  gap: var(--space-3);
-}
-.engine__title {
-  font-family: var(--font-display);
-  font-size: var(--text-4xl);
-  line-height: var(--leading-tight);
-  text-transform: uppercase;
-  color: var(--text-on-ink);
-  margin: 0;
-}
-.engine__title-key {
-  color: var(--text-on-ink-active);
-}
-.engine__sub,
+/* The page title is the standard PageHeader above the stage (A6, #2576): no hero here. */
 .engine__state {
   font-size: var(--text-lg);
   color: var(--text-on-ink-muted);
@@ -3297,9 +3411,6 @@ textarea.field__input {
   .engine__panel {
     padding: var(--space-4);
   }
-  .engine__title {
-    font-size: var(--text-2xl);
-  }
   .engine__step-value {
     font-size: var(--text-3xl);
   }
@@ -3308,5 +3419,2133 @@ textarea.field__input {
   }
   .engine-card__art {
     display: none;
+  }
+}
+
+/* ==================================================================
+ * ADR-0060 · PASSWORD SIGN-IN, ACCOUNT, TWO-STEP VERIFICATION
+ * Existing tokens only; no new colour. The password field's toggle is the shared IconButton,
+ * the trust-device box and the switch are the only new controls.
+ * ================================================================== */
+
+/* A field-level error line (the reset, account and create-admin forms; the invite page has used
+   this class since #1494 with no rule behind it). The danger text step, not just a colour cue:
+   it always sits beside an `aria-invalid` field and says in words what is wrong. */
+.field__error {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--danger);
+}
+
+/* The password input and its show/hide toggle on one row. The input takes the row; the toggle
+   (an outline IconButton) stays square at the input's height — 40px for a mouse, 44px on touch
+   (the shared-row block). At the IconButton's own 44px it overhung a 40px input by 2px. */
+.password-input {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.password-input > .field__input {
+  flex: 1;
+  min-width: 0;
+}
+.password-input > .iconbtn {
+  inline-size: var(--admin-btn-h);
+  block-size: var(--admin-btn-h);
+}
+@media (max-width: 600px), (pointer: coarse) {
+  .password-input > .iconbtn {
+    inline-size: var(--control-md);
+    block-size: var(--control-md);
+  }
+}
+
+/* A standalone checkbox with its label ("Trust this device for 30 days"). The whole row is the
+   label, so the target is the row's 44px height, not the 20px box. */
+.check-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-block-size: var(--control-md);
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+.check-row > input {
+  flex: none;
+  inline-size: var(--space-5);
+  block-size: var(--space-5);
+  margin: 0;
+  accent-color: var(--text-heading);
+}
+
+/* A positive note in the sign-in card's status line ("Your new password is saved"). Same box as
+   `.auth-error`, in the success tone. */
+.auth-note {
+  display: block;
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-sm);
+  background: var(--success-tint);
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  border: var(--border-hairline) solid var(--success);
+}
+
+/* The two-step verification switch (Account). `role="switch"` + `aria-checked` carry the state;
+   the track fill and the thumb's side carry it visually, and the "On" / "Off" word beside it
+   carries it for a reader who separates neither. On = the Safety Yellow fill with a Shift Blue
+   thumb (an ACTIVE utility); off = the sunken track with a muted thumb on a 3:1 control edge. */
+.switch-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+.switch-row__label {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--text-secondary);
+}
+.switch-row__state {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--text-heading);
+}
+.switch {
+  --switch-h: var(--control-sm);
+  --switch-w: calc(var(--switch-h) * 1.75);
+  --switch-pad: var(--space-1);
+  --switch-thumb: calc(var(--switch-h) - 2 * var(--switch-pad) - 2 * var(--border-hairline));
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  inline-size: var(--switch-w);
+  block-size: var(--switch-h);
+  padding: 0 var(--switch-pad);
+  border-radius: var(--radius-pill);
+  border: var(--border-hairline) solid var(--border-control);
+  background: var(--surface-sunken);
+  cursor: pointer;
+  transition: var(--transition-control);
+}
+.switch__thumb {
+  inline-size: var(--switch-thumb);
+  block-size: var(--switch-thumb);
+  border-radius: var(--radius-pill);
+  background: var(--text-muted);
+  transition: transform var(--duration-fast) var(--ease-out);
+}
+.switch[aria-checked="true"] {
+  background: var(--brand);
+  border-color: var(--brand-border);
+}
+.switch[aria-checked="true"] > .switch__thumb {
+  background: var(--text-on-brand);
+  transform: translateX(
+    calc(var(--switch-w) - var(--switch-thumb) - 2 * var(--switch-pad) - 2 * var(--border-hairline))
+  );
+}
+.switch:disabled {
+  cursor: not-allowed;
+}
+.switch:disabled > .switch__thumb {
+  background: var(--text-disabled);
+}
+/* Touch: the track takes the 44px control height itself (the thumb scales with it). */
+@media (max-width: 600px), (pointer: coarse) {
+  .switch {
+    --switch-h: var(--control-md);
+  }
+}
+
+/* #2572 — the copy button that travels with a shortened id (`CopyId`). It sits beside the id,
+   never inside its link. The "Copied" toast fades up 4px above the button over --duration-fast;
+   opacity and transform only, and tokens.css zeroes the duration under reduced motion. */
+.copy-id {
+  position: relative;
+  display: inline-flex;
+  vertical-align: middle;
+  margin-inline-start: var(--space-1);
+}
+.copy-id__toast {
+  position: absolute;
+  inset-block-end: 100%;
+  inset-inline-start: 50%;
+  z-index: var(--z-toast);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-pill);
+  background: var(--surface-ink);
+  color: var(--text-on-ink);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transform: translate(-50%, 4px);
+  transition:
+    opacity var(--duration-fast) var(--ease-exit),
+    transform var(--duration-fast) var(--ease-exit);
+}
+.copy-id__toast:empty {
+  padding: 0;
+}
+.copy-id__toast--on {
+  opacity: 1;
+  transform: translate(-50%, 0);
+  transition:
+    opacity var(--duration-fast) var(--ease-enter),
+    transform var(--duration-fast) var(--ease-enter);
+}
+
+/* ==================================================================
+ * A3 (#2573) — LESS TEXT. A subtitle is one line; caveats sit one click away, either in an
+ * InfoPopover (the ⓘ) or a collapsed "About this data" section. Both are native <details>, so
+ * they are keyboard-operable and announced with their state with no client JS.
+ * ================================================================== */
+
+/* The subtitle row: the one-line description and the ⓘ beside it. */
+.page__subrow {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  margin: var(--space-2) 0 0;
+}
+.page__subrow > .page__sub {
+  margin: 0;
+}
+/* A one-line notice with its ⓘ: the claim in band, the explanation one click away. */
+.notice--row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+/* The ⓘ and its note. The note fades in and scales 0.98 → 1 over --duration-fast; opacity and
+   transform only, and tokens.css zeroes the duration under reduced motion. The note is anchored
+   to the ROW it sits in (the subtitle row or the notice), not to the ⓘ: at the end of a 375px
+   row a note left-anchored at the ⓘ would run off the screen. */
+.infopop {
+  position: static;
+  display: inline-block;
+  flex: none;
+}
+.infopop__toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: var(--space-6);
+  block-size: var(--space-6);
+  border-radius: var(--radius-pill);
+  color: var(--text-muted);
+  font-size: var(--icon-size-sm);
+  cursor: pointer;
+  list-style: none;
+  transition: color var(--duration-fast) var(--ease-out);
+}
+.infopop__toggle::-webkit-details-marker {
+  display: none;
+}
+.infopop__toggle:hover,
+.infopop[open] > .infopop__toggle {
+  color: var(--text-heading);
+}
+.infopop__body {
+  position: absolute;
+  inset-block-start: calc(100% + var(--space-1));
+  inset-inline: 0;
+  z-index: var(--z-tooltip);
+  inline-size: auto;
+  max-inline-size: 22rem;
+  padding: var(--space-3) var(--space-4);
+  border: var(--border-hairline) solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--surface-card);
+  box-shadow: var(--shadow-md);
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  line-height: 1.55;
+  transform-origin: top left;
+}
+.infopop[open] > .infopop__body {
+  animation: infopop-in var(--duration-fast) var(--ease-enter) both;
+}
+.infopop__body > p {
+  margin: 0;
+}
+.infopop__body > p + p {
+  margin-block-start: var(--space-2);
+}
+/* In the subtitle row the ⓘ ends the row, so the note sits flush right, under it. */
+.page__subrow > .infopop > .infopop__body {
+  margin-inline-start: auto;
+  transform-origin: top right;
+}
+@keyframes infopop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* "About this data": the summary row with its chevron, and the small print under it. It
+   expands height + opacity over --duration-base and the chevron turns 180° in the same time.
+   The height half is progressive (`::details-content` + `interpolate-size`); where a browser
+   lacks them the section still fades in. */
+.about {
+  margin-block-start: var(--block-gap);
+  interpolate-size: allow-keywords;
+}
+/* Inside a stack that already spaces its children (the discovery metrics), the stack's gap. */
+.queue-metrics > .about {
+  margin-block-start: 0;
+}
+.about__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--icon-gap);
+  cursor: pointer;
+  list-style: none;
+  font-size: var(--ui-body-sm-size);
+  font-weight: var(--weight-semibold);
+  color: var(--text-secondary);
+}
+.about__toggle::-webkit-details-marker {
+  display: none;
+}
+/* The brand disclosure caret, but pointing down while closed and turning 180° to open (the
+   generic caret turns 90° from the side). */
+.about .about__chevron {
+  transform: none;
+  transition: transform var(--duration-base) var(--ease-out);
+}
+.about[open] > .about__toggle > .about__chevron {
+  transform: rotate(180deg);
+}
+.about::details-content {
+  block-size: 0;
+  overflow: clip;
+  transition:
+    block-size var(--duration-base) var(--ease-out),
+    content-visibility var(--duration-base) var(--ease-out) allow-discrete;
+}
+.about[open]::details-content {
+  block-size: auto;
+}
+.about__body {
+  padding-block-start: var(--space-3);
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  line-height: 1.55;
+}
+.about[open] > .about__body {
+  animation: about-in var(--duration-base) var(--ease-enter) both;
+}
+.about__body > :first-child {
+  margin-block-start: 0;
+}
+.about__body > :last-child {
+  margin-block-end: 0;
+}
+@keyframes about-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Skill discovery's review tiers as ONE segmented control (A3, #2573): the chips sit inside a
+   single sunken track and lose their own borders, so the four tiers read as one choice; the
+   selected segment is lifted onto the card surface with the accent edge it already carries. */
+.segmented {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-self: flex-start;
+  gap: var(--space-1);
+  padding: var(--space-1);
+  border: var(--border-hairline) solid var(--divider);
+  border-radius: var(--radius-md);
+  background: var(--surface-sunken);
+}
+.segmented > .btn {
+  border-color: transparent;
+  background: transparent;
+}
+.segmented > .btn--selected {
+  background: var(--surface-card);
+  border-color: var(--text-accent);
+}
+
+/* ══ A2 (#2572) — AI-spend rebuild: basis chip, window control, count-ups, volume groups ══
+   Its own block so the parallel admin lanes (A4/A5/A6) rebase over it trivially. Brand tokens
+   only; every duration is a token, so tokens.css zeroes it under reduced motion. */
+
+/* The section's ONE basis statement ("Since 19 Aug 2026 ⓘ"), replacing three repeats. */
+.spend-basis {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  align-self: flex-start;
+}
+.spend-basis__chip {
+  padding: 0.1rem var(--space-3);
+  border-radius: var(--radius-pill);
+  background: var(--surface-sunken);
+  border: var(--border-hairline) solid var(--divider);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* A count-up keeps its width while the digits change. */
+.countup {
+  font-variant-numeric: tabular-nums;
+}
+
+/* The 7/30/90 window: equal segments on a sunken track, one thumb that GLIDES to the chosen
+   segment over --duration-base on --ease-glide (transform only). */
+.seg {
+  position: relative;
+  display: inline-grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  align-self: flex-start;
+  padding: var(--space-1);
+  border: var(--border-hairline) solid var(--divider);
+  border-radius: var(--radius-md);
+  background: var(--surface-sunken);
+}
+.seg__thumb {
+  position: absolute;
+  inset-block: var(--space-1);
+  inset-inline-start: var(--space-1);
+  width: calc((100% - 2 * var(--space-1)) / var(--seg-count));
+  border: var(--border-hairline) solid var(--text-accent);
+  border-radius: var(--radius-sm);
+  background: var(--surface-card);
+  transform: translateX(calc(100% * var(--seg-index)));
+  transition: transform var(--duration-base) var(--ease-glide);
+  pointer-events: none;
+}
+.seg__option {
+  position: relative; /* above the thumb */
+  min-height: 2.25rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.seg__option[aria-current="page"] {
+  color: var(--text-primary);
+}
+
+/* Platform volume, grouped Supply / Demand / Engagement. */
+.volume-groups {
+  display: grid;
+  gap: var(--space-4);
+}
+.volume-group__title {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+/* ══ A4 (#2574) — DATA GRID: one scroller, sticky header, the row as one link, the pager bar,
+   the pending state, the column chooser and the density toggle ══════════════════════════════
+   The console's one list primitive (components/data-grid.tsx). Its own block, appended, so the
+   parallel admin lanes rebase over it trivially. Brand tokens only, no new colour; every duration
+   is a motion token (tokens.css zeroes them under reduced motion), and only opacity and transform
+   ever animate — nothing moves the scroll position or the table as a whole.
+
+   ONE VERTICAL SCROLLER PER LIST PAGE, in either of two layouts:
+   - FLOW (the default — laptops, tablets, phones, and the pages that stack sections above their
+     list): the PAGE is the one scroller. The grid never caps its height, so it never traps the
+     wheel; its column header sticks under the topbar and its footer bar (the pager, the view
+     controls) sticks to the bottom of the window while the rows are on screen. A table too wide
+     for its box scrolls SIDEWAYS in its own box — never the page — and there the header rides
+     with the rows (a header can only stick to a box that scrolls it).
+   - FILL (a list page, `.page--list`, on a desktop at least 860px tall): the page fills the
+     window. Header and filters stay put, the grid's body flexes into the rest and is the one
+     scroller, the footer bar closes the panel. Opening the page's "About this data" hands the
+     page back to FLOW, so its small print never squeezes the rows or adds a second scroller. */
+
+.grid {
+  --grid-row-h: var(--row-h);
+  --grid-pad-inline: var(--space-3);
+  /* Where the column header sticks: under the topbar while the PAGE scrolls a grid that fits
+     (`data-fit`, measured by DataGridView); the grid's own top edge everywhere else. */
+  --grid-head-top: 0px;
+  display: flex;
+  flex-direction: column;
+}
+.grid[data-fit="true"] {
+  --grid-head-top: var(--shell-header-h);
+}
+/* Density (the viewer's choice): 44px rows, or 36px — the token layer's two row rails; each row
+   then draws its 1px divider below that box. A copy button (36px) fits either height: the
+   comfortable rows pad it by --space-1, the compact ones not at all. */
+.grid[data-density="compact"] {
+  --grid-row-h: var(--row-h-compact);
+}
+
+.grid__scroll {
+  /* Contains the row-level hidden labels, as `.tablewrap` does: they can never widen the page. */
+  position: relative;
+  overflow-x: auto;
+  /* Never a vertical scroller in FLOW: the page is the one. */
+  overflow-y: hidden;
+  /* A sideways swipe that reaches the edge stays here — it must not become the back gesture. */
+  overscroll-behavior-inline: contain;
+  border: var(--border-hairline) solid var(--divider);
+  border-radius: var(--radius-md);
+}
+/* A grid that FITS its box clips instead of scrolling, so it is no scroll container at all and its
+   header sticks to the window. `clip` creates no scroller; the corners still clip to the radius.
+   BOTH axes: nothing a row draws may escape the box. WebKit draws a row's stretched link (below)
+   from that row down to the TABLE's full height — measured in WebKitGTK 2.52, every row's 2286px
+   on a 50-row list — so with the block axis open, the last rows' links covered whatever followed
+   the grid (an About section, the next panel) and a click there opened the last row. */
+.grid[data-fit="true"] .grid__scroll {
+  overflow: clip;
+}
+
+/* The table: fixed layout — the columns take their KIND's width (`.grid__col--*` below) and the
+   text columns share the rest — and never narrower than `--grid-min` (DataGridView, from the
+   visible columns), below which the grid scrolls sideways instead of crushing a text column.
+   Separate borders: each row paints its own divider, so a dimmed or hovered row keeps its edge. */
+.grid__table {
+  table-layout: fixed;
+  inline-size: 100%;
+  min-inline-size: var(--grid-min, 0);
+  border-collapse: separate;
+  border-spacing: 0;
+}
+.grid__table th,
+.grid__table td {
+  height: var(--grid-row-h);
+  padding: var(--space-1) var(--grid-pad-inline);
+}
+.grid[data-density="compact"] .grid__table th,
+.grid[data-density="compact"] .grid__table td {
+  padding-block: 0;
+}
+/* The column header: sticky (`.table th`) at --grid-head-top. Its rule is the inset shadow
+   `.table th` draws, so the cell border is dropped (it would double the line). A ROW header stays
+   `.table tbody th`'s: static, bordered. */
+.grid__table thead th {
+  top: var(--grid-head-top);
+  border-bottom-width: 0;
+}
+/* Its LABEL wraps at a space onto a second line rather than run into its neighbour — two lines of
+   the 11.5px header type still fit a 36px row — and is cut only past that, its full text then in
+   the header's `title` (DataGridView). A fixed kind is drawn at least as wide as its header
+   (below), so only a squeezed text column's label ever wraps. */
+.grid__head {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: normal;
+}
+
+/* WIDTHS BY KIND (`GridColumnWidth`, components/data-grid-model.ts) — in `ch` of the 13.5px table
+   type, each with its two cell paddings: ID 10ch (+ its copy button), status 10ch (+ the pill's own
+   padding), date 12ch. A `fill` column has no width: the text columns share what is left.
+   A fixed kind is never narrower than its HEADER: DataGridView sets `--col-head`, the label's width
+   as `headerWidthRem` estimates it (never short of the drawn label), and each kind takes the wider
+   of the two — so "Questions settled" over a two-digit count is never "QUESTI…". */
+.grid__col {
+  --col-head-w: calc(var(--col-head, 0rem) + 2 * var(--grid-pad-inline));
+}
+.grid__col--id {
+  width: max(calc(10ch + var(--control-sm) + var(--space-1) + 2 * var(--grid-pad-inline)), var(--col-head-w));
+}
+.grid__col--customer {
+  width: max(
+    calc(10ch + var(--control-sm) + var(--space-1) + var(--space-2) + 7ch + 2 * var(--grid-pad-inline)),
+    var(--col-head-w)
+  );
+}
+.grid__col--typed-id {
+  width: max(
+    calc(22ch + var(--space-2) + var(--control-sm) + var(--space-1) + 2 * var(--grid-pad-inline)),
+    var(--col-head-w)
+  );
+}
+.grid__col--status {
+  width: max(
+    calc(10ch + 2 * var(--space-3) + 2 * var(--border-hairline) + 2 * var(--grid-pad-inline)),
+    var(--col-head-w)
+  );
+}
+.grid__col--date {
+  width: max(calc(12ch + 2 * var(--grid-pad-inline)), var(--col-head-w));
+}
+.grid__col--number {
+  width: max(calc(8ch + 2 * var(--grid-pad-inline)), var(--col-head-w));
+}
+.grid__col--money,
+.grid__col--short {
+  width: max(calc(14ch + 2 * var(--grid-pad-inline)), var(--col-head-w));
+}
+.grid__col--actions {
+  width: max(calc(12rem + 2 * var(--grid-pad-inline)), var(--col-head-w));
+}
+.grid__col--end {
+  width: calc(var(--icon-size-sm) + 2 * var(--space-2));
+}
+
+/* A type tag inside a `typed-id` cell is cut at 12ch, its full name in its `title`: a subject type
+   runs to 30 characters ("payer_job_posting_chat_session") and must not push the id off its cell. */
+.grid__table .tag {
+  max-inline-size: 12ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+}
+/* A text cell: one line cut with an ellipsis (its full text in `title`), or every line.
+   The wrap rule's WEIGHT is exact: `td.…` (0,1,1) ties `.table td`'s `nowrap` and wins on order —
+   a bare class (0,1,0) lost to it, so "wrap" never wrapped (AI calls' failure reason ran into the
+   next column) — and still yields to a cell's own rule, the prose message's `pre-wrap` (0,2,0),
+   which keeps the line breaks a worker typed. */
+.grid__cell--truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+td.grid__cell--wrap,
+th.grid__cell--wrap {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+/* A table of sentences (Feedback): the rows keep `.table td`'s reading rhythm — the BODY rows
+   only; the header's shimmer track below must stay its 2px. */
+.grid--prose .grid__table tbody td {
+  padding-block: var(--space-3);
+}
+
+/* ROWS. Each row is the containing block of its link's stretch: `position: relative` names the
+   intent, `transform` makes it hold in every engine — WebKit does not take a relative table row as
+   a containing block (WebKitGTK 2.52: without the transform every row's stretch covered the whole
+   grid, so every click opened the last row). The transform also makes each row its own stacking
+   context; the raise rule below is the answer to that. Hover tints over --duration-fast (the
+   120ms the brief asks for has no token; 140ms is the nearest). New rows fade in over
+   --duration-fast, staggered --stagger-step for the first eight and then together
+   (--stagger-max); `backwards`, so once in, a row's opacity is the cascade's again (the pending
+   dim below). */
+.grid__table tbody tr {
+  position: relative;
+  transform: scale(1);
+  transition:
+    background-color var(--duration-fast) var(--ease-out),
+    opacity var(--duration-fast) var(--ease-out);
+  animation: grid-row-in var(--duration-fast) var(--ease-enter) backwards;
+}
+.grid__table tbody tr:nth-child(2) {
+  animation-delay: var(--stagger-step);
+}
+.grid__table tbody tr:nth-child(3) {
+  animation-delay: calc(var(--stagger-step) * 2);
+}
+.grid__table tbody tr:nth-child(4) {
+  animation-delay: calc(var(--stagger-step) * 3);
+}
+.grid__table tbody tr:nth-child(5) {
+  animation-delay: calc(var(--stagger-step) * 4);
+}
+.grid__table tbody tr:nth-child(6) {
+  animation-delay: calc(var(--stagger-step) * 5);
+}
+.grid__table tbody tr:nth-child(7) {
+  animation-delay: calc(var(--stagger-step) * 6);
+}
+.grid__table tbody tr:nth-child(n + 8) {
+  animation-delay: calc(var(--stagger-step) * 7);
+}
+@keyframes grid-row-in {
+  from {
+    opacity: 0;
+  }
+}
+/* A DENSITY change replays that fade on the rows as they are (DataGridView flips `data-replay` on
+   each change): a new animation name restarts an animation, so the two names take turns — the
+   same fade, never a remount. */
+.grid[data-replay="odd"] .grid__table tbody tr {
+  animation-name: grid-row-in-again;
+}
+@keyframes grid-row-in-again {
+  from {
+    opacity: 0;
+  }
+}
+
+/* THE ROW AS ONE LINK. The name cell's link stretches over the whole row (`::after`), so the row is
+   one click target and one tab stop. The link's text sits above the stretch (its `title` shows on
+   it); every other control in the row — a copy button, a customer link, a row action — sits above
+   it too and keeps its own target. Focus rings the whole row, inside its edges, where no cell's
+   clipping can cut it; the outline survives forced colours. */
+.grid__link {
+  color: var(--text-link);
+  font-weight: var(--weight-semibold);
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  transition: text-decoration-color var(--duration-fast) var(--ease-out);
+}
+.grid__link::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+}
+.grid__table tbody tr:hover .grid__link {
+  text-decoration-color: currentColor;
+}
+.grid__link-text {
+  position: relative;
+  z-index: 1;
+}
+.grid__table tbody :is(a, button, input, select, textarea, summary):not(.grid__link) {
+  position: relative;
+  z-index: 1;
+}
+/* A cell's title-bearing text sits above the stretch too — a cut cell's full value
+   (`.grid__cell-text`), a `<time>`'s exact instant, a full id, a pill's meaning — so its `title`
+   shows on hover and it can be selected. Under the stretch nothing could ever show it. A plain
+   click on it still opens the row (DataGridView hands it to the link), so in a linked row it keeps
+   the row's pointer. */
+.grid__table tbody :is(.grid__cell-text, [title]) {
+  position: relative;
+  z-index: 1;
+}
+.grid__table tbody tr:has(.grid__link) :is(.grid__cell-text, [title]) {
+  cursor: pointer;
+}
+/* A row SHOWING an overlay of its own — the "Copied" toast, a control's tooltip, an open menu — is
+   raised above the other rows and the column header, which would otherwise bury the first row's
+   toast under the header and a menu under the row below (each row is its own stacking context,
+   see ROWS). It drops its transform for as long, so it is no stacking context at all: WebKit
+   ignores a z-index on a table row (it takes none as positioned), so only that lets the overlay
+   out there — measured in WebKitGTK 2.52 and Chrome, toast and menu both on top. The sticky
+   footer bar (z 2, later in the page) still covers it. While raised its stretch leaves the hit
+   test — without the transform WebKit would draw it over the whole grid; a click on the row
+   itself still opens it (DataGridView). A menu or a confirmation a row opens belongs in the top
+   layer (`popover`, a dialog) all the same: nothing inside a scroller escapes its clip. */
+.grid__table tbody tr:has(.copy-id__toast--on, .iconbtn:is(:hover, :focus-visible), [aria-expanded="true"]) {
+  z-index: 2;
+  transform: none;
+}
+.grid__table
+  tbody
+  tr:has(.copy-id__toast--on, .iconbtn:is(:hover, :focus-visible), [aria-expanded="true"])
+  .grid__link::after {
+  pointer-events: none;
+}
+.grid__link:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+.grid__link:focus-visible::after {
+  outline: var(--border-bold) solid var(--focus-ring);
+  outline-offset: calc(-1 * var(--border-bold));
+}
+/* The row's cue still announces "Opening …"; the grid's own pending state is what shows it. */
+.grid__link > .nav-pending--on {
+  display: none;
+}
+/* The end chevron: a cue that the row opens, in the 60% step at rest and full on hover. */
+.grid__end {
+  padding-inline: var(--space-2);
+  text-align: end;
+  color: var(--icon-secondary);
+}
+.grid__end .ph-fill {
+  font-size: var(--icon-size-sm);
+}
+.grid__table tbody tr:hover .grid__end {
+  color: var(--text-link);
+}
+
+/* A SORTABLE HEADER: its arrow points down for descending and turns 180° for ascending over
+   --duration-page (the 180ms of the brief has no token; 200ms is the nearest); a column that does
+   not sort the list shows it in the 60% step. */
+.grid__sort {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: inherit;
+  text-decoration: none;
+}
+.grid__sort:hover {
+  color: var(--text-heading);
+}
+.grid__sort-icon {
+  font-size: var(--icon-size-sm);
+  color: var(--icon-secondary);
+  transition: transform var(--duration-page) var(--ease-out);
+}
+.grid__sort:not([data-direction="none"]) > .grid__sort-icon {
+  color: var(--text-heading);
+}
+.grid__sort[data-direction="ascending"] > .grid__sort-icon {
+  transform: rotate(180deg);
+}
+
+/* THE PENDING STATE — a navigation under way (DataGridView, after the console's 180ms): the rows dim
+   to the brand's 60% step over --duration-fast — the clicked row stays bright — and a 2px shimmer
+   runs under the column header. The shimmer is a progress indicator, the one thing allowed to loop;
+   under reduced motion it holds still as a solid bar. */
+.grid__table[aria-busy="true"] tbody tr {
+  opacity: 0.6;
+}
+.grid__table[aria-busy="true"] tbody tr:has(.nav-pending--on) {
+  opacity: 1;
+}
+/* (0,3,0): no cell rule in the block — the prose rhythm, a density — can pad the 2px track. */
+.grid__table .grid__progress-row > .grid__progress-cell {
+  position: sticky;
+  top: calc(var(--grid-head-top) + var(--grid-row-h));
+  z-index: 1;
+  height: var(--border-bold);
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  background: transparent;
+}
+.grid__progress {
+  display: block;
+  inline-size: 100%;
+  block-size: 100%;
+  background: linear-gradient(90deg, transparent, var(--text-heading), transparent);
+  opacity: 0;
+  transform: translateX(-100%);
+  transition: opacity var(--duration-fast) var(--ease-exit);
+}
+.grid__table[aria-busy="true"] .grid__progress {
+  opacity: 1;
+  animation: grid-shimmer var(--duration-shimmer) var(--ease-in-out) infinite;
+  transition: opacity var(--duration-fast) var(--ease-enter);
+}
+@keyframes grid-shimmer {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+
+/* THE FOOTER BAR: the pager at the start, the view controls at the end. Sticky to the bottom of the
+   window while the rows are on screen (FLOW); its hairline is drawn above it, over the scroller's
+   own bottom edge at rest, so the two never double. */
+.grid__footer {
+  position: sticky;
+  inset-block-end: 0;
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding-block: var(--space-3);
+  background: var(--surface-card);
+  box-shadow: 0 calc(-1 * var(--border-hairline)) 0 var(--divider);
+}
+.grid__pager {
+  min-inline-size: 0;
+}
+.grid__footer .pager {
+  margin-top: 0;
+  gap: var(--space-2);
+}
+/* Its ⓘ opens UPWARD: the bar sits at the bottom of the window. */
+.grid__footer .infopop__body {
+  inset-block-start: auto;
+  inset-block-end: calc(100% + var(--space-1));
+  transform-origin: bottom left;
+}
+.grid__controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-inline-start: auto;
+}
+
+/* THE NUMBERED PAGER (`NumberedPager`, a list with an exact total): "1–50 of 24,310 · ‹ 1 2 3 … ›".
+   The current page takes the selected-chip pairing (`.btn--selected`): a state, not an action. */
+.pager__range {
+  margin: 0;
+  font-size: var(--ui-body-sm-size);
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+.pager__sep,
+.pager__gap {
+  color: var(--text-muted);
+}
+.pager__pages {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.pager__page,
+.pager__step {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-inline-size: var(--control-sm);
+  min-block-size: var(--control-sm);
+  padding-inline: var(--space-2);
+  border: var(--border-hairline) solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--text-link);
+  font-size: var(--ui-body-sm-size);
+  font-weight: var(--weight-semibold);
+  font-variant-numeric: tabular-nums;
+  text-decoration: none;
+  transition: var(--transition-control);
+}
+.pager__step .ph-fill {
+  font-size: var(--icon-size-sm);
+}
+a.pager__page:hover,
+a.pager__step:hover {
+  background: var(--surface-sunken);
+}
+.pager__page[aria-current="page"] {
+  background: var(--brand-tint);
+  color: var(--text-accent);
+  border-color: var(--text-accent);
+}
+.pager__step[aria-disabled="true"] {
+  color: var(--text-disabled);
+}
+.pager__page > .nav-pending--on,
+.pager__step > .nav-pending--on {
+  position: absolute;
+  inset-block-start: calc(-1 * var(--space-1));
+  inset-inline-end: calc(-1 * var(--space-1));
+  margin: 0;
+}
+
+/* THE COLUMN CHOOSER — a disclosure in the footer bar, opening UPWARD. It fades and scales
+   0.98 → 1 in over --duration-fast and out ~30% faster; closed, it is `visibility: hidden`, so it is
+   out of the tab order and the accessibility tree. */
+.grid-menu {
+  position: relative;
+}
+.grid-menu__panel {
+  position: absolute;
+  inset-block-end: calc(100% + var(--space-1));
+  inset-inline-end: 0;
+  z-index: var(--z-raised);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-inline-size: 14rem;
+  max-block-size: min(60vh, 28rem);
+  overflow-y: auto;
+  padding: var(--space-3) var(--space-4);
+  border: var(--border-hairline) solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--surface-card);
+  box-shadow: var(--shadow-md);
+  transform-origin: bottom right;
+  visibility: hidden;
+  opacity: 0;
+  transform: scale(var(--motion-enter-scale));
+  transition:
+    opacity calc(var(--duration-fast) * 0.7) var(--ease-exit),
+    transform calc(var(--duration-fast) * 0.7) var(--ease-exit),
+    visibility 0s linear calc(var(--duration-fast) * 0.7);
+}
+.grid-menu__panel[data-open="true"] {
+  visibility: visible;
+  opacity: 1;
+  transform: none;
+  transition:
+    opacity var(--duration-fast) var(--ease-enter),
+    transform var(--duration-fast) var(--ease-enter),
+    visibility 0s;
+}
+.grid-menu__title {
+  margin: 0;
+  font-size: var(--ui-label-size);
+  font-weight: var(--ui-label-weight);
+  color: var(--text-secondary);
+}
+.grid-menu__group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.grid-menu__legend {
+  margin-block-end: var(--space-1);
+  padding: 0;
+  font-size: var(--ui-eyebrow-size);
+  font-weight: var(--ui-eyebrow-weight);
+  letter-spacing: var(--ui-eyebrow-tracking);
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.grid-menu__option {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-block-size: var(--control-sm);
+  font-size: var(--ui-body-sm-size);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.grid-menu__option > input {
+  accent-color: var(--color-brand-primary);
+}
+.grid-menu__note {
+  margin-inline-start: auto;
+  font-size: var(--ui-caption-size);
+  color: var(--text-muted);
+}
+
+/* TOUCH: rows stay 44px whatever the density (a 36px row is under the touch target), so the
+   density toggle is not drawn; the chooser's rows and the pager's numbers reach 44px. */
+@media (max-width: 600px), (pointer: coarse) {
+  .grid[data-density="compact"] {
+    --grid-row-h: var(--row-h);
+  }
+  .grid__density {
+    display: none;
+  }
+  .grid-menu__option,
+  .pager__page,
+  .pager__step {
+    min-block-size: var(--control-md);
+  }
+  .pager__page,
+  .pager__step {
+    min-inline-size: var(--control-md);
+  }
+}
+
+/* FILL — a list page on a tall desktop fills the window (see the block header). The shell column
+   is exactly the window's height, the content and the page flex down it, and the panel holding the
+   grid takes the rest: its body is the one scroller, header sticky at its top edge. */
+@media (min-width: 1024px) and (min-height: 860px) {
+  .shell__main:has(> .content > .page--list):not(:has(.about[open])) {
+    block-size: 100dvh;
+  }
+  .shell__main:has(> .content > .page--list):not(:has(.about[open])) > .content {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 0;
+    min-block-size: 0;
+  }
+  .shell__main:has(> .content > .page--list):not(:has(.about[open])) .page--list {
+    flex: 1 1 0;
+    min-block-size: 0;
+  }
+  .shell__main:has(> .content > .page--list):not(:has(.about[open]))
+    .page--list
+    > .panel:has(> .grid) {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 0;
+    min-block-size: 0;
+  }
+  .shell__main:has(> .content > .page--list):not(:has(.about[open])) .page--list .panel > .grid {
+    --grid-head-top: 0px;
+    flex: 1 1 0;
+    min-block-size: 0;
+  }
+  .shell__main:has(> .content > .page--list):not(:has(.about[open])) .page--list .grid__scroll {
+    flex: 1 1 0;
+    min-block-size: 0;
+    overflow: auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .grid__table[aria-busy="true"] .grid__progress {
+    animation: none;
+    transform: none;
+    background: var(--text-heading);
+  }
+}
+
+/* ══ A5 (#2575) — OVERLAYS: Dialog, Drawer, Toast, the T2/T3 confirm, the armed pulse and the
+   primary button's press edge ══
+   Its own block, marked "══" like A2 and A4, so the block before it ends here (data-grid.css.test.ts
+   reads A4's up to the next "══" marker). Every duration is a motion token, so all of it is 0 under
+   prefers-reduced-motion (tokens.css); only opacity and transform move, and never by more than
+   6px. Enter on --ease-enter over --duration-base, leave on --ease-exit over --duration-fast —
+   the token `usePresence` (components/presence.ts) waits for before it unmounts. */
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal);
+  display: grid;
+}
+.overlay__scrim {
+  position: absolute;
+  inset: 0;
+  background: var(--scrim);
+  animation: overlay-fade-in var(--duration-base) var(--ease-enter) both;
+}
+.overlay[data-state="closing"] .overlay__scrim {
+  animation: overlay-fade-out var(--duration-fast) var(--ease-exit) both;
+}
+.overlay__panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: var(--surface-card);
+  color: var(--text-primary);
+  border: var(--border-hairline) solid var(--divider);
+}
+.overlay__panel:focus {
+  outline: none;
+}
+.overlay__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-5) var(--space-5) var(--space-3);
+}
+.overlay__heading {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+.overlay__title {
+  margin: 0;
+  font-size: var(--ui-h2-size);
+  line-height: var(--ui-h2-leading);
+  font-weight: var(--ui-h2-weight);
+  letter-spacing: var(--ui-h2-tracking);
+  overflow-wrap: anywhere;
+}
+.overlay__sub {
+  margin: 0;
+  font-size: var(--ui-body-sm-size);
+  line-height: var(--ui-body-leading);
+  color: var(--text-secondary);
+  max-width: var(--reading-max);
+}
+.overlay__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-2) var(--space-5) var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+.overlay__body > .alert {
+  margin-bottom: 0;
+}
+.overlay__foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-5) var(--space-5);
+  border-top: var(--border-hairline) solid var(--divider);
+}
+.overlay__hint {
+  flex: 1 1 100%;
+  margin: 0;
+  font-size: var(--ui-caption-size);
+  line-height: var(--ui-caption-leading);
+  color: var(--text-muted);
+  text-align: end;
+}
+
+/* Dialog — centred; the scrim fades in while the panel rises and scales 0.98 → 1. */
+.overlay--dialog {
+  place-items: center;
+  padding: var(--space-4);
+}
+.overlay--dialog .overlay__panel {
+  width: min(560px, 100%);
+  max-height: calc(100dvh - 2 * var(--space-4));
+  border-radius: var(--radius-lg);
+  animation: dialog-in var(--duration-base) var(--ease-enter) both;
+}
+.overlay--dialog[data-state="closing"] .overlay__panel {
+  animation: dialog-out var(--duration-fast) var(--ease-exit) both;
+}
+
+/* Drawer — the right edge, min(960px, 62vw); the whole width on a phone, where 62vw is too
+   narrow to read. Addressable by URL (`useUrlDrawer`). */
+.overlay--drawer {
+  justify-items: end;
+}
+.overlay--drawer .overlay__panel {
+  width: min(960px, 62vw);
+  height: 100dvh;
+  border-width: 0 0 0 var(--border-hairline);
+  animation: drawer-in var(--duration-base) var(--ease-enter) both;
+}
+.overlay--drawer[data-state="closing"] .overlay__panel {
+  animation: drawer-out var(--duration-fast) var(--ease-exit) both;
+}
+@media (max-width: 1023px) {
+  .overlay--drawer .overlay__panel {
+    width: 100%;
+  }
+}
+
+@keyframes overlay-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes overlay-fade-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+@keyframes dialog-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes dialog-out {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    transform: translateY(6px) scale(0.98);
+  }
+}
+@keyframes drawer-in {
+  from {
+    opacity: 0;
+    transform: translateX(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes drawer-out {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    transform: translateX(6px);
+  }
+}
+
+/* The T2/T3 confirm's before/after diff (components/confirm-dialog.tsx). */
+.diff {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--ui-body-sm-size);
+  line-height: var(--ui-body-leading);
+}
+.diff th,
+.diff td {
+  padding: var(--space-2) var(--space-3);
+  border-bottom: var(--border-hairline) solid var(--divider);
+  text-align: start;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+.diff thead th {
+  font-size: var(--ui-label-size);
+  font-weight: var(--ui-label-weight);
+  color: var(--text-muted);
+}
+.diff tbody th {
+  font-weight: var(--weight-semibold);
+  color: var(--text-secondary);
+}
+.diff__before {
+  color: var(--text-muted);
+  text-decoration: line-through;
+}
+.diff__after {
+  color: var(--text-primary);
+  font-weight: var(--weight-semibold);
+}
+.confirm__name {
+  font-family: var(--font-mono);
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+
+/* Toast — bottom-right, above every overlay; rises 6px with a fade and leaves faster. An Undo
+   toast drains a thin Safety Yellow bar over its undo window (a progress indicator: the one
+   motion allowed to run longer than 300ms). The window itself is the inline animation-duration
+   set from UNDO_WINDOW_MS, so the bar and the timer are one number. */
+.toasts {
+  position: fixed;
+  right: var(--space-4);
+  bottom: var(--space-4);
+  left: var(--space-4);
+  z-index: var(--z-toast);
+  display: flex;
+  justify-content: flex-end;
+  pointer-events: none;
+}
+.toasts__list {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  width: min(420px, 100%);
+}
+.toast {
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-3) var(--space-3) var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  background: var(--surface-ink);
+  color: var(--text-on-ink);
+  box-shadow: inset 3px 0 0 var(--toast-tone, var(--brand));
+  pointer-events: auto;
+  animation: toast-in var(--duration-base) var(--ease-enter) both;
+}
+.toast[data-state="closing"] {
+  animation: toast-out var(--duration-fast) var(--ease-exit) both;
+}
+.toast--success {
+  --toast-tone: var(--success);
+}
+.toast--danger {
+  --toast-tone: var(--danger);
+}
+.toast__message {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  font-size: var(--ui-body-sm-size);
+  line-height: var(--ui-body-leading);
+  overflow-wrap: anywhere;
+}
+.toast .btn--ghost,
+.toast .iconbtn {
+  color: var(--text-on-ink);
+}
+.toast .btn--ghost {
+  border-color: var(--text-on-ink-muted);
+}
+.toast__timer {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  background: var(--brand);
+  transform-origin: left center;
+  animation-name: toast-drain;
+  animation-timing-function: linear;
+  animation-fill-mode: forwards;
+}
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes toast-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+@keyframes toast-drain {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .toast__timer {
+    animation: none;
+  }
+}
+
+/* An ARMED "click again to confirm" button (AdminActionButton): its edge pulses ONCE as it arms
+   — a ring that fades out as it grows by 2px — and never repeats. */
+.admin-action [data-armed] {
+  position: relative;
+}
+.admin-action [data-armed]::after {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  border: 2px solid var(--pulse-tone, var(--brand));
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 0;
+  animation: armed-pulse var(--duration-base) var(--ease-out) 1;
+}
+.admin-action .btn--danger[data-armed] {
+  --pulse-tone: var(--danger);
+}
+@keyframes armed-pulse {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(1.03);
+  }
+}
+
+/* The primary button sits on a 3px Safety Yellow press edge (#2570 --shadow-press-primary) that
+   collapses as it sinks onto it over --duration-press, and springs back over --duration-fast.
+   --press-depth is 0 under reduced motion, so there the edge just disappears on press. */
+.btn--primary {
+  box-shadow: var(--shadow-press-primary);
+}
+.btn--primary:active:not(:disabled) {
+  box-shadow: var(--shadow-press-primary-pressed);
+  transform: translateY(var(--press-depth));
+  transition-duration: var(--duration-press);
+}
+.btn--primary:disabled {
+  box-shadow: none;
+}
+
+/* ══ A6 (#2576) — NAVIGATION: Directory groups, the gliding active marker, the topbar's quick
+   jump, environment badge and avatar menu, and the Ctrl/⌘K palette ══
+   ONE block, appended, so the parallel admin lanes rebase over it trivially. Brand tokens only,
+   no new colours. Motion is opacity and transform only, nothing loops, and every duration is a
+   token, so tokens.css zeroes all of it under prefers-reduced-motion:
+     active marker   glides 220ms            --duration-base, --ease-glide
+     a group         opens / closes 180ms    2 × --duration-press, enter ease-out, exit ease-in
+     avatar menu     fades in, 0.98 → 1, from the top-right, 140ms   --duration-fast
+     palette         fades in with an 8px drop, 160ms   2 × --duration-instant — the issue's one
+                     stated exception to the 6px travel rule; its results never animate. */
+
+/* ---- sidebar: groups that open and close ------------------------------------------------ */
+
+/* The 15-row budget at 1080p (nav-model.test.ts adds it up): groups --space-4 apart, each title
+   a 24px disclosure row. The nav is the marker's positioning box. */
+.sidebar__nav {
+  position: relative;
+  gap: var(--space-4);
+}
+.sidebar__grouptitle {
+  margin: 0;
+  margin-block-end: var(--space-1);
+}
+/* The title IS the toggle: it keeps the eyebrow face it inherits from the heading, on a row as
+   wide as the nav, its text on the rows' icon column. */
+.sidebar__grouptoggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  inline-size: 100%;
+  min-height: var(--space-6);
+  padding: 0 var(--space-3);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+.sidebar__grouptoggle:hover {
+  color: var(--text-on-ink);
+}
+/* The brand caret: down while open, along the line while closed (the `<summary>` convention). */
+.sidebar__groupcaret {
+  flex: none;
+  font-size: var(--icon-size-sm);
+  transition: transform calc(var(--duration-press) * 2) var(--ease-out);
+}
+.sidebar__grouptoggle[aria-expanded="false"] > .sidebar__groupcaret {
+  transform: rotate(-90deg);
+}
+/* A closed group's rows are gone: `hidden`, which the list's own `display: flex` would undo. */
+.sidebar__list[hidden] {
+  display: none;
+}
+/* Only a group the operator toggled animates (`data-moved`), so nothing moves on a page load.
+   Opening: its rows fade in and settle down by --motion-rise. Closing: they fade and lift
+   first, and the list goes when they are done (a discrete `display` transition; a browser
+   without it simply hides them at once). */
+.sidebar__group[data-moved] > .sidebar__list:not([hidden]) {
+  animation: nav-group-in calc(var(--duration-press) * 2) var(--ease-enter);
+}
+.sidebar__group[data-moved] > .sidebar__list[hidden] {
+  opacity: 0;
+  transform: translateY(calc(-1 * var(--motion-rise)));
+  transition:
+    opacity calc(var(--duration-press) * 2) var(--ease-exit),
+    transform calc(var(--duration-press) * 2) var(--ease-exit),
+    display calc(var(--duration-press) * 2) allow-discrete;
+}
+@keyframes nav-group-in {
+  from {
+    opacity: 0;
+    transform: translateY(calc(-1 * var(--motion-rise)));
+  }
+}
+
+/* ---- sidebar: the active marker ----------------------------------------------------------- */
+
+/* ONE wash-and-spine under the active row, moved by transform: changing page glides it to the
+   new row. The rows paint above it (positioned, later in the tree). Until it is measured — and
+   without JS — each active row draws its own (the UI-1 rule); `data-marker` hands it over. */
+.sidebar__list > li {
+  position: relative;
+}
+.sidebar__marker {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline: 0;
+  block-size: var(--nav-marker-h);
+  transform: translateY(var(--nav-marker-y));
+  border-radius: var(--radius-sm);
+  background: var(--surface-ink-active);
+  box-shadow: inset var(--border-spine) 0 0 0 var(--brand);
+  transition: transform var(--duration-base) var(--ease-glide);
+  pointer-events: none;
+}
+/* Only a NEW active row is glided to. When the rows move under the same one (a group above it
+   opening or closing), the marker moves in step with them: a glide would trail across other rows. */
+.sidebar__marker[data-snap] {
+  transition: none;
+}
+.sidebar__nav[data-marker] .sidebar__link.is-active {
+  background: transparent;
+  box-shadow: none;
+}
+
+/* ---- topbar: quick jump, environment, avatar menu ------------------------------------------ */
+
+.topbar__jump {
+  flex: none;
+}
+.topbar__kbd {
+  font-family: var(--font-sans);
+  font-size: var(--ui-caption-size);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-none);
+  padding: var(--space-1) var(--space-2);
+  border: var(--border-hairline) solid var(--divider);
+  border-radius: var(--radius-xs);
+  background: var(--surface-sunken);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+/* Production wears the structural navy: the one environment an operator must never mistake.
+   Every other one keeps the quiet sunken pill (`.topbar__env`, AA-fenced). */
+.topbar__env--production {
+  background: var(--surface-ink);
+  border-color: var(--surface-ink);
+  color: var(--text-on-ink);
+}
+
+.avatar-menu {
+  position: relative;
+  flex: none;
+}
+.avatar-menu__trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--control-md);
+  padding: var(--space-1) var(--space-2) var(--space-1) var(--space-1);
+  border: var(--border-hairline) solid transparent;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--text-heading);
+  font: inherit;
+  font-size: var(--ui-body-sm-size);
+  font-weight: var(--weight-semibold);
+  cursor: pointer;
+  transition: var(--transition-control);
+}
+.avatar-menu__trigger:hover,
+.avatar-menu__trigger[aria-expanded="true"] {
+  background: var(--surface-sunken);
+  border-color: var(--divider);
+}
+/* The avatar: a solid person on the Shift Blue disc — the admin has no name or photo to show. */
+.avatar-menu__avatar {
+  display: inline-grid;
+  place-items: center;
+  inline-size: var(--control-sm);
+  block-size: var(--control-sm);
+  border-radius: var(--radius-round);
+  background: var(--surface-ink);
+  color: var(--text-on-ink);
+  font-size: var(--icon-size-md);
+}
+.avatar-menu__caret {
+  font-size: var(--icon-size-sm);
+  transition: transform var(--duration-fast) var(--ease-out);
+}
+.avatar-menu__trigger[aria-expanded="true"] > .avatar-menu__caret {
+  transform: rotate(180deg);
+}
+.avatar-menu__panel {
+  position: absolute;
+  inset-block-start: calc(100% + var(--space-2));
+  inset-inline-end: 0;
+  z-index: var(--z-overlay);
+  min-inline-size: 15rem;
+  padding: var(--space-2);
+  border: var(--border-hairline) solid var(--divider);
+  border-radius: var(--radius-lg);
+  background: var(--surface-card);
+  box-shadow: var(--shadow-lg);
+  transform-origin: top right;
+}
+.avatar-menu__panel:not([hidden]) {
+  animation: avatar-menu-in var(--duration-fast) var(--ease-enter);
+}
+@keyframes avatar-menu-in {
+  from {
+    opacity: 0;
+    transform: scale(var(--motion-enter-scale));
+  }
+}
+.avatar-menu__who {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+  padding: var(--space-2) var(--space-3) var(--space-3);
+  border-block-end: var(--border-hairline) solid var(--divider);
+}
+.avatar-menu__eyebrow {
+  font-size: var(--ui-eyebrow-size);
+  font-weight: var(--ui-eyebrow-weight);
+  letter-spacing: var(--ui-eyebrow-tracking);
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+.avatar-menu__role-name {
+  font-weight: var(--weight-bold);
+  color: var(--text-heading);
+}
+.avatar-menu__id {
+  color: var(--text-secondary);
+}
+.avatar-menu__list {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+  padding: var(--space-2) 0 0;
+  list-style: none;
+}
+.avatar-menu__item {
+  display: flex;
+  align-items: center;
+  gap: var(--icon-gap);
+  min-height: var(--control-md);
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-weight: var(--weight-medium);
+  text-decoration: none;
+  transition: var(--transition-control);
+}
+.avatar-menu__item:hover {
+  background: var(--surface-sunken);
+}
+.avatar-menu__item[aria-current="page"] {
+  background: var(--brand-tint);
+  color: var(--text-accent);
+}
+.avatar-menu__item .ph-fill {
+  font-size: var(--icon-size-md);
+}
+/* Sign out is the shared ghost button; in the menu it is a row like Account — the same height,
+   its glyph on Account's column, no outline of its own. */
+.avatar-menu__signout > .btn {
+  justify-content: flex-start;
+  min-height: var(--control-md);
+  padding-inline: var(--space-3);
+  border-color: transparent;
+  color: var(--text-primary);
+  font-weight: var(--weight-medium);
+}
+.avatar-menu__signout > .btn .ph-fill {
+  font-size: var(--icon-size-md);
+}
+
+/* ---- the Ctrl/⌘K palette ------------------------------------------------------------------ */
+
+.jump {
+  inline-size: min(36rem, calc(100vw - 2 * var(--space-4)));
+  max-block-size: calc(100dvh - 2 * var(--space-9));
+  margin: var(--space-11) auto auto;
+  padding: 0;
+  border: var(--border-hairline) solid var(--divider);
+  border-radius: var(--radius-xl);
+  background: var(--surface-card);
+  color: var(--text-primary);
+  box-shadow: var(--shadow-xl);
+}
+.jump[open] {
+  animation: jump-in calc(var(--duration-instant) * 2) var(--ease-enter);
+}
+.jump::backdrop {
+  background: var(--scrim);
+}
+.jump[open]::backdrop {
+  animation: jump-fade calc(var(--duration-instant) * 2) var(--ease-enter);
+}
+@keyframes jump-in {
+  from {
+    opacity: 0;
+    transform: translateY(calc(-1 * var(--space-2)));
+  }
+}
+@keyframes jump-fade {
+  from {
+    opacity: 0;
+  }
+}
+.jump__panel {
+  display: grid;
+}
+/* The field shows its own focus: a structural-navy rule under it, for the input inside — and,
+   since forced colours drop every box-shadow, a transparent outline they repaint. */
+.jump__field {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-4);
+  border-block-end: var(--border-hairline) solid var(--divider);
+}
+.jump__field:focus-within {
+  outline: var(--border-bold) solid transparent;
+  outline-offset: calc(-1 * var(--border-bold));
+  box-shadow: inset 0 calc(-1 * var(--border-bold)) 0 var(--focus-ring);
+}
+.jump__icon {
+  flex: none;
+  font-size: var(--icon-size-md);
+  color: var(--icon-secondary);
+}
+.jump__input {
+  flex: 1;
+  min-width: 0;
+  min-height: var(--control-md);
+  border: 0;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--text-md);
+}
+.jump__input:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+.jump__list {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+  padding: var(--space-2);
+  list-style: none;
+}
+.jump__list:empty {
+  display: none;
+}
+/* The highlight is the selected tint with the accent spine. It MOVES INSTANTLY: no transition
+   on an option, ever (A6). */
+.jump__option {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: var(--control-md);
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+.jump__option[aria-selected="true"] {
+  background: var(--brand-tint);
+  box-shadow: inset var(--border-spine) 0 0 0 var(--brand);
+  color: var(--text-accent);
+}
+.jump__option-icon {
+  flex: none;
+  font-size: var(--icon-size-md);
+}
+.jump__option-label {
+  flex: 1;
+  font-weight: var(--weight-semibold);
+}
+.jump__option-id {
+  color: var(--text-secondary);
+}
+.jump__hint {
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--ui-body-sm-size);
+  color: var(--text-secondary);
+}
+
+/* ---- small screens and touch -------------------------------------------------------------- */
+
+@media (max-width: 600px), (pointer: coarse) {
+  /* A group toggle is a target like a drawer row: 44px on a phone or a coarse pointer. */
+  .sidebar__grouptoggle {
+    min-height: var(--control-md);
+  }
+}
+@media (max-width: 600px) {
+  /* On a phone the topbar's right-hand side is glyphs: the jump button a 44px square, the avatar
+     disc without its role or caret — their names stay (aria-label) — so the crumb keeps room. */
+  .topbar {
+    gap: var(--space-2);
+  }
+  .topbar__spacer {
+    display: none;
+  }
+  .crumbs {
+    flex: 1 1 auto;
+  }
+  .topbar__jump-label,
+  .topbar__jump > .topbar__kbd,
+  .avatar-menu__role,
+  .avatar-menu__caret {
+    display: none;
+  }
+  .topbar__jump {
+    inline-size: var(--control-md);
+    min-height: var(--control-md);
+    padding-inline: 0;
+    justify-content: center;
+  }
+  .avatar-menu__trigger {
+    padding: var(--space-1);
+  }
+}
+@media (max-width: 1023px) {
+  /* The shortcut hint is a keyboard's; below the drawer breakpoint the button says it alone. */
+  .topbar__jump > .topbar__kbd {
+    display: none;
+  }
+}
+
+/* ══ A7 (#2577) — CANDIDATES: the candidate drawer — its tabs, field rows with their source
+   tags, the locked fields, the skeleton, and the record's content fade ══
+   ONE block, appended after A6's, so the parallel admin lanes rebase over it trivially. Brand
+   tokens only, no new colours. Motion is opacity and transform only and every duration is a
+   token, so tokens.css zeroes all of it under prefers-reduced-motion:
+     drawer        slides in from the right over 220ms   A5's Drawer (`.overlay--drawer`), unchanged
+     a move        the content fades in over 140ms, the panel stays put (no slide)   --duration-fast
+     skeleton      one 1.4s sheen sweep, repeated while loading — a progress indicator, the one
+                   motion allowed to loop   --duration-shimmer */
+
+/* ---- the drawer's body: the sticky tab row, then the record ------------------------------- */
+
+.cdrawer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+}
+/* The tab row stays at the top of the drawer's scroller, on the card surface, so the content
+   scrolling under it never shows through. */
+.cdrawer__tabbar {
+  position: sticky;
+  inset-block-start: 0;
+  z-index: 1;
+  padding-block: var(--space-1);
+  background: var(--surface-card);
+}
+.cdrawer__tabs {
+  max-inline-size: 100%;
+}
+/* A move remounts the view (keyed by the record): it fades in, and nothing travels. */
+.cdrawer__view {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+  animation: cdrawer-content-in var(--duration-fast) var(--ease-enter) both;
+}
+@keyframes cdrawer-content-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.cdrawer__panel[hidden] {
+  display: none;
+}
+.cdrawer__panel:focus-visible {
+  border-radius: var(--radius-sm);
+}
+/* The description line: the trade and city, then the short id. */
+.cdrawer__sub {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+/* A value in the drawer wraps between words; `.kv__v`'s break-all is for ids and hashes. */
+.cdrawer .kv__v {
+  word-break: normal;
+  overflow-wrap: anywhere;
+}
+
+/* ---- the footer: Previous · position · Next, then Open full page ------------------------- */
+
+.cdrawer__nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-inline-end: auto;
+}
+.cdrawer__pos {
+  font-size: var(--ui-caption-size);
+  line-height: var(--ui-caption-leading);
+  color: var(--text-secondary);
+}
+
+/* ---- one field: its value, a lock when it is locked, and where it came from -------------- */
+
+.cfield {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  max-inline-size: 100%;
+}
+.cfield__value {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.cfield__value > .chips {
+  gap: var(--space-1);
+}
+/* The console's muted text carries a leading gap, for a note trailing a table cell's value. In the
+   drawer a muted value IS the value (a dash, "Hidden", "Hidden for your role"), so it starts where
+   every other value starts. */
+.cdrawer .table__meta {
+  margin-left: 0;
+}
+.cfield__note {
+  flex: 1 0 100%;
+  font-size: var(--ui-caption-size);
+  line-height: var(--ui-caption-leading);
+  color: var(--text-muted);
+}
+/* The source tag: small, quiet, on the hairline — read after the value, never before it. */
+.source-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 var(--space-2);
+  border: var(--border-hairline) solid var(--divider);
+  border-radius: var(--radius-pill);
+  font-size: var(--ui-caption-size);
+  line-height: var(--ui-caption-leading);
+  font-weight: var(--weight-medium);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+/* The lock: a solid lock-key glyph and "Locked", the reason in the shared tooltip on hover and
+   keyboard focus. Positioned, because the tooltip is placed against it. */
+.lock-tag {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-pill);
+  background: var(--surface-sunken);
+  font-size: var(--ui-caption-size);
+  line-height: var(--ui-caption-leading);
+  font-weight: var(--weight-semibold);
+  color: var(--text-heading);
+  cursor: help;
+}
+.lock-tag > .ph-fill {
+  font-size: var(--icon-size-sm);
+}
+/* A reason is a sentence: it wraps inside a bounded tooltip instead of running off the drawer. */
+.lock-tag > .bb-icon-tip {
+  inline-size: max-content;
+  max-inline-size: min(20rem, 70vw);
+  white-space: normal;
+  text-align: start;
+}
+
+/* ---- work history: one card per employer, its roles under it ------------------------------ */
+
+.cjobs,
+.cjob__roles {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.cjob {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border: var(--border-hairline) solid var(--divider);
+  border-radius: var(--radius-md);
+}
+.cjob__head,
+.cjob__role-head,
+.cjob__words {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.cjob__role {
+  display: grid;
+  gap: var(--space-1);
+  padding-inline-start: var(--space-3);
+  border-inline-start: var(--border-hairline) solid var(--divider);
+}
+
+/* ---- the loading state: the shape of a record, swept by one sheen ------------------------- */
+
+.cdrawer__skeleton {
+  display: grid;
+  gap: var(--space-6);
+}
+.cdrawer__skeleton-group {
+  display: grid;
+  gap: var(--space-3);
+}
+.cdrawer__skeleton-row {
+  display: grid;
+  grid-template-columns: minmax(8rem, 12rem) 1fr;
+  gap: var(--space-5);
+}
+.skeleton {
+  position: relative;
+  display: block;
+  overflow: hidden;
+  block-size: var(--space-4);
+  border-radius: var(--radius-sm);
+  background: var(--skeleton-base);
+}
+.skeleton--title {
+  inline-size: 30%;
+  block-size: var(--space-5);
+}
+.skeleton--label {
+  inline-size: 70%;
+}
+.skeleton--value {
+  inline-size: 55%;
+}
+/* The sheen: a band of the card surface swept across by transform, 1.4s a sweep. */
+.skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, var(--skeleton-sheen), transparent);
+  transform: translateX(-100%);
+  animation: skeleton-sheen var(--duration-shimmer) var(--ease-in-out) infinite;
+}
+@keyframes skeleton-sheen {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+/* Reduced motion: the token is already 0ms; the sheen is also taken away, so the placeholder
+   holds still as a plain block rather than flickering through a zero-length loop. */
+@media (prefers-reduced-motion: reduce) {
+  .skeleton::after {
+    animation: none;
+  }
+}
+
+/* ---- small screens ------------------------------------------------------------------------- */
+
+@media (max-width: 600px) {
+  /* Seven tabs wrapped to three sticky lines on a phone — a quarter of the screen. One line that
+     scrolls sideways instead; a tab focused by ←/→ scrolls itself into view. */
+  .cdrawer__tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+  }
+  .cdrawer__tabs > .btn {
+    flex: none;
+  }
+  .cdrawer__skeleton-row {
+    grid-template-columns: 1fr;
+    gap: var(--space-2);
   }
 }

@@ -218,35 +218,62 @@ export const COMPLETION_REASONS = [
 export type CompletionReason = (typeof COMPLETION_REASONS)[number];
 
 /**
- * Middle-Way C2 (P3a): the 8 required slots per trade — Trade, Machine/Software,
- * Years, Level, Second detail (controller), Location, Salary, Availability.
+ * CEO Launch Plan Pack v1 (RULED 2026-11-02): Easy = Q1–Q5 closes the interview.
+ * Trade (Q1), location (Q4) and availability (Q5) live on the universal pack and
+ * are shared keys, so this one list covers every trade below; years (Q2) and
+ * level (Q3) come from the trade's own pack. Machine, controller and salary are
+ * Medium — asked, never required.
  *
- * Trade + Location + Salary + Availability live on the universal pack and are
- * shared keys, so one list covers all four trades for those four slots.
+ * Grinding was the last pack on the v1 8-slot shape (Trade, Machine, Years,
+ * Level, Controller, Location, Salary, Availability); its Phase 2 #2 retag
+ * retired that shape, and with it the per-pack universal lists.
  * "Nahi pata" counts as done: {@link isSettled} treats declined as settled.
  */
-const UNIVERSAL_REQUIRED_KEYS = [
-  "primary_trade",
-  "current_city",
-  "salary_expected",
-  "availability",
-] as const;
+const EASY_UNIVERSAL_REQUIRED_KEYS = ["primary_trade", "current_city", "availability"] as const;
 
 const TRADE_REQUIRED_KEYS: Readonly<Record<string, readonly string[]>> = {
-  qp_cnc_turning: ["turning_machine", "turning_experience", "turning_level", "controller_brand"],
-  qp_vmc_milling: ["milling_machine", "milling_experience", "milling_level", "controller_brand"],
-  qp_cnc_grinding: [
-    "grinding_machine",
-    "grinding_experience",
-    "grinding_level",
-    "controller_brand",
-  ],
-  qp_cam_programming: [
-    "cam_software",
-    "programming_experience",
-    "cam_level",
-    "controller_brand",
-  ],
+  // CEO Launch Pack v1 (RULED 2026-11-02): Turner Easy Q2–Q3 (Track A #1),
+  // VMC Easy Q2–Q3 (Track A #2), CAM Easy Q2–Q3 (Track A #3), 3D Easy Q2–Q3
+  // (Track A #4), 2D Easy Q2–Q3 (Track A #5), Fitter Easy Q2–Q3 (Track B #1),
+  // Electrician Easy Q2–Q3 (Track B #2), Conventional Easy Q2–Q3 (Track B #4),
+  // Sheet-metal Easy Q2–Q3 (Track B #5), Assembly Easy Q2–Q3 (Track B #6),
+  // QC Easy Q2–Q3 (Track B #7), Tool-room Easy Q2–Q3 (Phase 2 #1), Grinding
+  // Easy Q2–Q3 (Phase 2 #2), Press-shop Easy Q2–Q3 (Phase 2 #3; the first time
+  // this pack is a Middle-Way pack at all), Painter/coating Easy Q2–Q3 (Phase 2
+  // #4, likewise new). Machine/software/controller moved to Medium
+  // (Q6–Q7) — asked, never required. The one exception is the welder's
+  // process, a required Medium chip by ruling (sheet 8, Rules Q14).
+  qp_cnc_turning: ["turning_experience", "turning_level"],
+  qp_vmc_milling: ["milling_experience", "milling_level"],
+  qp_cam_programming: ["programming_experience", "cam_level"],
+  qp_cad_design_3d: ["design_experience", "design_level"],
+  qp_cad_drafting: ["drafting_experience", "cad_level"],
+  qp_fitter: ["fitting_experience", "fitter_level"],
+  qp_industrial_electrician: ["electrical_experience", "electrician_level"],
+  // Track B #3 — welding_process is REQUIRED in Medium.
+  qp_welding_trade: ["welding_experience", "welder_level", "welding_process"],
+  qp_conventional_machining: ["machining_experience", "machining_level"],
+  qp_sheet_metal_fab: ["sheet_metal_experience", "sheet_metal_level"],
+  qp_assembly_line: ["assembly_experience", "assembly_level"],
+  qp_quality_inspection: ["inspection_experience", "inspection_level"],
+  qp_tool_die_making: ["toolroom_experience", "toolroom_level"],
+  qp_cnc_grinding: ["grinding_experience", "grinding_level"],
+  qp_press_operation: ["press_experience", "press_level"],
+  qp_powder_coating: ["coating_experience", "coating_level"],
+  // Phase 2 #5 — maintenance Easy Q2–Q3; like press, new to the Middle-Way set.
+  qp_maintenance_tech: ["maintenance_experience", "maintenance_level"],
+  // Phase 2 #6 — PLC Easy Q2–Q3; a new trade.
+  qp_plc_automation: ["plc_experience", "plc_level"],
+  // Phase 2 #7 — EDM Easy Q2–Q3; a new trade.
+  qp_edm_wirecut: ["edm_experience", "edm_level"],
+  // Phase 2 #8 — heat treatment Easy Q2–Q3; a new trade.
+  qp_heat_treatment: ["heat_experience", "heat_level"],
+  // Phase 2 #9 — Injection moulding Easy Q2–Q3; the first pack for the declared kind.
+  qp_injection_moulding: ["moulding_experience", "moulding_level"],
+  // Phase 2 #10 — Production Supervisor Easy Q2–Q3; a new cross-trade trade.
+  qp_production_supervisor: ["supervision_experience", "supervision_level"],
+  // Phase 2 #11 — foundry / forging Easy Q2–Q3; a new trade.
+  qp_foundry_forging: ["foundry_experience", "foundry_level"],
 };
 
 /** True when every required slot for this occupation pack is settled. */
@@ -257,7 +284,7 @@ export function requiredSlotsSettled(
   if (occupationPackId === null) return false;
   const tradeKeys = TRADE_REQUIRED_KEYS[occupationPackId];
   if (tradeKeys === undefined) return false;
-  return [...UNIVERSAL_REQUIRED_KEYS, ...tradeKeys].every((key) => isSettled(answers, key));
+  return [...EASY_UNIVERSAL_REQUIRED_KEYS, ...tradeKeys].every((key) => isSettled(answers, key));
 }
 
 /** True when the pack is one of the Middle-Way v2+ trades (P3b caps apply). */
@@ -649,7 +676,7 @@ export const HARDSHIP_REPLY_TEXTS = [
 /** Served when the interview ends normally. */
 export const CLOSING_REPLY_TEXT = "Aapki baat poori ho chuki hai. Profile taiyaar ho rahi hai.";
 
-/** Served when the 8 required slots are done (Middle-Way C2 stop rule, P3a). */
+/** Served when the trade's required slots (Easy Q1–Q5) are done (Middle-Way C2 stop rule, P3a). */
 export const REQUIRED_COMPLETE_REPLY_TEXT = "Bas ho gaya. Resume ban raha hai.";
 
 /** The close copy for a completion reason — the required-complete line when P3a fired. */

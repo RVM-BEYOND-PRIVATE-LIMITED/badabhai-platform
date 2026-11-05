@@ -1,7 +1,11 @@
 "use client";
 
 import type { ReactNode } from "react";
-import type { AgencyJob, MatchSkillWire } from "../../../../../../lib/contracts";
+import type {
+  AgencyJob,
+  MatchSkillWire,
+  PostingTradeFormWire,
+} from "../../../../../../lib/contracts";
 import { usePortalNavigation } from "../../../../../../components/portal-navigation";
 import { AgencyJobForm } from "../../../dashboard/agency-job-form";
 import { updateAgencyJobAction } from "../../../dashboard/jobs-actions";
@@ -22,10 +26,12 @@ import { updateAgencyJobAction } from "../../../dashboard/jobs-actions";
 export function EditAgencyPosting({
   job,
   matchSkills,
+  postingTrades,
   lead,
 }: {
   job: AgencyJob;
   matchSkills: MatchSkillWire[];
+  postingTrades?: PostingTradeFormWire[];
   lead: ReactNode;
 }) {
   const { navigate } = usePortalNavigation();
@@ -35,6 +41,7 @@ export function EditAgencyPosting({
       mode="edit"
       job={job}
       matchSkills={matchSkills}
+      postingTrades={postingTrades}
       lead={lead}
       submitLabel="Save changes"
       onCancel={() => navigate(detailHref, { pendingLabel: job.title })}

@@ -492,6 +492,9 @@ export const EVENT_REGISTRY = {
   // The test-login seam mints a session WITHOUT an OTP verification — a distinct event so a
   // synthetic session is never indistinguishable from a real login on the spine (Phase 2.1).
   "payer.test_login": { version: 1, domain: "payer", payload: p.PayerTestLoginPayload },
+  // #2563 — the payer set their OWN password (Settings, or the forced change on first sign-in).
+  // FACELESS: payer_id only. Admin issue/revoke are `admin.action_performed` codes instead.
+  "payer.password_set": { version: 1, domain: "payer", payload: p.PayerPasswordSetPayload },
   // Payer LIFECYCLE transitions (ADR-0037): pending → active on first successful OTP
   // verification, and the admin suspend/reinstate pair. FACELESS: opaque payer_id + the
   // two closed status enums. These are additive and v1; `admin.action_performed` still
@@ -800,6 +803,13 @@ export const EVENT_REGISTRY = {
     version: 1,
     domain: "job_posting",
     payload: p.JobPostingReachAlertPayload,
+  },
+  // #2635 — the server dropped requested match skills a 16-trade job's trade does not own.
+  // Emitted only when something was dropped. IDS ONLY. v1.
+  "job_posting.match_skills_scoped": {
+    version: 1,
+    domain: "job_posting",
+    payload: p.JobPostingMatchSkillsScopedPayload,
   },
   // POLICY 27 — an ops human WIDENED a reach set. Narrowing is structurally
   // impossible on that path (the service appends, never removes). v1.
@@ -1506,6 +1516,45 @@ export const EVENT_REGISTRY = {
     version: 1,
     domain: "profile",
     payload: p.ProfilingFieldEditCancelledPayload,
+  },
+
+  // OWNER RULINGS 2026-11-03 (ADR-0040, phase E2) — one page of the payer's ALL-CANDIDATES search
+  // (POST /payer/candidates/search): the SHAPE of the search (closed role ids, which filters were
+  // engaged, strict, the three counts), never a worker id and never the city. A NEW event — not a
+  // reused feed.shown (a search page is not a feed impression; E2_BUILD). Appended at the tail per
+  // protocol. v1.
+  "payer.candidate_search_performed": {
+    version: 1,
+    domain: "payer",
+    payload: p.PayerCandidateSearchPerformedPayload,
+  },
+
+  // #2541 (CEO pack v1 A4 #9) — the worker's 18+ answer at sign-up (POST /consent/accept). A NEW
+  // name: `consent.accepted` v1 is not mutated, and an under-18 answer writes no consent row at
+  // all, so it could never ride that event. Appended at the tail per protocol. v1.
+  "consent.age_declared": {
+    version: 1,
+    domain: "consent",
+    payload: p.ConsentAgeDeclaredPayload,
+  },
+  // 2026-11-04 (E4 items 6-7) — an existing worker opted in to the approved employer-sharing
+  // notice: a NEW consent row adding `employer_sharing` + `employer_messaging`. The mirror of
+  // `consent.purposes_withdrawn`; distinct from `consent.accepted` (onboarding), so the funnel
+  // never counts a re-grant as a new worker. Appended at the tail per protocol. v1.
+  "consent.purposes_granted": {
+    version: 1,
+    domain: "consent",
+    payload: p.ConsentPurposesGrantedPayload,
+  },
+
+  // ADR-0062 §3.9 (#2560) — an admin opened one candidate's full-detail record
+  // (GET /admin/candidates/:id). Emitted after the 404 and BEFORE any data is read or a name is
+  // decrypted, awaited and fail-closed, like `admin.worker_journey_viewed`. Subject is the worker.
+  // PII-free: the opaque admin and worker ids ONLY. Appended at the tail per protocol. v1.
+  "admin.candidate_viewed": {
+    version: 1,
+    domain: "admin",
+    payload: p.AdminCandidateViewedPayload,
   },
 } as const satisfies Record<string, EventDefinition>;
 

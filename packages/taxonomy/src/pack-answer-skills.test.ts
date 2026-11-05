@@ -62,14 +62,26 @@ describe("pack-answer bridge — every id rides an existing bridge or is a pack-
     expect(bypassing).toEqual([]);
   });
 
-  it("names exactly the eight pack-only skills the owner minted for #2022", () => {
+  it("names exactly the eight pack-only skills the owner minted for #2022, plus the PLC trade", () => {
     expect(packAnswerIdsEmitted().filter((id) => id.startsWith("mskill_"))).toEqual([
       "mskill_assembly_line_worker",
       "mskill_conventional_machinist",
+      // Phase 2 #7: the new EDM trade's own ID.
+      "mskill_edm_wirecut_operator",
+      // Phase 2 #11: the new foundry / forging trade's own ID.
+      "mskill_foundry_forging_operator",
+      // Phase 2 #8: the new heat-treatment trade's own ID.
+      "mskill_heat_treatment_tech",
+      // Phase 2 #9: the new injection-moulding trade's own ID.
+      "mskill_imm_operator",
       "mskill_industrial_electrician",
       "mskill_maintenance_technician",
       "mskill_painter_coater",
+      // Phase 2 #6: the new PLC trade's own ID, pack-only like the #2022 mints.
+      "mskill_plc_automation_tech",
       "mskill_press_operator",
+      // Phase 2 #10: the new production supervisor's own ID.
+      "mskill_production_supervisor",
       "mskill_sheet_metal_worker",
       "mskill_tool_die_maker",
     ]);
@@ -129,6 +141,9 @@ describe("the reachable set per pack — pinned exactly", () => {
     // designer; 2D chips stay on the (relabeled) 2D ID. Reach widening, written here
     // explicitly per this table's contract.
     qp_cad_drafting: ["mskill_3d_designer", "mskill_designer"],
+    // CEO Launch Plan Pack v1, Track A #4: the new trade's software answers derive
+    // its permanent ID directly (role bridge); the E0 ID stays reachable via pairing.
+    qp_cad_design_3d: ["mskill_cad_designer_3d"],
     qp_welding_trade: ["mskill_arc_welder", "mskill_mig_welder", "mskill_tig_welder"],
     qp_fitter: ["mskill_fitter"],
     qp_quality_inspection: ["mskill_quality_inspector"],
@@ -142,6 +157,18 @@ describe("the reachable set per pack — pinned exactly", () => {
     qp_press_operation: ["mskill_press_operator"],
     qp_powder_coating: ["mskill_painter_coater"],
     qp_maintenance_tech: ["mskill_maintenance_technician"],
+    // Phase 2 #6: a named PLC or a programming/HMI/drive task reaches the new trade.
+    qp_plc_automation: ["mskill_plc_automation_tech"],
+    // Phase 2 #7: a named EDM machine reaches the new trade.
+    qp_edm_wirecut: ["mskill_edm_wirecut_operator"],
+    // Phase 2 #8: a named heat-treatment process reaches the new trade.
+    qp_heat_treatment: ["mskill_heat_treatment_tech"],
+    // Phase 2 #11: a named casting or forging process reaches the new trade.
+    qp_foundry_forging: ["mskill_foundry_forging_operator"],
+    // Phase 2 #9: a named moulding-machine brand reaches the new trade.
+    qp_injection_moulding: ["mskill_imm_operator"],
+    // Phase 2 #10: a named production department reaches the new trade.
+    qp_production_supervisor: ["mskill_production_supervisor"],
     qp_industrial_electrician: ["mskill_industrial_electrician"],
     qp_assembly_line: ["mskill_assembly_line_worker"],
   };

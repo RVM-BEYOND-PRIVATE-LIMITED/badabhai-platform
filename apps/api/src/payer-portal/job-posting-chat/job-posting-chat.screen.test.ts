@@ -264,7 +264,7 @@ describe("FIELD_POLICY mirrors the ai-service bank and engine (read from Python 
   );
 
   it("found the real bank and the real essentials, not an empty parse", () => {
-    expect(ids).toHaveLength(13);
+    expect(ids).toHaveLength(14);
     expect(essentials).toEqual(["role_title", "location_label", "city", "vacancy"]);
     expect(topic("benefits")?.question).toMatch(/^Which benefits/);
     expect(topic("vacancy")?.options).toEqual(["1", "2-5", "6-10", "11-25", "25+"]);

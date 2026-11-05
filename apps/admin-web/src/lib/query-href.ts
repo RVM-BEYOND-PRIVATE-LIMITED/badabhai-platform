@@ -1,6 +1,6 @@
 /**
  * A list route with its query string: every SET value, in the order given, `undefined` and empty
- * values dropped — `/workers` when nothing is set, never `/workers?`.
+ * values dropped — `/candidates` when nothing is set, never `/candidates?`.
  *
  * The one way a list page writes "the current query" for its recoveries (Retry, Back to the first
  * page). Pass the active filters WITHOUT the page cursor: `RetryActions` adds the cursor back for

@@ -255,11 +255,14 @@ def test_the_wrap_up_topic_is_the_bank_last_must_ask_topic():
 # --- The engine reads a re-ask-shaped state the way the TS assumes ------------
 
 # Every topic but the title and the description, as asked in a full interview (the opener
-# asks the title). The same list the TS screen suite uses.
+# asks the title). The same list the TS screen suite uses. `area` sits where the
+# engine serves it: core, right after `skills` — usually answered by derivation, and
+# declined here, which is why no collected value rides with it.
 _ASKED_TO_REQUIREMENTS = [
     "location_label",
     "vacancy",
     "skills",
+    "area",
     "pay_range",
     "pay_type",
     "experience",
@@ -444,6 +447,7 @@ _ANSWERED_TO_NEEDED_BY = [
     "city",
     "vacancy",
     "skills",
+    "area",
     "pay_range",
     "pay_type",
     "experience",

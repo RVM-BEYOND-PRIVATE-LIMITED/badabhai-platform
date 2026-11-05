@@ -5,6 +5,8 @@ import { usePathname } from "next/navigation";
 import { Icon } from "@badabhai/icons";
 import { PortalLink } from "../../components/portal-link";
 import { isNavItemActive, type NavSection } from "./nav-model";
+import { railMarkerRef } from "./rail-marker";
+import { RailPress, useMarkedPath } from "./rail-press";
 
 /**
  * The portal's primary navigation (IA-1) — a CLIENT wrapper that adds the active-route
@@ -19,10 +21,17 @@ import { isNavItemActive, type NavSection } from "./nav-model";
  * session (nav-model.ts: the nav follows the page gate), so there is no disabled state to draw;
  * a PARKED item is a real page that explains what is not built, badged "Soon".
  *
- * THE SELECTED PLATE SLIDES. One absolutely-positioned Safety Yellow plate is measured to the
- * active row and animates to the next one on a route change, so switching destinations reads as
- * one continuous move instead of a colour blink on two rows. The plate is the fill; the active
- * row only owns the navy text/icon (9.39:1 on the yellow).
+ * THE ACTIVE ROW IS PAINTED IN PLACE. The Safety Yellow plate is the active row's own CSS
+ * background (`.pnav__link--active` in globals.css), keyed off the class this component renders
+ * on the server — so the selected item is readable before scripts load (or with JS disabled)
+ * and never slides in from the top on first paint (W2 #2582).
+ *
+ * …AND IT MOVES ON THE PRESS (W6 #2586). The active row is the row the rail marks: the destination
+ * of a press whose navigation is under way, or else the page that is open (rail-press.tsx, whose
+ * scope AppShell puts around the rail). Each row reports its own press; so does the brand lockup.
+ * Once scripts run, one marker carries the plate there in a 320ms glide, and each label takes the
+ * active ink only once the plate is under it (rail-marker.ts). `aria-current` stays on the page
+ * that is actually open, because a pending press is not the current page.
  */
 /** Measure before paint on the client; fall back to useEffect during SSR (no warning). */
 const useIsomorphicLayoutEffect =
@@ -30,60 +39,25 @@ const useIsomorphicLayoutEffect =
 
 export function SidebarNav({ sections }: { sections: NavSection[] }) {
   const pathname = usePathname();
-  const navRef = useRef<HTMLElement>(null);
-  const [plate, setPlate] = useState<{ top: number; height: number } | null>(null);
-
-  useIsomorphicLayoutEffect(() => {
-    const nav = navRef.current;
-    if (nav === null) return undefined;
-
-    const measure = () => {
-      const active = nav.querySelector<HTMLElement>(".pnav__link--active");
-      if (active === null) {
-        setPlate(null);
-        return;
-      }
-      const navBox = nav.getBoundingClientRect();
-      const rowBox = active.getBoundingClientRect();
-      setPlate({ top: rowBox.top - navBox.top, height: rowBox.height });
-    };
-
-    measure();
-    const observer =
-      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
-    observer?.observe(nav);
-    window.addEventListener("resize", measure);
-    return () => {
-      observer?.disconnect();
-      window.removeEventListener("resize", measure);
-    };
-  }, [pathname, sections]);
+  const markedPath = useMarkedPath() ?? pathname;
 
   return (
-    <nav className="pnav" aria-label="Primary" ref={navRef}>
-      <span
-        className="pnav__plate"
-        aria-hidden="true"
-        style={{
-          transform: plate === null ? undefined : `translateY(${plate.top}px)`,
-          height: plate === null ? undefined : `${plate.height}px`,
-          opacity: plate === null ? 0 : 1,
-        }}
-      />
+    <nav className="pnav" aria-label="Primary" ref={(el) => railMarkerRef(el)}>
       {sections.map((section, i) => (
         <div className="pnav__group" key={section.title ?? `lead-${i}`}>
           {section.title ? <h2 className="pnav__grouptitle">{section.title}</h2> : null}
           <ul className="pnav__list">
             {section.items.map((item) => {
-              const active = isNavItemActive(item.match, pathname);
+              const marked = isNavItemActive(item.match, markedPath);
+              const onPage = isNavItemActive(item.match, pathname);
               return (
                 <li key={item.href}>
                   {/* The navigation this row starts shows the pending cue (components/portal-link.tsx). */}
                   <PortalLink
-                    className={`pnav__link${active ? " pnav__link--active" : ""}`}
+                    className={`pnav__link${marked ? " pnav__link--active" : ""}`}
                     href={item.href}
                     pendingLabel={item.label}
-                    aria-current={active ? "page" : undefined}
+                    aria-current={onPage ? "page" : undefined}
                     title={item.description ? `${item.label} — ${item.description}` : item.label}
                   >
                     <Icon name={item.icon} className="pnav__icon" />
@@ -91,6 +65,7 @@ export function SidebarNav({ sections }: { sections: NavSection[] }) {
                     {/* PARKED — reachable, but the page it opens explains rather than does.
                         Badged so the rail sets the right expectation before the click. */}
                     {item.parked ? <span className="pnav__soon">Soon</span> : null}
+                    <RailPress href={item.href} />
                   </PortalLink>
                 </li>
               );
@@ -98,6 +73,11 @@ export function SidebarNav({ sections }: { sections: NavSection[] }) {
           </ul>
         </div>
       ))}
+      {/* The gliding plate, not drawn until rail-marker.ts has placed it (globals.css, W6 block).
+          It comes AFTER the groups so that their entrance stagger (`.pnav__group:nth-child`)
+          still counts groups from the first one. It is drawn behind every row by z-index, not by
+          source order. */}
+      <span className="pnav__marker" aria-hidden="true" />
     </nav>
   );
 }

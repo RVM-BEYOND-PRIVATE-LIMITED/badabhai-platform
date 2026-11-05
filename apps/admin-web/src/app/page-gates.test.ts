@@ -357,11 +357,9 @@ describe("every page is gated on every capability its reads need (or degrades th
 });
 
 describe("the two pages #1900 found", () => {
-  it("the company and agency timelines gate on BOTH reads", () => {
-    for (const kind of ["companies", "agencies"]) {
-      const a = analysePage(join(PORTAL, kind, "[id]", "timeline", "page.tsx"), lib);
-      expect([...a.gates].sort()).toEqual(["read_entities", "read_events"]);
-    }
+  it("the customer timeline (a Company's or an Agency's, one route since A6) gates on BOTH reads", () => {
+    const a = analysePage(join(PORTAL, "companies", "[id]", "timeline", "page.tsx"), lib);
+    expect([...a.gates].sort()).toEqual(["read_entities", "read_events"]);
   });
 
   it("/roles degrades the matrix read explicitly rather than gating the page", () => {

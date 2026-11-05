@@ -94,6 +94,7 @@ function candidates(postingId: string): MatchCandidateListDto {
         matchedSkillLabel: null,
         engineVersion: null,
         tradeLevels: [],
+        levelFit: null,
       },
     ],
   };
@@ -168,6 +169,7 @@ function make(
     {} as never,
     {} as never,
     {} as never,
+    {} as never, // PostingTradesService
     tenancy,
   );
   const getOneInScope = vi.spyOn(jobPostings, "getOneInScope");

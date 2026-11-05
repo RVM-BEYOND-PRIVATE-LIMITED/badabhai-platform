@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { AiCostSummary } from "../lib/dashboard";
-import { AiSpendPanel } from "./ai-spend-panel";
+import { AiSpendPanel, realCallsText } from "./ai-spend-panel";
+import { SECTION, childTags } from "../../test/panel-markup";
 
 /**
  * What the AI-spend panel actually RENDERS.
@@ -36,9 +37,21 @@ const html = (el: React.ReactElement) => renderToStaticMarkup(el);
  * correctly, and every assertion built on it would keep passing.
  */
 const statValues = (out: string) =>
-  [...out.matchAll(/<span class="stat__value[^"]*">([^<]*)<\/span>/g)].map((m) => m[1]!);
+  [
+    ...out.matchAll(
+      // A count-up tile (#2572) wraps its figure in `<span class="countup">`; the server text
+      // inside is still the exact figure the tile lands on.
+      /<span class="stat__value[^"]*"(?: title="[^"]*")?>(?:<span class="countup">)?([^<]*)<\/span>/g,
+    ),
+  ].map(
+    (m) => m[1]!,
+  );
 
 const rupeeTiles = (out: string) => statValues(out).filter((v) => v.includes("₹"));
+
+/** Every basis chip ("Since 17 Aug 2026"), in order — the section's, then the block's own. */
+const basisChips = (out: string) =>
+  [...out.matchAll(/<span class="spend-basis__chip">([^<]*)<\/span>/g)].map((m) => m[1]!);
 
 const COST: AiCostSummary = {
   accruing_since: "2026-08-17T01:00:00.000Z",
@@ -138,18 +151,22 @@ const COST: AiCostSummary = {
 };
 
 describe("AI spend — no ₹ figure is ever rendered without its basis", () => {
-  it("prints the accrual DATE in the TOTAL's own label", () => {
+  it("states the accrual DATE once, in the chip ABOVE the total (#2572)", () => {
     const out = html(<AiSpendPanel cost={COST} />);
     expect(out).toContain("₹23.75");
     /*
-     * ⚠ THE ASSERTION IS THE LABEL, NOT "the date appears somewhere".
+     * ⚠ THE ASSERTION IS THE CHIP, NOT "the date appears somewhere".
      *
      * The looser form survived a mutation that replaced the whole "since <date>" basis with
      * "All time": the date still appeared further down the page, on the `unknown` provider
-     * row's own `first_recorded_at`. A test that passes while the headline lies is worse than
-     * no test, since it reads as coverage. Pinning the tile LABEL is what makes it fail.
+     * row's own `first_recorded_at`. Pinning the chip's TEXT is what makes that mutation fail —
+     * and pinning its POSITION before the ₹ tile is what keeps the figure under its basis now
+     * that the date is stated once instead of in every label.
      */
-    expect(out).toContain("Spend recorded since 2026-08-17");
+    expect(basisChips(out)).toEqual(["Since 17 Aug 2026"]);
+    expect(out.indexOf("spend-basis__chip")).toBeLessThan(out.indexOf("₹23.75"));
+    // ONCE: no tile label repeats the date any more (#2572 — it used to say it three times).
+    expect(out).not.toContain("Spend recorded since");
   });
 
   it("never labels a partial figure a total", () => {
@@ -324,10 +341,13 @@ describe("AI spend — what a finished profile costs", () => {
     expect(statValues(out)).toContain("₹0.79");
   });
 
-  it("puts the window in BOTH new tile labels — neither figure travels period-less", () => {
+  it("shares the section's chip when its window is the same — no repeat (#2572)", () => {
     const out = html(<AiSpendPanel cost={COST} />);
-    expect(out).toContain("Profiling spend since 2026-08-17");
-    expect(out).toContain("Profiles completed since 2026-08-17");
+    // The block's bound equals the section's, so the one chip covers both.
+    expect(basisChips(out)).toEqual(["Since 17 Aug 2026"]);
+    expect(out).toContain("Profiling spend");
+    expect(out).toContain("Profiles completed");
+    expect(out).not.toContain("Profiling spend since");
   });
 
   it("says it is cost per finished profile INCLUDING abandoned interviews", () => {
@@ -384,7 +404,7 @@ describe("AI spend — what a finished profile costs", () => {
     expect(out).toContain("cuts both ways");
     // The EXACT bound, not just the day the tile labels carry — the same paragraph argues the
     // skew is material over a window this short, and then must not round the bound away.
-    expect(out).toContain("2026-08-17 01:00:00Z");
+    expect(out).toContain("17 Aug 2026, 06:30 IST");
   });
 
   it("discloses that DPDP erasure biases the average upward and never washes out", () => {
@@ -468,15 +488,15 @@ describe("AI spend — what a finished profile costs", () => {
 
   it("WARNS only when the server contradicts itself about the bound", () => {
     const warnBanners = (out: string) => out.split("notice notice--warn").length - 1;
-    // The section ALREADY renders one warn banner (the accrual basis), so "a warn banner is
-    // present" proves nothing here — the assertion has to be that a SECOND one appeared.
-    expect(warnBanners(html(<AiSpendPanel cost={COST} />))).toBe(1);
+    // The basis is a neutral chip now (#2572), so an ordinary panel renders NO warn banner —
+    // which makes the one this test is about unambiguous.
+    expect(warnBanners(html(<AiSpendPanel cost={COST} />))).toBe(0);
 
     // A profiling bound EARLIER than the whole table's minimum is impossible for a subset of
     // the same rows, so it means the two figures did not come from one table state.
     const out = html(<AiSpendPanel cost={perProfileCost({ since: "2026-01-01T00:00:00.000Z" })} />);
     expect(out).toContain("contradicting itself");
-    expect(warnBanners(out)).toBe(2);
+    expect(warnBanners(out)).toBe(1);
   });
 
   it("does NOT warn when the SECTION starts earlier — that is the ordinary shape", () => {
@@ -490,12 +510,11 @@ describe("AI spend — what a finished profile costs", () => {
     const out = html(
       <AiSpendPanel cost={{ ...COST, accruing_since: "2026-06-01T00:00:00.000Z" }} />,
     );
-    expect(warnBanners(out)).toBe(1);
+    expect(warnBanners(out)).toBe(0);
     expect(out).toContain("start earlier");
-    // BOTH of this block's tiles still carry ITS bound, never the section's.
-    expect(out).toContain("Profiling spend since 2026-08-17");
-    expect(out).toContain("Profiles completed since 2026-08-17");
-    expect(out).not.toContain("Profiling spend since 2026-06-01");
+    // The block's tiles sit under ITS OWN chip, never the section's.
+    expect(basisChips(out)).toEqual(["Since 1 Jun 2026", "Since 17 Aug 2026"]);
+    expect(out.lastIndexOf("spend-basis__chip")).toBeLessThan(out.indexOf("₹19.75"));
   });
 
   it("never captions this bounded COUNT 'all time', even when the spend becomes lifetime", () => {
@@ -506,7 +525,8 @@ describe("AI spend — what a finished profile costs", () => {
      * the entire reason the lifetime branch is handled at all.
      */
     const out = html(<AiSpendPanel cost={{ ...COST, is_lifetime_total: true }} />);
-    expect(out).toContain("Profiles completed since 2026-08-17");
+    // The section is "All time"; the block keeps its own bounded chip under it.
+    expect(basisChips(out)).toEqual(["All time", "Since 17 Aug 2026"]);
     expect(out).not.toContain("Profiles completed all time");
     expect(out).not.toContain("Profiling spend all time");
   });
@@ -530,13 +550,16 @@ describe("AI spend — what a finished profile costs", () => {
 });
 
 describe("AI spend — the real/test split sits BESIDE the headline", () => {
-  it("renders both leg averages with exact rupees, dated from the block's own window", () => {
+  it("renders both leg averages at display precision, under the block's window", () => {
     const out = html(<AiSpendPanel cost={COST} />);
-    expect(out).toContain("Real accounts — average per profile since 2026-08-17");
-    expect(out).toContain("Test accounts — average per profile since 2026-08-17");
-    // Six-place source strings survive to the DOM, not rounded to whole rupees.
-    expect(statValues(out)).toContain("₹0.833333");
-    expect(statValues(out)).toContain("₹0.678571");
+    expect(out).toContain("Real accounts — average per profile");
+    expect(out).toContain("Test accounts — average per profile");
+    expect(out.indexOf("spend-basis__chip")).toBeLessThan(out.indexOf("Real accounts"));
+    // Two places on screen (#2572); the six-place source string survives in the hover.
+    expect(statValues(out)).toContain("₹0.83");
+    expect(out).toContain('title="₹0.833333"');
+    expect(statValues(out)).toContain("₹0.68");
+    expect(out).toContain('title="₹0.678571"');
   });
 
   it("NEVER replaces the headline average with a leg", () => {
@@ -580,7 +603,9 @@ describe("AI spend — the real/test split sits BESIDE the headline", () => {
     expect(out).toContain("No test profile finished yet");
     expect(out).toContain("stat__value--absent");
     // The real leg is still a measurement, and the headline is untouched.
-    expect(statValues(out)).toContain("₹0.833333");
+    expect(statValues(out)).toContain("₹0.83");
+    // The exact figure is one hover away, not gone (#2572).
+    expect(out).toContain('title="₹0.833333"');
     expect(statValues(out)).toContain("₹0.79");
     expect(rupeeTiles(out)).not.toContain("₹0.00");
   });
@@ -597,9 +622,155 @@ describe("AI spend — the real/test split sits BESIDE the headline", () => {
 });
 
 describe("AI spend — sub-paisa amounts are not rounded away", () => {
-  it("keeps all six places rather than collapsing to ₹0.00", () => {
+  it("shows '<₹0.01' rather than ₹0.00, with all six places kept in the hover (#2572)", () => {
     // "We spent a fraction of a paisa" and "we spent nothing" are different facts.
     const out = html(<AiSpendPanel cost={{ ...COST, total_cost_inr: "0.000012" }} />);
-    expect(out).toContain("₹0.000012");
+    expect(statValues(out)).toContain("&lt;₹0.01");
+    expect(statValues(out)).not.toContain("₹0.00");
+    expect(out).toContain('title="₹0.000012"');
+  });
+});
+
+describe("AI spend — no ₹ figure shows more than two decimals (#2572)", () => {
+  it("every rendered ₹ on the panel stops at two places; the exact value rides in a title", () => {
+    const out = html(<AiSpendPanel cost={{ ...COST, total_cost_inr: "870.765100" }} />);
+    expect(statValues(out)).toContain("₹871");
+    expect(out).toContain('title="₹870.7651"');
+    const visible = out.replace(/title="[^"]*"/g, "");
+    expect(visible).not.toMatch(/₹[\d,]+\.\d{3,}/);
+  });
+});
+
+describe("AI spend — the A2 rebuild (#2572)", () => {
+  it("shows the real-provider share as ONE neutral tile, never a warning", () => {
+    const out = html(<AiSpendPanel cost={COST} />);
+    expect(statValues(out)).toContain("146 / 156 (93%)");
+    expect(out).toContain("Real-provider calls");
+    // The old pair of tiles and its permanent yellow are gone.
+    expect(out).not.toContain("reached a real provider");
+    expect(out).not.toContain("stat stat--warn");
+  });
+
+  it("floors the share, so a posture with one mocked call never reads 100%", () => {
+    expect(realCallsText(999, 1000)).toBe("999 / 1,000 (99%)");
+    expect(realCallsText(0, 0)).toBe("0 / 0");
+  });
+
+  it("puts the method notes behind 'How this is computed'", () => {
+    const out = html(<AiSpendPanel cost={COST} />);
+    expect(out).toContain("How this is computed");
+    expect(out).not.toContain("About this data");
+  });
+
+  /** The API after #2604: the new erasure code and the deleted-accounts population. */
+  const SPINE: AiCostSummary = {
+    ...COST,
+    per_profile: {
+      ...COST.per_profile!,
+      erasure_caveat: "erasure_keeps_completed_profiles_and_spend_together",
+      test_split: {
+        ...COST.per_profile!.test_split!,
+        real_cost_inr: "13.000000",
+        real_calls: 100,
+        real_profiles: 16,
+        real_cost_per_profile_inr: "0.812500",
+        deleted_or_unattributed_cost_inr: "2.000000",
+        deleted_or_unattributed_calls: 10,
+        deleted_or_unattributed_profiles: 2,
+      },
+    },
+  };
+
+  it("renders Spend on deleted accounts as its own figure", () => {
+    const out = html(<AiSpendPanel cost={SPINE} />);
+    expect(out).toContain("Spend on deleted accounts");
+    expect(statValues(out)).toContain("₹2.00");
+    expect(out).toContain('title="₹2.00"');
+    // And the mechanics say what moved where — not the pre-#2554 drift sentence.
+    expect(out).toContain("move together into Spend on deleted accounts");
+    expect(out).not.toContain("drifts upward");
+    expect(out).toContain("never counted as real");
+  });
+
+  it("renders no deleted-accounts tile for an API older than #2604", () => {
+    const out = html(<AiSpendPanel cost={COST} />);
+    expect(out).not.toContain("Spend on deleted accounts");
+    // The older API's erasure sentence still renders for the older code.
+    expect(out).toContain("drifts upward");
+  });
+});
+
+describe("AI spend — each block is a PanelSection (A1, #2571)", () => {
+  const ROOT = '<section class="panel" aria-labelledby="ai-spend-heading">';
+  const HEAD = '<div class="panel__head">';
+
+  it("stacks the totals, the per-profile block, the two breakdowns and the breaches as sibling sections", () => {
+    // Siblings, so `.panel__section + .panel__section` sets 24px and a hairline between them.
+    expect(childTags(html(<AiSpendPanel cost={COST} />), ROOT)).toEqual([
+      HEAD,
+      SECTION,
+      SECTION,
+      SECTION,
+      SECTION,
+    ]);
+  });
+
+  it("opens the first section with the basis chip, above every figure", () => {
+    expect(childTags(html(<AiSpendPanel cost={COST} />), SECTION)).toEqual([
+      '<div class="spend-basis" role="note">',
+      '<div class="stats">',
+    ]);
+  });
+
+  it("still sets the breaches apart when nothing has accrued", () => {
+    const out = html(
+      <AiSpendPanel
+        cost={{
+          ...COST,
+          accruing_since: null,
+          total_cost_inr: "0",
+          total_calls: 0,
+          real_calls: 0,
+          by_provider: [],
+          by_task_type: [],
+          per_profile: null,
+        }}
+      />,
+    );
+    expect(childTags(out, ROOT)).toEqual([HEAD, SECTION, SECTION]);
+  });
+
+  it("lays By provider and By task type out as sections of one .cols grid", () => {
+    expect(childTags(html(<AiSpendPanel cost={COST} />), '<div class="cols">')).toEqual([
+      SECTION,
+      SECTION,
+    ]);
+  });
+
+  it("titles each sub-section with a section heading that its list still names itself by", () => {
+    const out = html(
+      <AiSpendPanel
+        cost={{
+          ...COST,
+          cap_breaches: {
+            ...COST.cap_breaches,
+            total: 1,
+            by_reason: [{ reason: "kill_switch_engaged", count: 1 }],
+          },
+        }}
+      />,
+    );
+    for (const [id, title] of [
+      ["ai-spend-per-profile", "What a finished profile costs"],
+      ["ai-spend-provider", "By provider"],
+      ["ai-spend-task", "By task type"],
+      ["ai-spend-breaches", "Spend-cap breaches"],
+    ] as const) {
+      expect(out).toContain(`<h3 class="panel__section-title" id="${id}">${title}</h3>`);
+    }
+    for (const id of ["ai-spend-provider", "ai-spend-task", "ai-spend-breaches"]) {
+      expect(out).toContain(`<ul class="funnel" aria-labelledby="${id}">`);
+    }
+    expect(out).not.toContain('<h3 class="panel__title"');
   });
 });

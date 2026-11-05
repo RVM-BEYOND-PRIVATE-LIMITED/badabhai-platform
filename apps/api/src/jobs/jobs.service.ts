@@ -6,6 +6,10 @@ import { toWorkerRoleKind } from "../common/worker-role-kind";
 import { EventsService } from "../events/events.service";
 import { WorkerSkillsRepository } from "../match/worker-skills.repository";
 import { JobsRepository } from "./jobs.repository";
+import {
+  PostingTradesService,
+  type TradeFacetDisplay,
+} from "../posting-trades/posting-trades.service";
 import type { JobSearchQueryDto } from "./jobs.dto";
 
 /**
@@ -89,6 +93,10 @@ export interface WorkerVisibleJob {
    * ruling 2026-10-05, ADR-0024 addendum). One of the 21 declared kinds or NULL. ADDITIVE.
    */
   role_kind: TradeFormKindName | null;
+  /** Migration 0141 — the trade facts the worker reads, already resolved to labels. */
+  trade_level: string | null;
+  trade_level_label: string | null;
+  trade_facets: TradeFacetDisplay[];
 }
 
 /**
@@ -110,6 +118,8 @@ export class JobsService {
     // is needed for this: MatchModule is `@Global` precisely so leaf consumers like this one
     // do not each wire an edge to it (see its header).
     private readonly workerSkills: WorkerSkillsRepository,
+    // Migration 0141 — resolves the stored rung/chips to the labels a worker reads.
+    private readonly postingTrades: PostingTradesService,
   ) {}
 
   /**
@@ -145,6 +155,11 @@ export class JobsService {
   async getWorkerVisibleJob(jobId: string): Promise<WorkerVisibleJob> {
     const row = await this.repo.findWorkerVisibleJobById(jobId);
     if (!row) throw new NotFoundException("Job not found");
+    const trade = await this.postingTrades.describeSelection(
+      row.roleKind,
+      row.tradeLevel,
+      row.tradeAnswers,
+    );
     return {
       job_id: row.id,
       trade_key: row.tradeKey,
@@ -163,6 +178,11 @@ export class JobsService {
       requirements: row.requirements,
       // Fail closed: only a declared kind or null leaves the API.
       role_kind: toWorkerRoleKind(row.roleKind),
+      // Migration 0141 — display-only trade facts. Labels resolve from the same pack the
+      // employer's form read; a legacy posting carries nulls/empty, which the client hides.
+      trade_level: row.tradeLevel,
+      trade_level_label: trade.levelLabel,
+      trade_facets: trade.facets,
     };
   }
 
@@ -200,7 +220,8 @@ export class JobsService {
     // keystroke-driven search — the common case. `query.q` is already trimmed-then-undefined
     // by JobSearchQuerySchema, so "absent" and "blank" are the same state here and this needs
     // no second emptiness rule of its own.
-    const profileSkillIds = query.q === undefined ? await this.workerSkills.listWantedSkillIds(workerId) : [];
+    const profileSkillIds =
+      query.q === undefined ? await this.workerSkills.listWantedSkillIds(workerId) : [];
     // Distinct from `profileSkillIds.length > 0`: this says the fallback was ENGAGED, which is
     // false both when the worker typed a term and when they have no profile to fall back on.
     const usedProfileFallback = query.q === undefined && profileSkillIds.length > 0;

@@ -45,6 +45,7 @@ import {
   type JobPostingChatSessionsResponse,
   type JobPostingChatTurnResponse,
   type PostJobPostingChatMessageDto,
+  type PublishJobPostingChatDto,
   type PublishJobPostingChatResponse,
   type UnmappedDraftField,
   type WorkerCardField,
@@ -531,6 +532,7 @@ export class JobPostingChatService {
     payerId: string,
     sessionId: string,
     ctx: RequestContext,
+    publishDto: PublishJobPostingChatDto = {},
   ): Promise<PublishJobPostingChatResponse> {
     const session = await this.requireOwnedSession(sessionId, payerId);
     if (session.status === "published") {
@@ -563,8 +565,11 @@ export class JobPostingChatService {
     // meaning: an interview that collected no chips leaves the column NULL (honest
     // absence), it does not store an empty list.
     //
-    // NOT SENT, because the interview does not collect it: `area`. (`city`, `pay_type`, the
-    // experience window and `needed_by` were in this list until #1726 added their questions.)
+    // `area` (#2493) rides the same path as `city`: the interview usually fills it
+    // from the location answer and `contentFieldsFrom` above carries it — so a
+    // chat-published posting stores the locality instead of NULL. (`city`, `pay_type`,
+    // the experience window and `needed_by` were in this list until #1726 added their
+    // questions.)
     //
     // AND `match_skill_ids`, WHICH IS A RULED SPLIT AND NOT A GAP (#1659, owner ruling
     // 2026-09-22). The chat owns CONTENT; the publish step owns the closed-set skill pick,
@@ -595,6 +600,15 @@ export class JobPostingChatService {
       // with `unmappedFields` below, so the gap report can never claim a field is mapped
       // when this object does not carry it.
       ...JobPostingChatService.contentFieldsFrom(draft),
+      // #2490 — the publish-step role pick (display-only, never a match input). The
+      // interview does not ask for a role, so the draft never carries one; the client
+      // sends it on the publish body once the payer picks it. Absent stays absent,
+      // and `createInScope` stores NULL / generic art, as before.
+      ...(publishDto.role_kind ? { role_kind: publishDto.role_kind } : {}),
+      // #2493 — the publish-step area pick. The interview usually fills the draft, but
+      // the body wins over it, so a payer who corrects the locality at publish does
+      // not retype the interview. Absent both, the column stays NULL, as before.
+      ...(publishDto.area ? { area: publishDto.area } : {}),
     };
 
     const validated = PayerCreateJobPostingSchema.safeParse(candidate);
@@ -656,10 +670,11 @@ export class JobPostingChatService {
     // once the interview has wrapped up the payer cannot answer a missed topic in chat, so a
     // refusal here would strand the session.
     //
-    // `role_kind` (migration 0131) is ALWAYS NULL on a chat-published posting: the interview
-    // never asks for a role, so `candidate` above never carries one. It is deliberately NOT in
-    // `WORKER_CARD_FIELDS` either — it is display / classification only and never on the worker
-    // card — so it is the client's gap rule, not this report, that asks the payer to pick one.
+    // `role_kind` (migration 0131, #2490) is NULL unless the publish body carries
+    // it: the interview never asks for a role, so the draft never has one. It is
+    // deliberately NOT in `WORKER_CARD_FIELDS` either — it is display /
+    // classification only and keys the card's role illustration, never a text row —
+    // so it is the client's gap rule, not this report, that asks the payer to pick one.
     return this.checked(
       PublishJobPostingChatResponseSchema,
       {
@@ -837,6 +852,9 @@ export class JobPostingChatService {
       // #1726. A blank `city` is omitted too: the create DTO trims and then requires a
       // character, so whitespace would 400 the publish instead of reading as unanswered.
       ...(draft.city !== null && draft.city.trim() ? { city: draft.city } : {}),
+      // #2493 — same blank rule as `city`: an unanswered or whitespace area reads as
+      // absent (NULL), never as a rejected publish.
+      ...(draft.area !== null && draft.area.trim() ? { area: draft.area } : {}),
       ...(draft.pay_min !== null ? { pay_min: draft.pay_min } : {}),
       ...(draft.pay_max !== null ? { pay_max: draft.pay_max } : {}),
       ...(draft.pay_type !== null ? { pay_type: draft.pay_type } : {}),

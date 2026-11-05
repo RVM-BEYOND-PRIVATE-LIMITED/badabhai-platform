@@ -2,8 +2,12 @@
 
 import { createPostingInputSchema, matchSelectionInputSchema } from "../../../../lib/contracts";
 import { createPosting, publishPostingWithMatchSkills } from "../../../../lib/payer-api";
-import { isPayerValidationError } from "../../../../lib/payer-errors";
-import { mapPostingIssues } from "../../../../lib/posting-field-errors";
+import { isPayerValidationError, isPostingTradeRequired } from "../../../../lib/payer-errors";
+import {
+  mapPostingIssues,
+  postingTradeRequiredFieldErrors,
+} from "../../../../lib/posting-field-errors";
+import { POSTING_TRADE_REQUIRED_MESSAGE } from "../../../../lib/posting-trades";
 import { reachAfterPublish } from "../../../../lib/published-reach.server";
 import { workerCardGap } from "../../../../lib/worker-card-gap";
 
@@ -27,9 +31,24 @@ import { workerCardGap } from "../../../../lib/worker-card-gap";
  * `reached` is the published posting's reach ("Reached N workers"), read via reach-preview right
  * after the publish; null when unpublished or when that read failed (the confirmation then shows
  * no count, never a guessed one).
+ *
+ * #2645 — A COMPANY JOB IS ALWAYS ONE OF THE 16 TRADES (#2635). This action refuses a MISSING role,
+ * a presence-only backstop: the form checks the pick against the 16 the API served, this app keeps
+ * no copy of that list, and which roles are postable is the API's call (it refuses any other role
+ * with a 400). The trade form always rides the create (`{}` when no chip was picked), so the
+ * server derives the match set from the trade. A publish the API
+ * refuses with `posting_trade_required` leaves the created draft: `tradeRequired` tells the form to
+ * open that draft's edit page at its trade picker.
  */
 export type CreatePostingResult =
-  | { ok: true; postingId: string; published: boolean; reached: number | null }
+  | {
+      ok: true;
+      postingId: string;
+      published: boolean;
+      reached: number | null;
+      /** The publish was refused for want of one of the 16 trades (#2635); the draft exists. */
+      tradeRequired?: true;
+    }
   | {
       ok: false;
       error: string;
@@ -54,9 +73,21 @@ export async function createPostingAction(input: {
   neededBy?: string;
   requirements: string[];
   benefits: string[];
+  /** Migration 0141 — the display-only rung and the selected chip answers. */
+  tradeLevel?: string;
+  tradeAnswers?: Record<string, string[]>;
   matchSkillIds: string[];
   untickedRelatedIds: string[];
 }): Promise<CreatePostingResult> {
+  // #2645 — no role is refused BEFORE anything is created: a job without a trade could never go
+  // live. Presence only (see above); the API decides whether a given role is one of the 16.
+  if (!input.roleKind) {
+    return {
+      ok: false,
+      error: POSTING_TRADE_REQUIRED_MESSAGE,
+      fieldErrors: postingTradeRequiredFieldErrors(),
+    };
+  }
   const parsed = createPostingInputSchema.safeParse({
     roleKind: input.roleKind || undefined,
     roleTitle: input.roleTitle,
@@ -74,6 +105,9 @@ export async function createPostingAction(input: {
     neededBy: input.neededBy,
     requirements: input.requirements.length > 0 ? input.requirements : undefined,
     benefits: input.benefits.length > 0 ? input.benefits : undefined,
+    tradeLevel: input.tradeLevel,
+    // Always the trade form (#2645): `{}` still names the trade, so the server derives the set.
+    tradeAnswers: input.tradeAnswers ?? {},
   });
   if (!parsed.success) {
     return { ok: false, error: parsed.error.issues.map((i) => i.message).join("; ") };
@@ -130,9 +164,12 @@ export async function createPostingAction(input: {
 
   try {
     const published = (await publishPostingWithMatchSkills(postingId, selection.data)) !== null;
-    const reached = published ? await reachAfterPublish(selection.data) : null;
+    const reached = published ? await reachAfterPublish(selection.data, parsed.data.roleKind) : null;
     return { ok: true, postingId, published, reached };
-  } catch {
+  } catch (e) {
+    if (isPostingTradeRequired(e)) {
+      return { ok: true, postingId, published: false, reached: null, tradeRequired: true };
+    }
     return { ok: true, postingId, published: false, reached: null };
   }
 }

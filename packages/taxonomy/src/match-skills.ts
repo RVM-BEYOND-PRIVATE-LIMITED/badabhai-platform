@@ -371,6 +371,115 @@ export const MATCH_SKILLS = [
     source: "rvm",
     status: "active",
   },
+  {
+    // CEO Launch Pack v1 (RULED 2026-11-02, reconciled): the trade's permanent ID is
+    // `mskill_cad_designer_3d`. `mskill_3d_designer` above (E0) stays live — the live
+    // qp_cad_drafting 3D chips reach through it, and "never rename" forbids moving
+    // them. The two are paired below (same trade, old/new IDs); the future
+    // qp_cad_design_3d pack derives this ID directly (Track A #4). Same bench.
+    skillId: "mskill_cad_designer_3d",
+    labelEn: "3D CAD Designer",
+    labelHi: null,
+    industryId: "ind_industrial_manufacturing",
+    domainId: "cnc-programming",
+    source: "rvm",
+    status: "active",
+  },
+  {
+    // CEO Launch Pack v1 (RULED 2026-11-02, reconciled): ONE welder trade. The three
+    // process IDs above stay live (existing derivations reference them; "never
+    // rename"), all related to this umbrella below; new assignments go here.
+    // "No new assignments" to mig/tig/arc from this change forward.
+    skillId: "mskill_welder",
+    labelEn: "Welder",
+    labelHi: null,
+    industryId: "ind_industrial_manufacturing",
+    domainId: "welding",
+    source: "rvm",
+    status: "active",
+  },
+  {
+    // CEO Launch Plan Pack v1, Phase 2 #6 (sheet 14): the PLC / Automation Technician —
+    // ladder logic, HMI/SCADA, VFD/servo and commissioning on automated lines and SPMs.
+    // APPENDED, never inserted. The maintenance bench, beside the electrician it grows out
+    // of. UNPAIRED for now: #2022 left the electrician deliberately unpaired, and a new
+    // relation pair changes who sees whom — an owner call, not a retag default.
+    skillId: "mskill_plc_automation_tech",
+    labelEn: "PLC / Automation Technician",
+    labelHi: null,
+    industryId: "ind_industrial_manufacturing",
+    domainId: "maintenance",
+    source: "rvm",
+    status: "active",
+  },
+  {
+    // CEO Launch Plan Pack v1, Phase 2 #7 (sheet 16): the EDM / Wire-cut Operator — wire-cut,
+    // sinker and hole-drill EDM, from wire threading to programming. APPENDED, never inserted.
+    // UNPAIRED for now, like PLC: the sheet relates it to Tool & Die, VMC and CAM, and a new
+    // relation pair changes who sees whom — an owner call, not a build default.
+    skillId: "mskill_edm_wirecut_operator",
+    labelEn: "EDM / Wire-cut Operator",
+    labelHi: null,
+    industryId: "ind_industrial_manufacturing",
+    domainId: "cnc-programming",
+    source: "rvm",
+    status: "active",
+  },
+  {
+    // CEO Launch Plan Pack v1, Phase 2 #9 (sheet 22): the Injection-Moulding Operator / Setter —
+    // runs, sets and optimises the plastics moulding machine. APPENDED, never inserted. Filed
+    // under `fabrication` beside the press operator (no plastics skill domain exists, and the
+    // painter set the precedent of a non-sheet-metal bench there). UNPAIRED, like PLC and EDM:
+    // the sheet relates it to Tool & Die, Assembly and QC, and a relation pair is an owner call.
+    skillId: "mskill_imm_operator",
+    labelEn: "Injection Moulding Operator",
+    labelHi: null,
+    industryId: "ind_industrial_manufacturing",
+    domainId: "fabrication",
+    source: "rvm",
+    status: "active",
+  },
+  {
+    // CEO Launch Plan Pack v1, Phase 2 #8 (sheet 17): the Heat-Treatment Technician — hardening,
+    // carburising, nitriding, induction and annealing. APPENDED, never inserted. UNPAIRED for
+    // now, like PLC and EDM: the sheet relates it to Foundry/forging, the conventional machinist
+    // and QC, and a new relation pair changes who sees whom — an owner call, not a build default.
+    skillId: "mskill_heat_treatment_tech",
+    labelEn: "Heat-Treatment Technician",
+    labelHi: null,
+    industryId: "ind_industrial_manufacturing",
+    domainId: "fabrication",
+    source: "rvm",
+    status: "active",
+  },
+  {
+    // CEO Launch Plan Pack v1, Phase 2 #10 (sheet 23): the Production Supervisor — the shift,
+    // section or line across trades. APPENDED, never inserted. Filed under the
+    // `general-machining` OCCUPATION ANCHOR domain: supervision is an occupation, not a bench
+    // technique, and no supervision domain exists. UNPAIRED: the sheet relates it to every
+    // trade, and a relation pair changes who sees whom — an owner call.
+    skillId: "mskill_production_supervisor",
+    labelEn: "Production Supervisor",
+    labelHi: null,
+    industryId: "ind_industrial_manufacturing",
+    domainId: "general-machining",
+    source: "rvm",
+    status: "active",
+  },
+  {
+    // CEO Launch Plan Pack v1, Phase 2 #11 (sheet 19): the Foundry / Forging Operator — sand and
+    // shell moulding, core making, melting, die casting, fettling and hammer / press / upset
+    // forging. APPENDED, never inserted. UNPAIRED for now, like PLC, EDM and heat treatment: the
+    // sheet relates it to heat treatment, the conventional machinist and QC, and a new relation
+    // pair changes who sees whom — an owner call, not a build default.
+    skillId: "mskill_foundry_forging_operator",
+    labelEn: "Foundry / Forging Operator",
+    labelHi: null,
+    industryId: "ind_industrial_manufacturing",
+    domainId: "fabrication",
+    source: "rvm",
+    status: "active",
+  },
 ] as const satisfies readonly MatchSkillSeed[];
 
 export type MatchSkillId = (typeof MATCH_SKILLS)[number]["skillId"];
@@ -430,12 +539,18 @@ export type MatchSkillRelationPair = readonly [MatchSkillId, MatchSkillId];
  * in `match-skills.test.ts`, not merely asserted here.
  */
 export const MATCH_SKILL_RELATION_PAIRS: readonly MatchSkillRelationPair[] = [
+  // CEO Launch Pack v1 (RULED 2026-11-02, reconciled): the trade's old and new IDs
+  // name one trade — a posting or worker on either reaches the other at tier 2.
+  ["mskill_3d_designer", "mskill_cad_designer_3d"],
   // Middle Way E0 (Q3): 2D draughting and 3D design are one desk in both directions —
   // shops move a man between the model and the drawing and back.
   ["mskill_3d_designer", "mskill_designer"],
   // Welding family — MIG / TIG / Arc are mutually related (3 edges).
   ["mskill_arc_welder", "mskill_mig_welder"],
   ["mskill_arc_welder", "mskill_tig_welder"],
+  // CEO Launch Pack v1 (RULED 2026-11-02, reconciled): ONE welder trade — each process
+  // ID related to the umbrella, which new assignments go to.
+  ["mskill_arc_welder", "mskill_welder"],
   // A CAM programmer and a (CAD) designer both work the part geometry in software;
   // shops routinely move a man between the two desks.
   ["mskill_cam_programmer", "mskill_cnc_programmer"],
@@ -475,9 +590,12 @@ export const MATCH_SKILL_RELATION_PAIRS: readonly MatchSkillRelationPair[] = [
   // Those three edges are (hmc,vmc) here, (setter,vmc) and (turner,vmc) above.
   ["mskill_hmc_operator", "mskill_vmc_operator"],
   ["mskill_mig_welder", "mskill_tig_welder"],
+  ["mskill_mig_welder", "mskill_welder"],
   // #2022. Both trades form sheet and strip on the same floor: the press brake is in both forms,
   // and a sheet-metal shop runs its own power presses. Each would seriously consider the other.
   ["mskill_press_operator", "mskill_sheet_metal_worker"],
+  // CEO umbrella, sorted last: TIG is one of its processes (see the arc/mig edges above).
+  ["mskill_tig_welder", "mskill_welder"],
   // DELIBERATELY UNPAIRED (#2022): `mskill_painter_coater` (a finishing trade nobody else does),
   // `mskill_industrial_electrician` (licensed electrical work; neither a fitter nor a mechanical
   // maintenance hand would be considered for it, so no pair is symmetric), and
@@ -532,9 +650,10 @@ export function relatedMatchSkills(id: string): readonly MatchSkillId[] {
  * newly minted role a COMPILE error here, and `match-skills.test.ts` re-asserts it at
  * runtime so the lock survives any loosening of the type.
  *
- * `role_welder` → `mskill_mig_welder`: the canonical role is deliberately unspecific
- * about process, MIG is the overwhelmingly common shop-floor default, and the
- * MIG↔TIG↔Arc relation carries the worker to the other two at tier 2 anyway.
+ * `role_welder` → `mskill_welder` (CEO Launch Pack v1, RULED 2026-11-02, reconciled):
+ * ONE welder trade. Previously `mskill_mig_welder` (MIG as the shop-floor default,
+ * carried to TIG/Arc at tier 2); now the umbrella, which is related to all three
+ * processes both ways, so the reach is the same family plus the umbrella itself.
  */
 export const ROLE_TO_MATCH_SKILL: Record<RoleId, MatchSkillId> = {
   role_cnc_turner_operator: "mskill_cnc_turner",
@@ -544,12 +663,16 @@ export const ROLE_TO_MATCH_SKILL: Record<RoleId, MatchSkillId> = {
   role_cnc_programmer: "mskill_cnc_programmer",
   role_cam_programmer: "mskill_cam_programmer",
   role_cnc_grinding_operator: "mskill_cnc_grinding_operator",
-  role_welder: "mskill_mig_welder",
+  role_welder: "mskill_welder",
   role_cnc_operator: "mskill_cnc_operator_general",
   role_plumber: "mskill_plumber",
   role_carpenter: "mskill_carpenter",
   role_designer: "mskill_designer",
   role_interior_designer: "mskill_interior_designer",
+  // CEO Launch Plan Pack v1, Track A #4: the new trade's permanent ID. New
+  // assignments (including the future qp_cad_design_3d pack's answers) derive
+  // this ID directly; the E0 mskill_3d_designer stays live and related.
+  role_cad_designer_3d: "mskill_cad_designer_3d",
 };
 
 const _ROLE_TO_MATCH_SKILL = new Map<string, MatchSkillId>(Object.entries(ROLE_TO_MATCH_SKILL));
@@ -626,7 +749,10 @@ export const ATTRIBUTE_TO_MATCH_SKILLS: Record<string, readonly MatchSkillId[]> 
 
   // ---- NCO occupation anchors: these ARE posting-level by construction ----
   skill_machinist_occupation: ["mskill_cnc_operator_general"],
-  skill_welder_occupation: ["mskill_mig_welder"],
+  // CEO Launch Pack v1 (RULED 2026-11-02, reconciled): the generic occupation names
+  // the umbrella trade, not a process. Reach-neutral (umbrella and MIG reach the same
+  // family both ways); process chips below keep their own IDs.
+  skill_welder_occupation: ["mskill_welder"],
   skill_fitter_occupation: ["mskill_fitter"],
 
   // ---- Plumbing ----

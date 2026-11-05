@@ -10,7 +10,7 @@ import {
   type EngineTab,
   type EngineWorker,
 } from "../../../../lib/match-engine-view";
-import { BrandLockup } from "../../../../components/brand-lockup";
+import { PageHeader } from "../../../../components/page-header";
 import { EngineLive } from "./engine-live";
 
 export const dynamic = "force-dynamic";
@@ -36,6 +36,10 @@ export const metadata = { title: "Engine view" };
  * ── NOTHING HERE DECIDES ANYTHING ───────────────────────────────────────────────────────
  * Card order, tiers, funnel counts and the "why" line are the server's (the worker feed's own
  * code path). This page picks WHICH worker or posting to show and nothing else.
+ *
+ * ── ONE HEADER, LIKE EVERY PAGE (A6, #2576) ─────────────────────────────────────────────
+ * The standard `PageHeader` above the stage: no second logo (the sidebar carries the one) and no
+ * dark hero title. The navy stage below is the demo surface itself — tabs, picker and panels.
  */
 export default async function EngineViewPage({
   searchParams,
@@ -55,47 +59,44 @@ export default async function EngineViewPage({
   ]);
 
   return (
-    <div className="engine">
-      <header className="engine__head">
-        <BrandLockup surface="ink" />
-        <h1 className="engine__title">
-          How <span className="engine__title-key">matching</span> works
-        </h1>
-        <p className="engine__sub">
-          One worker&apos;s skills decide which postings reach them, and in what order.
-        </p>
-      </header>
-
-      <nav className="engine__tabs" aria-label="Engine view">
-        <Link
-          className="engine__tab"
-          aria-current={tab === "worker" ? "page" : undefined}
-          href={engineHref({ worker: workerId })}
-        >
-          Worker
-        </Link>
-        <Link
-          className="engine__tab"
-          aria-current={tab === "posting" ? "page" : undefined}
-          href={engineHref({ worker: workerId, tab: "posting", posting: postingId })}
-        >
-          Posting
-        </Link>
-      </nav>
-
-      {tab === "worker" ? (
-        <WorkerPicker recent={recent} selected={workerId} />
-      ) : (
-        <PostingPicker workerId={workerId} postingId={postingId} />
-      )}
-
-      <EngineBody
-        tab={tab}
-        worker={worker}
-        posting={posting}
-        selectedWorker={workerId}
-        selectedPosting={postingId}
+    <div className="page">
+      <PageHeader
+        title="Engine view"
+        description="One worker's skills decide which postings reach them, and in what order."
       />
+
+      <div className="engine">
+        <nav className="engine__tabs" aria-label="Engine view">
+          <Link
+            className="engine__tab"
+            aria-current={tab === "worker" ? "page" : undefined}
+            href={engineHref({ worker: workerId })}
+          >
+            Worker
+          </Link>
+          <Link
+            className="engine__tab"
+            aria-current={tab === "posting" ? "page" : undefined}
+            href={engineHref({ worker: workerId, tab: "posting", posting: postingId })}
+          >
+            Posting
+          </Link>
+        </nav>
+
+        {tab === "worker" ? (
+          <WorkerPicker recent={recent} selected={workerId} />
+        ) : (
+          <PostingPicker workerId={workerId} postingId={postingId} />
+        )}
+
+        <EngineBody
+          tab={tab}
+          worker={worker}
+          posting={posting}
+          selectedWorker={workerId}
+          selectedPosting={postingId}
+        />
+      </div>
     </div>
   );
 }

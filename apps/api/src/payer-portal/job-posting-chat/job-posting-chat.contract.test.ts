@@ -62,6 +62,16 @@ describe("job-posting chat draft — value parity with the create path (#1726)",
     expect(createAccepts({ city: "x".repeat(81) })).toBe(false);
   });
 
+  it("area: the draft and the create DTO accept exactly the same lengths (cap 120, #2493)", () => {
+    for (let n = 1; n <= 160; n++) {
+      const area = "x".repeat(n);
+      expect(draftAccepts({ area }), `len ${n}`).toBe(createAccepts({ area }));
+    }
+    // Boundary sanity, so a shared wrong cap cannot pass the equality above.
+    expect(createAccepts({ area: "x".repeat(120) })).toBe(true);
+    expect(createAccepts({ area: "x".repeat(121) })).toBe(false);
+  });
+
   it("experience: both ends accept exactly what experienceYearsSchema accepts (whole years 0..60)", () => {
     expect(EXPERIENCE_MAX_YEARS).toBe(60);
     const probes = [-1, 0, 1, 2.5, 59, 60, 61, 100];

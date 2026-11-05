@@ -748,6 +748,12 @@ export const serverEnvSchema = z.object({
   // must be an explicit code change, not an env value. NOT the same knob as the
   // POST-erasure re-registration cool-down above.
   ACCOUNT_DELETION_GRACE_DAYS: z.coerce.number().int().positive().default(7),
+  // #2541 (CEO pack v1 A4 #9) — the sign-up age gate. On, `POST /consent/accept` REQUIRES the
+  // worker's 18+ answer (`age_18_plus`): a missing answer is a 400 and nothing is written. Off
+  // (the default) keeps today's contract for app builds that do not send it yet. An explicit
+  // under-18 answer is refused WHATEVER this says — the flag only decides whether a missing
+  // answer still passes. Arm only once the worker-app release that sends the answer is live.
+  SIGNUP_AGE_GATE_ENABLED: booleanFromString,
   // Cadence (hours) of the deletion sweep that erases overdue rows. The DB marker is
   // authoritative — a missed run only delays erasure until the next sweep. Fractional
   // hours allowed for tests/staging (cadence precedent: PACE_WAVE_INTERVAL_HOURS).
@@ -1155,6 +1161,19 @@ export const serverEnvSchema = z.object({
   // Per-IP hourly cap on the UNAUTHENTICATED payer auth endpoints (signup / login
   // request / verify) — an account-farming + credential-stuffing backstop (XB-H / XT2).
   PAYER_AUTH_MAX_PER_IP_PER_HOUR: z.coerce.number().int().positive().default(20),
+  // #2497 — per-ACCOUNT password-attempt throttle for POST /payer/login/password (the
+  // per-IP cap above is shared and coarse behind NAT). N failures inside the Redis TTL
+  // window lock the ACCOUNT (not the IP) for PAYER_PASSWORD_LOCKOUT_SECONDS; a success
+  // clears the counter. The locked-out response stays the neutral 401 (no lockout
+  // oracle, XB-H). Fail-closed (a Redis error rejects). Defaults are safe to run
+  // undeployed-env: no new secret, no box change.
+  PAYER_PASSWORD_MAX_ATTEMPTS: z.coerce.number().int().positive().default(5),
+  PAYER_PASSWORD_LOCKOUT_SECONDS: z.coerce.number().int().positive().default(900),
+  // #2563 (owner ruling 2026-11-04) - how long an admin-issued TEMPORARY password stays
+  // usable. After this many hours the password door treats it exactly like a wrong password
+  // (neutral 401), so a credential dictated over the phone cannot become a permanent one.
+  // The User accounts list shows `temporary_expired`. Default 168 = seven days.
+  PAYER_TEMP_PASSWORD_TTL_HOURS: z.coerce.number().int().positive().default(168),
   // GLOBAL daily send circuit-breaker for the payer EMAIL-OTP path (OTP-5 — the SPEND
   // ceiling; the payer analogue of OTP_GLOBAL_MAX_SENDS_PER_DAY). Bounds the TOTAL number
   // of REAL payer email sends platform-wide per UTC day, ABOVE the per-account cooldown/
@@ -1174,6 +1193,14 @@ export const serverEnvSchema = z.object({
   // Fail-closed (a Redis outage rejects). Higher than the disclosure cap — reach is an
   // information-only refreshable read, not a billable disclosure.
   PAYER_REACH_MAX_PER_HOUR: z.coerce.number().int().positive().default(60),
+  // Per-PAYER hourly cap on the ALL-CANDIDATES search (`POST /payer/candidates/search`,
+  // ADR-0040 / E2) — the scrape bound on a read that pages the WHOLE consented pool rather
+  // than one owned posting's applicants. Its own bucket (scope "payer_candidate_search") on
+  // the same PayerDisclosureRateLimit, so browsing candidates and reviewing a posting's
+  // applicants never starve each other. One unit per page (a filter change or "Next page");
+  // each page is at most 50 masked rows, so the default bounds a login to 6,000 masked rows an
+  // hour — identity still costs a credit per worker. Fail-closed (a Redis outage rejects).
+  PAYER_CANDIDATE_SEARCH_MAX_PER_HOUR: z.coerce.number().int().positive().default(120),
   // Per-PAYER hourly cap on the Agency Supply Portal INVITE-MINT endpoint (ADR-0022
   // security condition — the invite analogue of XB-G). Minting an invite creates an
   // opaque attribution code; an uncapped account could mint unboundedly to spam/seed
@@ -1197,6 +1224,16 @@ export const serverEnvSchema = z.object({
   // `payer_reach` read budget, so triaging a long list cannot lock a payer out of reading it.
   // Generous: a recruiter clears hundreds of applicants an hour. Fail-closed (Redis down rejects).
   PAYER_APPLICANT_STAGE_MAX_PER_HOUR: z.coerce.number().int().positive().default(600),
+  // "LEVEL NEEDED" APPLICANT SORT (engine v1.1, CEO ruling 30 Oct 2026, ADR-0061). With it on, a
+  // company posting in one of the 4 CNC trades (`LEVEL_SORT_TRADE_KINDS`) that names a rung lists
+  // its applicants meets → level not confirmed → below INSIDE each trade group, and each row
+  // carries `levelFit`. Nobody is hidden; "Any level" posts are unchanged either way.
+  //
+  // DEFAULT OFF, AND OFF IS TODAY'S LIST EXACTLY: no extra query, the v1.0 ORDER BY, `levelFit`
+  // null. The CEO turns it on ("my go-ahead after you ship", ruling Q4). Migration 0153 is
+  // APPLY-BEFORE-DEPLOY regardless (the apply snapshot writes its columns with the flag off too:
+  // history not captured is gone), so the flag gates the SORT only, never the capture.
+  LEVEL_NEEDED_SORT_ENABLED: booleanFromString,
 
   // Admin Ops Portal auth (ADR-0025 ADMIN-1) — the 4th privileged principal (worker /
   // payer / ops-secret / admin). The admin session reuses the payer rolling/revocable
@@ -1208,10 +1245,16 @@ export const serverEnvSchema = z.object({
   // equal the worker/payer JWT_SECRET (a shared secret would defeat the principal
   // separation) — both enforced fail-closed by assertAdminAuthConfig.
   ADMIN_JWT_SECRET: z.string().min(16).default(DEV_ADMIN_JWT_SECRET),
-  // MFA scope (ADR-0025 OQ-1 — owner: MFA for ALL roles, incl. analyst). Default ON. When
-  // true, EVERY admin role must have mfa_enrolled=true AND pass a TOTP step before a session
-  // is minted (enforced server-side at session-mint, must-fix #1). booleanFromString +
-  // a true default would coerce wrong, so this is its own coerced boolean defaulting true.
+  // The GLOBAL two-step switch. Owner AMENDMENT 1 (2026-11-03) made two-step OPTIONAL, PER
+  // ADMIN: each admin turns it on/off for their own account (`admin_users.mfa_enabled`,
+  // default off), so the meaning of this flag is now:
+  //   true  (default) — HONOUR EACH ADMIN'S TOGGLE: an admin with mfa_enabled=true must pass a
+  //                     TOTP step (or present a trusted device) before a session is minted;
+  //                     an admin with it off gets a session straight from the first factor.
+  //   false           — two-step OFF FOR EVERYONE: no TOTP step for any admin, whatever their
+  //                     toggle says.
+  // booleanFromString + a true default would coerce wrong, so this is its own coerced boolean
+  // defaulting true.
   ADMIN_MFA_REQUIRED: z
     .union([z.boolean(), z.string()])
     .transform((v) =>
@@ -1223,9 +1266,33 @@ export const serverEnvSchema = z.object({
   // MFA required but no issuer — fails closed at boot via assertAdminAuthConfig).
   ADMIN_TOTP_ISSUER: z.string().min(1).default("BadaBhai Admin"),
   // Per-IP hourly cap on the UNAUTHENTICATED admin auth endpoints (login request / verify /
-  // MFA) — the admin analogue of PAYER_AUTH_MAX_PER_IP_PER_HOUR (credential-stuffing /
-  // account-farming backstop). Fail-closed (a Redis outage rejects).
-  ADMIN_AUTH_MAX_PER_IP_PER_HOUR: z.coerce.number().int().positive().default(20),
+  // MFA / password / forgot / reset / invite accept). Fail-closed (a Redis outage rejects).
+  //
+  // WHY 200 (R73, owner ruling 2026-11-04; was 20). With TRUST_PROXY_HOP_COUNT=0 the API never
+  // sees a visitor's address: admin-web calls it server-to-server and public traffic arrives
+  // from nginx, so this "per-IP" bucket is ONE bucket for every admin sign-in on the platform.
+  // At 20, a sign-in costs 1–3 calls and a busy hour 429'd honest admins — and anyone could
+  // exhaust it on purpose. Brute force is no longer this cap's job: ADR-0060 locks each ACCOUNT
+  // after ADMIN_PASSWORD_MAX_ATTEMPTS wrong passwords and, separately, wrong TOTP codes; email
+  // codes keep their per-address cooldown and attempt cap. What this still bounds is raw request
+  // volume. The real fix is per-visitor addressing (trust the nginx hop + admin-web forwards the
+  // client address) — tracked with R73; lower this again once that lands.
+  ADMIN_AUTH_MAX_PER_IP_PER_HOUR: z.coerce.number().int().positive().default(200),
+  // Admin password sign-in (migration 0144) — the per-ACCOUNT attempt throttle, the admin
+  // analogue of PAYER_PASSWORD_MAX_ATTEMPTS / _LOCKOUT_SECONDS (the per-IP cap above is shared
+  // and coarse behind NAT). N failed passwords inside the window lock that admin's password door
+  // for ADMIN_PASSWORD_LOCKOUT_SECONDS; a success clears the counter. The locked-out answer on
+  // the public route stays the neutral 401 (no lockout oracle). Fail-closed (Redis error → 503).
+  // The SAME limits bound the authenticator-code attempts, each in its OWN per-admin counter:
+  // the sign-in TOTP step (POST /admin/mfa/verify — cleared only by a correct code, never by a
+  // correct password) and the signed-in two-step switch. Safe defaults, no secret, no box change.
+  ADMIN_PASSWORD_MAX_ATTEMPTS: z.coerce.number().int().positive().default(5),
+  ADMIN_PASSWORD_LOCKOUT_SECONDS: z.coerce.number().int().positive().default(900),
+  // "Trust this device" on the admin two-step step: a browser that passed TOTP with the box
+  // ticked skips TOTP for this many days. 0 = the feature is OFF (no device is ever issued and
+  // none is ever honoured). The device record dies early on a password change/reset or a new
+  // TOTP secret. min(0), not positive(): 0 is the documented off-switch.
+  ADMIN_TRUSTED_DEVICE_DAYS: z.coerce.number().int().min(0).default(30),
 
   // Reason-gated worker-PII reveal (ADR-0025 ADMIN-3b, Decision 4) — the single most
   // sensitive route in the system (it decrypts a worker's phone). Master switch: DEFAULT
@@ -2776,10 +2843,11 @@ export function isUsingDevAdminJwtDefault(config: ServerConfig): boolean {
  *     anyone forge an admin session (the most privileged token in the system).
  *   - ADMIN_JWT_SECRET must NOT equal the worker/payer JWT_SECRET — a shared secret would
  *     collapse the principal separation (an admin token must be cryptographically distinct).
- *   - when ADMIN_MFA_REQUIRED is true (the owner default — MFA for ALL roles), the TOTP
- *     config must be complete: a non-empty ADMIN_TOTP_ISSUER is required. MFA-required with
- *     no issuer is a HALF-SET MFA config → reject (never boot a half-configured second
- *     factor).
+ *   - when ADMIN_MFA_REQUIRED is true (the default — honour each admin's own two-step toggle,
+ *     owner Amendment 1 2026-11-03), the TOTP config must be complete: a non-empty
+ *     ADMIN_TOTP_ISSUER is required, because any admin may switch two-step on and be handed an
+ *     authenticator QR. Toggle-honoured with no issuer is a HALF-SET MFA config → reject (never
+ *     boot a half-configured second factor). false = two-step off for everyone.
  * Call once at boot (main.ts), after `assertPayerAuthConfig`.
  */
 export function assertAdminAuthConfig(
@@ -2804,7 +2872,7 @@ export function assertAdminAuthConfig(
   // even in development/test, since it is a structural mis-configuration, not a dev shortcut.
   if (config.ADMIN_MFA_REQUIRED && config.ADMIN_TOTP_ISSUER.trim().length === 0) {
     problems.push(
-      "ADMIN_MFA_REQUIRED is true but ADMIN_TOTP_ISSUER is empty — refusing to boot a half-configured second factor",
+      "ADMIN_MFA_REQUIRED is true (honour each admin's two-step toggle) but ADMIN_TOTP_ISSUER is empty — refusing to boot a half-configured second factor",
     );
   }
 

@@ -1,0 +1,379 @@
+{
+  "_why": "Role track for HEAT TREATMENT, a new trade (CEO Launch Plan Pack v1, Phase 2 #8, sheet 17). fam_heat_treatment binds four NCO codes at job-domain specificity 50: 8121.3701 'Heat Treating Furnace Operator', 8121.4800 'Hardener, Metal', 8121.4900 'Temperer, Metal' and 8121.4700 'Annealer, Metal'. Every other 8121 code stays on fam_metal_processing.",
+  "_scope": "THE HEAT-TREATMENT SHOP, NOT THE MELT SHOP. A foundryman who melts metal in an induction furnace is the Foundry / Forging trade (sheet 19); this trade hardens, tempers, carburises, nitrides and anneals finished or machined parts, in a job shop or a captive HT line.",
+  "_depth": "THE TIER GATE IS heat_experience, asked FIRST. Its options carry value_number ONLY: pack-registry.service.ts resolves valueText ?? valueNumber, and a value_text would turn every gte below into a string compare that is false forever (the #776 defect).",
+  "_budget": "MAX_ENGINE_ASKS is 28 and qp_universal spends 8. Easy is 2 trade items + at most 1 confirm; Medium adds 2 (process, furnace); Advanced adds 2 (testing, material). Worst case 2 + 1 + 2 + 2 = 7 trade asks.",
+  "_sheet": "READ OFF CEO LAUNCH PLAN PACK v1 SHEET 17 (a new trade, no ratified page). Section title 'Heat treatment, processes & capability'. Its rows are Processes, Equipment (furnaces), Testing and Materials, and every row has exactly one question here.",
+  "pack_id": "qp_heat_treatment",
+  "version": 1,
+  "family_id": "fam_heat_treatment",
+  "locale": "hi-IN",
+  "status": "active",
+  "review_note": "v1 (CEO Launch Plan Pack v1, Phase 2 #8): new trade. Easy/Medium/Advanced tiers; 6-band experience; sheet-17 level ladder (Trainee/Operator/Skilled/Senior/Supervisor, mandatory); 1 separating confirm, the sheet's question verbatim, asked of skilled AND senior (the owner's standing rule: the sheet writes none for senior); supervisor by rule. Medium Q6 process, Q7 furnace; Advanced Q9 testing, Q10 material, gated years OR rung. Deviations recorded: Q11 'shift/site' is the shared qp_universal shift question and Q12 the shared ITI block (no per-trade row; 3D / PLC / EDM precedent for a new trade); no fresher items. Drafted for owner review (Prakash).",
+  "items": [
+    {
+      "question_key": "heat_experience",
+      "min_tier": "easy",
+      "prompt_text": "Heat treatment ka kitna tajurba hai?",
+      "why_text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "heat_experience",
+      "answer_type": "single_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "fresher",
+          "label_text": "Fresher",
+          "value_number": 0
+        },
+        {
+          "option_key": "below_one",
+          "label_text": "1 saal se kam",
+          "value_number": 0
+        },
+        {
+          "option_key": "one_to_three",
+          "label_text": "1 se 3 saal",
+          "value_number": 2
+        },
+        {
+          "option_key": "three_to_five",
+          "label_text": "3 se 5 saal",
+          "value_number": 4
+        },
+        {
+          "option_key": "five_to_ten",
+          "label_text": "5 se 10 saal",
+          "value_number": 7
+        },
+        {
+          "option_key": "above_ten",
+          "label_text": "10 saal se zyada",
+          "value_number": 12
+        }
+      ],
+      "retry_text": "Lagbhag kitne saal heat treatment ka kaam kiya hai?",
+      "is_mandatory": true
+    },
+    {
+      "question_key": "heat_level",
+      "min_tier": "easy",
+      "prompt_text": "Heat treatment shop me aap kis level par kaam karte hain?",
+      "why_text": "Level se employer ko aapka darja saaf pata chalta hai.",
+      "target_kind": "attribute",
+      "target_field": "heat_level",
+      "answer_type": "single_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "helper",
+          "label_text": "Helper/Trainee",
+          "value_text": "trainee"
+        },
+        {
+          "option_key": "operator",
+          "label_text": "Operator",
+          "value_text": "operator"
+        },
+        {
+          "option_key": "skilled",
+          "label_text": "Skilled",
+          "value_text": "skilled"
+        },
+        {
+          "option_key": "senior",
+          "label_text": "Senior",
+          "value_text": "senior"
+        },
+        {
+          "option_key": "supervisor",
+          "label_text": "Supervisor",
+          "value_text": "supervisor"
+        }
+      ],
+      "retry_text": "Helper, operator, skilled, senior ya supervisor hain?",
+      "is_mandatory": true
+    },
+    {
+      "question_key": "heat_skilled_confirm",
+      "min_tier": "easy",
+      "prompt_text": "Material aur spec dekh ke cycle khud set karte ho, hardness khud check karte ho?",
+      "why_text": "Cycle aur hardness khud sambhalne wale ko alag kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "heat_skilled_confirm",
+      "answer_type": "single_select",
+      "is_core": false,
+      "is_mandatory": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "in",
+        "left": {
+          "field": "heat_level"
+        },
+        "right": {
+          "const": [
+            "skilled",
+            "senior"
+          ]
+        }
+      },
+      "options": [
+        {
+          "option_key": "self_confirm",
+          "label_text": "Haan, khud karta hoon",
+          "value_text": "self"
+        },
+        {
+          "option_key": "other_confirm",
+          "label_text": "Nahi, koi aur karta hai",
+          "value_text": "other"
+        }
+      ]
+    },
+    {
+      "question_key": "heat_process",
+      "min_tier": "medium",
+      "prompt_text": "Kaunsa heat treatment process karte hain?",
+      "why_text": "Process ke hisaab se sahi kaam dikhaya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "heat_process",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "hardening_tempering",
+          "label_text": "Hardening & tempering",
+          "value_text": "hardening_tempering"
+        },
+        {
+          "option_key": "case_carburising",
+          "label_text": "Case carburising",
+          "value_text": "case_carburising"
+        },
+        {
+          "option_key": "nitriding",
+          "label_text": "Nitriding / gas nitriding",
+          "value_text": "nitriding"
+        },
+        {
+          "option_key": "induction_hardening",
+          "label_text": "Induction hardening",
+          "value_text": "induction_hardening"
+        },
+        {
+          "option_key": "annealing_normalising",
+          "label_text": "Annealing / normalising",
+          "value_text": "annealing_normalising"
+        },
+        {
+          "option_key": "vacuum_heat_treatment",
+          "label_text": "Vacuum heat treatment",
+          "value_text": "vacuum_heat_treatment"
+        },
+        {
+          "option_key": "salt_bath",
+          "label_text": "Salt bath",
+          "value_text": "salt_bath"
+        },
+        {
+          "option_key": "other_process",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "retry_text": "Hardening, carburising ya induction, kaunsa process karte hain?",
+      "is_mandatory": true
+    },
+    {
+      "question_key": "heat_furnace",
+      "min_tier": "medium",
+      "prompt_text": "Kaunsi furnace chalate hain?",
+      "why_text": "Furnace ke hisaab se sahi plant ka kaam dikhaya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "heat_furnace",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "sealed_quench",
+          "label_text": "Sealed quench (SQF)",
+          "value_text": "sealed_quench"
+        },
+        {
+          "option_key": "pit_furnace",
+          "label_text": "Pit furnace",
+          "value_text": "pit_furnace"
+        },
+        {
+          "option_key": "continuous_furnace",
+          "label_text": "Continuous furnace",
+          "value_text": "continuous_furnace"
+        },
+        {
+          "option_key": "induction_machine",
+          "label_text": "Induction machine",
+          "value_text": "induction_machine"
+        },
+        {
+          "option_key": "vacuum_furnace",
+          "label_text": "Vacuum furnace",
+          "value_text": "vacuum_furnace"
+        },
+        {
+          "option_key": "box_furnace",
+          "label_text": "Box furnace",
+          "value_text": "box_furnace"
+        },
+        {
+          "option_key": "other_furnace",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "is_mandatory": true
+    },
+    {
+      "question_key": "heat_testing",
+      "min_tier": "hard",
+      "prompt_text": "Kaunsi testing khud karte hain?",
+      "why_text": "Testing khud karne wale technician ki alag maang hai.",
+      "target_kind": "attribute",
+      "target_field": "heat_testing",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "rockwell",
+          "label_text": "Rockwell (HRC)",
+          "value_text": "rockwell"
+        },
+        {
+          "option_key": "brinell",
+          "label_text": "Brinell",
+          "value_text": "brinell"
+        },
+        {
+          "option_key": "vickers",
+          "label_text": "Vickers",
+          "value_text": "vickers"
+        },
+        {
+          "option_key": "micro_structure",
+          "label_text": "Micro-structure",
+          "value_text": "micro_structure"
+        },
+        {
+          "option_key": "case_depth",
+          "label_text": "Case depth",
+          "value_text": "case_depth"
+        },
+        {
+          "option_key": "no_testing",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "heat_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "heat_level"
+            },
+            "right": {
+              "const": [
+                "skilled",
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "question_key": "heat_material",
+      "min_tier": "hard",
+      "prompt_text": "Kaunse material ka heat treatment kiya hai?",
+      "why_text": "Material jaanne se aapka kaam saaf pata chalta hai.",
+      "target_kind": "attribute",
+      "target_field": "heat_material",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "en_series",
+          "label_text": "EN8 / EN19 / EN24",
+          "value_text": "en_series"
+        },
+        {
+          "option_key": "alloy_steel",
+          "label_text": "Alloy steel",
+          "value_text": "alloy_steel"
+        },
+        {
+          "option_key": "tool_steel",
+          "label_text": "Tool steel",
+          "value_text": "tool_steel"
+        },
+        {
+          "option_key": "stainless_steel",
+          "label_text": "SS / stainless steel",
+          "value_text": "stainless_steel"
+        },
+        {
+          "option_key": "other_material",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ],
+      "ask_if": {
+        "op": "any",
+        "predicates": [
+          {
+            "op": "gte",
+            "left": {
+              "field": "heat_experience"
+            },
+            "right": {
+              "const": 2
+            }
+          },
+          {
+            "op": "in",
+            "left": {
+              "field": "heat_level"
+            },
+            "right": {
+              "const": [
+                "skilled",
+                "senior",
+                "supervisor"
+              ]
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

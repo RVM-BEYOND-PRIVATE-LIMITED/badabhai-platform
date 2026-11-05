@@ -88,6 +88,7 @@ export const BANK_TOPIC_ORDER = [
   "skills",
   "location_label",
   "city",
+  "area",
   "vacancy",
   "pay_range",
   "pay_type",

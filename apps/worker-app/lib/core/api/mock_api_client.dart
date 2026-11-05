@@ -32,6 +32,7 @@ class MockApiClient extends ApiClient {
   Future<void> acceptConsent({
     required String authToken,
     required List<String> purposes,
+    required bool age18Plus,
     String consentVersion = kConsentVersion,
   }) async {
     await _delay();
@@ -46,8 +47,8 @@ class MockApiClient extends ApiClient {
   }
 
   /// Canned employer-contact consent state (#1630): the worker is contactable,
-  /// so the mock switch starts ON and `withdrawEmployerContact` flips it OFF
-  /// (session-local, like the rest of mock mode).
+  /// so the mock switch starts ON; `withdrawEmployerContact` flips it OFF and
+  /// `grantEmployerContact` back ON (session-local, like the rest of mock mode).
   bool _mockEmployerContact = true;
 
   /// Canned E4 match skills (#1828): session-local on/off state so the toggle
@@ -128,6 +129,23 @@ class MockApiClient extends ApiClient {
       ok: true,
       consentId: wasOn ? 'mock-consent-0002' : null,
       withdrawn: wasOn
+          ? const <String>['employer_sharing', 'employer_messaging']
+          : const <String>[],
+    );
+  }
+
+  @override
+  Future<EmployerContactGrantDto> grantEmployerContact({
+    required String authToken,
+    String consentVersion = kConsentVersion,
+  }) async {
+    await _delay();
+    final bool wasOff = !_mockEmployerContact;
+    _mockEmployerContact = true;
+    return EmployerContactGrantDto(
+      ok: true,
+      consentId: wasOff ? 'mock-consent-0003' : null,
+      granted: wasOff
           ? const <String>['employer_sharing', 'employer_messaging']
           : const <String>[],
     );

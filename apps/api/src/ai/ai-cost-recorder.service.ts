@@ -43,8 +43,10 @@ export type AiCostAttribution =
  * transcript or anything a worker said.
  *
  * IT NOW ALSO MAINTAINS THE RUNNING TOTALS (migration 0077), on the same transaction as the
- * event but inside a SAVEPOINT. See {@link record} for why the two directions of failure are
- * not symmetric: the event must commit, the derived total may be rebuilt.
+ * event but inside SAVEPOINTS. See {@link record} for why the two directions of failure are
+ * not symmetric: the event must commit, the derived totals may be rebuilt — and why the
+ * platform total is written FIRST, in its own savepoint, so a worker deleted mid-call cannot
+ * roll the headline back with it.
  */
 @Injectable()
 export class AiCostRecorder {
@@ -188,34 +190,51 @@ export class AiCostRecorder {
         // attempt that stored the event.
         if (!written) return;
 
-        // INSIDE A SAVEPOINT, AND CAUGHT SEPARATELY FROM THE EMIT. Everything above this line
-        // is the audit ledger and must reach COMMIT; everything below is a derived number that
-        // a backfill can rebuild. The savepoint is what lets one fail without the other, and
-        // the inner catch is what stops the failure from unwinding past it.
+        // EACH LEG IN ITS OWN SAVEPOINT, PLATFORM FIRST. Everything above this line is the
+        // audit ledger and must reach COMMIT; everything below is a derived number that a
+        // backfill can rebuild. The savepoints are what let one leg fail without aborting the
+        // transaction, and the catches are what stop a failure from unwinding past them.
+        //
+        // ORDER IS THE FIX. The platform total has no FK and must land even when the worker was
+        // deleted mid-call. It is written first, in its own savepoint, so the owned legs' FK
+        // failure (23503) cannot take it down; the owned legs share a second savepoint because
+        // their failure is recoverable and must cost only the worker/session rows.
+        const accrual = {
+          workerId,
+          sessionId,
+          // Defaulted to the SAME literal the payload carries, so the totals table and the
+          // event agree about an unlabelled call instead of dropping it.
+          provider: meta.provider || "unknown",
+          taskType,
+          costInr: meta.estimated_cost_inr,
+          realCall: meta.real_call,
+        };
+
         try {
-          await this.totals.withSavepoint(tx, (sp) =>
-            this.totals.accrue(
-              {
-                workerId,
-                sessionId,
-                // Defaulted to the SAME literal the payload carries, so the totals table and
-                // the event agree about an unlabelled call instead of dropping it.
-                provider: meta.provider || "unknown",
-                taskType,
-                costInr: meta.estimated_cost_inr,
-                realCall: meta.real_call,
-              },
-              sp,
-            ),
-          );
+          await this.totals.withSavepoint(tx, (sp) => this.totals.accruePlatform(accrual, sp));
         } catch (err) {
           // The event row survives this. Logged distinctly from the emit failure below,
           // because the two mean opposite things: "the ledger is missing a row" versus "the
           // ledger has the row and the derived total is behind by one call".
           this.logger.warn(
-            `ai cost totals accrual failed for call ${meta.ai_call_id} task=${taskType} — ` +
-              `the ai.cost_recorded event is COMMITTED and the totals now trail the spine ` +
+            `ai cost PLATFORM total failed for call ${meta.ai_call_id} task=${taskType} — ` +
+              `the ai.cost_recorded event is COMMITTED and the total now trails the spine ` +
               `(repairable by backfill): ${String(err)}`,
+          );
+        }
+
+        // No owner means there is nothing to write — skip the savepoint entirely.
+        if (workerId === null) return;
+
+        try {
+          await this.totals.withSavepoint(tx, (sp) => this.totals.accrueOwned(accrual, sp));
+        } catch (err) {
+          // A deleted worker is the ordinary trigger. The platform total is already written and
+          // committed with the event; only this worker's (and session's) derived rows are lost.
+          this.logger.warn(
+            `ai cost OWNED totals failed for call ${meta.ai_call_id} worker=${workerId} ` +
+              `task=${taskType} — the event and the platform total are COMMITTED; the ` +
+              `worker/session totals trail the spine (repairable by backfill): ${String(err)}`,
           );
         }
       });

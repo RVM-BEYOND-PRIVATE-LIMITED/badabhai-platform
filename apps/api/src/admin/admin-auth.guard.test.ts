@@ -90,7 +90,7 @@ function ctxWithAuth(header: string | undefined): {
 describe("AdminSessionService — audience pin + own namespace (horizontal isolation)", () => {
   it("a minted admin token validates and carries the role (round-trip)", async () => {
     const { svc } = makeSessionService(ADMIN_SECRET);
-    const { token } = await svc.create(ADMIN_ID, "super_admin");
+    const { token } = await svc.create(ADMIN_ID, "super_admin", 0);
     const v = await svc.validateAndTouch(token);
     expect(v).toMatchObject({ adminId: ADMIN_ID, role: "super_admin" });
   });
@@ -116,14 +116,14 @@ describe("AdminSessionService — audience pin + own namespace (horizontal isola
 
   it("REJECTS a valid token whose Redis session record is gone (revoked/expired → null)", async () => {
     const { svc, redis } = makeSessionService(ADMIN_SECRET);
-    const { token } = await svc.create(ADMIN_ID, "ops_admin");
+    const { token } = await svc.create(ADMIN_ID, "ops_admin", 0);
     redis.store.clear(); // simulate revoke / TTL expiry
     expect(await svc.validateAndTouch(token)).toBeNull();
   });
 
   it("revoke deletes the record so the token no longer validates", async () => {
     const { svc } = makeSessionService(ADMIN_SECRET);
-    const { token } = await svc.create(ADMIN_ID, "ops_admin");
+    const { token } = await svc.create(ADMIN_ID, "ops_admin", 0);
     const v = await svc.validateAndTouch(token);
     await svc.revoke(v!.sid);
     expect(await svc.validateAndTouch(token)).toBeNull();
@@ -138,7 +138,7 @@ describe("AdminSessionService — audience pin + own namespace (horizontal isola
 describe("AdminSessionService — live status/role re-read (H1, in-flight)", () => {
   it("rejects an in-flight session whose admin was just SUSPENDED (status != active → null)", async () => {
     const { svc, live } = makeSessionService(ADMIN_SECRET, { status: "active", role: "ops_admin" });
-    const { token } = await svc.create(ADMIN_ID, "ops_admin");
+    const { token } = await svc.create(ADMIN_ID, "ops_admin", 0);
     // While the session is live, the admin is suspended in the SoR.
     expect(await svc.validateAndTouch(token)).toMatchObject({ adminId: ADMIN_ID, role: "ops_admin" });
     live.status = "suspended";
@@ -148,21 +148,21 @@ describe("AdminSessionService — live status/role re-read (H1, in-flight)", () 
 
   it("rejects an in-flight session whose admin row is PENDING (never re-activated → null)", async () => {
     const { svc, live } = makeSessionService(ADMIN_SECRET, { status: "active", role: "support" });
-    const { token } = await svc.create(ADMIN_ID, "support");
+    const { token } = await svc.create(ADMIN_ID, "support", 0);
     live.status = "pending";
     expect(await svc.validateAndTouch(token)).toBeNull();
   });
 
   it("rejects an in-flight session whose admin row was DELETED (findById undefined → null)", async () => {
     const { svc, findById } = makeSessionService(ADMIN_SECRET);
-    const { token } = await svc.create(ADMIN_ID, "super_admin");
+    const { token } = await svc.create(ADMIN_ID, "super_admin", 0);
     findById.mockResolvedValueOnce(undefined);
     expect(await svc.validateAndTouch(token)).toBeNull();
   });
 
   it("returns the CURRENT role from the row — a super_admin→analyst demotion is live (downgraded)", async () => {
     const { svc, live } = makeSessionService(ADMIN_SECRET, { status: "active", role: "super_admin" });
-    const { token } = await svc.create(ADMIN_ID, "super_admin");
+    const { token } = await svc.create(ADMIN_ID, "super_admin", 0);
     expect(await svc.validateAndTouch(token)).toMatchObject({ role: "super_admin" });
     // Demote in the SoR while the session is live; the JWT/Redis still say super_admin.
     live.role = "analyst";
@@ -173,7 +173,7 @@ describe("AdminSessionService — live status/role re-read (H1, in-flight)", () 
 
   it("the guard 401s an in-flight suspended admin (end-to-end through AdminAuthGuard)", async () => {
     const { svc, live } = makeSessionService(ADMIN_SECRET, { status: "active", role: "ops_admin" });
-    const { token } = await svc.create(ADMIN_ID, "ops_admin");
+    const { token } = await svc.create(ADMIN_ID, "ops_admin", 0);
     const guard = new AdminAuthGuard(svc, config);
     const { ctx } = ctxWithAuth(`Bearer ${token}`);
     expect(await guard.canActivate(ctx)).toBe(true); // still active
@@ -183,7 +183,7 @@ describe("AdminSessionService — live status/role re-read (H1, in-flight)", () 
 
   it("the guard attaches the DEMOTED role to req.admin so AdminRolesGuard downgrades live", async () => {
     const { svc, live } = makeSessionService(ADMIN_SECRET, { status: "active", role: "super_admin" });
-    const { token } = await svc.create(ADMIN_ID, "super_admin");
+    const { token } = await svc.create(ADMIN_ID, "super_admin", 0);
     const guard = new AdminAuthGuard(svc, config);
     const req: {
       header: (name: string) => string | undefined;
@@ -204,7 +204,7 @@ describe("AdminSessionService — live status/role re-read (H1, in-flight)", () 
 describe("AdminAuthGuard — fail closed", () => {
   it("ALLOWS a request bearing a valid admin token and attaches req.admin", async () => {
     const { svc } = makeSessionService(ADMIN_SECRET);
-    const { token } = await svc.create(ADMIN_ID, "support");
+    const { token } = await svc.create(ADMIN_ID, "support", 0);
     const guard = new AdminAuthGuard(svc, config);
     const { ctx } = ctxWithAuth(`Bearer ${token}`);
     expect(await guard.canActivate(ctx)).toBe(true);
@@ -231,5 +231,43 @@ describe("AdminAuthGuard — fail closed", () => {
     const guard = new AdminAuthGuard(svc, config);
     const { ctx } = ctxWithAuth(`Bearer ${forged}`);
     await expect(guard.canActivate(ctx)).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+});
+
+describe("AdminAuthGuard — credential epoch (security review B2)", () => {
+  it("attaches the VALIDATED epoch to req.admin (what /admin/refresh re-mints with)", async () => {
+    const { svc } = makeSessionService(ADMIN_SECRET);
+    const { token } = await svc.create(ADMIN_ID, "support", 0);
+    const guard = new AdminAuthGuard(svc, config);
+    const req: {
+      header: (name: string) => string | undefined;
+      admin?: { id: string; role: AdminRole; sid: string; passwordEpoch: number };
+    } = { header: (name: string) => (name === "authorization" ? `Bearer ${token}` : undefined) };
+    const res = { setHeader: vi.fn() };
+    const ctx = {
+      switchToHttp: () => ({ getRequest: () => req, getResponse: () => res }),
+    } as unknown as ExecutionContext;
+    await guard.canActivate(ctx);
+    expect(req.admin).toMatchObject({ id: ADMIN_ID, passwordEpoch: 0 });
+  });
+
+  it("the half-life rolling refresh re-mints on the validated epoch — never a fresh read", async () => {
+    // A 1-day TTL makes any token minted 13h ago past its half-life.
+    const shortConfig = { SESSION_TTL_DAYS: 1 } as unknown as ServerConfig;
+    const { svc } = makeSessionService(ADMIN_SECRET);
+    const { token } = await svc.create(ADMIN_ID, "support", 0);
+    const mint = vi.spyOn(svc, "mint");
+    vi.spyOn(svc, "validateAndTouch").mockResolvedValueOnce({
+      adminId: ADMIN_ID,
+      sid: "sid-1",
+      role: "support",
+      remainingSeconds: 60,
+      passwordEpoch: 1_793_700_000_500,
+    });
+    const guard = new AdminAuthGuard(svc, shortConfig);
+    const { ctx, res } = ctxWithAuth(`Bearer ${token}`);
+    await guard.canActivate(ctx);
+    expect(mint).toHaveBeenCalledWith(ADMIN_ID, "sid-1", "support", 1_793_700_000_500);
+    expect(res.setHeader).toHaveBeenCalledWith("x-session-token", expect.any(String));
   });
 });

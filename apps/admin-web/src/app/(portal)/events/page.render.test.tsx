@@ -20,6 +20,12 @@ const stub = vi.hoisted(() => {
     RequestError,
     failure: null as unknown,
     page: { events: [] as unknown[], nextCursor: null as string | null },
+    /** What the page asked the API for, last. */
+    asked: null as Record<string, unknown> | null,
+    /** The event-name suggestions' read: a list, or a failure to throw. */
+    names: ["profile.confirmed", "worker.created"] as string[] | Error,
+    /** What the page handed its filter bar, last. */
+    barProps: null as Record<string, unknown> | null,
   };
 });
 
@@ -36,20 +42,34 @@ vi.mock("../../../lib/admin-http", () => ({
 }));
 
 vi.mock("../../../lib/events", () => ({
-  listEvents: async () => {
+  listEvents: async (filters: Record<string, unknown>) => {
+    stub.asked = filters;
     if (stub.failure) throw stub.failure;
     return stub.page;
   },
+  listRecentEventNames: async () => {
+    if (stub.names instanceof Error) throw stub.names;
+    return stub.names;
+  },
 }));
 
-// `useRouter` needs an app-router context this renderer does not provide.
-vi.mock("./filter-bar", () => ({ EventFilterBar: () => null }));
+// `useRouter` needs an app-router context this renderer does not provide; the stand-in keeps
+// what the page handed the bar.
+vi.mock("./filter-bar", () => ({
+  EventFilterBar: (props: Record<string, unknown>) => {
+    stub.barProps = props;
+    return null;
+  },
+}));
 
 const { default: EventsPage } = await import("./page");
 
 beforeEach(() => {
   stub.failure = null;
   stub.page = { events: [], nextCursor: null };
+  stub.asked = null;
+  stub.names = ["profile.confirmed", "worker.created"];
+  stub.barProps = null;
 });
 
 const render = async (searchParams: Record<string, string | undefined> = {}) =>
@@ -103,7 +123,7 @@ describe("a 400 is the operator's address, and says so", () => {
     stub.failure = new stub.RequestError(400);
     const out = await render({ correlationId: "abc" });
     const state = out.slice(out.indexOf('class="state state--error"'));
-    expect(state).toMatch(/href="\/events">(<i [^>]*><\/i>)?Clear filters<\/a>/);
+    expect(state).toMatch(/href="\/events">(<i [^>]*><\/i>)?Clear filters(?:<span class="nav-pending" aria-hidden="true"><\/span>)?<\/a>/);
     expect(out.split(">Clear filters<").length - 1).toBe(1);
   });
 
@@ -160,5 +180,127 @@ describe("valid filters with a refused cursor get the cursor's copy", () => {
     stub.failure = new stub.RequestError(400);
     const out = await render({ actorType: "x".repeat(65), cursor: "x".repeat(300) });
     expect(out).toContain("The server rejected these filters");
+  });
+});
+
+/**
+ * THE DATE RANGE (A4, #2574). The API takes `occurredFrom` / `occurredTo` as instants and compares
+ * them inclusively; the address holds two IST days, so "1 Nov to 3 Nov" reaches the API as the
+ * first instant of 1 Nov IST and the last of 3 Nov IST.
+ */
+describe("the date range", () => {
+  const EVENT = {
+    id: "5eeded00-0005-4a00-8000-000000000005",
+    event_name: "worker.registered",
+    event_version: 1,
+    actor_type: "system",
+    actor_id: null,
+    subject_type: "worker",
+    subject_id: "5eeded00-0001-4a00-8000-000000000001",
+    occurred_at: "2026-11-02T09:00:00.000Z",
+    correlation_id: "5eeded00-00c0-4a00-8000-0000000000c0",
+    causation_id: null,
+  };
+
+  it("asks the API for the whole of both IST days", async () => {
+    await render({ occurredFrom: "2026-11-01", occurredTo: "2026-11-03" });
+    expect(stub.asked).toMatchObject({
+      occurredFrom: "2026-11-01T00:00:00.000+05:30",
+      occurredTo: "2026-11-03T23:59:59.999+05:30",
+    });
+  });
+
+  it("one end alone is a range too", async () => {
+    await render({ occurredFrom: "2026-11-01" });
+    expect(stub.asked?.occurredFrom).toBe("2026-11-01T00:00:00.000+05:30");
+    expect(stub.asked?.occurredTo).toBeUndefined();
+  });
+
+  it("is a filter like any other: Clear filters, and the pager keeps the days, not the instants", async () => {
+    stub.page = { events: [EVENT], nextCursor: "c2" };
+    const out = await render({ occurredFrom: "2026-11-01", occurredTo: "2026-11-03" });
+    expect(out).toContain(">Clear filters<");
+    expect(out).toContain('href="/events?occurredFrom=2026-11-01&amp;occurredTo=2026-11-03&amp;cursor=c2"');
+  });
+
+  it("a day that is not on the calendar is refused HERE, before any read, and named", async () => {
+    // It used to travel as it stood, on the premise that the API refuses it. It does not: the API
+    // coerces it (`new Date("2026-02-30")` is 2 March), so the list showed a range nobody asked
+    // for under a To field the date input drew blank.
+    for (const occurredTo of ["2026-02-30", "2026-2-3", "yesterday"]) {
+      stub.asked = null;
+      const out = await render({ occurredFrom: "2026-02-01", occurredTo });
+      expect(stub.asked, occurredTo).toBeNull();
+      expect(out).toContain("That date is not on the calendar");
+      expect(out).toContain(`“${occurredTo}” is not a day on the calendar`);
+      expect(out).toContain("A date in the filters is not a calendar day.");
+      expect(out).not.toContain("The server rejected");
+      // Its way out is Clear filters — once on the screen — never a Retry that repeats it.
+      expect(out.split(">Clear filters<").length - 1).toBe(1);
+      expect(out).not.toContain(">Retry<");
+    }
+  });
+
+  it("valid days beside an over-long cursor: the CURSOR was refused, not the range", async () => {
+    stub.failure = new stub.RequestError(400);
+    const out = await render({ occurredFrom: "2026-11-01", cursor: "x".repeat(300) });
+    expect(out).toContain("The server rejected this page");
+    expect(out).not.toContain("The server rejected these filters");
+  });
+});
+
+/** The list itself draws on the data grid and fills a tall window (A4, #2574). */
+describe("the list", () => {
+  it("is a list page: its rows on the grid, each event's name the row's link to its page", async () => {
+    stub.page = {
+      events: [
+        {
+          id: "5eeded00-0005-4a00-8000-000000000005",
+          event_name: "payer.suspended",
+          event_version: 2,
+          actor_type: "admin",
+          actor_id: "5eeded00-0009-4a00-8000-000000000009",
+          subject_type: "payer",
+          subject_id: "5eeded00-0002-4a00-8000-000000000002",
+          occurred_at: "2026-11-02T09:00:00.000Z",
+          correlation_id: "5eeded00-00c0-4a00-8000-0000000000c0",
+          causation_id: null,
+        },
+      ],
+      nextCursor: null,
+    };
+    const out = await render();
+    expect(out).toContain('<div class="page page--list">');
+    expect(out).toContain('<div class="grid"');
+    expect(out).toMatch(
+      /<a class="grid__link" href="\/events\/5eeded00-0005-4a00-8000-000000000005"><span class="grid__link-text" title="payer\.suspended · v2">Customer · suspended<\/span>/,
+    );
+    // The version follows the link; it is not part of its name.
+    expect(out).toContain('</a><span class="table__meta">v2</span>');
+  });
+});
+
+/**
+ * The event-name field's suggestions (A4, #2574): the names the spine recorded lately, read beside
+ * the list. A read the page can do without — so it never fails or empties the page.
+ */
+describe("the event-name suggestions", () => {
+  it("hands the filter bar the names the spine recorded lately", async () => {
+    await render();
+    expect(stub.barProps?.eventNames).toEqual(["profile.confirmed", "worker.created"]);
+  });
+
+  it("are still offered beside a refused date — the bar is how the operator corrects it", async () => {
+    await render({ occurredTo: "2026-02-30" });
+    expect(stub.barProps?.eventNames).toEqual(["profile.confirmed", "worker.created"]);
+  });
+
+  it("a failed read leaves the field unsuggested and the list untouched", async () => {
+    stub.names = new Error("metrics are down");
+    const out = await render();
+    expect(stub.barProps?.eventNames).toEqual([]);
+    expect(stub.asked).not.toBeNull();
+    expect(out).not.toContain("Events are unavailable");
+    expect(out).toContain("No events recorded yet");
   });
 });

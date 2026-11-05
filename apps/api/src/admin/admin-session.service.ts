@@ -8,6 +8,7 @@ import type { AdminRole } from "@badabhai/db";
 import { SERVER_CONFIG } from "../config/config.module";
 import { RESUME_RENDER_QUEUE } from "../queue/queue.constants";
 import { AdminRepository } from "./admin.repository";
+import { epochMatches, passwordEpochOf } from "./admin-credential-epoch";
 
 /**
  * Admin sessions (ADR-0025 ADMIN-1, Decision 2.2) — the 4th principal's session layer,
@@ -40,6 +41,11 @@ interface AdminJwtClaims {
   typ: "admin";
   role: AdminRole;
   exp?: number;
+  /**
+   * The credential epoch the token was minted for (`password_set_at` ms, 0 = none) — see
+   * `admin-credential-epoch.ts`. Absent on pre-0144 tokens, which then read as 0.
+   */
+  pwe?: number;
 }
 
 export interface AdminSessionToken {
@@ -52,6 +58,12 @@ export interface ValidatedAdminSession {
   sid: string;
   role: AdminRole;
   remainingSeconds: number;
+  /**
+   * The credential epoch of the row THIS validation read. A refresh must mint with exactly this
+   * value — never re-read the row — or a refresh landing just after a reset would hand the old
+   * session a token for the NEW epoch and let it survive the reset.
+   */
+  passwordEpoch: number;
 }
 
 @Injectable()
@@ -83,8 +95,12 @@ export class AdminSessionService {
    * signed `typ:"admin"` JWT. The `role` travels in the Redis blob and the JWT claim for
    * observability/refresh continuity ONLY — it is NOT trusted for authz: `validateAndTouch`
    * re-reads the live `admin_users` row each request and uses the row's status + role (H1).
+   *
+   * `passwordEpoch` (B2) is the credential epoch of the row the caller just authenticated
+   * against (`passwordEpochOf(row.passwordSetAt)`); the token is valid only while it still equals
+   * the row's. Required, not defaulted: a forgotten epoch must be a compile error, not a 0.
    */
-  async create(adminId: string, role: AdminRole): Promise<AdminSessionToken> {
+  async create(adminId: string, role: AdminRole, passwordEpoch: number): Promise<AdminSessionToken> {
     const sid = randomUUID();
     const ttl = this.ttlSeconds();
     const redis = await this.client();
@@ -94,11 +110,7 @@ export class AdminSessionService {
       "EX",
       ttl,
     );
-    const token = await this.jwt.signAsync(
-      { sub: adminId, sid, typ: "admin", role },
-      { expiresIn: `${this.config.SESSION_TTL_DAYS}d` },
-    );
-    return { token, expiresInSeconds: ttl };
+    return { token: await this.sign(adminId, sid, role, passwordEpoch), expiresInSeconds: ttl };
   }
 
   /**
@@ -112,7 +124,8 @@ export class AdminSessionService {
    *   (a) rejects the session if `status !== 'active'` (suspended/pending → null → 401), and
    *   (b) returns the CURRENT `role` FROM THE ROW (so AdminRolesGuard sees a demotion live).
    * The JWT/Redis role is never used for authz once the row is loaded. A missing row (deleted
-   * admin) → null → 401.
+   * admin) → null → 401. And (c) (0144, security review B2) a token whose `pwe` credential epoch
+   * no longer equals the row's → null → 401: a password set/change/reset kills every session.
    */
   async validateAndTouch(token: string): Promise<ValidatedAdminSession | null> {
     let claims: AdminJwtClaims;
@@ -135,13 +148,30 @@ export class AdminSessionService {
       const row = await this.admins.findById(claims.sub);
       if (!row || row.status !== "active") return null;
       if (!AdminSessionService.isAdminRole(row.role)) return null;
+      // B2 — the credential epoch: a token minted for any other `password_set_at` is dead. This
+      // is what makes a reset log out EVERY session without enumerating them (sessions are
+      // Redis keys by sid, not indexed by admin). Equality, not a time comparison — see
+      // `admin-credential-epoch.ts` for the same-second refresh it closes.
+      if (!epochMatches(claims.pwe, row.passwordSetAt)) {
+        // Delete the dead session's record too, so rolling the API back to a build without the
+        // epoch check cannot revive it. Safe: a sid belongs to ONE epoch for life (`create`
+        // always issues a fresh sid). Best-effort — the token is refused either way.
+        await redis.del(key).catch(() => undefined);
+        return null;
+      }
 
       await redis.expire(key, this.ttlSeconds());
       const nowSeconds = Math.floor(Date.now() / 1000);
       const remainingSeconds = claims.exp ? Math.max(0, claims.exp - nowSeconds) : 0;
       // Authoritative role comes from the ROW (a demotion takes effect on the next request);
       // the JWT/Redis role claim is NOT trusted for authz.
-      return { adminId: claims.sub, sid: claims.sid, role: row.role, remainingSeconds };
+      return {
+        adminId: claims.sub,
+        sid: claims.sid,
+        role: row.role,
+        remainingSeconds,
+        passwordEpoch: passwordEpochOf(row.passwordSetAt),
+      };
     } catch (err) {
       this.logger.error(
         `Admin session Redis error; treating as unauthenticated (reason: ${
@@ -152,13 +182,29 @@ export class AdminSessionService {
     }
   }
 
-  /** Mint a fresh JWT for an already-validated admin+session (rolling refresh). */
-  async mint(adminId: string, sid: string, role: AdminRole): Promise<AdminSessionToken> {
-    const token = await this.jwt.signAsync(
-      { sub: adminId, sid, typ: "admin", role },
+  /**
+   * Mint a fresh JWT for an already-validated admin+session (rolling refresh). `passwordEpoch`
+   * MUST be {@link ValidatedAdminSession.passwordEpoch} from the validation that admitted this
+   * request — never a re-read row (see that field).
+   */
+  async mint(
+    adminId: string,
+    sid: string,
+    role: AdminRole,
+    passwordEpoch: number,
+  ): Promise<AdminSessionToken> {
+    return {
+      token: await this.sign(adminId, sid, role, passwordEpoch),
+      expiresInSeconds: this.ttlSeconds(),
+    };
+  }
+
+  /** The ONE signer: every admin JWT carries the audience pin AND the credential epoch. */
+  private sign(adminId: string, sid: string, role: AdminRole, passwordEpoch: number): Promise<string> {
+    return this.jwt.signAsync(
+      { sub: adminId, sid, typ: "admin", role, pwe: passwordEpoch },
       { expiresIn: `${this.config.SESSION_TTL_DAYS}d` },
     );
-    return { token, expiresInSeconds: this.ttlSeconds() };
   }
 
   /** Revoke an admin session (logout): delete its Redis record. Best-effort. */

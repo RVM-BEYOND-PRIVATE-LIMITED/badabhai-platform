@@ -641,6 +641,70 @@ export class WorkerSkillsRepository {
       );
     return rows.map((r) => r.id);
   }
+
+  /**
+   * The worker's STATED rung on one skill, for the apply-time snapshot (engine v1.1 "Level
+   * needed", ADR-0061). The SAME rule as the applicant card's badge (`tradeLevelsColumn`) and
+   * {@link listStatedTradeLevels}: latest profile wins among those that state a rung for the
+   * skill. Undefined = no rung stated — the snapshot then freezes NULL, never a guess.
+   */
+  async findStatedTradeLevel(
+    workerId: string,
+    skillId: string,
+  ): Promise<{ tradeLevel: string; levelConfirmed: boolean } | undefined> {
+    const rows = (await this.db.execute<{ trade_level: string; level_confirmed: boolean }>(dsql`
+      SELECT wps.trade_level, wps.level_confirmed
+      FROM worker_profiles wp
+      JOIN worker_profile_skill wps ON wps.worker_profile_id = wp.id
+      WHERE wp.worker_id = ${workerId}::uuid
+        AND wps.skill_id = ${skillId}
+        AND wps.trade_level IS NOT NULL
+      ORDER BY wp.created_at DESC
+      LIMIT 1
+    `)) as unknown as { trade_level: string; level_confirmed: boolean }[];
+    const row = rows[0];
+    // A row that names no rung (a hand-written seed, a version-skewed read) is "not stated".
+    if (!row || typeof row.trade_level !== "string") return undefined;
+    return { tradeLevel: row.trade_level, levelConfirmed: row.level_confirmed === true };
+  }
+
+  /**
+   * The STATED trade rungs of a page of workers (Middle Way P5's level badge), batched: latest
+   * profile wins per (worker, skill), `trade_level` set. The rule the applicant card's
+   * `tradeLevelsColumn` (match-feed.repository.ts) applies per row, for the payer all-candidates
+   * search (ADR-0040, E2), which keeps its own directory free of any profile read (E2_CHECK
+   * item 8) and the applicant files byte-identical (item 10). Display-only: never a rank input.
+   */
+  async listStatedTradeLevels(workerIds: readonly string[]): Promise<
+    { workerId: string; skillId: string; tradeLevel: string; levelConfirmed: boolean }[]
+  > {
+    if (workerIds.length === 0) return [];
+    const rows = (await this.db.execute<{
+      worker_id: string;
+      skill_id: string;
+      trade_level: string;
+      level_confirmed: boolean;
+    }>(dsql`
+      SELECT DISTINCT ON (wp.worker_id, wps.skill_id)
+             wp.worker_id, wps.skill_id, wps.trade_level, wps.level_confirmed
+      FROM worker_profiles wp
+      JOIN worker_profile_skill wps ON wps.worker_profile_id = wp.id
+      WHERE wp.worker_id = ANY(${dsql.param([...workerIds])}::uuid[])
+        AND wps.trade_level IS NOT NULL
+      ORDER BY wp.worker_id, wps.skill_id, wp.created_at DESC
+    `)) as unknown as {
+      worker_id: string;
+      skill_id: string;
+      trade_level: string;
+      level_confirmed: boolean;
+    }[];
+    return rows.map((r) => ({
+      workerId: r.worker_id,
+      skillId: r.skill_id,
+      tradeLevel: r.trade_level,
+      levelConfirmed: r.level_confirmed === true,
+    }));
+  }
 }
 
 function isString(v: unknown): v is string {

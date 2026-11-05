@@ -47,6 +47,11 @@ vi.mock("next/link", () => ({
 // this walk (it calls components outside a renderer) cannot run; its own behaviour is
 // components/portal-link.test.tsx. linkCues below reads each link's `pendingLabel`.
 vi.mock("../../../../../components/nav-pending", () => ({ NavPendingCue: () => null }));
+// The portal's ToastProvider (#2583): a granted unlock is announced through it.
+const toastShow = vi.fn();
+vi.mock("../../../../../components/ds/toast-provider", () => ({
+  useToast: () => ({ show: (t: unknown) => toastShow(t), dismiss: () => {} }),
+}));
 vi.mock("./actions", () => ({
   unlockAction: (i: unknown) => unlockAction(i),
   revealContactAction: (i: unknown) => revealContactAction(i),
@@ -69,7 +74,13 @@ const useState = vi.fn((init: unknown) => {
 });
 vi.mock("react", async () => {
   const actual = await vi.importActual<typeof ReactModule>("react");
-  return { ...actual, useState: (init: unknown) => useState(init) };
+  return {
+    ...actual,
+    useState: (init: unknown) => useState(init),
+    // The live balance (components/live-balance.ts, #2585) is read, never published, here: the
+    // store's snapshot is all a render needs (its subscription is pinned in applicant-feed.test.tsx).
+    useSyncExternalStore: (_subscribe: unknown, getSnapshot: () => unknown) => getSnapshot(),
+  };
 });
 
 const { ApplicantActions } = await import("./applicant-actions");
@@ -127,6 +138,7 @@ function mount(
       header: { title: "Candidates", description: "Everyone who applied.", toolbar: FILTER as unknown as ReactNode },
       applicants,
       balance: opts.balance ?? 5,
+      balanceAsOf: 0,
       ...(opts.unlocked ? { unlocked: opts.unlocked } : {}),
     }) as ReactElement;
   };
@@ -254,7 +266,7 @@ describe("inbox mode — the unlock names THE ROW's posting (one worker, two pos
     await buttons().find((b) => b.text.startsWith("Unlock · 1 credit"))!.onClick!();
     const [a, b, c] = cards();
     for (const card of [a!, b!]) {
-      expect(buttons(card).map((x) => x.text)).toContain("Open routed contact");
+      expect(buttons(card).map((x) => x.text)).toContain("Open contact");
       expect(buttons(card).map((x) => x.text)).not.toContain("Unlock contact (1 credit)");
     }
     expect(buttons(c!).map((x) => x.text)).toContain("Unlock contact (1 credit)");
@@ -460,7 +472,7 @@ describe("inbox mode — faceless", () => {
     check();
     buttons(cards()[2]!).find((b) => b.text === "Unlock contact (1 credit)")!.onClick!();
     await buttons().find((b) => b.text.startsWith("Unlock · 1 credit"))!.onClick!();
-    await buttons(cards()[2]!).find((b) => b.text === "Open routed contact")!.onClick!();
+    await buttons(cards()[2]!).find((b) => b.text === "Open contact")!.onClick!();
     expect(deepText()).toContain("RELAY-7h3k9q");
     check();
   });

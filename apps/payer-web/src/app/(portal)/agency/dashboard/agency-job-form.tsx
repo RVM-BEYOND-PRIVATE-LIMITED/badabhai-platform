@@ -11,6 +11,7 @@ import {
   type AgencyJob,
   type MatchSkillWire,
   type NeededBy,
+  type PostingTradeFormWire,
 } from "../../../../lib/contracts";
 import { tradeLabel } from "../../../../lib/agency-view";
 import { roleOptionGroups } from "../../../../lib/job-roles";
@@ -31,11 +32,7 @@ import {
 import { focusControl, revealWholeControl } from "../../../../lib/form-focus";
 import { formatInr } from "../../../../lib/format";
 import { agencyPostingFacts } from "../../../../lib/posting-facts";
-import {
-  workerCardGap,
-  workerCardGaps,
-  type WorkerCardGap,
-} from "../../../../lib/worker-card-gap";
+import { workerCardGap, workerCardGaps, type WorkerCardGap } from "../../../../lib/worker-card-gap";
 import {
   BadaBhaiLogo,
   Button,
@@ -50,6 +47,11 @@ import { PostingActions, PostingPreviewRail } from "../../../../components/posti
 // chips. It lives beside the company form it was built for; nothing about it is company-specific
 // but the untick affordance, which this form turns off (`relatedUnticks`).
 import { MatchSkillPicker, type MatchSelection } from "../../postings/new/match-skill-picker";
+import {
+  TradePostingFields,
+  derivedMatchSkills,
+  type TradeFormValue,
+} from "../../postings/trade-fields";
 
 /**
  * Shared CREATE/EDIT form for an agency posting (ADR-0022, LIVE) — an agency job traces to the
@@ -220,6 +222,7 @@ export function AgencyJobForm({
   mode,
   job,
   matchSkills = [],
+  postingTrades = [],
   onSubmit,
   onCancel,
   submitLabel,
@@ -235,6 +238,8 @@ export function AgencyJobForm({
    * can see. Same rule, same copy as the company posting form (#2104).
    */
   matchSkills?: MatchSkillWire[];
+  /** The 16-trade posting catalogue (migration 0141). */
+  postingTrades?: PostingTradeFormWire[];
   onSubmit: (input: AgencyJobInputValues) => Promise<AgencyJobFormSubmitResult>;
   onCancel?: () => void;
   submitLabel: string;
@@ -270,8 +275,21 @@ export function AgencyJobForm({
   });
   // APPENDED — preserves every earlier positional useState index (agency-job-form.test.tsx).
   const [step, setStep] = useState(1);
+  const [trade, setTrade] = useState<TradeFormValue & { dirty: boolean }>({
+    tradeLevel: job?.tradeLevel ?? "",
+    answers: job?.tradeAnswers ?? {},
+    dirty: false,
+  });
   const [pending, startTransition] = useTransition();
   const busy = pending || navigating;
+
+  // A pre-0141 job carries no trade fields and may hold a hand-picked match set. Editing a
+  // display-only rung there must not rewrite that set to the role's base skill, so the panel
+  // appears only on a create, a job that already uses the trade form, or after an explicit
+  // role change (which is a replacement of the old trade).
+  const storedTradeFields = job?.tradeLevel != null || job?.tradeAnswers != null;
+  const showTradeForm =
+    postingTrades.length > 0 && (mode === "create" || storedTradeFields || trade.dirty);
 
   // One form per page; the id names the job regardless — the rail's buttons submit it through the
   // `form` attribute.
@@ -293,6 +311,14 @@ export function AgencyJobForm({
 
   function set<K extends keyof FormFields>(key: K, value: string) {
     setFields((prev) => ({ ...prev, [key]: value }));
+    if (key === "roleKind") {
+      const form = postingTrades.find((tradeForm) => tradeForm.role_kind === value);
+      setTrade({ tradeLevel: "", answers: {}, dirty: true });
+      setSelection({
+        matchSkillIds: form ? derivedMatchSkills(form, {}) : [],
+        untickedRelatedIds: [],
+      });
+    }
     const pair = numberPairOf(key);
     if (pair !== null) setRevealed((prev) => revealNumberPair(prev, pair, false));
     if (key in fieldErrors) setFieldErrors((p) => ({ ...p, [key]: undefined }));
@@ -449,6 +475,12 @@ export function AgencyJobForm({
         description: fields.description.trim() || undefined,
         requirements: v.requirements,
         benefits: v.benefits,
+        ...(trade.dirty || storedTradeFields
+          ? {
+              tradeLevel: trade.tradeLevel || undefined,
+              tradeAnswers: trade.answers,
+            }
+          : {}),
         ...(pickUnchanged ? {} : { matchSkillIds: selection.matchSkillIds }),
       });
       if (!res.ok) {
@@ -500,8 +532,12 @@ export function AgencyJobForm({
   );
 
   const STEP_TITLES = ["Role & Worksite", "Pay & Experience", "Skills & Perks"];
+  const roleGroups =
+    postingTrades.length > 0
+      ? roleOptionGroups(postingTrades.map((tradeForm) => tradeForm.role_kind))
+      : ROLE_GROUPS;
   const roleLabel =
-    ROLE_GROUPS.flatMap((g) => g.options).find((o) => o.value === fields.roleKind)?.label ??
+    roleGroups.flatMap((g) => g.options).find((o) => o.value === fields.roleKind)?.label ??
     (fields.title.trim() !== "" ? fields.title : "Your role title");
   const selectedSkillLabels = matchSkills
     .filter((s) => selection.matchSkillIds.includes(s.skill_id))
@@ -551,7 +587,6 @@ export function AgencyJobForm({
                   Specify the technical trade and the place the work happens.
                 </p>
               </div>
-              <span className="mw-pill mw-pill--warm">In Progress</span>
             </div>
             <div className="mw-card__body">
               <Select
@@ -564,7 +599,7 @@ export function AgencyJobForm({
                 onChange={(e) => set("roleKind", e.target.value)}
               >
                 <option value="">— pick the role category —</option>
-                {ROLE_GROUPS.map((group) => (
+                {roleGroups.map((group) => (
                   <optgroup key={group.family} label={group.label}>
                     {group.options.map((o) => (
                       <option key={o.value} value={o.value}>
@@ -627,11 +662,7 @@ export function AgencyJobForm({
               ) : (
                 <span />
               )}
-              <button
-                type="button"
-                className="bb-btn bb-btn--primary bb-btn--sm"
-                onClick={goNext}
-              >
+              <button type="button" className="bb-btn bb-btn--primary" onClick={goNext}>
                 Next: Pay &amp; Experience <Icon name="arrow-right" />
               </button>
             </div>
@@ -645,7 +676,6 @@ export function AgencyJobForm({
                   Set the pay band, experience window, shift and joining time.
                 </p>
               </div>
-              <span className="mw-pill">In Progress</span>
             </div>
             <div className="mw-card__body">
               <div className="mw-grid2">
@@ -763,11 +793,7 @@ export function AgencyJobForm({
               >
                 Back
               </button>
-              <button
-                type="button"
-                className="bb-btn bb-btn--primary bb-btn--sm"
-                onClick={goNext}
-              >
+              <button type="button" className="bb-btn bb-btn--primary" onClick={goNext}>
                 Next: Skills &amp; Perks <Icon name="arrow-right" />
               </button>
             </div>
@@ -781,7 +807,6 @@ export function AgencyJobForm({
                   Pick the skills workers search by, then add the detail and perks.
                 </p>
               </div>
-              <span className="mw-pill">In Progress</span>
             </div>
             <div className="mw-card__body">
               <Textarea
@@ -832,7 +857,24 @@ export function AgencyJobForm({
                     : undefined
                 }
               >
-                {matchSkills.length > 0 ? (
+                {showTradeForm ? (
+                  <TradePostingFields
+                    trades={postingTrades}
+                    roleKind={fields.roleKind}
+                    value={{ tradeLevel: trade.tradeLevel, answers: trade.answers }}
+                    onChange={(next) => {
+                      const form = postingTrades.find((t) => t.role_kind === fields.roleKind);
+                      const nextMatch = form ? derivedMatchSkills(form, next.answers) : [];
+                      setTrade({ ...next, dirty: true });
+                      setSelection({ matchSkillIds: nextMatch, untickedRelatedIds: [] });
+                      if (nextMatch.length > 0 && fieldErrors.matchSkillIds !== undefined) {
+                        setFieldErrors((p) => ({ ...p, matchSkillIds: undefined }));
+                      }
+                    }}
+                    onMatchSkillIdsChange={() => undefined}
+                    vocabulary={matchSkills}
+                  />
+                ) : matchSkills.length > 0 ? (
                   <MatchSkillPicker
                     vocabulary={matchSkills}
                     selection={selection}
@@ -845,8 +887,8 @@ export function AgencyJobForm({
                     <div className="alert__text">
                       <p className="alert__title">Could not load the skill list</p>
                       <p className="alert__body">
-                        Reload the page — a posting needs at least one skill before workers can
-                        find it.
+                        Reload the page — a posting needs at least one skill before workers can find
+                        it.
                       </p>
                     </div>
                   </div>
@@ -1006,6 +1048,9 @@ export function AgencyJobForm({
         facts={agencyPostingFacts({
           roleKind: read.values.roleKind ?? null,
           tradeKey: fields.tradeKey,
+          tradeLevel: showTradeForm ? trade.tradeLevel || null : null,
+          tradeAnswers: showTradeForm ? trade.answers : null,
+          postingTrades: showTradeForm ? postingTrades : [],
           description: fields.description,
         })}
         actions={<PostingActions>{buttons}</PostingActions>}

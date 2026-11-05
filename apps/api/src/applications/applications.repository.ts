@@ -180,6 +180,9 @@ export interface DecisionSnapshot {
   industryMonths: number;
   lastWorkedAt: string | null;
   engineVersion: string;
+  /** Engine v1.1 (ADR-0061): the frozen rung and its confirm bit; null = none stated. */
+  tradeLevel: string | null;
+  levelConfirmed: boolean | null;
 }
 
 /** `excluded.<col>` on a skip→apply flip, else the stored value (E16 — the snapshot is frozen). */
@@ -500,6 +503,8 @@ export class ApplicationsRepository {
               industryMonths: s.industryMonths,
               lastWorkedAt: s.lastWorkedAt,
               engineVersion: s.engineVersion,
+              tradeLevel: s.tradeLevel,
+              levelConfirmed: s.levelConfirmed,
             }
           : {}),
       })
@@ -519,6 +524,8 @@ export class ApplicationsRepository {
                 industryMonths: frozenOnFlip(sql`${applications.industryMonths}`, "industry_months"),
                 lastWorkedAt: frozenOnFlip(sql`${applications.lastWorkedAt}`, "last_worked_at"),
                 engineVersion: frozenOnFlip(sql`${applications.engineVersion}`, "engine_version"),
+                tradeLevel: frozenOnFlip(sql`${applications.tradeLevel}`, "trade_level"),
+                levelConfirmed: frozenOnFlip(sql`${applications.levelConfirmed}`, "level_confirmed"),
               }
             : {}),
         },

@@ -1,13 +1,15 @@
 import { notFound } from "next/navigation";
 import { z } from "zod";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
-import { getPostingDetail } from "../../../../lib/payer-api";
+import { getCandidateFilters, getPostingDetail } from "../../../../lib/payer-api";
 import { requirePayer } from "../../../../lib/auth";
 import { Badge } from "../../../../components/ds";
 import { PageHeader, type PageHeaderAction } from "../../../../components/page-header";
 import { JobCardPreview } from "../../../../components/job-card-preview";
 import { toJobCardView } from "../../../../lib/job-card-view";
 import { jobRoleLabel } from "../../../../lib/job-roles";
+import { FIND_MATCHING_LABEL, matchingWorkersHref } from "../../../../lib/job-matching";
+import { readPostingTrades } from "../../../../lib/posting-trades.server";
 import { PUBLISHED_REACH_PARAM, parsePublishedReach } from "../../../../lib/published-reach";
 import { PublishedReachNotice } from "../../../../components/published-reach-notice";
 
@@ -41,6 +43,20 @@ function statusTone(status: string): "success" | "warning" | "neutral" {
   return "neutral";
 }
 
+/**
+ * #2671 — the cities the Candidates filters offer, or null when that vocabulary cannot be read.
+ * Read failures are SILENT here on purpose: they only drop the city from the prefill (a search
+ * without it is still useful and never a 400); the Candidates page itself says when its options
+ * did not load.
+ */
+async function readCandidateCities(): Promise<readonly string[] | null> {
+  try {
+    return (await getCandidateFilters()).cities;
+  } catch {
+    return null;
+  }
+}
+
 export default async function PostingDetailPage({
   params,
   searchParams,
@@ -72,11 +88,31 @@ export default async function PostingDetailPage({
     label: "Applicants",
     icon: ACTION_ICON.users,
   };
+  // #2671 — a live company job offers the Candidates search prefilled from its own trade and
+  // city, beside Applicants. Only the catalogue and filter vocabularies are read (no worker
+  // data), and only when the job is one the button can appear on. A read that fails hides the
+  // button rather than sending a filter the search would refuse.
+  let findMatching: PageHeaderAction | undefined;
+  if (!readOnly && (summary.status === "open" || summary.status === "paused")) {
+    const [tradesRead, cities] = await Promise.all([readPostingTrades(), readCandidateCities()]);
+    const href = matchingWorkersHref({
+      status: summary.status,
+      roleKind: card.role_kind,
+      jobCity: card.city,
+      trades: tradesRead.trades,
+      cities,
+    });
+    if (href !== null) {
+      findMatching = { href, label: FIND_MATCHING_LABEL, icon: ACTION_ICON.search };
+    }
+  }
   // ONE action per destination: a draft has no applicants yet, so its one action is to finish
   // it on the edit page (it used to offer "Finish and publish" AND "Edit posting", both → edit).
   // Read-only: none.
   const primary = readOnly ? undefined : isDraft ? edit : applicants;
-  const secondaries = readOnly || isDraft ? [] : [edit];
+  const secondaries: PageHeaderAction[] = readOnly
+    ? []
+    : [...(findMatching === undefined ? [] : [findMatching]), ...(isDraft ? [] : [edit])];
 
   return (
     <div className="posting-layout posting-layout--detail">

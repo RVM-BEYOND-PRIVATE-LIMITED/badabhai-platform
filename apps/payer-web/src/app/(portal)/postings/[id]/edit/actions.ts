@@ -5,8 +5,13 @@ import { revalidatePath } from "next/cache";
 import { updatePosting, type PostingEditInitial } from "../../../../../lib/payer-api";
 import { matchSelectionInputSchema, updatePostingInputSchema } from "../../../../../lib/contracts";
 import type { PostingSummary } from "../../../../../lib/contracts";
-import { isPayerStatus, isPayerValidationError } from "../../../../../lib/payer-errors";
+import {
+  isPayerStatus,
+  isPayerValidationError,
+  isPostingTradeRequired,
+} from "../../../../../lib/payer-errors";
 import { mapPostingIssues } from "../../../../../lib/posting-field-errors";
+import { POSTING_TRADE_REQUIRED_MESSAGE } from "../../../../../lib/posting-trades";
 import { workerCardGap } from "../../../../../lib/worker-card-gap";
 import { reachAfterPublish } from "../../../../../lib/published-reach.server";
 
@@ -22,6 +27,11 @@ import { reachAfterPublish } from "../../../../../lib/published-reach.server";
  *
  * XB-A: the client supplies the posting id + fields + the prior `initial` (for the clear diff) —
  * never a payer id. Input is re-validated here with the SAME schema the form used.
+ *
+ * #2645 — THE ROLE IS THE JOB'S TRADE (#2635). A role equal to the stored one is never forwarded, and
+ * the seam never clears one, so a save that does not move the role cannot touch it. The API's
+ * `posting_trade_required` 400 (a publish, or a live job moved off the 16) is read by its `reason`
+ * and returned as `tradeRequired` with the app's own copy — never the server's message.
  */
 
 /**
@@ -35,9 +45,20 @@ export type EditPostingActionResult =
       error: string;
       /** Per-field messages from a server validation 400 (#1912), keyed by form field. */
       fieldErrors?: Record<string, string>;
+      /** The API refused for want of one of the 16 trades (#2635): said at the trade picker. */
+      tradeRequired?: true;
     };
 
 const postingIdSchema = z.string().uuid();
+
+/**
+ * A PUBLISH the API refused with a 400 that named no field we can show and no reason we know. All
+ * the client knows is said: the server would not put this draft live, and nothing was written (a
+ * 400 is refused before the write). Never "No changes to save." (a publish always changes the
+ * status) and never the server's own message.
+ */
+const PUBLISH_REFUSED_MESSAGE =
+  "The server refused to publish this posting. Nothing was changed: it is still a draft.";
 
 export interface UpdatePostingActionInput {
   postingId: string;
@@ -57,6 +78,9 @@ export interface UpdatePostingActionInput {
   neededBy?: string;
   requirements?: string[];
   benefits?: string[];
+  /** Migration 0141 — sent only when the payer edited the trade form. */
+  tradeLevel?: string;
+  tradeAnswers?: Record<string, string[]>;
   /** The prior values, for the `clear` diff (a field that HAD a value and is now blank). */
   initial: PostingEditInitial;
   /** Present only on the DRAFT "Publish" path — the matchable half + the gap block. */
@@ -72,7 +96,10 @@ export async function updatePostingAction(
   const parsed = updatePostingInputSchema.safeParse({
     roleTitle: input.roleTitle,
     ...(input.vacancies !== undefined ? { vacancies: input.vacancies } : {}),
-    ...(input.roleKind ? { roleKind: input.roleKind } : {}),
+    // #2645 — only a MOVED role is sent; the stored one is left exactly as it is.
+    ...(input.roleKind && input.roleKind !== input.initial.roleKind
+      ? { roleKind: input.roleKind }
+      : {}),
     ...(input.locationLabel ? { locationLabel: input.locationLabel } : {}),
     ...(input.description ? { description: input.description } : {}),
     ...(input.city ? { city: input.city } : {}),
@@ -80,22 +107,36 @@ export async function updatePostingAction(
     ...(input.payMin !== undefined ? { payMin: input.payMin } : {}),
     ...(input.payMax !== undefined ? { payMax: input.payMax } : {}),
     ...(input.payType ? { payType: input.payType } : {}),
-    ...(input.minExperienceYears !== undefined ? { minExperienceYears: input.minExperienceYears } : {}),
-    ...(input.maxExperienceYears !== undefined ? { maxExperienceYears: input.maxExperienceYears } : {}),
+    ...(input.minExperienceYears !== undefined
+      ? { minExperienceYears: input.minExperienceYears }
+      : {}),
+    ...(input.maxExperienceYears !== undefined
+      ? { maxExperienceYears: input.maxExperienceYears }
+      : {}),
     ...(input.shift ? { shift: input.shift } : {}),
     ...(input.neededBy ? { neededBy: input.neededBy } : {}),
-    ...(input.requirements && input.requirements.length > 0 ? { requirements: input.requirements } : {}),
+    ...(input.requirements && input.requirements.length > 0
+      ? { requirements: input.requirements }
+      : {}),
     ...(input.benefits && input.benefits.length > 0 ? { benefits: input.benefits } : {}),
+    ...(input.tradeLevel ? { tradeLevel: input.tradeLevel } : {}),
+    ...(input.tradeAnswers !== undefined ? { tradeAnswers: input.tradeAnswers } : {}),
   });
   if (!parsed.success) {
-    return { ok: false, error: parsed.error.issues[0]?.message ?? "Please check the form and retry." };
+    return {
+      ok: false,
+      error: parsed.error.issues[0]?.message ?? "Please check the form and retry.",
+    };
   }
 
+  // The job's role once this edit applies: the moved one, else the stored one (an untouched role
+  // is not in the PATCH — #2645 — but the job still has it).
+  const roleKind = parsed.data.roleKind ?? input.initial.roleKind ?? undefined;
   let publish: { matchSkillIds: string[]; untickedRelatedIds: string[] } | undefined;
   if (input.publish) {
     // PUBLISH — gap BLOCKS (a live posting must trace to a full card) + ≥1 skill required.
     const gap = workerCardGap({
-      roleKind: parsed.data.roleKind ?? null,
+      roleKind: roleKind ?? null,
       city: parsed.data.city ?? "",
       payMin: parsed.data.payMin ?? null,
       payMax: parsed.data.payMax ?? null,
@@ -124,11 +165,18 @@ export async function updatePostingAction(
     if (!posting) return { ok: false, error: "That posting could not be found." };
     revalidatePath("/postings");
     revalidatePath(`/postings/${input.postingId}`);
-    const reached = publish && posting.status === "open" ? await reachAfterPublish(publish) : null;
+    // The confirmation's read is scoped by the job's trade, as the publish was (#2635).
+    const reached =
+      publish && posting.status === "open" ? await reachAfterPublish(publish, roleKind) : null;
     return { ok: true, posting, reached };
   } catch (e) {
+    // #2635 — read by `reason`, never the message, and BEFORE the generic 400 copy below.
+    if (isPostingTradeRequired(e)) {
+      return { ok: false, error: POSTING_TRADE_REQUIRED_MESSAGE, tradeRequired: true };
+    }
     // #1912 — a validation 400 carries per-field issues; route each to its input.
-    // A plain 400 (no issues) stays the existing "No changes to save." copy.
+    // Any other 400 (no field to show it at, no reason we know) is the existing "No changes to
+    // save." on a SAVE, and the refused publish on a PUBLISH: the mode decides, never the message.
     if (isPayerValidationError(e)) {
       const { fieldErrors, rest } = mapPostingIssues(e.issues);
       if (Object.keys(fieldErrors).length > 0) {
@@ -140,7 +188,7 @@ export async function updatePostingAction(
       }
     }
     if (isPayerStatus(e, 400)) {
-      return { ok: false, error: "No changes to save." };
+      return { ok: false, error: publish ? PUBLISH_REFUSED_MESSAGE : "No changes to save." };
     }
     if (isPayerStatus(e, 409)) {
       return { ok: false, error: "This posting can no longer be edited." };

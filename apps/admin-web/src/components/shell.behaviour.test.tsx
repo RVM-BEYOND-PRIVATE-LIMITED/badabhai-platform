@@ -24,14 +24,21 @@ vi.mock("react", async (importOriginal) => {
   const actual = await importOriginal<typeof ReactModule>();
   return {
     ...actual,
-    useState: () => [hooks.open, hooks.setOpen],
+    // The drawer's open flag is the shell's one boolean state. The children's own state (the
+    // nav's open groups and marker, A6) is handed to React: they render for real in the markup
+    // tests below and are never called in function form.
+    useState: (initial: unknown) =>
+      typeof initial === "boolean" ? [hooks.open, hooks.setOpen] : actual.useState(initial),
     useRef: () => ({ current: hooks.drawer }),
     useEffect: (run: Effect["run"], deps?: readonly unknown[]) => {
       hooks.effects.push({ run, deps });
     },
   };
 });
-vi.mock("next/navigation", () => ({ usePathname: () => hooks.pathname }));
+vi.mock("next/navigation", () => ({
+  usePathname: () => hooks.pathname,
+  useRouter: () => ({ push: () => {}, replace: () => {}, refresh: () => {}, prefetch: () => {} }),
+}));
 
 const { Shell, MENU_TOGGLE_ID } = await import("./shell");
 
@@ -39,6 +46,8 @@ const props = {
   sections: [],
   roleLabel: "Ops admin",
   adminId: "a1b2c3d4-0000-4000-8000-000000000001",
+  environment: "staging",
+  jumpKinds: ["candidate", "company", "posting"] as const,
   onSignOut: null,
   children: <p>content</p>,
 };
@@ -210,7 +219,7 @@ describe("a link activated inside the drawer closes it (review L1)", () => {
     ...extra,
     target: {
       closest: (selector: string) =>
-        inLink && selector === "a[href]" ? { href: "/workers" } : null,
+        inLink && selector === "a[href]" ? { href: "/candidates" } : null,
     },
   });
 
@@ -273,5 +282,55 @@ describe("a modified click on a drawer link leaves the drawer open (review Nit-2
     hooks.setOpen.mockClear();
     aside().props.onClick?.(linkClick({}));
     expect(hooks.setOpen).toHaveBeenCalledWith(false);
+  });
+});
+
+/**
+ * A1 REVIEW — a rail link clicked with a pointer kept focus across the navigation, and Chromium
+ * shows a mouse-focused element :focus-visible after the next key press: PageDown on the new page
+ * reopened the 1024–1439px rail over it. A pointer activation (`detail` > 0) blurs the link;
+ * Enter fires the click with `detail` 0 and keeps focus where the keyboard user put it.
+ */
+describe("a rail link a pointer activated gives up focus; Enter keeps it", () => {
+  const aside = () => {
+    hooks.open = false;
+    const root = Shell(props) as ReactElement<{ children: ReactElement[] }>;
+    return [root.props.children]
+      .flat()
+      .find(
+        (c): c is ReactElement<{ id?: string; onClick?: (e: unknown) => void }> =>
+          Boolean(c) && (c as ReactElement<{ id?: string }>).props?.id === "portal-sidebar",
+      )!;
+  };
+  const linkClick = (link: { blur: () => void }, extra: Record<string, unknown>) => ({
+    button: 0,
+    ctrlKey: false,
+    metaKey: false,
+    shiftKey: false,
+    altKey: false,
+    ...extra,
+    target: { closest: (selector: string) => (selector === "a[href]" ? link : null) },
+  });
+
+  it("a mouse click or a tap (detail > 0) blurs the link", () => {
+    const link = { blur: vi.fn() };
+    hooks.setOpen.mockClear();
+    aside().props.onClick?.(linkClick(link, { detail: 1 }));
+    expect(link.blur).toHaveBeenCalledTimes(1);
+    expect(hooks.setOpen).toHaveBeenCalledWith(false);
+  });
+
+  it("Enter on a focused link (detail 0) keeps its focus", () => {
+    const link = { blur: vi.fn() };
+    hooks.setOpen.mockClear();
+    aside().props.onClick?.(linkClick(link, { detail: 0 }));
+    expect(link.blur).not.toHaveBeenCalled();
+    expect(hooks.setOpen).toHaveBeenCalledWith(false);
+  });
+
+  it("a modified click keeps focus too — the link opens elsewhere and this page stays", () => {
+    const link = { blur: vi.fn() };
+    aside().props.onClick?.(linkClick(link, { detail: 1, ctrlKey: true }));
+    expect(link.blur).not.toHaveBeenCalled();
   });
 });

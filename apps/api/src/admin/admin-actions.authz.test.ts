@@ -55,7 +55,13 @@ const OPS_WRITE_ROUTES = [
 ] as const;
 
 /** manage_admins (super_admin ONLY). */
-const MANAGE_ADMINS_ROUTES = ["inviteAdmin", "changeAdminRole", "suspendAdmin"] as const;
+const MANAGE_ADMINS_ROUTES = [
+  "inviteAdmin",
+  "changeAdminRole",
+  "suspendAdmin",
+  // 0144 — direct creation with a temporary password is admin management: super_admin ONLY.
+  "createAdminDirect",
+] as const;
 
 const ALLOWED_OPS_WRITE: AdminRole[] = ["super_admin", "ops_admin"];
 const DENIED_OPS_WRITE: AdminRole[] = ["support", "analyst"];

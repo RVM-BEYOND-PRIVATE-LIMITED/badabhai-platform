@@ -1,3 +1,12 @@
+STATUS 2026-11-03: BUILT on branch feat/payer-candidate-search (owner rulings 2026-11-03).
+  The gates below are cleared: E4 shipped (setWants, clear-all), #1425 merged, and the supply
+  exists as the synthetic-workforce seed (#2149). Real app workers still cannot grant
+  employer_sharing (E4 items 6-7 halted), so the live pool is synthetic — see risk R74.
+  Owner-ruled deviations from this brief: a CITY filter (workers.current_city, #1436 — P-018's
+  premise is stale); the payer-web Candidates tab opens on the search (inbox → /candidates/applied);
+  the payer app gets it; a new payer.candidate_search_performed v1 (never feed.shown); a cursor that
+  names the last worker served instead of carrying sort keys. The text below is the brief as written.
+
 STATUS: BLOCKED — TWO GATES, and each one HALTs a session run today.
   (1) SATISFIED, 2026-09-07 — no longer a gate. ADR-0040
       (docs/decisions/0040-candidate-search-filter-behaviour.md) is SIGNED and its Status

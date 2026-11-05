@@ -634,6 +634,16 @@ const REFERENCE: Readonly<Record<string, ReferenceSheet>> = {
     // `qp_vmc_milling` asks no table-size question.
     unaskable: ["Table & travel"],
     captureGaps: {
+      Materials: {
+        page: "EN8 · EN31 · MS · Aluminium",
+        rendered: "MS · Aluminium",
+        missing:
+          "Track A #2 (@6) unifies `material_worked` to the Turner set (CEO Launch Plan " +
+          "Pack v1, sheet 2: 'Material chips (as Turner)'). The pack offers ONE `alloy_steel` " +
+          "chip; the page's two split chips no longer exist, so stored en_eight/en_thirty_one " +
+          "answers drop off the row. A worker answering today taps the combined chip and " +
+          "prints 'MS · EN8 / EN31 · Aluminium'.",
+      },
       Machines: {
         page: "VMC · 3-axis · VMC · 4-axis · HMC · pallet changer · SPM",
         rendered: "VMC · 3-axis · VMC · 4-axis · HMC · SPM",
@@ -806,15 +816,18 @@ const REFERENCE: Readonly<Record<string, ReferenceSheet>> = {
   // `_sheet` note says it was authored from, and they arrive in the page's own order without the
   // map having to declare them in it: `bb_trade.v1.html` emits chips, then ticks, then facts, and
   // page 15 prints four chip rows, two tick rows and three fact rows in exactly that sequence.
+  // Track B #3 (@2): the rung now resolves (`certified_welder` aliases to `skilled`), so the
+  // headline's second segment prints the rung per the CEO sheet (`Welder · Skilled`), and the
+  // process/material labels print the sheet-8 words.
   qp_welding_trade: {
-    headline: "Welder — Certified Welder · 11 yrs · MIG / MAG (GMAW), Arc / rod (SMAW), TIG (GTAW)",
+    headline: "Welder — Certified Welder · Skilled · 11 yrs · MIG / CO2, TIG / Argon, Arc / stick",
     rows: [
-      ["Processes", "MIG / MAG (GMAW) · Arc / rod (SMAW) · TIG (GTAW) · Gas cutting"],
+      ["Processes", "MIG / CO2 · TIG / Argon · Arc / stick · Gas cutting"],
       // "CO2", NOT "CO". `pdftotext -layout` drops the subscript 2 the page sets, so the naive
       // transcription reads "CO / MIG machine" — a gas that is not the one in the bottle.
       ["Equipment", "Inverter arc set · CO2 / MIG machine · TIG set · Oxy-acetylene cutting set"],
       ["Electrodes / wire", "E6013 · E7018 · ER70S-6"],
-      ["Materials", "MS · Stainless steel · Aluminium"],
+      ["Materials", "MS · SS · Aluminium"],
       ["Positions", "1G — flat · 2G — horizontal · 3G — vertical"],
       ["Inspection", "Visual inspection · Fillet / weld gauge · Dye-penetrant (DPT) witness"],
       ["Plate thickness", "3 mm - 25 mm plate"],
@@ -1321,6 +1334,8 @@ const CASES: readonly RoleCase[] = [
       educationLevel: "10",
       educationField: null,
     },
+    // The parity render reads the FROZEN v1 file (`loadPack` is by filename),
+    // so the senior band keeps its v1 key — the @2 scale lives beside it.
     tier: { field: "welding_experience", value: 10, option: "over_seven" },
     answers: {
       welding_experience: "over_seven",

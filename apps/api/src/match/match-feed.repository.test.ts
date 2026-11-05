@@ -605,6 +605,9 @@ describe("listCandidates — row mapping", () => {
       matchedSkillId: "mskill_cnc_turner",
       // Middle Way P5 — the mock row carries no trade_levels, so the badge is empty.
       tradeLevels: [],
+      // v1.1 — no frozen rung on the mock row: null, never a guessed rung.
+      frozenTradeLevel: null,
+      frozenLevelConfirmed: null,
     });
   });
 });
@@ -761,6 +764,8 @@ describe("listRankedCandidatesByApplication — the posting rank, from the ONE r
       matchedSkillId: null,
       // Middle Way P5 — the mock row carries no trade_levels, so the badge is empty.
       tradeLevels: [],
+      frozenTradeLevel: null,
+      frozenLevelConfirmed: null,
       jobPostingId: POSTING,
       rank: 7,
     });
@@ -792,5 +797,163 @@ describe("listRankedCandidatesByApplication — the posting rank, from the ONE r
     expect(row?.tradeLevels).toEqual([
       { skillId: "mskill_cnc_turner", tradeLevel: "setter", levelConfirmed: true },
     ]);
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════
+ * Engine v1.1 — "Level needed" (CEO ruling 30 Oct 2026, ADR-0061).
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+describe("candidate list — the v1.1 'Level needed' key", () => {
+  // Built by the real taxonomy so a ladder change reaches these assertions.
+  const SETTER = {
+    needed: "setter",
+    below: ["trainee", "operator", "helper"],
+    meets: [],
+    meetsIfConfirmed: ["setter", "setter_programmer", "programmer", "supervisor"],
+  } as const;
+  const SORTS = new Map([[POSTING, SETTER]]);
+
+  it("an EMPTY level map leaves the v1.0 ORDER BY untouched, text and binds (DoD §8.5)", async () => {
+    const { repo, statements } = makeDb();
+    await repo.listCandidates(POSTING, 36, 500);
+    await repo.listCandidates(POSTING, 36, 500, new Map());
+    expect(statements[1]!.sql).toBe(statements[0]!.sql);
+    expect(statements[1]!.params).toEqual(statements[0]!.params);
+    expect(orderByOf(statements[1]!.sql)).not.toContain("trade_level");
+  });
+
+  it("puts the level group AFTER the tier CASE and BEFORE skill months — inside the trade group", async () => {
+    const { repo, statements } = makeDb();
+    await repo.listCandidates(POSTING, 36, 500, SORTS);
+    const order = orderByOf(statements[0]!.sql);
+    const tier = order.indexOf("ELSE COALESCE(a.match_tier, 2)");
+    const level = order.indexOf("to_jsonb(a.trade_level) THEN 2");
+    const months = order.indexOf("COALESCE(a.skill_months, -1) DESC");
+    expect(tier).toBeGreaterThan(-1);
+    expect(level).toBeGreaterThan(tier);
+    expect(months).toBeGreaterThan(level);
+  });
+
+  it("tests below → meets → meets-if-confirmed, in that order, else 'not confirmed' (1)", async () => {
+    // The same three tests, in the same order, as `levelFitFor`. A swapped order would put a
+    // stated operator on an Operator post into `below` for a Setter-and-up rule, or worse.
+    const { repo, statements } = makeDb();
+    await repo.listCandidates(POSTING, 36, 500, SORTS);
+    const order = orderByOf(statements[0]!.sql);
+    const below = order.indexOf("-> 'below') @> to_jsonb(a.trade_level) THEN 2");
+    const meets = order.indexOf("-> 'meets') @> to_jsonb(a.trade_level) THEN 0");
+    const confirmed = order.indexOf(
+      "a.level_confirmed IS TRUE AND ($",
+    );
+    const ifConfirmed = order.indexOf("-> 'meets_if_confirmed') @> to_jsonb(a.trade_level) THEN 0");
+    const otherwise = order.indexOf("ELSE 1 END ASC");
+    expect(below).toBeGreaterThan(-1);
+    expect(meets).toBeGreaterThan(below);
+    expect(confirmed).toBeGreaterThan(meets);
+    expect(ifConfirmed).toBeGreaterThan(confirmed);
+    expect(otherwise).toBeGreaterThan(ifConfirmed);
+  });
+
+  it("reads the FROZEN rung on the application, never the live profile badge", async () => {
+    // A worker who edits his level after applying must not move (E16). The live badge column
+    // (`trade_levels`, the correlated subquery) is never in the ORDER BY.
+    const { repo, statements } = makeDb();
+    await repo.listCandidates(POSTING, 36, 500, SORTS);
+    const order = orderByOf(statements[0]!.sql);
+    expect(order).toContain("a.trade_level");
+    expect(order).toContain("a.level_confirmed");
+    expect(order).not.toContain("worker_profile_skill");
+    expect(order).not.toContain("trade_levels");
+  });
+
+  it("looks each row's groups up by ITS posting, from ONE bound JSON map", async () => {
+    const { repo, statements } = makeDb();
+    await repo.listCandidates(POSTING, 36, 500, SORTS);
+    const { sql, params } = statements[0]!;
+    expect(sql).toContain("::jsonb -> a.job_posting_id::text -> 'below')");
+    const maps = params.filter((p) => typeof p === "string" && p.startsWith("{"));
+    expect(maps.length).toBeGreaterThan(0);
+    for (const m of maps) {
+      expect(JSON.parse(m as string)).toEqual({
+        [POSTING]: {
+          below: [...SETTER.below],
+          meets: [],
+          meets_if_confirmed: [...SETTER.meetsIfConfirmed],
+        },
+      });
+    }
+  });
+
+  it("selects the frozen rung for the row, beside — not instead of — the live badge", async () => {
+    const { repo, statements } = makeDb();
+    await repo.listCandidates(POSTING, 36, 500);
+    const { sql } = statements[0]!;
+    expect(sql).toContain("a.trade_level AS frozen_trade_level");
+    expect(sql).toContain("a.level_confirmed AS frozen_level_confirmed");
+    expect(sql).toContain("AS trade_levels");
+  });
+
+  it("maps the frozen rung through, and a non-string / non-boolean as null", async () => {
+    const base = {
+      id: "33333333-3333-4333-8333-333333333333",
+      worker_id: "44444444-4444-4444-8444-444444444444",
+      match_tier: 1,
+      skill_months: 12,
+      industry_months: 12,
+      last_worked_at: null,
+      created_at: "2026-07-20T08:00:00.000Z",
+      engine_version: "v1.1",
+      matched_skill_id: null,
+    };
+    const { repo } = makeDb([
+      { ...base, frozen_trade_level: "setter", frozen_level_confirmed: false },
+      { ...base, frozen_trade_level: 7, frozen_level_confirmed: "yes" },
+    ]);
+    const [stated, garbage] = await repo.listCandidates(POSTING, 36, 500);
+    expect(stated).toMatchObject({ frozenTradeLevel: "setter", frozenLevelConfirmed: false });
+    expect(garbage).toMatchObject({ frozenTradeLevel: null, frozenLevelConfirmed: null });
+  });
+
+  it("the inbox window ranks with the SAME level key as the per-posting list", async () => {
+    const { repo, statements } = makeDb();
+    await repo.listCandidates(POSTING, 36, 500, SORTS);
+    await repo.listRankedCandidatesByApplication(
+      await ownTenantKey("aaaaaaaa-0000-4000-8000-00000000000a"),
+      [POSTING],
+      ["33333333-3333-4333-8333-333333333333"],
+      36,
+      SORTS,
+    );
+    const listOrder = orderByOf(statements[0]!.sql).replace(/\$\d+/g, "$n");
+    const windowSql = statements[1]!.sql;
+    const from = windowSql.indexOf("ORDER BY", windowSql.indexOf("OVER (PARTITION BY a.job_posting_id"));
+    const windowOrder = windowSql
+      .slice(from, windowSql.indexOf("))::int", from))
+      .trim()
+      .replace(/\$\d+/g, "$n");
+    expect(windowOrder).toBe(listOrder);
+    expect(windowSql).toContain("r.frozen_trade_level, r.frozen_level_confirmed");
+  });
+});
+
+describe("listPostingLevels — the level-sort inputs (v1.1)", () => {
+  it("reads id (as Postgres prints it), role_kind and trade_level — and nothing about people", async () => {
+    const { repo, statements } = makeDb([
+      { id: POSTING, role_kind: "cnc_turner", trade_level: "setter" },
+    ]);
+    const out = await repo.listPostingLevels([POSTING]);
+    const { sql, params } = statements[0]!;
+    expect(sql).toContain("SELECT jp.id::text AS id, jp.role_kind, jp.trade_level");
+    expect(sql).toContain("FROM job_postings jp");
+    expect(sql).not.toMatch(/org_label|payer_id|worker/);
+    expect(params).toEqual([[POSTING]]);
+    expect(out).toEqual([{ id: POSTING, roleKind: "cnc_turner", tradeLevel: "setter" }]);
+  });
+
+  it("issues no query for no postings", async () => {
+    const { repo, statements } = makeDb();
+    expect(await repo.listPostingLevels([])).toEqual([]);
+    expect(statements).toHaveLength(0);
   });
 });

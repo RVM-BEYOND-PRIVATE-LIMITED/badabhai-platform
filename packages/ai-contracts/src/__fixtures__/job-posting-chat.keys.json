@@ -22,6 +22,7 @@
     "requirements",
     "description",
     "city",
+    "area",
     "pay_type",
     "min_experience_years",
     "max_experience_years",

@@ -443,6 +443,7 @@
 {"kind":"binding","family_id":"fam_powder_coating","job_domain_id":"jd_nco_7131_0500"}
 {"kind":"binding","family_id":"fam_powder_coating","job_domain_id":"jd_nco_7132_0201"}
 {"kind":"binding","family_id":"fam_powder_coating","job_domain_id":"jd_nco_7132_0300"}
+{"kind":"binding","family_id":"fam_powder_coating","job_domain_id":"jd_nco_8122_0100"}
 
 # ══ Batch 2, part two — the roles the 2026-09-24 alias tranche made reachable ═══════════════════
 #
@@ -780,3 +781,59 @@
 {"kind":"binding","family_id":"fam_maintenance_tech","job_domain_id":"jd_nco_7233_0301"}
 {"kind":"binding","family_id":"fam_maintenance_tech","job_domain_id":"jd_nco_7233_1100"}
 {"kind":"binding","family_id":"fam_maintenance_tech","job_domain_id":"jd_nco_7233_1200"}
+{"kind":"family","family_id":"fam_cad_design_3d","label_en":"3D CAD Designer (Mechanical)","label_hi":"3D CAD \u0921\u093f\u091c\u093c\u0907\u0928\u0930","canonical_role_id":"role_cad_designer_3d","industry_id":"ind_industrial_manufacturing"}
+{"kind":"binding","family_id":"fam_cad_design_3d","job_domain_id":"jd_rvm_3d_cad_designer"}
+{"kind":"family","family_id":"fam_plc_automation","label_en":"PLC / Automation Technician","label_hi":"पीएलसी / ऑटोमेशन टेक्नीशियन","industry_id":"ind_industrial_manufacturing"}
+{"kind":"binding","family_id":"fam_plc_automation","job_domain_id":"jd_nco_7412_0101"}
+{"kind":"family","family_id":"fam_edm_wirecut","label_en":"EDM / Wire-cut Operator","label_hi":"ईडीएम / वायर-कट ऑपरेटर","industry_id":"ind_industrial_manufacturing"}
+{"kind":"binding","family_id":"fam_edm_wirecut","job_domain_id":"jd_nco_7223_2800"}
+# PHASE 2 #9 (CEO Launch Plan Pack v1, sheet 22): Injection Moulding, the first pack for the
+# declared kind injection_moulding_operator. The four NCO plastic-moulding occupations leave
+# fam_rubber_plastic (minor 814) at job-domain specificity 50. 8142.0502 'Moulding Operator' is a
+# footwear PU / injection-moulding QP, bound with eyes open: it owns the sheet word 'moulding
+# operator'. Compression (0600), blow (0700), extrusion (0300/0400) and every rubber code stay put.
+{"kind":"family","family_id":"fam_injection_moulding","label_en":"Injection Moulding Operator","label_hi":"इंजेक्शन मोल्डिंग ऑपरेटर","industry_id":"ind_industrial_manufacturing"}
+{"kind":"binding","family_id":"fam_injection_moulding","job_domain_id":"jd_nco_8142_0501"}
+{"kind":"binding","family_id":"fam_injection_moulding","job_domain_id":"jd_nco_8142_0502"}
+{"kind":"binding","family_id":"fam_injection_moulding","job_domain_id":"jd_nco_8142_1300"}
+{"kind":"binding","family_id":"fam_injection_moulding","job_domain_id":"jd_nco_8142_1301"}
+{"kind":"family","family_id":"fam_heat_treatment","label_en":"Heat-Treatment Technician","label_hi":"हीट ट्रीटमेंट टेक्नीशियन","industry_id":"ind_industrial_manufacturing"}
+{"kind":"binding","family_id":"fam_heat_treatment","job_domain_id":"jd_nco_8121_3701"}
+{"kind":"binding","family_id":"fam_heat_treatment","job_domain_id":"jd_nco_8121_4800"}
+{"kind":"binding","family_id":"fam_heat_treatment","job_domain_id":"jd_nco_8121_4900"}
+{"kind":"binding","family_id":"fam_heat_treatment","job_domain_id":"jd_nco_8121_4700"}
+# PHASE 2 #10 (CEO Launch Plan Pack v1, sheet 23): Production Supervisor, a new cross-trade
+# family. No family bound 3122 before (every supervisor code reached fam_universal). Owner
+# ruling 2026-11-04: bind the CROSS-TRADE supervisor codes only. Every trade-specific 3122 code
+# (press shop 4601/4602, welding 4200/4702, sheet metal 4300, plastic moulding 2100/2200/2300,
+# casting, forging, tool room, ...) stays where it is: sheet 23's rule is that a trade
+# supervisor keeps his trade (VMC · Supervisor).
+{"kind":"family","family_id":"fam_production_supervisor","label_en":"Production Supervisor","label_hi":"प्रोडक्शन सुपरवाइजर","industry_id":"ind_industrial_manufacturing"}
+{"kind":"binding","family_id":"fam_production_supervisor","job_domain_id":"jd_nco_3122_9900"}
+{"kind":"binding","family_id":"fam_production_supervisor","job_domain_id":"jd_nco_3122_1900"}
+{"kind":"binding","family_id":"fam_production_supervisor","job_domain_id":"jd_nco_3122_0601"}
+{"kind":"binding","family_id":"fam_production_supervisor","job_domain_id":"jd_nco_3122_6503"}
+# PHASE 2 #11 (CEO Launch Plan Pack v1, sheet 19): Foundry / Forging, a new family. The 7211
+# moulders and core makers (NOT 7211.0101/.0102, the press shop's), the 8121 casting codes,
+# the 7221 forging codes (NOT 7221.0100/.0200, the village blacksmith's), the drop-forging
+# setter and the four casting / forging shop supervisors (a trade supervisor keeps his trade).
+{"kind":"family","family_id":"fam_foundry_forging","label_en":"Foundry / Forging Operator","label_hi":"फाउंड्री / फोर्जिंग ऑपरेटर","industry_id":"ind_industrial_manufacturing"}
+{"kind":"binding","family_id":"fam_foundry_forging","job_domain_id":"jd_nco_7211_0100"}
+{"kind":"binding","family_id":"fam_foundry_forging","job_domain_id":"jd_nco_7211_0200"}
+{"kind":"binding","family_id":"fam_foundry_forging","job_domain_id":"jd_nco_7211_0201"}
+{"kind":"binding","family_id":"fam_foundry_forging","job_domain_id":"jd_nco_7211_0500"}
+{"kind":"binding","family_id":"fam_foundry_forging","job_domain_id":"jd_nco_8121_3301"}
+{"kind":"binding","family_id":"fam_foundry_forging","job_domain_id":"jd_nco_8121_3801"}
+{"kind":"binding","family_id":"fam_foundry_forging","job_domain_id":"jd_nco_8121_4200"}
+{"kind":"binding","family_id":"fam_foundry_forging","job_domain_id":"jd_nco_8121_4201"}
+{"kind":"binding","family_id":"fam_foundry_forging","job_domain_id":"jd_nco_8121_4300"}
+{"kind":"binding","family_id":"fam_foundry_forging","job_domain_id":"jd_nco_8121_4600"}
+{"kind":"binding","family_id":"fam_foundry_forging","job_domain_id":"jd_nco_7221_0300"}
+{"kind":"binding","family_id":"fam_foundry_forging","job_domain_id":"jd_nco_7221_0301"}
+{"kind":"binding","family_id":"fam_foundry_forging","job_domain_id":"jd_nco_7221_0400"}
+{"kind":"binding","family_id":"fam_foundry_forging","job_domain_id":"jd_nco_7221_0500"}
+{"kind":"binding","family_id":"fam_foundry_forging","job_domain_id":"jd_nco_7223_0300"}
+{"kind":"binding","family_id":"fam_foundry_forging","job_domain_id":"jd_nco_3122_4401"}
+{"kind":"binding","family_id":"fam_foundry_forging","job_domain_id":"jd_nco_3122_4402"}
+{"kind":"binding","family_id":"fam_foundry_forging","job_domain_id":"jd_nco_3122_4501"}
+{"kind":"binding","family_id":"fam_foundry_forging","job_domain_id":"jd_nco_3122_4502"}

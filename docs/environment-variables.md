@@ -296,6 +296,36 @@ NestJS boot assertion).
   secret set to `true` plus a redeploy; values lowercase `true`/`false`/`1`/`0`/empty only. Its write
   cap `PAYER_APPLICANT_STAGE_MAX_PER_HOUR` (default 600 per payer per UTC hour, its own Redis
   bucket) runs on its default; neither compose file forwards it.
+- **Sign-up age gate (#2541, CEO pack v1 A4 #9, owner rulings 2026-11-04)** — `SIGNUP_AGE_GATE_ENABLED`,
+  api only (`booleanFromString`, default off). `POST /consent/accept` takes an additive optional
+  `age_18_plus` boolean. An explicit `false` is refused **whatever the flag says**: no consent row
+  (a live one from before is withdrawn), `consent.age_declared` with `age_18_plus: false`, then
+  403 `AGE_BELOW_MINIMUM`; the app signs the worker out. `true` records consent as before plus `consent.age_declared` naming the
+  row. The flag decides only the **missing** answer: off (today) it passes exactly as before; on it
+  is a 400 `AGE_CONFIRMATION_REQUIRED` with nothing written. **No migration.** Turn it on only once
+  the worker-app release that sends `age_18_plus` is live, otherwise new sign-ups on older builds
+  stop at consent. Bridged through the GitHub `production` environment secret of the same name
+  (compose `${SIGNUP_AGE_GATE_ENABLED:-false}` on `api`, `ci.yml` `env:` + `envs:`, preflighted in
+  `scripts/deploy/staging-deploy.sh`). Arming is the secret set to `true` plus a redeploy; off again
+  is `false` plus a redeploy. Values lowercase `true`/`false`/`1`/`0`/empty only.
+- **"Level needed" applicant sort (engine v1.1, CEO ruling 30 Oct 2026, ADR-0061)** —
+  `LEVEL_NEEDED_SORT_ENABLED`, api only (`booleanFromString`, default off). Off is today's
+  applicant list exactly: no extra query, the v1.0 ORDER BY, `levelFit: null` on every row. On, a
+  company posting in one of the 4 CNC trades (`LEVEL_SORT_TRADE_KINDS`) that names a rung lists
+  its applicants meets → level not confirmed → below inside each trade group, from the rung frozen
+  on each application. Nobody is hidden; "Any level" posts are unchanged. Migration 0153 is
+  APPLY-BEFORE-DEPLOY whatever the flag says (the apply snapshot writes its columns either way).
+  Bridged through the GitHub `production` environment secret of the same name (compose
+  `${LEVEL_NEEDED_SORT_ENABLED:-false}` on `api`, `ci.yml` `env:` + `envs:`, preflighted in
+  `scripts/deploy/staging-deploy.sh`; the bridge shipped in #2613, after #2552). Arming is the
+  secret set to `true` plus a redeploy, on the CEO's go-ahead; values lowercase
+  `true`/`false`/`1`/`0`/empty only.
+- **Payer all-candidates search cap (ADR-0040 / E2, owner rulings 2026-11-03)** —
+  `PAYER_CANDIDATE_SEARCH_MAX_PER_HOUR`, api only (default 120 pages per payer login per UTC hour,
+  its own Redis bucket `payer_candidate_search`, fail-closed). Bounds how fast one login can page
+  the whole consented pool through `POST /payer/candidates/search` (≤ 50 masked rows a page);
+  identity still costs an unlock per worker. Not a flag — the route is always on. Runs on its
+  default; neither compose file forwards it.
 - **Admin Engine view demo allow-list (owner ruling 2026-10-06, #2014)** —
   `ADMIN_ENGINE_VIEW_ALLOW_PHONES`, api only. The Engine view (`/admin/match/engine/*`) shows
   DEMO WORKERS ONLY: phones in the reserved demo block `+910000026xxx`, plus the handsets listed

@@ -135,6 +135,9 @@
 .ph-fill.ph-eye:before {
   content: "\e220";
 }
+.ph-fill.ph-eye-slash:before {
+  content: "\e224";
+}
 .ph-fill.ph-file-dashed:before {
   content: "\e704";
 }

@@ -130,22 +130,24 @@ function cityByName(name: string): DemoCity {
  *     `mskill_cnc_operator_general`; vmc/hmc/setter/programmer/cam/grinding roles → their own
  *     match skill (`ROLE_TO_MATCH_SKILL`, packages/taxonomy/src/match-skills.ts);
  *   - trade form: every form whose pack has a `PACK_ANSWER_SKILLS` entry derives its trade's own
- *     skill (#2019; and since #2022 the eight trades below too). The five polymer forms derive
- *     NOTHING today.
+ *     skill (#2019; and since #2022 the eight trades below too). Four of the five polymer kinds
+ *     derive NOTHING today; injection moulding derives its own skill since Phase 2 #9.
  * So `welder` postings are mostly MIG (what a live welder holds), and `cnc_turner` postings name
  * `mskill_cnc_turner`.
  *
  * NO PROXIES (owner decision, 2026-10-06). A kind is posted ONLY under its own skill. The eight
  * trades the owner minted skills for in #2022 (manual machinist, tool & die, sheet metal, press,
  * coating, maintenance, industrial electrician, assembly line) are posted under THOSE skills —
- * never the old "nearest" one (an electrician job is not a fitter job). The polymer kinds still
- * have no match skill and are SKIPPED: a worker must never see an irrelevant job.
+ * never the old "nearest" one (an electrician job is not a fitter job). The four remaining
+ * polymer kinds still have no match skill and are SKIPPED: a worker must never see an irrelevant
+ * job.
  * {@link SKIPPED_ROLE_KINDS} names them; the plan test pins that the catalogue covers exactly the
  * other kinds, and that every form the taxonomy bridges is posted.
  */
 /** Role kinds with no match skill of their own — no demo postings (see above). */
 export const SKIPPED_ROLE_KINDS: readonly TradeFormKindName[] = [
-  "injection_moulding_operator",
+  // Phase 2 #9 took `injection_moulding_operator` off this list: it posts under its own
+  // `mskill_imm_operator` now (DEMO_TRADES below).
   "mould_die_maker",
   "blow_moulding_operator",
   "rubber_moulding_operator",
@@ -324,6 +326,24 @@ export const DEMO_TRADES: readonly DemoTrade[] = [
     minExp: [1, 4],
     unit: "interior fit-out firm",
     requirements: ["AutoCAD layouts", "Site measurement", "Modular furniture drawings"],
+    shiftWeights: [10, 0, 0],
+  },
+  // Track A #4 — the new 3D trade posts under its own permanent ID.
+  {
+    roleKind: "cad_designer_3d",
+    skillId: "mskill_cad_designer_3d",
+
+    weight: 3,
+    titles: ["3D CAD Designer", "SolidWorks Design Engineer", "Mechanical Design Engineer"],
+    pay: [28000, 50000],
+    minExp: [1, 5],
+    unit: "design office",
+    requirements: [
+      "SolidWorks or Creo",
+      "Part and assembly modelling",
+      "2D drawings from model",
+      "Tolerance stack-up",
+    ],
     shiftWeights: [10, 0, 0],
   },
   // ── fabrication ──
@@ -525,6 +545,133 @@ export const DEMO_TRADES: readonly DemoTrade[] = [
       "PM checklist",
     ],
     shiftWeights: [4, 5, 1],
+  },
+  // Phase 2 #9 — the injection-moulding trade posts under its own permanent ID (its first
+  // match skill; it was a skipped polymer kind until now). Weight 3 keeps the demo profile
+  // non-vacuous (measured on a throwaway DB: 2 and 3 hold; 4 left no persona whose top 10 the
+  // company interleave changes).
+  {
+    roleKind: "injection_moulding_operator",
+    skillId: "mskill_imm_operator",
+
+    weight: 3,
+    titles: [
+      "Injection Moulding Operator",
+      "Moulding Machine Operator",
+      "Injection Moulding Setter",
+    ],
+    pay: [15000, 30000],
+    minExp: [0, 4],
+    unit: PLANT,
+    requirements: [
+      "Injection moulding machine operation",
+      "Mould change and parameter setting",
+      "PP / ABS moulding",
+      "Defect correction (short shot, flash)",
+    ],
+    shiftWeights: [4, 5, 1],
+  },
+  // Phase 2 #11 — the new foundry / forging trade posts under its own permanent ID. Weight 3:
+  // measured on a throwaway DB with the IMM, heat-treatment and production-supervisor rows in, it
+  // keeps the demo profile non-vacuous (the company interleave still changes a persona's top 10,
+  // and the boost still ranks above a fresher).
+  {
+    roleKind: "foundry_forging_operator",
+    skillId: "mskill_foundry_forging_operator",
+
+    weight: 3,
+    titles: ["Foundry Operator", "Die Casting Operator", "Forging Operator"],
+    pay: [14000, 28000],
+    minExp: [0, 4],
+    unit: PLANT,
+    requirements: [
+      "Sand moulding or die casting",
+      "Melting and pouring",
+      "Hammer or press forging",
+      "Fettling and finishing",
+    ],
+    shiftWeights: [5, 3, 2],
+  },
+  // Phase 2 #10 — the new production-supervisor trade posts under its own permanent ID. Weight 2
+  // keeps the demo profile non-vacuous (measured on a throwaway DB with the heat-treatment row in:
+  // 2 and 5 hold; 1, 3 and 4 left no persona whose top 10 the company interleave changes).
+  {
+    roleKind: "production_supervisor",
+    skillId: "mskill_production_supervisor",
+
+    weight: 2,
+    titles: ["Production Supervisor", "Shift In-charge", "Line Supervisor"],
+    pay: [22000, 40000],
+    minExp: [3, 8],
+    unit: PLANT,
+    requirements: [
+      "Shift production planning",
+      "Manpower handling (15-50 people)",
+      "Shift report and rejection (PPM)",
+      "5S and kaizen",
+    ],
+    shiftWeights: [5, 4, 1],
+  },
+  // Phase 2 #8 — the new heat-treatment trade posts under its own permanent ID. Weight 3, as for
+  // EDM: measured on a throwaway DB with the injection-moulding row in, it keeps the demo profile
+  // non-vacuous (the company interleave still changes a persona's top 10, and the boost still
+  // ranks above a fresher).
+  {
+    roleKind: "heat_treatment_technician",
+    skillId: "mskill_heat_treatment_tech",
+
+    weight: 3,
+    titles: ["Heat Treatment Operator", "HT Furnace Operator", "Heat Treatment Technician"],
+    pay: [15000, 30000],
+    minExp: [1, 5],
+    unit: PLANT,
+    requirements: [
+      "Hardening and tempering",
+      "Sealed quench furnace",
+      "Hardness testing (Rockwell)",
+      "Case carburising",
+    ],
+    shiftWeights: [5, 3, 2],
+  },
+  // Phase 2 #7 — the new EDM / wire-cut trade posts under its own permanent ID. Weight 3 is
+  // what keeps the demo profile non-vacuous (measured on a throwaway DB: 1 and 2 left no
+  // persona whose top 10 the company interleave changes; 3, 4 and 5 all hold).
+  {
+    roleKind: "edm_wirecut_operator",
+    skillId: "mskill_edm_wirecut_operator",
+
+    weight: 3,
+    titles: ["Wire-cut Operator", "EDM Operator", "Wire EDM Setter"],
+    pay: [18000, 35000],
+    minExp: [1, 5],
+    unit: PLANT,
+    requirements: [
+      "Wire-cut or sinker EDM",
+      "Job alignment and setting",
+      "Wire threading",
+      "Taper cutting",
+    ],
+    shiftWeights: [6, 3, 1],
+  },
+  // Phase 2 #6 — the new PLC / automation trade posts under its own permanent ID. Weight 1: a
+  // niche trade, and the weight the demo profile needs to stay non-vacuous (measured on a
+  // throwaway DB: weight 2 or 3 left no persona whose top 10 the interleave changes).
+  {
+    roleKind: "plc_automation_technician",
+    skillId: "mskill_plc_automation_tech",
+
+    weight: 1,
+    titles: ["PLC Technician", "Automation Technician", "PLC Programmer"],
+    pay: [22000, 45000],
+    minExp: [1, 5],
+    unit: PLANT,
+    requirements: [
+      "Siemens or Delta PLC",
+      "Ladder logic fault finding",
+      "HMI / VFD basics",
+      "Commissioning support",
+    ],
+    shiftWeights: [6, 3, 1],
   },
   {
     roleKind: "industrial_electrician",

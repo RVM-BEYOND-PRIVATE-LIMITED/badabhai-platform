@@ -47,6 +47,17 @@ export const creditBalanceSchema = z.object({
 export type CreditBalance = z.infer<typeof creditBalanceSchema>;
 
 /**
+ * A balance the portal's SERVER read, with when it read it (#2585) — so the browser can tell which
+ * of two figures is newer (components/live-balance.ts). Not a wire shape: `GET /payer/credits`
+ * carries no time, so `asOf` is the portal server's `Date.now()` just before that read.
+ */
+export interface BalanceReading {
+  balance: number;
+  /** Epoch ms on the portal server, taken just before `GET /payer/credits`. */
+  asOf: number;
+}
+
+/**
  * One past unlock by THIS payer (payer-scoped). PII-free routing record only.
  *
  * An unlock is ONE grant per (payer, worker) — ADR-0010 sign-off resolution 1 ("per candidate
@@ -214,7 +225,9 @@ function placeFieldSchema(label: string, max: number) {
     .trim()
     .min(1)
     .max(max)
-    .refine((s) => !placeLooksLikeContact(s), { message: `Remove contact details from the ${label}.` })
+    .refine((s) => !placeLooksLikeContact(s), {
+      message: `Remove contact details from the ${label}.`,
+    })
     .refine((s) => !looksLikeOrgName(s), { message: `Don't put a company name in the ${label}.` })
     .refine((s) => !looksLikeUrl(s), { message: `Don't put links in the ${label}.` });
 }
@@ -293,6 +306,19 @@ export const createPostingInputSchema = z
     // The WORKER-VISIBLE card fields the backend `PayerCreateJobPostingSchema` accepts (it spreads
     // `postingContentFields`, #1645/#1646/#1648). The posting form is the traceable SOURCE of
     // every card field, so create carries them all. Coarse + PII-free; chips are screened above.
+    // Migration 0141 — the trade-specific form. Shape only; the API validates the keys
+    // and options against the role's checked-in question pack and derives match skills.
+    tradeLevel: z
+      .string()
+      .regex(/^[a-z][a-z0-9_]*$/)
+      .max(40)
+      .optional(),
+    tradeAnswers: z
+      .record(
+        z.string().regex(/^[a-z][a-z0-9_]*$/),
+        z.array(z.string().regex(/^[a-z][a-z0-9_]*$/)).max(20),
+      )
+      .optional(),
     city: placeFieldSchema("city", 80).optional(),
     area: placeFieldSchema("area", 120).optional(),
     payMin: z.number().int().nonnegative().max(PAY_MAX_INR).optional(),
@@ -385,6 +411,18 @@ export const updatePostingInputSchema = z
     neededBy: neededBySchema.optional(),
     requirements: requirementsInputSchema.optional(),
     benefits: benefitsInputSchema.optional(),
+    // Migration 0141 — the SAME trade form fields as create.
+    tradeLevel: z
+      .string()
+      .regex(/^[a-z][a-z0-9_]*$/)
+      .max(40)
+      .optional(),
+    tradeAnswers: z
+      .record(
+        z.string().regex(/^[a-z][a-z0-9_]*$/),
+        z.array(z.string().regex(/^[a-z][a-z0-9_]*$/)).max(20),
+      )
+      .optional(),
   })
   .refine((o) => o.payMin === undefined || o.payMax === undefined || o.payMax >= o.payMin, {
     message: "Max pay must be greater than or equal to min pay.",
@@ -421,6 +459,53 @@ export const matchSkillWireSchema = z.object({
 });
 export const matchSkillListWireSchema = z.object({ skills: z.array(matchSkillWireSchema) });
 export type MatchSkillWire = z.infer<typeof matchSkillWireSchema>;
+
+/* ── Migration 0141 — the 16-trade posting form ─────────────────────────────── */
+
+/**
+ * `GET /payer/posting-trades` — the closed 16-trade catalogue, each trade's display-only
+ * ladder and the chip questions the vacancy form may ask. `match` distinguishes a chip that
+ * moves reach from a facet chip (same candidate set, matching candidates lead).
+ */
+export const postingTradeOptionWireSchema = z.object({
+  option_key: z.string(),
+  value: z.string(),
+  label: z.string(),
+  match: z.boolean(),
+  match_skill_ids: z.array(matchSkillIdSchema),
+});
+export type PostingTradeOptionWire = z.infer<typeof postingTradeOptionWireSchema>;
+
+export const postingTradeQuestionWireSchema = z.object({
+  question_key: z.string(),
+  prompt: z.string(),
+  answer_type: z.enum(["single_select", "multi_select"]),
+  options: z.array(postingTradeOptionWireSchema),
+});
+export type PostingTradeQuestionWire = z.infer<typeof postingTradeQuestionWireSchema>;
+
+export const postingTradeLadderRungWireSchema = z.object({
+  rung: z.string(),
+  monthsFloor: z.string(),
+  evidence: z.string(),
+  confirmed: z.boolean(),
+  priceTier: z.enum(["lower", "higher"]),
+});
+export type PostingTradeLadderRungWire = z.infer<typeof postingTradeLadderRungWireSchema>;
+
+export const postingTradeFormWireSchema = z.object({
+  role_kind: z.string(),
+  role_label: z.string(),
+  pack_id: z.string(),
+  match_skill_id: matchSkillIdSchema,
+  ladder: z.array(postingTradeLadderRungWireSchema),
+  questions: z.array(postingTradeQuestionWireSchema),
+});
+export type PostingTradeFormWire = z.infer<typeof postingTradeFormWireSchema>;
+
+export const postingTradeListWireSchema = z.object({
+  trades: z.array(postingTradeFormWireSchema),
+});
 
 /**
  * `POST /payer/match/reach-preview` — the live "reaches N workers" the payer decides on.
@@ -492,6 +577,16 @@ export const tradeLevelBadgeWireSchema = z.object({
 export type TradeLevelBadgeWire = z.infer<typeof tradeLevelBadgeWireSchema>;
 
 /**
+ * "Level needed" fit for a COMPANY-posting applicant row (API #2548, ADR-0061).
+ * `null` means the list has no level sort (flag off, "Any level", or a trade
+ * outside the 4). OPTIONAL so an older API that predates the field still parses.
+ * Present only while `LEVEL_NEEDED_SORT_ENABLED` is on; the server's order stays
+ * authoritative and nothing here re-sorts or hides a row.
+ */
+export const levelFitSchema = z.enum(["meets", "not_confirmed", "below"]).nullable();
+export type LevelFit = z.infer<typeof levelFitSchema>;
+
+/**
  * One faceless applicant on a posting. NO name/phone/employer/raw-PII — only the
  * opaque worker_id + banded, post-masking signals the API authorizes (XB-C: no
  * existence/consent oracle leaks here either).
@@ -540,6 +635,12 @@ export const facelessApplicantSchema = z.object({
    * Optional because a backend that predates P5 (or the legacy weighted row) sends none.
    */
   tradeLevels: z.array(tradeLevelBadgeWireSchema).optional(),
+
+  /**
+   * "Level needed" fit (API #2548, ADR-0061) — company postings only. Absent or
+   * `null` means there is no level sort; the card then shows no level tag.
+   */
+  levelFit: levelFitSchema.optional(),
 
   /**
    * The applicant's SAVED place on the payer's New / Shortlist / Passed board for this posting
@@ -1012,6 +1113,7 @@ export const reachApplicantWireSchema = z.object({
   experienceBand: z.string().nullable().optional(),
   tradeLabel: z.string().nullable().optional(),
   cityLabel: z.string().nullable().optional(),
+  levelFit: levelFitSchema.optional(),
   stage: applicantStageWireSchema.optional(),
 });
 
@@ -1038,6 +1140,7 @@ export const matchCandidateWireSchema = z.object({
   matchedSkillLabel: z.string().nullable(),
   engineVersion: z.string().nullable(),
   tradeLevels: z.array(tradeLevelBadgeWireSchema).optional(),
+  levelFit: levelFitSchema.optional(),
   stage: applicantStageWireSchema.optional(),
 });
 
@@ -1139,6 +1242,105 @@ export const candidateInboxSchema = z.object({
 });
 export type CandidateInbox = z.infer<typeof candidateInboxSchema>;
 
+/* ── All candidates — POST /payer/candidates/search · GET /payer/candidates/filters ──────────
+ *
+ * The payer's ALL-CANDIDATES search (ADR-0040, phase E2; owner rulings 2026-11-03): every worker
+ * in the eligible pool — the API decides membership — ranked, MASKED, with the counts beside the
+ * list. Pinned for all three parsers by packages/types/fixtures/candidate-search-contract.json
+ * (candidate-search.contract.test.ts parses it with THESE schemas). Request bodies are snake_case,
+ * responses camelCase, like the routes beside them.
+ */
+
+/** A closed-vocabulary id with its display label (a role, an industry, an experience bucket). */
+export const labelledIdWireSchema = z.object({ id: z.string().min(1), label: z.string() });
+export type LabelledId = z.infer<typeof labelledIdWireSchema>;
+
+/**
+ * One MASKED candidate — the backend `CandidateSearchRowDto` exactly. Closed vocabularies, bucketed
+ * months and counts only: NO name, phone, photo, employer, salary, address or free text — identity
+ * stays behind `POST /payer/unlocks`. `workerId` is the SAME id that route takes.
+ *  - `matchesFilters`: every supplied filter matched (always true unfiltered);
+ *  - `matchTier`: only with a role filter — 1 holds a picked role, 2 holds one related to it, null
+ *    neither (or no role filter);
+ *  - `skillMonths`: months on `role`, bucketed to 6 (never exact);
+ *  - `industryMonths` / `city`: null = not recorded (never a guess);
+ *  - `tradeLevels`: the rungs he stated (display only) — the applicant card's own badge source;
+ *  - `isSample`: a synthetic seed row, not a person (R74) — badged, never offered an unlock.
+ *    Always sent; the API also refuses its unlock with the neutral body.
+ */
+export const candidateSearchRowWireSchema = z.object({
+  workerId: z.string().uuid(),
+  matchesFilters: z.boolean(),
+  matchTier: z.union([z.literal(1), z.literal(2)]).nullable(),
+  role: labelledIdWireSchema,
+  otherRoles: z.array(labelledIdWireSchema),
+  skillMonths: z.number().int().nonnegative(),
+  industry: labelledIdWireSchema,
+  industryMonths: z.number().int().nonnegative().nullable(),
+  city: z.string().nullable(),
+  tradeLevels: z.array(tradeLevelBadgeWireSchema),
+  isSample: z.boolean(),
+});
+export type CandidateSearchRow = z.infer<typeof candidateSearchRowWireSchema>;
+
+/**
+ * `CandidateSearchResponseDto`: the page AND its counts, from ONE response (ADR-0040 Decision 3 —
+ * the screen says why it shows what it shows). THREE numbers, never folded: `total` is the eligible
+ * pool, `matched` those whose RECORDED values match every filter, `unrecorded` those kept only
+ * because a filtered field is unrecorded. `filtered` is true when any filter was sent; `strict`
+ * echoes the request. `nextCursor` is opaque — passed back verbatim, null on the last page.
+ */
+export const candidateSearchWireSchema = z.object({
+  total: z.number().int().nonnegative(),
+  matched: z.number().int().nonnegative(),
+  unrecorded: z.number().int().nonnegative(),
+  filtered: z.boolean(),
+  strict: z.boolean(),
+  candidates: z.array(candidateSearchRowWireSchema),
+  nextCursor: z.string().nullable(),
+});
+export type CandidateSearchPage = z.infer<typeof candidateSearchWireSchema>;
+
+/**
+ * `CandidateFiltersDto` — the options the filter controls offer, served so no client keeps a copy
+ * (experience is offered as BUCKETS: the months behind them are bucketed to 6). `cities` are the
+ * ones the pool actually records. `maxRoles` is the API's cap on one search's roles; this portal
+ * sends at most one (a single Role select).
+ */
+export const candidateFiltersWireSchema = z.object({
+  roles: z.array(labelledIdWireSchema.extend({ industryId: z.string() })),
+  industries: z.array(labelledIdWireSchema),
+  experienceBuckets: z.array(labelledIdWireSchema),
+  cities: z.array(z.string()),
+  maxRoles: z.number().int().positive(),
+});
+export type CandidateFilters = z.infer<typeof candidateFiltersWireSchema>;
+
+/**
+ * The search body the seam sends — the backend `CandidateSearchSchema` minus what the server owns:
+ * NO payer id (the session is the payer, XB-A; `.strict()` refuses one here as the API does). Every
+ * key is optional and OMITTED when unset (the API's own defaults: no filter, not strict, 20 a
+ * page). A SHAPE guard only — the page sends nothing but values the filters read offered
+ * (lib/candidate-search.ts); membership is the server's. The cursor is the previous page's
+ * `nextCursor`, untouched (≤256 chars, the server's bound).
+ */
+const closedVocabIdSchema = z.string().regex(/^[a-z0-9_]{1,64}$/);
+/** The API's own cap on one search's roles (`CANDIDATE_SEARCH_MAX_ROLES`). */
+const CANDIDATE_SEARCH_MAX_ROLES = 5;
+export const candidateSearchBodySchema = z
+  .object({
+    skill_ids: z.array(matchSkillIdSchema).max(CANDIDATE_SEARCH_MAX_ROLES).optional(),
+    experience: closedVocabIdSchema.optional(),
+    industry_id: closedVocabIdSchema.optional(),
+    industry_experience: closedVocabIdSchema.optional(),
+    city: z.string().trim().min(1).max(80).optional(),
+    strict: z.boolean().optional(),
+    limit: z.number().int().min(1).max(50).optional(),
+    cursor: z.string().min(1).max(256).optional(),
+  })
+  .strict();
+export type CandidateSearchBody = z.infer<typeof candidateSearchBodySchema>;
+
 /* ── Saved applicant stage — PUT /payer/reach/jobs/:jobId/applicants/:workerId/stage ───────── */
 
 /**
@@ -1203,6 +1405,9 @@ export const jobPostingWireSchema = z.object({
   requirements: z.array(z.string()).nullable().optional(),
   benefits: z.array(z.string()).nullable().optional(),
   role_kind: z.string().nullable().optional(),
+  // Migration 0141 — the display-only rung + the poster's chip answers.
+  trade_level: z.string().nullable().optional(),
+  trade_answers: z.record(z.string(), z.array(z.string())).nullable().optional(),
   // The MATCHABLE half echoed back on the row, so the edit form can prefill the skill picker.
   // Never rendered on the card (role_kind is display; these are the match inputs).
   match_skill_ids: z.array(z.string()).nullable().optional(),
@@ -1268,6 +1473,9 @@ export const agencyJobWireSchema = z.object({
    * server decides which ids are live.
    */
   matchSkillIds: z.array(z.string()).nullable().optional(),
+  /** Migration 0141 — the display-only rung + the poster's chip answers. */
+  tradeLevel: z.string().nullable().optional(),
+  tradeAnswers: z.record(z.string(), z.array(z.string())).nullable().optional(),
   applicantsReceived: z.number().int().nonnegative(),
   createdAt: z.string(),
   updatedAt: z.string(),
@@ -1305,13 +1513,27 @@ export const agencyJobInputSchema = z
       .refine((s) => !looksLikePii(s), {
         message: "Remove contact details (phone/email) from the description.",
       })
-      .refine((s) => !looksLikeOrgName(s), { message: "Don't put a company name in the description." })
+      .refine((s) => !looksLikeOrgName(s), {
+        message: "Don't put a company name in the description.",
+      })
       .refine((s) => !looksLikeUrl(s), { message: "Don't put links in the description." })
       .optional(),
     requirements: requirementsInputSchema.optional(),
     benefits: benefitsInputSchema.optional(),
+    /** Migration 0141 — the trade-specific form, same shape as the company posting. */
+    tradeLevel: z
+      .string()
+      .regex(/^[a-z][a-z0-9_]*$/)
+      .max(40)
+      .optional(),
+    tradeAnswers: z
+      .record(
+        z.string().regex(/^[a-z][a-z0-9_]*$/),
+        z.array(z.string().regex(/^[a-z][a-z0-9_]*$/)).max(20),
+      )
+      .optional(),
     /**
-     * ADR-0050 §6.1 step 2 — the match pick, mirroring the backend `matchSkillIds` field
+     * ADR-0050 §6.1 step 2 - the match pick, mirroring the backend `matchSkillIds` field
      * (agency.dto.ts) exactly: `.min(1)` and OPTIONAL, because an empty pick is expressed by
      * OMITTING the key (create stores `[]`; edit leaves the stored pick UNCHANGED) and never by
      * sending `[]`, so a form that serialized an untouched picker cannot erase a stored pick.
@@ -1427,7 +1649,13 @@ export type AgencyWorker = z.infer<typeof agencyWorkerWireSchema>;
  */
 
 /** Agency KYC state — mirrors the backend `status` enum (never a raw document). */
-export const AGENCY_KYC_STATUSES = ["not_submitted", "pending", "verified", "rejected", "forbidden"] as const;
+export const AGENCY_KYC_STATUSES = [
+  "not_submitted",
+  "pending",
+  "verified",
+  "rejected",
+  "forbidden",
+] as const;
 export const agencyKycStatusSchema = z.enum(AGENCY_KYC_STATUSES);
 export type AgencyKycStatusValue = z.infer<typeof agencyKycStatusSchema>;
 
@@ -1467,11 +1695,7 @@ export const agencyKycInputSchema = z.object({
     .string()
     .trim()
     .regex(BANK_ACCOUNT_RE, "Enter a valid bank account number (9–18 digits)."),
-  ifsc: z
-    .string()
-    .trim()
-    .toUpperCase()
-    .regex(IFSC_RE, "Enter a valid IFSC — e.g. HDFC0001234."),
+  ifsc: z.string().trim().toUpperCase().regex(IFSC_RE, "Enter a valid IFSC — e.g. HDFC0001234."),
   accountHolderName: z
     .string()
     .trim()
@@ -1895,7 +2119,8 @@ export const jobPostingChatMessageInputSchema = z.object({
     .min(1, "Type an answer first.")
     .max(2000, "That message is too long — keep it under 2000 characters.")
     .refine((t) => !looksLikePii(t), {
-      message: "Remove contact details (phone/email) — share those only after you unlock an applicant.",
+      message:
+        "Remove contact details (phone/email) — share those only after you unlock an applicant.",
     }),
 });
 export type JobPostingChatMessageInput = z.infer<typeof jobPostingChatMessageInputSchema>;

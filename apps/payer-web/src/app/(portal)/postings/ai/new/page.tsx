@@ -3,6 +3,7 @@ import { requirePayer } from "../../../../../lib/auth";
 import { agentPostingRedirect } from "../../../../../lib/posting-routes";
 import { PageHeader } from "../../../../../components/page-header";
 import { getJobPostingChatSessions } from "../../../../../lib/payer-api";
+import { readPostingTrades } from "../../../../../lib/posting-trades.server";
 import type { JobPostingChatSessionSummary } from "../../../../../lib/contracts";
 import { JobPostingChat } from "./job-posting-chat";
 
@@ -28,6 +29,11 @@ export default async function AiPostingChatPage() {
   const session = await requirePayer();
   if (session.role === "agent") redirect(agentPostingRedirect("create"));
 
+  // #2645 — the 16 trades the draft's trade is picked from at publish (a company job with none can
+  // never go live, #2635). Read alongside the sessions; a failure is said at that picker with a
+  // Retry (it never throws), and the chat itself still runs.
+  const tradesRead = readPostingTrades();
+
   let sessions: JobPostingChatSessionSummary[] = [];
   let loadFailed = false;
   try {
@@ -41,6 +47,8 @@ export default async function AiPostingChatPage() {
     (s) => s.status === "active" || s.status === "draft_ready",
   );
 
+  const { trades: postingTrades, problem: postingTradesProblem } = await tradesRead;
+
   return (
     <>
       {/* A MODE of New posting (the same destination, by conversation) — not a page below it, so
@@ -51,7 +59,12 @@ export default async function AiPostingChatPage() {
         description="Have a short conversation instead of filling a form — applicants stay faceless until you unlock them."
       />
 
-      <JobPostingChat resumable={resumable} loadFailed={loadFailed} />
+      <JobPostingChat
+        resumable={resumable}
+        loadFailed={loadFailed}
+        postingTrades={postingTrades}
+        postingTradesProblem={postingTradesProblem}
+      />
     </>
   );
 }

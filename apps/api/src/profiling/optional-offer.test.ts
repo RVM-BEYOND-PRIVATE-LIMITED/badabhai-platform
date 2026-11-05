@@ -14,9 +14,9 @@ import {
  * DECLINE, never an accept and never a re-ask.
  */
 describe("the optional-depth offer module", () => {
-  it("asks the Bas-ho-gaya line plus the 2-minute question", () => {
+  it("asks the Bas-ho-gaya line plus the 3-sawaal question", () => {
     expect(OPTIONAL_OFFER_PROMPT_TEXT).toBe(
-      "Bas ho gaya. Resume ban raha hai. 2 minute aur dein? Resume aur strong banega.",
+      "Bas ho gaya. Resume ban raha hai. 3 sawaal aur? Resume aur strong banega.",
     );
   });
 
@@ -36,7 +36,7 @@ describe("the optional-depth offer module", () => {
 
   it("reads typed Haan/Nahi through the one lexicon parser", () => {
     expect(readOptionalOfferReply("haan")).toBe("accept");
-    expect(readOptionalOfferReply("haan, 2 minute aur")).toBe("accept");
+    expect(readOptionalOfferReply("haan, 3 sawaal aur")).toBe("accept");
     expect(readOptionalOfferReply("nahi")).toBe("decline");
     expect(readOptionalOfferReply("nahi, bas ho gaya")).toBe("decline");
   });

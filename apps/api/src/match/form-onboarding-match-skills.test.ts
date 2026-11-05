@@ -160,6 +160,9 @@ describe("the reachable set per mapped pack — every chip, exhaustively", () =>
     // designer; 2D chips stay on the (relabeled) 2D ID. Reach widening, written
     // here explicitly per this table's contract.
     qp_cad_drafting: ["mskill_3d_designer", "mskill_designer"],
+    // CEO Launch Plan Pack v1, Track A #4: the new trade's software answers
+    // derive its permanent ID directly (role bridge); the E0 ID stays related.
+    qp_cad_design_3d: ["mskill_cad_designer_3d"],
     qp_welding_trade: ["mskill_arc_welder", "mskill_mig_welder", "mskill_tig_welder"],
     qp_fitter: ["mskill_fitter"],
     qp_quality_inspection: ["mskill_quality_inspector"],
@@ -175,6 +178,13 @@ describe("the reachable set per mapped pack — every chip, exhaustively", () =>
     qp_press_operation: ["mskill_press_operator"],
     qp_powder_coating: ["mskill_painter_coater"],
     qp_maintenance_tech: ["mskill_maintenance_technician"],
+    // Phase 2 #6: the new PLC trade reaches its own permanent ID.
+    qp_plc_automation: ["mskill_plc_automation_tech"],
+    qp_edm_wirecut: ["mskill_edm_wirecut_operator"],
+    qp_heat_treatment: ["mskill_heat_treatment_tech"],
+    qp_injection_moulding: ["mskill_imm_operator"],
+    qp_production_supervisor: ["mskill_production_supervisor"],
+    qp_foundry_forging: ["mskill_foundry_forging_operator"],
     qp_industrial_electrician: ["mskill_industrial_electrician"],
     qp_assembly_line: ["mskill_assembly_line_worker"],
   };

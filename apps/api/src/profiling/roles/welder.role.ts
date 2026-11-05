@@ -40,7 +40,7 @@ export const WELDER = {
   formEnabled: true,
   displayName: "Welder",
   offerName: "welder",
-  levelLadder: ["Helper", "Welder", "Certified Welder"],
+  levelLadder: ["Helper", "Welder", "Skilled Welder", "Senior Welder", "Supervisor"],
   tenureQuestionKey: "welding_experience",
   detection: {
     occupationTerms: ["welder", "welding", "वेल्डर", "वेल्डिंग", "welding ka kaam"],
@@ -56,7 +56,9 @@ export const WELDER = {
       "oxy acetylene",
       "spot welding",
     ],
-    levelTerms: ["helper", "welder", "certified welder", "हेल्पर"],
+    // Track B #3 (@2): the sheet-8 rung words. "certified welder" stays —
+    // the pack keeps it as a history chip — beside the new rungs.
+    levelTerms: ["helper", "welder", "certified welder", "skilled welder", "senior welder", "हेल्पर"],
   },
   fresher: {
     // KEYED BY STORED `value_text`. THE LIST IS WELDING SETS, NOT MACHINE TOOLS, which is the

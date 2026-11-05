@@ -11,8 +11,12 @@ import { AppShell } from "./app-shell";
 import { navSections } from "./nav-model";
 import { PortalBreadcrumb } from "./portal-breadcrumb";
 import { PageTitleHeading } from "./page-title-heading";
+import { RailPress } from "./rail-press";
 
 export const dynamic = "force-dynamic";
+
+/** The portal home, where the rail's brand lockup goes. */
+const HOME = "/dashboard";
 
 /**
  * Authenticated portal shell (IA-1 — rebuilt from a wrapping top nav onto a levelled left
@@ -56,6 +60,9 @@ export default async function PortalLayout({ children }: { children: ReactNode }
   });
 
   let balance: number | null = null;
+  // When it was read (#2585): the chip shows a balance an unlock published only if the server read
+  // that one later (components/live-balance.ts).
+  const balanceAsOf = Date.now();
   try {
     balance = (await getCredits()).balance;
   } catch {
@@ -71,7 +78,7 @@ export default async function PortalLayout({ children }: { children: ReactNode }
            the lockup takes its on-ink form; the persona is its caption. */
         <PortalLink
           className="pshell__brandlink"
-          href="/dashboard"
+          href={HOME}
           pendingLabel="Dashboard"
           aria-label="BadaBhai — go to dashboard"
         >
@@ -80,6 +87,9 @@ export default async function PortalLayout({ children }: { children: ReactNode }
             size={30}
             sub={`for ${isAgency ? "Agencies" : "Companies"}`}
           />
+          {/* A press on the lockup is a press on the rail's Dashboard row: the marker moves there
+              at once, not once the dashboard has rendered (W6 #2586, rail-press.tsx). */}
+          <RailPress href={HOME} />
         </PortalLink>
       }
       header={
@@ -93,7 +103,7 @@ export default async function PortalLayout({ children }: { children: ReactNode }
                  decorative chip — for every member, since any member can buy (owner ruling
                  2026-10-07). Below ~540px its unit word is hidden visually; the chip keeps an
                  accessible name and a tooltip (balance-chip.tsx). */
-              <BalanceChip balance={balance} linkToCredits />
+              <BalanceChip balance={balance} balanceAsOf={balanceAsOf} linkToCredits />
             ) : null}
             {/* Light/dark theme — a per-user display preference, role-agnostic. */}
             <ThemeToggle />

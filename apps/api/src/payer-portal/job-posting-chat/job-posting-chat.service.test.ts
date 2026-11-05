@@ -50,6 +50,7 @@ const FULL_DRAFT = {
   requirements: ["ITI preferred"],
   description: "Machining shop floor role on our production line",
   city: "Pune",
+  area: "Chakan",
   pay_type: "in_hand",
   min_experience_years: 1,
   max_experience_years: 3,
@@ -706,6 +707,8 @@ describe("JobPostingChatService — publish reuses the existing create path", ()
       requirements: ["ITI preferred"],
       // #1726 — the card fields the interview now collects.
       city: "Pune",
+      // #2493 — the locality beside the city; NULL on the posting without it.
+      area: "Chakan",
       pay_type: "in_hand",
       min_experience_years: 1,
       max_experience_years: 3,
@@ -722,17 +725,71 @@ describe("JobPostingChatService — publish reuses the existing create path", ()
     expect(d.pii.decrypt).toHaveBeenCalledTimes(1);
   });
 
-  it("never sends role_kind — the interview does not ask for a role, so the posting stores NULL (0131)", async () => {
-    // Owner ruling 2026-09-29: chat publish leaves `role_kind` NULL. The create DTO's field is
-    // optional with no default, so an absent key is what makes `createInScope` store NULL.
+  it("omits role_kind when the publish body carries none — the posting stores NULL (#2490)", async () => {
+    // The interview does not ask for a role, so an absent key is what makes
+    // `createInScope` store NULL / generic art, as before.
     await d.svc.publish(PAYER_A, SESSION, CTX);
     const dto = d.jobPostings.createInScope.mock.calls[0]![1] as Record<string, unknown>;
     expect("role_kind" in dto).toBe(false);
   });
 
+  it("carries role_kind end to end when the publish body carries it (#2490 parity)", async () => {
+    // Display-only: the same closed 21-value set the manual form validates, never a
+    // match input — it rides the create DTO straight to the stored column.
+    await d.svc.publish(PAYER_A, SESSION, CTX, { role_kind: "welder" });
+    const dto = d.jobPostings.createInScope.mock.calls[0]![1] as Record<string, unknown>;
+    expect(dto.role_kind).toBe("welder");
+  });
+
+  it("rejects an unknown role_kind and a null role_kind on the publish body (#2490)", async () => {
+    const { PublishJobPostingChatSchema } = await import("./job-posting-chat.dto");
+    expect(PublishJobPostingChatSchema.safeParse({ role_kind: "rocket_surgeon" }).success).toBe(
+      false,
+    );
+    expect(PublishJobPostingChatSchema.safeParse({ role_kind: null }).success).toBe(false);
+    expect(PublishJobPostingChatSchema.safeParse({ role_kind: "welder" }).success).toBe(true);
+    expect(PublishJobPostingChatSchema.safeParse({}).success).toBe(true);
+  });
+
   it("does not report role_kind as an unset CARD field — it is display-only, not on the worker card", async () => {
     const res = await d.svc.publish(PAYER_A, SESSION, CTX);
     expect(res.unset_card_fields as readonly string[]).not.toContain("role_kind");
+  });
+
+  it("carries area end to end from the interview draft to the stored posting (#2493 parity)", async () => {
+    // Same shape as the #2490 role_kind parity test: the non-city remainder of the
+    // location answer rides the create DTO straight to the stored column, so the
+    // worker card's place line reads "area, city".
+    await d.svc.publish(PAYER_A, SESSION, CTX);
+    const dto = d.jobPostings.createInScope.mock.calls[0]![1] as Record<string, unknown>;
+    expect(dto.area).toBe("Chakan");
+  });
+
+  it("the publish body wins over the interview draft for area (#2493)", async () => {
+    // The payer corrects the locality at publish without retyping the interview.
+    await d.svc.publish(PAYER_A, SESSION, CTX, { area: "Bhosari" });
+    const dto = d.jobPostings.createInScope.mock.calls[0]![1] as Record<string, unknown>;
+    expect(dto.area).toBe("Bhosari");
+  });
+
+  it("omits area when the draft and the publish body carry none — the posting stores NULL (#2493)", async () => {
+    const bare = make({
+      ...publishable,
+      session: { ...publishable.session, draft: { ...FULL_DRAFT, area: null } },
+    });
+    const res = await bare.svc.publish(PAYER_A, SESSION, CTX);
+    const dto = bare.jobPostings.createInScope.mock.calls[0]![1] as Record<string, unknown>;
+    expect("area" in dto).toBe(false);
+    // ...and the honesty report names it, so the client can ask for it at publish.
+    expect(res.unset_card_fields as readonly string[]).toContain("area");
+  });
+
+  it("rejects a null area and an over-long area on the publish body (#2493)", async () => {
+    const { PublishJobPostingChatSchema } = await import("./job-posting-chat.dto");
+    expect(PublishJobPostingChatSchema.safeParse({ area: null }).success).toBe(false);
+    expect(PublishJobPostingChatSchema.safeParse({ area: "x".repeat(121) }).success).toBe(false);
+    expect(PublishJobPostingChatSchema.safeParse({ area: "Bhosari" }).success).toBe(true);
+    expect(PublishJobPostingChatSchema.safeParse({}).success).toBe(true);
   });
 
   it("sends the BANDED vacancy and never a raw count (ADR-0012)", async () => {
@@ -782,6 +839,7 @@ describe("JobPostingChatService — publish reuses the existing create path", ()
           shift: null,
           benefits: [],
           city: null,
+          area: null,
           pay_type: null,
           min_experience_years: null,
           max_experience_years: null,
@@ -797,6 +855,7 @@ describe("JobPostingChatService — publish reuses the existing create path", ()
       "shift",
       "benefits",
       "city",
+      "area",
       "pay_type",
       "min_experience_years",
       "max_experience_years",
@@ -825,10 +884,11 @@ describe("JobPostingChatService — publish reuses the existing create path", ()
       const res = await d.svc.publish(PAYER_A, SESSION, CTX);
       expect(res.unset_card_fields).toEqual([]);
       // VACUITY GUARD: [] is also what a report that never looked would say, so pin that
-      // the create DTO really carried all eleven.
+      // the create DTO really carried all twelve.
       const dto = d.jobPostings.createInScope.mock.calls[0]![1] as Record<string, unknown>;
       for (const key of [
         "city",
+        "area",
         "pay_min",
         "pay_max",
         "pay_type",
@@ -862,6 +922,7 @@ describe("JobPostingChatService — publish reuses the existing create path", ()
       expect(res.job_posting_id).toBe(POSTING);
       expect(res.unset_card_fields).toEqual([
         "city",
+        "area",
         "pay_min",
         "pay_max",
         "pay_type",
@@ -1072,6 +1133,7 @@ describe("JobPostingChatService — a publish whose job_posting.created emit fai
       // A create never materializes reach and a chat publish sends no match_skill_ids.
       {} as never,
       {} as never,
+      {} as never, // PostingTradesService
       tenancy,
     );
 

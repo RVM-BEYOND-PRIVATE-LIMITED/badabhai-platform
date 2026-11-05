@@ -82,6 +82,9 @@ export const ROLES = [
   { id: "role_carpenter", name: "Carpenter", domainId: "dom_carpentry" },
   { id: "role_designer", name: "Designer", domainId: "dom_design" },
   { id: "role_interior_designer", name: "Interior Designer", domainId: "dom_interior_design" },
+  // CEO Launch Plan Pack v1, Track A #4: the 3D CAD Designer — parts, assemblies and
+  // surfacing in SolidWorks/Creo/NX/CATIA, not 2D drafting. APPENDED, never inserted.
+  { id: "role_cad_designer_3d", name: "3D CAD Designer", domainId: "dom_design" },
 ] as const satisfies readonly Role[];
 
 // ---- Skills (placeholder) ----
@@ -254,6 +257,10 @@ export * from "./crosswalk-integrity";
 // Middle Way P5 (C6) — pack level answers → trade skill + `TradeLevel` (display-only;
 // never read by the match engine).
 export * from "./trade-levels";
+export * from "./posting-trades";
+// #2635 — matching runs only for the 16 postable trades: each trade's own skill set + the scope.
+export * from "./posting-scope";
+export * from "./level-needed";
 
 // ADR-0030 / TAX-5 — PROPOSED vernacular wedge aliases (RVM ratification-gated).
 export * from "./wedge-aliases";

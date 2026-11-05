@@ -113,8 +113,9 @@ const CONSTANT_TTS_TEXT: Readonly<Record<string, string>> = {
   "Bas ho gaya. Resume ban raha hai.": "बस हो गया। रिज़्यूमे बन रहा है।",
 
   // optional-offer.ts — Middle-Way C2 stop rule (P3b): the one optional-depth offer.
-  "Bas ho gaya. Resume ban raha hai. 2 minute aur dein? Resume aur strong banega.":
-    "बस हो गया। रिज़्यूमे बन रहा है। 2 मिनट और दें? रिज़्यूमे और स्ट्रॉन्ग बनेगा।",
+  // CEO Launch Plan Pack v1 (RULED 2026-11-02): "3 sawaal aur" replaces "2 minute aur".
+  "Bas ho gaya. Resume ban raha hai. 3 sawaal aur? Resume aur strong banega.":
+    "बस हो गया। रिज़्यूमे बन रहा है। 3 सवाल और? रिज़्यूमे और स्ट्रॉन्ग बनेगा।",
 
   // next-question.ts — asked ABOUT the packs, so it lives in none of them.
   "Aap in mein se kaun sa kaam karte hain?": "आप इन में से कौन सा काम करते हैं?",
@@ -320,6 +321,8 @@ const QUESTION_TTS_TEXT: Readonly<Record<string, string>> = {
   "Mahine ka kitna milna chahiye?": "महीने का कितना मिलना चाहिए?",
   "Aap kaunse sheher mein rehte hain?": "आप कौनसे शहर में रहते हैं?",
   "Gas, arc, MIG ya TIG mein se kaunsi?": "गैस, आर्क, MIG या TIG में से कौनसी?",
+  // Track B #3 (@2): the process retry lists the sheet-8 chips.
+  "MIG, TIG, arc ya spot mein se kaunsi?": "MIG, TIG, आर्क या स्पॉट में से कौनसी?",
   "Kis sheher mein kaam karna hai?": "किस शहर में काम करना है?",
   "Kitne saal se ye kaam kar rahe hain?": "कितने साल से ये काम कर रहे हैं?",
   // --- qp_cnc_turning@1 (role pack, CNC turning) ---
@@ -394,6 +397,11 @@ const QUESTION_TTS_TEXT: Readonly<Record<string, string>> = {
   "Setting ka kaunsa kaam khud karte hain?": "सेटिंग का कौन सा काम खुद करते हैं?",
   "Kitna surface finish nikaal lete hain?": "कितना सरफेस फिनिश निकाल लेते हैं?",
   "Wheel dressing kaise karte hain?": "व्हील ड्रेसिंग कैसे करते हैं?",
+  // --- qp_cnc_grinding@6 (Phase 2 #2) — the one separating confirm, asked of
+  // setter and setter-cum-programmer. Every other @6 prompt and retry is an
+  // earlier version's verbatim, so its twin is already above.
+  "Wheel change, dressing aur naya job setting aap karte ho?":
+    "व्हील चेंज, ड्रेसिंग और नया जॉब सेटिंग आप करते हो?",
   // --- qp_cam_programming@1 (role pack, part programming — CAM seat and at-machine MDI) — Batch 1
   //
   // TEN PROMPTS AND TWO RETRIES ACROSS TEN KEYS. The pack has fourteen items; the other four
@@ -421,16 +429,84 @@ const QUESTION_TTS_TEXT: Readonly<Record<string, string>> = {
     "पोस्ट-प्रोसेसर के साथ आप कितना काम करते हैं?",
   "Program release se pehle simulation kaise karte hain?":
     "प्रोग्राम रिलीज़ से पहले सिमुलेशन कैसे करते हैं?",
+  // --- qp_cam_programming@4 (Track A #3) — new + confirm prompts ------------
+  // program_edit_confirm reuses the Turner prompt verbatim (twin above);
+  // team_confirm reuses its twin too. Only the programmer/senior/lead
+  // wordings and the two new Advanced rows need twins.
+  "Drawing se naya program khud banate ho, prove-out bhi aap?":
+    "ड्राइंग से नया प्रोग्राम खुद बनाते हो, प्रूव-आउट भी आप?",
+  "3D ya 5-axis programming khud karte ho?": "3D या 5-एक्सिस प्रोग्रामिंग खुद करते हो?",
+  "Programming team aap chalate ho?": "प्रोग्रामिंग टीम आप चलाते हो?",
+  "Kis tarah ke parts ke program banate hain?":
+    "किस तरह के पार्ट्स के प्रोग्राम बनाते हैं?",
+  "Program ke alawa aur kya karte hain?": "प्रोग्राम के अलावा और क्या करते हैं?",
+  // --- qp_cad_design_3d (Track A #4) — the new trade's prompts ---------------
+  // Shared-verbatim whys (experience gate, level, software) reuse the twins
+  // above; everything below is 3D-specific.
+  "3D design ka kitna tajurba hai?": "3D डिज़ाइन का कितना तजुर्बा है?",
+  "Lagbhag kitne saal 3D design ka kaam kiya hai?":
+    "लगभग कितने साल 3D डिज़ाइन का काम किया है?",
+  "Aap 3D design me kya karte hain?": "आप 3D डिज़ाइन में क्या करते हैं?",
+  "Trainee, designer, senior, lead ya head hain?":
+    "ट्रेनी, डिज़ाइनर, सीनियर, लीड या हेड हैं?",
+  "Sirf requirement mile to design khud karte ho, ya drawing dekh ke model banate ho?":
+    "सिर्फ़ रिक्वायरमेंट मिले तो डिज़ाइन खुद करते हो, या ड्राइंग देख के मॉडल बनाते हो?",
+  "Design ki calculation aur doosron ke design ka review aap karte ho?":
+    "डिज़ाइन की कैलकुलेशन और दूसरों के डिज़ाइन का रिव्यू आप करते हो?",
+  "Kitne designer aapke under kaam karte hain?":
+    "कितने डिज़ाइनर आपके अंडर काम करते हैं?",
+  // --- qp_cad_drafting@2 (Track A #5) — the level question, work-area row,
+  // 3D-to-2D row and separating confirms -------------------------------------
+  // team_confirm + work-area why reuse the 3D twins verbatim (above / in the
+  // 3D why block). Only the level wording, the subject row and the senior/lead
+  // confirms need twins.
+  "Drawing office me aap kya karte hain?": "ड्राइंग ऑफिस में आप क्या करते हैं?",
+  "Trainee, draughtsman, senior, lead ya head hain?":
+    "ट्रेनी, ड्राफ्ट्समैन, सीनियर, लीड या हेड हैं?",
+  "Kis cheez ki drawing banate hain?": "किस चीज़ की ड्राइंग बनाते हैं?",
+  "3D model se 2D nikalte ho?": "3D मॉडल से 2D निकालते हो?",
+  "Doosron ki drawing aap check karte ho?": "दूसरों की ड्राइंग आप चेक करते हो?",
+  "Poore project ki drawings aapke naam se jaati hain?":
+    "पूरे प्रोजेक्ट की ड्राइंग्स आपके नाम से जाती हैं?",
+  "Aap kaunsa 3D software chalate hain?": "आप कौनसा 3D सॉफ्टवेयर चलाते हैं?",
+  "Kis cheez ka design karte hain?": "किस चीज़ का डिज़ाइन करते हैं?",
+  "Software me kya kya banate hain?": "सॉफ्टवेयर में क्या क्या बनाते हैं?",
+  "Tolerance aur GD&T ka kitna kaam karte hain?":
+    "टॉलरेंस और GD&T का कितना काम करते हैं?",
+  "Kis industry ke liye design karte hain?":
+    "किस इंडस्ट्री के लिए डिज़ाइन करते हैं?",
   // --- Middle Way v2 (level question, all four machining packs) -------------------------
   //
   // ONE PROMPT PAIR, SHARED VERBATIM. Turner, VMC and grinding ask the level question in the
   // same words, so one twin covers all three; CAM's desk ladder gets its own. Retries name the
   // rungs because a bare "kya karte hain" re-ask is what the worker just failed to answer.
   "Machine pe aap kya karte hain?": "मशीन पे आप क्या करते हैं?",
+  // --- qp_cnc_turning@6 (Track A #1) — the four separating-confirm prompts ----
+  // Asked only at/above the confirmed rung (each gated on its own rung), so
+  // each twin is authored once here and never composed.
+  "Naya job aaye to setting aap karte ho ya koi aur?":
+    "नया जॉब आये तो सेटिंग आप करते हो या कोई और?",
+  "Program control pe khud likhte ho ya edit hi karte ho?":
+    "प्रोग्राम कंट्रोल पे खुद लिखते हो या एडिट ही करते हो?",
+  "Drawing se naya program zero se banate ho?":
+    "ड्राइंग से नया प्रोग्राम ज़ीरो से बनाते हो?",
+  "Kitne machine aur kitne log aapke under hain?":
+    "कितने मशीन और कितने लोग आपके अंडर हैं?",
+  // --- qp_vmc_milling@6 (Track A #2) — the VMC separating-confirm prompts ----
+  // program_edit_confirm reuses the Turner prompt verbatim (twin above);
+  // team_confirm reuses its twin too. Only the setter + programmer wordings
+  // are VMC-specific.
+  "Naya job aaye to fixture aur zero aap set karte ho?":
+    "नया जॉब आये तो फिक्सचर और ज़ीरो आप सेट करते हो?",
+  "Drawing se naya program khud banate ho?": "ड्राइंग से नया प्रोग्राम खुद बनाते हो?",
   "Programming me aap kya karte hain?": "प्रोग्रामिंग में आप क्या करते हैं?",
   "Machine par helper, operator ya setter hain?": "मशीन पर हेल्पर, ऑपरेटर या सेटर हैं?",
   "Junior programmer, programmer ya senior programmer hain?":
     "जूनियर प्रोग्रामर, प्रोग्रामर या सीनियर प्रोग्रामर हैं?",
+  // Track A #3 (qp_cam_programming@4): the sheet-3 ladder retry. The @3
+  // twin above stays — frozen packs keep their clips.
+  "Trainee, programmer, senior, lead ya supervisor hain?":
+    "ट्रेनी, प्रोग्रामर, सीनियर, लीड या सुपरवाइज़र हैं?",
   // --- qp_cad_drafting@1 and qp_draughting@1 (the drawing office) — Batch 1 -------------------
   //
   // TWO PACKS, ONE BLOCK, BECAUSE THEY SHARE SIX OF THEIR SERVED STRINGS. `qp_draughting` is the
@@ -478,7 +554,12 @@ const QUESTION_TTS_TEXT: Readonly<Record<string, string>> = {
   "Khraad, milling ya drill, kaunsi machine chalate hain?": "खराद, मिलिंग या ड्रिल, कौनसी मशीन चलाते हैं?",
   "Helper, operator ya skilled machinist, kaunsa kaam karte hain?": "हेल्पर, ऑपरेटर या स्किल्ड मशीनिस्ट, कौनसा काम करते हैं?",
   "Turning, milling, drilling ya boring, kya kya karte hain?": "टर्निंग, मिलिंग, ड्रिलिंग या बोरिंग, क्या क्या करते हैं?",
+  // Track B #4 (@2): the operations retry lists the sheet-9 chips.
+  "Turning, threading, gear cutting ya grinding, kya kya karte hain?":
+    "टर्निंग, थ्रेडिंग, गियर कटिंग या ग्राइंडिंग, क्या क्या करते हैं?",
   "MS, EN8 ya cast iron, kis par kaam kiya hai?": "MS, EN8 या कास्ट आयरन, किस पर काम किया है?",
+  // Track B #4 (@2): the materials retry lists the Turner set.
+  "MS, alloy ya cast iron, kis par kaam kiya hai?": "MS, अलॉय या कास्ट आयरन, किस पर काम किया है?",
   "Vernier, micrometer ya dial gauge, kya istemaal karte hain?": "वर्नियर, माइक्रोमीटर या डायल गेज, क्या इस्तेमाल करते हैं?",
   "Drawing dekh kar job bana lete hain?": "ड्राइंग देख कर जॉब बना लेते हैं?",
   "Job shop, auto parts ya pump valve, kis line me kaam kiya?": "जॉब शॉप, ऑटो पार्ट्स या पंप वाल्व, किस लाइन में काम किया?",
@@ -492,6 +573,17 @@ const QUESTION_TTS_TEXT: Readonly<Record<string, string>> = {
   "Workshop me khraad ya milling par kaam kiya tha?": "वर्कशॉप में खराद या मिलिंग पर काम किया था?",
   "ITI ka trade test pass kiya hai ya nahi?": "आईटीआई का ट्रेड टेस्ट पास किया है या नहीं?",
   "ITI me banaya hua koi job yaad hai?": "आईटीआई में बनाया हुआ कोई जॉब याद है?",
+  // --- qp_conventional_machining@2 (Track B #4) — level + separating confirms
+  // + CNC crossover + work type. The level prompt/why reuse the twins above
+  // verbatim (lines 250/1131).
+  "Helper, operator, skilled, senior ya supervisor hain?":
+    "हेल्पर, ऑपरेटर, स्किल्ड, सीनियर या सुपरवाइज़र हैं?",
+  "Drawing dekh ke job khud set karke tolerance mein nikaal lete ho?":
+    "ड्राइंग देख के जॉब खुद सेट करके टॉलरेंस में निकाल लेते हो?",
+  "Tool-room ka kaam, repair job, doosron ko sikhana — aap karte ho?":
+    "टूल-रूम का काम, रिपेयर जॉब, दूसरों को सिखाना — आप करते हो?",
+  "CNC bhi chalate ho?": "CNC भी चलाते हो?",
+  "Kis tarah ka kaam zyada karte ho?": "किस तरह का काम ज़्यादा करते हो?",
 
   // --- qp_tool_die_making@1 (the tool room) — Batch 2 -----------------------------------------
   "Tool room ka kitna tajurba hai?": "टूल रूम का कितना तजुर्बा है?",
@@ -510,6 +602,13 @@ const QUESTION_TTS_TEXT: Readonly<Record<string, string>> = {
   "Trainee, tool maker ya senior, kaunsi post hai?": "ट्रेनी, टूल मेकर या सीनियर, कौनसी पोस्ट है?",
   "Press tool, die ya fixture, kya banate hain?": "प्रेस टूल, डाई या फिक्सचर, क्या बनाते हैं?",
   "Grinder, EDM ya milling, kaunsi machine chalate hain?": "ग्राइंडर, EDM या मिलिंग, कौनसी मशीन चलाते हैं?",
+  // Phase 2 #1 (@2): the retagged machine/tooling retries + the new level retry.
+  "Grinder, VMC, EDM ya milling, kaunsi machine chalate hain?":
+    "ग्राइंडर, VMC, EDM या मिलिंग, कौनसी मशीन चलाते हैं?",
+  "Press tool, mould, jig ya gauge, kya banate hain?":
+    "प्रेस टूल, मोल्ड, जिग या गेज, क्या बनाते हैं?",
+  "Trainee, operator, skilled, senior ya supervisor hain?":
+    "ट्रेनी, ऑपरेटर, स्किल्ड, सीनियर या सुपरवाइज़र हैं?",
   "OHNS, HCHCr ya EN31, kaunsa steel istemaal kiya hai?": "OHNS, HCHCr या EN31, कौनसा स्टील इस्तेमाल किया है?",
   "Assembly, tryout ya benchwork, kaunsa kaam karte hain?": "असेंबली, ट्रायआउट या बेंचवर्क, कौनसा काम करते हैं?",
   "Slip gauge, micrometer ya sine bar, kya chalate hain?": "स्लिप गेज, माइक्रोमीटर या साइन बार, क्या चलाते हैं?",
@@ -524,6 +623,15 @@ const QUESTION_TTS_TEXT: Readonly<Record<string, string>> = {
   "Workshop me kaunsi machine par haath aazmaya hai?": "वर्कशॉप में कौनसी मशीन पर हाथ आज़माया है?",
   "Trade test ka result aa gaya hai?": "ट्रेड टेस्ट का रिज़ल्ट आ गया है?",
   "Kaunsa job ya model banaya tha ITI me?": "कौनसा जॉब या मॉडल बनाया था आईटीआई में?",
+  // --- qp_tool_die_making@2 (Phase 2 #1) — separating confirms + institute.
+  // The level prompt/why/retry reuse the twins above verbatim (the retry is
+  // the conventional one word-for-word, so no second entry — TS forbids it).
+  "Die ya mould poora drawing se khud assemble karke tryout karte ho?":
+    "डाई या मोल्ड पूरा ड्राइंग से खुद असेंबल करके ट्रायआउट करते हो?",
+  "Tool design mein input dete ho, tryout aap lead karte ho?":
+    "टूल डिज़ाइन में इनपुट देते हो, ट्रायआउट आप लीड करते हो?",
+  "Tool room ka course ya training kahan se kiya?":
+    "टूल रूम का कोर्स या ट्रेनिंग कहाँ से किया?",
 
   // --- qp_welding_trade@1 (arc, MIG, TIG and gas welding) — Batch 2 ---------------------------
   "Welding ka kitna tajurba hai?": "वेल्डिंग का कितना तजुर्बा है?",
@@ -541,10 +649,26 @@ const QUESTION_TTS_TEXT: Readonly<Record<string, string>> = {
   "Welding ke alawa kaunsa kaam karte hain?": "वेल्डिंग के अलावा कौनसा काम करते हैं?",
   "Lagbhag kitne saal welding ka kaam kiya hai?": "लगभग कितने साल वेल्डिंग का काम किया है?",
   "Inverter, CO2 ya TIG machine, kaunsi chalayi hai?": "इनवर्टर, CO2 या TIG मशीन, कौनसी चलाई है?",
+  // --- qp_welding_trade@2 (Track B #3) — level + separating confirms + certificate.
+  // The level prompt/why reuse the twins above verbatim (lines 250/1131).
+  "Helper, welder, skilled, senior ya supervisor hain?":
+    "हेल्पर, वेल्डर, स्किल्ड, सीनियर या सुपरवाइज़र हैं?",
+  "TIG ya all-position welding karte ho — test plate ya certificate hai?":
+    "TIG या ऑल-पोज़िशन वेल्डिंग करते हो — टेस्ट प्लेट या सर्टिफिकेट है?",
+  "Doosre welders ko parameter set karke dete ho, inspection karte ho?":
+    "दूसरे वेल्डर्स को पैरामीटर सेट करके देते हो, इंस्पेक्शन करते हो?",
+  "Welding ka certificate ya test diya hai?": "वेल्डिंग का सर्टिफिकेट या टेस्ट दिया है?",
 
   // --- qp_powder_coating@1 (powder coating and industrial spray) — Batch 2 --------------------
   "Powder coating ya paint ka kitna tajurba hai?": "पाउडर कोटिंग या पेंट का कितना तजुर्बा है?",
   "Paint shop me aap kis level par kaam karte hain?": "पेंट शॉप में आप किस लेवल पर काम करते हैं?",
+  // qp_powder_coating@2 (Phase 2 #4) — the separating confirm (asked of skilled
+  // and senior; the sheet's slashes read as "या") and the new bath row. The
+  // level retry is an earlier pack's verbatim and already twinned.
+  "Pre-treatment / bath / oven ki setting aap khud karte ho, defects khud theek karte ho?":
+    "प्री-ट्रीटमेंट या बाथ या ओवन की सेटिंग आप खुद करते हो, डिफेक्ट खुद ठीक करते हो?",
+  "Kaunse bath ya chemical ka kaam khud sambhalte hain?":
+    "कौनसे बाथ या केमिकल का काम खुद संभालते हैं?",
   "Aap kaunsa coating ka kaam karte hain?": "आप कौन सा कोटिंग का काम करते हैं?",
   "Kaunse booth aur oven par kaam kiya hai?": "कौन से बूथ और ओवन पर काम किया है?",
   "Kaunsa powder ya paint lagaya hai?": "कौन सा पाउडर या पेंट लगाया है?",
@@ -616,6 +740,15 @@ const QUESTION_TTS_TEXT: Readonly<Record<string, string>> = {
   "Press brake ki kaunsi setting khud karte hain?": "प्रेस ब्रेक की कौनसी सेटिंग खुद करते हैं?",
   "Flat pattern ka hisaab kaise nikaalte hain?": "फ्लैट पैटर्न का हिसाब कैसे निकालते हैं?",
   "Cutting aur bending ke alawa kaunsa kaam karte hain?": "कटिंग और बेंडिंग के अलावा कौनसा काम करते हैं?",
+  // --- qp_sheet_metal_fab@2 (Track B #5) — separating confirms + product +
+  // extra work. The level prompt/why/retry reuse the twins above verbatim
+  // (lines 250/1131 and the conventional retry — identical ladder words).
+  "Drawing se bend sequence / nesting khud set karte ho, ya set kiya hua chalate ho?":
+    "ड्राइंग से बेंड सीक्वेंस / नेस्टिंग खुद सेट करते हो, या सेट किया हुआ चलाते हो?",
+  "Nesting / press-brake program khud banate ho?":
+    "नेस्टिंग / प्रेस-ब्रेक प्रोग्राम खुद बनाते हो?",
+  "Kaunsa product banate ho?": "कौनसा प्रोडक्ट बनाते हो?",
+  "Cutting-bending ke alawa kaunsa kaam karte ho?": "कटिंग-बेंडिंग के अलावा कौनसा काम करते हो?",
   // qp_industrial_electrician@1 — Batch 2 part two. Four prompts reuse shipped twins and are not
   // repeated here: the work-type, voltage and licence asks are qp_electrical's own wording, and
   // the drawing ask is the welder's; the three fresher prompts are the welder's verbatim.
@@ -641,6 +774,12 @@ const QUESTION_TTS_TEXT: Readonly<Record<string, string>> = {
   "Motor ki kaunsi kharabi khud pakad lete hain?": "मोटर की कौनसी खराबी खुद पकड़ लेते हैं?",
   "Kaam shuru karne se pehle kaunsi safety khud karte hain?":
     "काम शुरू करने से पहले कौनसी सेफ्टी खुद करते हैं?",
+  // --- qp_industrial_electrician@2 (Track B #2) — level + separating confirm.
+  // The level prompt/why reuse the twins above verbatim (lines 250/1131).
+  "Helper, electrician, senior ya supervisor hain?":
+    "हेल्पर, इलेक्ट्रीशियन, सीनियर या सुपरवाइज़र हैं?",
+  "Machine ki electrical fault aap khud dhoondh ke theek karte ho?":
+    "मशीन की इलेक्ट्रिकल फॉल्ट आप खुद ढूँढ के ठीक करते हो?",
   // qp_press_operation@1 — Batch 2 part two. The three fresher prompts and the drawing prompt are
   // the welder's verbatim and reuse its twins above, so they are not repeated here.
   "Press par kaam ka kitna tajurba hai?": "प्रेस पर काम का कितना तजुर्बा है?",
@@ -661,6 +800,12 @@ const QUESTION_TTS_TEXT: Readonly<Record<string, string>> = {
   "Press part ki kaunsi kharabi aap sudhaar lete hain?":
     "प्रेस पार्ट की कौनसी खराबी आप सुधार लेते हैं?",
   "Press ki kaunsi dekhbhaal khud karte hain?": "प्रेस की कौनसी देखभाल खुद करते हैं?",
+  // qp_press_operation@2 (Phase 2 #3) — the new level retry and the one
+  // separating confirm (asked of setter and senior). Every other @2 prompt
+  // and retry is @1's verbatim, so its twin is above.
+  "Helper, operator, setter, senior ya supervisor hain?":
+    "हेल्पर, ऑपरेटर, सेटर, सीनियर या सुपरवाइज़र हैं?",
+  "Die setting aur shut height aap karte ho?": "डाई सेटिंग और शट हाइट आप करते हो?",
   // qp_assembly_line@1 — Batch 2 part two. The drawing prompt and the three fresher items'
   // prompts and retries are the welder's verbatim and reuse its twins above, so they are not
   // repeated here.
@@ -675,6 +820,9 @@ const QUESTION_TTS_TEXT: Readonly<Record<string, string>> = {
   "Kaunsi assembly par kaam kiya hai?": "कौनसी असेंबली पर काम किया है?",
   "Engine, gearbox, seat ya wiring, kaunsa kaam kiya hai?":
     "इंजन, गियरबॉक्स, सीट या वायरिंग, कौनसा काम किया है?",
+  // Track B #6 (@2): the sheet-11 segment retry.
+  "Engine, electrical, appliances ya EV, kaunsi assembly hai?":
+    "इंजन, इलेक्ट्रिकल, अप्लायंसेज़ या EV, कौनसी असेंबली है?",
   "Line par kaunse tool chalate hain?": "लाइन पर कौनसे टूल चलाते हैं?",
   "Nut runner, torque wrench ya pneumatic gun, kaunsa chalaya hai?":
     "नट रनर, टॉर्क रिंच या न्यूमैटिक गन, कौनसा चलाया है?",
@@ -686,6 +834,18 @@ const QUESTION_TTS_TEXT: Readonly<Record<string, string>> = {
   "Line par aur kaunsi zimmedaari sambhalte hain?": "लाइन पर और कौनसी ज़िम्मेदारी संभालते हैं?",
   "Assembly ki kaunsi kharabi pakad kar sudhaar lete hain?":
     "असेंबली की कौनसी खराबी पकड़ कर सुधार लेते हैं?",
+  // --- qp_assembly_line@2 (Track B #6) — level + separating confirms +
+  // product + skills + company type. The level prompt/why reuse the twins
+  // above verbatim (lines 250/1131).
+  "Trainee, line operator, technician, leader ya supervisor hain?":
+    "ट्रेनी, लाइन ऑपरेटर, टेक्नीशियन, लीडर या सुपरवाइज़र हैं?",
+  "Poori sub-assembly drawing se khud kar lete ho aur testing bhi?":
+    "पूरी सब-असेंबली ड्राइंग से खुद कर लेते हो और टेस्टिंग भी?",
+  "Line ya section aap chalate ho — kitne log?":
+    "लाइन या सेक्शन आप चलाते हो — कितने लोग?",
+  "Kis cheez ki assembly karte ho?": "किस चीज़ की असेंबली करते हो?",
+  "Assembly ka kaunsa uncha kaam kar lete ho?": "असेंबली का कौनसा ऊँचा काम कर लेते हो?",
+  "Kis type ki company me kaam kiya hai?": "किस टाइप की कंपनी में काम किया है?",
   // qp_fitter@1 — Batch 2 part two. Six prompts reuse a twin above verbatim and are not
   // repeated: the three fresher ones and "Kya aap drawing padh lete hain?" (the welder's),
   // "Aap kis tarah ka fitting kaam karte hain?" (qp_fitting's) and "Machine ki kaunsi dikkat aap
@@ -711,6 +871,14 @@ const QUESTION_TTS_TEXT: Readonly<Record<string, string>> = {
   "Hydraulic ka kaunsa kaam khud karte hain?": "हाइड्रॉलिक का कौनसा काम खुद करते हैं?",
   "Kis machine ka poora overhaul khud kar lete hain?": "किस मशीन का पूरा ओवरहॉल खुद कर लेते हैं?",
   "Erection me kaunsa kaam khud sambhalte hain?": "इरेक्शन में कौनसा काम खुद संभालते हैं?",
+  // --- qp_fitter@2 (Track B #1) — the level question and separating confirms.
+  // The level prompt/why reuse the twins above verbatim (line 250, 1131); only
+  // the retry, the skilled confirm and the team-count confirm need twins.
+  "Helper, fitter, skilled, senior ya supervisor hain?":
+    "हेल्पर, फिटर, स्किल्ड, सीनियर या सुपरवाइज़र हैं?",
+  "Drawing dekh ke poori assembly khud kar lete ho, ya senior ke saath?":
+    "ड्राइंग देख के पूरी असेंबली खुद कर लेते हो, या सीनियर के साथ?",
+  "Kitne fitter aapke under kaam karte hain?": "कितने फिटर आपके अंडर काम करते हैं?",
   // qp_quality_inspection@1 — Batch 2 part two. The instrument and drawing prompts are the CAD and
   // welder strings verbatim, and the three fresher prompts the welder's, so they reuse the twins
   // above and are not repeated here.
@@ -734,11 +902,128 @@ const QUESTION_TTS_TEXT: Readonly<Record<string, string>> = {
   "CMM par kaunsa kaam khud karte hain?": "सीएमएम पर कौनसा काम खुद करते हैं?",
   "Rejection aane par kaunsa kaam khud karte hain?": "रिजेक्शन आने पर कौनसा काम खुद करते हैं?",
   "Audit ya customer ka kaunsa kaam sambhalte hain?": "ऑडिट या कस्टमर का कौनसा काम संभालते हैं?",
+  // --- qp_quality_inspection@2 (Track B #7) — level + separating confirms.
+  // The level prompt/why reuse the twins above verbatim (lines 250/1131).
+  "Trainee, inspector, senior, QC engineer ya head hain?":
+    "ट्रेनी, इंस्पेक्टर, सीनियर, QC इंजीनियर या हेड हैं?",
+  "GD&T padh ke CMM ya height gauge pe inspection khud karte ho?":
+    "GD&T पढ़ के CMM या हाइट गेज पे इंस्पेक्शन खुद करते हो?",
+  "PPAP, control plan, 8D — aap banate ho?": "PPAP, कंट्रोल प्लान, 8D — आप बनाते हो?",
   // qp_maintenance_tech@1 — Batch 2 part two's last. Five prompts reuse a twin above verbatim and
   // are not repeated: the three fresher ones and "Kya aap drawing padh lete hain?" (the welder's),
   // "Machine ki kaunsi dikkat aap sudhaar lete hain?" (the turner's) and "Kis machine ka poora
   // overhaul khud kar lete hain?" (the fitter's).
   "Maintenance ka kitna tajurba hai?": "मेंटेनेंस का कितना तजुर्बा है?",
+  // --- qp_production_supervisor@1 (Phase 2 #10, a new trade) — prompts and retries. "in-charge"
+  // is Devanagari (इंचार्ज, as a shop floor says it). The tenure and level whys are shared and
+  // twinned above.
+  "Production ka kitna tajurba hai?": "प्रोडक्शन का कितना तजुर्बा है?",
+  "Lagbhag kitne saal production mein kaam kiya hai?":
+    "लगभग कितने साल प्रोडक्शन में काम किया है?",
+  "Production mein aap kis level par kaam karte hain?":
+    "प्रोडक्शन में आप किस लेवल पर काम करते हैं?",
+  "Line leader, supervisor ya production in-charge hain?":
+    "लाइन लीडर, सुपरवाइजर या प्रोडक्शन इंचार्ज हैं?",
+  "Shift report aap banate ho?": "शिफ्ट रिपोर्ट आप बनाते हो?",
+  "Kis department ki supervision karte hain?": "किस डिपार्टमेंट की सुपरविज़न करते हैं?",
+  "Kitne log aapke under hain?": "कितने लोग आपके अंडर हैं?",
+  "Kitni machines aapke under hain?": "कितनी मशीनें आपके अंडर हैं?",
+  "Supervision mein kya kya sambhalte hain?": "सुपरविज़न में क्या क्या संभालते हैं?",
+  "Kis industry ke plant mein supervision ki hai?":
+    "किस इंडस्ट्री के प्लांट में सुपरविज़न की है?",
+  "Supervisor banne se pehle kya kaam karte the?": "सुपरवाइजर बनने से पहले क्या काम करते थे?",
+  // --- qp_injection_moulding@1 (Phase 2 #9, the first pack for the declared kind) — prompts and
+  // retries. The level prompt/retry, the brand prompt and the tenure, level, brand and tonnage
+  // whys are shared and twinned above.
+  "Injection moulding ka kitna tajurba hai?": "इंजेक्शन मोल्डिंग का कितना तजुर्बा है?",
+  "Lagbhag kitne saal moulding machine pe kaam kiya hai?":
+    "लगभग कितने साल मोल्डिंग मशीन पे काम किया है?",
+  "Mould change aur parameter setting aap khud karte ho?":
+    "मोल्ड चेंज और पैरामीटर सेटिंग आप खुद करते हो?",
+  "Naya mould trial aur process optimisation aap lead karte ho?":
+    "नया मोल्ड ट्रायल और प्रोसेस ऑप्टिमाइज़ेशन आप लीड करते हो?",
+  "Kitne ton tak ki machine chalayi hai?": "कितने टन तक की मशीन चलाई है?",
+  "Kaunse plastic material ki moulding ki hai?": "कौनसे प्लास्टिक मटीरियल की मोल्डिंग की है?",
+  "Moulding machine pe kaunsa kaam khud karte hain?": "मोल्डिंग मशीन पे कौनसा काम खुद करते हैं?",
+  "Kaunse defect khud theek kar lete hain?": "कौनसे डिफेक्ट खुद ठीक कर लेते हैं?",
+  "Moulding ka course ya training kahan se kiya?": "मोल्डिंग का कोर्स या ट्रेनिंग कहाँ से किया?",
+  // --- qp_foundry_forging@1 (Phase 2 #11, a new trade) — prompts and retries. "HPDC" and "GDC"
+  // stay Latin (spelled letter by letter); "foundry" and "forging" are Devanagari. The level
+  // retry, the tenure and level whys and the testing prompt are shared and twinned above.
+  "Foundry ya forging ka kitna tajurba hai?": "फाउंड्री या फोर्जिंग का कितना तजुर्बा है?",
+  "Lagbhag kitne saal foundry ya forging ka kaam kiya hai?":
+    "लगभग कितने साल फाउंड्री या फोर्जिंग का काम किया है?",
+  "Foundry ya forging shop me aap kis level par kaam karte hain?":
+    "फाउंड्री या फोर्जिंग शॉप में आप किस लेवल पर काम करते हैं?",
+  "Process setting (pattern/die/melt) aap khud karte ho?":
+    "प्रोसेस सेटिंग, पैटर्न, डाई या मेल्ट, आप खुद करते हो?",
+  "Foundry ya forging me kaunsa kaam karte hain?": "फाउंड्री या फोर्जिंग में कौनसा काम करते हैं?",
+  "Moulding, die casting ya forging, kaunsa kaam karte hain?":
+    "मोल्डिंग, डाई कास्टिंग या फोर्जिंग, कौनसा काम करते हैं?",
+  "Kaunse metal ka kaam kiya hai?": "कौनसे मेटल का काम किया है?",
+  "Kaunsi machine ya furnace chalayi hai?": "कौनसी मशीन या फर्नेस चलाई है?",
+  // --- qp_heat_treatment@1 (Phase 2 #8, a new trade) — prompts and retries. "SQF" and "HRC"
+  // stay Latin (spelled letter by letter); "heat treatment" is Devanagari. The level retry and
+  // the tenure and level whys are shared and twinned above.
+  "Heat treatment ka kitna tajurba hai?": "हीट ट्रीटमेंट का कितना तजुर्बा है?",
+  "Lagbhag kitne saal heat treatment ka kaam kiya hai?":
+    "लगभग कितने साल हीट ट्रीटमेंट का काम किया है?",
+  "Heat treatment shop me aap kis level par kaam karte hain?":
+    "हीट ट्रीटमेंट शॉप में आप किस लेवल पर काम करते हैं?",
+  "Material aur spec dekh ke cycle khud set karte ho, hardness khud check karte ho?":
+    "मटीरियल और स्पेक देख के साइकिल खुद सेट करते हो, हार्डनेस खुद चेक करते हो?",
+  "Kaunsa heat treatment process karte hain?": "कौनसा हीट ट्रीटमेंट प्रोसेस करते हैं?",
+  "Hardening, carburising ya induction, kaunsa process karte hain?":
+    "हार्डनिंग, कार्बराइज़िंग या इंडक्शन, कौनसा प्रोसेस करते हैं?",
+  "Kaunsi furnace chalate hain?": "कौनसी फर्नेस चलाते हैं?",
+  "Kaunsi testing khud karte hain?": "कौनसी टेस्टिंग खुद करते हैं?",
+  "Kaunse material ka heat treatment kiya hai?": "कौनसे मटीरियल का हीट ट्रीटमेंट किया है?",
+  // --- qp_edm_wirecut@1 (Phase 2 #7, a new trade) — prompts and retries. "EDM" and "CAM"
+  // stay Latin (spelled letter by letter, as an operator says them); "wire-cut" is Devanagari.
+  // The level prompt/retry and the tenure, level and machine whys are shared and twinned above.
+  "EDM ya wire-cut ka kitna tajurba hai?": "EDM या वायर-कट का कितना तजुर्बा है?",
+  "Lagbhag kitne saal EDM ya wire-cut ka kaam kiya hai?":
+    "लगभग कितने साल EDM या वायर-कट का काम किया है?",
+  "Naya job alignment aur setting aap karte ho?": "नया जॉब अलाइनमेंट और सेटिंग आप करते हो?",
+  "Program khud banate ho (machine pe ya CAM se)?":
+    "प्रोग्राम खुद बनाते हो, मशीन पे या CAM से?",
+  "Kaunsi EDM machine chalate hain?": "कौनसी EDM मशीन चलाते हैं?",
+  "Wire-cut, sinker ya hole drill, kaunsi EDM chalayi hai?":
+    "वायर-कट, सिंकर या होल ड्रिल, कौनसी EDM चलाई है?",
+  "Kaunse brand ki machine chalayi hai?": "कौनसे ब्रांड की मशीन चलाई है?",
+  "Program kahan se aata hai?": "प्रोग्राम कहाँ से आता है?",
+  "Kitni tolerance tak kaam kar lete hain?": "कितनी टॉलरेंस तक काम कर लेते हैं?",
+  "EDM par kaunsa kaam khud karte hain?": "EDM पर कौनसा काम खुद करते हैं?",
+  // --- qp_plc_automation@1 (Phase 2 #6, a new trade) — prompts and retries. "PLC", "HMI",
+  // "SCADA" and "I/O" stay Latin: a hi-IN voice spells an initialism letter by letter, which is
+  // how a technician says it. The tenure, level and sector whys are shared and twinned above.
+  "PLC ya automation ka kitna tajurba hai?": "PLC या ऑटोमेशन का कितना तजुर्बा है?",
+  "Lagbhag kitne saal PLC ya automation ka kaam kiya hai?":
+    "लगभग कितने साल PLC या ऑटोमेशन का काम किया है?",
+  "Automation me aap kis level par kaam karte hain?": "ऑटोमेशन में आप किस लेवल पर काम करते हैं?",
+  "Trainee, technician, senior technician, lead ya supervisor hain?":
+    "ट्रेनी, टेक्नीशियन, सीनियर टेक्नीशियन, लीड या सुपरवाइज़र हैं?",
+  "PLC ka program kholke fault dhoondh lete ho, choti editing karte ho?":
+    "PLC का प्रोग्राम खोलके फॉल्ट ढूँढ लेते हो, छोटी एडिटिंग करते हो?",
+  "Naya PLC program, HMI aur servo / motion khud banate ho?":
+    "नया PLC प्रोग्राम, HMI और सर्वो या मोशन खुद बनाते हो?",
+  "Kaunsa PLC chalate hain?": "कौनसा PLC चलाते हैं?",
+  "Siemens, Allen-Bradley, Mitsubishi ya Delta, kaunsa PLC chalaya hai?":
+    "सीमेंस, एलन-ब्रैडली, मित्सुबिशी या डेल्टा, कौनसा PLC चलाया है?",
+  "Automation me kya kya karte hain?": "ऑटोमेशन में क्या क्या करते हैं?",
+  "Kaunsa HMI ya SCADA chalaya hai?": "कौनसा HMI या SCADA चलाया है?",
+  "Kis industry ki automation par kaam kiya hai?": "किस इंडस्ट्री की ऑटोमेशन पर काम किया है?",
+  "Kaunse field device ka kaam aata hai?": "कौनसे फील्ड डिवाइस का काम आता है?",
+  // qp_maintenance_tech@2 (Phase 2 #5) — the new level retry, the senior
+  // technician's separating confirm (the sheet's question verbatim) and the
+  // two new Advanced rows.
+  "Helper, technician, senior technician ya supervisor hain?":
+    "हेल्पर, टेक्नीशियन, सीनियर टेक्नीशियन या सुपरवाइज़र हैं?",
+  "Machine overhaul, hydraulic/pneumatic fault, CNC spindle/ball-screw — aap khud karte ho?":
+    "मशीन ओवरहॉल, हाइड्रोलिक या न्यूमैटिक फॉल्ट, CNC स्पिंडल या बॉल-स्क्रू, आप खुद करते हो?",
+  "CNC machine ki kaunsi maintenance khud karte hain?":
+    "CNC मशीन की कौनसी मेंटेनेंस खुद करते हैं?",
+  "Plant ki kaunsi utility sambhaali hai?": "प्लांट की कौनसी यूटिलिटी संभाली है?",
   "Lagbhag kitne saal maintenance ka kaam kiya hai?": "लगभग कितने साल मेंटेनेंस का काम किया है?",
   "Aap kis tarah ki maintenance karte hain?": "आप किस तरह की मेंटेनेंस करते हैं?",
   "Mechanical, hydraulic, pneumatic ya electrical, kaunsi maintenance ki hai?":
@@ -959,6 +1244,61 @@ const WHY_TTS_TEXT: Readonly<Record<string, string>> = {
     "क्वालिटी का काम जानने वाले को सुपरवाइज़र बनाया जाता है।",
   "Problem theek karne wale operator ki demand zyada hai.":
     "प्रॉब्लम ठीक करने वाले ऑपरेटर की डिमांड ज़्यादा है।",
+  // --- qp_cnc_turning@6 (Track A #1) — the four separating-confirm whys -----
+  "Setting khud karne wale setter ko alag kaam milta hai.":
+    "सेटिंग खुद करने वाले सेटर को अलग काम मिलता है।",
+  "Khud program likhne wale ko programmer ka kaam milta hai.":
+    "खुद प्रोग्राम लिखने वाले को प्रोग्रामर का काम मिलता है।",
+  "Drawing se program banane wale programmer ki alag maang hai.":
+    "ड्राइंग से प्रोग्राम बनाने वाले प्रोग्रामर की अलग माँग है।",
+  "Team sambhalne wale supervisor ko alag zimmedari milti hai.":
+    "टीम सँभालने वाले सुपरवाइज़र को अलग ज़िम्मेदारी मिलती है।",
+  // --- qp_vmc_milling@6 (Track A #2) — the VMC setter-confirm why ----------
+  // program_write_confirm reuses the Turner why verbatim (above).
+  "Fixture aur zero khud lagane wale setter ko alag kaam milta hai.":
+    "फिक्सचर और ज़ीरो खुद लगाने वाले सेटर को अलग काम मिलता है।",
+  // --- qp_cam_programming@4 (Track A #3) — new + confirm whys ---------------
+  // cam_program_confirm reuses the Turner program why verbatim (above).
+  "3D programming khud karne wale senior ko alag kaam milta hai.":
+    "3D प्रोग्रामिंग खुद करने वाले सीनियर को अलग काम मिलता है।",
+  "Programming team chalane wale lead ko alag zimmedari milti hai.":
+    "प्रोग्रामिंग टीम चलाने वाले लीड को अलग ज़िम्मेदारी मिलती है।",
+  "Parts ke hisaab se sahi company dikhayi jaati hai.":
+    "पार्ट्स के हिसाब से सही कंपनी दिखाई जाती है।",
+  "Zyada kaam jaanne wale programmer ki alag maang hai.":
+    "ज़्यादा काम जानने वाले प्रोग्रामर की अलग माँग है।",
+  // --- qp_cad_design_3d (Track A #4) — the new trade's whys ------------------
+  // Experience-gate, level and software whys are shared verbatim (twins above).
+  "Requirement se design karne wale senior designer ko alag kaam milta hai.":
+    "रिक्वायरमेंट से डिज़ाइन करने वाले सीनियर डिज़ाइनर को अलग काम मिलता है।",
+  "Calculation aur review karne wale lead ko alag zimmedari milti hai.":
+    "कैलकुलेशन और रिव्यू करने वाले लीड को अलग ज़िम्मेदारी मिलती है।",
+  "Team sambhalne wale design head ko alag zimmedari milti hai.":
+    "टीम सँभालने वाले डिज़ाइन हेड को अलग ज़िम्मेदारी मिलती है।",
+  // --- qp_cad_drafting@2 (Track A #5) — new + confirm whys ------------------
+  // The level why and the 3D→2D-adjacent "Kaam ki jagah" why are shared
+  // verbatim (twins above).
+  "Model se drawing nikalna 3D ki taraf pehla kadam hai.":
+    "मॉडल से ड्राइंग निकालना 3D की तरफ पहला कदम है।",
+  "Doosron ki drawing check karne wale senior ko alag kaam milta hai.":
+    "दूसरों की ड्राइंग चेक करने वाले सीनियर को अलग काम मिलता है।",
+  "Project ki drawings sambhalne wale lead ko alag zimmedari milti hai.":
+    "प्रोजेक्ट की ड्राइंग्स सँभालने वाले लीड को अलग ज़िम्मेदारी मिलती है।",
+  "Kaam ki jagah ke hisaab se sahi company milti hai.":
+    "काम की जगह के हिसाब से सही कंपनी मिलती है।",
+  "Software ki pakad se level pata chalta hai.":
+    "सॉफ्टवेयर की पकड़ से लेवल पता चलता है।",
+  "GD&T jaanne wale designer ki alag maang hai.":
+    "GD&T जानने वाले डिज़ाइनर की अलग माँग है।",
+  "Industry ke hisaab se milti julti company milti hai.":
+    "इंडस्ट्री के हिसाब से मिलती जुलती कंपनी मिलती है।",
+  // --- qp_fitter@2 (Track B #1) — the separating-confirm whys ---------------
+  // Filed HERE, not in the question table: `composeClarify` scans only this
+  // table for the clarify prefix (R10 §2.6).
+  "Khud assembly karne wale skilled fitter ko alag kaam milta hai.":
+    "खुद असेंबली करने वाले स्किल्ड फिटर को अलग काम मिलता है।",
+  "Team sambhalne wale senior fitter ko alag zimmedari milti hai.":
+    "टीम सँभालने वाले सीनियर फिटर को अलग ज़िम्मेदारी मिलती है।",
   // --- qp_vmc_milling@1 (role pack, VMC milling) — R14 §3.1 ---------------------------
   //
   // NINE WHY-TEXTS. The tenth — "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain." — is
@@ -994,6 +1334,10 @@ const WHY_TTS_TEXT: Readonly<Record<string, string>> = {
     "फिनिश ग्राइंडिंग के काम की सबसे बड़ी पहचान है।",
   "Dressing ka tarika wheel ki umar aur finish tay karta hai.":
     "ड्रेसिंग का तरीका व्हील की उम्र और फिनिश तय करता है।",
+  // --- qp_cnc_grinding@6 (Phase 2 #2) — the separating confirm's why. Filed
+  // HERE, not in the question table: `composeClarify` scans only this table.
+  "Wheel aur setting khud karne wale setter ko alag kaam milta hai.":
+    "व्हील और सेटिंग खुद करने वाले सेटर को अलग काम मिलता है।",
   // --- qp_cam_programming@1 (role pack) — Batch 1 --------------------------------------------
   //
   // FIVE WHY-TEXTS. The pack's other nine are the turner's, miller's and grinder's verbatim and
@@ -1055,6 +1399,17 @@ const WHY_TTS_TEXT: Readonly<Record<string, string>> = {
   "Badi machine chalane wale ko bade job ka kaam milta hai.": "बड़ी मशीन चलाने वाले को बड़े जॉब का काम मिलता है।",
   "Apna tool khud grind karna purana aur bada hunar hai.": "अपना टूल खुद ग्राइंड करना पुराना और बड़ा हुनर है।",
   "Mushkil kaam karne wale machinist ki alag pehchaan hoti hai.": "मुश्किल काम करने वाले मशीनिस्ट की अलग पहचान होती है।",
+  // --- qp_conventional_machining@2 (Track B #4) — the separating-confirm,
+  // CNC-crossover and work-type whys. Filed HERE, not in the question table:
+  // `composeClarify` scans only this table for the clarify prefix (R10 §2.6).
+  "Khud setting karke tolerance mein nikalne wale ko alag kaam milta hai.":
+    "खुद सेटिंग करके टॉलरेंस में निकालने वाले को अलग काम मिलता है।",
+  "Tool-room aur repair ka kaam karne wale senior ko alag zimmedari milti hai.":
+    "टूल-रूम और रिपेयर का काम करने वाले सीनियर को अलग ज़िम्मेदारी मिलती है।",
+  "CNC aane wale ko dono taraf ka kaam milta hai.":
+    "CNC आने वाले को दोनों तरफ का काम मिलता है।",
+  "Kaam ki tarah se sahi shop milti hai.":
+    "काम की तरह से सही शॉप मिलती है।",
 
   // --- qp_tool_die_making@1 (the tool room) — Batch 2 -----------------------------------------
   "Post se employer ko aapka darja pehli line me samajh aata hai.": "पोस्ट से एम्प्लॉयर को आपका दर्जा पहली लाइन में समझ आता है।",
@@ -1066,6 +1421,15 @@ const WHY_TTS_TEXT: Readonly<Record<string, string>> = {
   "Dikkat sudhaarne wale tool maker ki shop par zaroorat rehti hai.": "दिक्कत सुधारने वाले टूल मेकर की शॉप पर ज़रूरत रहती है।",
   "Hardness sahi na ho to die jaldi toot jaati hai.": "हार्डनेस सही न हो तो डाई जल्दी टूट जाती है।",
   "Press ka size batata hai ki kitni badi tooling banayi hai.": "प्रेस का साइज़ बताता है कि कितनी बड़ी टूलिंग बनाई है।",
+  // --- qp_tool_die_making@2 (Phase 2 #1) — the separating-confirm + institute
+  // whys. Filed HERE, not in the question table: `composeClarify` scans only
+  // this table for the clarify prefix (R10 §2.6).
+  "Khud assemble karke tryout karne wale ko alag kaam milta hai.":
+    "खुद असेंबल करके ट्रायआउट करने वाले को अलग काम मिलता है।",
+  "Tryout lead karne wale senior ko alag zimmedari milti hai.":
+    "ट्रायआउट लीड करने वाले सीनियर को अलग ज़िम्मेदारी मिलती है।",
+  "Achhe institute ka certificate badi tool room me kaam dilata hai.":
+    "अच्छे इंस्टिट्यूट का सर्टिफिकेट बड़ी टूल रूम में काम दिलाता है।",
 
   // --- qp_welding_trade@1 (arc, MIG, TIG and gas welding) — Batch 2 ---------------------------
   "Helper aur certified welder ka kaam aur vetan alag hota hai.": "हेल्पर और सर्टिफाइड वेल्डर का काम और वेतन अलग होता है।",
@@ -1076,6 +1440,15 @@ const WHY_TTS_TEXT: Readonly<Record<string, string>> = {
   "Setting karne wale welder ko zyada vetan milta hai.": "सेटिंग करने वाले वेल्डर को ज़्यादा वेतन मिलता है।",
   "Kharabi sudhaarne wale welder ki shop par zaroorat rehti hai.": "खराबी सुधारने वाले वेल्डर की शॉप पर ज़रूरत रहती है।",
   "Poora fabrication jaanne wale ko shop me aage rakha jaata hai.": "पूरा फैब्रिकेशन जानने वाले को शॉप में आगे रखा जाता है।",
+  // --- qp_welding_trade@2 (Track B #3) — the separating-confirm + certificate whys.
+  // Filed HERE, not in the question table: `composeClarify` scans only this
+  // table for the clarify prefix (R10 §2.6).
+  "TIG ya all-position karne wale skilled welder ko alag kaam milta hai.":
+    "TIG या ऑल-पोज़िशन करने वाले स्किल्ड वेल्डर को अलग काम मिलता है।",
+  "Doosron ka kaam set karne wale senior welder ko alag zimmedari milti hai.":
+    "दूसरों का काम सेट करने वाले सीनियर वेल्डर को अलग ज़िम्मेदारी मिलती है।",
+  "Certificate wale welder ko pressure vessel jaise kaam milte hain.":
+    "सर्टिफिकेट वाले वेल्डर को प्रेशर वेसल जैसे काम मिलते हैं।",
 
   // --- qp_powder_coating@1 (powder coating and industrial spray) — Batch 2 --------------------
   "Level se employer ko aapka darja saaf pata chalta hai.": "लेवल से एम्प्लॉयर को आपका दर्जा साफ़ पता चलता है।",
@@ -1087,6 +1460,12 @@ const WHY_TTS_TEXT: Readonly<Record<string, string>> = {
   "Thickness se coating ki quality aur cost tay hoti hai.": "थिकनेस से कोटिंग की क्वालिटी और कॉस्ट तय होती है।",
   "Dhaat ke hisaab se coating ka tarika badal jaata hai.": "धातु के हिसाब से कोटिंग का तरीका बदल जाता है।",
   "Gun setting se coating barabar lagti hai aur powder bachta hai.": "गन सेटिंग से कोटिंग बराबर लगती है और पाउडर बचता है।",
+  // qp_powder_coating@2 (Phase 2 #4) — the confirm's and the bath row's whys.
+  // Filed HERE: `composeClarify` scans only this table.
+  "Setting aur defect khud sambhalne wale ko alag kaam milta hai.":
+    "सेटिंग और डिफेक्ट खुद संभालने वाले को अलग काम मिलता है।",
+  "Bath aur chemical sambhalne wale ko line ki zimmedari milti hai.":
+    "बाथ और केमिकल संभालने वाले को लाइन की ज़िम्मेदारी मिलती है।",
   "Oven ka temperature aur time coating ki jaan hai.": "ओवन का टेम्परेचर और टाइम कोटिंग की जान है।",
   "Colour change jaldi karne se line ka time bachta hai.": "कलर चेंज जल्दी करने से लाइन का टाइम बचता है।",
   // Layer A elicitation (qp_universal@4) — why-texts.
@@ -1119,6 +1498,17 @@ const WHY_TTS_TEXT: Readonly<Record<string, string>> = {
     "डेवलपमेंट का हिसाब जानने वाले से गलती कम होती है।",
   "Poora kaam jaanne wale ko shop me aage rakha jaata hai.":
     "पूरा काम जानने वाले को शॉप में आगे रखा जाता है।",
+  // --- qp_sheet_metal_fab@2 (Track B #5) — the separating-confirm, product
+  // and extra-work whys. Filed HERE, not in the question table:
+  // `composeClarify` scans only this table for the clarify prefix (R10 §2.6).
+  "Khud nesting set karne wale skilled operator ko alag kaam milta hai.":
+    "खुद नेस्टिंग सेट करने वाले स्किल्ड ऑपरेटर को अलग काम मिलता है।",
+  "Khud program banane wale senior ko alag zimmedari milti hai.":
+    "खुद प्रोग्राम बनाने वाले सीनियर को अलग ज़िम्मेदारी मिलती है।",
+  "Product ke hisaab se sahi company milti hai.":
+    "प्रोडक्ट के हिसाब से सही कंपनी मिलती है।",
+  "Aas-paas ke kaam jaanne wale ko poori line ka kaam milta hai.":
+    "आस-पास के काम जानने वाले को पूरी लाइन का काम मिलता है।",
   // qp_industrial_electrician@1 — why-texts. Nine more are shared verbatim and already twinned
   // above: tenure, work type, equipment, level and sector (welder / sheet metal), drawing
   // (welder), voltage, licence and safety (qp_electrical / qp_lineman), and the fresher three.
@@ -1130,6 +1520,11 @@ const WHY_TTS_TEXT: Readonly<Record<string, string>> = {
     "कंट्रोल वायरिंग जानने वाले को पैनल की ज़िम्मेदारी मिलती है।",
   "Kharabi pakadne wale electrician ki plant me zaroorat rehti hai.":
     "खराबी पकड़ने वाले इलेक्ट्रीशियन की प्लांट में ज़रूरत रहती है।",
+  // --- qp_industrial_electrician@2 (Track B #2) — the separating-confirm why.
+  // Filed HERE, not in the question table: `composeClarify` scans only this
+  // table for the clarify prefix (R10 §2.6).
+  "Khud fault dhoondhne wale senior electrician ko alag kaam milta hai.":
+    "खुद फॉल्ट ढूँढने वाले सीनियर इलेक्ट्रीशियन को अलग काम मिलता है।",
   // qp_press_operation@1 — why-texts. The other fourteen (tenure, machine, level, material,
   // safety, tonnage, drawing, setting, stroke rate, sector, maintenance and the three fresher ones)
   // are shared verbatim with packs already twinned above, and reuse their clips.
@@ -1137,6 +1532,10 @@ const WHY_TTS_TEXT: Readonly<Record<string, string>> = {
     "हर डाई का काम अलग होता है, इससे सही नौकरी मिलती है।",
   "Kharabi sudhaarne wale setter ki shop par zaroorat rehti hai.":
     "खराबी सुधारने वाले सेटर की शॉप पर ज़रूरत रहती है।",
+  // qp_press_operation@2 (Phase 2 #3) — the separating confirm's why. Filed
+  // HERE, not in the question table: `composeClarify` scans only this table.
+  "Die setting khud karne wale setter ko alag kaam milta hai.":
+    "डाई सेटिंग खुद करने वाले सेटर को अलग काम मिलता है।",
   // qp_assembly_line@1 — why-texts. Eight more (tenure, level, drawing, sector, joining and the
   // three fresher ones) are shared verbatim with the welder's and sheet metal packs and already
   // twinned above.
@@ -1154,6 +1553,25 @@ const WHY_TTS_TEXT: Readonly<Record<string, string>> = {
     "ज़िम्मेदारी संभालने वाले को ज़्यादा वेतन मिलता है।",
   "Kharabi pakadne wale ki line par zaroorat rehti hai.":
     "खराबी पकड़ने वाले की लाइन पर ज़रूरत रहती है।",
+  // --- qp_assembly_line@2 (Track B #6) — the separating-confirm, skills and
+  // company whys. Filed HERE, not in the question table: `composeClarify`
+  // scans only this table for the clarify prefix (R10 §2.6). The product why
+  // is shared verbatim (twinned above).
+  "Khud sub-assembly aur testing karne wale technician ko alag kaam milta hai.":
+    "खुद सब-असेंबली और टेस्टिंग करने वाले टेक्नीशियन को अलग काम मिलता है।",
+  "Line sambhalne wale leader ko alag zimmedari milti hai.":
+    "लाइन सँभालने वाले लीडर को अलग ज़िम्मेदारी मिलती है।",
+  "Testing aur changeover karne wale ko technician ka kaam milta hai.":
+    "टेस्टिंग और चेंजओवर करने वाले को टेक्नीशियन का काम मिलता है।",
+  "Company ke hisaab se sahi naukri milti hai.":
+    "कंपनी के हिसाब से सही नौकरी मिलती है।",
+  // --- qp_quality_inspection@2 (Track B #7) — the separating-confirm whys.
+  // Filed HERE, not in the question table: `composeClarify` scans only this
+  // table for the clarify prefix (R10 §2.6).
+  "Khud GD&T padh ke inspection karne wale senior ko alag kaam milta hai.":
+    "खुद GD&T पढ़ के इंस्पेक्शन करने वाले सीनियर को अलग काम मिलता है।",
+  "Khud PPAP aur 8D banane wale QC engineer ko alag zimmedari milti hai.":
+    "खुद PPAP और 8D बनाने वाले QC इंजीनियर को अलग ज़िम्मेदारी मिलती है।",
   // qp_fitter@1 — why-texts. Twelve more are shared verbatim with packs twinned above: the
   // tenure, drawing, sector and three fresher ones (the welder's), "Fitting ke kai tarah hote
   // hain." (qp_fitting's), the level and equipment ones (the painter's), the tolerance one (the
@@ -1185,6 +1603,85 @@ const WHY_TTS_TEXT: Readonly<Record<string, string>> = {
   // the three fresher ones) are shared verbatim with packs twinned above.
   "Kaam ki kism se sahi plant ka kaam dikhaya jaata hai.":
     "काम की किस्म से सही प्लांट का काम दिखाया जाता है।",
+  // --- qp_production_supervisor@1 (Phase 2 #10) — why-texts. Filed HERE: `composeClarify`
+  // scans only this table.
+  "Shift report khud banane wale supervisor ko alag kaam milta hai.":
+    "शिफ्ट रिपोर्ट खुद बनाने वाले सुपरवाइजर को अलग काम मिलता है।",
+  "Department ke hisaab se sahi plant ka kaam dikhaya jaata hai.":
+    "डिपार्टमेंट के हिसाब से सही प्लांट का काम दिखाया जाता है।",
+  "Team ke size se aapki zimmedari saaf pata chalti hai.":
+    "टीम के साइज़ से आपकी ज़िम्मेदारी साफ़ पता चलती है।",
+  "Machines ki ginti se aapki zimmedari saaf pata chalti hai.":
+    "मशीनों की गिनती से आपकी ज़िम्मेदारी साफ़ पता चलती है।",
+  "Planning aur quality sambhalne wale supervisor ki alag maang hai.":
+    "प्लानिंग और क्वालिटी संभालने वाले सुपरवाइजर की अलग माँग है।",
+  "Industry ke hisaab se sahi plant ka kaam dikhaya jaata hai.":
+    "इंडस्ट्री के हिसाब से सही प्लांट का काम दिखाया जाता है।",
+  "Apne trade ka kaam jaanne wale supervisor par team bharosa karti hai.":
+    "अपने ट्रेड का काम जानने वाले सुपरवाइजर पर टीम भरोसा करती है।",
+  // --- qp_injection_moulding@1 (Phase 2 #9) — why-texts. Filed HERE: `composeClarify` scans
+  // only this table.
+  "Mould change aur setting khud karne wale setter ko alag kaam milta hai.":
+    "मोल्ड चेंज और सेटिंग खुद करने वाले सेटर को अलग काम मिलता है।",
+  "Mould trial lead karne wale process technician ki alag maang hai.":
+    "मोल्ड ट्रायल लीड करने वाले प्रोसेस टेक्नीशियन की अलग माँग है।",
+  "Material ki samajh se mushkil job ka kaam milta hai.":
+    "मटीरियल की समझ से मुश्किल जॉब का काम मिलता है।",
+  "Setting aur process ka kaam jaanne wale ki alag maang hai.":
+    "सेटिंग और प्रोसेस का काम जानने वाले की अलग माँग है।",
+  "Defect theek karna aana setter ka sabse bada hunar hai.":
+    "डिफेक्ट ठीक करना आना सेटर का सबसे बड़ा हुनर है।",
+  "Achhe institute ka certificate badi plastic company me kaam dilata hai.":
+    "अच्छे इंस्टिट्यूट का सर्टिफिकेट बड़ी प्लास्टिक कंपनी में काम दिलाता है।",
+  // --- qp_foundry_forging@1 (Phase 2 #11) — why-texts. Filed HERE: `composeClarify` scans
+  // only this table. The process and testing whys are shared and twinned above.
+  "Process setting khud karne wale ko alag kaam milta hai.":
+    "प्रोसेस सेटिंग खुद करने वाले को अलग काम मिलता है।",
+  "Metal ke hisaab se sahi foundry ka kaam dikhaya jaata hai.":
+    "मेटल के हिसाब से सही फाउंड्री का काम दिखाया जाता है।",
+  "Machine jaanne wale operator ko jaldi kaam milta hai.":
+    "मशीन जानने वाले ऑपरेटर को जल्दी काम मिलता है।",
+  // --- qp_heat_treatment@1 (Phase 2 #8) — why-texts. Filed HERE: `composeClarify` scans
+  // only this table.
+  "Cycle aur hardness khud sambhalne wale ko alag kaam milta hai.":
+    "साइकिल और हार्डनेस खुद संभालने वाले को अलग काम मिलता है।",
+  // "Process ke hisaab se sahi kaam dikhaya jaata hai." is shared and twinned above.
+  "Furnace ke hisaab se sahi plant ka kaam dikhaya jaata hai.":
+    "फर्नेस के हिसाब से सही प्लांट का काम दिखाया जाता है।",
+  "Testing khud karne wale technician ki alag maang hai.":
+    "टेस्टिंग खुद करने वाले टेक्नीशियन की अलग माँग है।",
+  "Material jaanne se aapka kaam saaf pata chalta hai.": "मटीरियल जानने से आपका काम साफ़ पता चलता है।",
+  // --- qp_edm_wirecut@1 (Phase 2 #7) — why-texts. Filed HERE: `composeClarify` scans only
+  // this table.
+  "Alignment aur setting khud karne wale setter ko alag kaam milta hai.":
+    "अलाइनमेंट और सेटिंग खुद करने वाले सेटर को अलग काम मिलता है।",
+  "Program khud banane wale ko programmer ka kaam milta hai.":
+    "प्रोग्राम खुद बनाने वाले को प्रोग्रामर का काम मिलता है।",
+  "Brand jaanne wale operator ko jaldi kaam milta hai.": "ब्रांड जानने वाले ऑपरेटर को जल्दी काम मिलता है।",
+  "Program banana aana EDM ka sabse bada hunar hai.": "प्रोग्राम बनाना आना EDM का सबसे बड़ा हुनर है।",
+  "Mushkil kaam karne wale EDM operator ki alag maang hai.":
+    "मुश्किल काम करने वाले EDM ऑपरेटर की अलग माँग है।",
+  // --- qp_plc_automation@1 (Phase 2 #6) — why-texts. Filed HERE: `composeClarify` scans
+  // only this table.
+  "Program kholke fault dhoondhne wale technician ko alag kaam milta hai.":
+    "प्रोग्राम खोलके फॉल्ट ढूँढने वाले टेक्नीशियन को अलग काम मिलता है।",
+  "Naya program aur HMI banane wale senior ko alag kaam milta hai.":
+    "नया प्रोग्राम और HMI बनाने वाले सीनियर को अलग काम मिलता है।",
+  "PLC ke brand se sahi plant ka kaam dikhaya jaata hai.":
+    "PLC के ब्रांड से सही प्लांट का काम दिखाया जाता है।",
+  "Kaam ke hisaab se sahi project dikhaya jaata hai.": "काम के हिसाब से सही प्रोजेक्ट दिखाया जाता है।",
+  "HMI aur SCADA jaanne wale technician ki alag maang hai.":
+    "HMI और SCADA जानने वाले टेक्नीशियन की अलग माँग है।",
+  "Field device jaanne wale ko line jaldi sambhalne di jaati hai.":
+    "फील्ड डिवाइस जानने वाले को लाइन जल्दी संभालने दी जाती है।",
+  // qp_maintenance_tech@2 (Phase 2 #5) — the confirm's and the two new rows'
+  // whys. Filed HERE: `composeClarify` scans only this table.
+  "Overhaul aur fault khud sambhalne wale senior ko alag kaam milta hai.":
+    "ओवरहॉल और फॉल्ट खुद संभालने वाले सीनियर को अलग काम मिलता है।",
+  "CNC machine sambhalne wale technician ki alag maang hai.":
+    "CNC मशीन संभालने वाले टेक्नीशियन की अलग माँग है।",
+  "Utility sambhalne wale technician ko poore plant ki zimmedari milti hai.":
+    "यूटिलिटी संभालने वाले टेक्नीशियन को पूरे प्लांट की ज़िम्मेदारी मिलती है।",
   "Preventive aur breakdown dono jaanne wale ki maang zyada hai.":
     "प्रिवेंटिव और ब्रेकडाउन दोनों जानने वाले की माँग ज़्यादा है।",
   "Instrument chalane wale technician par employer zyada bharosa karte hain.":

@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import type { SessionStuck, StuckCandidate } from "../lib/journey";
 import { describeStuck } from "../lib/journey-view";
 import { formatCount } from "../lib/format";
+import { PanelSection } from "./panel-section";
 import { StatusPill } from "./status-pill";
 
 /**
@@ -83,42 +84,41 @@ export function StuckPanel({ stuck }: { stuck: SessionStuck }) {
         <p className="panel__sub">{view.progress}</p>
       </div>
 
-      <p className={noticeClass(view.tone)} role="note">
-        <strong>{view.headline}.</strong> {view.body}
-      </p>
+      {/* The headline and the question it names are one PanelSection (A1, #2571); the ranked
+          candidates below are the next, 24px on behind a hairline divider. */}
+      <PanelSection>
+        <p className={noticeClass(view.tone)} role="note">
+          <strong>{view.headline}.</strong> {view.body}
+        </p>
 
-      {view.question ? (
-        <div className="stats stats--compact">
-          <div className="stat">
-            <span className="stat__value mono">
-              {breakableKey(view.question.question_key)}
-            </span>
-            <span className="stat__label">The question on screen when it ended</span>
+        {view.question ? (
+          <div className="stats stats--compact">
+            <div className="stat">
+              <span className="stat__value mono">{breakableKey(view.question.question_key)}</span>
+              <span className="stat__label">The question on screen when it ended</span>
+            </div>
+            <div className="stat">
+              <span className="stat__value">
+                {formatCount(view.question.asks)} / {formatCount(view.question.ask_ceiling)}
+              </span>
+              <span className="stat__label">Times asked, against the ceiling applied</span>
+            </div>
+            <div className="stat">
+              <span className="stat__value">
+                {view.question.unservable === false
+                  ? "yes"
+                  : view.question.unservable === true
+                    ? "no"
+                    : "unknown"}
+              </span>
+              <span className="stat__label">Could the engine have served it again?</span>
+            </div>
           </div>
-          <div className="stat">
-            <span className="stat__value">
-              {formatCount(view.question.asks)} / {formatCount(view.question.ask_ceiling)}
-            </span>
-            <span className="stat__label">Times asked, against the ceiling applied</span>
-          </div>
-          <div className="stat">
-            <span className="stat__value">
-              {view.question.unservable === false
-                ? "yes"
-                : view.question.unservable === true
-                  ? "no"
-                  : "unknown"}
-            </span>
-            <span className="stat__label">Could the engine have served it again?</span>
-          </div>
-        </div>
-      ) : null}
+        ) : null}
+      </PanelSection>
 
       {view.candidatesTitle && stuck.candidates.length > 0 ? (
-        <>
-          <h3 className="panel__title" id="stuck-candidates">
-            {view.candidatesTitle}
-          </h3>
+        <PanelSection title={view.candidatesTitle} titleId="stuck-candidates">
           <p className="panel__sub">
             Ranked by the server, best-first. {formatCount(stuck.unresolved_count)} of them
             resolved to no pack item, so the ranking could not judge those on servability or
@@ -162,7 +162,7 @@ export function StuckPanel({ stuck }: { stuck: SessionStuck }) {
               </tbody>
             </table>
           </div>
-        </>
+        </PanelSection>
       ) : null}
     </section>
   );

@@ -204,8 +204,16 @@ void main() {
     await tester.pump();
 
     // ── 4. CONSENT (DPDP gate) — kit header `YOUR PRIVACY`; the "I agree"
-    //     tick still gates the "Aage Badhein" CTA. ──
+    //     tick AND the 18+ yes/no answer both gate the "Aage Badhein" CTA. ──
     await _pumpUntil(tester, find.text('YOUR PRIVACY'));
+    await tester.ensureVisible(find.text('Haan, 18+ hoon'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Haan, 18+ hoon'));
+    await tester.pump();
+    // The tick sits below BOTH notices now (employer sharing, 2026-11-04) —
+    // scroll to it first, as a worker does.
+    await tester.ensureVisible(find.text('I agree'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('I agree'));
     await _pumpUntil(tester, find.text('Aage Badhein'));
     await tester.tap(find.text('Aage Badhein'));

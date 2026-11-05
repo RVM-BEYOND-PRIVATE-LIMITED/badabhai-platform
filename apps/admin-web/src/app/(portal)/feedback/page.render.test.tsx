@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { renderToStaticMarkup } from "react-dom/server";
+import { columnHeaders } from "../../../../test/grid-markup";
 
 /**
  * What the Feedback screen actually RENDERS (#997).
@@ -193,16 +194,18 @@ describe("a row", () => {
 
   it("shows the worker as an opaque id linking to the roster, full value in the title", async () => {
     const out = await render();
-    expect(out).toContain(`href="/workers/${WORKER_ID}"`);
+    expect(out).toContain(`href="/candidates/${WORKER_ID}"`);
     expect(out).toContain(`title="${WORKER_ID}"`);
-    expect(out).toContain("5eeded00…");
+    expect(out).toContain("5eed…0001");
   });
 
   it("renders the message VERBATIM, in the cell that wraps", async () => {
     // The whole point of the screen. `cell--message` is the one cell exempted from the
-    // table's `white-space: nowrap`, so this is also what pins the message to that exemption.
+    // table's `white-space: nowrap`, so this is also what pins the message to that exemption —
+    // beside the grid's own wrapping class: a message is never cut with an ellipsis.
     const out = await render();
-    expect(out).toContain(`<td class="cell--message">${TAGGED.message}</td>`);
+    expect(out).toContain(`<td class="grid__cell--wrap cell--message">${TAGGED.message}</td>`);
+    expect(out).not.toMatch(/<td class="[^"]*grid__cell--truncate[^"]*cell--message/);
   });
 
   it("dates the row relatively, with the absolute instant kept in the title", async () => {
@@ -214,7 +217,7 @@ describe("a row", () => {
     // some match exists — and it keeps semgrep's detect-non-literal-regexp satisfied.
     const stamped = out.match(/<time[^>]*datetime="([^"]+)"/i);
     expect(stamped?.[1]).toBe(TAGGED.created_at);
-    expect(out).toContain('title="2026-08-19 09:00:00Z"');
+    expect(out).toContain('title="19 Aug 2026, 14:30 IST · 2026-08-19 09:00:00 UTC"');
   });
 
   it("shows the build stamp in full — the column exists to compare builds", async () => {
@@ -225,7 +228,7 @@ describe("a row", () => {
   it("tones `problem` as the one tag that reports a fault", async () => {
     const out = await render();
     expect(out).toContain("pill--warn");
-    expect(out).toContain(">problem<");
+    expect(out).toContain(">Problem<");
   });
 
   it("tones `suggestion` neutrally — a worker writing in is not by itself good news", async () => {
@@ -238,14 +241,14 @@ describe("a row", () => {
   it("renders an UNTAGGED message as a dash — never as `other`", async () => {
     // The regression this file exists for. The app omits the tag entirely when the worker
     // skips it; folding that into the third tag would put a lie in any count made here.
-    // `>other<` is the pill's text — the "Other" filter chip is capitalised, so this is
-    // specific to a row and not to the chip above it.
+    // `>Other</span>` is the pill's text (sentence case, A1) — the "Other" filter chip is
+    // followed by its pending cue (`Other<span`), so this is specific to a row, not the chip.
     stub.page = { items: [UNTAGGED], nextCursor: null };
     const out = await render();
     expect(out).toContain(
       '<span class="table__meta" title="The worker did not tag this.">—</span>',
     );
-    expect(out).not.toContain(">other<");
+    expect(out).not.toContain(">Other</span>");
   });
 
   it("renders a missing build stamp as a dash, and says why on hover", async () => {
@@ -265,7 +268,7 @@ describe("a row", () => {
     // The class the stylesheet rule below is written against. Asserted HERE because nothing
     // in the toolchain links a className to a rule: the two are checked in separate tests and
     // this is the one that pins which name the markup actually emits.
-    expect(out).toContain('class="table__meta cell--screen"');
+    expect(out).toContain('class="grid__cell--wrap table__meta cell--screen"');
   });
 
   it("renders a missing screen as a dash — never a guessed route", async () => {
@@ -283,7 +286,7 @@ describe("a row", () => {
     // knowing whether they ever reached a job is guessing, and the alternative is copying an
     // id into another screen by hand.
     const out = await render();
-    expect(out).toContain(`href="/workers/${WORKER_ID}/journey"`);
+    expect(out).toContain(`href="/candidates/${WORKER_ID}/journey"`);
   });
 
   it("does NOT offer the journey link to an admin who could not open it", async () => {
@@ -293,7 +296,7 @@ describe("a row", () => {
     const out = await render();
     expect(out).not.toContain("/journey");
     // …and the row is otherwise intact: the worker link and the message are still there.
-    expect(out).toContain(`href="/workers/${WORKER_ID}"`);
+    expect(out).toContain(`href="/candidates/${WORKER_ID}"`);
     expect(out).toContain(TAGGED.message);
   });
 
@@ -317,7 +320,9 @@ describe("what this screen refuses to offer", () => {
     // Category is a set of links precisely so this surface has no free-text input at all.
     stub.page = { items: [TAGGED], nextCursor: null };
     const out = await render();
-    expect(out).not.toContain("<input");
+    // The grid's column chooser draws checkboxes (a view preference); nothing here takes text.
+    expect(out).not.toMatch(/<input(?![^>]*type="checkbox")/);
+    expect(out).not.toContain("<textarea");
     expect(out).not.toContain("<form");
     expect(out).not.toContain('role="search"');
   });
@@ -326,7 +331,7 @@ describe("what this screen refuses to offer", () => {
     stub.page = { items: [TAGGED], nextCursor: null };
     const out = await render();
     expect(out).not.toContain("reveal");
-    expect(out).not.toMatch(/href="[^"]*\/workers\/[^"]*\/(contact|reveal)/);
+    expect(out).not.toMatch(/href="[^"]*\/candidates\/[^"]*\/(contact|reveal)/);
   });
 });
 
@@ -352,8 +357,12 @@ describe("the category chips", () => {
     const out = await render();
     for (const label of ["Suggestions", "Problems", "Other"]) expect(out).toContain(label);
     expect(out).not.toContain("btn--primary");
-    expect(out).not.toContain("btn--selected");
-    expect(out).not.toContain('aria-current="true"');
+    // The only selected chip is "All" (#2573): the unfiltered view is a scope too.
+    for (const category of ["suggestion", "problem", "other"] as const) {
+      expect(chip(out, category)).not.toContain("btn--selected");
+      expect(chip(out, category)).not.toContain('aria-current="true"');
+    }
+    expect((out.match(/aria-current="true"/g) ?? []).length).toBe(1);
   });
 
   it("marks the active chip for assistive tech, not by colour alone", async () => {
@@ -432,19 +441,19 @@ describe("the worker narrowing", () => {
     // A narrowing an operator cannot see is one URL away from being read as the whole list.
     const out = await render({ workerId: WORKER_ID });
     expect(out).toContain("Showing only what worker");
-    expect(out).toContain("5eeded00…");
+    expect(out).toContain("5eed…0001");
     // With the worker as the ONLY filter, the way out is the results head's one Clear filters —
     // not a second and third link to /feedback beside it.
     expect(out.split('href="/feedback"').length - 1).toBe(1);
-    expect(out).toMatch(/href="\/feedback">(<i [^>]*><\/i>)?Clear filters<\/a>/);
+    expect(out).toMatch(/href="\/feedback">(<i [^>]*><\/i>)?Clear filters(?:<span class="nav-pending" aria-hidden="true"><\/span>)?<\/a>/);
     expect(out).not.toContain("Show every worker");
     // …and it names the FILTERED worker, not whoever happens to be in the first row.
-    expect(out).not.toContain("Showing only what worker <span class=\"mono\">abcde000…");
+    expect(out).not.toContain("Showing only what worker <span class=\"mono\">abcd…0002");
   });
 
   it("links from the narrowing to that worker's journey", async () => {
     const out = await render({ workerId: WORKER_ID });
-    expect(out).toContain(`href="/workers/${WORKER_ID}/journey"`);
+    expect(out).toContain(`href="/candidates/${WORKER_ID}/journey"`);
   });
 
   it("says nothing about a worker when none is selected", async () => {
@@ -472,7 +481,7 @@ describe("the worker narrowing", () => {
     // guaranteed to be a uuid — an unescaped `#` or `?` in a link would silently point at a
     // different route than the one the text claims.
     const out = await render({ workerId: "a#b" });
-    expect(out).toContain('href="/workers/a%23b"');
+    expect(out).toContain('href="/candidates/a%23b"');
   });
 
   it("a category chip KEEPS the worker narrowing", async () => {
@@ -543,7 +552,7 @@ describe("the empty states, which are four different claims", () => {
   it("worker-narrowed and empty: says THIS worker sent nothing, and offers their journey", async () => {
     const out = await render({ workerId: WORKER_ID });
     expect(out).toContain("This worker has sent no feedback");
-    expect(out).toContain(`href="/workers/${WORKER_ID}/journey"`);
+    expect(out).toContain(`href="/candidates/${WORKER_ID}/journey"`);
     expect(out).not.toContain("No feedback carries this tag");
     expect(out).not.toContain("No feedback submitted yet");
   });
@@ -614,7 +623,7 @@ describe("the two failures, which are also different claims", () => {
     const out = await render({ category: "nonsense", workerId: WORKER_ID, cursor: "c2" });
     const state = out.slice(out.indexOf('class="state state--error"'));
     expect(state).toContain(
-      'href="/feedback"><i class="ph-fill ph-funnel-x" aria-hidden="true"></i>Clear filters</a>',
+      'href="/feedback"><i class="ph-fill ph-funnel-x" aria-hidden="true"></i>Clear filters<span class="nav-pending" aria-hidden="true"></span></a>',
     );
     // ONE Clear filters on the screen — the results head does not repeat it.
     expect(out.split(">Clear filters<").length - 1).toBe(1);
@@ -779,7 +788,7 @@ describe("the images column (#1191)", () => {
   it("adds exactly one column to the header, between Screen and Message", async () => {
     stub.page = { items: [TAGGED], nextCursor: null };
     const html = await render();
-    const headers = [...html.matchAll(/<th scope="col">([^<]*)<\/th>/g)].map((m) => m[1]);
+    const headers = columnHeaders(html);
     expect(headers).toEqual(["When", "Worker", "Category", "Build", "Screen", "Images", "Message"]);
   });
 
@@ -799,21 +808,42 @@ function escapeHtml(value: string): string {
 
 /**
  * PAGE HEIGHT (final sweep AW-08): the 288px "A worker's own words" band stood between the
- * header and the first message at 375px. It is a standing statement about how to read the
- * screen, so it follows the messages now, inside the same panel.
+ * header and the first message at 375px. It follows the messages, inside the same panel — and
+ * since #2573 it is a collapsed "About these messages", shown only when there are messages.
  */
-describe("page height: the messages before the explanation (AW-08)", () => {
-  it("'A worker's own words' follows the table", async () => {
+describe("page height: the messages before the explanation (AW-08, #2573)", () => {
+  it("'About these messages' follows the table, collapsed", async () => {
     stub.page = { items: [TAGGED], nextCursor: null };
     const out = await render();
-    const table = out.indexOf('<div class="tablewrap">');
+    const table = out.indexOf('<div class="grid grid--prose"');
     expect(table).toBeGreaterThanOrEqual(0);
-    expect(out.indexOf("A worker&#x27;s own words")).toBeGreaterThan(table);
+    const about = out.indexOf('<details class="about">');
+    expect(about).toBeGreaterThan(table);
+    expect(out.slice(about)).toContain("About these messages");
+    // Closed by default, and the caveat is still in the DOM for a screen reader once opened.
+    expect(out.slice(about, out.indexOf(">", about) + 1)).not.toContain("open");
+    expect(out.slice(about)).toContain("the one screen here that shows a worker&#x27;s own words");
   });
 
-  it("is still there when nothing was fetched — it describes the screen, not the rows", async () => {
+  it("is hidden when the list is empty or nothing was fetched — it would describe no rows", async () => {
+    stub.page = { items: [], nextCursor: null };
+    expect(await render()).not.toContain("About these messages");
+    stub.failure = new TypeError("fetch failed");
+    expect(await render()).not.toContain("About these messages");
+  });
+});
+
+describe("the All chip (#2573)", () => {
+  it("is selected, as text, when no tag is applied", async () => {
+    stub.page = { items: [TAGGED], nextCursor: null };
     const out = await render();
-    expect(out).toContain("A worker&#x27;s own words");
+    expect(out).toMatch(/<span aria-current="true" class="[^"]*btn--selected[^"]*">All<\/span>/);
+  });
+
+  it("links the untagged view and keeps a worker narrowing", async () => {
+    stub.page = { items: [TAGGED], nextCursor: null };
+    const out = await render({ category: "problem", workerId: WORKER_ID });
+    expect(out).toContain(`href="/feedback?workerId=${WORKER_ID}">All`);
   });
 });
 

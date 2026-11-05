@@ -16,10 +16,7 @@ import {
   uniqueIndex,
   check,
 } from "drizzle-orm/pg-core";
-import type {
-  MessageDirection,
-  MessageType,
-} from "@badabhai/types";
+import type { MessageDirection, MessageType } from "@badabhai/types";
 import { jsonObject } from "./internal/sql-defaults";
 import { workers } from "./worker";
 import { generatedResumes } from "./profile";
@@ -51,13 +48,43 @@ export const payers = pgTable(
     role: text("role").$type<PayerRole>().notNull(),
     // Login email: AES ciphertext at rest + keyed HMAC for lookup/dedup (mirrors
     // workers.phone_e164 / phone_hash). The hash is the unique key.
-    emailEnc: text("email_enc").notNull(), // AES-256-GCM ciphertext token
-    emailHash: text("email_hash").notNull(), // keyed HMAC-SHA256 (lookup/dedup)
+    //
+    // NULLABLE since #2497 (phone-only signup): a payer created by phone has no
+    // email until they add one. Reads MUST handle null (see `decryptContact`).
+    emailEnc: text("email_enc"), // AES-256-GCM ciphertext token
+    emailHash: text("email_hash"), // keyed HMAC-SHA256 (lookup/dedup)
     // Optional contact phone, same two-column pattern (nullable).
     phoneEnc: text("phone_enc"), // AES ciphertext token
     phoneHash: text("phone_hash"), // keyed HMAC-SHA256
     // Business display name — B2B PII; ciphertext at rest (no lookup hash needed).
     orgNameEnc: text("org_name_enc").notNull(), // AES ciphertext token
+    /**
+     * #2497 — deterministic lookup key for EXACT company/agency-name password login.
+     * `HMAC(normOrgName)` with the server pepper (`payer_org:` domain), indexed but
+     * deliberately NOT unique: legitimate duplicate company names exist ("Sharma
+     * Trading"), so a multi-match logs in NOBODY (neutral 401, no enumeration) and
+     * the payer uses email/phone instead. NULL for rows created before this column
+     * (lazily filled on the next successful login) and for names that hash to
+     * nothing. NEVER the raw name — the spine rule (§2) applies to this column too.
+     */
+    orgNameLookupHash: text("org_name_lookup_hash"), // keyed HMAC-SHA256 of the normalized org name
+    /**
+     * #2497 — scrypt password hash token (`password-v1.<salt>.<derived>`, see
+     * `hashPassword` in `../crypto`), set ONLY via `POST /payer/password/set`
+     * (bearer) after an OTP verification. NULL = no password (OTP-only account).
+     * Never logged, never evented — only `password_set_at` (a timestamp) may leave
+     * this row.
+     */
+    passwordHash: text("password_hash"), // self-encoded scrypt token
+    /** When the current `password_hash` was stored. NULL alongside a NULL hash. */
+    passwordSetAt: timestamp("password_set_at", { withTimezone: true }),
+    /**
+     * The pepper version that produced `password_hash` (mirrors the worker-PIN
+     * `pepperVersion` pattern: a future v2 pepper rehashes on successful verify).
+     * NULL alongside a NULL hash; today only v1 exists and anything else fails
+     * closed at verify time.
+     */
+    passwordPepperVersion: integer("password_pepper_version"),
     status: text("status").$type<PayerStatus>().notNull().default("pending"),
     /**
      * The status a SUSPEND moved the payer OUT of, so REINSTATE can restore it
@@ -73,11 +100,40 @@ export const payers = pgTable(
      * reinstate so it only ever describes the CURRENT suspension.
      */
     previousStatus: text("previous_status").$type<PayerStatus>(),
+    /**
+     * #2563 — true while the stored password is a TEMPORARY one an admin issued. A
+     * password sign-in with this set returns `password_change_required` and mints NO
+     * session; email-code sign-in refuses with 409 for the same reason, so the code
+     * door cannot bypass the change. Cleared in the same write that stores the
+     * payer's own password.
+     */
+    mustChangePassword: boolean("must_change_password").notNull().default(false),
+    /**
+     * #2563 — when an admin revoked password sign-in. A non-NULL value with no newer
+     * `password_set_at` means password sign-in is off; email-code sign-in still works.
+     * Cleared when a new password is stored.
+     */
+    passwordRevokedAt: timestamp("password_revoked_at", { withTimezone: true }),
+    /**
+     * #2563 - sessions created at or before this instant are dead. An admin issue/revoke
+     * stamps it and ends every session. A self-service password set does NOT stamp it: that
+     * would reject the caller's own live session, so it revokes the OTHER sessions through
+     * the session index instead and keeps the caller signed in. NULL (every payer on deploy)
+     * leaves sessions unaffected.
+     */
+    sessionsValidAfter: timestamp("sessions_valid_after", { withTimezone: true }),
+    /** #2563 — last successful payer sign-in (OTP or password). */
+    lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     uniqueIndex("payers_email_hash_uq").on(t.emailHash),
+    // #2497 — exact org-name lookups (non-unique: duplicate names log in NOBODY) and
+    // phone lookups for login/request+verify by contact. No uniqueness: historical
+    // rows may already share a phone, and a unique index would fail the migration.
+    index("payers_org_lookup_hash_idx").on(t.orgNameLookupHash),
+    index("payers_phone_hash_idx").on(t.phoneHash),
     // BP-1 — the admin Companies/Agencies keyset (see workers_admin_keyset_idx).
     index("payers_admin_keyset_idx").on(t.createdAt.desc(), t.id.desc()),
   ],
@@ -135,8 +191,13 @@ export const payerMembers = pgTable(
       .references(() => payerOrgs.id, { onDelete: "cascade" }),
     // The member's payers login — NULL until they accept the invite and are linked.
     memberPayerId: uuid("member_payer_id").references(() => payers.id, { onDelete: "set null" }),
-    emailEnc: text("email_enc").notNull(), // AES ciphertext token
-    emailHash: text("email_hash").notNull(), // keyed HMAC-SHA256 (lookup/dedup within an org)
+    // Member contact for the invite→accept match (email today; invites are email-based).
+    // NULLABLE since #2497: a phone-only founder has no email — their owner row carries
+    // NULLs here and is keyed by member_payer_id instead (see ensureSoloOrg). The
+    // (org_id, email_hash) dedup stays exactly as-is for email members; NULLs are
+    // distinct in Postgres, so phone-only founder rows never collide with anything.
+    emailEnc: text("email_enc"), // AES ciphertext token
+    emailHash: text("email_hash"), // keyed HMAC-SHA256 (lookup/dedup within an org)
     orgRole: text("org_role").$type<OrgRole>().notNull().default("recruiter"),
     status: text("status").$type<PayerMemberStatus>().notNull().default("invited"),
     // The payer who sent the invite (opaque; audit). Nullable for the backfilled root owner.
@@ -876,4 +937,3 @@ export type PayerJobPostingChatMessage = typeof payerJobPostingChatMessages.$inf
 export type NewPayerJobPostingChatMessage = typeof payerJobPostingChatMessages.$inferInsert;
 export type PayerFormDraft = typeof payerFormDrafts.$inferSelect;
 export type NewPayerFormDraft = typeof payerFormDrafts.$inferInsert;
-

@@ -1,20 +1,102 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import type { EventListItem } from "../lib/events";
-import { formatRelative, formatTimestamp, humanizeEventName, shortId } from "../lib/format";
+import { formatRelative, humanizeEventName, shortId, timestampTitle } from "../lib/format";
+import { CopyId } from "./copy-id";
+import { DataGrid, type GridColumn } from "./data-grid";
+import { NavPendingCue } from "./nav-pending";
 
 /**
- * The event feed table — a Server Component: it renders already-fetched, PII-free rows
- * and needs no interactivity, so none of this ships to the browser.
- *
- * Wide content scrolls inside its own container rather than stretching the page, which is
- * what keeps the shell usable on a laptop with the sidebar open.
+ * The event columns, as the data grid draws them (A4, #2574). Already-fetched, PII-free rows:
+ * ids, enums and timestamps. The event's name is the row's link (its own page); the correlation
+ * id links the whole chain on the Events list, as a filter.
+ */
+const COLUMNS: readonly GridColumn<EventListItem>[] = [
+  {
+    id: "when",
+    header: "When",
+    width: "date",
+    // Relative for scanning, absolute in the title so an incident review can still get the
+    // exact instant.
+    cell: (e) => (
+      <time dateTime={e.occurred_at} title={timestampTitle(e.occurred_at)}>
+        {formatRelative(e.occurred_at)}
+      </time>
+    ),
+  },
+  {
+    id: "event",
+    header: "Event",
+    cell: (e) => humanizeEventName(e.event_name),
+    trail: (e) => <span className="table__meta">v{e.event_version}</span>,
+    title: (e) => `${e.event_name} · v${e.event_version}`,
+  },
+  {
+    id: "actor",
+    header: "Actor",
+    width: "typed-id",
+    cell: (e) => (
+      <>
+        <span className="tag" title={e.actor_type}>
+          {e.actor_type}
+        </span>
+        <span className="mono" title={e.actor_id ?? undefined}>
+          {shortId(e.actor_id)}
+        </span>
+        {e.actor_id ? <CopyId id={e.actor_id} label="actor id" /> : null}
+      </>
+    ),
+  },
+  {
+    id: "subject",
+    header: "Subject",
+    width: "typed-id",
+    cell: (e) => (
+      <>
+        <span className="tag" title={e.subject_type}>
+          {e.subject_type}
+        </span>
+        <span className="mono" title={e.subject_id ?? undefined}>
+          {shortId(e.subject_id)}
+        </span>
+        {e.subject_id ? <CopyId id={e.subject_id} label="subject id" /> : null}
+      </>
+    ),
+  },
+  {
+    id: "correlation",
+    header: "Correlation",
+    width: "id",
+    cell: (e) => (
+      <>
+        <Link
+          className="link mono"
+          href={`/events?correlationId=${encodeURIComponent(e.correlation_id)}`}
+          title={`Show the whole chain: ${e.correlation_id}`}
+        >
+          {shortId(e.correlation_id)}
+          {/* A filter change like any other: the list shows it is under way (A4). */}
+          <NavPendingCue message="Loading the whole chain…" />
+        </Link>
+        <CopyId id={e.correlation_id} label="correlation id" />
+      </>
+    ),
+  },
+];
+
+/**
+ * The event feed — the Events list, every entity timeline and the dashboard's recent activity.
+ * A Server Component: it hands already-fetched rows to the data grid (components/data-grid.tsx),
+ * which draws them, pages them (`pager`) and lets the viewer choose columns and density.
  */
 export function EventTable({
   events,
   emptyMessage = "No events match these filters.",
   emptyBody,
   emptyAction,
+  gridId = "events",
+  pager,
+  viewControls = true,
 }: {
   events: EventListItem[];
   emptyMessage?: string;
@@ -22,6 +104,12 @@ export function EventTable({
   emptyBody?: ReactNode;
   /** What to do next, if there is anything useful to do. Omit when there is not. */
   emptyAction?: ReactNode;
+  /** Whose column choices these are — the Events list and the timelines share "events". */
+  gridId?: string;
+  /** The pager, drawn in the grid's footer bar. */
+  pager?: ReactNode;
+  /** The column chooser and density toggle — off for the dashboard's small panel. */
+  viewControls?: boolean;
 }) {
   if (events.length === 0) {
     /**
@@ -45,59 +133,19 @@ export function EventTable({
   }
 
   return (
-    <div className="tablewrap">
-      <table className="table">
-        <caption className="sr-only">Platform events, newest first</caption>
-        <thead>
-          <tr>
-            <th scope="col">When</th>
-            <th scope="col">Event</th>
-            <th scope="col">Actor</th>
-            <th scope="col">Subject</th>
-            <th scope="col">Correlation</th>
-          </tr>
-        </thead>
-        <tbody>
-          {events.map((e) => (
-            <tr key={e.id}>
-              <td>
-                {/* Relative for scanning, absolute in the title so an incident review can
-                    still get the exact instant. */}
-                <time dateTime={e.occurred_at} title={formatTimestamp(e.occurred_at)}>
-                  {formatRelative(e.occurred_at)}
-                </time>
-              </td>
-              <td>
-                <Link className="link" href={`/events/${e.id}`}>
-                  {humanizeEventName(e.event_name)}
-                </Link>
-                <span className="table__meta">v{e.event_version}</span>
-              </td>
-              <td>
-                <span className="tag">{e.actor_type}</span>
-                <span className="mono" title={e.actor_id ?? undefined}>
-                  {shortId(e.actor_id)}
-                </span>
-              </td>
-              <td>
-                <span className="tag">{e.subject_type}</span>
-                <span className="mono" title={e.subject_id ?? undefined}>
-                  {shortId(e.subject_id)}
-                </span>
-              </td>
-              <td>
-                <Link
-                  className="link mono"
-                  href={`/events?correlationId=${encodeURIComponent(e.correlation_id)}`}
-                  title={`Show the whole chain: ${e.correlation_id}`}
-                >
-                  {shortId(e.correlation_id)}
-                </Link>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+    <DataGrid
+      id={gridId}
+      caption="Platform events, newest first"
+      columns={COLUMNS}
+      rows={events}
+      rowKey={(e) => e.id}
+      rowLink={{
+        column: "event",
+        href: (e) => `/events/${e.id}`,
+        name: (e) => humanizeEventName(e.event_name),
+      }}
+      pager={pager}
+      viewControls={viewControls}
+    />
   );
 }

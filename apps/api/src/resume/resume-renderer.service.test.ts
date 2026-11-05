@@ -395,7 +395,7 @@ describe("the general road's brief (ADR-0045 R6)", () => {
 /**
  * #2217 — THE LIVE SHEETS CARRIED NO PHOTO SLOT.
  *
- * `templateIdForPack` serves only `bb_trade` (the 21 predefined roles) or `bb_general`
+ * `templateIdForPack` serves only `bb_trade` (the 22 predefined roles) or `bb_general`
  * (everyone else), but only the legacy layouts carried a `{{#photo}}` region — so the
  * ADR-0032 own-resume embed never reached a production PDF. Both live sheets now carry
  * the same 0-or-1 region; the employer disclosure still passes `photoDataUri = null`

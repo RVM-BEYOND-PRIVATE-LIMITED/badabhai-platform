@@ -128,7 +128,7 @@ export function AgencyQrInvite() {
           <form className="panel agency-qr__settings" onSubmit={handleCreate}>
             <div className="panel__head">
               <h2 className="panel__title">Campaign Settings</h2>
-              <span className="agency-protected">Live + Ready</span>
+              {sheet ? <span className="agency-protected">Live</span> : null}
             </div>
             <div className="panel__body">
               <Input
@@ -235,14 +235,16 @@ export function AgencyQrInvite() {
         <aside className="agency-qr__rail">
           <div className="agency-qr__railhead">
             <span>Live Poster Preview</span>
-            <span className="agency-qr__livedot">
-              <span aria-hidden="true" /> Live
-            </span>
+            {sheet ? (
+              <span className="agency-qr__livedot">
+                <span aria-hidden="true" /> Live
+              </span>
+            ) : null}
           </div>
 
           <div className="agency-qr__sheet">
             <div className="agency-qr__layout">
-              <div className="agency-qr__postertop">Badabhai Verified Desk</div>
+              <div className="agency-qr__postertop">BadaBhai Verified Desk</div>
               <p className="agency-qr__headline">{posterHeadline}</p>
               <div className="agency-qr__frame">
                 {sheet ? (
@@ -320,7 +322,6 @@ export function AgencyQrInvite() {
           <p className="agency-qr__consent">
             <Icon name="lock-key" /> Worker self-onboarding with OTP consent
           </p>
-          <p className="agency-qr__pvc">Order PVC Placards (Bulk)</p>
         </aside>
       </div>
 

@@ -3,42 +3,52 @@ import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
-import { CUSTOMER_SECTION_HREF, customerHref } from "./customer";
+import {
+  CUSTOMER_KIND_FILTER_ROLES,
+  CUSTOMER_KIND_FILTERS,
+  CUSTOMERS_HREF,
+  customerHref,
+  customerKindFilter,
+} from "./customer";
 
 const PAYER = "6155050c-c91b-4c6e-96a7-8da023f1d2d2";
 
 /**
- * `customerHref` — the one place a customer cell's address is built (#2032, sweep AW-28). A
- * role the API served sends the cell straight to the customer's own section; no role keeps the
- * address every cell used before, which the Companies detail route redirects an agency on from.
+ * `customerHref` — the one place a customer cell's address is built (#2032, sweep AW-28). Since A6
+ * (#2576) a Company and an Agency share one section, Directory › Companies, so every customer —
+ * whatever its role, and with none known — opens `/companies/:id`; the page reads the role itself.
  */
 describe("customerHref", () => {
-  it("an employer links straight to its Company page", () => {
-    expect(customerHref(PAYER, "employer")).toBe(`/companies/${PAYER}`);
-  });
-
-  it("an agent links straight to its Agency page — no redirect hop through /companies", () => {
-    expect(customerHref(PAYER, "agent")).toBe(`/agencies/${PAYER}`);
-  });
-
-  it("each section is the one the persona's own pages name", () => {
-    expect(customerHref(PAYER, "employer").startsWith(`${CUSTOMER_SECTION_HREF.Company}/`)).toBe(
-      true,
-    );
-    expect(customerHref(PAYER, "agent").startsWith(`${CUSTOMER_SECTION_HREF.Agency}/`)).toBe(true);
-  });
-
-  it("no role (null: an orphaned id) falls back to /companies, which redirects an agency on", () => {
-    expect(customerHref(PAYER, null)).toBe(`/companies/${PAYER}`);
-  });
-
-  it("an absent role (an older API) falls back the same way", () => {
+  it("opens every customer in the one Companies section", () => {
+    expect(CUSTOMERS_HREF).toBe("/companies");
     expect(customerHref(PAYER)).toBe(`/companies/${PAYER}`);
-    expect(customerHref(PAYER, undefined)).toBe(`/companies/${PAYER}`);
+  });
+
+  it("never builds the retired /agencies address", () => {
+    expect(customerHref(PAYER)).not.toContain("/agencies");
   });
 
   it("keeps a legacy opaque id inside its one path segment", () => {
-    expect(customerHref("legacy/../x?y", "agent")).toBe("/agencies/legacy%2F..%2Fx%3Fy");
+    expect(customerHref("legacy/../x?y")).toBe("/companies/legacy%2F..%2Fx%3Fy");
+  });
+});
+
+/**
+ * The Kind filter on Companies (A6): the address says what an operator reads — `kind=company`,
+ * `kind=agency` — and the page asks the API for the stored role. Anything else is no filter.
+ */
+describe("the Kind filter", () => {
+  it("maps each kind in the address to the role GET /admin/payers takes", () => {
+    expect(CUSTOMER_KIND_FILTER_ROLES).toEqual({ company: "employer", agency: "agent" });
+    expect(CUSTOMER_KIND_FILTERS).toEqual(["company", "agency"]);
+  });
+
+  it("reads a known kind, and treats anything else as every customer", () => {
+    expect(customerKindFilter("company")).toBe("company");
+    expect(customerKindFilter("agency")).toBe("agency");
+    for (const v of [undefined, "", "agent", "employer", "Agency", "all", "toString", "constructor"]) {
+      expect(customerKindFilter(v), String(v)).toBeUndefined();
+    }
   });
 });
 
@@ -101,7 +111,7 @@ describe("customer address fence — the reader", () => {
     expect(found('<Link href="/companies">Companies</Link>')).toBe(0);
     expect(found('<Pager basePath="/agencies" />')).toBe(0);
     expect(found("<Link href={`${basePath}/${p.id}`}>x</Link>")).toBe(0);
-    expect(found("<Link href={customerHref(row.payer_id, row.payer_role)}>x</Link>")).toBe(0);
+    expect(found("<Link href={customerHref(row.payer_id)}>x</Link>")).toBe(0);
     expect(found("// `/companies/${row.payer_id}` used to be spelled here\nconst x = 1;")).toBe(0);
   });
 });

@@ -18,6 +18,13 @@
  * actions slot) is stopped before it reaches the button. Keyboard activation — Enter / Space on a
  * focused button, a click with `detail === 0` — is never held back. The body and head are not
  * guarded, and no caller's copy changes.
+ *
+ * MOTION (#2583): it rises in (opacity + a short rise + 0.98 → 1 scale, --duration-base) and, at
+ * ≤ 600px, is a bottom sheet sliding up (--duration-sheet) with stacked full-width actions and a
+ * 90dvh ceiling (ds-components.css). On close it LEAVES as well: React unmounts the dialog at
+ * once (focus, inert and scroll are handed back immediately — the exit never delays input), and
+ * an inert, aria-hidden snapshot of it plays the exit and removes itself ({@link playExit}).
+ * Under reduced motion — or wherever no exit animation applies — there is no snapshot at all.
  */
 import { useEffect, useId, useRef } from "react";
 import type { MouseEvent, ReactNode } from "react";
@@ -32,6 +39,41 @@ import { inertOutside, lockPageScroll } from "./page-isolation";
  * anyone to have read the dialog and meant it.
  */
 export const DIALOG_ACTION_GUARD_MS = 500;
+
+/** The data-state a closing snapshot carries; the stylesheet keys the exit animation on it. */
+export const DIALOG_CLOSING_STATE = "closing";
+
+/** The longest an exit snapshot may live if its animationend never arrives (a hidden tab). */
+const EXIT_FALLBACK_MS = 1000;
+
+/**
+ * Play the dialog's exit on a detached SNAPSHOT of its scrim, so React can unmount the live
+ * dialog straight away. The snapshot is aria-hidden and inert — it is a picture, not a dialog —
+ * and removes itself when its exit animation ends. It goes on <body> (the scrim is fixed, so it
+ * paints in the same place), never back into a container React manages. No snapshot under reduced motion, or when the
+ * stylesheet gives the closing state no animation (nothing to watch — e.g. a test DOM).
+ */
+export function playExit(scrim: Element | null | undefined): void {
+  const parent = scrim?.ownerDocument?.body;
+  if (!scrim || !parent || typeof window === "undefined") return;
+  if (typeof window.getComputedStyle !== "function") return;
+  if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+  const ghost = scrim.cloneNode(true) as HTMLElement;
+  ghost.setAttribute("data-state", DIALOG_CLOSING_STATE);
+  ghost.setAttribute("aria-hidden", "true");
+  ghost.inert = true;
+  ghost.removeAttribute("id");
+  parent.appendChild(ghost);
+  const box = ghost.querySelector(".bb-dialog") ?? ghost;
+  const name = window.getComputedStyle(box).animationName;
+  if (!name || name === "none") {
+    ghost.remove();
+    return;
+  }
+  const done = () => ghost.remove();
+  box.addEventListener("animationend", done, { once: true });
+  window.setTimeout(done, EXIT_FALLBACK_MS);
+}
 
 export interface DialogProps {
   /** Controls visibility. */
@@ -102,6 +144,8 @@ export function Dialog({
     if (!dialogEl) return undefined;
 
     const previouslyFocused = document.activeElement as HTMLElement | null;
+    // The scrim, remembered for the exit snapshot (React detaches it before the cleanup runs).
+    const scrimEl = dialogEl.parentElement;
 
     // ISOLATE THE PAGE behind the dialog: inert (no click, focus, find or virtual cursor reaches
     // it) and still (no scroll under the scrim). After saving the trigger — inert blurs it.
@@ -147,6 +191,8 @@ export function Dialog({
     dialogEl.addEventListener("keydown", onKeyDown);
     return () => {
       dialogEl.removeEventListener("keydown", onKeyDown);
+      // The exit plays on a snapshot of the scrim.
+      playExit(scrimEl);
       // Hand the page back FIRST: an inert trigger cannot take focus.
       releaseInert();
       releaseScroll();
@@ -178,9 +224,10 @@ export function Dialog({
         {(title || onClose) && (
           <div className="bb-dialog__head">
             {title && (
-              <h3 className="bb-dialog__title" id={titleId}>
+              // h2: a dialog is its own top-level section under the page's h1 (#2583).
+              <h2 className="bb-dialog__title" id={titleId}>
                 {title}
-              </h3>
+              </h2>
             )}
             {/* The shared icon-only control: "Close" is its name and its visible tooltip, which
                 opens inward from the dialog's top-right corner. */}

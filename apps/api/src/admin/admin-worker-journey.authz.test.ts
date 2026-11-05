@@ -167,6 +167,11 @@ describe("Phase 6 — the journey is NOT a PII surface and confers nothing on th
          "grant_credits",
          "manage_agency_match_skills",
          "manage_admins",
+        // #2563 — payer credential administration (super_admin, ops_admin, support).
+        "manage_payer_credentials",
+        // ADR-0062 §3.8 (#2560) — the Candidates full-detail read. Not the journey's: the journey
+        // stays on `read_entities` and returns no profile values.
+        "read_candidates",
         "read_ai_traces",
         "read_entities",
         "read_events",

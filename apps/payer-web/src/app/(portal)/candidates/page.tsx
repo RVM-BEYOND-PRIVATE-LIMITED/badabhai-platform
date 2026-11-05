@@ -1,107 +1,107 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 import { requirePayer } from "../../../lib/auth";
 import { agencyFlags } from "../../../lib/config";
-import {
-  getCandidateInbox,
-  getCredits,
-  getPostings,
-  getUnlocks,
-  listAgencyJobs,
-} from "../../../lib/payer-api";
-import { isPayerBadRequest, isPayerRateLimited } from "../../../lib/payer-errors";
-import type { CandidateInbox, UnlockHistoryItem } from "../../../lib/contracts";
-import {
-  hasSavedStages,
-  STAGE_LABEL,
-  type ApplicantStage,
-} from "../../../lib/applicant-stages";
+import { getCandidateFilters, getCredits, getUnlocks, searchCandidates } from "../../../lib/payer-api";
+import { isPayerRateLimited } from "../../../lib/payer-errors";
+import type {
+  CandidateFilters,
+  CandidateSearchPage,
+  UnlockHistoryItem,
+} from "../../../lib/contracts";
 import { liveUnlocksFor } from "../../../lib/unlock-history";
-import { postingRoutes } from "../../../lib/posting-routes";
+// The inbox's rule, word for word: a 400 with a cursor in the address is the CURSOR's refusal.
+import { inboxRefusal as cursorRefusal } from "../../../lib/candidate-inbox";
 import {
-  agencyPostingOptions,
-  candidatePosting,
-  candidatesHref,
-  companyPostingOptions,
-  inboxRefusal,
-  parseCandidatesQuery,
-  selectedPosting,
-  stagesOffered,
-  withSelectedOption,
-  type CandidatesQuery,
-  type PostingOption,
-} from "../../../lib/candidate-inbox";
+  addressHasFilters,
+  asksForOptions,
+  candidateSearchBody,
+  candidateSearchHref,
+  countSummary,
+  inboxRedirectHref,
+  listedCount,
+  parseCandidateSearchAddress,
+  pickedRoleLabel,
+  resolveCandidateSearch,
+  searchFiltersKey,
+  type CandidateSearchQuery,
+  type ResolvedSearch,
+} from "../../../lib/candidate-search";
+import {
+  FROM_PARAM,
+  listRange,
+  nextStart,
+  pageStart,
+  rangeLabel,
+  type ListRange,
+} from "../../../lib/list-range";
 import { Card } from "../../../components/ds";
 import { PageHeader } from "../../../components/page-header";
 import { PortalLink } from "../../../components/portal-link";
-import { RetryButton } from "../../../components/retry-button";
-import { ApplicantActions } from "../postings/[id]/applicants/applicant-actions";
-import { CandidateFilter } from "./candidate-filter";
+import { CandidateSearchFilter } from "./candidate-search-filter";
+import { CandidateSearchList } from "./candidate-search-list";
+import { CandidatesViews } from "./candidates-views";
+import {
+  CandidatesPager,
+  CursorRefusedState,
+  LoadErrorState,
+  RateLimitedState,
+} from "./candidates-states";
 
 export const dynamic = "force-dynamic";
 
 /**
- * CANDIDATES — every applicant to every posting the payer owns, newest application first, in one
- * list (owner request 2026-10-07). Both personas. A posting's own feed stays "Applicants".
+ * CANDIDATES — ALL CANDIDATES (owner rulings 2026-11-03; ADR-0040 phase E2). The Candidates tab
+ * opens here: everyone in the eligible pool — the API decides who (consented to employer sharing,
+ * a wanted skill, not pending deletion) — ranked, faceless, with a full filter set. The applicant
+ * inbox is one click away ("Applied", `/candidates/applied`). Both personas.
  *
- * GATE FIRST: `requirePayer()` runs before anything is read. An AGENCY's Candidates sits in its
- * Demand group beside Postings and, like every agency page, behind the agency-portal flag (off →
- * the neutral 404, and the rail does not offer it).
+ * GATE FIRST, as the inbox: `requirePayer()` runs before anything is read; an AGENCY's Candidates
+ * sits behind the agency-portal flag like the rest of its Demand group (off → the neutral 404).
+ * Then OLD INBOX LINKS: `/candidates?postingId=…` / `?stage=…` (the inbox lived here) go on to
+ * `/candidates/applied` with their whole query.
  *
- * THE SAME CARD AND UNLOCK as a posting's Applicants page: {@link ApplicantActions} in its inbox
- * mode — faceless cards, the ONE ConfirmSpendDialog, the balance as an affordance (`?? 1`: an
- * unread balance never disables Unlock). Each card names the posting it applied to, linked to its
- * details, and its unlock / resume disclosure name THAT posting. The inbox filters by posting
- * (`?postingId=`), server-side.
+ * READS — side by side, each with its own degraded state so none blanks another:
+ *  - the filter OPTIONS (`GET /payer/candidates/filters`) — the controls only. Unread, every control
+ *    offers only "Any …" and one calm line says so;
+ *  - one SEARCH page (`POST /payer/candidates/search`) — the content. The address's filters are
+ *    checked against the options FIRST and only offered values are sent (lib/candidate-search.ts:
+ *    a stale or hand-edited value is dropped, and one calm line says it was ignored — never a 400
+ *    and a Retry that cannot succeed). So a FILTERED search waits for the options; with no filter in
+ *    the address there is nothing to check and the list is read beside them. A failure is an
+ *    in-place error card with Retry under the kept head and filter; a 429 (the payer's hourly cap)
+ *    a neutral "too many requests"; a page cursor the server REFUSED (a 400 with a cursor) a calm
+ *    "this page link isn't valid" whose way out is the first page, filters kept — never Retry;
+ *  - the balance — the Unlock affordance only (`?? 1`: unread never disables Unlock);
+ *  - the unlock history — LIVE grants for this page's workers start those cards unlocked.
  *
- * SAVED STAGES (owner ruling 2026-10-07; API #2137). While the server saves the New / Shortlist /
- * Passed board — a flag the portal cannot read — every row carries its `stage`: each card shows it
- * and offers that posting's Keep / Pass / Move to New (saved; see applicant-actions.tsx), and the
- * filter gains a Stage select (`?stage=`, the same plain GET form, server-side). The filter is
- * drawn only when an ANSWERED read showed stages are saved (`stagesOffered`): with the flag off the
- * API refuses `?stage=` with a 400, so a filter there could only ever fail. A `?stage=` in the
- * address the API refuses (a stale link, the flag since turned off) is not an error: the page reads
- * again WITHOUT it and shows the unfiltered list, with one calm line by the filter saying so. A new
- * stage starts from the first page (the form carries no cursor); paging keeps it.
- *
- * READS — four, side by side, each with its own degraded state so none blanks another:
- *  - the inbox page (`GET /payer/reach/applicants`) — the page's content. A failure is an in-place
- *    error card with Retry under the head; a 429 (the hourly reach cap it shares with the
- *    per-posting feed) is a neutral "too many requests" instead; and a page cursor the server
- *    REFUSED (a 400 — one it never minted, e.g. hand-edited) is a calm "this page link isn't
- *    valid" whose way out is the first page, filter kept — never Retry, which could only be
- *    refused again (`inboxRefusal`). Never blanks the head or filter;
- *  - the payer's OWN postings (company postings or agency jobs) — only the filter's options;
- *    unread, the filter still offers "All postings";
- *  - the balance — the Unlock affordance only (the shell's chip prints it);
- *  - the unlock history — LIVE grants for this page's workers start those rows unlocked
- *    (`liveUnlocksFor`); unread is none (every row starts locked; the server never debits twice).
- *
- * A `postingId` that matches nothing — another payer's, unknown, or not an id at all — is the same
- * "no applicants for this posting" state as an owned posting nobody applied to (the server answers
- * all of them with one empty page; a non-id is decided here, before any read). Paging is keyset:
- * "Next page" carries the server's `nextCursor` verbatim, keeping the filter.
+ * THE LIST: CandidateSearchList — the applicant card's family, masked, the same unlock and reveal,
+ * with `job_id` / `job_posting_id` null (no posting). THE COUNTS come from the same response as
+ * the rows (ADR-0040 Decision 3) and the screen is never empty without saying why: an empty pool
+ * is a calm "No candidates to show yet" (no zero shouted); a strict search that matches nobody
+ * shows its counts and the way back to everyone (strict dropped, filters kept); a later page with
+ * nothing left says so. Paging is keyset: "Next page" carries `nextCursor` and the filters, and
+ * where its page starts (`from`), so the pager says "Showing 21–40 of 57" — N being the list's own
+ * size (`listedCount`) — and paging moves focus to the list's heading (#2588).
  *
  * LOADING: no route `loading.tsx`, no Suspense, no `next/dynamic` here — a navigation keeps the
- * current page on screen until this one has rendered (app/no-suspense-above-a-page.test.ts). Every
- * link this page draws that only changes the query (First page, Next page, All postings) carries
- * the navigation pending cue (components/nav-pending.tsx), so a slow page still answers the click.
+ * current page on screen until this one has rendered (app/no-suspense-above-a-page.test.ts); every
+ * link drawn here is a PortalLink and carries the navigation pending cue.
  */
 const HEAD = {
   title: "Candidates",
   description:
-    "Everyone who applied to your postings, newest first — each ranked on its own posting and faceless until you unlock a contact.",
+    "Everyone you can unlock on BadaBhai — matches to your filters first, and faceless until you unlock a contact.",
 };
 
-type InboxRead =
-  /**
-   * `stage`: the stage filter the SERVER applied — null when none was asked, or it refused one.
-   * `stageRefused`: a stage WAS asked and the server refused it (stages not saved), so this page
-   * is the unfiltered re-read.
-   */
-  | { kind: "ok"; inbox: CandidateInbox; stage: ApplicantStage | null; stageRefused: boolean }
+/** What a search outage says (the inbox's copy names its postings; this list has none). */
+const LOAD_ERROR_BODY =
+  "This is usually temporary — nothing you have unlocked has changed. Please retry.";
+
+type SearchRead =
+  | { kind: "ok"; page: CandidateSearchPage }
   | { kind: "rate-limited" }
-  /** The server refused the page cursor (see `inboxRefusal`): no Retry, the first page instead. */
+  /** The server refused the page cursor (see `cursorRefusal`): no Retry, the first page instead. */
   | { kind: "cursor-refused" }
   | { kind: "error" };
 
@@ -115,55 +115,64 @@ export default async function CandidatesPage({
   const { agencyPortalEnabled } = agencyFlags();
   if (isAgency && !agencyPortalEnabled) notFound();
 
-  const query = parseCandidatesQuery((await searchParams) ?? {});
-  const [read, options, balance, unlocks] = await Promise.all([
-    readInbox(query),
-    readPostingOptions(isAgency),
+  const params = (await searchParams) ?? {};
+  // An old inbox link keeps landing on the inbox (before any read).
+  const inbox = inboxRedirectHref(params);
+  if (inbox !== null) redirect(inbox);
+
+  const address = parseCandidateSearchAddress(params);
+  const optionsRead = readOptions();
+  // A filter in the address is sent only once the options say it is offered; with none there is
+  // nothing to check, so the search does not wait.
+  const resolving: Promise<ResolvedSearch> = asksForOptions(address)
+    ? optionsRead.then((options) => resolveCandidateSearch(address, options))
+    : Promise.resolve(resolveCandidateSearch(address, null));
+  // When the balance below was read (#2585 — the list orders it against an unlock's read-back).
+  const balanceAsOf = Date.now();
+  const [options, { query, ignored }, read, balance, unlocks] = await Promise.all([
+    optionsRead,
+    resolving,
+    resolving.then(({ query: q }) => readSearch(q)),
     readBalance(),
     readUnlocks(),
   ]);
+  // Where this page starts — 1 without a cursor (a dropped filter drops the cursor too).
+  const start = pageStart(params[FROM_PARAM], query.cursor);
 
-  const selected = selectedPosting(query.filter);
-  const inboxRows = read.kind === "ok" ? read.inbox.applicants : [];
-  // The stage filter the server applied (an answered read), else the one the address asks for —
-  // kept by the error states' links, which re-ask (a refused one is re-read without it).
-  const stage = read.kind === "ok" ? read.stage : query.stage;
-  const offerStages = read.kind === "ok" && stagesOffered(read.stage, hasSavedStages(inboxRows));
   const header = {
     ...HEAD,
     toolbar: (
-      <CandidateFilter
-        // A query-only navigation keeps this mounted, and a kept <select> ignores a new
-        // defaultValue — so a new selection remounts it, or it would show the old choice.
-        key={`${selected ?? ""}|${offerStages ? (stage ?? "") : "-"}`}
-        options={withSelectedOption(options ?? [], selected, inboxRows)}
-        selected={selected}
-        unavailable={options === null}
-        stage={offerStages ? { selected: stage } : null}
-        stageRefused={read.kind === "ok" && read.stageRefused}
-      />
+      <div className="candidates-toolbar">
+        <CandidatesViews current="all" />
+        <CandidateSearchFilter
+          // A query-only navigation keeps this mounted, and a kept <select> (or checkbox) ignores
+          // a new default — so a new selection remounts it, or it would show the old choice.
+          key={`${searchFiltersKey(query)}|${options === null ? "-" : "+"}`}
+          options={options}
+          selected={query}
+          ignored={ignored}
+          clearable={addressHasFilters(address)}
+        />
+      </div>
     ),
   };
-  // The filter the pager keeps: a real posting id only (a non-id never leaves this page).
-  const keep = query.filter.kind === "posting" ? query.filter.postingId : null;
 
   // `.applicants-page` carries the shared card + touch-target rules (globals.css "APPLICANT FEED");
-  // `.candidates-page` only namespaces this screen's own (the filter, the posting line, the pager).
-  if (read.kind === "ok" && inboxRows.length > 0) {
-    const viewer = { isAgency, agencyPortalEnabled };
-    const rows = inboxRows.map((row) => ({ ...row, posting: candidatePosting(row.posting, viewer) }));
+  // `.candidates-page` the Candidates tab's own (the filter, the views, the pager).
+  if (read.kind === "ok" && read.page.candidates.length > 0) {
+    const { candidates: rows, total, matched, unrecorded, filtered, strict } = read.page;
     return (
       <div className="applicants-page candidates-page">
-        <ApplicantActions
-          // One list per page of results: a new page or filter starts with no session state. The
-          // stage is the one the ADDRESS asked for, not the one the server applied: a failed
-          // move's re-read can come back refused (stages no longer saved) and re-read unfiltered,
-          // and that must not remount the list — its toast says why the move did not stick.
-          key={`${keep ?? "all"}|${query.stage ?? "all"}|${query.cursor ?? ""}`}
+        <CandidateSearchList
+          // One list per page of results: a new page or filter starts with no session state.
+          key={`${searchFiltersKey(query)}|${query.cursor ?? ""}`}
           header={header}
-          applicants={rows}
+          counts={{ total, matched, unrecorded, filtered, strict, unrecordable: unrecordable(query) }}
+          candidates={rows}
+          relatedTo={pickedRoleLabel(query, options)}
           // An affordance only — an unread balance keeps Unlock enabled (the server decides).
           balance={balance ?? 1}
+          balanceAsOf={balanceAsOf}
           // Only this page's workers, only live grants. Request time: this page is force-dynamic.
           unlocked={liveUnlocksFor(
             unlocks,
@@ -172,10 +181,9 @@ export default async function CandidatesPage({
           )}
         />
         <Pager
-          postingId={keep}
-          stage={stage}
-          cursor={query.cursor}
-          nextCursor={read.inbox.nextCursor}
+          query={query}
+          nextCursor={read.page.nextCursor}
+          range={listRange(start, rows.length, listedCount(read.page))}
         />
       </div>
     );
@@ -187,80 +195,53 @@ export default async function CandidatesPage({
       {read.kind === "rate-limited" ? (
         <RateLimitedState />
       ) : read.kind === "cursor-refused" ? (
-        <CursorRefusedState firstPage={candidatesHref({ postingId: keep, stage })} />
+        <CursorRefusedState firstPage={candidateSearchHref({ ...query, cursor: null })} />
       ) : read.kind === "error" ? (
         <LoadErrorState
-          firstPage={query.cursor ? candidatesHref({ postingId: keep, stage }) : null}
+          firstPage={query.cursor ? candidateSearchHref({ ...query, cursor: null }) : null}
+          body={LOAD_ERROR_BODY}
         />
-      ) : query.filter.kind === "unknown" ? (
-        <FilteredEmptyState stage={stage} />
+      ) : read.page.total === 0 ? (
+        <EmptyPoolState />
       ) : query.cursor ? (
         <EndOfListState />
-      ) : read.stage !== null ? (
-        <StageEmptyState stage={read.stage} postingId={keep} />
-      ) : query.filter.kind === "posting" ? (
-        <FilteredEmptyState stage={stage} />
+      ) : read.page.filtered ? (
+        <NoMatchState page={read.page} query={query} />
       ) : (
-        <EmptyState isAgency={isAgency} hasPostings={options === null || options.length > 0} />
+        // An unfiltered first page with nobody on it while the pool counts people is not an
+        // answer the API gives; if it ever were, it reads as calmly as an empty pool.
+        <EmptyPoolState />
       )}
-      {/* Paging follows a page the SERVER answered — never the unread one of a non-id filter. */}
-      {read.kind === "ok" && query.filter.kind !== "unknown" ? (
-        <Pager
-          postingId={keep}
-          stage={stage}
-          cursor={query.cursor}
-          nextCursor={read.inbox.nextCursor}
-        />
+      {/* Paging follows a page the SERVER answered (with no rows on it, there is no range). */}
+      {read.kind === "ok" ? (
+        <Pager query={query} nextCursor={read.page.nextCursor} range={null} />
       ) : null}
     </div>
   );
 }
 
-/**
- * The inbox page. A filter that cannot be an id matches nothing — no read is made for it.
- *
- * A stage filter is sent only when the address asks for one. The API refuses it with a 400 while
- * it does not save stages; that 400 is not this page's error — it is read again WITHOUT the stage
- * (a refused request spends none of the reach budget), and the page shows every stage with no
- * stage filter. A 400 on that second read is the cursor's (the posting filter is always an id).
- */
-async function readInbox({ filter, cursor, stage }: CandidatesQuery): Promise<InboxRead> {
-  if (filter.kind === "unknown") {
-    return { kind: "ok", inbox: { applicants: [], nextCursor: null }, stage: null, stageRefused: false };
-  }
-  const base = {
-    ...(filter.kind === "posting" ? { postingId: filter.postingId } : {}),
-    ...(cursor ? { cursor } : {}),
-  };
+/** The filter options; null when that read failed (the controls then offer only "Any …"). */
+async function readOptions(): Promise<CandidateFilters | null> {
   try {
-    if (stage !== null) {
-      try {
-        const inbox = await getCandidateInbox({ ...base, stage });
-        return { kind: "ok", inbox, stage, stageRefused: false };
-      } catch (e) {
-        if (!isPayerBadRequest(e)) throw e;
-      }
-    }
-    return {
-      kind: "ok",
-      inbox: await getCandidateInbox(base),
-      stage: null,
-      stageRefused: stage !== null,
-    };
-  } catch (e) {
-    if (isPayerRateLimited(e)) return { kind: "rate-limited" };
-    return inboxRefusal(e, { cursor }) === "cursor" ? { kind: "cursor-refused" } : { kind: "error" };
+    return await getCandidateFilters();
+  } catch {
+    return null;
   }
 }
 
-/** The payer's OWN postings as filter options; null when the list read failed. */
-async function readPostingOptions(isAgency: boolean): Promise<PostingOption[] | null> {
+/**
+ * One search page. A 400 is the CURSOR's refusal only when the address carried one (the body is
+ * built from offered values, so nothing else in it is the payer's to fix); any other 400 — or any
+ * other failure — is an outage, with Retry.
+ */
+async function readSearch(query: CandidateSearchQuery): Promise<SearchRead> {
   try {
-    return isAgency
-      ? agencyPostingOptions(await listAgencyJobs())
-      : companyPostingOptions(await getPostings());
-  } catch {
-    return null;
+    return { kind: "ok", page: await searchCandidates(candidateSearchBody(query)) };
+  } catch (e) {
+    if (isPayerRateLimited(e)) return { kind: "rate-limited" };
+    return cursorRefusal(e, { cursor: query.cursor }) === "cursor"
+      ? { kind: "cursor-refused" }
+      : { kind: "error" };
   }
 }
 
@@ -273,7 +254,7 @@ async function readBalance(): Promise<number | null> {
   }
 }
 
-/** The caller's OWN unlock history; unread is no grants (every row starts locked). */
+/** The caller's OWN unlock history; unread is no grants (every card starts locked). */
 async function readUnlocks(): Promise<UnlockHistoryItem[]> {
   try {
     return await getUnlocks();
@@ -283,190 +264,46 @@ async function readUnlocks(): Promise<UnlockHistoryItem[]> {
 }
 
 /**
- * Keyset paging: "Next page" carries the server's cursor verbatim; "First page" returns to the
- * newest. Both keep the posting and stage filters. Nothing when the list is one page.
+ * "Next page" (the server's cursor, filters kept, and where that page starts when this one's start
+ * is known) and "First page" (filters kept, no cursor) — after the rows on screen.
  */
 function Pager({
-  postingId,
-  stage,
-  cursor,
+  query,
   nextCursor,
+  range,
 }: {
-  postingId: string | null;
-  stage: ApplicantStage | null;
-  cursor: string | null;
+  query: CandidateSearchQuery;
   nextCursor: string | null;
-}) {
-  if (!cursor && !nextCursor) return null;
-  return (
-    <nav className="candidates-pager" aria-label="Candidate pages">
-      {cursor ? (
-        <PortalLink
-          className="bb-btn bb-btn--secondary"
-          href={candidatesHref({ postingId, stage })}
-          pendingLabel="First page"
-        >
-          <Icon name={ACTION_ICON.back} />
-          <span>First page</span>
-        </PortalLink>
-      ) : null}
-      {nextCursor ? (
-        <PortalLink
-          className="bb-btn bb-btn--secondary"
-          href={candidatesHref({ postingId, stage, cursor: nextCursor })}
-          pendingLabel="Next page"
-        >
-          <span>Next page</span>
-          <Icon name={ACTION_ICON.next} />
-        </PortalLink>
-      ) : null}
-    </nav>
-  );
-}
-
-/** A failed inbox read: in place, under the head and filter, with Retry. */
-function LoadErrorState({ firstPage }: { firstPage: string | null }) {
-  return (
-    <Card>
-      <div className="state state--error">
-        <span className="state__icon">
-          <Icon name="warning-circle" />
-        </span>
-        <h2 className="state__title">We couldn&rsquo;t load candidates</h2>
-        <p className="state__body">
-          This is usually temporary — nothing about your postings has changed. Please retry.
-        </p>
-        <div className="state__actions">
-          <RetryButton />
-          {/* A later page's link can go stale; the newest page is always a way back in. */}
-          {firstPage ? (
-            <PortalLink
-              className="bb-btn bb-btn--secondary"
-              href={firstPage}
-              pendingLabel="First page"
-            >
-              <Icon name={ACTION_ICON.back} />
-              <span>First page</span>
-            </PortalLink>
-          ) : null}
-        </div>
-      </div>
-    </Card>
-  );
-}
-
-/**
- * The server refused the page cursor in the address (a 400 — one it never minted). Calm, not an
- * error: nothing is down, and Retry would only be refused again, so the one way out is the first
- * page, the posting filter kept. The pager is not drawn under it (it follows an answered page), so
- * this is the screen's only "First page".
- */
-function CursorRefusedState({ firstPage }: { firstPage: string }) {
-  return (
-    <Card>
-      <div className="state">
-        <span className="state__icon">
-          <Icon name="link-break" />
-        </span>
-        <h2 className="state__title">This page link isn&rsquo;t valid</h2>
-        <p className="state__body">
-          It isn&rsquo;t one this list gave out, so there is nothing to show. Start again from the
-          first page.
-        </p>
-        <div className="state__actions">
-          <PortalLink className="bb-btn bb-btn--secondary" href={firstPage} pendingLabel="First page">
-            <Icon name={ACTION_ICON.back} />
-            <span>First page</span>
-          </PortalLink>
-        </div>
-      </div>
-    </Card>
-  );
-}
-
-/** A 429 — the payer's own hourly read cap (or its fail-closed path). Neutral: no cause, no count. */
-function RateLimitedState() {
-  return (
-    <Card>
-      <div className="state">
-        <span className="state__icon">
-          <Icon name="hourglass" />
-        </span>
-        <h2 className="state__title">Too many requests</h2>
-        <p className="state__body">Try again shortly.</p>
-        <div className="state__actions">
-          <RetryButton label="Try again" />
-        </div>
-      </div>
-    </Card>
-  );
-}
-
-/**
- * A posting filter that matched nothing. ONE copy for an owned posting nobody applied to and an id
- * that is not the payer's (the server answers both with the same empty page — no oracle). Its way
- * out clears the posting and keeps a stage filter the server applied.
- */
-function FilteredEmptyState({ stage }: { stage: ApplicantStage | null }) {
-  return (
-    <Card>
-      <div className="state">
-        <span className="state__icon">
-          <Icon name="tray" />
-        </span>
-        <h2 className="state__title">No applicants for this posting</h2>
-        <p className="state__body">
-          Nobody has applied to it yet, or it isn&rsquo;t one of your postings.
-        </p>
-        <div className="state__actions">
-          <PortalLink
-            className="bb-btn bb-btn--secondary"
-            href={candidatesHref({ stage })}
-            pendingLabel="All postings"
-          >
-            <Icon name={ACTION_ICON.clearFilters} />
-            <span>All postings</span>
-          </PortalLink>
-        </div>
-      </div>
-    </Card>
-  );
-}
-
-/**
- * A stage filter (applied by the server, so stages are saved) with no applicant in that stage — on
- * every posting, or on the one the posting filter names. Its way out is every stage, the posting
- * filter kept.
- */
-function StageEmptyState({
-  stage,
-  postingId,
-}: {
-  stage: ApplicantStage;
-  postingId: string | null;
+  range: ListRange | null;
 }) {
   return (
+    <CandidatesPager
+      range={range ? rangeLabel(range) : null}
+      firstPage={query.cursor ? candidateSearchHref({ ...query, cursor: null }) : null}
+      nextPage={
+        nextCursor
+          ? candidateSearchHref({ ...query, cursor: nextCursor }, range ? nextStart(range) : null)
+          : null
+      }
+    />
+  );
+}
+
+/**
+ * Nobody is in the pool yet (`total` 0). Calm: no blame, no counts shouting zero, no way "out" —
+ * the filters are not the reason, and the Applied view is right above.
+ */
+function EmptyPoolState() {
+  return (
     <Card>
       <div className="state">
         <span className="state__icon">
-          <Icon name="tray" />
+          <Icon name={ACTION_ICON.candidate} />
         </span>
-        <h2 className="state__title">No applicants in {STAGE_LABEL[stage]}</h2>
+        <h2 className="state__title">No candidates to show yet</h2>
         <p className="state__body">
-          {postingId
-            ? "Nobody who applied to this posting is in that stage right now."
-            : "Nobody who applied to your postings is in that stage right now."}
+          Workers appear here — faceless — once they are on BadaBhai and open to employers.
         </p>
-        <div className="state__actions">
-          <PortalLink
-            className="bb-btn bb-btn--secondary"
-            href={candidatesHref({ postingId })}
-            pendingLabel="All stages"
-          >
-            <Icon name={ACTION_ICON.clearFilters} />
-            <span>All stages</span>
-          </PortalLink>
-        </div>
       </div>
     </Card>
   );
@@ -480,7 +317,7 @@ function EndOfListState() {
         <span className="state__icon">
           <Icon name="tray" />
         </span>
-        <h2 className="state__title">No more applicants</h2>
+        <h2 className="state__title">No more candidates</h2>
         <p className="state__body">You have reached the end of this list.</p>
       </div>
     </Card>
@@ -488,35 +325,51 @@ function EndOfListState() {
 }
 
 /**
- * Nobody has applied to any of the payer's postings yet. The way forward is the payer's own
- * postings — or, with none at all, a new one (per persona: an agency posts agency jobs).
+ * The pool has people and a FILTERED first page holds none of them: a STRICT search that matched
+ * nobody (without strict, filters reorder — nobody is removed). Never a bare empty screen: it says
+ * the counts from the same response, and its way out is everyone again — the SAME filters without
+ * "Only show matches", where the matches would lead and nobody is dropped. (A non-strict empty
+ * first page is not an answer the API gives; if it ever were, the counts are said all the same
+ * and the way out is to clear the filters.)
  */
-function EmptyState({ isAgency, hasPostings }: { isAgency: boolean; hasPostings: boolean }) {
-  // Non-null here: an agency with the portal off never reaches this page (notFound above).
-  const routes = postingRoutes(isAgency);
+function NoMatchState({ page, query }: { page: CandidateSearchPage; query: CandidateSearchQuery }) {
+  const summary = countSummary({ ...page, unrecordable: unrecordable(query) });
+  const strict = page.strict;
+  const way = strict
+    ? {
+        href: candidateSearchHref({ ...query, strict: false, cursor: null }),
+        label: "Show all candidates",
+      }
+    : { href: candidateSearchHref({}), label: "Clear filters" };
   return (
     <Card>
       <div className="state">
         <span className="state__icon">
-          <Icon name={ACTION_ICON.candidate} />
+          <Icon name={ACTION_ICON.filter} />
         </span>
-        <h2 className="state__title">No applicants yet</h2>
+        <h2 className="state__title">No candidates match every filter</h2>
+        {summary ? <p className="state__body candidate-search__count">{summary.line}</p> : null}
         <p className="state__body">
-          Workers who apply to your postings appear here — faceless — newest first.
+          {strict
+            ? "“Only show matches” hides everyone else — show all candidates to see them, with any matches first."
+            : "Clear the filters to see everyone."}
         </p>
-        {routes && hasPostings ? (
-          <div className="state__actions">
-            <PortalLink
-              className="bb-btn bb-btn--secondary"
-              href={routes.list}
-              pendingLabel="Postings"
-            >
-              <Icon name={ACTION_ICON.posting} />
-              <span>Postings</span>
-            </PortalLink>
-          </div>
-        ) : null}
+        <div className="state__actions">
+          <PortalLink
+            className="bb-btn bb-btn--secondary"
+            href={way.href}
+            pendingLabel="All candidates"
+          >
+            <Icon name={ACTION_ICON.clearFilters} />
+            <span>{way.label}</span>
+          </PortalLink>
+        </div>
       </div>
     </Card>
   );
+}
+
+/** A filter on a field that can be unrecorded was asked for (ADR-0040 §4: the badge says the 3rd number). */
+function unrecordable(query: CandidateSearchQuery): boolean {
+  return query.city !== null || query.experience !== null || query.industryExperience !== null;
 }

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { roleKindSchema } from "../common/job-content.schemas";
 
 /**
  * Zod DTOs for the Matching V1 payer surface (spec Part 2 — the posting form).
@@ -32,6 +33,12 @@ export const ReachPreviewSchema = z.object({
    * be unticked. An untick naming anything else is ignored, not applied.
    */
   unticked_related_ids: z.array(matchSkillIdSchema).max(200).default([]),
+  /**
+   * #2635 — the form's trade, when it knows it. One of the 16 → the posted ids are scoped to
+   * that trade exactly as publish scopes them. Optional and additive: a client that omits it
+   * still gets the 16-trade related scope, just not the posted-id scoping.
+   */
+  role_kind: roleKindSchema.nullable().optional(),
 });
 export type ReachPreviewDto = z.infer<typeof ReachPreviewSchema>;
 

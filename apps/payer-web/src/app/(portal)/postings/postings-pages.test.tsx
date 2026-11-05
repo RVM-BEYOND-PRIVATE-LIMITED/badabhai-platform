@@ -44,14 +44,28 @@ const listMatchSkills = vi.fn();
 const getCapacity = vi.fn();
 const getJobPostingChatSessions = vi.fn();
 const getLiveCatalog = vi.fn();
-const READS = [getPostings, getPostingDetail, listMatchSkills, getCapacity, getJobPostingChatSessions, getLiveCatalog];
+const listPostingTrades = vi.fn();
+const getCandidateFilters = vi.fn();
+const READS = [
+  getPostings,
+  getPostingDetail,
+  listMatchSkills,
+  getCapacity,
+  getJobPostingChatSessions,
+  getLiveCatalog,
+  listPostingTrades,
+  getCandidateFilters,
+];
 
 vi.mock("../../../lib/auth", () => ({ requirePayer: () => requirePayer() }));
 vi.mock("../../../lib/config", async (importOriginal) => {
   const actual = await importOriginal<typeof ConfigModule>();
   return { ...actual, agencyFlags: () => flags };
 });
-vi.mock("next/navigation", () => ({ redirect: (to: string) => redirect(to), notFound: () => notFound() }));
+vi.mock("next/navigation", () => ({
+  redirect: (to: string) => redirect(to),
+  notFound: () => notFound(),
+}));
 vi.mock("next/link", () => ({
   default: ({ children, href }: { children: ReactNode; href: string }) => ({
     type: "a",
@@ -64,6 +78,8 @@ vi.mock("../../../lib/payer-api", () => ({
   listMatchSkills: () => listMatchSkills(),
   getCapacity: () => getCapacity(),
   getJobPostingChatSessions: () => getJobPostingChatSessions(),
+  listPostingTrades: () => listPostingTrades(),
+  getCandidateFilters: () => getCandidateFilters(),
 }));
 vi.mock("../../../lib/live-catalog", () => ({ getLiveCatalog: () => getLiveCatalog() }));
 vi.mock("./postings-manager", () => ({ PostingsManager: () => null }));
@@ -74,6 +90,8 @@ vi.mock("../../../components/job-card-preview", () => ({ JobCardPreview: () => n
 vi.mock("../../../components/retry-button", () => ({ RetryButton: () => null }));
 
 const { PageHeader } = await import("../../../components/page-header");
+const { PostingForm } = await import("./new/posting-form");
+const { JobPostingChat } = await import("./ai/new/job-posting-chat");
 const { PostingsManager } = await import("./postings-manager");
 const { quotaTopUpTier } = await import("../../../lib/pricing-config");
 const { formatInr } = await import("../../../lib/format");
@@ -115,6 +133,39 @@ const DETAIL = (status = "open") => ({
   untickedRelatedIds: [],
 });
 const params = (id: string) => ({ params: Promise.resolve({ id }) });
+/** One 16-trade catalogue row (#2645). */
+const TRADE = {
+  role_kind: "cnc_turner",
+  role_label: "CNC Turner",
+  pack_id: "qp_cnc_turner",
+  match_skill_id: "mskill_cnc_turner",
+  ladder: [],
+  questions: [],
+};
+const FILTERS = {
+  roles: [{ id: "mskill_cnc_turner", label: "CNC Turner", industryId: "machining" }],
+  industries: [{ id: "machining", label: "Machining" }],
+  experienceBuckets: [{ id: "2_5", label: "2-5 yrs" }],
+  cities: ["Pune"],
+  maxRoles: 5,
+};
+
+/** The props of the first element of `type` in the page's tree. */
+function propsOf(tree: unknown, type: unknown): Record<string, unknown> {
+  let found: Record<string, unknown> | null = null;
+  (function walk(node: ReactNode): void {
+    if (found || node === null || node === undefined || typeof node !== "object") return;
+    if (Array.isArray(node)) return node.forEach(walk);
+    const el = node as ReactElement<Record<string, unknown> & { children?: ReactNode }>;
+    if (el.type === type) {
+      found = el.props;
+      return;
+    }
+    if (el.props && "children" in el.props) walk(el.props.children);
+  })(tree as ReactNode);
+  expect(found).not.toBeNull();
+  return found!;
+}
 
 /**
  * The page's PageHeader props — a direct child of the page's fragment / wrapper, or inside a
@@ -148,7 +199,11 @@ function hrefs(tree: unknown): string[] {
     const el = node as ReactElement<Record<string, unknown> & { children?: ReactNode }>;
     if (typeof el.props?.href === "string") out.push(el.props.href);
     if (el.type === PageHeader) {
-      const p = el.props as { back?: { href: string }; primaryAction?: { href: string }; secondaryActions?: Array<{ href: string }> };
+      const p = el.props as {
+        back?: { href: string };
+        primaryAction?: { href: string };
+        secondaryActions?: Array<{ href: string }>;
+      };
       if (p.back) out.push(p.back.href);
       if (p.primaryAction) out.push(p.primaryAction.href);
       for (const a of p.secondaryActions ?? []) out.push(a.href);
@@ -197,6 +252,8 @@ beforeEach(() => {
   });
   getJobPostingChatSessions.mockResolvedValue([]);
   getLiveCatalog.mockResolvedValue({ products: DEFAULT_CATALOG.products, live: true });
+  listPostingTrades.mockResolvedValue([TRADE]);
+  getCandidateFilters.mockResolvedValue(FILTERS);
 });
 
 describe("New posting + Post with AI are COMPANY pages — an agent goes to its own form, before any read", () => {
@@ -316,7 +373,9 @@ describe("/postings — the slot top-up on offer comes from the live catalog tie
       priceInr: tier.priceInr,
       additionalViews: tier.additionalViews,
     });
-    expect(tier.priceInr).not.toBe(quotaTopUpTier({ products: DEFAULT_CATALOG.products })!.priceInr);
+    expect(tier.priceInr).not.toBe(
+      quotaTopUpTier({ products: DEFAULT_CATALOG.products })!.priceInr,
+    );
     // The page's quota note names the SAME slots and price as the button.
     const note = text(tree).replace(/\s+/g, " ");
     expect(note).toContain(`adds ${tier.additionalViews} more applicant slots`);
@@ -352,6 +411,7 @@ describe("/postings/<id> — Posting details", () => {
       icon: "users-three",
     });
     expect(h.secondaryActions).toEqual([
+      expect.objectContaining({ label: "Find matching workers" }),
       expect.objectContaining({ href: `/postings/${ID}/edit`, label: "Edit posting" }),
     ]);
   });
@@ -376,11 +436,70 @@ describe("/postings/<id> — Posting details", () => {
       expect(h.secondaryActions, status).toEqual([]);
       expect(h.back).toEqual({ href: "/postings", label: "Older postings" });
       // Nothing that edits, works or unlocks it.
-      expect(hrefs(tree).filter((x) => /\/(edit|applicants)$/.test(x)), status).toEqual([]);
+      expect(
+        hrefs(tree).filter((x) => /\/(edit|applicants)$/.test(x)),
+        status,
+      ).toEqual([]);
       // …and no instruction it cannot follow.
       expect(text(tree), status).not.toMatch(/publish it/i);
       expect(String(h.description), status).not.toMatch(/unlock/i);
     }
+  });
+});
+
+describe("#2671 — Find matching workers opens Candidates prefilled from the job", () => {
+  const findAction = async (tree: unknown) =>
+    (head(tree).secondaryActions as Array<{ href: string; label: string }>).find(
+      (a) => a.label === "Find matching workers",
+    );
+
+  it("open job: the trade's own match skill, the listed city and strict mode", async () => {
+    const action = await findAction(await detail.default(params(ID)));
+    expect(action).toEqual({
+      href: "/candidates?role=mskill_cnc_turner&city=Pune&strict=1",
+      label: "Find matching workers",
+      icon: "magnifying-glass",
+    });
+  });
+
+  it("paused job: still offered", async () => {
+    getPostingDetail.mockResolvedValue(DETAIL("paused"));
+    expect(await findAction(await detail.default(params(ID)))).toBeDefined();
+  });
+
+  it("a city the filters do not list is left out — the search never 400s on it", async () => {
+    getPostingDetail.mockResolvedValue({
+      ...DETAIL(),
+      card: { ...DETAIL().card, city: "Mumbai" },
+    });
+    expect((await findAction(await detail.default(params(ID))))?.href).toBe(
+      "/candidates?role=mskill_cnc_turner&strict=1",
+    );
+  });
+
+  it("a failed filters read leaves the city out — the button still works", async () => {
+    getCandidateFilters.mockRejectedValueOnce(new Error("filters 503"));
+    expect((await findAction(await detail.default(params(ID))))?.href).toBe(
+      "/candidates?role=mskill_cnc_turner&strict=1",
+    );
+  });
+
+  it("a non-16 role and a draft offer no button", async () => {
+    getPostingDetail.mockResolvedValue({
+      ...DETAIL(),
+      card: { ...DETAIL().card, role_kind: "not_a_trade" },
+    });
+    expect(await findAction(await detail.default(params(ID)))).toBeUndefined();
+
+    getPostingDetail.mockResolvedValue(DETAIL("draft"));
+    expect(await findAction(await detail.default(params(ID)))).toBeUndefined();
+  });
+
+  it("an agent's older posting offers no button and reads neither vocabulary", async () => {
+    requirePayer.mockResolvedValue(AGENT);
+    expect(await findAction(await detail.default(params(ID)))).toBeUndefined();
+    expect(listPostingTrades).not.toHaveBeenCalled();
+    expect(getCandidateFilters).not.toHaveBeenCalled();
   });
 });
 
@@ -405,6 +524,15 @@ describe("/postings/<id>/edit — Edit posting", () => {
     expect(h.back).toEqual({ href: `/postings/${ID}`, label: "CNC Turner" });
     expect((h.back as { label: string }).label).toBe(head(await detail.default(params(ID))).title);
     expect(h.title).toBe("Edit posting");
+  });
+});
+
+describe("New posting + Edit posting keep their local draft per signed-in payer (W4)", () => {
+  it("both pages hand the server session's payerId to their form", async () => {
+    const created = (await create.default()) as ReactElement<{ payerId?: string }>;
+    expect(created.props.payerId).toBe(COMPANY.payerId);
+    const edited = (await edit.default(params(ID))) as ReactElement<{ payerId?: string }>;
+    expect(edited.props.payerId).toBe(COMPANY.payerId);
   });
 });
 
@@ -454,7 +582,10 @@ describe("/postings — #2085: the slot offer is the charged price", () => {
       basePriceInr: base as number,
       priceInr: price as number,
       discountInr: (base as number) - (price as number),
-      offer: (price as number) < (base as number) ? { code: "DIWALI", endsAt: "2026-11-01T00:00:00.000Z" } : null,
+      offer:
+        (price as number) < (base as number)
+          ? { code: "DIWALI", endsAt: "2026-11-01T00:00:00.000Z" }
+          : null,
     }));
 
   it("under an offer: the manager gets the offer price and the list price; the note strikes the list price", async () => {
@@ -480,9 +611,35 @@ describe("/postings — #2085: the slot offer is the charged price", () => {
   });
 
   it("no prices[] (an older API): the catalog price, nothing struck", async () => {
-    getLiveCatalog.mockResolvedValue({ products: DEFAULT_CATALOG.products, prices: null, live: true });
+    getLiveCatalog.mockResolvedValue({
+      products: DEFAULT_CATALOG.products,
+      prices: null,
+      live: true,
+    });
     const tree = await list.default();
     expect(offerOf(tree)).toEqual({ code: "topup_10", priceInr: 1000, additionalViews: 10 });
     expect(struck(tree)).toEqual([]);
   });
+});
+
+describe("#2645 — the company posting forms are handed the 16 trades, or why there are none", () => {
+  for (const [name, run, form] of [
+    ["/postings/new", () => create.default(), PostingForm],
+    ["/postings/ai/new", () => ai.default(), JobPostingChat],
+  ] as const) {
+    it(`${name}: the trades the API served, with no problem`, async () => {
+      const props = propsOf(await run(), form);
+      expect(props.postingTrades).toEqual([TRADE]);
+      expect(props.postingTradesProblem).toBeNull();
+    });
+
+    it(`${name}: a failed read is its cause — never a silent empty list`, async () => {
+      listPostingTrades.mockRejectedValueOnce(
+        new Error("payer API /payer/posting-trades returned 429"),
+      );
+      const props = propsOf(await run(), form);
+      expect(props.postingTrades).toEqual([]);
+      expect(props.postingTradesProblem).toEqual({ kind: "rate-limited" });
+    });
+  }
 });

@@ -26,6 +26,11 @@ describe("nav-model is server-readable data", () => {
     expect(read("nav-model.ts")).not.toMatch(/^\s*["']use client["']/m);
   });
 
+  // The same reason, A6 (#2576): the layout filters the quick jump's kinds on the server.
+  it("nor does the quick jump's model", () => {
+    expect(read("quick-jump-model.ts")).not.toMatch(/^\s*["']use client["']/m);
+  });
+
   it("NAV is a real array the server can map over", () => {
     expect(Array.isArray(NAV)).toBe(true);
     expect(NAV.length).toBeGreaterThan(0);
@@ -79,18 +84,32 @@ describe("nav-model is server-readable data", () => {
 const CLIENT_COMPONENTS = [
   "nav.tsx",
   "shell.tsx",
+  // A6 (#2576): the topbar's crumb, quick jump and avatar menu.
+  "topbar-crumb.tsx",
+  "quick-jump.tsx",
+  "avatar-menu.tsx",
   "filter-panel.tsx",
   "sign-out-button.tsx",
   "admin-action-button.tsx",
+  "overlay.tsx",
+  "dialog.tsx",
+  "drawer.tsx",
+  "toast.tsx",
+  "confirm-dialog.tsx",
+  "one-time-secret.tsx",
+  "../app/(portal)/admins/admin-access-dialogs.tsx",
   "payer-detail-header.tsx",
   "payer-credits-panel.tsx",
   "../app/(portal)/ai-calls/filter-bar.tsx",
   "../app/(portal)/jobs/[id]/job-detail-header.tsx",
-  "../app/(portal)/workers/[id]/worker-detail-header.tsx",
+  "../app/(portal)/candidates/[id]/worker-detail-header.tsx",
   "../app/(portal)/admins/invite-admin-form.tsx",
   "../app/(portal)/admins/admin-row-actions.tsx",
   "../app/(portal)/skills/discovery/filter-bar.tsx",
   "../app/(portal)/skills/discovery/[id]/decision-panel.tsx",
+  // A4 (#2574) — the data grid's client half and its view controls.
+  "data-grid-view.tsx",
+  "grid-view-controls.tsx",
 ];
 
 describe("interactive components stay on the client", () => {
@@ -109,6 +128,26 @@ describe("no client module imports the server-only transport", () => {
     const src = read(f);
     expect(src).not.toMatch(/from\s+["'].*admin-http["']/);
     expect(src).not.toMatch(/from\s+["'].*session-cookie["']/);
+  });
+});
+
+/**
+ * A4 (#2574) — the data grid is TWO halves on purpose. `data-grid.tsx` runs a page's cell
+ * renderers on the server (functions cannot cross to the client) and hands `data-grid-view.tsx`
+ * plain data. With a directive or a hook it would become a client module, and every page's
+ * column definitions — functions — would fail to serialize.
+ */
+describe("the data grid's server half stays server-safe", () => {
+  it("data-grid.tsx has no 'use client' directive and calls no hook", () => {
+    const src = read("data-grid.tsx");
+    expect(src).not.toMatch(/^\s*["']use client["']/m);
+    expect(src).not.toMatch(/\buse[A-Z]\w*\(/);
+  });
+
+  it("the column vocabulary is plain data, readable on both sides", () => {
+    const src = read("data-grid-model.ts");
+    expect(src).not.toMatch(/^\s*["']use client["']/m);
+    expect(src).not.toMatch(/from\s+["']react["']/);
   });
 });
 

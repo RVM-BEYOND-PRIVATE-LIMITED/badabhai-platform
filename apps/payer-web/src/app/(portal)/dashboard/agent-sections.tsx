@@ -141,7 +141,6 @@ export async function AgentSections({
           icon="lock-key"
           status={unlocks === null ? undefined : <span className="dash-stat-note">revealed</span>}
           caption={unlocks === null ? "Not available right now" : "1 credit / 1 profile"}
-          foot={<span className="dash-kpi__meta">Direct verified phone &amp; email access</span>}
         />
 
         <StatTile
@@ -250,7 +249,7 @@ export async function AgentSections({
                     pendingLabel="New posting"
                   >
                     <Icon name={ACTION_ICON.create} />
-                    <span>Create New Posting</span>
+                    <span>New posting</span>
                   </PortalLink>
                   <PortalLink
                     className="bb-btn bb-btn--secondary"
@@ -309,18 +308,21 @@ export async function AgentSections({
             )}
           </div>
 
+          {/* The panel's standing door to the agency form says where it goes, in the form's own
+              name (one label per destination, #2581). The line beside it states what publishing
+              does — no claimed matching speed and no drafting help the form does not offer. */}
           <div className="agency-pipeline__foot">
-            <Icon name="sparkle" />
+            <Icon name={ACTION_ICON.create} />
             <p>
-              <strong>Need help drafting?</strong> Our talent engine matches candidates within
-              minutes.
+              <strong>Have a role to fill?</strong> It goes live for matched workers as soon as you
+              publish it.
             </p>
             <PortalLink
               className="dash-panel__link"
               href={AGENCY_POSTING_ROUTES.create}
               pendingLabel="New posting"
             >
-              Learn how <Icon name={ACTION_ICON.next} />
+              New posting <Icon name={ACTION_ICON.next} />
             </PortalLink>
           </div>
         </section>
@@ -337,7 +339,7 @@ export async function AgentSections({
               </div>
               <div className="panel__actions">
                 <PortalLink
-                  className="bb-btn bb-btn--primary bb-btn--sm"
+                  className="bb-btn bb-btn--primary"
                   href="/agency/referrals"
                   pendingLabel="Referrals"
                 >
@@ -399,7 +401,7 @@ export async function AgentSections({
             <div className="panel__head">
               <div className="panel__text">
                 <h2 className="panel__title">Recent Candidate Unlocks</h2>
-                <p className="panel__sub">Direct phone &amp; WhatsApp reveal vault.</p>
+                <p className="panel__sub">Contacts you have unlocked.</p>
               </div>
               <div className="panel__actions">
                 <PortalLink
@@ -432,8 +434,8 @@ export async function AgentSections({
                   </span>
                   <h3 className="state__title">No contacts unlocked yet</h3>
                   <p className="state__body">
-                    Open candidate profiles to reveal verified direct mobile, WhatsApp, and
-                    complete verified work history.
+                    Open candidate profiles and unlock one to get their masked resume and a contact
+                    routed through BadaBhai.
                   </p>
                 </div>
               ) : (
@@ -477,22 +479,6 @@ export async function AgentSections({
           </section>
         </div>
       </div>
-
-      <footer className="dash-foot">
-        <div className="dash-foot__status">
-          <span className="dash-foot__dot" aria-hidden="true" />
-          <span>Gateway Online: BadaBhai Recruiter Engine v2.8</span>
-          <span className="dash-foot__sep" aria-hidden="true">
-            ·
-          </span>
-          <span>Candidate Database: 180,000+ Verified Workers</span>
-        </div>
-        <div className="dash-foot__links">
-          <span>Worker identities masked until consent-granted</span>
-          <span>Employer Helpdesk</span>
-          <span>Pricing Terms</span>
-        </div>
-      </footer>
     </>
   );
 }

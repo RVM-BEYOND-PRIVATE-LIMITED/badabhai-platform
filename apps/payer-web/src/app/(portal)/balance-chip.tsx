@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, type PointerEvent } from "react";
+import { useEffect, useRef, useState, type PointerEvent } from "react";
 import {
   ACTION_ICON,
   Icon,
@@ -8,6 +8,8 @@ import {
   restoreTooltip,
   watchEscapeWhileHovered,
 } from "@badabhai/icons";
+import { CountUp } from "../../components/ds/count-up";
+import { useLiveBalance } from "../../components/live-balance";
 import { PortalLink } from "../../components/portal-link";
 
 /**
@@ -24,9 +26,29 @@ import { PortalLink } from "../../components/portal-link";
  *     (pointer devices) and keyboard focus, Escape-dismissable through the shared helpers — the
  *     same behaviour as every icon-only control. Above 540px the words are on the chip itself,
  *     so the tooltip stays hidden there (globals.css).
+ *
+ * LIVE, WITH NO RELOAD (#2585). The layout reads `balance` once and a page navigation never
+ * re-renders it, so the chip also takes the balance a screen PUBLISHES after the server answered
+ * (components/live-balance.ts: an unlock's read-back) — whichever the server read LAST: a publish
+ * read after the layout's `balanceAsOf`, or the layout's figure (a refresh re-reads it, so after a
+ * purchase the layout's new figure outranks every earlier publish, even when it is the same
+ * number). When the figure changes the chip counts to it over --duration-count (600ms) while a
+ * Safety Yellow tint fades out of it (400ms) — once per change, never looping, and not at all under
+ * reduced motion. The accessible name and the tooltip carry the new figure at once.
  */
-export function BalanceChip({ balance, linkToCredits }: { balance: number; linkToCredits: boolean }) {
-  const words = `${balance} ${balance === 1 ? "credit" : "credits"}`;
+export function BalanceChip({
+  balance,
+  balanceAsOf,
+  linkToCredits,
+}: {
+  balance: number;
+  /** When the layout's server read `balance` (epoch ms, the portal server's clock). */
+  balanceAsOf: number;
+  linkToCredits: boolean;
+}) {
+  const shown = useLiveBalance(balance, balanceAsOf);
+  const run = useCountRun(shown);
+  const words = `${shown} ${shown === 1 ? "credit" : "credits"}`;
   // The document Escape listener of the current hover, if any (removed on leave and unmount).
   const stopHoverEscape = useRef<(() => void) | null>(null);
   useEffect(
@@ -48,9 +70,13 @@ export function BalanceChip({ balance, linkToCredits }: { balance: number; linkT
 
   const body = (
     <>
+      {/* Re-keyed per change, so each change plays the tint once (globals.css, W5 block). */}
+      {run ? <span key={run.id} className="pshell__balancetint" aria-hidden="true" /> : null}
       <Icon name={ACTION_ICON.credits} />
-      <span className="ui-num pshell__balancenum">{balance}</span>{" "}
-      <span className="pshell__balancelabel">{balance === 1 ? "credit" : "credits"}</span>
+      <span className="ui-num pshell__balancenum">
+        {run ? <CountUp key={run.id} from={run.from} to={run.to} /> : shown}
+      </span>{" "}
+      <span className="pshell__balancelabel">{shown === 1 ? "credit" : "credits"}</span>
       <span className="bb-icon-tip bb-icon-tip--bottom-end" aria-hidden="true">
         {words}
       </span>
@@ -84,4 +110,24 @@ export function BalanceChip({ balance, linkToCredits }: { balance: number; linkT
       {body}
     </span>
   );
+}
+
+/** One count, from the figure the chip showed to the one it shows now; `id` re-keys each run. */
+interface CountRun {
+  from: number;
+  to: number;
+  id: number;
+}
+
+/** The count the latest change started (null until the figure first changes — it is printed). */
+function useCountRun(shown: number): CountRun | null {
+  const [printed, setPrinted] = useState(shown);
+  const [run, setRun] = useState<CountRun | null>(null);
+  if (printed !== shown) {
+    const next = { from: printed, to: shown, id: (run?.id ?? 0) + 1 };
+    setPrinted(shown);
+    setRun(next);
+    return next;
+  }
+  return run;
 }

@@ -1,3 +1,10 @@
+UPDATE 2026-11-04 — ITEMS 6-7 ARE DONE. The owner approved the notice copy
+(docs/product/employer-sharing-consent-notice.md); `CURRENT_CONSENT_VERSION` moved to "2026-11-04"
+with it, and the worker app requests `employer_sharing` + `employer_messaging` from the onboarding
+consent screen, a one-time prompt and the Settings switch (`POST /consent/employer-contact/grant`).
+The HALT language below is history; the order it prescribes (copy, then version, then purpose) is
+what shipped.
+
 STATUS: SHIPS SECOND, AFTER E0 — then E1, then E2 (owner ruling 2026-09-05, CORRECTING R-E3
 of the same day, which put this phase first). WHY IT MOVED: R-E3's reason was that a
 visible-by-default worker needs a working exit before a contact channel exists. That premise

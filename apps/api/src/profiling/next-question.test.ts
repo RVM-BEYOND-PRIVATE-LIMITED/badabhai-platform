@@ -640,7 +640,7 @@ describe("reAsk — the question on screen again, as a counted ask (#2233)", () 
   });
 });
 
-describe("Middle-Way required close (P3a) — the 8 settled slots end the interview", () => {
+describe("Middle-Way required close (P3a) — the settled slots end the interview", () => {
   const TURNER_8 = [
     "primary_trade",
     "turning_machine",
@@ -649,6 +649,18 @@ describe("Middle-Way required close (P3a) — the 8 settled slots end the interv
     "controller_brand",
     "current_city",
     "salary_expected",
+    "availability",
+  ];
+
+  // CEO Launch Plan Pack v1 (RULED 2026-11-02, Track A #1): Turner Easy is
+  // Q1–Q5 — trade, years, level, location, availability. Machine, controller
+  // and salary moved to Medium: asked, never required. Other packs keep the
+  // v1 8-required shape until their own retag PR.
+  const TURNER_EASY_5 = [
+    "primary_trade",
+    "turning_experience",
+    "turning_level",
+    "current_city",
     "availability",
   ];
 
@@ -684,6 +696,409 @@ describe("Middle-Way required close (P3a) — the 8 settled slots end the interv
       state({ answers: settledAnswers(TURNER_8) }),
       turnerPacks(),
     );
+    expect(decision.kind).toBe("close");
+    expect(decision.completionReason).toBe("required_complete");
+  });
+
+  it("Turner closes on its Easy 5 with machine, controller and salary still open (CEO pack v1)", () => {
+    const answers = settledAnswers(TURNER_EASY_5);
+    const decision = nextQuestion(state({ answers }), turnerPacks());
+    expect(decision.kind).toBe("close");
+    expect(decision.completionReason).toBe("required_complete");
+  });
+
+  it("VMC closes on its Easy 5 too (Track A #2) — machine/controller/salary optional", () => {
+    const vmc: EnginePacks = {
+      occupation: pack("qp_vmc_milling", []),
+      universal: pack("pk_universal", []),
+    };
+    const easy5 = settledAnswers([
+      "primary_trade",
+      "milling_experience",
+      "milling_level",
+      "current_city",
+      "availability",
+    ]);
+    const decision = nextQuestion(state({ answers: easy5 }), vmc);
+    expect(decision.kind).toBe("close");
+    expect(decision.completionReason).toBe("required_complete");
+  });
+
+  it("CAM closes on its Easy 5 too (Track A #3) — software/machine/controller optional", () => {
+    const cam: EnginePacks = {
+      occupation: pack("qp_cam_programming", []),
+      universal: pack("pk_universal", []),
+    };
+    const easy5 = settledAnswers([
+      "primary_trade",
+      "programming_experience",
+      "cam_level",
+      "current_city",
+      "availability",
+    ]);
+    const decision = nextQuestion(state({ answers: easy5 }), cam);
+    expect(decision.kind).toBe("close");
+    expect(decision.completionReason).toBe("required_complete");
+  });
+
+  it("3D closes on its Easy 5 too (Track A #4) — software/work-area optional", () => {
+    const design: EnginePacks = {
+      occupation: pack("qp_cad_design_3d", []),
+      universal: pack("pk_universal", []),
+    };
+    const easy5 = settledAnswers([
+      "primary_trade",
+      "design_experience",
+      "design_level",
+      "current_city",
+      "availability",
+    ]);
+    const decision = nextQuestion(state({ answers: easy5 }), design);
+    expect(decision.kind).toBe("close");
+    expect(decision.completionReason).toBe("required_complete");
+  });
+
+  it("2D closes on its Easy 5 too (Track A #5) — software/work-area optional", () => {
+    const drafting: EnginePacks = {
+      occupation: pack("qp_cad_drafting", []),
+      universal: pack("pk_universal", []),
+    };
+    const easy5 = settledAnswers([
+      "primary_trade",
+      "drafting_experience",
+      "cad_level",
+      "current_city",
+      "availability",
+    ]);
+    const decision = nextQuestion(state({ answers: easy5 }), drafting);
+    expect(decision.kind).toBe("close");
+    expect(decision.completionReason).toBe("required_complete");
+  });
+
+  it("Fitter closes on its Easy 5 too (Track B #1) — work-type/equipment/sector optional", () => {
+    const fitting: EnginePacks = {
+      occupation: pack("qp_fitter", []),
+      universal: pack("pk_universal", []),
+    };
+    const easy5 = settledAnswers([
+      "primary_trade",
+      "fitting_experience",
+      "fitter_level",
+      "current_city",
+      "availability",
+    ]);
+    const decision = nextQuestion(state({ answers: easy5 }), fitting);
+    expect(decision.kind).toBe("close");
+    expect(decision.completionReason).toBe("required_complete");
+  });
+
+  it("Electrician closes on its Easy 5 too (Track B #2) — work-type/equipment optional", () => {
+    const sparking: EnginePacks = {
+      occupation: pack("qp_industrial_electrician", []),
+      universal: pack("pk_universal", []),
+    };
+    const easy5 = settledAnswers([
+      "primary_trade",
+      "electrical_experience",
+      "electrician_level",
+      "current_city",
+      "availability",
+    ]);
+    const decision = nextQuestion(state({ answers: easy5 }), sparking);
+    expect(decision.kind).toBe("close");
+    expect(decision.completionReason).toBe("required_complete");
+  });
+
+  it("Welder closes on Easy 5 + process too (Track B #3) — process is required in Medium", () => {
+    const welding: EnginePacks = {
+      occupation: pack("qp_welding_trade", []),
+      universal: pack("pk_universal", []),
+    };
+    const easy5 = settledAnswers([
+      "primary_trade",
+      "welding_experience",
+      "welder_level",
+      "current_city",
+      "availability",
+    ]);
+    // Process still open: merely complete, never required-complete.
+    expect(nextQuestion(state({ answers: easy5 }), welding).completionReason).toBe("complete");
+    const withProcess = settledAnswers([
+      "primary_trade",
+      "welding_experience",
+      "welder_level",
+      "welding_process",
+      "current_city",
+      "availability",
+    ]);
+    const decision = nextQuestion(state({ answers: withProcess }), welding);
+    expect(decision.kind).toBe("close");
+    expect(decision.completionReason).toBe("required_complete");
+  });
+
+  it("Conventional closes on its Easy 5 too (Track B #4) — machine/crossover optional", () => {
+    const manual: EnginePacks = {
+      occupation: pack("qp_conventional_machining", []),
+      universal: pack("pk_universal", []),
+    };
+    const easy5 = settledAnswers([
+      "primary_trade",
+      "machining_experience",
+      "machining_level",
+      "current_city",
+      "availability",
+    ]);
+    const decision = nextQuestion(state({ answers: easy5 }), manual);
+    expect(decision.kind).toBe("close");
+    expect(decision.completionReason).toBe("required_complete");
+  });
+
+  it("Sheet-metal closes on its Easy 5 too (Track B #5) — machine/product optional", () => {
+    const sheeting: EnginePacks = {
+      occupation: pack("qp_sheet_metal_fab", []),
+      universal: pack("pk_universal", []),
+    };
+    const easy5 = settledAnswers([
+      "primary_trade",
+      "sheet_metal_experience",
+      "sheet_metal_level",
+      "current_city",
+      "availability",
+    ]);
+    const decision = nextQuestion(state({ answers: easy5 }), sheeting);
+    expect(decision.kind).toBe("close");
+    expect(decision.completionReason).toBe("required_complete");
+  });
+
+  it("Assembly closes on its Easy 5 too (Track B #6) — product/tools optional", () => {
+    const lining: EnginePacks = {
+      occupation: pack("qp_assembly_line", []),
+      universal: pack("pk_universal", []),
+    };
+    const easy5 = settledAnswers([
+      "primary_trade",
+      "assembly_experience",
+      "assembly_level",
+      "current_city",
+      "availability",
+    ]);
+    const decision = nextQuestion(state({ answers: easy5 }), lining);
+    expect(decision.kind).toBe("close");
+    expect(decision.completionReason).toBe("required_complete");
+  });
+
+  it("QC closes on its Easy 5 too (Track B #7) — instruments/stage optional", () => {
+    const checking: EnginePacks = {
+      occupation: pack("qp_quality_inspection", []),
+      universal: pack("pk_universal", []),
+    };
+    const easy5 = settledAnswers([
+      "primary_trade",
+      "inspection_experience",
+      "inspection_level",
+      "current_city",
+      "availability",
+    ]);
+    const decision = nextQuestion(state({ answers: easy5 }), checking);
+    expect(decision.kind).toBe("close");
+    expect(decision.completionReason).toBe("required_complete");
+  });
+
+  it("Tool-room closes on its Easy 5 too (Phase 2 #1) — tooling/machines optional", () => {
+    const toolroom: EnginePacks = {
+      occupation: pack("qp_tool_die_making", []),
+      universal: pack("pk_universal", []),
+    };
+    const easy5 = settledAnswers([
+      "primary_trade",
+      "toolroom_experience",
+      "toolroom_level",
+      "current_city",
+      "availability",
+    ]);
+    const decision = nextQuestion(state({ answers: easy5 }), toolroom);
+    expect(decision.kind).toBe("close");
+    expect(decision.completionReason).toBe("required_complete");
+  });
+
+  it("Grinding closes on its Easy 5 too (Phase 2 #2) — machine/controller/salary optional", () => {
+    const grinding: EnginePacks = {
+      occupation: pack("qp_cnc_grinding", []),
+      universal: pack("pk_universal", []),
+    };
+    const easy5 = settledAnswers([
+      "primary_trade",
+      "grinding_experience",
+      "grinding_level",
+      "current_city",
+      "availability",
+    ]);
+    const decision = nextQuestion(state({ answers: easy5 }), grinding);
+    expect(decision.kind).toBe("close");
+    expect(decision.completionReason).toBe("required_complete");
+    // The level is still required: without it the interview drains, never
+    // closing on required_complete — machine + controller cannot stand in.
+    const noLevel = settledAnswers([
+      "primary_trade",
+      "grinding_machine",
+      "grinding_experience",
+      "controller_brand",
+      "current_city",
+      "salary_expected",
+      "availability",
+    ]);
+    expect(nextQuestion(state({ answers: noLevel }), grinding).completionReason).toBe("complete");
+  });
+
+  it("Press-shop closes on its Easy 5 too (Phase 2 #3) — press type/tonnage/salary optional", () => {
+    const press: EnginePacks = {
+      occupation: pack("qp_press_operation", []),
+      universal: pack("pk_universal", []),
+    };
+    const easy5 = settledAnswers([
+      "primary_trade",
+      "press_experience",
+      "press_level",
+      "current_city",
+      "availability",
+    ]);
+    const decision = nextQuestion(state({ answers: easy5 }), press);
+    expect(decision.kind).toBe("close");
+    expect(decision.completionReason).toBe("required_complete");
+  });
+
+  it("Painter/coating closes on its Easy 5 too (Phase 2 #4) — process/line/salary optional", () => {
+    const coating: EnginePacks = {
+      occupation: pack("qp_powder_coating", []),
+      universal: pack("pk_universal", []),
+    };
+    const easy5 = settledAnswers([
+      "primary_trade",
+      "coating_experience",
+      "coating_level",
+      "current_city",
+      "availability",
+    ]);
+    const decision = nextQuestion(state({ answers: easy5 }), coating);
+    expect(decision.kind).toBe("close");
+    expect(decision.completionReason).toBe("required_complete");
+  });
+
+  it("Maintenance closes on its Easy 5 too (Phase 2 #5) — machine type/systems/salary optional", () => {
+    const maintenance: EnginePacks = {
+      occupation: pack("qp_maintenance_tech", []),
+      universal: pack("pk_universal", []),
+    };
+    const easy5 = settledAnswers([
+      "primary_trade",
+      "maintenance_experience",
+      "maintenance_level",
+      "current_city",
+      "availability",
+    ]);
+    const decision = nextQuestion(state({ answers: easy5 }), maintenance);
+    expect(decision.kind).toBe("close");
+    expect(decision.completionReason).toBe("required_complete");
+  });
+
+  it("PLC closes on its Easy 5 too (Phase 2 #6) — PLC brand/work/salary optional", () => {
+    const plc: EnginePacks = {
+      occupation: pack("qp_plc_automation", []),
+      universal: pack("pk_universal", []),
+    };
+    const easy5 = settledAnswers([
+      "primary_trade",
+      "plc_experience",
+      "plc_level",
+      "current_city",
+      "availability",
+    ]);
+    const decision = nextQuestion(state({ answers: easy5 }), plc);
+    expect(decision.kind).toBe("close");
+    expect(decision.completionReason).toBe("required_complete");
+  });
+
+  it("EDM closes on its Easy 5 too (Phase 2 #7) — machine/brand/salary optional", () => {
+    const edm: EnginePacks = {
+      occupation: pack("qp_edm_wirecut", []),
+      universal: pack("pk_universal", []),
+    };
+    const easy5 = settledAnswers([
+      "primary_trade",
+      "edm_experience",
+      "edm_level",
+      "current_city",
+      "availability",
+    ]);
+    const decision = nextQuestion(state({ answers: easy5 }), edm);
+    expect(decision.kind).toBe("close");
+    expect(decision.completionReason).toBe("required_complete");
+  });
+
+  it("heat treatment closes on its Easy 5 too (Phase 2 #8) — process/furnace/salary optional", () => {
+    const heat: EnginePacks = {
+      occupation: pack("qp_heat_treatment", []),
+      universal: pack("pk_universal", []),
+    };
+    const easy5 = settledAnswers([
+      "primary_trade",
+      "heat_experience",
+      "heat_level",
+      "current_city",
+      "availability",
+    ]);
+    const decision = nextQuestion(state({ answers: easy5 }), heat);
+    expect(decision.kind).toBe("close");
+    expect(decision.completionReason).toBe("required_complete");
+  });
+
+  it("foundry / forging closes on its Easy 5 too (Phase 2 #11) — process/metal/salary optional", () => {
+    const foundry: EnginePacks = {
+      occupation: pack("qp_foundry_forging", []),
+      universal: pack("pk_universal", []),
+    };
+    const easy5 = settledAnswers([
+      "primary_trade",
+      "foundry_experience",
+      "foundry_level",
+      "current_city",
+      "availability",
+    ]);
+    const decision = nextQuestion(state({ answers: easy5 }), foundry);
+    expect(decision.kind).toBe("close");
+    expect(decision.completionReason).toBe("required_complete");
+  });
+
+  it("injection moulding closes on its Easy 5 too (Phase 2 #9) — brand/tonnage/salary optional", () => {
+    const imm: EnginePacks = {
+      occupation: pack("qp_injection_moulding", []),
+      universal: pack("pk_universal", []),
+    };
+    const easy5 = settledAnswers([
+      "primary_trade",
+      "moulding_experience",
+      "moulding_level",
+      "current_city",
+      "availability",
+    ]);
+    const decision = nextQuestion(state({ answers: easy5 }), imm);
+    expect(decision.kind).toBe("close");
+    expect(decision.completionReason).toBe("required_complete");
+  });
+
+  it("production supervisor closes on its Easy 5 too (Phase 2 #10) — area/team/salary optional", () => {
+    const ps: EnginePacks = {
+      occupation: pack("qp_production_supervisor", []),
+      universal: pack("pk_universal", []),
+    };
+    const easy5 = settledAnswers([
+      "primary_trade",
+      "supervision_experience",
+      "supervision_level",
+      "current_city",
+      "availability",
+    ]);
+    const decision = nextQuestion(state({ answers: easy5 }), ps);
     expect(decision.kind).toBe("close");
     expect(decision.completionReason).toBe("required_complete");
   });
@@ -806,6 +1221,24 @@ describe("Middle-Way stop rule (P3b) — 14-turn focus, 20-turn stop, optional o
     expect(nextQuestion(late, other).questionKey).toBe("welding_process");
     expect(isMiddleWayPack("qp_welding")).toBe(false);
     expect(isMiddleWayPack("qp_cnc_turning")).toBe(true);
+    // Phase 2 #3: the press pack joins the Middle-Way set with its @2 retag.
+    expect(isMiddleWayPack("qp_press_operation")).toBe(true);
+    // Phase 2 #4: the coating pack joins with its @2 retag.
+    expect(isMiddleWayPack("qp_powder_coating")).toBe(true);
+    // Phase 2 #5: the maintenance pack joins with its @2 retag.
+    expect(isMiddleWayPack("qp_maintenance_tech")).toBe(true);
+    // Phase 2 #6: the new PLC pack is Middle-Way from v1.
+    expect(isMiddleWayPack("qp_plc_automation")).toBe(true);
+    // Phase 2 #7: the new EDM pack is Middle-Way from v1.
+    expect(isMiddleWayPack("qp_edm_wirecut")).toBe(true);
+    // Phase 2 #8: the new heat-treatment pack is Middle-Way from v1.
+    expect(isMiddleWayPack("qp_heat_treatment")).toBe(true);
+    // Phase 2 #9: the new injection-moulding pack is Middle-Way from v1.
+    expect(isMiddleWayPack("qp_injection_moulding")).toBe(true);
+    // Phase 2 #10: the new production-supervisor pack is Middle-Way from v1.
+    expect(isMiddleWayPack("qp_production_supervisor")).toBe(true);
+    // Phase 2 #11: the new foundry / forging pack is Middle-Way from v1.
+    expect(isMiddleWayPack("qp_foundry_forging")).toBe(true);
     expect(isMiddleWayPack(null)).toBe(false);
   });
 

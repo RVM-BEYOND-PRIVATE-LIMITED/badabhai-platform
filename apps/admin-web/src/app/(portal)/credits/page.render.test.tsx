@@ -8,6 +8,8 @@ import {
   statTiles,
 } from "../../../../test/stat-tiles";
 import { customerCell } from "../../../../test/customer-cell";
+import { columnHeaders } from "../../../../test/grid-markup";
+import { formatCount, formatDelta } from "../../../lib/format";
 
 /**
  * The credits page's simulated-money marking, asserted on the PAGE (#1856). `Stat` itself is
@@ -194,7 +196,7 @@ describe("the window and reason chips keep each other", () => {
 
   it("clearing the reason keeps the window, and says it clears that one filter", async () => {
     const out = await renderWith({ windowDays: "7", reason: "grant" });
-    expect(out).toMatch(/href="\/credits\?windowDays=7">(<i [^>]*><\/i>)?Clear the reason filter<\/a>/);
+    expect(out).toMatch(/href="\/credits\?windowDays=7">(<i [^>]*><\/i>)?Clear the reason filter(?:<span class="nav-pending" aria-hidden="true"><\/span>)?<\/a>/);
     expect(out).not.toContain(">Clear filters<");
   });
 });
@@ -249,8 +251,9 @@ describe("credits — each recovery once on the screen", () => {
 
   it("names the holder of a balance or a movement 'Customer' — never 'Account' (sweep AW-12)", async () => {
     const out = await renderWith();
-    expect(count(out, '<th scope="col">Customer</th>')).toBe(2);
-    expect(out).not.toContain('<th scope="col">Account</th>');
+    const headers = columnHeaders(out);
+    expect(headers.filter((h) => h === "Customer")).toHaveLength(2);
+    expect(headers).not.toContain("Account");
   });
 });
 
@@ -269,13 +272,15 @@ describe("credits — a customer cell links the customer's own section", () => {
   /** The top balance's cell with no role served: the fallback, never a persona. */
   const BALANCE = customerCell(PAYER, `/companies/${PAYER}`, null, "</td>");
 
-  it("an agency's movement links /agencies/<id> directly, named Agency", async () => {
+  it("an agency's movement links the one customers section, /companies/<id>, named Agency", async () => {
+    // One Companies section holds both kinds since A6 (#2576); the persona is still named.
     withLedgerRole("agent");
     const out = await render();
-    expect(out).toContain(customerCell(PAYER, `/agencies/${PAYER}`, "Agency", "</td>"));
-    // …and the only /companies/ link left is the top balance's.
-    expect(count(out, `href="/companies/${PAYER}"`)).toBe(1);
+    expect(out).toContain(customerCell(PAYER, `/companies/${PAYER}`, "Agency", "</td>"));
+    // …beside the top balance's cell, which names no persona (no role served).
+    expect(count(out, `href="/companies/${PAYER}"`)).toBe(2);
     expect(out).toContain(BALANCE);
+    expect(out).not.toContain(`href="/agencies/`);
   });
 
   it("a company's movement links /companies/<id>, named Company", async () => {
@@ -315,11 +320,12 @@ describe("credits — a top balance links the customer's own section (#2106)", (
     out.slice(out.indexOf('id="cr-holders"'), out.indexOf('id="cr-ledger"'));
   const FALLBACK = customerCell(PAYER, `/companies/${PAYER}`, null, "</td>");
 
-  it("an agency's balance links /agencies/<id> directly, named Agency", async () => {
+  it("an agency's balance links the one customers section, /companies/<id>, named Agency", async () => {
+    // One Companies section holds both kinds since A6 (#2576); the persona is still named.
     withBalanceRole("agent");
     const panel = holdersPanel(await render());
-    expect(panel).toContain(customerCell(PAYER, `/agencies/${PAYER}`, "Agency", "</td>"));
-    expect(panel).not.toContain(`href="/companies/${PAYER}"`);
+    expect(panel).toContain(customerCell(PAYER, `/companies/${PAYER}`, "Agency", "</td>"));
+    expect(panel).not.toContain(`href="/agencies/`);
   });
 
   it("a company's balance links /companies/<id>, named Company", async () => {
@@ -346,7 +352,7 @@ describe("credits — a top balance links the customer's own section (#2106)", (
 
 /** The href of the link whose visible label (after any glyph) is exactly `label`. */
 const hrefOf = (out: string, label: string) =>
-  [...out.matchAll(/href="([^"]*)">(?:<i [^>]*><\/i>)?([^<]*)<\/a>/g)].find((m) => m[2] === label)?.[1];
+  [...out.matchAll(/href="([^"]*)">(?:<i [^>]*><\/i>)?([^<]*)(?:<span class="nav-pending" aria-hidden="true"><\/span>)?<\/a>/g)].find((m) => m[2] === label)?.[1];
 
 /**
  * A failed ledger read, by the console's one rule (final re-sweep O-3). The ledger is the paged
@@ -471,5 +477,20 @@ describe("a valid reason with a refused cursor gets the cursor's copy", () => {
     );
     expect(out).toContain("The ledger is unavailable");
     expect(out).not.toContain("rejected");
+  });
+});
+
+describe("the credit tables set their figures in the UI face (A1, #2571)", () => {
+  it("renders every delta and balance with tabular figures, not mono", async () => {
+    const out = await render();
+    // By reason (+1,200 and −40), the largest balance (500) and the ledger's movement (+100).
+    for (const figure of [
+      formatDelta(1200),
+      formatDelta(-40),
+      formatCount(500),
+      formatDelta(100),
+    ]) {
+      expect(out).toContain(`<td class="ui-num">${figure}</td>`);
+    }
   });
 });

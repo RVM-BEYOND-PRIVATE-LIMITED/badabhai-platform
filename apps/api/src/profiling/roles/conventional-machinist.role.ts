@@ -44,7 +44,7 @@ export const CONVENTIONAL_MACHINIST = {
   formEnabled: true,
   displayName: "Conventional Machinist",
   offerName: "conventional machinist",
-  levelLadder: ["Helper", "Operator", "Skilled"],
+  levelLadder: ["Helper", "Operator", "Skilled Machinist", "Senior", "Supervisor"],
   tenureQuestionKey: "machining_experience",
   detection: {
     occupationTerms: [
@@ -65,8 +65,18 @@ export const CONVENTIONAL_MACHINIST = {
       "radial drill",
       "boring machine",
       "shaper",
+      // Track B #4 (@2): the sheet-9 machine set. Corroborate-only — they hand
+      // over the form only once the resolver has placed the worker here.
+      "milling",
+      "slotter",
+      "planer",
+      "hacksaw",
+      "bandsaw",
+      "surface grinder",
+      "cylindrical grinder",
     ],
-    levelTerms: ["helper", "operator", "skilled", "ऑपरेटर"],
+    // Track B #4 (@2): the sheet-9 level signals. A rung corroborates; it never routes.
+    levelTerms: ["helper", "operator", "skilled", "senior machinist", "all round machinist", "tool room ka kaam", "repair job", "ऑपरेटर"],
   },
   fresher: {
     // KEYED BY THE PACK'S STORED `value_text`, never by `option_key` — the rule that has already

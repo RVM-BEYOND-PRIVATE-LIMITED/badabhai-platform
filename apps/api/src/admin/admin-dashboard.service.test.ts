@@ -7,7 +7,7 @@ import {
   ADMIN_DASHBOARD_WINDOW_DAYS_DEFAULT,
   CAP_BREACH_SCOPE_PROFILE_EXTRACTION,
   COST_PER_PROFILE_BASIS_INCLUDES_ABANDONED,
-  COST_PER_PROFILE_ERASURE_BIAS,
+  COST_PER_PROFILE_ERASURE_TREATMENT,
   COST_PER_PROFILE_TEST_SPLIT_CONVERGES,
   COST_PER_PROFILE_WINDOW_EDGE_SKEW,
   DASHBOARD_JOB_POSTING_STATUSES,
@@ -91,9 +91,15 @@ interface Overrides {
    */
   profilingSince?: Date | null;
   totalCostInr?: string;
+  /** The event-spine headline for the ratio. The legs below are what make it up in production. */
   profilingCostInr?: string;
+  realCostInr?: string;
   testCostInr?: string;
+  deletedCostInr?: string;
   profilesCompleted?: number;
+  realProfiles?: number;
+  testProfiles?: number;
+  deletedProfiles?: number;
   workerStatuses?: AdminKeyCount[];
   profileStatuses?: AdminKeyCount[];
   postingStatuses?: AdminKeyCount[];
@@ -112,6 +118,9 @@ interface Asked {
   profileCountSince: Date | null;
   profileCountStatuses: readonly string[] | null;
   profileCountCalls: number;
+  splitSince: Date | null;
+  splitTaskTypes: readonly string[] | null;
+  splitCalls: number;
 }
 
 function blankAsked(): Asked {
@@ -120,6 +129,9 @@ function blankAsked(): Asked {
     profileCountSince: null,
     profileCountStatuses: null,
     profileCountCalls: 0,
+    splitSince: null,
+    splitTaskTypes: null,
+    splitCalls: 0,
   };
 }
 
@@ -165,16 +177,6 @@ function makeService(over: Overrides = {}, asked: Asked = blankAsked()): AdminDa
         since: over.profilingSince === undefined ? ACCRUAL_START : over.profilingSince,
       };
     },
-    countCurrentProfilesCompletedSince: async (since: Date, statuses: readonly string[]) => {
-      asked.profileCountSince = since;
-      asked.profileCountStatuses = statuses;
-      asked.profileCountCalls += 1;
-      return over.profilesCompleted ?? 5;
-    },
-    countCurrentProfilesCompletedSinceSplit: async () => ({
-      realProfiles: 4,
-      testProfiles: 1,
-    }),
     countWorkersByStatus: async () => over.workerStatuses ?? [{ key: "active", count: 7 }],
     countWorkersPendingDeletion: async () => 2,
     countCurrentProfilesByStatus: async () =>
@@ -193,12 +195,40 @@ function makeService(over: Overrides = {}, asked: Asked = blankAsked()): AdminDa
         { key: "user_daily_cap_exceeded", count: 9 },
         { key: "cumulative_cap_exceeded", count: 1 },
       ],
-    profilingCostTestSplit: async () => ({
-      testCostInr: over.testCostInr ?? "4.750000",
-      testCalls: 40,
-      realCostInr: "15.000000",
-      realCalls: 100,
-    }),
+    profilingCostSplit: async (since: Date, taskTypes: readonly string[]) => {
+      asked.splitSince = since;
+      asked.splitTaskTypes = taskTypes;
+      asked.splitCalls += 1;
+      const deletedCost = over.deletedCostInr ?? "0";
+      const deletedCalls = Number(deletedCost) > 0 ? 2 : 0;
+      return {
+        totalCostInr: over.profilingCostInr ?? "19.750000",
+        totalCalls: 140,
+        totalRealCalls: 130,
+        byPopulation: {
+          real: { totalCostInr: over.realCostInr ?? "15.000000", calls: 100, realCalls: 90 },
+          test: { totalCostInr: over.testCostInr ?? "4.750000", calls: 40, realCalls: 40 },
+          deleted_or_unattributed: {
+            totalCostInr: deletedCost,
+            calls: deletedCalls,
+            realCalls: deletedCalls,
+          },
+        },
+      };
+    },
+    profilingProfilesCompletedSince: async (since: Date, statuses: readonly string[]) => {
+      asked.profileCountSince = since;
+      asked.profileCountStatuses = statuses;
+      asked.profileCountCalls += 1;
+      const total = over.profilesCompleted ?? 5;
+      const real = over.realProfiles ?? Math.min(4, total);
+      const test = over.testProfiles ?? Math.min(1, total - real);
+      const deleted = over.deletedProfiles ?? total - real - test;
+      return {
+        totalProfiles: total,
+        byPopulation: { real, test, deleted_or_unattributed: deleted },
+      };
+    },
   } as unknown as AdminEventsRepository;
 
   return new AdminDashboardService(repo, events);
@@ -315,6 +345,9 @@ describe("AI cost — what a finished profile costs", () => {
     ]);
     expect(asked.profilingTaskTypes).not.toContain("profiling_free_reply");
     expect(asked.profilingTaskTypes).not.toContain("resume_generation");
+    // The event-spine numerator gets the SAME allowlist, or the headline could include a task
+    // type the window does not.
+    expect(asked.splitTaskTypes).toEqual(PROFILING_TASK_TYPES);
     // …and the response says which set it used, so the split is auditable from the wire.
     const out = await makeService().summary(DTO);
     expect(out.ai_cost.per_profile!.profiling_task_types).toEqual(PROFILING_TASK_TYPES);
@@ -361,13 +394,14 @@ describe("AI cost — what a finished profile costs", () => {
     );
   });
 
-  it("uses the ONE bound for both halves — the count's is the block's own `since`", async () => {
-    // Whatever that bound is, the two halves must share it: the field the portal dates both
-    // tiles from has to be the field the count was actually filtered by.
+  it("uses the ONE bound for all three reads — count, split and the block's own `since`", async () => {
+    // Whatever that bound is, the halves must share it: the field the portal dates both
+    // tiles from has to be the field the count and the spend were actually filtered by.
     for (const profilingSince of [ACCRUAL_START, new Date("2026-08-21T00:00:00.000Z")]) {
       const asked = blankAsked();
       const out = await makeService({ profilingSince }, asked).summary(DTO);
       expect(asked.profileCountSince).toEqual(out.ai_cost.per_profile!.since);
+      expect(asked.splitSince).toEqual(out.ai_cost.per_profile!.since);
     }
   });
 
@@ -405,6 +439,8 @@ describe("AI cost — what a finished profile costs", () => {
     // …and the count is not even ISSUED: a count over all time would be the wrong number
     // rather than an unused one, and issuing it invites someone to start using it.
     expect(asked.profileCountCalls).toBe(0);
+    // Neither spine read is issued when there is no window.
+    expect(asked.splitCalls).toBe(0);
     // The rest of the cost section is unaffected — a genuine zero is still a zero.
     expect(out.ai_cost.total_cost_inr).toBe("0");
     expect(out.ai_cost.accruing_since).toBeNull();
@@ -432,6 +468,7 @@ describe("AI cost — what a finished profile costs", () => {
     ).summary(DTO);
     expect(out.ai_cost.per_profile).toBeNull();
     expect(asked.profileCountCalls).toBe(0);
+    expect(asked.splitCalls).toBe(0);
     // The SECTION still reports its own bound and its own money — only the ratio is absent.
     expect(out.ai_cost.accruing_since).toEqual(ACCRUAL_START);
     expect(out.ai_cost.total_cost_inr).toBe("22.750000");
@@ -476,9 +513,9 @@ describe("AI cost — what a finished profile costs", () => {
     // WORKERS, and the number cannot say which reading it is — so the codes ship beside it.
     expect(perProfile.basis).toBe(COST_PER_PROFILE_BASIS_INCLUDES_ABANDONED);
     expect(perProfile.window_caveat).toBe(COST_PER_PROFILE_WINDOW_EDGE_SKEW);
-    // The third caveat: DPDP erasure takes the profile out of the count and leaves the money
-    // in the total, so this average drifts upward permanently and the drift accumulates.
-    expect(perProfile.erasure_caveat).toBe(COST_PER_PROFILE_ERASURE_BIAS);
+    // The third code: erasure is handled by sourcing both halves from the event spine, and the
+    // deleted rows are separated rather than left to inflate the real average.
+    expect(perProfile.erasure_caveat).toBe(COST_PER_PROFILE_ERASURE_TREATMENT);
     // STABLE machine codes, not prose — the portal keys captions off them.
     expect(COST_PER_PROFILE_BASIS_INCLUDES_ABANDONED).toBe(
       "profiling_spend_per_completed_profile_incl_abandoned_interviews",
@@ -486,7 +523,9 @@ describe("AI cost — what a finished profile costs", () => {
     expect(COST_PER_PROFILE_WINDOW_EDGE_SKEW).toBe(
       "interviews_straddling_the_accrual_bound_are_split",
     );
-    expect(COST_PER_PROFILE_ERASURE_BIAS).toBe("erased_workers_leave_the_count_but_not_the_spend");
+    expect(COST_PER_PROFILE_ERASURE_TREATMENT).toBe(
+      "erasure_keeps_completed_profiles_and_spend_together",
+    );
   });
 
   it("₹ stays an exact decimal STRING on both halves of the ratio", async () => {
@@ -498,7 +537,7 @@ describe("AI cost — what a finished profile costs", () => {
     expect(perProfile.cost_per_profile_inr).toMatch(/^\d+\.\d{6}$/);
   });
 
-  it("carries the ADDITIVE real/test split without moving the headline average", async () => {
+  it("carries the ADDITIVE population split without moving the headline average", async () => {
     const out = await makeService().summary(DTO);
     const perProfile = out.ai_cost.per_profile!;
     // Headline untouched: 19.75 over 5, exactly as before the split existed.
@@ -511,7 +550,42 @@ describe("AI cost — what a finished profile costs", () => {
     expect(perProfile.test_split.test_calls).toBe(40);
     expect(perProfile.test_split.test_profiles).toBe(1);
     expect(perProfile.test_split.test_cost_per_profile_inr).toBe("4.750000");
+    // No deleted rows in this fixture — the leg is present and zero, not missing.
+    expect(perProfile.test_split.deleted_or_unattributed_cost_inr).toBe("0");
+    expect(perProfile.test_split.deleted_or_unattributed_calls).toBe(0);
+    expect(perProfile.test_split.deleted_or_unattributed_profiles).toBe(0);
     expect(perProfile.test_split_caveat).toBe(COST_PER_PROFILE_TEST_SPLIT_CONVERGES);
+  });
+
+  it("deleted spend is its own leg and never enters the real average", async () => {
+    const out = await makeService({
+      profilingCostInr: "22.250000",
+      realCostInr: "15.000000",
+      testCostInr: "4.750000",
+      deletedCostInr: "2.500000",
+      profilesCompleted: 7,
+      realProfiles: 4,
+      testProfiles: 1,
+      deletedProfiles: 2,
+    }).summary(DTO);
+    const perProfile = out.ai_cost.per_profile!;
+    // Headline includes all three legs: 22.25 over 7.
+    expect(perProfile.profiling_cost_inr).toBe("22.250000");
+    expect(perProfile.profiles_extracted_or_confirmed).toBe(7);
+    expect(perProfile.cost_per_profile_inr).toBe("3.178571");
+    // The real leg is untouched by the deleted rupees — that is the whole point.
+    expect(perProfile.test_split.real_cost_inr).toBe("15.000000");
+    expect(perProfile.test_split.real_cost_per_profile_inr).toBe("3.750000");
+    expect(perProfile.test_split.test_cost_per_profile_inr).toBe("4.750000");
+    expect(perProfile.test_split.deleted_or_unattributed_cost_inr).toBe("2.500000");
+    expect(perProfile.test_split.deleted_or_unattributed_calls).toBe(2);
+    expect(perProfile.test_split.deleted_or_unattributed_profiles).toBe(2);
+    // The legs are the headline, not three estimates beside it.
+    expect(
+      Number(perProfile.test_split.real_cost_inr) +
+        Number(perProfile.test_split.test_cost_inr) +
+        Number(perProfile.test_split.deleted_or_unattributed_cost_inr),
+    ).toBeCloseTo(Number(perProfile.profiling_cost_inr), 10);
   });
 
   it("the classification lists are non-empty — an empty IN list is a runtime error", () => {

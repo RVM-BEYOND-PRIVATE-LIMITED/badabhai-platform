@@ -2,6 +2,7 @@ import "reflect-metadata";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDbClient, type DbClient } from "@badabhai/db";
 import { DEFAULT_MATCH_CONFIG, rankKeyCompare, type RankInputs } from "@badabhai/match-engine";
+import { levelNeededSpec } from "@badabhai/taxonomy";
 import { MatchFeedRepository, type CandidateRow } from "./match-feed.repository";
 import { MatchCandidatesService } from "./match-candidates.service";
 
@@ -260,4 +261,156 @@ async function cleanup(client: DbClient): Promise<void> {
     await sql`DELETE FROM workers WHERE id = ${uuid(f.n)}::uuid`;
   }
   await sql`DELETE FROM workers WHERE id = ${LEAVER_ID}::uuid`;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+ * ENGINE v1.1 — "LEVEL NEEDED" PARITY (CEO ruling 30 Oct 2026, ADR-0061).
+ *
+ * The level key exists in the same two places as the rest of the tuple: `levelSortKey` in the
+ * SQL and `levelOrder` in `rankKeyCompare` (fed by `levelFitFor`). Same gate: the same rows,
+ * through Postgres and through the comparator, must come back in the same order — and the
+ * ruling's §3 worked example must come back in the ruling's order.
+ * ═════════════════════════════════════════════════════════════════════════════ */
+
+const LEVEL_POSTING_ID = uuid(9101);
+const SETTER_NEEDED = levelNeededSpec("cnc_turner", "setter")!;
+
+/** One applicant on the levelled posting: the frozen snapshot, rung included. */
+interface LevelFixture {
+  n: number;
+  matchTier: number | null;
+  skillMonths: number | null;
+  tradeLevel: string | null;
+  levelConfirmed: boolean | null;
+  createdAtOffsetMin: number;
+}
+
+const LEVEL_FIXTURES: LevelFixture[] = [
+  // The §3 worked example — A Setter 48, D not confirmed 72, B Operator 120, C related Setter.
+  // C at 24 months: under the floor, so he stays in the related group (owner ruling 2026-11-04).
+  { n: 101, matchTier: 1, skillMonths: 48, tradeLevel: "setter", levelConfirmed: true, createdAtOffsetMin: 0 },
+  { n: 102, matchTier: 1, skillMonths: 72, tradeLevel: null, levelConfirmed: null, createdAtOffsetMin: 1 },
+  { n: 103, matchTier: 1, skillMonths: 120, tradeLevel: "operator", levelConfirmed: false, createdAtOffsetMin: 2 },
+  { n: 104, matchTier: 2, skillMonths: 24, tradeLevel: "setter", levelConfirmed: true, createdAtOffsetMin: 3 },
+  // A 'koi aur' Setter: the middle group, above every below-level worker.
+  { n: 105, matchTier: 1, skillMonths: 200, tradeLevel: "setter", levelConfirmed: false, createdAtOffsetMin: 4 },
+  // A rung the turner ladder does not know: the middle group, never a guessed position.
+  { n: 106, matchTier: 1, skillMonths: 60, tradeLevel: "senior", levelConfirmed: true, createdAtOffsetMin: 5 },
+  // An old-pack helper: below a Setter post (helper sorts as a trainee).
+  { n: 107, matchTier: 1, skillMonths: 300, tradeLevel: "helper", levelConfirmed: false, createdAtOffsetMin: 6 },
+  // A floor-promoted related Programmer: tier-1 ordering, meets.
+  { n: 108, matchTier: 2, skillMonths: 96, tradeLevel: "programmer", levelConfirmed: true, createdAtOffsetMin: 7 },
+  // An unsnapshotted row (pre-0153 / pre-V1): not confirmed, tier 2 by the COALESCE.
+  { n: 109, matchTier: null, skillMonths: null, tradeLevel: null, levelConfirmed: null, createdAtOffsetMin: 8 },
+];
+
+/** The levelled posting's payer as the tenant key — the default (no-org) mode's key IS the payer. */
+const LEVEL_PAYER_KEY = PAYER_ID as unknown as Parameters<
+  MatchFeedRepository["listRankedCandidatesByApplication"]
+>[0];
+
+describe.skipIf(!RUN)("Matching v1.1 — 'Level needed' SQL vs rankKeyCompare parity (ADR-0061)", () => {
+  let client: DbClient;
+  let repo: MatchFeedRepository;
+  // Keyed by the id as Postgres prints it, exactly as the service builds it.
+  const sorts = new Map([[LEVEL_POSTING_ID, SETTER_NEEDED]]);
+
+  beforeAll(async () => {
+    client = createDbClient(DATABASE_URL, { max: 1 });
+    repo = new MatchFeedRepository(client.db);
+    await seedLevelled(client);
+  }, 60_000);
+
+  afterAll(async () => {
+    if (client) {
+      await cleanupLevelled(client);
+      await client.sql.end({ timeout: 5 });
+    }
+  });
+
+  it("orders the SAME levelled rows identically in Postgres and in the engine", async () => {
+    const fromSql = await repo.listCandidates(LEVEL_POSTING_ID, FLOOR, 500, sorts);
+    expect(fromSql.length).toBe(LEVEL_FIXTURES.length);
+    const inputs = MatchCandidatesService.toRankInputs(fromSql, SETTER_NEEDED);
+    const fromEngine = [...inputs].sort((a, b) => rankKeyCompare(a, b, DEFAULT_MATCH_CONFIG));
+    expect(fromEngine.map((r) => r.id)).toEqual(fromSql.map((r) => r.applicationId));
+  });
+
+  it("produces the ruling's §3 order: A → D → B → C", async () => {
+    const rows = await repo.listCandidates(LEVEL_POSTING_ID, FLOOR, 500, sorts);
+    const at = (n: number) => rows.findIndex((r) => r.applicationId === uuid(n));
+    expect(at(101)).toBeLessThan(at(102));
+    expect(at(102)).toBeLessThan(at(103));
+    expect(at(103)).toBeLessThan(at(104));
+  });
+
+  it("keeps the floor as it is: a promoted related Programmer leads the meets group", async () => {
+    const rows = await repo.listCandidates(LEVEL_POSTING_ID, FLOOR, 500, sorts);
+    expect(rows[0]!.applicationId).toBe(uuid(108));
+  });
+
+  it("nobody leaves the list, and 'Any level' is the v1.0 order over the same rows", async () => {
+    const levelled = await repo.listCandidates(LEVEL_POSTING_ID, FLOOR, 500, sorts);
+    const plain = await repo.listCandidates(LEVEL_POSTING_ID, FLOOR, 500);
+    expect([...levelled.map((r) => r.applicationId)].sort()).toEqual(
+      [...plain.map((r) => r.applicationId)].sort(),
+    );
+    const v10 = MatchCandidatesService.toRankInputs(plain).sort((a, b) =>
+      rankKeyCompare(a, b, DEFAULT_MATCH_CONFIG),
+    );
+    expect(plain.map((r) => r.applicationId)).toEqual(v10.map((r) => r.id));
+  });
+
+  it("the inbox window ranks each applicant where the per-posting list puts him", async () => {
+    const list = await repo.listCandidates(LEVEL_POSTING_ID, FLOOR, 500, sorts);
+    const ranked = await repo.listRankedCandidatesByApplication(
+      LEVEL_PAYER_KEY,
+      [LEVEL_POSTING_ID],
+      list.map((r) => r.applicationId),
+      FLOOR,
+      sorts,
+    );
+    const rankOf = new Map(ranked.map((r) => [r.applicationId, r.rank]));
+    expect(list.map((r) => rankOf.get(r.applicationId))).toEqual(list.map((_, i) => i + 1));
+  });
+});
+
+async function seedLevelled(client: DbClient): Promise<void> {
+  const { sql } = client;
+  await cleanupLevelled(client);
+  await sql`
+    INSERT INTO job_postings (id, created_by, payer_id, org_label, role_title, vacancy_band, status,
+                              match_skill_ids, reach_skill_ids, published_at, role_kind, trade_level)
+    VALUES (${LEVEL_POSTING_ID}::uuid, ${OPS_ACTOR}::uuid, ${PAYER_ID}::uuid,
+            'Level Parity Fixture', 'CNC Turner', '1', 'open',
+            '["mskill_cnc_turner"]'::jsonb, '["mskill_cnc_turner","mskill_vmc_operator"]'::jsonb,
+            now(), 'cnc_turner', 'setter')
+  `;
+  for (const f of LEVEL_FIXTURES) {
+    const workerId = uuid(f.n);
+    // Synthetic markers in the two NOT NULL phone columns — no real phone, no PII fixture.
+    await sql`
+      INSERT INTO workers (id, phone_e164, phone_hash, status)
+      VALUES (${workerId}::uuid, ${"enc:level-parity-" + f.n}, ${"hash:level-parity-" + f.n}, 'active')
+      ON CONFLICT (id) DO NOTHING
+    `;
+    const createdAt = new Date(BASE_MS + f.createdAtOffsetMin * 60_000).toISOString();
+    await sql`
+      INSERT INTO applications (id, worker_id, job_posting_id, action, source_surface,
+                                match_tier, skill_months, industry_months, last_worked_at,
+                                engine_version, trade_level, level_confirmed, created_at)
+      VALUES (${uuid(f.n)}::uuid, ${workerId}::uuid, ${LEVEL_POSTING_ID}::uuid, 'applied', 'feed',
+              ${f.matchTier}, ${f.skillMonths}, ${f.skillMonths}, NULL,
+              'v1.1', ${f.tradeLevel}, ${f.levelConfirmed}::boolean, ${createdAt}::timestamptz)
+    `;
+  }
+}
+
+async function cleanupLevelled(client: DbClient): Promise<void> {
+  const { sql } = client;
+  await sql`DELETE FROM applications WHERE job_posting_id = ${LEVEL_POSTING_ID}::uuid`;
+  await sql`DELETE FROM job_postings WHERE id = ${LEVEL_POSTING_ID}::uuid`;
+  for (const f of LEVEL_FIXTURES) {
+    await sql`DELETE FROM workers WHERE id = ${uuid(f.n)}::uuid`;
+  }
 }

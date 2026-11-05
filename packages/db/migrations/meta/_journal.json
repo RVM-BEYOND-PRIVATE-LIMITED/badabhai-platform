@@ -968,6 +968,125 @@
       "when": 1793342267126,
       "tag": "0137_worker_trade_level",
       "breakpoints": true
+    },
+    {
+      "idx": 138,
+      "version": "7",
+      "when": 1793452574775,
+      "tag": "0138_payer_password_auth",
+      "breakpoints": true
+    },
+    {
+      "idx": 139,
+      "version": "7",
+      "when": 1793615464981,
+      "tag": "0139_job_role_kind_3d",
+      "breakpoints": true
+    },
+    {
+      "idx": 140,
+      "version": "7",
+      "when": 1793616190501,
+      "tag": "0140_wri_role_kind_3d",
+      "breakpoints": true
+    },
+    {
+      "idx": 141,
+      "version": "7",
+      "when": 1793695965412,
+      "tag": "0141_trade_posting_fields",
+      "breakpoints": true
+    },
+    {
+      "idx": 142,
+      "version": "7",
+      "when": 1793710849274,
+      "tag": "0142_job_role_kind_plc",
+      "breakpoints": true
+    },
+    {
+      "idx": 143,
+      "version": "7",
+      "when": 1793710858642,
+      "tag": "0143_wri_role_kind_plc",
+      "breakpoints": true
+    },
+    {
+      "idx": 144,
+      "version": "7",
+      "when": 1793715747298,
+      "tag": "0144_admin_password_auth",
+      "breakpoints": true
+    },
+    {
+      "idx": 145,
+      "version": "7",
+      "when": 1793766472554,
+      "tag": "0145_job_role_kind_edm",
+      "breakpoints": true
+    },
+    {
+      "idx": 146,
+      "version": "7",
+      "when": 1793766479922,
+      "tag": "0146_wri_role_kind_edm",
+      "breakpoints": true
+    },
+    {
+      "idx": 147,
+      "version": "7",
+      "when": 1793769806667,
+      "tag": "0147_job_role_kind_heat",
+      "breakpoints": true
+    },
+    {
+      "idx": 148,
+      "version": "7",
+      "when": 1793769811987,
+      "tag": "0148_wri_role_kind_heat",
+      "breakpoints": true
+    },
+    {
+      "idx": 149,
+      "version": "7",
+      "when": 1793774398718,
+      "tag": "0149_job_role_kind_production_supervisor",
+      "breakpoints": true
+    },
+    {
+      "idx": 150,
+      "version": "7",
+      "when": 1793774400815,
+      "tag": "0150_wri_role_kind_production_supervisor",
+      "breakpoints": true
+    },
+    {
+      "idx": 151,
+      "version": "7",
+      "when": 1793776335278,
+      "tag": "0151_job_role_kind_foundry",
+      "breakpoints": true
+    },
+    {
+      "idx": 152,
+      "version": "7",
+      "when": 1793776337424,
+      "tag": "0152_wri_role_kind_foundry",
+      "breakpoints": true
+    },
+    {
+      "idx": 153,
+      "version": "7",
+      "when": 1793778470731,
+      "tag": "0153_application_trade_level",
+      "breakpoints": true
+    },
+    {
+      "idx": 154,
+      "version": "7",
+      "when": 1793784434972,
+      "tag": "0154_payer_login_management",
+      "breakpoints": true
     }
   ]
 }

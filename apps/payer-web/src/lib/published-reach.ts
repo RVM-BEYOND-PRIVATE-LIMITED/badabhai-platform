@@ -29,7 +29,15 @@ export function parsePublishedReach(raw: string | string[] | undefined): number 
   return Number(value);
 }
 
-/** "Reached 1 worker" / "Reached 12 workers". */
-export function publishedReachMessage(reached: number): string {
-  return `Reached ${reached.toLocaleString("en-IN")} ${reached === 1 ? "worker" : "workers"}`;
+/**
+ * The confirmation reads "Reached <N> <unit>" — "Reached 1 worker" / "Reached 12 workers". The
+ * figure is its own piece, because the notice counts it up (#2585); the unit is the FINAL count's.
+ */
+export function formatReach(reached: number): string {
+  return reached.toLocaleString("en-IN");
+}
+
+/** "worker" for one, "workers" otherwise. */
+export function reachUnit(reached: number): "worker" | "workers" {
+  return reached === 1 ? "worker" : "workers";
 }

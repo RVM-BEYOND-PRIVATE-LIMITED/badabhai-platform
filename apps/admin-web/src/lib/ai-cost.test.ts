@@ -4,6 +4,7 @@ import {
   CAP_BREACH_SCOPE_PROFILE_EXTRACTION,
   COST_PER_PROFILE_BASIS_INCLUDES_ABANDONED,
   COST_PER_PROFILE_ERASURE_BIAS,
+  COST_PER_PROFILE_ERASURE_TREATMENT,
   COST_PER_PROFILE_TEST_SPLIT_CONVERGES,
   COST_PER_PROFILE_WINDOW_EDGE_SKEW,
   capBreachReasonLabel,
@@ -49,7 +50,7 @@ describe("describeAiCostBasis — the figures never travel without their basis",
     // The DATE must be in the headline — the short string a tile label or a screenshot
     // actually carries. A basis that only exists in a paragraph is a basis that gets quoted
     // away from its number.
-    expect(basis.headline).toContain("2026-08-17");
+    expect(basis.headline).toContain("17 Aug 2026");
     expect(basis.headline.toLowerCase()).toContain("since");
   });
 
@@ -265,7 +266,7 @@ describe("describeCostPerProfile — a ratio whose shape hides both of its claim
     const v = view();
     // Not "a date appears somewhere" — the label is the string a tile actually carries, and
     // a figure whose basis lives only in a paragraph gets quoted away from it.
-    expect(v.windowLabel).toBe("since 2026-08-17");
+    expect(v.windowLabel).toBe("since 17 Aug 2026");
     expect(v.windowMismatchSentence).toBeNull();
   });
 
@@ -277,7 +278,7 @@ describe("describeCostPerProfile — a ratio whose shape hides both of its claim
      * the dashboard undercounts. The exact instant belongs in this block, not two elements up.
      */
     const v = view();
-    expect(v.windowSentence).toContain("2026-08-17 01:00:00Z");
+    expect(v.windowSentence).toContain("17 Aug 2026, 06:30 IST");
   });
 
   it("says the window edges skew it, and does not claim a direction", () => {
@@ -313,16 +314,18 @@ describe("describeCostPerProfile — a ratio whose shape hides both of its claim
       },
     });
     expect(v.averageIsAbsent).toBe(true);
+    expect(v.averageExactText).toBeNull();
     expect(v.averageText).not.toContain("₹");
     expect(v.averageText).not.toContain("0.00");
     expect(v.averageText.toLowerCase()).toContain("no profile");
     expect(v.averageAbsentSentence).toContain("not a measured");
   });
 
-  it("renders a real average as an exact ₹ amount, all six places kept", () => {
+  it("renders a real average at display precision, the exact amount kept for the hover (#2572)", () => {
     const v = view();
     expect(v.averageIsAbsent).toBe(false);
-    expect(v.averageText).toBe("₹5.985775");
+    expect(v.averageText).toBe("₹5.99");
+    expect(v.averageExactText).toBe("₹5.985775");
     expect(v.averageAbsentSentence).toBeNull();
   });
 
@@ -333,9 +336,10 @@ describe("describeCostPerProfile — a ratio whose shape hides both of its claim
      * one the headline would silently drop the other population from the period's figure.
      */
     const v = view();
-    expect(v.averageText).toBe("₹5.985775");
+    expect(v.averageText).toBe("₹5.99");
     const split = splitView();
-    expect(split.real.averageText).toBe("₹6.48293");
+    expect(split.real.averageText).toBe("₹6.48");
+    expect(split.real.averageExactText).toBe("₹6.48293");
     expect(split.test.averageText).toBe("₹3.50");
     // The headline is neither leg, and the legs are not the headline.
     expect(v.averageText).not.toBe(split.real.averageText);
@@ -348,7 +352,7 @@ describe("describeCostPerProfile — a ratio whose shape hides both of its claim
     expect(split.real.calls).toBe(120);
     expect(split.test.profiles).toBe(2);
     expect(split.test.calls).toBe(20);
-    expect(split.real.spendText).toBe("₹64.8293");
+    expect(split.real.spendText).toBe("₹64.83");
     expect(split.test.spendText).toBe("₹7.00");
   });
 
@@ -365,6 +369,7 @@ describe("describeCostPerProfile — a ratio whose shape hides both of its claim
     });
     expect(split.test.averageIsAbsent).toBe(true);
     expect(split.test.averageText).toBe("No test profile finished yet");
+    expect(split.test.averageExactText).toBeNull();
     expect(split.test.averageText).not.toContain("₹");
     // A genuine ₹0 spend on the leg still renders as money — that IS a measurement.
     const zeroSpend = splitView({
@@ -443,17 +448,17 @@ describe("describeCostPerProfile — a ratio whose shape hides both of its claim
      */
     const v = view({ accruing_since: "2026-06-01T00:00:00.000Z" });
     expect(v.windowMismatchSentence).toBeNull();
-    expect(v.sectionBoundSentence).toContain("2026-06-01");
+    expect(v.sectionBoundSentence).toContain("1 Jun 2026");
     expect(v.sectionBoundSentence!.toLowerCase()).toContain("first profiling call");
     // …and BOTH tiles still carry THIS block's bound, not the section's.
-    expect(v.windowLabel).toBe("since 2026-08-17");
+    expect(v.windowLabel).toBe("since 17 Aug 2026");
   });
 
   it("WARNS only when the server contradicts itself — a subset bound BEFORE the whole", () => {
     // Arithmetically impossible for a minimum over a subset, so it means the two figures did
     // not come from the same table state and the ratio is not a ratio of anything.
     const v = view({ per_profile: { ...PER_PROFILE, since: "2026-01-01T00:00:00.000Z" } });
-    expect(v.windowMismatchSentence).toContain("2026-01-01");
+    expect(v.windowMismatchSentence).toContain("1 Jan 2026");
     expect(v.windowMismatchSentence!.toLowerCase()).toContain("contradicting itself");
     expect(v.sectionBoundSentence).toBeNull();
   });
@@ -480,7 +485,7 @@ describe("describeCostPerProfile — a ratio whose shape hides both of its claim
      * pinned false) and asserted now, which is the whole reason the lifetime branch exists.
      */
     const v = view({ is_lifetime_total: true });
-    expect(v.windowLabel).toBe("since 2026-08-17");
+    expect(v.windowLabel).toBe("since 17 Aug 2026");
     expect(v.windowLabel).not.toContain("all time");
   });
 
@@ -618,6 +623,87 @@ describe("cap-breach reasons — one worker's budget is not a platform outage", 
   it("shows an unmapped reason raw rather than blank", () => {
     expect(capBreachReasonLabel("a_reason_from_a_later_build")).toBe(
       "a reason from a later build",
+    );
+  });
+});
+
+describe("describeCostPerProfile — the #2554 contract (API #2604)", () => {
+  const base: CostPerProfileInput = {
+    since: SINCE,
+    profiling_task_types: ["profile_extraction"],
+    profiling_cost_inr: "10.000000",
+    profiling_calls: 20,
+    profiling_real_calls: 20,
+    profiles_extracted_or_confirmed: 5,
+    cost_per_profile_inr: "2.000000",
+    basis: COST_PER_PROFILE_BASIS_INCLUDES_ABANDONED,
+    window_caveat: COST_PER_PROFILE_WINDOW_EDGE_SKEW,
+    erasure_caveat: COST_PER_PROFILE_ERASURE_TREATMENT,
+    test_split: {
+      real_cost_inr: "6.000000",
+      real_calls: 12,
+      real_profiles: 3,
+      real_cost_per_profile_inr: "2.000000",
+      test_cost_inr: "1.000000",
+      test_calls: 2,
+      test_profiles: 1,
+      test_cost_per_profile_inr: "1.000000",
+      deleted_or_unattributed_cost_inr: "3.000000",
+      deleted_or_unattributed_calls: 6,
+      deleted_or_unattributed_profiles: 1,
+    },
+    test_split_caveat: COST_PER_PROFILE_TEST_SPLIT_CONVERGES,
+  };
+  const view = (perProfile: CostPerProfileInput) => {
+    const s = describeCostPerProfile({
+      accruing_since: SINCE,
+      is_lifetime_total: false,
+      caveat: AI_COST_CAVEAT_SINCE_0077,
+      per_profile: perProfile,
+      by_task_type: [{ task_type: "profile_extraction" }],
+    });
+    if (s.kind !== "measured") throw new Error(`expected measured, got "${s.kind}"`);
+    return s.view;
+  };
+
+  it("surfaces the deleted-accounts leg as its own figure", () => {
+    const split = view(base).testSplit;
+    if (split.kind !== "measured") throw new Error("expected a measured split");
+    expect(split.deleted).toEqual({
+      spendText: "₹3.00",
+      spendExactText: "₹3.00",
+      calls: 6,
+      profiles: 1,
+    });
+    expect(split.caveatSentence).toContain("never counted as real");
+    expect(split.caveatSentence).not.toContain("not marked test");
+  });
+
+  it("treats a half-sent deleted leg as not sent — no ₹ beside a missing count", () => {
+    const { deleted_or_unattributed_profiles: _gone, ...half } = base.test_split!;
+    const split = view({ ...base, test_split: half }).testSplit;
+    if (split.kind !== "measured") throw new Error("expected a measured split");
+    expect(split.deleted).toBeNull();
+    // And then the older caveat is the true one: untagged rows still read as real.
+    expect(split.caveatSentence).toContain("not marked test");
+  });
+
+  it("says erasure moves neither half, and counts completion events", () => {
+    const v = view(base);
+    expect(v.erasureSentence).toContain("moves neither half");
+    expect(v.erasureSentence).not.toContain("drifts upward");
+    expect(v.completedSentence).toContain("completion event");
+  });
+
+  it("keeps the old sentences for an API older than #2604", () => {
+    const v = view({ ...base, erasure_caveat: COST_PER_PROFILE_ERASURE_BIAS });
+    expect(v.erasureSentence).toContain("drifts upward");
+    expect(v.completedSentence).toContain("first written");
+  });
+
+  it("shows an unknown erasure code raw, never a guessed sentence", () => {
+    expect(view({ ...base, erasure_caveat: "something_new" }).erasureSentence).toContain(
+      "does not recognise: something_new",
     );
   });
 });

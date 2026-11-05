@@ -870,3 +870,73 @@ describe("materialize — a lifecycle rebuild KEEPS in-force ops widens (Policy 
     },
   );
 });
+
+describe("materialize — #2635 matching runs only for the 16 postable trades", () => {
+  const WELDER = "mskill_welder";
+  const ARC = "mskill_arc_welder";
+  const GRINDING = "mskill_cnc_grinding_operator";
+  const GENERAL = "mskill_cnc_operator_general";
+  const payer = { actor_type: "payer" as const, actor_id: PAYER };
+
+  it("stores a 16-trade posting's set SCOPED to its trade and records what was dropped", async () => {
+    const { svc, repo, events } = setup();
+    const result = await svc.materialize(
+      POSTING,
+      {
+        matchSkillIds: [ARC, GRINDING, GENERAL],
+        untickedIds: [],
+        trigger: "publish",
+        actor: payer,
+        roleKind: "welder",
+      },
+      CTX,
+    );
+
+    expect(result.matchSkillIds).toEqual([ARC, WELDER].sort());
+    expect(persisted(repo)[1]).toEqual([ARC, WELDER].sort());
+    for (const cnc of [GRINDING, GENERAL, TURNER, VMC]) {
+      expect(persisted(repo)[2]).not.toContain(cnc);
+    }
+    const scoped = emittedOne(events, "job_posting.match_skills_scoped");
+    expect(scoped.payload).toEqual({
+      job_posting_id: POSTING,
+      role_kind: "welder",
+      trigger: "publish",
+      kept_skill_ids: [ARC, WELDER].sort(),
+      dropped_skill_ids: [GRINDING, GENERAL],
+    });
+    expect(scoped.actor).toEqual(payer);
+  });
+
+  it("keeps related reach inside the 16 — a VMC job no longer reaches setter-operators", async () => {
+    const { svc, repo } = setup();
+    await svc.materialize(
+      POSTING,
+      { matchSkillIds: [VMC], untickedIds: [], trigger: "publish", actor: payer, roleKind: "vmc_milling" },
+      CTX,
+    );
+    expect(persisted(repo)[2]).toEqual([HMC, TURNER, VMC].sort());
+    expect(persisted(repo)[2]).not.toContain(SETTER);
+  });
+
+  it("emits no scoping event when nothing was dropped", async () => {
+    const { svc, events } = setup();
+    await svc.materialize(
+      POSTING,
+      { matchSkillIds: [VMC], untickedIds: [], trigger: "publish", actor: payer, roleKind: "vmc_milling" },
+      CTX,
+    );
+    expect(emittedNames(events)).not.toContain("job_posting.match_skills_scoped");
+  });
+
+  it("a posting with no role (ops / agency) keeps the full curated relation and never scopes", async () => {
+    const { svc, repo, events } = setup();
+    await svc.materialize(
+      POSTING,
+      { matchSkillIds: [VMC], untickedIds: [], trigger: "publish", actor: payer },
+      CTX,
+    );
+    expect(persisted(repo)[2]).toEqual(VMC_FULL_REACH);
+    expect(emittedNames(events)).not.toContain("job_posting.match_skills_scoped");
+  });
+});

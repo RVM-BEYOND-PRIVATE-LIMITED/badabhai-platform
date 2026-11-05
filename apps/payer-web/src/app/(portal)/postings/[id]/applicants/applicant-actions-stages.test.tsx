@@ -54,6 +54,11 @@ vi.mock("next/link", () => ({
   }),
 }));
 vi.mock("../../../../../components/nav-pending", () => ({ NavPendingCue: () => null }));
+// The portal's ToastProvider (#2583): a granted unlock is announced through it.
+const toastShow = vi.fn();
+vi.mock("../../../../../components/ds/toast-provider", () => ({
+  useToast: () => ({ show: (t: unknown) => toastShow(t), dismiss: () => {} }),
+}));
 vi.mock("./actions", () => ({
   unlockAction: (i: unknown) => unlockAction(i),
   revealContactAction: (i: unknown) => revealContactAction(i),
@@ -77,7 +82,13 @@ const useState = vi.fn((init: unknown) => {
 });
 vi.mock("react", async () => {
   const actual = await vi.importActual<typeof ReactModule>("react");
-  return { ...actual, useState: (init: unknown) => useState(init) };
+  return {
+    ...actual,
+    useState: (init: unknown) => useState(init),
+    // The live balance (components/live-balance.ts, #2585) is read, never published, here: the
+    // store's snapshot is all a render needs (its subscription is pinned in applicant-feed.test.tsx).
+    useSyncExternalStore: (_subscribe: unknown, getSnapshot: () => unknown) => getSnapshot(),
+  };
 });
 
 const { ApplicantActions } = await import("./applicant-actions");
@@ -120,6 +131,7 @@ function mountBoard(applicants: FacelessApplicant[] | (() => FacelessApplicant[]
       // A function stands for the page re-rendered from a fresh read (a revalidation).
       applicants: typeof applicants === "function" ? applicants() : applicants,
       balance: 5,
+      balanceAsOf: 0,
     }) as ReactElement;
   };
   renderFn();
@@ -134,6 +146,7 @@ function mountInbox(applicants: CandidateRow[]) {
       header: { title: "Candidates", description: "Everyone who applied." },
       applicants,
       balance: 5,
+      balanceAsOf: 0,
     }) as ReactElement;
   };
   renderFn();

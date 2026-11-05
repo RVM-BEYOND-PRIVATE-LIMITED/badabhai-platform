@@ -14,6 +14,16 @@ ops console's privileged data access.
    the backend payer-auth OTP routes (`/payer/login/request` → `/payer/login/verify`)
    mint a payer JWT stored in an httpOnly server cookie. `mock` stays as a local/test
    fallback. A third-party IdP/MFA is B-R1 (a separate human gate).
+   **Password sign-in (#2587)** is the default sign-in view beside the email code:
+   `POST /payer/login/password` (login ID = email, phone or exact company name) mints the same
+   cookie. A temporary password an admin issued (#2628) opens NO session — the API answers
+   `password_change_required` and the "Set a new password" step resends it with `new_password`;
+   only that real session answer signs in. The code door answers such an account with a 409, which
+   sends the payer to the password form.
+   **The code step (#2588)** — sign-in and signup alike — is six boxes (`src/components/otp-input.tsx`).
+   The sixth digit, or a whole pasted or autofilled code, submits through the same verify as the
+   Verify button, one request at a time. A refused code clears the boxes and re-arms them; an
+   accepted one stays readable (locked, with a check) while the dashboard opens.
 2. **Dashboard (LIVE)** — credits (`GET /payer/credits`), unlocks (`GET /payer/unlocks`)
    and postings (`GET /payer/job-postings`), read side by side (`getDashboard`).
 3. **Post a job (LIVE)** — a company posts through `POST /payer/job-postings`
@@ -21,11 +31,30 @@ ops console's privileged data access.
 4. **Applicants (LIVE)** — one posting's feed, reached from that posting:
    `GET /payer/reach/jobs/:jobId/applicants` — faceless ranked rows (opaque id, rank and
    match signals). No name/phone/employer.
-5. **Candidates (LIVE, #2121)** — `/candidates`, a top-level rail item for both personas:
-   every applicant across the payer's own postings, newest first, filterable by posting —
-   `GET /payer/reach/applicants` (#2116). Same faceless cards and the same unlock as
-   Applicants; it shares the per-payer hourly reach cap with the per-posting feed.
-6. **Unlock (LIVE)** — `POST /payer/unlocks`; no-oracle neutral on any deny cause.
+5. **Candidates** — a top-level rail item for both personas, two views (owner rulings
+   2026-11-03):
+   - **All candidates** — `/candidates`, where the tab opens: everyone in the eligible pool
+     (the API decides membership), faceless, filtered by role, years in role, industry, years
+     in industry, city and an opt-in "Only show matches" — `POST /payer/candidates/search` +
+     `GET /payer/candidates/filters` (ADR-0040 E2; contract
+     `packages/types/fixtures/candidate-search-contract.json`). Filters reorder (matches
+     first); the counts come from the same response. Unlock / reveal / masked résumé are the
+     Applicants flow with no posting (`job_id` / `job_posting_id` null).
+   - **Applied (LIVE, #2121)** — `/candidates/applied`: every applicant across the payer's own
+     postings, newest first, filterable by posting — `GET /payer/reach/applicants` (#2116).
+     Same faceless cards and the same unlock as Applicants; it shares the per-payer hourly
+     reach cap with the per-posting feed. An old `/candidates?postingId=` / `?stage=` link is
+     redirected here.
+   - **Paging (both views, #2588)** — keyset, by the server's opaque `nextCursor`. The pager
+     says which rows are on screen ("Showing 21–40 of N"; the inbox answers no total, so
+     Applied says no "of N"): the cursor is never read, so "Next page" also carries `from`,
+     where its page starts — the portal's own count, never sent to the API. A later page
+     reached without it shows no range. Paging moves focus to the list's heading.
+6. **Unlock (LIVE)** — `POST /payer/unlocks`; no-oracle neutral on any deny cause. A grant reads
+   the balance back (`GET /payer/credits`), so the header credits chip and every zero-balance
+   check update with no reload (#2585, `src/components/live-balance.ts`). Each figure carries the
+   server time of its read, and the newest wins — so a page Back / Forward restores with its first
+   props still shows the balance an unlock left.
 7. **Reveal (LIVE)** — `POST /payer/unlocks/:id/reveal` → a **routed relay handle**
    (opaque, expiring) — **never a raw phone**.
 8. **Masked résumé (LIVE)** — `POST /payer/resume-disclosures` (`payer-api.ts`).

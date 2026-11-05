@@ -53,9 +53,17 @@ export const ADMIN_CAPABILITIES = [
   // that is what the agency-job READS sit on, while this gates only the PUT that changes which
   // workers a posting can reach — the same read/write split `review_skill_candidates` makes.
   "manage_agency_match_skills",
+  // #2563 — payer credential administration (create/issue/revoke, User accounts list).
+  // Vocabulary only: this file carries no role mapping. The server tells the portal who holds it.
+  "manage_payer_credentials",
   "toggle_kill_switch",
   "reveal_pii",
   "manage_admins",
+  // READ one candidate's full record — every profile value and where it came from
+  // (`GET /admin/candidates/:id`, ADR-0062, #2560). All four roles on the server; the
+  // Candidates tab's read floor (#2577). Distinct from `read_entities` (ids, enums, counts),
+  // and names on that response stay behind `read_identity`. Tail-appended, like the API's.
+  "read_candidates",
 ] as const;
 
 export type AdminCapability = (typeof ADMIN_CAPABILITIES)[number];
@@ -89,6 +97,7 @@ export const CAPABILITY_LABELS: Record<AdminCapability, string> = {
   // Says what it CHANGES, not where it lives: the selection decides which workers an agency
   // posting reaches, which is the thing an operator is accountable for.
   manage_agency_match_skills: "Set agency job match skills",
+  manage_payer_credentials: "Manage customer logins",
   // "View", not "Toggle" (owner ruling, #1900): the portal UI only ever READS switch state —
   // flipping one is an env/deploy action, never a portal control. (The same capability also
   // gates the API's audit-only `POST /admin/kill-switch/pause-request`, which this portal does
@@ -96,6 +105,7 @@ export const CAPABILITY_LABELS: Record<AdminCapability, string> = {
   toggle_kill_switch: "View kill switch",
   reveal_pii: "Reveal contact details",
   manage_admins: "Manage admins",
+  read_candidates: "Read candidate records — every profile field and where it came from",
 };
 
 /** Narrow an unknown string to a known capability (anything else is dropped, not trusted). */

@@ -205,6 +205,7 @@ def _state_at(topic: str) -> dict:
         "location_label",
         "vacancy",
         "skills",
+        "area",
         "pay_range",
         "experience",
         "shift",

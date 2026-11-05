@@ -56,8 +56,21 @@ void main() {
     // The details→code step animates (BbAnimatedSwitcher). Advance past the swap
     // so the code step is laid out and hittable.
     await tester.pump(const Duration(milliseconds: 300));
+    // #2595 — the code goes into the six OTP boxes, and the sixth digit
+    // submits it: no tap on Verify.
     await tester.enterText(find.byKey(const Key('code_field')), '123456');
-    await tester.tap(find.byKey(const Key('verify_otp')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+    await tester.pump(const Duration(milliseconds: 300));
+
+    // Password step — set + confirm, then create the profile.
+    await tester.enterText(
+        find.byKey(const Key('signup_password')), 'Secret123');
+    await tester.enterText(
+        find.byKey(const Key('signup_confirm')), 'Secret123');
+    await tester.ensureVisible(find.byKey(const Key('create_profile')));
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('create_profile')));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
     await tester.pump(const Duration(milliseconds: 300));

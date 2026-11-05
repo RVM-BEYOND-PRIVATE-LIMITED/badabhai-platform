@@ -187,6 +187,22 @@ export const FAMILY_CHIP_LABELS: Readonly<Record<string, string>> = Object.freez
   // role's occupation term, so an occupation that falls back to this label hands over the form on
   // the pin — the intended route, pinned in the test.
   fam_maintenance_tech: "maintenance technician",
+  // Track A #4. The Latin reading of `label_hi` ("3D CAD डिज़ाइनर"). Formless, like the
+  // polymer batch: a pin here keeps talking (chat retrieval serves the pack), so the label
+  // names the trade without routing to a form that does not exist.
+  fam_cad_design_3d: "3D CAD design",
+  // Phase 2 #6. The Latin reading of `label_hi`. Formless, like 3D: a pin keeps talking.
+  fam_plc_automation: "PLC / automation",
+  // Phase 2 #7. Formless, like PLC: a pin keeps talking.
+  fam_edm_wirecut: "EDM / wire-cut",
+  // Phase 2 #8. Formless, like EDM: a pin keeps talking.
+  fam_heat_treatment: "Heat treatment",
+  // Phase 2 #9. The Latin reading of `label_hi`'s trade words. Formless, like EDM.
+  fam_injection_moulding: "injection moulding",
+  // Phase 2 #10. The Latin reading of `label_hi`. Formless, like EDM.
+  fam_production_supervisor: "production supervisor",
+  // Phase 2 #11. Formless, like heat treatment: a pin keeps talking.
+  fam_foundry_forging: "Foundry / forging",
 });
 
 /**

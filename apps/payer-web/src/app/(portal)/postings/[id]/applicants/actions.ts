@@ -4,17 +4,20 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { requirePayer } from "../../../../../lib/auth";
 import {
+  getCredits,
   requestUnlock,
   reveal,
   revealMaskedResume,
   setApplicantStage,
 } from "../../../../../lib/payer-api";
+import type { BalanceReading } from "../../../../../lib/contracts";
 import { isPayerRateLimited } from "../../../../../lib/payer-errors";
 import { APPLICANT_STAGES, type ApplicantStage } from "../../../../../lib/applicant-stages";
 import {
   mapContactResult,
   mapRevealResult,
   mapUnlockResult,
+  NEUTRAL_UNLOCK_MESSAGE,
   type ContactView,
   type RevealView,
   type UnlockView,
@@ -25,8 +28,8 @@ import {
  *
  * SECURITY:
  *  - XB-A: the payer is resolved from the SERVER-HELD session inside the data seam
- *    (the payer JWT). The client supplies only a postingId + opaque workerId, never
- *    a payer id.
+ *    (the payer JWT). The client supplies only a postingId + opaque workerId (a search
+ *    row's unlock: the workerId alone), never a payer id.
  *  - XB-C (no-oracle): the mappers collapse every deny cause to ONE neutral view;
  *    no branch here infers the cause; nothing is logged.
  *  - REVEAL = ROUTED contact handle ONLY (no phone/number anywhere) — LIVE endpoint.
@@ -35,8 +38,17 @@ import {
 
 const uuid = z.string().uuid();
 
+/**
+ * `readBack` (#2585): the payer's OWN balance, read back from `GET /payer/credits` right after a
+ * GRANT, with when this server read it (`asOf`) — so the screen's zero-balance checks and the
+ * shell's credits chip show what the unlock left, with no reload, and outrank any figure read
+ * before it (components/live-balance.ts). Null when nothing was granted (no read is made) or the
+ * read failed (the grant still stands; the screens keep the figure they had). Never computed: the
+ * unlock response carries no balance, and only the server knows what a grant cost (re-granting a
+ * live one is free).
+ */
 export type UnlockActionResult =
-  | { ok: true; view: UnlockView }
+  | { ok: true; view: UnlockView; readBack: BalanceReading | null }
   | { ok: false; error: string };
 
 export async function unlockAction(input: {
@@ -46,11 +58,60 @@ export async function unlockAction(input: {
   if (!uuid.safeParse(input.postingId).success || !uuid.safeParse(input.workerId).success) {
     return { ok: false, error: "Invalid request." };
   }
+  return spendUnlock(input.postingId, input.workerId);
+}
+
+/**
+ * The SAME unlock for a candidate found through the all-candidates search (`/candidates`, ADR-0040
+ * E2): he applied to no posting, so there is no job context — `job_id` goes out as an explicit
+ * null (the API's own default). The client names only the opaque worker id; the server still
+ * decides every spend (the one neutral body for every deny cause, F-3).
+ *
+ * `isSample` is the row's own flag (R74): a sample row is refused HERE with the API's own neutral
+ * view and no network call. Never sent on — the API refuses a sample unlock regardless.
+ */
+export async function candidateUnlockAction(input: {
+  workerId: string;
+  isSample: boolean;
+}): Promise<UnlockActionResult> {
+  if (!uuid.safeParse(input.workerId).success || typeof input.isSample !== "boolean") {
+    return { ok: false, error: "Invalid request." };
+  }
+  if (input.isSample) {
+    return {
+      ok: true,
+      view: { kind: "unavailable", message: NEUTRAL_UNLOCK_MESSAGE },
+      readBack: null,
+    };
+  }
+  return spendUnlock(null, input.workerId);
+}
+
+/**
+ * One ids-only unlock call — the posting context, or null for none — mapped to its view; a grant
+ * also reads the balance back. A neutral answer reads nothing: nothing was granted, so nothing was
+ * spent (and no balance ever travels beside a deny).
+ */
+async function spendUnlock(postingId: string | null, workerId: string): Promise<UnlockActionResult> {
+  let view: UnlockView;
   try {
-    const result = await requestUnlock(input);
-    return { ok: true, view: mapUnlockResult(result) };
+    view = mapUnlockResult(await requestUnlock({ postingId, workerId }));
   } catch {
     return { ok: false, error: "Unlock failed (service unavailable). Please retry." };
+  }
+  return { ok: true, view, readBack: view.kind === "granted" ? await balanceAfterGrant() : null };
+}
+
+/**
+ * The balance a grant left: `GET /payer/credits`, the payer's own (not reach-capped), stamped with
+ * this server's clock just before the read. Null on a failed read.
+ */
+async function balanceAfterGrant(): Promise<BalanceReading | null> {
+  const asOf = Date.now();
+  try {
+    return { balance: (await getCredits()).balance, asOf };
+  } catch {
+    return null;
   }
 }
 

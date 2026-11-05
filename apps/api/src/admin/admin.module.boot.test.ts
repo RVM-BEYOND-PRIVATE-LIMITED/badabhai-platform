@@ -14,9 +14,13 @@ import { AdminPiiRevealController } from "./admin-pii-reveal.controller";
 import { AdminDashboardController } from "./admin-dashboard.controller";
 import { AdminWorkerJourneyController } from "./admin-worker-journey.controller";
 import { AdminAiTracesController } from "./admin-ai-traces.controller";
+import { AdminPayerLoginsController } from "./admin-payer-logins.controller";
 import { AdminSkillDiscoveryController } from "./admin-skill-discovery.controller";
+import { AdminCandidateDetailController } from "./admin-candidate-detail.controller";
 import { DatabaseModule } from "../database/database.module";
 import { EventsModule } from "../events/events.module";
+import { MatchModule } from "../match/match.module";
+import { WorkersModule } from "../workers/workers.module";
 
 /**
  * DI WIRING REGRESSION GUARD (ADR-0025 ADMIN-1) — mirrors the PayerPortalModule boot guard.
@@ -137,6 +141,35 @@ describe("AdminModule wiring (DI regression guard)", () => {
     expect(tokens).toContain("AdminSkillDiscoveryRepository");
   });
 
+  it("declares the #2560 candidate full-detail controller + EVERY provider its service injects", () => {
+    // `AdminCandidateDetailService` takes eleven constructor dependencies. Four come from imported
+    // modules (`WorkersRepository` from WorkersModule, `WorkerSkillsRepository` from MatchModule,
+    // `EventsService` from EventsModule) or are already provided here (`AdminEntitiesRepository`,
+    // `AdminIdentityService`); the other six must be registered HERE — five of them are non-admin
+    // repositories provided directly (the `ResumeDisclosureModule` pattern) rather than imported
+    // with their modules. A dropped one is a BOOT failure that typecheck and every hand-built unit
+    // test miss.
+    expect(getMeta("controllers", AdminModule)).toContain(AdminCandidateDetailController);
+    const tokens = providerTokens();
+    for (const name of [
+      "AdminCandidateDetailService",
+      "AdminCandidateDetailRepository",
+      "WorkerAttributesRepository",
+      "WorkerQualificationsRepository",
+      "WorkerLanguagesRepository",
+      "WorkerOccupationsRepository",
+      "CandidateSearchRepository",
+      "AdminEntitiesRepository",
+      "AdminIdentityService",
+    ]) {
+      expect(tokens, name).toContain(name);
+    }
+    // ...and the two imported modules whose EXPORTS it relies on.
+    const imports = getMeta("imports", AdminModule);
+    expect(imports).toContain(WorkersModule);
+    expect(imports).toContain(MatchModule);
+  });
+
   it("the cap service can reach the Redis queue it is constructed with", () => {
     // `AdminAiTraceCapService` takes `@InjectQueue(RESUME_RENDER_QUEUE)`, exactly like the reveal
     // and identity caps. That token exists only because this module registers the queue — a
@@ -148,6 +181,34 @@ describe("AdminModule wiring (DI regression guard)", () => {
       (i) => (i as { module?: { name?: string } })?.module?.name === "BullModule",
     );
     expect(queueModules.length, "AdminModule must register the BullMQ queue").toBeGreaterThan(0);
+  });
+
+  it("provides every 0144 password / two-step / provisioning dependency the two controllers inject", () => {
+    // AdminAuthController now injects AdminPasswordService + AdminMfaSelfService, and
+    // AdminActionsController injects AdminProvisioningService; those in turn need the lockout +
+    // trusted-device providers. Each missing registration is a BOOT failure that typecheck, lint
+    // and every hand-constructed unit test miss.
+    const tokens = providerTokens();
+    for (const name of [
+      "AdminPasswordService",
+      "AdminMfaSelfService",
+      "AdminProvisioningService",
+      "AdminAttemptLockoutService",
+      "AdminTrustedDeviceService",
+    ]) {
+      expect(tokens, name).toContain(name);
+    }
+  });
+
+  it("declares the #2563 payer-login controller + provides its service/repository", () => {
+    // The service injects PayersRepository, PayerOrgsRepository, PayerSessionService and
+    // PayerPasswordStateService (all exported by PayersModule), plus the identity layer and
+    // FreeTierService. A dropped registration is a BOOT failure every hand-built unit test
+    // misses.
+    expect(getMeta("controllers", AdminModule)).toContain(AdminPayerLoginsController);
+    const tokens = providerTokens();
+    expect(tokens).toContain("AdminPayerLoginsService");
+    expect(tokens).toContain("AdminPayerLoginsRepository");
   });
 
   it("the providers reference the real classes (no accidental shadowing)", () => {

@@ -258,7 +258,17 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           conventional_lathe: "Conventional lathe",
           vtl: "VTL",
           sliding_head: "Sliding head (Swiss)",
+          // E1 — slot-2 machine options added to qp_cnc_turning@4. Values print
+          // verbatim; keys are the stored value_text.
+          turn_mill: "Turn-mill",
+          // Track A #1 (@6): live_tool and c_axis machine chips merged away —
+          // the turn_mill chip now reads "Turn-mill / live tool" and C-axis
+          // lives on the advanced_capability row. Their old machine answers
+          // drop off the sheet (recorded cost of the sheet-1 machine set).
+          twin_spindle: "Twin spindle",
           spm: "SPM",
+          // Track A #1 (@6): the CNC + conventional combo chip.
+          both_types: "CNC + conventional",
         },
       },
       {
@@ -273,7 +283,13 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           siemens: "Siemens",
           mitsubishi: "Mitsubishi",
           haas: "Haas",
-          mazak: "Mazak",
+          // Track A #1 (@6): Mazatrol is its own chip value (was the E2
+          // Mazak synonym; that value no longer exists on the pack, so the
+          // old "Mazak" answers drop off the sheet — recorded cost of a
+          // week-lived value).
+          mazatrol: "Mazatrol",
+          fagor: "Fagor",
+          syntec: "Syntec",
         },
       },
       {
@@ -289,6 +305,9 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           aluminium: "Aluminium",
           brass: "Brass",
           cast_iron: "Cast iron",
+          // Track A #1 (@6) — Advanced Q10 per sheet 1.
+          titanium: "Titanium / Inconel",
+          plastic: "Plastics",
         },
       },
       {
@@ -303,6 +322,8 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           grooving: "Grooving / parting",
           drilling: "Drilling / tapping",
           knurling: "Knurling / taper",
+          // Track A #1 (@6) — Advanced Q9 per sheet 1.
+          hard_turning: "Hard turning",
         },
       },
       {
@@ -403,6 +424,9 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           "0.05": "±0.05 mm",
           "0.02": "±0.02 mm",
           "0.01": "±0.01 mm or finer",
+          // Track A #1 (@6) — Advanced Q11 per sheet 1. @6 retitled the 0.01
+          // chip ("0.01 mm ya usse kam"), so the finer row now reads past it.
+          "0.005": "±0.005 mm / H7",
         },
       },
       {
@@ -418,6 +442,10 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           oil_gas: "Oil and gas",
           defence: "Defence / aerospace",
           agri: "Agricultural equipment",
+          // Track A #1 (@6) — Advanced Q12 per sheet 1.
+          two_wheeler: "Two-wheeler",
+          bearings: "Bearings",
+          fasteners: "Fasteners",
         },
       },
       {
@@ -496,6 +524,11 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
         },
         values: {
           vmc: "VMC",
+          // Track A #2 (@6): the sheet-2 machine variants.
+          fourth_axis: "VMC + 4th axis",
+          five_axis: "5-axis",
+          drill_tap: "Drill-tap centre",
+          double_column: "Double-column",
           hmc: "HMC",
           conventional_mill: "Conventional milling machine",
           bed_mill: "Bed / knee mill",
@@ -517,6 +550,9 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           // A MILLING CONTROLLER THE TURNER'S MAP DOES NOT CARRY. Heidenhain is ubiquitous on
           // machining centres and effectively absent from lathes.
           heidenhain: "Heidenhain",
+          // Track A #2 (@6): sheet-2 controller set.
+          fagor: "Fagor",
+          syntec: "Syntec",
         },
       },
       {
@@ -525,20 +561,24 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
         maxValues: 4,
         label: "Materials",
         kind: "chips",
-        // EN8 AND EN31 ARE SEPARATE CHIPS HERE. The ratified sheet prints "EN8  EN31" as two
-        // values inside a four-value cap, and compressing them the way the turner's map does
-        // would silently spend one chip on two materials and print a fifth where four fit.
+        // UNIFIED TO THE TURNER SET (CEO Launch Plan Pack v1, Track A #2, sheet 2:
+        // "Material chips (as Turner)"). The EN8/EN31 split the ratified sheet
+        // printed is retired: the old en_eight/en_thirty_one answers drop off
+        // the sheet (recorded cost, same class as Turner's mazatrol value).
         //
         // DICTIONARY ORDER IS THE SHEET'S ORDER. Values render in the order this object lists
         // them (there is no usage data to rank by, and inventing one would be inventing a fact
         // about the worker), so the alloys lead — which is what the ratified sample prints.
         values: {
-          en_eight: "EN8",
-          en_thirty_one: "EN31",
           mild_steel: "MS",
+          alloy_steel: "EN8 / EN31",
           stainless: "Stainless steel",
           aluminium: "Aluminium",
+          brass: "Brass",
           cast_iron: "Cast iron",
+          // Track A #2 (@6) — Advanced Q11 per sheet 2.
+          titanium: "Titanium / Inconel",
+          plastic: "Plastics",
         },
       },
       {
@@ -564,9 +604,13 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           machine_vice: "Machine vice",
           fixture: "Fixture",
           clamp_kit: "Clamps / T-bolts",
-          rotary_table: "Rotary table / indexer",
+          // Track A #2 (@6): sheet-2 chip reads "Rotary table / 4th axis".
+          rotary_table: "Rotary table / 4th axis",
           angle_plate: "Angle plate",
           magnetic_chuck: "Magnetic chuck",
+          // Track A #2 (@6): sheet-2 workholding.
+          vacuum: "Vacuum",
+          pallet: "Pallet",
         },
       },
       {
@@ -619,6 +663,8 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           "0.05": "±0.05 mm",
           "0.02": "±0.02 mm",
           "0.01": "±0.01 mm or finer",
+          // Track A #2 (@6) — Advanced Q11 per sheet 2.
+          "0.005": "±0.005 mm / H7",
         },
       },
       {
@@ -633,6 +679,10 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           boring_op: "Boring",
           pocket_milling: "Pocket milling",
           contour_milling: "Contour / profile milling",
+          // Track A #2 (@6) — Advanced Q9 per sheet 2.
+          thread_mill: "Thread mill",
+          three_d_surface: "3D surface",
+          engraving: "Engraving",
         },
       },
       {
@@ -673,6 +723,9 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           defence: "Defence / aerospace",
           pump_valve: "Pumps and valves",
           agri: "Agricultural equipment",
+          // Track A #2 (@6) — Advanced Q12 per sheet 2.
+          spm_parts: "SPM / machine parts",
+          electronics: "Electronics / EMS",
         },
       },
     ],
@@ -742,6 +795,9 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           centreless: "Centreless grinder",
           internal: "Internal grinder",
           tool_cutter: "Tool and cutter grinder",
+          // Phase 2 #2 (@6): the sheet-15 machine chips.
+          thread_gear: "Thread / gear grinder",
+          double_disc: "Double disc grinder",
         },
       },
       {
@@ -855,7 +911,11 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           "0.02": "±0.02 mm",
           "0.01": "±0.01 mm",
           "0.005": "±0.005 mm",
-          "0.002": "±0.002 mm or finer",
+          // Phase 2 #2 (@6): 0.002 is a band of its own now that a micron chip
+          // sits below it. A @5 "0.002 or finer" answer prints as ±0.002 mm —
+          // understated, never overstated.
+          "0.002": "±0.002 mm",
+          "0.001": "±0.001 mm (micron) or finer",
         },
       },
       {
@@ -971,6 +1031,14 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           powermill: "PowerMill",
           solidcam: "SolidCAM",
           edgecam: "EdgeCAM",
+          // Track A #3 (@4): sheet-3 software set.
+          nx_cam: "NX CAM",
+          fusion: "Fusion 360",
+          hypermill: "hyperMILL",
+          cimatron: "Cimatron",
+          worknc: "WorkNC",
+          esprit: "ESPRIT",
+          manual_gcode: "Manual G-code",
         },
       },
       {
@@ -1000,6 +1068,10 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           vmc_four_axis: "VMC · 4-axis",
           five_axis_trunnion: "5-axis trunnion",
           turn_mill: "Turn-mill",
+          // Track A #3 (@4): sheet-3 machine set.
+          cnc_turning: "CNC Turning",
+          wirecut_edm: "Wire-cut / EDM",
+          router: "Router",
         },
       },
       {
@@ -1020,6 +1092,10 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           fanuc: "Fanuc",
           heidenhain: "Heidenhain",
           siemens: "Siemens",
+          // Track A #3 (@4): sheet-3 posts set (Advanced Q9).
+          mitsubishi: "Mitsubishi",
+          haas: "Haas",
+          mazatrol: "Mazatrol",
         },
       },
       {
@@ -1034,6 +1110,39 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           cycle_time: "Cycle-time optimisation",
           strategy_selection: "Machining strategy selection",
           tryout_support: "Shop-floor tryout support",
+        },
+      },
+      {
+        // Track A #3 (@4): sheet rows 'Part types' (Advanced Q10) and 'Extra
+        // work' (Advanced Q11). Ranked 72/73 — below every shipped row — so a
+        // worker who answers everything sheds the new rows first and every
+        // pre-@4 sheet renders byte-identically.
+        from: "part_types",
+        rank: 72,
+        label: "Part types",
+        kind: "ticks",
+        values: {
+          die_mould_core: "Die-mould / core-cavity",
+          precision: "Precision components",
+          aerospace: "Aerospace",
+          automotive: "Automotive",
+          spm_fixture: "SPM / fixtures",
+          electrode: "Electrodes",
+          prototype: "Prototypes",
+        },
+      },
+      {
+        from: "extra_work",
+        rank: 73,
+        label: "Extra work",
+        kind: "ticks",
+        values: {
+          tool_select: "Tool selection",
+          cycle_opt: "Cycle-time optimisation",
+          post_edit: "Post editing",
+          prove_out: "Prove-out on machine",
+          fixture_design: "Fixture design",
+          quoting: "Quoting / estimation",
         },
       },
       {
@@ -1161,6 +1270,29 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           fusion: "Fusion 360",
           creo: "Creo / Pro-E",
           catia: "CATIA",
+          // Track A #5 (@2): sheet-5 software set.
+          autocad_mech: "AutoCAD Mechanical",
+          draftsight: "DraftSight",
+          zwcad: "ZWCAD",
+          bricscad: "BricsCAD",
+        },
+      },
+      {
+        from: "drawing_subject",
+        rank: 23,
+        maxValues: 4,
+        label: "Drawing subject",
+        kind: "chips",
+        // Track A #5 (@2): sheet-5 Q7. What the drawings are OF — distinct from
+        // the industry rows, which name where the worker learned or worked.
+        values: {
+          machine_parts: "Machine parts",
+          sheetmetal_fab: "Sheet metal / fabrication",
+          structural: "Structural",
+          conveyor_spm: "Conveyor / SPM",
+          elec_panel: "Electrical / panel",
+          piping: "Piping",
+          civil_arch: "Civil / architecture",
         },
       },
       {
@@ -1271,6 +1403,18 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
         },
       },
       {
+        from: "drawing_from_model",
+        rank: 47,
+        label: "3D to 2D",
+        kind: "fact",
+        // Track A #5 (@2): sheet-5 Q11. `no` ("Nahi") has no entry ON PURPOSE —
+        // the drawing_reading:"none" precedent: a negative claim belongs in
+        // matching data, not on the worker's own document.
+        values: {
+          yes: "Draws 2D from 3D models",
+        },
+      },
+      {
         from: "drawing_check_work",
         rank: 61,
         label: "Drawing checking",
@@ -1353,6 +1497,102 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
     ],
   },
 
+  // ══ TRACK A #4 — 3D CAD DESIGNER (CEO Launch Plan Pack v1, sheet 4) ═══════
+  //
+  // THE FIRST MAP WITH NO RATIFIED PAGE: sheet 4 of the CEO pack is the spec,
+  // and the headline example on it ("3D CAD Designer · Senior Designer ·
+  // 5 years · SolidWorks + Creo · Sheet metal & SPM · Noida · 15 days") is the
+  // parity reference until a practising designer ratifies the wording. Every
+  // row below exists because sheet 4 names it, and every `values` key is the
+  // option's STORED `value_text`.
+  //
+  // RANKED LIKE A MACHINING MAP: software first (the hire is for the seat),
+  // then the work area, then depth, tolerance and industry. Nine rows against
+  // the budget of ten, so nothing sheds.
+  {
+    pack_id: "qp_cad_design_3d",
+    section_title: "Design, software & capability",
+    tier_section_titles: { easy: "Design & software" },
+    capability: [
+      {
+        from: "design_software",
+        rank: 21,
+        inHeadline: true,
+        maxValues: 4,
+        label: "3D software",
+        kind: "chips",
+        values: {
+          solidworks: "SolidWorks",
+          creo: "Creo",
+          nx: "NX",
+          catia: "CATIA",
+          inventor: "Inventor",
+          fusion: "Fusion 360",
+          solid_edge: "Solid Edge",
+        },
+      },
+      {
+        from: "design_work_area",
+        rank: 22,
+        inHeadline: true,
+        maxValues: 4,
+        label: "Work area",
+        kind: "chips",
+        values: {
+          machine_spm: "Machine / SPM",
+          sheet_metal: "Sheet metal",
+          plastic_parts: "Plastic parts",
+          fixture_jig: "Fixture / jig",
+          mould_die: "Mould / die / tooling",
+          auto_parts: "Automotive parts",
+        },
+      },
+      {
+        from: "design_depth",
+        rank: 41,
+        label: "Depth in software",
+        kind: "ticks",
+        values: {
+          part: "Part modelling",
+          assembly: "Assembly modelling",
+          sheet_metal_work: "Sheet metal",
+          weldment: "Weldment",
+          surfacing: "Surfacing",
+          two_d_model: "2D drawing from model",
+        },
+      },
+      {
+        from: "design_tolerance",
+        rank: 42,
+        label: "Tolerance / GD&T",
+        kind: "fact",
+        // `none` has no entry ON PURPOSE — the drawing_reading precedent on
+        // every other map. "Does not do tolerance work" is matching data, not
+        // a line on the worker's own document.
+        values: {
+          basic: "Basic ±",
+          gdt: "GD&T symbols",
+          stackup: "Tolerance stack-up",
+        },
+      },
+      {
+        from: "design_industry",
+        rank: 71,
+        label: "Industry",
+        kind: "fact",
+        join: ", ",
+        values: {
+          auto_ancil: "Auto / ancillary",
+          spm_ind: "SPM / machine",
+          elec_panel: "Electrical / panel",
+          consumer: "Consumer products",
+          aero_def: "Aerospace / defence",
+          medical: "Medical",
+        },
+      },
+    ],
+  },
+
   // ══ BATCH 2, PART ONE ═══════════════════════════════════════════════════════════════
   //
   // Four roles, and the reason it is four and not eleven is REACH rather than effort:
@@ -1416,12 +1656,16 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
         label: "Machines",
         kind: "chips",
         values: {
-          centre_lathe: "Centre lathe",
-          vertical_milling: "Vertical milling",
-          radial_drill: "Radial drill",
-          boring_machine: "Boring machine",
+          centre_lathe: "Lathe (manual)",
+          vertical_milling: "Milling (manual)",
+          radial_drill: "Drilling / radial drill",
+          // Track B #4 (@2): sheet-9 machine set.
+          surface_grinder: "Surface grinder",
+          cylindrical_grinder: "Cylindrical grinder",
+          boring_machine: "Boring",
           shaper_planer: "Shaper / planer",
           slotter: "Slotter",
+          hacksaw_bandsaw: "Hacksaw / bandsaw",
         },
       },
       {
@@ -1430,16 +1674,18 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
         maxValues: 4,
         label: "Materials",
         kind: "chips",
-        // DICTIONARY ORDER IS THE SHEET'S ORDER, as on the milling and grinding maps: values
-        // render in the order this object lists them, and the page leads "MS EN8 Cast iron
-        // Aluminium" — the four the cap keeps.
+        // DICTIONARY ORDER IS THE TURNER SET, as on the milling map (Track A #2
+        // unified materials to Turner; EN8/EN31 split retired — old `en_eight`
+        // answers drop, recorded cost). Values render in the order listed here.
         values: {
           mild_steel: "MS",
-          en_eight: "EN8",
-          cast_iron: "Cast iron",
-          aluminium: "Aluminium",
+          alloy_steel: "EN8, EN31 alloy steel",
           stainless: "Stainless steel",
+          aluminium: "Aluminium",
           brass: "Brass",
+          cast_iron: "Cast iron",
+          titanium: "Titanium / Inconel",
+          plastic: "Plastics",
         },
       },
       {
@@ -1452,13 +1698,22 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
         // seven-chip question cannot reproduce a row the sheet prints eight ticks in, and the
         // ampersand pairs ("Turning & facing", "Drilling & reaming") are the page's own
         // groupings, not ours to re-split.
+        // Track B #4 (@2): sheet-9 operation words. The CEO sheet splits the
+        // page's ampersand pairs (Turning/Facing) into their own chips, so the
+        // map mirrors the pack — the page's grouping comment below is
+        // superseded for this trade, recorded here rather than deleted.
         values: {
-          turning_facing: "Turning & facing",
-          screw_cutting: "Screw cutting",
-          knurling: "Knurling",
-          milling_slotting: "Milling & slotting",
-          drilling_reaming: "Drilling & reaming",
+          turning_facing: "Turning",
+          facing_op: "Facing",
+          screw_cutting: "Threading",
+          taper_op: "Taper",
           boring: "Boring",
+          keyway: "Keyway",
+          gear_cutting: "Gear cutting",
+          milling_slotting: "Slotting",
+          grinding_op: "Grinding",
+          knurling: "Knurling",
+          drilling_reaming: "Drilling & reaming",
           tapping: "Tapping",
           marking_scribing: "Marking & scribing",
         },
@@ -1519,6 +1774,8 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           "0.05": "±0.05 mm",
           "0.02": "±0.02 mm",
           "0.01": "±0.01 mm or finer",
+          // Track B #4 (@2): sheet-9 tolerance chips (as Turner).
+          "0.005": "±0.005 mm / H7",
         },
       },
       {
@@ -1540,6 +1797,21 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           pump_valve: "Pumps and valves",
           agri: "Agricultural equipment",
           textile_mill: "Textile mill spares",
+        },
+      },
+      {
+        from: "machining_work_type",
+        // What KIND of shop work, distinct from the industry rows above.
+        // Track B #4 (@2): sheet-9 Q11.
+        rank: 64,
+        label: "Work type",
+        kind: "fact",
+        values: {
+          batch_production: "Production batch",
+          job_work: "Job work",
+          tool_room: "Tool room",
+          repair_maintenance: "Repair / maintenance",
+          forge_cast_finish: "Forging / casting finishing",
         },
       },
     ],
@@ -1592,14 +1864,17 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
         label: "Tooling made",
         kind: "chips",
         // DICTIONARY ORDER IS THE SHEET's ORDER — values render in the order this object lists
-        // them, and the ratified row reads "Press tools Progressive dies Jigs & fixtures Check
-        // gauges". `metal_mould` is the fifth and is what `maxValues: 4` holds back, which is
-        // also what the page does with it.
+        // them. Phase 2 #1 (@2): sheet-13 tool set leads (the page's five follow in place);
+        // `maxValues: 4` holds back the rest, which is also what the page does.
         values: {
-          press_tool: "Press tools",
-          progressive_die: "Progressive dies",
+          press_tool: "Press tools / stamping dies",
+          plastic_injection: "Plastic injection moulds",
+          die_casting: "Die-casting dies",
           jig_fixture: "Jigs & fixtures",
-          check_gauge: "Check gauges",
+          check_gauge: "Gauges",
+          forging_die: "Forging dies",
+          rubber_mould: "Rubber moulds",
+          progressive_die: "Progressive dies",
           metal_mould: "Moulds (metal)",
         },
       },
@@ -1609,12 +1884,18 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
         maxValues: 4,
         label: "Machines",
         kind: "chips",
+        // Phase 2 #1 (@2): sheet-13 machine words; the new chips follow the
+        // page's five in dictionary order.
         values: {
           surface_grinder: "Surface grinder",
-          wire_cut: "Wire-cut EDM",
+          vmc: "VMC",
+          wire_cut: "Wire-cut",
+          edm: "EDM",
           sinker_edm: "Sinker EDM",
-          milling: "Milling",
           lathe: "Lathe",
+          milling: "Milling",
+          jig_boring: "Jig boring",
+          polishing_lapping: "Polishing / lapping",
         },
       },
       {
@@ -1630,6 +1911,8 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
         values: {
           ohns: "OHNS",
           hchcr_dtwo: "HCHCr / D2",
+          h_thirteen: "H13",
+          p_twenty: "P20",
           en_thirty_one: "EN31",
           ms_die_set: "MS die sets",
           hss: "HSS",
@@ -1641,12 +1924,15 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
         label: "Tool-room work",
         kind: "ticks",
         values: {
-          die_assembly: "Die assembly",
+          die_assembly: "Die fitting & assembly",
+          spotting: "Spotting / blue matching",
+          tryout_correction: "Tryout",
+          die_maintenance: "Die maintenance / repair",
+          regrind: "Sharpening",
+          polishing: "Polishing",
           clearance_setting: "Punch & die clearance setting",
-          tryout_correction: "Tryout & correction",
           benchwork: "Benchwork & scraping",
           shut_height: "Shut-height setting",
-          regrind: "Sharpening & regrind",
         },
       },
       {
@@ -1713,6 +1999,22 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           general_engg: "General engineering / job shop",
         },
       },
+      {
+        from: "tool_training_institute",
+        rank: 63,
+        label: "Training institute",
+        kind: "fact",
+        // Phase 2 #1 (@2): sheet-13 Q12 institutes. A credential row like the
+        // electrician's Licence — `none` ("Kahin nahi") has no entry, same rule.
+        values: {
+          iti_tool_die: "ITI (Tool & Die Maker)",
+          nttf: "NTTF",
+          cttc: "CTTC",
+          igtr: "IGTR",
+          cipet: "CIPET",
+          diploma: "Diploma",
+        },
+      },
     ],
   },
   {
@@ -1733,15 +2035,15 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
         // the turner's controllers do — it is the hardware behind the advertised word.
         rank: 21,
         // THE HEADLINE IS THE PROCESS LIST. `toolsPhrase` caps the Verdict Line at three, so a
-        // welder who runs MIG, arc and TIG reads "Welder — Certified Welder · 8 yrs · MIG / MAG
-        // (GMAW), Arc / rod (SMAW), TIG (GTAW)". Putting the flag on `welding_equipment` instead
+        // welder who runs MIG, TIG and arc reads "Welder — Skilled · 8 yrs · MIG / CO2, TIG / Argon,
+        // Arc / stick". Putting the flag on `welding_equipment` instead
         // would lead the sheet with an inverter set, which no advertisement is written in, and
         // would go empty for a site welder who answered "Inme se koi nahi" to the equipment
         // chip — pinning the sheet's highest-ranked scan element to a row he can legitimately
         // not answer is what `headlineToolsOrFallback` then has to paper over.
         inHeadline: true,
         // §4.3's "machines max 4" applied to this trade's machine-equivalent row. The pack
-        // offers five processes; a man who genuinely runs all five prints the first four in
+        // offers eight processes; a man who genuinely runs all eight prints the first four in
         // DICTIONARY order and the headline still shows three.
         maxValues: 4,
         label: "Processes",
@@ -1750,12 +2052,17 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
         // rows here by construction, and that is a convenience, not a licence: `drawing_reading`
         // and `plate_thickness` below are keyed by values that differ from their keys, and a row
         // keyed the wrong way renders NOTHING, silently, for every worker who answered it.
+        // Track B #3 (@2): sheet-8 process set — the kept chips relabeled to the
+        // sheet's words, robotic/gas-brazing/submerged added as their own claims.
         values: {
-          mig_mag: "MIG / MAG (GMAW)",
-          arc: "Arc / rod (SMAW)",
-          tig: "TIG (GTAW)",
-          gas_cutting: "Gas cutting",
+          mig_mag: "MIG / CO2",
+          tig: "TIG / Argon",
+          arc: "Arc / stick",
           spot: "Spot welding",
+          robotic: "Robotic welding",
+          gas_cutting: "Gas cutting",
+          gas_brazing: "Gas / brazing",
+          submerged_arc: "Submerged arc",
         },
       },
       {
@@ -1816,9 +2123,12 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
         // fabrication is made of, and the exotic stock follows.
         values: {
           mild_steel: "MS",
-          stainless: "Stainless steel",
+          stainless: "SS",
           aluminium: "Aluminium",
+          // Track B #3 (@2): sheet-8 material set.
+          alloy_steel: "Alloy steel",
           cast_iron: "Cast iron",
+          copper_brass: "Copper / brass",
         },
       },
       {
@@ -1842,6 +2152,8 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           horizontal: "2G — horizontal",
           vertical: "3G — vertical",
           overhead: "4G — overhead",
+          // Track B #3 (@2): sheet-8 pipe position.
+          pipe_six_g: "6G — pipe",
         },
       },
       {
@@ -1891,6 +2203,20 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
         },
       },
       {
+        from: "welder_certificate",
+        rank: 63,
+        label: "Certificate",
+        kind: "fact",
+        // `none` ("Nahi hai") HAS NO ENTRY ON PURPOSE — the drawing row's
+        // ruling: a negative claim belongs in matching data, not on the sheet.
+        // Track B #3 (@2): sheet-8 Q11.
+        values: {
+          cert_ibr: "IBR / ASME / third-party certificate",
+          iti_welder: "ITI Welder",
+          company_test: "Company test passed",
+        },
+      },
+      {
         from: "sector_worked",
         // 8x — §4.3 `sector_tag`: "display only. Never a matching input — locked". It drops
         // first when the page runs out, which is the same rank the turner's and miller's maps
@@ -1912,8 +2238,8 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           sheet_fab: "Sheet metal fabrication",
         },
       },
-      // NINE ROWS, AND THE PACK ASKS FIFTEEN NON-FRESHER QUESTIONS. `welder_level` prints in the
-      // HEADLINE ("Welder — Certified Welder"), not in this section, so it has no row here by
+      // TEN ROWS, AND THE PACK ASKS EIGHTEEN NON-FRESHER QUESTIONS. `welder_level` prints in the
+      // HEADLINE ("Welder — Skilled"), not in this section, so it has no row here by
       // design. `joint_type`, `machine_setting`, `weld_defect` and `fabrication_work` have no row
       // because NO RATIFIED WELDER PAGE PRINTS ONE — they are matching data in
       // `worker_attributes`, and inventing a tenth and eleventh row for them would be this file
@@ -1977,6 +2303,12 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           liquid_hvlp: "Liquid spray — HVLP",
           electrostatic: "Electrostatic spray",
           touch_up: "Touch-up",
+          // Phase 2 #4 (@2): the sheet-20 processes, plating included.
+          ced_ecoat: "CED / E-coat",
+          electroplating: "Electroplating",
+          anodising: "Anodising",
+          phosphating_pt: "Phosphating / pre-treatment",
+          sandblasting: "Sandblasting / shot blasting",
         },
       },
       {
@@ -2093,6 +2425,8 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           batch_booth: "Batch powder booth",
           conveyorised: "Conveyorised line",
           both_booth: "Batch powder booth and conveyorised line",
+          // Phase 2 #4 (@2) — Medium Q7 per sheet 20.
+          robotic_line: "Robotic line",
         },
       },
       {
@@ -2156,12 +2490,17 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
         maxValues: 4,
         label: "Machines",
         kind: "chips",
+        // Track B #5 (@2): sheet-10 machine words; the page's longer labels
+        // give way to the sheet's chips.
         values: {
-          fibre_laser: "Fibre laser cutting",
-          cnc_press_brake: "CNC press brake",
-          turret_punch: "Turret punch",
-          shearing: "Shearing machine",
-          plasma_cutting: "Plasma cutting",
+          fibre_laser: "Fibre laser",
+          co_two_laser: "CO2 laser",
+          cnc_press_brake: "Press brake (CNC)",
+          manual_press_brake: "Press brake (manual)",
+          turret_punch: "Turret punch / CNC punch",
+          shearing: "Shearing",
+          plasma_cutting: "Plasma / waterjet",
+          hand_fab: "Hand fabrication only",
         },
       },
       {
@@ -2171,11 +2510,12 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
         maxValues: 4,
         label: "Materials",
         kind: "chips",
+        // Track B #5 (@2): sheet-10 short material words.
         values: {
-          ms_sheet: "MS sheet",
-          stainless: "Stainless steel",
-          gi_sheet: "GI sheet",
-          aluminium: "Aluminium sheet",
+          ms_sheet: "MS",
+          stainless: "SS",
+          gi_sheet: "GI",
+          aluminium: "Aluminium",
         },
       },
       {
@@ -2217,10 +2557,12 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
         kind: "fact",
         // BANDED, on the welder's plate ruling: a band prints as the page prints it. The page's
         // "· 3200 mm brake" is a machine capacity with no question behind it — a capture gap.
+        // Track B #5 (@2): re-banded to the sheet-10 bands; old bands drop, recorded cost.
         values: {
-          upto_two: "Up to 2 mm sheet",
-          upto_eight: "0.8 mm - 8 mm sheet",
-          over_eight: "8 mm sheet and above",
+          below_one: "Up to 1 mm sheet",
+          one_to_three: "1 - 3 mm sheet",
+          three_to_six: "3 - 6 mm sheet",
+          above_six: "6 mm sheet and above",
         },
       },
       {
@@ -2243,11 +2585,16 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
         kind: "fact",
         // A RECORDED DIVERGENCE: the page reads "Basic nesting on machine software · imports DXF",
         // with a down-cased second clause no closed dictionary may produce (§8); this row reads
-        // "Basic nesting on machine software · Imports DXF".
+        // "Program load & run · Imports DXF".
+        // Track B #5 (@2): expanded to the sheet-10 depth set.
         values: {
-          basic_nesting: "Basic nesting on machine software",
+          nesting_brand: "SigmaNEST / Lantek / Cypcut",
+          basic_nesting: "Program load & run",
           dxf_import: "Imports DXF",
-          bend_program: "Press brake bend programs",
+          param_setting: "Parameter setting",
+          tooling_change: "Tooling change",
+          bend_program: "Bend sequence",
+          blank_development: "Blank development",
         },
       },
       {
@@ -2265,6 +2612,36 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           hvac_ducting: "HVAC ducting",
           automotive: "Automotive parts",
           kitchen_equipment: "Kitchen equipment & furniture",
+        },
+      },
+      {
+        from: "sheet_metal_product",
+        rank: 80,
+        label: "Product",
+        kind: "fact",
+        // Track B #5 (@2): sheet-10 Q7. What the product IS, distinct from
+        // the industry rows, which name where the worker learned or worked.
+        values: {
+          panels_enclosures: "Panels / enclosures",
+          auto_parts: "Auto parts",
+          ducting_hvac: "Ducting / HVAC",
+          furniture: "Furniture",
+          structural_brackets: "Structural / brackets",
+          kitchen_ss: "Kitchen / SS products",
+        },
+      },
+      {
+        from: "sheet_metal_extra",
+        rank: 64,
+        label: "Extra work",
+        kind: "fact",
+        // Track B #5 (@2): sheet-10 Q11. Drawing reading is covered by its
+        // own row, so it is not repeated here.
+        values: {
+          welding: "Welding",
+          grinding_finish: "Grinding / finishing",
+          assembly: "Assembly",
+          powdercoat_prep: "Powder-coat prep",
         },
       },
     ],
@@ -2308,11 +2685,16 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
         label: "Work type",
         kind: "chips",
         values: {
-          panel_wiring: "Panel wiring",
+          panel_wiring: "Panel wiring / control panel",
           motor_drive: "Motor & drive work",
+          // Track B #2 (@2): sheet-7 work set.
+          factory_maintenance: "Factory maintenance",
+          ht_lt_substation: "HT / LT substation",
+          solar: "Solar",
+          generator_dg: "Generator / DG",
           cable_laying: "Cable laying",
           earthing: "Earthing",
-          lighting_power: "Lighting & power wiring",
+          lighting_power: "Building wiring",
         },
       },
       {
@@ -2334,6 +2716,12 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           starter: "DOL & star-delta starters",
           induction_motor: "Induction motors",
           dg_set: "DG sets",
+          // Track B #2 (@2): sheet-7 equipment set.
+          contactor_relay: "Contactors & relays",
+          sensors: "Sensors",
+          plc_panel_wiring: "PLC panel (wiring only)",
+          transformer: "Transformers",
+          ups_battery: "UPS / batteries",
         },
       },
       {
@@ -2366,6 +2754,8 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           megger: "Megger",
           tong_tester: "Tong tester",
           phase_sequence: "Phase sequence meter",
+          // Track B #2 (@2): sheet-7 fault-finding set.
+          thermal_camera: "Thermal camera",
         },
       },
       {
@@ -2475,6 +2865,11 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           pneumatic_press: "Pneumatic press",
           press_brake: "Press brake",
           fly_press: "Fly press / hand press",
+          // Phase 2 #3 (@2): the sheet-18 press types.
+          servo_press: "Servo press",
+          progressive_line: "Progressive line with coil feeder",
+          transfer_press: "Transfer press",
+          tandem_line: "Tandem line",
         },
       },
       {
@@ -2507,6 +2902,8 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           feeder_setting: "Feeder setting",
           strip_layout_check: "Strip layout check",
           first_piece: "First-piece approval",
+          // Phase 2 #3 (@2) — Advanced Q11 per sheet 18.
+          coil_handling: "Coil handling / decoiler",
         },
       },
       {
@@ -2523,6 +2920,8 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           guard_interlock: "Guard interlock",
           emergency_stop: "Emergency stop check",
           lockout_tagout: "Lockout-tagout",
+          // Phase 2 #3 (@2) — Advanced Q10 per sheet 18.
+          ppe: "PPE",
         },
       },
       {
@@ -2537,10 +2936,13 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
         // ruling. Printing "30 T -" would be a number nobody stated (§8), so the persona's row
         // reads "Up to 250 T presses".
         values: {
-          upto_thirty: "Up to 30 T presses",
+          // Phase 2 #3 (@2): re-banded to sheet 18's four bands. @1's 30 T,
+          // 250 T and over-250 T answers drop off the row (recorded cost, the
+          // sheet-metal thickness precedent); "Up to 100 T" keeps its value.
           upto_hundred: "Up to 100 T presses",
-          upto_twofifty: "Up to 250 T presses",
-          over_twofifty: "Over 250 T presses",
+          hundred_to_twofifty: "100–250 T presses",
+          twofifty_to_sixthirty: "250–630 T presses",
+          over_sixthirty: "Over 630 T presses",
         },
       },
       {
@@ -2641,8 +3043,17 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
         label: "Products assembled",
         kind: "chips",
         // The page's four, in its order; the pack's fifth chip (door, dashboard and trim) prints
-        // after them.
+        // after them. Track B #6 (@2): sheet-11 segment chips lead, the v1
+        // vehicle-detail chips follow as history.
         values: {
+          auto_two_wheeler: "Auto / 2-wheeler",
+          engine_gearbox_axle: "Engine / gearbox / axle",
+          elec_switchgear: "Electrical / switchgear",
+          appliances: "Appliances",
+          electronics_ems: "Electronics / EMS",
+          machines_spm: "Machines / SPM",
+          pumps_motors: "Pumps / motors",
+          ev_battery: "EV / battery pack",
           engine_sub_assembly: "Engine sub-assembly",
           transmission: "Transmission assembly",
           seat_assembly: "Seat assembly",
@@ -2657,10 +3068,15 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
         // the ratified sheet shows — the welder's `Equipment` defect, avoided rather than repeated.
         label: "Tools used",
         kind: "chips",
+        // Track B #6 (@2): sheet-11 tool words; the kept history chips follow.
         values: {
           dc_nut_runner: "DC nut runner",
           torque_wrench: "Torque wrench",
-          pneumatic_gun: "Pneumatic gun",
+          pneumatic_gun: "Pneumatic tools",
+          hand_tools: "Hand tools",
+          press_jig: "Press / jig fixtures",
+          soldering_crimping: "Soldering / crimping",
+          test_bench: "Test bench",
           poka_yoke: "Poka-yoke fixture",
           leak_test_rig: "Leak test rig",
           go_no_go_gauge: "Go / no-go gauge",
@@ -2708,6 +3124,36 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
         values: {
           work_instruction: "Reads work instructions",
           assembly_drawing: "Reads assembly drawings and work instructions",
+        },
+      },
+      {
+        from: "assembly_skill",
+        rank: 42,
+        label: "Assembly skills",
+        kind: "ticks",
+        // Track B #6 (@2): sheet-11 Q9. Drawing reading is covered by its own
+        // row, so it is not repeated here.
+        values: {
+          testing_inspection: "Testing & inspection",
+          troubleshoot_rework: "Troubleshooting / rework",
+          line_changeover: "Line changeover",
+          kaizen_five_s: "Kaizen / 5S",
+          training_others: "Training others",
+        },
+      },
+      {
+        from: "company_type",
+        rank: 82,
+        label: "Company type",
+        kind: "fact",
+        // Track B #6 (@2): sheet-11 Q10. Whose line it is, distinct from the
+        // product rows, which name what the line makes.
+        values: {
+          oem: "OEM",
+          tier_one: "Tier-1",
+          tier_two_three: "Tier-2 / 3",
+          contract: "Contract (thekedar)",
+          own_workshop: "Own workshop",
         },
       },
       {
@@ -2768,9 +3214,13 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
         // `bench_fitting` is the pack's fourth chip — the bound "Fitter, Bench" worker's own — and
         // sits last so the ratified persona renders exactly as printed.
         values: {
-          assembly_fitting: "Assembly fitting",
+          assembly_fitting: "Mechanical assembly",
           maintenance_fitting: "Maintenance fitting",
-          erection_commissioning: "Erection & commissioning",
+          // Track B #1 (@2): sheet-6 work set.
+          pipe_fitting: "Pipe fitting",
+          structural_fitting: "Structural fitting",
+          die_press_fitting: "Die / press fitting",
+          erection_commissioning: "Machine erection / commissioning",
           bench_fitting: "Bench fitting",
         },
       },
@@ -2831,6 +3281,8 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           torque_wrench: "Torque wrench",
           hydraulic_puller: "Hydraulic puller",
           laser_alignment: "Laser alignment kit",
+          // Track B #1 (@2): sheet-6 instrument set.
+          height_gauge: "Height gauge",
         },
       },
       {
@@ -2874,8 +3326,12 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
         // this row reads "Auto components · Plant maintenance".
         values: {
           auto_components: "Auto components",
+          // Track B #1 (@2): sheet-6 industry set.
+          spm_machine_building: "SPM / machine building",
+          fabrication: "Fabrication",
+          pumps_compressors: "Pumps / compressors",
           plant_maintenance: "Plant maintenance",
-          steel_cement: "Steel & cement plants",
+          steel_cement: "Power / steel plants",
           process_plant: "Chemical & process plants",
           general_engg: "General engineering",
         },
@@ -2929,11 +3385,19 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
         maxValues: 4,
         label: "Instruments",
         kind: "chips",
+        // Track B #7 (@2): sheet-12 instrument set; the kept history chips
+        // follow in dictionary order.
         values: {
           cmm: "CMM",
           profile_projector: "Profile projector",
           height_gauge: "Height gauge",
+          vernier: "Vernier",
+          micrometer: "Micrometer",
+          bore_gauge: "Bore gauge",
+          thread_gauge: "Thread / plug / ring gauge",
           roughness_tester: "Surface roughness tester",
+          hardness_tester: "Hardness tester",
+          multimeter_hipot: "Multimeter / hipot",
           vernier_micrometer: "Vernier & micrometer",
         },
       },
@@ -2958,10 +3422,14 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
         label: "Materials inspected",
         kind: "chips",
         values: {
-          machined_steel: "Machined steel",
+          machined_steel: "Machined parts",
+          sheetmetal_welding: "Sheet metal / welding",
+          plastics: "Plastics",
+          castings_forgings: "Castings / forgings",
+          elec_electronics: "Electrical / electronics",
+          assembly_product: "Assembly",
           die_cast: "Aluminium die-cast",
           pressings: "Sheet-metal pressings",
-          castings_forgings: "Castings & forgings",
           welded_fabrication: "Welded fabrications",
         },
       },
@@ -2976,8 +3444,12 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
         kind: "ticks",
         values: {
           incoming: "Incoming inspection",
-          in_process_patrol: "In-process patrol",
+          in_process_patrol: "In-process",
+          line_patrol: "Line / patrol",
           final_inspection: "Final inspection",
+          lab_testing: "Lab / testing",
+          welding_inspection: "Welding inspection",
+          electrical_testing: "Electrical testing",
           layout_inspection: "Layout inspection",
           gauge_rr: "Gauge R&R support",
         },
@@ -2995,6 +3467,9 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           inspection_report: "Inspection report",
           eight_d_capa: "8D / CAPA",
           spc_chart: "SPC charts",
+          // Track B #7 (@2): the sheet-12 systems the v1 rows did not name.
+          fmea: "FMEA",
+          msa: "MSA",
           calibration_register: "Calibration register",
         },
       },
@@ -3010,6 +3485,8 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
         values: {
           basic_drawing: "Reads 2D drawings",
           gdt: "Reads 2D drawings and GD&T · datum and true position",
+          // Track B #7 (@2): sheet-12 tolerance-stack chip.
+          tolerance_stack: "Reads tolerance stacks",
         },
       },
       {
@@ -3082,6 +3559,9 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           hydraulic: "Hydraulic",
           pneumatic: "Pneumatic",
           basic_electrical: "Basic electrical",
+          // Phase 2 #5 (@2) — Medium Q7 per sheet 21.
+          lubrication: "Lubrication",
+          welding_repair: "Welding / fabrication for repair",
         },
       },
       {
@@ -3099,6 +3579,11 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           conveyors: "Conveyors",
           hydraulic_power_packs: "Hydraulic power packs",
           pumps_blowers: "Pumps & blowers",
+          // Phase 2 #5 (@2) — Medium Q6 per sheet 21.
+          conventional_machines: "Conventional machines",
+          imm_machines: "Injection moulding machines",
+          boilers: "Boilers",
+          packaging_machines: "Packaging machines",
         },
       },
       {
@@ -3117,6 +3602,8 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           spare_planning: "Spare planning",
           lubrication_schedule: "Lubrication schedule",
           shutdown_overhaul: "Shutdown overhaul",
+          // Phase 2 #5 (@2) — Advanced Q10 per sheet 21.
+          tpm: "TPM / autonomous maintenance",
         },
       },
       {
@@ -3175,6 +3662,8 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           mttr_record: "MTTR record",
           history_card: "Machine history card",
           spare_register: "Spare register",
+          // Phase 2 #5 (@2) — Advanced Q10 per sheet 21.
+          cmms: "CMMS / SAP PM",
         },
       },
       {
@@ -3192,6 +3681,533 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
           process_plant: "Chemical & process plant",
           food_pharma: "Food & pharma plant",
           general_engg: "General engineering",
+        },
+      },
+    ],
+  },
+  // ══ PHASE 2 #6 — PLC / AUTOMATION TECHNICIAN (CEO Launch Plan Pack v1, sheet 14) ══
+  //
+  // A NEW TRADE WITH NO RATIFIED PAGE, like the 3D map: sheet 14 is the spec and its
+  // headline ("PLC/Automation Technician · Senior · 6 years · Siemens TIA + Delta · HMI &
+  // servo · SPM commissioning · Noida · 30 days") is the parity reference until a practising
+  // technician ratifies the wording. Every `values` key is the option's STORED `value_text`;
+  // the escape chips carry "unknown" and are never labelled.
+  //
+  // RANKED FOR THE SEAT: the PLC brands lead (the hire is for the platform), then the work
+  // done, then HMI/SCADA, field devices and industry. Five rows against the budget of ten.
+  {
+    pack_id: "qp_plc_automation",
+    section_title: "Automation, PLC & capability",
+    tier_section_titles: { easy: "Automation & PLC" },
+    capability: [
+      {
+        from: "plc_brand",
+        rank: 21,
+        inHeadline: true,
+        maxValues: 4,
+        label: "PLC",
+        kind: "chips",
+        values: {
+          siemens: "Siemens TIA / S7",
+          allen_bradley: "Allen-Bradley",
+          mitsubishi: "Mitsubishi",
+          delta: "Delta",
+          omron: "Omron",
+          schneider: "Schneider",
+          fuji: "Fuji",
+          keyence: "Keyence",
+        },
+      },
+      {
+        from: "plc_work",
+        rank: 22,
+        inHeadline: true,
+        maxValues: 4,
+        label: "Work done",
+        kind: "chips",
+        values: {
+          panel_wiring: "Panel wiring",
+          io_troubleshooting: "I/O & sensor troubleshooting",
+          program_editing: "Program editing",
+          program_writing: "New program writing",
+          hmi_scada: "HMI / SCADA",
+          vfd_servo: "VFD / servo",
+          robot_teaching: "Robot teaching",
+          commissioning: "Commissioning",
+        },
+      },
+      {
+        from: "plc_hmi_brand",
+        rank: 41,
+        label: "HMI / SCADA",
+        kind: "chips",
+        values: {
+          wincc: "WinCC",
+          factorytalk: "FactoryTalk",
+          weintek: "Weintek",
+          delta_hmi: "Delta HMI",
+          mitsubishi_got: "Mitsubishi GOT",
+        },
+      },
+      {
+        from: "plc_field_devices",
+        rank: 42,
+        label: "Field devices",
+        kind: "ticks",
+        values: {
+          sensors: "Sensors",
+          pneumatics: "Pneumatics",
+          vision: "Vision system",
+          safety_relays: "Safety relays / light curtains",
+          encoders: "Encoders",
+        },
+      },
+      {
+        from: "sector_worked",
+        rank: 71,
+        maxValues: 3,
+        label: "Industry",
+        kind: "fact",
+        join: ", ",
+        values: {
+          spm_builder: "SPM / machine builder",
+          auto_line: "Auto line",
+          packaging: "Packaging",
+          pharma: "Pharma",
+          food: "Food",
+          plastics: "Plastics",
+          steel: "Steel",
+        },
+      },
+    ],
+  },
+  // ══ PHASE 2 #7 — EDM / WIRE-CUT OPERATOR (CEO Launch Plan Pack v1, sheet 16) ══
+  //
+  // A NEW TRADE WITH NO RATIFIED PAGE: sheet 16's headline ("Wire-cut/EDM Operator ·
+  // Setter-Programmer · 6 years · Sodick + Electronica · Taper & 4-axis · Faridabad · 15 days")
+  // is the parity reference. Machines and brands lead (the hire is for the machine), then the
+  // work, the program source and the tolerance held. Every `values` key is the STORED value.
+  {
+    pack_id: "qp_edm_wirecut",
+    section_title: "EDM, machines & capability",
+    tier_section_titles: { easy: "Machines" },
+    capability: [
+      {
+        from: "edm_machine",
+        rank: 21,
+        inHeadline: true,
+        maxValues: 4,
+        label: "Machines",
+        kind: "chips",
+        values: {
+          wire_cut: "Wire-cut EDM",
+          sinker_edm: "Sinker EDM",
+          hole_drill: "Hole drill EDM",
+          small_hole: "Small-hole EDM",
+        },
+      },
+      {
+        from: "edm_brand",
+        rank: 22,
+        inHeadline: true,
+        maxValues: 4,
+        label: "Brands",
+        kind: "chips",
+        values: {
+          electronica: "Electronica",
+          sodick: "Sodick",
+          mitsubishi: "Mitsubishi",
+          makino: "Makino",
+          agie_charmilles: "Agie / Charmilles",
+          fanuc_robocut: "Fanuc Robocut",
+        },
+      },
+      {
+        from: "edm_work_type",
+        rank: 41,
+        label: "Work",
+        kind: "chips",
+        values: {
+          taper_cutting: "Taper cutting",
+          four_axis: "4-axis cutting",
+          electrode_making: "Electrode making",
+          carbide: "Carbide cutting",
+          wire_threading: "Wire threading & setting",
+        },
+      },
+      {
+        from: "edm_program_source",
+        rank: 42,
+        label: "Programs",
+        kind: "fact",
+        values: {
+          on_machine: "Programs on the machine",
+          from_cam: "Programs from CAM",
+          from_drawing: "Runs programs made from drawings",
+        },
+      },
+      {
+        from: "edm_tolerance",
+        rank: 62,
+        label: "Tolerance held",
+        kind: "fact",
+        values: {
+          "0.02": "±0.02 mm",
+          "0.01": "±0.01 mm",
+          "0.005": "±0.005 mm",
+          "0.002": "±0.002 mm (micron) or finer",
+        },
+      },
+    ],
+  },
+  // ══ PHASE 2 #9 — INJECTION-MOULDING OPERATOR / SETTER (CEO Launch Plan Pack v1, sheet 22) ══
+  //
+  // A NEW PACK WITH NO RATIFIED PAGE: sheet 22's headline ("Injection-Moulding Setter · Setter ·
+  // 5 years · Ferromatik + Haitian 100–300 t · PP/ABS · Bawal · 15 days") is the parity
+  // reference. Machine brands and tonnage lead (the hire is for the machine), then the materials,
+  // the process work and the defects the worker corrects. Every `values` key is the STORED value;
+  // the negative claims (`unknown`, `none`) have no entry, so they print nothing.
+  {
+    pack_id: "qp_injection_moulding",
+    section_title: "Moulding, machines & capability",
+    tier_section_titles: { easy: "Machines" },
+    capability: [
+      {
+        from: "moulding_machine_brand",
+        rank: 21,
+        inHeadline: true,
+        maxValues: 4,
+        label: "Machines",
+        kind: "chips",
+        values: {
+          ferromatik_milacron: "Ferromatik / Milacron",
+          windsor: "Windsor",
+          jsw: "JSW",
+          toshiba: "Toshiba",
+          haitian: "Haitian",
+          engel: "Engel",
+          arburg: "Arburg",
+          larsen_toubro: "L&T",
+        },
+      },
+      {
+        from: "moulding_tonnage",
+        // Beside the machines, as the press shop's tonnage: what the MACHINE can do. The pack
+        // asks the largest machine run, so the row reads "Up to", never a lower bound.
+        rank: 22,
+        inHeadline: true,
+        label: "Tonnage worked",
+        kind: "fact",
+        values: {
+          upto_hundred: "Up to 100 T machines",
+          hundred_to_threehundred: "100–300 T machines",
+          threehundred_to_eighthundred: "300–800 T machines",
+          over_eighthundred: "Over 800 T machines",
+        },
+      },
+      {
+        from: "moulding_material",
+        rank: 23,
+        inHeadline: true,
+        maxValues: 4,
+        label: "Materials",
+        kind: "chips",
+        values: {
+          pp: "PP",
+          abs: "ABS",
+          nylon: "PA / Nylon",
+          pc: "PC",
+          pvc: "PVC",
+          pom: "POM / Acetal",
+          glass_filled: "Glass-filled grades",
+        },
+      },
+      {
+        from: "moulding_process_work",
+        rank: 41,
+        label: "Work",
+        kind: "chips",
+        values: {
+          mould_change: "Mould change",
+          parameter_setting: "Parameter setting",
+          hot_runner: "Hot runner",
+          robot_pick_place: "Robot / pick-and-place",
+          mtc_dryer: "MTC & dryer",
+          two_shot: "Two-shot moulding",
+        },
+      },
+      {
+        from: "moulding_defects",
+        rank: 42,
+        label: "Defects corrected",
+        kind: "chips",
+        values: {
+          short_shot: "Short shot",
+          flash: "Flash",
+          sink_mark: "Sink mark",
+          warpage: "Warpage",
+          silver_streak: "Silver streaks",
+        },
+      },
+      {
+        from: "moulding_training_institute",
+        rank: 63,
+        label: "Training institute",
+        kind: "fact",
+        // Sheet-22 Q12, the ITI/CIPET block. A credential row like the tool room's — `none`
+        // ("Kahin nahi") has no entry, same rule.
+        values: {
+          iti_plastic_processing: "ITI (Plastic Processing Operator)",
+          cipet: "CIPET",
+          diploma: "Diploma",
+        },
+      },
+    ],
+  },
+  // ══ PHASE 2 #8 — HEAT-TREATMENT TECHNICIAN (CEO Launch Plan Pack v1, sheet 17) ══
+  //
+  // A NEW TRADE WITH NO RATIFIED PAGE: sheet 17's headline ("Heat-Treatment Technician · Skilled ·
+  // 6 years · Sealed quench + induction · Case hardening · Ballabgarh · 15 days") is the parity
+  // reference. The furnaces lead (labelled Equipment, so they print on the Machines line), then
+  // the processes, the testing done and the materials. Every `values` key is the STORED value.
+  {
+    pack_id: "qp_heat_treatment",
+    section_title: "Heat treatment, processes & capability",
+    tier_section_titles: { easy: "Equipment" },
+    capability: [
+      {
+        from: "heat_furnace",
+        rank: 21,
+        inHeadline: true,
+        maxValues: 3,
+        label: "Equipment",
+        kind: "chips",
+        values: {
+          sealed_quench: "Sealed quench",
+          pit_furnace: "Pit furnace",
+          continuous_furnace: "Continuous furnace",
+          induction_machine: "Induction",
+          vacuum_furnace: "Vacuum furnace",
+          box_furnace: "Box furnace",
+        },
+      },
+      {
+        from: "heat_process",
+        rank: 22,
+        inHeadline: true,
+        maxValues: 3,
+        label: "Processes",
+        kind: "chips",
+        values: {
+          hardening_tempering: "Hardening & tempering",
+          case_carburising: "Case hardening",
+          nitriding: "Nitriding",
+          induction_hardening: "Induction hardening",
+          annealing_normalising: "Annealing & normalising",
+          vacuum_heat_treatment: "Vacuum heat treatment",
+          salt_bath: "Salt bath",
+        },
+      },
+      {
+        from: "heat_testing",
+        rank: 41,
+        label: "Testing",
+        kind: "chips",
+        values: {
+          rockwell: "Rockwell (HRC)",
+          brinell: "Brinell",
+          vickers: "Vickers",
+          micro_structure: "Micro-structure",
+          case_depth: "Case depth",
+        },
+      },
+      {
+        from: "heat_material",
+        rank: 42,
+        label: "Materials",
+        kind: "chips",
+        values: {
+          en_series: "EN8 / EN19 / EN24",
+          alloy_steel: "Alloy steel",
+          tool_steel: "Tool steel",
+          stainless_steel: "Stainless steel",
+        },
+      },
+    ],
+  },
+  // ══ PHASE 2 #10 — PRODUCTION SUPERVISOR (CEO Launch Plan Pack v1, sheet 23) ══
+  //
+  // A NEW TRADE WITH NO RATIFIED PAGE: sheet 23's headline ("Production Supervisor · Supervisor
+  // · 10 years · Machine shop · 30 people / 18 CNC · Faridabad · 30 days") is the parity
+  // reference. The area and the size of the charge lead (people, then machines), then what he
+  // runs and the trade he came up through. No row is a Machines line: the machines here are a
+  // COUNT under his charge, not machines he operates. Every `values` key is the STORED value;
+  // the negative claims (`unknown`, `none`) have no entry, so they print nothing.
+  {
+    pack_id: "qp_production_supervisor",
+    section_title: "Supervision, team & systems",
+    tier_section_titles: { easy: "Supervision" },
+    capability: [
+      {
+        from: "supervision_area",
+        rank: 21,
+        inHeadline: true,
+        maxValues: 3,
+        label: "Areas supervised",
+        kind: "chips",
+        values: {
+          machine_shop: "Machine shop",
+          assembly: "Assembly",
+          press_sheet_metal: "Press / sheet metal",
+          fabrication_welding: "Fabrication / welding",
+          moulding: "Moulding",
+          paint_shop: "Paint shop",
+          packaging: "Packaging",
+        },
+      },
+      {
+        from: "supervision_team_size",
+        rank: 22,
+        inHeadline: true,
+        label: "Team size",
+        kind: "fact",
+        values: {
+          below_five: "Under 5 people",
+          five_to_fifteen: "5–15 people",
+          fifteen_to_fifty: "15–50 people",
+          above_fifty: "50+ people",
+        },
+      },
+      {
+        from: "supervision_machines",
+        rank: 23,
+        inHeadline: true,
+        label: "Machines under charge",
+        kind: "fact",
+        values: {
+          upto_five: "Up to 5 machines",
+          five_to_twenty: "5–20 machines",
+          twenty_to_fifty: "20–50 machines",
+          above_fifty: "50+ machines",
+        },
+      },
+      {
+        from: "supervision_systems",
+        rank: 41,
+        label: "Responsibilities",
+        kind: "chips",
+        values: {
+          production_planning: "Daily production planning",
+          manpower_shift: "Manpower & shift planning",
+          quality_ppm: "Quality (rejection, PPM)",
+          five_s_kaizen: "5S / kaizen / TPM",
+          erp_sap: "ERP / SAP entries",
+          safety: "Safety",
+        },
+      },
+      {
+        from: "supervision_trade_background",
+        rank: 42,
+        label: "Trade background",
+        kind: "chips",
+        values: {
+          cnc_vmc: "CNC / VMC operator",
+          conventional_machinist: "Conventional machinist",
+          fitter: "Fitter",
+          welder: "Welder",
+          electrician: "Electrician",
+          assembly: "Assembly",
+          press_sheet_metal: "Press / sheet metal",
+          moulding: "Moulding",
+          quality: "QC / quality",
+        },
+      },
+      {
+        from: "sector_worked",
+        rank: 81,
+        label: "Sector worked",
+        kind: "fact",
+        join: ", ",
+        values: {
+          automotive: "Automotive components",
+          general_engg: "General engineering / job shop",
+          electrical_parts: "Electrical / electronics parts",
+          white_goods: "White goods",
+          plastics: "Plastics",
+          packaging: "Packaging",
+        },
+      },
+    ],
+  },
+  // ══ PHASE 2 #11 — FOUNDRY / FORGING OPERATOR (CEO Launch Plan Pack v1, sheet 19) ══
+  //
+  // A NEW TRADE WITH NO RATIFIED PAGE: sheet 19's headline ("Foundry/Forging Operator · Skilled ·
+  // 7 years · HPDC + sand · Aluminium · Naroda · 15 days") is the parity reference. The processes
+  // lead, then the metals; the equipment is labelled Equipment so it prints on the Machines line.
+  // Every `values` key is the STORED value.
+  {
+    pack_id: "qp_foundry_forging",
+    section_title: "Foundry / forging, processes & capability",
+    tier_section_titles: { easy: "Processes" },
+    capability: [
+      {
+        from: "foundry_process",
+        rank: 21,
+        inHeadline: true,
+        maxValues: 3,
+        label: "Processes",
+        kind: "chips",
+        values: {
+          sand_moulding: "Sand moulding",
+          shell_moulding: "Shell moulding",
+          die_casting: "Die casting (HPDC/GDC)",
+          investment_casting: "Investment casting",
+          hammer_forging: "Hammer forging",
+          press_forging: "Press forging",
+          upset_forging: "Upset forging",
+          melting: "Melting",
+          fettling: "Fettling",
+          core_making: "Core making",
+        },
+      },
+      {
+        from: "foundry_material",
+        rank: 22,
+        inHeadline: true,
+        maxValues: 3,
+        label: "Metals",
+        kind: "chips",
+        values: {
+          cast_iron: "Cast iron",
+          sg_iron: "SG iron",
+          aluminium: "Aluminium",
+          steel: "Steel",
+          brass_bronze: "Brass / bronze",
+          alloy_steel_forging: "Alloy steel forging",
+        },
+      },
+      {
+        from: "foundry_equipment",
+        rank: 41,
+        label: "Equipment",
+        kind: "chips",
+        values: {
+          induction_furnace: "Induction furnace",
+          cupola: "Cupola",
+          hpdc_machine: "HPDC machine",
+          forging_hammer: "Forging hammer",
+          forging_press: "Forging press",
+        },
+      },
+      {
+        from: "foundry_testing",
+        rank: 42,
+        label: "Testing",
+        kind: "chips",
+        values: {
+          spectro: "Spectro (chemistry)",
+          hardness: "Hardness testing",
+          dimensional: "Dimensional check",
         },
       },
     ],

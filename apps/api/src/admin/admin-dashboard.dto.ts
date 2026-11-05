@@ -45,8 +45,9 @@ import type { PayerRole, PayerStatus } from "@badabhai/db";
  * excludes. Neither error changes the shape of the output; both change the number, and the
  * second one was measured at 22× before it was closed. The three stable codes it ships —
  * {@link COST_PER_PROFILE_BASIS_INCLUDES_ABANDONED}, {@link COST_PER_PROFILE_WINDOW_EDGE_SKEW}
- * and {@link COST_PER_PROFILE_ERASURE_BIAS} — say what the figure counts, what the window edges
- * do to it, and what DPDP erasure does to it, for the same reason `caveat` exists one field away.
+ * and {@link COST_PER_PROFILE_ERASURE_TREATMENT} — say what the figure counts, what the window
+ * edges do to it, and how DPDP erasure is handled, for the same reason `caveat` exists one
+ * field away.
  *
  * ── PROVIDER LABELS ARE RAW, AND NOT AN ENUM ────────────────────────────────────────────
  * `platform_ai_cost_totals.provider` is a `text` column fed from `AICallMetadata.provider`,
@@ -231,6 +232,18 @@ export const PROFILING_TASK_TYPES: readonly AiCostTaskType[] = (
 ).filter((task) => PROFILING_TASK_TYPE_KEYS[task]);
 
 /**
+ * THE THREE POPULATIONS EVERY PROFILING FIGURE IS SPLIT INTO.
+ *
+ * `real` and `test` require a LIVE `workers` row for the id carried by the event;
+ * `deleted_or_unattributed` is every event whose worker no longer exists, plus the payer-side
+ * shape with no worker id at all. Deletion moves money and completed profiles BETWEEN these
+ * buckets and leaves the headline alone — which is the property the dashboard needed and did
+ * not have. The set is closed so a reader has to handle all three.
+ */
+export const PROFILING_POPULATIONS = ["real", "test", "deleted_or_unattributed"] as const;
+export type AdminProfilingPopulation = (typeof PROFILING_POPULATIONS)[number];
+
+/**
  * WHAT "A PROFILE WAS PRODUCED" MEANS — the DENOMINATOR's predicate, and the field name
  * `profiles_extracted_or_confirmed` says which of the three candidate answers this is.
  *
@@ -322,40 +335,29 @@ export const COST_PER_PROFILE_WINDOW_EDGE_SKEW =
   "interviews_straddling_the_accrual_bound_are_split" as const;
 
 /**
- * WHAT DPDP ERASURE DOES TO IT — the third stable code, and a THIRD kind of caveat that neither
- * of the two above covers.
+ * HOW DPDP ERASURE IS HANDLED — the third stable code, and a different shape from the two above.
  *
- * ERASURE MOVES THE DENOMINATOR AND NEVER THE NUMERATOR. `worker_profiles` cascades on a
- * `workers` delete, so an erased worker's completed profile leaves the count. The spend does not
- * leave with it: `platform_ai_cost_totals` has no worker linkage AT ALL — by design, and the
- * schema header says so in as many words ("this table survives a DSAR deletion intact, which is
- * correct — the money was spent whether or not the subject remains"). So the money that produced
- * that profile stays in the numerator while the profile it produced disappears from the
- * denominator, and the average rises.
+ * THE OLD BIAS IS CLOSED, NOT MERELY DISCLOSED. Both halves of this ratio now come from the
+ * event spine: `profile.extraction_completed` supplies the completed-profile count (one per
+ * distinct worker id) and `ai.cost_recorded` supplies the spend, and both rows outlive the
+ * worker row they name. Erasing a worker therefore moves neither half. The spend and the
+ * completed profile land together in the `deleted_or_unattributed` leg of `test_split`, where
+ * they are visible as their own figure instead of silently inflating the real average.
  *
- * MEASURED against the local verification database: ₹10.000000 over 22 completed profiles read
- * ₹0.454545; erasing ONE worker moved it to ₹0.476190 with no change whatsoever in what the
- * platform spent or produced.
- *
- * IT IS A SEPARATE CODE BECAUSE IT IS A SEPARATE SHAPE. {@link
- * COST_PER_PROFILE_BASIS_INCLUDES_ABANDONED} is definitional and permanent;
- * {@link COST_PER_PROFILE_WINDOW_EDGE_SKEW} is real but has an expiry, shrinking as the window
- * lengthens. This one is permanent AND ACCUMULATING: it is one-directional (always upward),
- * unbounded, and it GROWS with every erasure rather than washing out with time. There is no
- * honest arithmetic fix — keeping an erased worker in the denominator would mean retaining a
- * record of them — so it ships as a disclosure, which is the only correct treatment.
+ * The code ships so the portal can say that, and so the older sentence ("erasure leaves the
+ * count but not the spend") cannot keep rendering after the fix landed.
  */
-export const COST_PER_PROFILE_ERASURE_BIAS =
-  "erased_workers_leave_the_count_but_not_the_spend" as const;
+export const COST_PER_PROFILE_ERASURE_TREATMENT =
+  "erasure_keeps_completed_profiles_and_spend_together" as const;
 
 /**
  * WHAT THE TEST SPLIT IS STILL MISSING — the convergence caveat.
  *
- * Test accounts are marked at login, so spend from BEFORE a test account's first
- * marked login sits in the real bucket: the split converges toward the truth as
- * test traffic logs in, and early windows understate the test share. Untagged
- * rows (deleted workers, worker-less calls) also read as real — the flag is
- * opt-in, so "real" here honestly means "not marked test".
+ * Test accounts are marked at login, so spend from BEFORE a test account's first marked login
+ * sits in the real bucket: the split converges toward the truth as test traffic logs in, and
+ * early windows understate the test share. The other half of the old caveat is gone — deleted
+ * and worker-less rows are now their own `deleted_or_unattributed` bucket, never folded into
+ * `real`.
  */
 export const COST_PER_PROFILE_TEST_SPLIT_CONVERGES =
   "test_share_converges_as_test_accounts_log_in" as const;
@@ -471,10 +473,11 @@ export interface AdminCostPerProfile {
   /** How many of those actually reached a provider (the rest were the mock posture). */
   profiling_real_calls: number;
   /**
-   * WORKERS whose current profile reached `extracted` or `confirmed` and was created at or
-   * after `since` — one per worker, never one per `worker_profiles` row. The name carries the
-   * predicate on purpose: see {@link PROFILE_COMPLETED_STATUSES} for why it is neither
-   * `confirmed` alone nor `<> 'draft'`.
+   * DISTINCT workers whose `profile.extraction_completed` event reached `extracted` or
+   * `confirmed` at or after `since` — one per worker, never one per event and never one per
+   * live `worker_profiles` row. The event outlives the worker row, so deleting an account
+   * changes neither this count nor the average below. See {@link PROFILE_COMPLETED_STATUSES}
+   * for why the positive set is used.
    */
   profiles_extracted_or_confirmed: number;
   /**
@@ -499,13 +502,16 @@ export interface AdminCostPerProfile {
   basis: typeof COST_PER_PROFILE_BASIS_INCLUDES_ABANDONED;
   /** Stable code — the window-edge skew. See {@link COST_PER_PROFILE_WINDOW_EDGE_SKEW}. */
   window_caveat: typeof COST_PER_PROFILE_WINDOW_EDGE_SKEW;
-  /** Stable code — the DPDP erasure bias. See {@link COST_PER_PROFILE_ERASURE_BIAS}. */
-  erasure_caveat: typeof COST_PER_PROFILE_ERASURE_BIAS;
+  /** Stable code — how erasure is treated. See {@link COST_PER_PROFILE_ERASURE_TREATMENT}. */
+  erasure_caveat: typeof COST_PER_PROFILE_ERASURE_TREATMENT;
   /**
-   * ADDITIVE real/test breakdown of the same numerator and denominator above —
-   * the headline average is untouched, so existing readers see no change. The
-   * investor number is the `real_*` leg. See {@link
-   * COST_PER_PROFILE_TEST_SPLIT_CONVERGES} for what it still misses.
+   * ADDITIVE population split of the same numerator and denominator above. The headline is the
+   * sum of the three cost legs; the headline count is the sum of the three profile legs.
+   *
+   * `deleted_or_unattributed` is spend and completed profiles whose worker row no longer exists
+   * (or, for spend, calls that never named one). It is kept OUT of the real and test legs: an
+   * erased real account must not keep inflating the real average. See {@link
+   * COST_PER_PROFILE_TEST_SPLIT_CONVERGES} for the one caveat that remains.
    */
   test_split: {
     real_cost_inr: string;
@@ -516,6 +522,11 @@ export interface AdminCostPerProfile {
     test_calls: number;
     test_profiles: number;
     test_cost_per_profile_inr: string | null;
+    /** Spend whose worker is gone, or which never named one. Never folded into `real_*`. */
+    deleted_or_unattributed_cost_inr: string;
+    deleted_or_unattributed_calls: number;
+    /** Completed profiles whose worker is gone. Never folded into `real_profiles`. */
+    deleted_or_unattributed_profiles: number;
   };
   /** Stable code — the convergence caveat. See {@link COST_PER_PROFILE_TEST_SPLIT_CONVERGES}. */
   test_split_caveat: typeof COST_PER_PROFILE_TEST_SPLIT_CONVERGES;

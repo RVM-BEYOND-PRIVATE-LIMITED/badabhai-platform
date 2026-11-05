@@ -114,10 +114,34 @@ const useState = vi.fn((initial: unknown) => {
 });
 const useTransition = vi.fn((): [boolean, (cb: () => void) => void] => [false, (cb) => cb()]);
 
+// W4 — the local draft + leave guard runs effects (a real hook outside a render); its rules are
+// lib/posting-draft.test.ts's and components/use-posting-draft.test.ts's. Here it is idle (nothing
+// saved yet; restored only when a test says so) and keeps the options the form called it with.
+const discardDraft = vi.fn();
+interface DraftOptions {
+  storageKey: string;
+  isDirty?: (saved: unknown) => boolean;
+  onRestore?: (saved: unknown) => void;
+}
+const draftHook: { restored: boolean; storageKey: string; options?: DraftOptions } = {
+  restored: false,
+  storageKey: "",
+};
+vi.mock("../../../../components/use-posting-draft", () => ({
+  usePostingDraft: (options: DraftOptions) => {
+    draftHook.storageKey = options.storageKey;
+    draftHook.options = options;
+    return { saved: false, restored: draftHook.restored, discard: discardDraft };
+  },
+}));
 vi.mock("react", async () => {
   const actual = await vi.importActual<typeof ReactModule>("react");
+  // The DS fields mint their auto ids with `useId`, which needs a renderer; the walks below call
+  // them as plain functions, so it answers from a counter (unique per call, like the hook).
+  let ids = 0;
   return {
     ...actual,
+    useId: () => `:r${(ids += 1)}:`,
     useState: (initial: unknown) => useState(initial),
     useTransition: () => useTransition(),
   };
@@ -142,9 +166,27 @@ vi.mock("./match-skill-picker", () => ({
     },
   }),
 }));
+// #2645 — the trade's own fields are the company form's only match input now, always mounted. Its
+// live reach read is its own suite's (effects + refs); here a hookless stand-in records what the
+// form HANDS it. `derivedMatchSkills` (the form's match rule) stays real.
+const tradeFieldsProps = vi.fn();
+vi.mock("../trade-fields", async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  TradePostingFields: (props: Record<string, unknown>) => {
+    tradeFieldsProps(props);
+    return { type: "div", props: { className: "trade-fields-stub" } };
+  },
+}));
+// The trade picker's Retry re-reads on the server (`router.refresh`); its own suite covers that.
+vi.mock("../../../../components/retry-button", () => ({
+  RetryButton: () => ({ type: "button", props: { type: "button", children: "Retry" } }),
+}));
 
 const { PostingForm } = await import("./posting-form");
 const { observeDockHeight } = await import("../../../../lib/dock-reserve");
+
+/** The signed-in payer (the page passes the session's opaque id). */
+const PAYER_ID = "11111111-1111-4111-8111-111111111111";
 
 const MSKILL = {
   skill_id: "mskill_cnc_turning",
@@ -153,11 +195,26 @@ const MSKILL = {
   related_skill_ids: ["mskill_vmc_operating"],
 };
 
+/** One 16-trade catalogue row (`GET /payer/posting-trades`), no chip questions. */
+const tradeRow = (roleKind: string, roleLabel: string, matchSkillId: string) => ({
+  role_kind: roleKind,
+  role_label: roleLabel,
+  pack_id: `qp_${roleKind}`,
+  match_skill_id: matchSkillId,
+  ladder: [],
+  questions: [],
+});
+/** The catalogue the page served — two of the 16 are enough to pin "only what the API lists". */
+const TRADES = [
+  tradeRow("cnc_turner", "CNC Turner", "mskill_cnc_turner"),
+  tradeRow("welder", "Welder", "mskill_welder"),
+];
+
 /**
  * useState order in the source: fields, fieldErrors, error, navigating, selection, preview,
- * requirements, benefits, reqDraft, benDraft, gap, revealed (then useTransition; the preview rail's
- * own sheet state comes after, at its initial value). New state is APPENDED so this positional
- * seeding keeps working.
+ * requirements, benefits, reqDraft, benDraft, gap, revealed, step, trade (then useTransition; the
+ * preview rail's own sheet state comes after, at its initial value). New state is APPENDED so this
+ * positional seeding keeps working.
  */
 function render(seed: {
   fields: Record<string, string>;
@@ -174,6 +231,13 @@ function render(seed: {
   gap?: { title: string; message: string; field: string } | null;
   matchSkills?: Array<Record<string, unknown>>;
   error?: string | null;
+  /** #2645 — index 12. */
+  step?: number;
+  /** #2645 — index 13: the trade form's rung + answers. */
+  trade?: { tradeLevel: string; answers: Record<string, string[]>; matchSkillIds: string[] };
+  /** #2645 — the 16-trade catalogue the page served (default: two trades). */
+  postingTrades?: Array<ReturnType<typeof tradeRow>>;
+  postingTradesProblem?: unknown;
 }) {
   stateQueue = [
     seed.fields,
@@ -188,12 +252,17 @@ function render(seed: {
     seed.benDraft ?? "",
     seed.gap ?? null,
     seed.revealed ?? {},
+    seed.step ?? 1,
+    seed.trade ?? { tradeLevel: "", answers: {}, matchSkillIds: [] },
   ];
   setters = [];
   stateCursor = 0;
   return PostingForm({
+    payerId: PAYER_ID,
     quotaStep: seed.quotaStep ?? null,
     matchSkills: (seed.matchSkills ?? [MSKILL]) as never,
+    postingTrades: (seed.postingTrades ?? TRADES) as never,
+    postingTradesProblem: (seed.postingTradesProblem ?? null) as never,
   }) as ReactElement;
 }
 
@@ -279,6 +348,7 @@ beforeEach(() => {
   useTransition.mockClear();
   createPostingAction.mockClear();
   navigate.mockClear();
+  draftHook.restored = false;
 });
 
 describe("PostingForm render — the role picker and the card fields are present", () => {
@@ -294,13 +364,16 @@ describe("PostingForm render — the role picker and the card fields are present
     }
   });
 
-  it("renders the 21 role kinds as options in the picker (labels are rendered text)", () => {
+  it("#2645 — the picker lists ONLY the trades the API served, never the long role list", () => {
     const { texts } = collect(render({ fields: BLANK_FIELDS, fieldErrors: {} }));
     const joined = texts.join(" ");
     // The option LABELS are rendered children; the optgroup family headings are `label` props.
     expect(joined).toContain("CNC Turner");
-    expect(joined).toContain("Injection Moulding Operator");
     expect(joined).toContain("Welder");
+    // Declared role kinds the catalogue did not list are not offered (a polymer role, a 27-list one).
+    expect(joined).not.toContain("Injection Moulding Operator");
+    expect(joined).not.toContain("Production Supervisor");
+    expect(joined).toContain("— pick one of the 16 trades —");
   });
 });
 
@@ -359,24 +432,185 @@ describe("PostingForm render — the live card preview + the DS error wiring", (
   });
 });
 
-describe("PostingForm render — ADR-0036 match surface (fail-closed)", () => {
-  it("renders the vocabulary the SERVER passed", () => {
-    const text = collect(render({ fields: VALID_FIELDS, fieldErrors: {} }))
-      .texts.join(" ")
-      .replace(/\s+/g, " ");
-    expect(text).toContain("CNC turning");
+describe("PostingForm render — #2645: the trade's fields are the only match surface", () => {
+  beforeEach(() => tradeFieldsProps.mockClear());
+
+  it("hands the trade fields the catalogue, the vocabulary and the job's role for the reach preview", () => {
+    collect(render({ fields: { ...VALID_FIELDS, roleKind: "cnc_turner" }, fieldErrors: {} }));
+    const props = tradeFieldsProps.mock.calls.at(-1)![0] as Record<string, unknown>;
+    expect(props.trades).toBe(TRADES);
+    expect(props.roleKind).toBe("cnc_turner");
+    expect(props.vocabulary).toEqual([MSKILL]);
+    // POST /payer/match/reach-preview carries the company job's trade (#2635).
+    expect(props.reachRoleKind).toBe("cnc_turner");
   });
 
-  it("an EMPTY vocabulary shows a reload prompt and blocks submit", () => {
-    const seed = {
-      fields: VALID_FIELDS,
+  it("no flat skill picker and no 'could not load the skill list' fallback, whatever loaded", () => {
+    for (const matchSkills of [[MSKILL], []]) {
+      const tree = render({ fields: VALID_FIELDS, fieldErrors: {}, matchSkills });
+      const { classes, texts } = collect(tree);
+      expect(classes).not.toContain("match-picker");
+      expect(texts.join(" ")).not.toContain("Could not load the skill list");
+      // The vocabulary only labels chips now: an empty one never holds Publish disabled.
+      expect(collect(tree).buttons.find((b) => b.type === "submit")!.disabled).toBe(false);
+    }
+  });
+});
+
+describe("PostingForm — #2645: the trade is REQUIRED, one of the 16", () => {
+  const TRADE_MSG = "Pick one of the 16 trades";
+
+  it("Next on step 1 without a trade refuses at the picker (index 1 — fieldErrors) and stays", () => {
+    const tree = render({ fields: { ...FULL_FIELDS, roleKind: "" }, fieldErrors: {} });
+    const next = hosts(tree).find(
+      (el) => el.type === "button" && textOf(el.props.children as ReactNode).includes("Next: Pay"),
+    )!;
+    (next.props.onClick as () => void)();
+    const merge = setters[1]!.mock.calls[0]![0] as (p: object) => Record<string, string>;
+    expect(merge({})).toMatchObject({ roleKind: TRADE_MSG });
+    expect(setters[12]).not.toHaveBeenCalled();
+  });
+
+  it("a role the catalogue does not list (a restored draft's) is refused the same way", () => {
+    const tree = render({ fields: { ...FULL_FIELDS, roleKind: "production_supervisor" }, fieldErrors: {} });
+    const next = hosts(tree).find(
+      (el) => el.type === "button" && textOf(el.props.children as ReactNode).includes("Next: Pay"),
+    )!;
+    (next.props.onClick as () => void)();
+    const merge = setters[1]!.mock.calls[0]![0] as (p: object) => Record<string, string>;
+    expect(merge({})).toMatchObject({ roleKind: TRADE_MSG });
+  });
+
+  it("Publish without a trade is refused AT the picker and sends nothing", async () => {
+    const tree = render({
+      fields: { ...FULL_FIELDS, roleKind: "" },
       fieldErrors: {},
-      matchSkills: [],
-      selection: { matchSkillIds: [], untickedRelatedIds: [] },
-    };
-    const text = collect(render(seed)).texts.join(" ").replace(/\s+/g, " ");
-    expect(text).toContain("Could not load the skill list");
-    expect(collect(render(seed)).buttons.find((b) => b.type === "submit")!.disabled).toBe(true);
+      requirements: ["Fanuc control"],
+      benefits: ["PF + ESI"],
+    });
+    await findForm(tree)!.props.onSubmit({ preventDefault: () => undefined });
+    expect(createPostingAction).not.toHaveBeenCalled();
+    expect(navigate).not.toHaveBeenCalled();
+    // The picker is the first control in the refusal, so it is where focus goes.
+    const errs = setters[1]!.mock.calls[0]![0] as Record<string, string>;
+    expect(Object.keys(errs)[0]).toBe("roleKind");
+    expect(errs.roleKind).toBe(TRADE_MSG);
+  });
+
+  it("…from a later step it switches back to step 1, where the picker is (index 12)", async () => {
+    const tree = render({ fields: { ...FULL_FIELDS, roleKind: "" }, fieldErrors: {}, step: 3 });
+    await findForm(tree)!.props.onSubmit({ preventDefault: () => undefined });
+    expect(setters[12]).toHaveBeenCalledWith(1);
+    expect(createPostingAction).not.toHaveBeenCalled();
+  });
+
+  it("the refusal is the picker's own error (aria-invalid + its feedback line)", () => {
+    const tree = render({ fields: BLANK_FIELDS, fieldErrors: { roleKind: TRADE_MSG } });
+    expect(byId(tree, "roleKind").props["aria-invalid"]).toBe(true);
+    expect(textOf(byId(tree, "roleKind-msg"))).toBe(TRADE_MSG);
+  });
+
+  it("the create always carries role_kind + the trade form ({} untouched, no rung) + its derived skill", async () => {
+    const tree = render({
+      fields: FULL_FIELDS,
+      fieldErrors: {},
+      requirements: ["Fanuc control"],
+      benefits: ["PF + ESI"],
+    });
+    await findForm(tree)!.props.onSubmit({ preventDefault: () => undefined });
+    const input = createPostingAction.mock.calls[0]![0] as Record<string, unknown>;
+    expect(input.roleKind).toBe("cnc_turner");
+    expect(input.tradeAnswers).toEqual({});
+    expect(input.tradeLevel).toBeUndefined();
+    // The match set is the trade's own (base skill), derived from the catalogue — never a flat pick.
+    expect(input.matchSkillIds).toEqual(["mskill_cnc_turner"]);
+    expect(input.untickedRelatedIds).toEqual([]);
+  });
+
+  it("a picked rung and chip ride the create as they were picked", async () => {
+    const tree = render({
+      fields: FULL_FIELDS,
+      fieldErrors: {},
+      requirements: ["Fanuc control"],
+      benefits: ["PF + ESI"],
+      trade: { tradeLevel: "setter", answers: { controller_brand: ["fanuc"] }, matchSkillIds: [] },
+    });
+    await findForm(tree)!.props.onSubmit({ preventDefault: () => undefined });
+    const input = createPostingAction.mock.calls[0]![0] as Record<string, unknown>;
+    expect(input.tradeLevel).toBe("setter");
+    expect(input.tradeAnswers).toEqual({ controller_brand: ["fanuc"] });
+  });
+
+  it("a publish the API refused for want of a trade opens the new draft's edit page at the picker", async () => {
+    createPostingAction.mockResolvedValueOnce({
+      ok: true,
+      postingId: "p1",
+      published: false,
+      reached: null,
+      tradeRequired: true,
+    } as never);
+    const tree = render({
+      fields: FULL_FIELDS,
+      fieldErrors: {},
+      requirements: ["Fanuc control"],
+      benefits: ["PF + ESI"],
+    });
+    findForm(tree)!.props.onSubmit({ preventDefault: () => undefined });
+    await vi.waitFor(() => expect(navigate).toHaveBeenCalledTimes(1));
+    expect(navigate).toHaveBeenCalledWith("/postings/p1/edit?trade=required", {
+      pendingLabel: "Edit posting",
+      refresh: true,
+    });
+  });
+});
+
+describe("PostingForm — #2645: the 16 trades did not load", () => {
+  const FAILED = { kind: "http", status: 503 } as const;
+
+  it("the picker names the real cause and offers Retry — no select, no free role list", () => {
+    const tree = render({
+      fields: BLANK_FIELDS,
+      fieldErrors: {},
+      postingTrades: [],
+      postingTradesProblem: FAILED,
+    });
+    const { tagById, texts, buttons } = collect(tree);
+    expect(tagById.roleKind).toBe("div"); // the focus target that stands in for the picker
+    const joined = texts.join(" ");
+    expect(joined).toContain("The 16 trades did not load: the BadaBhai server had a problem (error 503).");
+    expect(joined).not.toContain("CNC Turner");
+    expect(buttons.map((b) => b.text)).toContain("Retry");
+  });
+
+  it("an answer with no trade in it says so, with the same Retry", () => {
+    const tree = render({
+      fields: BLANK_FIELDS,
+      fieldErrors: {},
+      postingTrades: [],
+      postingTradesProblem: { kind: "empty" },
+    });
+    expect(collect(tree).texts.join(" ")).toContain("No trades are open for posting right now.");
+  });
+
+  it("posting is refused at the picker's spot — the refusal is described there", async () => {
+    const tree = render({
+      fields: FULL_FIELDS,
+      fieldErrors: {},
+      requirements: ["Fanuc control"],
+      benefits: ["PF + ESI"],
+      postingTrades: [],
+      postingTradesProblem: FAILED,
+    });
+    await findForm(tree)!.props.onSubmit({ preventDefault: () => undefined });
+    expect(createPostingAction).not.toHaveBeenCalled();
+    const refused = render({
+      fields: BLANK_FIELDS,
+      fieldErrors: { roleKind: "Pick one of the 16 trades" },
+      postingTrades: [],
+      postingTradesProblem: FAILED,
+    });
+    expect(byId(refused, "roleKind").props["aria-describedby"]).toBe("roleKind-cause roleKind-msg");
+    expect(textOf(byId(refused, "roleKind-msg"))).toBe("Pick one of the 16 trades");
   });
 });
 
@@ -703,5 +937,188 @@ describe("PostingForm — typing in a pay box stands its order error down again 
     (byId(tree, "payMin").props.onBlur as () => void)();
     const reveal = setters[11]!.mock.calls[0]![0] as (prev: Record<string, true>) => Record<string, true>;
     expect(reveal({})).toEqual({ payMin: true, payMax: true });
+  });
+});
+
+/* ── W4 (#2584): the posting flow on phones ──────────────────────────────────── */
+
+/** Every DOM-level element (function components expanded), depth-first. */
+function hosts(tree: ReactNode): Array<ReactElement<Record<string, unknown>>> {
+  const out: Array<ReactElement<Record<string, unknown>>> = [];
+  (function visit(node: ReactNode): void {
+    if (node === null || node === undefined || typeof node !== "object") return;
+    if (Array.isArray(node)) return node.forEach(visit);
+    const el = node as ReactElement<Record<string, unknown> & { children?: ReactNode }>;
+    if (typeof el.type === "function") {
+      return visit((el.type as (p: unknown) => ReactNode)(el.props));
+    }
+    if (typeof el.type === "string") out.push(el);
+    if ("children" in el.props) visit(el.props.children);
+  })(tree);
+  return out;
+}
+
+describe("PostingForm — W4: steps, the phone publish bar and the draft", () => {
+  it("the active step carries aria-current='step'; the others carry none", () => {
+    const steps = hosts(render({ fields: BLANK_FIELDS, fieldErrors: {} })).filter(
+      (el) => el.type === "li" && String(el.props.className).startsWith("mw-step "),
+    );
+    expect(steps.map((s) => s.props["aria-current"])).toEqual(["step", undefined, undefined]);
+  });
+
+  it("each step's heading is a focus target (id + tabIndex -1) for a step change", () => {
+    const tree = render({ fields: BLANK_FIELDS, fieldErrors: {} });
+    for (const n of [1, 2, 3]) {
+      const heading = byId(tree, `posting-step-${n}-title`);
+      expect(heading.type).toBe("h2");
+      expect(heading.props.tabIndex).toBe(-1);
+    }
+  });
+
+  it("Next on a complete step moves to the next one (index 12 — the step)", () => {
+    const tree = render({ fields: FULL_FIELDS, fieldErrors: {} });
+    const next = hosts(tree).find(
+      (el) => el.type === "button" && textOf(el.props.children as ReactNode).includes("Next: Pay"),
+    )!;
+    (next.props.onClick as () => void)();
+    expect(setters[12]).toHaveBeenCalledWith(2);
+  });
+
+  it("the phone dock (the publish bar) carries the ONE primary — Publish", () => {
+    const tree = render({ fields: FULL_FIELDS, fieldErrors: {} });
+    const dock = hosts(tree).find((el) => el.props.className === "posting-dock")!;
+    expect(dock.props["data-mw-hidden"]).toBe(""); // shown by CSS at ≤1100px only (css fence)
+    const inDock = hosts(dock).filter((el) => el.type === "button");
+    expect(inDock.map((b) => textOf(b.props.children as ReactNode).trim())).toContain(
+      "Publish posting",
+    );
+  });
+
+  it("the step-3 hint names where Publish is at each width", () => {
+    const { texts } = collect(render({ fields: BLANK_FIELDS, fieldErrors: {} }));
+    const joined = texts.join(" ");
+    expect(joined).toContain("Publish from the panel on the right →");
+    expect(joined).toContain("Publish from the bar at the bottom of the screen ↓");
+  });
+
+  it("the 'Draft saved' cue is drawn but hidden until a save lands", () => {
+    const cue = hosts(render({ fields: BLANK_FIELDS, fieldErrors: {} })).find(
+      (el) => el.props.className === "mw-draft-cue",
+    )!;
+    expect(cue.props["data-shown"]).toBe("false");
+    expect(cue.props["aria-hidden"]).toBe(true);
+  });
+
+  it("a successful publish drops the local draft", async () => {
+    discardDraft.mockClear();
+    const tree = render({
+      fields: FULL_FIELDS,
+      fieldErrors: {},
+      requirements: ["Fanuc control"],
+      benefits: ["PF + ESI"],
+    });
+    findForm(tree)!.props.onSubmit({ preventDefault: () => undefined });
+    await vi.waitFor(() => expect(navigate).toHaveBeenCalledTimes(1));
+    expect(discardDraft).toHaveBeenCalledTimes(1);
+  });
+
+  it("the draft is kept under the signed-in payer's own key (a shared browser never mixes them)", () => {
+    render({ fields: BLANK_FIELDS, fieldErrors: {} });
+    expect(draftHook.storageKey).toBe(`bb:posting-draft:${PAYER_ID}:new`);
+  });
+
+  it("no restored draft, no 'Restored' line", () => {
+    const tree = render({ fields: BLANK_FIELDS, fieldErrors: {} });
+    expect(hosts(tree).some((el) => el.props.className === "mw-draft-restored")).toBe(false);
+  });
+
+  it("a restored draft is said, and Discard drops it and reseeds a fresh form from step 1", () => {
+    draftHook.restored = true;
+    discardDraft.mockClear();
+    const tree = render({ fields: FULL_FIELDS, fieldErrors: {} });
+    const notice = hosts(tree).find((el) => el.props.className === "mw-draft-restored")!;
+    expect(notice.props.role).toBe("status");
+    expect(textOf(notice)).toContain("Restored unsaved changes from this device");
+    const discard = hosts(notice).find((el) => el.type === "button")!;
+    expect(textOf(discard).trim()).toBe("Discard");
+
+    (discard.props.onClick as () => void)();
+    expect(discardDraft).toHaveBeenCalledTimes(1);
+    expect(setters[0]).toHaveBeenCalledWith(BLANK_FIELDS); // fields
+    expect(setters[4]).toHaveBeenCalledWith({ matchSkillIds: [], untickedRelatedIds: [] });
+    expect(setters[6]).toHaveBeenCalledWith([]); // requirements
+    expect(setters[7]).toHaveBeenCalledWith([]); // benefits
+    expect(setters[12]).toHaveBeenCalledWith(1); // step
+    expect(setters[13]).toHaveBeenCalledWith({ tradeLevel: "", answers: {}, matchSkillIds: [] });
+  });
+});
+
+describe("PostingForm — #2645: a device draft that changes nothing is not restored", () => {
+  /** A draft as this page kept it: a blank form, plus a pick from the old flat skill list. */
+  const OLD_PICK = { matchSkillIds: ["mskill_cnc_turning"], untickedRelatedIds: [] };
+  const SAVED = {
+    fields: BLANK_FIELDS,
+    requirements: [],
+    benefits: [],
+    reqDraft: "",
+    benDraft: "",
+    selection: OLD_PICK,
+    trade: { tradeLevel: "", answers: {}, matchSkillIds: [] },
+  };
+
+  it("the form hands the hook its dirty test, so a draft whose one change is the old pick is dropped", () => {
+    render({ fields: BLANK_FIELDS, fieldErrors: {} });
+    const isDirty = draftHook.options!.isDirty!;
+    expect(isDirty(SAVED)).toBe(false);
+    expect(isDirty({ ...SAVED, fields: { ...BLANK_FIELDS, city: "Pune" } })).toBe(true);
+    // A draft is read the way it is restored: a part it lacks starts blank (never a throw).
+    expect(isDirty({ selection: OLD_PICK })).toBe(false);
+    expect(isDirty({ fields: { city: "Pune" } })).toBe(true);
+  });
+
+  it("onRestore applies that same reading of the draft", () => {
+    render({ fields: BLANK_FIELDS, fieldErrors: {} });
+    draftHook.options!.onRestore!({ fields: { city: "Pune" } });
+    expect(setters[0]).toHaveBeenCalledWith({ ...BLANK_FIELDS, city: "Pune" }); // fields
+    expect(setters[4]).toHaveBeenCalledWith({ matchSkillIds: [], untickedRelatedIds: [] });
+    expect(setters[13]).toHaveBeenCalledWith({ tradeLevel: "", answers: {}, matchSkillIds: [] });
+  });
+});
+
+describe("isNewPostingDirty — what makes leaving ask first (W4)", () => {
+  const blank = {
+    fields: BLANK_FIELDS,
+    requirements: [],
+    benefits: [],
+    reqDraft: "",
+    benDraft: "",
+    selection: { matchSkillIds: [], untickedRelatedIds: [] },
+    trade: { tradeLevel: "", answers: {}, matchSkillIds: [] },
+  };
+
+  it("a blank form is clean", async () => {
+    const { isNewPostingDirty } = await import("./posting-form");
+    expect(isNewPostingDirty(blank)).toBe(false);
+    expect(isNewPostingDirty({ ...blank, fields: { ...BLANK_FIELDS, city: "  " } })).toBe(false);
+  });
+
+  it("any typed field, chip, chip draft or trade answer makes it dirty", async () => {
+    const { isNewPostingDirty } = await import("./posting-form");
+    expect(isNewPostingDirty({ ...blank, fields: { ...BLANK_FIELDS, city: "Pune" } })).toBe(true);
+    expect(isNewPostingDirty({ ...blank, requirements: ["ITI"] })).toBe(true);
+    expect(isNewPostingDirty({ ...blank, benDraft: "PF" })).toBe(true);
+    expect(
+      isNewPostingDirty({
+        ...blank,
+        trade: { tradeLevel: "lead", answers: {}, matchSkillIds: [] },
+      }),
+    ).toBe(true);
+  });
+
+  it("#2645 — an old flat skill pick restored from this device is no change: nothing shows or sends it", async () => {
+    const { isNewPostingDirty } = await import("./posting-form");
+    expect(
+      isNewPostingDirty({ ...blank, selection: { matchSkillIds: ["s1"], untickedRelatedIds: [] } }),
+    ).toBe(false);
   });
 });

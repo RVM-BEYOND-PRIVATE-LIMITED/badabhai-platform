@@ -259,7 +259,18 @@ describe("MACHINE_ROW_LABELS — the split stays true to the trade maps (#2257)"
   it("gives every trade with a machine question a Machines-line row", () => {
     // The two exceptions ask no machine question at all: a draughtsman's software and an
     // inspector's instruments are capability, not machines. A new trade must land on one side.
-    const NO_MACHINE_QUESTION = new Set(["qp_cad_drafting", "qp_quality_inspection"]);
+    // Track A #4: a 3D designer's software is capability the same way — the seat is not a
+    // machine the worker runs.
+    const NO_MACHINE_QUESTION = new Set([
+      "qp_cad_drafting",
+      "qp_quality_inspection",
+      "qp_cad_design_3d",
+      // Phase 2 #6: a PLC technician's brand is a platform he programs, not a machine he runs.
+      "qp_plc_automation",
+      // Phase 2 #7: an EDM is a machine, so this trade DOES print a Machines line.
+      // Phase 2 #10: a supervisor's machines are a COUNT under his charge, not machines he runs.
+      "qp_production_supervisor",
+    ]);
     for (const { pack_id } of TRADE_RESUME_MAPS) {
       const hasMachineRow = listRows.some(
         (row) => row.packId === pack_id && MACHINE_ROW_LABELS.has(row.label),

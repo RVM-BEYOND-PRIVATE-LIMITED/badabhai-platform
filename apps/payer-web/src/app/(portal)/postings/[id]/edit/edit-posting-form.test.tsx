@@ -1,7 +1,8 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReactElement, ReactNode } from "react";
 import type * as ReactModule from "react";
 import { IconButtonBase } from "@badabhai/icons/button";
+import type { EditPostingInitial } from "./edit-posting-form";
 
 /**
  * EditPostingForm tests (PR-B) — the BAND-DOWNGRADE GUARD still lives here: an UNTOUCHED vacancies
@@ -9,8 +10,9 @@ import { IconButtonBase } from "@badabhai/icons/button";
  * undefined, `initial` threaded to the action (the clear diff), success → the detail (through the
  * shared navigation helper, naming the posting for the shell's "Opening …" cue),
  * client validate() blocks. Env is node; state injected via mocked useState (source order: fields,
- * requirements, benefits, reqDraft, benDraft, error, selection, preview, revealed); useTransition
- * runs inline. The card fields reach the action through the shared `readCardForm` — the same read
+ * requirements, benefits, reqDraft, benDraft, error, trade, preview, revealed); useTransition
+ * runs inline; refs live as long as one test (one mounted form, re-rendered by each `render`).
+ * The card fields reach the action through the shared `readCardForm` — the same read
  * the preview draws — so the liveness fixes are pinned here at the submit end.
  */
 
@@ -24,24 +26,90 @@ vi.mock("../../../../../components/portal-navigation", () => ({
   usePortalNavigation: () => ({ pending: false, navigate }),
 }));
 // The interactive picker is only rendered on the draft path; stub it hookless.
-vi.mock("../../new/match-skill-picker", () => ({ MatchSkillPicker: () => ({ type: "div", props: {} }) }));
+vi.mock("../../new/match-skill-picker", () => ({
+  MatchSkillPicker: () => ({ type: "div", props: { className: "match-picker-stub" } }),
+}));
+// #2645 — the trade's own fields (effects + refs; their own suite) record what the form HANDS them;
+// `derivedMatchSkills` stays real. The trade picker's Retry (`router.refresh`) is a stub too.
+const tradeFieldsProps = vi.fn();
+vi.mock("../../trade-fields", async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  TradePostingFields: (props: Record<string, unknown>) => {
+    tradeFieldsProps(props);
+    return { type: "div", props: { className: "trade-fields-stub" } };
+  },
+}));
+vi.mock("../../../../../components/retry-button", () => ({
+  RetryButton: () => ({ type: "button", props: { type: "button", children: "Retry" } }),
+}));
+// #2645 — the focus a `?trade=required` page opens with goes through the shared helper (its frame
+// timing is form-focus.test.ts's); here: whether, and where, the form asks for it.
+const focusControlOnNextFrame = vi.fn();
+vi.mock("../../../../../lib/form-focus", async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  focusControlOnNextFrame: (id: string) => focusControlOnNextFrame(id),
+}));
+
+/** The effects a render registered, with their dependency lists. React runs them after commit; a
+ *  test runs them itself ({@link runEffects}) and reads the lists to see what re-runs them. */
+let effects: Array<{ run: () => void; deps: readonly unknown[] | undefined }> = [];
+const runEffects = () => effects.forEach((effect) => effect.run());
+
+/** The form's refs, in call order. React keeps a mounted form's refs across its renders; here
+ *  each TEST is one mounted form (`beforeEach` empties them) and each `render` one of its renders. */
+let refs: Array<{ current: unknown }> = [];
+let refCursor = 0;
 
 let stateQueue: unknown[] = [];
 let stateCursor = 0;
 let setters: Array<ReturnType<typeof vi.fn>> = [];
+/** A queue slot that lets the form's OWN initial value through — its real seed runs. */
+const OWN_SEED = Symbol("own seed");
 const useState = vi.fn((initial: unknown) => {
   const i = stateCursor++;
-  const seeded = i < stateQueue.length ? stateQueue[i] : initial;
+  const seeded = i < stateQueue.length && stateQueue[i] !== OWN_SEED ? stateQueue[i] : initial;
   const setter = vi.fn();
   setters[i] = setter;
   return [seeded, setter] as [unknown, (v: unknown) => void];
 });
+// W4 — the local draft + leave guard runs effects (a real hook outside a render); its rules are
+// lib/posting-draft.test.ts's and components/use-posting-draft.test.ts's. Here it is idle (nothing
+// saved yet; restored only when a test says so) and keeps the options the form called it with.
+const discardDraft = vi.fn();
+interface DraftOptions {
+  storageKey: string;
+  isDirty?: (saved: unknown) => boolean;
+  onRestore?: (saved: unknown) => void;
+}
+const draftHook: { restored: boolean; storageKey: string; options?: DraftOptions } = {
+  restored: false,
+  storageKey: "",
+};
+vi.mock("../../../../../components/use-posting-draft", () => ({
+  usePostingDraft: (options: DraftOptions) => {
+    draftHook.storageKey = options.storageKey;
+    draftHook.options = options;
+    return { saved: false, restored: draftHook.restored, discard: discardDraft };
+  },
+}));
 vi.mock("react", async () => {
   const actual = await vi.importActual<typeof ReactModule>("react");
+  // The DS fields mint their auto ids with `useId`, which needs a renderer; the walks below call
+  // them as plain functions, so it answers from a counter (unique per call, like the hook).
+  let ids = 0;
   return {
     ...actual,
+    useId: () => `:r${(ids += 1)}:`,
     useState: (initial: unknown) => useState(initial),
     useTransition: () => [false, (fn: () => void) => fn()] as const,
+    useEffect: (run: () => void, deps?: readonly unknown[]) => {
+      effects.push({ run, deps });
+    },
+    useRef: (initial: unknown) => {
+      const i = refCursor++;
+      refs[i] ??= { current: initial };
+      return refs[i];
+    },
   };
 });
 
@@ -53,6 +121,8 @@ const SAVED = { roleTitle: "CNC Machinist" };
 const LANDING = { pendingLabel: "CNC Machinist", refresh: true };
 
 const POSTING_ID = "bbbb2222-0000-4000-8000-000000000001";
+/** The signed-in payer (the page passes the session's opaque id). */
+const PAYER_ID = "11111111-1111-4111-8111-111111111111";
 const INITIAL = {
   roleTitle: "CNC Machinist",
   vacanciesHint: 26,
@@ -104,16 +174,49 @@ function findForm(node: ReactNode): ReactElement<{ onSubmit: (e: unknown) => voi
   return el.props && "children" in el.props ? findForm(el.props.children) : null;
 }
 
+/** One 16-trade catalogue row (`GET /payer/posting-trades`), no chip questions. */
+const tradeRow = (roleKind: string, roleLabel: string, matchSkillId: string) => ({
+  role_kind: roleKind,
+  role_label: roleLabel,
+  pack_id: `qp_${roleKind}`,
+  match_skill_id: matchSkillId,
+  ladder: [],
+  questions: [],
+});
+/** The catalogue the page served (#2645) — two of the 16. */
+const TRADES = [
+  tradeRow("cnc_turner", "CNC Turner", "mskill_cnc_turner"),
+  tradeRow("welder", "Welder", "mskill_welder"),
+];
+
 function render(
   overrides: Partial<typeof BLANK_FIELDS>,
   status = "open",
-  chips: { requirements?: string[]; benefits?: string[]; reqDraft?: string; benDraft?: string } = {},
-  selection = { matchSkillIds: [] as string[], untickedRelatedIds: [] as string[] },
+  chips: {
+    requirements?: string[];
+    benefits?: string[];
+    reqDraft?: string;
+    benDraft?: string;
+  } = {},
+  selection:
+    | { matchSkillIds: string[]; untickedRelatedIds: string[] }
+    | typeof OWN_SEED = { matchSkillIds: [] as string[], untickedRelatedIds: [] as string[] },
   appended: {
     navigating?: boolean;
     problem?: { control: string; message: string } | null;
     error?: string | null;
     submitting?: "save" | "publish" | null;
+  } = {},
+  // #2645 — the page's props: the catalogue (default two trades), why it is empty, the stored
+  // posting, and the `?trade=required` flag.
+  page: {
+    postingTrades?: Array<ReturnType<typeof tradeRow>>;
+    postingTradesProblem?: unknown;
+    initial?: EditPostingInitial;
+    tradeRequired?: boolean;
+    matchSkills?: unknown[];
+    /** The posting's stored match set (`match_skill_ids` + unticks), as the page reads it. */
+    matchSelection?: { matchSkillIds: string[]; untickedRelatedIds: string[] };
   } = {},
 ) {
   stateQueue = [
@@ -131,8 +234,20 @@ function render(
     appended.submitting ?? null, // submitting (11)
   ];
   stateCursor = 0;
+  refCursor = 0;
   setters = [];
-  return EditPostingForm({ postingId: POSTING_ID, status, initial: INITIAL }) as ReactElement;
+  effects = [];
+  return EditPostingForm({
+    payerId: PAYER_ID,
+    postingId: POSTING_ID,
+    status,
+    initial: page.initial ?? INITIAL,
+    postingTrades: (page.postingTrades ?? TRADES) as never,
+    postingTradesProblem: (page.postingTradesProblem ?? null) as never,
+    tradeRequired: page.tradeRequired ?? false,
+    matchSkills: (page.matchSkills ?? []) as never,
+    matchSelection: page.matchSelection,
+  }) as ReactElement;
 }
 
 async function submit(tree: ReactElement) {
@@ -144,6 +259,8 @@ async function submit(tree: ReactElement) {
 beforeEach(() => {
   updatePostingAction.mockReset().mockResolvedValue({ ok: true, posting: SAVED });
   navigate.mockReset();
+  draftHook.restored = false;
+  refs = [];
 });
 
 describe("EditPostingForm — the band-downgrade guard (vacancies omission)", () => {
@@ -255,7 +372,9 @@ describe("EditPostingForm — what is saved is what the preview showed (readCard
   });
 
   it("a requirement typed but not added is SAVED (and shown as added)", async () => {
-    await submit(render({}, "open", { requirements: ["Fanuc control"], reqDraft: " MIG welding " }));
+    await submit(
+      render({}, "open", { requirements: ["Fanuc control"], reqDraft: " MIG welding " }),
+    );
     const input = updatePostingAction.mock.calls[0]![0] as Record<string, unknown>;
     expect(input.requirements).toEqual(["Fanuc control", "MIG welding"]);
     expect(setters[1]).toHaveBeenCalledWith(["Fanuc control", "MIG welding"]);
@@ -299,10 +418,14 @@ function hosts(node: ReactNode, out: Array<ReactElement<Record<string, unknown>>
   // The shared icon-only control (a chip's remove button) is the one HOOKED primitive: record it
   // as the native button it renders, named by its label, instead of calling it outside React.
   if (el.type === IconButtonBase) {
-    out.push({ type: "button", props: { "aria-label": el.props.label, onClick: el.props.onClick } } as never);
+    out.push({
+      type: "button",
+      props: { "aria-label": el.props.label, onClick: el.props.onClick },
+    } as never);
     return out;
   }
-  if (typeof el.type === "function") return hosts((el.type as (p: unknown) => ReactNode)(el.props), out);
+  if (typeof el.type === "function")
+    return hosts((el.type as (p: unknown) => ReactNode)(el.props), out);
   out.push(el);
   if ("children" in el.props) hosts(el.props.children, out);
   return out;
@@ -314,7 +437,8 @@ const textOf = (els: Array<ReactElement<Record<string, unknown>>>) =>
 function railOf(tree: ReactElement) {
   const layout = tree as ReactElement<{ children: ReactNode[] }>;
   const rail = (layout.props.children as ReactElement[]).find(
-    (c) => typeof c?.type === "function" && (c.type as { name?: string }).name === "PostingPreviewRail",
+    (c) =>
+      typeof c?.type === "function" && (c.type as { name?: string }).name === "PostingPreviewRail",
   ) as ReactElement<{ primary: ReactElement<{ onClick?: () => void; disabled?: boolean }> }>;
   expect(rail).toBeDefined();
   return rail;
@@ -338,16 +462,400 @@ describe("EditPostingForm — a refused save says why AT the field focus moves t
     expect(title.props["aria-invalid"]).toBe(true);
     expect(els.some((e) => e.props.className === "bb-field__error")).toBe(true);
     // Only that control is marked.
-    expect(els.filter((e) => e.props["aria-invalid"] === true).map((e) => e.props.id)).toEqual(["roleTitle"]);
+    expect(els.filter((e) => e.props["aria-invalid"] === true).map((e) => e.props.id)).toEqual([
+      "roleTitle",
+    ]);
   });
 
   it("PUBLISH refused by the gap rule never calls the action and points at the missing control", async () => {
+    const tree = render(
+      { roleKind: "cnc_turner" },
+      "draft",
+      {},
+      { matchSkillIds: ["mskill_x"], untickedRelatedIds: [] },
+    );
+    railOf(tree).props.primary.props.onClick!();
+    await Promise.resolve();
+    expect(updatePostingAction).not.toHaveBeenCalled();
+    expect(setters[10]).toHaveBeenCalledWith({
+      control: "city",
+      message: expect.stringContaining("The city is the place"),
+    });
+    expect(setters[5]).toHaveBeenCalledWith(expect.stringContaining("Add the city:"));
+  });
+});
+
+describe("EditPostingForm — #2645: the role is the job's trade, one of the 16", () => {
+  const TRADE_MSG = "Pick one of the 16 trades";
+  /** The posting as saved, with a role. */
+  const STORED = { ...INITIAL, roleKind: "cnc_turner" };
+  /** What an older payer-app's flat picker (or the old web fallback) stored on the row. */
+  const HAND_PICKED = {
+    matchSkillIds: ["mskill_delivery_rider", "mskill_vmc_operating"],
+    untickedRelatedIds: ["mskill_cnc_turning"],
+  };
+  const skill = (skill_id: string, label: string) => ({
+    skill_id,
+    label,
+    industry_id: "ind_x",
+    related_skill_ids: [],
+  });
+  const VOCABULARY = [
+    skill("mskill_cnc_turner", "CNC Turning"),
+    skill("mskill_delivery_rider", "Delivery Rider"),
+    skill("mskill_vmc_operating", "VMC Operating"),
+  ];
+
+  beforeEach(() => tradeFieldsProps.mockClear());
+
+  it("the picker lists ONLY the trades the API served — no free role list", () => {
+    const picker = hosts(render({})).find((e) => e.type === "select" && e.props.id === "roleKind")!;
+    const options = hosts(picker.props.children as ReactNode)
+      .filter((e) => e.type === "option")
+      .map((o) => o.props.value);
+    expect(options).toEqual(["", "cnc_turner", "welder"]);
+    expect(deepText(render({}))).not.toContain("Injection Moulding Operator");
+  });
+
+  it("PUBLISH without a trade is refused AT the picker and never calls the action", async () => {
     const tree = render({}, "draft", {}, { matchSkillIds: ["mskill_x"], untickedRelatedIds: [] });
     railOf(tree).props.primary.props.onClick!();
     await Promise.resolve();
     expect(updatePostingAction).not.toHaveBeenCalled();
-    expect(setters[10]).toHaveBeenCalledWith({ control: "roleKind", message: expect.stringContaining("Pick the role") });
-    expect(setters[5]).toHaveBeenCalledWith(expect.stringContaining("Pick the role:"));
+    expect(setters[10]).toHaveBeenCalledWith({ control: "roleKind", message: TRADE_MSG });
+    expect(setters[5]).toHaveBeenCalledWith(TRADE_MSG);
+  });
+
+  it("…and so is a stored role the catalogue does not list (a pre-#2635 job)", async () => {
+    const tree = render(
+      { roleKind: "production_supervisor" },
+      "draft",
+      {},
+      { matchSkillIds: ["mskill_x"], untickedRelatedIds: [] },
+      {},
+      { initial: { ...INITIAL, roleKind: "production_supervisor" } },
+    );
+    railOf(tree).props.primary.props.onClick!();
+    await Promise.resolve();
+    expect(updatePostingAction).not.toHaveBeenCalled();
+    expect(setters[10]).toHaveBeenCalledWith({ control: "roleKind", message: TRADE_MSG });
+  });
+
+  it("a save that does not touch the role never sends it (and the seam never clears it)", async () => {
+    await submit(render({ roleKind: "cnc_turner" }, "open", {}, undefined, {}, { initial: STORED }));
+    const input = updatePostingAction.mock.calls[0]![0] as Record<string, unknown>;
+    expect(input.roleKind).toBeUndefined();
+    expect(input.initial).toEqual(STORED);
+  });
+
+  it("an untouched role outside the 16 still saves the rest of a live job (nothing about it is sent)", async () => {
+    const legacy = { ...INITIAL, roleKind: "production_supervisor" };
+    await submit(
+      render({ roleKind: "production_supervisor" }, "open", {}, undefined, {}, { initial: legacy }),
+    );
+    expect(updatePostingAction).toHaveBeenCalledTimes(1);
+    expect((updatePostingAction.mock.calls[0]![0] as Record<string, unknown>).roleKind).toBeUndefined();
+  });
+
+  it("a role moved to another of the 16 is sent", async () => {
+    await submit(render({ roleKind: "welder" }, "open", {}, undefined, {}, { initial: STORED }));
+    expect((updatePostingAction.mock.calls[0]![0] as Record<string, unknown>).roleKind).toBe("welder");
+  });
+
+  it("blanking a stored role is refused at the picker — never sent as a clear", async () => {
+    await submit(render({ roleKind: "" }, "open", {}, undefined, {}, { initial: STORED }));
+    expect(updatePostingAction).not.toHaveBeenCalled();
+    expect(setters[10]).toHaveBeenCalledWith({ control: "roleKind", message: TRADE_MSG });
+  });
+
+  it("the API's posting_trade_required refusal lands AT the picker, in the app's words", async () => {
+    updatePostingAction.mockResolvedValue({ ok: false, error: TRADE_MSG, tradeRequired: true });
+    await submit(render({ roleKind: "welder" }, "open", {}, undefined, {}, { initial: STORED }));
+    expect(setters[10]).toHaveBeenCalledWith({ control: "roleKind", message: TRADE_MSG });
+    expect(setters[5]).toHaveBeenCalledWith(TRADE_MSG);
+    // Not the server-field path: focus goes to the picker, whose description reads it once (M3).
+    expect(setters[12]).not.toHaveBeenCalledWith(expect.objectContaining({ roleKind: TRADE_MSG }));
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it("the refusal is the picker's own error (aria-invalid + its line), not announced again", () => {
+    const tree = render({}, "draft", {}, undefined, {
+      error: TRADE_MSG,
+      problem: { control: "roleKind", message: TRADE_MSG },
+    });
+    const els = hosts(tree);
+    const picker = els.find((e) => e.props.id === "roleKind")!;
+    expect(picker.type).toBe("select");
+    expect(picker.props["aria-invalid"]).toBe(true);
+    expect(deepText(els.find((e) => e.props.id === "roleKind-msg"))).toBe(TRADE_MSG);
+    expect(liveTexts(tree).filter((t) => t.includes(TRADE_MSG))).toEqual([]);
+  });
+
+  it("opened with ?trade=required: starts refused at the picker, which takes focus", () => {
+    useState.mockClear();
+    focusControlOnNextFrame.mockClear();
+    const tree = render({}, "draft", {}, undefined, {}, { tradeRequired: true });
+    // The `problem` state's INITIAL value (index 10) — what the form mounts with.
+    expect(useState.mock.calls[10]![0]).toEqual({ control: "roleKind", message: TRADE_MSG });
+    expect(hosts(tree).find((e) => e.props.id === "roleKind")!.type).toBe("select");
+    runEffects();
+    expect(focusControlOnNextFrame).toHaveBeenCalledWith("roleKind");
+    // Without the flag it starts clean, and nothing steals focus.
+    useState.mockClear();
+    focusControlOnNextFrame.mockClear();
+    render({}, "draft");
+    runEffects();
+    expect(useState.mock.calls[10]![0]).toBeNull();
+    expect(focusControlOnNextFrame).not.toHaveBeenCalled();
+  });
+
+  it("a picked trade publishes its own skill when the stored set is empty — never nothing", async () => {
+    const tree = render(
+      {
+        roleKind: "cnc_turner",
+        city: "Pune",
+        payMin: "18000",
+        payMax: "26000",
+        payType: "in_hand",
+        minExperienceYears: "1",
+        maxExperienceYears: "5",
+        shift: "day",
+        neededBy: "soon",
+        description: "Run two lathes.",
+      },
+      "draft",
+      { requirements: ["Fanuc"], benefits: ["PF"] },
+      { matchSkillIds: [], untickedRelatedIds: [] },
+    );
+    railOf(tree).props.primary.props.onClick!();
+    await vi.waitFor(() => expect(updatePostingAction).toHaveBeenCalledTimes(1));
+    const input = updatePostingAction.mock.calls[0]![0] as { publish?: { matchSkillIds: string[] } };
+    expect(input.publish?.matchSkillIds).toEqual(["mskill_cnc_turner"]);
+  });
+
+  describe("a draft an older client saved with free skills (no trade fields)", () => {
+    /** A card complete enough to publish (the gap rule passes). */
+    const FULL = {
+      roleKind: "cnc_turner",
+      city: "Pune",
+      payMin: "18000",
+      payMax: "26000",
+      payType: "in_hand",
+      minExperienceYears: "1",
+      maxExperienceYears: "5",
+      shift: "day",
+      neededBy: "soon",
+      description: "Run two lathes.",
+    };
+    const CHIPS = { requirements: ["Fanuc"], benefits: ["PF"] };
+    /** The real trade seed runs (OWN_SEED): it starts from the stored set, as on the page. */
+    const draftTree = (initial: EditPostingInitial = { ...INITIAL, roleKind: "cnc_turner" }) =>
+      render(FULL, "draft", CHIPS, OWN_SEED, {}, {
+        initial,
+        matchSelection: HAND_PICKED,
+        matchSkills: VOCABULARY,
+      });
+
+    it("the panel, the rail and the publish all read the TRADE's set — never the stored one", async () => {
+      tradeFieldsProps.mockClear();
+      const tree = draftTree();
+      hosts(tree); // draws the (stubbed) trade panel, which records what it was handed
+      // The panel previews the trade with no answers: its own skill only.
+      expect(tradeFieldsProps.mock.calls.at(-1)![0]).toMatchObject({
+        roleKind: "cnc_turner",
+        value: { tradeLevel: "", answers: {} },
+      });
+      const facts = (railOf(tree).props as unknown as { facts: Array<{ label: string; value: unknown }> })
+        .facts;
+      expect(facts.find((f) => f.label === "Skills")?.value).toBe("CNC Turning");
+
+      railOf(tree).props.primary.props.onClick!();
+      await vi.waitFor(() => expect(updatePostingAction).toHaveBeenCalledTimes(1));
+      const input = updatePostingAction.mock.calls[0]![0] as Record<string, unknown>;
+      // The trade's set, with no untick of the old pick — what the panel's reach preview counted.
+      expect(input.publish).toEqual({ matchSkillIds: ["mskill_cnc_turner"], untickedRelatedIds: [] });
+      // The trade form rides the publish (`{}`: nothing picked), so the SERVER derives the set.
+      expect(input.tradeAnswers).toEqual({});
+      expect(input.tradeLevel).toBeUndefined();
+      // The role was not moved, so it is not sent (#2645).
+      expect(input.roleKind).toBeUndefined();
+    });
+
+    it("a draft that already has its trade form keeps its stored untick choice on publish", async () => {
+      const tree = draftTree({ ...INITIAL, roleKind: "cnc_turner", tradeLevel: null, tradeAnswers: {} });
+      railOf(tree).props.primary.props.onClick!();
+      await vi.waitFor(() => expect(updatePostingAction).toHaveBeenCalledTimes(1));
+      const input = updatePostingAction.mock.calls[0]![0] as Record<string, unknown>;
+      expect(input.publish).toEqual({
+        matchSkillIds: ["mskill_cnc_turner"],
+        untickedRelatedIds: ["mskill_cnc_turning"],
+      });
+      expect(input.tradeAnswers).toEqual({});
+    });
+
+    it("a plain Save draft sends no trade form: the stored set is left until publish", async () => {
+      await submit(draftTree());
+      const input = updatePostingAction.mock.calls[0]![0] as Record<string, unknown>;
+      expect(input.tradeAnswers).toBeUndefined();
+      expect(input.publish).toBeUndefined();
+    });
+  });
+
+  describe("a LIVE job from before the trade form (no trade fields): its panel stays hidden", () => {
+    /** Open, one of the 16, no stored trade fields; the real trade seed runs (OWN_SEED). */
+    const liveTree = (stored: { matchSkillIds: string[]; untickedRelatedIds: string[] }) =>
+      render(
+        { roleKind: "cnc_turner" },
+        "open",
+        {},
+        OWN_SEED,
+        {},
+        { initial: STORED, matchSelection: stored, matchSkills: VOCABULARY },
+      );
+    const skillsOnRail = (tree: ReactElement) => {
+      const { facts } = railOf(tree).props as unknown as {
+        facts: Array<{ label: string; value: unknown }>;
+      };
+      return facts.find((f) => f.label === "Skills")?.value;
+    };
+    const panelShown = (tree: ReactElement) =>
+      hosts(tree).some((e) => e.props.className === "trade-fields-stub");
+
+    it("the rail's Skills is its STORED set: what it matches on until an edit rebuilds it", () => {
+      const tree = liveTree(HAND_PICKED);
+      expect(panelShown(tree)).toBe(false);
+      expect(skillsOnRail(tree)).toBe("Delivery Rider, VMC Operating");
+    });
+
+    it("…and with an empty stored set, its trade's own skill (never 'Not set')", () => {
+      const tree = liveTree({ matchSkillIds: [], untickedRelatedIds: [] });
+      expect(panelShown(tree)).toBe(false);
+      expect(skillsOnRail(tree)).toBe("CNC Turning");
+    });
+  });
+
+  it("the trade fields get the job's role for the reach preview (#2635)", () => {
+    hosts(render({ roleKind: "cnc_turner" }, "draft"));
+    const props = tradeFieldsProps.mock.calls.at(-1)![0] as Record<string, unknown>;
+    expect(props.reachRoleKind).toBe("cnc_turner");
+  });
+
+  it("no flat skill picker on a draft — not even when the 16 trades did not load", () => {
+    const MSKILL = { skill_id: "mskill_x", label: "X", industry_id: "i", related_skill_ids: [] };
+    for (const postingTrades of [TRADES, []]) {
+      const tree = render({}, "draft", {}, undefined, {}, { postingTrades, matchSkills: [MSKILL] });
+      expect(hosts(tree).some((e) => e.props.className === "match-picker-stub")).toBe(false);
+    }
+  });
+});
+
+describe("EditPostingForm — #2645: the 16 trades did not load", () => {
+  const FAILED = { kind: "unreachable" } as const;
+
+  it("the picker names the cause and offers Retry; the stored role is untouched by a save", async () => {
+    const stored = { ...INITIAL, roleKind: "cnc_turner" };
+    const tree = render({ roleKind: "cnc_turner" }, "open", {}, undefined, {}, {
+      postingTrades: [],
+      postingTradesProblem: FAILED,
+      initial: stored,
+    });
+    const els = hosts(tree);
+    expect(els.some((e) => e.type === "select" && e.props.id === "roleKind")).toBe(false);
+    expect(deepText(els.find((e) => e.props.id === "roleKind-cause"))).toBe(
+      "The 16 trades did not load: the BadaBhai server could not be reached.",
+    );
+    expect(els.some((e) => e.type === "button" && deepText(e) === "Retry")).toBe(true);
+    // The rest of a live job still saves, and the role is neither sent nor cleared.
+    await submit(tree);
+    expect(updatePostingAction).toHaveBeenCalledTimes(1);
+    expect((updatePostingAction.mock.calls[0]![0] as Record<string, unknown>).roleKind).toBeUndefined();
+  });
+
+  it("a draft's publish waits for the trades — refused at the picker's spot", async () => {
+    const tree = render(
+      { roleKind: "cnc_turner" },
+      "draft",
+      {},
+      { matchSkillIds: ["mskill_x"], untickedRelatedIds: [] },
+      {},
+      { postingTrades: [], postingTradesProblem: FAILED, initial: { ...INITIAL, roleKind: "cnc_turner" } },
+    );
+    railOf(tree).props.primary.props.onClick!();
+    await Promise.resolve();
+    expect(updatePostingAction).not.toHaveBeenCalled();
+    expect(setters[10]).toHaveBeenCalledWith({
+      control: "roleKind",
+      message: "Pick one of the 16 trades",
+    });
+  });
+
+  describe("opened with ?trade=required (a publish refused elsewhere)", () => {
+    const REFUSED = { control: "roleKind", message: "Pick one of the 16 trades" };
+    const open = (postingTrades: Array<ReturnType<typeof tradeRow>>) =>
+      render({ roleKind: "" }, "draft", {}, undefined, { problem: REFUSED, error: REFUSED.message }, {
+        postingTrades,
+        postingTradesProblem: postingTrades.length > 0 ? null : FAILED,
+        tradeRequired: true,
+      });
+
+    it("focus goes to the picker's spot — a group React's autoFocus would never focus", () => {
+      focusControlOnNextFrame.mockClear();
+      const tree = open([]);
+      const spot = hosts(tree).find((e) => e.props.id === "roleKind")!;
+      expect(spot.type).toBe("div");
+      expect(spot.props.tabIndex).toBe(-1);
+      // …described by the cause AND the refusal, which is what a screen reader reads on focus.
+      expect(spot.props["aria-describedby"]).toBe("roleKind-cause roleKind-msg");
+      runEffects();
+      expect(focusControlOnNextFrame).toHaveBeenCalledWith("roleKind");
+    });
+
+    describe("where focus is (`document.activeElement`) when it decides", () => {
+      const BODY = { tagName: "BODY" };
+      /** Focus on the page itself (the control that had it was removed), or on another control. */
+      const focusIs = (where: "lost" | "on another control") =>
+        vi.stubGlobal("document", {
+          body: BODY,
+          activeElement: where === "lost" ? BODY : { id: "description" },
+        });
+      afterEach(() => vi.unstubAllGlobals());
+
+      /** Opened refused with the 16 missing (focus taken on mount), then a Retry's re-read lands. */
+      function retryBringsThe16Back() {
+        open([]);
+        runEffects();
+        expect(focusControlOnNextFrame).toHaveBeenCalledWith("roleKind");
+        focusControlOnNextFrame.mockClear();
+        const before = effects.map((effect) => effect.deps);
+        open(TRADES);
+        // React re-runs an effect whose dependency list changed between two renders.
+        expect(effects.map((effect) => effect.deps)).not.toEqual(before);
+      }
+
+      it("on mount it takes focus wherever focus is: the page just opened refused", () => {
+        focusControlOnNextFrame.mockClear();
+        focusIs("on another control");
+        open([]);
+        runEffects();
+        expect(focusControlOnNextFrame).toHaveBeenCalledWith("roleKind");
+      });
+
+      it("after a Retry, focus lost with the Retry button is restored, onto the select now in the spot", () => {
+        focusControlOnNextFrame.mockClear();
+        retryBringsThe16Back();
+        focusIs("lost");
+        runEffects();
+        expect(focusControlOnNextFrame).toHaveBeenCalledWith("roleKind");
+      });
+
+      it("after a Retry, focus the payer moved to another control stays there (no type-ahead into the trade)", () => {
+        focusControlOnNextFrame.mockClear();
+        retryBringsThe16Back();
+        focusIs("on another control");
+        runEffects();
+        expect(focusControlOnNextFrame).not.toHaveBeenCalled();
+      });
+    });
   });
 });
 
@@ -357,7 +865,8 @@ function deepText(node: ReactNode): string {
   if (typeof node === "string" || typeof node === "number") return String(node);
   if (Array.isArray(node)) return node.map(deepText).join("");
   const el = node as ReactElement<Record<string, unknown> & { children?: ReactNode }>;
-  if (typeof el.type === "function") return deepText((el.type as (p: unknown) => ReactNode)(el.props));
+  if (typeof el.type === "function")
+    return deepText((el.type as (p: unknown) => ReactNode)(el.props));
   return "children" in el.props ? deepText(el.props.children) : "";
 }
 
@@ -382,7 +891,9 @@ describe("EditPostingForm — M3: a refused save's reason is announced ONCE", ()
       problem: { control: "roleTitle", message: REASON },
     });
     const els = hosts(tree);
-    expect(els.find((e) => e.props.id === "roleTitle")!.props["aria-describedby"]).toBe("roleTitle-msg");
+    expect(els.find((e) => e.props.id === "roleTitle")!.props["aria-describedby"]).toBe(
+      "roleTitle-msg",
+    );
     expect(deepText(els.find((e) => e.props.id === "roleTitle-msg"))).toBe(REASON);
     // Still drawn by the button, twice (rail footer + dock), as well as at the field…
     expect(deepText(tree).split("Your changes were not saved. " + REASON)).toHaveLength(3);
@@ -434,9 +945,18 @@ describe("EditPostingForm — a refusal ENDS when the payer fixes its field (nev
   });
 
   it("adding a chip to the flagged chip list ends that refusal the same way", () => {
-    const tree = render(FULL, "open", { requirements: [], benefits: ["PF"], reqDraft: "Fanuc" }, undefined, refused("requirements"));
+    const tree = render(
+      FULL,
+      "open",
+      { requirements: [], benefits: ["PF"], reqDraft: "Fanuc" },
+      undefined,
+      refused("requirements"),
+    );
     const editor = hosts(tree).find((e) => e.props.id === "requirements")!;
-    (editor.props.onKeyDown as (e: unknown) => void)({ key: "Enter", preventDefault: () => undefined });
+    (editor.props.onKeyDown as (e: unknown) => void)({
+      key: "Enter",
+      preventDefault: () => undefined,
+    });
     expect(setters[10]).toHaveBeenCalledWith(null);
     expect(setters[5]).toHaveBeenCalledWith(null);
   });
@@ -460,10 +980,12 @@ describe("EditPostingForm — owner naming ruling: Publish posting / Publishing�
   });
 
   it("while ITS request is in flight it reads 'Publishing…' — a draft save in flight does not", () => {
-    expect(publishText(render({}, "draft", {}, SEL, { navigating: true, submitting: "publish" }))).toContain(
-      "Publishing…",
+    expect(
+      publishText(render({}, "draft", {}, SEL, { navigating: true, submitting: "publish" })),
+    ).toContain("Publishing…");
+    const saving = publishText(
+      render({}, "draft", {}, SEL, { navigating: true, submitting: "save" }),
     );
-    const saving = publishText(render({}, "draft", {}, SEL, { navigating: true, submitting: "save" }));
     expect(saving).toContain("Publish posting");
     expect(saving).not.toContain("Publishing…");
   });
@@ -500,9 +1022,17 @@ describe("EditPostingForm — the navigating latch (I2: no double save during th
   });
 
   it("while navigating, every save/publish button is disabled", () => {
-    const tree = render({}, "draft", {}, { matchSkillIds: ["mskill_x"], untickedRelatedIds: [] }, { navigating: true });
+    const tree = render(
+      {},
+      "draft",
+      {},
+      { matchSkillIds: ["mskill_x"], untickedRelatedIds: [] },
+      { navigating: true },
+    );
     const buttons = hosts(tree).filter((e) => e.type === "button");
-    const actionButtons = buttons.filter((b) => /Save|Publish/.test(textOf(hosts(b.props.children as ReactNode))));
+    const actionButtons = buttons.filter((b) =>
+      /Save|Publish/.test(textOf(hosts(b.props.children as ReactNode))),
+    );
     expect(actionButtons.length).toBeGreaterThan(0);
     expect(actionButtons.every((b) => b.props.disabled === true)).toBe(true);
   });
@@ -514,5 +1044,136 @@ describe("EditPostingForm — owner naming ruling: the entity is a 'posting' (F3
     expect(hint).toBeDefined();
     expect(deepText(hint!)).toContain("Workers read this when they open the posting.");
     expect(deepText(hint!)).not.toMatch(/\bjob\b/i);
+  });
+});
+
+/* ── W4 (#2584) ─────────────────────────────────────────────────────────────────── */
+
+describe("EditPostingForm — W4: one spinner per action", () => {
+  const SEL = { matchSkillIds: ["mskill_x"], untickedRelatedIds: [] };
+  /** The text of every busy (spinning) button in the rail's actions — one copy of the buttons. */
+  const spinning = (tree: ReactElement) =>
+    hosts((railOf(tree).props as unknown as { actions: ReactNode }).actions)
+      .filter((e) => e.type === "button" && e.props["aria-busy"] === true)
+      .map((b) => textOf(hosts(b.props.children as ReactNode)).trim());
+
+  it("a draft SAVE in flight spins Save draft only; Publish is just disabled", () => {
+    const tree = render({}, "draft", {}, SEL, { navigating: true, submitting: "save" });
+    expect(spinning(tree)).toEqual(["Save draft"]);
+  });
+
+  it("a PUBLISH in flight spins Publish only", () => {
+    const tree = render({}, "draft", {}, SEL, { navigating: true, submitting: "publish" });
+    expect(spinning(tree)).toEqual(["Publishing…"]);
+  });
+
+  it("a successful save drops the local draft", async () => {
+    discardDraft.mockClear();
+    await submit(render({}));
+    expect(discardDraft).toHaveBeenCalledTimes(1);
+  });
+
+  it("the draft is kept under the signed-in payer's own key for this posting", () => {
+    render({});
+    expect(draftHook.storageKey).toBe(`bb:posting-draft:${PAYER_ID}:edit:${POSTING_ID}`);
+  });
+
+  it("no restored draft, no 'Restored' line", () => {
+    expect(hosts(render({})).some((e) => e.props.className === "mw-draft-restored")).toBe(false);
+  });
+
+  it("a restored draft is said, and Discard drops it and reseeds the saved posting", () => {
+    draftHook.restored = true;
+    discardDraft.mockClear();
+    const tree = render({ payMin: "18000" }, "open", { requirements: ["ITI"] });
+    const notice = hosts(tree).find((e) => e.props.className === "mw-draft-restored")!;
+    expect(notice.props.role).toBe("status");
+    expect(textOf(hosts(notice))).toContain("Restored unsaved changes from this device");
+    const discard = hosts(notice).find((e) => e.type === "button")!;
+    expect(textOf(hosts(discard.props.children as ReactNode)).trim()).toBe("Discard");
+
+    (discard.props.onClick as () => void)();
+    expect(discardDraft).toHaveBeenCalledTimes(1);
+    expect(setters[0]).toHaveBeenCalledWith(BLANK_FIELDS); // fields — the saved posting's
+    expect(setters[1]).toHaveBeenCalledWith([]); // requirements
+    expect(setters[6]).toHaveBeenCalledWith({
+      tradeLevel: "",
+      answers: {},
+      matchSkillIds: [],
+      dirty: false,
+    });
+    expect(setters[13]).toHaveBeenCalledWith({ matchSkillIds: [], untickedRelatedIds: [] });
+  });
+});
+
+describe("EditPostingForm — #2645: a device draft that changes nothing is not restored", () => {
+  /** A draft as this page kept it: the posting as seeded, plus a pick from the old flat list. */
+  const OLD_PICK = { matchSkillIds: ["mskill_delivery_rider"], untickedRelatedIds: [] };
+  const SAVED = {
+    fields: BLANK_FIELDS,
+    requirements: [],
+    benefits: [],
+    reqDraft: "",
+    benDraft: "",
+    trade: { tradeLevel: "", answers: {}, matchSkillIds: [], dirty: false },
+    legacySelection: OLD_PICK,
+  };
+
+  it("the form hands the hook its dirty test, so a draft whose one change is the old pick is dropped", () => {
+    render({});
+    const isDirty = draftHook.options!.isDirty!;
+    expect(isDirty(SAVED)).toBe(false);
+    expect(isDirty({ ...SAVED, fields: { ...BLANK_FIELDS, city: "Pune" } })).toBe(true);
+    // A draft is read the way it is restored: a part it lacks keeps the seed (never a throw).
+    expect(isDirty({ legacySelection: OLD_PICK })).toBe(false);
+    expect(isDirty({ fields: { city: "Pune" } })).toBe(true);
+  });
+
+  it("onRestore applies that same reading of the draft", () => {
+    render({});
+    draftHook.options!.onRestore!({ fields: { city: "Pune" } });
+    expect(setters[0]).toHaveBeenCalledWith({ ...BLANK_FIELDS, city: "Pune" }); // fields
+    expect(setters[6]).toHaveBeenCalledWith({
+      tradeLevel: "",
+      answers: {},
+      matchSkillIds: [],
+      dirty: false,
+    }); // trade: the seed
+    expect(setters[13]).toHaveBeenCalledWith({ matchSkillIds: [], untickedRelatedIds: [] });
+  });
+});
+
+describe("isEditPostingDirty — what makes leaving an edit ask first (W4)", () => {
+  const SEEDED = {
+    fields: BLANK_FIELDS,
+    requirements: [] as string[],
+    benefits: [] as string[],
+    reqDraft: "",
+    benDraft: "",
+    trade: { tradeLevel: "", answers: {}, matchSkillIds: [] as string[], dirty: false },
+    legacySelection: { matchSkillIds: [] as string[], untickedRelatedIds: [] as string[] },
+  };
+
+  it("the form exactly as seeded is clean", async () => {
+    const { isEditPostingDirty } = await import("./edit-posting-form");
+    expect(isEditPostingDirty(SEEDED, INITIAL)).toBe(false);
+  });
+
+  it("a changed field, chip, chip draft or trade pick is dirty", async () => {
+    const { isEditPostingDirty } = await import("./edit-posting-form");
+    expect(
+      isEditPostingDirty({ ...SEEDED, fields: { ...BLANK_FIELDS, city: "Pune" } }, INITIAL),
+    ).toBe(true);
+    expect(isEditPostingDirty({ ...SEEDED, requirements: ["ITI"] }, INITIAL)).toBe(true);
+    expect(isEditPostingDirty({ ...SEEDED, reqDraft: "ITI" }, INITIAL)).toBe(true);
+    expect(
+      isEditPostingDirty({ ...SEEDED, trade: { ...SEEDED.trade, dirty: true } }, INITIAL),
+    ).toBe(true);
+  });
+
+  it("#2645 — an old flat pick restored from this device is no change: nothing shows or sends it", async () => {
+    const { isEditPostingDirty } = await import("./edit-posting-form");
+    const restoredPick = { matchSkillIds: ["mskill_delivery_rider"], untickedRelatedIds: [] };
+    expect(isEditPostingDirty({ ...SEEDED, legacySelection: restoredPick }, INITIAL)).toBe(false);
   });
 });

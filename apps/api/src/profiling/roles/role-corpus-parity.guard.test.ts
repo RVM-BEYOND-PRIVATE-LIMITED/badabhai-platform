@@ -154,6 +154,14 @@ describe("every enabled role agrees with the pack corpus", () => {
       one_to_three: 2,
       three_to_seven: 5,
       over_seven: 10,
+      // Track A #1 (qp_cnc_turning@6, CEO Launch Pack v1): the 6-band scale.
+      // fresher and below_one BOTH store 0 — the fresher branch (`lte 0`)
+      // must fire for both, and neither may open the depth tiers.
+      fresher: 0,
+      below_one: 0,
+      three_to_five: 4,
+      five_to_ten: 7,
+      above_ten: 12,
     };
     for (const descriptor of ENABLED_ROLE_DESCRIPTORS) {
       const pack = loadPack(descriptor.packId);

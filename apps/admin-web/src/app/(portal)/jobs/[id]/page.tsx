@@ -11,15 +11,17 @@ import {
   formatExperienceBand,
   formatPayBand,
   formatRelative,
-  formatTimestamp,
   matchTierLabel,
   payTypeLabel,
   shortId,
+  timestampTitle,
 } from "../../../../lib/format";
+import { CopyId } from "../../../../components/copy-id";
 import { StatusPill } from "../../../../components/status-pill";
 import { CustomerLink } from "../../../../components/customer-link";
 import { DetailList } from "../../../../components/detail-list";
 import { Stat } from "../../../../components/stat";
+import { InfoPopover } from "../../../../components/info-popover";
 import { JobDetailHeader } from "./job-detail-header";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 
@@ -95,13 +97,16 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
         One posting&rsquo;s full content, reach and trust review — published as{" "}
         <strong>{job.org_label}</strong>
         {job.city || job.location_label ? ` · ${job.city ?? job.location_label}` : ""} · created{" "}
-        {formatRelative(job.created_at)}.
+        <time dateTime={job.created_at} title={timestampTitle(job.created_at)}>
+          {formatRelative(job.created_at)}
+        </time>
+        .
       </>
     ),
   };
 
   return (
-    <div className="page">
+    <div className="page page--reading">
       <JobDetailHeader
         header={header}
         jobId={job.id}
@@ -111,11 +116,17 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
       />
 
       {job.status === "suspended" && (
-        <section className="notice notice--bad" role="status">
-          <strong>Hidden by a suspension.</strong> Its customer is suspended, so this
-          posting is out of the worker feed. Reinstating the customer restores it to{" "}
-          <strong>{job.previous_status ?? "its previous state"}</strong> rather than forcing
-          it open — a posting the customer had paused stays paused.
+        <section className="notice notice--bad notice--row" role="status">
+          <span>
+            <strong>Hidden by a suspension.</strong> Reinstating the customer restores it to{" "}
+            <strong>{job.previous_status ?? "its previous state"}</strong>.
+          </span>
+          <InfoPopover label="About this suspension">
+            <p>
+              Its customer is suspended, so this posting is out of the worker feed. Reinstating
+              does not force it open — a posting the customer had paused stays paused.
+            </p>
+          </InfoPopover>
         </section>
       )}
 
@@ -220,7 +231,7 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
               {
                 label: "Published",
                 value: job.published_at ? (
-                  <time dateTime={job.published_at} title={formatTimestamp(job.published_at)}>
+                  <time dateTime={job.published_at} title={timestampTitle(job.published_at)}>
                     {formatRelative(job.published_at)}
                   </time>
                 ) : (
@@ -230,7 +241,7 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
               {
                 label: "Boosted until",
                 value: job.boosted_until ? (
-                  <time dateTime={job.boosted_until} title={formatTimestamp(job.boosted_until)}>
+                  <time dateTime={job.boosted_until} title={timestampTitle(job.boosted_until)}>
                     {formatRelative(job.boosted_until)}
                   </time>
                 ) : (
@@ -240,7 +251,7 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
               {
                 label: "Closed",
                 value: job.closed_at ? (
-                  <time dateTime={job.closed_at} title={formatTimestamp(job.closed_at)}>
+                  <time dateTime={job.closed_at} title={timestampTitle(job.closed_at)}>
                     {formatRelative(job.closed_at)}
                   </time>
                 ) : (
@@ -306,14 +317,15 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
                 {decisions.items.map((a) => (
                   <tr key={a.id}>
                     <td>
-                      <time dateTime={a.created_at} title={formatTimestamp(a.created_at)}>
+                      <time dateTime={a.created_at} title={timestampTitle(a.created_at)}>
                         {formatRelative(a.created_at)}
                       </time>
                     </td>
                     <td>
-                      <Link className="link mono" href={`/workers/${a.worker_id}`}>
+                      <Link className="link mono" href={`/candidates/${a.worker_id}`}>
                         {shortId(a.worker_id)}
                       </Link>
+                      <CopyId id={a.worker_id} label="worker id" />
                     </td>
                     <td>
                       <StatusPill value={a.action} />

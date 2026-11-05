@@ -36,7 +36,7 @@ export const SHEET_METAL_WORKER = {
   formEnabled: true,
   displayName: "Sheet Metal Worker",
   offerName: "sheet metal worker",
-  levelLadder: ["Helper", "Operator", "Skilled"],
+  levelLadder: ["Helper", "Operator", "Skilled", "Senior / Programmer", "Supervisor"],
   tenureQuestionKey: "sheet_metal_experience",
   fresher: {
     // KEYED BY STORED `value_text`, read off `iti_workshop_machines` in qp_sheet_metal_fab@1. An
@@ -76,6 +76,11 @@ export const SHEET_METAL_WORKER = {
       "sheetmetal",
       "fabricator",
       "fabrication",
+      // Track B #5 (@2): the machine operators name themselves after their
+      // machine — routed by alias to the role-pack code too, so the form
+      // hands over exactly as for "press brake".
+      "laser operator",
+      "bending operator",
       "शीट मेटल",
     ],
     machineTerms: [
@@ -88,6 +93,7 @@ export const SHEET_METAL_WORKER = {
       "plasma cutting",
       "notching",
     ],
-    levelTerms: ["helper", "operator", "skilled", "ऑपरेटर"],
+    // Track B #5 (@2): the sheet-10 rung words. A rung corroborates; it never routes.
+    levelTerms: ["helper", "operator", "skilled", "senior operator", "programmer", "ऑपरेटर"],
   },
 } as const satisfies RoleFormDescriptor;

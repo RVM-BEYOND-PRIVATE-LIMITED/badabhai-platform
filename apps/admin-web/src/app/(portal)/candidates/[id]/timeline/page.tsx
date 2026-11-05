@@ -1,0 +1,30 @@
+import { requireCapability } from "../../../../../lib/auth";
+import { EntityTimeline } from "../../../../../components/entity-timeline";
+import { shortId } from "../../../../../lib/format";
+
+export const dynamic = "force-dynamic";
+export const metadata = { title: "Worker event timeline" };
+
+export default async function WorkerTimelinePage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  await requireCapability("read_events");
+  const { id } = await params;
+  const sp = await searchParams;
+  const cursor = (Array.isArray(sp.cursor) ? sp.cursor[0] : sp.cursor)?.trim() || undefined;
+
+  return (
+    <EntityTimeline
+      type="worker"
+      id={id}
+      cursor={cursor}
+      basePath={`/candidates/${id}/timeline`}
+      back={{ href: `/candidates/${id}`, label: `Worker ${shortId(id)}` }}
+      subjectLabel="worker"
+    />
+  );
+}
