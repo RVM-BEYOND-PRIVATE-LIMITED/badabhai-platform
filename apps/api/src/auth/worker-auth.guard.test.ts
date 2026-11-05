@@ -52,6 +52,7 @@ function makeSession(
     validateAndTouch: vi.fn().mockResolvedValue(validated),
     touchSession: vi.fn().mockResolvedValue(true),
     sessionsRevokedAtMs: vi.fn().mockResolvedValue(null),
+    sessionsRevokedAtMsStrict: vi.fn().mockResolvedValue(null),
     mint: vi.fn().mockResolvedValue({ token: "fresh.jwt", expiresInSeconds: FULL_TTL }),
   } as unknown as SessionService;
 }
@@ -294,6 +295,28 @@ describe("WorkerAuthGuard", () => {
       const guard = new WorkerAuthGuard(session, config, makeConsents(ACTIVE_CONSENT), makeWorkers());
       const { ctx } = makeCtx("Bearer weird.token", Exempt.prototype.handler);
       await expect(guard.canActivate(ctx)).rejects.toBeInstanceOf(UnauthorizedException);
+    });
+
+    it("a restricted token FAILS CLOSED when the session-store sweep read throws", async () => {
+      const session = makeSession(
+        { workerId: "w1", sid: "s1", remainingSeconds: 900 },
+        "suspended_dpdp",
+      );
+      (session.sessionsRevokedAtMsStrict as ReturnType<typeof vi.fn>).mockRejectedValue(
+        new Error("redis down"),
+      );
+      const guard = new WorkerAuthGuard(
+        session,
+        config,
+        makeConsents(ACTIVE_CONSENT),
+        makeWorkers(true, "suspended"),
+      );
+      const { ctx, req } = makeCtx(
+        "Bearer restricted.token",
+        AuthController.prototype.accountDeleteRequest,
+      );
+      await expect(guard.canActivate(ctx)).rejects.toBeInstanceOf(UnauthorizedException);
+      expect(req.worker).toBeUndefined();
     });
 
     it("a suspended refusal does NOT slide the session TTL", async () => {

@@ -9,10 +9,13 @@ const WORKER_A = "11111111-1111-4111-8111-111111111111";
 const WORKER_B = "22222222-2222-4222-8222-222222222222";
 
 /** An HTTP ExecutionContext whose request carries (or does not carry) an authed worker. */
-function ctx(workerId?: string): ExecutionContext {
+function ctx(workerId?: string, scope?: string): ExecutionContext {
   return {
     getType: () => "http",
-    switchToHttp: () => ({ getRequest: () => (workerId ? { worker: { id: workerId } } : {}) }),
+    switchToHttp: () => ({
+      getRequest: () =>
+        workerId ? { worker: { id: workerId, ...(scope ? { scope } : {}) } } : {},
+    }),
   } as unknown as ExecutionContext;
 }
 
@@ -77,6 +80,13 @@ describe("WorkerActivityInterceptor — the X.6 retention signal", () => {
     h.interceptor.intercept(ctx(), h.handler);
     await flush();
     expect(h.emit).not.toHaveBeenCalled();
+  });
+
+  it("ignores a RESTRICTED suspended DPDP session — it is not activity (#2701)", async () => {
+    h.interceptor.intercept(ctx(WORKER_A, "suspended_dpdp"), h.handler);
+    await flush();
+    expect(h.emit).not.toHaveBeenCalled();
+    expect(h.handler.handle).toHaveBeenCalled();
   });
 
   it("always passes the request through — and NEVER fails it when the emit rejects", async () => {

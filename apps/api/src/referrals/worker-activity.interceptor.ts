@@ -52,8 +52,10 @@ export class WorkerActivityInterceptor implements NestInterceptor {
     // Non-HTTP contexts (none today, but a queue/RPC context has no request) are skipped.
     if (context.getType() !== "http") return next.handle();
 
-    const workerId = context.switchToHttp().getRequest<Request>().worker?.id;
-    if (workerId) this.recordActive(workerId);
+    const worker = context.switchToHttp().getRequest<Request>().worker;
+    // #2701 — a restricted SUSPENDED DPDP token is not activity. It exists only to reach a
+    // DPDP exit, so it must not emit `worker.active` (retention) or seed the daily cache.
+    if (worker?.id && worker.scope === undefined) this.recordActive(worker.id);
 
     return next.handle();
   }

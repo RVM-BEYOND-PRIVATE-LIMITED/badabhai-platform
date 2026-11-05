@@ -278,6 +278,29 @@ describe("#2562 — createRestricted (suspended DPDP token)", () => {
     await svc.revokeAll("worker-1");
     expect(redis.store.has(`session:${sid}`)).toBe(false);
   });
+
+  // #2701 — with rolling tiers ON, a scoped record must never be slid into a multi-day
+  // ordinary session. The refusal lives INSIDE slideTiered, not at the call sites.
+  it("keeps its scope and 15-minute life with rolling tiers ON", async () => {
+    const { svc, redis, jwt } = setup({
+      config: { AUTH_ROLLING_TIERS_ENABLED: true },
+    });
+    const token = await svc.createRestricted("worker-1", "suspended_dpdp", 900);
+    const sid = jwt.lastSigned!.sid;
+    const key = `session:${sid}`;
+    const before = redis.store.get(key);
+
+    expect(await svc.touchSession("worker-1", sid)).toBe(false);
+    expect(redis.store.get(key)).toBe(before);
+    expect(redis.ttls.get(key)).toBe(900);
+    expect(JSON.parse(redis.store.get(key)!).scope).toBe("suspended_dpdp");
+
+    expect(await svc.validateAndTouch(token.token)).toBeNull();
+    const mints = (jwt.signAsync as ReturnType<typeof vi.fn>).mock.calls.length;
+    expect(await svc.refresh(token.token)).toBeNull();
+    expect((jwt.signAsync as ReturnType<typeof vi.fn>).mock.calls.length).toBe(mints);
+    expect(await svc.validate(token.token)).toMatchObject({ scope: "suspended_dpdp" });
+  });
 });
 
 describe("SessionService.validateAndTouch (legacy flat behavior, tiers OFF)", () => {
