@@ -18,6 +18,7 @@ import 'features/auth/presentation/enter_pin_screen.dart';
 import 'features/auth/presentation/set_pin_screen.dart';
 import 'features/auth/presentation/forgot_pin_screen.dart';
 import 'features/auth/presentation/devices_screen.dart';
+import 'features/suspended/presentation/suspended_account_screen.dart';
 import 'features/consent/domain/employer_sharing_prompt_gate.dart';
 import 'features/consent/presentation/consent_screen.dart';
 import 'features/consent/presentation/employer_sharing_prompt_screen.dart';
@@ -78,6 +79,12 @@ class Routes {
   static const String devices = '/profile/settings/devices';
 
   static const String consent = '/consent';
+
+  /// The ONE app-level destination for a suspended account (#2687). Reached
+  /// from every refusal point (phone-code verify, PIN unlock, token refresh,
+  /// generic authenticated requests) and never left automatically into the
+  /// consent or sign-in screens.
+  static const String suspended = '/suspended';
 
   /// The employer-sharing notice prompt (2026-11-04) — opened once by the home
   /// shell for an existing worker, and pushed by the Settings switch to turn
@@ -348,14 +355,27 @@ String? _rootRedirect(BuildContext context, GoRouterState state) {
 /// is inert — main's routing). Null otherwise means "stay put".
 String? _authRedirect(BuildContext context, GoRouterState state) {
   final AuthSessionManager? auth = _maybeAuth();
+  if (auth == null || !auth.isReady) return null;
+
+  final String loc = state.matchedLocation;
+
+  // SUSPENDED ACCOUNT (#2687) — checked FIRST, before any status/consent rule.
+  // The manager has already cleared the session and is `loggedOut`, so without
+  // this the redirect would send the worker to phone login (or consent) and the
+  // app would look broken. Keep them on the one suspended screen; it is the only
+  // reachable location until a successful sign-in clears the flag (e.g. after
+  // the admin unsuspends the account and the app is reopened).
+  if (auth.isSuspended) {
+    return loc == Routes.suspended ? null : Routes.suspended;
+  }
+
   // When persistent-auth is disabled (real/default build until the backend
   // /auth/* contract lands), the gate is INERT — routing matches `main` exactly
   // (splash→login→OTP→consent→onboarding→shell), with the API bearer
   // (SessionRepository.sessionToken) as the only auth gate, as before. This also
   // removes the /otp→/resume bounce that would otherwise fight the consent push.
-  if (auth == null || !auth.isReady || !auth.persistentAuthEnabled) return null;
+  if (!auth.persistentAuthEnabled) return null;
 
-  final String loc = state.matchedLocation;
   final bool onAuthRoute = _authRoutes.contains(loc);
 
   switch (auth.status) {
@@ -465,6 +485,13 @@ GoRouter _buildRouter() {
     routes: <RouteBase>[
       // ---------------- Onboarding (no bottom nav) ----------------
       GoRoute(path: Routes.splash, builder: (_, __) => const SplashScreen()),
+      // #2687 — the ONE suspended-account screen. Root-level (no shell, no back
+      // arrow): every refusal point lands here, and the auth redirect refuses to
+      // leave it while the manager says the account is suspended.
+      GoRoute(
+        path: Routes.suspended,
+        builder: (_, __) => const SuspendedAccountScreen(),
+      ),
       // Referral deep-link target (`/i/<code>`, ADR-0020/0022). Declarative
       // anchor for the App-Link / path form; the custom-scheme host form
       // (badabhai://i/<code>) is caught by [_rootRedirect], which runs first and

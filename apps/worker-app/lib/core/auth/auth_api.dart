@@ -14,6 +14,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'auth_failure.dart';
 import 'authed_client.dart';
 import 'device_id.dart';
+import 'worker_suspended_signal.dart';
 
 /// ADR-0026 rolling-session view, ridden by the OTP/PIN verify + refresh
 /// responses as `session: { tier, expires_at, requires_otp_after }`.
@@ -652,6 +653,24 @@ class AuthApi {
   /// unavailable / weak-PIN); PIN-verify is a NEUTRAL 401 with no oracle.
   void _check(AuthResponse res, _AuthEndpoint endpoint) {
     if (res.isSuccess) return;
+
+    // A suspended account is a 403 as well, but it is NOT the consent gate and
+    // NOT a dead session. Detect it from the reserved code on the body, and
+    // carry any restricted token through so the app-level suspended screen can
+    // offer the DPDP exits. Returning before the (endpoint, status) table keeps
+    // token-refresh's defensive 403 → reauthRequired arm from swallowing it.
+    final WorkerSuspension? suspension =
+        parseWorkerSuspension(res.statusCode, res.body);
+    if (suspension != null) {
+      throw AuthFailure(
+        AuthErrorCode.workerSuspended,
+        statusCode: res.statusCode,
+        message: (res.body['message'] as String?) ??
+            'This account is suspended.',
+        restrictedToken: suspension.restrictedToken,
+      );
+    }
+
     throw _failureFor(endpoint, res.statusCode, res.body['message'] as String?);
   }
 

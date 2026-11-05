@@ -7,6 +7,7 @@ import 'package:http/http.dart' as http;
 import '../../features/job_search/domain/job_search_item.dart';
 import '../../features/swipe/domain/job_detail.dart';
 import '../auth/account_deleted_signal.dart';
+import '../auth/worker_suspended_signal.dart';
 import '../config/app_config.dart' show resolveApiBaseUrl;
 import '../config/build_info.dart';
 import 'api_models.dart';
@@ -210,6 +211,7 @@ class ApiClient {
     this.onSessionTokenRefreshed,
     this.onUnauthorized,
     this.onAccountDeleted,
+    this.onWorkerSuspended,
     this.currentAuthToken,
   })  : baseUrl = baseUrl ?? resolveApiBaseUrl(),
         _client = client ?? http.Client();
@@ -249,6 +251,13 @@ class ApiClient {
   /// still throws the [ApiException] afterward so the in-flight call fails
   /// cleanly; this hook only lets the app root wipe + return to phone login.
   final void Function()? onAccountDeleted;
+
+  /// Invoked ONCE when any worker-scoped response carries the suspended-account
+  /// contract: HTTP 403 `WORKER_ACCOUNT_SUSPENDED` (backend #2562/#2679). This is
+  /// the generic-request half of the app-level destination; the /auth/* half is
+  /// [AuthedClient.onWorkerSuspended]. The optional restricted token rides along
+  /// for the account-delete/consent-withdraw exits only.
+  final void Function(WorkerSuspension suspension)? onWorkerSuspended;
 
   /// Reads the CURRENT bearer, after [onUnauthorized] renewed it. Callers pass
   /// their token by value, so the retry would otherwise re-send the same dead
@@ -2448,6 +2457,14 @@ class ApiClient {
       // bare 410 — or any other 410 — can never cause a false destructive logout.
       if (isWorkerAccountDeletedResponse(res.statusCode, errorBody)) {
         onAccountDeleted?.call();
+      }
+      // Suspended account (403 WORKER_ACCOUNT_SUSPENDED) on ANY worker-scoped
+      // call — not just /auth/*: fire the same app-level signal so the worker
+      // gets the one suspended screen instead of a tab-level "try again".
+      final WorkerSuspension? suspension =
+          parseWorkerSuspension(res.statusCode, errorBody);
+      if (suspension != null) {
+        onWorkerSuspended?.call(suspension);
       }
       // ── #1480 — THE ONE PLACE EVERY FAILED CALL PASSES THROUGH ────────────────
       //

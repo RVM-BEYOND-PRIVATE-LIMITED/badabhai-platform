@@ -51,6 +51,12 @@ abstract final class AuthErrorCode {
   /// dialog comes up. Distinct from [reauthRequired] (a recoverable expired
   /// session) — this account is GONE.
   static const String accountDeleted = 'WORKER_ACCOUNT_DELETED';
+
+  /// HTTP 403 `WORKER_ACCOUNT_SUSPENDED` (backend #2562/#2679). An admin
+  /// suspended this account: it is not the consent gate and not a wrong PIN.
+  /// [AuthFailure.restrictedToken] may carry the short-lived token the backend
+  /// adds for the DPDP exits.
+  static const String workerSuspended = 'WORKER_ACCOUNT_SUSPENDED';
 }
 
 /// A typed auth error built by [AuthApi]'s `(endpoint, status)` mapper.
@@ -69,6 +75,7 @@ class AuthFailure extends Equatable implements Exception {
     this.code, {
     this.statusCode,
     this.message = 'Please try again.',
+    this.restrictedToken,
   });
 
   /// One of [AuthErrorCode]. Drives all logic + the localized message lookup.
@@ -82,12 +89,20 @@ class AuthFailure extends Equatable implements Exception {
   /// carry a meaningful server message (rate-limit / unavailable / weak-PIN).
   final String message;
 
+  /// OPTIONAL short-lived token on a [AuthErrorCode.workerSuspended] refusal
+  /// (backend #2679). It is only ever forwarded to the suspended screen for the
+  /// account-delete and consent-withdraw calls — never stored as the session,
+  /// never persisted, never used to register push.
+  final String? restrictedToken;
+
   bool get isReauthRequired => code == AuthErrorCode.reauthRequired;
   bool get isNetwork => code == AuthErrorCode.network;
   bool get isAccountDeleted => code == AuthErrorCode.accountDeleted;
+  bool get isWorkerSuspended => code == AuthErrorCode.workerSuspended;
 
   @override
-  List<Object?> get props => <Object?>[code, statusCode, message];
+  List<Object?> get props =>
+      <Object?>[code, statusCode, message, restrictedToken];
 
   @override
   String toString() => 'AuthFailure($code, statusCode: $statusCode)';

@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 
 import '../api/api_models.dart';
+import '../auth/worker_suspended_signal.dart';
 import 'failure.dart';
 
 /// Maps any thrown transport/error object into a user-safe [Failure].
@@ -16,6 +17,18 @@ Failure mapError(Object error) {
   if (error is Failure) return error;
 
   if (error is ApiException) {
+    // A suspended account is a 403 as well, but it is NOT the consent gate.
+    // Check it before the status switch (and before the age gate) so it can
+    // never be answered by routing back to consent — the exact loop #2687
+    // exists to prevent. The optional restricted token rides along for the
+    // DPDP exits; it is never treated as a session.
+    final WorkerSuspension? suspension =
+        parseWorkerSuspension(error.statusCode, error.body);
+    if (suspension != null) {
+      return WorkerSuspendedFailure(
+        restrictedToken: suspension.restrictedToken,
+      );
+    }
     // The sign-up age gate rides the generic 400/403 statuses, so it is
     // identified by the server's stable `error.code`, never by message text.
     // Checked BEFORE the status switch: an under-18 403 is NOT the consent

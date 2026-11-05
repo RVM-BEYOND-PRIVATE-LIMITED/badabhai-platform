@@ -120,6 +120,19 @@ class AuthSessionManager extends ChangeNotifier {
   bool? _consentAccepted;
   bool? get consentAccepted => _consentAccepted;
 
+  /// True while the backend has refused this worker as SUSPENDED. The router
+  /// reads this FIRST and keeps the worker on the one suspended screen; it is
+  /// never true after a successful sign-in, so a worker whose suspension was
+  /// lifted can log in normally again (e.g. on the next app launch).
+  bool _workerSuspended = false;
+  bool get isSuspended => _workerSuspended;
+
+  /// The OPTIONAL short-lived token a #2679 backend includes in the 403 body.
+  /// Used by the suspended screen ONLY for account-delete and consent-withdraw;
+  /// never stored as a session, never persisted, never used for push.
+  String? _restrictedToken;
+  String? get restrictedToken => _restrictedToken;
+
   /// Why the session ended, when the server said it was DEAD (expired /
   /// revoked refresh token) rather than the worker choosing to log out. Holds an
   /// [AuthErrorCode]; null means no notice. Lets the login screen explain why
@@ -398,7 +411,18 @@ class AuthSessionManager extends ChangeNotifier {
   /// proven OTP→shell flow, exactly as on main. Throws [AuthFailure] on a bad /
   /// expired code.
   Future<OtpVerifyResult> verifyOtp(String phoneE164, String otp) async {
-    final OtpVerifyResult result = await _authApi.otpVerify(phoneE164, otp);
+    final OtpVerifyResult result;
+    try {
+      result = await _authApi.otpVerify(phoneE164, otp);
+    } on AuthFailure catch (failure) {
+      if (failure.isWorkerSuspended) {
+        await suspendAccount(restrictedToken: failure.restrictedToken);
+      }
+      rethrow;
+    }
+    // A successful verify clears any earlier suspension, so a worker whose
+    // account an admin has reinstated can sign in normally again.
+    _clearSuspension();
     // #2451 — an OTP login is a RE-AUTH from scratch: the previous session's
     // local biometric unlock must not carry into the new one. The worker can
     // re-enable it from Settings after the PIN exists. (Cancelling the OTP flow
@@ -465,7 +489,15 @@ class AuthSessionManager extends ChangeNotifier {
     String pin, {
     Future<void> Function()? beforeAuthenticate,
   }) async {
-    await _authApi.pinSet(pin);
+    try {
+      await _authApi.pinSet(pin);
+    } on AuthFailure catch (failure) {
+      if (failure.isWorkerSuspended) {
+        await suspendAccount(restrictedToken: failure.restrictedToken);
+      }
+      rethrow;
+    }
+    _clearSuspension();
     // #352: the device now HAS a PIN — remember it, so a cold start routes to
     // enter-PIN rather than asking the worker to choose one all over again.
     _pinSet = true;
@@ -647,6 +679,13 @@ class AuthSessionManager extends ChangeNotifier {
     try {
       result = await _authApi.pinVerify(pin, refreshToken: refresh);
     } on AuthFailure catch (failure) {
+      // A suspended account is NOT a wrong PIN and must never consume the PIN
+      // failure budget: the account is refused before the PIN is even relevant.
+      // Clear the session and let the app-level suspended screen take over.
+      if (failure.isWorkerSuspended) {
+        await suspendAccount(restrictedToken: failure.restrictedToken);
+        rethrow;
+      }
       // THE UNLOCK TRAP (#PIN-LOOP). `POST /auth/pin/verify` answers EVERY
       // negative path with ONE neutral 401 — deliberately, so it is not a
       // PIN oracle (ADR-0026 Phase 3). But only ONE of those paths is "wrong
@@ -698,7 +737,9 @@ class AuthSessionManager extends ChangeNotifier {
       rethrow;
     }
     // A verified PIN proves the session was alive — clear the trap counter (and
-    // the post-reset flag) so a later genuine typo starts from zero.
+    // the post-reset flag) so a later genuine typo starts from zero. It also
+    // clears any stale suspended state: the account is usable again.
+    _clearSuspension();
     _consecutivePinFailures = 0;
     _pinJustReset = false;
     _captureSessionView(result.tokens); // F5
@@ -736,12 +777,17 @@ class AuthSessionManager extends ChangeNotifier {
     try {
       tokens = await _authApi.tokenRefresh(refresh);
     } on AuthFailure catch (failure) {
+      if (failure.isWorkerSuspended) {
+        await suspendAccount(restrictedToken: failure.restrictedToken);
+        rethrow;
+      }
       if (failure.code == AuthErrorCode.reauthRequired) {
         _sessionEndReason = AuthErrorCode.reauthRequired;
         await _wipeAndLogOut();
       }
       rethrow;
     }
+    _clearSuspension();
     _captureSessionView(tokens); // F5
     // GAP A: persist the rotated tokens from the on-demand refresh too.
     await _persistTokens(tokens);
@@ -766,8 +812,16 @@ class AuthSessionManager extends ChangeNotifier {
   /// must log in again ([loggedOut]). Throws [AuthFailure] on a bad OTP (401 →
   /// otpInvalid) or a weak/format PIN (400 → pinWeak).
   Future<void> confirmPinReset(String phoneE164, String otp, String pin) async {
-    final OtpVerifyResult result =
-        await _authApi.pinResetConfirm(phoneE164, otp, pin);
+    final OtpVerifyResult result;
+    try {
+      result = await _authApi.pinResetConfirm(phoneE164, otp, pin);
+    } on AuthFailure catch (failure) {
+      if (failure.isWorkerSuspended) {
+        await suspendAccount(restrictedToken: failure.restrictedToken);
+      }
+      rethrow;
+    }
+    _clearSuspension();
     // #352: the reset just set a NEW PIN — record it, or the worker who resets
     // and then cold-starts would be sent to set-PIN again.
     _pinSet = true;
@@ -840,6 +894,62 @@ class AuthSessionManager extends ChangeNotifier {
     // Ids survive; unlockWithPin re-bridges a fresh token onto them.
     _session.clearSessionToken();
     _setStatus(AuthStatus.locked);
+  }
+
+  // --- Suspended account ----------------------------------------------------
+
+  /// The backend refused this worker because an admin suspended the account.
+  ///
+  /// Clears EVERY piece of local session state (tokens, PIN unlock flags, the
+  /// bridged SessionRepository ids, consent signal, biometric preference and
+  /// the fresh-work caches) and flips to [AuthStatus.loggedOut] — but keeps
+  /// [isSuspended] set so the router cannot bounce the worker into the login or
+  /// consent screens. A restricted token, when the backend supplied one, is
+  /// retained IN MEMORY ONLY for the DPDP exits on the suspended screen.
+  ///
+  /// Idempotent: parallel refusals from several in-flight calls collapse here.
+  /// A later refusal WITHOUT a token never erases a token already captured.
+  Future<void> suspendAccount({String? restrictedToken}) async {
+    final String? token = (restrictedToken != null && restrictedToken.isNotEmpty)
+        ? restrictedToken
+        : null;
+    final bool wasSuspended = _workerSuspended;
+    final bool tokenChanged = token != null && token != _restrictedToken;
+    _workerSuspended = true;
+    if (token != null) _restrictedToken = token;
+
+    if (!wasSuspended || tokenChanged || _status != AuthStatus.loggedOut) {
+      try {
+        await _tokenStore.clear();
+      } catch (_) {
+        // A failed wipe must not stop the suspended screen from rendering.
+      }
+      _session.clear();
+      onSessionCleared?.call();
+      _consentAccepted = null;
+      _pinSet = false;
+      _biometricEnabled = false;
+      _biometricPromptSeen = false;
+      _consecutivePinFailures = 0;
+      _pinJustReset = false;
+      _resumeLocation = null;
+      _sessionEndReason = null;
+      _clearSessionView();
+      // Set directly rather than through [_setStatus]: it early-returns when
+      // the status did not change, and the router still needs a notify on the
+      // FIRST suspension (and whenever a restricted token arrives late).
+      _status = AuthStatus.loggedOut;
+      _ready = true;
+      notifyListeners();
+    }
+  }
+
+  /// A successful sign-in ends the suspended state. Called on the verify/unlock
+  /// success paths BEFORE the status flip, so the router never redirects an
+  /// unsuspended worker back to /suspended.
+  void _clearSuspension() {
+    _workerSuspended = false;
+    _restrictedToken = null;
   }
 
   // --- Logout / devices -----------------------------------------------------

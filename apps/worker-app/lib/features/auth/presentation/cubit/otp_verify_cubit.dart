@@ -169,6 +169,14 @@ class OtpVerifyCubit extends Cubit<OtpVerifyState> {
       ));
     } on AuthFailure catch (failure) {
       if (isClosed) return;
+      // Suspended account: the app-level destination owns the whole response
+      // (session cleared + suspended screen). Showing this screen's generic
+      // "could not verify" snackbar underneath it would be noise, and treating
+      // it as a retryable failure invites the sign-in loop #2687 removes.
+      if (failure.isWorkerSuspended) {
+        emit(state.copyWith(status: OtpVerifyStatus.initial));
+        return;
+      }
       emit(state.copyWith(
         status: OtpVerifyStatus.failure,
         message: authErrorMessage(failure, _locale),

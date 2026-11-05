@@ -1372,6 +1372,122 @@ void main() {
       m.dispose();
     });
   });
+
+  group('suspended account (#2687)', () {
+    test('suspendAccount clears every local credential and keeps the token in memory',
+        () async {
+      bool cleared = false;
+      final AuthSessionManager m = AuthSessionManager(
+        authApi: api,
+        tokenStore: store,
+        session: session,
+        reauthSignal: reauth,
+        persistentAuthEnabled: true,
+        onSessionCleared: () => cleared = true,
+      );
+      addTearDown(m.dispose);
+      await store.writeRefreshToken('refresh-1');
+      await store.writePinSet(true);
+      session.setWorker(
+        phone: '+91999',
+        workerId: 'worker-9',
+        sessionToken: 'access-1',
+      );
+
+      await m.suspendAccount(restrictedToken: 'restricted-1');
+
+      expect(m.isSuspended, isTrue);
+      expect(m.restrictedToken, 'restricted-1');
+      expect(m.status, AuthStatus.loggedOut);
+      expect(await store.readRefreshToken(), isNull);
+      expect(await store.readPinSet(), isFalse);
+      expect(session.sessionToken, isNull);
+      expect(session.workerId, isNull);
+      expect(secureBacking.map.values, isNot(contains('restricted-1')),
+          reason: 'the restricted token is NEVER persisted as a session');
+      expect(cleared, isTrue,
+          reason: 'session-scoped caches must not survive a suspension');
+    });
+
+    test('a later refusal without a token never erases a captured token',
+        () async {
+      await manager.suspendAccount(restrictedToken: 'restricted-1');
+      await manager.suspendAccount();
+      expect(manager.isSuspended, isTrue);
+      expect(manager.restrictedToken, 'restricted-1');
+    });
+
+    test('OTP verify refusal suspends and carries the restricted token',
+        () async {
+      api.throwOnVerify = const AuthFailure(
+        AuthErrorCode.workerSuspended,
+        restrictedToken: 'otp-token',
+      );
+
+      await expectLater(
+        manager.verifyOtp('+91999', '123456'),
+        throwsA(isA<AuthFailure>().having(
+            (AuthFailure f) => f.code, 'code', AuthErrorCode.workerSuspended)),
+      );
+
+      expect(manager.isSuspended, isTrue);
+      expect(manager.restrictedToken, 'otp-token');
+      expect(manager.status, AuthStatus.loggedOut);
+    });
+
+    test('PIN unlock refusal suspends instead of counting a wrong PIN',
+        () async {
+      await store.writeRefreshToken('remembered');
+      await store.writePinSet(true);
+      api.throwOnPinVerify = const AuthFailure(
+        AuthErrorCode.workerSuspended,
+        restrictedToken: 'pin-token',
+      );
+
+      await expectLater(
+        manager.unlockWithPin('1234'),
+        throwsA(isA<AuthFailure>()),
+      );
+
+      expect(manager.isSuspended, isTrue);
+      expect(manager.restrictedToken, 'pin-token');
+      expect(manager.status, AuthStatus.loggedOut);
+    });
+
+    test('token refresh refusal suspends and does NOT look like a reauth',
+        () async {
+      await store.writeRefreshToken('remembered');
+      api.throwOnRefresh = const AuthFailure(
+        AuthErrorCode.workerSuspended,
+        restrictedToken: 'refresh-token',
+      );
+
+      await expectLater(
+        manager.refresh(),
+        throwsA(isA<AuthFailure>().having(
+            (AuthFailure f) => f.isWorkerSuspended, 'isWorkerSuspended', isTrue)),
+      );
+
+      expect(manager.isSuspended, isTrue);
+      expect(manager.restrictedToken, 'refresh-token');
+      expect(manager.status, AuthStatus.loggedOut);
+    });
+
+    test('a successful sign-in clears the suspension (admin reinstated it)',
+        () async {
+      await manager.suspendAccount(restrictedToken: 'old');
+      api.throwOnVerify = null;
+      api
+        ..pinIsSet = true
+        ..isNewUser = false;
+
+      await manager.verifyOtp('+91999', '123456');
+
+      expect(manager.isSuspended, isFalse);
+      expect(manager.restrictedToken, isNull);
+      expect(manager.status, AuthStatus.authenticated);
+    });
+  });
 }
 
 /// A reset api whose confirm throws an OTP-invalid failure (401 path).

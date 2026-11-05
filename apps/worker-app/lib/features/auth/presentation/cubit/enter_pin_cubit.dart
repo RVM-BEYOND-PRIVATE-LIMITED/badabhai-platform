@@ -123,6 +123,13 @@ class EnterPinCubit extends Cubit<EnterPinState> {
         emit(state.copyWith(status: EnterPinStatus.idle));
         return;
       }
+      // Suspended account: the app-level suspended screen owns the exit. Do NOT
+      // count it as a wrong PIN (no PIN can fix suspension) and do NOT show the
+      // wrong-PIN dialog over the screen that replaces this one.
+      if (failure.isWorkerSuspended) {
+        emit(state.copyWith(status: EnterPinStatus.idle));
+        return;
+      }
       _failCount++;
       emit(state.copyWith(
         status: EnterPinStatus.failure,
