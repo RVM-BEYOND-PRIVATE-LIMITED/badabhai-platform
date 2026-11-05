@@ -630,7 +630,6 @@ export function PostingForm({
                   Specify the technical trade and factory premises location.
                 </p>
               </div>
-              <span className="mw-pill mw-pill--warm">In Progress</span>
             </div>
             <div className="mw-card__body">
               <PostingTradePicker

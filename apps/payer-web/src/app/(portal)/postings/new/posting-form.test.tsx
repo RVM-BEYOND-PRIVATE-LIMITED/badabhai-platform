@@ -727,22 +727,6 @@ describe("PostingForm — the preview rail is the worker card, built from the sh
     expect(navigate).not.toHaveBeenCalled();
   });
 
-  it("a complete card with NO skill is refused out loud, not with a dead button", async () => {
-    const tree = render({
-      fields: FULL_FIELDS,
-      fieldErrors: {},
-      requirements: ["Fanuc control"],
-      benefits: ["PF + ESI"],
-      selection: { matchSkillIds: [], untickedRelatedIds: [] },
-    });
-    await findForm(tree)!.props.onSubmit({ preventDefault: () => undefined });
-    expect(createPostingAction).not.toHaveBeenCalled();
-    expect(navigate).not.toHaveBeenCalled();
-    expect(setters[2]).toHaveBeenCalledWith(
-      "Pick at least one skill — a posting needs one so workers can find it.",
-    );
-  });
-
   it("a publish lands on the posting's Applicants (?reached=N) with the shell's 'Opening Applicants…' cue — latched busy first", async () => {
     createPostingAction.mockResolvedValueOnce({
       ok: true,

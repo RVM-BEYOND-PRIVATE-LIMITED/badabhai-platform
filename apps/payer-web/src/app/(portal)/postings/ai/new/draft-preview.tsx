@@ -5,7 +5,6 @@ import type { JobPostingDraft, PostingTradeFormWire } from "../../../../../lib/c
 import type { PostingTradesProblem } from "../../../../../lib/posting-trades";
 import { PostingTradePicker } from "../../trade-picker";
 
-
 /**
  * The STRUCTURED PREVIEW of the live `JobPostingDraft` (ADR-0035) — what the chat has
  * understood so far, filling in turn by turn beside the conversation.

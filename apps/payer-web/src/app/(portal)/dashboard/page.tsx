@@ -524,13 +524,6 @@ export default async function DashboardPage({
                 Open a posting&rsquo;s applicants and unlock any candidate to get their masked
                 resume and a contact routed through BadaBhai.
               </p>
-              <div className="dash-callout">
-                <Icon name="check-circle" />
-                <span>
-                  Unlocks include direct WhatsApp number and lifetime candidate re-contact
-                  rights.
-                </span>
-              </div>
             </div>
           ) : (
             <div className="dash-candlist">
@@ -605,21 +598,6 @@ export default async function DashboardPage({
 
       {/* MERGE-1: agency demand modules render INLINE for an AGENT only. */}
       {isAgency ? <AgentSections /> : null}
-
-      <footer className="dash-foot">
-        <div className="dash-foot__status">
-          <span className="dash-foot__dot" aria-hidden="true" />
-          <span>Gateway Online: Badabhai Recruiter Engine v2.4</span>
-          <span className="dash-foot__sep" aria-hidden="true">
-            ·
-          </span>
-          <span>Candidate Database: 160,000+ Verified Workers</span>
-        </div>
-        <div className="dash-foot__links">
-          <span>Employer Helpdesk</span>
-          <span>Pricing Terms</span>
-        </div>
-      </footer>
     </>
   );
 }
