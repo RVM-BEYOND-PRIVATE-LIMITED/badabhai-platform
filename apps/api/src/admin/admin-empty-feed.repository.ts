@@ -50,13 +50,15 @@ export interface AdminEmptyFeedQueryResult {
  *                source, minus any decision on the posting and any decision on a twin's source.
  *
  * The mode is chosen by `AdminEmptyFeedService` from the SAME two flags `ApplicationsService`
- * reads, so flipping a flag cannot leave this screen describing a feed nobody sees. The DB test
- * compares the list against `ApplicationsService.getFeed` for the same seeded workers.
+ * reads, so flipping a flag cannot leave this screen describing a feed nobody sees.
  *
  * The three arms live beside the feed SQL rather than being imported because the feed arms are
- * row-returning Drizzle queries and this is a set-based anti-join over every worker. The
- * predicates above are the contract; `admin-empty-feed.contract.test.ts` pins them to the feed
- * source so an edit to either side is visible.
+ * row-returning Drizzle queries and this is a set-based anti-join over every worker. That makes
+ * them a second copy, so PARITY IS EXECUTED, not asserted: `admin-empty-feed.db.test.ts` seeds a
+ * cohort covering every branch below and, per mode, requires "listed here ⇔ the real
+ * `ApplicationsService.getFeed` serves zero cards" for every seeded worker. An edit to EITHER
+ * side that changes who has an empty feed goes red there. (`admin-empty-feed.contract.test.ts`
+ * only pins this file's own text; it cannot see the feed side.)
  */
 @Injectable()
 export class AdminEmptyFeedRepository {
