@@ -12,7 +12,7 @@
 --   * password_revoked_at - nullable, no default. When an admin revoked password sign-in.
 --     A non-NULL value with no newer `password_set_at` means the password door is off;
 --     email-code sign-in still works. Cleared when a new password is stored.
---   * sessions_valid_after - nullable, no default. Sessions created before this
+--   * sessions_valid_after - nullable, no default. Sessions created at or before this
 --     instant are dead. An admin issue/revoke stamps it and ends every session. A
 --     self-service password set does NOT stamp it (that would reject the caller's own
 --     session); it revokes the OTHER sessions through the session index. NULL (every payer

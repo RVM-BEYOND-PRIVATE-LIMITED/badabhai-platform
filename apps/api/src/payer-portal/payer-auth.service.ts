@@ -545,11 +545,16 @@ export class PayerAuthService {
     ctx: RequestContext,
   ): Promise<void> {
     await this.storeOwnPassword(payerId, password, ctx);
-    await this.notice.notify(payerId, "changed");
     // After the commit: Redis is not transactional with Postgres. A failure THROWS (see
     // revokeAllForPayerExcept) rather than reporting a completed change that left other
     // devices signed in — the retry is the same idempotent write plus a fresh revoke.
-    await this.sessions.revokeAllForPayerExcept(payerId, currentSid);
+    // The sweep runs FIRST so a slow mail provider can never delay it; the notice is sent in
+    // `finally`, so it still goes out when the sweep throws.
+    try {
+      await this.sessions.revokeAllForPayerExcept(payerId, currentSid);
+    } finally {
+      await this.notice.notify(payerId, "changed");
+    }
   }
 
   /**
@@ -647,11 +652,14 @@ export class PayerAuthService {
       // Lost a concurrent forced-change race: the other request already stored its password,
       // so this one has no business minting a session on a credential it no longer holds.
       if (!replaced) throw new UnauthorizedException("Incorrect identifier or password");
-      // Send before the sweep: a notice must still go out if the session store is down.
-      await this.notice.notify(account.id, "changed");
       // No caller session exists yet: every session that does exist belongs to an earlier
-      // credential and must end. A failure THROWS before a new session is minted.
-      await this.sessions.revokeAllForPayer(account.id);
+      // credential and must end. A failure THROWS before a new session is minted. The sweep is
+      // not delayed by mail; the notice is sent in `finally`, so it goes out either way.
+      try {
+        await this.sessions.revokeAllForPayer(account.id);
+      } finally {
+        await this.notice.notify(account.id, "changed");
+      }
     }
 
     // Lazy org-hash fill for pre-#2493 rows (best-effort — never fails a good login).
@@ -661,7 +669,9 @@ export class PayerAuthService {
     // row already carries that stale hash, clear it on the next login.
     const everMember = await this.orgs
       .hasEverBeenMemberOfOtherOrg(account.id)
-      .catch(() => false);
+      // Fail closed: an unreadable membership history skips the backfill rather than risk
+      // writing the founder's company-name hash onto a member row.
+      .catch(() => true);
     if (everMember) {
       if (account.orgNameLookupHash) {
         await this.payers.clearOrgLookupHash(account.id).catch((err: unknown) => {
@@ -687,7 +697,7 @@ export class PayerAuthService {
     // The row read above said password sign-in was open; if it has since closed, the session
     // just minted must not survive. Revoke it and answer the same neutral 401 as a bad password.
     const latest = await this.payers.findById(account.id);
-    if (latest?.passwordRevokedAt != null) {
+    if (!latest || latest.passwordRevokedAt != null) {
       await this.sessions.revoke(session.sid, account.id);
       throw new UnauthorizedException("Incorrect identifier or password");
     }

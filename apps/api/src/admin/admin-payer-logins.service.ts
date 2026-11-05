@@ -362,10 +362,14 @@ export class AdminPayerLoginsService {
     // After commit. The free tier belongs to the OWNER account, exactly as signup grants it;
     // a team member spends the org's existing credits. `grantQuietly` never fails the creation.
     if (dto.member_of_org_id === undefined) await this.freeTier.grantQuietly(payerId);
-    await this.notice.notify(payerId, "setup");
     // No sessions exist for a just-created account, but the contract is "issue ends every
-    // session" and this keeps that true if a retry races a login.
-    await this.sessions.revokeAllForPayer(payerId);
+    // session" and this keeps that true if a retry races a login. Sweep first (never delayed by
+    // mail); the notice is sent in `finally`, so it goes out even when the sweep throws.
+    try {
+      await this.sessions.revokeAllForPayer(payerId);
+    } finally {
+      await this.notice.notify(payerId, "setup");
+    }
 
     return {
       payer_id: payerId,
@@ -423,8 +427,11 @@ export class AdminPayerLoginsService {
     // The admin's new credential must be usable at once even if the payer was locked out on
     // the OLD one. Best-effort: the issue is safe to retry, which retries this clear too.
     await this.lockStates.clear(payerId);
-    await this.notice.notify(payerId, "reset");
-    await this.sessions.revokeAllForPayer(payerId);
+    try {
+      await this.sessions.revokeAllForPayer(payerId);
+    } finally {
+      await this.notice.notify(payerId, "reset");
+    }
     return { payer_id: payerId, temporary_password: temporaryPassword, must_change_password: true };
   }
 
@@ -459,8 +466,11 @@ export class AdminPayerLoginsService {
 
     // Idempotent in the SESSION half too: a retry on an already-revoked account still sweeps
     // every live session. The write/event half stays a no-op.
-    if (changed) await this.notice.notify(payerId, "revoked");
-    await this.sessions.revokeAllForPayer(payerId);
+    try {
+      await this.sessions.revokeAllForPayer(payerId);
+    } finally {
+      if (changed) await this.notice.notify(payerId, "revoked");
+    }
     return { payer_id: payerId, changed };
   }
 
