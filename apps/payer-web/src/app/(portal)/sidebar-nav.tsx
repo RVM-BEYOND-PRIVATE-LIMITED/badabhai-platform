@@ -1,6 +1,5 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import { Icon } from "@badabhai/icons";
 import { PortalLink } from "../../components/portal-link";
@@ -33,10 +32,6 @@ import { RailPress, useMarkedPath } from "./rail-press";
  * active ink only once the plate is under it (rail-marker.ts). `aria-current` stays on the page
  * that is actually open, because a pending press is not the current page.
  */
-/** Measure before paint on the client; fall back to useEffect during SSR (no warning). */
-const useIsomorphicLayoutEffect =
-  typeof window === "undefined" ? useEffect : useLayoutEffect;
-
 export function SidebarNav({ sections }: { sections: NavSection[] }) {
   const pathname = usePathname();
   const markedPath = useMarkedPath() ?? pathname;
