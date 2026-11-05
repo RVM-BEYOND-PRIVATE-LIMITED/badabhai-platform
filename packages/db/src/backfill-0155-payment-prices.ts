@@ -11,8 +11,9 @@
  *
  * IDEMPOTENT: only NULL prices are written; top-up rows are inserted only when no
  * matching receipt exists (same plan + tier + quota_added within 5 minutes of the
- * event). Re-running reports the same counts with zero writes. DRY-RUN IS THE
- * DEFAULT; `--apply` writes.
+ * event) and the plan row still exists. An event whose plan is gone is counted as
+ * orphaned — the event itself stays the record — never force-inserted. Re-running
+ * reports the same counts with zero writes. DRY-RUN IS THE DEFAULT; `--apply` writes.
  *
  * Rows that cannot be backfilled (no purchase event — e.g. a manually-granted
  * allowance, or a pre-event receipt) keep NULL, which the API renders as
@@ -48,6 +49,8 @@ interface Counts {
   capacitiesNotFound: number;
   topupsInserted: number;
   topupsSkipped: number;
+  /** `posting_plan.quota_topped` events whose plan row is gone — event stays the record. */
+  topupsOrphaned: number;
 }
 
 function asRecord(v: unknown): Record<string, unknown> | null {
@@ -78,6 +81,7 @@ async function main(): Promise<void> {
       capacitiesNotFound: 0,
       topupsInserted: 0,
       topupsSkipped: 0,
+      topupsOrphaned: 0,
     };
     await backfillPlans(db, apply, counts);
     await backfillBoosts(db, apply, counts);
@@ -91,7 +95,8 @@ async function main(): Promise<void> {
       `  capacities: updated=${counts.capacitiesUpdated} not_found=${counts.capacitiesNotFound}`,
     );
     console.log(
-      `  topups: inserted=${counts.topupsInserted} skipped=${counts.topupsSkipped}`,
+      `  topups: inserted=${counts.topupsInserted} skipped=${counts.topupsSkipped} ` +
+        `orphaned=${counts.topupsOrphaned}`,
     );
   } finally {
     await sql.end({ timeout: 5 });
@@ -230,6 +235,18 @@ async function backfillTopups(db: Database, apply: boolean, counts: Counts): Pro
     const price = p ? asFiniteInt(p["price_inr"]) : null;
     if (!planId || !payerId || !tier || quotaAdded === null) {
       counts.topupsSkipped += 1;
+      continue;
+    }
+    // The receipt's `plan_id` FK cascades with the plan: an event whose plan row is
+    // gone (deleted posting) has no receipt to attach to. Counted as orphaned — the
+    // event itself stays the record — never force-inserted.
+    const plan = await db
+      .select({ id: postingPlans.id })
+      .from(postingPlans)
+      .where(eq(postingPlans.id, planId))
+      .limit(1);
+    if (plan.length === 0) {
+      counts.topupsOrphaned += 1;
       continue;
     }
     const eventAt = new Date(e.createdAt as unknown as string);
