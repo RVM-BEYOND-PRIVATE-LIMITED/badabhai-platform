@@ -14,6 +14,7 @@ import { PortalLink } from "../../../../../components/portal-link";
 import { bandLabel, monthsLabel, opaqueId } from "../../../../../lib/masking";
 import { hasSavedStages, STAGE_LABEL } from "../../../../../lib/applicant-stages";
 import { shownTradeLevel } from "../../../../../lib/trade-level";
+import { candidatesErrorMessage } from "../../../../../lib/candidates-messages";
 import {
   ConfirmSpendDialog,
   contactBand,
@@ -443,7 +444,7 @@ export function ApplicantActions(props: ApplicantActionsProps) {
         setResult("unavailable");
       }
     } else {
-      patch(workerId, { busy: false, unlockError: res.error });
+      patch(workerId, { busy: false, unlockError: candidatesErrorMessage(res.error) });
       setResult("unavailable");
     }
   }
@@ -491,7 +492,7 @@ export function ApplicantActions(props: ApplicantActionsProps) {
     patch(workerId, { contactBusy: true, contactError: null });
     const res = await revealContactAction({ unlockId });
     if (res.ok) patch(workerId, { contactBusy: false, contact: res.view });
-    else patch(workerId, { contactBusy: false, contactError: res.error });
+    else patch(workerId, { contactBusy: false, contactError: candidatesErrorMessage(res.error) });
   }
 
   async function onMaskedResume(unlockId: string, workerId: string, postingId: string) {
@@ -499,7 +500,7 @@ export function ApplicantActions(props: ApplicantActionsProps) {
     // postingId = the disclosure's audit context: the posting this row's applicant applied to.
     const res = await maskedResumeAction({ unlockId, workerId, postingId });
     if (res.ok) patch(workerId, { resumeBusy: false, resume: res.view });
-    else patch(workerId, { resumeBusy: false, resumeError: res.error });
+    else patch(workerId, { resumeBusy: false, resumeError: candidatesErrorMessage(res.error) });
   }
 
   // The tab on show. Passed is a SAVED board's tab only: should the rows stop carrying a stage

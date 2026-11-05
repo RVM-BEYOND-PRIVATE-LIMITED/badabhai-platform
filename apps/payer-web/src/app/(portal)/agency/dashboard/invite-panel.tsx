@@ -3,8 +3,9 @@
 import { useState, useTransition } from "react";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 import { looksLikeActionContextPii } from "@badabhai/validators";
-import { Badge, Button, Card, Input, SelectMenu } from "../../../../components/ds";
+import { Badge, Button, Card, InlineNotice, Input, SelectMenu } from "../../../../components/ds";
 import { inviteContextSlugError } from "../../../../lib/invite-meta";
+import { agencyErrorMessage } from "../../../../lib/agency-messages";
 import {
   inviteShareMessage,
   shareableInviteUrl,
@@ -115,7 +116,7 @@ export function AgencyInvitePanel() {
         setInvite({ code: res.code, link: res.link });
       } else {
         setInvite(null);
-        setError(res.error);
+        setError(agencyErrorMessage(res.error));
       }
     });
   }
@@ -156,7 +157,7 @@ export function AgencyInvitePanel() {
           </Badge>
         </div>
         <div aria-live="polite" className="agency-invite__status">
-          {error ? <p className="agency-invite__error">{error}</p> : null}
+          {error ? <InlineNotice tone="danger">{error}</InlineNotice> : null}
         </div>
 
         {/* The OPTIONAL settings. Controlled: the summary toggles React's state (the browser's own

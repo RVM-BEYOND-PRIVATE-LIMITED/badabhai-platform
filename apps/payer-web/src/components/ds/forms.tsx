@@ -67,10 +67,25 @@ export function describedBy(own: string | undefined, feedbackId: string | undefi
   return ids.length > 0 ? [...new Set(ids)].join(" ") : undefined;
 }
 
-function FieldFeedback({ id, error, hint }: { id: string; error?: string; hint?: string }) {
+export interface FieldFeedbackProps {
+  /** The line's id — normally {@link fieldFeedbackId} of the control it describes. */
+  id?: string;
+  error?: string;
+  hint?: string;
+  className?: string;
+  /** Set only when the line must announce itself; a field description normally must not. */
+  role?: "alert" | "status";
+}
+
+/**
+ * The ONE field feedback line (error or hint, never both). It is exported so a group control —
+ * a chip editor, a custom listbox, a trade picker — describes itself exactly as a DS field does,
+ * instead of growing another bespoke error paragraph.
+ */
+export function FieldFeedback({ id, error, hint, className = "", role }: FieldFeedbackProps) {
   if (error) {
     return (
-      <span id={id} className="bb-field__error">
+      <span id={id} role={role} className={["bb-field__error", className].filter(Boolean).join(" ")}>
         <Icon name="warning-circle" />
         {error}
       </span>
@@ -78,7 +93,7 @@ function FieldFeedback({ id, error, hint }: { id: string; error?: string; hint?:
   }
   if (hint) {
     return (
-      <span id={id} className="bb-field__hint">
+      <span id={id} role={role} className={["bb-field__hint", className].filter(Boolean).join(" ")}>
         {hint}
       </span>
     );

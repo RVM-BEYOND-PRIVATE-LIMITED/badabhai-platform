@@ -3,7 +3,7 @@
 import { useRef, useState, useTransition } from "react";
 import { QRCodeCanvas, QRCodeSVG } from "qrcode.react";
 import { Icon } from "@badabhai/icons";
-import { Button, Card, Input } from "../../../../components/ds";
+import { Button, Card, FieldFeedback, InlineNotice, Input } from "../../../../components/ds";
 import {
   browsingOrigin,
   inviteShareMessage,
@@ -13,6 +13,7 @@ import {
   whatsAppShareUrl,
 } from "../../../../lib/invite-share";
 import { createInviteAction } from "../dashboard/invite-actions";
+import { agencyErrorMessage } from "../../../../lib/agency-messages";
 
 /**
  * PRINTABLE QR INVITE (ADR-0022) — designr6's generator: campaign settings on the left,
@@ -71,7 +72,7 @@ export function AgencyQrInvite() {
       const res = await createInviteAction({});
       if (!res.ok) {
         setSheet(null);
-        setError(res.error);
+        setError(agencyErrorMessage(res.error));
         return;
       }
       // `process.env.NEXT_PUBLIC_SITE_URL` is a PUBLIC value, never a secret.
@@ -172,11 +173,7 @@ export function AgencyQrInvite() {
                   if (settingsError) setSettingsError(null);
                 }}
               />
-              {settingsError ? (
-                <p className="bb-field__error" role="alert">
-                  {settingsError}
-                </p>
-              ) : null}
+              <FieldFeedback error={settingsError ?? undefined} role="alert" />
             </div>
           </form>
 
@@ -222,7 +219,7 @@ export function AgencyQrInvite() {
           </div>
 
           <div aria-live="polite" className="agency-invite__status">
-            {error ? <p className="agency-invite__error">{error}</p> : null}
+            {error ? <InlineNotice tone="danger">{error}</InlineNotice> : null}
             {!error && sheet ? (
               <p className="agency-section__sub">
                 QR invite created. It encodes <span className="bb-mono">{sheet.url}</span> — check

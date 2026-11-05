@@ -4,11 +4,12 @@ import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 import type { CreditPack } from "../../../lib/contracts";
-import { Button, Card, Dialog, Toast } from "../../../components/ds";
+import { Button, Card, Dialog, InlineNotice } from "../../../components/ds";
 import { CountUp } from "../../../components/ds/count-up";
 import { useToast } from "../../../components/ds/toast-provider";
 import { formatInr } from "../../../lib/format";
 import { earlierPurchaseMessage, priceChangedMessage } from "../../../lib/purchase-messages";
+import { creditsErrorMessage } from "../../../lib/credits-messages";
 import { createOrderAction, topUpAction, verifyPaymentAction } from "./actions";
 import { loadCheckoutScript, openCheckout } from "./razorpay-checkout";
 
@@ -167,7 +168,7 @@ export function CreditsPanel({ packs, real = false }: { packs: CreditPack[]; rea
         router.refresh();
       } else {
         // KEEP the key: the next tap of this SAME pack replays it and the server dedupes.
-        setError(res.error);
+        setError(creditsErrorMessage(res.error));
       }
     });
   }
@@ -191,7 +192,7 @@ export function CreditsPanel({ packs, real = false }: { packs: CreditPack[]; rea
             setNotice(priceChangedMessage(order.currentPriceInr));
             router.refresh();
           } else {
-            setError(order.error);
+            setError(creditsErrorMessage(order.error));
           }
           return;
         }
@@ -229,7 +230,7 @@ export function CreditsPanel({ packs, real = false }: { packs: CreditPack[]; rea
           signature: result.signature,
         });
         if (!verified.ok) {
-          setError(verified.error);
+          setError(creditsErrorMessage(verified.error));
           return;
         }
         announcePurchase(
@@ -334,8 +335,8 @@ export function CreditsPanel({ packs, real = false }: { packs: CreditPack[]; rea
       )}
 
       <div aria-live="polite" className="credits-result">
-        {notice ? <Toast tone="neutral">{notice}</Toast> : null}
-        {error ? <Toast tone="danger">{error}</Toast> : null}
+        {notice ? <InlineNotice tone="info">{notice}</InlineNotice> : null}
+        {error ? <InlineNotice tone="danger">{error}</InlineNotice> : null}
       </div>
 
       {/* Confirm-on-spend — the DS Dialog replaces the native `window.confirm`. Copy names the

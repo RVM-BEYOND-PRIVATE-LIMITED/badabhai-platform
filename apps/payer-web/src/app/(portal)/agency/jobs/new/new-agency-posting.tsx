@@ -5,6 +5,7 @@ import type { MatchSkillWire, PostingTradeFormWire } from "../../../../../lib/co
 import { AgencyJobForm } from "../../dashboard/agency-job-form";
 import { usePortalNavigation } from "../../../../../components/portal-navigation";
 import { createAgencyJobAction } from "../../dashboard/jobs-actions";
+import { agencyErrorMessage } from "../../../../../lib/agency-messages";
 
 /**
  * The agency's CREATE form on its own page (`/agency/jobs/new`). The form, its worker-card gap
@@ -42,7 +43,7 @@ export function NewAgencyPosting({
       onCancel={() => navigate("/agency/jobs", { pendingLabel: "Postings" })}
       onSubmit={async (input) => {
         const res = await createAgencyJobAction(input);
-        if (!res.ok) return { ok: false, error: res.error };
+        if (!res.ok) return { ok: false, error: agencyErrorMessage(res.error) };
         navigate(`/agency/jobs/${res.job.id}`, { pendingLabel: res.job.title });
         return { ok: true };
       }}

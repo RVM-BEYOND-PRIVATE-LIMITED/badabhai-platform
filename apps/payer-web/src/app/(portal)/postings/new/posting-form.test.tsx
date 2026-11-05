@@ -122,6 +122,7 @@ interface DraftOptions {
   storageKey: string;
   isDirty?: (saved: unknown) => boolean;
   onRestore?: (saved: unknown) => void;
+  onLeave?: (href: string) => void;
 }
 const draftHook: { restored: boolean; storageKey: string; options?: DraftOptions } = {
   restored: false,
@@ -131,7 +132,12 @@ vi.mock("../../../../components/use-posting-draft", () => ({
   usePostingDraft: (options: DraftOptions) => {
     draftHook.storageKey = options.storageKey;
     draftHook.options = options;
-    return { saved: false, restored: draftHook.restored, discard: discardDraft };
+    return {
+      saved: false,
+      restored: draftHook.restored,
+      discard: discardDraft,
+      leave: { open: false, confirm: discardDraft, cancel: discardDraft },
+    };
   },
 }));
 vi.mock("react", async () => {

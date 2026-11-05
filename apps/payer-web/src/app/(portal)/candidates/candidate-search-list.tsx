@@ -5,6 +5,7 @@ import { ACTION_ICON, Icon } from "@badabhai/icons";
 import type { CandidateSearchRow } from "../../../lib/contracts";
 import type { GrantedUnlock } from "../../../lib/unlock-history";
 import { bandLabel, monthsLabel, workerHandle } from "../../../lib/masking";
+import { candidatesErrorMessage } from "../../../lib/candidates-messages";
 import { shownTradeLevel } from "../../../lib/trade-level";
 // The count copy's own dependency-free module — the search's URL reads (zod) stay off the client.
 import { countSummary, type SearchCounts } from "../../../lib/candidate-counts";
@@ -154,7 +155,7 @@ export function CandidateSearchList({
         setResult("unavailable");
       }
     } else {
-      patch(workerId, { busy: false, unlockError: res.error });
+      patch(workerId, { busy: false, unlockError: candidatesErrorMessage(res.error) });
       setResult("unavailable");
     }
   }
@@ -185,7 +186,7 @@ export function CandidateSearchList({
       res = { ok: false, error: UNREACHABLE };
     }
     if (res.ok) patch(workerId, { contactBusy: false, contact: res.view });
-    else patch(workerId, { contactBusy: false, contactError: res.error });
+    else patch(workerId, { contactBusy: false, contactError: candidatesErrorMessage(res.error) });
   }
 
   // The masked résumé with NO posting context: `job_posting_id` goes out as null.
@@ -198,7 +199,7 @@ export function CandidateSearchList({
       res = { ok: false, error: UNREACHABLE };
     }
     if (res.ok) patch(workerId, { resumeBusy: false, resume: res.view });
-    else patch(workerId, { resumeBusy: false, resumeError: res.error });
+    else patch(workerId, { resumeBusy: false, resumeError: candidatesErrorMessage(res.error) });
   }
 
   const summary = countSummary(counts);

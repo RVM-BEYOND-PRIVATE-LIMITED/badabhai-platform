@@ -3430,12 +3430,6 @@ textarea.input {
   padding-inline-start: var(--space-2);
   border-inline-start: var(--border-bold) solid var(--warning);
 }
-.posting-actions__msg--danger {
-  color: var(--danger);
-}
-[data-theme="ink"] .posting-actions__msg--danger {
-  color: var(--red-300);
-}
 .posting-actions__buttons {
   display: flex;
   flex-wrap: wrap;
@@ -3456,9 +3450,6 @@ textarea.input {
 }
 /* The chip editor's refused-publish reason sits under its row (so Add stays level with the box),
    and a long unbroken chip wraps inside its pill instead of widening the page. */
-.chip-editor__error {
-  margin: 0;
-}
 .chip-editor__chips .bb-chip {
   max-width: 100%;
 }
@@ -3548,11 +3539,6 @@ textarea.input {
 .match-picker__tier1,
 .match-picker__loading {
   color: var(--text-muted);
-  font-size: var(--text-sm);
-}
-.match-picker__error {
-  margin: 0;
-  color: var(--danger);
   font-size: var(--text-sm);
 }
 .match-picker__zero {
@@ -3941,12 +3927,6 @@ textarea.input {
 }
 .agency-invite__status:empty {
   display: none;
-}
-.agency-invite__error {
-  margin: 0;
-  color: var(--danger);
-  font-size: var(--text-sm);
-  line-height: var(--leading-normal);
 }
 .agency-invite__result {
   display: grid;
@@ -6054,12 +6034,6 @@ img.agency-qr__code,
 }
 .ai-chat-status:empty {
   display: none;
-}
-.ai-chat-status__error {
-  margin: 0;
-  color: var(--danger);
-  font-size: var(--text-sm);
-  line-height: var(--leading-normal);
 }
 
 /* --- Structured draft preview --- */
@@ -10982,11 +10956,6 @@ body:has(.invite-landing) .chrome-footer {
 }
 .trade-fields__loading {
   color: var(--text-muted);
-  font-size: var(--text-sm);
-}
-.trade-fields__error {
-  margin: 0;
-  color: var(--danger);
   font-size: var(--text-sm);
 }
 

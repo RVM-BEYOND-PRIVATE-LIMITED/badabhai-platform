@@ -6,6 +6,7 @@ import type { PostingSummary } from "../../../lib/contracts";
 import { Badge, Button, Card, Dialog } from "../../../components/ds";
 import { PortalLink } from "../../../components/portal-link";
 import { formatInr } from "../../../lib/format";
+import { postingsErrorMessage } from "../../../lib/postings-messages";
 import type { ChargedPrice } from "../../../lib/pricing-config";
 import {
   earlierPurchaseMessage,
@@ -252,12 +253,12 @@ export function PostingsManager({
       } else if ("info" in res) {
         patchState(id, { busy: null, info: res.info });
       } else {
-        patchState(id, { busy: null, error: res.error });
+        patchState(id, { busy: null, error: postingsErrorMessage(res.error) });
       }
     } catch {
       // A rejected Server Action promise (offline / deploy mid-session) must not
       // strand the row busy-forever with every button disabled.
-      patchState(id, { busy: null, error: "Could not reach the server. Please retry." });
+      patchState(id, { busy: null, error: postingsErrorMessage("server_unreachable") });
     }
   }
 

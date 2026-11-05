@@ -37,6 +37,20 @@ export interface PostingDraftOptions<T> {
   isDirty?: (payload: T) => boolean;
   off: boolean;
   onRestore: (payload: T) => void;
+  /**
+   * Navigate after the payer confirms leaving from the in-app dialog (#2688). Defaults to a
+   * full-page navigation; the posting forms pass the portal router so the shell's cue plays.
+   */
+  onLeave?: (href: string) => void;
+}
+
+export interface LeavePrompt {
+  /** True while the in-app "Leave this posting?" dialog should be shown. */
+  open: boolean;
+  /** The payer confirmed: navigate to the destination they clicked. */
+  confirm: () => void;
+  /** The payer stayed: close the dialog and leave the form untouched. */
+  cancel: () => void;
 }
 
 export interface PostingDraft {
@@ -46,6 +60,8 @@ export interface PostingDraft {
   restored: boolean;
   /** Drop the stored draft (the posting was saved to the server, or the payer discarded it). */
   discard: () => void;
+  /** The in-app leave confirmation (the native prompt stays only for closing the tab). */
+  leave: LeavePrompt;
 }
 
 export function usePostingDraft<T>({
@@ -56,15 +72,20 @@ export function usePostingDraft<T>({
   isDirty,
   off,
   onRestore,
+  onLeave,
 }: PostingDraftOptions<T>): PostingDraft {
   const [saved, setSaved] = useState(false);
   const [restored, setRestored] = useState(false);
+  // The in-app destination a dirty form is holding behind its own confirmation dialog (#2688).
+  const [leaveHref, setLeaveHref] = useState<string | null>(null);
   const guarding = useRef(false);
   guarding.current = dirty && !off;
   const restore = useRef(onRestore);
   restore.current = onRestore;
   const changesTheForm = useRef(isDirty);
   changesTheForm.current = isDirty;
+  const leave = useRef(onLeave);
+  leave.current = onLeave;
   const loaded = useRef(false);
   // `dirty` as of the previous save pass. It starts false, so the mount pass — which runs before a
   // restored draft's state lands — never reads as "back to the seed" and wipes that draft.
@@ -116,10 +137,11 @@ export function usePostingDraft<T>({
 
   useEffect(
     () =>
-      installLeaveGuard(
-        () => guarding.current,
-        (message) => window.confirm(message),
-      ),
+      installLeaveGuard(() => guarding.current, (href) => {
+        // Always stop the click: the payer decides in the app's own Dialog, never a native one.
+        setLeaveHref(href);
+        return false;
+      }),
     [],
   );
 
@@ -131,6 +153,17 @@ export function usePostingDraft<T>({
       pendingSave.current = undefined;
       clearDraft(storageKey);
       setRestored(false);
+    },
+    leave: {
+      open: leaveHref !== null,
+      confirm: () => {
+        const href = leaveHref;
+        setLeaveHref(null);
+        if (href === null) return;
+        if (leave.current) leave.current(href);
+        else window.location.assign(href);
+      },
+      cancel: () => setLeaveHref(null),
     },
   };
 }

@@ -5,6 +5,7 @@ import { Icon } from "@badabhai/icons";
 import { agencyKycInputSchema, type AgencyKyc } from "../../../../lib/contracts";
 import { maskLast4 } from "../../../../lib/masking";
 import { Badge, Button, Input } from "../../../../components/ds";
+import { agencyErrorMessage } from "../../../../lib/agency-messages";
 import { submitKycAction } from "./supply-actions";
 
 /**
@@ -57,7 +58,7 @@ export function KycPanel({ kyc }: { kyc: AgencyKyc }) {
         setCurrent(res.kyc);
         setForm({ pan: "", bankAccount: "", ifsc: "", accountHolderName: "" });
       } else {
-        setSubmitError(res.error);
+        setSubmitError(agencyErrorMessage(res.error));
       }
     });
   }
