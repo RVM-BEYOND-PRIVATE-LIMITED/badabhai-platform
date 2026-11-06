@@ -163,7 +163,7 @@ const licenceExpirySchema = z
  * is attendance — "3-month CNC operator course, Govt. ITI, 2019" often has no document at all.
  * Name, provider and year only; nothing here is encrypted because nothing here is identity.
  */
-const TrainingEntrySchema = z
+export const TrainingEntrySchema = z
   .object({
     name: freeText(120, "training name"),
     provider: freeText(120, "training provider").nullable().default(null),

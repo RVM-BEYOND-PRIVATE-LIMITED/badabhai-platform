@@ -6,6 +6,7 @@ import {
   jobPostings,
   materializeJobReachWithin,
   PROFILE_SOURCE_SESSION_ANSWERS,
+  skills,
   workerAttributes,
   workerIndustryTenure,
   workerOccupations,
@@ -245,6 +246,84 @@ export class WorkerSkillsRepository {
         );
       }
     });
+  }
+
+  /**
+   * #2561 / ADR-0062 §4 — stamp an ADMIN-corrected skill list into the matching projection.
+   *
+   * `ops` is the human-authored source the rebuild never overwrites or prunes (see the
+   * ownership note above), so the corrected reach survives every later re-derivation. Only
+   * ids that are `kind='match_skill'` can have a `worker_skill` row; a display-only skill id
+   * simply contributes no reach. A corrected skill that previously had an `interview` row is
+   * promoted to `ops`: the admin list is the current truth, and leaving the old source would
+   * make the correction invisible to matching.
+   *
+   * Runs on the caller's transaction so the authored list, the display column and the reach
+   * rows commit together.
+   */
+  async replaceOpsSkills(
+    workerId: string,
+    skillIds: readonly string[],
+    tx?: Database,
+  ): Promise<number> {
+    const db = tx ?? this.db;
+    const ids = [...new Set(skillIds)];
+    const matchSkills =
+      ids.length === 0
+        ? []
+        : await db
+            .select({ skillId: skills.skillId, industryId: skills.industryId })
+            .from(skills)
+            .where(and(inArray(skills.skillId, ids), eq(skills.kind, "match_skill")));
+    const keep = matchSkills.map((s) => s.skillId);
+
+    await db
+      .delete(workerSkills)
+      .where(
+        and(
+          eq(workerSkills.workerId, workerId),
+          eq(workerSkills.source, "ops"),
+          keep.length > 0 ? notInArray(workerSkills.skillId, keep) : undefined,
+        ),
+      );
+
+    if (matchSkills.length > 0) {
+      const now = new Date();
+      for (const skill of matchSkills) {
+        await db
+          .insert(workerSkills)
+          .values({
+            workerId,
+            skillId: skill.skillId,
+            industryId: skill.industryId,
+            monthsBucketed: 0,
+            wants: true,
+            source: "ops",
+            updatedAt: now,
+          })
+          .onConflictDoUpdate({
+            target: [workerSkills.workerId, workerSkills.skillId],
+            set: {
+              industryId: skill.industryId,
+              wants: true,
+              source: "ops",
+              updatedAt: now,
+            },
+          });
+      }
+    }
+    return matchSkills.length;
+  }
+
+  /**
+   * #2561 — drop the `ops` rows an admin correction stamped. The worker's own skills edit
+   * supersedes the correction (A1); the derived rebuild preserves `ops` rows by design, so they
+   * must be cleared first or the correction would keep driving reach after it was superseded.
+   */
+  async clearOpsSkills(workerId: string, tx?: Database): Promise<void> {
+    await (tx ?? this.db)
+      .delete(workerSkills)
+      .where(and(eq(workerSkills.workerId, workerId), eq(workerSkills.source, "ops")));
   }
 
   /** The skill ids this worker currently WANTS — the reach driver's input set. */

@@ -1,4 +1,10 @@
-import { ConflictException, Injectable, Logger, NotFoundException } from "@nestjs/common";
+import {
+  ConflictException,
+  Injectable,
+  Logger,
+  NotFoundException,
+  Optional,
+} from "@nestjs/common";
 
 import { ChatRepository } from "../chat/chat.repository";
 import { type RequestContext } from "../common/request-context";
@@ -14,6 +20,7 @@ import { ProfileCorrectionsRepository } from "./profile-corrections.repository";
 import { ProfilesRepository } from "./profiles.repository";
 import { ProfileSkillsRepository } from "./profile-skills.repository";
 import { WorkerQualificationsService } from "./worker-qualifications.service";
+import { EffectiveFactsService } from "./effective-facts.service";
 
 /**
  * Applies a worker's corrections to their EXTRACTED profile (#1311 backend half).
@@ -40,6 +47,8 @@ export class ExtractedCorrectionsService {
     private readonly workerSkills: WorkerSkillsService,
     private readonly chat: ChatRepository,
     private readonly events: EventsService,
+    // #2561 — owner ruling A1: the worker accepting an extracted correction is a self-edit.
+    @Optional() private readonly effectiveFacts?: EffectiveFactsService,
   ) {}
 
   async correctExtracted(
@@ -142,13 +151,16 @@ export class ExtractedCorrectionsService {
       case "skills":
         await this.profileSkills.replaceForProfile(profileId, correction.skill_ids, correctionId);
         await this.profiles.setSkillLists(profileId, correction.skill_ids);
-        await this.workerSkills.rebuildQuietly(workerId, ctx);
+        await this.effectiveFacts?.supersedeByWorkerEdit(workerId, ["skills"], { ctx });
+        // The correction's `ops` matching rows must go before the rebuild, which preserves them.
+        await this.workerSkills.clearAdminOverrideSkills(workerId, ctx);
         return;
       case "machines":
         await this.profiles.setMachineLists(profileId, correction.machine_ids);
         return;
       case "experience":
         await this.profiles.setExperienceTotal(profileId, correction.total_years);
+        await this.effectiveFacts?.supersedeByWorkerEdit(workerId, ["experience"], { ctx });
         return;
       case "education":
         await this.qualifications.replaceForWorker(
@@ -156,6 +168,7 @@ export class ExtractedCorrectionsService {
           { educations: correction.educations },
           ctx,
         );
+        await this.effectiveFacts?.supersedeByWorkerEdit(workerId, ["education"], { ctx });
         return;
       case "certificates":
         await this.qualifications.replaceForWorker(
@@ -163,6 +176,7 @@ export class ExtractedCorrectionsService {
           { certificates: correction.certificates },
           ctx,
         );
+        await this.effectiveFacts?.supersedeByWorkerEdit(workerId, ["certifications"], { ctx });
         return;
     }
   }

@@ -1,5 +1,5 @@
 import { InjectQueue } from "@nestjs/bullmq";
-import { Injectable, Logger, NotFoundException } from "@nestjs/common";
+import { Injectable, Logger, NotFoundException, Optional } from "@nestjs/common";
 import type { Queue } from "bullmq";
 import type { Database } from "@badabhai/db";
 
@@ -14,6 +14,7 @@ import {
   type SetMyLanguagesDto,
 } from "./worker-languages.dto";
 import { WorkerLanguagesRepository } from "./worker-languages.repository";
+import { EffectiveFactsService } from "./effective-facts.service";
 
 /**
  * Records how the worker knows each language they list (migration 0110, ADR-0042 D9 / Layer A (b)).
@@ -40,6 +41,8 @@ export class WorkerLanguagesService {
     private readonly workers: WorkersRepository,
     private readonly events: EventsService,
     @InjectQueue(RESUME_RENDER_QUEUE) private readonly renderQueue: Queue<ResumeRenderJobData>,
+    // #2561 — owner ruling A1: the worker's own edit supersedes a live admin correction.
+    @Optional() private readonly effectiveFacts?: EffectiveFactsService,
   ) {}
 
   async replaceForWorker(
@@ -63,6 +66,12 @@ export class WorkerLanguagesService {
       opts.tx === undefined
         ? await this.languages.replaceForWorker(workerId, rows)
         : await this.languages.replaceForWorker(workerId, rows, opts.tx);
+
+    // A1 — the worker's explicit language list supersedes a live `languages` correction.
+    await this.effectiveFacts?.supersedeByWorkerEdit(workerId, ["languages"], {
+      ...(opts.tx === undefined ? {} : { tx: opts.tx }),
+      ctx,
+    });
 
     await this.events.emit({
       event_name: "worker.languages_recorded",

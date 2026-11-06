@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException } from "@nestjs/common";
+import { Injectable, Logger, NotFoundException, Optional } from "@nestjs/common";
 
 import type { Database } from "@badabhai/db";
 import { labelForTaxonomyId } from "@badabhai/taxonomy";
@@ -14,6 +14,7 @@ import {
   type SetMyOccupationsDto,
 } from "./worker-occupations.dto";
 import { WorkerOccupationsRepository } from "./worker-occupations.repository";
+import { EffectiveFactsService } from "./effective-facts.service";
 
 /**
  * Records the worker's declared SECONDARY occupations (migration 0114, ADR-0042 D9 / Layer A (f)).
@@ -42,6 +43,8 @@ export class WorkerOccupationsService {
     private readonly workers: WorkersRepository,
     private readonly events: EventsService,
     private readonly workerSkills: WorkerSkillsService,
+    // #2561 — owner ruling A1: the worker's own edit supersedes a live admin correction.
+    @Optional() private readonly effectiveFacts?: EffectiveFactsService,
   ) {}
 
   async replaceForWorker(
@@ -62,6 +65,12 @@ export class WorkerOccupationsService {
       opts.tx === undefined
         ? await this.occupations.replaceForWorker(workerId, roleIds)
         : await this.occupations.replaceForWorker(workerId, roleIds, opts.tx);
+
+    // A1 — the worker's explicit secondary-role list supersedes a live correction.
+    await this.effectiveFacts?.supersedeByWorkerEdit(workerId, ["secondary_roles"], {
+      ...(opts.tx === undefined ? {} : { tx: opts.tx }),
+      ctx,
+    });
 
     await this.events.emit({
       event_name: "worker.occupations_recorded",

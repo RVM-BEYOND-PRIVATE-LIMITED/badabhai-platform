@@ -693,6 +693,9 @@ describe("identity reads — one reader, one decrypter, and no name search", () 
         // #2561 — the correction envelope ({corrected, previous}) is decrypted at this one
         // boundary to compute the effective value / revert; the plaintext never leaves it.
         "admin/corrections/admin-corrections.service.ts",
+        // #2561 PR 2 — the previous-value capture decrypts employer names and licence numbers
+        // so a revert can restore them; the plaintext stays inside the encrypted envelope.
+        "admin/corrections/admin-correction-facts.service.ts",
         "admin/admin-identity.service.ts",
         "admin/admin-mfa.store.ts",
         "admin/admin-pii-reveal.service.ts",

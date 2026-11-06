@@ -132,32 +132,38 @@ export class EffectiveFactsService {
   async supersedeByWorkerEdit(
     workerId: string,
     factKeys: readonly WorkerAdminOverrideFactKey[],
-    opts: { tx: Database; ctx: RequestContext },
+    opts: { tx?: Database; ctx: RequestContext },
   ): Promise<void> {
     const keys = [...new Set(factKeys)];
     if (keys.length === 0) return;
-    const rows = await opts.tx
-      .update(workerAdminOverrides)
-      .set({ supersededAt: new Date(), supersededById: null })
-      .where(
-        and(
-          eq(workerAdminOverrides.workerId, workerId),
-          inArray(workerAdminOverrides.factKey, keys),
-          isNull(workerAdminOverrides.supersededAt),
-        ),
-      )
-      .returning({ id: workerAdminOverrides.id, factKey: workerAdminOverrides.factKey });
-    for (const row of rows) {
-      await this.events.emit({
-        event_name: "worker.admin_correction_superseded",
-        actor: { actor_type: "worker", actor_id: workerId },
-        subject: { subject_type: "worker", subject_id: workerId },
-        payload: { worker_id: workerId, fact_key: row.factKey, override_id: row.id },
-        correlationId: opts.ctx.correlationId,
-        requestId: opts.ctx.requestId,
-        idempotencyKey: `worker.admin_correction_superseded:${row.id}`,
-        tx: opts.tx,
-      });
-    }
+    const run = async (tx: Database): Promise<void> => {
+      const rows = await tx
+        .update(workerAdminOverrides)
+        .set({ supersededAt: new Date(), supersededById: null })
+        .where(
+          and(
+            eq(workerAdminOverrides.workerId, workerId),
+            inArray(workerAdminOverrides.factKey, keys),
+            isNull(workerAdminOverrides.supersededAt),
+          ),
+        )
+        .returning({ id: workerAdminOverrides.id, factKey: workerAdminOverrides.factKey });
+      for (const row of rows) {
+        await this.events.emit({
+          event_name: "worker.admin_correction_superseded",
+          actor: { actor_type: "worker", actor_id: workerId },
+          subject: { subject_type: "worker", subject_id: workerId },
+          payload: { worker_id: workerId, fact_key: row.factKey, override_id: row.id },
+          correlationId: opts.ctx.correlationId,
+          requestId: opts.ctx.requestId,
+          idempotencyKey: `worker.admin_correction_superseded:${row.id}`,
+          tx,
+        });
+      }
+    };
+    // Atomic when the caller already has a transaction (the location/preferences paths do);
+    // a writer that opens its own transaction runs the supersede immediately after it commits.
+    if (opts.tx !== undefined) return run(opts.tx);
+    await this.db.transaction((tx) => run(tx as unknown as Database));
   }
 }

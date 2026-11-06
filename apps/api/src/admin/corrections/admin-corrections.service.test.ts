@@ -43,6 +43,11 @@ function harness(over: { live?: Record<string, unknown> | undefined; baseCity?: 
     decrypt: vi.fn((token: string) => token.replace(/^enc:/, "")),
   };
   const events = { emit: vi.fn(async () => ({})) };
+  // Location corrections stay in the service; PR 2 keys delegate to this pair.
+  const facts = {
+    readPrevious: vi.fn(async () => null),
+    write: vi.fn(async () => undefined),
+  };
   const service = new AdminCorrectionService(
     repo as never,
     actions as never,
@@ -51,8 +56,9 @@ function harness(over: { live?: Record<string, unknown> | undefined; baseCity?: 
     preferences as never,
     pii as never,
     events as never,
+    facts as never,
   );
-  return { repo, actions, workers, workerService, preferences, pii, events, service };
+  return { repo, actions, workers, workerService, preferences, pii, events, facts, service };
 }
 
 const emitted = (events: { emit: ReturnType<typeof vi.fn> }) =>
@@ -148,6 +154,32 @@ describe("#2561 correction create", () => {
       CTX,
       expect.objectContaining({ tx: TX, source: "admin_correction" }),
     );
+  });
+
+  it("delegates a PR 2 field to the facts reader/writer and stores the envelope", async () => {
+    const h = harness();
+    const result = await h.service.correct(
+      ADMIN as never,
+      WORKER,
+      { fact_key: "experience", value: 8, ...REASON },
+      CTX,
+    );
+    expect(h.facts.readPrevious).toHaveBeenCalledWith(TX, WORKER, "experience");
+    expect(h.facts.write).toHaveBeenCalledWith(
+      TX,
+      CTX,
+      WORKER,
+      "experience",
+      8,
+      result.override_id,
+    );
+    const inserted = (
+      h.repo.insert.mock.calls[0] as unknown as [unknown, { valueEnc: string }]
+    )[1];
+    expect(JSON.parse(inserted.valueEnc.replace(/^enc:/, ""))).toEqual({
+      corrected: 8,
+      previous: null,
+    });
   });
 
   it.each(["full_name", "phone_e164", "whatsapp_enc", "resume_show_photo"])(

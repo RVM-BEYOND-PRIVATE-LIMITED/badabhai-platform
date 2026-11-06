@@ -260,6 +260,26 @@ export class WorkerSkillsService {
    * The failure is LOGGED (opaque worker id + error class only — never a transcript, a
    * name or a phone).
    */
+  /**
+   * #2561 — the worker's own skills edit supersedes a live admin correction (A1). The authored
+   * rows are already replaced by the caller; this drops the matching `ops` rows the correction
+   * stamped — the derived rebuild would otherwise preserve them forever — and re-derives reach
+   * from the worker's own list. Best-effort and quiet, like every other matching tail.
+   */
+  async clearAdminOverrideSkills(workerId: string, ctx?: RequestContext): Promise<void> {
+    try {
+      await this.repo.clearOpsSkills(workerId);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "unknown";
+      this.logger.warn(
+        `could not clear admin skill rows for worker=${workerId} (${msg}); ` +
+          `db:backfill:worker-skills will repair it`,
+      );
+      return;
+    }
+    await this.rebuildQuietly(workerId, ctx);
+  }
+
   async rebuildQuietly(workerId: string, ctx?: RequestContext): Promise<void> {
     try {
       const result = await this.rebuildForWorker(workerId, ctx);
