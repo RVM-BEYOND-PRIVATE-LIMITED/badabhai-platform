@@ -479,7 +479,7 @@ describe("#2564 company records — list and search", () => {
 
   it("an undisclosed name is ABSENT, not null (the three-state contract)", async () => {
     const h = harness();
-    h.identity.resolve.mockResolvedValueOnce(null);
+    h.identity.resolve.mockResolvedValueOnce(null as never);
     const page = await h.service.listCompanies(
       { id: ADMIN, role: "support", sid: "s" } as never,
       listDto,
