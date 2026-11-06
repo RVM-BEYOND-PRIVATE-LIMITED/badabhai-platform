@@ -298,3 +298,22 @@ export const AGENCY_TWIN_POLL_EVERY_MS = 30_000;
 export const AGENCY_TWIN_SWEEP_SCHEDULER_ID = "agency-twin-sync-sweep";
 export const AGENCY_TWIN_SWEEP_JOB = "sweep";
 export const AGENCY_TWIN_SWEEP_EVERY_MS = 10 * 60_000;
+
+/**
+ * B4 (#2557) — the admin candidate read table. Two repeatable ticks on one queue,
+ * each carrying NO payload: the events-cursor window (poll) and the `workers`
+ * table itself (rebuild) are the authoritative work lists, and projection is an
+ * idempotent upsert, so a lost or duplicated Redis job is harmless.
+ */
+export const CANDIDATE_INDEX_QUEUE = "candidate-index";
+
+/** The events-cursor poll tick (minutes behind a worker/profile/résumé write). */
+export const CANDIDATE_INDEX_POLL_SCHEDULER_ID = "candidate-index-poll";
+export const CANDIDATE_INDEX_POLL_JOB = "poll";
+
+/** The full-rebuild tick (missed events and resolver changes converge). */
+export const CANDIDATE_INDEX_REBUILD_SCHEDULER_ID = "candidate-index-rebuild";
+export const CANDIDATE_INDEX_REBUILD_JOB = "rebuild";
+
+/** How far before the stored watermark each poll tick re-reads (overlap window). */
+export const CANDIDATE_INDEX_OVERLAP_MS = 5 * 60_000;

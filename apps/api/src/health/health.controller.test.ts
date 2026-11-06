@@ -9,6 +9,10 @@ import type { Database } from "@badabhai/db";
 import type { Queue } from "bullmq";
 import { AiService, type AiServiceHealthSnapshot } from "../ai/ai.service";
 import { ACCOUNT_DELETION_SWEEP_SCHEDULER_ID } from "../queue/queue.constants";
+import {
+  CANDIDATE_INDEX_POLL_SCHEDULER_ID,
+  CANDIDATE_INDEX_REBUILD_SCHEDULER_ID,
+} from "../queue/queue.constants";
 import { HealthController } from "./health.controller";
 import { HealthService, resolveBuildId, UNKNOWN_BUILD } from "./health.service";
 
@@ -86,6 +90,7 @@ function setup(opts: {
   dbExecute?: () => Promise<unknown>;
   redisPing?: () => Promise<unknown>;
   getJobScheduler?: () => Promise<unknown>;
+  candidateSchedulers?: () => Promise<unknown>;
   aiProbe?: () => Promise<AiServiceHealthSnapshot>;
   config?: unknown;
   alerts?: unknown;
@@ -94,6 +99,8 @@ function setup(opts: {
   const redisPing = opts.redisPing ?? (async () => "PONG");
   const getJobSchedulerImpl =
     opts.getJobScheduler ?? (async () => ({ key: "account-deletion-sweep", every: "3600000" }));
+  const candidateSchedulersImpl =
+    opts.candidateSchedulers ?? (async () => ({ key: "candidate-index-poll", every: "300000" }));
   const aiProbeImpl = opts.aiProbe ?? (async () => AI_REAL);
   const config = (opts.config ?? {
     NODE_ENV: "test",
@@ -107,12 +114,22 @@ function setup(opts: {
   const queue = { client: Promise.resolve({ ping: pingFn }) } as unknown as Queue;
   const getJobScheduler = vi.fn(getJobSchedulerImpl);
   const deletionQueue = { getJobScheduler } as unknown as Queue;
+  const candidateGetJobScheduler = vi.fn(candidateSchedulersImpl);
+  const candidateIndexQueue = { getJobScheduler: candidateGetJobScheduler } as unknown as Queue;
   const probeHealth = vi.fn(aiProbeImpl);
   const ai = { probeHealth } as unknown as AiService;
 
-  const service = new HealthService(db, queue, deletionQueue, ai, config, opts.alerts as never);
+  const service = new HealthService(
+    db,
+    queue,
+    deletionQueue,
+    ai,
+    config,
+    opts.alerts as never,
+    candidateIndexQueue,
+  );
   const controller = new HealthController(CONFIG, service);
-  return { controller, db, pingFn, getJobScheduler, probeHealth };
+  return { controller, db, pingFn, getJobScheduler, candidateGetJobScheduler, probeHealth };
 }
 
 /** A promise that never resolves — exercises the timeout path. */
@@ -145,6 +162,7 @@ describe("HealthController.check — readiness probes", () => {
       database: "up",
       redis: "up",
       deletion_sweep: "up",
+      candidate_index: "up",
       ai_service: "up",
       ai_posture: "real",
       ai_tasks: [],
@@ -241,6 +259,7 @@ describe("HealthController.check — readiness probes", () => {
       database: "down",
       redis: "down",
       deletion_sweep: "down",
+      candidate_index: "up",
       ai_service: "down",
       ai_posture: "mock",
       ai_tasks: [],
@@ -274,6 +293,7 @@ describe("HealthController.check — readiness probes", () => {
       database: "up",
       redis: "up",
       deletion_sweep: "down",
+      candidate_index: "up",
       ai_service: "up",
       ai_posture: "real",
       ai_tasks: [],
@@ -286,6 +306,37 @@ describe("HealthController.check — readiness probes", () => {
     const { controller, getJobScheduler } = setup({});
     await controller.check(fakeRes());
     expect(getJobScheduler).toHaveBeenCalledWith(ACCOUNT_DELETION_SWEEP_SCHEDULER_ID);
+  });
+
+  // ---- B4 (#2557): the candidate-index poll + rebuild scheduler signal ----
+
+  it("a MISSING candidate-index scheduler → checks.candidate_index down (a stale table is DETECTABLE)", async () => {
+    const { controller } = setup({ candidateSchedulers: async () => undefined });
+    const body = await controller.check(fakeRes());
+
+    expect(body.checks.candidate_index).toBe("down");
+  });
+
+  it("a dead candidate-index clock does NOT 503 the API: dependencies up → still 200/ok", async () => {
+    const { controller } = setup({ candidateSchedulers: async () => undefined });
+    const res = fakeRes();
+    const body = await controller.check(res);
+
+    expect(res.statusCode).toBe(200);
+    expect(body.status).toBe("ok");
+    expect(body.checks).toMatchObject({
+      database: "up",
+      redis: "up",
+      deletion_sweep: "up",
+      candidate_index: "down",
+    });
+  });
+
+  it("probes BOTH candidate-index scheduler ids (poll and rebuild are both required)", async () => {
+    const { controller, candidateGetJobScheduler } = setup({});
+    await controller.check(fakeRes());
+    expect(candidateGetJobScheduler).toHaveBeenCalledWith(CANDIDATE_INDEX_POLL_SCHEDULER_ID);
+    expect(candidateGetJobScheduler).toHaveBeenCalledWith(CANDIDATE_INDEX_REBUILD_SCHEDULER_ID);
   });
 
   it("a hung sweep probe is down, not a hang (the timeout covers it too)", async () => {

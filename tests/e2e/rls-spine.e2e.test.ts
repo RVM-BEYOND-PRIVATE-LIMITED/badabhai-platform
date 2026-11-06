@@ -207,6 +207,13 @@ const LOCKED_TABLES = [
   // ids + closed tier + counts + whole-₹ price (PII-free, like every monetization table).
   // Deny-by-default, FORCE, no policy.
   "plan_quota_topups",
+  // 0156 (#2557 B4): one derived row per worker — folded labels, opaque ids, lookup
+  // hashes (phone/name tokens). The linkage class is learn_labels/job_reach: keyed by
+  // worker_id with cascade as the DSAR coverage; RLS+FORCE+REVOKE in migration 0156.
+  "admin_candidate_index",
+  // 0156 (#2557 B4): single-row projector watermark over events.created_at — no PII at
+  // all, locked because the posture here is table-DEFAULT; RLS+FORCE+REVOKE in 0156.
+  "admin_candidate_index_cursor",
 ] as const;
 
 // The three network-reachable PostgREST roles Supabase ships.

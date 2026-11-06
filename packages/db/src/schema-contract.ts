@@ -1068,6 +1068,56 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
   },
   ...R39_RLS_REQUIREMENTS,
   ...GAP_DB_21_RLS_REQUIREMENTS,
+  // 0156 (#2557 B4, candidate read table): the projector upserts unconditionally
+  // on every poll tick and the nightly rebuild scans it — no flag — so app code
+  // deployed against an unmigrated DB breaks the tick on every run. Registered
+  // up front. APPLY BEFORE DEPLOY.
+  {
+    id: "0156-candidate-read-table",
+    migration: "0156_candidate_read_table",
+    kind: "table",
+    table: "admin_candidate_index",
+    requiredBy:
+      "CandidateIndexRepository.upsertRow on every poll-tick projection, " +
+      "listWorkerIds on the nightly rebuild, and the backfill CLI — all name the " +
+      "table unconditionally. `admin_candidate_index_cursor` rides the same migration " +
+      "and fails together",
+    failureMode:
+      "the candidate-index poll tick 500s (relation does not exist) on every run and " +
+      "the read table stays empty, so the Candidates data bank never populates. Old " +
+      "builds on a migrated database are fine (a superset); new builds on an " +
+      "unmigrated one are not, which is why this is APPLY-BEFORE-DEPLOY",
+  },
+  {
+    id: "0156-candidate-read-table-rls",
+    migration: "0156_candidate_read_table",
+    kind: "rls",
+    table: "admin_candidate_index",
+    requiredBy:
+      "no code path — the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices: tests/e2e/rls-spine.e2e.test.ts is " +
+      "skipIf-gated",
+    failureMode:
+      "SILENT. The table keys every worker to folded search labels plus phone/name lookup " +
+      "hashes; without FORCE the owner bypasses every policy and without the REVOKEs every " +
+      "PostgREST role can read the whole linkage. Both surfaces keep working, so nothing " +
+      "reports it",
+  },
+  {
+    id: "0156-candidate-read-cursor-rls",
+    migration: "0156_candidate_read_table",
+    kind: "rls",
+    table: "admin_candidate_index_cursor",
+    requiredBy:
+      "no code path — the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices: tests/e2e/rls-spine.e2e.test.ts is " +
+      "skipIf-gated",
+    failureMode:
+      "SILENT. The cursor is a timestamp only, but the posture here is table-DEFAULT: every " +
+      "table in this manifest carries the lock, so a missing one is a drift report, not a debate",
+  },
 ] as const;
 
 /** What the live database actually has, keyed by requirement id. */

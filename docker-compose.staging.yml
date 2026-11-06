@@ -667,6 +667,18 @@ services:
       # value rather than in the secret bridge, where the parity check could not see it.
       TEST_IMMEDIATE_DELETE_ENABLED: ${TEST_IMMEDIATE_DELETE_ENABLED:-false}
       TEST_IMMEDIATE_DELETE_WORKER_IDS: ${TEST_IMMEDIATE_DELETE_WORKER_IDS:-}
+      # B4 (#2557) — candidate read-table projector cadence (tuning numbers, not
+      # secrets: plain values mirroring the zod defaults; an unset box keeps
+      # today's behaviour, which is no projector running).
+      CANDIDATE_INDEX_POLL_INTERVAL_MINUTES: ${CANDIDATE_INDEX_POLL_INTERVAL_MINUTES:-5}
+      CANDIDATE_INDEX_REBUILD_INTERVAL_HOURS: ${CANDIDATE_INDEX_REBUILD_INTERVAL_HOURS:-24}
+      CANDIDATE_INDEX_BATCH_LIMIT: ${CANDIDATE_INDEX_BATCH_LIMIT:-500}
+      # B4 (#2557, ADR-0062 §3.6) — dedicated name-token keyring. SECRETS: they
+      # arrive via the CI `envs:` bridge like every other secret (empty default =
+      # name search unavailable, fail closed). The key id is opaque, but it rides
+      # with the keyring so the pair stays in the secrets store together.
+      ADMIN_NAME_TOKEN_KEYS: ${ADMIN_NAME_TOKEN_KEYS:-}
+      ADMIN_NAME_TOKEN_ACTIVE_KID: ${ADMIN_NAME_TOKEN_ACTIVE_KID:-}
 
       # ---- OTP THROTTLES + THE DELETION COOL-DOWN (#1306). The same #872 / #794 / #798 / #813 /
       # #1264 gap as the block immediately above, and it had gone unnoticed for longer: NOT ONE of

@@ -1,6 +1,10 @@
 import { Module } from "@nestjs/common";
 import { BullModule } from "@nestjs/bullmq";
-import { ACCOUNT_DELETION_QUEUE, RESUME_RENDER_QUEUE } from "../queue/queue.constants";
+import {
+  ACCOUNT_DELETION_QUEUE,
+  CANDIDATE_INDEX_QUEUE,
+  RESUME_RENDER_QUEUE,
+} from "../queue/queue.constants";
 import { HealthController } from "./health.controller";
 import { HealthService } from "./health.service";
 
@@ -15,6 +19,9 @@ import { HealthService } from "./health.service";
     // deletion-sweep job scheduler. Registration is idempotent and shares the one
     // Redis connection; this module neither produces nor consumes these jobs.
     BullModule.registerQueue({ name: ACCOUNT_DELETION_QUEUE }),
+    // B4 (#2557) — same idiom for the candidate-index poll + rebuild schedulers.
+    BullModule.registerQueue({ name: CANDIDATE_INDEX_QUEUE }),
+    // B4 (#2557) — same idiom for the candidate-index poll + rebuild schedulers.
     // TD81 — HealthService's FOURTH dependency, `AiService`, needs NO import here:
     // AiModule is @Global (ai.module.ts) and is imported once by AppModule, exactly
     // like the DATABASE token above. Importing it again would be redundant, and

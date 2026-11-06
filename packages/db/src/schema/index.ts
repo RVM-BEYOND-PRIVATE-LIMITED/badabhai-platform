@@ -39,6 +39,7 @@ import { profilingVoiceAnswers, workerAttributes } from "./profiling";
 import { workerEmployment, workerEmploymentRole } from "./employment";
 import { workerCertificates, workerEducations, workerTrainings } from "./qualification";
 import { profileCorrections } from "./profile-correction";
+import { adminCandidateIndex, adminCandidateIndexCursor } from "./admin-candidate-index";
 import { workerProfilingTiers } from "./worker-profiling-tier";
 import { workerResumeSkins } from "./worker-resume-skin";
 import { payerApplicantStages } from "./payer-applicant-stage";
@@ -137,6 +138,7 @@ export * from "./ai-cost";
 export * from "./feedback";
 export * from "./ai-trace";
 export * from "./learn";
+export * from "./admin-candidate-index";
 
 // ---------------------------------------------------------------------------
 // Inferred row types (select / insert) for use across services.
@@ -416,4 +418,9 @@ export const schema = {
   jobReachWiden,
   learnLabels,
   learnLabelsCursor,
+  // B4 (#2557) — the admin candidate read table + projector cursor (migration
+  // 0156). Present on every migrated database, so they belong here as well as
+  // the `export *` above.
+  adminCandidateIndex,
+  adminCandidateIndexCursor,
 };

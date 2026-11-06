@@ -82,13 +82,19 @@ describe("Admin spine-immutability build-blocker (must-fix #3)", () => {
     ).toEqual([]);
   });
 
-  it("EXACTLY ONE non-test file under admin/** reads the spine (the single-reader invariant)", () => {
+  it("EXACTLY TWO non-test files under admin/** read the spine (the reader allowlist)", () => {
     // The invariant `AdminEventsRepository`'s header and `AdminEventsService`'s header both
     // state — "`events` has exactly one admin reader" — had no build-blocker until now: the
     // scan above enforces IMMUTABILITY (`update(events)`/`delete(events)`), not single-reader,
     // so the property rested on a comment. It is what makes the immutability scan cheap to keep
-    // true (one class to audit, not every class that grows an aggregate), and BP-5 is exactly
+    // true (a short allowlist to audit, not every class that grows an aggregate), and BP-5 is exactly
     // the pressure that would have broken it — the dashboard wanted its own `from(events)`.
+    //
+    // B4 (#2557, ADR-0062 §3.5) adds the SECOND and last reader:
+    // `candidate-index.repository.ts` drains named worker/profile/résumé/consent/admin
+    // events behind the projector cursor. SELECT-ONLY like the first (the scan above
+    // still forbids every mutation in every file); a third reader fails this test and
+    // needs its own owner-ruled ADR entry here.
     //
     // COMMENTS ARE STRIPPED FIRST: three files under admin/** discuss `from(events)` in prose
     // (this is the documentation explaining why they must not do it), and a scan that matched
@@ -101,8 +107,11 @@ describe("Admin spine-immutability build-blocker (must-fix #3)", () => {
       .map((f) => relative(SRC_DIR, f).replace(/\\/g, "/"));
     expect(
       readers,
-      `exactly one admin file may read \`events\`. Readers: ${readers.join(", ")}`,
-    ).toEqual(["admin/admin-events.repository.ts"]);
+      `exactly two admin files may read \`events\`. Readers: ${readers.join(", ")}`,
+    ).toEqual([
+      "admin/admin-events.repository.ts",
+      "admin/candidate-index/candidate-index.repository.ts",
+    ]);
   });
 
   it("the admin repository never references the `events` table (select-only on admin_users)", () => {

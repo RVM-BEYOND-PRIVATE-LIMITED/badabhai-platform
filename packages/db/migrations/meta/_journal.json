@@ -1094,6 +1094,13 @@
       "when": 1793872516876,
       "tag": "0155_company_payment_history",
       "breakpoints": true
+    },
+    {
+      "idx": 156,
+      "version": "7",
+      "when": 1793882967987,
+      "tag": "0156_candidate_read_table",
+      "breakpoints": true
     }
   ]
 }
