@@ -22,13 +22,15 @@ import {
  */
 
 describe("FIELD_SOURCES — the closed provenance vocabulary", () => {
-  it("is exactly the eight values the admin contract documents (no `chat`: no row can tell it)", () => {
+  it("is exactly the nine values the admin contract documents (no `chat`: no row can tell it)", () => {
     expect([...FIELD_SOURCES]).toEqual([
       "interview",
       "form",
       "resume_import",
       "worker_edit",
       "ops",
+      // #2561 — the admin correction source.
+      "admin_override",
       "derived",
       "none",
       "unknown",
@@ -97,6 +99,29 @@ describe("resolveSalaryBandWithSource", () => {
       value: resolveSalaryBand({ expected: 18000, expectedMax: 22000 }),
       source: "interview",
     });
+  });
+
+  it("#2561 — an admin correction sits ABOVE the container (the salary overlay contract)", () => {
+    // ADR-0062 §3.2: writing only the attribute pair would leave the container showing the
+    // extracted salary. The override must win even when a container figure exists.
+    const r = resolveSalaryBandWithSource({
+      ...base,
+      container: { amountMin: 18000, amountMax: 22000 },
+      attributes: { expected: 30000, expectedMax: 35000 },
+      override: { amountMin: 40000, amountMax: 45000 },
+    });
+    expect(r).toEqual({
+      value: resolveSalaryBand({ expected: 40000, expectedMax: 45000 }),
+      source: "admin_override",
+    });
+    // An override with no usable figure falls through to the normal chain.
+    const empty = resolveSalaryBandWithSource({
+      ...base,
+      container: { amountMin: 18000, amountMax: 22000 },
+      attributes: { expected: null, expectedMax: null },
+      override: { amountMin: null, amountMax: null },
+    });
+    expect(empty.source).toBe("interview");
   });
 
   it("no container figure → the attribute band, through resolveSalaryBand (upper end never derived)", () => {

@@ -8,6 +8,7 @@ import { WorkersRepository } from "./workers.repository";
 import { WorkersService } from "./workers.service";
 import { WorkersController } from "./workers.controller";
 import { WorkerAttributesRepository } from "../profiles/worker-attributes.repository";
+import { EffectiveFactsService } from "../profiles/effective-facts.service";
 
 /** Global: worker identity is needed by auth, consent, chat, profiles, etc. */
 @Global()
@@ -31,11 +32,18 @@ import { WorkerAttributesRepository } from "../profiles/worker-attributes.reposi
   // strength reads the form's attribute bag, and importing ProfilesModule would pull its whole
   // module graph into this @Global one. The repository is stateless over the shared DATABASE token,
   // so a second instance changes nothing (the AgencyModule re-provide precedent).
-  providers: [WorkersRepository, WorkersService, WorkerAttributesRepository],
+  providers: [
+    WorkersRepository,
+    WorkersService,
+    WorkerAttributesRepository,
+    // #2561 — the correction-overlay read + worker-self-edit supersede, available to every
+    // display/resume/matching consumer through this @Global export.
+    EffectiveFactsService,
+  ],
   // `WorkersService` is exported for ADR-0048's identity intake (ProfilingModule), which must write
   // the name and location through the ONE write path each has — encryption and events included —
   // rather than around it. Reached through this @Global export, so ProfilingModule gains no import
   // edge; and acyclic regardless, since nothing this module imports reaches ProfilingModule.
-  exports: [WorkersRepository, WorkersService],
+  exports: [WorkersRepository, WorkersService, EffectiveFactsService],
 })
 export class WorkersModule {}

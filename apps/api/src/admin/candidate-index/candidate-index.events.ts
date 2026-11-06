@@ -11,10 +11,6 @@ import { isEventName } from "@badabhai/event-schema";
  * an event naming no worker is skipped.
  *
  * DELIBERATELY ABSENT (verified against the registry — they do not exist yet):
- * - `admin.candidate_field_corrected`, `admin.candidate_field_reverted`,
- *   `worker.admin_correction_superseded` — #2561 registers these; add them to
- *   this list in that issue (the poll tolerates unknown names, but the
- *   validity test below would fail on a name the registry rejects).
  * - `worker.suspended`, `worker.reinstated` — no such worker events exist
  *   (suspension is an admin action surfaced via `admin.action_performed`,
  *   which IS listed); the status column is re-read from the row on every
@@ -51,6 +47,11 @@ export const ADMIN_CANDIDATE_EVENT_NAMES = [
   "consent.purposes_granted",
   "consent.purposes_withdrawn",
   "admin.action_performed",
+  // #2561 / ADR-0062 §3.5 — the correction layer. A corrected/reverted/superseded fact changes
+  // what the read table must show, so these three project the worker again.
+  "admin.candidate_field_corrected",
+  "admin.candidate_field_reverted",
+  "worker.admin_correction_superseded",
   "worker.logged_out_all",
   "worker.pin_reset",
   "worker.account_deleted",

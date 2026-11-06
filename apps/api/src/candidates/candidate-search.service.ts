@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Logger } from "@nestjs/common";
+import { BadRequestException, Injectable, Logger, Optional } from "@nestjs/common";
 import { isSampleWorkerId } from "@badabhai/db";
 import { canonicalCity } from "@badabhai/profiling-lexicon";
 import {
@@ -11,6 +11,8 @@ import {
 } from "@badabhai/taxonomy";
 import type { RequestContext } from "../common/request-context";
 import { EventsService } from "../events/events.service";
+import { applyEffectiveFacts } from "../profiles/effective-facts";
+import { EffectiveFactsService } from "../profiles/effective-facts.service";
 import { MatchConfigService } from "../match/match-config.service";
 import type { TradeLevelBadge } from "../match/match-candidates.service";
 import { WorkerSkillsRepository } from "../match/worker-skills.repository";
@@ -85,6 +87,9 @@ export class CandidateSearchService {
     private readonly workerSkills: WorkerSkillsRepository,
     private readonly matchConfig: MatchConfigService,
     private readonly events: EventsService,
+    // #2561 — the live admin-correction overlay (ADR-0062 §3.2 point 1). Optional so the
+    // pre-#2561 unit constructions keep projecting base values.
+    @Optional() private readonly effectiveFacts?: EffectiveFactsService,
   ) {}
 
   async search(
@@ -148,14 +153,23 @@ export class CandidateSearchService {
     const levelsOf = groupByWorker(levels);
     const rolesOf = groupByWorker(roles);
     const roleFiltered = skillIds.length > 0;
-    const candidates = page.map((row) =>
-      toCandidateRow(
-        row,
+    // #2561 — one batch read of live corrections for the page (no N+1), then the city overlay.
+    const corrections = this.effectiveFacts
+      ? await this.effectiveFacts.resolveMany(workerIds)
+      : new Map();
+    const candidates = page.map((row) => {
+      const overrides = corrections.get(row.workerId);
+      const effectiveCity = overrides
+        ? (applyEffectiveFacts({ workersCity: row.currentCity, attributes: {} }, overrides)
+            .workersCity as string | null)
+        : row.currentCity;
+      return toCandidateRow(
+        overrides ? { ...row, currentCity: effectiveCity } : row,
         roleFiltered,
         rolesOf.get(row.workerId) ?? [],
         levelsOf.get(row.workerId) ?? [],
-      ),
-    );
+      );
+    });
 
     const filtered =
       roleFiltered ||

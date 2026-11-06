@@ -1667,6 +1667,25 @@ export const EVENT_REGISTRY = {
     domain: "payer",
     payload: p.PayerCompanyUpdatedPayload,
   },
+
+  // [#2561] ADR-0062 admin profile corrections. Appended at the tail per protocol. The admin is
+  // the envelope actor for corrected/reverted; the worker's own edit fires the superseded event.
+  // IDs + the closed fact key only — never the value, the previous value or the reason text.
+  "admin.candidate_field_corrected": {
+    version: 1,
+    domain: "admin",
+    payload: p.AdminCandidateFieldCorrectedPayload,
+  },
+  "admin.candidate_field_reverted": {
+    version: 1,
+    domain: "admin",
+    payload: p.AdminCandidateFieldRevertedPayload,
+  },
+  "worker.admin_correction_superseded": {
+    version: 1,
+    domain: "worker",
+    payload: p.WorkerAdminCorrectionSupersededPayload,
+  },
 } as const satisfies Record<string, EventDefinition>;
 
 /** Union of all known event names. */

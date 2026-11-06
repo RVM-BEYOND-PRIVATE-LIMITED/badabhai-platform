@@ -110,7 +110,7 @@ describe("labels stay in lockstep with the vocabulary", () => {
     expect(Object.keys(ROLE_LABELS).sort()).toEqual([...ADMIN_ROLES].sort());
   });
 
-  it("the vocabulary matches the server's nineteen capabilities", () => {
+  it("the vocabulary matches the server's twenty capabilities", () => {
     // Pinned as a literal: if the API adds one, this fails and someone has to decide how
     // the portal should present it, rather than silently ignoring it. It did exactly that
     // when BP-1 implemented `read_entities`, again when `read_identity` split names off
@@ -128,6 +128,7 @@ describe("labels stay in lockstep with the vocabulary", () => {
         "grant_credits",
         "manage_admins",
         "manage_agency_match_skills",
+        "edit_candidates",
         "manage_companies",
         "manage_payer_credentials",
         "manage_postings",

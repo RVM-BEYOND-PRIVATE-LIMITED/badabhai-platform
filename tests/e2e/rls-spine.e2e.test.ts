@@ -219,6 +219,10 @@ const LOCKED_TABLES = [
   // flag + the closed source enum (PII-free, like every monetization table).
   // Deny-by-default, FORCE, no policy.
   "profile_completion_ledger",
+  // 0160 (#2561 B7 / ADR-0062 §3.1): the admin correction layer - the encrypted
+  // {corrected, previous} envelope plus the written reason, keyed by worker with cascade as the
+  // DSAR coverage. RLS+FORCE+REVOKE in 0160.
+  "worker_admin_override",
 ] as const;
 
 // The three network-reachable PostgREST roles Supabase ships.

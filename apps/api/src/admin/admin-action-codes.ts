@@ -93,6 +93,11 @@ export const ADMIN_ACTION_CODES = {
   company_updated: "company_updated",
   company_archived: "company_archived",
   company_restored: "company_restored",
+  // ── #2561 — admin profile corrections (ADR-0062 §3.9) ──────────────────────────────────
+  // Target = the worker. The fact key is on the domain event; the value and the reason are on
+  // the encrypted override row / `audit_logs`, never on the spine.
+  candidate_field_corrected: "candidate_field_corrected",
+  candidate_field_reverted: "candidate_field_reverted",
 } as const;
 
 export type AdminActionCode = (typeof ADMIN_ACTION_CODES)[keyof typeof ADMIN_ACTION_CODES];

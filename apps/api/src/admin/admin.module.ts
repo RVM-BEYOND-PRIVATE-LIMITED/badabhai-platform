@@ -106,6 +106,10 @@ import { AdminCompaniesService } from "./companies/admin-companies.service";
 import { AdminCompaniesController } from "./companies/admin-companies.controller";
 import { CandidateSearchRepository } from "../candidates/candidate-search.repository";
 import { WorkerAttributesRepository } from "../profiles/worker-attributes.repository";
+import { WorkerPreferencesService } from "../profiles/worker-preferences.service";
+import { AdminCorrectionsRepository } from "./corrections/admin-corrections.repository";
+import { AdminCorrectionService } from "./corrections/admin-corrections.service";
+import { AdminCorrectionsController } from "./corrections/admin-corrections.controller";
 import { WorkerLanguagesRepository } from "../profiles/worker-languages.repository";
 import { WorkerOccupationsRepository } from "../profiles/worker-occupations.repository";
 import { WorkerQualificationsRepository } from "../profiles/worker-qualifications.repository";
@@ -255,6 +259,8 @@ import { WorkerQualificationsRepository } from "../profiles/worker-qualification
     AdminCandidatesController,
     // #2564 (B10) — the company record (create / edit / archive / restore / list / detail).
     AdminCompaniesController,
+    // #2561 — admin corrections of candidate fields (ADR-0062).
+    AdminCorrectionsController,
   ],
   providers: [
     AdminRepository,
@@ -485,6 +491,12 @@ import { WorkerQualificationsRepository } from "../profiles/worker-qualification
     // contact PII) and NameTokenService (company-name search), all provided above.
     AdminCompaniesRepository,
     AdminCompaniesService,
+    // #2561 — the correction layer. `EffectiveFactsService` (read + supersede) is exported by the
+    // @Global WorkersModule; the preferences writer is re-provided here so this module's boot
+    // does not depend on the profiles subtree (the existing AdminModule pattern).
+    AdminCorrectionsRepository,
+    AdminCorrectionService,
+    WorkerPreferencesService,
   ],
   exports: [AdminAuthGuard, AdminRolesGuard, AdminSessionService, AdminRepository],
 })

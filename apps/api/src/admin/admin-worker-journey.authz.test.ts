@@ -178,6 +178,9 @@ describe("Phase 6 — the journey is NOT a PII surface and confers nothing on th
         // #2564 — company records (super_admin, ops_admin). Not the journey's: it writes payer
         // and profile rows and reads no funnel step.
         "manage_companies",
+        // #2561 — candidate-field corrections (super_admin, ops_admin, support). Not the
+        // journey's: it writes profile facts and reads no funnel step.
+        "edit_candidates",
         // ADR-0062 §3.8 (#2560) — the Candidates full-detail read. Not the journey's: the journey
         // stays on `read_entities` and returns no profile values.
         "read_candidates",
