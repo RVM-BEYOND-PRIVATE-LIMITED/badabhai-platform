@@ -7,6 +7,7 @@ import { SERVER_CONFIG } from "../../config/config.module";
 import {
   CANDIDATE_INDEX_OVERLAP_MS,
   CANDIDATE_INDEX_POLL_SCHEDULER_ID,
+  CANDIDATE_INDEX_PROJECT_JOB,
   CANDIDATE_INDEX_QUEUE,
   CANDIDATE_INDEX_REBUILD_JOB,
   CANDIDATE_INDEX_REBUILD_SCHEDULER_ID,
@@ -77,6 +78,17 @@ export class CandidateIndexProcessor extends WorkerHost implements OnApplication
 
   async process(job: Job): Promise<{ projected: number; skipped: number }> {
     if (job.name === CANDIDATE_INDEX_REBUILD_JOB) return this.rebuild();
+    // #2561 PR 3 — the after-save re-projection of ONE worker. The correction service
+    // enqueues this immediately after its transaction commits; the nightly rebuild and
+    // the event poll remain the convergence backstops.
+    if (job.name === CANDIDATE_INDEX_PROJECT_JOB) {
+      const workerId = (job.data as { workerId?: unknown } | undefined)?.workerId;
+      if (typeof workerId !== "string" || !UUID.test(workerId)) {
+        return { projected: 0, skipped: 1 };
+      }
+      const projected = await this.projector.projectWorker(workerId);
+      return { projected: projected ? 1 : 0, skipped: projected ? 0 : 1 };
+    }
     // Poll is the default (including CANDIDATE_INDEX_POLL_JOB): an unknown job
     // name still drains the events window rather than sitting unprocessed.
     return this.poll();

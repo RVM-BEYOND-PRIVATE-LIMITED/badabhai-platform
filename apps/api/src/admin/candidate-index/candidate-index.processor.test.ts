@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   CANDIDATE_INDEX_POLL_JOB,
   CANDIDATE_INDEX_POLL_SCHEDULER_ID,
+  CANDIDATE_INDEX_PROJECT_JOB,
   CANDIDATE_INDEX_REBUILD_JOB,
   CANDIDATE_INDEX_REBUILD_SCHEDULER_ID,
 } from "../../queue/queue.constants";
@@ -41,6 +42,28 @@ function makeProcessor(opts?: {
   const processor = new CandidateIndexProcessor(projector as never, index as never, queue, CONFIG);
   return { processor, index, projector, upsertJobScheduler };
 }
+
+describe("CandidateIndexProcessor.project-worker (#2561 PR 3)", () => {
+  it("projects exactly the worker named by the correction's after-save job", async () => {
+    const { processor, projector } = makeProcessor();
+    const result = await processor.process({
+      name: CANDIDATE_INDEX_PROJECT_JOB,
+      data: { workerId: WORKER_A },
+    } as never);
+    expect(result).toEqual({ projected: 1, skipped: 0 });
+    expect(projector.projectWorker).toHaveBeenCalledWith(WORKER_A);
+  });
+
+  it("skips a malformed payload instead of projecting an arbitrary row", async () => {
+    const { processor, projector } = makeProcessor();
+    const result = await processor.process({
+      name: CANDIDATE_INDEX_PROJECT_JOB,
+      data: {},
+    } as never);
+    expect(result).toEqual({ projected: 0, skipped: 1 });
+    expect(projector.projectWorker).not.toHaveBeenCalled();
+  });
+});
 
 describe("workerIdOfEvent (ADR-0062 §3.5 resolution)", () => {
   it("prefers the worker subject", () => {

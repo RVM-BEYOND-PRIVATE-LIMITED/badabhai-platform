@@ -117,8 +117,12 @@ describe("PushService — the allowlist IS the boundary (ADR-0034)", () => {
     expect(Object.keys(NOTIFICATION_TEMPLATES)).not.toContain("worker.push_send_failed");
   });
 
-  it("the ruled scope is SECURITY ONLY", () => {
+  it("the ruled scope is security PLUS the ADR-0062 correction notices", () => {
+    // ADR-0062 §3.10 amends the 2026-07-17 security-only scope for exactly two events: an
+    // admin corrected a profile fact, or reverted one. The copy is faceless; one save = one push.
     expect([...PUSH_EVENT_NAMES].sort()).toEqual([
+      "admin.candidate_field_corrected",
+      "admin.candidate_field_reverted",
       "worker.device_registered",
       "worker.logged_out_all",
     ]);

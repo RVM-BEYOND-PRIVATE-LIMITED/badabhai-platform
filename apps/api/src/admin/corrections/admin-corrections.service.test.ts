@@ -42,12 +42,13 @@ function harness(over: { live?: Record<string, unknown> | undefined; baseCity?: 
     encrypt: vi.fn((plain: string) => `enc:${plain}`),
     decrypt: vi.fn((token: string) => token.replace(/^enc:/, "")),
   };
-  const events = { emit: vi.fn(async () => ({})) };
+  const events = { emit: vi.fn(async () => ({ event_id: "evt-test" })) };
   // Location corrections stay in the service; PR 2 keys delegate to this pair.
   const facts = {
     readPrevious: vi.fn(async () => null),
     write: vi.fn(async () => undefined),
   };
+  const effects = { afterCorrection: vi.fn(async () => undefined) };
   const service = new AdminCorrectionService(
     repo as never,
     actions as never,
@@ -57,8 +58,20 @@ function harness(over: { live?: Record<string, unknown> | undefined; baseCity?: 
     pii as never,
     events as never,
     facts as never,
+    effects as never,
   );
-  return { repo, actions, workers, workerService, preferences, pii, events, facts, service };
+  return {
+    repo,
+    actions,
+    workers,
+    workerService,
+    preferences,
+    pii,
+    events,
+    facts,
+    effects,
+    service,
+  };
 }
 
 const emitted = (events: { emit: ReturnType<typeof vi.fn> }) =>
@@ -75,6 +88,15 @@ describe("#2561 correction create", () => {
     );
 
     expect(result.changed).toBe(true);
+    expect(h.effects.afterCorrection).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workerId: WORKER,
+        factKey: "current_city",
+        eventName: "admin.candidate_field_corrected",
+        sourceEventId: "evt-test",
+        ctx: CTX,
+      }),
+    );
     const inserted = (
       h.repo.insert.mock.calls[0] as unknown as [unknown, { valueEnc: string; factKey: string }]
     )[1];
@@ -216,6 +238,15 @@ describe("#2561 correction revert", () => {
       CTX,
     );
     expect(result.changed).toBe(true);
+    expect(h.effects.afterCorrection).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workerId: WORKER,
+        factKey: "current_city",
+        eventName: "admin.candidate_field_reverted",
+        sourceEventId: "evt-test",
+        ctx: CTX,
+      }),
+    );
     expect(h.workerService.setLocation).toHaveBeenCalledWith(
       WORKER,
       { city: "Mumbai" },

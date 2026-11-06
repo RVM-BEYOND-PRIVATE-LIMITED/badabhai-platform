@@ -352,6 +352,8 @@ describe("notifications allowlist — validity + faceless copy", () => {
    */
   it("the allowlist membership is EXACTLY these events — adding one is a deliberate, reviewed edit", () => {
     expect([...NOTIFICATION_EVENT_NAMES].sort()).toEqual([
+      "admin.candidate_field_corrected",
+      "admin.candidate_field_reverted",
       "application.submitted",
       "interview_kit.ready_for_worker",
       "job.available",

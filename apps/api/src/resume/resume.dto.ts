@@ -32,8 +32,9 @@ export interface GenerateResumeInput {
  */
 export type SystemResumeTrigger = Extract<
   ResumeGenerationTrigger,
-  // ADR-0046 O6 — the companion's confirmed edit card regenerates through this same path.
-  "profile_confirmed" | "chat_update_accepted" | "chat_edit"
+  // ADR-0046 O6 - the companion's confirmed edit card regenerates through this same path.
+  // ADR-0062 §3.3 (#2561) - an admin correction of a snapshot field mints a new version.
+  "profile_confirmed" | "chat_update_accepted" | "chat_edit" | "admin_edit"
 >;
 
 /**

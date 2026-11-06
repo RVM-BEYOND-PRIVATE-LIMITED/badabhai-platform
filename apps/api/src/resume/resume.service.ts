@@ -292,6 +292,9 @@ export class ResumeService {
     // is a new history entry on that profile, never the profile's initial row (see below).
     const chatEdit =
       opts.systemInitiated === true && opts.trigger === "chat_edit" && !opts.forceNewVersion;
+    // ADR-0062 §3.3 — a SNAPSHOT-field admin correction always mints a NEW history entry. It is
+    // never the in-place `chat_edit` convergence and never an `ops_regenerate` label.
+    const adminEdit = opts.systemInitiated === true && opts.trigger === "admin_edit";
 
     // Enforce the daily cap BEFORE any paid AI/render work; fails closed (429) if
     // Redis is down. The system-initiated auto-generate (on profile.confirmed) is
@@ -508,11 +511,13 @@ export class ResumeService {
     //
     // `version` is a per-worker counter from `maxVersion`, NOT a history ordinal — a new profile's
     // first résumé is its own v1 — and nothing orders by it any more (see `NEWEST_RESUME_FIRST`).
-    const trigger: ResumeGenerationTrigger = opts.forceNewVersion
-      ? "ops_regenerate"
-      : opts.systemInitiated
-        ? (opts.trigger ?? "profile_confirmed")
-        : "manual";
+    const trigger: ResumeGenerationTrigger = adminEdit
+      ? "admin_edit"
+      : opts.forceNewVersion
+        ? "ops_regenerate"
+        : opts.systemInitiated
+          ? (opts.trigger ?? "profile_confirmed")
+          : "manual";
     const generationSource = resolveResumeSource({
       source: profile.source ?? null,
       seededFromImportId: profile.seededFromImportId ?? null,
@@ -556,7 +561,11 @@ export class ResumeService {
       return converged;
     };
 
-    if (opts.forceNewVersion) {
+    if (adminEdit) {
+      // A snapshot field changed, so the old résumé is history: always a new row, never the
+      // system auto-generate's `createInitial(overwrite:false)` skip.
+      saved = await newEntry();
+    } else if (opts.forceNewVersion) {
       saved = await newEntry();
     } else if (chatEdit) {
       const newest = await this.resumes.newestForProfile(dto.profile_id);
