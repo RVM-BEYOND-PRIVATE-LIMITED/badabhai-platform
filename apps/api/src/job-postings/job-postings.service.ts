@@ -57,7 +57,7 @@ import { postingTradeRequired } from "./posting-trade-required";
 const LEGACY_ANCHOR_SKILL_DOMAIN = "cnc-machining";
 
 /** The acting identity on a job_posting.* event — ops (the creator) or a payer (the owner). */
-type JobPostingActor = { actor_type: "ops" | "payer"; actor_id: string };
+type JobPostingActor = { actor_type: "ops" | "payer" | "admin"; actor_id: string };
 
 type JobPostingEventName =
   | "job_posting.created"
@@ -339,6 +339,63 @@ export class JobPostingsService {
   /** Ops: mark a posting VERIFIED — lights the worker-visible "Verified job" badge. */
   verify(id: string, ctx: RequestContext): Promise<JobPostingApi> {
     return this.setVerification(id, "verified", ctx);
+  }
+
+  // ----- ADMIN control (#2566) ---------------------------------------------
+  //
+  // The admin surface reuses THIS service's one patch builder, so an admin edit runs the
+  // same screens, trade-form normalization, scoped-skill gate and reach resolution as a
+  // payer/ops edit. The admin module owns the transaction (reason + audit + admin action +
+  // domain event); these two methods only PREPARE the write and then rebuild the cache.
+  //
+  // `assertNotAgencyTwin` is enforced here too: the admin service resolves a twin id to its
+  // source agency job before calling, so a twin is never edited in place.
+
+  async prepareAdminEdit(
+    id: string,
+    dto: UpdateJobPostingDto,
+    ctx: RequestContext,
+  ): Promise<{
+    before: JobPostingApi;
+    patch: JobPostingUpdate;
+    changedFields: PayloadInputOf<"job_posting.updated">["changed_fields"];
+    bandChanged: boolean;
+    tradeDto: UpdateJobPostingDto;
+  }> {
+    const before = await this.getOne(id);
+    assertNotAgencyTwin(before.sync_source);
+    const tradeDto = await this.prepareTradeUpdate(before, dto);
+    await this.assertScopedSkillsValid(before, tradeDto);
+    const prepared = this.prepareUpdate(before, tradeDto);
+    if (prepared.changedFields.includes("skills")) {
+      prepared.patch.skillIds = await this.canonicalizeSkills(
+        dto.skills,
+        ctx,
+        before.job_domain_id,
+      );
+    }
+    return { before, ...prepared, tradeDto };
+  }
+
+  /**
+   * Post-commit reach rebuild for an admin edit — the SAME non-fatal path a payer edit uses.
+   * `job_reach` is a rebuildable cache; failing the edit after the SoR/audit/event commit
+   * would report a write that DID happen. The next `db:materialize:reach` repairs it and the
+   * deploy gate detects an unmaterialized live posting.
+   */
+  async materializeAfterAdminEdit(
+    prepared: { before: JobPostingApi; tradeDto: UpdateJobPostingDto },
+    after: JobPostingApi,
+    adminId: string,
+    ctx: RequestContext,
+  ): Promise<void> {
+    await this.materializeIfNeeded(
+      prepared.before,
+      after,
+      prepared.tradeDto,
+      { actor_type: "admin", actor_id: adminId },
+      ctx,
+    );
   }
 
   /** Ops: mark a posting REJECTED (reviewed and declined). */

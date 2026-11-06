@@ -269,9 +269,11 @@ export class MatchFeedRepository {
        AND src.id = jp.source_job_id
       WHERE jr.worker_id = ${workerId}::uuid
         AND jp.status = 'open'
+        -- #2566 — hidden is a state SEPARATE from status: it leaves every feed/search.
+        AND jp.hidden_at IS NULL
         -- ADR-0050 §4.4 — a twin is served only while its SOURCE is open: defence in depth
         -- against a twin that went stale while the sync was down. Source status always wins.
-        AND (jp.sync_source IS NULL OR src.status = 'open')
+        AND (jp.sync_source IS NULL OR (src.status = 'open' AND src.hidden_at IS NULL))
         AND NOT EXISTS (
           SELECT 1 FROM applications a
           WHERE a.worker_id = ${workerId}::uuid

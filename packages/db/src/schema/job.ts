@@ -100,6 +100,14 @@ export const jobPostings = pgTable(
       .$type<JobPostingVerificationStatus>()
       .notNull()
       .default("unverified"),
+    // #2566 - BadaBhai-only hide state, SEPARATE from status. A hidden posting keeps its
+    // status (the payer still sees it in their list, marked "Hidden by BadaBhai") but leaves
+    // every worker feed/search. Only an admin may set or clear it. `hidden_by` is an opaque
+    // admin_users id, never resolved in a worker-facing read.
+    hiddenAt: timestamp("hidden_at", { withTimezone: true }),
+    hiddenBy: uuid("hidden_by"),
+    hiddenReasonCode: text("hidden_reason_code"),
+    hiddenReasonText: text("hidden_reason_text"),
     // ── Matching V1 (migration 0054): job_postings becomes THE SERVED job entity ──
     // Owner ruling (CEO ratification 2026-07-30): the worker feed serves `job_postings`;
     // the legacy `jobs` table retires from the worker path. These columns are the fields
@@ -373,6 +381,14 @@ export const jobPostings = pgTable(
       "job_postings_verification_status_chk",
       sql`${t.verificationStatus} IN ('unverified', 'verified', 'rejected')`,
     ),
+    // #2566 — hidden is ONE state, not four independent columns: either the posting is
+    // visible (all four NULL) or an admin hid it and every part of the record is present.
+    // Enforced in the DB so a partial write can never produce an unexplainable hidden row.
+    check(
+      "job_postings_hidden_state_chk",
+      sql`(${t.hiddenAt} IS NULL AND ${t.hiddenBy} IS NULL AND ${t.hiddenReasonCode} IS NULL AND ${t.hiddenReasonText} IS NULL)
+        OR (${t.hiddenAt} IS NOT NULL AND ${t.hiddenBy} IS NOT NULL AND ${t.hiddenReasonCode} IS NOT NULL AND ${t.hiddenReasonText} IS NOT NULL)`,
+    ),
     // ── Matching V1 (0054): the pay/shift/timing sanity checks `jobs` already has ──
     // Mirrored verbatim so the served entity cannot hold data the retiring entity
     // would have rejected. All are NULL-tolerant (every column is nullable).
@@ -573,6 +589,16 @@ export const jobs = pgTable(
     // COARSE locality bucket (e.g. "Pimpri-Chinchwad"), NOT an address. Nullable.
     area: text("area"),
     status: text("status").$type<JobStatus>().notNull().default("open"),
+    // #2566 - the agency job's ops trust review, mirroring job_postings.verification_status.
+    verificationStatus: text("verification_status")
+      .$type<JobPostingVerificationStatus>()
+      .notNull()
+      .default("unverified"),
+    // #2566 - BadaBhai-only hide state, separate from status (see job_postings).
+    hiddenAt: timestamp("hidden_at", { withTimezone: true }),
+    hiddenBy: uuid("hidden_by"),
+    hiddenReasonCode: text("hidden_reason_code"),
+    hiddenReasonText: text("hidden_reason_text"),
     // ADR-0010 §Decision 0 (evolve-not-replace): the opaque "faceless-rails" SELLER
     // id — the payer (employer OR agent) who posted this job. ADDITIVE, NULLABLE, NO
     // FK, NO `payers` identity table, and NEVER an employer name or any employer PII.
@@ -693,6 +719,17 @@ export const jobs = pgTable(
     // Migration 0133 (ADR-0050 §4.1) — the column is always a JSON array (`[]` or ids), never
     // a scalar or object a careless write could store.
     check("jobs_match_skill_ids_array_chk", sql`jsonb_typeof(${t.matchSkillIds}) = 'array'`),
+    // #2566 — the agency job's own ops trust review, mirroring the posting's closed set.
+    check(
+      "jobs_verification_status_chk",
+      sql`${t.verificationStatus} IN ('unverified', 'verified', 'rejected')`,
+    ),
+    // #2566 — hidden is ONE state: all four columns present together, or all NULL.
+    check(
+      "jobs_hidden_state_chk",
+      sql`(${t.hiddenAt} IS NULL AND ${t.hiddenBy} IS NULL AND ${t.hiddenReasonCode} IS NULL AND ${t.hiddenReasonText} IS NULL)
+        OR (${t.hiddenAt} IS NOT NULL AND ${t.hiddenBy} IS NOT NULL AND ${t.hiddenReasonCode} IS NOT NULL AND ${t.hiddenReasonText} IS NOT NULL)`,
+    ),
     // Migration 0141 — the answer map is a MAP, never an array or a scalar.
     check(
       "jobs_trade_answers_object_chk",

@@ -243,6 +243,8 @@ describe("AdminAuthController — delegation to AdminAuthService", () => {
         "read_candidates",
         // #2562 — worker account control (super_admin, ops_admin, support). Tail-appended too.
         "manage_worker_account",
+        // #2566 — admin posting control (super_admin, ops_admin). Tail-appended.
+        "manage_postings",
       ],
     });
   });

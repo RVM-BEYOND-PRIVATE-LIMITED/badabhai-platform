@@ -211,6 +211,18 @@ export const ADMIN_CAPABILITIES = [
    * new PIN. `analyst` is denied.
    */
   "manage_worker_account",
+  /**
+   * #2566 — ADMIN control of company postings and agency jobs: edit card/matching fields,
+   * pause, resume, close, hide/unhide and verify/reject. `super_admin` + `ops_admin`.
+   *
+   * ── WHY ITS OWN ROW ───────────────────────────────────────────────────────────────────
+   * `force_close_posting` is ONE destructive act. This capability is the whole correction
+   * surface, including HIDE, which changes what every worker can discover without changing
+   * `status` at all. Folding it into `force_close_posting` would hand every existing holder
+   * of a close button the ability to edit a posting's public text and reach. `support` and
+   * `analyst` are denied: neither moderates inventory.
+   */
+  "manage_postings",
 ] as const;
 
 export type AdminCapability = (typeof ADMIN_CAPABILITIES)[number];
@@ -277,6 +289,9 @@ export const ADMIN_CAPABILITY_MATRIX: Record<AdminCapability, readonly AdminRole
   read_candidates: ["super_admin", "ops_admin", "support", "analyst"],
   // #2562 — worker account control. `analyst` denied (read-only analytics).
   manage_worker_account: ["super_admin", "ops_admin", "support"],
+  // #2566 — posting/job correction + visibility. Distinct from `force_close_posting`: this
+  // row also edits public text/reach and hides inventory without changing its status.
+  manage_postings: ["super_admin", "ops_admin"],
 } as const;
 
 /**

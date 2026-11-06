@@ -624,10 +624,14 @@ describe("listFeed — ADR-0050 §4.4 read fences for an agency TWIN", () => {
     expect(sql).toContain(
       "LEFT JOIN jobs src ON jp.sync_source IS NOT NULL AND src.id = jp.source_job_id",
     );
-    // Source status always wins — a stale open twin of a closed agency job is not served.
-    expect(sql).toContain("AND (jp.sync_source IS NULL OR src.status = 'open')");
-    // The posting-side gate is unchanged.
+    // Source status always wins - a stale open twin of a closed (or, #2566, hidden) agency
+    // job is not served.
+    expect(sql).toContain(
+      "AND (jp.sync_source IS NULL OR (src.status = 'open' AND src.hidden_at IS NULL))",
+    );
+    // The posting-side gate is unchanged, plus #2566's hidden state (separate from status).
     expect(sql).toContain("AND jp.status = 'open'");
+    expect(sql).toContain("AND jp.hidden_at IS NULL");
   });
 
   it("hides a twin from a worker who already decided on its SOURCE job (applications.job_id)", async () => {

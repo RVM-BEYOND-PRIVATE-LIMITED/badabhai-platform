@@ -116,6 +116,14 @@ interface JobPostingApi {
    * payer routes this is always null.
    */
   sync_source: string | null;
+  /**
+   * #2566 — BadaBhai hid this posting from every worker surface. STATUS IS UNCHANGED, so
+   * the company still sees the row in its own list and can read why it was taken down.
+   * `hidden_by` (the admin) and the free-text note stay on the ADMIN projection only.
+   */
+  hidden: boolean;
+  hidden_at: Date | null;
+  hidden_reason_code: string | null;
 }
 
 /** Map a Drizzle camelCase row to the snake_case API shape. */
@@ -161,6 +169,9 @@ function toJobPostingApi(row: JobPosting): JobPostingApi {
     updated_at: row.updatedAt,
     closed_at: row.closedAt,
     sync_source: row.syncSource,
+    hidden: row.hiddenAt !== null,
+    hidden_at: row.hiddenAt,
+    hidden_reason_code: row.hiddenReasonCode,
   };
 }
 
@@ -277,8 +288,12 @@ export class JobPostingsRepository {
    * invariant we must not lose to a race. The service's pre-read `closed` check
    * is best-effort, not a lock.
    */
-  async update(id: string, patch: JobPostingUpdate): Promise<JobPostingApi | undefined> {
-    const rows = await this.db
+  async update(
+    id: string,
+    patch: JobPostingUpdate,
+    executor: Database = this.db,
+  ): Promise<JobPostingApi | undefined> {
+    const rows = await executor
       .update(jobPostings)
       .set(patch)
       .where(eq(jobPostings.id, id))

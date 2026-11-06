@@ -93,7 +93,10 @@ export type AgencyTwinChangedField =
   | "requirements"
   | "role_kind"
   // Migration 0141 — the display rung and the poster's chip answers are one editorial act.
-  | "trade_fields";
+  | "trade_fields"
+  // #2566 — the admin-only hide state and the ops trust review, both copied from the source.
+  | "hidden"
+  | "verification_status";
 
 /** The agency `jobs` row the twin is derived from (only the columns the twin reads). */
 export interface AgencyTwinSource {
@@ -119,6 +122,13 @@ export interface AgencyTwinSource {
   /** Migration 0141 — the poster's chip answers, or NULL. */
   tradeAnswers: Record<string, string[]> | null;
   createdAt: Date;
+  /** #2566 — the admin-only hide state, copied to the twin so a hidden source stays hidden. */
+  hiddenAt: Date | null;
+  hiddenBy: string | null;
+  hiddenReasonCode: string | null;
+  hiddenReasonText: string | null;
+  /** #2566 — the agency job's own ops trust review, mirrored onto the twin. */
+  verificationStatus: "unverified" | "verified" | "rejected";
 }
 
 /** What the caller decides once, outside any row: the deploy state and the Q3 constants. */
@@ -158,6 +168,12 @@ export interface AgencyTwinValues {
   vacancyBand: typeof AGENCY_TWIN_VACANCY_BAND;
   status: JobPostingStatus;
   publishedAt: Date | null;
+  /** #2566 — hidden state + ops trust review, mirrored from the source. */
+  hiddenAt: Date | null;
+  hiddenBy: string | null;
+  hiddenReasonCode: string | null;
+  hiddenReasonText: string | null;
+  verificationStatus: "unverified" | "verified" | "rejected";
 }
 
 /** The planned twin, plus why it cannot serve (null when it can, or when V1 is off). */
@@ -263,6 +279,14 @@ export function planAgencyTwin(source: AgencyTwinSource, ctx: AgencyTwinContext)
       // The honest visibility time (ADR-0049's #1649 order key) once V1 can serve the twin;
       // NULL while every twin is an unserved draft.
       publishedAt: ctx.matchV1Enabled ? source.createdAt : null,
+      // #2566 — the admin-only hide state and ops trust review are COPIED, never derived:
+      // a hidden agency job must keep its twin out of every worker feed even after the kill
+      // switch re-arms and the sweep rewrites the row.
+      hiddenAt: source.hiddenAt,
+      hiddenBy: source.hiddenBy,
+      hiddenReasonCode: source.hiddenReasonCode,
+      hiddenReasonText: source.hiddenReasonText,
+      verificationStatus: source.verificationStatus,
     },
   };
 }
@@ -334,6 +358,14 @@ export function diffAgencyTwin(
     "status",
     current.status !== next.status || !sameTime(current.publishedAt, next.publishedAt),
   );
+  push(
+    "hidden",
+    !sameTime(current.hiddenAt, next.hiddenAt) ||
+      current.hiddenBy !== next.hiddenBy ||
+      current.hiddenReasonCode !== next.hiddenReasonCode ||
+      current.hiddenReasonText !== next.hiddenReasonText,
+  );
+  push("verification_status", current.verificationStatus !== next.verificationStatus);
   return changed;
 }
 
@@ -396,6 +428,11 @@ function storedValues(row: typeof jobPostings.$inferSelect): AgencyTwinValues {
     vacancyBand: row.vacancyBand as typeof AGENCY_TWIN_VACANCY_BAND,
     status: row.status,
     publishedAt: row.publishedAt,
+    hiddenAt: row.hiddenAt,
+    hiddenBy: row.hiddenBy,
+    hiddenReasonCode: row.hiddenReasonCode,
+    hiddenReasonText: row.hiddenReasonText,
+    verificationStatus: row.verificationStatus,
   };
 }
 
@@ -424,6 +461,11 @@ const EMPTY_VALUES: AgencyTwinValues = {
   vacancyBand: AGENCY_TWIN_VACANCY_BAND,
   status: "draft",
   publishedAt: null,
+  hiddenAt: null,
+  hiddenBy: null,
+  hiddenReasonCode: null,
+  hiddenReasonText: null,
+  verificationStatus: "unverified",
 };
 
 /** The drizzle column set for a twin write (the sync-owned columns only). */
@@ -452,6 +494,11 @@ function columnsOf(v: AgencyTwinValues) {
     vacancyBand: v.vacancyBand,
     status: v.status,
     publishedAt: v.publishedAt,
+    hiddenAt: v.hiddenAt,
+    hiddenBy: v.hiddenBy,
+    hiddenReasonCode: v.hiddenReasonCode,
+    hiddenReasonText: v.hiddenReasonText,
+    verificationStatus: v.verificationStatus,
   };
 }
 
@@ -533,6 +580,11 @@ function agencySourceQuery(executor: Database, jobId: string) {
       tradeLevel: jobs.tradeLevel,
       tradeAnswers: jobs.tradeAnswers,
       createdAt: jobs.createdAt,
+      hiddenAt: jobs.hiddenAt,
+      hiddenBy: jobs.hiddenBy,
+      hiddenReasonCode: jobs.hiddenReasonCode,
+      hiddenReasonText: jobs.hiddenReasonText,
+      verificationStatus: jobs.verificationStatus,
     })
     .from(jobs)
     .innerJoin(payers, eq(payers.id, jobs.payerId))
@@ -595,7 +647,35 @@ export async function syncAgencyTwin(
   ctx: AgencyTwinContext,
   options: { apply: boolean; emit?: AgencyTwinEmitter },
 ): Promise<AgencyTwinSyncOutcome> {
-  const run = async (executor: Database): Promise<AgencyTwinSyncOutcome> => {
+  if (!options.apply) return runAgencyTwinSync(db, jobId, ctx, options);
+  return db.transaction(async (tx) =>
+    runAgencyTwinSync(tx as unknown as Database, jobId, ctx, options),
+  );
+}
+
+/**
+ * #2566 — the SAME sync on a CALLER'S transaction. The admin posting service writes an
+ * agency job's source row and converges its twin in ONE transaction, so an admin hide,
+ * edit or close is never visible on the source while the worker-serving twin still shows
+ * the old state. `syncAgencyTwin` keeps its own transaction for the sweep/poll and is
+ * implemented through this function, so the two cannot drift.
+ */
+export function syncAgencyTwinInTransaction(
+  executor: Database,
+  jobId: string,
+  ctx: AgencyTwinContext,
+  emit?: AgencyTwinEmitter,
+): Promise<AgencyTwinSyncOutcome> {
+  return runAgencyTwinSync(executor, jobId, ctx, { apply: true, emit });
+}
+
+async function runAgencyTwinSync(
+  executor: Database,
+  jobId: string,
+  ctx: AgencyTwinContext,
+  options: { apply: boolean; emit?: AgencyTwinEmitter },
+): Promise<AgencyTwinSyncOutcome> {
+  {
     const query = agencySourceQuery(executor, jobId);
     const [sourceRow] = options.apply ? await query.for("update", { of: jobs }) : await query;
     if (!sourceRow) return { kind: "not_agency_job", sourceJobId: jobId };
@@ -671,10 +751,7 @@ export async function syncAgencyTwin(
     const result: AgencyTwinWrite = { ...write, jobPostingId };
     if (options.emit) await options.emit(executor, result);
     return result;
-  };
-
-  if (!options.apply) return run(db);
-  return db.transaction(async (tx) => run(tx as unknown as Database));
+  }
 }
 
 /** One twin the kill switch moved. */

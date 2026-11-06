@@ -30,7 +30,7 @@ export interface MaterializeInput {
   matchSkillIds: readonly string[];
   untickedIds: readonly string[];
   trigger: MaterializeTrigger;
-  actor: { actor_type: "ops" | "payer"; actor_id: string };
+  actor: { actor_type: "ops" | "payer" | "admin"; actor_id: string };
   /**
    * #2635 — the posting's `role_kind`. One of the 16 postable trades → its match set is scoped
    * to that trade and its related reach stays inside the 16. Omitted or any other value → the

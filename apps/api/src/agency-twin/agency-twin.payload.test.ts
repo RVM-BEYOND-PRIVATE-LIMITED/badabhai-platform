@@ -46,6 +46,11 @@ const source = (o: Partial<AgencyTwinSource> = {}): AgencyTwinSource => ({
   tradeLevel: null,
   tradeAnswers: null,
   createdAt: new Date("2026-09-01T00:00:00.000Z"),
+  hiddenAt: null,
+  hiddenBy: null,
+  hiddenReasonCode: null,
+  hiddenReasonText: null,
+  verificationStatus: "unverified",
   ...o,
 });
 

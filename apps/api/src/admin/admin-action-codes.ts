@@ -72,6 +72,18 @@ export const ADMIN_ACTION_CODES = {
   worker_pin_reset: "worker_pin_reset",
   worker_suspended: "worker_suspended",
   worker_reinstated: "worker_reinstated",
+  // ── #2566 — admin posting control ───────────────────────────────────────────────────────
+  // One code per ACT, shared by company postings and agency jobs: `target_type` on the event
+  // says which entity moved (`job_posting` | `job`). The reason, the old/new values and the
+  // hidden-by admin live on the SoR row + `audit_logs`; the spine carries the CODE only.
+  posting_edited: "posting_edited",
+  posting_paused: "posting_paused",
+  posting_resumed: "posting_resumed",
+  posting_closed: "posting_closed",
+  posting_hidden: "posting_hidden",
+  posting_unhidden: "posting_unhidden",
+  posting_verified: "posting_verified",
+  posting_rejected: "posting_rejected",
 } as const;
 
 export type AdminActionCode = (typeof ADMIN_ACTION_CODES)[keyof typeof ADMIN_ACTION_CODES];

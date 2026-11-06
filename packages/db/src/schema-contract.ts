@@ -936,6 +936,42 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "are fine (a superset); new builds on an unmigrated one are not, which is why this " +
       "is APPLY-BEFORE-DEPLOY",
   },
+  // 0157 (#2566 B12, admin posting control): the hidden state on both served-inventory
+  // tables + the agency job's trust review. Unconditional - no flag - because every worker
+  // feed/search/detail read filters `hidden_at IS NULL` and bare `select()` readers name
+  // every model column. One entry per table; the other columns ride the same migration.
+  {
+    id: "0157-job-postings-hidden-at",
+    migration: "0157_admin_posting_control",
+    kind: "column",
+    table: "job_postings",
+    object: "hidden_at",
+    requiredBy:
+      "ApplicationsRepository.findOpenPostingsForFeed + findOpenPostingRef, " +
+      "JobsRepository.searchOpenPostings + findWorkerVisibleJobById, MatchFeedRepository's V1 " +
+      "deck, WorkerSkillsRepository.listPostingIdsReaching, every bare `select()` on " +
+      "job_postings, and the admin posting list/detail. `hidden_by`, `hidden_reason_code` and " +
+      "`hidden_reason_text` ride the same migration and fail together",
+    failureMode:
+      "the worker feed, job search, job detail and every posting read 500 (column does not " +
+      "exist). Old builds on a migrated database are fine (a superset); new builds on an " +
+      "unmigrated one are not, which is why this is APPLY-BEFORE-DEPLOY",
+  },
+  {
+    id: "0157-jobs-hidden-at",
+    migration: "0157_admin_posting_control",
+    kind: "column",
+    table: "jobs",
+    object: "hidden_at",
+    requiredBy:
+      "ApplicationsRepository.findOpenJobs + findJobById, ReachRepository.listOpenJobSignalRows, " +
+      "the agency-twin sync's source read, and every bare `select()` on jobs (the agency job " +
+      "routes). `verification_status`, `hidden_by`, `hidden_reason_code` and " +
+      "`hidden_reason_text` ride the same migration and fail together",
+    failureMode:
+      "the legacy jobs feed, the agency job routes and the twin sync 500 (column does not " +
+      "exist). APPLY-BEFORE-DEPLOY, same reason as the posting entry above",
+  },
   // 0134: THE API names `payer_applicant_stages` only while PAYER_APPLICANT_STAGES_ENABLED is on
   // (owner ruling 2026-10-07, the payer pipeline board), so a deploy ahead of the migration breaks
   // no request and the table is NOT a `table` entry. It is listed for its lock, exactly as 0128's

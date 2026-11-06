@@ -40,6 +40,7 @@ import { AgencyModule } from "./agency/agency.module";
 import { AgencyTwinModule } from "./agency-twin/agency-twin.module";
 import { ReferralAttributionModule } from "./referrals/referral-attribution.module";
 import { AdminModule } from "./admin/admin.module";
+import { AdminPostingsModule } from "./admin-postings/admin-postings.module";
 import { EmailNotificationModule } from "./notifications/email-notification.module";
 import { RateLimitModule } from "./common/rate-limit/rate-limit.module";
 import { PdfModule } from "./common/pdf/pdf.module";
@@ -138,6 +139,9 @@ import { RequestIdMiddleware } from "./common/middleware/request-id.middleware";
     // (`/admin/*` route group behind AdminAuthGuard). Auth + RBAC + MFA only; the feature
     // routes (events query / entity actions / PII reveal) are ADMIN-2/ADMIN-3.
     AdminModule,
+    // #2566 — the admin posting-control WRITE surface. Above JobPostingsModule/AgencyModule
+    // (both import AdminModule for its guards), so the dependency is one-directional.
+    AdminPostingsModule,
   ],
 })
 export class AppModule implements NestModule {

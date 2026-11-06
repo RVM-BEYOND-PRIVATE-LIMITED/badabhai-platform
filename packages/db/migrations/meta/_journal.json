@@ -1101,6 +1101,13 @@
       "when": 1793882967987,
       "tag": "0156_candidate_read_table",
       "breakpoints": true
+    },
+    {
+      "idx": 157,
+      "version": "7",
+      "when": 1793884554348,
+      "tag": "0157_admin_posting_control",
+      "breakpoints": true
     }
   ]
 }

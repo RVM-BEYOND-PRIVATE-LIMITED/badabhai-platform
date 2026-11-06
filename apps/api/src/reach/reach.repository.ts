@@ -253,10 +253,13 @@ export class ReachRepository {
 
   /** All OPEN jobs as faceless signal rows (View B candidate set). */
   async listOpenJobSignalRows(): Promise<JobSignalRow[]> {
-    return this.db
-      .select(ReachRepository.JOB_SIGNAL_COLUMNS)
-      .from(jobs)
-      .where(eq(jobs.status, "open"));
+    return (
+      this.db
+        .select(ReachRepository.JOB_SIGNAL_COLUMNS)
+        .from(jobs)
+        // #2566 — a hidden job is not a discovery candidate even while its status is open.
+        .where(and(eq(jobs.status, "open"), isNull(jobs.hiddenAt)))
+    );
   }
 
   /**

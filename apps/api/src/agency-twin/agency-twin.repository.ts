@@ -6,6 +6,7 @@ import {
   filterAgencyJobIds,
   listAgencyJobIds,
   syncAgencyTwin,
+  syncAgencyTwinInTransaction,
   type AgencyTwinContext,
   type AgencyTwinDisarmed,
   type AgencyTwinEmitter,
@@ -33,6 +34,19 @@ export class AgencyTwinRepository {
     emit: AgencyTwinEmitter,
   ): Promise<AgencyTwinSyncOutcome> {
     return syncAgencyTwin(this.db, jobId, ctx, { apply: true, emit });
+  }
+
+  /**
+   * #2566 — sync ONE job on a CALLER'S transaction (the admin posting write). The source
+   * row and its twin commit together, so a hide/close/edit is never half-applied.
+   */
+  syncWithin(
+    tx: Database,
+    jobId: string,
+    ctx: AgencyTwinContext,
+    emit: AgencyTwinEmitter,
+  ): Promise<AgencyTwinSyncOutcome> {
+    return syncAgencyTwinInTransaction(tx, jobId, ctx, emit);
   }
 
   /** The kill switch's one bounded statement (see `disarmAgencyTwins`). */

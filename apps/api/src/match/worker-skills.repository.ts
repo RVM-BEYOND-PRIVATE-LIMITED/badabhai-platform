@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, asc, eq, inArray, notInArray, sql as dsql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, notInArray, sql as dsql } from "drizzle-orm";
 import {
   CURRENT_PROFILE_ORDER,
   type Database,
@@ -636,6 +636,8 @@ export class WorkerSkillsRepository {
       .where(
         and(
           inArray(jobPostings.status, ["open", "paused"]),
+          // #2566 — a hidden posting must not appear in this discovery aid either.
+          isNull(jobPostings.hiddenAt),
           dsql`${jobPostings.reachSkillIds} ?| ${dsql.param([...skillIds])}::text[]`,
         ),
       );

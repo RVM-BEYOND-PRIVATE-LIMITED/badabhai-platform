@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, asc, desc, eq, isNotNull, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, isNotNull, isNull, sql, type SQL } from "drizzle-orm";
 import {
   type Database,
   type Application,
@@ -242,6 +242,9 @@ export class ApplicationsRepository {
   ): Promise<FeedJobRow[]> {
     const conditions: (SQL | undefined)[] = [
       eq(jobs.status, "open"),
+      // #2566 — a hidden posting is absent from the worker feed even while its status is
+      // open. Hidden is a SEPARATE state (owner ruling), so every discovery read must ask.
+      isNull(jobs.hiddenAt),
       sql`NOT EXISTS (
         SELECT 1 FROM ${applications}
         WHERE ${applications.workerId} = ${workerId}
@@ -332,7 +335,7 @@ export class ApplicationsRepository {
     const rows = await this.db
       .select()
       .from(jobs)
-      .where(and(eq(jobs.id, id), eq(jobs.status, "open")))
+      .where(and(eq(jobs.id, id), eq(jobs.status, "open"), isNull(jobs.hiddenAt)))
       .limit(1);
     return rows[0];
   }
@@ -382,6 +385,7 @@ export class ApplicationsRepository {
   ): Promise<FeedPostingKeyedRow[]> {
     const conditions: (SQL | undefined)[] = [
       eq(jobPostings.status, "open"), // (1)
+      isNull(jobPostings.hiddenAt), // (1b) #2566 — hidden leaves every worker surface
       isNotNull(jobPostings.publishedAt), // (2)
       sql`NOT EXISTS (
         SELECT 1 FROM ${applications}
@@ -465,7 +469,9 @@ export class ApplicationsRepository {
     const rows = await this.db
       .select({ id: jobPostings.id })
       .from(jobPostings)
-      .where(and(eq(jobPostings.id, id), eq(jobPostings.status, "open")))
+      .where(
+        and(eq(jobPostings.id, id), eq(jobPostings.status, "open"), isNull(jobPostings.hiddenAt)),
+      )
       .limit(1);
     return rows[0];
   }

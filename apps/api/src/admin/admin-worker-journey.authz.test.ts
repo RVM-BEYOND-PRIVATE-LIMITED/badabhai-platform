@@ -172,6 +172,9 @@ describe("Phase 6 — the journey is NOT a PII surface and confers nothing on th
         // #2562 — worker account control. Not the journey's: it ends sessions / resets a PIN /
         // suspends, and reads no funnel step.
         "manage_worker_account",
+        // #2566 — admin posting control (super_admin, ops_admin). Not the journey's: it writes
+        // postings/jobs and reads no worker funnel step.
+        "manage_postings",
         // ADR-0062 §3.8 (#2560) — the Candidates full-detail read. Not the journey's: the journey
         // stays on `read_entities` and returns no profile values.
         "read_candidates",
