@@ -51,9 +51,10 @@ describe("source tags", () => {
   });
 
   it("a source this build was not taught is shown de-snaked, never blank", () => {
-    expect(sourceTag("admin_override")).toEqual({
-      label: "Admin override",
-      meaning: "Source: Admin override.",
+    // #2561 taught `admin_override`, so it is no longer the example of an unknown source.
+    expect(sourceTag("future_source")).toEqual({
+      label: "Future source",
+      meaning: "Source: Future source.",
     });
     // An inherited key is not a tag.
     expect(sourceTag("toString").label).toBe("ToString");

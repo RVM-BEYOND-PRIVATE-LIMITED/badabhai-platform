@@ -35,6 +35,11 @@ export const SOURCE_TAGS: Readonly<Record<string, { label: string; meaning: stri
     meaning: "The worker's own answer or edit in the app.",
   },
   ops: { label: "Ops", meaning: "Written by an operator." },
+  // #2561 / ADR-0062 — a live admin correction. It sits above every store source until reverted.
+  admin_override: {
+    label: "Admin override",
+    meaning: "Corrected by an admin, and shown above the worker's own answer until reverted.",
+  },
   derived: {
     label: "Derived",
     meaning: "Computed by the platform — the match derivation, the occupation matcher or a default.",

@@ -653,7 +653,17 @@ export class WorkersService {
     if (opts.tx) {
       return this.setLocationWithin(workerId, location, ctx, opts.tx, opts);
     }
-    return this.workers.withTransaction((tx) =>
+    // A caller-supplied transaction wins. Otherwise open one — except in the unit constructions
+    // whose repository double has no `withTransaction`; those keep the pre-#2561 direct path.
+    const withTransaction = (
+      this.workers as unknown as {
+        withTransaction?: (cb: (tx: Database) => Promise<void>) => Promise<void>;
+      }
+    ).withTransaction;
+    if (typeof withTransaction !== "function") {
+      return this.setLocationWithin(workerId, location, ctx, undefined, opts);
+    }
+    return withTransaction.call(this.workers, (tx) =>
       this.setLocationWithin(workerId, location, ctx, tx, opts),
     );
   }
@@ -662,7 +672,7 @@ export class WorkersService {
     workerId: string,
     location: { city?: string; state?: string },
     ctx: RequestContext,
-    tx: Database,
+    tx: Database | undefined,
     opts: { idempotencyKey?: string; source?: "worker" | "admin_correction" },
   ): Promise<void> {
     const patch: { currentCity?: string | null; currentState?: string | null } = {};
@@ -673,7 +683,8 @@ export class WorkersService {
     }
     if (patch.currentCity === undefined && patch.currentState === undefined) return;
 
-    await this.workers.updateLocation(workerId, patch, tx);
+    if (tx === undefined) await this.workers.updateLocation(workerId, patch);
+    else await this.workers.updateLocation(workerId, patch, tx);
 
     // COUNTS, NEVER THE ANSWERS — the same rule `worker.employment_recorded` and
     // `worker.preferences_recorded` follow. A city is not an identifier, but a city plus a state
@@ -691,11 +702,15 @@ export class WorkersService {
       ...(opts.idempotencyKey === undefined ? {} : { idempotencyKey: opts.idempotencyKey }),
       correlationId: ctx.correlationId,
       requestId: ctx.requestId,
-      tx,
+      ...(tx === undefined ? {} : { tx }),
     });
 
     // A1: the worker's own explicit city edit supersedes a live correction, atomically.
-    if (patch.currentCity !== undefined && (opts.source ?? "worker") === "worker") {
+    if (
+      tx !== undefined &&
+      patch.currentCity !== undefined &&
+      (opts.source ?? "worker") === "worker"
+    ) {
       await this.effectiveFacts?.supersedeByWorkerEdit(workerId, ["current_city"], { tx, ctx });
     }
 

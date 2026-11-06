@@ -1954,6 +1954,7 @@ describe("#2560 candidate full-detail route — guarded, read-only, audited firs
         "attributes.loadTradeSheet",
         "candidateSearch.findCardRow",
         "candidateSearch.listWantedRoles",
+        "effectiveFacts.liveFor",
         "entities.listApplications",
         "events.emit",
         "identity.resolve",

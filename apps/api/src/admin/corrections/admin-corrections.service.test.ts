@@ -28,6 +28,7 @@ function harness(over: { live?: Record<string, unknown> | undefined; baseCity?: 
     basePreferredLocations: vi.fn(async () => over.basePreferred ?? []),
     insert: vi.fn(async () => undefined),
     supersede: vi.fn(async () => undefined),
+    linkSupersededBy: vi.fn(async () => undefined),
     history: vi.fn(async () => []),
   };
   const actions = { writeAuditReason: vi.fn(async () => undefined) };
@@ -124,7 +125,13 @@ describe("#2561 correction create", () => {
       // NOT "Pune": a later correction must not make revert restore another admin's value.
       previous: "Mumbai",
     });
-    expect(h.repo.supersede).toHaveBeenCalledWith(TX, "old-override", result.override_id);
+    // Free the live slot first (unique index), then link the replacement after it exists (FK).
+    expect(h.repo.supersede).toHaveBeenCalledWith(TX, "old-override", null);
+    expect(h.repo.linkSupersededBy).toHaveBeenCalledWith(
+      TX,
+      "old-override",
+      result.override_id,
+    );
   });
 
   it("a preferred-locations correction writes the list through the preferences writer", async () => {
@@ -137,7 +144,7 @@ describe("#2561 correction create", () => {
     );
     expect(h.preferences.setForWorker).toHaveBeenCalledWith(
       WORKER,
-      { preferred_cities: ["Pune", "Nashik"] },
+      { preferred_cities: ["Pune", "Nashik"], touched_only: true },
       CTX,
       expect.objectContaining({ tx: TX, source: "admin_correction" }),
     );
