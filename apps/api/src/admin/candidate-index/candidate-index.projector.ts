@@ -1,7 +1,10 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Injectable, Logger, Inject } from "@nestjs/common";
 import { getRole } from "@badabhai/taxonomy";
 import { decryptWorkerName } from "../../common/worker-name-read";
-import type { PiiCryptoService } from "../../common/pii-crypto.service";
+// VALUE import (not `import type`): Nest resolves this ctor param from
+// design:paramtypes metadata, which a type-only import erases to Object —
+// booting the API then fails resolving the projector (E2E caught it on #2557).
+import { PiiCryptoService } from "../../common/pii-crypto.service";
 import { AdminCandidateDetailRepository } from "../admin-candidate-detail.repository";
 import { WorkerAttributesRepository } from "../../profiles/worker-attributes.repository";
 import { WorkerLanguagesRepository } from "../../profiles/worker-languages.repository";
@@ -85,7 +88,10 @@ export class CandidateIndexProjector {
     private readonly languages: WorkerLanguagesRepository,
     private readonly detail: AdminCandidateDetailRepository,
     private readonly index: CandidateIndexRepository,
-    private readonly pii: PiiCryptoService,
+    // Explicit token (not bare type resolution): the token reference forces the
+    // value import above at compile time, so an `import type` regression that
+    // erases the design:paramtypes entry — and fails API boot — cannot recur.
+    @Inject(PiiCryptoService) private readonly pii: PiiCryptoService,
     private readonly nameTokens: NameTokenService,
   ) {}
 

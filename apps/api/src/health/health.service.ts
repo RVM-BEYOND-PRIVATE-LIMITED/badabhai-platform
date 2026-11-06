@@ -12,6 +12,7 @@ import {
   ACCOUNT_DELETION_QUEUE,
   ACCOUNT_DELETION_SWEEP_SCHEDULER_ID,
   CANDIDATE_INDEX_POLL_SCHEDULER_ID,
+  CANDIDATE_INDEX_QUEUE,
   CANDIDATE_INDEX_REBUILD_SCHEDULER_ID,
   RESUME_RENDER_QUEUE,
 } from "../queue/queue.constants";
@@ -317,8 +318,11 @@ export class HealthService {
     @Optional() private readonly alerts?: AiAlertsService,
     // B4 (#2557) — the candidate-index queue handle, for the scheduler-existence
     // probe. Same OPTIONAL idiom: unit constructions omit it and the probe reads
-    // down instead of throwing at construction.
-    @Optional() private readonly candidateIndexQueue?: Queue,
+    // down instead of throwing at construction. @InjectQueue (not bare type
+    // resolution — Queue has no usable design:type token) beside @Optional.
+    @Optional()
+    @InjectQueue(CANDIDATE_INDEX_QUEUE)
+    private readonly candidateIndexQueue?: Queue,
   ) {}
 
   /**

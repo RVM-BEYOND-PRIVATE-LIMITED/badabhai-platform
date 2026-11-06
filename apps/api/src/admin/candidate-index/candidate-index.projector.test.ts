@@ -1,4 +1,6 @@
 import "reflect-metadata";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { CandidateIndexProjector } from "./candidate-index.projector";
 import { CandidateIndexRepository } from "./candidate-index.repository";
@@ -186,5 +188,17 @@ describe("CandidateIndexProjector.driftForWorker", () => {
       drifted: true,
       columns: ["<missing>"],
     });
+  });
+});
+
+describe("CandidateIndexProjector DI tokens (boot regression guard)", () => {
+  it("injects PiiCryptoService by explicit token, never bare type resolution", () => {
+    // E2E caught this on #2557: `import type { PiiCryptoService }` erases the
+    // design:paramtypes entry to Object and API boot dies resolving the
+    // projector. The explicit @Inject below forces the value import at compile
+    // time; this test pins the token so the guard survives refactoring.
+    const source = readFileSync(join(__dirname, "candidate-index.projector.ts"), "utf8");
+    expect(source).toContain("@Inject(PiiCryptoService)");
+    expect(source).not.toMatch(/^import type \{ PiiCryptoService \}/m);
   });
 });
