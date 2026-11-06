@@ -147,4 +147,21 @@ export class NameTokenService {
     }));
     return { available: true, perKey };
   }
+
+  /**
+   * Tokenise a SEARCH term for whole-word matching (B5, #2559) — the same
+   * canonical tokens as {@link tokenise}, but the INPUT is the operator's
+   * typed term, never a stored name (no decrypt involved). Returns `null`
+   * when the keyring is unavailable (name branch disabled, fail closed) or
+   * the term yields no indexable word.
+   */
+  termTokens(term: string): { hashes: string[]; kid: string } | null {
+    const ring = this.keyring();
+    if (ring === null || term.trim() === "") return null;
+    const key = ring.keys.get(ring.activeKid);
+    if (!key) return null;
+    const hashes = computeNameTokens(term, key);
+    if (hashes.length === 0) return null;
+    return { hashes, kid: ring.activeKid };
+  }
 }

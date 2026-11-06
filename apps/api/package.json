@@ -12,6 +12,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "sync:agency-twins": "node dist/agency-twin/sync-agency-twins.cli.js",
+    "perf:candidates-search": "node dist/admin/candidate-search-perf.cli.js",
     "backfill:company-name-tokens": "node dist/payers/backfill-company-name-tokens.cli.js",
     "backfill:candidate-index": "node dist/admin/candidate-index/candidate-index-backfill.cli.js",
     "clean": "rimraf --glob dist .turbo *.tsbuildinfo"

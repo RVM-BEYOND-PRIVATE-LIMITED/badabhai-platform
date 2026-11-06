@@ -709,6 +709,28 @@ export const EVENT_REGISTRY = {
     domain: "admin",
     payload: p.AdminIdentityCapExceededPayload,
   },
+  // ADR-0062 §3.6/§3.9 (#2559/B5) — a name-or-phone lookup matched on the
+  // Candidates screen. Emitted after the match and before any result leaves;
+  // a failed emit returns nothing. Never the term, a hash of it, or ids. v1.
+  "admin.identity_searched": {
+    version: 1,
+    domain: "admin",
+    payload: p.AdminIdentitySearchedPayload,
+  },
+  // ADR-0062 §3.6 (#2559/B5) — the Candidates per-admin search cap tripped
+  // (300/hr, 2000/day, fail-closed). PII-free: admin id + window only. v1.
+  "admin.candidates_search_cap_exceeded": {
+    version: 1,
+    domain: "admin",
+    payload: p.AdminCandidatesSearchCapExceededPayload,
+  },
+  // ADR-0062 §3.7 (#2559/B5) — a daily Candidates name budget hit 50% for one
+  // admin. Early warning before the cap starts refusing. PII-free. v1.
+  "admin.candidates_name_budget_alert": {
+    version: 1,
+    domain: "admin",
+    payload: p.AdminCandidatesNameBudgetAlertPayload,
+  },
   // Migration 0083 — an admin DECRYPTED one AI call trace: the prompt and the completion of a
   // single AI call. The sibling of `admin.identity_viewed`, one privilege level up — a name is a
   // field, this is everything a worker said on one turn. Emitted and AWAITED BEFORE the decrypt;
