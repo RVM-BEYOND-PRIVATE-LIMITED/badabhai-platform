@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { PAYER_STATUSES } from "@badabhai/db";
 import { e164PhoneSchema } from "@badabhai/validators";
 
 /**
@@ -21,7 +20,7 @@ export const PayerMeSchema = z.object({
   /** `employer` (company) | `agent` (agency) — mirrors db `PayerRole`. */
   role: z.enum(["employer", "agent"]),
   /** Account lifecycle — mirrors db `PayerStatus`. */
-  status: z.enum(PAYER_STATUSES),
+  status: z.enum(["pending", "active", "suspended", "archived"]),
   /** The payer's own org display label. Their own data; never logged/eventized. */
   orgName: z.string(),
   /**
