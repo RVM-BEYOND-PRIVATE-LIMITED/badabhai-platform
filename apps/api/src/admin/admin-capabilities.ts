@@ -237,6 +237,16 @@ export const ADMIN_CAPABILITIES = [
    * `read_identity` inside `AdminIdentityService`.
    */
   "manage_companies",
+  /**
+   * #2561 — EDIT a candidate's profile facts through the admin correction layer (ADR-0062 §3.8):
+   * create a correction, revert one, read the correction history. `super_admin`, `ops_admin`,
+   * `support`; `analyst` (read-only analytics) is denied.
+   *
+   * The WRITE is an overlay, not a worker-account act: it records an admin value above the
+   * worker's own store and keeps the previous value for an honest revert. Distinct from
+   * `manage_worker_account` (sessions/PIN/suspension) and from `flag_worker` (standing).
+   */
+  "edit_candidates",
 ] as const;
 
 export type AdminCapability = (typeof ADMIN_CAPABILITIES)[number];
@@ -308,6 +318,8 @@ export const ADMIN_CAPABILITY_MATRIX: Record<AdminCapability, readonly AdminRole
   manage_postings: ["super_admin", "ops_admin"],
   // #2564 — company records (create, edit, archive, restore). `support` and `analyst` denied.
   manage_companies: ["super_admin", "ops_admin"],
+  // #2561 / ADR-0062 §3.8 — candidate-field corrections. `analyst` denied.
+  edit_candidates: ["super_admin", "ops_admin", "support"],
 } as const;
 
 /**

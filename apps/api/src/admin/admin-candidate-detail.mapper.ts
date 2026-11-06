@@ -69,6 +69,19 @@ import type {
 /** Everything the service loaded for one worker. */
 export interface CandidateDetailInputs {
   readonly workerId: string;
+  /**
+   * #2561 — the worker's LIVE admin corrections (ADR-0062 §3.2 point 1). The corrected values
+   * are applied above the store precedence, and their metadata fills the per-field `correction`.
+   * Absent for callers that predate the correction layer.
+   */
+  readonly corrections?: readonly {
+    readonly id: string;
+    readonly factKey: string;
+    readonly adminId: string;
+    readonly reasonCode: string;
+    readonly createdAt: Date;
+    readonly corrected: unknown;
+  }[];
   readonly core: CandidateCoreRow;
   /** `disclosed` = the identity layer returned names to this admin on this response. */
   readonly name: { readonly disclosed: boolean; readonly value: string | null };
@@ -155,6 +168,20 @@ function legacyAvailabilityStatus(availability: unknown): string | null {
 export function toCandidateDetail(input: CandidateDetailInputs): AdminCandidateDetail {
   const { core, profile } = input;
   const attributes = input.tradeSheet.attributes;
+  const correctionOf = (factKey: string) =>
+    input.corrections?.find((c) => c.factKey === factKey);
+  const correctedValue = (factKey: string): unknown => correctionOf(factKey)?.corrected;
+  const correctionMeta = (factKey: string) => {
+    const live = correctionOf(factKey);
+    return live === undefined
+      ? null
+      : {
+          override_id: live.id,
+          admin_id: live.adminId,
+          reason_code: live.reasonCode,
+          created_at: live.createdAt.toISOString(),
+        };
+  };
   const provenance = new Map(input.provenance.map((p) => [p.attributeKey, p]));
   const attr = (key: string): FieldSource => attributeSourceOf(provenance.get(key));
   const profileSource = profileRowSource(profile);
@@ -183,14 +210,22 @@ export function toCandidateDetail(input: CandidateDetailInputs): AdminCandidateD
   };
   const attributeBand = { expected: prefs.salaryMin, expectedMax: prefs.salaryMax };
 
-  const city = resolveCityForSummaryWithSource(
-    {
-      workersColumn: core.currentCity,
-      profileCurrentCity: scalar(location?.current_city),
-      profilePreferredCities: stringList(location?.preferred_cities),
-    },
-    { workersColumn: "worker_edit", profile: profileSource },
-  );
+  const cityOverride = correctedValue("current_city");
+  const city =
+    typeof cityOverride === "string"
+      ? { value: cityOverride, source: "admin_override" as const }
+      : resolveCityForSummaryWithSource(
+          {
+            workersColumn: core.currentCity,
+            profileCurrentCity: scalar(location?.current_city),
+            profilePreferredCities: stringList(location?.preferred_cities),
+          },
+          { workersColumn: "worker_edit", profile: profileSource },
+        );
+  const preferredLocationsOverride = correctedValue("preferred_locations");
+  const preferredLocations = Array.isArray(preferredLocationsOverride)
+    ? (preferredLocationsOverride.filter((v): v is string => typeof v === "string") ?? [])
+    : prefs.preferredLocations;
   const band = resolveSalaryBandWithSource({
     container,
     containerSource: profileSource,
@@ -240,10 +275,16 @@ export function toCandidateDetail(input: CandidateDetailInputs): AdminCandidateD
       preferred_language: fieldOf(core.preferredLanguage, "unknown"),
     },
     location: {
-      current_city: fieldOf(city.value, city.source),
+      current_city: {
+        ...fieldOf(city.value, city.source),
+        correction: correctionMeta("current_city"),
+      },
       // Written only by `WorkersService.setLocation` (onboarding screen / identity intake).
       current_state: fieldOf(core.currentState, "worker_edit"),
-      preferred_locations: fieldOf(prefs.preferredLocations, attr("preferred_locations")),
+      preferred_locations: {
+        ...fieldOf(preferredLocations, attr("preferred_locations")),
+        correction: correctionMeta("preferred_locations"),
+      },
     },
     trade: {
       canonical_trade_id: fieldOf(summary.trade.canonical_trade_id, profileSource),

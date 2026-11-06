@@ -1,4 +1,4 @@
-import { Injectable, Logger, Inject } from "@nestjs/common";
+import { Injectable, Logger, Inject, Optional } from "@nestjs/common";
 import { getRole } from "@badabhai/taxonomy";
 import { decryptWorkerName } from "../../common/worker-name-read";
 // VALUE import (not `import type`): Nest resolves this ctor param from
@@ -22,7 +22,8 @@ import { toProfileSummary } from "../../workers/profile-summary.mapper";
 import { WorkersRepository } from "../../workers/workers.repository";
 import { readPreferenceFacts } from "../../resume/resume-preference-facts";
 import { qualificationFactsFrom } from "../../resume/resume-qualification-rows";
-import { applyEffectiveFacts, resolveEffectiveFacts } from "./resolve-effective-facts";
+import { applyEffectiveFacts } from "../../profiles/effective-facts";
+import { EffectiveFactsService } from "../../profiles/effective-facts.service";
 import { NameTokenService } from "./name-token.service";
 import { CandidateIndexRepository } from "./candidate-index.repository";
 
@@ -93,6 +94,10 @@ export class CandidateIndexProjector {
     // erases the design:paramtypes entry — and fails API boot — cannot recur.
     @Inject(PiiCryptoService) private readonly pii: PiiCryptoService,
     private readonly nameTokens: NameTokenService,
+    // #2561 — the live admin-correction overlay (ADR-0062 §3.2). This projector is one of the
+    // four application points; the resolver itself is a @Global provider. Optional so the
+    // pre-#2561 unit constructions and the CLI keep working (they project base values).
+    @Optional() private readonly effectiveFacts?: EffectiveFactsService,
   ) {}
 
   /**
@@ -142,7 +147,7 @@ export class CandidateIndexProjector {
         salaryContainer: (profile as unknown as { salaryExpectation?: unknown } | undefined)
           ?.salaryExpectation as unknown,
       },
-      await resolveEffectiveFacts(workerId),
+      this.effectiveFacts ? await this.effectiveFacts.resolve(workerId) : new Map(),
     );
     const attributes = (effective.attributes ?? {}) as Json;
     const workersCity = typeof effective.workersCity === "string" ? effective.workersCity : null;

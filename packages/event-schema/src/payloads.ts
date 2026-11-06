@@ -6186,3 +6186,78 @@ export const AiFallbackAlertClearedPayload = z.object({
   min_calls: z.number().int().nonnegative(),
 });
 export type AiFallbackAlertClearedPayload = z.infer<typeof AiFallbackAlertClearedPayload>;
+
+// ---------------------------------------------------------------------------
+// #2561 (B7) — ADMIN PROFILE CORRECTIONS. ADR-0062 §3.1/§3.9. Three value-free
+// events; the corrected/previous VALUES live only in the encrypted envelope on
+// `worker_admin_override`, and the written reason only on `audit_logs`.
+// ---------------------------------------------------------------------------
+
+/**
+ * The CLOSED fact-key vocabulary (ADR-0062 §4). The same list is the table CHECK and the
+ * API's `fact_key` enum; a key outside it cannot be stored, corrected or evented. `*`-marked
+ * entries in the ADR are store names, not registry facts, and are included here verbatim.
+ */
+export const ADMIN_CORRECTION_FACT_KEYS = [
+  "current_city",
+  "preferred_locations",
+  "trade",
+  "role",
+  "secondary_roles",
+  "skills",
+  "experience",
+  "work_history",
+  "education",
+  "certifications",
+  "training",
+  "languages",
+  "salary_expected",
+  "salary_period",
+  "availability",
+  "shift",
+  "relocation",
+  "accommodation",
+  "job_type",
+  "work_types",
+  "commute_max_km",
+  "willing_to_travel",
+  "documents_ready",
+] as const;
+export const AdminCorrectionFactKey = z.enum(ADMIN_CORRECTION_FACT_KEYS);
+export type AdminCorrectionFactKey = z.infer<typeof AdminCorrectionFactKey>;
+
+/** An admin corrected one fact. IDs + the closed fact key only; `.strict()`. */
+export const AdminCandidateFieldCorrectedPayload = z
+  .object({
+    admin_id: uuidSchema,
+    worker_id: uuidSchema,
+    fact_key: AdminCorrectionFactKey,
+    override_id: uuidSchema,
+  })
+  .strict();
+export type AdminCandidateFieldCorrectedPayload = z.infer<
+  typeof AdminCandidateFieldCorrectedPayload
+>;
+
+/** An admin reverted the live correction of one fact. */
+export const AdminCandidateFieldRevertedPayload = z
+  .object({
+    admin_id: uuidSchema,
+    worker_id: uuidSchema,
+    fact_key: AdminCorrectionFactKey,
+    override_id: uuidSchema,
+  })
+  .strict();
+export type AdminCandidateFieldRevertedPayload = z.infer<typeof AdminCandidateFieldRevertedPayload>;
+
+/** The worker's own explicit edit superseded an admin correction (owner ruling A1). */
+export const WorkerAdminCorrectionSupersededPayload = z
+  .object({
+    worker_id: uuidSchema,
+    fact_key: AdminCorrectionFactKey,
+    override_id: uuidSchema,
+  })
+  .strict();
+export type WorkerAdminCorrectionSupersededPayload = z.infer<
+  typeof WorkerAdminCorrectionSupersededPayload
+>;

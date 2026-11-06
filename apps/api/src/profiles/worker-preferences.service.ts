@@ -1,7 +1,16 @@
 import { InjectQueue } from "@nestjs/bullmq";
-import { BadRequestException, Injectable, Logger, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  Inject,
+  Injectable,
+  Logger,
+  NotFoundException,
+  Optional,
+} from "@nestjs/common";
 import type { Queue } from "bullmq";
 import type { Database, NewWorkerAttribute } from "@badabhai/db";
+import { DATABASE } from "../database/database.module";
+import { EffectiveFactsService } from "./effective-facts.service";
 import type { ZodTypeAny } from "zod";
 
 import type { RequestContext } from "../common/request-context";
@@ -62,6 +71,10 @@ export class WorkerPreferencesService {
     private readonly workers: WorkersRepository,
     private readonly events: EventsService,
     @InjectQueue(RESUME_RENDER_QUEUE) private readonly renderQueue: Queue<ResumeRenderJobData>,
+    // #2561 — the correction overlay's worker-self-edit supersede (ADR-0062 §3.1a).
+    @Optional() private readonly effectiveFacts?: EffectiveFactsService,
+    // Present in production; optional so the pre-#2561 unit constructions keep working.
+    @Optional() @Inject(DATABASE) private readonly db?: Database,
   ) {}
 
   async setForWorker(
@@ -71,14 +84,45 @@ export class WorkerPreferencesService {
     // ADR-0046 — join the caller's transaction when the companion's edit card applies several
     // sections at once. The derived night-shift seed and the re-render are then skipped: both
     // are best-effort side effects the caller owns once the transaction has committed.
-    opts: { tx?: Database } = {},
+    opts: { tx?: Database; source?: "worker" | "admin_correction" } = {},
+  ): Promise<{ worker_id: string; keys_written: number; keys_cleared: number }> {
+    const source = opts.source ?? "worker";
+    // #2561 — a worker's own preferences edit must supersede a live correction for
+    // `preferred_locations` in the SAME transaction, so the write and the supersede commit
+    // together (ADR-0062 §3.1a). With no transaction (legacy unit constructions) the old
+    // behaviour is preserved byte for byte.
+    if (opts.tx !== undefined || this.db === undefined) {
+      return this.setForWorkerWithin(workerId, body, ctx, opts.tx, source);
+    }
+    let result: { worker_id: string; keys_written: number; keys_cleared: number } | undefined;
+    await this.db.transaction(async (tx) => {
+      result = await this.setForWorkerWithin(
+        workerId,
+        body,
+        ctx,
+        tx as unknown as Database,
+        source,
+      );
+    });
+    // Best-effort side effects AFTER the commit; neither may fail the write.
+    await this.seedNightShiftReadyFromShift(workerId, body.shift);
+    await this.enqueueRerender(workerId, ctx);
+    return result!;
+  }
+
+  private async setForWorkerWithin(
+    workerId: string,
+    body: SetMyPreferencesDto,
+    ctx: RequestContext,
+    tx: Database | undefined,
+    source: "worker" | "admin_correction",
   ): Promise<{ worker_id: string; keys_written: number; keys_cleared: number }> {
     const worker = await this.workers.findById(workerId);
     if (!worker) throw new NotFoundException(`Worker ${workerId} not found`);
 
     // BEFORE ANY WRITE. An inverted band in one body is refused whole, never half-stored; one end
     // sent alone that crosses the stored other end clears that end (see `settleSalaryBand`).
-    const dto = await this.settleSalaryBand(workerId, body, opts.tx);
+    const dto = await this.settleSalaryBand(workerId, body, tx);
 
     const rows: NewWorkerAttribute[] = [];
     const cleared: PreferenceKey[] = [];
@@ -160,18 +204,18 @@ export class WorkerPreferencesService {
     }
 
     // Arity-preserving: an existing caller's two-argument call shape stays byte-identical.
-    if (opts.tx === undefined) {
+    if (tx === undefined) {
       await this.attributes.upsertMany(rows);
       await this.attributes.deleteKeys(workerId, cleared);
     } else {
-      await this.attributes.upsertMany(rows, opts.tx);
-      await this.attributes.deleteKeys(workerId, cleared, opts.tx);
+      await this.attributes.upsertMany(rows, tx);
+      await this.attributes.deleteKeys(workerId, cleared, tx);
     }
 
     // Skipped on a joined transaction: the seed writes the `workers` row on a SEPARATE
     // connection, so it would land even if the caller's transaction then rolled back. The caller
     // runs it after its commit instead (the chat companion does, for a shift row — BUG-NIGHT-SEED).
-    if (opts.tx === undefined) await this.seedNightShiftReadyFromShift(workerId, dto.shift);
+    if (tx === undefined) await this.seedNightShiftReadyFromShift(workerId, dto.shift);
 
     await this.events.emit({
       event_name: "worker.preferences_recorded",
@@ -189,7 +233,7 @@ export class WorkerPreferencesService {
       },
       correlationId: ctx.correlationId,
       requestId: ctx.requestId,
-      ...(opts.tx === undefined ? {} : { tx: opts.tx }),
+      ...(tx === undefined ? {} : { tx }),
     });
 
     // Counts only — never a language, a city or a document name.
@@ -200,7 +244,20 @@ export class WorkerPreferencesService {
 
     // Skipped on a joined transaction: the companion regenerates once after commit (O6), or
     // re-renders once itself when no regeneration was queued.
-    if (opts.tx === undefined) await this.enqueueRerender(workerId, ctx);
+    if (tx === undefined) await this.enqueueRerender(workerId, ctx);
+
+    // A1: the worker's own explicit preference edit supersedes a live correction for
+    // `preferred_locations`, in the same transaction as the write.
+    if (
+      tx !== undefined &&
+      body.preferred_cities !== undefined &&
+      source === "worker"
+    ) {
+      await this.effectiveFacts?.supersedeByWorkerEdit(workerId, ["preferred_locations"], {
+        tx,
+        ctx,
+      });
+    }
 
     return { worker_id: workerId, keys_written: rows.length, keys_cleared: cleared.length };
   }

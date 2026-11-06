@@ -304,9 +304,10 @@ export class WorkersRepository {
    */
   async updateLocation(
     id: string,
-    patch: { currentCity?: string; currentState?: string },
+    patch: { currentCity?: string | null; currentState?: string | null },
+    tx?: Database,
   ): Promise<Worker | undefined> {
-    const rows = await this.db
+    const rows = await (tx ?? this.db)
       .update(workers)
       .set({ ...patch, updatedAt: new Date() })
       .where(eq(workers.id, id))

@@ -48,6 +48,9 @@ export const RESUME_GENERATION_TRIGGERS = [
   "chat_update_accepted",
   "ops_regenerate",
   "chat_edit",
+  // ADR-0062 §3.3 (#2561) — a new résumé version created by an ADMIN correction of a
+  // snapshot field (skills, trade/role, total experience). Additive.
+  "admin_edit",
 ] as const;
 export type ResumeGenerationTrigger = (typeof RESUME_GENERATION_TRIGGERS)[number];
 

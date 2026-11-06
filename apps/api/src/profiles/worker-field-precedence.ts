@@ -298,6 +298,9 @@ export const FIELD_SOURCES = [
   "resume_import",
   "worker_edit",
   "ops",
+  // #2561 / ADR-0062 — a live ADMIN correction. It sits above every store source above; the
+  // admin console already renders this tag (`apps/admin-web` candidate-view).
+  "admin_override",
   "derived",
   "none",
   "unknown",
@@ -358,7 +361,24 @@ export function resolveSalaryBandWithSource(input: {
     readonly expectedMax: number | null | undefined;
   };
   readonly attributeSources: { readonly expected: FieldSource; readonly expectedMax: FieldSource };
+  /**
+   * #2561 / ADR-0062 §3.2 — a live ADMIN correction. It sits ABOVE the DraftProfile
+   * `salary_expectation` container, not beside it: writing only the attribute pair would leave
+   * the résumé and the summary showing the extracted salary, because a container that exists
+   * wins outright. Omitted by every pre-correction caller.
+   */
+  readonly override?: {
+    readonly amountMin: number | null | undefined;
+    readonly amountMax: number | null | undefined;
+  } | null;
 }): Sourced<{ low: number; high: number | null } | null> {
+  if (input.override != null) {
+    const corrected = resolveSalaryBand({
+      expected: input.override.amountMin,
+      expectedMax: input.override.amountMax,
+    });
+    if (corrected !== null) return { value: corrected, source: "admin_override" };
+  }
   const fromContainer = resolveSalaryBand({
     expected: input.container.amountMin,
     expectedMax: input.container.amountMax,

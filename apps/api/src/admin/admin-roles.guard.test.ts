@@ -202,6 +202,8 @@ describe("capability matrix drift (must-fix #5 — pinned to ADR-0025 Decision 3
     manage_postings: ["super_admin", "ops_admin"],
     // #2564 - company records (create, edit, archive, restore). `support`/`analyst` denied.
     manage_companies: ["super_admin", "ops_admin"],
+    // #2561 / ADR-0062 §3.8 - candidate-field corrections. `analyst` denied.
+    edit_candidates: ["super_admin", "ops_admin", "support"],
   };
 
   it("the capability set matches the ADR exactly (no added/removed capability)", () => {
@@ -258,6 +260,8 @@ describe("capability matrix drift (must-fix #5 — pinned to ADR-0025 Decision 3
       "manage_postings",
       // #2564 - company records are a write.
       "manage_companies",
+      // #2561 - candidate-field corrections are a write.
+      "edit_candidates",
     ] as const) {
       expect(can("analyst", write)).toBe(false);
     }
@@ -339,8 +343,10 @@ describe("capabilitiesFor — what the UI is told matches what the server permit
       "manage_payer_credentials",
       "reveal_pii",
       "read_candidates",
-      // #2562 — worker account control.
+      // #2562 - worker account control.
       "manage_worker_account",
+      // #2561 - candidate-field corrections.
+      "edit_candidates",
     ]);
     expect(capabilitiesFor("ops_admin")).toEqual([
       "read_events",
@@ -364,6 +370,8 @@ describe("capabilitiesFor — what the UI is told matches what the server permit
       "manage_postings",
       // #2564 — company records.
       "manage_companies",
+      // #2561 — candidate-field corrections.
+      "edit_candidates",
     ]);
     // super_admin holds everything — the one role for which the list is the whole vocabulary.
     expect(capabilitiesFor("super_admin")).toEqual([...ADMIN_CAPABILITIES]);

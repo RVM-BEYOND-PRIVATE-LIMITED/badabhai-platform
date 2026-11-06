@@ -55,6 +55,7 @@ import {
   agencyKyc,
   agencyProfiles,
   aiCallTraces,
+  workerAdminOverrides,
   employerProfiles,
   payerMemberInvites,
   payerMembers,
@@ -380,6 +381,17 @@ function buildTargets(db: Database): PiiTarget[] {
       "worker_resume_import",
       "suggestions_enc",
       "suggestionsEnc",
+    ),
+    // #2561 / ADR-0062 §3.1 — the correction envelope. Added WITH the migration, while the
+    // table is empty (the 0094/0109 lesson): the first correction ever saved is rotatable,
+    // instead of the gap surfacing during a key retirement.
+    target(
+      workerAdminOverrides,
+      workerAdminOverrides.id,
+      workerAdminOverrides.valueEnc,
+      "worker_admin_override",
+      "value_enc",
+      "valueEnc",
     ),
   ];
 }

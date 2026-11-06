@@ -40,6 +40,7 @@ import { workerEmployment, workerEmploymentRole } from "./employment";
 import { workerCertificates, workerEducations, workerTrainings } from "./qualification";
 import { profileCorrections } from "./profile-correction";
 import { adminCandidateIndex, adminCandidateIndexCursor } from "./admin-candidate-index";
+import { workerAdminOverrides } from "./admin-override";
 import { workerProfilingTiers } from "./worker-profiling-tier";
 import { workerResumeSkins } from "./worker-resume-skin";
 import { payerApplicantStages } from "./payer-applicant-stage";
@@ -141,6 +142,8 @@ export * from "./feedback";
 export * from "./ai-trace";
 export * from "./learn";
 export * from "./admin-candidate-index";
+// #2561 / ADR-0062 §3.1 — the admin correction layer.
+export * from "./admin-override";
 
 // ---------------------------------------------------------------------------
 // Inferred row types (select / insert) for use across services.
@@ -425,7 +428,9 @@ export const schema = {
   // the `export *` above.
   adminCandidateIndex,
   adminCandidateIndexCursor,
-  // B2 (#2555) — the completed-profile ledger (migration 0158). Present on every
+  // B2 (#2555) - the completed-profile ledger (migration 0158). Present on every
   // migrated database, so it belongs in this object as well as the `export *` above.
   profileCompletionLedger,
+  // #2561 / ADR-0062 §3.1 - the admin correction layer (migration 0160).
+  workerAdminOverrides,
 };

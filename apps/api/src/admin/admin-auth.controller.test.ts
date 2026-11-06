@@ -247,6 +247,8 @@ describe("AdminAuthController — delegation to AdminAuthService", () => {
         "manage_postings",
         // #2564 — company records (super_admin, ops_admin). Tail-appended.
         "manage_companies",
+        // #2561 — candidate-field corrections (super_admin, ops_admin, support). Tail-appended.
+        "edit_candidates",
       ],
     });
   });

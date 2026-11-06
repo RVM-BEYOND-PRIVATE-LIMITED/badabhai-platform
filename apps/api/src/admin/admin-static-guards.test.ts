@@ -690,6 +690,9 @@ describe("identity reads — one reader, one decrypter, and no name search", () 
     expect(decrypters).toEqual(
       [
         "admin/admin-ai-traces.service.ts",
+        // #2561 — the correction envelope ({corrected, previous}) is decrypted at this one
+        // boundary to compute the effective value / revert; the plaintext never leaves it.
+        "admin/corrections/admin-corrections.service.ts",
         "admin/admin-identity.service.ts",
         "admin/admin-mfa.store.ts",
         "admin/admin-pii-reveal.service.ts",
@@ -1951,6 +1954,7 @@ describe("#2560 candidate full-detail route — guarded, read-only, audited firs
         "attributes.loadTradeSheet",
         "candidateSearch.findCardRow",
         "candidateSearch.listWantedRoles",
+        "effectiveFacts.liveFor",
         "entities.listApplications",
         "events.emit",
         "identity.resolve",

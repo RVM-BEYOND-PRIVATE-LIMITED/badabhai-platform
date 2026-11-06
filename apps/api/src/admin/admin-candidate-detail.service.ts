@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
+import { Injectable, NotFoundException, Optional } from "@nestjs/common";
 import type { PayloadInputOf } from "@badabhai/event-schema";
 import type { RequestContext } from "../common/request-context";
 import { EventsService } from "../events/events.service";
@@ -9,6 +9,7 @@ import { WorkerLanguagesRepository } from "../profiles/worker-languages.reposito
 import { WorkerOccupationsRepository } from "../profiles/worker-occupations.repository";
 import { WorkerQualificationsRepository } from "../profiles/worker-qualifications.repository";
 import { WorkersRepository } from "../workers/workers.repository";
+import { EffectiveFactsService } from "../profiles/effective-facts.service";
 import type { AuthenticatedAdmin } from "./admin-auth.guard";
 import { AdminEntitiesRepository } from "./admin-entities.repository";
 import { AdminIdentityService } from "./admin-identity.service";
@@ -57,6 +58,8 @@ export class AdminCandidateDetailService {
     private readonly entities: AdminEntitiesRepository,
     private readonly identity: AdminIdentityService,
     private readonly events: EventsService,
+    // #2561 — the live admin corrections, applied above the display precedence (ADR-0062 §3.2).
+    @Optional() private readonly effectiveFacts?: EffectiveFactsService,
   ) {}
 
   async getCandidate(
@@ -112,8 +115,12 @@ export class AdminCandidateDetailService {
       ),
     ]);
 
+    const corrections = this.effectiveFacts
+      ? await this.effectiveFacts.liveFor(workerId)
+      : [];
     const detail = toCandidateDetail({
       workerId,
+      corrections,
       core,
       name:
         names === null

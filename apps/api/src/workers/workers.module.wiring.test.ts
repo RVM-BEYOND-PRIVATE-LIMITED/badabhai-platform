@@ -2,6 +2,7 @@ import "reflect-metadata";
 import { describe, expect, it } from "vitest";
 import { MODULE_METADATA } from "@nestjs/common/constants";
 import { WorkerAttributesRepository } from "../profiles/worker-attributes.repository";
+import { EffectiveFactsService } from "../profiles/effective-facts.service";
 import { WorkersModule } from "./workers.module";
 import { WorkersService } from "./workers.service";
 
@@ -19,8 +20,19 @@ describe("WorkersModule wiring (#2201)", () => {
     expect(providers).toContain(WorkersService);
   });
 
-  it("WorkersService still declares the repository as its last constructor dependency", () => {
-    // Seven collaborators; the seventh is the optional attribute repository.
-    expect(WorkersService.length).toBe(7);
+  it("WorkersService keeps its repository-plus-optionals dependency shape", () => {
+    // Eight collaborators: the repository first, the queue/config/storage in the middle, and the
+    // two #2201/#2561 optional collaborators last (attributes, effective facts). The length pin is
+    // what makes dropping one of the trailing optionals visible in a unit run.
+    expect(WorkersService.length).toBe(8);
+  });
+
+  it("provides and exports EffectiveFactsService (#2561)", () => {
+    const providers = (Reflect.getMetadata(MODULE_METADATA.PROVIDERS, WorkersModule) ??
+      []) as unknown[];
+    const exportsList = (Reflect.getMetadata(MODULE_METADATA.EXPORTS, WorkersModule) ??
+      []) as unknown[];
+    expect(providers).toContain(EffectiveFactsService);
+    expect(exportsList).toContain(EffectiveFactsService);
   });
 });

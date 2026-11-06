@@ -10,7 +10,7 @@ import { InjectQueue } from "@nestjs/bullmq";
 import { Queue } from "bullmq";
 import { randomUUID } from "node:crypto";
 import { canonicalCity, canonicalState } from "@badabhai/profiling-lexicon";
-import type { GeneratedResume } from "@badabhai/db";
+import type { Database, GeneratedResume } from "@badabhai/db";
 import type { PayloadInputOf } from "@badabhai/event-schema";
 import type { ServerConfig } from "@badabhai/config";
 import { SERVER_CONFIG } from "../config/config.module";
@@ -21,6 +21,8 @@ import { StorageService } from "../storage/storage.service";
 import { RESUME_RENDER_QUEUE, type ResumeRenderJobData } from "../queue/queue.constants";
 import { WorkersRepository } from "./workers.repository";
 import { WorkerAttributesRepository } from "../profiles/worker-attributes.repository";
+import { EffectiveFactsService } from "../profiles/effective-facts.service";
+import { applyEffectiveFacts } from "../profiles/effective-facts";
 import { toProfileSummary } from "./profile-summary.mapper";
 import { readProfileFormFacts, type ProfileFormFacts } from "./profile-form-facts";
 import type {
@@ -129,6 +131,8 @@ export class WorkersService {
     // #2201 — the form answers the profile-summary strength reads. Optional so constructions that
     // predate it (the unit tests) keep scoring the profile row alone, exactly as before.
     @Optional() private readonly attributes?: WorkerAttributesRepository,
+    // #2561 — the correction overlay's worker-self-edit supersede (ADR-0062 §3.1a).
+    @Optional() private readonly effectiveFacts?: EffectiveFactsService,
   ) {}
 
   /**
@@ -634,9 +638,44 @@ export class WorkersService {
     workerId: string,
     location: { city?: string; state?: string },
     ctx: RequestContext,
-    opts: { idempotencyKey?: string } = {},
+    opts: {
+      idempotencyKey?: string;
+      /** Join the caller's transaction (ADR-0062 correction writes do). */
+      tx?: Database;
+      /**
+       * `worker` (default) is the worker's OWN edit, so it supersedes a live correction for the
+       * city in the SAME transaction (owner ruling A1). `admin_correction` is the correction
+       * writer itself and must never supersede the row it is creating.
+       */
+      source?: "worker" | "admin_correction";
+    } = {},
   ): Promise<void> {
-    const patch: { currentCity?: string; currentState?: string } = {};
+    if (opts.tx) {
+      return this.setLocationWithin(workerId, location, ctx, opts.tx, opts);
+    }
+    // A caller-supplied transaction wins. Otherwise open one — except in the unit constructions
+    // whose repository double has no `withTransaction`; those keep the pre-#2561 direct path.
+    const withTransaction = (
+      this.workers as unknown as {
+        withTransaction?: (cb: (tx: Database) => Promise<void>) => Promise<void>;
+      }
+    ).withTransaction;
+    if (typeof withTransaction !== "function") {
+      return this.setLocationWithin(workerId, location, ctx, undefined, opts);
+    }
+    return withTransaction.call(this.workers, (tx) =>
+      this.setLocationWithin(workerId, location, ctx, tx, opts),
+    );
+  }
+
+  private async setLocationWithin(
+    workerId: string,
+    location: { city?: string; state?: string },
+    ctx: RequestContext,
+    tx: Database | undefined,
+    opts: { idempotencyKey?: string; source?: "worker" | "admin_correction" },
+  ): Promise<void> {
+    const patch: { currentCity?: string | null; currentState?: string | null } = {};
     if (location.city !== undefined)
       patch.currentCity = canonicalCity(location.city)?.value ?? location.city;
     if (location.state !== undefined) {
@@ -644,7 +683,8 @@ export class WorkersService {
     }
     if (patch.currentCity === undefined && patch.currentState === undefined) return;
 
-    await this.workers.updateLocation(workerId, patch);
+    if (tx === undefined) await this.workers.updateLocation(workerId, patch);
+    else await this.workers.updateLocation(workerId, patch, tx);
 
     // COUNTS, NEVER THE ANSWERS — the same rule `worker.employment_recorded` and
     // `worker.preferences_recorded` follow. A city is not an identifier, but a city plus a state
@@ -662,7 +702,17 @@ export class WorkersService {
       ...(opts.idempotencyKey === undefined ? {} : { idempotencyKey: opts.idempotencyKey }),
       correlationId: ctx.correlationId,
       requestId: ctx.requestId,
+      ...(tx === undefined ? {} : { tx }),
     });
+
+    // A1: the worker's own explicit city edit supersedes a live correction, atomically.
+    if (
+      tx !== undefined &&
+      patch.currentCity !== undefined &&
+      (opts.source ?? "worker") === "worker"
+    ) {
+      await this.effectiveFacts?.supersedeByWorkerEdit(workerId, ["current_city"], { tx, ctx });
+    }
 
     this.logger.log(`coarse location recorded for worker ${workerId}`); // never logs the values
   }
@@ -696,10 +746,16 @@ export class WorkersService {
       typeof worker?.photoStorageKey === "string" && worker.photoStorageKey.length > 0;
     // #1428 — the worker's own onboarding city outranks the extraction's (owner ruling
     // 2026-09-05). Threaded from the `workers` row, which this method already reads for the photo.
+    // #2561 — ADR-0062 §3.2 point 1: a live admin correction is applied ABOVE that rule.
+    const overrides = this.effectiveFacts ? await this.effectiveFacts.resolve(workerId) : new Map();
+    const effective = applyEffectiveFacts(
+      { workersCity: worker?.currentCity ?? null, attributes: {} },
+      overrides,
+    );
     return toProfileSummary({
       ...profile,
       hasPhoto,
-      workerCity: worker?.currentCity ?? null,
+      workerCity: (effective.workersCity as string | null | undefined) ?? null,
       formFacts,
     });
   }

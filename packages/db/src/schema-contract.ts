@@ -1019,6 +1019,38 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "the admin Companies detail, edit and create routes 500 (column does not exist); payer " +
       "sign-in is unaffected (nothing on the payer path reads the profile tables)",
   },
+  // 0160 (#2561 B7 / ADR-0062 §3.1): the admin correction layer. APPLY-BEFORE-DEPLOY because the
+  // correction resolver reads this table on the candidate read path and `ResumeService.generate`
+  // can write the widened `admin_edit` trigger.
+  {
+    id: "0160-worker-admin-override",
+    migration: "0160_admin_corrections",
+    kind: "table",
+    table: "worker_admin_override",
+    requiredBy:
+      "AdminCorrectionService create/revert/history, EffectiveFactsService.resolve/resolveMany " +
+      "on the candidate read table, the worker summary, the payer candidate projection, the " +
+      "admin candidate detail and the worker self-edit supersede",
+    failureMode:
+      "every admin correction route and every read that overlays a live correction 500s (table " +
+      "does not exist). The OLD build on a migrated database is fine (a superset), which is why " +
+      "this is APPLY-BEFORE-DEPLOY",
+  },
+  {
+    id: "0160-worker-admin-override-rls",
+    migration: "0160_admin_corrections",
+    kind: "rls",
+    table: "worker_admin_override",
+    requiredBy:
+      "no code path - the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices",
+    failureMode:
+      "SILENT. This table holds the corrected AND previous values of a worker's facts; without " +
+      "FORCE + REVOKE every PostgREST role could read and write them. The table is DPDP-erased " +
+      "by the worker FK cascade, so the linkage does not outlive the worker - but the values do " +
+      "until then",
+  },
   // 0134: THE API names `payer_applicant_stages` only while PAYER_APPLICANT_STAGES_ENABLED is on
   // (owner ruling 2026-10-07, the payer pipeline board), so a deploy ahead of the migration breaks
   // no request and the table is NOT a `table` entry. It is listed for its lock, exactly as 0128's
