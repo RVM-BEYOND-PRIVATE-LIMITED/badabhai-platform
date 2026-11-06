@@ -1,5 +1,11 @@
 import { InjectQueue } from "@nestjs/bullmq";
-import { ConflictException, Injectable, Logger, NotFoundException } from "@nestjs/common";
+import {
+  ConflictException,
+  Injectable,
+  Logger,
+  NotFoundException,
+  Optional,
+} from "@nestjs/common";
 import type { Queue } from "bullmq";
 import { DraftProfileSchema } from "@badabhai/ai-contracts";
 import type { Database } from "@badabhai/db";
@@ -12,6 +18,7 @@ import { RESUME_RENDER_QUEUE, type ResumeRenderJobData } from "../queue/queue.co
 import { WorkersRepository } from "../workers/workers.repository";
 import { buildChatEmploymentSuggestions, type EmploymentSuggestion } from "./employment-suggestions";
 import { storedEmployerName } from "./title-case-on-write";
+import { EffectiveFactsService } from "./effective-facts.service";
 import type {
   DescriptionSource,
   EmploymentView,
@@ -66,6 +73,8 @@ export class WorkerEmploymentService {
     // provider to `ProfilesModule` and no module edge — see that module's own comment on
     // `WorkerEmploymentRepository` for the identical reasoning.
     private readonly resumeSuggestions: ResumeSuggestionReader,
+    // #2561 — owner ruling A1: the worker's own edit supersedes a live admin correction.
+    @Optional() private readonly effectiveFacts?: EffectiveFactsService,
   ) {}
 
   async replaceForWorker(
@@ -184,6 +193,12 @@ export class WorkerEmploymentService {
       return { worker_id: workerId, employer_count: outcome.existingCount };
     }
     const { replacedExisting } = outcome;
+
+    // A1 — the worker's explicit history replace supersedes a live `work_history` correction.
+    await this.effectiveFacts?.supersedeByWorkerEdit(workerId, ["work_history"], {
+      ...(opts.tx === undefined ? {} : { tx: opts.tx }),
+      ctx,
+    });
 
     await this.events.emit({
       event_name: "worker.employment_recorded",

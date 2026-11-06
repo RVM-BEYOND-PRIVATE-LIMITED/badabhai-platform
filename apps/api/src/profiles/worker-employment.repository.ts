@@ -347,8 +347,11 @@ export class WorkerEmploymentRepository {
    *
    * Same ordering and same two-statement shape as the résumé read, for the same reasons.
    */
-  async loadForWorkerEdit(workerId: string): Promise<WorkerEmploymentEditRecord[]> {
-    const employments = await this.db
+  async loadForWorkerEdit(
+    workerId: string,
+    tx?: Database,
+  ): Promise<WorkerEmploymentEditRecord[]> {
+    const employments = await (tx ?? this.db)
       .select({
         id: workerEmployment.id,
         employerNameEnc: workerEmployment.employerNameEnc,
@@ -363,7 +366,7 @@ export class WorkerEmploymentRepository {
 
     if (employments.length === 0) return [];
 
-    const roles = await this.db
+    const roles = await (tx ?? this.db)
       .select({
         employmentId: workerEmploymentRole.employmentId,
         roleLabel: workerEmploymentRole.roleLabel,
@@ -505,8 +508,8 @@ export class WorkerEmploymentRepository {
    * dates are unstated still described them in an order. Sorting by date would reshuffle rows
    * between renders and make every regenerated PDF a false diff.
    */
-  async loadForResume(workerId: string): Promise<WorkerEmploymentRecord[]> {
-    const employments = await this.db
+  async loadForResume(workerId: string, tx?: Database): Promise<WorkerEmploymentRecord[]> {
+    const employments = await (tx ?? this.db)
       .select({
         id: workerEmployment.id,
         employerNameEnc: workerEmployment.employerNameEnc,
@@ -522,7 +525,7 @@ export class WorkerEmploymentRepository {
 
     if (employments.length === 0) return [];
 
-    const roles = await this.db
+    const roles = await (tx ?? this.db)
       .select({
         employmentId: workerEmploymentRole.employmentId,
         roleLabel: workerEmploymentRole.roleLabel,

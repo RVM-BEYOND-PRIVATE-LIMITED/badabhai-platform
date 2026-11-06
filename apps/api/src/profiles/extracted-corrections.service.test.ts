@@ -50,6 +50,7 @@ function make(over: Record<string, unknown> = {}) {
   };
   const workerSkills = {
     rebuildQuietly: vi.fn(async () => undefined),
+    clearAdminOverrideSkills: vi.fn(async () => undefined),
     ...((over.workerSkills ?? {}) as Record<string, unknown>),
   };
   const chat = {
@@ -159,7 +160,7 @@ describe("ExtractedCorrectionsService — per-field delegation", () => {
       "skill_fanuc",
       "skill_gdt_reading",
     ]);
-    expect(workerSkills.rebuildQuietly).toHaveBeenCalledWith(WORKER, CTX);
+    expect(workerSkills.clearAdminOverrideSkills).toHaveBeenCalledWith(WORKER, CTX);
     expect(events.emit).toHaveBeenCalledWith(
       expect.objectContaining({
         event_name: "resume.edited",

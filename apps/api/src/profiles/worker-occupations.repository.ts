@@ -92,8 +92,8 @@ export class WorkerOccupationsRepository {
   }
 
   /** One worker's secondary-occupation role ids, in the worker's own order. */
-  async loadForWorker(workerId: string): Promise<string[]> {
-    const rows = await this.db
+  async loadForWorker(workerId: string, tx?: Database): Promise<string[]> {
+    const rows = await (tx ?? this.db)
       .select({ roleId: workerOccupations.roleId })
       .from(workerOccupations)
       .where(eq(workerOccupations.workerId, workerId))

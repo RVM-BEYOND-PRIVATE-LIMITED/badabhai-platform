@@ -187,16 +187,45 @@ export function toCandidateDetail(input: CandidateDetailInputs): AdminCandidateD
   const profileSource = profileRowSource(profile);
 
   // The worker's self-view summary, built exactly as `WorkersService.getProfileSummary` builds it.
+  // #2561 PR 2 — the profile-column corrections sit above the stored row in the display,
+  // exactly as they do in the projector. The values are also written to the store; this keeps
+  // the screen correct if a later extraction changed the row before the read.
+  const correctedString = (factKey: string): string | null | undefined => {
+    const value = correctedValue(factKey);
+    return typeof value === "string" || value === null ? value : undefined;
+  };
+  const tradeCorrection = correctedString("trade");
+  const roleCorrection = correctedString("role");
+  const skillsCorrection = correctedValue("skills");
+  const experienceCorrection = correctedValue("experience");
+  const effectiveProfile = profile
+    ? {
+        ...profile,
+        canonicalTradeId:
+          tradeCorrection !== undefined ? tradeCorrection : profile.canonicalTradeId,
+        canonicalRoleId: roleCorrection !== undefined ? roleCorrection : profile.canonicalRoleId,
+        skills: Array.isArray(skillsCorrection) ? skillsCorrection : profile.skills,
+        experience:
+          typeof experienceCorrection === "number"
+            ? { ...(asObject(profile.experience) ?? {}), total_years: experienceCorrection }
+            : profile.experience,
+      }
+    : undefined;
   const summary = toProfileSummary(
-    profile
+    effectiveProfile
       ? {
-          ...profile,
+          ...effectiveProfile,
           hasPhoto: core.hasPhoto,
           workerCity: core.currentCity,
           formFacts: readProfileFormFacts(input.tradeSheet),
         }
       : null,
   );
+  const tradeSource = correctionOf("trade") || correctionOf("role") ? "admin_override" : profileSource;
+  const skillsSource = correctionOf("skills") ? "admin_override" : profileSource;
+  const experienceSource = correctionOf("experience") ? "admin_override" : profileSource;
+  const prefSource = (factKey: string, base: ReturnType<typeof attr>): ReturnType<typeof attr> =>
+    correctionOf(factKey) ? "admin_override" : base;
   const prefs = readPreferenceFacts(attributes);
   const qualifications = qualificationFactsFrom({
     ...input.qualifications,
@@ -226,6 +255,16 @@ export function toCandidateDetail(input: CandidateDetailInputs): AdminCandidateD
   const preferredLocations = Array.isArray(preferredLocationsOverride)
     ? (preferredLocationsOverride.filter((v): v is string => typeof v === "string") ?? [])
     : prefs.preferredLocations;
+  const salaryOverrideRaw = correctedValue("salary_expected");
+  const salaryOverride =
+    typeof salaryOverrideRaw === "object" &&
+    salaryOverrideRaw !== null &&
+    !Array.isArray(salaryOverrideRaw)
+      ? {
+          amountMin: finiteNumber((salaryOverrideRaw as { min?: unknown }).min),
+          amountMax: finiteNumber((salaryOverrideRaw as { max?: unknown }).max),
+        }
+      : null;
   const band = resolveSalaryBandWithSource({
     container,
     containerSource: profileSource,
@@ -234,6 +273,8 @@ export function toCandidateDetail(input: CandidateDetailInputs): AdminCandidateD
       expected: attr("salary_expected_min"),
       expectedMax: attr("salary_expected_max"),
     },
+    // ADR-0062 §3.2 — a live correction sits ABOVE the DraftProfile container.
+    override: salaryOverride,
   });
   const period = resolveSalaryPeriodWithSource(
     scalar(attributes.salary_period),
@@ -287,9 +328,18 @@ export function toCandidateDetail(input: CandidateDetailInputs): AdminCandidateD
       },
     },
     trade: {
-      canonical_trade_id: fieldOf(summary.trade.canonical_trade_id, profileSource),
-      canonical_role_id: fieldOf(summary.trade.canonical_role_id, profileSource),
-      display_name: fieldOf(summary.trade.display_name, profileSource),
+      canonical_trade_id: {
+        ...fieldOf(summary.trade.canonical_trade_id, tradeSource),
+        correction: correctionMeta("trade"),
+      },
+      canonical_role_id: {
+        ...fieldOf(summary.trade.canonical_role_id, tradeSource),
+        correction: correctionMeta("role"),
+      },
+      display_name: {
+        ...fieldOf(summary.trade.display_name, tradeSource),
+        correction: correctionMeta("trade") ?? correctionMeta("role"),
+      },
       job_domain: fieldOf(
         input.jobDomain?.jobDomainId
           ? {
@@ -301,14 +351,20 @@ export function toCandidateDetail(input: CandidateDetailInputs): AdminCandidateD
       ),
       // `worker_occupation` is written by the worker's own page/chat edit AND, when empty, by the
       // interview's insert-only fallback (`ChatTableWritesService`) — no column says which.
-      secondary_roles: fieldOf(
-        input.occupations.map((id) => ({ id, label: getRole(id)?.name ?? id })),
-        "unknown",
-      ),
+      secondary_roles: {
+        ...fieldOf(
+          input.occupations.map((id) => ({ id, label: getRole(id)?.name ?? id })),
+          prefSource("secondary_roles", "unknown"),
+        ),
+        correction: correctionMeta("secondary_roles"),
+      },
     },
     employer_card: employerCard(input),
     skills: {
-      skills: fieldOf(summary.skills, profileSource),
+      skills: {
+        ...fieldOf(summary.skills, skillsSource),
+        correction: correctionMeta("skills"),
+      },
       machines: fieldOf(summary.machines, profileSource),
       match_skills: input.matchSkills.map((s) => ({
         skill_id: s.skillId,
@@ -320,7 +376,10 @@ export function toCandidateDetail(input: CandidateDetailInputs): AdminCandidateD
       })),
     },
     experience: {
-      total_years: fieldOf(summary.experience_years, profileSource),
+      total_years: {
+        ...fieldOf(summary.experience_years, experienceSource),
+        correction: correctionMeta("experience"),
+      },
       industry_tenure: fieldOf(
         input.tenure.map((t) => ({
           industry: industryLabelled(t.industryId),
@@ -331,32 +390,53 @@ export function toCandidateDetail(input: CandidateDetailInputs): AdminCandidateD
     },
     // Written only by `WorkerEmploymentService.replaceForWorker` (the worker's page, a confirmed
     // chat edit). The employer name is not on this surface (encrypted at rest).
-    work_history: fieldOf(
-      input.employment.map((e) => ({
-        employer_city: e.employerCity,
-        employer_state: e.employerState,
-        start_ym: e.startYm,
-        end_ym: e.endYm,
-        duration_stated: e.durationStated,
-        roles: e.roles.map((r) => ({
-          role_label: r.roleLabel,
-          start_ym: r.startYm,
-          end_ym: r.endYm,
-          work_done: r.workDone,
-          work_done_polished: r.workDonePolished,
-          work_done_polish_declined: r.workDonePolishDeclined,
+    work_history: {
+      ...fieldOf(
+        input.employment.map((e) => ({
+          employer_city: e.employerCity,
+          employer_state: e.employerState,
+          start_ym: e.startYm,
+          end_ym: e.endYm,
+          duration_stated: e.durationStated,
+          roles: e.roles.map((r) => ({
+            role_label: r.roleLabel,
+            start_ym: r.startYm,
+            end_ym: r.endYm,
+            work_done: r.workDone,
+            work_done_polished: r.workDonePolished,
+            work_done_polish_declined: r.workDonePolishDeclined,
+          })),
         })),
-      })),
-      "worker_edit",
-    ),
+        prefSource("work_history", "worker_edit"),
+      ),
+      correction: correctionMeta("work_history"),
+    },
     education: {
       // Education and certificate rows: the worker's qualifications page, a confirmed chat edit,
       // or his own extracted-field correction — all `WorkerQualificationsService`.
-      headline: fieldOf(qualifications?.educationHeadline ?? null, "worker_edit"),
-      education: fieldOf(qualifications?.education ?? [], "worker_edit"),
-      certifications: fieldOf(qualifications?.certifications ?? [], "worker_edit"),
+      headline: {
+        ...fieldOf(
+          qualifications?.educationHeadline ?? null,
+          prefSource("education", "worker_edit"),
+        ),
+        correction: correctionMeta("education"),
+      },
+      education: {
+        ...fieldOf(qualifications?.education ?? [], prefSource("education", "worker_edit")),
+        correction: correctionMeta("education"),
+      },
+      certifications: {
+        ...fieldOf(
+          qualifications?.certifications ?? [],
+          prefSource("certifications", "worker_edit"),
+        ),
+        correction: correctionMeta("certifications"),
+      },
       // Training rows also arrive from the interview's insert-only fallback — no column says which.
-      training: fieldOf(qualifications?.trainings ?? [], "unknown"),
+      training: {
+        ...fieldOf(qualifications?.trainings ?? [], prefSource("training", "unknown")),
+        correction: correctionMeta("training"),
+      },
       education_level: fieldOf(summary.education_level, profileSource),
       education_field: fieldOf(summary.education_field, profileSource),
       education_detail: fieldOf(
@@ -370,17 +450,29 @@ export function toCandidateDetail(input: CandidateDetailInputs): AdminCandidateD
       education_credential: fieldOf(prefs.educationCredential, attr("education_credential")),
     },
     // The résumé's rule: the language rows' lines win, else the `languages` attribute.
-    languages:
-      languageRows !== undefined
-        ? fieldOf(languageRows, "worker_edit")
-        : fieldOf(prefs.languages, attr("languages")),
+    languages: {
+      ...(languageRows !== undefined
+        ? fieldOf(languageRows, prefSource("languages", "worker_edit"))
+        : fieldOf(prefs.languages, prefSource("languages", attr("languages")))),
+      correction: correctionMeta("languages"),
+    },
     salary: {
-      band: fieldOf(band.value, band.source),
-      period: { value: period.value, source: period.source, correction: null },
+      band: {
+        ...fieldOf(band.value, band.source),
+        correction: correctionMeta("salary_expected"),
+      },
+      period: {
+        value: period.value,
+        source: prefSource("salary_period", period.source),
+        correction: correctionMeta("salary_period"),
+      },
       // The chip is an ATTRIBUTE answer; a container figure outranks the attributes outright.
+      // A live correction is an explicit admin band, so it never claims the open-top chip.
       open_top_chip:
+        salaryOverride === null &&
         resolveSalaryBand({ expected: container.amountMin, expectedMax: container.amountMax }) ===
-          null && isOpenTopSalaryChip(attributeBand),
+          null &&
+        isOpenTopSalaryChip(attributeBand),
     },
     preferences: {
       availability: {
@@ -390,19 +482,46 @@ export function toCandidateDetail(input: CandidateDetailInputs): AdminCandidateD
           available_from: availability.value.availableFrom,
           notice_period_days: availability.value.noticePeriodDays,
         },
-        source: availability.source,
-        correction: null,
+        source: prefSource("availability", availability.source),
+        correction: correctionMeta("availability"),
       },
-      shift: fieldOf(prefs.shiftLabel, attr("shift_preference")),
+      shift: {
+        ...fieldOf(prefs.shiftLabel, prefSource("shift", attr("shift_preference"))),
+        correction: correctionMeta("shift"),
+      },
       // The worker's toggle, or seeded from his shift answer (`seedNightShiftReadyFromShift`).
       night_shift_ready: fieldOf(core.resumeNightShiftReady, "unknown"),
-      relocation: fieldOf(prefs.willingToRelocate ?? null, attr("relocation_willingness")),
-      accommodation: fieldOf(prefs.accommodationNeeded ?? null, attr("accommodation_needed")),
-      job_type: fieldOf(labelFor(JOB_TYPES, scalar(attributes.job_type) ?? ""), attr("job_type")),
-      work_types: fieldOf(labelsFor(WORK_TYPES, workTypes.value), workTypes.source),
-      commute_max_km: fieldOf(prefs.commuteMaxKm, attr("commute_max_km")),
-      willing_to_travel: fieldOf(prefs.willingToTravel ?? null, attr("willing_to_travel")),
-      documents: fieldOf(prefs.documents, attr("documents_ready")),
+      relocation: {
+        ...fieldOf(prefs.willingToRelocate ?? null, prefSource("relocation", attr("relocation_willingness"))),
+        correction: correctionMeta("relocation"),
+      },
+      accommodation: {
+        ...fieldOf(prefs.accommodationNeeded ?? null, prefSource("accommodation", attr("accommodation_needed"))),
+        correction: correctionMeta("accommodation"),
+      },
+      job_type: {
+        ...fieldOf(
+          labelFor(JOB_TYPES, scalar(attributes.job_type) ?? ""),
+          prefSource("job_type", attr("job_type")),
+        ),
+        correction: correctionMeta("job_type"),
+      },
+      work_types: {
+        ...fieldOf(labelsFor(WORK_TYPES, workTypes.value), prefSource("work_types", workTypes.source)),
+        correction: correctionMeta("work_types"),
+      },
+      commute_max_km: {
+        ...fieldOf(prefs.commuteMaxKm, prefSource("commute_max_km", attr("commute_max_km"))),
+        correction: correctionMeta("commute_max_km"),
+      },
+      willing_to_travel: {
+        ...fieldOf(prefs.willingToTravel ?? null, prefSource("willing_to_travel", attr("willing_to_travel"))),
+        correction: correctionMeta("willing_to_travel"),
+      },
+      documents: {
+        ...fieldOf(prefs.documents, prefSource("documents_ready", attr("documents_ready"))),
+        correction: correctionMeta("documents_ready"),
+      },
     },
     resume: {
       versions: input.resumes.rows.map((r) => ({

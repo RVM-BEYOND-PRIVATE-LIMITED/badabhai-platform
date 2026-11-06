@@ -17,6 +17,7 @@ import type { AuthenticatedAdmin } from "../admin-auth.guard";
 import { ADMIN_ACTION_CODES, type AdminActionCode } from "../admin-action-codes";
 import { AdminActionsRepository } from "../admin-actions.repository";
 import { AdminCorrectionsRepository } from "./admin-corrections.repository";
+import { AdminCorrectionFactsService } from "./admin-correction-facts.service";
 import {
   correctionValueSchema,
   isCorrectableFact,
@@ -57,6 +58,8 @@ export class AdminCorrectionService {
     private readonly preferences: WorkerPreferencesService,
     private readonly pii: PiiCryptoService,
     private readonly events: EventsService,
+    // #2561 PR 2 — the per-field domain writers and previous-value readers.
+    private readonly facts: AdminCorrectionFactsService,
   ) {}
 
   /** POST /admin/candidates/:id/corrections */
@@ -85,7 +88,7 @@ export class AdminCorrectionService {
           : this.envelope(live.valueEnc).previous;
 
       const envelope: CorrectionEnvelope = { corrected: value, previous };
-      await this.writeDomain(dto.fact_key, workerId, value, tx, ctx);
+      await this.writeDomain(dto.fact_key, workerId, value, tx, ctx, false, overrideId);
       // FREE the live slot first: the partial unique index admits one live row, and the
       // self-FK cannot point at the replacement until that row exists. Link it after insert.
       if (live !== undefined) await this.repo.supersede(tx, live.id, null);
@@ -125,7 +128,7 @@ export class AdminCorrectionService {
       const live = await this.repo.findLive(tx, workerId, factKey);
       if (live === undefined) return;
       const previous = this.envelope(live.valueEnc).previous;
-      await this.writeDomain(factKey, workerId, previous, tx, ctx, true);
+      await this.writeDomain(factKey, workerId, previous, tx, ctx, true, live.id);
       await this.repo.supersede(tx, live.id, null);
       await this.writeAudit(tx, admin.id, workerId, ADMIN_ACTION_CODES.candidate_field_reverted, dto);
       await this.emitReverted(tx, admin.id, workerId, factKey, live.id, ctx);
@@ -198,7 +201,14 @@ export class AdminCorrectionService {
       case "preferred_locations":
         return this.repo.basePreferredLocations(tx, workerId);
       default:
-        throw new BadRequestException("This field is not open for correction yet");
+        if (!isCorrectableFact(factKey)) {
+          throw new BadRequestException("This field is not open for correction yet");
+        }
+        return this.facts.readPrevious(
+          tx,
+          workerId,
+          factKey as WorkerAdminOverrideFactKey,
+        );
     }
   }
 
@@ -213,7 +223,8 @@ export class AdminCorrectionService {
     value: unknown,
     tx: Database,
     ctx: RequestContext,
-    reverting = false,
+    reverting: boolean,
+    overrideId: string,
   ): Promise<void> {
     switch (factKey) {
       case "current_city": {
@@ -246,7 +257,17 @@ export class AdminCorrectionService {
       }
       default:
         void reverting;
-        throw new BadRequestException("This field is not open for correction yet");
+        if (!isCorrectableFact(factKey)) {
+          throw new BadRequestException("This field is not open for correction yet");
+        }
+        await this.facts.write(
+          tx,
+          ctx,
+          workerId,
+          factKey as WorkerAdminOverrideFactKey,
+          value,
+          overrideId,
+        );
     }
   }
 

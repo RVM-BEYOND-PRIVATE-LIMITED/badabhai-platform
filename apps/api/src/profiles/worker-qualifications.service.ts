@@ -1,7 +1,7 @@
 import { InjectQueue } from "@nestjs/bullmq";
-import { Injectable, Logger, NotFoundException } from "@nestjs/common";
+import { Injectable, Logger, NotFoundException, Optional } from "@nestjs/common";
 import type { Queue } from "bullmq";
-import type { Database } from "@badabhai/db";
+import type { Database, WorkerAdminOverrideFactKey } from "@badabhai/db";
 
 import type { RequestContext } from "../common/request-context";
 import { PiiCryptoService } from "../common/pii-crypto.service";
@@ -9,6 +9,7 @@ import { EventsService } from "../events/events.service";
 import { RESUME_RENDER_QUEUE, type ResumeRenderJobData } from "../queue/queue.constants";
 import { WorkersRepository } from "../workers/workers.repository";
 import { storedEducationField } from "./title-case-on-write";
+import { EffectiveFactsService } from "./effective-facts.service";
 import {
   SetMyQualificationsSchema,
   type CertificateEntryDto,
@@ -70,6 +71,8 @@ export class WorkerQualificationsService {
     // @Global PiiCryptoService every other PII writer uses; no module edge is added.
     private readonly pii: PiiCryptoService,
     @InjectQueue(RESUME_RENDER_QUEUE) private readonly renderQueue: Queue<ResumeRenderJobData>,
+    // #2561 — owner ruling A1: the worker's own edit supersedes a live admin correction.
+    @Optional() private readonly effectiveFacts?: EffectiveFactsService,
   ) {}
 
   async replaceForWorker(
@@ -113,6 +116,17 @@ export class WorkerQualificationsService {
       opts.tx === undefined
         ? await this.qualifications.replaceForWorker(workerId, input)
         : await this.qualifications.replaceForWorker(workerId, input, opts.tx);
+
+    // A1 — only the lists the worker actually sent are superseded; an absent list means the
+    // client did not reach that half of the page and must not clear a correction.
+    const corrected: WorkerAdminOverrideFactKey[] = [];
+    if (dto.certificates !== undefined) corrected.push("certifications");
+    if (dto.educations !== undefined) corrected.push("education");
+    if (dto.trainings !== undefined) corrected.push("training");
+    await this.effectiveFacts?.supersedeByWorkerEdit(workerId, corrected, {
+      ...(opts.tx === undefined ? {} : { tx: opts.tx }),
+      ctx,
+    });
 
     await this.events.emit({
       event_name: "worker.qualifications_recorded",

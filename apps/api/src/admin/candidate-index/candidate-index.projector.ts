@@ -47,6 +47,16 @@ function finiteNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
+/** The `salary_expected` correction, mapped onto the precedence layer's `override` shape. */
+function salaryOverrideOf(
+  overrides: ReadonlyMap<string, unknown>,
+): { amountMin: number | null; amountMax: number | null } | null {
+  const value = overrides.get("salary_expected");
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const record = value as { min?: unknown; max?: unknown };
+  return { amountMin: finiteNumber(record.min), amountMax: finiteNumber(record.max) };
+}
+
 /**
  * One search-doc token: lowercased, whitespace-collapsed. The canonical fold
  * for `search_doc` — the later Candidates search side reproduces it
@@ -139,24 +149,47 @@ export class CandidateIndexProjector {
     ]);
     if (!worker) return false;
 
-    // #2561 seam: the overlay-able inputs, through the (today identity) overlay.
+    // #2561 — the live correction overlay for the profile-column group. The table-backed
+    // groups are already in their domain stores; this map only needs the fields the summary
+    // below is built from (plus the salary band, handled at the precedence layer).
+    const overrides = this.effectiveFacts
+      ? await this.effectiveFacts.resolve(workerId)
+      : new Map();
     const effective = applyEffectiveFacts(
       {
         workersCity: worker.currentCity as unknown,
         attributes: tradeSheet.attributes as unknown,
         salaryContainer: (profile as unknown as { salaryExpectation?: unknown } | undefined)
           ?.salaryExpectation as unknown,
+        canonicalTradeId: profile?.canonicalTradeId as unknown,
+        canonicalRoleId: profile?.canonicalRoleId as unknown,
+        skills: profile?.skills as unknown,
+        experience: profile?.experience as unknown,
       },
-      this.effectiveFacts ? await this.effectiveFacts.resolve(workerId) : new Map(),
+      overrides,
     );
     const attributes = (effective.attributes ?? {}) as Json;
     const workersCity = typeof effective.workersCity === "string" ? effective.workersCity : null;
+    const effectiveProfile = profile
+      ? {
+          ...profile,
+          canonicalTradeId:
+            typeof effective.canonicalTradeId === "string" ? effective.canonicalTradeId : null,
+          canonicalRoleId:
+            typeof effective.canonicalRoleId === "string" ? effective.canonicalRoleId : null,
+          skills: Array.isArray(effective.skills) ? effective.skills : profile.skills,
+          experience:
+            typeof effective.experience === "object" && effective.experience !== null
+              ? effective.experience
+              : profile.experience,
+        }
+      : undefined;
 
     // The worker's self-view summary, built exactly as getProfileSummary builds it.
     const summary = toProfileSummary(
-      profile
+      effectiveProfile
         ? {
-            ...profile,
+            ...effectiveProfile,
             hasPhoto:
               typeof worker.photoStorageKey === "string" && worker.photoStorageKey.length > 0,
             workerCity: workersCity,
@@ -195,6 +228,8 @@ export class CandidateIndexProjector {
         expected: attrSource("salary_expected_min"),
         expectedMax: attrSource("salary_expected_max"),
       },
+      // ADR-0062 §3.2 — the correction sits ABOVE the DraftProfile container.
+      override: salaryOverrideOf(overrides),
     });
     const period = resolveSalaryPeriodWithSource(
       scalar(attributes.salary_period),

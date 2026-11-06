@@ -90,8 +90,8 @@ export class WorkerLanguagesRepository {
    * The shape is `WorkerLanguageRecord`, the same pure composition input the qualifications
    * reader returns, so the render path treats all three credential lists identically.
    */
-  async loadForResume(workerId: string): Promise<WorkerLanguageRecord[]> {
-    const rows = await this.db
+  async loadForResume(workerId: string, tx?: Database): Promise<WorkerLanguageRecord[]> {
+    const rows = await (tx ?? this.db)
       .select({
         language: workerLanguages.language,
         canSpeak: workerLanguages.canSpeak,

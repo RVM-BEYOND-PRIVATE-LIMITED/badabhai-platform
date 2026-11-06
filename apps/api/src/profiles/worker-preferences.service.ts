@@ -8,7 +8,11 @@ import {
   Optional,
 } from "@nestjs/common";
 import type { Queue } from "bullmq";
-import type { Database, NewWorkerAttribute } from "@badabhai/db";
+import type {
+  Database,
+  NewWorkerAttribute,
+  WorkerAdminOverrideFactKey,
+} from "@badabhai/db";
 import { DATABASE } from "../database/database.module";
 import { EffectiveFactsService } from "./effective-facts.service";
 import type { ZodTypeAny } from "zod";
@@ -246,17 +250,26 @@ export class WorkerPreferencesService {
     // re-renders once itself when no regeneration was queued.
     if (tx === undefined) await this.enqueueRerender(workerId, ctx);
 
-    // A1: the worker's own explicit preference edit supersedes a live correction for
-    // `preferred_locations`, in the same transaction as the write.
-    if (
-      tx !== undefined &&
-      body.preferred_cities !== undefined &&
-      source === "worker"
-    ) {
-      await this.effectiveFacts?.supersedeByWorkerEdit(workerId, ["preferred_locations"], {
-        tx,
-        ctx,
-      });
+    // A1: the worker's own explicit preference edit supersedes a live correction for every
+    // fact the body actually addresses, in the same transaction as the write. An absent key
+    // means the client did not reach that field; it must not clear a correction.
+    const corrected: WorkerAdminOverrideFactKey[] = [];
+    if (body.preferred_cities !== undefined) corrected.push("preferred_locations");
+    if (body.salary_expected_min !== undefined || body.salary_expected_max !== undefined) {
+      corrected.push("salary_expected");
+    }
+    if (body.salary_period !== undefined) corrected.push("salary_period");
+    if (body.availability !== undefined) corrected.push("availability");
+    if (body.shift !== undefined) corrected.push("shift");
+    if (body.willing_to_relocate !== undefined) corrected.push("relocation");
+    if (body.accommodation_needed !== undefined) corrected.push("accommodation");
+    if (body.job_type !== undefined) corrected.push("job_type");
+    if (body.work_types !== undefined) corrected.push("work_types");
+    if (body.commute_max_km !== undefined) corrected.push("commute_max_km");
+    if (body.willing_to_travel !== undefined) corrected.push("willing_to_travel");
+    if (body.documents_ready !== undefined) corrected.push("documents_ready");
+    if (tx !== undefined && source === "worker" && corrected.length > 0) {
+      await this.effectiveFacts?.supersedeByWorkerEdit(workerId, corrected, { tx, ctx });
     }
 
     return { worker_id: workerId, keys_written: rows.length, keys_cleared: cleared.length };

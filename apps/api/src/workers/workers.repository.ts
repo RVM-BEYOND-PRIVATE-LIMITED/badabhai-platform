@@ -447,8 +447,8 @@ export class WorkersRepository {
    * behaviour moved and the name did not: this used to return whichever row was written last,
    * which after an AI-down extraction is an EMPTY placeholder shadowing a real profile.
    */
-  async latestProfile(workerId: string): Promise<WorkerProfile | undefined> {
-    const rows = await this.db
+  async latestProfile(workerId: string, tx?: Database): Promise<WorkerProfile | undefined> {
+    const rows = await (tx ?? this.db)
       .select()
       .from(workerProfiles)
       .where(eq(workerProfiles.workerId, workerId))

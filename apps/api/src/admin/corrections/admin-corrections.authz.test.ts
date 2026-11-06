@@ -1,4 +1,5 @@
 import "reflect-metadata";
+import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { ForbiddenException, UnauthorizedException, type ExecutionContext } from "@nestjs/common";
 import { Reflector } from "@nestjs/core";
@@ -123,5 +124,30 @@ describe("#2561 correction contract", () => {
         worker_id: "x",
       }).success,
     ).toBe(false);
+  });
+
+  it("PR 2 value schemas: ordered salary band, de-duplicated skills, no worker voice note", () => {
+    expect(
+      correctionValueSchema("salary_expected").safeParse({ min: 30000, max: 20000 }).success,
+    ).toBe(false);
+    expect(correctionValueSchema("salary_expected").parse({ min: 20000, max: 25000 })).toEqual({
+      min: 20000,
+      max: 25000,
+    });
+    expect(correctionValueSchema("skills").parse(["skill_a", "skill_a", "skill_b"])).toEqual([
+      "skill_a",
+      "skill_b",
+    ]);
+    const bad = correctionValueSchema("work_history").safeParse({
+      employments: [
+        {
+          employer_name: "Tata Motors",
+          role_label: "CNC Operator",
+          work_done: "Setup and turning",
+          work_done_voice_note_id: randomUUID(),
+        },
+      ],
+    });
+    expect(bad.success).toBe(false);
   });
 });

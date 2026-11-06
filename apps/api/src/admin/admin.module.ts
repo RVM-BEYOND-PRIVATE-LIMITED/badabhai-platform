@@ -109,7 +109,11 @@ import { WorkerAttributesRepository } from "../profiles/worker-attributes.reposi
 import { WorkerPreferencesService } from "../profiles/worker-preferences.service";
 import { AdminCorrectionsRepository } from "./corrections/admin-corrections.repository";
 import { AdminCorrectionService } from "./corrections/admin-corrections.service";
+import { AdminCorrectionFactsService } from "./corrections/admin-correction-facts.service";
 import { AdminCorrectionsController } from "./corrections/admin-corrections.controller";
+import { ProfilesRepository } from "../profiles/profiles.repository";
+import { ProfileSkillsRepository } from "../profiles/profile-skills.repository";
+import { WorkerEmploymentRepository } from "../profiles/worker-employment.repository";
 import { WorkerLanguagesRepository } from "../profiles/worker-languages.repository";
 import { WorkerOccupationsRepository } from "../profiles/worker-occupations.repository";
 import { WorkerQualificationsRepository } from "../profiles/worker-qualifications.repository";
@@ -496,7 +500,14 @@ import { WorkerQualificationsRepository } from "../profiles/worker-qualification
     // does not depend on the profiles subtree (the existing AdminModule pattern).
     AdminCorrectionsRepository,
     AdminCorrectionService,
+    AdminCorrectionFactsService,
     WorkerPreferencesService,
+    // #2561 PR 2 — the profile/employment stores the remaining field groups write. The other
+    // repositories (attributes, qualifications, languages, occupations) are provided above;
+    // WorkerSkillsRepository arrives through MatchModule.
+    ProfilesRepository,
+    ProfileSkillsRepository,
+    WorkerEmploymentRepository,
   ],
   exports: [AdminAuthGuard, AdminRolesGuard, AdminSessionService, AdminRepository],
 })

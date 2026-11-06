@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import type { TradeLevel } from "@badabhai/taxonomy";
 import { type Database, workerProfileSkills } from "@badabhai/db";
 
@@ -44,8 +44,13 @@ export class ProfileSkillsRepository {
     profileId: string,
     skillIds: readonly string[],
     evidenceRef: string,
+    /**
+     * #2561 — an ADMIN correction writes `source='ops'` (ADR-0062 §4) and joins the
+     * correction transaction. The worker-confirmed path keeps its existing defaults.
+     */
+    options: { source?: "worker_confirmed" | "ops"; tx?: Database } = {},
   ): Promise<{ skillsWritten: number }> {
-    return this.db.transaction(async (tx) => {
+    const run = async (tx: Database): Promise<{ skillsWritten: number }> => {
       const kept =
         skillIds.length === 0
           ? []
@@ -69,7 +74,7 @@ export class ProfileSkillsRepository {
               workerProfileId: profileId,
               skillId,
               confidence: null,
-              source: "worker_confirmed" as const,
+              source: options.source ?? ("worker_confirmed" as const),
               evidenceRef,
               monthsExperience: null,
               level: null,
@@ -82,7 +87,64 @@ export class ProfileSkillsRepository {
         );
       }
       return { skillsWritten: skillIds.length };
-    });
+    };
+    return options.tx === undefined
+      ? this.db.transaction((tx) => run(tx as unknown as Database))
+      : run(options.tx);
+  }
+
+  /**
+   * #2561 — an ADMIN correction's authored rows, with the worker's rows left intact.
+   *
+   * ADR-0062 §4 is explicit: "Admin rows are `worker_profile_skill.source='ops'`, leaving the
+   * worker's rows intact." The worker-confirmed replace above deliberately deletes every row
+   * (the corrected list IS the current truth there); an admin correction instead owns only the
+   * `ops` rows it wrote. A skill the corrected list keeps that the worker already authored stays
+   * as the worker's row; a skill the admin removed keeps its worker row as history while the
+   * display column (`worker_profiles.skills`) stops showing it. The display column remains the
+   * authoritative list for every reader.
+   */
+  async replaceAdminSkills(
+    profileId: string,
+    skillIds: readonly string[],
+    evidenceRef: string,
+    tx?: Database,
+  ): Promise<{ skillsWritten: number }> {
+    const run = async (tx: Database): Promise<{ skillsWritten: number }> => {
+      await tx
+        .delete(workerProfileSkills)
+        .where(
+          and(
+            eq(workerProfileSkills.workerProfileId, profileId),
+            eq(workerProfileSkills.source, "ops"),
+          ),
+        );
+      if (skillIds.length > 0) {
+        await tx
+          .insert(workerProfileSkills)
+          .values(
+            skillIds.map((skillId) => ({
+              workerProfileId: profileId,
+              skillId,
+              confidence: null,
+              source: "ops" as const,
+              evidenceRef,
+              monthsExperience: null,
+              level: null,
+              tradeLevel: null,
+              levelConfirmed: false,
+            })),
+          )
+          // A worker-authored row for the same skill is the same assertion; leave it untouched.
+          .onConflictDoNothing({
+            target: [workerProfileSkills.workerProfileId, workerProfileSkills.skillId],
+          });
+      }
+      return { skillsWritten: skillIds.length };
+    };
+    return tx === undefined
+      ? this.db.transaction((t) => run(t as unknown as Database))
+      : run(tx);
   }
 
   /**

@@ -250,13 +250,17 @@ export class WorkerQualificationsRepository {
    * produce the cross product of a worker's educations and certificates and every consumer would
    * have to undo it.
    */
-  async loadForResume(workerId: string): Promise<{
+  async loadForResume(
+    workerId: string,
+    tx?: Database,
+  ): Promise<{
     certificates: WorkerCertificateRecord[];
     educations: WorkerEducationRecord[];
     trainings: WorkerTrainingRecord[];
   }> {
+    const db = tx ?? this.db;
     const [certificates, educations, trainings] = await Promise.all([
-      this.db
+      db
         .select({
           name: workerCertificates.name,
           issuer: workerCertificates.issuer,
@@ -268,7 +272,7 @@ export class WorkerQualificationsRepository {
         .from(workerCertificates)
         .where(eq(workerCertificates.workerId, workerId))
         .orderBy(asc(workerCertificates.sortOrder)),
-      this.db
+      db
         .select({
           credential: workerEducations.credential,
           field: workerEducations.field,
@@ -280,7 +284,7 @@ export class WorkerQualificationsRepository {
         .where(eq(workerEducations.workerId, workerId))
         .orderBy(asc(workerEducations.sortOrder)),
       // Layer A (d) — the courses, in the worker's own order.
-      this.db
+      db
         .select({
           name: workerTrainings.name,
           provider: workerTrainings.provider,

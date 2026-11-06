@@ -130,7 +130,11 @@ export class ProfilesRepository {
    * closed on a row the schema cannot parse — that row is corrupt and stamping
    * corrected values onto an unreadable draft would fork the readers).
    */
-  async setSkillLists(profileId: string, skillIds: readonly string[]): Promise<void> {
+  async setSkillLists(
+    profileId: string,
+    skillIds: readonly string[],
+    tx?: Database,
+  ): Promise<void> {
     const profile = await this.findById(profileId);
     if (!profile) throw new Error(`Profile ${profileId} not found`);
     const draft = DraftProfileSchema.parse({
@@ -139,13 +143,45 @@ export class ProfilesRepository {
         : {}),
       skills: [...skillIds],
     });
-    await this.db
+    await (tx ?? this.db)
       .update(workerProfiles)
       .set({
         skills: [...skillIds],
         rawProfile: draft,
         updatedAt: new Date(),
       })
+      .where(eq(workerProfiles.id, profileId));
+  }
+
+  /**
+   * #2561 — set or clear ONE canonical id from an admin correction.
+   *
+   * {@link fillCanonicalIds} is deliberately blanks-only (a completed trade form must not
+   * overwrite an id a later extraction wrote), so it cannot serve a correction: a correction
+   * must be able to change an existing value AND to clear it on revert. The `raw_profile`
+   * snapshot moves with the column, exactly as the other two writers do, and the merged draft
+   * is re-validated so a corrupt row fails closed instead of forking the readers.
+   */
+  async setCanonicalId(
+    profileId: string,
+    field: "canonicalTradeId" | "canonicalRoleId",
+    value: string | null,
+    tx?: Database,
+  ): Promise<void> {
+    const profile = await this.findById(profileId);
+    if (!profile) throw new Error(`Profile ${profileId} not found`);
+    const rawKey = field === "canonicalTradeId" ? "canonical_trade_id" : "canonical_role_id";
+    const draft = DraftProfileSchema.parse({
+      ...(typeof profile.rawProfile === "object" && profile.rawProfile !== null
+        ? profile.rawProfile
+        : {}),
+      [rawKey]: value,
+    });
+    const patch =
+      field === "canonicalTradeId" ? { canonicalTradeId: value } : { canonicalRoleId: value };
+    await (tx ?? this.db)
+      .update(workerProfiles)
+      .set({ ...patch, rawProfile: draft, updatedAt: new Date() })
       .where(eq(workerProfiles.id, profileId));
   }
 
@@ -241,13 +277,25 @@ export class ProfilesRepository {
    * column AND on the raw profile, which get the same merge. A non-object legacy
    * value degrades to `{}` rather than throwing the worker's correction away.
    */
-  async setExperienceTotal(profileId: string, totalYears: number): Promise<void> {
+  async setExperienceTotal(
+    profileId: string,
+    totalYears: number | null,
+    tx?: Database,
+  ): Promise<void> {
     const profile = await this.findById(profileId);
     if (!profile) throw new Error(`Profile ${profileId} not found`);
-    const mergeTotal = (value: unknown): Record<string, unknown> => ({
-      ...(typeof value === "object" && value !== null ? value : {}),
-      total_years: totalYears,
-    });
+    // `null` is a REVERT to "not stated": remove the key rather than storing a zero, which
+    // would be a different fact. Every other sibling key stays untouched.
+    const mergeTotal = (value: unknown): Record<string, unknown> => {
+      const next: Record<string, unknown> = {
+        ...(typeof value === "object" && value !== null
+          ? (value as Record<string, unknown>)
+          : {}),
+      };
+      if (totalYears === null) delete next["total_years"];
+      else next["total_years"] = totalYears;
+      return next;
+    };
     const draft = DraftProfileSchema.parse({
       ...(typeof profile.rawProfile === "object" && profile.rawProfile !== null
         ? profile.rawProfile
@@ -256,7 +304,7 @@ export class ProfilesRepository {
         (profile.rawProfile as Record<string, unknown> | null)?.["experience"] ?? null,
       ),
     });
-    await this.db
+    await (tx ?? this.db)
       .update(workerProfiles)
       .set({
         experience: mergeTotal(profile.experience),

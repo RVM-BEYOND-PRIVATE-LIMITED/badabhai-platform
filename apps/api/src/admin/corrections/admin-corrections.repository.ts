@@ -1,6 +1,7 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull } from "drizzle-orm";
 import {
+  skills,
   workerAdminOverrides,
   workerAttributes,
   workers,
@@ -82,6 +83,20 @@ export class AdminCorrectionsRepository {
       )
       .limit(1);
     return Array.isArray(row?.value) ? row.value : [];
+  }
+
+  /**
+   * The subset of `ids` that exist in the closed skill vocabulary. The admin correction must
+   * reject an unknown id with a 400 BEFORE it deletes the old authored rows; letting the FK
+   * fire would roll the transaction back with a 500 and a constraint name.
+   */
+  async existingSkillIds(tx: Database, ids: readonly string[]): Promise<string[]> {
+    if (ids.length === 0) return [];
+    const rows = await tx
+      .select({ skillId: skills.skillId })
+      .from(skills)
+      .where(inArray(skills.skillId, [...ids]));
+    return rows.map((row) => row.skillId);
   }
 
   async insert(
