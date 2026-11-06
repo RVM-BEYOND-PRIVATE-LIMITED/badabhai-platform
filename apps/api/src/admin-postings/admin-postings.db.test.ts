@@ -35,7 +35,12 @@ function assertLocalDatabase(url: string): void {
   }
 }
 
+// TAG only keys NON-visible fixture columns (email/hash/org ciphertext) for uniqueness and
+// cleanup. Worker-visible text below is FIXED and digit-free: a random hex tag with a 7-digit
+// run trips the contact-details screen, the sync refuses the twin, and the test flakes.
 const TAG = randomUUID().slice(0, 8);
+const POSTING_TITLE = "VMC Operator - Admin Postings Fixture";
+const AGENCY_TITLE = "VMC Operator - Admin Postings Agency Fixture";
 const WORKER_ID = randomUUID();
 const CREATED_BY = randomUUID();
 const SKILL = "mskill_vmc_operator";
@@ -70,7 +75,7 @@ describe.skipIf(!RUN)("#2566 hidden postings — against Postgres", () => {
         (id, created_by, org_label, role_title, vacancy_band, status, published_at)
       VALUES
         (${POSTING}::uuid, ${CREATED_BY}::uuid, ${`org-${TAG}`},
-         ${`Role ${TAG}`}, '1', 'open', now())`;
+         ${POSTING_TITLE}, '1', 'open', now())`;
 
     // An agency job + its source payer, with a pick so the twin is servable.
     const agency = randomUUID();
@@ -80,7 +85,7 @@ describe.skipIf(!RUN)("#2566 hidden postings — against Postgres", () => {
               ${`enc:org-${TAG}`}, 'active')`;
     await client.sql`
       INSERT INTO jobs (id, trade_key, title, city, status, payer_id, match_skill_ids)
-      VALUES (${TWIN_SOURCE}::uuid, 'machine_operator', ${`Agency ${TAG}`}, 'Pune',
+      VALUES (${TWIN_SOURCE}::uuid, 'machine_operator', ${AGENCY_TITLE}, 'Pune',
               'open', ${agency}::uuid, ${JSON.stringify([SKILL])}::jsonb)`;
 
     const outcome = await syncAgencyTwin(client.db, TWIN_SOURCE, ctx, { apply: true });
@@ -88,6 +93,13 @@ describe.skipIf(!RUN)("#2566 hidden postings — against Postgres", () => {
       throw new Error(`fixture twin was not created: ${outcome.kind}`);
     }
     TWIN = outcome.jobPostingId;
+    // Every assertion below assumes a SERVABLE twin. Fail here, naming the cause, rather than
+    // as an unexplained `toContain` miss three tests later.
+    if (outcome.status !== "open" || outcome.refusedReason !== null) {
+      throw new Error(
+        `fixture twin is not servable: status=${outcome.status} refused=${outcome.refusedReason}`,
+      );
+    }
   });
 
   afterAll(async () => {
@@ -107,16 +119,20 @@ describe.skipIf(!RUN)("#2566 hidden postings — against Postgres", () => {
   });
 
   const feedIds = async (): Promise<string[]> => {
-    const rows = await applications.findOpenPostingsForFeed(WORKER_ID, 200, {
+    // A generous LIMIT: the CI gates share one database, so other suites' rows can sit ahead
+    // of these fixtures in the feed's published_at order.
+    const rows = await applications.findOpenPostingsForFeed(WORKER_ID, 5000, {
       wantedSkillIds: [],
     });
     return rows.map((r) => r.id);
   };
 
   const searchIds = async (): Promise<string[]> => {
+    // `q` matches only these fixtures' titles ("… Admin Postings … Fixture"), so the result
+    // is independent of whatever else the shared gate database holds.
     const { rows } = await jobs.searchOpenPostings({
       workerId: WORKER_ID,
-      q: null,
+      q: "admin postings fixture",
       profileSkillIds: [],
       city: null,
       state: null,
@@ -162,7 +178,7 @@ describe.skipIf(!RUN)("#2566 hidden postings — against Postgres", () => {
   });
 
   const legacyFeedIds = async (): Promise<string[]> => {
-    const rows = await applications.findOpenJobs(WORKER_ID, 500);
+    const rows = await applications.findOpenJobs(WORKER_ID, 5000);
     return rows.map((r) => r.id);
   };
 
