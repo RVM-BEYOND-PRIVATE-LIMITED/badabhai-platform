@@ -5,6 +5,7 @@ import { ChatModule } from "../chat/chat.module";
 import { SkillsModule } from "../skills/skills.module";
 import { ProfilesController } from "./profiles.controller";
 import { ProfilesService } from "./profiles.service";
+import { ProfileCompletionLedgerRepository } from "./profile-completion-ledger.repository";
 import { ProfilesRepository } from "./profiles.repository";
 import { ExtractedCorrectionsService } from "./extracted-corrections.service";
 import { ProfileCorrectionsRepository } from "./profile-corrections.repository";
@@ -96,11 +97,11 @@ import {
     // controller from the employment one because its subject is a profiling ANSWER, and the worker
     // it exists for has no employment at all. See its docstring.
     WorkerAnswerSourceController,
-      WorkerPreferencesController,
-      WorkerQualificationsController,
-      // #1596 — the two correction catalogues. No provider: both routes are pure reads of
-      // `@badabhai/taxonomy`, and the parity test pins them to it.
-      WorkerCatalogueController,
+    WorkerPreferencesController,
+    WorkerQualificationsController,
+    // #1596 — the two correction catalogues. No provider: both routes are pure reads of
+    // `@badabhai/taxonomy`, and the parity test pins them to it.
+    WorkerCatalogueController,
     // Migration 0110 — the finishing form's Languages page. Its own controller for the same
     // reason the qualifications one has one: the page owns repeatable, ordered rows through
     // delete-then-insert, not single attribute keys.
@@ -174,6 +175,9 @@ import {
     // called by `ProfileExtractionProcessor` for training/secondary-occupation answers. No new
     // dependency and no module edge; a provider only.
     ChatTableWritesService,
+    // B2 (#2555) — the completed-profile ledger. @Global DATABASE only, so a provider and
+    // no module edge.
+    ProfileCompletionLedgerRepository,
     ProfileExtractionProcessor,
     AiJobsRetentionSweepProcessor,
   ],

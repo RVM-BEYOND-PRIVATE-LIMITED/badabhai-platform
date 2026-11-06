@@ -73,6 +73,14 @@ export class AiCostRecorder {
   /**
    * Emit the cost record for ONE provider call, and fold it into the running totals.
    *
+   * B2 (#2555) — the event is now `ai.cost_recorded_v2`, v1's shape plus the spend-time
+   * test flag. The flag is resolved inside the same transaction (the worker's flag AS OF
+   * THIS CALL — a later erasure cannot move it): `true`/`false` when the row is there,
+   * null when the call has no worker or the lookup fails, in which case readers
+   * coalesce to the live join — exactly the v1 reading, never a guess. The idempotency
+   * key keeps its v1 form (`ai.cost_recorded:<call>`), so a retry straddling the deploy
+   * dedupes instead of double-ledgering.
+   *
    * NO-OPS ON `null` METADATA — no metadata means no real call to record, which is the mock and
    * service-unreachable path. The caller does not have to branch.
    *
@@ -158,8 +166,19 @@ export class AiCostRecorder {
       // `withTransaction` seam `AdminActionsService` uses. It is not opened here, because the
       // recorder should not know how a `Database` handle is obtained.
       await this.totals.withTransaction(async (tx) => {
+        // B2 (#2555) — the spend-time test flag, resolved on THIS transaction so the stamp
+        // and the event cannot disagree. Never throws: a failed lookup costs the stamp,
+        // never the ledger row (the same degrade direction as the totals savepoints below).
+        let isTestAccount: boolean | null = null;
+        if (workerId !== null) {
+          try {
+            isTestAccount = await this.totals.isTestAccount(workerId, tx);
+          } catch {
+            isTestAccount = null;
+          }
+        }
         const { written } = await this.events.emitOnce({
-          event_name: "ai.cost_recorded",
+          event_name: "ai.cost_recorded_v2",
           actor: { actor_type: "ai_service" },
           subject: { subject_type: "ai_job", subject_id: aiJobId ?? null },
           payload: {
@@ -167,6 +186,9 @@ export class AiCostRecorder {
             ai_job_id: aiJobId ?? null,
             worker_id: workerId,
             session_id: sessionId,
+            // B2 (#2555): stamped from the same transaction (see above) — null when the
+            // call has no worker or the flag could not be resolved.
+            is_test_account: isTestAccount,
             task_type: taskType,
             model: meta.model_name || "unknown",
             provider: meta.provider || "unknown",

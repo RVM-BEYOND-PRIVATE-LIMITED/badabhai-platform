@@ -226,13 +226,27 @@ describe("the profiling split — spend and completed profiles by live worker po
     expect(c.sql()).not.toContain("platform_ai_cost_totals");
     expect(c.sql()).toContain("LEFT JOIN");
     expect(c.sql()).toContain("is_test_account");
-    // The event name rides as a bound parameter, not inline SQL.
+    // BOTH cost event names ride as bound parameters, not inline SQL — v1 rows stay
+    // readable and v2 rows (the only ones the recorder writes now) cannot go quiet.
     expect(c.params).toContain("ai.cost_recorded");
+    expect(c.params).toContain("ai.cost_recorded_v2");
     for (const taskType of PROFILING_TASK_TYPES) {
       expect(c.params, `${taskType} must be bound into the split's IN list`).toContain(taskType);
     }
     // Sums ₹ in Postgres as text — the same exactness rule as every other ₹ read.
     expect(c.sql()).toContain("::text");
+  });
+
+  it("the stamped flag wins over the live join — deletion moves nothing", async () => {
+    const c = captureQueries();
+    await new AdminEventsRepository(c.db).profilingCostSplit(SINCE, PROFILING_TASK_TYPES);
+    const sql = c.sql();
+    const stamped = sql.indexOf("->>'is_test_account'");
+    // The stamp is read first; the live `workers` join is the fallback for v1 rows and
+    // null-stamped v2 rows. A deleted test account's stamped row resolves to `test`
+    // before the join (which finds no row) is ever consulted.
+    expect(stamped).toBeGreaterThan(-1);
+    expect(sql.indexOf('"workers"."id" is null')).toBeGreaterThan(stamped);
   });
 
   it("the headline is computed over the SAME grouped rows as the legs", async () => {
@@ -247,36 +261,36 @@ describe("the profiling split — spend and completed profiles by live worker po
     expect(c.sql()).toContain("case");
   });
 
-  it("the denominator counts DISTINCT workers from completion events", async () => {
+  it("the denominator counts DISTINCT workers from the completion LEDGER, not the live join", async () => {
     const c = captureQueries();
-    await new AdminEventsRepository(c.db).profilingProfilesCompletedSince(SINCE, [
-      "extracted",
-      "confirmed",
-    ]);
-    expect(c.sql()).toContain('"events"."payload"');
+    await new AdminEventsRepository(c.db).profilingProfilesCompletedSince(SINCE);
+    // B2 (#2555): the ledger carries the spend-time test flag, so the count needs no
+    // `workers` join at all — a deleted account's row resolves to its stamped bucket.
+    expect(c.sql()).toContain("profile_completion_ledger");
     expect(c.sql()).toContain("count(distinct");
     // The worker id, not the profile id: a re-interviewed worker must count once.
-    expect(c.sql()).toContain("->>'worker_id'");
+    expect(c.sql()).toContain('"worker_id"');
     expect(c.sql()).toContain("is_test_account");
-    expect(c.params).toContain("profile.extraction_completed");
-    expect(c.params).toContain("extracted");
-    expect(c.params).toContain("confirmed");
-    // `extracting` is in flight and `draft` produced nothing; neither belongs in the count.
-    expect(c.params).not.toContain("extracting");
-    expect(c.params).not.toContain("draft");
+    expect(c.sql()).not.toContain("LEFT JOIN");
+    expect(c.sql()).not.toContain("profile.extraction_completed");
+    // The window still bounds the read.
+    expect(c.sql()).toContain('"completed_at"');
   });
 
-  it("both reads carry the SAME population expression, so the legs cannot disagree", async () => {
+  it("both reads resolve the SAME three populations, so the legs cannot disagree", async () => {
     const spend = captureQueries();
     await new AdminEventsRepository(spend.db).profilingCostSplit(SINCE, PROFILING_TASK_TYPES);
     const profiles = captureQueries();
-    await new AdminEventsRepository(profiles.db).profilingProfilesCompletedSince(SINCE, [
-      "extracted",
-    ]);
+    await new AdminEventsRepository(profiles.db).profilingProfilesCompletedSince(SINCE);
     for (const c of [spend, profiles]) {
+      // The closed set, derived from the stamped flag first — never a dropped leg.
       expect(c.sql()).toContain("deleted_or_unattributed");
       expect(c.sql()).toContain("is_test_account");
-      expect(c.sql()).toContain('"workers"."id"');
+      expect(c.sql()).toContain("case");
     }
+    // The spend read still consults the live join as the v1 fallback; the ledger read
+    // needs no join at all — every row it holds is already stamped.
+    expect(spend.sql()).toContain('"workers"."id"');
+    expect(profiles.sql()).not.toContain('"workers"."id"');
   });
 });

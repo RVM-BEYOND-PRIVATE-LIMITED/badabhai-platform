@@ -1,7 +1,7 @@
 import "reflect-metadata";
 import { describe, expect, it, vi } from "vitest";
 import type { AICallMetadata } from "@badabhai/ai-contracts";
-import { AiCostRecordedPayload, validateEvent } from "@badabhai/event-schema";
+import { AiCostRecordedV2Payload, validateEvent } from "@badabhai/event-schema";
 
 import { AiCostRecorder } from "./ai-cost-recorder.service";
 import { fakeAiCostTotals, FAKE_TX } from "./ai-cost-totals.fake";
@@ -98,8 +98,8 @@ describe("AiCostRecorder — attribution on the event", () => {
     const sent = emitOnce.mock.calls[0]![0] as { payload: Record<string, unknown> };
     const result = validateEvent({
       event_id: CALL_ID,
-      event_name: "ai.cost_recorded",
-      event_version: 1,
+      event_name: "ai.cost_recorded_v2",
+      event_version: 2,
       occurred_at: "2026-08-18T05:04:02.270Z",
       actor: { actor_type: "ai_service", actor_id: null },
       subject: { subject_type: "ai_job", subject_id: null },
@@ -134,7 +134,7 @@ describe("AiCostRecorder — attribution on the event", () => {
       attempt_count: 3,
       candidates_tried: ["gemini-2.5-flash-lite", "claude-haiku-4-5"],
     });
-    expect(AiCostRecordedPayload.safeParse(payload).success).toBe(true);
+    expect(AiCostRecordedV2Payload.safeParse(payload).success).toBe(true);
   });
 
   it("A3 / A-8: metadata from before the fields records them as null, never zero", async () => {
@@ -160,7 +160,7 @@ describe("AiCostRecorder — attribution on the event", () => {
     );
     const payload = payloadOf(emitOnce) as { candidates_tried: string[] };
     expect(payload.candidates_tried).toEqual(many.slice(0, 8));
-    expect(AiCostRecordedPayload.safeParse(payload).success).toBe(true);
+    expect(AiCostRecordedV2Payload.safeParse(payload).success).toBe(true);
   });
 
   it("§2: the payload carries ids and numbers only — nothing a worker said", async () => {
@@ -188,6 +188,9 @@ describe("AiCostRecorder — attribution on the event", () => {
       "error_code",
       "estimated_cost_inr",
       "failure_reason",
+      // B2 (#2555): the spend-time test flag — one boolean, stamped from the same
+      // transaction, null when the call has no worker or the flag was unresolvable.
+      "is_test_account",
       "latency_ms",
       "model",
       "provider",
@@ -199,6 +202,59 @@ describe("AiCostRecorder — attribution on the event", () => {
       "tokens_out",
       "worker_id",
     ]);
+  });
+});
+
+describe("AiCostRecorder — B2 (#2555) spend-time test flag", () => {
+  it("stamps the worker's flag from the same transaction", async () => {
+    const { rec, emitOnce, totals } = make();
+    totals.testFlags.set(WORKER, true);
+    await rec.record(META, "profiling_chat_turn", null, CORRELATION, "req-1", {
+      workerId: WORKER,
+      sessionId: SESSION,
+    });
+    expect(emitOnce.mock.calls[0]![0]).toMatchObject({ event_name: "ai.cost_recorded_v2" });
+    expect(payloadOf(emitOnce).is_test_account).toBe(true);
+  });
+
+  it("stamps false for a real account", async () => {
+    const { rec, emitOnce, totals } = make();
+    totals.testFlags.set(WORKER, false);
+    await rec.record(META, "profiling_chat_turn", null, CORRELATION, "req-1", {
+      workerId: WORKER,
+    });
+    expect(payloadOf(emitOnce).is_test_account).toBe(false);
+  });
+
+  it("stamps null when the worker row is gone — the event still commits", async () => {
+    // No flag for this worker: the row was deleted mid-call. The event is emitted
+    // unchanged otherwise, and readers coalesce the null to the live join.
+    const { rec, emitOnce, totals } = make();
+    await rec.record(META, "profiling_chat_turn", null, CORRELATION, "req-1", {
+      workerId: WORKER,
+    });
+    expect(totals.accrued).toHaveLength(1);
+    expect(payloadOf(emitOnce).is_test_account).toBeNull();
+  });
+
+  it("a throwing flag lookup costs the stamp, never the event or the totals", async () => {
+    const { rec, emitOnce, totals } = make();
+    totals.failFlagLookup = true;
+    totals.testFlags.set(WORKER, true);
+    await rec.record(META, "profiling_chat_turn", null, CORRELATION, "req-1", {
+      workerId: WORKER,
+      sessionId: SESSION,
+    });
+    expect(payloadOf(emitOnce).is_test_account).toBeNull();
+    expect(totals.accrued).toHaveLength(1);
+    expect(totals.platformAccrued).toHaveLength(1);
+  });
+
+  it("payer-side calls stamp null without a lookup", async () => {
+    const { rec, emitOnce, totals } = make();
+    await rec.record(META, "skill_embedding", null, CORRELATION, "req-1");
+    expect(payloadOf(emitOnce)).toMatchObject({ worker_id: null, is_test_account: null });
+    expect(totals.platformAccrued).toHaveLength(1);
   });
 });
 

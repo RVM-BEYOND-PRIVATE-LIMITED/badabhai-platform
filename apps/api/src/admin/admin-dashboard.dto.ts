@@ -234,11 +234,15 @@ export const PROFILING_TASK_TYPES: readonly AiCostTaskType[] = (
 /**
  * THE THREE POPULATIONS EVERY PROFILING FIGURE IS SPLIT INTO.
  *
- * `real` and `test` require a LIVE `workers` row for the id carried by the event;
- * `deleted_or_unattributed` is every event whose worker no longer exists, plus the payer-side
- * shape with no worker id at all. Deletion moves money and completed profiles BETWEEN these
- * buckets and leaves the headline alone — which is the property the dashboard needed and did
- * not have. The set is closed so a reader has to handle all three.
+ * B2 (#2555): stamped rows resolve without any live row — a v2 cost event or ledger
+ * row carrying `is_test_account: true` is `test` even after its worker is erased.
+ * The live-`workers` join survives only as the fallback for v1 rows and null-stamped
+ * v2 rows (payer-side calls, which never name a worker, and lookup failures). So
+ * `real` and `test` are "stamped so, or joined so for unstamped rows", and
+ * `deleted_or_unattributed` is "never attributed to any account" — not "erased since".
+ * Deletion moves money and completed profiles between these buckets NOT AT ALL, which
+ * is the property the dashboard needed and did not have. The set is closed so a reader
+ * has to handle all three.
  */
 export const PROFILING_POPULATIONS = ["real", "test", "deleted_or_unattributed"] as const;
 export type AdminProfilingPopulation = (typeof PROFILING_POPULATIONS)[number];
@@ -337,27 +341,44 @@ export const COST_PER_PROFILE_WINDOW_EDGE_SKEW =
 /**
  * HOW DPDP ERASURE IS HANDLED — the third stable code, and a different shape from the two above.
  *
- * THE OLD BIAS IS CLOSED, NOT MERELY DISCLOSED. Both halves of this ratio now come from the
- * event spine: `profile.extraction_completed` supplies the completed-profile count (one per
- * distinct worker id) and `ai.cost_recorded` supplies the spend, and both rows outlive the
- * worker row they name. Erasing a worker therefore moves neither half. The spend and the
- * completed profile land together in the `deleted_or_unattributed` leg of `test_split`, where
- * they are visible as their own figure instead of silently inflating the real average.
+ * THE OLD BIAS IS CLOSED, NOT MERELY DISCLOSED. Both halves of this ratio now carry
+ * their population with them: cost events stamp `is_test_account` when the money is
+ * spent (B2 #2555, `ai.cost_recorded_v2`), and the completion LEDGER stamps it when
+ * the profile finishes — so erasing a worker moves NEITHER half. A deleted test
+ * account's spend and profile stay in `test`, where they were measured, instead of
+ * sliding into `deleted_or_unattributed`. That leg now holds only completions and
+ * spend that NEVER named a worker (payer-side calls, unattributed rows) — honest
+ * absence, not erasure fallout.
  *
- * The code ships so the portal can say that, and so the older sentence ("erasure leaves the
- * count but not the spend") cannot keep rendering after the fix landed.
+ * The code ships so the portal can say that, and so the older sentences ("erasure
+ * leaves the count but not the spend", "deleted rows gather in deleted_or_unattributed")
+ * cannot keep rendering after the ledger landed.
  */
 export const COST_PER_PROFILE_ERASURE_TREATMENT =
   "erasure_keeps_completed_profiles_and_spend_together" as const;
 
 /**
+ * HOW ERASURE IS HANDLED SINCE THE LEDGER (B2 #2555) — the fourth stable code.
+ *
+ * Supersedes {@link COST_PER_PROFILE_ERASURE_TREATMENT} the way that code superseded
+ * the bias: the mechanism changed, so the sentence must. Stamped rows never move
+ * between buckets — deletion is a no-op on this figure, not a re-bucketing into the
+ * deleted leg. The portal keys its erasure caption off this code; the old code stays
+ * exported so its string is still pinned against drift.
+ */
+export const COST_PER_PROFILE_ERASURE_STAMPED = "erasure_stamped_at_spend_and_completion" as const;
+
+/**
  * WHAT THE TEST SPLIT IS STILL MISSING — the convergence caveat.
  *
- * Test accounts are marked at login, so spend from BEFORE a test account's first marked login
- * sits in the real bucket: the split converges toward the truth as test traffic logs in, and
- * early windows understate the test share. The other half of the old caveat is gone — deleted
- * and worker-less rows are now their own `deleted_or_unattributed` bucket, never folded into
- * `real`.
+ * Test accounts are marked at login, so spend from BEFORE a test account's first
+ * marked login sits in the real bucket — for v1 rows, which resolve the flag off the
+ * live row at read time. v2 rows (B2 #2555) stamp the flag at spend time instead, so
+ * the split converges toward the truth twice over: new spend is exact on arrival, and
+ * the backfilled ledger re-tags deleted test accounts from their test-login events.
+ * Early windows still understate the test share; the other half of the old caveat is
+ * gone — unattributed rows are now their own `deleted_or_unattributed` bucket, never
+ * folded into `real`.
  */
 export const COST_PER_PROFILE_TEST_SPLIT_CONVERGES =
   "test_share_converges_as_test_accounts_log_in" as const;
@@ -502,15 +523,16 @@ export interface AdminCostPerProfile {
   basis: typeof COST_PER_PROFILE_BASIS_INCLUDES_ABANDONED;
   /** Stable code — the window-edge skew. See {@link COST_PER_PROFILE_WINDOW_EDGE_SKEW}. */
   window_caveat: typeof COST_PER_PROFILE_WINDOW_EDGE_SKEW;
-  /** Stable code — how erasure is treated. See {@link COST_PER_PROFILE_ERASURE_TREATMENT}. */
-  erasure_caveat: typeof COST_PER_PROFILE_ERASURE_TREATMENT;
+  /** Stable code — how erasure is treated. See {@link COST_PER_PROFILE_ERASURE_STAMPED}. */
+  erasure_caveat: typeof COST_PER_PROFILE_ERASURE_STAMPED;
   /**
    * ADDITIVE population split of the same numerator and denominator above. The headline is the
    * sum of the three cost legs; the headline count is the sum of the three profile legs.
    *
-   * `deleted_or_unattributed` is spend and completed profiles whose worker row no longer exists
-   * (or, for spend, calls that never named one). It is kept OUT of the real and test legs: an
-   * erased real account must not keep inflating the real average. See {@link
+   * `deleted_or_unattributed` is spend and completed profiles that NEVER named a worker
+   * (payer-side calls, unattributed completions). It is kept OUT of the real and test legs.
+   * Erased accounts stay in the bucket they were stamped in — they do NOT gather here
+   * (see {@link COST_PER_PROFILE_ERASURE_STAMPED}). See {@link
    * COST_PER_PROFILE_TEST_SPLIT_CONVERGES} for the one caveat that remains.
    */
   test_split: {
@@ -522,10 +544,10 @@ export interface AdminCostPerProfile {
     test_calls: number;
     test_profiles: number;
     test_cost_per_profile_inr: string | null;
-    /** Spend whose worker is gone, or which never named one. Never folded into `real_*`. */
+    /** Spend that never named a worker. Never folded into `real_*`. */
     deleted_or_unattributed_cost_inr: string;
     deleted_or_unattributed_calls: number;
-    /** Completed profiles whose worker is gone. Never folded into `real_profiles`. */
+    /** Completed profiles that never named a worker. Never folded into `real_profiles`. */
     deleted_or_unattributed_profiles: number;
   };
   /** Stable code — the convergence caveat. See {@link COST_PER_PROFILE_TEST_SPLIT_CONVERGES}. */

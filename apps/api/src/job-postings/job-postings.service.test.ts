@@ -342,7 +342,7 @@ function assertNoFreeText(payload: Record<string, unknown>): void {
 describe("JobPostingsService — one cost record per embed (#745)", () => {
   const THREE_SKILLS = ["welding", "vmc operation", "fanuc control"];
 
-  it("records ONE ai.cost_recorded per phrase — a 3-skill posting is 3 billable embeds", async () => {
+  it("records ONE ai.cost_recorded_v2 per phrase — a 3-skill posting is 3 billable embeds", async () => {
     const { svc, recordAiCost, canonicalize } = make();
     canonicalize.mockResolvedValue({
       status: "matched",

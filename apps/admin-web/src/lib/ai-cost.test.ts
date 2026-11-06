@@ -4,6 +4,7 @@ import {
   CAP_BREACH_SCOPE_PROFILE_EXTRACTION,
   COST_PER_PROFILE_BASIS_INCLUDES_ABANDONED,
   COST_PER_PROFILE_ERASURE_BIAS,
+  COST_PER_PROFILE_ERASURE_STAMPED,
   COST_PER_PROFILE_ERASURE_TREATMENT,
   COST_PER_PROFILE_TEST_SPLIT_CONVERGES,
   COST_PER_PROFILE_WINDOW_EDGE_SKEW,
@@ -693,6 +694,13 @@ describe("describeCostPerProfile — the #2554 contract (API #2604)", () => {
     expect(v.erasureSentence).toContain("moves neither half");
     expect(v.erasureSentence).not.toContain("drifts upward");
     expect(v.completedSentence).toContain("completion event");
+  });
+
+  it("says erasure moves nothing, and counts the ledger, for the B2 code", () => {
+    const v = view({ ...base, erasure_caveat: COST_PER_PROFILE_ERASURE_STAMPED });
+    expect(v.erasureSentence).toContain("moves nothing");
+    expect(v.erasureSentence).toContain("never named a worker");
+    expect(v.completedSentence).toContain("completion ledger");
   });
 
   it("keeps the old sentences for an API older than #2604", () => {

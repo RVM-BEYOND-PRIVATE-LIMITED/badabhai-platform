@@ -103,6 +103,7 @@ import {
   payerMemberInvites,
 } from "./payer-onboarding";
 import { platformAiCostTotals, sessionAiCostTotals, workerAiCostTotals } from "./ai-cost";
+import { profileCompletionLedger } from "./cost-ledger";
 import { workerFeedback } from "./feedback";
 import { aiCallTraces } from "./ai-trace";
 import { deleteForensics } from "./delete-forensics";
@@ -135,6 +136,7 @@ export * from "./ops";
 export * from "./payer-onboarding";
 export * from "./delete-forensics";
 export * from "./ai-cost";
+export * from "./cost-ledger";
 export * from "./feedback";
 export * from "./ai-trace";
 export * from "./learn";
@@ -423,4 +425,7 @@ export const schema = {
   // the `export *` above.
   adminCandidateIndex,
   adminCandidateIndexCursor,
+  // B2 (#2555) — the completed-profile ledger (migration 0158). Present on every
+  // migrated database, so it belongs in this object as well as the `export *` above.
+  profileCompletionLedger,
 };

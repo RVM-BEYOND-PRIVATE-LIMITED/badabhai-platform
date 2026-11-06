@@ -204,3 +204,12 @@ export {
 // can badge a seeded worker as a SAMPLE candidate and refuse to unlock one, from the same
 // definition the seed writes with. Pure; no IO.
 export { isSampleWorkerId, WORKFORCE_ID_PREFIX, workforceUuid } from "./sample-workers";
+
+// B2 (#2555) — the cost-ledger backfill planner. Exported so the api's CI DB gate can run
+// it against seeded completions (idempotency + re-tag counts). Side-effect free at import
+// (the CLI wrapper guards on argv).
+export {
+  applyCostLedgerBackfill,
+  planCostLedgerBackfill,
+  type CostLedgerBackfillPlan,
+} from "./backfill-0158-cost-ledger";

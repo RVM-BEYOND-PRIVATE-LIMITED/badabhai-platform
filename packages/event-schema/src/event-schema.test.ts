@@ -3334,8 +3334,10 @@ describe("chat.session_abandoned (idle sweep — COUNTS ONLY, no transcript)", (
 });
 
 describe("registry", () => {
-  it("exposes all 254 event names (179 prior + the two trade-form offer steps + Layer A + resume.edited + resume-identity + resume-autofill + profile.viewed_v2 + E0's relay trio + the C-2 consent exit + the ADR-0043 resume-update answer + its erasure backfill + the four tiered-profiling events + the ADR-0044 companion turn + the five ADR-0045 general-road events + the #1318 safe-field resume.edited_v2 + the #1801 resume.skin_changed + the #1800 profile.qr_scanned + the four ADR-0046 companion-v2 Phase 1 events + the ADR-0046 P2 faltu strike + the ADR-0046 P3 career answer + the E4 match-skill wants event + the ADR-0048 identity-intake step + the six TD150/WP8 companion versions + the two ADR-0051 free-chat events + the ADR-0050 job_posting.twin_synced + the ADR-0051 Release 2 summary fold + the ADR-0054 live-news request + the 2026-10-07 payer.applicant_stage_changed + the ADR-0051 §11 reply-language change + the ADR-0055 companion turn v4 + the #2297 companion summary fold + the ADR-0057 turn understood + its three edit-gate events + the #2409 typed-answer review + the two Middle-Way optional-depth offer steps + the 2026-11-03 payer.candidate_search_performed + the #2541 consent.age_declared + the 2026-11-04 consent.purposes_granted + the #2635 job_posting.match_skills_scoped + the ADR-0062 admin.candidate_viewed + the B13 ai.fallback_alert_raised/cleared pair + the payer.account_deleted QA seam + the #2701 restricted-session issue + the six #2566 admin posting-control events)", () => {
-    expect(EVENT_NAMES).toHaveLength(254);
+  it("exposes all 255 event names (179 prior + the two trade-form offer steps + Layer A + resume.edited + resume-identity + resume-autofill + profile.viewed_v2 + E0's relay trio + the C-2 consent exit + the ADR-0043 resume-update answer + its erasure backfill + the four tiered-profiling events + the ADR-0044 companion turn + the five ADR-0045 general-road events + the #1318 safe-field resume.edited_v2 + the #1801 resume.skin_changed + the #1800 profile.qr_scanned + the four ADR-0046 companion-v2 Phase 1 events + the ADR-0046 P2 faltu strike + the ADR-0046 P3 career answer + the E4 match-skill wants event + the ADR-0048 identity-intake step + the six TD150/WP8 companion versions + the two ADR-0051 free-chat events + the ADR-0050 job_posting.twin_synced + the ADR-0051 Release 2 summary fold + the ADR-0054 live-news request + the 2026-10-07 payer.applicant_stage_changed + the ADR-0051 §11 reply-language change + the ADR-0055 companion turn v4 + the #2297 companion summary fold + the ADR-0057 turn understood + its three edit-gate events + the #2409 typed-answer review + the two Middle-Way optional-depth offer steps + the 2026-11-03 payer.candidate_search_performed + the #2541 consent.age_declared + the 2026-11-04 consent.purposes_granted + the #2635 job_posting.match_skills_scoped + the ADR-0062 admin.candidate_viewed + the B13 ai.fallback_alert_raised/cleared pair + the payer.account_deleted QA seam + the #2701 restricted-session issue + the six #2566 admin posting-control events + the B2 ai.cost_recorded_v2)", () => {
+    expect(EVENT_NAMES).toHaveLength(255);
+    // B2 (#2555) — the spend-time test-flag generation of `ai.cost_recorded` (new name; v1 not mutated).
+    expect(isEventName("ai.cost_recorded_v2")).toBe(true);
     // B13 (#2567) — the loud-AI-alert verdict pair (new names; no schema mutated).
     expect(isEventName("ai.fallback_alert_raised")).toBe(true);
     expect(isEventName("ai.fallback_alert_cleared")).toBe(true);
@@ -3679,6 +3681,10 @@ describe("registry", () => {
     "chat.companion_edit_confirmed_v2": 2,
     "chat.companion_faltu_strike_v2": 2,
     "chat.companion_career_answered_v2": 2,
+    // B2 (#2555) — the spend-time test-account flag on `ai.cost_recorded`. A NEW name
+    // so v1's definition (and every pre-flag row it validated) stays exactly as
+    // shipped; readers union both names and prefer the stamped flag.
+    "ai.cost_recorded_v2": 2,
   };
 
   it("every registry entry is version 1 except the ADR-versioned payloads", () => {

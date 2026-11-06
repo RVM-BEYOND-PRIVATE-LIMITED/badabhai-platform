@@ -649,9 +649,9 @@ describe("STT cost recording", () => {
   const costEvents = (events: { emit: { mock: { calls: unknown[][] } } }): Emitted[] =>
     events.emit.mock.calls
       .map((c) => c[0] as Emitted)
-      .filter((e) => e.event_name === "ai.cost_recorded");
+      .filter((e) => e.event_name === "ai.cost_recorded_v2");
 
-  it("a real call emits ai.cost_recorded as stt_transcription, keyed on the CALL not the job", async () => {
+  it("a real call emits ai.cost_recorded_v2 as stt_transcription, keyed on the CALL not the job", async () => {
     const { proc, events } = make({ aiMetadata: REAL_META });
     await proc.process(makeJob());
 
