@@ -84,6 +84,15 @@ export const ADMIN_ACTION_CODES = {
   posting_unhidden: "posting_unhidden",
   posting_verified: "posting_verified",
   posting_rejected: "posting_rejected",
+  // ── #2564 — company records ─────────────────────────────────────────────────────────────
+  // Target = the org's ROOT payer (`target_type: "payer"`). The reason, the edited values and
+  // the archived member logins live on `audit_logs` and the lifecycle events; the spine's
+  // `admin.action_performed` carries the CODE only. Creating a company ALSO records
+  // `payer_login_created` for its first login (that path is reused, not copied).
+  company_created: "company_created",
+  company_updated: "company_updated",
+  company_archived: "company_archived",
+  company_restored: "company_restored",
 } as const;
 
 export type AdminActionCode = (typeof ADMIN_ACTION_CODES)[keyof typeof ADMIN_ACTION_CODES];

@@ -10,6 +10,8 @@ export {
   hmacSha256Hex,
   hashPhone,
   hashOrgName,
+  hashGstin,
+  normalizeGstin,
   hashIp,
   hmacValue,
   encryptPii,

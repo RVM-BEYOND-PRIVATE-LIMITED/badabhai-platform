@@ -200,6 +200,8 @@ describe("capability matrix drift (must-fix #5 — pinned to ADR-0025 Decision 3
     manage_worker_account: ["super_admin", "ops_admin", "support"],
     // #2566 - posting/job correction + visibility. `support`/`analyst` denied.
     manage_postings: ["super_admin", "ops_admin"],
+    // #2564 - company records (create, edit, archive, restore). `support`/`analyst` denied.
+    manage_companies: ["super_admin", "ops_admin"],
   };
 
   it("the capability set matches the ADR exactly (no added/removed capability)", () => {
@@ -254,6 +256,8 @@ describe("capability matrix drift (must-fix #5 — pinned to ADR-0025 Decision 3
       "manage_worker_account",
       // #2566 - posting moderation is a write.
       "manage_postings",
+      // #2564 - company records are a write.
+      "manage_companies",
     ] as const) {
       expect(can("analyst", write)).toBe(false);
     }
@@ -358,6 +362,8 @@ describe("capabilitiesFor — what the UI is told matches what the server permit
       "manage_worker_account",
       // #2566 — posting/job correction + visibility.
       "manage_postings",
+      // #2564 — company records.
+      "manage_companies",
     ]);
     // super_admin holds everything — the one role for which the list is the whole vocabulary.
     expect(capabilitiesFor("super_admin")).toEqual([...ADMIN_CAPABILITIES]);

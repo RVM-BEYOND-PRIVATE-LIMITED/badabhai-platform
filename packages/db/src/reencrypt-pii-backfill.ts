@@ -53,6 +53,7 @@ import { parsePiiKeyring } from "./pii-keyring-env";
 import {
   adminUsers,
   agencyKyc,
+  agencyProfiles,
   aiCallTraces,
   employerProfiles,
   payerMemberInvites,
@@ -253,6 +254,85 @@ function buildTargets(db: Database): PiiTarget[] {
       "payer_member_invites",
       "invited_email_enc",
       "invitedEmailEnc",
+    ),
+    // ── #2564: the company record (owner ruling D4 wires both profile tables) ──────────────────
+    //
+    // `employer_profiles.gst_number_enc` above was already a target; the admin Companies surface
+    // now WRITES it, plus four contact columns on each profile table and the agency's own GSTIN.
+    // Every one is declared here in the same change that creates it, so the first company record
+    // ever saved is rotatable. Spelled out call by call (not generated from a list): the coverage
+    // test matches the literal `"<table>","<column>"` pair in this file.
+    target(
+      employerProfiles,
+      employerProfiles.payerId,
+      employerProfiles.addressEnc,
+      "employer_profiles",
+      "address_enc",
+      "addressEnc",
+    ),
+    target(
+      employerProfiles,
+      employerProfiles.payerId,
+      employerProfiles.companyPhoneEnc,
+      "employer_profiles",
+      "company_phone_enc",
+      "companyPhoneEnc",
+    ),
+    target(
+      employerProfiles,
+      employerProfiles.payerId,
+      employerProfiles.companyEmailEnc,
+      "employer_profiles",
+      "company_email_enc",
+      "companyEmailEnc",
+    ),
+    target(
+      employerProfiles,
+      employerProfiles.payerId,
+      employerProfiles.contactPersonEnc,
+      "employer_profiles",
+      "contact_person_enc",
+      "contactPersonEnc",
+    ),
+    target(
+      agencyProfiles,
+      agencyProfiles.payerId,
+      agencyProfiles.addressEnc,
+      "agency_profiles",
+      "address_enc",
+      "addressEnc",
+    ),
+    target(
+      agencyProfiles,
+      agencyProfiles.payerId,
+      agencyProfiles.companyPhoneEnc,
+      "agency_profiles",
+      "company_phone_enc",
+      "companyPhoneEnc",
+    ),
+    target(
+      agencyProfiles,
+      agencyProfiles.payerId,
+      agencyProfiles.companyEmailEnc,
+      "agency_profiles",
+      "company_email_enc",
+      "companyEmailEnc",
+    ),
+    target(
+      agencyProfiles,
+      agencyProfiles.payerId,
+      agencyProfiles.contactPersonEnc,
+      "agency_profiles",
+      "contact_person_enc",
+      "contactPersonEnc",
+    ),
+    target(
+      agencyProfiles,
+      agencyProfiles.payerId,
+      agencyProfiles.gstNumberEnc,
+      "agency_profiles",
+      "gst_number_enc",
+      "gstNumberEnc",
     ),
     // ── 0094: the work history the résumé prints ─────────────────────────────────────────────
     //

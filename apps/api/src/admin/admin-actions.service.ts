@@ -29,6 +29,7 @@ import type {
 } from "./admin-actions.dto";
 
 import { ADMIN_ACTION_CODES, type AdminActionCode } from "./admin-action-codes";
+import { isBarredPayerStatus } from "../payers/payer-barred-status";
 export { ADMIN_ACTION_CODES } from "./admin-action-codes";
 export type { AdminActionCode } from "./admin-action-codes";
 
@@ -122,6 +123,11 @@ export class AdminActionsService {
     if (!current) throw new NotFoundException("Payer not found");
     // Idempotent: already suspended → no-op success, no event, no revoke.
     if (current.status === "suspended") return { target_id: payerId, changed: false };
+    // #2564 - an ARCHIVED company is not suspendable: the guarded update admits pending/active
+    // only, so without this the archive would surface as a misleading "changed concurrently".
+    if (current.status === "archived") {
+      throw new ConflictException("Payer is archived; restore the company first");
+    }
     let conflict = false;
     await this.actions.withTransaction(async (tx) => {
       const moved = await this.actions.suspendPayer(payerId, tx);
@@ -164,6 +170,11 @@ export class AdminActionsService {
     const current = await this.actions.findPayerStatus(payerId);
     if (!current) throw new NotFoundException("Payer not found");
     // Idempotent: not suspended → no-op success, no event.
+    // #2564 - reinstate does NOT lift an archive (that is `restore`, which also brings the team
+    // back). A silent no-op here would read as success on an account that is still archived.
+    if (current.status === "archived") {
+      throw new ConflictException("Payer is archived; restore the company instead");
+    }
     if (current.status !== "suspended") return { target_id: payerId, changed: false };
     let conflict = false;
     await this.actions.withTransaction(async (tx) => {
@@ -294,8 +305,9 @@ export class AdminActionsService {
     // way to pre-load a suspended account for the moment it is reinstated.
     // `pending` is allowed: crediting a not-yet-verified account is a legitimate
     // pre-provisioning move and it cannot be spent until they verify.
-    if (payer.status === "suspended") {
-      throw new ConflictException("Payer is suspended; credits cannot be granted");
+    // #2564 - an ARCHIVED company is barred the same way.
+    if (isBarredPayerStatus(payer.status)) {
+      throw new ConflictException(`Payer is ${payer.status}; credits cannot be granted`);
     }
     const result = await this.actions.withTransaction(async (tx) => {
       const grant = await this.actions.grantCredits(payerId, dto.amount, dto.idempotency_key, tx);

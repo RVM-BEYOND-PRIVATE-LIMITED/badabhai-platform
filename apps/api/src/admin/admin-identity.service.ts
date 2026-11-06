@@ -16,6 +16,13 @@ import type { AdminEgressCapWindow } from "./admin-egress-cap.service";
 export type AdminIdentityMap = ReadonlyMap<string, string | null>;
 
 /**
+ * The surfaces {@link AdminIdentityService.resolve} serves — ONE name per subject id. The
+ * `company_profiles` surface (#2564) is several fields of ONE subject and goes through
+ * {@link AdminIdentityService.discloseCompanyProfile} instead.
+ */
+export type AdminNameSurface = Exclude<AdminIdentitySurface, "company_profiles">;
+
+/**
  * HARD upper bound on how many names ONE response may disclose (owner ruling 2026-08-18).
  *
  * It lives HERE, at the single decrypt boundary, rather than only in each caller's page size,
@@ -121,7 +128,7 @@ export class AdminIdentityService {
    */
   async resolve(
     admin: AuthenticatedAdmin,
-    surface: AdminIdentitySurface,
+    surface: AdminNameSurface,
     ids: readonly string[],
     subjectId: string | null,
     ctx: RequestContext,
@@ -204,8 +211,72 @@ export class AdminIdentityService {
     return out;
   }
 
+  /**
+   * #2564 — disclose ONE company's contact PII (GSTIN, address, company phone/email, contact
+   * person) on the `company_profiles` surface, or `null` when none may be disclosed.
+   *
+   * The SAME pipeline as {@link resolve}, in the same order, for a record of several fields of
+   * one subject instead of one name per subject: capability → count from ciphertext → egress cap
+   * (charged per non-empty FIELD) → `admin.identity_viewed` committed → decrypt. The caller hands
+   * in the CIPHERTEXT it already read with the company row (still encrypted; nothing is decrypted
+   * outside this file), so the identity repository keeps its one-cipher-per-surface shape.
+   *
+   * Field-for-field degradation matches {@link decryptOrNull}: a token that will not decrypt is
+   * served as `null` rather than failing the detail read.
+   */
+  async discloseCompanyProfile<K extends string>(
+    admin: AuthenticatedAdmin,
+    companyId: string,
+    ciphers: Readonly<Record<K, string | null>>,
+    ctx: RequestContext,
+  ): Promise<Record<K, string | null> | null> {
+    // --- 1. CAPABILITY.
+    if (!this.isPermitted(admin)) return null;
+
+    // --- 4. COUNT, from the ciphertext (one subject, so the response bound cannot be exceeded).
+    const keys = Object.keys(ciphers) as K[];
+    const resultCount = keys.reduce((n, k) => (ciphers[k] === null ? n : n + 1), 0);
+
+    // --- 5. EGRESS CAP. Same best-effort breach emit as `resolve`, for the same reason.
+    const capResult = await this.cap.consume(admin.id, resultCount);
+    if (!capResult.ok) {
+      try {
+        await this.emitCapExceeded(admin.id, capResult.window, ctx);
+      } catch (err) {
+        this.logger.error(
+          `could not record admin.identity_cap_exceeded for admin_id=${admin.id.slice(0, 8)}… ` +
+            `window=${capResult.window}; company fields were STILL withheld (reason: ` +
+            `${AdminIdentityService.failureName(err)})`,
+        );
+      }
+      return null;
+    }
+
+    // --- 6. AUDIT BEFORE DECRYPT. Awaited; a failure propagates and nothing is decrypted.
+    await this.events.emit({
+      event_name: "admin.identity_viewed",
+      actor: { actor_type: "admin", actor_id: admin.id },
+      subject: { subject_type: "admin_session", subject_id: admin.id },
+      payload: {
+        admin_id: admin.id,
+        surface: "company_profiles",
+        subject_id: companyId,
+        result_count: resultCount,
+      } satisfies PayloadInputOf<"admin.identity_viewed">,
+      correlationId: ctx.correlationId,
+      requestId: ctx.requestId,
+    });
+
+    // --- 7. DECRYPT AT THE BOUNDARY, into the returned record only.
+    const out = {} as Record<K, string | null>;
+    for (const key of keys) {
+      out[key] = this.decryptOrNull({ id: companyId, nameCipher: ciphers[key] }, "company_profiles");
+    }
+    return out;
+  }
+
   /** Dispatch to the one projection this surface is allowed to read. */
-  private fetch(surface: AdminIdentitySurface, ids: readonly string[]): Promise<AdminIdentityRow[]> {
+  private fetch(surface: AdminNameSurface, ids: readonly string[]): Promise<AdminIdentityRow[]> {
     const list = [...ids];
     switch (surface) {
       case "workers":

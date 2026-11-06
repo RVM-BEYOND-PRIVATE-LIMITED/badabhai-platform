@@ -39,7 +39,18 @@ import { jobPostings, jobs } from "./job";
 // RLS-enabled (REVOKE carried by the migration, like workers 0003/0004).
 // ---------------------------------------------------------------------------
 export type PayerRole = "employer" | "agent";
-export type PayerStatus = "pending" | "active" | "suspended";
+/**
+ * `archived` (#2564) — an admin took the company down. Reversible: restore returns each login
+ * to its `previous_status`. Like `suspended` it cannot sign in, post or be served; it is a
+ * separate value so "we froze this account" and "this company is gone" stay distinguishable.
+ */
+export type PayerStatus = "pending" | "active" | "suspended" | "archived";
+export const PAYER_STATUSES = [
+  "pending",
+  "active",
+  "suspended",
+  "archived",
+] as const satisfies readonly PayerStatus[];
 
 export const payers = pgTable(
   "payers",
@@ -124,11 +135,28 @@ export const payers = pgTable(
     sessionsValidAfter: timestamp("sessions_valid_after", { withTimezone: true }),
     /** #2563 — last successful payer sign-in (OTP or password). */
     lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
+    /**
+     * #2564 — whole-word company-name search for the admin Companies list. Keyed HMACs of each
+     * folded name word under the `company:` domain (`NameTokenService`, ADR-0062 §3.6 keys —
+     * never `PII_HASH_PEPPER`), written by the same helper that writes `org_name_enc`, so a
+     * rename can never leave a stale token. `[]` + NULL kid = not tokenised (keys unset, an
+     * already-encrypted team-member copy, or a row not yet backfilled). Never the name itself.
+     */
+    orgNameTokenHashes: text("org_name_token_hashes")
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
+    orgNameTokenKeyId: text("org_name_token_key_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     uniqueIndex("payers_email_hash_uq").on(t.emailHash),
+    // #2564 — the payer lifecycle, pinned for the first time (PAY-DB-08). The migration
+    // DROPs IF EXISTS first so it is safe on any database a hand-applied CHECK reached.
+    check("payers_status_chk", sql`${t.status} IN ('pending', 'active', 'suspended', 'archived')`),
+    // #2564 — company-name token membership (`@>`) for the admin list.
+    index("payers_org_name_tokens_gin_idx").using("gin", t.orgNameTokenHashes),
     // #2497 — exact org-name lookups (non-unique: duplicate names log in NOBODY) and
     // phone lookups for login/request+verify by contact. No uniqueness: historical
     // rows may already share a phone, and a unique index would fail the migration.

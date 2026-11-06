@@ -29,7 +29,7 @@
  *   pnpm db:grant:free-tier --apply               # write
  *   pnpm db:grant:free-tier --apply --repair-balances
  */
-import { eq, ne, sql as dsql } from "drizzle-orm";
+import { eq, notInArray, sql as dsql } from "drizzle-orm";
 
 import { createDbClient, type Database } from "./client";
 import { creditLedger, matchConfig, payerCredits, payers } from "./schema";
@@ -98,7 +98,8 @@ async function main(): Promise<void> {
     const allPayers = await db
       .select({ id: payers.id })
       .from(payers)
-      .where(ne(payers.status, "suspended"));
+      // #2564 - an ARCHIVED company is not granted credits either.
+      .where(notInArray(payers.status, ["suspended", "archived"]));
 
     const granted = await db
       .select({ key: creditLedger.idempotencyKey })

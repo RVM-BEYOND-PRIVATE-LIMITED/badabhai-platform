@@ -50,7 +50,7 @@ export interface PayerSession {
   /** Last 4 of the payer's OWN phone (masked), or null if not set; never logged/eventized. */
   readonly phoneLast4?: string | null;
   /** The payer's OWN account status — drives the identity badge, not an authz decision. */
-  readonly status: "pending" | "active" | "suspended";
+  readonly status: "pending" | "active" | "suspended" | "archived";
   /**
    * #2079 — the member's CURRENT org role, from `GET /payer/me` `orgRole` on THIS request (the
    * backend reads `payer_members` per call, never the token). `null`/absent = no active
