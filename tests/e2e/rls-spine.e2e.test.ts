@@ -220,7 +220,6 @@ const LOCKED_TABLES = [
   // Deny-by-default, FORCE, no policy.
   "profile_completion_ledger",
 ] as const;
-] as const;
 
 // The three network-reachable PostgREST roles Supabase ships.
 const CLIENT_ROLES = ["anon", "authenticated", "service_role"] as const;
