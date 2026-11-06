@@ -10,6 +10,7 @@ import {
   SkillCanonicalizationSchema,
   JobPostingChatOpeningOutputSchema,
   JobPostingChatTurnOutputSchema,
+  JobDescriptionDraftOutputSchema,
   CompanionClassifyOutputSchema,
   CompanionCareerOutputSchema,
   CompanionEditParseOutputSchema,
@@ -48,6 +49,8 @@ import {
   type ResumeOptionMapOutput,
   type JobPostingChatTurnInput,
   type JobPostingChatTurnOutput,
+  type JobDescriptionDraftInput,
+  type JobDescriptionDraftOutput,
   type CompanionClassifyInput,
   type CompanionClassifyOutput,
   type CompanionCareerInput,
@@ -167,6 +170,18 @@ const WORK_HISTORY_POLISH_TIMEOUT_MS = 23_000;
  * own timeout answers with a named degrade rather than this side aborting into a bare null.
  */
 const OTHER_ANSWER_REVIEW_TIMEOUT_MS = WORK_HISTORY_POLISH_TIMEOUT_MS;
+
+/**
+ * Employer voice-toggle draft: one Hinglish voice note into one English job
+ * description, filtered to the posting's trade and role.
+ *
+ * ABOVE THE FAR SIDE'S OWN DEADLINE (`profiling_extract_deadline_seconds`, 20 s),
+ * for the same reason as the polish budget above: a poster IS holding the form
+ * waiting on this one, and a slow draft must arrive rather than abort into a null.
+ * FAIL-CLOSED WITHOUT A NEW FLAG, like the polish: real only when
+ * `AI_REAL_CALL_TASKS` names `job_description_draft`.
+ */
+const JOB_DESCRIPTION_DRAFT_TIMEOUT_MS = WORK_HISTORY_POLISH_TIMEOUT_MS;
 
 /**
  * ADR-0041 RI-3. The LONGEST transport budget in this file, and it is not covering a slow
@@ -996,6 +1011,28 @@ export class AiService {
       input,
       OtherAnswerReviewOutputSchema,
       OTHER_ANSWER_REVIEW_TIMEOUT_MS,
+      ctx,
+    );
+  }
+
+  /**
+   * Draft ONE job description from a poster's Hinglish voice note (#voice-toggle).
+   *
+   * `null` (unreachable, contract failure) and a null `description` (mock posture,
+   * deadline, blocked input, all-irrelevant transcript, failed wall) both mean
+   * "no draft": the caller keeps the poster's own text. A draft is never stored
+   * here — the poster reviews it and the normal write path persists what they
+   * accept, screened again at write time.
+   */
+  async draftJobDescription(
+    input: JobDescriptionDraftInput,
+    ctx?: AiRequestContext,
+  ): Promise<JobDescriptionDraftOutput | null> {
+    return this.post(
+      "/job-posting/description/draft",
+      input,
+      JobDescriptionDraftOutputSchema,
+      JOB_DESCRIPTION_DRAFT_TIMEOUT_MS,
       ctx,
     );
   }

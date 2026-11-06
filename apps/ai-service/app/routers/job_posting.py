@@ -2,9 +2,19 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter
+import asyncio
+import json
+import re
 
+from fastapi import APIRouter
+from pydantic import ValidationError
+
+from ..ai import prompt_registry
+from ..ai.langfuse_tracing import WORKFLOW_TAXONOMY
+from ..config import get_settings
 from ..contracts import (
+    JobDescriptionDraftInput,
+    JobDescriptionDraftOutput,
     JobPostingChatOpeningInput,
     JobPostingChatOpeningOutput,
     JobPostingChatTurnInput,
@@ -12,8 +22,12 @@ from ..contracts import (
 )
 from ..job_posting_chat import answers as job_posting_answers
 from ..job_posting_chat import interview_engine as job_posting_engine
-from ..pseudonymize import pseudonymize
-from ._shared import _pseudonymization_meta, logger
+from ..job_posting_chat.description_prompt import job_description_draft_prompt
+from ..llm_input_policy import llm_input_gate
+from ..output_floor import carries_hard_identifier
+from ..profiling.canonical_roles import coerce_json_text
+from ..pseudonymize import is_certified_clean, pseudonymize
+from ._shared import _pseudonymization_meta, logger, resolve_prompt, router, workflow_scope
 
 api_router = APIRouter()
 
@@ -142,3 +156,147 @@ async def job_posting_chat_respond(body: JobPostingChatTurnInput) -> JobPostingC
         updated_state=updated_state,
         pseudonymization_metadata=_pseudonymization_meta(result),
     )
+
+
+#: The voice-toggle draft call. CHEAP + JSON, like the work-history polish it
+#: mirrors — rephrasing under prohibitions, not open composition. Real only when
+#: `AI_REAL_CALL_TASKS` names it; leaving it out IS the kill switch (same
+#: posture as `work_history_polish`).
+DESCRIPTION_DRAFT_TASK_TYPE = "job_description_draft"
+
+#: Hard wall matching the `job_postings.description` column (DTO DESCRIPTION_MAX).
+DESCRIPTION_DRAFT_MAX = 2000
+
+_DIGIT_RUN = re.compile(r"\d+")
+_PLACEHOLDER = re.compile(r"\[[A-Z]+_\d+\]")
+
+
+def _strip_delimiters(text: str) -> str:
+    """Keep the tagged span from breaking out of its tag (same defence as polish)."""
+    return text.replace("<", " ").replace(">", " ")
+
+
+def _context_label(value: str | None, *, fallback: str, raw: bool) -> str:
+    """A poster-typed context label the model may read: clean or the literal fallback.
+
+    The polish route's `_polish_role` shape. The trade and role arrive on the same
+    form as the voice note and carry the same threat ("Operator, Ramesh sir ke
+    under" reached the model verbatim once the gateway's carve-outs stopped
+    minting an incidental placeholder for the leading word) — so they are held to
+    the same CLEAN OR NOT AT ALL test, and the fallback is a literal rather than
+    masked text. Reads no flag either way.
+    """
+    if not value or not value.strip():
+        return fallback
+    if raw:
+        return fallback if llm_input_gate(value, raw=raw).blocked else value.strip()
+    return value.strip() if is_certified_clean(value) else fallback
+
+
+def _digits_are_grounded(drafted: str, source: str) -> bool:
+    """Every digit run in the output must already exist in what the model saw."""
+    grounded = set(_DIGIT_RUN.findall(source))
+    return all(run in grounded for run in _DIGIT_RUN.findall(drafted))
+
+
+@api_router.post("/job-posting/description/draft", response_model=JobDescriptionDraftOutput)
+async def job_description_draft(body: JobDescriptionDraftInput) -> JobDescriptionDraftOutput:
+    """Draft ONE job description from a Hinglish voice note, filtered to trade + role.
+
+    The voice toggle on the Perks & Details step (payer-app + payer-web share
+    this contract). The poster speaks Hinglish; the model returns professional
+    English for the worker job card, keeping ONLY what belongs to the posting's
+    trade and role: an all-irrelevant transcript returns null, a partly
+    relevant one keeps the relevant part.
+
+    NULL IS THE SAFE ANSWER, as on the polish route: blocked input, mock
+    posture, deadline, unreadable body, ungrounded digit, placeholder echo, or
+    a draft the gateway will not vouch for. The caller keeps the poster's own
+    text in every one of those cases.
+    """
+    settings = get_settings()
+    raw_pii = settings.ai_raw_pii_enabled
+
+    with workflow_scope(
+        name=WORKFLOW_TAXONOMY,
+        metadata={"spoken_chars": len(body.spoken_text)},
+    ):
+        # THE INPUT GATE. The poster dictated this and it routinely carries a
+        # name, a company or a phone — the gateway exists for exactly this
+        # text. A blocked input is not rewritten at all: masking it and
+        # rewriting the mask would put "[EMPLOYER_1]" on a worker's job card.
+        masked = llm_input_gate(body.spoken_text, raw=raw_pii)
+        if masked.blocked:
+            logger.warning("job-description draft skipped: the input did not clear the gateway")
+            return JobDescriptionDraftOutput(is_mock=True)
+
+        resolved = resolve_prompt(prompt_registry.JOB_DESCRIPTION_DRAFT)
+        system_prompt = resolved.text if resolved is not None else job_description_draft_prompt()
+        trade = _context_label(body.trade_label, fallback="unspecified trade", raw=raw_pii)
+        role = _context_label(body.role_label, fallback="worker", raw=raw_pii)
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {
+                "role": "user",
+                # DELIMITED: the spoken text is DATA, never instructions (same
+                # defence as the polish route's <work_done> tags).
+                "content": (
+                    f"<trade>{_strip_delimiters(trade)}</trade>\n"
+                    f"<role>{_strip_delimiters(role)}</role>\n"
+                    f"<spoken_text>{_strip_delimiters(masked.text)}</spoken_text>"
+                ),
+            },
+        ]
+
+        try:
+            content, meta = await asyncio.wait_for(
+                router.run(
+                    DESCRIPTION_DRAFT_TASK_TYPE,
+                    messages=messages,
+                    mock_response='{"description": null}',
+                    real_call_allowed=True,
+                    user_ref=body.payer_ref,
+                    prompt=resolved,
+                ),
+                timeout=settings.profiling_extract_deadline_seconds,
+            )
+        except TimeoutError:
+            logger.warning("job-description draft deadline exceeded")
+            return JobDescriptionDraftOutput(is_mock=True)
+
+        if not meta.real_call:
+            return JobDescriptionDraftOutput(is_mock=True)
+
+        try:
+            raw = json.loads(coerce_json_text(content))
+            out = JobDescriptionDraftOutput.model_validate(raw if isinstance(raw, dict) else {})
+        except (json.JSONDecodeError, ValidationError, ValueError, TypeError):
+            logger.warning("job-description draft output failed the contract")
+            return JobDescriptionDraftOutput(is_mock=True, ai_metadata=meta)
+
+        drafted = (out.description or "").strip()
+        if not drafted:
+            # The model declined — licensed by the prompt (all-irrelevant
+            # input). Not a failure.
+            return JobDescriptionDraftOutput(description=None, ai_metadata=meta)
+
+        # WALLS (same shape as the polish route, with the posting's length cap):
+        # length, placeholder echo, digit grounding, gateway re-certification,
+        # plus the hard-identifier floor (ADR-0047 G1).
+        if len(drafted) > DESCRIPTION_DRAFT_MAX:
+            logger.warning("job-description draft rejected: over length")
+            return JobDescriptionDraftOutput(description=None, ai_metadata=meta)
+        if _PLACEHOLDER.search(drafted):
+            logger.warning("job-description draft rejected: it echoed a gateway placeholder")
+            return JobDescriptionDraftOutput(description=None, ai_metadata=meta)
+        if not _digits_are_grounded(drafted, _PLACEHOLDER.sub(" ", masked.text)):
+            logger.warning("job-description draft rejected: it introduced a number")
+            return JobDescriptionDraftOutput(description=None, ai_metadata=meta)
+        if pseudonymize(drafted).blocked:
+            logger.warning("job-description draft rejected: the draft did not clear the gateway")
+            return JobDescriptionDraftOutput(description=None, ai_metadata=meta)
+        if carries_hard_identifier(drafted):
+            logger.warning("job-description draft rejected: the draft carried a hard identifier")
+            return JobDescriptionDraftOutput(description=None, ai_metadata=meta)
+
+        return JobDescriptionDraftOutput(description=drafted, ai_metadata=meta)

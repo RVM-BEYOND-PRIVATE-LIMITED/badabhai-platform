@@ -220,10 +220,12 @@ const PROFILING_TASK_TYPE_KEYS: Record<AiCostTaskType, boolean> = {
   domain_match: false,
   stt_transcription: false,
   tts_synthesis: false,
-  // PAYER-side calls: a job posting's skill embedding and the posting composer. No worker and
-  // no profile is involved in either, which is why the platform table exists at all.
+  // PAYER-side calls: a job posting's skill embedding, the posting composer, and the
+  // voice-toggle description draft. No worker and no profile is involved in any of them,
+  // which is why the platform table exists at all.
   skill_embedding: false,
   job_posting_chat_turn: false,
+  job_description_draft: false,
 };
 
 /** The profiling allowlist itself — derived from the map so the two cannot disagree. */

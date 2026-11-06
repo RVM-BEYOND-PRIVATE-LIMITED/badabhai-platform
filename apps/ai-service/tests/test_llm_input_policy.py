@@ -1111,6 +1111,7 @@ ROUTER_CALLERS = frozenset(
         "routers/free_chat.py",
         "routers/profiling_understand.py",  # ADR-0057: message gated first, then mask_request
         "routers/resume.py",
+        "routers/job_posting.py",  # voice-toggle draft: gated input, clean-or-literal labels
         "resume_import/resume_parse.py",
         "resume_import/resume_summary.py",
         "resume_import/resume_option_map.py",
@@ -1785,6 +1786,7 @@ FLAG_READERS = frozenset(
         "routers/profiling_understand.py",  # ADR-0057: passes `raw` to its gate and masker
         "routers/voice.py",
         "routers/resume.py",
+        "routers/job_posting.py",  # voice-toggle draft: spoken text via llm_input_gate
         "ai/langfuse_tracing.py",  # the tracer's constructor picks the SDK hook
         "ai/router.py",  # the ai_call_traces writer
     }
@@ -1819,6 +1821,10 @@ PSEUDONYMIZE_CALLS = {
     ("routers/profiling.py", "_refused", "text"): "output wall",
     ("routers/profiling.py", "_certified", "text"): "output wall",
     ("routers/profiling.py", "work_history_polish", "polished"): "output wall",
+    # Voice-toggle description draft: the rewrite printed on the worker job card,
+    # re-certified before it is returned — the model can put a name into a draft
+    # whose transcript had none.
+    ("routers/job_posting.py", "job_description_draft", "drafted"): "output wall",
     # #2409: each name the "Koi aur" review lets print, before it reaches the résumé.
     ("routers/profiling.py", "other_answer_review", "item"): "output wall",
     ("extraction.py", "_availability_line", "cleaned"): "output wall (point of print)",

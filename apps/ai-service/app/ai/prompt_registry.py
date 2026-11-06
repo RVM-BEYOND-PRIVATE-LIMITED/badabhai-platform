@@ -120,6 +120,11 @@ FREE_CHAT_NEWS_COMPANION = "profiling-free-news-companion"
 # schema. Versioned like the rest: the intent mix, the fill precision and the eval bar are exactly
 # what a prompt edit moves, so "which prompt read this message" must be answerable.
 PROFILING_TURN_UNDERSTAND = "profiling-turn-understand"
+# Voice toggle on the employer Perks & Details step: one Hinglish voice note in,
+# one professional English description out, filtered to the posting's trade and
+# role. Versioned like the polish prompt it mirrors, so a regression in what
+# gets kept vs dropped is traceable to a prompt edit.
+JOB_DESCRIPTION_DRAFT = "payer-job-description-draft"
 
 #: ``prompt_source`` values. Two, and they mean different things to an operator: "local"
 #: says the deploy decides the prompt, "langfuse" says someone outside the deploy can.
@@ -266,6 +271,7 @@ def install_default_prompts() -> None:
         EDIT_PARSE_SYSTEM_PROMPT,
     )
     from ..free_chat import prompts as free_chat_prompts
+    from ..job_posting_chat.description_prompt import job_description_draft_prompt
     from ..profiling.interview_prompts import (
         bridge_system_prompt,
         extract_system_prompt,
@@ -321,3 +327,6 @@ def install_default_prompts() -> None:
     # ADR-0057 (#2309). A module constant with no interpolation, like the companion's: the
     # registered text and the route's fallback literal are the same bytes.
     register(PROFILING_TURN_UNDERSTAND, lambda: UNDERSTAND_SYSTEM_PROMPT)
+    # Employer voice toggle. Builder function like the work-history polish it
+    # mirrors, so the registered text and the route's fallback literal agree.
+    register(JOB_DESCRIPTION_DRAFT, job_description_draft_prompt)

@@ -37,6 +37,10 @@ import type {
   PayerCreateJobPostingDto,
   UpdateJobPostingDto,
 } from "./job-postings.dto";
+import type {
+  DraftJobDescriptionDto,
+  JobDescriptionDraftResult,
+} from "./job-description.dto";
 import { postingTradeRequired } from "./posting-trade-required";
 
 /**
@@ -479,6 +483,58 @@ export class JobPostingsService {
       ctx,
       droppedSkillIds,
     );
+  }
+
+  /**
+   * Voice-toggle draft: one Hinglish voice note into one English job description,
+   * filtered to the posting's trade and role (payer-app + payer-web share this).
+   *
+   * Description ONLY — benefits and requirements stay manual chips. NO DB WRITE and
+   * NO posting event: nothing changed, the poster reviews the draft and the normal
+   * create/edit path persists what they accept (screened again at write time, which
+   * is the worker-facing boundary — so this read-back to the poster is not
+   * double-screened into disagreement with it).
+   *
+   * A null `description` is the safe answer on every degrade — mock posture, a
+   * deadline, a blocked input, an all-irrelevant transcript, a failed wall, an
+   * unreachable ai-service — and the caller keeps the poster's own text in all of
+   * them.
+   *
+   * PAYER-SIDE SPEND, ledgered like the skill-embedding fan-out: no worker is
+   * involved in any sense, so there is no worker attribution (and no payer
+   * dimension on the totals — that table accrues unconditionally). The trace is
+   * dropped by design for the same DSAR reason that call site states.
+   */
+  async draftDescriptionForPayer(
+    actorPayerId: string,
+    dto: DraftJobDescriptionDto,
+    ctx: RequestContext,
+  ): Promise<JobDescriptionDraftResult> {
+    const out = await this.ai.draftJobDescription(
+      {
+        payer_ref: actorPayerId,
+        spoken_text: dto.spoken_text,
+        trade_label: dto.trade_label ?? null,
+        role_label: dto.role_label ?? null,
+      },
+      ctx,
+    );
+    await this.aiCost.record(
+      out?.ai_metadata ?? null,
+      "job_description_draft",
+      null,
+      ctx.correlationId,
+      ctx.requestId,
+    );
+    await this.aiTraces.capture(
+      out?.ai_metadata ?? null,
+      "job_description_draft",
+      null,
+      ctx.correlationId,
+    );
+    const text = out?.description?.trim();
+    if (!text) return { description: null, is_mock: true };
+    return { description: text, is_mock: out?.is_mock ?? true };
   }
 
   /**

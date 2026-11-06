@@ -45,6 +45,8 @@ import {
   type ListJobPostingsQueryDto,
   type UpdateJobPostingDto,
 } from "../job-postings/job-postings.dto";
+import type { DraftJobDescriptionDto } from "../job-postings/job-description.dto";
+import { DraftJobDescriptionSchema } from "../job-postings/job-description.dto";
 
 /**
  * Payer self-serve job postings (ADR-0019 / ADR-0022 module 9) — the payer analogue
@@ -107,6 +109,26 @@ export class PayerJobPostingsController {
     @Ctx() ctx: RequestContext,
   ) {
     return this.jobPostings.createForPayer(payer.id, dto, ctx);
+  }
+
+  /**
+   * Voice-toggle draft: one Hinglish voice note into one English description,
+   * filtered to the posting's trade and role (payer-app + payer-web share this).
+   * Description ONLY — benefits and requirements stay manual chips. Returns the
+   * draft for the poster to review; nothing is stored (the normal create/edit
+   * path persists what they accept). A null `description` keeps the poster's own
+   * text: mock posture, deadline, blocked input, all-irrelevant transcript, or
+   * an unreachable ai-service all land there.
+   */
+  @Post("description/draft")
+  @HttpCode(200)
+  @PayerRoles("employer")
+  draftDescription(
+    @Body(new ZodValidationPipe(DraftJobDescriptionSchema)) dto: DraftJobDescriptionDto,
+    @CurrentPayer() payer: AuthenticatedPayer,
+    @Ctx() ctx: RequestContext,
+  ) {
+    return this.jobPostings.draftDescriptionForPayer(payer.id, dto, ctx);
   }
 
   /**

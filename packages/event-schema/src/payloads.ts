@@ -1308,6 +1308,10 @@ const aiTaskType = z.enum([
   // second, invisible fix in apps/api on the day the seam went live — the kind of
   // follow-up that produced this defect class in the first place.
   "job_posting_chat_turn",
+  // THE EMPLOYER VOICE-TOGGLE DESCRIPTION DRAFT. Routed in `model_config._ROUTE_SHAPES`
+  // as `job_description_draft` and charged once per draft, beside the work-history
+  // polish it mirrors. Added in the SAME change that routes it, per the lesson above.
+  "job_description_draft",
 ]);
 
 /**

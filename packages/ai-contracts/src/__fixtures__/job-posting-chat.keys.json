@@ -54,5 +54,17 @@
     "updated_state",
     "ai_metadata",
     "pseudonymization_metadata"
+  ],
+  "JobDescriptionDraftInput": [
+    "payer_ref",
+    "spoken_text",
+    "trade_label",
+    "role_label"
+  ],
+  "JobDescriptionDraftOutput": [
+    "description",
+    "blocked",
+    "is_mock",
+    "ai_metadata"
   ]
 }

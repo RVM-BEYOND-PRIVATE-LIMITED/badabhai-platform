@@ -260,6 +260,11 @@ class TestServiceAuthEnabled:
         # 24 -> 25 with ADR-0057 (#2309): POST /profiling/understand. It carries the worker's
         # message, recent turns, the question on screen and every schema value, so the same
         # bearer gates it; the API's re-validation of every key, ref and value is its second lock.
+        #
+        # 25 -> 26 with the employer voice toggle: POST /job-posting/description/draft. It
+        # carries a payer's dictated free text (and the trade/role labels from the same form),
+        # so the same bearer gates it; the API's screen at write time is the worker-facing
+        # boundary, and a null draft keeps the poster's own text on every degrade.
         assert post_paths == [
             "/companion/career",
             "/companion/classify",
@@ -272,6 +277,7 @@ class TestServiceAuthEnabled:
             "/growth/cluster",
             "/job-posting-chat/opening",
             "/job-posting-chat/respond",
+            "/job-posting/description/draft",
             "/profile/extract",
             "/profile/parse",
             "/profiling/extract",
