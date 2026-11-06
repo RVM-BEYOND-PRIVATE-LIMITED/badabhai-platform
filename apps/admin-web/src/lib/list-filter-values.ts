@@ -11,8 +11,9 @@
  * way); the admin roles are `ADMIN_ROLES` (`lib/auth/capabilities.ts`).
  */
 
-/** `AdminPayersQuerySchema.status` — Companies and Agencies. */
-export const PAYER_STATUSES = ["pending", "active", "suspended"] as const;
+/** `AdminPayersQuerySchema.status` — Companies and Agencies. `archived` (#2564 B10):
+ * archived companies stay visible on the admin list so an operator can find and restore them. */
+export const PAYER_STATUSES = ["pending", "active", "suspended", "archived"] as const;
 
 /** `AdminLedgerQuerySchema.reason` — the credit ledger's reason chips, in the chips' order. */
 export const LEDGER_REASONS = ["pack_purchase", "grant", "unlock_debit", "refund"] as const;

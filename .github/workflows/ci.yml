@@ -1454,8 +1454,8 @@ jobs:
           #     stops reaching vitest, this step silently becomes a slow duplicate of the
           #     `node` job (and check (1) starts passing on unrelated tests). Update the
           #     expected count when adding a gate file to the command above.
-          if ! grep -qE 'Test Files +34 passed \(34\)' db-gates.log; then
-            echo "::error::Expected exactly the 34 gate files to run - the vitest file filter is not reaching vitest."
+          if ! grep -qE 'Test Files +36 passed \(36\)' db-gates.log; then
+            echo "::error::Expected exactly the 36 gate files to run - the vitest file filter is not reaching vitest."
             grep -E 'Test Files|      Tests ' db-gates.log || true
             exit 1
           fi

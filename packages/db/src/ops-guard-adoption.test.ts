@@ -31,10 +31,12 @@
  * production database with nothing in the way. The obvious cure for the over-refusal — delete
  * that line — removes the write protection in the same gesture.
  *
- * ⚠ THE THREE FIXTURE SEEDS ARE THE SHARPEST CASE, and they are not on the D2 path, which is
- * why they are still here. `seed.ts`, `seed-demand.ts` and `seed-reach-pool.ts` write SYNTHETIC
+ * ⚠ THE FIXTURE SEEDS ARE THE SHARPEST CASE, and they were not on the D2 path, which is
+ * why they are still here. `seed.ts` and `seed-demand.ts` write SYNTHETIC
  * data. Their guard reads as "never in production" — and against an unset NODE_ENV it permits
- * exactly that. Nothing on this list is more worth fixing next.
+ * exactly that. (`seed-reach-pool.ts` has since been converted off the old guard and its
+ * entry deleted — that deletion is how a fix is recorded.) Nothing on this list is more
+ * worth fixing next.
  */
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -71,12 +73,6 @@ export const STILL_ON_THE_OLD_GUARD: readonly Remaining[] = [
   {
     file: "seed-demand.ts",
     reason: "Fixture seed for demand. Same shape and same hazard as seed.ts.",
-    writesOnProduction: true,
-  },
-  {
-    file: "seed-reach-pool.ts",
-    reason:
-      "Fixture seed for the reach pool, and the largest of the three by row count. Same hazard.",
     writesOnProduction: true,
   },
   {

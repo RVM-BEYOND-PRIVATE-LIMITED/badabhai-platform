@@ -53,6 +53,7 @@ import { parsePiiKeyring } from "./pii-keyring-env";
 import {
   adminUsers,
   agencyKyc,
+  agencyProfiles,
   aiCallTraces,
   employerProfiles,
   payerMemberInvites,
@@ -253,6 +254,54 @@ function buildTargets(db: Database): PiiTarget[] {
       "payer_member_invites",
       "invited_email_enc",
       "invitedEmailEnc",
+    ),
+    // ── #2564 B10: the company record's ciphertext (migration 0158) ───────────────────────
+    //
+    // The GST, street address and contact person on BOTH profile tables. Added WITH the
+    // columns, while they are empty, exactly as the 0094 entry above was: a target costs
+    // nothing on a column with no rows and makes the FIRST token rotatable. A GSTIN, an
+    // address and a contact name are B2B PII with no expiry — an omission here would mean
+    // the old kid can never be retired for as long as any company has ever been recorded.
+    // The coverage guard caught exactly this, on the first run after the migration.
+    target(
+      employerProfiles,
+      employerProfiles.payerId,
+      employerProfiles.addressEnc,
+      "employer_profiles",
+      "address_enc",
+      "addressEnc",
+    ),
+    target(
+      employerProfiles,
+      employerProfiles.payerId,
+      employerProfiles.contactNameEnc,
+      "employer_profiles",
+      "contact_name_enc",
+      "contactNameEnc",
+    ),
+    target(
+      agencyProfiles,
+      agencyProfiles.payerId,
+      agencyProfiles.gstNumberEnc,
+      "agency_profiles",
+      "gst_number_enc",
+      "gstNumberEnc",
+    ),
+    target(
+      agencyProfiles,
+      agencyProfiles.payerId,
+      agencyProfiles.addressEnc,
+      "agency_profiles",
+      "address_enc",
+      "addressEnc",
+    ),
+    target(
+      agencyProfiles,
+      agencyProfiles.payerId,
+      agencyProfiles.contactNameEnc,
+      "agency_profiles",
+      "contact_name_enc",
+      "contactNameEnc",
     ),
     // ── 0094: the work history the résumé prints ─────────────────────────────────────────────
     //

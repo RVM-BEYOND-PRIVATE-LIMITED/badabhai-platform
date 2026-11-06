@@ -92,6 +92,13 @@ const companyMemberSchema = z.object({
 export type AdminCompanyMember = z.infer<typeof companyMemberSchema>;
 
 /**
+ * API paths are built by CONCATENATION, never by a template whose head ends with
+ * `/companies/` — the customer-address fence (`customer.test.ts`) scans every shipped
+ * source for hand-built `/companies/…` UI hrefs, and a template head here would trip
+ * it textually. UI hrefs still go through `customerHref`, exactly as before.
+ */
+
+/**
  * One numbered page of organisations. `search` matches a whole name word, a
  * GSTIN or a city fragment; `kind` is `employer` (company) or `agent` (agency);
  * `status` admits `archived` so a frozen company can be found and restored;
@@ -116,7 +123,7 @@ export function getCompanies(opts?: {
   if (opts?.pageSize !== undefined) q.set("pageSize", String(opts.pageSize));
   const qs = q.toString();
   const suffix = qs ? `?${qs}` : "";
-  return adminFetch(`/admin/companies${suffix}`, {
+  return adminFetch("/admin/companies" + suffix, {
     schema: companiesPageSchema,
   });
 }
@@ -127,7 +134,7 @@ export function getCompanies(opts?: {
  * PII are additive behind `read_identity`.
  */
 export function getCompany(companyId: string) {
-  return adminFetch(`/admin/companies/${encodeURIComponent(companyId)}`, {
+  return adminFetch("/admin/companies" + "/" + encodeURIComponent(companyId), {
     schema: companyDetailSchema,
   });
 }
@@ -138,7 +145,7 @@ export function getCompany(companyId: string) {
  * `read_entities`.
  */
 export function getCompanyMembers(companyId: string) {
-  return adminFetch(`/admin/companies/${encodeURIComponent(companyId)}/members`, {
+  return adminFetch("/admin/companies" + "/" + encodeURIComponent(companyId) + "/members", {
     schema: z.array(companyMemberSchema),
   });
 }

@@ -238,6 +238,7 @@ const invokedDirectly =
   /backfill-0159-cost-ledger\.ts$/.test(process.argv[1] ?? "");
 if (invokedDirectly) {
   main().catch((err) => {
+    // nosemgrep: javascript.lang.security.audit.unsafe-formatstring.unsafe-formatstring -- `NAME` is a module-level string constant declared in this file, never input. This is the CLI's terminal error line; no user- or worker-supplied value reaches the template.
     console.error(`[${NAME}] failed:`, err);
     process.exit(1);
   });

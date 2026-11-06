@@ -33,7 +33,11 @@ export function PayerDetailHeader({
   /** Back link, title and description, built on the server. */
   header: PageHeaderContent;
   payerId: string;
-  status: "pending" | "active" | "suspended";
+  // #2564 B10 — `archived` is the company-archive state: the login is frozen with the
+  // rest of its org. Archive/restore live on the Companies tab (`manage_companies`);
+  // this per-login control offers neither (suspend/reinstate only move
+  // pending|active|suspended rows), so an archived login gets no primary action.
+  status: "pending" | "active" | "suspended" | "archived";
   canSuspend: boolean;
   /** This account's event timeline, or null for a reader without `read_events`. */
   timelineHref: string | null;
@@ -51,7 +55,10 @@ export function PayerDetailHeader({
       <PageHeader
         {...header}
         primaryAction={
-          canSuspend ? (
+          // Archived logins are frozen with their company: no per-login lifecycle
+          // action here (restore lives on the Companies tab). Showing Suspend or
+          // Reinstate would offer a control that only ever 409s.
+          canSuspend && status !== "archived" ? (
             status === "suspended" ? (
               <AdminActionButton
                 label="Reinstate"
