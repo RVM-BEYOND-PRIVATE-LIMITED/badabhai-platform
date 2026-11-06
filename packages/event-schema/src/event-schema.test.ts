@@ -2450,7 +2450,7 @@ describe("admin auth events (ADR-0025 — the 4th principal, FACELESS, ids/role/
       ).success,
     ).toBe(false);
     // ...and the four legitimate surfaces all pass (#2563 added `payer_logins`).
-    for (const surface of ["workers", "payers", "admins", "payer_logins"]) {
+    for (const surface of ["workers", "payers", "admins", "payer_logins", "candidates"]) {
       expect(
         validateEvent(evt({ admin_id: UUID_A, surface, result_count: 0 })).success,
         surface,
@@ -2517,6 +2517,100 @@ describe("admin auth events (ADR-0025 — the 4th principal, FACELESS, ids/role/
         payload: { admin_id: UUID_A, window: "minute" },
       }).success,
     ).toBe(false);
+  });
+
+  // ── B5 (#2559) — the Candidates lookup audit + search-cap breach + budget alert ──
+
+  it("validates admin.identity_searched with admin_id + search_kind + match_count and NOTHING else", () => {
+    const evt = {
+      ...workerCreatedEvent(),
+      event_name: "admin.identity_searched",
+      actor: { actor_type: "admin", actor_id: UUID_A },
+      subject: { subject_type: "admin_session", subject_id: UUID_A },
+      payload: { admin_id: UUID_A, search_kind: "name", match_count: 3 },
+    };
+    const result = validateEvent(evt);
+    expect(result.success).toBe(true);
+    if (result.success && result.event.event_name === "admin.identity_searched") {
+      expect(Object.keys(result.event.payload).sort()).toEqual(
+        ["admin_id", "match_count", "search_kind"].sort(),
+      );
+    }
+  });
+
+  it("REJECTS the search term under any key on admin.identity_searched (.strict — never the value)", () => {
+    for (const extra of [
+      { term: "Ramesh" },
+      { q: "Ramesh Kumar" },
+      { query: "+919876543210" },
+      { search_term: "Ramesh" },
+      { term_hash: "a3f1c2" }, // a hash of the term is still per-person data
+      { matched_ids: [UUID_B] },
+      { match_ids: [UUID_B] },
+      { full_name: "Ramesh Kumar" },
+      { phone: "+919876543210" },
+    ]) {
+      const bad = validateEvent({
+        ...workerCreatedEvent(),
+        event_name: "admin.identity_searched",
+        actor: { actor_type: "admin", actor_id: UUID_A },
+        subject: { subject_type: "admin_session", subject_id: UUID_A },
+        payload: { admin_id: UUID_A, search_kind: "phone", match_count: 1, ...extra },
+      });
+      expect(bad.success, JSON.stringify(extra)).toBe(false);
+      if (!bad.success) expect(bad.error.stage).toBe("payload");
+    }
+  });
+
+  it("rejects an unknown search_kind on admin.identity_searched (name|phone only)", () => {
+    const bad = validateEvent({
+      ...workerCreatedEvent(),
+      event_name: "admin.identity_searched",
+      actor: { actor_type: "admin", actor_id: UUID_A },
+      subject: { subject_type: "admin_session", subject_id: UUID_A },
+      payload: { admin_id: UUID_A, search_kind: "city", match_count: 5 },
+    });
+    expect(bad.success).toBe(false);
+    if (!bad.success) expect(bad.error.stage).toBe("payload");
+  });
+
+  it("validates admin.candidates_search_cap_exceeded with admin_id + window ONLY", () => {
+    const result = validateEvent({
+      ...workerCreatedEvent(),
+      event_name: "admin.candidates_search_cap_exceeded",
+      actor: { actor_type: "admin", actor_id: UUID_A },
+      subject: { subject_type: "admin_session", subject_id: UUID_A },
+      payload: { admin_id: UUID_A, window: "hour" },
+    });
+    expect(result.success).toBe(true);
+    if (result.success && result.event.event_name === "admin.candidates_search_cap_exceeded") {
+      expect(Object.keys(result.event.payload).sort()).toEqual(["admin_id", "window"].sort());
+    }
+  });
+
+  it("validates admin.candidates_name_budget_alert with admin_id + day window + percent", () => {
+    const result = validateEvent({
+      ...workerCreatedEvent(),
+      event_name: "admin.candidates_name_budget_alert",
+      actor: { actor_type: "admin", actor_id: UUID_A },
+      subject: { subject_type: "admin_session", subject_id: UUID_A },
+      payload: { admin_id: UUID_A, window: "day", threshold_percent: 50 },
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects admin.candidates_name_budget_alert outside 1..100 percent", () => {
+    for (const threshold_percent of [0, 101]) {
+      const bad = validateEvent({
+        ...workerCreatedEvent(),
+        event_name: "admin.candidates_name_budget_alert",
+        actor: { actor_type: "admin", actor_id: UUID_A },
+        subject: { subject_type: "admin_session", subject_id: UUID_A },
+        payload: { admin_id: UUID_A, window: "day", threshold_percent },
+      });
+      expect(bad.success).toBe(false);
+      if (!bad.success) expect(bad.error.stage).toBe("payload");
+    }
   });
 
   it("validates admin.kill_switch_pause_requested with switch_key + reason_code and NO value (ADMIN-3c)", () => {
@@ -3334,8 +3428,12 @@ describe("chat.session_abandoned (idle sweep — COUNTS ONLY, no transcript)", (
 });
 
 describe("registry", () => {
-  it("exposes all 255 event names (179 prior + the two trade-form offer steps + Layer A + resume.edited + resume-identity + resume-autofill + profile.viewed_v2 + E0's relay trio + the C-2 consent exit + the ADR-0043 resume-update answer + its erasure backfill + the four tiered-profiling events + the ADR-0044 companion turn + the five ADR-0045 general-road events + the #1318 safe-field resume.edited_v2 + the #1801 resume.skin_changed + the #1800 profile.qr_scanned + the four ADR-0046 companion-v2 Phase 1 events + the ADR-0046 P2 faltu strike + the ADR-0046 P3 career answer + the E4 match-skill wants event + the ADR-0048 identity-intake step + the six TD150/WP8 companion versions + the two ADR-0051 free-chat events + the ADR-0050 job_posting.twin_synced + the ADR-0051 Release 2 summary fold + the ADR-0054 live-news request + the 2026-10-07 payer.applicant_stage_changed + the ADR-0051 §11 reply-language change + the ADR-0055 companion turn v4 + the #2297 companion summary fold + the ADR-0057 turn understood + its three edit-gate events + the #2409 typed-answer review + the two Middle-Way optional-depth offer steps + the 2026-11-03 payer.candidate_search_performed + the #2541 consent.age_declared + the 2026-11-04 consent.purposes_granted + the #2635 job_posting.match_skills_scoped + the ADR-0062 admin.candidate_viewed + the B13 ai.fallback_alert_raised/cleared pair + the payer.account_deleted QA seam + the #2701 restricted-session issue + the six #2566 admin posting-control events + the B2 ai.cost_recorded_v2)", () => {
-    expect(EVENT_NAMES).toHaveLength(255);
+  it("exposes all 258 event names (179 prior + the two trade-form offer steps + Layer A + resume.edited + resume-identity + resume-autofill + profile.viewed_v2 + E0's relay trio + the C-2 consent exit + the ADR-0043 resume-update answer + its erasure backfill + the four tiered-profiling events + the ADR-0044 companion turn + the five ADR-0045 general-road events + the #1318 safe-field resume.edited_v2 + the #1801 resume.skin_changed + the #1800 profile.qr_scanned + the four ADR-0046 companion-v2 Phase 1 events + the ADR-0046 P2 faltu strike + the ADR-0046 P3 career answer + the E4 match-skill wants event + the ADR-0048 identity-intake step + the six TD150/WP8 companion versions + the two ADR-0051 free-chat events + the ADR-0050 job_posting.twin_synced + the ADR-0051 Release 2 summary fold + the ADR-0054 live-news request + the 2026-10-07 payer.applicant_stage_changed + the ADR-0051 §11 reply-language change + the ADR-0055 companion turn v4 + the #2297 companion summary fold + the ADR-0057 turn understood + its three edit-gate events + the #2409 typed-answer review + the two Middle-Way optional-depth offer steps + the 2026-11-03 payer.candidate_search_performed + the #2541 consent.age_declared + the 2026-11-04 consent.purposes_granted + the #2635 job_posting.match_skills_scoped + the ADR-0062 admin.candidate_viewed + the B13 ai.fallback_alert_raised/cleared pair + the payer.account_deleted QA seam + the #2701 restricted-session issue + the six #2566 admin posting-control events + the B2 ai.cost_recorded_v2 + the three B5 Candidates search/audit events)", () => {
+    expect(EVENT_NAMES).toHaveLength(258);
+    // B5 (#2559) — the Candidates lookup audit + search-cap breach + budget alert (new names).
+    expect(isEventName("admin.identity_searched")).toBe(true);
+    expect(isEventName("admin.candidates_search_cap_exceeded")).toBe(true);
+    expect(isEventName("admin.candidates_name_budget_alert")).toBe(true);
     // B2 (#2555) — the spend-time test-flag generation of `ai.cost_recorded` (new name; v1 not mutated).
     expect(isEventName("ai.cost_recorded_v2")).toBe(true);
     // B13 (#2567) — the loud-AI-alert verdict pair (new names; no schema mutated).

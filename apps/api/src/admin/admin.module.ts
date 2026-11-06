@@ -46,6 +46,8 @@ import { AdminKillSwitchService } from "./admin-kill-switch.service";
 import { AdminKillSwitchController } from "./admin-kill-switch.controller";
 import { AdminIdentityRepository } from "./admin-identity.repository";
 import { AdminIdentityCapService } from "./admin-identity-cap.service";
+import { AdminCandidatesIdentityCapService } from "./admin-candidates-identity-cap.service";
+import { AdminCandidatesSearchCapService } from "./admin-candidates-search-cap.service";
 import { AdminIdentityService } from "./admin-identity.service";
 import { AdminEntitiesRepository } from "./admin-entities.repository";
 import { AdminEntitiesService } from "./admin-entities.service";
@@ -92,6 +94,9 @@ import { AdminMatchEngineController } from "./admin-match-engine.controller";
 import { AdminCandidateDetailRepository } from "./admin-candidate-detail.repository";
 import { AdminCandidateDetailService } from "./admin-candidate-detail.service";
 import { AdminCandidateDetailController } from "./admin-candidate-detail.controller";
+import { AdminCandidatesRepository } from "./admin-candidates.repository";
+import { AdminCandidatesService } from "./admin-candidates.service";
+import { AdminCandidatesController } from "./admin-candidates.controller";
 import { CandidateIndexRepository } from "./candidate-index/candidate-index.repository";
 import { CandidateIndexProjector } from "./candidate-index/candidate-index.projector";
 import { CandidateIndexProcessor } from "./candidate-index/candidate-index.processor";
@@ -242,6 +247,9 @@ import { WorkerQualificationsRepository } from "../profiles/worker-qualification
     AdminSkillDiscoveryController,
     AdminMatchEngineController,
     AdminCandidateDetailController,
+    // B5 (#2559) — the Candidates data-bank search list (POST: the term travels
+    // in the body, never the URL — ADR-0062 §3.6).
+    AdminCandidatesController,
   ],
   providers: [
     AdminRepository,
@@ -314,6 +322,12 @@ import { WorkerQualificationsRepository } from "../profiles/worker-qualification
     // EventsService, and PiiCryptoService for the decrypt-at-boundary.
     AdminIdentityRepository,
     AdminIdentityCapService,
+    // B5 (#2559) — the Candidates screen's OWN name budget (ADR-0062 §3.7), on its
+    // own Redis namespace. Wired into AdminIdentityService's per-surface policy.
+    AdminCandidatesIdentityCapService,
+    // B5 (#2559) — the Candidates per-admin SEARCH cap (ADR-0062 §3.6). Consumed
+    // by the search service, not the identity pipeline.
+    AdminCandidatesSearchCapService,
     AdminIdentityService,
     // BP-1: entity reads (workers/payers/job-postings/applications/credits) behind
     // `read_entities`. SELECT-ONLY, explicit column projections, keyset-paginated. It does NOT
@@ -452,6 +466,10 @@ import { WorkerQualificationsRepository } from "../profiles/worker-qualification
     CandidateIndexProcessor,
     NameTokenService,
     AdminCandidateDetailService,
+    // B5 (#2559) — the search list over the read table (SELECT-ONLY repository,
+    // PII-free rows; names ride the identity service, never this repository).
+    AdminCandidatesRepository,
+    AdminCandidatesService,
     WorkerAttributesRepository,
     WorkerQualificationsRepository,
     WorkerLanguagesRepository,

@@ -253,4 +253,15 @@ describe("AdminModule wiring (DI regression guard)", () => {
     expect(tokens).toContain("CandidateIndexProcessor");
     expect(tokens).toContain("NameTokenService");
   });
+
+  it("declares the B5 (#2559) candidates search list + its budgets", () => {
+    // The search service injects the list repository, the identity + search-cap
+    // services, PiiCryptoService (@Global) and the name-token service — same
+    // BOOT-failure discipline as above.
+    const tokens = providerTokens();
+    expect(tokens).toContain("AdminCandidatesRepository");
+    expect(tokens).toContain("AdminCandidatesService");
+    expect(tokens).toContain("AdminCandidatesIdentityCapService");
+    expect(tokens).toContain("AdminCandidatesSearchCapService");
+  });
 });

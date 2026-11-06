@@ -1,10 +1,13 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Inject, Injectable, Logger } from "@nestjs/common";
 import type { AdminIdentitySurface, PayloadInputOf } from "@badabhai/event-schema";
+import type { ServerConfig } from "@badabhai/config";
+import { SERVER_CONFIG } from "../config/config.module";
 import type { RequestContext } from "../common/request-context";
 import { PiiCryptoService } from "../common/pii-crypto.service";
 import { EventsService } from "../events/events.service";
 import type { AuthenticatedAdmin } from "./admin-auth.guard";
 import { can } from "./admin-capabilities";
+import { AdminCandidatesIdentityCapService } from "./admin-candidates-identity-cap.service";
 import { AdminIdentityCapService } from "./admin-identity-cap.service";
 import { AdminIdentityRepository, type AdminIdentityRow } from "./admin-identity.repository";
 import type { AdminEgressCapWindow } from "./admin-egress-cap.service";
@@ -38,6 +41,16 @@ export type AdminIdentityMap = ReadonlyMap<string, string | null>;
  * degradation, and it is the state the client already knows how to render.
  */
 export const ADMIN_IDENTITY_MAX_SUBJECTS = 50;
+
+/**
+ * HARD upper bound for the Candidates data-bank screen (ADR-0062 §3.7,
+ * #2559/B5): 100 names, matching the largest Candidates page size. Same
+ * absent-for-all degradation as {@link ADMIN_IDENTITY_MAX_SUBJECTS} — over the
+ * bound the read discloses NOTHING, charges nothing, audits nothing. Held
+ * equal to the Candidates page-size clamp by the same drift test (a clamp
+ * raised above this bound silently names nothing instead of paging less).
+ */
+export const ADMIN_CANDIDATES_IDENTITY_MAX_SUBJECTS = 100;
 
 /**
  * The one place a stored NAME becomes plaintext on the admin surface (owner ruling 2026-08-18,
@@ -98,11 +111,43 @@ export class AdminIdentityService {
     private readonly cap: AdminIdentityCapService,
     private readonly pii: PiiCryptoService,
     private readonly events: EventsService,
+    // B5 (#2559) — the Candidates surface spends from its OWN budget (ctor-added:
+    // existing constructions pass nothing and keep the entity budget for every
+    // surface, exactly as before).
+    private readonly candidatesCap?: AdminCandidatesIdentityCapService,
+    @Inject(SERVER_CONFIG) private readonly config?: ServerConfig,
   ) {}
 
   /** True when this admin may see names at all. Cheap, side-effect-free, and fail-closed. */
   isPermitted(admin: AuthenticatedAdmin): boolean {
     return can(admin.role, "read_identity");
+  }
+
+  /**
+   * Per-surface policy — bound + budget. No caller passes either (ADR-0062
+   * §3.7): `candidates` spends the Candidates budget against the 100-name
+   * bound; every other surface spends the entity budget against the 50-name
+   * bound. A drift test pins both rows.
+   */
+  private policyFor(surface: AdminIdentitySurface): {
+    bound: number;
+    cap: AdminIdentityCapService | AdminCandidatesIdentityCapService;
+    candidatesBudget: boolean;
+  } {
+    if (surface !== "candidates") {
+      return { bound: ADMIN_IDENTITY_MAX_SUBJECTS, cap: this.cap, candidatesBudget: false };
+    }
+    if (!this.candidatesCap) {
+      // Wiring bug (the module always provides it): fail closed and loud, like
+      // the bound case — charging the entity budget would silently mis-spend it.
+      this.logger.error("candidates identity surface has no Candidates budget provider; disclosing NO names");
+      return { bound: 0, cap: this.cap, candidatesBudget: false };
+    }
+    return {
+      bound: ADMIN_CANDIDATES_IDENTITY_MAX_SUBJECTS,
+      cap: this.candidatesCap,
+      candidatesBudget: true,
+    };
   }
 
   /**
@@ -129,16 +174,18 @@ export class AdminIdentityService {
     // --- 1. CAPABILITY. Deny-by-default via the single-source matrix; no cap, no event.
     if (!this.isPermitted(admin)) return null;
 
-    // --- 2. RESPONSE BOUND. Fail closed above the cap — see ADMIN_IDENTITY_MAX_SUBJECTS. No
+    // --- 2. RESPONSE BOUND (per surface — candidates allows 100, the rest 50).
+    // Fail closed above the bound — see ADMIN_IDENTITY_MAX_SUBJECTS. No
     // query, no budget, no `identity_viewed` row: nothing was disclosed, so nothing is recorded.
     // Deliberately NOT an `identity_cap_exceeded` breach either — that event means "this
     // ACCOUNT's velocity tripped a budget", and filing a caller-side bound under it would put
     // noise in the stream a reviewer is meant to read as an alert. Logged at ERROR because it
     // is a CALLER bug (a name-bearing list that forgot to clamp), not admin behaviour.
-    if (ids.length > ADMIN_IDENTITY_MAX_SUBJECTS) {
+    const policy = this.policyFor(surface);
+    if (ids.length > policy.bound) {
       this.logger.error(
         `identity read asked for ${ids.length} subjects on surface=${surface} (max ` +
-          `${ADMIN_IDENTITY_MAX_SUBJECTS}); disclosing NO names. Clamp the caller's page size.`,
+          `${policy.bound}); disclosing NO names. Clamp the caller's page size.`,
       );
       return null;
     }
@@ -152,8 +199,9 @@ export class AdminIdentityService {
     // happened. `result_count` and the cap charge are the SAME number by construction.
     const resultCount = rows.reduce((n, r) => (r.nameCipher === null ? n : n + 1), 0);
 
-    // --- 5. EGRESS CAP, charged per disclosure. Fail-closed on a Redis error.
-    const capResult = await this.cap.consume(admin.id, resultCount);
+    // --- 5. EGRESS CAP, charged per disclosure (per surface — candidates spends
+    // its own budget). Fail-closed on a Redis error.
+    const capResult = await policy.cap.consume(admin.id, resultCount);
     if (!capResult.ok) {
       // The breach emit is best-effort HERE, and only here, which is the opposite of step 6 and
       // deliberately so. Step 6 gates a DISCLOSURE: if that row cannot be written, the name must
@@ -178,6 +226,14 @@ export class AdminIdentityService {
         );
       }
       return null;
+    }
+
+    // --- 5b. CANDIDATES 50%-OF-DAILY ALERT (ADR-0062 §3.7). Once per admin per
+    // UTC day, best-effort: the names are disclosed either way, so a failed
+    // alert emit must never take out the read — it is logged at ERROR instead.
+    // Other surfaces have no such alert.
+    if (policy.candidatesBudget) {
+      await this.maybeAlertCandidatesBudget(admin.id, ctx);
     }
 
     // --- 6. AUDIT BEFORE DECRYPT. Awaited; a failure PROPAGATES, so no name is ever computed
@@ -216,6 +272,40 @@ export class AdminIdentityService {
         return this.repo.adminNames(list);
       case "payer_logins":
         return this.repo.payerLoginIds(list);
+      case "candidates":
+        // Same column as `workers` (`workers.full_name`) — a separate surface
+        // because it spends the separate Candidates budget (ADR-0062 §3.7).
+        return this.repo.workerNames(list);
+    }
+  }
+
+  /**
+   * Emit PII-free `admin.candidates_name_budget_alert` the first time an
+   * admin's daily Candidates spend reaches 50% (ADR-0062 §3.7) — once per UTC
+   * day, best-effort. Unknown usage or a failed emit means NO alert, never a
+   * blocked or failed read.
+   */
+  private async maybeAlertCandidatesBudget(adminId: string, ctx: RequestContext): Promise<void> {
+    try {
+      const cap = this.candidatesCap;
+      const dailyCap = this.config?.ADMIN_CANDIDATES_IDENTITY_MAX_PER_DAY;
+      if (!cap || dailyCap === undefined) return;
+      const usage = await cap.dayUsage(adminId);
+      if (usage === null || usage < dailyCap / 2) return;
+      if (!(await cap.markBudgetAlerted(adminId))) return;
+      await this.events.emit({
+        event_name: "admin.candidates_name_budget_alert",
+        actor: { actor_type: "admin", actor_id: adminId },
+        subject: { subject_type: "admin_session", subject_id: adminId },
+        payload: { admin_id: adminId, window: "day", threshold_percent: 50 } satisfies PayloadInputOf<"admin.candidates_name_budget_alert">,
+        correlationId: ctx.correlationId,
+        requestId: ctx.requestId,
+      });
+    } catch (err) {
+      this.logger.error(
+        `could not record admin.candidates_name_budget_alert for admin_id=${adminId.slice(0, 8)}… ` +
+          `(reason: ${AdminIdentityService.failureName(err)})`,
+      );
     }
   }
 

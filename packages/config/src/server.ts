@@ -1347,6 +1347,21 @@ export const serverEnvSchema = z.object({
   // `admin.identity_cap_exceeded`. Redis error ⇒ DENY (never uncaps).
   ADMIN_IDENTITY_MAX_PER_HOUR: z.coerce.number().int().positive().default(300),
   ADMIN_IDENTITY_MAX_PER_DAY: z.coerce.number().int().positive().default(1000),
+  // Candidates NAME-egress budget (ADR-0062 §3.7, #2559/B5) — the SEPARATE budget
+  // the Candidates data-bank screen spends, in its own `admin_candidates_identity:*`
+  // Redis namespace (the AdminEgressCapService subclass pattern). Separate from the
+  // entity budget above because a 100-row Candidates page would burn a third of the
+  // whole hourly entity budget in one request. Sized in names actually disclosed:
+  // 2000/hour ≈ twenty full 100-row pages, 10000/day. Over-cap reads still serve the
+  // faceless projection and emit PII-free `admin.identity_cap_exceeded`.
+  ADMIN_CANDIDATES_IDENTITY_MAX_PER_HOUR: z.coerce.number().int().positive().default(2000),
+  ADMIN_CANDIDATES_IDENTITY_MAX_PER_DAY: z.coerce.number().int().positive().default(10000),
+  // Candidates SEARCH cap (ADR-0062 §3.6, #2559/B5) — name/phone lookups per admin,
+  // fail-closed, with its own PII-free breach event
+  // (`admin.candidates_search_cap_exceeded`). Sized in SEARCHES, not matches: a
+  // lookup costs one whether it matches nothing or a hundred rows.
+  ADMIN_CANDIDATES_SEARCH_MAX_PER_HOUR: z.coerce.number().int().positive().default(300),
+  ADMIN_CANDIDATES_SEARCH_MAX_PER_DAY: z.coerce.number().int().positive().default(2000),
 
   // AI CALL TRACE READ (migration 0083) — the whole `/admin/ai-traces` surface, list and
   // decrypt alike. Master switch, DEFAULT OFF, and `booleanFromString` so a falsey string stays

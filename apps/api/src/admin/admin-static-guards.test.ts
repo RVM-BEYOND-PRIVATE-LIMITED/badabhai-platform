@@ -16,6 +16,7 @@ import { AdminDashboardController } from "./admin-dashboard.controller";
 import { AdminWorkerJourneyController } from "./admin-worker-journey.controller";
 import { AdminAiTracesController } from "./admin-ai-traces.controller";
 import { AdminCandidateDetailController } from "./admin-candidate-detail.controller";
+import { AdminCandidatesController } from "./admin-candidates.controller";
 import { AdminAiAlertsController } from "./admin-ai-alerts.controller";
 import { AdminFunnelController } from "./admin-funnel.controller";
 import { AdminEmptyFeedController } from "./admin-empty-feed.controller";
@@ -25,7 +26,8 @@ import { AdminRolesGuard, ADMIN_CAPABILITY_KEY } from "./admin-roles.guard";
 import { AdminAiTraceFlagGuard } from "./admin-ai-trace-flag.guard";
 import { type AdminCapability } from "./admin-capabilities";
 import { ADMIN_ENTITIES_PAGE_MAX, ADMIN_IDENTITY_PAGE_MAX } from "./admin-entities.dto";
-import { ADMIN_IDENTITY_MAX_SUBJECTS } from "./admin-identity.service";
+import { ADMIN_CANDIDATES_PAGE_SIZES } from "./admin-candidates.dto";
+import { ADMIN_IDENTITY_MAX_SUBJECTS, ADMIN_CANDIDATES_IDENTITY_MAX_SUBJECTS } from "./admin-identity.service";
 
 /**
  * STATIC build-blocker guards for the Admin Ops Portal security invariants (ADR-0025
@@ -871,6 +873,8 @@ describe("identity reads — one reader, one decrypter, and no name search", () 
         // ADR-0062 (#2560) — the Candidates full-detail read. Added to the derivation below in the
         // same edit, as this test demands.
         "admin/admin-candidate-detail.service.ts",
+        // B5 (#2559) — the Candidates data-bank search list. Added below in the same edit.
+        "admin/admin-candidates.service.ts",
         "admin/admin-directory.service.ts",
         "admin/admin-entities.service.ts",
         // #2563 — the User accounts list.
@@ -891,6 +895,7 @@ describe("identity reads — one reader, one decrypter, and no name search", () 
     ]);
     expect(nameBearingHandlers("admin-directory.service.ts")).toEqual(["directory"]);
     expect(nameBearingHandlers("admin-candidate-detail.service.ts")).toEqual(["getCandidate"]);
+    expect(nameBearingHandlers("admin-candidates.service.ts")).toEqual(["search"]);
     expect(nameBearingHandlers("admin-payer-logins.service.ts")).toEqual(["listAccounts"]);
   });
 
@@ -918,6 +923,11 @@ describe("identity reads — one reader, one decrypter, and no name search", () 
     }
     for (const method of nameBearingHandlers("admin-payer-logins.service.ts")) {
       expect(cacheControlOf(AdminPayerLoginsController, method), `${method} must be no-store`).toBe(
+        "no-store",
+      );
+    }
+    for (const method of nameBearingHandlers("admin-candidates.service.ts")) {
+      expect(cacheControlOf(AdminCandidatesController, method), `${method} must be no-store`).toBe(
         "no-store",
       );
     }
@@ -978,6 +988,21 @@ describe("identity reads — one reader, one decrypter, and no name search", () 
       .map((f) => relative(SRC_DIR, f).replace(/\\/g, "/"))
       .sort();
     expect(callers).toEqual(["admin/admin-payer-logins.service.ts"]);
+  });
+
+  it("the `candidates` identity surface is used ONLY by the candidates search service", () => {
+    // B5 (#2559) — the surface exists for the Candidates data-bank search list. A
+    // second caller would silently become another place worker names are disclosed
+    // against the Candidates budget, outside that screen. `admin-identity.service.ts`
+    // is the dispatcher that implements the surface; every OTHER admin file must
+    // not name it.
+    const callers = tsFiles(ADMIN_DIR)
+      .filter((f) => !f.endsWith(".test.ts"))
+      .filter((f) => !f.endsWith("admin-identity.service.ts"))
+      .filter((f) => code(relative(ADMIN_DIR, f)).includes('"candidates"'))
+      .map((f) => relative(SRC_DIR, f).replace(/\\/g, "/"))
+      .sort();
+    expect(callers).toEqual(["admin/admin-candidates.service.ts"]);
   });
 });
 
@@ -2007,5 +2032,163 @@ describe("#2569 empty-feed route — guarded, read_entities, and registered befo
     }
     expect(svc).toContain("isMatchV1Enabled");
     expect(svc).toContain("isFeedPostingsUnionEnabled");
+  });
+});
+
+/**
+ * B5 (#2559) — the Candidates data-bank SEARCH: guarded, one `read_candidates`
+ * capability, POST-with-term-in-body (deliberate, ADR-0062 §3.6), no-store,
+ * audited lookup, and free of lookup material in every projection.
+ */
+describe("#2559 candidates search route — guarded, POST-by-rule, audited lookup, lookup-free rows", () => {
+  const proto = AdminCandidatesController.prototype as unknown as Record<string, unknown>;
+  const routeMethods = Object.getOwnPropertyNames(AdminCandidatesController.prototype).filter(
+    (m) =>
+      m !== "constructor" &&
+      typeof proto[m] === "function" &&
+      Reflect.getMetadata("path", proto[m] as object) !== undefined,
+  );
+  /** Non-comment source of a file under admin/**. */
+  const code = (file: string): string =>
+    readFileSync(join(ADMIN_DIR, file), "utf8").replace(/^\s*(\/\/|\*|\/\*).*$/gm, "");
+
+  it("discovers exactly the one search route (no list, export or write on this controller)", () => {
+    expect(routeMethods).toEqual(["search"]);
+    expect(Reflect.getMetadata("path", proto.search as object)).toBe("candidates/search");
+  });
+
+  it("the route carries AdminAuthGuard AND AdminRolesGuard", () => {
+    expect(effectiveGuards(AdminCandidatesController, "search")).toContain(AdminAuthGuard.name);
+    expect(effectiveGuards(AdminCandidatesController, "search")).toContain(AdminRolesGuard.name);
+  });
+
+  it("declares EXACTLY ONE method-level @RequireAdminRole('read_candidates'), none on the class", () => {
+    expect(Reflect.getMetadata(ADMIN_CAPABILITY_KEY, proto.search as object)).toBe(
+      "read_candidates",
+    );
+    expect(
+      Reflect.getMetadata(ADMIN_CAPABILITY_KEY, AdminCandidatesController),
+      "AdminCandidatesController must NOT declare a class-level capability",
+    ).toBeUndefined();
+  });
+
+  it("is a POST with Cache-Control: no-store — the term travels in the body, never the URL", () => {
+    // DELIBERATE exception to the read-only-GET structural rule, with the ADR
+    // citation IN the controller header: a GET would put the free-text term in
+    // access logs, which is exactly what ADR-0062 §3.6 forbids. The route is
+    // still read-only (no insert/update/delete in its repository, asserted below).
+    expect(Reflect.getMetadata("method", proto.search as object) as number).toBe(1);
+    const headers = (Reflect.getMetadata("__headers__", proto.search as object) ??
+      []) as Array<{ name: string; value: string }>;
+    expect(headers.find((h) => h.name.toLowerCase() === "cache-control")?.value).toBe("no-store");
+  });
+
+  it("the repository issues no write, never reads a whole row, never touches the spine", () => {
+    const src = code("admin-candidates.repository.ts");
+    expect(src).not.toMatch(/\.(insert|update|delete)\s*\(/);
+    expect(src).not.toMatch(/\.select\(\s*\)/);
+    expect(src).not.toMatch(/\.from\s*\(\s*events\s*\)/);
+  });
+
+  it("the repository projects NO lookup material and no identity/contact column", () => {
+    // Scoped to select({...}) PROJECTIONS (not file text): the search must
+    // FILTER on `phone_hash`/`name_token_hashes` (asserted filter-only below),
+    // so a whole-file scan would fail on the lookup branches doing their job.
+    const src = code("admin-candidates.repository.ts");
+    const projections = [...src.matchAll(/\.select\(\{([\s\S]*?)\}\)/g)].map((m) => m[1]!);
+    expect(projections.length).toBeGreaterThan(0);
+    for (const projection of projections) {
+      for (const forbidden of [
+        "phoneHash",
+        "nameTokenHashes",
+        "nameTokenKeyId",
+        "searchDoc",
+        "fullName",
+        "phoneE164",
+        "whatsappEnc",
+        "employerNameEnc",
+        "licenceNumberEnc",
+        "pushToken",
+        "deviceHash",
+        "ipHash",
+        "userAgent",
+        "photoStorageKey:",
+        "pdfStorageKey:",
+      ]) {
+        expect(projection, `projection must not select ${forbidden}`).not.toContain(forbidden);
+      }
+    }
+  });
+
+  it("lookup material appears ONLY in filter predicates, never in a projection", () => {
+    // The precise carve-out the coarse scan above cannot express: the search MUST
+    // filter on `phone_hash` (exact) and `name_token_hashes` (`@>`), or the lookup
+    // branches silently stop matching. Filtering is not projecting — the page
+    // query's explicit select list (asserted projection-free above) is what
+    // reaches the response.
+    const src = code("admin-candidates.repository.ts");
+    expect(src).toContain("adminCandidateIndex.phoneHash");
+    expect(src).toContain("adminCandidateIndex.nameTokenHashes");
+  });
+
+  it("the service calls EXACTLY this set — reads, two PII-free emits, caps, identity, tokens", () => {
+    const src = code("admin-candidates.service.ts");
+    const calls = [...new Set([...src.matchAll(/this\.(\w+)\.(\w+)\s*\(/g)].map((m) => `${m[1]}.${m[2]}`))];
+    expect(calls.sort()).toEqual(
+      [
+        "events.emit",
+        "identity.resolve",
+        "logger.error",
+        "nameTokens.termTokens",
+        "pii.hashPhone",
+        "repo.search",
+        "searchCap.consume",
+      ].sort(),
+    );
+  });
+
+  it("the lookup audit precedes results and the identity resolve (source order)", () => {
+    const src = code("admin-candidates.service.ts");
+    const body = src.slice(src.indexOf("async search("));
+    const audit = body.indexOf('"admin.identity_searched"');
+    expect(audit, "search must audit the lookup").toBeGreaterThan(0);
+    expect(body.indexOf("this.repo.search(")).toBeLessThan(audit);
+    expect(body.indexOf("this.identity.resolve(")).toBeGreaterThan(audit);
+  });
+
+  it("the DTO names no phone VALUE, lookup hash, token or search-doc field", () => {
+    // `q_type` ("name"|"phone"|...) deliberately names the lookup KIND that ran —
+    // never a value. It is the one `phone` occurrence allowed below, asserted
+    // present so the exception cannot silently widen.
+    const src = code("admin-candidates.dto.ts");
+    expect(src).toContain("q_type");
+    const withoutQType = src
+      .split("\n")
+      .filter((line) => !line.includes("q_type"))
+      .join("\n");
+    for (const forbidden of [
+      "phone",
+      "phone_hash",
+      "name_token",
+      "search_doc",
+      "searchDoc",
+      "whatsapp",
+      "download",
+      "reason_text",
+      "employer_name",
+      "licence_number",
+    ]) {
+      expect(withoutQType.toLowerCase(), `the candidates contract must not declare ${forbidden}`).not.toContain(
+        forbidden,
+      );
+    }
+  });
+
+  it("a CANDIDATES page is clamped to 100, and the clamp equals the service's own bound", () => {
+    // Same drift discipline as the entity 50-clamp: a page clamp ABOVE the
+    // service bound would mean a permitted admin silently gets NO names.
+    // The DTO enum IS the clamp (zod rejects anything else pre-service).
+    expect(ADMIN_CANDIDATES_IDENTITY_MAX_SUBJECTS).toBe(100);
+    expect(Math.max(...ADMIN_CANDIDATES_PAGE_SIZES)).toBe(ADMIN_CANDIDATES_IDENTITY_MAX_SUBJECTS);
   });
 });

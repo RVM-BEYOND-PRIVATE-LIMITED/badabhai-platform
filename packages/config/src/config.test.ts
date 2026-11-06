@@ -212,6 +212,37 @@ describe("payments config (ADR-0010 §D5 / F-6 — mock credits in alpha)", () =
     expect(() => loadServerConfig({ ADMIN_IDENTITY_MAX_PER_DAY: "-1" })).toThrow();
   });
 
+  it("the CANDIDATES name budget is a THIRD, larger budget (2000/hour, 10000/day) and positive-only", () => {
+    // ADR-0062 §3.7 (#2559/B5): the data-bank screen spends from its own budget — a
+    // 100-row Candidates page would burn a third of the whole hourly entity budget in
+    // one request, so sharing would either strangle Candidates or gut the entity cap.
+    const config = loadServerConfig({});
+    expect(config.ADMIN_CANDIDATES_IDENTITY_MAX_PER_HOUR).toBe(2000);
+    expect(config.ADMIN_CANDIDATES_IDENTITY_MAX_PER_DAY).toBe(10000);
+    // ...genuinely independent of both older budgets, not an alias of either.
+    expect(config.ADMIN_CANDIDATES_IDENTITY_MAX_PER_HOUR).not.toBe(
+      config.ADMIN_IDENTITY_MAX_PER_HOUR,
+    );
+    expect(config.ADMIN_CANDIDATES_IDENTITY_MAX_PER_DAY).not.toBe(
+      config.ADMIN_PII_REVEAL_MAX_PER_HOUR,
+    );
+    expect(
+      loadServerConfig({ ADMIN_CANDIDATES_IDENTITY_MAX_PER_HOUR: "7" })
+        .ADMIN_CANDIDATES_IDENTITY_MAX_PER_HOUR,
+    ).toBe(7);
+    expect(() => loadServerConfig({ ADMIN_CANDIDATES_IDENTITY_MAX_PER_DAY: "0" })).toThrow();
+  });
+
+  it("the CANDIDATES search caps count SEARCHES (300/hour, 2000/day) and are positive-only", () => {
+    // ADR-0062 §3.6 (#2559/B5): a lookup costs one whether it matches nothing or a
+    // hundred rows — sized in searches, not matches, unlike the name budgets above.
+    const config = loadServerConfig({});
+    expect(config.ADMIN_CANDIDATES_SEARCH_MAX_PER_HOUR).toBe(300);
+    expect(config.ADMIN_CANDIDATES_SEARCH_MAX_PER_DAY).toBe(2000);
+    expect(() => loadServerConfig({ ADMIN_CANDIDATES_SEARCH_MAX_PER_HOUR: "0" })).toThrow();
+    expect(() => loadServerConfig({ ADMIN_CANDIDATES_SEARCH_MAX_PER_DAY: "-1" })).toThrow();
+  });
+
   it("the AI-TRACE read flag is OFF by default and stays off for every falsey string", () => {
     // Migration 0083. This one gates a WHOLE SURFACE (list and decrypt), not just a field on a
     // response — with it off, `AdminAiTraceFlagGuard` answers a neutral 404 to every admin role.

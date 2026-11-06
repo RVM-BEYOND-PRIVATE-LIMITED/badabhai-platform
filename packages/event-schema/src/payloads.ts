@@ -3223,8 +3223,18 @@ export type AdminPiiRevealCapExceededPayload = z.infer<typeof AdminPiiRevealCapE
  *             surface because a login ID is a different field from the organisation's display
  *             name, and an auditor reading "which screen disclosed it" should not have to infer
  *             that from the entity type.
+ *   candidates — `POST /admin/candidates/search`             → `workers.full_name`
+ *             (the Candidates data-bank screen, #2559/B5). A separate surface because it
+ *             carries its own name-view budget (ADR-0062 §3.7), and an auditor must see
+ *             which budget a disclosure charged.
  */
-export const ADMIN_IDENTITY_SURFACES = ["workers", "payers", "admins", "payer_logins"] as const;
+export const ADMIN_IDENTITY_SURFACES = [
+  "workers",
+  "payers",
+  "admins",
+  "payer_logins",
+  "candidates",
+] as const;
 export const AdminIdentitySurface = z.enum(ADMIN_IDENTITY_SURFACES);
 export type AdminIdentitySurface = z.infer<typeof AdminIdentitySurface>;
 
@@ -3297,6 +3307,59 @@ export const AdminIdentityCapExceededPayload = z
   })
   .strict();
 export type AdminIdentityCapExceededPayload = z.infer<typeof AdminIdentityCapExceededPayload>;
+
+/**
+ * A name-or-phone LOOKUP matched on the Candidates data-bank screen (ADR-0062
+ * §3.6/§3.9, #2559/B5) — `POST /admin/candidates/search` with a `q` term.
+ *
+ * EMITTED AFTER THE MATCH AND BEFORE ANY RESULT LEAVES THE SERVER, awaited and
+ * fail-closed: a failed emit returns nothing (not even faceless rows). It never
+ * carries the term, a hash of it, or matched ids — the trail answers "which
+ * admin searched how much", never "who did they search for". The subject is the
+ * admin session (like `admin.identity_viewed`): a lookup spans many subjects.
+ * `.strict()` backstop.
+ */
+export const AdminIdentitySearchedPayload = z
+  .object({
+    admin_id: uuidSchema,
+    search_kind: z.enum(["name", "phone"]),
+    match_count: z.number().int().nonnegative(),
+  })
+  .strict();
+export type AdminIdentitySearchedPayload = z.infer<typeof AdminIdentitySearchedPayload>;
+
+/**
+ * The Candidates per-admin SEARCH cap was exceeded (ADR-0062 §3.6, #2559/B5) —
+ * `ADMIN_CANDIDATES_SEARCH_MAX_PER_HOUR/DAY`, fail-closed. PII-free: the opaque
+ * `admin_id` + which `window`. No term, no result, no count — a breach alert is
+ * about an account's velocity, not what it was looking for. `.strict()` backstop.
+ */
+export const AdminCandidatesSearchCapExceededPayload = z
+  .object({
+    admin_id: uuidSchema,
+    window: AdminPiiRevealCapWindow,
+  })
+  .strict();
+export type AdminCandidatesSearchCapExceededPayload = z.infer<
+  typeof AdminCandidatesSearchCapExceededPayload
+>;
+
+/**
+ * A daily Candidates name budget reached 50% for one admin (ADR-0062 §3.7,
+ * #2559/B5) — the early warning before the cap starts refusing. PII-free:
+ * the opaque `admin_id`, the `day` window, and the threshold percent that
+ * fired. `.strict()` backstop.
+ */
+export const AdminCandidatesNameBudgetAlertPayload = z
+  .object({
+    admin_id: uuidSchema,
+    window: z.enum(["day"]),
+    threshold_percent: z.number().int().min(1).max(100),
+  })
+  .strict();
+export type AdminCandidatesNameBudgetAlertPayload = z.infer<
+  typeof AdminCandidatesNameBudgetAlertPayload
+>;
 
 /**
  * An admin OPENED one candidate's full-detail record (ADR-0062 §3.9, #2560) —
