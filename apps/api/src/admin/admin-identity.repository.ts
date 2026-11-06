@@ -1,6 +1,13 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { inArray, sql } from "drizzle-orm";
-import { adminUsers, payers, workers, type Database } from "@badabhai/db";
+import {
+  adminUsers,
+  agencyProfiles,
+  employerProfiles,
+  payers,
+  workers,
+  type Database,
+} from "@badabhai/db";
 import { DATABASE } from "../database/database.module";
 
 /**
@@ -107,5 +114,49 @@ export class AdminIdentityRepository {
       .from(payers)
       .where(inArray(payers.id, ids));
     return rows;
+  }
+
+  /**
+   * #2564 B10 — the company record's PII fields (GST, street address, contact person).
+   * One row per FIELD, keyed `${payerId}:${field}` (`gst` | `address` | `contact`),
+   * reading the employer table and the agency table (a company lives in exactly one)
+   * and merging. The composite key is what keeps the identity pipeline intact: the
+   * service counts, charges and audits per disclosed FIELD, and the caller splits
+   * the keys back into per-company records.
+   *
+   * Ciphertext out, always — same contract as every projection above. The service
+   * decrypts at its boundary; nothing here does.
+   */
+  async companyProfileCiphers(ids: string[]): Promise<AdminIdentityRow[]> {
+    if (ids.length === 0) return [];
+    const [employers, agencies] = await Promise.all([
+      this.db
+        .select({
+          id: employerProfiles.payerId,
+          gst: employerProfiles.gstNumberEnc,
+          address: employerProfiles.addressEnc,
+          contact: employerProfiles.contactNameEnc,
+        })
+        .from(employerProfiles)
+        .where(inArray(employerProfiles.payerId, ids)),
+      this.db
+        .select({
+          id: agencyProfiles.payerId,
+          gst: agencyProfiles.gstNumberEnc,
+          address: agencyProfiles.addressEnc,
+          contact: agencyProfiles.contactNameEnc,
+        })
+        .from(agencyProfiles)
+        .where(inArray(agencyProfiles.payerId, ids)),
+    ]);
+    const out: AdminIdentityRow[] = [];
+    for (const row of [...employers, ...agencies]) {
+      out.push(
+        { id: `${row.id}:gst`, nameCipher: row.gst },
+        { id: `${row.id}:address`, nameCipher: row.address },
+        { id: `${row.id}:contact`, nameCipher: row.contact },
+      );
+    }
+    return out;
   }
 }

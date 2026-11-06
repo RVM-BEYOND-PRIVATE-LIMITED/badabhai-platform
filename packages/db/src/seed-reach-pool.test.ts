@@ -163,7 +163,7 @@ describe("NO-PII discipline (the generated signal payloads never carry a name/ph
   });
 });
 
-describe("PROD-GUARD — the seed writer refuses to run in production before connecting", () => {
+describe("PROD-GUARD — the seed writer refuses a production-like target (or no target at all)", () => {
   it("exits non-zero with NODE_ENV=production (no DB connection attempted)", () => {
     // vitest runs with CWD = packages/db. Spawn the script with the SAME node binary
     // through the tsx CLI (portable across OSes — avoids the platform .bin shim).
@@ -191,11 +191,46 @@ describe("PROD-GUARD — the seed writer refuses to run in production before con
       output = `${e.stdout?.toString() ?? ""}${e.stderr?.toString() ?? ""}`;
     }
     expect(threw).toBe(true);
-    expect(output).toContain("refusing to seed synthetic fixtures in production");
+    // The missing-target refusal (unknown blast radius), not a connection error: the
+    // guard fires before any client is created.
+    expect(output).toMatch(/REFUSING/);
+    expect(output).not.toMatch(/ECONNREFUSED|ENOTFOUND|password authentication failed/);
     // Vitest's 5s default is a LATENCY budget, and this test asserts an EXIT CODE. A cold
     // `tsx` spawn takes ~0.6s idle but blows past 5s when turbo runs 25 tasks at once — so
     // the default made a green assertion fail for being slow. Matched to execFileSync's own
     // 60s budget: the subprocess timeout is what should decide, and it still fails fast if
     // the guard ever stops firing (the script would exit 0 immediately).
+  }, 60_000);
+
+  it("exits non-zero when pointed AT production without the dual authorisation", () => {
+    const cwd = process.cwd();
+    const script = resolve(cwd, "src/seed-reach-pool.ts");
+    const tsxCli = createRequire(resolve(cwd, "package.json")).resolve("tsx/cli");
+    let threw = false;
+    let output = "";
+    try {
+      execFileSync(process.execPath, [tsxCli, script], {
+        env: {
+          ...process.env,
+          // NOT production-labelled: the target alone must trigger the refusal.
+          NODE_ENV: "",
+          // A production-like target with NEITHER authorisation signal.
+          DATABASE_URL: "postgresql://user:pass@aws-1-ap-south-1.pooler.supabase.com:5432/postgres",
+          PII_ENCRYPTION_KEY: "k",
+          PII_HASH_PEPPER: "p",
+        },
+        stdio: "pipe",
+        timeout: 60_000,
+      });
+    } catch (err) {
+      threw = true;
+      const e = err as { stdout?: Buffer; stderr?: Buffer };
+      output = `${e.stdout?.toString() ?? ""}${e.stderr?.toString() ?? ""}`;
+    }
+    expect(threw).toBe(true);
+    expect(output).toMatch(/REFUSING TO WRITE/);
+    // Refused BEFORE connecting: no driver error, and the pooler hostname (a credential-adjacent
+    // detail) never appears in a connection error because no connection was attempted.
+    expect(output).not.toMatch(/ECONNREFUSED|ENOTFOUND|password authentication failed/);
   }, 60_000);
 });

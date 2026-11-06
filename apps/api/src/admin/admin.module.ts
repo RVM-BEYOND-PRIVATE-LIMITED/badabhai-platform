@@ -62,6 +62,9 @@ import { AdminFinanceController } from "./admin-finance.controller";
 import { AdminPaymentHistoryRepository } from "./admin-payment-history.repository";
 import { AdminPaymentHistoryService } from "./admin-payment-history.service";
 import { AdminPaymentHistoryController } from "./admin-payment-history.controller";
+import { AdminCompaniesRepository } from "./admin-companies.repository";
+import { AdminCompaniesService } from "./admin-companies.service";
+import { AdminCompaniesController } from "./admin-companies.controller";
 import { AdminDirectoryRepository } from "./admin-directory.repository";
 import { AdminDirectoryService } from "./admin-directory.service";
 import { AdminDirectoryController } from "./admin-directory.controller";
@@ -232,6 +235,7 @@ import { WorkerQualificationsRepository } from "../profiles/worker-qualification
     AdminPayerLoginsController,
     AdminFinanceController,
     AdminPaymentHistoryController,
+    AdminCompaniesController,
     AdminDirectoryController,
     AdminDashboardController,
     AdminAiAlertsController,
@@ -342,6 +346,12 @@ import { WorkerQualificationsRepository } from "../profiles/worker-qualification
     // a mock rupee can never be read as a real one.
     AdminPaymentHistoryRepository,
     AdminPaymentHistoryService,
+    // #2564 B10: company records (create/edit/archive/restore + the org list,
+    // detail and team reads). Reads on `read_entities` (the floor); every write on
+    // the new `manage_companies` capability with a written reason, the audit row
+    // and the events sharing one transaction.
+    AdminCompaniesRepository,
+    AdminCompaniesService,
     // BP-3: the admin directory (`manage_admins`, super_admin only) + the role→capability
     // matrix (`read_entities`), served so the portal carries no second copy of the
     // authorization table. Its OWN repository is SELECT-ONLY and still projects no

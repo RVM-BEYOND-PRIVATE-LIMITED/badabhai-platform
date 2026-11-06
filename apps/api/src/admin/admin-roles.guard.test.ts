@@ -200,6 +200,11 @@ describe("capability matrix drift (must-fix #5 — pinned to ADR-0025 Decision 3
     manage_worker_account: ["super_admin", "ops_admin", "support"],
     // #2566 - posting/job correction + visibility. `support`/`analyst` denied.
     manage_postings: ["super_admin", "ops_admin"],
+    // #2564 B10 — company record writes. `analyst` denied (read-only analytics).
+    // NOT YET AN ADR CELL — like `review_skill_candidates` above, this is the
+    // backend's reasoned default pinned against itself until the owner signs the
+    // §3.1 row; widening or narrowing it without that ruling fails this test.
+    manage_companies: ["super_admin", "ops_admin", "support"],
   };
 
   it("the capability set matches the ADR exactly (no added/removed capability)", () => {
@@ -212,7 +217,7 @@ describe("capability matrix drift (must-fix #5 — pinned to ADR-0025 Decision 3
     }
   });
 
-  it("the every-cell assertion: can(role, cap) === (role ∈ the ADR cell) for ALL 68 cells", () => {
+  it("the every-cell assertion: can(role, cap) === (role ∈ the ADR cell) for ALL 76 cells", () => {
     const roles: AdminRole[] = ["super_admin", "ops_admin", "support", "analyst"];
     for (const cap of ADMIN_CAPABILITIES) {
       for (const role of roles) {
@@ -254,6 +259,8 @@ describe("capability matrix drift (must-fix #5 — pinned to ADR-0025 Decision 3
       "manage_worker_account",
       // #2566 - posting moderation is a write.
       "manage_postings",
+      // #2564 B10 — company record writes; the read-only analytics role must never hold them.
+      "manage_companies",
     ] as const) {
       expect(can("analyst", write)).toBe(false);
     }
@@ -305,7 +312,7 @@ describe("capability matrix drift (must-fix #5 — pinned to ADR-0025 Decision 3
 describe("capabilitiesFor — what the UI is told matches what the server permits", () => {
   const ROLES: AdminRole[] = ["super_admin", "ops_admin", "support", "analyst"];
 
-  it("agrees with can() on ALL 68 cells — the UI can never show a control the guard denies", () => {
+  it("agrees with can() on ALL 76 cells — the UI can never show a control the guard denies", () => {
     for (const role of ROLES) {
       const granted = capabilitiesFor(role);
       for (const cap of ADMIN_CAPABILITIES) {
@@ -337,6 +344,9 @@ describe("capabilitiesFor — what the UI is told matches what the server permit
       "read_candidates",
       // #2562 — worker account control.
       "manage_worker_account",
+      // #2564 B10 — company record writes. Appended at the TAIL of the vocabulary
+      // deliberately: this literal is order-sensitive against `ADMIN_CAPABILITIES`.
+      "manage_companies",
     ]);
     expect(capabilitiesFor("ops_admin")).toEqual([
       "read_events",
@@ -358,6 +368,8 @@ describe("capabilitiesFor — what the UI is told matches what the server permit
       "manage_worker_account",
       // #2566 — posting/job correction + visibility.
       "manage_postings",
+      // #2564 B10 — company record writes (tail of the vocabulary, see above).
+      "manage_companies",
     ]);
     // super_admin holds everything — the one role for which the list is the whole vocabulary.
     expect(capabilitiesFor("super_admin")).toEqual([...ADMIN_CAPABILITIES]);

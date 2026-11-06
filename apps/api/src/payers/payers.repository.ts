@@ -88,20 +88,25 @@ export class PayersRepository {
 
   /**
    * The two org-name columns for an insert: either encrypt the caller's plaintext and derive
-   * the exact-name login hash, or copy an already-encrypted token with no hash (#2563 team
-   * member). One helper so the three insert paths cannot drift.
+   * the exact-name login hash + the whole-word search hashes, or copy an already-encrypted
+   * token with no hashes (#2563 team member). One helper so the three insert paths cannot drift.
    */
   private orgColumns(input: CreatePayerInput): {
     orgNameEnc: string;
     orgNameLookupHash: string | null;
+    orgNameWordHashes: string[] | null;
   } {
     if (input.orgName !== undefined) {
+      const norm = PayersRepository.normOrgName(input.orgName);
       return {
         orgNameEnc: this.pii.encrypt(input.orgName),
-        orgNameLookupHash: this.pii.hashOrgName(PayersRepository.normOrgName(input.orgName)),
+        orgNameLookupHash: this.pii.hashOrgName(norm),
+        // #2564 B10 — the whole-word search index follows the display name (same
+        // write, so they can never drift: a renamed payer stays findable).
+        orgNameWordHashes: this.pii.hashOrgNameWords(norm),
       };
     }
-    return { orgNameEnc: input.orgNameEnc, orgNameLookupHash: null };
+    return { orgNameEnc: input.orgNameEnc, orgNameLookupHash: null, orgNameWordHashes: null };
   }
 
   /** Create a payer, encrypting all contact PII at rest. Returns the new id only. */
@@ -315,19 +320,27 @@ export class PayersRepository {
   async update(
     id: string,
     patch: { orgName?: string; phone?: string },
+    tx?: Database,
   ): Promise<Payer | undefined> {
     const set: Partial<typeof payers.$inferInsert> = { updatedAt: new Date() };
     if (patch.orgName !== undefined) {
       set.orgNameEnc = this.pii.encrypt(patch.orgName);
       // #2497 — the exact-name login key follows the display name (same write, so
       // they can never drift: a renamed payer keeps logging in by the new name).
-      set.orgNameLookupHash = this.pii.hashOrgName(PayersRepository.normOrgName(patch.orgName));
+      const norm = PayersRepository.normOrgName(patch.orgName);
+      set.orgNameLookupHash = this.pii.hashOrgName(norm);
+      // #2564 B10 — the whole-word search index follows it too (same write, same reason).
+      set.orgNameWordHashes = this.pii.hashOrgNameWords(norm);
     }
     if (patch.phone !== undefined) {
       set.phoneEnc = this.pii.encrypt(patch.phone);
       set.phoneHash = this.pii.hashPhone(patch.phone);
     }
-    const [row] = await this.db.update(payers).set(set).where(eq(payers.id, id)).returning();
+    const [row] = await (tx ?? this.db)
+      .update(payers)
+      .set(set)
+      .where(eq(payers.id, id))
+      .returning();
     return row;
   }
 
@@ -524,15 +537,52 @@ export class PayersRepository {
    * writes a NULL lookup hash in the same statement. That keeps "My Organisation" rows out of
    * the company-name sign-in lookup and makes the reset atomic.
    */
-  async setOrgName(id: string, orgName: string): Promise<void> {
-    await this.db
+  /**
+   * #2564 B10 — replace a payer's LOGIN email (admin company edit). Re-encrypts the
+   * address and refreshes the keyed lookup hash in ONE write. The caller checks
+   * `findByEmail` first for a friendly 409 (a taken address belongs to another
+   * login); the unique index stays the backstop against a race. Sessions are
+   * id-keyed, so they survive an identifier change (unlike a credential change,
+   * which stamps `sessions_valid_after`). Returns the updated row, `undefined`
+   * when the payer is missing.
+   */
+  async updateLoginEmail(
+    id: string,
+    email: string,
+    tx?: Database,
+  ): Promise<Payer | undefined> {
+    const normEmail = PayersRepository.normEmail(email);
+    const [row] = await (tx ?? this.db)
+      .update(payers)
+      .set({
+        emailEnc: this.pii.encrypt(normEmail),
+        emailHash: this.pii.hmac(normEmail),
+        updatedAt: new Date(),
+      })
+      .where(eq(payers.id, id))
+      .returning();
+    return row;
+  }
+
+  /**
+   * #2563 follow-up — replace a payer's display org name (and its exact-name login hash) in
+   * one write. Used when a removed team member's row still carries the founder's copied name:
+   * after removal they must not keep it (or its lookup hash) into a later solo org.
+   * The neutral {@link DEFAULT_ORG_NAME} writes NULL hashes (lookup AND word hashes) in the
+   * same statement — "My Organisation" rows stay out of the company-name sign-in lookup AND
+   * the whole-word company search.
+   * #2564 B10 — the whole-word search hashes follow the name in the same write.
+   */
+  async setOrgName(id: string, orgName: string, tx?: Database): Promise<void> {
+    const norm = PayersRepository.normOrgName(orgName);
+    await (tx ?? this.db)
       .update(payers)
       .set({
         orgNameEnc: this.pii.encrypt(orgName),
         orgNameLookupHash:
-          orgName === DEFAULT_ORG_NAME
-            ? null
-            : this.pii.hashOrgName(PayersRepository.normOrgName(orgName)),
+          orgName === DEFAULT_ORG_NAME ? null : this.pii.hashOrgName(norm),
+        orgNameWordHashes:
+          orgName === DEFAULT_ORG_NAME ? null : this.pii.hashOrgNameWords(norm),
         updatedAt: new Date(),
       })
       .where(eq(payers.id, id));
@@ -556,15 +606,30 @@ export class PayersRepository {
    * next successful login; the `WHERE ... IS NULL` guard makes concurrent logins
    * converge on one write and makes this a no-op for rows that already have a hash.
    * Best-effort by contract: the caller never fails a login on this write.
+   *
+   * #2564 B10 — fills the whole-word search hashes in the same pass (same key, same
+   * row, same reason: pre-column rows are searchable only after the backfill or
+   * this lazy fill reaches them).
    */
   async ensureOrgLookupHash(row: Payer): Promise<void> {
-    if (row.orgNameLookupHash) return;
-    const hash = this.pii.hashOrgName(
-      PayersRepository.normOrgName(this.pii.decrypt(row.orgNameEnc)),
-    );
+    if (row.orgNameLookupHash && row.orgNameWordHashes) return;
+    const decrypted = this.pii.decrypt(row.orgNameEnc);
+    // The neutral fallback is not a company: `setOrgName` writes NULL hashes for it,
+    // and this fill must not put them back on the next login.
+    if (decrypted === DEFAULT_ORG_NAME) return;
+    const norm = PayersRepository.normOrgName(decrypted);
+    const set: Partial<typeof payers.$inferInsert> = { updatedAt: new Date() };
+    if (!row.orgNameLookupHash) set.orgNameLookupHash = this.pii.hashOrgName(norm);
+    if (!row.orgNameWordHashes) set.orgNameWordHashes = this.pii.hashOrgNameWords(norm);
     await this.db
       .update(payers)
-      .set({ orgNameLookupHash: hash, updatedAt: new Date() })
-      .where(and(eq(payers.id, row.id), isNull(payers.orgNameLookupHash)));
+      .set(set)
+      .where(
+        and(
+          eq(payers.id, row.id),
+          ...(row.orgNameLookupHash ? [] : [isNull(payers.orgNameLookupHash)]),
+          ...(row.orgNameWordHashes ? [] : [isNull(payers.orgNameWordHashes)]),
+        ),
+      );
   }
 }

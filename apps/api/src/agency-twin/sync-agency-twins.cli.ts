@@ -145,7 +145,7 @@ async function run(argv: readonly string[]): Promise<number> {
     if (!args.armed) {
       const rows = await db.execute<{ n: number }>(dsql`
         SELECT count(*)::int AS n FROM job_postings
-        WHERE sync_source = ${AGENCY_TWIN_SYNC_SOURCE} AND status NOT IN ('closed', 'paused')`);
+        WHERE sync_source = ${AGENCY_TWIN_SYNC_SOURCE} AND status NOT IN ('closed', 'paused', 'archived')`);
       const due = (rows as unknown as { n: number }[])[0]?.n ?? 0;
       let paused = 0;
       if (args.apply) {
@@ -177,6 +177,7 @@ async function run(argv: readonly string[]): Promise<number> {
       refused: 0,
       blocked: 0,
       failed: 0,
+      skipped: 0,
     };
     let afterId: string | null = null;
     for (;;) {
@@ -198,7 +199,10 @@ async function run(argv: readonly string[]): Promise<number> {
                 ` changed=${out.changedFields.join(",")}`,
             );
           } else if (out.kind === "unchanged") counts.unchanged! += 1;
-          else if (out.kind === "blocked_by_conversion") {
+          else if (out.kind === "skipped_archived") {
+            counts.skipped! += 1;
+            console.log(`  ${id} SKIPPED: archived (frozen, not converged)`);
+          } else if (out.kind === "blocked_by_conversion") {
             counts.blocked! += 1;
             console.log(`  ${id} BLOCKED: posting ${out.jobPostingId} is a D4 conversion of it`);
           }

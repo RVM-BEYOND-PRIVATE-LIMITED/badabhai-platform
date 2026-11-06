@@ -372,6 +372,44 @@ describe("#2566 admin posting control — one transaction per action", () => {
     ).rejects.toThrow("A closed posting cannot be edited");
   });
 
+  it("an archived posting cannot be edited: frozen inventory, restore first (#2564 B10)", async () => {
+    const h = harness({ posting: posting({ status: "archived" }) });
+    await expect(
+      h.service.edit(ADMIN, POSTING_ID, { ...REASON, changes: { role_title: "X" } }, CTX),
+    ).rejects.toThrow("restore the company first");
+    expect(h.repo.withTransaction).not.toHaveBeenCalled();
+  });
+
+  it("an archived agency job cannot be edited: frozen inventory, restore first (#2564 B10)", async () => {
+    const h = harness({ job: job({ status: "archived" }) });
+    h.agency.prepareAdminEdit.mockResolvedValue({
+      patch: {},
+      changedFields: ["description"],
+    });
+    await expect(
+      h.service.edit(ADMIN, JOB_ID, { ...REASON, changes: { description: "X" } }, CTX),
+    ).rejects.toThrow("restore the company first");
+    expect(h.repo.withTransaction).not.toHaveBeenCalled();
+  });
+
+  it("an archived posting cannot be closed: restore hands it back, close would strand it (#2564 B10)", async () => {
+    const h = harness({ posting: posting({ status: "archived" }) });
+    await expect(h.service.close(ADMIN, POSTING_ID, REASON, CTX)).rejects.toThrow(
+      "restore the company first",
+    );
+    expect(h.repo.withTransaction).not.toHaveBeenCalled();
+    expect(h.events.emit).not.toHaveBeenCalled();
+  });
+
+  it("an archived agency job cannot be closed: restore hands it back, close would strand it (#2564 B10)", async () => {
+    const h = harness({ job: job({ status: "archived" }) });
+    await expect(h.service.close(ADMIN, JOB_ID, REASON, CTX)).rejects.toThrow(
+      "restore the company first",
+    );
+    expect(h.repo.withTransaction).not.toHaveBeenCalled();
+    expect(h.events.emit).not.toHaveBeenCalled();
+  });
+
   it("unknown ids are a neutral 404, with no write", async () => {
     const h = harness({});
     await expect(h.service.hide(ADMIN, POSTING_ID, REASON, CTX)).rejects.toThrow(

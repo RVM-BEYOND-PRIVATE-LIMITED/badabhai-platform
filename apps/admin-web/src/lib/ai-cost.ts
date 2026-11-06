@@ -153,6 +153,13 @@ export const COST_PER_PROFILE_ERASURE_BIAS = "erased_workers_leave_the_count_but
  */
 export const COST_PER_PROFILE_ERASURE_TREATMENT =
   "erasure_keeps_completed_profiles_and_spend_together";
+/**
+ * The erasure code since B2 (#2555): spend and profiles are stamped test/real when they
+ * happen (v2 cost events, the completion ledger), so erasing a worker moves NOTHING —
+ * each stays in its own leg. “Spend on deleted accounts” now holds only rows that never
+ * named a worker.
+ */
+export const COST_PER_PROFILE_ERASURE_STAMPED = "erasure_stamped_at_spend_and_completion";
 export const COST_PER_PROFILE_TEST_SPLIT_CONVERGES = "test_share_converges_as_test_accounts_log_in";
 
 /** The additive real/test breakdown, narrowed to the fields the copy depends on. */
@@ -165,16 +172,17 @@ export interface CostTestSplitInput {
   test_calls: number;
   test_profiles: number;
   test_cost_per_profile_inr: string | null;
-  /** The deleted-accounts population (#2554). Absent from an API older than #2604. */
+  /** Rows that never named a worker (B2 #2555 — stamped rows keep their own leg). Absent from an API older than #2604. */
   deleted_or_unattributed_cost_inr?: string;
   deleted_or_unattributed_calls?: number;
   deleted_or_unattributed_profiles?: number;
 }
 
 /**
- * Spend whose worker is gone, or which never named one — its own figure since #2554, so an
- * erased real account no longer inflates the real average. No ratio: it is a bucket of money
- * and finished profiles, not a cohort anyone would price per head.
+ * Spend that never named a worker — its own figure since #2554, so unattributed spend
+ * never inflates the real average. Erased accounts are NOT here (B2 #2555 keeps each
+ * in its stamped leg). No ratio: it is a bucket of money and finished profiles, not a
+ * cohort anyone would price per head.
  */
 export interface CostDeletedLegView {
   spendText: string;
@@ -343,7 +351,8 @@ function describeTestSplit(perProfile: CostPerProfileInput): CostTestSplitState 
         "still reads as real: the test share converges over time, and early windows understate " +
         "it." +
         (deleted
-          ? " Deleted accounts and worker-less calls are their own figure, never counted as real."
+          ? " Rows that never named a worker are their own figure, never counted as real; " +
+            "stamped rows keep the bucket they were stamped in."
           : " Untagged rows — deleted workers, worker-less calls — also read as real, so “real” " +
             "here means “not marked test”.")
       : caveat === undefined
@@ -486,6 +495,7 @@ export function describeCostPerProfile(
   const knownWindowCaveat = perProfile.window_caveat === COST_PER_PROFILE_WINDOW_EDGE_SKEW;
   const legacyErasure = perProfile.erasure_caveat === COST_PER_PROFILE_ERASURE_BIAS;
   const spineErasure = perProfile.erasure_caveat === COST_PER_PROFILE_ERASURE_TREATMENT;
+  const stampedErasure = perProfile.erasure_caveat === COST_PER_PROFILE_ERASURE_STAMPED;
   const averageIsAbsent = perProfile.cost_per_profile_inr === null;
   const mockedCalls = perProfile.profiling_calls - perProfile.profiling_real_calls;
 
@@ -535,16 +545,21 @@ export function describeCostPerProfile(
                 }`
               : ""),
 
-    // The count's source changed with #2554: an API that sends the new erasure code counts
-    // completion events off the spine, an older one counted live profile rows.
-    completedSentence: spineErasure
+    // The count's source changed with #2554, and again with B2 #2555: an API that sends
+    // the ledger code counts stamped completions off the ledger, one that sends the spine
+    // code counts completion events off the spine, an older one counted live profile rows.
+    completedSentence: stampedErasure
       ? "Completed means a profile reached extracted or confirmed in this period — counted once " +
-        "per worker, not once per re-interview, from the completion event, which outlives the " +
-        "worker's account."
-      : "Completed means the worker's current profile reached extracted or confirmed — counted " +
-        "once per worker, not once per re-interview, and timed by when that profile row was " +
-        "first written. A profile extracted before this period and confirmed inside it is not " +
-        "counted, because the spend that produced it happened before the period too.",
+        "per worker, not once per re-interview, from the completion ledger, which mirrors " +
+        "the completion event and outlives the worker's account."
+      : spineErasure
+        ? "Completed means a profile reached extracted or confirmed in this period — counted once " +
+          "per worker, not once per re-interview, from the completion event, which outlives the " +
+          "worker's account."
+        : "Completed means the worker's current profile reached extracted or confirmed — counted " +
+          "once per worker, not once per re-interview, and timed by when that profile row was " +
+          "first written. A profile extracted before this period and confirmed inside it is not " +
+          "counted, because the spend that produced it happened before the period too.",
 
     windowSentence: !knownWindowCaveat
       ? `The server reports a window caveat this portal does not recognise: ${perProfile.window_caveat}`
@@ -555,14 +570,18 @@ export function describeCostPerProfile(
         "with only part of its cost in the spend; one still running has cost and no profile " +
         "yet. Over a period this short that skew is material, and it cuts both ways.",
 
-    erasureSentence: spineErasure
-      ? "Erasing a worker under DPDP moves neither half: their finished profile and its spend " +
-        "move together into Spend on deleted accounts, so the average does not drift."
-      : legacyErasure
-        ? "Erasing a worker under DPDP removes their profile from the count but not their spend " +
-          "from the total — the cost table holds no worker link by design. So this average " +
-          "drifts upward with every erasure, permanently, and that drift only accumulates."
-        : `The server reports an erasure caveat this portal does not recognise: ${perProfile.erasure_caveat}`,
+    erasureSentence: stampedErasure
+      ? "Erasing a worker under DPDP moves nothing: their spend and finished profile were " +
+        "stamped test or real when they happened, so each stays in its own leg. “Spend on " +
+        "deleted accounts” now holds only rows that never named a worker."
+      : spineErasure
+        ? "Erasing a worker under DPDP moves neither half: their finished profile and its spend " +
+          "move together into Spend on deleted accounts, so the average does not drift."
+        : legacyErasure
+          ? "Erasing a worker under DPDP removes their profile from the count but not their spend " +
+            "from the total — the cost table holds no worker link by design. So this average " +
+            "drifts upward with every erasure, permanently, and that drift only accumulates."
+          : `The server reports an erasure caveat this portal does not recognise: ${perProfile.erasure_caveat}`,
 
     // Rule 3. No ₹ formatter is ever reached with a null, so a ₹0.00 is unreachable rather
     // than merely avoided.

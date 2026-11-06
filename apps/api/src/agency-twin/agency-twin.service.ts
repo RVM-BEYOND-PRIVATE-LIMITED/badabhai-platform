@@ -72,6 +72,8 @@ export interface AgencyTwinTickSummary {
   blocked: number;
   failed: number;
   disarmed: number;
+  /** Frozen twins the sync deliberately did not converge (#2564 B10). */
+  skipped: number;
 }
 
 const emptySummary = (armed: boolean): AgencyTwinTickSummary => ({
@@ -82,6 +84,7 @@ const emptySummary = (armed: boolean): AgencyTwinTickSummary => ({
   blocked: 0,
   failed: 0,
   disarmed: 0,
+  skipped: 0,
 });
 
 /**
@@ -196,6 +199,7 @@ export class AgencyTwinService implements OnModuleInit {
       total.unchanged += s.unchanged;
       total.blocked += s.blocked;
       total.failed += s.failed;
+      total.skipped += s.skipped;
       if (ids.length < AGENCY_TWIN_SWEEP_PAGE) break;
       afterId = ids[ids.length - 1] ?? null;
     }
@@ -214,7 +218,12 @@ export class AgencyTwinService implements OnModuleInit {
         const out = await this.repo.sync(id, ctx, (tx, write) => this.emitWrite(tx, write));
         if (out.kind === "written") s.written += 1;
         else if (out.kind === "unchanged") s.unchanged += 1;
-        else if (out.kind === "blocked_by_conversion") {
+        else if (out.kind === "skipped_archived") {
+          // Frozen inventory, deliberately not converged — counted, not silent, so a
+          // tick that only ever skips does not read as a tick that did nothing.
+          s.skipped += 1;
+          this.logger.log(`agency twin skipped: job=${id} is archived (frozen, not converged)`);
+        } else if (out.kind === "blocked_by_conversion") {
           s.blocked += 1;
           this.logger.warn(
             `agency twin blocked: job=${id} is held by D4 posting=${out.jobPostingId}`,

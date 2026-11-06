@@ -290,6 +290,12 @@ export class PayerAuthService {
     if (account.status === "suspended") {
       throw new ForbiddenException("Account is suspended");
     }
+    // #2564 B10 — an ARCHIVED company proves mailbox control but gets no session either.
+    // Distinct message (same no-oracle reasoning as the suspension above): the operator
+    // who archived the company is the way back, not the login form.
+    if (account.status === "archived") {
+      throw new ForbiddenException("Account is archived");
+    }
 
     // #2563 — a TEMPORARY password must be replaced before any session is issued, and the
     // code door must not bypass that. The caller has already proven the mailbox, so a distinct
@@ -413,16 +419,23 @@ export class PayerAuthService {
     // The HTTP response is byte-identical to the normal one; the attempt is recorded ONLY on
     // the spine, which is what makes repeated probing of a banned account visible to ops
     // without being visible to the caller.
-    if (row?.status === "suspended") {
+    //
+    // #2564 B10 — an ARCHIVED company is reserved the same way (its logins can never
+    // verify). The spine tells the two freezes apart: `account_archived` rides the v2
+    // event, never v1.
+    if (row?.status === "suspended" || row?.status === "archived") {
       const issued = await this.otp.issueWithoutDelivery(contactHash);
       // Emitted INSTEAD of `payer.login_requested`, not alongside it: no login code was
       // delivered, so counting one would overstate the login funnel and would bury repeated
       // probing of a banned account inside ordinary traffic.
       await this.events.emit({
-        event_name: "payer.otp_suppressed",
+        event_name: "payer.otp_suppressed_v2",
         actor: { actor_type: "payer", actor_id: payerId },
         subject: { subject_type: "payer", subject_id: payerId },
-        payload: { payer_id: payerId, reason: "account_suspended" },
+        payload: {
+          payer_id: payerId,
+          reason: row?.status === "archived" ? "account_archived" : "account_suspended",
+        },
         correlationId: ctx.correlationId,
         requestId: ctx.requestId,
       });
@@ -649,6 +662,11 @@ export class PayerAuthService {
 
     if (account.status === "suspended") {
       throw new ForbiddenException("Account is suspended");
+    }
+    // #2564 B10 — an archived company proves the credential but gets no session either.
+    // Distinct message, same no-oracle reasoning as the suspension above.
+    if (account.status === "archived") {
+      throw new ForbiddenException("Account is archived");
     }
     if (account.status !== "active") {
       // Pending (or any future non-active state): a password alone NEVER promotes —

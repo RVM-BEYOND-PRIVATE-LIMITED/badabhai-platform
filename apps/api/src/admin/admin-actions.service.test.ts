@@ -629,6 +629,22 @@ describe("grantCredits", () => {
     ).resolves.toMatchObject({ target_id: PAYER_ID });
     expect(m.actions.grantCredits).toHaveBeenCalled();
   });
+
+  it("#2564 B10: an ARCHIVED payer cannot be granted credits — no ledger write, no event", async () => {
+    // Same bar as a suspension: pre-loading an account that cannot spend is pointless,
+    // and worse it would vest on restore without a fresh decision.
+    m.actions.findPayerStatus.mockResolvedValue({ id: PAYER_ID, status: "archived" });
+    await expect(
+      m.service.grantCredits(
+        ADMIN_ID,
+        PAYER_ID,
+        { amount: 10, reason_code: "promo", idempotency_key: GRANT_KEY },
+        CTX,
+      ),
+    ).rejects.toThrow(ConflictException);
+    expect(m.actions.grantCredits).not.toHaveBeenCalled();
+    expect(m.events.emit).not.toHaveBeenCalled();
+  });
 });
 
 // ---------------------------------------------------------------------------

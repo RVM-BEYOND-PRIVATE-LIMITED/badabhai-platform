@@ -223,6 +223,40 @@ export const ADMIN_CAPABILITIES = [
    * `analyst` are denied: neither moderates inventory.
    */
   "manage_postings",
+  /**
+   * #2564 B10 — run a COMPANY's record: create a company/agency (with its first login,
+   * the #2563 temporary-password mechanism), edit its profile, archive it and restore
+   * it, and read its team. `super_admin`, `ops_admin`, `support`.
+   *
+   * ── WHY ITS OWN ROW, NOT `suspend_payer` ───────────────────────────────────────────
+   * Archive freezes like a suspension, but the SHAPES differ: suspend/reinstate take
+   * no reason and emit no reason row, while every company write requires a written
+   * reason (code + text on the `audit_logs` row in the same transaction) and archive
+   * moves a distinct `archived` state the suspension guards do not match. Reusing
+   * `suspend_payer` would hand the reasonless lifecycle grant the reasoned company
+   * writes as a side effect, with nothing in this table recording that the row had
+   * changed meaning.
+   *
+   * ── WHY NOT `manage_payer_credentials` ────────────────────────────────────────────
+   * That row is credential administration (minting a login another person will use).
+   * A company create DOES mint a first login that way, but it also writes the org,
+   * the profile and the billing-adjacent identity in one transaction — and edit,
+   * archive and restore touch no credential at all. Folding them into a credential
+   * row would make a credential grant describe an allow-set it no longer makes.
+   *
+   * `analyst` is denied: it is a read-only analytics role and must never change a
+   * company. The company LIST and the team list stay on `read_entities` (the read
+   * floor all four roles hold); only the WRITES sit here. Displayed names and
+   * login IDs on those reads stay behind `read_identity` inside `AdminIdentityService`,
+   * exactly like the entity and User-accounts lists.
+   *
+   * NOT YET AN ADR CELL — like `review_skill_candidates` above, this row has no
+   * ADR-0025 §3.1 cell behind it yet. The allow-set is the backend's reasoned
+   * default (the governed-write allow-set, because the writes reach payer rows,
+   * org rows, profiles and sessions); an owner ruling plus the §3.1 row is still
+   * owed, and the drift test records that the ADR row is still owed.
+   */
+  "manage_companies",
 ] as const;
 
 export type AdminCapability = (typeof ADMIN_CAPABILITIES)[number];
@@ -292,6 +326,11 @@ export const ADMIN_CAPABILITY_MATRIX: Record<AdminCapability, readonly AdminRole
   // #2566 — posting/job correction + visibility. Distinct from `force_close_posting`: this
   // row also edits public text/reach and hides inventory without changing its status.
   manage_postings: ["super_admin", "ops_admin"],
+  // #2564 B10 — company record writes. The governed-write allow-set: the writes reach
+  // payer rows, org rows, profiles and sessions. `analyst` denied (read-only
+  // analytics); `support` held (a support agent sets up a company for a client on
+  // the phone). NOT YET AN ADR CELL — see the capability's own docstring.
+  manage_companies: ["super_admin", "ops_admin", "support"],
 } as const;
 
 /**

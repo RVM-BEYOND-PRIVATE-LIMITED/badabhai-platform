@@ -75,6 +75,7 @@ describe("PayersRepository — payer PII at rest (ADR-0019 B-R2 / ADR-0004 disci
       emailHash: pii.hmac(EMAIL.toLowerCase()),
       orgNameEnc: pii.encrypt(ORG),
       orgNameLookupHash: pii.hashOrgName(ORG.toLowerCase()),
+      orgNameWordHashes: pii.hashOrgNameWords(ORG.toLowerCase()),
       phoneEnc: pii.encrypt(PHONE),
       phoneHash: pii.hashPhone(PHONE),
       passwordHash: null,
@@ -192,8 +193,9 @@ describe("PayersRepository — phone signup + org lookup + passwords (#2497)", (
       id: "payer-1",
       orgNameEnc: pii.encrypt(ORG),
       orgNameLookupHash: "org<already>",
+      orgNameWordHashes: ["words<already>"],
     };
-    const withoutHash = { ...withHash, orgNameLookupHash: null };
+    const withoutHash = { ...withHash, orgNameLookupHash: null, orgNameWordHashes: null };
     // Present → no write at all.
     let writes = 0;
     const dbNoop = {
@@ -213,6 +215,45 @@ describe("PayersRepository — phone signup + org lookup + passwords (#2497)", (
     const repo = new PayersRepository(db, pii);
     await repo.ensureOrgLookupHash(withoutHash as never);
     expect(updated()).toMatchObject({ orgNameLookupHash: pii.hashOrgName("acme staffing") });
+    expect((updated() as Record<string, unknown>).orgNameWordHashes).toEqual(
+      pii.hashOrgNameWords("acme staffing"),
+    );
+  });
+
+  it("ensureOrgLookupHash backfills only the missing leg (lookup present, words absent)", async () => {
+    const row = {
+      id: "payer-1",
+      orgNameEnc: pii.encrypt(ORG),
+      orgNameLookupHash: "org<already>",
+      orgNameWordHashes: null,
+    };
+    const { db, updated } = makeRepo();
+    const repo = new PayersRepository(db, pii);
+    await repo.ensureOrgLookupHash(row as never);
+    expect(updated()).toMatchObject({
+      orgNameWordHashes: pii.hashOrgNameWords("acme staffing"),
+    });
+    expect((updated() as Record<string, unknown>).orgNameLookupHash).toBeUndefined();
+  });
+
+  it("ensureOrgLookupHash leaves the neutral fallback unindexed (no login, no search)", async () => {
+    let writes = 0;
+    const dbNoop = {
+      update: () => ({
+        set: (_v: unknown) => {
+          writes++;
+          return { where: async () => [] };
+        },
+      }),
+    } as unknown as Database;
+    const repo = new PayersRepository(dbNoop, pii);
+    await repo.ensureOrgLookupHash({
+      id: "payer-1",
+      orgNameEnc: pii.encrypt(DEFAULT_ORG_NAME),
+      orgNameLookupHash: null,
+      orgNameWordHashes: null,
+    } as never);
+    expect(writes).toBe(0);
   });
 
   it("update refreshes the org lookup hash when the org name changes (never drifts)", async () => {

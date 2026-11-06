@@ -7,6 +7,7 @@ import {
   ADMIN_DASHBOARD_WINDOW_DAYS_DEFAULT,
   CAP_BREACH_SCOPE_PROFILE_EXTRACTION,
   COST_PER_PROFILE_BASIS_INCLUDES_ABANDONED,
+  COST_PER_PROFILE_ERASURE_STAMPED,
   COST_PER_PROFILE_ERASURE_TREATMENT,
   COST_PER_PROFILE_TEST_SPLIT_CONVERGES,
   COST_PER_PROFILE_WINDOW_EDGE_SKEW,
@@ -116,7 +117,6 @@ interface Overrides {
 interface Asked {
   profilingTaskTypes: readonly string[] | null;
   profileCountSince: Date | null;
-  profileCountStatuses: readonly string[] | null;
   profileCountCalls: number;
   splitSince: Date | null;
   splitTaskTypes: readonly string[] | null;
@@ -127,7 +127,6 @@ function blankAsked(): Asked {
   return {
     profilingTaskTypes: null,
     profileCountSince: null,
-    profileCountStatuses: null,
     profileCountCalls: 0,
     splitSince: null,
     splitTaskTypes: null,
@@ -216,9 +215,8 @@ function makeService(over: Overrides = {}, asked: Asked = blankAsked()): AdminDa
         },
       };
     },
-    profilingProfilesCompletedSince: async (since: Date, statuses: readonly string[]) => {
+    profilingProfilesCompletedSince: async (since: Date) => {
       asked.profileCountSince = since;
-      asked.profileCountStatuses = statuses;
       asked.profileCountCalls += 1;
       const total = over.profilesCompleted ?? 5;
       const real = over.realProfiles ?? Math.min(4, total);
@@ -405,13 +403,15 @@ describe("AI cost — what a finished profile costs", () => {
     }
   });
 
-  it("counts `extracted`/`confirmed`, and the field name says so", async () => {
+  it("counts completed profiles from the LEDGER at the profiling bound — no status filter on the read", async () => {
     const asked = blankAsked();
     const out = await makeService({ profilesCompleted: 7 }, asked).summary(DTO);
-    expect(asked.profileCountStatuses).toEqual(PROFILE_COMPLETED_STATUSES);
-    expect(asked.profileCountStatuses).toEqual(["extracted", "confirmed"]);
-    // `extracting` means an extraction IN FLIGHT — a `<> 'draft'` predicate would count it.
-    expect(asked.profileCountStatuses).not.toContain("extracting");
+    // B2 (#2555): the read takes only the bound. Completion (extracted/confirmed) is
+    // enforced at WRITE — the processor writes only finished profiles and the backfill
+    // filters the spine — so a read-time status list would be a second definition that
+    // drifts. The field name still says which outcomes the figure covers.
+    expect(asked.profileCountCalls).toBe(1);
+    expect(asked.profileCountSince).toEqual(out.ai_cost.per_profile!.since);
     expect(out.ai_cost.per_profile!.profiles_extracted_or_confirmed).toBe(7);
   });
 
@@ -513,9 +513,9 @@ describe("AI cost — what a finished profile costs", () => {
     // WORKERS, and the number cannot say which reading it is — so the codes ship beside it.
     expect(perProfile.basis).toBe(COST_PER_PROFILE_BASIS_INCLUDES_ABANDONED);
     expect(perProfile.window_caveat).toBe(COST_PER_PROFILE_WINDOW_EDGE_SKEW);
-    // The third code: erasure is handled by sourcing both halves from the event spine, and the
-    // deleted rows are separated rather than left to inflate the real average.
-    expect(perProfile.erasure_caveat).toBe(COST_PER_PROFILE_ERASURE_TREATMENT);
+    // The third code: erasure moves nothing — both halves are stamped, and the deleted
+    // leg holds only rows that never named a worker.
+    expect(perProfile.erasure_caveat).toBe(COST_PER_PROFILE_ERASURE_STAMPED);
     // STABLE machine codes, not prose — the portal keys captions off them.
     expect(COST_PER_PROFILE_BASIS_INCLUDES_ABANDONED).toBe(
       "profiling_spend_per_completed_profile_incl_abandoned_interviews",
@@ -526,6 +526,7 @@ describe("AI cost — what a finished profile costs", () => {
     expect(COST_PER_PROFILE_ERASURE_TREATMENT).toBe(
       "erasure_keeps_completed_profiles_and_spend_together",
     );
+    expect(COST_PER_PROFILE_ERASURE_STAMPED).toBe("erasure_stamped_at_spend_and_completion");
   });
 
   it("₹ stays an exact decimal STRING on both halves of the ratio", async () => {
@@ -717,7 +718,7 @@ describe("volume — every closed enum is reported in full", () => {
     const out = await makeService({
       payerStatuses: [
         { key: "active", count: 5 },
-        { key: "archived", count: 3 },
+        { key: "frozen", count: 3 },
         { key: "", count: 2 },
       ],
       payerRoles: [{ key: "employer", count: 10 }],
@@ -729,6 +730,26 @@ describe("volume — every closed enum is reported in full", () => {
     const statusTotal = out.volume.payers.by_status.reduce((n, b) => n + b.count, 0);
     expect(statusTotal).toBe(10);
     expect(out.volume.payers.total).toBe(10);
+  });
+
+  it("`archived` is a first-class status bucket, not drift (#2564 B10)", async () => {
+    // B10 added `archived` to the payer lifecycle: a frozen company must read as a
+    // frozen company on the dashboard, never as an anonymous `other`.
+    const out = await makeService({
+      payerStatuses: [
+        { key: "active", count: 5 },
+        { key: "archived", count: 3 },
+        { key: "", count: 2 },
+      ],
+      payerRoles: [{ key: "employer", count: 10 }],
+    }).summary(DTO);
+    expect(out.volume.payers.by_status.find((b) => b.key === "archived")).toEqual({
+      key: "archived",
+      count: 3,
+    });
+    expect(out.volume.payers.by_status.filter((b) => b.key === "other")).toEqual([
+      { key: "other", count: 2 },
+    ]);
   });
 
   it("every enum-bucketed list sums to its own headline, drift included", async () => {

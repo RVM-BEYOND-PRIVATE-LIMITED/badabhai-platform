@@ -360,21 +360,29 @@ export const jobPostings = pgTable(
       "job_postings_vacancy_band_chk",
       sql`${t.vacancyBand} IN ('1', '2-5', '6-10', '11-25', '25+')`,
     ),
-    // Pin the lifecycle to the 5 allowed values (mirrors JOB_POSTING_STATUSES). `paused`
+    // Pin the lifecycle to the 6 allowed values (mirrors JOB_POSTING_STATUSES). `paused`
     // (B1) is a reversible open<->paused state, additive to the original draft/open/closed;
     // `suspended` (ADR-0037) is the system state the payer-suspension cascade writes.
+    // `archived` (#2564 B10) is the system state the company-archive cascade writes —
+    // same freeze as a suspension, but a distinct value so restore can hand each
+    // posting back to its own previous state without touching postings suspended for
+    // other reasons. Every worker-facing read requires `status = 'open'` positively,
+    // so an archived posting leaves the feed with zero query changes.
     check(
       "job_postings_status_chk",
-      sql`${t.status} IN ('draft', 'open', 'paused', 'suspended', 'closed')`,
+      sql`${t.status} IN ('draft', 'open', 'paused', 'suspended', 'archived', 'closed')`,
     ),
     // ADR-0037 — `previous_status` describes a SUSPENSION and nothing else. Non-suspended
     // rows must carry NULL, so a stale value can never be restored onto a posting that was
     // legitimately closed or republished while the column was still set. Enforced in the DB
     // because both the suspend and reinstate writes are one-statement cascades: there is no
     // application-layer read to check it against.
+    // #2564 B10 — widened ADDITIVELY for the archive twin: an `archived` row carries the
+    // same receipt (the pre-archive state restore hands back). A narrowing would have
+    // failed on archived rows; this direction cannot fail on existing ones.
     check(
       "job_postings_previous_status_chk",
-      sql`(${t.status} = 'suspended') OR (${t.previousStatus} IS NULL)`,
+      sql`(${t.status} IN ('suspended', 'archived')) OR (${t.previousStatus} IS NULL)`,
     ),
     // Pin the trust review to the 3 allowed values (mirrors JOB_POSTING_VERIFICATION_STATUSES).
     check(
@@ -530,8 +538,12 @@ export type JobPostingSyncSource = (typeof JOB_POSTING_SYNC_SOURCES)[number];
  * `paused` is USER-owned and reversible; `suspended` is SYSTEM-owned (ADR-0037). They must
  * never be conflated: overloading `suspended` for a user pause would make reinstatement
  * silently reopen a job its owner deliberately took down.
+ *
+ * `archived` (#2564 B10) is the company-archive twin of `suspended`: the cascade writes
+ * it onto an archived company's live jobs, restore flips `archived` back to `open`.
+ * Distinct from `suspended` so the two restores never move each other's rows.
  */
-export type JobStatus = "open" | "closed" | "suspended" | "paused";
+export type JobStatus = "open" | "closed" | "suspended" | "paused" | "archived";
 
 /**
  * When the job needs someone — the demand-side availability signal the Reach RANK

@@ -216,6 +216,8 @@ export class AdminIdentityService {
         return this.repo.adminNames(list);
       case "payer_logins":
         return this.repo.payerLoginIds(list);
+      case "company_profile":
+        return this.repo.companyProfileCiphers(list);
     }
   }
 

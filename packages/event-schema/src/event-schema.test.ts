@@ -1495,6 +1495,128 @@ describe("payer lifecycle events (ADR-0037 — FACELESS, opaque id + closed stat
   });
 });
 
+describe("company archive/restore + profile edit events (#2564 B10 — KEYS, never values)", () => {
+  function companyEvent(name: string, payload: Record<string, unknown>): Record<string, unknown> {
+    return {
+      ...workerCreatedEvent(),
+      event_name: name,
+      actor: { actor_type: "admin", actor_id: UUID_B },
+      subject: { subject_type: "payer", subject_id: UUID_A },
+      payload,
+    };
+  }
+
+  it("payer.archived carries the archived end; restore hands the previous end back", () => {
+    expect(
+      validateEvent(
+        companyEvent("payer.archived", {
+          payer_id: UUID_A,
+          previous_status: "active",
+          new_status: "archived",
+        }),
+      ).success,
+    ).toBe(true);
+    expect(
+      validateEvent(
+        companyEvent("payer.restored", {
+          payer_id: UUID_A,
+          previous_status: "archived",
+          new_status: "active",
+        }),
+      ).success,
+    ).toBe(true);
+  });
+
+  it("an archive of a suspended login keeps 'suspended' as the restorable previous", () => {
+    // Archive composes with suspend: the chain hands back whatever the login held.
+    expect(
+      validateEvent(
+        companyEvent("payer.archived", {
+          payer_id: UUID_A,
+          previous_status: "suspended",
+          new_status: "archived",
+        }),
+      ).success,
+    ).toBe(true);
+    expect(
+      validateEvent(
+        companyEvent("payer.restored", {
+          payer_id: UUID_A,
+          previous_status: "archived",
+          new_status: "suspended",
+        }),
+      ).success,
+    ).toBe(true);
+  });
+
+  it("rejects a free-text status on the archive pair (no free text → no PII)", () => {
+    expect(
+      validateEvent(
+        companyEvent("payer.archived", {
+          payer_id: UUID_A,
+          previous_status: "active",
+          new_status: "archived for GST fraud",
+        }),
+      ).success,
+    ).toBe(false);
+  });
+
+  it("payer.profile_updated carries changed KEYS only — values are rejected", () => {
+    const keys = { payer_id: UUID_A, changed_fields: ["gst", "city", "verification_status"] };
+    const result = validateEvent(companyEvent("payer.profile_updated", keys));
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(Object.keys(result.event.payload).sort()).toEqual(
+        ["changed_fields", "payer_id"].sort(),
+      );
+    }
+    // A GSTIN, an address and a contact name are B2B PII — a value riding the event
+    // would look like it worked. Strict rejects it at the boundary instead.
+    for (const extra of [
+      { gst_number: "27AABCS1234F1Z5" },
+      { address: "MIDC Bhosari, Pune" },
+      { contact_name: "Ramesh Sharma" },
+    ]) {
+      expect(
+        validateEvent(companyEvent("payer.profile_updated", { ...keys, ...extra })).success,
+      ).toBe(false);
+    }
+  });
+
+  it("rejects an unknown changed key and an empty key list", () => {
+    expect(
+      validateEvent(
+        companyEvent("payer.profile_updated", { payer_id: UUID_A, changed_fields: ["gst_number"] }),
+      ).success,
+    ).toBe(false);
+    expect(
+      validateEvent(companyEvent("payer.profile_updated", { payer_id: UUID_A, changed_fields: [] }))
+        .success,
+    ).toBe(false);
+  });
+
+  it("payer.otp_suppressed_v2 carries either freeze reason; v1 never learns the archive one", () => {
+    // The envelope version must match the registry (v2) — like every versioned name.
+    const v2 = (payload: Record<string, unknown>) =>
+      validateEvent({ ...companyEvent("payer.otp_suppressed_v2", payload), event_version: 2 });
+    for (const reason of ["account_suspended", "account_archived"]) {
+      expect(v2({ payer_id: UUID_A, reason }).success).toBe(true);
+    }
+    // v1 is frozen: a row already on the spine keeps validating, but no new v1 row may
+    // claim an archive — the emitter writes v2 from here on.
+    expect(
+      validateEvent(
+        companyEvent("payer.otp_suppressed", { payer_id: UUID_A, reason: "account_suspended" }),
+      ).success,
+    ).toBe(true);
+    expect(
+      validateEvent(
+        companyEvent("payer.otp_suppressed", { payer_id: UUID_A, reason: "account_archived" }),
+      ).success,
+    ).toBe(false);
+  });
+});
+
 describe("payer auth events (ADR-0019 Decision B — FACELESS, ids/role/method enums only)", () => {
   function payerAuthEvent(name: string, payload: Record<string, unknown>): Record<string, unknown> {
     return {
@@ -2449,8 +2571,9 @@ describe("admin auth events (ADR-0025 — the 4th principal, FACELESS, ids/role/
         evt({ admin_id: UUID_A, surface: "workers", subject_id: "Ramesh Kumar", result_count: 1 }),
       ).success,
     ).toBe(false);
-    // ...and the four legitimate surfaces all pass (#2563 added `payer_logins`).
-    for (const surface of ["workers", "payers", "admins", "payer_logins"]) {
+    // ...and the five legitimate surfaces all pass (#2563 added `payer_logins`,
+    // #2564 B10 added `company_profile` for the company record's GST/address/contact).
+    for (const surface of ["workers", "payers", "admins", "payer_logins", "company_profile"]) {
       expect(
         validateEvent(evt({ admin_id: UUID_A, surface, result_count: 0 })).success,
         surface,
@@ -3334,9 +3457,23 @@ describe("chat.session_abandoned (idle sweep — COUNTS ONLY, no transcript)", (
 });
 
 describe("registry", () => {
-  it("exposes all 254 event names (179 prior + the two trade-form offer steps + Layer A + resume.edited + resume-identity + resume-autofill + profile.viewed_v2 + E0's relay trio + the C-2 consent exit + the ADR-0043 resume-update answer + its erasure backfill + the four tiered-profiling events + the ADR-0044 companion turn + the five ADR-0045 general-road events + the #1318 safe-field resume.edited_v2 + the #1801 resume.skin_changed + the #1800 profile.qr_scanned + the four ADR-0046 companion-v2 Phase 1 events + the ADR-0046 P2 faltu strike + the ADR-0046 P3 career answer + the E4 match-skill wants event + the ADR-0048 identity-intake step + the six TD150/WP8 companion versions + the two ADR-0051 free-chat events + the ADR-0050 job_posting.twin_synced + the ADR-0051 Release 2 summary fold + the ADR-0054 live-news request + the 2026-10-07 payer.applicant_stage_changed + the ADR-0051 §11 reply-language change + the ADR-0055 companion turn v4 + the #2297 companion summary fold + the ADR-0057 turn understood + its three edit-gate events + the #2409 typed-answer review + the two Middle-Way optional-depth offer steps + the 2026-11-03 payer.candidate_search_performed + the #2541 consent.age_declared + the 2026-11-04 consent.purposes_granted + the #2635 job_posting.match_skills_scoped + the ADR-0062 admin.candidate_viewed + the B13 ai.fallback_alert_raised/cleared pair + the payer.account_deleted QA seam + the #2701 restricted-session issue + the six #2566 admin posting-control events)", () => {
-    expect(EVENT_NAMES).toHaveLength(254);
-    // B13 (#2567) — the loud-AI-alert verdict pair (new names; no schema mutated).
+  it("exposes all 252 event names (179 prior + the two trade-form offer steps + Layer A + resume.edited + resume-identity + resume-autofill + profile.viewed_v2 + E0's relay trio + the C-2 consent exit + the ADR-0043 resume-update answer + its erasure backfill + the four tiered-profiling events + the ADR-0044 companion turn + the five ADR-0045 general-road events + the #1318 safe-field resume.edited_v2 + the #1801 resume.skin_changed + the #1800 profile.qr_scanned + the four ADR-0046 companion-v2 Phase 1 events + the ADR-0046 P2 faltu strike + the ADR-0046 P3 career answer + the E4 match-skill wants event + the ADR-0048 identity-intake step + the six TD150/WP8 companion versions + the two ADR-0051 free-chat events + the ADR-0050 job_posting.twin_synced + the ADR-0051 Release 2 summary fold + the ADR-0054 live-news request + the 2026-10-07 payer.applicant_stage_changed + the ADR-0051 §11 reply-language change + the ADR-0055 companion turn v4 + the #2297 companion summary fold + the ADR-0057 turn understood + its three edit-gate events + the #2409 typed-answer review + the two Middle-Way optional-depth offer steps + the 2026-11-03 payer.candidate_search_performed + the #2541 consent.age_declared + the 2026-11-04 consent.purposes_granted + the #2635 job_posting.match_skills_scoped + the ADR-0062 admin.candidate_viewed + the B13 ai.fallback_alert_raised/cleared pair + the B2 ai.cost_recorded_v2 + the B10 payer.archived/restored pair + its inventory pair + payer.profile_updated + payer.otp_suppressed_v2 + the payer.account_deleted QA seam + the #2701 restricted-session issue + the six #2566 admin posting-control events)", () => {
+    expect(EVENT_NAMES).toHaveLength(261);
+    // B10 (#2564) — the company archive/restore pair + its inventory pair + the
+    // profile edit (new names; no schema mutated).
+    expect(isEventName("payer.archived")).toBe(true);
+    expect(isEventName("payer.restored")).toBe(true);
+    expect(isEventName("payer.inventory_archived")).toBe(true);
+    expect(isEventName("payer.inventory_restored")).toBe(true);
+    expect(isEventName("payer.profile_updated")).toBe(true);
+    // B10 (#2564) — the OTP-suppress record with the archive reason (new name; v1 not mutated).
+    expect(isEventName("payer.otp_suppressed_v2")).toBe(true);
+    expect(EVENT_REGISTRY["payer.otp_suppressed_v2"]).toMatchObject({
+      version: 2,
+      domain: "payer",
+    });
+    // B2 (#2555) — the spend-time test-flag generation of `ai.cost_recorded` (new name; v1 not mutated).
+    expect(isEventName("ai.cost_recorded_v2")).toBe(true);    // B13 (#2567) — the loud-AI-alert verdict pair (new names; no schema mutated).
     expect(isEventName("ai.fallback_alert_raised")).toBe(true);
     expect(isEventName("ai.fallback_alert_cleared")).toBe(true);
     // ADR-0062 §3.9 (#2560) — an admin opened one candidate's full-detail record (a new name).
@@ -3474,6 +3611,8 @@ describe("registry", () => {
     // ADR-0037 Decision 5 — the ONLY record of a login attempt on a suspended account
     // (the HTTP response is deliberately neutral).
     expect(isEventName("payer.otp_suppressed")).toBe(true);
+    // #2564 B10 — the same record with the archive reason (new name; v1 not mutated).
+    expect(isEventName("payer.otp_suppressed_v2")).toBe(true);
     // ADR-0037 Decision 6 — the Finance/Admin alert for money captured on a banned account.
     expect(isEventName("payer.suspended_payment_captured")).toBe(true);
     // B4 RESOLVER (migration 0060): the referral_links primitive's three events.
@@ -3679,6 +3818,14 @@ describe("registry", () => {
     "chat.companion_edit_confirmed_v2": 2,
     "chat.companion_faltu_strike_v2": 2,
     "chat.companion_career_answered_v2": 2,
+    // B2 (#2555) — the spend-time test-account flag on `ai.cost_recorded`. A NEW name
+    // so v1's definition (and every pre-flag row it validated) stays exactly as
+    // shipped; readers union both names and prefer the stamped flag.
+    "ai.cost_recorded_v2": 2,
+    // B10 (#2564) — the archive reason on `payer.otp_suppressed`. A NEW name so
+    // v1's single-reason definition (and every pre-archive row it validated) stays
+    // exactly as shipped; the emitter writes v2 from here on.
+    "payer.otp_suppressed_v2": 2,
   };
 
   it("every registry entry is version 1 except the ADR-versioned payloads", () => {

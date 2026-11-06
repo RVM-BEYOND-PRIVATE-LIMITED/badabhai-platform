@@ -245,6 +245,8 @@ describe("AdminAuthController — delegation to AdminAuthService", () => {
         "manage_worker_account",
         // #2566 — admin posting control (super_admin, ops_admin). Tail-appended.
         "manage_postings",
+        // #2564 B10 — company record writes (super_admin, ops_admin, support). Tail-appended too.
+        "manage_companies",
       ],
     });
   });

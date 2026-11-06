@@ -59,6 +59,10 @@ export const ADMIN_CAPABILITIES = [
   // #2562 — worker account control (sign out everywhere, reset PIN, suspend/unsuspend).
   // Vocabulary only: this file carries no role mapping.
   "manage_worker_account",
+  // #2564 B10 — company record writes (create/edit/archive/restore, team list).
+  // Vocabulary only: this file carries no role mapping. The server tells the portal
+  // who holds it. Tail-appended, like the API's.
+  "manage_companies",
   "toggle_kill_switch",
   "reveal_pii",
   "manage_admins",
@@ -105,6 +109,11 @@ export const CAPABILITY_LABELS: Record<AdminCapability, string> = {
   manage_agency_match_skills: "Set agency job match skills",
   manage_payer_credentials: "Manage customer logins",
   manage_worker_account: "Manage worker accounts",
+  // Says what it CHANGES, not where it lives: creating, editing, archiving and
+  // restoring a company — the thing an operator is accountable for on the
+  // Companies tab. Login IDs and contact details on those screens stay behind
+  // their own identity gates; this label promises the record writes only.
+  manage_companies: "Manage companies",
   // "View", not "Toggle" (owner ruling, #1900): the portal UI only ever READS switch state —
   // flipping one is an env/deploy action, never a portal control. (The same capability also
   // gates the API's audit-only `POST /admin/kill-switch/pause-request`, which this portal does

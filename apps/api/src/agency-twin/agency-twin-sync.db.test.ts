@@ -214,6 +214,48 @@ describe.skipIf(!RUN)("ADR-0050 agency twin sync, against Postgres", () => {
     expect((await twinOf(J_OPEN))!.status).toBe("open");
   });
 
+  it("an archived source is skipped: no write, no event, twin untouched (#2564 B10)", async () => {
+    // Frozen inventory is not converged: planning an archived source would fall through to
+    // `open` and reopen its twin, and the frozen state has no event end to report.
+    await client.sql`UPDATE jobs SET status = 'archived' WHERE id = ${J_OPEN}::uuid`;
+    try {
+      const svc = twinService(client, { armed: true, v1: true });
+      const out = await svc.syncJob(J_OPEN);
+      expect(out).toMatchObject({ kind: "skipped_archived", jobPostingId: null });
+      expect(await twinOf(J_OPEN)).toBeUndefined();
+      expect(await twinEvents(J_OPEN)).toHaveLength(0);
+    } finally {
+      await client.sql`UPDATE jobs SET status = 'open' WHERE id = ${J_OPEN}::uuid`;
+    }
+  });
+
+  it("an archived twin is skipped even when the source is open (#2564 B10)", async () => {
+    const svc = twinService(client, { armed: true, v1: true });
+    await svc.syncJob(J_OPEN);
+    await client.sql`UPDATE job_postings SET status = 'archived', previous_status = 'open' WHERE source_job_id = ${J_OPEN}::uuid`;
+    try {
+      const out = await svc.syncJob(J_OPEN);
+      expect(out).toMatchObject({ kind: "skipped_archived" });
+      expect((await twinOf(J_OPEN))!.status).toBe("archived");
+      // No status_changed write and no twin_synced for the frozen row.
+      expect(await twinEvents(J_OPEN)).toHaveLength(1);
+    } finally {
+      await client.sql`UPDATE job_postings SET status = 'open', previous_status = NULL WHERE source_job_id = ${J_OPEN}::uuid`;
+    }
+  });
+
+  it("the kill switch leaves archived twins alone (frozen, not paused, #2564 B10)", async () => {
+    await twinService(client, { armed: true, v1: true }).syncJob(J_OPEN);
+    await client.sql`UPDATE job_postings SET status = 'archived', previous_status = 'open' WHERE source_job_id = ${J_OPEN}::uuid`;
+    try {
+      const summary = await twinService(client, { armed: false, v1: true }).sweep();
+      expect((await twinOf(J_OPEN))!.status).toBe("archived");
+      expect(summary.disarmed).toBe(0);
+    } finally {
+      await client.sql`UPDATE job_postings SET status = 'open', previous_status = NULL WHERE source_job_id = ${J_OPEN}::uuid`;
+    }
+  });
+
   it("the §4.1 migration's CHECKs refuse an agent-owned or unlinked twin (C2 in the database)", async () => {
     await expect(client.sql`
       INSERT INTO job_postings (created_by, payer_id, org_label, role_title, vacancy_band, status,

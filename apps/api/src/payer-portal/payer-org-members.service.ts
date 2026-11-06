@@ -38,7 +38,8 @@ export const INVITE_NOT_ACCEPTABLE_MESSAGE = "This invite can't be accepted with
 export type AcceptRefusalRule =
   | "A1_already_in_a_team" // already an active member of another org's team
   | "A2_anchors_a_team" // anchors their own team (another non-removed member)
-  | "A3_role_mismatch"; // vertical role differs from the inviting org's anchor (O-9)
+  | "A3_role_mismatch" // vertical role differs from the inviting org's anchor (O-9)
+  | "A4_archived_org"; // the inviting org is archived (#2564 B10 — frozen companies take no members)
 
 /**
  * The ONE body for an invite the org's anchor may no longer send (risk R65, the invite side of
@@ -293,6 +294,11 @@ export class PayerOrgMembersService {
    * The ADR-0053 §3.5 rule this accept would break, or null. Reads only, inside the accept's
    * transaction under the accepter's membership lock (R65); decides in order A1, A2, A3 so the
    * log names the first breach. A missing anchor role fails CLOSED as A3.
+   *
+   * #2564 B10 — A4 refuses into an ARCHIVED org after the A1–A3 rules: the check is last
+   * because archiving is rarer than a bad membership, but it runs BEFORE the write so a
+   * refusal consumes no token. Only NEW accepts are refused; an existing membership is
+   * never touched.
    */
   private async acceptRefusal(
     tx: PayerOrgsTx,
@@ -304,6 +310,7 @@ export class PayerOrgMembersService {
     if (memberships.some((m) => isTeamMembership(m, payerId))) return "A1_already_in_a_team";
     if (await this.orgs.anchorsTeamOrg(payerId, tx)) return "A2_anchors_a_team";
     if ((await this.orgs.findAnchorRole(orgId, tx)) !== payerRole) return "A3_role_mismatch";
+    if (await this.orgs.isAnchorArchived(orgId, tx)) return "A4_archived_org";
     return null;
   }
 

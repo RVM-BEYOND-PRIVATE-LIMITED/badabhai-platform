@@ -7,6 +7,9 @@ import {
   hashOrgName,
   hashIp,
   hmacValue,
+  companyNameWordHashes,
+  companySearchWordHash,
+  gstinHash,
   encryptPii,
   decryptPii,
   encryptPiiWithKeyring,
@@ -61,6 +64,34 @@ export class PiiCryptoService {
    */
   hashOrgName(normalizedOrgName: string): string {
     return hashOrgName(normalizedOrgName, this.pepper);
+  }
+
+  /**
+   * One keyed-HMAC digest per word of an org display name (#2564 B10 — whole-word
+   * company search without decrypting). The input MUST already be normalized (same
+   * contract as {@link hashOrgName}); hashing is not normalizing. Keyed HMACs with
+   * their own domain — safe for lookups, never the raw name.
+   */
+  hashOrgNameWords(normalizedOrgName: string): string[] {
+    return companyNameWordHashes(normalizedOrgName, this.pepper);
+  }
+
+  /**
+   * The single-word query digest a company name search matches against (#2564 B10).
+   * The input may be raw (trimmed/cased as typed); normalization happens inside.
+   */
+  hashCompanySearchWord(word: string): string {
+    return companySearchWordHash(word, this.pepper);
+  }
+
+  /**
+   * The exact-match digest for a NORMALIZED GSTIN (#2564 B10 — company search by
+   * GST). Same HMAC-SHA256 + server-pepper discipline as every other lookup hash,
+   * with its own `gst:` domain so a GSTIN can never collide with a phone/OTP/email
+   * digest even if the strings match.
+   */
+  hashGstin(normalizedGstin: string): string {
+    return gstinHash(normalizedGstin, this.pepper);
   }
 
   hashIp(ip: string): string {

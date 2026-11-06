@@ -680,6 +680,15 @@ describe("PayerAuthService.loginWithPassword (#2497)", () => {
     expect(d.sessions.create).not.toHaveBeenCalled();
   });
 
+  it("an ARCHIVED account with the RIGHT password gets the archived 403, not the suspended one", async () => {
+    const d = setup();
+    d.payers.findByEmail.mockResolvedValueOnce(pwAccount({ status: "archived" }));
+    const err = await d.svc.loginWithPassword(EMAIL, PW, CTX).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ForbiddenException);
+    expect((err as Error).message).toBe("Account is archived");
+    expect(d.sessions.create).not.toHaveBeenCalled();
+  });
+
   it("a PENDING account never promotes on password alone — neutral 401, no activation event", async () => {
     const d = setup();
     d.payers.findByEmail.mockResolvedValueOnce(pwAccount({ status: "pending" }));
@@ -1221,6 +1230,22 @@ describe("PayerAuthService.verifyLogin — lifecycle (ADR-0037)", () => {
     expect(d.sessions.create).not.toHaveBeenCalled();
   });
 
+  it("an ARCHIVED payer gets the archived 403 and NO session is minted", async () => {
+    const d = setup();
+    d.payers.findByEmail.mockResolvedValue({
+      id: PAYER_ID,
+      role: "employer",
+      status: "archived",
+    } as never);
+
+    const err = await d.svc
+      .verifyLogin({ email: EMAIL, code: "123456" } as never, CTX)
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ForbiddenException);
+    expect((err as Error).message).toBe("Account is archived");
+    expect(d.sessions.create).not.toHaveBeenCalled();
+  });
+
   it("a suspended payer is never activated, and no session_started is recorded", async () => {
     const d = setup();
     d.payers.findByEmail.mockResolvedValue({
@@ -1248,6 +1273,14 @@ describe("PayerAuthService — OTP suppression for a suspended account (ADR-0037
     return d;
   }
 
+  /** Re-point both lookups at an ARCHIVED account (#2564 B10 — same freeze, told apart). */
+  function archived(d: ReturnType<typeof setup>) {
+    const row = { id: PAYER_ID, role: "employer", status: "archived" } as never;
+    d.payers.findByEmail.mockResolvedValue(row);
+    d.payers.findById.mockResolvedValue(row);
+    return d;
+  }
+
   it("reserves the code but NEVER delivers it", async () => {
     const d = suspended(setup());
     await d.svc.requestLogin({ email: EMAIL } as never, CTX);
@@ -1270,13 +1303,26 @@ describe("PayerAuthService — OTP suppression for a suspended account (ADR-0037
     await d.svc.requestLogin({ email: EMAIL } as never, CTX);
 
     const names = d.events.emit.mock.calls.map((c) => (c[0] as { event_name: string }).event_name);
-    expect(names).toEqual(["payer.otp_suppressed"]);
+    // #2564 B10 — the suppress record moved to v2 (same record + the archive reason).
+    expect(names).toEqual(["payer.otp_suppressed_v2"]);
     // NOT also payer.login_requested: no code was delivered, so counting it as a login
     // would overstate the funnel and bury repeated probing of a banned account.
     expect(names).not.toContain("payer.login_requested");
 
     const evt = d.events.emit.mock.calls[0]![0] as { payload: Record<string, unknown> };
     expect(evt.payload).toEqual({ payer_id: PAYER_ID, reason: "account_suspended" });
+  });
+
+  it("an ARCHIVED account is suppressed with the archive reason (told apart on the spine)", async () => {
+    const d = archived(setup());
+    await d.svc.requestLogin({ email: EMAIL } as never, CTX);
+
+    expect(d.otp.issueAndSend).not.toHaveBeenCalled();
+    expect(d.otp.issueWithoutDelivery).toHaveBeenCalledTimes(1);
+    const names = d.events.emit.mock.calls.map((c) => (c[0] as { event_name: string }).event_name);
+    expect(names).toEqual(["payer.otp_suppressed_v2"]);
+    const evt = d.events.emit.mock.calls[0]![0] as { payload: Record<string, unknown> };
+    expect(evt.payload).toEqual({ payer_id: PAYER_ID, reason: "account_archived" });
   });
 
   it("suppresses on the SIGNUP door too (an existing email resolves to the same account)", async () => {
@@ -1305,8 +1351,8 @@ describe("PayerAuthService — OTP suppression for a suspended account (ADR-0037
     const emitted = d.events.emit.mock.calls[0]![0] as { payload: Record<string, unknown> };
     const result = validateEvent({
       event_id: "55555555-5555-4555-8555-555555555555",
-      event_name: "payer.otp_suppressed",
-      event_version: 1,
+      event_name: "payer.otp_suppressed_v2",
+      event_version: 2,
       occurred_at: "2026-08-03T00:00:00.000Z",
       actor: { actor_type: "payer", actor_id: PAYER_ID },
       subject: { subject_type: "payer", subject_id: PAYER_ID },

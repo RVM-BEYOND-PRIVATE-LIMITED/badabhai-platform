@@ -91,7 +91,15 @@ export function captureQueries(rows: unknown[] = []): CapturedQuery {
       args.forEach(capture);
       return chain;
     },
-    limit: async () => rows,
+    limit: (..._args: unknown[]) => chain,
+    /**
+     * OFFSET pages. NUMBERED pages (not keyset) are the honest shape for tiny,
+     * org-grained lists — a cursor over a 200-row table buys nothing and costs a
+     * second code path. `limit` stays chainable (it resolves through `then`, so
+     * every existing terminal `await ...limit(n)` keeps working) and `offset`
+     * terminates, so a `limit` without its `offset` shows up as an uncaptured tail.
+     */
+    offset: async () => rows,
     /**
      * Name this select as a SUBQUERY, so the caller can `from(sub)` and project `sub.column`.
      *

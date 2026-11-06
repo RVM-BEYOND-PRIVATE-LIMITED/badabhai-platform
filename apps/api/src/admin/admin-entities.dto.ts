@@ -118,13 +118,14 @@ export type AdminWorkersQueryDto = z.infer<typeof AdminWorkersQuerySchema>;
 /**
  * GET /admin/payers. `role` is what separates the portal's "Companies" (employer) from
  * "Agencies" (agent) — one table, one route, one projection; the UI does not get a second
- * authorization or filtering model per tab.
+ * authorization or filtering model per tab. `status` admits `archived` (#2564 B10):
+ * archived companies stay visible here so an operator can find and restore them.
  */
 export const AdminPayersQuerySchema = z
   .object({
     ...pageShape,
     role: z.enum(["employer", "agent"]).optional(),
-    status: z.enum(["pending", "active", "suspended"]).optional(),
+    status: z.enum(["pending", "active", "suspended", "archived"]).optional(),
   })
   .strict();
 export type AdminPayersQueryDto = z.infer<typeof AdminPayersQuerySchema>;

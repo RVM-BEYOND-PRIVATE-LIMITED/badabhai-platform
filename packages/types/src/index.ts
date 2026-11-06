@@ -805,11 +805,22 @@ export type VacancyBand = (typeof VACANCY_BANDS)[number];
  * literal set (`z.literal("open")` on PATCH, an explicit `z.enum([...])` on the list
  * filter) rather than deriving from this const, so widening here cannot widen an input.
  *
+ * `archived` (#2564 B10) is the company-archive twin of `suspended`: written only by the
+ * archive cascade onto an archived company's live postings, cleared only by the restore
+ * cascade. Same rule — no request DTO may derive its accepted set from this const.
+ *
  * It sits between `paused` and `closed` in meaning — invisible like `closed`, reversible
  * like `paused` — and is deliberately NOT modelled as `closed`, which is terminal and would
  * make a suspension unrecoverable.
  */
-export const JOB_POSTING_STATUSES = ["draft", "open", "paused", "suspended", "closed"] as const;
+export const JOB_POSTING_STATUSES = [
+  "draft",
+  "open",
+  "paused",
+  "suspended",
+  "archived",
+  "closed",
+] as const;
 export type JobPostingStatus = (typeof JOB_POSTING_STATUSES)[number];
 
 // Ops-set trust review of a posting (the "Verified job" badge the worker sees).

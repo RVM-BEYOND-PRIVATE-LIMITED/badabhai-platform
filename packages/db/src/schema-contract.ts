@@ -972,6 +972,50 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "the legacy jobs feed, the agency job routes and the twin sync 500 (column does not " +
       "exist). APPLY-BEFORE-DEPLOY, same reason as the posting entry above",
   },
+  // 0158 (#2564 B10, company records): the whole-word name-search index + the company
+  // profile/search columns + the archive-widened posting CHECKs. Unconditional — no
+  // flag — because the company writers name every new column explicitly, the
+  // archive cascade writes status='archived', and bare `select()` readers name every
+  // model column. All objects ride one migration, so one column answers for all.
+  // Registered up front.
+  {
+    id: "0158-company-records",
+    migration: "0158_company_records",
+    kind: "column",
+    table: "payers",
+    object: "org_name_word_hashes",
+    requiredBy:
+      "AdminCompaniesRepository company search (`@>` on the word-hash array) and " +
+      "PayersRepository org-name writes (which maintain the hashes). The " +
+      "employer/agency profile columns, the GIN index and the two widened " +
+      "`job_postings` CHECKs ride the same migration and fail together",
+    failureMode:
+      "company create/edit/list/archive/restore 500 (column/index/CHECK does not " +
+      "exist: the archive cascade writes status='archived', which the narrowed " +
+      "CHECK rejects). Old builds on a migrated database are fine (a superset); " +
+      "new builds on an unmigrated one are not, which is why this is " +
+      "APPLY-BEFORE-DEPLOY",
+  },
+  // 0159 (#2555 B2, cost ledger that survives account deletion): the per-finished-
+  // profile ledger — opaque ids (FK-free, so erasure cannot cascade here),
+  // completed_at, the spend-time test flag and the source enum. Unconditional — no
+  // flag — because the writer (`ProfileExtractionProcessor` names these columns
+  // explicitly) and the admin dashboard denominator read this table on every summary.
+  // Registered up front.
+  {
+    id: "0159-cost-ledger",
+    migration: "0159_cost-ledger",
+    kind: "table",
+    table: "profile_completion_ledger",
+    requiredBy:
+      "ProfileExtractionProcessor's same-transaction ledger insert beside the " +
+      "profile.extraction_completed emit, the db:backfill:cost-ledger historical insert, " +
+      "and the admin dashboard profiling-denominator read — all of which name the table",
+    failureMode:
+      "profile completions 500 (relation does not exist) and the GET " +
+      "admin/dashboard/summary denominator read 500s. Old builds on a migrated database " +
+      "are fine (a superset); new builds on an unmigrated one are not, which is why this " +
+      "is APPLY-BEFORE-DEPLOY",  },
   // 0134: THE API names `payer_applicant_stages` only while PAYER_APPLICANT_STAGES_ENABLED is on
   // (owner ruling 2026-10-07, the payer pipeline board), so a deploy ahead of the migration breaks
   // no request and the table is NOT a `table` entry. It is listed for its lock, exactly as 0128's

@@ -109,6 +109,8 @@ function make(configOver: Record<string, unknown> = {}) {
         async (_orgId: string, _tx?: unknown): Promise<"employer" | "agent" | null> => "employer",
       ),
     ),
+    // #2564 B10 — the inviting org is live by default; archived-org accepts are refused (A4).
+    isAnchorArchived: vi.fn(seen("isAnchorArchived", async (_orgId: string, _tx?: unknown) => false)),
     listMembers: vi.fn(async () => [memberRow()]),
     findMember: vi.fn(async () => memberRow({ orgRole: "recruiter", status: "invited" })),
     findActiveOrInvitedByEmail: vi.fn(
@@ -318,11 +320,12 @@ describe("PayerOrgMembersService.accept — ADR-0053 §3.5 membership invariants
     return body;
   }
 
-  it("the happy path reads all three facts for the ACCEPTER and the inviting org", async () => {
+  it("the happy path reads all four facts for the ACCEPTER and the inviting org", async () => {
     await d.svc.accept(ACCEPTER, { token: RAW_TOKEN }, CTX);
     expect(d.orgs.listActiveMembershipsWithAnchor).toHaveBeenCalledWith(ACCEPTER, TX);
     expect(d.orgs.anchorsTeamOrg).toHaveBeenCalledWith(ACCEPTER, TX);
     expect(d.orgs.findAnchorRole).toHaveBeenCalledWith("org-1", TX);
+    expect(d.orgs.isAnchorArchived).toHaveBeenCalledWith("org-1", TX);
     expect(d.orgs.acceptInvite).toHaveBeenCalledTimes(1);
   });
 
@@ -360,6 +363,12 @@ describe("PayerOrgMembersService.accept — ADR-0053 §3.5 membership invariants
     await refused();
   });
 
+  it("A4: an invite into an ARCHIVED org is refused (frozen companies take no members)", async () => {
+    d.orgs.isAnchorArchived.mockResolvedValueOnce(true);
+    await refused();
+    expect(d.orgs.acceptInvite).not.toHaveBeenCalled();
+  });
+
   it("an agent accepting an agency org's invite is admitted (A3 compares, it does not pin employer)", async () => {
     d.payers.findById.mockResolvedValueOnce({
       id: ACCEPTER,
@@ -375,7 +384,7 @@ describe("PayerOrgMembersService.accept — ADR-0053 §3.5 membership invariants
     });
   });
 
-  it("all three refusals are the SAME body (no rule-name oracle)", async () => {
+  it("all four refusals are the SAME body (no rule-name oracle)", async () => {
     d.orgs.listActiveMembershipsWithAnchor.mockResolvedValueOnce([membershipOf(OWNER_ELSEWHERE)]);
     const a1 = await refused();
     d = make();
@@ -384,8 +393,12 @@ describe("PayerOrgMembersService.accept — ADR-0053 §3.5 membership invariants
     d = make();
     d.orgs.findAnchorRole.mockResolvedValueOnce("agent");
     const a3 = await refused();
+    d = make();
+    d.orgs.isAnchorArchived.mockResolvedValueOnce(true);
+    const a4 = await refused();
     expect(a2).toEqual(a1);
     expect(a3).toEqual(a1);
+    expect(a4).toEqual(a1);
   });
 
   it("the invariants are read only AFTER the invite is proven the caller's (token + email)", async () => {
@@ -403,6 +416,7 @@ describe("PayerOrgMembersService.accept — ADR-0053 §3.5 membership invariants
     expect(d.orgs.listActiveMembershipsWithAnchor).not.toHaveBeenCalled();
     expect(d.orgs.anchorsTeamOrg).not.toHaveBeenCalled();
     expect(d.orgs.findAnchorRole).not.toHaveBeenCalled();
+    expect(d.orgs.isAnchorArchived).not.toHaveBeenCalled();
   });
 });
 
@@ -419,7 +433,7 @@ describe("PayerOrgMembersService — R65: the A-rule checks and the write run un
     d = make();
   });
 
-  it("accept: one transaction; the ACCEPTER's lock comes first, then A1–A3 and the write, all on that transaction; the event follows", async () => {
+  it("accept: one transaction; the ACCEPTER's lock comes first, then A1–A4 and the write, all on that transaction; the event follows", async () => {
     await d.svc.accept(ACCEPTER, { token: RAW_TOKEN }, CTX);
     expect(d.order).toEqual([
       "withTransaction",
@@ -427,6 +441,7 @@ describe("PayerOrgMembersService — R65: the A-rule checks and the write run un
       "listActiveMembershipsWithAnchor",
       "anchorsTeamOrg",
       "findAnchorRole",
+      "isAnchorArchived",
       "acceptInvite",
       "emit",
     ]);

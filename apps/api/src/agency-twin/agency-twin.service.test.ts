@@ -176,4 +176,18 @@ describe("AgencyTwinService — ARMED", () => {
     expect(repo.sync.mock.calls.map((c) => c[0])).toEqual([JOB_A, JOB_B]);
     expect(s).toMatchObject({ jobs: 2, failed: 1, written: 1 });
   });
+
+  it("a frozen twin is skipped, counted, and emits nothing (#2564 B10)", async () => {
+    const { svc, repo, events } = setup({ armed: true, ids: [[JOB_A]] });
+    // Cast: the mock's inferred resolved type is the `written` shape from its default
+    // implementation; the skip outcome is a different union member by design.
+    repo.sync.mockResolvedValueOnce({
+      kind: "skipped_archived",
+      sourceJobId: JOB_A,
+      jobPostingId: TWIN,
+    } as never);
+    const s = await svc.sweep();
+    expect(s).toMatchObject({ jobs: 1, skipped: 1, written: 0 });
+    expect(events.emit).not.toHaveBeenCalled();
+  });
 });

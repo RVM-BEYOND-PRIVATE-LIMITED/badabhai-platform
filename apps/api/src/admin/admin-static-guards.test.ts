@@ -9,6 +9,7 @@ import { AdminPiiRevealController } from "./admin-pii-reveal.controller";
 import { AdminKillSwitchController } from "./admin-kill-switch.controller";
 import { AdminEntitiesController } from "./admin-entities.controller";
 import { AdminPayerLoginsController } from "./admin-payer-logins.controller";
+import { AdminCompaniesController } from "./admin-companies.controller";
 import { AdminFeedbackController } from "./admin-feedback.controller";
 import { AdminFinanceController } from "./admin-finance.controller";
 import { AdminDirectoryController } from "./admin-directory.controller";
@@ -659,7 +660,17 @@ describe("identity reads — one reader, one decrypter, and no name search", () 
     //                             is a field, a prompt is everything somebody said on one turn —
     //                             and it was added by a deliberate edit to this list, which is
     //                             exactly what the list is for.
-    // A fifth entry has to be a deliberate edit to this list, reviewed as one.
+    //   admin-companies.service — the company EDIT diff (#2564 B10): the stored
+    //                             org name / email / GST / address / contact ciphertext
+    //                             must be DECRYPTED to compare against the request
+    //                             (AES-GCM is non-deterministic, so a ciphertext
+    //                             comparison can never match). Compared only — the values
+    //                             are never returned, logged or evented; only the
+    //                             changed KEYS leave on `payer.profile_updated`. The
+    //                             DISPLAY side of the same screen stays on the identity
+    //                             boundary (budgeted, audited). Added by a deliberate
+    //                             edit to this list, reviewed as one.
+    // A sixth entry has to be a deliberate edit to this list, reviewed as one.
     //
     // TWO THINGS THIS DELIBERATELY IS NOT:
     //  - NOT a COUNT (`toHaveLength(3)` / `<= 3`). A count cannot tell "the identity service was
@@ -687,6 +698,7 @@ describe("identity reads — one reader, one decrypter, and no name search", () 
     expect(decrypters).toEqual(
       [
         "admin/admin-ai-traces.service.ts",
+        "admin/admin-companies.service.ts",
         "admin/admin-identity.service.ts",
         "admin/admin-mfa.store.ts",
         "admin/admin-pii-reveal.service.ts",
@@ -754,14 +766,15 @@ describe("identity reads — one reader, one decrypter, and no name search", () 
     }
   });
 
-  it("EVERY select in the identity repository projects EXACTLY `{id, nameCipher}` — nothing else", () => {
+  it("EVERY select in the identity repository projects a FIXED shape — nothing else", () => {
     // The forbidden-list test above is the NEGATIVE half and it can only ever catch the columns
     // somebody thought to name. This is the positive half, and it is the one that holds: the
     // shape is pinned, so a column added here fails whether or not anyone predicted it — a
     // `phoneHash`, a `status`, a `createdAt`, a column that does not exist yet.
     //
-    // It also pins the COUNT of projections at four, one per surface, so a fifth lookup cannot
-    // arrive without this list being edited.
+    // It also pins the COUNT of projections: six, two per company-profile table (the only
+    // surface that reads two tables — a company lives in exactly one of them) plus one per
+    // name surface — so a seventh lookup cannot arrive without this list being edited.
     const src = code(IDENTITY_REPO);
     // Strip the `${...}` interpolation bodies before parsing: the login-ID projection is a
     // `sql` template whose braces would otherwise truncate the key list at the first `}`.
@@ -769,12 +782,22 @@ describe("identity reads — one reader, one decrypter, and no name search", () 
     const selects = [...flat.matchAll(/\.select\(\s*\{([^}]*)\}\s*\)/g)].map((m) =>
       [...m[1]!.matchAll(/(\w+)\s*:/g)].map((k) => k[1]!).sort(),
     );
-    expect(selects, "the identity repository must have exactly one select per surface").toHaveLength(
-      4,
+    expect(selects, "the identity repository must have exactly one select per surface table").toHaveLength(
+      6,
     );
-    for (const keys of selects) {
-      expect(keys, `a select projects ${keys.join(", ")}`).toEqual(["id", "nameCipher"]);
-    }
+    const shapes = selects.map((keys) => keys.join(",")).sort();
+    expect(shapes).toEqual(
+      [
+        ["id", "nameCipher"].sort().join(","),
+        ["id", "nameCipher"].sort().join(","),
+        ["id", "nameCipher"].sort().join(","),
+        ["id", "nameCipher"].sort().join(","),
+        // #2564 B10 — the company-profile surface reads both profile tables (one select
+        // each; a company lives in exactly one). Same contract: id + ciphertext only.
+        ["address", "contact", "gst", "id"].sort().join(","),
+        ["address", "contact", "gst", "id"].sort().join(","),
+      ].sort(),
+    );
   });
 
   it("...and that projection rule is CAPABLE of failing (a third column is caught)", () => {
@@ -845,7 +868,7 @@ describe("identity reads — one reader, one decrypter, and no name search", () 
     return headers.find((h) => h.name.toLowerCase() === "cache-control")?.value;
   }
 
-  it("EXACTLY FOUR non-test files reach the identity layer (the no-store derivation's own input)", () => {
+  it("EXACTLY FIVE non-test files reach the identity layer (the no-store derivation's own input)", () => {
     // `nameBearingHandlers` derives METHODS from source, which is the right shape — but it is
     // only ever CALLED with hardcoded filenames, so the derivation is wrapped in exactly the
     // hand-kept list its own header says a hand-kept list is what a new route gets left off.
@@ -871,6 +894,9 @@ describe("identity reads — one reader, one decrypter, and no name search", () 
         // ADR-0062 (#2560) — the Candidates full-detail read. Added to the derivation below in the
         // same edit, as this test demands.
         "admin/admin-candidate-detail.service.ts",
+        // #2564 B10 — the Companies list/detail (org names + company profile PII). Added to the
+        // derivation below in the same edit, as this test demands.
+        "admin/admin-companies.service.ts",
         "admin/admin-directory.service.ts",
         "admin/admin-entities.service.ts",
         // #2563 — the User accounts list.
@@ -892,6 +918,7 @@ describe("identity reads — one reader, one decrypter, and no name search", () 
     expect(nameBearingHandlers("admin-directory.service.ts")).toEqual(["directory"]);
     expect(nameBearingHandlers("admin-candidate-detail.service.ts")).toEqual(["getCandidate"]);
     expect(nameBearingHandlers("admin-payer-logins.service.ts")).toEqual(["listAccounts"]);
+    expect(nameBearingHandlers("admin-companies.service.ts")).toEqual(["getCompany", "listCompanies"]);
   });
 
   it("EVERY name-bearing route sets Cache-Control: no-store (the reveal route's Control 8)", () => {
@@ -920,6 +947,12 @@ describe("identity reads — one reader, one decrypter, and no name search", () 
       expect(cacheControlOf(AdminPayerLoginsController, method), `${method} must be no-store`).toBe(
         "no-store",
       );
+    }
+    for (const method of nameBearingHandlers("admin-companies.service.ts")) {
+      expect(
+        cacheControlOf(AdminCompaniesController, method),
+        `${method} must be no-store`,
+      ).toBe("no-store");
     }
   });
 
@@ -958,6 +991,17 @@ describe("identity reads — one reader, one decrypter, and no name search", () 
     }
   });
 
+  it("the companies list clamps its page the same way (identity budget, not the raw pageSize)", () => {
+    // Same failure, different file: a pageSize that reaches the repository unclamped
+    // spends the whole name budget on one screen. The clamp constant is shared with
+    // the entities lists (one bound for every name-bearing page), and the gate is the
+    // same `isPermitted` check the entities clamp on.
+    const src = code("admin-companies.service.ts");
+    expect(src).toContain("ADMIN_COMPANIES_IDENTITY_PAGE_MAX");
+    expect(src).toContain("this.identity.isPermitted(admin)");
+    expect(src).toContain("Math.min(dto.pageSize, ADMIN_COMPANIES_IDENTITY_PAGE_MAX)");
+  });
+
   it("the identity SERVICE gates on read_identity, not on a route capability", () => {
     // The check cannot be a second decorator (`@RequireAdminRole` sets exactly one capability
     // per route, asserted throughout this file), so it lives in the service - where a scan is
@@ -978,6 +1022,21 @@ describe("identity reads — one reader, one decrypter, and no name search", () 
       .map((f) => relative(SRC_DIR, f).replace(/\\/g, "/"))
       .sort();
     expect(callers).toEqual(["admin/admin-payer-logins.service.ts"]);
+  });
+
+  it("the `company_profile` identity surface is used ONLY by the companies service", () => {
+    // #2564 B10 — the surface exists for the company record (GST, address, contact
+    // person on the Companies detail/edit screens). A second caller would silently
+    // become another place company PII is disclosed, outside that screen.
+    // `admin-identity.service.ts` is the dispatcher that implements the surface; every OTHER
+    // admin file must not name it.
+    const callers = tsFiles(ADMIN_DIR)
+      .filter((f) => !f.endsWith(".test.ts"))
+      .filter((f) => !f.endsWith("admin-identity.service.ts"))
+      .filter((f) => code(relative(ADMIN_DIR, f)).includes('"company_profile"'))
+      .map((f) => relative(SRC_DIR, f).replace(/\\/g, "/"))
+      .sort();
+    expect(callers).toEqual(["admin/admin-companies.service.ts"]);
   });
 });
 

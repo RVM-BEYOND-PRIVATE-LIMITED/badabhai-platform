@@ -1399,6 +1399,30 @@ export const AiCostRecordedPayload = z.object({
 export type AiCostTaskType = z.infer<typeof aiTaskType>;
 
 /**
+ * B2 (#2555) — `ai.cost_recorded` version 2: v1's shape plus the test-account flag
+ * stamped WHEN THE MONEY IS SPENT.
+ *
+ * WHY A NEW NAME AND NOT AN OPTIONAL V1 FIELD. The flag changes what every reader
+ * derives: a stamped `true`/`false` REPLACES the live-`workers` join, so a worker
+ * deleted after spending keeps its true bucket instead of sliding into
+ * `deleted_or_unattributed`. A silent v1 widen would let a stale reader keep joining
+ * and mis-split without knowing the ground moved. A new name forces every reader to
+ * opt in explicitly — and every reader did, in the same change.
+ *
+ * `is_test_account` is NULLABLE, and the null is meaningful: payer-side calls have no
+ * worker to stamp (same rule as `worker_id` above), and a lookup failure records
+ * unknown rather than failing the cost event. Readers coalesce null to the live join,
+ * so a null v2 row degrades to exactly the v1 reading — never to a guess.
+ *
+ * §2 PRIVACY: one boolean. No name, phone, prompt, completion or transcript is added
+ * here, and none ever may be.
+ */
+export const AiCostRecordedV2Payload = AiCostRecordedPayload.extend({
+  is_test_account: z.boolean().nullable().default(null),
+});
+export type AiCostRecordedV2 = z.infer<typeof AiCostRecordedV2Payload>;
+
+/**
  * Spend-cap / circuit-breaker block codes — the terminal `error_code` values the
  * AI gateway returns when it REFUSES a real provider call (TD27). Mirrors the
  * block reasons set in apps/ai-service. Enum-only (no free text) → no PII.
@@ -2367,6 +2391,93 @@ export const PayerInventoryTransitionPayload = z
 export type PayerInventoryTransitionPayload = z.infer<typeof PayerInventoryTransitionPayload>;
 
 /**
+ * The closed vocabulary of company field KEYS an admin company edit may report
+ * (#2564 B10, `payer.profile_updated`).
+ *
+ * KEYS, never values — the same structural guarantee as
+ * `PayerAccountUpdatedPayload.changed_fields` (a GSTIN, an address and a contact
+ * name are B2B PII and stay encrypted in their tables). The registry STRUCTURALLY
+ * guarantees a value can never ride this event: an unknown key fails validation.
+ * Covers both the employer and the agency profile shapes in one enum (keys only).
+ */
+export const CompanyProfileChangedFields = [
+  "org_name",
+  "phone",
+  "email",
+  "gst",
+  "address",
+  "city",
+  "website",
+  "industry",
+  "company_size",
+  "hiring_locations",
+  "contact_name",
+  "agency_type",
+  "service_locations",
+  "operating_cities",
+  "recruiter_count",
+  "source_channels",
+  "verification_status",
+] as const;
+export type CompanyProfileChangedField = (typeof CompanyProfileChangedFields)[number];
+
+/**
+ * An admin edited a company's record (#2564 B10, `PATCH /admin/companies/:id`).
+ *
+ * FACELESS by construction: the opaque `payer_id` (the org anchor) + the changed
+ * field KEYS only — never the new GST, address, contact name or any other VALUE
+ * (those live encrypted in `payers` / the profile tables). `changed_fields` is a
+ * non-empty subset of {@link CompanyProfileChangedFields}; an empty patch is
+ * rejected at the boundary, so a recorded update always changed at least one
+ * field. Mirrors the `job_posting.updated` keys-only precedent. The admin's
+ * reason code + text live on the `audit_logs` row written in the same transaction,
+ * exactly like the #2563 login writes.
+ */
+export const PayerProfileUpdatedPayload = z
+  .object({
+    payer_id: uuidSchema,
+    changed_fields: z.array(z.enum(CompanyProfileChangedFields)).min(1),
+  })
+  // `.strict()` is the STRUCTURAL backstop for the value-free rule: without it an
+  // extra key is silently STRIPPED rather than rejected, so a caller that started
+  // attaching a new GST VALUE would look like it was working. Strict makes that a
+  // validation failure at the boundary instead of a silent PII channel.
+  .strict();
+export type PayerProfileUpdatedPayload = z.infer<typeof PayerProfileUpdatedPayload>;
+
+/**
+ * A company was archived / restored (#2564 B10) — `payer.archived` /
+ * `payer.restored`.
+ *
+ * The archive twin of the ADR-0037 suspend pair, with its OWN names: a suspend
+ * and an archive freeze the same inventory but restore through different
+ * previous-states, and the Companies timeline must tell them apart. Carries BOTH
+ * ends of the transition (the audit-every-transition rule); `previous_status` on
+ * archive is whatever the login held — including `suspended` — so the chain
+ * composes, and restore hands it back. No reason on the spine (it lives on the
+ * `audit_logs` row); no actor beyond the envelope.
+ *
+ * FACELESS: the opaque `payer_id` plus two closed enum values.
+ */
+export const PayerArchivedPayload = z
+  .object({
+    payer_id: uuidSchema,
+    previous_status: PayerStatusEnum,
+    new_status: z.literal("archived"),
+  })
+  .strict();
+export type PayerArchivedPayload = z.infer<typeof PayerArchivedPayload>;
+
+export const PayerRestoredPayload = z
+  .object({
+    payer_id: uuidSchema,
+    previous_status: z.literal("archived"),
+    new_status: PayerStatusEnum,
+  })
+  .strict();
+export type PayerRestoredPayload = z.infer<typeof PayerRestoredPayload>;
+
+/**
  * A login code was RESERVED but deliberately NOT DELIVERED (ADR-0037 Decision 5) —
  * `payer.otp_suppressed`.
  *
@@ -2386,6 +2497,21 @@ export const PayerOtpSuppressedPayload = z
   })
   .strict();
 export type PayerOtpSuppressedPayload = z.infer<typeof PayerOtpSuppressedPayload>;
+
+/**
+ * v2 of `payer.otp_suppressed` (#2564 B10) — the same record with the archive reason.
+ *
+ * Written explicitly (not `.extend()`), so `.strict()` is beyond doubt: an extra key
+ * is rejected, never stripped. v1 stays valid for every row already on the spine;
+ * the emitter writes v2 from here on (same change, like `ai.cost_recorded_v2`).
+ */
+export const PayerOtpSuppressedV2Payload = z
+  .object({
+    payer_id: uuidSchema,
+    reason: z.enum(["account_suspended", "account_archived"]),
+  })
+  .strict();
+export type PayerOtpSuppressedV2Payload = z.infer<typeof PayerOtpSuppressedV2Payload>;
 
 /**
  * A real payment was captured and credited for a SUSPENDED payer (ADR-0037 Decision 6) —
@@ -3199,8 +3325,19 @@ export type AdminPiiRevealCapExceededPayload = z.infer<typeof AdminPiiRevealCapE
  *             surface because a login ID is a different field from the organisation's display
  *             name, and an auditor reading "which screen disclosed it" should not have to infer
  *             that from the entity type.
+ *   company_profile — `GET /admin/companies/:id`           → the company record's PII
+ *             fields (GST, street address, contact person; #2564 B10). One row per FIELD,
+ *             keyed `payerId:field` (see `AdminIdentityRepository.companyProfileCiphers`),
+ *             so the budget charges and the audit counts per disclosed FIELD, not per
+ *             company — the same unit the name surfaces already use.
  */
-export const ADMIN_IDENTITY_SURFACES = ["workers", "payers", "admins", "payer_logins"] as const;
+export const ADMIN_IDENTITY_SURFACES = [
+  "workers",
+  "payers",
+  "admins",
+  "payer_logins",
+  "company_profile",
+] as const;
 export const AdminIdentitySurface = z.enum(ADMIN_IDENTITY_SURFACES);
 export type AdminIdentitySurface = z.infer<typeof AdminIdentitySurface>;
 
@@ -3777,9 +3914,7 @@ export const JobPostingMatchSkillsScopedPayload = z
     dropped_skill_ids: z.array(matchSkillIdSchema).min(1),
   })
   .strict();
-export type JobPostingMatchSkillsScopedPayload = z.infer<
-  typeof JobPostingMatchSkillsScopedPayload
->;
+export type JobPostingMatchSkillsScopedPayload = z.infer<typeof JobPostingMatchSkillsScopedPayload>;
 
 /**
  * POLICY 27 — "Ops may widen a reach set, never narrow one. Expiring, audited, evented."

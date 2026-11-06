@@ -116,6 +116,11 @@ function make(
      * built without it, which is the pre-0125 construction and means no auto-confirm.
      */
     profilesService?: { confirmAcceptedUpdate: ReturnType<typeof vi.fn> };
+    /**
+     * B2 (#2555) — the test flag the ledger stub resolves. Default false (a real
+     * account); set true for the test-account completion case.
+     */
+    ledgerTestFlag?: boolean;
     /** ADR-0043 — `false`: the session's accepted import is gone or belongs to someone else. */
     importOwned?: boolean;
     /** ADR-0043 — the worker's latest consent row. Default: active. `null`: none on file. */
@@ -290,6 +295,16 @@ function make(
       : vi.fn().mockResolvedValue(opts.employments ?? []),
   };
   const traces = fakeAiTraceRecorder();
+  // B2 (#2555) — the ledger writer. A recording stub by default (rows + resolved
+  // flags visible to the test); the same-transaction property is asserted by the
+  // DB suite against a real database, not by a stub that models nothing.
+  const completionLedger = {
+    withTransaction: vi.fn(async (work: (tx: unknown) => Promise<unknown>) =>
+      work({ __fakeLedgerTx: true }),
+    ),
+    resolveTestFlag: vi.fn(async () => opts.ledgerTestFlag ?? false),
+    insert: vi.fn(async (_row: unknown, _tx: unknown) => undefined),
+  };
   const proc = new ProfileExtractionProcessor(
     profiles as never,
     aiJobs as never,
@@ -329,6 +344,10 @@ function make(
           : { revokedAt: null, purposes: ["profiling", "resume_generation"] },
       ),
     } as never,
+    // B2 (#2555) — the ledger writer. A recording stub by default (rows + resolved
+    // flags visible to the test); the same-transaction property is asserted by the
+    // DB suite against a real database, not by a stub that models nothing.
+    completionLedger as never,
   );
   return {
     proc,
@@ -348,6 +367,7 @@ function make(
     resumeImports,
     employments,
     traces,
+    completionLedger,
   };
 }
 
@@ -376,6 +396,43 @@ describe("ProfileExtractionProcessor", () => {
     expect(events.emit.mock.calls[0]![0].event_name).toBe("profile.extraction_completed");
     const names = events.emit.mock.calls.map((c) => c[0].event_name);
     expect(names).not.toContain("ai.cost_recorded");
+  });
+
+  describe("B2 (#2555) — the completed-profile ledger row", () => {
+    // An extraction with content (the rich-draft leg, TD94): status `extracted`.
+    const extractedOpts = {
+      richDraft: WorkerProfileDraftSchema.parse({ skills: ["machine operation"] }),
+    };
+
+    it("extracted: ledger row and completion event commit in one transaction", async () => {
+      const { proc, completionLedger, events } = make(extractedOpts);
+      await proc.process(makeJob());
+      expect(completionLedger.withTransaction).toHaveBeenCalledOnce();
+      expect(completionLedger.insert).toHaveBeenCalledOnce();
+      const row = completionLedger.insert.mock.calls[0]![0] as Record<string, unknown>;
+      expect(row).toMatchObject({ source: "extraction", isTestAccount: false });
+      expect(typeof row.profileId).toBe("string");
+      expect(row.completedAt).toBeInstanceOf(Date);
+      // The event rides the SAME transaction handle the ledger row did.
+      const emitTx = (events.emit.mock.calls[0]![0] as Record<string, unknown>).tx;
+      expect(emitTx).toBeDefined();
+    });
+
+    it("draft: event without a ledger row (nothing was produced)", async () => {
+      const { proc, events, completionLedger } = make();
+      await proc.process(makeJob());
+      expect(events.emit.mock.calls[0]![0].event_name).toBe("profile.extraction_completed");
+      expect(completionLedger.insert).not.toHaveBeenCalled();
+    });
+
+    it("test account: the row carries the stamped flag", async () => {
+      const { proc, completionLedger } = make({ ...extractedOpts, ledgerTestFlag: true });
+      await proc.process(makeJob());
+      expect(completionLedger.insert).toHaveBeenCalledOnce();
+      expect(completionLedger.insert.mock.calls[0]![0]).toMatchObject({
+        isTestAccount: true,
+      });
+    });
   });
 
   describe("profile source — Task 1 flow separation", () => {
@@ -587,7 +644,7 @@ describe("ProfileExtractionProcessor", () => {
     expect(arg.richProfileDraft).toBeNull();
   });
 
-  it("persists AI usage/cost on completion + emits ai.cost_recorded (operational fields only, no PII)", async () => {
+  it("persists AI usage/cost on completion + emits ai.cost_recorded_v2 (operational fields only, no PII)", async () => {
     const aiMetadata = {
       ai_call_id: "66666666-6666-4666-8666-666666666666",
       task_type: "profile_extraction",
@@ -621,10 +678,10 @@ describe("ProfileExtractionProcessor", () => {
       },
     );
 
-    // (2) ai.cost_recorded emitted with the same metadata (after extraction_completed).
+    // (2) ai.cost_recorded_v2 emitted with the same metadata (after extraction_completed).
     const costEvent = events.emit.mock.calls
       .map((c) => c[0])
-      .find((e) => e.event_name === "ai.cost_recorded");
+      .find((e) => e.event_name === "ai.cost_recorded_v2");
     expect(costEvent).toBeDefined();
     expect(costEvent!.payload).toMatchObject({
       ai_job_id: JOB.aiJobId,
@@ -665,9 +722,9 @@ describe("ProfileExtractionProcessor", () => {
     const { proc, events } = make({ aiMetadata });
     await proc.process(makeJob());
 
-    // cost_recorded is still emitted (unchanged), AND the cap event in addition.
+    // cost_recorded_v2 is still emitted (unchanged), AND the cap event in addition.
     const names = events.emit.mock.calls.map((c) => c[0].event_name);
-    expect(names).toContain("ai.cost_recorded");
+    expect(names).toContain("ai.cost_recorded_v2");
     const capEvent = events.emit.mock.calls
       .map((c) => c[0])
       .find((e) => e.event_name === "ai.spend_cap_exceeded");
@@ -1927,9 +1984,9 @@ describe("the interview's one LLM call is ledgered", () => {
   const costRecords = (events: { emit: { mock: { calls: unknown[][] } } }) =>
     events.emit.mock.calls
       .map((c) => c[0] as { event_name: string; payload: Record<string, unknown> })
-      .filter((e) => e.event_name === "ai.cost_recorded");
+      .filter((e) => e.event_name === "ai.cost_recorded_v2");
 
-  it("emits ai.cost_recorded for the parse call, attributed to profile_parse", async () => {
+  it("emits ai.cost_recorded_v2 for the parse call, attributed to profile_parse", async () => {
     const { proc, events } = make({
       ...withMap(),
       parsed: { fields: {}, unparsed_field_ids: [], notes: [], ai_metadata: PARSE_META },
@@ -1962,7 +2019,7 @@ describe("the interview's one LLM call is ledgered", () => {
     const records = costRecords(events);
     const keys = events.emit.mock.calls
       .map((c) => c[0] as { event_name: string; idempotencyKey?: string })
-      .filter((e) => e.event_name === "ai.cost_recorded")
+      .filter((e) => e.event_name === "ai.cost_recorded_v2")
       .map((e) => e.idempotencyKey);
     expect(new Set(keys).size).toBe(records.length);
     expect(keys).toContain(`ai.cost_recorded:${PARSE_META.ai_call_id}`);
@@ -1997,7 +2054,7 @@ describe("the interview's one LLM call is ledgered", () => {
     estimated_cost_inr: cost,
   });
 
-  it("emits one ai.cost_recorded per canonicalization embed, attributed to this job", async () => {
+  it("emits one ai.cost_recorded_v2 per canonicalization embed, attributed to this job", async () => {
     const { proc, events } = make({
       skillEmbedMetadata: [
         EMBED_META("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", 0.03),
@@ -2026,7 +2083,7 @@ describe("the interview's one LLM call is ledgered", () => {
           },
       )
       .filter(
-        (e) => e.event_name === "ai.cost_recorded" && e.payload.task_type === "skill_embedding",
+        (e) => e.event_name === "ai.cost_recorded_v2" && e.payload.task_type === "skill_embedding",
       )
       .map((e) => e.idempotencyKey);
     expect(new Set(keys).size).toBe(3);
@@ -3370,7 +3427,7 @@ describe("the interview overlay (Phase C)", () => {
     await proc.process(makeJob());
     const costs = events.emit.mock.calls
       .map((c) => c[0] as { event_name: string; payload: { ai_call_id?: string } })
-      .filter((e) => e.event_name === "ai.cost_recorded");
+      .filter((e) => e.event_name === "ai.cost_recorded_v2");
     expect(costs.some((e) => e.payload.ai_call_id === meta.ai_call_id)).toBe(true);
   });
 });
@@ -4223,7 +4280,11 @@ describe("ADR-0057 R9 (#2313) — what the worker confirmed in chat outranks the
         ...withMap().conversationState,
         answer_map: [
           record(),
-          record({ question_key: "current_city", target_field: "current_city", value_normalized: "Mumbai" }),
+          record({
+            question_key: "current_city",
+            target_field: "current_city",
+            value_normalized: "Mumbai",
+          }),
         ],
         chat_edits: stamp({
           ledger: [{ field_key: "current_city", op: "edit", target_field: "current_city" }],
@@ -4283,7 +4344,10 @@ describe("ADR-0057 R9 (#2313) — what the worker confirmed in chat outranks the
       });
       await proc.process(makeJob());
       // Everything the build wrote, but the wall-clock stamp of when it wrote it.
-      const { jobDomainMatchedAt: _at, ...row } = profiles.create.mock.calls[0]![0] as Record<string, unknown>;
+      const { jobDomainMatchedAt: _at, ...row } = profiles.create.mock.calls[0]![0] as Record<
+        string,
+        unknown
+      >;
       return row;
     };
     const today = await build({});

@@ -318,6 +318,20 @@ describe("PayerAuthGuard — lifecycle gate (ADR-0037)", () => {
     ).rejects.toBeInstanceOf(ForbiddenException);
   });
 
+  it("403s an ARCHIVED payer holding an otherwise-valid session (#2564 B10)", async () => {
+    // Archive freezes the whole company: every member login fails the same
+    // `!= 'active'` gate as a suspension, with no per-login exception.
+    const guard = new PayerAuthGuard(
+      makeSession({ ...VALID, role: "employer" }),
+      config,
+      makeRepo({ role: "employer", status: "archived" }),
+      makeOrgs(),
+    );
+    await expect(
+      guard.canActivate(makeCtx("Bearer valid.but.archived").ctx),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
   it("403s a PENDING payer — a never-verified account may not act", async () => {
     const guard = new PayerAuthGuard(
       makeSession({ ...VALID, role: "employer" }),

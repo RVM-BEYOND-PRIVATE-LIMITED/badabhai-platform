@@ -10,7 +10,7 @@ import {
   AI_COST_CAVEAT_SINCE_0077,
   CAP_BREACH_SCOPE_PROFILE_EXTRACTION,
   COST_PER_PROFILE_BASIS_INCLUDES_ABANDONED,
-  COST_PER_PROFILE_ERASURE_TREATMENT,
+  COST_PER_PROFILE_ERASURE_STAMPED,
   COST_PER_PROFILE_TEST_SPLIT_CONVERGES,
   COST_PER_PROFILE_WINDOW_EDGE_SKEW,
   DASHBOARD_JOB_POSTING_STATUSES,
@@ -19,7 +19,6 @@ import {
   DASHBOARD_PAYER_STATUSES,
   DASHBOARD_PROFILE_STATUSES,
   DASHBOARD_WORKER_STATUSES,
-  PROFILE_COMPLETED_STATUSES,
   PROFILING_TASK_TYPES,
   type AdminCapBreachBucket,
   type AdminCostPerProfile,
@@ -231,7 +230,7 @@ export class AdminDashboardService {
       ),
       basis: COST_PER_PROFILE_BASIS_INCLUDES_ABANDONED,
       window_caveat: COST_PER_PROFILE_WINDOW_EDGE_SKEW,
-      erasure_caveat: COST_PER_PROFILE_ERASURE_TREATMENT,
+      erasure_caveat: COST_PER_PROFILE_ERASURE_STAMPED,
       // ADDITIVE population breakdown — the headline average above is untouched. The investor
       // number is the real_* leg; each leg averages over its own denominator. Deleted spend is
       // its own figure and is never folded back into `real_*`.
@@ -320,18 +319,16 @@ export class AdminDashboardService {
     ] = await Promise.all([
       this.repo.costByProvider(),
       this.repo.costByTaskType(),
-      // BOTH HALVES OF THE RATIO COME FROM THE SPINE, so a deleted worker leaves neither. Not
-      // issued at all when there is no profiling window; `perProfile` returns null and never
-      // reads the zero dummies.
+      // BOTH HALVES OF THE RATIO SURVIVE ERASURE — the numerator from the spine
+      // (B1), the denominator from the completion ledger (B2 #2555), whose stamped flags
+      // move with no live join. Not issued at all when there is no profiling window;
+      // `perProfile` returns null and never reads the zero dummies.
       profilingSubtotal.since === null
         ? Promise.resolve(AdminDashboardService.EMPTY_PROFILING_SPEND)
         : this.events.profilingCostSplit(profilingSubtotal.since, PROFILING_TASK_TYPES),
       profilingSubtotal.since === null
         ? Promise.resolve(AdminDashboardService.EMPTY_PROFILING_PROFILES)
-        : this.events.profilingProfilesCompletedSince(
-            profilingSubtotal.since,
-            PROFILE_COMPLETED_STATUSES,
-          ),
+        : this.events.profilingProfilesCompletedSince(profilingSubtotal.since),
       this.events.countByPayloadField(
         AdminDashboardService.CAP_BREACH_EVENT,
         AdminDashboardService.CAP_BREACH_FIELD,

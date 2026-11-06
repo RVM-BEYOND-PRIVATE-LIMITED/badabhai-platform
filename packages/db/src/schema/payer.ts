@@ -39,7 +39,17 @@ import { jobPostings, jobs } from "./job";
 // RLS-enabled (REVOKE carried by the migration, like workers 0003/0004).
 // ---------------------------------------------------------------------------
 export type PayerRole = "employer" | "agent";
-export type PayerStatus = "pending" | "active" | "suspended";
+/**
+ * Lifecycle of a payer login.
+ *
+ * `archived` (#2564 B10): an admin archived the whole COMPANY. Like `suspended` it
+ * refuses sign-in and posting (every guard keys on `!= 'active'`), and the
+ * inventory cascade freezes postings — but it is a distinct state so restore can
+ * return each login to its own `previous_status` without touching logins that were
+ * suspended for other reasons. Archive composes with suspend: archiving stamps the
+ * CURRENT status (even `suspended`) as previous, restore hands it back.
+ */
+export type PayerStatus = "pending" | "active" | "suspended" | "archived";
 
 export const payers = pgTable(
   "payers",
@@ -124,6 +134,17 @@ export const payers = pgTable(
     sessionsValidAfter: timestamp("sessions_valid_after", { withTimezone: true }),
     /** #2563 — last successful payer sign-in (OTP or password). */
     lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
+    /**
+     * #2564 B10 — one keyed-HMAC word hash per whitespace-separated word of the
+     * NORMALIZED org name (`company-search.companyNameWordHashes`), for whole-word
+     * company search WITHOUT decrypting every org name (which would spend the
+     * per-admin name-egress budget and write `admin.identity_viewed` rows for rows
+     * never displayed). NULL = pre-column row (backfilled by
+     * `db:backfill:company-name-words`); an empty array = a name with no words.
+     * PII-free (peppered digests, same HMAC discipline as `org_name_lookup_hash`).
+     * Maintained on every org-name write; search matches ALL query words (AND).
+     */
+    orgNameWordHashes: text("org_name_word_hashes").array(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -134,6 +155,9 @@ export const payers = pgTable(
     // rows may already share a phone, and a unique index would fail the migration.
     index("payers_org_lookup_hash_idx").on(t.orgNameLookupHash),
     index("payers_phone_hash_idx").on(t.phoneHash),
+    // #2564 B10 — whole-word company search (`@>` overlap on the word-hash array).
+    // GIN: array containment over a handful of 64-hex digests per row, not a scan.
+    index("payers_org_word_hashes_gin_idx").using("gin", t.orgNameWordHashes),
     // BP-1 — the admin Companies/Agencies keyset (see workers_admin_keyset_idx).
     index("payers_admin_keyset_idx").on(t.createdAt.desc(), t.id.desc()),
   ],

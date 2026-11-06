@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  InternalServerErrorException,
   NotFoundException,
 } from "@nestjs/common";
 import type { PayloadInputOf } from "@badabhai/event-schema";
@@ -76,6 +77,12 @@ export class AdminPostingsService {
       if (target.posting.status === "closed") {
         throw new ConflictException("A closed posting cannot be edited");
       }
+      // #2564 B10 — an archived posting is frozen inventory, not a dead one: editing its
+      // text/reach would rewrite what the restore re-serves. Restore (or force-close)
+      // first; the event vocabulary has no archived end to report.
+      if (target.posting.status === "archived") {
+        throw new ConflictException("An archived posting cannot be edited; restore the company first");
+      }
       const parsed = AdminPostingsService.parsePostingEdit(dto.changes);
       const prepared = await this.jobPostings.prepareAdminEdit(target.posting.id, parsed, ctx);
       const updated = await this.repo.withTransaction(async (tx) => {
@@ -122,6 +129,10 @@ export class AdminPostingsService {
     const job = target.job;
     if (job.status === "closed") {
       throw new ConflictException("A closed job cannot be edited");
+    }
+    // #2564 B10 — an archived job is frozen inventory (see the posting arm above).
+    if (job.status === "archived") {
+      throw new ConflictException("An archived job cannot be edited; restore the company first");
     }
     const parsed = AdminPostingsService.parseJobEdit(dto.changes);
     const prepared = await this.agency.prepareAdminEdit(job, parsed);
@@ -310,6 +321,12 @@ export class AdminPostingsService {
     if (AdminPostingsService.statusOf(target) === "closed") {
       return AdminPostingsService.noop(target);
     }
+    // #2564 B10 — an archived posting/job is frozen inventory: closing it here would
+    // strand the archive (restore only thaws `archived` rows) and the closed-event
+    // vocabulary has no archived end to report. Restore the company first.
+    if (AdminPostingsService.statusOf(target) === "archived") {
+      throw new ConflictException("An archived posting cannot be closed; restore the company first");
+    }
 
     if (target.kind === "posting") {
       const previous = target.posting.status;
@@ -354,6 +371,11 @@ export class AdminPostingsService {
     }
 
     const previous = target.job.status;
+    // Unreachable: the archived guard above throws first. Narrows the type for the
+    // `job.closed` payload below (`previous_status` has no archived end).
+    if (previous === "archived") {
+      throw new InternalServerErrorException("An archived job cannot be closed; restore the company first");
+    }
     const row = await this.repo.withTransaction(async (tx) => {
       const closed = await this.repo.closeJob(target.job.id, previous, tx);
       if (!closed) return undefined;
@@ -746,6 +768,12 @@ export class AdminPostingsService {
     // admin.action_performed written beside this is the audit fact; skipping the domain
     // event is honest (there is no payer to notify) and cannot emit an invalid payload.
     if (!row.payerId) return;
+    // #2564 B10 — unreachable: pause/resume only move open<->paused and edit refuses
+    // archived rows, so a frozen status can never arrive here. Fail closed instead of
+    // emitting an event the registry rejects (`job.updated` has no archived end).
+    if (row.status === "archived") {
+      throw new InternalServerErrorException("Cannot emit job.updated for an archived job");
+    }
     const payload: PayloadInputOf<"job.updated"> = {
       job_id: row.id,
       payer_id: row.payerId,

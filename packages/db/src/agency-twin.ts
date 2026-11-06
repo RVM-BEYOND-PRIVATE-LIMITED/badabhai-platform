@@ -218,6 +218,12 @@ function servabilityRefusal(
  * `closed` only when the source closed, so a twin never needs `closed → open`; every "cannot
  * serve right now" state is the reversible `paused`.
  *
+ * NOTE — `archived` (#2564 B10) never reaches this planner: `syncAgencyTwin` returns
+ * `skipped_archived` for an archived source or twin BEFORE planning, because the
+ * fall-through below would read an archived source as `open` and reopen a frozen twin,
+ * and because the frozen state has no event end to emit on. Do NOT add an `archived`
+ * arm here without also teaching the emitter and the event vocabulary the new end.
+ *
  * REACH. A refused twin carries NO match and NO reach (`[]`), so even a later status bug could not
  * serve it on a guessed or unscreened pick. Otherwise `match ∪ related(match)` through
  * `resolveReachSet` — the posting publish's own resolver — with no unticks (Q2).
@@ -378,6 +384,16 @@ export type AgencyTwinSyncOutcome =
    * admits one posting per job, and a conversion is never repurposed. Nothing written.
    */
   | { kind: "blocked_by_conversion"; sourceJobId: string; jobPostingId: string }
+  /**
+   * Source or twin is ARCHIVED (#2564 B10) — frozen inventory the sync must not touch.
+   * Nothing written, nothing emitted: the archive cascade froze the twin directly, and
+   * converging it would either reopen it (planning an archived source falls through to
+   * `open`) or emit a state the event vocabulary does not carry. The freeze lifts only
+   * through restore, never through convergence.
+   */
+  | { kind: "skipped_archived"; sourceJobId: string; jobPostingId: string | null }
+  /** The stored twin already equals the plan. Nothing written, nothing emitted. */
+  | { kind: "unchanged"; sourceJobId: string; jobPostingId: string; status: JobPostingStatus }
   /** The stored twin already equals the plan. Nothing written, nothing emitted. */
   | { kind: "unchanged"; sourceJobId: string; jobPostingId: string; status: JobPostingStatus }
   /** The twin was (or, in a dry run, would be) written. */
@@ -690,6 +706,14 @@ async function runAgencyTwinSync(
       return { kind: "blocked_by_conversion", sourceJobId: jobId, jobPostingId: existing.id };
     }
 
+    // #2564 B10 — frozen inventory is never converged. An archived source would fall
+    // through the planner to `open` and reopen its twin; an archived twin has no event
+    // end to report a change on. Skip before planning: no write, no emit, retried
+    // (and re-skipped) by the next sweep.
+    if (source.status === "archived" || existing?.status === "archived") {
+      return { kind: "skipped_archived", sourceJobId: jobId, jobPostingId: existing?.id ?? null };
+    }
+
     const plan = planAgencyTwin(source, ctx);
     // A create reports every key it populates (diffed against an empty twin).
     const changed = diffAgencyTwin(existing ? storedValues(existing) : EMPTY_VALUES, plan.values);
@@ -767,6 +791,9 @@ export interface AgencyTwinDisarmed {
  * `job_reach` rows stay (the reconcile keeps `paused` warm); the feed's `status = 'open'` hides it.
  * `emit` runs per moved twin inside the same transaction. Re-arming restores every twin to its
  * mirrored status on the next sweep. Returns the moved twins (empty when none are left).
+ *
+ * #2564 B10 — ARCHIVED twins are excluded: disarming pauses live inventory, and an archived
+ * twin is frozen, not live. Pausing one would unfreeze it out from under the archive.
  */
 export async function disarmAgencyTwins(
   db: Database,
@@ -780,7 +807,7 @@ export async function disarmAgencyTwins(
         SELECT id
         FROM job_postings
         WHERE sync_source = ${AGENCY_TWIN_SYNC_SOURCE}
-          AND status NOT IN ('closed', 'paused')
+          AND status NOT IN ('closed', 'paused', 'archived')
         ORDER BY id
         LIMIT ${limit}
         FOR UPDATE
@@ -802,7 +829,9 @@ export async function disarmAgencyTwins(
 
 /**
  * The sweep's keyset page of AGENCY job ids (owner `role = 'agent'`), ascending, after
- * `afterId`. Every status: a closed or suspended source still has a twin to converge.
+ * `afterId`. Every status: a closed or suspended source still has a twin to converge, and
+ * an archived source still needs visiting (the sync skips it as frozen — the visit is
+ * what keeps the skip honest rather than silent).
  */
 export async function listAgencyJobIds(
   db: Database,

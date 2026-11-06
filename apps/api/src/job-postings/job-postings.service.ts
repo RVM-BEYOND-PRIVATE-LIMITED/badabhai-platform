@@ -1382,8 +1382,14 @@ function assertCloseable(current: JobPostingApi): "draft" | "open" {
   // silently opt the posting out of the reinstatement restore. Deliberately reachable only
   // by the ops surface — the owning payer cannot authenticate at all while suspended. The
   // admin force-close (ADMIN-3a) IS allowed to take it terminal and clears the marker.
+  // #2564 B10 — an archived posting is frozen the same way: restore the company first.
+  // (An archived payer cannot reach this path at all — PayerAuthGuard admits `active`
+  // only — so this is defense-in-depth, not the enforcement.)
   if (current.status === "suspended") {
     throw new ConflictException("The owning payer is suspended; reinstate them before closing");
+  }
+  if (current.status === "archived") {
+    throw new ConflictException("The owning payer is archived; restore the company before closing");
   }
   return current.status;
 }

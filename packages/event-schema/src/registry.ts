@@ -324,6 +324,9 @@ export const EVENT_REGISTRY = {
   "ai.llm_call_completed": { version: 1, domain: "ai", payload: p.AiLlmCallCompletedPayload },
   "ai.llm_call_failed": { version: 1, domain: "ai", payload: p.AiLlmCallFailedPayload },
   "ai.cost_recorded": { version: 1, domain: "ai", payload: p.AiCostRecordedPayload },
+  // B2 (#2555) — v1 plus the spend-time test-account flag. v1 rows stay valid and
+  // stay read (every reader unions both names); only the recorder's output moves.
+  "ai.cost_recorded_v2": { version: 2, domain: "ai", payload: p.AiCostRecordedV2Payload },
   "ai.spend_cap_exceeded": {
     version: 1,
     domain: "ai",
@@ -518,10 +521,40 @@ export const EVENT_REGISTRY = {
     domain: "payer",
     payload: p.PayerInventoryTransitionPayload,
   },
+  // Company archive / restore (#2564 B10) — the suspension twin. Separate names (not
+  // a version bump of the suspend pair) because the restores hand back through
+  // different previous-states: an archive of a suspended login restores to
+  // `suspended`, and the Companies timeline must tell the two freezes apart. The
+  // inventory pair reuses the shared counts payload (no status enums in it, so no
+  // version churn); the lifecycle pair carries its own closed `archived` end. All v1.
+  "payer.archived": { version: 1, domain: "payer", payload: p.PayerArchivedPayload },
+  "payer.restored": { version: 1, domain: "payer", payload: p.PayerRestoredPayload },
+  "payer.inventory_archived": {
+    version: 1,
+    domain: "payer",
+    payload: p.PayerInventoryTransitionPayload,
+  },
+  "payer.inventory_restored": {
+    version: 1,
+    domain: "payer",
+    payload: p.PayerInventoryTransitionPayload,
+  },
+  // An admin edited a company's record (`PATCH /admin/companies/:id`, #2564 B10).
+  // PII-FREE & faceless: opaque anchor `payer_id` + the changed field KEYS
+  // (subset of `CompanyProfileChangedFields`) ONLY — never the new GST, address,
+  // contact name or any other VALUE (B-R2 PII lives encrypted in its tables). v1.
+  "payer.profile_updated": { version: 1, domain: "payer", payload: p.PayerProfileUpdatedPayload },
   // ADR-0037 Decision 5 — a login code was reserved for a SUSPENDED account but not sent.
   // The only record of that attempt: the HTTP response stays neutral by design, and no
   // `payer.login_requested` is emitted because no code was actually delivered. v1.
+  // v2 (#2564 B10) adds the `account_archived` reason — same record, new name, so v1
+  // rows keep validating and the archive case is told apart on the spine.
   "payer.otp_suppressed": { version: 1, domain: "payer", payload: p.PayerOtpSuppressedPayload },
+  "payer.otp_suppressed_v2": {
+    version: 2,
+    domain: "payer",
+    payload: p.PayerOtpSuppressedV2Payload,
+  },
   // ADR-0037 Decision 6 — a captured payment was credited to a SUSPENDED payer. An ops
   // alert for Finance/Admin, NOT a rejection: the money is already taken and there is no
   // refund path, so the credit is applied and a human is told. The credits are unspendable
@@ -1629,6 +1662,14 @@ export type EventName = keyof typeof EVENT_REGISTRY;
 
 /** Runtime list of all known event names. */
 export const EVENT_NAMES = Object.keys(EVENT_REGISTRY) as EventName[];
+
+/**
+ * B2 (#2555) — every name that carries a cost record. v1 rows stay readable;
+ * v2 rows carry the spend-time test flag. Every spine read over cost MUST use
+ * this list (never one name), or spend recorded after the cutover goes quiet —
+ * the exact silence-as-health failure the loud-alert feature exists to end.
+ */
+export const AI_COST_EVENT_NAMES = ["ai.cost_recorded", "ai.cost_recorded_v2"] as const;
 
 /** Inferred (output) payload type for a given event name — after defaults applied. */
 export type PayloadOf<N extends EventName> = z.infer<(typeof EVENT_REGISTRY)[N]["payload"]>;

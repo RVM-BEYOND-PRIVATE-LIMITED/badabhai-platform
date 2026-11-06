@@ -1,5 +1,6 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { and, desc, eq, gte, inArray, sql } from "drizzle-orm";
+import { AI_COST_EVENT_NAMES } from "@badabhai/event-schema";
 import { type Database, events } from "@badabhai/db";
 import { DATABASE } from "../database/database.module";
 
@@ -62,9 +63,11 @@ export class AiAlertsRepository {
   /**
    * Per-task recorded calls inside the window.
    *
-   * ONE grouped statement over `event_name = 'ai.cost_recorded'` (uses
-   * `events_event_name_idx`) bounded by `occurred_at` (uses `events_occurred_at_idx`).
-   * The jsonb reads apply to the rows those indexes narrow — no new index needed.
+   * ONE grouped statement over BOTH cost event names (uses `events_event_name_idx`)
+   * bounded by `occurred_at` (uses `events_occurred_at_idx`). B2 (#2555) moved new
+   * spend to `ai.cost_recorded_v2`; reading v1 alone would let fresh fallback spend go
+   * quiet and read as health. The jsonb reads apply to the rows those indexes narrow —
+   * no new index needed.
    */
   async taskFallbackSplit(since: Date): Promise<AiTaskFallbackRow[]> {
     const taskType = sql<string>`${events.payload}->>'task_type'`;
@@ -76,7 +79,12 @@ export class AiAlertsRepository {
         realCalls: sql<number>`count(*) filter (where ${isReal})::int`,
       })
       .from(events)
-      .where(and(eq(events.eventName, "ai.cost_recorded"), gte(events.occurredAt, since)))
+      .where(
+        and(
+          inArray(events.eventName, [AI_COST_EVENT_NAMES[0]!, AI_COST_EVENT_NAMES[1]!]),
+          gte(events.occurredAt, since),
+        ),
+      )
       .groupBy(taskType)
       .orderBy(taskType);
     return rows.map((r) => ({

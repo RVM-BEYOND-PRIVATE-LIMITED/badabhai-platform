@@ -1,6 +1,7 @@
 import {
   ConflictException,
   Injectable,
+  InternalServerErrorException,
   Logger,
   NotFoundException,
   ServiceUnavailableException,
@@ -51,6 +52,23 @@ type AdminActionSubjectType =
   | "worker"
   | "admin_session"
   | "skill_candidate";
+
+/**
+ * The `payer.suspended` / `payer.reinstated` transition vocabulary (ADR-0037).
+ *
+ * Suspend moves pending|active → suspended and reinstate moves suspended → previous;
+ * neither path ever carries `archived` — the repo WHERE clauses structurally exclude
+ * it (suspend matches pending|active, reinstate matches suspended) and the archive
+ * pair has its own emitters. The throw is unreachable by construction; it exists so
+ * a future caller that widens these paths fails closed instead of emitting an
+ * event the registry rejects.
+ */
+type SuspendTransitionStatus = PayloadInputOf<"payer.suspended">["previous_status"];
+
+function toSuspendTransitionStatus(status: PayerStatus): SuspendTransitionStatus {
+  if (status === "pending" || status === "active" || status === "suspended") return status;
+  throw new InternalServerErrorException(`suspend/reinstate cannot transition status ${status}`);
+}
 
 /**
  * Governed admin entity actions (ADR-0025 ADMIN-3a, Decision 3/5/6). Each method mutates a
@@ -136,7 +154,7 @@ export class AdminActionsService {
         "payer.suspended",
         adminId,
         payerId,
-        moved.previousStatus ?? current.status,
+        toSuspendTransitionStatus(moved.previousStatus ?? current.status),
         "suspended",
         ctx,
         tx,
@@ -178,7 +196,7 @@ export class AdminActionsService {
         adminId,
         payerId,
         "suspended",
-        moved.status,
+        toSuspendTransitionStatus(moved.status),
         ctx,
         tx,
       );
@@ -218,8 +236,8 @@ export class AdminActionsService {
     eventName: "payer.suspended" | "payer.reinstated",
     adminId: string,
     payerId: string,
-    previousStatus: PayerStatus,
-    newStatus: PayerStatus,
+    previousStatus: SuspendTransitionStatus,
+    newStatus: SuspendTransitionStatus,
     ctx: RequestContext,
     tx: Database,
   ): Promise<void> {
@@ -294,8 +312,11 @@ export class AdminActionsService {
     // way to pre-load a suspended account for the moment it is reinstated.
     // `pending` is allowed: crediting a not-yet-verified account is a legitimate
     // pre-provisioning move and it cannot be spent until they verify.
-    if (payer.status === "suspended") {
-      throw new ConflictException("Payer is suspended; credits cannot be granted");
+    // #2564 B10 — an archived company is barred like a suspended one: granting credits
+    // to an account that cannot spend them is pointless at best, and pre-loading it
+    // for the moment of restore at worst. `pending` stays allowed (see above).
+    if (payer.status === "suspended" || payer.status === "archived") {
+      throw new ConflictException("Payer is suspended or archived; credits cannot be granted");
     }
     const result = await this.actions.withTransaction(async (tx) => {
       const grant = await this.actions.grantCredits(payerId, dto.amount, dto.idempotency_key, tx);

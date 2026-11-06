@@ -74,6 +74,7 @@ import { WorkerSkillsService } from "../match/worker-skills.service";
 import { SkillsRepository } from "../skills/skills.repository";
 import { ProfilesRepository } from "./profiles.repository";
 import { ProfilesService } from "./profiles.service";
+import { ProfileCompletionLedgerRepository } from "./profile-completion-ledger.repository";
 import { ConsentRepository } from "../consent/consent.repository";
 import { hasActiveConsent } from "../consent/consent-active";
 import { AiJobsRepository } from "./ai-jobs.repository";
@@ -191,6 +192,15 @@ class LlmUnavailableError extends Error {
 function outageCodeOf(code: string | null | undefined): string | null {
   return code != null && LLM_OUTAGE_CODES.has(code) ? code : null;
 }
+
+/**
+ * B2 (#2555) — which extraction outcomes count as a FINISHED profile for the ledger.
+ * Mirrors PROFILE_COMPLETED_STATUSES (admin-dashboard.dto) by VALUE, not by import —
+ * the dependency would point the wrong way (profiles ← admin). `extracted` is the
+ * only outcome this processor produces; `confirmed` rides along so the two sets stay
+ * byte-identical if the processor ever produces it.
+ */
+const COMPLETED_PROFILE_STATUSES: ReadonlySet<string> = new Set(["extracted", "confirmed"]);
 
 /**
  * The occupation-pin statuses that actually assert a trade — OIE O2.
@@ -443,6 +453,12 @@ export class ProfileExtractionProcessor extends WorkerHost {
     // extraction this change starts off the request path for a worker who already has a profile.
     // Trailing and optional for the same reason; absent means that extraction does not run.
     private readonly consents?: ConsentRepository,
+    // B2 (#2555) — the completed-profile ledger writer. Trailing and optional like the
+    // two collaborators above, so existing hand-constructions keep compiling: when it is
+    // absent the processor emits the completion event exactly as before and writes no
+    // ledger row. Nest ALWAYS provides it (a missing provider fails boot, not silently),
+    // so absence only ever means a test double — never a production extraction.
+    private readonly completionLedger?: ProfileCompletionLedgerRepository,
   ) {
     super();
   }
@@ -1002,10 +1018,21 @@ export class ProfileExtractionProcessor extends WorkerHost {
         );
       }
 
-      await this.events.emit({
+      // B2 (#2555) — the ledger row and the completion event commit TOGETHER. The
+      // `completedAt` instant is fixed once and stamped into both, so the ledger row and
+      // the event cannot disagree about which window the completion belongs to. Drafts
+      // write no ledger row (they produced nothing — the denominator's positive-set rule,
+      // restated here as a write rule so a draft can never enter the count at rest).
+      // A SET, not `=== "extracted"`: `profileStatus` here is narrowed to draft|extracted,
+      // but the completed vocabulary is the dashboard's PROFILE_COMPLETED_STATUSES and the
+      // set keeps the two readings honest if the processor ever produces `confirmed`.
+      const completedAt = new Date();
+      const completed = COMPLETED_PROFILE_STATUSES.has(profileStatus);
+      const emitCompletion = {
         event_name: "profile.extraction_completed",
         actor: { actor_type: "ai_service" },
         subject: { subject_type: "profile", subject_id: saved.id },
+        occurred_at: completedAt.toISOString(),
         payload: {
           worker_id: workerId,
           profile_id: saved.id,
@@ -1018,7 +1045,31 @@ export class ProfileExtractionProcessor extends WorkerHost {
         idempotencyKey: `profile.extraction_completed:${aiJobId}`,
         correlationId,
         requestId,
-      });
+      } as const;
+      if (this.completionLedger) {
+        const ledger = this.completionLedger;
+        await ledger.withTransaction(async (tx) => {
+          if (completed) {
+            await ledger.insert(
+              {
+                profileId: saved.id,
+                chatSessionId: sessionId ?? null,
+                aiJobId,
+                workerId,
+                completedAt,
+                isTestAccount: await ledger.resolveTestFlag(workerId, tx),
+                source: "extraction",
+              },
+              tx,
+            );
+          }
+          await this.events.emit({ ...emitCompletion, tx });
+        });
+      } else {
+        // No ledger writer (hand-built instances only — Nest always provides one):
+        // the event exactly as before, with no transaction.
+        await this.events.emit(emitCompletion);
+      }
 
       // ADR-0043 — the worker's "Haan" to "Resume update kar doon?" is confirmed on the profile
       // it asked for. AFTER `markCompleted` and the completion event, so the audit reads in the

@@ -8,6 +8,7 @@ export * from "./schema";
 export * from "./client";
 export * from "./credit-packs";
 export * from "./crypto";
+export * from "./company-search";
 // The one ordering that decides which `worker_profiles` row IS a worker's profile. Exported
 // because the readers are spread across apps/api repositories AND the D2 backfill in this
 // package — seven call sites that previously each had their own answer, one of them with no
@@ -204,3 +205,12 @@ export {
 // can badge a seeded worker as a SAMPLE candidate and refuse to unlock one, from the same
 // definition the seed writes with. Pure; no IO.
 export { isSampleWorkerId, WORKFORCE_ID_PREFIX, workforceUuid } from "./sample-workers";
+
+// B2 (#2555) — the cost-ledger backfill planner. Exported so the api's CI DB gate can run
+// it against seeded completions (idempotency + re-tag counts). Side-effect free at import
+// (the CLI wrapper guards on argv).
+export {
+  applyCostLedgerBackfill,
+  planCostLedgerBackfill,
+  type CostLedgerBackfillPlan,
+} from "./backfill-0159-cost-ledger";

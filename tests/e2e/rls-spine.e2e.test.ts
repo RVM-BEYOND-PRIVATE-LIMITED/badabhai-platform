@@ -213,8 +213,11 @@ const LOCKED_TABLES = [
   "admin_candidate_index",
   // 0156 (#2557 B4): single-row projector watermark over events.created_at — no PII at
   // all, locked because the posture here is table-DEFAULT; RLS+FORCE+REVOKE in 0156.
-  "admin_candidate_index_cursor",
-] as const;
+  "admin_candidate_index_cursor",  // 0157 (#2555 B2): one row per finished profile — opaque profile/session/job/worker
+  // ids (FK-free, so erasure cannot cascade here) + completed_at + the spend-time test
+  // flag + the closed source enum (PII-free, like every monetization table).
+  // Deny-by-default, FORCE, no policy.
+  "profile_completion_ledger",] as const;
 
 // The three network-reachable PostgREST roles Supabase ships.
 const CLIENT_ROLES = ["anon", "authenticated", "service_role"] as const;

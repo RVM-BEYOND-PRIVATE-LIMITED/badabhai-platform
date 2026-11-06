@@ -98,6 +98,9 @@ export type PayerProfileVerificationStatus =
 // ---------------------------------------------------------------------------
 // agency_profiles — the agency-side extension of a payer. 1:1, PK = payer_id.
 // ---------------------------------------------------------------------------
+// #2564 B10 — the agency record. Same PII/search discipline as `employer_profiles`:
+// coarse `city` bucket, ciphertext GST + address + contact person, keyed-HMAC
+// `gst_number_hash` for exact GST search. `website` mirrors the employer column.
 export const agencyProfiles = pgTable(
   "agency_profiles",
   {
@@ -113,6 +116,18 @@ export const agencyProfiles = pgTable(
     operatingCities: jsonb("operating_cities").$type<unknown[]>().notNull().default(jsonArray),
     recruiterCount: integer("recruiter_count"),
     sourceChannels: jsonb("source_channels").$type<unknown[]>().notNull().default(jsonArray),
+    /** #2564 B10 — GSTIN, AES ciphertext at rest (B2B PII, never evented/logged). */
+    gstNumberEnc: text("gst_number_enc"), // AES ciphertext token
+    /** #2564 B10 — keyed-HMAC lookup for exact GST search; see `employer_profiles`. */
+    gstNumberHash: text("gst_number_hash"),
+    /** #2564 B10 — mirrors the employer column (agency website, poster-typed). */
+    website: text("website"),
+    /** #2564 B10 — COARSE city bucket for agency search; see `employer_profiles`. */
+    city: text("city"),
+    /** #2564 B10 — street address, AES ciphertext at rest; see `employer_profiles`. */
+    addressEnc: text("address_enc"), // AES ciphertext token
+    /** #2564 B10 — contact person NAME, AES ciphertext at rest; see `employer_profiles`. */
+    contactNameEnc: text("contact_name_enc"), // AES ciphertext token
     verificationStatus: text("verification_status")
       .$type<PayerProfileVerificationStatus>()
       .notNull()
@@ -140,6 +155,13 @@ export const agencyProfiles = pgTable(
 // ---------------------------------------------------------------------------
 // employer_profiles — the employer-side extension of a payer. 1:1, PK = payer_id.
 // ---------------------------------------------------------------------------
+// #2564 B10 — the company record. `city` is the COARSE searchable bucket (never an
+// address, mirroring `jobs.city`); the street address is ciphertext (`address_enc`,
+// same AES discipline as every other `_enc` column); `contact_name_enc` is the
+// client's contact person (B2B PII — ciphertext, never evented/logged).
+// `gst_number_hash` is the keyed-HMAC lookup for exact GST search (mirrors
+// `payers.email_hash`: the digits are PII, the digest is safe) — GSTINs are looked
+// up whole, never partial.
 export const employerProfiles = pgTable(
   "employer_profiles",
   {
@@ -153,11 +175,34 @@ export const employerProfiles = pgTable(
      * never reach an event, a log, or an LLM prompt.
      */
     gstNumberEnc: text("gst_number_enc"),
+    /**
+     * #2564 B10 — keyed HMAC-SHA256 of the NORMALIZED GSTIN (trimmed, uppercased,
+     * spaces stripped), the exact-match lookup for company search by GST (mirrors
+     * `payers.email_hash`). A GSTIN is a business identifier — looked up whole,
+     * never substring-searched, so no trigram index and no plaintext anywhere.
+     */
+    gstNumberHash: text("gst_number_hash"),
     billingContact: jsonb("billing_contact")
       .$type<Record<string, unknown>>()
       .notNull()
       .default(jsonObject),
     website: text("website"),
+    /**
+     * #2564 B10 — COARSE city bucket for company search ("Pune", never an address),
+     * mirroring `jobs.city`. Street-level detail lives in `address_enc`.
+     */
+    city: text("city"),
+    /**
+     * #2564 B10 — the company's street address, AES ciphertext at rest (B2B PII —
+     * never evented, logged or used in search; `city` is the searchable bucket).
+     */
+    addressEnc: text("address_enc"), // AES ciphertext token
+    /**
+     * #2564 B10 — the client's contact person (a NAME — B2B PII), AES ciphertext
+     * at rest. Never evented/logged/searched; the console decrypts it for display
+     * only, behind the same identity rules as the org name.
+     */
+    contactNameEnc: text("contact_name_enc"), // AES ciphertext token
     verificationStatus: text("verification_status")
       .$type<PayerProfileVerificationStatus>()
       .notNull()

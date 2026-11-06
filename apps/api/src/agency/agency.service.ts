@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Injectable,
+  InternalServerErrorException,
   Logger,
   NotFoundException,
   ServiceUnavailableException,
@@ -35,6 +36,25 @@ import { sameTradeAnswers } from "../common/trade-fields";
 import { isUniqueViolation } from "../common/db-error";
 import { MatchSkillsService } from "../match/match-skills.service";
 import { PostingTradesService } from "../posting-trades/posting-trades.service";
+
+/**
+ * The `job.updated` / `job.closed` payload vocabulary (pre-archive).
+ *
+ * Payer flows are guard-gated to `active` logins, so an archived payer can never
+ * drive these writes — and the repo WHEREs (open|paused for close/pause/resume
+ * operands, explicit SETs for the result) structurally exclude archived rows. The
+ * throw is unreachable by construction; it exists so a future caller that widens
+ * these paths fails closed instead of emitting an event the registry rejects.
+ * (The ops match-skill edit refuses archived jobs explicitly at its own site.)
+ */
+type JobEventStatus = PayloadInputOf<"job.updated">["status"];
+
+function toJobEventStatus(status: Job["status"]): JobEventStatus {
+  if (status === "open" || status === "closed" || status === "suspended" || status === "paused") {
+    return status;
+  }
+  throw new InternalServerErrorException(`agency job flows cannot emit status ${status}`);
+}
 
 /** Faceless projection of an owned job — ids / status / counts / coarse bands ONLY. */
 export interface AgencyJobView {
@@ -572,7 +592,7 @@ export class AgencyService {
     const payload: PayloadInputOf<"job.updated"> = {
       job_id: updated.id,
       payer_id: scope.tenantKey,
-      status: updated.status,
+      status: toJobEventStatus(updated.status),
       changed_fields: changedFields,
     };
     await this.events.emit(this.jobEmitParams("job.updated", updated.id, scope, payload, ctx));
@@ -607,7 +627,7 @@ export class AgencyService {
       // The state it ACTUALLY left. Hardcoding "open" was correct only while `open` was the
       // one closable state; a job closed from `paused` would otherwise report a transition
       // that never happened, on the spine, permanently.
-      previous_status: current.status,
+      previous_status: toJobEventStatus(current.status),
       status: "closed",
     };
     await this.events.emit(this.jobEmitParams("job.closed", closed.id, scope, payload, ctx));
@@ -653,7 +673,7 @@ export class AgencyService {
     const payload: PayloadInputOf<"job.updated"> = {
       job_id: paused.id,
       payer_id: scope.tenantKey,
-      status: paused.status,
+      status: toJobEventStatus(paused.status),
       changed_fields: ["status"],
     };
     await this.events.emit(this.jobEmitParams("job.updated", paused.id, scope, payload, ctx));
@@ -696,7 +716,7 @@ export class AgencyService {
     const payload: PayloadInputOf<"job.updated"> = {
       job_id: resumed.id,
       payer_id: scope.tenantKey,
-      status: resumed.status,
+      status: toJobEventStatus(resumed.status),
       changed_fields: ["status"],
     };
     await this.events.emit(this.jobEmitParams("job.updated", resumed.id, scope, payload, ctx));
@@ -1107,6 +1127,12 @@ export class AgencyService {
     if (current.status === "closed") {
       throw new BadRequestException("Job is closed and cannot be edited");
     }
+    // #2564 B10 — an archived job is frozen inventory, not a dead one: retargeting its
+    // match skills would rewrite what the restore re-serves. Restore (or force-close)
+    // first; the event vocabulary has no archived end to report.
+    if (current.status === "archived") {
+      throw new BadRequestException("Job is archived and cannot be edited");
+    }
 
     if (sameSkillSet(matchSkillIds, current.matchSkillIds)) {
       return { job_id: current.id, match_skill_ids: current.matchSkillIds, changed: false };
@@ -1121,7 +1147,7 @@ export class AgencyService {
     const payload: PayloadInputOf<"job.updated"> = {
       job_id: updated.id,
       payer_id: current.payerId,
-      status: updated.status,
+      status: toJobEventStatus(updated.status),
       changed_fields: ["match_skills"],
     };
     await this.events.emit({

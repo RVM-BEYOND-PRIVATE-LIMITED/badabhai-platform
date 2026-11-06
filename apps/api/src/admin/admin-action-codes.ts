@@ -84,6 +84,24 @@ export const ADMIN_ACTION_CODES = {
   posting_unhidden: "posting_unhidden",
   posting_verified: "posting_verified",
   posting_rejected: "posting_rejected",
+  // ── #2564 B10 — company records ─────────────────────────────────────────────────────────
+  // Five codes, each targeting a PAYER (the org anchor). The profile values (GST,
+  // address, contact name), the temporary password and the login ID never ride the
+  // event; the reason code/text lives on the `audit_logs` row written in the same
+  // transaction, because `admin.action_performed` is `.strict()` and value-free.
+  //   company_created         — an admin created a company/agency (payer + solo org +
+  //                             profile row + temporary login, the #2563 mechanism).
+  //   company_create_conflict — the create hit an existing email/phone login (no-op).
+  //   company_profile_updated — an admin edited the company record (changed KEYS ride
+  //                             `payer.profile_updated`, never values).
+  //   company_archived        — an admin archived the whole company (every member login
+  //                             frozen + inventory cascade, per-login lifecycle events).
+  //   company_restored        — an admin restored it (each login back to its previous).
+  company_created: "company_created",
+  company_create_conflict: "company_create_conflict",
+  company_profile_updated: "company_profile_updated",
+  company_archived: "company_archived",
+  company_restored: "company_restored",
 } as const;
 
 export type AdminActionCode = (typeof ADMIN_ACTION_CODES)[keyof typeof ADMIN_ACTION_CODES];

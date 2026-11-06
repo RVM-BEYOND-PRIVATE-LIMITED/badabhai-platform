@@ -414,6 +414,23 @@ export class PayerOrgsRepository {
   }
 
   /**
+   * #2564 B10 — whether an org's anchor login is ARCHIVED (accept rule A4). A frozen
+   * company takes no new members: the invite was sent before the archive (or raced
+   * it), and consuming it now would mint an active membership in a company nobody
+   * can sign into. Pass `tx` to read under the accept path's membership lock (R65).
+   */
+  async isAnchorArchived(orgId: string, tx?: PayerOrgsTx): Promise<boolean> {
+    const exec: Executor = tx ?? this.db;
+    const [row] = await exec
+      .select({ status: payers.status })
+      .from(payerOrgs)
+      .innerJoin(payers, eq(payers.id, payerOrgs.rootPayerId))
+      .where(eq(payerOrgs.id, orgId))
+      .limit(1);
+    return row?.status === "archived";
+  }
+
+  /**
    * All NON-removed members of an org (invited + active), oldest-invited first — for the
    * owner/member team list. Returns the raw rows (ciphertext email); the SERVICE decrypts +
    * MASKS the email before it leaves the boundary (no plaintext in the response).

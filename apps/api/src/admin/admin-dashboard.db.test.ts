@@ -5,6 +5,7 @@ import {
   createDbClient,
   events,
   platformAiCostTotals,
+  profileCompletionLedger,
   workerAiCostTotals,
   workerProfiles,
   workers,
@@ -21,7 +22,6 @@ import {
   ADMIN_DASHBOARD_WINDOW_DAYS_DEFAULT,
   DASHBOARD_OTHER_BUCKET,
   DASHBOARD_WORKER_STATUSES,
-  PROFILE_COMPLETED_STATUSES,
   PROFILING_TASK_TYPES,
 } from "./admin-dashboard.dto";
 import type { WorkerStatus } from "@badabhai/types";
@@ -195,6 +195,21 @@ describe.skipIf(!RUN)("admin dashboard reads (BP-5) against a real database", ()
     }
     for (const id of [WORKER_DELETED_REAL, WORKER_DELETED_TEST]) {
       await client.db.delete(workers).where(eq(workers.id, id));
+    }
+    // The ledger has NO cascade by design (it is what survives erasure), so this run's
+    // rows are removed by their fixed profile ids.
+    for (const id of [
+      PROFILE_REINTERVIEW_FIRST,
+      PROFILE_REINTERVIEW_SECOND,
+      PROFILE_PREDATES,
+      PROFILE_OUTAGE_REAL,
+      PROFILE_SUMMARY_LIVE,
+      PROFILE_DELETED_REAL,
+      PROFILE_DELETED_TEST,
+    ]) {
+      await client.db
+        .delete(profileCompletionLedger)
+        .where(eq(profileCompletionLedger.profileId, id));
     }
     // BY PREFIX, not by this run's exact labels: the platform table has no cascade and no
     // worker to erase, so a crashed run's rows would otherwise be permanent (the ai/ suite
@@ -424,8 +439,7 @@ describe.skipIf(!RUN)("admin dashboard reads (BP-5) against a real database", ()
   // ── cost per profile: the denominator ────────────────────────────────────────────────────
 
   /** The completion count under test, at the shared bound. */
-  const profilesSince = (since: Date) =>
-    eventsRepo.profilingProfilesCompletedSince(since, PROFILE_COMPLETED_STATUSES);
+  const profilesSince = (since: Date) => eventsRepo.profilingProfilesCompletedSince(since);
 
   async function insertWorker(id: string, suffix: string, hash: number): Promise<void> {
     await client.db
@@ -433,50 +447,52 @@ describe.skipIf(!RUN)("admin dashboard reads (BP-5) against a real database", ()
       .values({ id, phoneE164: `v1.bp5-${suffix}`, phoneHash: uuid(hash), status: "active" });
   }
 
-  /** One `profile.extraction_completed` spine row — the denominator's only source. */
-  async function insertCompletionEvent(
-    workerId: string,
+  /**
+   * One LEDGER row — the denominator's only source (B2 #2555). What the processor writes
+   * in the same transaction as the completion event: the profile it produced, the worker
+   * it belongs to (no FK — this row must survive the worker), when it finished, and the
+   * test flag AS OF completion.
+   */
+  async function insertLedgerRow(
     profileId: string,
-    status: "extracted" | "confirmed" | "draft",
-    occurredAt: Date,
+    workerId: string,
+    isTestAccount: boolean,
+    completedAt: Date,
   ): Promise<void> {
-    await client.db.insert(events).values({
-      eventName: "profile.extraction_completed",
-      eventVersion: 1,
-      occurredAt,
-      actorType: "ai_service",
-      subjectType: "profile",
-      subjectId: profileId,
-      correlationId: CORRELATION,
-      payload: {
-        worker_id: workerId,
-        profile_id: profileId,
-        ai_job_id: profileId,
-        profile_status: status,
-      },
+    await client.db.insert(profileCompletionLedger).values({
+      profileId,
+      chatSessionId: null,
+      aiJobId: profileId,
+      workerId,
+      completedAt,
+      isTestAccount,
+      source: "extraction",
     });
   }
 
-  it("a RE-INTERVIEWED worker counts ONCE, not once per completion event", async () => {
+  it("a RE-INTERVIEWED worker counts ONCE, not once per ledger row", async () => {
     const before = await profilesSince(ACCRUAL_BOUND);
     await insertWorker(WORKER_REINTERVIEWED, "reint", 0xbb57);
-    await insertCompletionEvent(
-      WORKER_REINTERVIEWED,
+    // A first interview, a first ledger row — both inside the window, both completed.
+    await insertLedgerRow(
       PROFILE_REINTERVIEW_FIRST,
-      "extracted",
+      WORKER_REINTERVIEWED,
+      false,
       new Date("2026-08-20T00:00:00.000Z"),
     );
-    // A second interview, a second event — both inside the window, both `extracted`.
-    await insertCompletionEvent(
-      WORKER_REINTERVIEWED,
+    // A second interview, a second ledger row — the profile the denominator must NOT
+    // double-count.
+    await insertLedgerRow(
       PROFILE_REINTERVIEW_SECOND,
-      "extracted",
+      WORKER_REINTERVIEWED,
+      false,
       new Date("2026-08-25T00:00:00.000Z"),
     );
     const after = await profilesSince(ACCRUAL_BOUND);
 
-    // TWO EVENTS, ONE WORKER, ONE PROFILE. Counting events instead would put 2 in the
-    // denominator and HALVE the reported cost per profile for every re-interviewed worker.
+    // TWO ROWS, ONE WORKER, ONE PROFILE IN THE COUNT. Counting rows instead would put 2
+    // in the denominator and HALVE the reported cost per profile for every re-interviewed
+    // worker.
     expect(after.totalProfiles - before.totalProfiles).toBe(1);
     expect(after.byPopulation.real - before.byPopulation.real).toBe(1);
     expect(after.byPopulation.deleted_or_unattributed).toBe(
@@ -489,10 +505,10 @@ describe.skipIf(!RUN)("admin dashboard reads (BP-5) against a real database", ()
     const beforeAllTime = await profilesSince(BOUND_BEFORE_EVERYTHING);
 
     await insertWorker(WORKER_PREDATES, "predates", 0xbb58);
-    await insertCompletionEvent(
-      WORKER_PREDATES,
+    await insertLedgerRow(
       PROFILE_PREDATES,
-      "extracted",
+      WORKER_PREDATES,
+      false,
       // Nine days before the bound: a real, completed profile the spend never paid for,
       // because `platform_ai_cost_totals` had not started accruing yet.
       new Date("2026-08-01T00:00:00.000Z"),
@@ -504,48 +520,63 @@ describe.skipIf(!RUN)("admin dashboard reads (BP-5) against a real database", ()
     // Excluded at the accrual bound — a profile that predates the spend must not be divided
     // into it, or the average reads LOWER than it is by exactly these workers.
     expect(after.totalProfiles - before.totalProfiles).toBe(0);
-    // …AND THE GUARD THAT STOPS THAT BEING VACUOUS. The event is real and this query does see
+    // …AND THE GUARD THAT STOPS THAT BEING VACUOUS. The row is real and this query does see
     // it; a method that always returned 0, or a filter that dropped every row, would pass the
     // line above and fail this one.
     expect(afterAllTime.totalProfiles - beforeAllTime.totalProfiles).toBe(1);
   });
 
-  it("an in-window OUTAGE PLACEHOLDER does not count as a produced profile", async () => {
+  it("an in-window OUTAGE PLACEHOLDER writes no ledger row — and the spine event alone counts nothing", async () => {
     const before = await profilesSince(ACCRUAL_BOUND);
     const beforeAllTime = await profilesSince(BOUND_BEFORE_EVERYTHING);
 
     await insertWorker(WORKER_OUTAGE, "outage", 0xbb59);
     // The worker's real profile — produced BEFORE the accrual bound.
-    await insertCompletionEvent(
-      WORKER_OUTAGE,
+    await insertLedgerRow(
       PROFILE_OUTAGE_REAL,
-      "extracted",
+      WORKER_OUTAGE,
+      false,
       new Date("2026-08-02T00:00:00.000Z"),
     );
-    // What an ai-service outage writes: newer, empty, inside the window.
-    await insertCompletionEvent(
-      WORKER_OUTAGE,
-      PROFILE_OUTAGE_PLACEHOLDER,
-      "draft",
-      new Date("2026-08-22T00:00:00.000Z"),
-    );
+    // What an ai-service outage writes: a draft completion EVENT, newer, inside the window —
+    // but drafts write no ledger row (they produced nothing), and the denominator does not
+    // read the spine, so the event alone counts nothing.
+    await client.db.insert(events).values({
+      eventName: "profile.extraction_completed",
+      eventVersion: 1,
+      occurredAt: new Date("2026-08-22T00:00:00.000Z"),
+      actorType: "ai_service",
+      subjectType: "profile",
+      subjectId: PROFILE_OUTAGE_PLACEHOLDER,
+      correlationId: CORRELATION,
+      payload: {
+        worker_id: WORKER_OUTAGE,
+        profile_id: PROFILE_OUTAGE_PLACEHOLDER,
+        ai_job_id: PROFILE_OUTAGE_PLACEHOLDER,
+        profile_status: "draft",
+      },
+    });
 
     const after = await profilesSince(ACCRUAL_BOUND);
     const afterAllTime = await profilesSince(BOUND_BEFORE_EVERYTHING);
 
-    // The placeholder is a `draft` completion event, and the positive status set excludes it.
-    // The real profile is outside the window, so the worker contributes nothing at the bound.
+    // The placeholder is a `draft` completion event with no ledger row. The real profile is
+    // outside the window, so the worker contributes nothing at the bound.
     expect(after.totalProfiles - before.totalProfiles).toBe(0);
     // Not vacuous: at an all-time bound the worker DOES count, once, under the real profile.
     expect(afterAllTime.totalProfiles - beforeAllTime.totalProfiles).toBe(1);
   });
 
-  it("deleting real AND test workers leaves the headline and average unchanged", async () => {
+  it("deleting real AND test workers moves NOTHING — spend and profiles stay stamped", async () => {
     /*
-     * THE DEFECT THIS CLOSES, end to end: deleting a worker used to remove their
-     * `worker_profiles` row (the denominator) while the spend stayed in the platform total
-     * (the numerator), so the average only ever climbed. Both halves now come from events that
-     * survive the delete, and the spend/profile move into their own deleted bucket.
+     * B2 (#2555) — THE ACCEPTANCE TEST. Create a real account and a test account, finish
+     * a profile on each (ledger rows stamped with their flags) and bill a profiling call
+     * on each (v2 cost events stamped with their flags), then DPDP-erase both.
+     *
+     * The flags were recorded WHEN THE MONEY WAS SPENT, so the erase changes no reading:
+     * the real leg — the investor number — is byte-identical before and after, and the
+     * test leg stays in `test` instead of sliding into `deleted_or_unattributed`.
+     * That bucket now holds only rows that NEVER named a worker.
      */
     let baseline = await service.summary(DTO);
     if (baseline.ai_cost.per_profile === null) {
@@ -582,28 +613,12 @@ describe.skipIf(!RUN)("admin dashboard reads (BP-5) against a real database", ()
         isTestAccount: true,
       },
     ]);
+    // Ledger rows, exactly as the processor writes them: same-transaction stamps.
+    await insertLedgerRow(PROFILE_DELETED_REAL, WORKER_DELETED_REAL, false, new Date());
+    await insertLedgerRow(PROFILE_DELETED_TEST, WORKER_DELETED_TEST, true, new Date());
+    // v2 cost events, exactly as the recorder writes them: the flag stamped per call.
     await insertEvent(
-      "profile.extraction_completed",
-      {
-        worker_id: WORKER_DELETED_REAL,
-        profile_id: PROFILE_DELETED_REAL,
-        ai_job_id: PROFILE_DELETED_REAL,
-        profile_status: "extracted",
-      },
-      new Date(),
-    );
-    await insertEvent(
-      "profile.extraction_completed",
-      {
-        worker_id: WORKER_DELETED_TEST,
-        profile_id: PROFILE_DELETED_TEST,
-        ai_job_id: PROFILE_DELETED_TEST,
-        profile_status: "confirmed",
-      },
-      new Date(),
-    );
-    await insertEvent(
-      "ai.cost_recorded",
+      "ai.cost_recorded_v2",
       {
         ai_call_id: CALL_DELETED_REAL,
         ai_job_id: null,
@@ -613,11 +628,13 @@ describe.skipIf(!RUN)("admin dashboard reads (BP-5) against a real database", ()
         provider: `bp5-del-real-${process.pid}`,
         real_call: true,
         estimated_cost_inr: REAL_COST,
+        is_test_account: false,
       },
       new Date(),
+      2,
     );
     await insertEvent(
-      "ai.cost_recorded",
+      "ai.cost_recorded_v2",
       {
         ai_call_id: CALL_DELETED_TEST,
         ai_job_id: null,
@@ -627,15 +644,36 @@ describe.skipIf(!RUN)("admin dashboard reads (BP-5) against a real database", ()
         provider: `bp5-del-test-${process.pid}`,
         real_call: true,
         estimated_cost_inr: TEST_COST,
+        is_test_account: true,
       },
       new Date(),
+      2,
     );
+    // The platform accrual the `since` bound is read from (the spine is not the bound).
+    await writer.withTransaction(async (tx) => {
+      for (const [provider, cost] of [
+        [`bp5-del-real-${process.pid}`, REAL_COST],
+        [`bp5-del-test-${process.pid}`, TEST_COST],
+      ] as const) {
+        await writer.accruePlatform(
+          {
+            workerId: null,
+            sessionId: null,
+            provider,
+            taskType: "profiling_chat_turn",
+            costInr: cost,
+            realCall: true,
+          },
+          tx,
+        );
+      }
+    });
 
     const whilePresent = await service.summary(DTO);
     const present = whilePresent.ai_cost.per_profile!;
     const presentSplit = present.test_split;
 
-    // The two workers are live, so their spend sits in the real/test legs.
+    // The two workers are live, and stamp and join agree — spend in the real/test legs.
     expect(
       present.profiles_extracted_or_confirmed -
         baseline.ai_cost.per_profile!.profiles_extracted_or_confirmed,
@@ -655,7 +693,7 @@ describe.skipIf(!RUN)("admin dashboard reads (BP-5) against a real database", ()
         Number(baseline.ai_cost.per_profile!.test_split.test_cost_inr),
     ).toBeCloseTo(TEST_COST, 10);
 
-    // DPDP erase both. The events remain; the worker rows are gone.
+    // DPDP erase both. The ledger rows and the stamped events remain; the worker rows do not.
     await client.db
       .delete(workers)
       .where(inArray(workers.id, [WORKER_DELETED_REAL, WORKER_DELETED_TEST]));
@@ -671,21 +709,21 @@ describe.skipIf(!RUN)("admin dashboard reads (BP-5) against a real database", ()
     expect(afterPerProfile.profiling_cost_inr).toBe(present.profiling_cost_inr);
     expect(afterPerProfile.cost_per_profile_inr).toBe(present.cost_per_profile_inr);
 
-    // The real and test legs are back where they started — deleted spend is NOT folded in.
-    expect(afterSplit.real_profiles).toBe(baseline.ai_cost.per_profile!.test_split.real_profiles);
-    expect(afterSplit.test_profiles).toBe(baseline.ai_cost.per_profile!.test_split.test_profiles);
-    expect(afterSplit.real_cost_inr).toBe(baseline.ai_cost.per_profile!.test_split.real_cost_inr);
-    expect(afterSplit.test_cost_inr).toBe(baseline.ai_cost.per_profile!.test_split.test_cost_inr);
-
-    // …and both accounts are visible in their own bucket, spend and profiles together.
+    // The real and test legs are EXACTLY where they were — stamped at spend time, and
+    // the erase cannot touch a stamp. The deleted bucket is untouched: it holds only
+    // rows that never named a worker.
+    expect(afterSplit.real_profiles).toBe(presentSplit.real_profiles);
+    expect(afterSplit.test_profiles).toBe(presentSplit.test_profiles);
+    expect(afterSplit.real_cost_inr).toBe(presentSplit.real_cost_inr);
+    expect(afterSplit.test_cost_inr).toBe(presentSplit.test_cost_inr);
     expect(
       Number(afterSplit.deleted_or_unattributed_cost_inr) -
         Number(baseline.ai_cost.per_profile!.test_split.deleted_or_unattributed_cost_inr),
-    ).toBeCloseTo(REAL_COST + TEST_COST, 10);
+    ).toBeCloseTo(0, 10);
     expect(
       afterSplit.deleted_or_unattributed_profiles -
         baseline.ai_cost.per_profile!.test_split.deleted_or_unattributed_profiles,
-    ).toBe(2);
+    ).toBe(0);
 
     // THE ACCEPTANCE INVARIANT: the three legs are the headline, not three estimates beside it.
     expect(
@@ -701,20 +739,11 @@ describe.skipIf(!RUN)("admin dashboard reads (BP-5) against a real database", ()
   });
 
   it("the ratio reaches the response, scoped to the profiling accrual window", async () => {
-    // One live completion and one live profiling call, dated now so they sit inside the
+    // One live ledger row and one live v2 profiling call, dated now so they sit inside the
     // platform accrual window this database established earlier in the run.
+    await insertLedgerRow(PROFILE_SUMMARY_LIVE, WORKER, false, new Date());
     await insertEvent(
-      "profile.extraction_completed",
-      {
-        worker_id: WORKER,
-        profile_id: PROFILE_SUMMARY_LIVE,
-        ai_job_id: PROFILE_SUMMARY_LIVE,
-        profile_status: "extracted",
-      },
-      new Date(),
-    );
-    await insertEvent(
-      "ai.cost_recorded",
+      "ai.cost_recorded_v2",
       {
         ai_call_id: CALL_SUMMARY_LIVE,
         ai_job_id: null,
@@ -724,8 +753,10 @@ describe.skipIf(!RUN)("admin dashboard reads (BP-5) against a real database", ()
         provider: `bp5-summary-${process.pid}`,
         real_call: true,
         estimated_cost_inr: 0.2,
+        is_test_account: false,
       },
       new Date(),
+      2,
     );
 
     const summary = await service.summary({ windowDays: ADMIN_DASHBOARD_WINDOW_DAYS_DEFAULT });
@@ -814,10 +845,11 @@ describe.skipIf(!RUN)("admin dashboard reads (BP-5) against a real database", ()
     eventName: string,
     payload: Record<string, unknown>,
     occurredAt: Date = new Date(),
+    eventVersion = 1,
   ): Promise<void> {
     await client.db.insert(events).values({
       eventName,
-      eventVersion: 1,
+      eventVersion,
       occurredAt,
       actorType: "ai_service",
       subjectType: "ai_job",

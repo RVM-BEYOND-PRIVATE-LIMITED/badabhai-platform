@@ -61,7 +61,7 @@ export class AgencyTwinSyncProcessor extends WorkerHost implements OnApplication
       this.logger.log(
         `agency-twin ${job.name}: armed=${summary.armed} jobs=${summary.jobs} ` +
           `written=${summary.written} unchanged=${summary.unchanged} blocked=${summary.blocked} ` +
-          `failed=${summary.failed} disarmed=${summary.disarmed}`,
+          `failed=${summary.failed} disarmed=${summary.disarmed} skipped=${summary.skipped}`,
       );
     }
     return summary;

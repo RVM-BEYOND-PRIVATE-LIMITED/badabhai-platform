@@ -1,10 +1,11 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import {
   type Database,
   platformAiCostTotals,
   sessionAiCostTotals,
   workerAiCostTotals,
+  workers,
 } from "@badabhai/db";
 
 import { DATABASE } from "../database/database.module";
@@ -148,6 +149,24 @@ export class AiCostTotalsRepository {
           updatedAt: sql`now()`,
         },
       });
+  }
+
+  /**
+   * The worker's test flag AS OF NOW, for stamping onto the cost event (B2 #2555).
+   *
+   * A READ, not a policy: returns the flag, or null when the worker row is gone
+   * (deleted mid-call — the event then reads exactly like a v1 row, falling back to
+   * the live join, which also finds nothing). The recorder treats a THROWN lookup the
+   * same as a missing row — null — because a flag read must never fail the spend it
+   * annotates; the event still commits, only the stamp is lost.
+   */
+  async isTestAccount(workerId: string, tx: Database): Promise<boolean | null> {
+    const rows = await tx
+      .select({ isTestAccount: workers.isTestAccount })
+      .from(workers)
+      .where(eq(workers.id, workerId))
+      .limit(1);
+    return rows[0]?.isTestAccount ?? null;
   }
 
   /**
