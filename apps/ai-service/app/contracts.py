@@ -1724,6 +1724,43 @@ class JobPostingChatTurnOutput(BaseModel):
     pseudonymization_metadata: PseudonymizationMeta | None = None
 
 
+class JobDescriptionDraftInput(BaseModel):
+    """One Hinglish voice note about a job opening, to be rewritten as the posting's English.
+
+    The voice toggle on the Perks & Details step (payer-app + payer-web). The
+    poster speaks Hinglish; the model returns professional English filtered to
+    THIS trade and role (see job_posting_chat/description_prompt.py). The
+    description is the only field this route writes — benefits/requirements
+    stay manual chips.
+
+    Nothing identifying is carried: not the payer, not the organisation, not
+    the site address. Only the spoken text and the trade/role labels that say
+    what counts as relevant.
+    """
+
+    payer_ref: str | None = None
+    # The poster's own words (Hinglish transcript of the voice note), 1..2000 chars.
+    spoken_text: str = Field(min_length=1, max_length=2000)
+    # What the posting is for — the relevance filter. Free text, poster-selected.
+    trade_label: str | None = Field(default=None, max_length=80)
+    role_label: str | None = Field(default=None, max_length=200)
+
+
+class JobDescriptionDraftOutput(BaseModel):
+    """The drafted description, or null on any degrade.
+
+    Null is a first-class answer: the caller keeps the poster's own text, which
+    is what the form showed before this existed and what it must keep showing
+    whenever the model is unavailable, blocked, or returns something that fails
+    validation (including an all-irrelevant transcript).
+    """
+
+    description: str | None = Field(default=None, max_length=2000)
+    blocked: bool = False
+    is_mock: bool = True
+    ai_metadata: AICallMetadata | None = None
+
+
 # --- Résumé import (ADR-0041, RI-3) -----------------------------------------
 #
 # Mirrors `packages/ai-contracts/src/resume-import.ts`; `tests/test_contract_parity.py`

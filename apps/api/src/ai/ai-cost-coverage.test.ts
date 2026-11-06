@@ -174,6 +174,10 @@ describe("every task type that can spend is either emitted or named as unledgere
       // `work_history_polish` comment below records, applied in advance.
       "companion_classify",
       "companion_edit_parse",
+      // Voice toggle on the employer Perks & Details step. Emitter wired in
+      // `JobPostingsService.draftDescriptionForPayer`, in the SAME change that
+      // routed the task.
+      "job_description_draft",
       "job_posting_chat_turn",
       "profile_extraction",
       "profile_parse",

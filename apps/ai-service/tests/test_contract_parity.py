@@ -71,6 +71,8 @@ from app.contracts import (
     FreeChatSurface,
     InterviewExtractInput,
     InterviewExtractOutput,
+    JobDescriptionDraftInput,
+    JobDescriptionDraftOutput,
     JobDomainMatch,
     JobNeededBy,
     JobPayType,
@@ -166,6 +168,8 @@ _JOB_POSTING_MODELS = {
     "JobPostingChatOpeningOutput": JobPostingChatOpeningOutput,
     "JobPostingChatTurnInput": JobPostingChatTurnInput,
     "JobPostingChatTurnOutput": JobPostingChatTurnOutput,
+    "JobDescriptionDraftInput": JobDescriptionDraftInput,
+    "JobDescriptionDraftOutput": JobDescriptionDraftOutput,
 }
 
 
@@ -192,6 +196,10 @@ def test_the_draft_has_no_org_label_field():
     survives an edit that does not read the comment."""
     banned = {"org_label", "org_name", "company", "company_name", "employer_name"}
     assert banned.isdisjoint(set(JobPostingDraft.model_fields))
+    # The voice-toggle draft carries the same principal's free text, so the same ban
+    # applies to its input: the org name is stamped at publish, never dictated.
+    assert banned.isdisjoint(set(JobDescriptionDraftInput.model_fields))
+    assert banned.isdisjoint(set(JobDescriptionDraftOutput.model_fields))
 
 
 def test_opening_endpoint_contract_is_pii_free_by_construction():

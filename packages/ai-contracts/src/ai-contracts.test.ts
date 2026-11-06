@@ -92,6 +92,8 @@ import {
   JobPostingChatTurnInputSchema,
   JobPostingChatTurnOutputSchema,
   JobPostingDraftSchema,
+  JobDescriptionDraftInputSchema,
+  JobDescriptionDraftOutputSchema,
   ProfileExtractionInputSchema,
   ProfilingOpeningInputSchema,
   ProfilingOpeningOutputSchema,
@@ -677,6 +679,8 @@ describe("Job-posting chat contract parity (ADR-0035 — contracts.py mirror)", 
     ["JobPostingChatOpeningOutput", JobPostingChatOpeningOutputSchema.shape],
     ["JobPostingChatTurnInput", JobPostingChatTurnInputSchema.shape],
     ["JobPostingChatTurnOutput", JobPostingChatTurnOutputSchema.shape],
+    ["JobDescriptionDraftInput", JobDescriptionDraftInputSchema.shape],
+    ["JobDescriptionDraftOutput", JobDescriptionDraftOutputSchema.shape],
   ];
   it.each(shapes)("%s keys match the golden fixture shared with Pydantic", (name, shape) => {
     // `_why` is prose documentation in the fixture, so the record is not uniformly
@@ -793,6 +797,24 @@ describe("Job-posting chat contract parity (ADR-0035 — contracts.py mirror)", 
     expect(out.draft).toBeNull();
     expect(out.updated_state).toBeNull();
     expect(out.draft_ready).toBe(false);
+    expect(out.is_mock).toBe(true);
+  });
+
+  it("voice-toggle draft input requires spoken_text (1..2000 chars), context is optional", () => {
+    expect(JobDescriptionDraftInputSchema.safeParse({}).success).toBe(false);
+    expect(JobDescriptionDraftInputSchema.safeParse({ spoken_text: "" }).success).toBe(false);
+    expect(
+      JobDescriptionDraftInputSchema.safeParse({ spoken_text: "VMC chalata hoon" }).success,
+    ).toBe(true);
+    expect(
+      JobDescriptionDraftInputSchema.safeParse({ spoken_text: "x".repeat(2001) }).success,
+    ).toBe(false);
+  });
+
+  it("voice-toggle draft output defaults to the null degrade (keep the poster's own text)", () => {
+    const out = JobDescriptionDraftOutputSchema.parse({});
+    expect(out.description).toBeNull();
+    expect(out.blocked).toBe(false);
     expect(out.is_mock).toBe(true);
   });
 });

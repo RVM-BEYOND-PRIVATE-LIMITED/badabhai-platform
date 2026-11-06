@@ -204,3 +204,35 @@ export const JobPostingChatTurnOutputSchema = z.object({
   pseudonymization_metadata: PseudonymizationMetaSchema.nullable().default(null),
 });
 export type JobPostingChatTurnOutput = z.infer<typeof JobPostingChatTurnOutputSchema>;
+
+/**
+ * Voice toggle on the employer Perks & Details step (payer-app + payer-web share
+ * this contract). The poster speaks Hinglish; the service returns professional
+ * English filtered to THIS trade and role — description only, benefits and
+ * requirements stay manual chips. Mirrored field-for-field in
+ * apps/ai-service/app/contracts.py (`JobDescriptionDraftInput/Output`) and pinned
+ * by `__fixtures__/job-posting-chat.keys.json`, which BOTH suites assert against.
+ */
+export const JobDescriptionDraftInputSchema = z.object({
+  /** OPAQUE payer reference for spend attribution — never a raw payer identity. */
+  payer_ref: z.string().min(1).nullable().optional(),
+  /** The poster's own words (Hinglish transcript of the voice note). */
+  spoken_text: z.string().min(1).max(JP_DESCRIPTION_MAX),
+  /** What the posting is for — the relevance filter. Poster-selected free text. */
+  trade_label: z.string().max(80).nullable().optional(),
+  role_label: z.string().max(JP_LABEL_MAX).nullable().optional(),
+});
+export type JobDescriptionDraftInput = z.infer<typeof JobDescriptionDraftInputSchema>;
+
+/**
+ * The drafted description, or null on any degrade. Null is a first-class answer:
+ * the caller keeps the poster's own text — an all-irrelevant transcript, a mock
+ * posture, a deadline, a blocked input, or a failed validation all land here.
+ */
+export const JobDescriptionDraftOutputSchema = z.object({
+  description: z.string().max(JP_DESCRIPTION_MAX).nullable().default(null),
+  blocked: z.boolean().default(false),
+  is_mock: z.boolean().default(true),
+  ai_metadata: AICallMetadataSchema.nullable().default(null),
+});
+export type JobDescriptionDraftOutput = z.infer<typeof JobDescriptionDraftOutputSchema>;

@@ -164,6 +164,11 @@ _ROUTE_SHAPES: dict[str, tuple[ModelTier, bool]] = {
     # on the live interview path where latency is the cost that matters (Haiku is first anyway,
     # `AI_PRIMARY_PROVIDER`). `json_mode` because the answer is parsed as an object.
     "profiling_turn_understand": ("cheap", True),
+    # Employer voice toggle (Perks & Details step): one Hinglish voice note into
+    # one English description, filtered to the posting's trade and role. CHEAP for
+    # the polish route's reason — rephrasing under prohibitions, not open
+    # composition — with json_mode so a refusal never prints as a description.
+    "job_description_draft": ("cheap", True),
 }
 
 #: ADR-0054 - the news answer's per-attempt deadline. The API waits 25 s for `/free-chat/news`;

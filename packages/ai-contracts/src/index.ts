@@ -122,6 +122,8 @@ export {
   JobPostingChatOpeningOutputSchema,
   JobPostingChatTurnInputSchema,
   JobPostingChatTurnOutputSchema,
+  JobDescriptionDraftInputSchema,
+  JobDescriptionDraftOutputSchema,
 } from "./job-posting";
 export type {
   JobPostingChatState,
@@ -130,6 +132,8 @@ export type {
   JobPostingChatOpeningOutput,
   JobPostingChatTurnInput,
   JobPostingChatTurnOutput,
+  JobDescriptionDraftInput,
+  JobDescriptionDraftOutput,
 } from "./job-posting";
 
 export {
