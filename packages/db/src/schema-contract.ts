@@ -977,8 +977,8 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
   // tables. Unconditional - no flag - because `payers` is read through bare `select()` /
   // `.returning()` on every payer auth request. One entry per object a request names.
   {
-    id: "0158-payers-org-name-tokens",
-    migration: "0158_company_records",
+    id: "0159-payers-org-name-tokens",
+    migration: "0159_company_records",
     kind: "column",
     table: "payers",
     object: "org_name_token_hashes",
@@ -992,8 +992,8 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "superset); new builds on an unmigrated one are not, which is why this is APPLY-BEFORE-DEPLOY",
   },
   {
-    id: "0158-payers-status-chk",
-    migration: "0158_company_records",
+    id: "0159-payers-status-chk",
+    migration: "0159_company_records",
     kind: "constraint",
     table: "payers",
     object: "payers_status_chk",
@@ -1006,8 +1006,8 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "comparison happens to say - a misspelt 'archived' would sign in. Nothing reports it",
   },
   {
-    id: "0158-employer-profiles-contact",
-    migration: "0158_company_records",
+    id: "0159-employer-profiles-contact",
+    migration: "0159_company_records",
     kind: "column",
     table: "employer_profiles",
     object: "company_email_enc",
