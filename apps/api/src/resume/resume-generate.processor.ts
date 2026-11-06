@@ -62,6 +62,7 @@ export class ResumeGenerateProcessor extends WorkerHost {
 
     // FIRST, before the accepted-update read: an edited profile may itself have been an accepted
     // update, and that branch would skip it as "already has its résumé".
+    if (job.data.trigger === "admin_edit") return this.processAdminEdit(job, ctx);
     if (job.data.trigger === "chat_edit") return this.processChatEdit(job, ctx);
 
     const profile = await this.profiles.findById(profileId);
@@ -180,6 +181,50 @@ export class ResumeGenerateProcessor extends WorkerHost {
         return { skipped: true };
       }
       throw redactQueryParams(err, "chat-edit resume generation");
+    }
+    return { skipped: false };
+  }
+
+  /**
+   * #2561 / ADR-0062 §3.3 — an ADMIN correction of a SNAPSHOT field (trade, role, skills, total
+   * experience) mints a NEW résumé history entry with `generation_trigger='admin_edit'`.
+   *
+   * NOT METERED: the worker did not ask for it, so this is the system path (global spend backstop
+   * still applies inside `generate`). The consent gate DOES apply — a worker who withdrew
+   * `resume_generation` keeps the corrected profile but gets no new generated document.
+   */
+  private async processAdminEdit(
+    job: Job<ResumeGenerateJobData>,
+    ctx: RequestContext,
+  ): Promise<{ skipped: boolean }> {
+    const { workerId, profileId } = job.data;
+
+    const profile = await this.profiles.findById(profileId);
+    if (profile === undefined || profile.workerId !== workerId) {
+      this.logger.warn(`admin-edit resume for profile ${profileId} not generated: not the worker's`);
+      return { skipped: true };
+    }
+    if (!(await hasActiveConsent(this.consents, workerId, "resume_generation"))) {
+      this.logger.warn(
+        `admin-edit resume for profile ${profileId} not generated: consent is not active`,
+      );
+      return { skipped: true };
+    }
+
+    try {
+      await this.resumeService.generate({ worker_id: workerId, profile_id: profileId }, ctx, {
+        systemInitiated: true,
+        trigger: "admin_edit",
+      });
+    } catch (err) {
+      if (sqlStateOf(err) === PG_CHECK_VIOLATION) {
+        this.logger.error(
+          `admin-edit resume for profile ${profileId} refused by a CHECK constraint ` +
+            `(is migration 0160 applied?); not retried`,
+        );
+        return { skipped: true };
+      }
+      throw redactQueryParams(err, "admin-edit resume generation");
     }
     return { skipped: false };
   }

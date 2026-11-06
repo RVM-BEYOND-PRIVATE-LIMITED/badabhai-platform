@@ -224,6 +224,26 @@ export const NOTIFICATION_TEMPLATES: Readonly<Record<string, NotificationTemplat
     // target revoked devices, because telling them is the entire point.
     push: true,
   },
+  // #2561 / ADR-0062 §3.10 — an admin corrected a profile field, or reverted an earlier
+  // correction. ONE save = one event = one push. The copy is deliberately faceless: no field,
+  // no value, no reason, no admin identity, and no employer/pay noun (the copy guard below
+  // enforces the same rules as every other template).
+  "admin.candidate_field_corrected": {
+    type: "profile_ready",
+    copy: {
+      hi: { title: "Profile update hui", body: "Aapki profile mein update hua hai — dekhein." },
+      en: { title: "Profile updated", body: "Your profile has been updated — view it." },
+    },
+    push: true,
+  },
+  "admin.candidate_field_reverted": {
+    type: "profile_ready",
+    copy: {
+      hi: { title: "Profile update hui", body: "Aapki profile mein update hua hai — dekhein." },
+      en: { title: "Profile updated", body: "Your profile has been updated — view it." },
+    },
+    push: true,
+  },
 };
 
 /**

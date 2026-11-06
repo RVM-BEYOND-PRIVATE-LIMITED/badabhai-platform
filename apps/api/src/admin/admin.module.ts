@@ -3,7 +3,11 @@ import { BullModule } from "@nestjs/bullmq";
 import { JwtModule } from "@nestjs/jwt";
 import { areRealAdminInvitesEnabled, type ServerConfig } from "@badabhai/config";
 import { SERVER_CONFIG } from "../config/config.module";
-import { CANDIDATE_INDEX_QUEUE, RESUME_RENDER_QUEUE } from "../queue/queue.constants";
+import {
+  CANDIDATE_INDEX_QUEUE,
+  RESUME_GENERATE_QUEUE,
+  RESUME_RENDER_QUEUE,
+} from "../queue/queue.constants";
 import { DatabaseModule } from "../database/database.module";
 import { EventsModule } from "../events/events.module";
 import { StorageModule } from "../storage/storage.module";
@@ -11,6 +15,7 @@ import { PayersModule } from "../payers/payers.module";
 import { AuthModule } from "../auth/auth.module";
 import { MatchModule } from "../match/match.module";
 import { WorkersModule } from "../workers/workers.module";
+import { PushQueueModule } from "../push/push-queue.module";
 import { AdminRepository } from "./admin.repository";
 import { AdminSessionService } from "./admin-session.service";
 import { AdminOtpService } from "./admin-otp.service";
@@ -111,6 +116,7 @@ import { AdminCorrectionsRepository } from "./corrections/admin-corrections.repo
 import { AdminCorrectionService } from "./corrections/admin-corrections.service";
 import { AdminCorrectionFactsService } from "./corrections/admin-correction-facts.service";
 import { AdminCorrectionsController } from "./corrections/admin-corrections.controller";
+import { AdminCorrectionEffectsService } from "./corrections/admin-correction-effects.service";
 import { ProfilesRepository } from "../profiles/profiles.repository";
 import { ProfileSkillsRepository } from "../profiles/profile-skills.repository";
 import { WorkerEmploymentRepository } from "../profiles/worker-employment.repository";
@@ -224,8 +230,12 @@ import { WorkerQualificationsRepository } from "../profiles/worker-qualification
     WorkersModule,
     // Reuse BullMQ's Redis connection (client only) for the admin session/OTP/MFA-secret stores.
     BullModule.registerQueue({ name: RESUME_RENDER_QUEUE }),
+    // #2561 PR 3 — a snapshot-field correction queues a new `admin_edit` résumé generation.
+    BullModule.registerQueue({ name: RESUME_GENERATE_QUEUE }),
     // B4 (#2557) — the candidate read-table projector's own queue (poll + nightly rebuild).
     BullModule.registerQueue({ name: CANDIDATE_INDEX_QUEUE }),
+    // #2561 PR 3 — the producer-only push seam (the correction's faceless worker notification).
+    PushQueueModule,
     // The admin session is signed with ITS OWN secret — distinct from the worker/payer JWT.
     JwtModule.registerAsync({
       inject: [SERVER_CONFIG],
@@ -501,6 +511,7 @@ import { WorkerQualificationsRepository } from "../profiles/worker-qualification
     AdminCorrectionsRepository,
     AdminCorrectionService,
     AdminCorrectionFactsService,
+    AdminCorrectionEffectsService,
     WorkerPreferencesService,
     // #2561 PR 2 — the profile/employment stores the remaining field groups write. The other
     // repositories (attributes, qualifications, languages, occupations) are provided above;

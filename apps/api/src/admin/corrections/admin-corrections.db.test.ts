@@ -126,6 +126,8 @@ describe.skipIf(!RUN)("#2561 admin corrections — against Postgres", () => {
       pii,
       events,
       facts,
+      // The DB contract stops at commit; PR 3's queues/push are unit-tested separately.
+      { afterCorrection: async () => undefined } as never,
     );
 
     await client.sql`

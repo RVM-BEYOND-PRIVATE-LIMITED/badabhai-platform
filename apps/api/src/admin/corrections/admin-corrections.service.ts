@@ -17,6 +17,7 @@ import type { AuthenticatedAdmin } from "../admin-auth.guard";
 import { ADMIN_ACTION_CODES, type AdminActionCode } from "../admin-action-codes";
 import { AdminActionsRepository } from "../admin-actions.repository";
 import { AdminCorrectionsRepository } from "./admin-corrections.repository";
+import { AdminCorrectionEffectsService } from "./admin-correction-effects.service";
 import { AdminCorrectionFactsService } from "./admin-correction-facts.service";
 import {
   correctionValueSchema,
@@ -60,6 +61,8 @@ export class AdminCorrectionService {
     private readonly events: EventsService,
     // #2561 PR 2 — the per-field domain writers and previous-value readers.
     private readonly facts: AdminCorrectionFactsService,
+    // #2561 PR 3 — the after-save effects (read table, matching, résumé, push).
+    private readonly effects: AdminCorrectionEffectsService,
   ) {}
 
   /** POST /admin/candidates/:id/corrections */
@@ -78,6 +81,7 @@ export class AdminCorrectionService {
 
     const overrideId = randomUUID();
     let changed = false;
+    let sourceEventId = "";
     await this.repo.withTransaction(async (tx) => {
       const live = await this.repo.findLive(tx, workerId, factKey);
       // Re-correcting keeps the ORIGINAL previous (the last non-admin value): a later
@@ -103,9 +107,26 @@ export class AdminCorrectionService {
       });
       if (live !== undefined) await this.repo.linkSupersededBy(tx, live.id, overrideId);
       await this.writeAudit(tx, admin.id, workerId, ADMIN_ACTION_CODES.candidate_field_corrected, dto);
-      await this.emitCorrected(tx, admin.id, workerId, dto.fact_key, overrideId, ctx);
+      sourceEventId = await this.emitCorrected(
+        tx,
+        admin.id,
+        workerId,
+        dto.fact_key,
+        overrideId,
+        ctx,
+      );
       changed = true;
     });
+    // AFTER COMMIT — the store is corrected; the derived surfaces converge best-effort.
+    if (changed) {
+      await this.effects.afterCorrection({
+        workerId,
+        factKey,
+        eventName: "admin.candidate_field_corrected",
+        sourceEventId,
+        ctx,
+      });
+    }
     return { worker_id: workerId, fact_key: dto.fact_key, override_id: overrideId, changed };
   }
 
@@ -124,6 +145,7 @@ export class AdminCorrectionService {
 
     let overrideId = "";
     let changed = false;
+    let sourceEventId = "";
     await this.repo.withTransaction(async (tx) => {
       const live = await this.repo.findLive(tx, workerId, factKey);
       if (live === undefined) return;
@@ -131,13 +153,20 @@ export class AdminCorrectionService {
       await this.writeDomain(factKey, workerId, previous, tx, ctx, true, live.id);
       await this.repo.supersede(tx, live.id, null);
       await this.writeAudit(tx, admin.id, workerId, ADMIN_ACTION_CODES.candidate_field_reverted, dto);
-      await this.emitReverted(tx, admin.id, workerId, factKey, live.id, ctx);
+      sourceEventId = await this.emitReverted(tx, admin.id, workerId, factKey, live.id, ctx);
       overrideId = live.id;
       changed = true;
     });
     if (!changed) {
       throw new ConflictException("No live correction to revert for this field");
     }
+    await this.effects.afterCorrection({
+      workerId,
+      factKey,
+      eventName: "admin.candidate_field_reverted",
+      sourceEventId,
+      ctx,
+    });
     return { worker_id: workerId, fact_key: factKey, override_id: overrideId, changed };
   }
 
@@ -294,14 +323,14 @@ export class AdminCorrectionService {
     factKey: string,
     overrideId: string,
     ctx: RequestContext,
-  ): Promise<void> {
+  ): Promise<string> {
     const payload: PayloadInputOf<"admin.candidate_field_corrected"> = {
       admin_id: adminId,
       worker_id: workerId,
       fact_key: factKey as never,
       override_id: overrideId,
     };
-    await this.events.emit({
+    const event = await this.events.emit({
       event_name: "admin.candidate_field_corrected",
       actor: { actor_type: "admin", actor_id: adminId },
       subject: { subject_type: "worker", subject_id: workerId },
@@ -318,6 +347,7 @@ export class AdminCorrectionService {
       ADMIN_ACTION_CODES.candidate_field_corrected,
       ctx,
     );
+    return event.event_id;
   }
 
   private async emitReverted(
@@ -327,14 +357,14 @@ export class AdminCorrectionService {
     factKey: string,
     overrideId: string,
     ctx: RequestContext,
-  ): Promise<void> {
+  ): Promise<string> {
     const payload: PayloadInputOf<"admin.candidate_field_reverted"> = {
       admin_id: adminId,
       worker_id: workerId,
       fact_key: factKey as never,
       override_id: overrideId,
     };
-    await this.events.emit({
+    const event = await this.events.emit({
       event_name: "admin.candidate_field_reverted",
       actor: { actor_type: "admin", actor_id: adminId },
       subject: { subject_type: "worker", subject_id: workerId },
@@ -345,6 +375,7 @@ export class AdminCorrectionService {
       tx,
     });
     await this.emitAction(tx, adminId, workerId, ADMIN_ACTION_CODES.candidate_field_reverted, ctx);
+    return event.event_id;
   }
 
   private emitAction(

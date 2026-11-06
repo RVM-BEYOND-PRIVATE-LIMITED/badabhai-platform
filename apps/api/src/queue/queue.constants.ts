@@ -221,7 +221,7 @@ export interface ResumeGenerateJobData {
    * exactly as it always did — and a build that predates the field reads such a job as one of
    * those, whose one-per-worker skip then spends nothing.
    */
-  trigger?: "chat_edit";
+  trigger?: "chat_edit" | "admin_edit";
   /** Tracing ids carried from the originating HTTP request. */
   correlationId: string;
   requestId: string;
@@ -306,6 +306,9 @@ export const AGENCY_TWIN_SWEEP_EVERY_MS = 10 * 60_000;
  * idempotent upsert, so a lost or duplicated Redis job is harmless.
  */
 export const CANDIDATE_INDEX_QUEUE = "candidate-index";
+
+/** #2561 PR 3 — re-project ONE worker after an admin correction commits. */
+export const CANDIDATE_INDEX_PROJECT_JOB = "project-worker";
 
 /** The events-cursor poll tick (minutes behind a worker/profile/résumé write). */
 export const CANDIDATE_INDEX_POLL_SCHEDULER_ID = "candidate-index-poll";

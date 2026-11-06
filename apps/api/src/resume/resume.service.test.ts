@@ -555,6 +555,19 @@ describe("ResumeService — idempotent initial resume (TD5)", () => {
     expect(resumes.createInitial).not.toHaveBeenCalled();
     expect(out.version).toBe(2);
   });
+
+  it("#2561 admin_edit creates a NEW version labelled admin_edit (not the auto-generate skip)", async () => {
+    const { svc, resumes } = setup(null, { previousVersion: 1 });
+    const out = await svc.generate(DTO, CTX, {
+      systemInitiated: true,
+      trigger: "admin_edit",
+    });
+    expect(resumes.create).toHaveBeenCalledOnce();
+    expect(resumes.createInitial).not.toHaveBeenCalled();
+    const [input] = resumes.create.mock.calls[0]!;
+    expect((input as { generationTrigger: string }).generationTrigger).toBe("admin_edit");
+    expect(out.version).toBe(2);
+  });
 });
 
 const RES_ID = "11111111-1111-1111-1111-111111111111";
