@@ -1399,6 +1399,30 @@ export const AiCostRecordedPayload = z.object({
 export type AiCostTaskType = z.infer<typeof aiTaskType>;
 
 /**
+ * B2 (#2555) — `ai.cost_recorded` version 2: v1's shape plus the spend-time test-account flag
+ * stamped WHEN THE MONEY IS SPENT.
+ *
+ * WHY A NEW NAME AND NOT AN OPTIONAL V1 FIELD. The flag changes what every reader
+ * derives: a stamped `true`/`false` REPLACES the live-`workers` join, so a worker
+ * deleted after spending keeps its true bucket instead of sliding into
+ * `deleted_or_unattributed`. A silent v1 widen would let a stale reader keep joining
+ * and mis-split without knowing the ground moved. A new name forces every reader to
+ * opt in explicitly — and every reader did, in the same change.
+ *
+ * `is_test_account` is NULLABLE, and the null is meaningful: payer-side calls have no
+ * worker to stamp (same rule as `worker_id` above), and a lookup failure records
+ * unknown rather than failing the cost event. Readers coalesce null to the live join,
+ * so a null v2 row degrades to exactly the v1 reading — never a guess.
+ *
+ * §2 PRIVACY: one boolean. No name, phone, prompt, completion or transcript is added
+ * here, and none ever may be.
+ */
+export const AiCostRecordedV2Payload = AiCostRecordedPayload.extend({
+  is_test_account: z.boolean().nullable().default(null),
+});
+export type AiCostRecordedV2 = z.infer<typeof AiCostRecordedV2Payload>;
+
+/**
  * Spend-cap / circuit-breaker block codes — the terminal `error_code` values the
  * AI gateway returns when it REFUSES a real provider call (TD27). Mirrors the
  * block reasons set in apps/ai-service. Enum-only (no free text) → no PII.

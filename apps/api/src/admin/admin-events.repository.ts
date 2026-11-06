@@ -15,7 +15,14 @@ import {
   sql,
   type SQL,
 } from "drizzle-orm";
-import { type Database, events, workers, type EventRow } from "@badabhai/db";
+import {
+  type Database,
+  events,
+  profileCompletionLedger,
+  workers,
+  type EventRow,
+} from "@badabhai/db";
+import { AI_COST_EVENT_NAMES } from "@badabhai/event-schema";
 import { DATABASE } from "../database/database.module";
 import { type KeysetCursor } from "./admin-events.cursor";
 import { PROFILING_POPULATIONS, type AdminProfilingPopulation } from "./admin-dashboard.dto";
@@ -445,15 +452,24 @@ export class AdminEventsRepository {
    * spend split and the completed-profile split so the two cannot disagree about which leg a
    * worker is in.
    *
-   * A `NULL` join means the worker row is gone (DPDP erasure, a mid-flight delete) OR the event
-   * never named one. Both are `deleted_or_unattributed`: the honest common property is "this row
-   * cannot be attributed to a live account", and separating them would add a fourth bucket that
-   * changes nothing a reader can act on. The expression carries NO bound parameters, so it can
-   * be rendered identically in SELECT and GROUP BY — the structural-match requirement that bit
-   * `countByPayloadField`.
+   * B2 (#2555) — THE STAMPED FLAG WINS. A v2 row whose payload carries `is_test_account`
+   * resolves from the stamp alone: the worker may have been erased since, and the live
+   * `workers` row is gone. A v1 row (or a v2 row with a null flag — payer-side calls and
+   * lookup failures) falls back to the live join, exactly the pre-B2 reading. So deleting
+   * a test account moves NOTHING between buckets: its spend was stamped `true` when it
+   * happened, and the query reads the stamp, not the (now absent) row.
+   *
+   * A `NULL` join with no stamp is `deleted_or_unattributed`: the honest common property
+   * is "this row cannot be attributed to a live account", and separating the never-named
+   * from the since-erased would add a fourth bucket that changes nothing a reader can act
+   * on. The expression carries NO bound parameters, so it can be rendered identically in
+   * SELECT and GROUP BY — the structural-match requirement that bit `countByPayloadField`.
    */
   private static populationBucketExpr(): SQL<string> {
+    const stamped = sql<string>`${events.payload}->>'is_test_account'`;
     return sql<string>`case
+      when ${stamped} = 'true' then 'test'
+      when ${stamped} = 'false' then 'real'
       when ${workers.id} is null then 'deleted_or_unattributed'
       when ${workers.isTestAccount} then 'test'
       else 'real'
@@ -485,13 +501,16 @@ export class AdminEventsRepository {
    * and survives a `workers` delete — that is what lets this split exist and what makes a
    * deleted test account stop reading as real.
    *
+   * BOTH NAMES, ALWAYS. New spend lands on `ai.cost_recorded_v2` (B2 #2555); reading v1
+   * alone would let fresh spend go quiet. {@link AI_COST_EVENT_NAMES} is the one list.
+   *
    * THE HEADLINE IS THE BUCKETS, IN ONE STATEMENT. `sum(sum(...)) over ()` is evaluated over the
    * grouped rows, so the three legs and the total are the same rows by construction; a second
    * query could land a call between the two reads and leave the page contradicting itself.
    *
-   * BOUNDED BY `since`, WHICH IS THE PROFILING ACCRUAL BOUND, and filtered on the event name
-   * first. Both columns are indexed (`events_event_name_idx`, `events_occurred_at_idx`); the
-   * jsonb reads are applied to the rows those indexes narrow. No new index is needed.
+   * BOUNDED BY `since`, WHICH IS THE PROFILING ACCRUAL BOUND, and filtered on the event names
+   * first. The name column is indexed (`events_event_name_idx`); the jsonb reads apply to the
+   * rows those indexes narrow. No new index is needed.
    *
    * Money is `numeric` summed in Postgres and returned `::text` — the same exactness rule as
    * every other ₹ read in this file. `real_call` is compared as text because jsonb `->>` yields
@@ -521,7 +540,7 @@ export class AdminEventsRepository {
       .leftJoin(workers, sql`${workers.id}::text = ${events.payload}->>'worker_id'`)
       .where(
         and(
-          eq(events.eventName, "ai.cost_recorded"),
+          inArray(events.eventName, [...AI_COST_EVENT_NAMES]),
           gte(events.occurredAt, since),
           inArray(sql`${events.payload}->>'task_type'`, [...taskTypes]),
         ),
@@ -552,38 +571,37 @@ export class AdminEventsRepository {
   /**
    * The profiling denominator BY POPULATION — completed profiles that survive their worker.
    *
-   * `profile.extraction_completed` is emitted once per extraction and carries `worker_id` and
-   * the `profile_status` it wrote. It is PII-free and append-only, so it remains after a
-   * `workers` delete: an erased account's completed profile stays in this count instead of
-   * leaving the denominator and pushing the average up.
+   * B2 (#2555) — READ FROM THE LEDGER, NOT THE SPINE. `profile_completion_ledger` holds
+   * one row per finished profile with the test flag STAMPED AT COMPLETION, written in
+   * the same transaction as the `profile.extraction_completed` event it mirrors. No
+   * `workers` join, so deleting an account moves NOTHING between buckets: a deleted
+   * test account's profile stays in `test`, and the real count is unchanged.
    *
-   * DISTINCT ON THE WORKER, not the event: a re-interview emits another completion event, and
-   * counting events would divide one worker's spend across two "profiles". `count(distinct)`
-   * ignores a NULL worker id, and such an event is not attributed to any population either.
+   * DISTINCT ON THE WORKER, not the row: a re-interview writes a second ledger row for
+   * the same worker, and counting rows would divide one worker's spend across two
+   * "profiles". `count(distinct)` ignores a NULL worker id; a completion that named no
+   * worker lands in `deleted_or_unattributed`, exactly where the spine's worker-less
+   * events used to land it.
    *
-   * The status set is passed in (the service owns the classification), and the same
-   * positive-set rule applies as the DTO documents.
+   * COMPLETION IS ENFORCED AT WRITE, not filtered here. The processor writes only
+   * completed extractions and the backfill filters spine completions on
+   * PROFILE_COMPLETED_STATUSES — so every row in this table is already a finished
+   * profile, and the read counts them all. Drafts never enter the count at rest.
    */
-  async profilingProfilesCompletedSince(
-    since: Date,
-    completedStatuses: readonly string[],
-  ): Promise<AdminProfilingProfilesSplit> {
-    const bucket = AdminEventsRepository.populationBucketExpr();
+  async profilingProfilesCompletedSince(since: Date): Promise<AdminProfilingProfilesSplit> {
+    const bucket = sql<string>`case
+      when ${profileCompletionLedger.workerId} is null then 'deleted_or_unattributed'
+      when ${profileCompletionLedger.isTestAccount} then 'test'
+      else 'real'
+    end`;
 
     const rows = await this.db
       .select({
         bucket,
-        profiles: sql<number>`count(distinct ${events.payload}->>'worker_id')::int`,
+        profiles: sql<number>`count(distinct ${profileCompletionLedger.workerId})::int`,
       })
-      .from(events)
-      .leftJoin(workers, sql`${workers.id}::text = ${events.payload}->>'worker_id'`)
-      .where(
-        and(
-          eq(events.eventName, "profile.extraction_completed"),
-          gte(events.occurredAt, since),
-          inArray(sql`${events.payload}->>'profile_status'`, [...completedStatuses]),
-        ),
-      )
+      .from(profileCompletionLedger)
+      .where(gte(profileCompletionLedger.completedAt, since))
       .groupBy(bucket);
 
     const byPopulation = AdminEventsRepository.zeroProfilesByPopulation();

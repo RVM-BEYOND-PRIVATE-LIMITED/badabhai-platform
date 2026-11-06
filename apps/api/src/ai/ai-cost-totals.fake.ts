@@ -3,11 +3,12 @@ import type { Database } from "@badabhai/db";
 import type { AiCostAccrual, AiCostTotalsRepository } from "./ai-cost-totals.repository";
 
 /**
- * An in-memory `AiCostTotalsRepository` for unit tests, shaped like the real one in the four
+ * An in-memory `AiCostTotalsRepository` for unit tests, shaped like the real one in the five
  * ways that matter to a caller: `withTransaction` runs the work and propagates a throw,
  * `withSavepoint` proves the write was nested on that transaction rather than run bare on it,
- * the PLATFORM and OWNED legs are separate calls, and `order` records which was asked for
- * first. The order is load-bearing: the platform total has no FK and must be written before an
+ * the PLATFORM and OWNED legs are separate calls, `isTestAccount` resolves on the event's
+ * own transaction (or reports a gone row as null), and `order` records which leg was asked
+ * for first. The order is load-bearing: the platform total has no FK and must be written before an
  * owned leg that can fail with 23503.
  *
  * IT DOES NOT MODEL COMMIT/ROLLBACK. Whether the `ai.cost_recorded` row survives a failed
@@ -33,6 +34,10 @@ export interface FakeAiCostTotals {
   transactions: number;
   /** How many savepoints were opened on those transactions. */
   savepoints: number;
+  /** The test-account flags the fake lookup will report, by worker id. Absent = row gone. */
+  testFlags: Map<string, boolean>;
+  /** Set to make the flag lookup throw — the lookup must cost the stamp, never the event. */
+  failFlagLookup: boolean;
   /** Set to make the next OWNED write throw — the deleted-worker path. */
   failNext: boolean;
   /** Set to make the next PLATFORM write throw — the degraded-platform path. */
@@ -61,6 +66,8 @@ export function fakeAiCostTotals(): FakeAiCostTotals {
     order,
     transactions: 0,
     savepoints: 0,
+    testFlags: new Map<string, boolean>(),
+    failFlagLookup: false,
     failNext: false,
     failNextPlatform: false,
     repo: {
@@ -96,6 +103,15 @@ export function fakeAiCostTotals(): FakeAiCostTotals {
         }
         if (state.failNext) throw new Error("owned totals write failed");
         accrued.push(input);
+      },
+      async isTestAccount(workerId: string, tx: Database): Promise<boolean | null> {
+        if (tx !== FAKE_TX) {
+          // The stamp must be resolved on the event's own transaction, or the flag and the
+          // event could disagree about which worker row they saw.
+          throw new Error("isTestAccount was called off the transaction it was given");
+        }
+        if (state.failFlagLookup) throw new Error("flag lookup failed");
+        return state.testFlags.get(workerId) ?? null;
       },
     } as unknown as AiCostTotalsRepository,
   };

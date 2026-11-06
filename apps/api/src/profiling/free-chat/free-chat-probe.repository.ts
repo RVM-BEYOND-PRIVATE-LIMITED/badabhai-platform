@@ -95,16 +95,21 @@ export class FreeChatProbeRepository {
     return this.readEvents(name, window);
   }
 
-  /** The window's `ai.cost_recorded` rows for the free chat's own AI tasks. */
+  /** The window's cost rows for the free chat's own AI tasks — BOTH cost event names. */
   async costEventsInWindow(
     window: ProbeWindow,
     tasks: readonly FreeChatAiTask[],
   ): Promise<StoredEventRow[]> {
-    return this.readEvents(
-      "ai.cost_recorded",
-      window,
-      inArray(sql`${events.payload}->>'task_type'`, [...tasks]),
-    );
+    const taskFilter = inArray(sql`${events.payload}->>'task_type'`, [...tasks]);
+    const [v1, v2] = await Promise.all([
+      this.readEvents("ai.cost_recorded", window, taskFilter),
+      this.readEvents("ai.cost_recorded_v2", window, taskFilter),
+    ]);
+    // B2 (#2555): new spend lands on v2. Read v1 alone and the probe undercounts on any
+    // database written after the cutover — the same silence-as-health failure the loud
+    // alerts exist to end. Concatenated, not unioned in SQL: the two reads are small,
+    // windowed, index-backed probes, and the report groups by task afterward anyway.
+    return [...v1, ...v2];
   }
 
   /**

@@ -1154,6 +1154,42 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "SILENT. The cursor is a timestamp only, but the posture here is table-DEFAULT: every " +
       "table in this manifest carries the lock, so a missing one is a drift report, not a debate",
   },
+  // 0158 (#2555 B2, cost ledger that survives account deletion): the per-finished-
+  // profile ledger — opaque ids (FK-free, so erasure cannot cascade here),
+  // completed_at, the spend-time test flag and the source enum. Unconditional — no
+  // flag — because the writer (ProfileExtractionProcessor names these columns
+  // explicitly) and the admin dashboard denominator read this table on every summary.
+  // Registered up front.
+  {
+    id: "0158-cost-ledger",
+    migration: "0158_cost-ledger",
+    kind: "table",
+    table: "profile_completion_ledger",
+    requiredBy:
+      "ProfileExtractionProcessor's same-transaction ledger insert beside the " +
+      "profile.extraction_completed emit, the db:backfill:cost-ledger historical insert, " +
+      "and the admin dashboard profiling-denominator read — all of which name the table",
+    failureMode:
+      "profile completions 500 (relation does not exist) and the GET " +
+      "admin/dashboard/summary denominator read 500s. Old builds on a migrated database " +
+      "are fine (a superset); new builds on an unmigrated one are not, which is why this " +
+      "is APPLY-BEFORE-DEPLOY",
+  },
+  {
+    id: "0158-cost-ledger-rls",
+    migration: "0158_cost-ledger",
+    kind: "rls",
+    table: "profile_completion_ledger",
+    requiredBy:
+      "no code path — the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices: tests/e2e/rls-spine.e2e.test.ts is " +
+      "skipIf-gated",
+    failureMode:
+      "SILENT. The ledger keys finished profiles to spend-time test flags; without FORCE " +
+      "the owner bypasses every policy and without the REVOKEs every PostgREST role can " +
+      "read the spend split. Both surfaces keep working, so nothing reports it",
+  },
 ] as const;
 
 /** What the live database actually has, keyed by requirement id. */

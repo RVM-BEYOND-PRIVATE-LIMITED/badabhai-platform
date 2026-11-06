@@ -31,10 +31,12 @@
  * production database with nothing in the way. The obvious cure for the over-refusal — delete
  * that line — removes the write protection in the same gesture.
  *
- * ⚠ THE THREE FIXTURE SEEDS ARE THE SHARPEST CASE, and they are not on the D2 path, which is
- * why they are still here. `seed.ts`, `seed-demand.ts` and `seed-reach-pool.ts` write SYNTHETIC
+ * ⚠ THE FIXTURE SEEDS WERE THE SHARPEST CASE, and most are not on the D2 path, which is
+ * why two of them are still here. `seed.ts` and `seed-demand.ts` write SYNTHETIC
  * data. Their guard reads as "never in production" — and against an unset NODE_ENV it permits
- * exactly that. Nothing on this list is more worth fixing next.
+ * exactly that. (`seed-reach-pool.ts` was the third; B2 #2555 converted it, and deleting
+ * its entry below is how that fix is recorded.) Nothing on this list is more worth
+ * fixing next.
  */
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -71,12 +73,6 @@ export const STILL_ON_THE_OLD_GUARD: readonly Remaining[] = [
   {
     file: "seed-demand.ts",
     reason: "Fixture seed for demand. Same shape and same hazard as seed.ts.",
-    writesOnProduction: true,
-  },
-  {
-    file: "seed-reach-pool.ts",
-    reason:
-      "Fixture seed for the reach pool, and the largest of the three by row count. Same hazard.",
     writesOnProduction: true,
   },
   {
@@ -150,15 +146,18 @@ describe("ops-guard adoption — the list of what is left is checked, not rememb
     }
   });
 
-  it("the four D2-path runners are NOT on the list — they were converted", () => {
+  it("the converted runners are NOT on the list — they were converted", () => {
     // Named explicitly rather than inferred from the absence of a string: the point of the
-    // change was these four, and an assertion that only counted files would pass if one of
+    // change was these runners, and an assertion that only counted files would pass if one of
     // them had been converted halfway and lost its guard entirely.
     const converted = [
       "seed-skills.ts",
       "embed-skill-aliases.ts",
       "promote-skills.ts",
       "match-v1-cli.ts",
+      // B2 (#2555): the reach-pool fixture seed enforces the ops guard with a literal
+      // script name, so it cannot drift onto a shared one.
+      "seed-reach-pool.ts",
     ];
     const still = new Set(filesStillUsingTheOldGuard());
     for (const f of converted) expect(still.has(f)).toBe(false);
@@ -178,6 +177,7 @@ describe("ops-guard adoption — the list of what is left is checked, not rememb
       "embed-skill-aliases.ts": "script: SCRIPT,",
       "promote-skills.ts": "script: SCRIPT,",
       "match-v1-cli.ts": "script: scriptName,",
+      "seed-reach-pool.ts": 'script: "seed:reach",',
     };
     for (const [file, token] of Object.entries(nameArg)) {
       expect(readFileSync(join(SRC, file), "utf8"), `${file} must pass a script name`).toContain(

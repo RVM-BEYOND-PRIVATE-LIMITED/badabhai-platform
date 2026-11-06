@@ -38,7 +38,10 @@
  * to prove sort-never-block: a blank field never drops a worker, only lowers evidence.
  *
  * ── Invariants (CLAUDE.md §2) ───────────────────────────────────────────────────
- *  PROD-GUARD : refuses to run when NODE_ENV === "production" (mirrors seed-demand.ts).
+ *  PROD-GUARD : every mode writes or deletes, so every invocation enforces the ops
+ *               guard (`enforceOpsGuard`): a production-like target needs the dual
+ *               authorisation, and a missing DATABASE_URL refuses outright. The target
+ *               decides, not NODE_ENV.
  *  SYNTHETIC  : fake names ("Test Worker 0001"), synthetic E.164 phones, encrypted via
  *               the SHARED crypto (encryptPii ciphertext + hashPhone HMAC; needs
  *               PII_ENCRYPTION_KEY / PII_HASH_PEPPER). PII is NEVER written to events,
@@ -72,6 +75,7 @@
 import { config } from "dotenv";
 import { inArray } from "drizzle-orm";
 import { createDbClient } from "./client";
+import { enforceOpsGuard } from "./ops-guard";
 import {
   workers,
   workerProfiles,
@@ -529,12 +533,15 @@ function assertSeedContentPiiFree(
 // Writer — idempotent inserts (ON CONFLICT). Mirrors seed-demand.ts discipline.
 // ---------------------------------------------------------------------------
 async function main(): Promise<void> {
-  if (process.env.NODE_ENV === "production") {
-    throw new Error("[seed:reach] refusing to seed synthetic fixtures in production.");
-  }
-
-  const url = process.env.DATABASE_URL;
-  if (!url) throw new Error("[seed:reach] DATABASE_URL is not set");
+  // Every mode here writes or deletes — plain seed inserts, `--reset` reseeds, and
+  // `--unseed-only` tears the namespaced rows down — so every invocation is mutating.
+  // The TARGET decides, not NODE_ENV (see ops-guard.ts): a production-like database
+  // needs the dual authorisation, and a missing DATABASE_URL refuses outright.
+  const { connectionString: url } = enforceOpsGuard({
+    script: "seed:reach",
+    connectionString: process.env.DATABASE_URL,
+    mutating: true,
+  });
 
   const key = process.env.PII_ENCRYPTION_KEY;
   const pepper = process.env.PII_HASH_PEPPER;
