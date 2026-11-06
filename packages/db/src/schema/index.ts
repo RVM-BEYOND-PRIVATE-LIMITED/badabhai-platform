@@ -103,6 +103,7 @@ import {
   payerMemberInvites,
 } from "./payer-onboarding";
 import { platformAiCostTotals, sessionAiCostTotals, workerAiCostTotals } from "./ai-cost";
+import { profileCompletionLedger } from "./cost-ledger";
 import { workerFeedback } from "./feedback";
 import { aiCallTraces } from "./ai-trace";
 import { deleteForensics } from "./delete-forensics";
@@ -424,4 +425,9 @@ export const schema = {
   // the `export *` above.
   adminCandidateIndex,
   adminCandidateIndexCursor,
+  // B2 (#2555) — the cost ledger that survives account deletion (migration 0159).
+  // Same rule as deleteForensics above: present on every migrated database, so it
+  // belongs here — the RLS no-drift E2E counts this object against the live
+  // `pg_tables`, and a missing entry reads as model drift.
+  profileCompletionLedger,
 };
