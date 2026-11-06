@@ -17,6 +17,7 @@ import { PayerOrgsRepository } from "../payers/payer-orgs.repository";
 import { PayerSessionService } from "../payers/payer-session.service";
 import { PayerPasswordStateService } from "../payers/payer-password-state.service";
 import { PayerSecurityNoticeService } from "../payers/payer-security-notice.service";
+import { barredPayerMessage, isBarredPayerStatus } from "../payers/payer-barred-status";
 import type { AuthenticatedAdmin } from "./admin-auth.guard";
 import { ADMIN_ACTION_CODES } from "./admin-actions.service";
 import { AdminIdentityService } from "./admin-identity.service";
@@ -216,6 +217,16 @@ export class AdminPayerLoginsService {
     admin: AuthenticatedAdmin,
     dto: AdminCreatePayerLoginDto,
     ctx: RequestContext,
+    /**
+     * #2564 — "create a company" REUSES this path (the company's first login is created exactly
+     * as today: same 409s, same activation, same temporary password, same audit + events). The
+     * Companies service passes this hook to write its own company record — the profile row, its
+     * own audit reason and `admin.action_performed` — INSIDE this transaction, after the payer,
+     * org and credential exist. A throw rolls the whole creation back, login included.
+     */
+    hooks?: {
+      withinTransaction?: (tx: Database, payerId: string) => Promise<void>;
+    },
   ): Promise<AdminCreatePayerLoginResponse> {
     const temporaryPassword = generateTemporaryPassword();
     const hash = this.pii.hashPassword(temporaryPassword);
@@ -258,6 +269,12 @@ export class AdminPayerLoginsService {
           }
           const root = await this.payers.findById(org.rootPayerId);
           if (!root) throw new NotFoundException("Organisation not found");
+          // #2564 - a suspended or ARCHIVED company gets no new team logins: the org row stays
+          // `active` through both (nothing writes `payer_orgs.status`), so the founder's own
+          // status is the authority, exactly as the tenancy resolver's anchor check reads it.
+          if (isBarredPayerStatus(root.status)) {
+            throw new ConflictException(`Organisation is ${root.status}`);
+          }
           createdRole = root.role;
           orgId = org.id;
           createInput = {
@@ -346,6 +363,7 @@ export class AdminPayerLoginsService {
           idempotencyKey: `payer.created:${created.id}`,
           tx,
         });
+        if (hooks?.withinTransaction) await hooks.withinTransaction(tx, created.id);
       });
     } catch (err) {
       // The 409 transaction rolled back, so the existence check would leave no trace. Write a
@@ -400,8 +418,9 @@ export class AdminPayerLoginsService {
     await this.repo.withTransaction(async (tx) => {
       const row = await this.payers.findById(payerId, tx);
       if (!row) throw new NotFoundException("Payer not found");
-      if (row.status === "suspended") {
-        throw new ConflictException("Account is suspended");
+      // #2564 - an ARCHIVED login is refused a credential the same way a suspended one is.
+      if (isBarredPayerStatus(row.status)) {
+        throw new ConflictException(barredPayerMessage(row.status));
       }
       // An admin vouches for a pending self-signup by issuing its first credential; leaving it
       // pending would make the new temporary password unusable at both sign-in doors.

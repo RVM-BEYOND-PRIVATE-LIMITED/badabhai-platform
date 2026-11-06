@@ -192,6 +192,22 @@ export class PayerOrgsRepository {
     return rows.flatMap((row) => (row.nameEnc === null ? [] : [row.nameEnc]));
   }
 
+  /**
+   * #2564 - after a company rename, copy the ROOT payer's freshly written `org_name_enc` onto its
+   * org row so `payer_orgs.name_enc` cannot drift from the name the company now goes by. The
+   * ciphertext moves table to table inside SQL: nothing is decrypted or re-encrypted here, and
+   * it runs on the caller's transaction so the rename and the copy commit together.
+   */
+  async syncNameFromRoot(rootPayerId: string, tx: Database): Promise<void> {
+    await tx
+      .update(payerOrgs)
+      .set({
+        nameEnc: sql`(SELECT ${payers.orgNameEnc} FROM ${payers} WHERE ${payers.id} = ${rootPayerId})`,
+        updatedAt: new Date(),
+      })
+      .where(eq(payerOrgs.rootPayerId, rootPayerId));
+  }
+
   /** #2563 - the org a team member is being attached to, or undefined. */
   async findOrgById(
     orgId: string,

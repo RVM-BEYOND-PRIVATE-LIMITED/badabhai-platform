@@ -9,6 +9,7 @@ import { AdminPiiRevealController } from "./admin-pii-reveal.controller";
 import { AdminKillSwitchController } from "./admin-kill-switch.controller";
 import { AdminEntitiesController } from "./admin-entities.controller";
 import { AdminPayerLoginsController } from "./admin-payer-logins.controller";
+import { AdminCompaniesController } from "./companies/admin-companies.controller";
 import { AdminFeedbackController } from "./admin-feedback.controller";
 import { AdminFinanceController } from "./admin-finance.controller";
 import { AdminDirectoryController } from "./admin-directory.controller";
@@ -845,7 +846,7 @@ describe("identity reads — one reader, one decrypter, and no name search", () 
     return headers.find((h) => h.name.toLowerCase() === "cache-control")?.value;
   }
 
-  it("EXACTLY FOUR non-test files reach the identity layer (the no-store derivation's own input)", () => {
+  it("EXACTLY FIVE non-test files reach the identity layer (the no-store derivation's own input)", () => {
     // `nameBearingHandlers` derives METHODS from source, which is the right shape — but it is
     // only ever CALLED with hardcoded filenames, so the derivation is wrapped in exactly the
     // hand-kept list its own header says a hand-kept list is what a new route gets left off.
@@ -875,11 +876,13 @@ describe("identity reads — one reader, one decrypter, and no name search", () 
         "admin/admin-entities.service.ts",
         // #2563 — the User accounts list.
         "admin/admin-payer-logins.service.ts",
+        // #2564 — the Companies list (names) and detail (names + contact PII).
+        "admin/companies/admin-companies.service.ts",
       ].sort(),
     );
   });
 
-  it("the DERIVED name-bearing handler set is exactly the five reads the ruling names", () => {
+  it("the DERIVED name-bearing handler set is exactly the seven reads the ruling names", () => {
     // Pinned so the derivation cannot go vacuously empty. If it did, the no-store test below
     // would pass over an empty set and prove nothing — the failure mode that makes a derived
     // assertion worse than a hardcoded one instead of better.
@@ -892,6 +895,11 @@ describe("identity reads — one reader, one decrypter, and no name search", () 
     expect(nameBearingHandlers("admin-directory.service.ts")).toEqual(["directory"]);
     expect(nameBearingHandlers("admin-candidate-detail.service.ts")).toEqual(["getCandidate"]);
     expect(nameBearingHandlers("admin-payer-logins.service.ts")).toEqual(["listAccounts"]);
+    // #2564 — the Companies list (names) and detail (names + the `company_profiles` contact PII).
+    expect(nameBearingHandlers("companies/admin-companies.service.ts")).toEqual([
+      "getCompany",
+      "listCompanies",
+    ]);
   });
 
   it("EVERY name-bearing route sets Cache-Control: no-store (the reveal route's Control 8)", () => {
@@ -921,6 +929,13 @@ describe("identity reads — one reader, one decrypter, and no name search", () 
         "no-store",
       );
     }
+    // #2564 — the Companies reads, and the create route, whose body carries a one-time password.
+    for (const method of nameBearingHandlers("companies/admin-companies.service.ts")) {
+      expect(cacheControlOf(AdminCompaniesController, method), `${method} must be no-store`).toBe(
+        "no-store",
+      );
+    }
+    expect(cacheControlOf(AdminCompaniesController, "createCompany")).toBe("no-store");
   });
 
   it("the FACELESS entity routes are unchanged — no-store is not sprayed across the controller", () => {
@@ -964,6 +979,19 @@ describe("identity reads — one reader, one decrypter, and no name search", () 
     // the only thing standing between it and being quietly dropped in a refactor.
     const svc = code("admin-identity.service.ts");
     expect(svc).toContain(`can(admin.role, "read_identity")`);
+  });
+
+  it("#2564 the `company_profiles` identity surface is used ONLY by the company-record service", () => {
+    // The surface exists to disclose ONE company's contact PII (GSTIN, address, phone, email,
+    // contact person). A second caller would silently become another place those fields are
+    // decrypted, outside the Companies screen. The identity service is the dispatcher.
+    const callers = tsFiles(ADMIN_DIR)
+      .filter((f) => !f.endsWith(".test.ts"))
+      .filter((f) => !f.endsWith("admin-identity.service.ts"))
+      .filter((f) => code(relative(ADMIN_DIR, f)).includes("discloseCompanyProfile("))
+      .map((f) => relative(SRC_DIR, f).replace(/\\/g, "/"))
+      .sort();
+    expect(callers).toEqual(["admin/companies/admin-companies.service.ts"]);
   });
 
   it("the `payer_logins` identity surface is used ONLY by the payer-login service", () => {

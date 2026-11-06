@@ -86,6 +86,8 @@ describe("PayersRepository — payer PII at rest (ADR-0019 B-R2 / ADR-0004 disci
       passwordRevokedAt: null,
       sessionsValidAfter: null,
       lastLoginAt: null,
+      orgNameTokenHashes: [],
+      orgNameTokenKeyId: null,
       createdAt: new Date(),
       updatedAt: new Date(),
     };

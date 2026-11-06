@@ -714,6 +714,8 @@ const PAYER_STATUS_KEYS: Record<PayerStatus, true> = {
   pending: true,
   active: true,
   suspended: true,
+  // #2564 — the company archive. Reported as its own bucket, never folded into `suspended`.
+  archived: true,
 };
 export const DASHBOARD_PAYER_ROLES = Object.keys(PAYER_ROLE_KEYS) as readonly PayerRole[];
 export const DASHBOARD_PAYER_STATUSES = Object.keys(PAYER_STATUS_KEYS) as readonly PayerStatus[];

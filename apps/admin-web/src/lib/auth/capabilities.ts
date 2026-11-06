@@ -70,6 +70,9 @@ export const ADMIN_CAPABILITIES = [
   // #2566 — posting control: edit, pause/resume, close, hide/unhide, verify/reject on company
   // postings and agency jobs. Vocabulary only: this file carries no role mapping.
   "manage_postings",
+  // #2564 — company records: create, edit, archive and restore a company or agency.
+  // Vocabulary only: this file carries no role mapping.
+  "manage_companies",
 ] as const;
 
 export type AdminCapability = (typeof ADMIN_CAPABILITIES)[number];
@@ -114,6 +117,7 @@ export const CAPABILITY_LABELS: Record<AdminCapability, string> = {
   manage_admins: "Manage admins",
   read_candidates: "Read candidate records — every profile field and where it came from",
   manage_postings: "Edit, pause, close, hide and verify postings",
+  manage_companies: "Create, edit, archive and restore companies",
 };
 
 /** Narrow an unknown string to a known capability (anything else is dropped, not trusted). */

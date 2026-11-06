@@ -972,6 +972,53 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "the legacy jobs feed, the agency job routes and the twin sync 500 (column does not " +
       "exist). APPLY-BEFORE-DEPLOY, same reason as the posting entry above",
   },
+  // 0158 (#2564 B10, company records): the company-name search tokens on `payers`, the first
+  // `payers.status` CHECK (with 'archived'), and the company contact columns on both profile
+  // tables. Unconditional - no flag - because `payers` is read through bare `select()` /
+  // `.returning()` on every payer auth request. One entry per object a request names.
+  {
+    id: "0158-payers-org-name-tokens",
+    migration: "0158_company_records",
+    kind: "column",
+    table: "payers",
+    object: "org_name_token_hashes",
+    requiredBy:
+      "PayersRepository's bare `select()` / `.returning()` (findById, findByEmail, findByPhone, " +
+      "update, createOrGet) and findAuthFacts on every authenticated payer request; the admin " +
+      "Companies list's name search. `org_name_token_key_id` rides the same migration",
+    failureMode:
+      "every payer auth route and every guarded /payer/* request 500s (column does not exist), " +
+      "and the admin Companies list 500s. Old builds on a migrated database are fine (a " +
+      "superset); new builds on an unmigrated one are not, which is why this is APPLY-BEFORE-DEPLOY",
+  },
+  {
+    id: "0158-payers-status-chk",
+    migration: "0158_company_records",
+    kind: "constraint",
+    table: "payers",
+    object: "payers_status_chk",
+    requiredBy:
+      "no read - the lifecycle's integrity. Archive (#2564) adds the first value outside the " +
+      "pending/active/suspended set every gate was written against; the CHECK is what stops a " +
+      'typo\'d status from reaching a gate that compares with `=== "suspended"`',
+    failureMode:
+      "SILENT: an out-of-set status is stored and every status gate treats it as whatever its " +
+      "comparison happens to say - a misspelt 'archived' would sign in. Nothing reports it",
+  },
+  {
+    id: "0158-employer-profiles-contact",
+    migration: "0158_company_records",
+    kind: "column",
+    table: "employer_profiles",
+    object: "company_email_enc",
+    requiredBy:
+      "AdminCompaniesRepository's profile read/upsert on GET/PATCH /admin/companies/:id and " +
+      "POST /admin/companies. The other three contact columns, `gst_number_hash`, and the same " +
+      "set on `agency_profiles` (plus its `gst_number_enc` / `website`) ride the same migration",
+    failureMode:
+      "the admin Companies detail, edit and create routes 500 (column does not exist); payer " +
+      "sign-in is unaffected (nothing on the payer path reads the profile tables)",
+  },
   // 0134: THE API names `payer_applicant_stages` only while PAYER_APPLICANT_STAGES_ENABLED is on
   // (owner ruling 2026-10-07, the payer pipeline board), so a deploy ahead of the migration breaks
   // no request and the table is NOT a `table` entry. It is listed for its lock, exactly as 0128's

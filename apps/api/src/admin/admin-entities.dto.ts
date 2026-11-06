@@ -16,6 +16,7 @@ import type {
   PayerRole,
   PayerStatus,
 } from "@badabhai/db";
+import { PAYER_STATUSES } from "@badabhai/db";
 
 /**
  * Zod DTOs + response projections for the admin FACELESS entity reads (BP-1, ADR-0025
@@ -124,7 +125,7 @@ export const AdminPayersQuerySchema = z
   .object({
     ...pageShape,
     role: z.enum(["employer", "agent"]).optional(),
-    status: z.enum(["pending", "active", "suspended"]).optional(),
+    status: z.enum(PAYER_STATUSES).optional(),
   })
   .strict();
 export type AdminPayersQueryDto = z.infer<typeof AdminPayersQuerySchema>;

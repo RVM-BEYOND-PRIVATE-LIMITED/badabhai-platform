@@ -12,7 +12,8 @@
  */
 
 /** `AdminPayersQuerySchema.status` — Companies and Agencies. */
-export const PAYER_STATUSES = ["pending", "active", "suspended"] as const;
+// #2564 — `archived` (the company archive) is a filterable payer status on the server.
+export const PAYER_STATUSES = ["pending", "active", "suspended", "archived"] as const;
 
 /** `AdminLedgerQuerySchema.reason` — the credit ledger's reason chips, in the chips' order. */
 export const LEDGER_REASONS = ["pack_purchase", "grant", "unlock_debit", "refund"] as const;

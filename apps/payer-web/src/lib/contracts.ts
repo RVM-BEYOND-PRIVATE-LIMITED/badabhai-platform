@@ -908,7 +908,9 @@ export const orgRoleWireSchema = z.enum(["owner", "recruiter"]) satisfies z.ZodT
 export const payerMeWireSchema = z.object({
   id: z.string().uuid(),
   role: z.enum(["employer", "agent"]),
-  status: z.enum(["pending", "active", "suspended"]),
+  // #2564 — `archived` mirrors the server's payer status list (an archived company is refused
+  // at sign-in and by the guard, so it should never be served; the wire still parses it).
+  status: z.enum(["pending", "active", "suspended", "archived"]),
   orgName: z.string(),
   email: z.string().email().nullable().optional(),
   phoneLast4: z.string().length(4).nullable().optional(),
@@ -935,7 +937,7 @@ export type PayerMeWire = z.infer<typeof payerMeWireSchema>;
  */
 export const agencyAccountSchema = z.object({
   role: z.enum(["employer", "agent"]),
-  status: z.enum(["pending", "active", "suspended"]),
+  status: z.enum(["pending", "active", "suspended", "archived"]),
   displayLabel: z.string(),
 });
 export type AgencyAccount = z.infer<typeof agencyAccountSchema>;

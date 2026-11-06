@@ -5,6 +5,7 @@ import { EventsService } from "../events/events.service";
 import { isUniqueViolation } from "../common/db-error";
 import { PiiCryptoService } from "../common/pii-crypto.service";
 import { PayersRepository } from "../payers/payers.repository";
+import { isBarredPayerStatus } from "../payers/payer-barred-status";
 import type { PayerTenantScope, TenantKey } from "../payers/payer-tenant-scope";
 import { AgencyKycRepository } from "./agency-kyc.repository";
 import type { SubmitAgencyKycDto } from "./agency-kyc.dto";
@@ -163,8 +164,9 @@ export class AgencyKycService {
     // away, never grants it, and ops must stay able to clear a fraudulent submission from
     // the queue without first reinstating the account that submitted it.
     const facts = await this.payers.findAuthFacts(payerId);
-    if (facts?.status === "suspended") {
-      throw new ConflictException("Agency is suspended; KYC cannot be verified");
+    // #2564 - an ARCHIVED agency is barred the same way.
+    if (isBarredPayerStatus(facts?.status)) {
+      throw new ConflictException(`Agency is ${facts.status}; KYC cannot be verified`);
     }
     const at = await this.repo.markVerified(payerId);
     if (at) {

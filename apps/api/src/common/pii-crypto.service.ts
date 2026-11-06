@@ -5,6 +5,8 @@ import { SERVER_CONFIG } from "../config/config.module";
 import {
   hashPhone,
   hashOrgName,
+  hashGstin,
+  normalizeGstin,
   hashIp,
   hmacValue,
   encryptPii,
@@ -61,6 +63,15 @@ export class PiiCryptoService {
    */
   hashOrgName(normalizedOrgName: string): string {
     return hashOrgName(normalizedOrgName, this.pepper);
+  }
+
+  /**
+   * #2564 — the exact-match lookup key for a company GSTIN (`*_profiles.gst_number_hash`).
+   * Normalises first (upper-case, whitespace removed), so a write and a search of the same
+   * GSTIN always hash identically. Never the GSTIN itself.
+   */
+  hashGstin(gstin: string): string {
+    return hashGstin(normalizeGstin(gstin), this.pepper);
   }
 
   hashIp(ip: string): string {

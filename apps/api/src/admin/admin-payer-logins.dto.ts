@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { e164PhoneSchema } from "@badabhai/validators";
-import type { OrgRole, PayerRole, PayerStatus } from "@badabhai/db";
+import { PAYER_STATUSES, type OrgRole, type PayerRole, type PayerStatus } from "@badabhai/db";
 import { containsHardIdentifier } from "../common/hard-identifier";
 import type { AdminPage } from "./admin-entities.dto";
 
@@ -121,7 +121,7 @@ export const AdminAccountsQuerySchema = z
     cursor: z.string().min(1).max(256).optional(),
     limit: z.coerce.number().int().positive().max(50).optional().default(25),
     role: AdminPayerRoleSchema.optional(),
-    status: z.enum(["pending", "active", "suspended"]).optional(),
+    status: z.enum(PAYER_STATUSES).optional(),
     password_state: z
       .enum(["none", "set", "temporary_pending", "temporary_expired", "revoked"])
       .optional(),

@@ -33,7 +33,7 @@ export function PayerDetailHeader({
   /** Back link, title and description, built on the server. */
   header: PageHeaderContent;
   payerId: string;
-  status: "pending" | "active" | "suspended";
+  status: "pending" | "active" | "suspended" | "archived";
   canSuspend: boolean;
   /** This account's event timeline, or null for a reader without `read_events`. */
   timelineHref: string | null;
@@ -51,7 +51,9 @@ export function PayerDetailHeader({
       <PageHeader
         {...header}
         primaryAction={
-          canSuspend ? (
+          // #2564 — an ARCHIVED company is neither suspended nor reinstated (the API refuses both
+          // with a 409); it is restored from the Companies screen.
+          canSuspend && status !== "archived" ? (
             status === "suspended" ? (
               <AdminActionButton
                 label="Reinstate"

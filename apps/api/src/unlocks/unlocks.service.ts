@@ -24,6 +24,7 @@ import { WorkersRepository } from "../workers/workers.repository";
 import { PiiCryptoService } from "../common/pii-crypto.service";
 import { MatchConfigService } from "../match/match-config.service";
 import { PayersRepository } from "../payers/payers.repository";
+import { isBarredPayerStatus } from "../payers/payer-barred-status";
 import type { JobRefPolicy } from "../payers/job-ref-policy";
 import { PayerTenantScopeService } from "../payers/payer-tenant-scope.service";
 import type { PayerTenantScope, TenantKey } from "../payers/payer-tenant-scope";
@@ -1038,7 +1039,8 @@ export class UnlockService {
   ): Promise<void> {
     try {
       const facts = await this.payers.findAuthFacts(payerId);
-      if (facts?.status !== "suspended") return;
+      // #2564 - money captured for an ARCHIVED company is the same ops problem; same alert.
+      if (!isBarredPayerStatus(facts?.status)) return;
       await this.events.emit({
         event_name: "payer.suspended_payment_captured",
         actor: { actor_type: "system", actor_id: null },
