@@ -7,7 +7,8 @@
 export const ACCOUNT_ROLES = ["employer", "agent"] as const;
 export type AccountRole = (typeof ACCOUNT_ROLES)[number];
 
-export const ACCOUNT_STATUSES = ["pending", "active", "suspended"] as const;
+// #2564 — a login of an archived company reads `archived` on the User accounts list.
+export const ACCOUNT_STATUSES = ["pending", "active", "suspended", "archived"] as const;
 export type AccountStatus = (typeof ACCOUNT_STATUSES)[number];
 
 export const ACCOUNT_PASSWORD_STATES = [

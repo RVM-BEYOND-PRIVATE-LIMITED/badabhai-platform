@@ -101,6 +101,9 @@ import { CandidateIndexRepository } from "./candidate-index/candidate-index.repo
 import { CandidateIndexProjector } from "./candidate-index/candidate-index.projector";
 import { CandidateIndexProcessor } from "./candidate-index/candidate-index.processor";
 import { NameTokenService } from "./candidate-index/name-token.service";
+import { AdminCompaniesRepository } from "./companies/admin-companies.repository";
+import { AdminCompaniesService } from "./companies/admin-companies.service";
+import { AdminCompaniesController } from "./companies/admin-companies.controller";
 import { CandidateSearchRepository } from "../candidates/candidate-search.repository";
 import { WorkerAttributesRepository } from "../profiles/worker-attributes.repository";
 import { WorkerLanguagesRepository } from "../profiles/worker-languages.repository";
@@ -250,6 +253,8 @@ import { WorkerQualificationsRepository } from "../profiles/worker-qualification
     // B5 (#2559) — the Candidates data-bank search list (POST: the term travels
     // in the body, never the URL — ADR-0062 §3.6).
     AdminCandidatesController,
+    // #2564 (B10) — the company record (create / edit / archive / restore / list / detail).
+    AdminCompaniesController,
   ],
   providers: [
     AdminRepository,
@@ -475,6 +480,11 @@ import { WorkerQualificationsRepository } from "../profiles/worker-qualification
     WorkerLanguagesRepository,
     WorkerOccupationsRepository,
     CandidateSearchRepository,
+    // #2564 (B10) — the company record. Reuses AdminPayerLoginsService (create), the
+    // AdminActionsRepository inventory cascade (archive/restore), AdminIdentityService (names +
+    // contact PII) and NameTokenService (company-name search), all provided above.
+    AdminCompaniesRepository,
+    AdminCompaniesService,
   ],
   exports: [AdminAuthGuard, AdminRolesGuard, AdminSessionService, AdminRepository],
 })

@@ -394,7 +394,10 @@ describe("the 0082 R39 requirements", () => {
     // are absent, so it cannot be the migration an operator is told to apply to fix a fresh
     // database. 0084 is, because it creates AND locks in one file.
     const four = ["agency_profiles", "employer_profiles", "payer_capabilities", "payer_member_invites"];
-    const listed = SCHEMA_REQUIREMENTS.filter((r) => four.includes(r.table));
+    // THE RLS REQUIREMENTS specifically. #2564 added a COLUMN requirement on
+    // `employer_profiles` (migration 0159 wires the company record), which is not part of the
+    // 0082/0084 lock story this case pins; filtering by kind keeps the two questions separate.
+    const listed = SCHEMA_REQUIREMENTS.filter((r) => four.includes(r.table) && r.kind === "rls");
     expect(listed.map((r) => r.table).sort()).toEqual([...four].sort());
     for (const r of listed) {
       expect(r.migration).toBe("0084_model_gap_db_21_payer_onboarding");

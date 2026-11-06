@@ -27,6 +27,7 @@ import { EventsService } from "../events/events.service";
 import { PayersRepository, CURRENT_PASSWORD_PEPPER_VERSION } from "../payers/payers.repository";
 import { PayerOrgsRepository, type ResolvedOrg } from "../payers/payer-orgs.repository";
 import { PayerSessionService } from "../payers/payer-session.service";
+import { barredPayerMessage, isBarredPayerStatus } from "../payers/payer-barred-status";
 import { payerPasswordAttemptsKey } from "../payers/payer-password-lockout";
 import { PayerSecurityNoticeService } from "../payers/payer-security-notice.service";
 import { resolveSessionOrgClaim } from "../payers/payer-session-org-claim";
@@ -231,6 +232,15 @@ export class PayerAuthService {
         requestId: ctx.requestId,
       });
     }
+    // #2564 - a suspended or ARCHIVED synthetic account gets no session either. Before this, the
+    // seam minted one and PayerAuthGuard 403'd the very next request; refusing here keeps every
+    // sign-in door telling the same truth.
+    if (!created) {
+      const existing = await this.payers.findById(id);
+      if (isBarredPayerStatus(existing?.status)) {
+        throw new ForbiddenException(barredPayerMessage(existing.status));
+      }
+    }
     const org = await this.resolveOrEnsureOrg(id);
     // A synthetic account must be `active` or PayerAuthGuard 403s it on the very next request.
     await this.payers.activate(id);
@@ -286,9 +296,11 @@ export class PayerAuthService {
     // exists and that they control its mailbox. There is no oracle left to protect — and
     // TD110 records what the alternative costs: payer login was down end-to-end and stayed
     // invisible precisely because the client collapses every verify failure into one
-    // neutral message. A suspended payer must be able to learn WHY.
-    if (account.status === "suspended") {
-      throw new ForbiddenException("Account is suspended");
+    // neutral message. A suspended payer must be able to learn WHY. #2564 - an ARCHIVED company
+    // is refused the same way (before this, verify minted it a session and only the guard on
+    // the next request said no).
+    if (isBarredPayerStatus(account.status)) {
+      throw new ForbiddenException(barredPayerMessage(account.status));
     }
 
     // #2563 — a TEMPORARY password must be replaced before any session is issued, and the
@@ -413,7 +425,9 @@ export class PayerAuthService {
     // The HTTP response is byte-identical to the normal one; the attempt is recorded ONLY on
     // the spine, which is what makes repeated probing of a banned account visible to ops
     // without being visible to the caller.
-    if (row?.status === "suspended") {
+    //
+    // #2564 - an ARCHIVED company is suppressed the same way; the spine reason says which.
+    if (isBarredPayerStatus(row?.status)) {
       const issued = await this.otp.issueWithoutDelivery(contactHash);
       // Emitted INSTEAD of `payer.login_requested`, not alongside it: no login code was
       // delivered, so counting one would overstate the login funnel and would bury repeated
@@ -422,7 +436,10 @@ export class PayerAuthService {
         event_name: "payer.otp_suppressed",
         actor: { actor_type: "payer", actor_id: payerId },
         subject: { subject_type: "payer", subject_id: payerId },
-        payload: { payer_id: payerId, reason: "account_suspended" },
+        payload: {
+          payer_id: payerId,
+          reason: row!.status === "archived" ? "account_archived" : "account_suspended",
+        },
         correlationId: ctx.correlationId,
         requestId: ctx.requestId,
       });
@@ -647,8 +664,8 @@ export class PayerAuthService {
       throw new UnauthorizedException("Incorrect identifier or password");
     }
 
-    if (account.status === "suspended") {
-      throw new ForbiddenException("Account is suspended");
+    if (isBarredPayerStatus(account.status)) {
+      throw new ForbiddenException(barredPayerMessage(account.status));
     }
     if (account.status !== "active") {
       // Pending (or any future non-active state): a password alone NEVER promotes —

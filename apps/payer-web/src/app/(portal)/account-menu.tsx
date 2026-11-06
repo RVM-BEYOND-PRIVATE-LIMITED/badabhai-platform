@@ -31,7 +31,7 @@ import { logoutAction } from "./logout-action";
  */
 
 type Role = "employer" | "agent";
-type Status = "pending" | "active" | "suspended";
+type Status = "pending" | "active" | "suspended" | "archived";
 
 export interface AccountMenuProps {
   orgName: string;
@@ -48,12 +48,14 @@ const STATUS_TONE: Record<Status, "success" | "warning" | "danger"> = {
   active: "success",
   pending: "warning",
   suspended: "danger",
+  archived: "danger",
 };
 
 const STATUS_LABEL: Record<Status, string> = {
   active: "Active",
   pending: "Pending",
   suspended: "Suspended",
+  archived: "Archived",
 };
 
 // `phoneLast4` is part of the shell's identity contract but is shown only on the full

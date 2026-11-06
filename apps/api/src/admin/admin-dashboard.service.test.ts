@@ -718,7 +718,8 @@ describe("volume — every closed enum is reported in full", () => {
     const out = await makeService({
       payerStatuses: [
         { key: "active", count: 5 },
-        { key: "archived", count: 3 },
+        // #2564 — `archived` is a KNOWN payer status now; a misspelt/foreign key is the drift.
+        { key: "archivd", count: 3 },
         { key: "", count: 2 },
       ],
       payerRoles: [{ key: "employer", count: 10 }],

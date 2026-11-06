@@ -1,8 +1,9 @@
-import { Inject, Injectable } from "@nestjs/common";
+import { Inject, Injectable, Optional } from "@nestjs/common";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { type Database, payers, type Payer, type PayerRole, type PayerStatus } from "@badabhai/db";
 import { DATABASE } from "../database/database.module";
 import { PiiCryptoService } from "../common/pii-crypto.service";
+import { NameTokenService } from "../admin/candidate-index/name-token.service";
 
 /**
  * The pepper version that produced a row's `password_hash` (#2497). Defined once in
@@ -64,7 +65,27 @@ export class PayersRepository {
   constructor(
     @Inject(DATABASE) private readonly db: Database,
     private readonly pii: PiiCryptoService,
+    // #2564 — company-name search tokens. Optional so every existing `new PayersRepository(db,
+    // pii)` keeps compiling and simply writes no tokens (`[]` + NULL kid = not tokenised).
+    @Optional() private readonly nameTokens?: NameTokenService,
   ) {}
+
+  /**
+   * #2564 — the company-name search tokens for a PLAINTEXT org name: keyed HMACs of each folded
+   * word under the `company:` domain. `[]` + NULL kid when the keys are unset (name search is
+   * then OFF, fail closed) or for the neutral placeholder a removed member is reset to, which
+   * names no company. Written in the SAME statement as `org_name_enc`, so they cannot drift.
+   */
+  private orgNameTokens(orgName: string): {
+    orgNameTokenHashes: string[];
+    orgNameTokenKeyId: string | null;
+  } {
+    if (orgName === DEFAULT_ORG_NAME || !this.nameTokens) {
+      return { orgNameTokenHashes: [], orgNameTokenKeyId: null };
+    }
+    const { hashes, kid } = this.nameTokens.tokenise(orgName, "company");
+    return { orgNameTokenHashes: hashes, orgNameTokenKeyId: kid };
+  }
 
   /** Run `work` inside ONE transaction (the caller's atomic boundary for a write + its event). */
   withTransaction<T>(work: (tx: Database) => Promise<T>): Promise<T> {
@@ -94,14 +115,24 @@ export class PayersRepository {
   private orgColumns(input: CreatePayerInput): {
     orgNameEnc: string;
     orgNameLookupHash: string | null;
+    orgNameTokenHashes: string[];
+    orgNameTokenKeyId: string | null;
   } {
     if (input.orgName !== undefined) {
       return {
         orgNameEnc: this.pii.encrypt(input.orgName),
         orgNameLookupHash: this.pii.hashOrgName(PayersRepository.normOrgName(input.orgName)),
+        ...this.orgNameTokens(input.orgName),
       };
     }
-    return { orgNameEnc: input.orgNameEnc, orgNameLookupHash: null };
+    // A team member's copied ciphertext: no plaintext, so no lookup hash and no search tokens —
+    // the Companies list finds the org through its ROOT, never through a member's copy.
+    return {
+      orgNameEnc: input.orgNameEnc,
+      orgNameLookupHash: null,
+      orgNameTokenHashes: [],
+      orgNameTokenKeyId: null,
+    };
   }
 
   /** Create a payer, encrypting all contact PII at rest. Returns the new id only. */
@@ -315,19 +346,26 @@ export class PayersRepository {
   async update(
     id: string,
     patch: { orgName?: string; phone?: string },
+    tx?: Database,
   ): Promise<Payer | undefined> {
     const set: Partial<typeof payers.$inferInsert> = { updatedAt: new Date() };
     if (patch.orgName !== undefined) {
       set.orgNameEnc = this.pii.encrypt(patch.orgName);
-      // #2497 — the exact-name login key follows the display name (same write, so
+      // #2497 - the exact-name login key follows the display name (same write, so
       // they can never drift: a renamed payer keeps logging in by the new name).
       set.orgNameLookupHash = this.pii.hashOrgName(PayersRepository.normOrgName(patch.orgName));
+      // #2564 - and so do the company-name search tokens.
+      Object.assign(set, this.orgNameTokens(patch.orgName));
     }
     if (patch.phone !== undefined) {
       set.phoneEnc = this.pii.encrypt(patch.phone);
       set.phoneHash = this.pii.hashPhone(patch.phone);
     }
-    const [row] = await this.db.update(payers).set(set).where(eq(payers.id, id)).returning();
+    const [row] = await (tx ?? this.db)
+      .update(payers)
+      .set(set)
+      .where(eq(payers.id, id))
+      .returning();
     return row;
   }
 
@@ -533,6 +571,8 @@ export class PayersRepository {
           orgName === DEFAULT_ORG_NAME
             ? null
             : this.pii.hashOrgName(PayersRepository.normOrgName(orgName)),
+        // #2564 - tokens follow the name (none for the neutral placeholder).
+        ...this.orgNameTokens(orgName),
         updatedAt: new Date(),
       })
       .where(eq(payers.id, id));

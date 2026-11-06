@@ -223,6 +223,20 @@ export const ADMIN_CAPABILITIES = [
    * `analyst` are denied: neither moderates inventory.
    */
   "manage_postings",
+  /**
+   * #2564 — WRITE a company record: create a company or agency (its first login rides #2563's
+   * create path), edit its profile, archive and restore it. `super_admin` + `ops_admin`.
+   *
+   * ── WHY ITS OWN ROW ───────────────────────────────────────────────────────────────────
+   * `suspend_payer` is a reversible moderation freeze; `manage_payer_credentials` mints a
+   * credential. Archive takes a whole ORGANISATION and every one of its logins off the
+   * platform, and the profile edit writes the company's GSTIN and contact details. Folding it
+   * into either neighbour would hand those acts to every holder of that grant — `support` holds
+   * `manage_payer_credentials` and must not archive a company. The READS (list, detail) stay on
+   * the `read_entities` floor; the contact fields on the detail are additionally behind
+   * `read_identity` inside `AdminIdentityService`.
+   */
+  "manage_companies",
 ] as const;
 
 export type AdminCapability = (typeof ADMIN_CAPABILITIES)[number];
@@ -292,6 +306,8 @@ export const ADMIN_CAPABILITY_MATRIX: Record<AdminCapability, readonly AdminRole
   // #2566 — posting/job correction + visibility. Distinct from `force_close_posting`: this
   // row also edits public text/reach and hides inventory without changing its status.
   manage_postings: ["super_admin", "ops_admin"],
+  // #2564 — company records (create, edit, archive, restore). `support` and `analyst` denied.
+  manage_companies: ["super_admin", "ops_admin"],
 } as const;
 
 /**

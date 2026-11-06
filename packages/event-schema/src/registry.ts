@@ -1647,6 +1647,26 @@ export const EVENT_REGISTRY = {
     domain: "job",
     payload: p.JobUnhiddenPayload,
   },
+
+  // [#2564] Company records. Appended at the tail per protocol. `payer.archived` /
+  // `payer.restored` reuse the ADR-0037 lifecycle shape (`previous_status` / `new_status`), one
+  // per LOGIN the company archive moved (the root and every active team member). The admin edit
+  // is its own keys-only event. All v1; the admin is the envelope actor; no value rides along.
+  "payer.archived": {
+    version: 1,
+    domain: "payer",
+    payload: p.PayerLifecycleTransitionPayload,
+  },
+  "payer.restored": {
+    version: 1,
+    domain: "payer",
+    payload: p.PayerLifecycleTransitionPayload,
+  },
+  "payer.company_updated": {
+    version: 1,
+    domain: "payer",
+    payload: p.PayerCompanyUpdatedPayload,
+  },
 } as const satisfies Record<string, EventDefinition>;
 
 /** Union of all known event names. */

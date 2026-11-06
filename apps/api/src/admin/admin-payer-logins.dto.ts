@@ -121,7 +121,8 @@ export const AdminAccountsQuerySchema = z
     cursor: z.string().min(1).max(256).optional(),
     limit: z.coerce.number().int().positive().max(50).optional().default(25),
     role: AdminPayerRoleSchema.optional(),
-    status: z.enum(["pending", "active", "suspended"]).optional(),
+    // Literal, pinned to admin-web's copy by `list-filter-values.test.ts`. #2564 adds `archived`.
+    status: z.enum(["pending", "active", "suspended", "archived"]).optional(),
     password_state: z
       .enum(["none", "set", "temporary_pending", "temporary_expired", "revoked"])
       .optional(),

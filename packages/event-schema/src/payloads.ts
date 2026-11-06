@@ -2322,7 +2322,11 @@ export type PayerCreatedPayload = z.infer<typeof PayerCreatedPayload>;
  * system value, not PII — unlike the payer's email/org-name/phone, which stay encrypted
  * in `payers` and never reach an event. Mirrors `PayerStatus` in packages/db.
  */
-export const PayerStatusEnum = z.enum(["pending", "active", "suspended"]);
+// #2564 — `archived` is an ADDITIVE member (the `skills` / `trade_fields` precedent): every
+// payload already on the spine still validates, and no reader is told a value it has seen
+// before means something new. `payer.archived` / `payer.restored` are the transitions into and
+// out of it; the existing lifecycle events can now name it as a previous/new status too.
+export const PayerStatusEnum = z.enum(["pending", "active", "suspended", "archived"]);
 export type PayerStatusEnum = z.infer<typeof PayerStatusEnum>;
 
 /**
@@ -2406,7 +2410,9 @@ export type PayerInventoryTransitionPayload = z.infer<typeof PayerInventoryTrans
 export const PayerOtpSuppressedPayload = z
   .object({
     payer_id: uuidSchema,
-    reason: z.enum(["account_suspended"]),
+    // #2564 — `account_archived` (ADDITIVE member): an archived company asked for a code. The
+    // same neutral response the suspended case gets; the reason only tells the two apart here.
+    reason: z.enum(["account_suspended", "account_archived"]),
   })
   .strict();
 export type PayerOtpSuppressedPayload = z.infer<typeof PayerOtpSuppressedPayload>;
@@ -2553,6 +2559,47 @@ export const PayerAccountUpdatedPayload = z.object({
   changed_fields: z.array(z.enum(PAYER_ACCOUNT_CHANGED_FIELDS)).min(1),
 });
 export type PayerAccountUpdatedPayload = z.infer<typeof PayerAccountUpdatedPayload>;
+
+/**
+ * #2564 — the company-record field KEYS an ADMIN may edit (`PATCH /admin/companies/:id`).
+ * KEYS ONLY, exactly like `payer.account_updated`: the GSTIN, address, phone, email, contact
+ * person and name VALUES are B2B PII and live encrypted on the row; the reason text lives on
+ * `audit_logs`. Exported so the API's edit contract is derived from this list, not re-typed.
+ */
+export const COMPANY_CHANGED_FIELDS = [
+  "org_name",
+  "gst_number",
+  "address",
+  "website",
+  "phone",
+  "email",
+  "contact_person",
+  "verification_status",
+  "industry",
+  "company_size",
+  "hiring_locations",
+  "agency_type",
+  "operating_cities",
+  "recruiter_count",
+] as const;
+export type CompanyChangedField = (typeof COMPANY_CHANGED_FIELDS)[number];
+
+/**
+ * #2564 — an ADMIN edited a company record. A NEW event rather than a widened
+ * `payer.account_updated`: that one is the payer's own self-edit of two keys, and a reader of it
+ * must keep being able to say "the payer changed this". Subject = the org's ROOT payer; the admin
+ * is the envelope actor. `.strict()` so no value can ride along.
+ */
+export const PayerCompanyUpdatedPayload = z
+  .object({
+    payer_id: uuidSchema,
+    changed_fields: z
+      .array(z.enum(COMPANY_CHANGED_FIELDS))
+      .min(1)
+      .max(COMPANY_CHANGED_FIELDS.length),
+  })
+  .strict();
+export type PayerCompanyUpdatedPayload = z.infer<typeof PayerCompanyUpdatedPayload>;
 
 /**
  * A payer deleted their OWN account via the QA-only immediate seam
@@ -3228,12 +3275,16 @@ export type AdminPiiRevealCapExceededPayload = z.infer<typeof AdminPiiRevealCapE
  *             carries its own name-view budget (ADR-0062 §3.7), and an auditor must see
  *             which budget a disclosure charged.
  */
+// #2564 — `company_profiles` (ADDITIVE member): the company record's contact PII (GSTIN, address,
+// company phone/email, contact person) on GET /admin/companies/:id. `result_count` counts the
+// non-empty FIELDS disclosed for the one company, never their values.
 export const ADMIN_IDENTITY_SURFACES = [
   "workers",
   "payers",
   "admins",
   "payer_logins",
   "candidates",
+  "company_profiles",
 ] as const;
 export const AdminIdentitySurface = z.enum(ADMIN_IDENTITY_SURFACES);
 export type AdminIdentitySurface = z.infer<typeof AdminIdentitySurface>;

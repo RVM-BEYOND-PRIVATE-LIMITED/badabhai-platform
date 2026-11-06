@@ -57,6 +57,20 @@ export function hashOrgName(normalizedOrgName: string, pepper: string): string {
   return hmacSha256Hex(pepper, `payer_org:${normalizedOrgName}`);
 }
 
+/**
+ * #2564 — the exact-match lookup key for a company's GSTIN (`*_profiles.gst_number_hash`).
+ * Its own `gstin:` domain so it can never collide with a phone, email or org-name hash. The
+ * input MUST already be normalized (upper-case, whitespace removed — `normalizeGstin`).
+ */
+export function hashGstin(normalizedGstin: string, pepper: string): string {
+  return hmacSha256Hex(pepper, `gstin:${normalizedGstin}`);
+}
+
+/** #2564 — the one GSTIN normalisation: upper-case with every whitespace character removed. */
+export function normalizeGstin(gstin: string): string {
+  return gstin.replace(/\s+/g, "").toUpperCase();
+}
+
 /** Peppered hash of an IP for consent/audit records. */
 export function hashIp(ip: string, pepper: string): string {
   return hmacSha256Hex(pepper, `ip:${ip}`);

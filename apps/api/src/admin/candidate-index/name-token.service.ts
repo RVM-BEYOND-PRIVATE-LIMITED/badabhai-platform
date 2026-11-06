@@ -59,22 +59,49 @@ export function parseNameTokenKeyring(
 }
 
 /**
+ * WHICH kind of name a token belongs to (#2564). Under one key the same word must NOT produce the
+ * same token for a worker and a company, or the two token sets would be joinable ("which
+ * candidates share a word with this company's name"). `worker` is the ORIGINAL, UNPREFIXED input
+ * — every token already stored in `admin_candidate_index` was computed that way, so it must stay
+ * byte-identical. Every other domain prefixes the folded word with `<domain>:` before the HMAC.
+ */
+export type NameTokenDomain = "worker" | "company";
+
+/**
  * The canonical word tokens of a stored name under one keyring key. Pure —
  * the projector calls it with the decrypted name IN MEMORY ONLY (named decrypt
  * site: the plaintext never leaves this call, is never returned, never logged).
  */
-export function computeNameTokens(name: string, key: Buffer): string[] {
+export function computeNameTokens(
+  name: string,
+  key: Buffer,
+  domain: NameTokenDomain = "worker",
+): string[] {
   const words = foldName(name).split(/\s+/).filter((w) => w.length > 0);
   const tokens = new Set<string>();
   for (const word of words) {
     for (const { part } of nameWordParts(word)) {
       const folded = foldAwayMarks(part).toLowerCase();
       if (codePointCount(folded) < 2) continue;
-      tokens.add(createHmac("sha256", key).update(folded, "utf8").digest("hex"));
+      const input = domain === "worker" ? folded : `${domain}:${folded}`;
+      tokens.add(createHmac("sha256", key).update(input, "utf8").digest("hex"));
     }
   }
   return [...tokens].sort();
 }
+
+/**
+ * A search query's tokens under every key in the ring (ADR-0062 §3.6 rotation: hash under each
+ * key, accept a row stored under either). `unavailable` = the keyring is unset or malformed —
+ * name search is OFF and the caller must say so rather than return a silently empty result.
+ */
+export type NameQueryTokens =
+  | { readonly available: false }
+  | {
+      readonly available: true;
+      /** Per key id; `hashes` is EMPTY when the query holds no word of 2+ letters. */
+      readonly perKey: ReadonlyArray<{ readonly kid: string; readonly hashes: string[] }>;
+    };
 
 @Injectable()
 export class NameTokenService {
@@ -93,14 +120,32 @@ export class NameTokenService {
    * is unavailable. The name plaintext is an argument only — never stored,
    * logged or returned.
    */
-  tokenise(name: string | null): { hashes: string[]; kid: string | null } {
+  tokenise(
+    name: string | null,
+    domain: NameTokenDomain = "worker",
+  ): { hashes: string[]; kid: string | null } {
     const ring = this.keyring();
     if (ring === null || name === null || name.trim() === "") {
       return { hashes: [], kid: null };
     }
     const key = ring.keys.get(ring.activeKid);
     if (!key) return { hashes: [], kid: null };
-    return { hashes: computeNameTokens(name, key), kid: ring.activeKid };
+    return { hashes: computeNameTokens(name, key, domain), kid: ring.activeKid };
+  }
+
+  /**
+   * #2564 — tokenise a SEARCH QUERY under every key in the ring, for whole-word exact matching
+   * (`stored_tokens @> query_tokens` for the row's own key id). The query text is an argument
+   * only — never stored, logged or returned.
+   */
+  queryTokens(query: string, domain: NameTokenDomain): NameQueryTokens {
+    const ring = this.keyring();
+    if (ring === null) return { available: false };
+    const perKey = [...ring.keys.entries()].map(([kid, key]) => ({
+      kid,
+      hashes: computeNameTokens(query, key, domain),
+    }));
+    return { available: true, perKey };
   }
 
   /**

@@ -6,6 +6,7 @@ import { SERVER_CONFIG } from "../config/config.module";
 import { RESUME_RENDER_QUEUE } from "../queue/queue.constants";
 import { DatabaseModule } from "../database/database.module";
 import { PayersRepository } from "./payers.repository";
+import { NameTokenService } from "../admin/candidate-index/name-token.service";
 import { PayerOrgsRepository } from "./payer-orgs.repository";
 import { PayerTenantScopeService } from "./payer-tenant-scope.service";
 import { PayerSessionService } from "./payer-session.service";
@@ -59,6 +60,9 @@ import { PayerAccountController } from "./payer-account.controller";
   controllers: [PayerAccountController],
   providers: [
     PayersRepository,
+    // #2564 — the company-name search tokens `PayersRepository` writes beside `org_name_enc`.
+    // Stateless (it reads only SERVER_CONFIG), so this instance and AdminModule's are equivalent.
+    NameTokenService,
     PayerOrgsRepository,
     PayerSessionService,
     PayerPasswordStateService,

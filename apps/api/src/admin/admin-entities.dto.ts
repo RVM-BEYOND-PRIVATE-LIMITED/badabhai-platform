@@ -17,6 +17,7 @@ import type {
   PayerStatus,
 } from "@badabhai/db";
 
+
 /**
  * Zod DTOs + response projections for the admin FACELESS entity reads (BP-1, ADR-0025
  * Decision 3.1 row 2 — "Read entities (workers/payers/jobs/postings — faceless, no PII)").
@@ -124,7 +125,9 @@ export const AdminPayersQuerySchema = z
   .object({
     ...pageShape,
     role: z.enum(["employer", "agent"]).optional(),
-    status: z.enum(["pending", "active", "suspended"]).optional(),
+    // Literal, not `z.enum(PAYER_STATUSES)`: admin-web's list-filter pin reads this array out
+    // of the source and fails on drift (`list-filter-values.test.ts`). #2564 adds `archived`.
+    status: z.enum(["pending", "active", "suspended", "archived"]).optional(),
   })
   .strict();
 export type AdminPayersQueryDto = z.infer<typeof AdminPayersQuerySchema>;

@@ -55,12 +55,13 @@
  * constraint the model does not mention.
  *
  * ===========================================================================
- * NOT WIRED TO ANYTHING
+ * WIRED: THE TWO PROFILE TABLES (#2564). STILL UNWIRED: THE OTHER TWO.
  * ===========================================================================
- * No repository, service or query reads these tables. Declaring them creates a MODEL, not a
- * feature — `payer_capabilities` in particular is a per-payer boolean permission matrix that
- * the shipped `payer_members.org_role` enum supersedes, and nothing should start reading it
- * without a product ruling that the design is alive.
+ * Owner ruling D4 (#2564): `employer_profiles` and `agency_profiles` ARE the company record —
+ * the admin Companies surface reads and writes them (1:1 with the org's ROOT payer), and they
+ * gain the contact columns below. `payer_capabilities` (superseded by `payer_members.org_role`)
+ * and `payer_member_invites` stay a model only; nothing should start reading them without a
+ * product ruling that the design is alive.
  */
 import { sql } from "drizzle-orm";
 import {
@@ -79,6 +80,19 @@ import {
 
 import { jsonArray, jsonObject } from "./internal/sql-defaults";
 import { payers } from "./payer";
+
+/*
+ * #2564 — the company-record contact columns BOTH profile tables gain (owner ruling D4: wire
+ * these tables rather than add a third): `address_enc`, `company_phone_enc`,
+ * `company_email_enc`, `contact_person_enc`. All four are B2B PII stored as AES ciphertext (the
+ * `*_enc` house convention); none has a lookup hash and none may reach an event, a log or an
+ * LLM prompt. They describe the COMPANY, never a login — changing `company_email_enc` changes
+ * nobody's sign-in (login IDs are #2563's `payers.email_*` / `phone_*`).
+ *
+ * Declared INLINE in each table, not through a shared helper: `reencrypt-pii-backfill.test.ts`
+ * discovers encrypted columns by reading each `pgTable(...)` body, and a column built outside
+ * that body would be invisible to the rotation-coverage guard.
+ */
 
 /**
  * Shared by both profile tables, and the same four values in each.
@@ -119,6 +133,15 @@ export const agencyProfiles = pgTable(
       .default("pending"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    // #2564 — company-record contact fields (see the note above the tables).
+    addressEnc: text("address_enc"),
+    companyPhoneEnc: text("company_phone_enc"),
+    companyEmailEnc: text("company_email_enc"),
+    contactPersonEnc: text("contact_person_enc"),
+    /** #2564 — an agency has a GSTIN too; same pair as `employer_profiles`. */
+    gstNumberEnc: text("gst_number_enc"),
+    gstNumberHash: text("gst_number_hash"),
+    website: text("website"),
   },
   (t) => [
     foreignKey({
@@ -126,6 +149,7 @@ export const agencyProfiles = pgTable(
       foreignColumns: [payers.id],
       name: "agency_profiles_payer_id_fkey",
     }),
+    index("agency_profiles_gst_number_hash_idx").on(t.gstNumberHash),
     check(
       "agency_profiles_agency_type_check",
       sql`${t.agencyType} IS NULL OR ${t.agencyType} IN ('placement_agency', 'contractor', 'training_partner', 'consultant')`,
@@ -164,6 +188,13 @@ export const employerProfiles = pgTable(
       .default("pending"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    // #2564 — company-record contact fields (see the note above the tables).
+    addressEnc: text("address_enc"),
+    companyPhoneEnc: text("company_phone_enc"),
+    companyEmailEnc: text("company_email_enc"),
+    contactPersonEnc: text("contact_person_enc"),
+    /** #2564 — exact-match GSTIN search: `hashGstin(normalizeGstin(gst))`. Never the GSTIN. */
+    gstNumberHash: text("gst_number_hash"),
   },
   (t) => [
     foreignKey({
@@ -171,6 +202,7 @@ export const employerProfiles = pgTable(
       foreignColumns: [payers.id],
       name: "employer_profiles_payer_id_fkey",
     }),
+    index("employer_profiles_gst_number_hash_idx").on(t.gstNumberHash),
     check(
       "employer_profiles_verification_status_check",
       sql`${t.verificationStatus} IN ('pending', 'verified', 'rejected', 'suspended')`,

@@ -192,11 +192,13 @@ const STATUS_TONE: Record<Status, "success" | "warning" | "danger"> = {
   active: "success",
   pending: "warning",
   suspended: "danger",
+  archived: "danger",
 };
 const STATUS_LABEL: Record<Status, string> = {
   active: "Active",
   pending: "Pending",
   suspended: "Suspended",
+  archived: "Archived",
 };
 
 /**
