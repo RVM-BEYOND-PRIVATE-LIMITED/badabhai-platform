@@ -6,7 +6,8 @@
 # WHY THIS SCRIPT EXISTS
 # ============================================================================
 # R38's repo half is done: `docker-compose.yml` and `docker-compose.staging.yml` bind every
-# port to loopback except two that say why, and `published-port-binding-compose.guard.test.ts`
+# port to loopback — since #2542 with NO exceptions, the api and payer-web included (the host
+# nginx on 80/443 is the only ingress) — and `published-port-binding-compose.guard.test.ts`
 # fails CI if that stops being true.
 #
 # None of that changes a CONTAINER THAT IS ALREADY RUNNING. Docker fixes a port binding at
@@ -36,10 +37,11 @@ set -uo pipefail
 # in apps/api/src/config/published-port-binding-compose.guard.test.ts — the guard covers the
 # FILES, this covers the RUNNING CONTAINERS, and they are allowed to disagree only while a
 # residual like R38 is open.
-declare -A ALLOWED=(
-  [3001]="the api itself — the service the box exists to serve"
-  [3333]="payer-web — real browser traffic, loopback would defeat it"
-)
+#
+# EMPTY SINCE #2542: 3001 (api) and 3333 (payer-web) were listed here until both moved to
+# loopback behind the host nginx. Until the first deploy after that change recreates them,
+# their old 0.0.0.0 binds show up below as offenders — correctly.
+declare -A ALLOWED=()
 
 echo "== R38 port audit =="
 echo "host: $(hostname)   date: $(date -u +%FT%TZ)"
@@ -105,8 +107,8 @@ if [ ${#offenders[@]} -eq 0 ]; then
   echo "RESULT: nothing is published on 0.0.0.0 outside the allowlist."
   echo
   echo "The remaining R38 question is then the Lightsail SECURITY GROUP, which is not"
-  echo "visible from inside the box. Check it in the console: only 80/443 (and 3333 if"
-  echo "payer-web is meant to be reachable) should accept inbound from 0.0.0.0/0."
+  echo "visible from inside the box. Check it in the console: only 80/443 should accept"
+  echo "inbound from 0.0.0.0/0."
   exit 0
 fi
 
@@ -114,9 +116,13 @@ echo "RESULT: ${#offenders[@]} unexpected public bind(s) — THIS IS R38's RESID
 for o in "${offenders[@]}"; do echo "   $o"; done
 echo
 echo "-- remediation, for a human to run -----------------------------------------"
-echo "Docker fixes a bind at create time, so these cannot be re-bound in place. They have to"
-echo "be removed. Both are safe to remove and neither is part of the api profile, so the next"
-echo "deploy (\`up -d --no-deps api\`) will not bring them back:"
+echo "Docker fixes a bind at create time, so these cannot be re-bound in place."
+echo
+echo "  # badabhai-api / payer-web on 3001 / 3333 (#2542): re-run the deploy job of the LATEST"
+echo "  # main run. It recreates both from the loopback binds now in the compose files."
+echo
+echo "The two below have to be removed. Both are safe to remove and neither is part of the api"
+echo "profile, so the next deploy (\`up -d --no-deps api\`) will not bring them back:"
 echo
 echo "  # adminer is dev tooling with NO production purpose."
 echo "  docker stop adminer && docker rm adminer"

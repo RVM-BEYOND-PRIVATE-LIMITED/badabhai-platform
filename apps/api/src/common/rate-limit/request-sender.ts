@@ -2,8 +2,9 @@
  * WHO is asking — resolved for throttling, and for nothing else (#1035).
  *
  * THE BUG THIS EXISTS FOR. Every per-caller cap on the worker auth routes was keyed on
- * `req.ip`. `TRUST_PROXY_HOP_COUNT` defaults to 0 and the shipped topology has no reverse
- * proxy, so `req.ip` is the socket peer — the NAT egress address. Indian carriers run
+ * `req.ip`. `TRUST_PROXY_HOP_COUNT` defaults to 0, so `req.ip` is the socket peer — on
+ * production the box nginx today (#2542 arms one trusted hop), and even then the visitor's
+ * NAT egress address. Indian carriers run
  * large-scale CGNAT and a factory or office wifi fronts everyone standing in it, so one
  * public address is shared by a great many workers. A handful of sign-ins exhausted the
  * bucket and every other worker behind that address got a 429 they could only read as

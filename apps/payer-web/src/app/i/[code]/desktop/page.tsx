@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
-import { inviteLandingUrl, pingInviteClick } from "../../../../lib/invite-landing";
+import { pingInviteClick } from "../../../../lib/invite-click";
+import { inviteLandingUrl } from "../../../../lib/invite-landing";
 import { InviteQr } from "./invite-qr";
 
 /**

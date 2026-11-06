@@ -753,6 +753,17 @@ services:
       # Still a cap, not an uncap: 1000/hour/IP bounds farming/stuffing while leaving QA
       # headroom. KEEP IN SYNC with packages/config/src/server.ts (authoritative).
       PAYER_AUTH_MAX_PER_IP_PER_HOUR: ${PAYER_AUTH_MAX_PER_IP_PER_HOUR:-20}
+      # #2542 / TD25 — how many reverse-proxy hops of X-Forwarded-For the api trusts for
+      # `req.ip`, which keys EVERY per-IP cap above. 0 (the default, and the zod default) =
+      # the socket peer, i.e. ONE shared bucket for everything behind the host nginx. The box
+      # has exactly one appending nginx in front of 127.0.0.1:3001, so the armed value is 1.
+      # Bridged from the `production` secret of the same name (ci.yml); staging-deploy.sh's
+      # preflight refuses anything but empty/0/1 — 2+ would trust a client-written XFF entry.
+      # RE-DECLARED here although docker-compose.yml already carries the same line: that one
+      # is documented as the dev proxy-harness knob, and the production contract must not
+      # hang on a dev line someone might tidy away. Same expression, so the merged value is
+      # identical. Turn-on/rollback: docs/ops/visitor-ip-turn-on-runbook.md.
+      TRUST_PROXY_HOP_COUNT: ${TRUST_PROXY_HOP_COUNT:-0}
       # 0 DISABLES the post-deletion re-registration cool-down (ADR-0026 Phase 5). As of #1306 both
       # the WRITE (AccountDeletionService) and the READ (OtpService) honour it, so 0 is a true off
       # switch rather than "stop minting new tombstones". It does NOT clear keys already in Redis —
@@ -1260,9 +1271,13 @@ services:
     image: ${PAYER_WEB_IMAGE:?set the immutable ghcr sha tag, e.g. ghcr.io/<owner>/badabhai-platform/badabhai-payer-web:sha-<short7> — exported by deploy-lightsail in .github/workflows/ci.yml}
     restart: unless-stopped
     ports:
-      # BOX-SPECIFIC, deliberately NOT loopback-bound (unlike redis/ai-service above,
-      # CD-1a): the entire point of this v1 is reachability from OUTSIDE the box (real
-      # browser traffic), so a loopback bind would defeat it outright.
+      # LOOPBACK-BOUND since #2542, like redis/ai-service/admin-web (CD-1a). Browser
+      # traffic reaches this container through the host nginx (`proxy_pass
+      # http://127.0.0.1:3333`, owner-confirmed `nginx -T` 2026-11-04), so the all-interfaces
+      # bind the v1 needed is gone. It now MATTERS: payer-web derives the visitor address from
+      # X-Forwarded-For and the api trusts the one hop it forwards, so a request that reached
+      # 3333 without nginx could choose its own rate-limit identity. The deploy health gate
+      # below curls localhost, which loopback serves.
       #
       # `:-` (DEFAULTED), never `:?` (fail-loud) — and this is load-bearing, not a style
       # choice. Compose interpolates the ENTIRE merged file BEFORE it filters by service
@@ -1278,21 +1293,21 @@ services:
       #
       # HOST SIDE IS 3333, NOT 3002 — an owner-confirmed fact about THIS box, not a
       # guess: 3002 is already taken there, 3333 is free. The literal default follows the
-      # base file's api publish (`"3001:3001"`) — a literal published port is this repo's
-      # actual convention; no `${VAR:?}` port exists anywhere else. PAYER_WEB_PORT (GitHub
-      # "staging" Environment secret, bridged in ci.yml) survives purely as an override
-      # for a future box, so nothing has to be set for THIS one.
+      # base file's api publish (`"127.0.0.1:3001:3001"`) — a literal published port is this
+      # repo's actual convention; no `${VAR:?}` port exists anywhere else. PAYER_WEB_PORT
+      # (GitHub Environment secret, bridged in ci.yml) survives purely as an override for a
+      # future box, so nothing has to be set for THIS one — and moving it means moving the
+      # nginx `proxy_pass` with it.
       #
       # The CONTAINER side stays 3002 — this app's own port (`package.json`'s
       # `next start -p 3002`), matching PORT/EXPOSE below. Only the host side was ever in
       # contention; nothing outside this service dials the container port directly.
       #
-      # What is still a human step: confirming 3333 is open in the box's security group.
-      # That failure mode is correctly LOCALIZED — an unopened port makes payer-web
-      # unreachable, and a port already in use fails `up -d payer-web` loudly at the point
-      # it is actually relevant, AFTER api/ai-service have already deployed successfully.
-      # Neither can silently take the rest of the box's deploy down.
-      - "${PAYER_WEB_PORT:-3333}:3002"
+      # 3333 must NOT be open in the box's security group (only 80/443 are). A port already
+      # in use fails `up -d payer-web` loudly at the point it is relevant, AFTER
+      # api/ai-service have already deployed — it cannot take the rest of the deploy down.
+      # `published-port-binding-compose.guard.test.ts` fails CI if this bind reverts.
+      - "127.0.0.1:${PAYER_WEB_PORT:-3333}:3002"
     environment:
       NODE_ENV: production
       PORT: "3002"
@@ -1373,14 +1388,10 @@ services:
       # HOST SIDE IS 3003 — owner-confirmed as free on THIS box, not a guess, and it is
       # the app's own port so host and container match (no translation to remember).
       #
-      # ---- LOOPBACK-BOUND (`127.0.0.1:`), UNLIKE payer-web ABOVE. This is the one place
-      # this block deliberately does NOT copy payer-web, and it is because payer-web's own
-      # comment says WHY it binds every interface: "the entire point of this v1 is
-      # reachability from OUTSIDE the box (real browser traffic), so a loopback bind would
-      # defeat it outright." admin-web's requirement is the exact opposite — it must NOT be
-      # reachable from outside the box — so applying payer-web's stated reasoning to this
-      # service yields `127.0.0.1`, not `0.0.0.0`. The pattern being copied is the
-      # structure, not a binding whose justification does not transfer.
+      # ---- LOOPBACK-BOUND (`127.0.0.1:`). payer-web above used to bind every interface for
+      # direct browser traffic; since #2542 it is loopback too and reached only through the
+      # host nginx. admin-web has NO nginx server block at all (owner-confirmed `nginx -T`,
+      # 2026-11-04) — it is reachable over an SSH tunnel and nowhere else.
       #
       # This follows the CD-1a precedent already in the BASE file rather than inventing
       # one: redis (`127.0.0.1:6379:6379`) and ai-service (`127.0.0.1:8000:8000`) are both

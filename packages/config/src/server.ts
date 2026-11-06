@@ -521,9 +521,9 @@ export const serverEnvSchema = z.object({
   // one is not per-human: the `/i/<code>` landing page pings this endpoint SERVER-SIDE, so
   // every legitimate scan shares payer-web's single egress IP (`TRUST_PROXY_HOP_COUNT`
   // defaults to 0, so `req.ip` is the socket peer). 600/hour still bounds an abuser to a
-  // trivial amount of work while comfortably clearing the projected funnel volume. To make
-  // the cap genuinely per-visitor, set TRUST_PROXY_HOP_COUNT for the real edge topology —
-  // see the note on the click handler in messaging.controller.ts.
+  // trivial amount of work while comfortably clearing the projected funnel volume. #2542 makes
+  // it per-visitor once production arms TRUST_PROXY_HOP_COUNT=1 (payer-web forwards the visitor);
+  // resize it then — see the note on the click handler in messaging.controller.ts.
   //
   // A BREACH IS NOT AN ERROR HERE: the handler sheds the work and returns the SAME neutral
   // body (see the controller), so over-capping degrades the funnel statistic, never a
@@ -1296,8 +1296,9 @@ export const serverEnvSchema = z.object({
   // exhaust it on purpose. Brute force is no longer this cap's job: ADR-0060 locks each ACCOUNT
   // after ADMIN_PASSWORD_MAX_ATTEMPTS wrong passwords and, separately, wrong TOTP codes; email
   // codes keep their per-address cooldown and attempt cap. What this still bounds is raw request
-  // volume. The real fix is per-visitor addressing (trust the nginx hop + admin-web forwards the
-  // client address) — tracked with R73; lower this again once that lands.
+  // volume. #2542: admin-web is not public (127.0.0.1:3003, tunnel-only), so its bucket is only
+  // ever the admins themselves; once production arms TRUST_PROXY_HOP_COUNT=1, direct hits on
+  // `/admin/*` through nginx get per-visitor buckets too. Lower this then (the turn-on runbook).
   ADMIN_AUTH_MAX_PER_IP_PER_HOUR: z.coerce.number().int().positive().default(200),
   // Admin password sign-in (migration 0144) — the per-ACCOUNT attempt throttle, the admin
   // analogue of PAYER_PASSWORD_MAX_ATTEMPTS / _LOCKOUT_SECONDS (the per-IP cap above is shared

@@ -139,6 +139,21 @@ case "${PAYER_ORG_TENANCY_MODE-}" in
     ;;
 esac
 
+# #2542 / TD25: TRUST_PROXY_HOP_COUNT — how many X-Forwarded-For hops the api trusts for `req.ip`.
+# The box has exactly ONE appending nginx in front of the api, so the only correct values are 0
+# (dormant: socket peer) and 1 (armed). 2 or more is not "more permissive", it is a spoof: Express
+# would then trust an entry the CLIENT wrote, and anyone could rotate their rate-limit identity.
+# Non-numeric text stops the api booting (z.coerce.number), and the api `up` has no automatic
+# rollback. So only empty/0/1 pass, checked here before any prune, pull or recreate. Empty means 0
+# through compose's `${TRUST_PROXY_HOP_COUNT:-0}`. The value is never echoed.
+case "${TRUST_PROXY_HOP_COUNT-}" in
+  "" | 0 | 1) ;;
+  *)
+    echo "::error::TRUST_PROXY_HOP_COUNT must be exactly 0, 1 or empty (empty means 0). This box has one nginx hop; any other value lets a client choose its rate-limit identity. Fix the production secret (gh secret set TRUST_PROXY_HOP_COUNT --env production --body 0) and re-run. Nothing was deployed."
+    exit 1
+    ;;
+esac
+
 # EVERY OTHER BRIDGED BOOLEAN — the same boot-time grammar, the same reason. Each name below is
 # in the deploy job's `envs:` list in ci.yml AND parsed by the api's `booleanFromString`
 # (packages/config/src/server.ts), which throws at boot on anything but true/false/1/0/empty.

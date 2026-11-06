@@ -207,7 +207,20 @@ services:
       redis:
         condition: service_healthy
     ports:
-      - "3001:3001"
+      # #2542 — LOOPBACK, and it MUST live here: compose keys `ports` by
+      # {ip, target, published, protocol} and APPENDS a differing overlay entry, so the
+      # staging overlay cannot narrow a base "3001:3001" (both binds would survive).
+      # The box nginx proxies to 127.0.0.1:3001, so loopback is all it needs — and once
+      # TRUST_PROXY_HOP_COUNT=1 the api trusts ONE hop of X-Forwarded-For from its peer,
+      # so a request that reached 3001 without nginx could pick its own rate-limit
+      # identity. Containers reach `api:3001` over the compose network (published ports
+      # play no part); the deploy health gate curls localhost on the box.
+      # LOCAL DEV: the host, the Android emulator (10.0.2.2) and the iOS simulator all
+      # land on loopback and still work. A PHYSICAL phone on the LAN does not — use
+      # `adb reverse tcp:3001 tcp:3001` (USB), or a gitignored docker-compose.override.yml
+      # publishing a DIFFERENT host port, e.g. `- "3011:3001"` (a second bind on 3001
+      # itself collides with this one), then point the app at http://<lan-ip>:3011.
+      - "127.0.0.1:3001:3001"
     environment:
       # NODE_ENV=development keeps the dev-default PII/JWT/admin config guards happy
       # (the Dockerfile sets production). DEV-ONLY container — NOT production-safe

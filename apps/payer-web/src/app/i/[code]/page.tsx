@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
+import { pingInviteClick } from "../../../lib/invite-click";
 import {
   intentUrl,
   isWellFormedInviteCode,
-  pingInviteClick,
   playStoreBrowseUrl,
   playStoreUrl,
 } from "../../../lib/invite-landing";

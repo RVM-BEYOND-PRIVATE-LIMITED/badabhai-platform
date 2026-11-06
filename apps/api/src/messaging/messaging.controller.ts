@@ -68,13 +68,13 @@ export class MessagingController {
    *       `IpRateLimit` fails CLOSED on a Redis outage, which must likewise degrade the
    *       stat rather than 429 someone standing at a factory gate.
    *
-   * CAVEAT (deploy-time, not code): the `/i/<code>` landing page pings this SERVER-SIDE, so
-   * with `TRUST_PROXY_HOP_COUNT=0` (the default) every legitimate scan shares payer-web's
-   * single egress IP and lands in ONE bucket — hence the deliberately high default cap. Set
-   * TRUST_PROXY_HOP_COUNT to the real edge hop count to make the cap per-visitor. It is NOT
-   * set here and payer-web deliberately does NOT forward an X-Forwarded-For of its own:
-   * doing so while the hop count is unknown would hand an abuser a spoofable, rotatable
-   * rate-limit identity, which is worse than one coarse bucket (TD25 note in config).
+   * CAVEAT (deploy-time, not code): the `/i/<code>` landing page pings this SERVER-SIDE. With
+   * `TRUST_PROXY_HOP_COUNT=0` (the default) every legitimate scan shares payer-web's container
+   * address and lands in ONE bucket — hence the deliberately high default cap. #2542: payer-web
+   * now forwards the visitor (the last `X-Forwarded-For` entry the box nginx appended, validated
+   * as a public address) as its own `X-Forwarded-For`, and the api and payer-web are bound to
+   * loopback, so once production arms `TRUST_PROXY_HOP_COUNT=1` this cap is per visitor and the
+   * default should come down (docs/ops/visitor-ip-turn-on-runbook.md).
    */
   @Post("invites/:code/click")
   @HttpCode(200)
