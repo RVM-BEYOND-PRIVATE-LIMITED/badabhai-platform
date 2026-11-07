@@ -28,7 +28,7 @@ function make(
   };
   const config = {
     REFERRAL_SHORT_LINK_BASE: BASE,
-    REFERRAL_CLICK_MAX_PER_IP_PER_HOUR: 600,
+    REFERRAL_CLICK_MAX_PER_IP_PER_HOUR: 120,
   } as unknown as ServerConfig;
 
   const ctrl = new ReferralResolverController(
@@ -63,7 +63,7 @@ describe("GET /r/:code — always a 302, never a dead end", () => {
     expect(h.ipRateLimit.assertWithinHourlyIpCap).toHaveBeenCalledWith(
       "invite_click",
       "1.2.3.4",
-      600,
+      120,
     );
   });
 
@@ -104,7 +104,7 @@ describe("GET /r/:code — always a 302, never a dead end", () => {
     expect(h.ipRateLimit.assertWithinHourlyIpCap).toHaveBeenCalledWith(
       "invite_click",
       "unknown",
-      600,
+      120,
     );
   });
 
@@ -157,7 +157,7 @@ describe("SCENARIO 3 — TD113: a worker's own click is accepted, not just the a
       clicks as never,
       {} as never,
       { assertWithinHourlyIpCap: vi.fn().mockResolvedValue(undefined) } as never,
-      { REFERRAL_CLICK_MAX_PER_IP_PER_HOUR: 600 } as unknown as ServerConfig,
+      { REFERRAL_CLICK_MAX_PER_IP_PER_HOUR: 120 } as unknown as ServerConfig,
     );
 
     // No worker session, no agent session — exactly an invited worker tapping a link.

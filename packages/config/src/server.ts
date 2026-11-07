@@ -517,18 +517,17 @@ export const serverEnvSchema = z.object({
   // amplifier for burning DB time (each call is an indexed `invites` lookup plus, on a
   // miss, an `agency_invites` lookup, a status UPDATE and an events INSERT).
   //
-  // The default is deliberately MUCH higher than the other per-IP caps above, because this
-  // one is not per-human: the `/i/<code>` landing page pings this endpoint SERVER-SIDE, so
-  // every legitimate scan shares payer-web's single egress IP (`TRUST_PROXY_HOP_COUNT`
-  // defaults to 0, so `req.ip` is the socket peer). 600/hour still bounds an abuser to a
-  // trivial amount of work while comfortably clearing the projected funnel volume. #2542 makes
-  // it per-visitor once production arms TRUST_PROXY_HOP_COUNT=1 (payer-web forwards the visitor);
-  // resize it then — see the note on the click handler in messaging.controller.ts.
+  // The default was 600 while `TRUST_PROXY_HOP_COUNT=0`, when every legitimate scan shared
+  // payer-web's single egress IP. #2542 armed the one-hop topology: payer-web now forwards the
+  // visitor and the key is per visitor. 120/hour (2/minute) is still generous for a human
+  // tapping a shared link, while bounding one address to a trivial amount of work. KEEP CGNAT
+  // IN MIND: one public IPv4 can front a whole factory gate, and an over-cap click is shed
+  // SILENTLY — the landing page still works, only the funnel statistic misses it.
   //
   // A BREACH IS NOT AN ERROR HERE: the handler sheds the work and returns the SAME neutral
   // body (see the controller), so over-capping degrades the funnel statistic, never a
   // worker's install page.
-  REFERRAL_CLICK_MAX_PER_IP_PER_HOUR: z.coerce.number().int().positive().default(600),
+  REFERRAL_CLICK_MAX_PER_IP_PER_HOUR: z.coerce.number().int().positive().default(120),
   // B4 MATCH WINDOWS — how long a recorded click stays eligible to attribute an install.
   // CONFIG, NOT LITERALS, because these are exactly the numbers that get tuned once real
   // funnel data exists; a literal would mean a code change + a deploy to move them.
@@ -1289,17 +1288,17 @@ export const serverEnvSchema = z.object({
   // Per-IP hourly cap on the UNAUTHENTICATED admin auth endpoints (login request / verify /
   // MFA / password / forgot / reset / invite accept). Fail-closed (a Redis outage rejects).
   //
-  // WHY 200 (R73, owner ruling 2026-11-04; was 20). With TRUST_PROXY_HOP_COUNT=0 the API never
-  // sees a visitor's address: admin-web calls it server-to-server and public traffic arrives
-  // from nginx, so this "per-IP" bucket is ONE bucket for every admin sign-in on the platform.
-  // At 20, a sign-in costs 1–3 calls and a busy hour 429'd honest admins — and anyone could
-  // exhaust it on purpose. Brute force is no longer this cap's job: ADR-0060 locks each ACCOUNT
-  // after ADMIN_PASSWORD_MAX_ATTEMPTS wrong passwords and, separately, wrong TOTP codes; email
-  // codes keep their per-address cooldown and attempt cap. What this still bounds is raw request
-  // volume. #2542: admin-web is not public (127.0.0.1:3003, tunnel-only), so its bucket is only
-  // ever the admins themselves; once production arms TRUST_PROXY_HOP_COUNT=1, direct hits on
-  // `/admin/*` through nginx get per-visitor buckets too. Lower this then (the turn-on runbook).
-  ADMIN_AUTH_MAX_PER_IP_PER_HOUR: z.coerce.number().int().positive().default(200),
+  // WHY 20 (R73; was briefly 200 for the shared-bucket era). With TRUST_PROXY_HOP_COUNT=0 the
+  // API never saw a visitor's address: admin-web calls it server-to-server and public traffic
+  // arrived from nginx, so this "per-IP" bucket was ONE bucket for every admin sign-in. 200
+  // existed only to stop a busy hour 429'ing honest admins. #2542 armed the one-hop topology:
+  // direct `/admin/*` hits through nginx now get per-visitor buckets, and admin-web's own calls
+  // share only its tunnel-only container bucket, i.e. the admins themselves. 20 still covers
+  // every admin's sign-in (1–3 calls each) in an hour while bounding one visitor's request
+  // volume. Brute force is not this cap's job: ADR-0060 locks each ACCOUNT after
+  // ADMIN_PASSWORD_MAX_ATTEMPTS wrong passwords and, separately, wrong TOTP codes; email codes
+  // keep their per-address cooldown and attempt cap.
+  ADMIN_AUTH_MAX_PER_IP_PER_HOUR: z.coerce.number().int().positive().default(20),
   // Admin password sign-in (migration 0144) — the per-ACCOUNT attempt throttle, the admin
   // analogue of PAYER_PASSWORD_MAX_ATTEMPTS / _LOCKOUT_SECONDS (the per-IP cap above is shared
   // and coarse behind NAT). N failed passwords inside the window lock that admin's password door
