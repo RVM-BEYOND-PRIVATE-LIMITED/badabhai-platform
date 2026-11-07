@@ -19,6 +19,7 @@ import {
   type PostingTradesProblem,
 } from "../../../../lib/posting-trades";
 import { neededByLabel, payTypeLabel, shiftLabel } from "../../../../lib/job-card-view";
+import { VoiceDescriptionButton } from "../voice-description-button";
 import {
   CARD_NUMBER_FIELDS,
   gapInputFromValues,
@@ -920,6 +921,13 @@ export function PostingForm({
                   aria-invalid={errorOf("description", fieldErrors.description) ? true : undefined}
                   hint="Workers read this when they open the posting. Never include a phone number or email — share contact only after you unlock an applicant."
                   onChange={(e) => set("description", e.target.value)}
+                />
+                <VoiceDescriptionButton
+                  onDraft={(description) => set("description", description)}
+                  tradeLabel={
+                    postingTrades.find((t) => t.role_kind === fields.roleKind)?.role_label
+                  }
+                  roleLabel={fields.roleTitle.trim() || undefined}
                 />
               </div>
             </div>

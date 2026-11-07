@@ -7,13 +7,13 @@ import {
   NEEDED_BY,
   PAY_TYPES,
   SHIFTS,
-  TRADE_KEYS,
   type AgencyJob,
   type MatchSkillWire,
   type NeededBy,
   type PostingTradeFormWire,
 } from "../../../../lib/contracts";
 import { tradeLabel } from "../../../../lib/agency-view";
+import { tradeKeyForRoleKind } from "../../../../lib/agency-trade-map";
 import { roleOptionGroups } from "../../../../lib/job-roles";
 import { neededByLabel, payTypeLabel, shiftLabel } from "../../../../lib/job-card-view";
 import {
@@ -174,7 +174,7 @@ function fromJob(job: AgencyJob): FormFields {
 }
 
 const BLANK: FormFields = {
-  tradeKey: TRADE_KEYS[0],
+  tradeKey: "",
   roleKind: "",
   title: "",
   city: "",
@@ -315,6 +315,9 @@ export function AgencyJobForm({
     setFields((prev) => ({ ...prev, [key]: value }));
     if (key === "roleKind") {
       const form = postingTrades.find((tradeForm) => tradeForm.role_kind === value);
+      // #2718 — the single picker drives both fields: role_kind as picked,
+      // trade_key derived by the shared map.
+      setFields((prev) => ({ ...prev, tradeKey: tradeKeyForRoleKind(value) ?? "" }));
       setTrade({ tradeLevel: "", answers: {}, dirty: true });
       setSelection({
         matchSkillIds: form ? derivedMatchSkills(form, {}) : [],
@@ -462,7 +465,9 @@ export function AgencyJobForm({
       mode === "edit" && sameMatchPick(selection.matchSkillIds, job?.matchSkillIds ?? []);
     startTransition(async () => {
       const res = await onSubmit({
-        tradeKey: fields.tradeKey,
+        // #2718 — trade_key is never picked separately; derive it from
+        // role_kind, falling back to a stored key on an untouched edit.
+        tradeKey: tradeKeyForRoleKind(v.roleKind ?? "") ?? fields.tradeKey,
         roleKind: v.roleKind ?? "",
         title: v.title,
         city: v.city ?? "",
@@ -607,19 +612,6 @@ export function AgencyJobForm({
                       </option>
                     ))}
                   </optgroup>
-                ))}
-              </Select>
-
-              <Select
-                id="tradeKey"
-                label="Trade (matching)"
-                value={fields.tradeKey}
-                onChange={(e) => set("tradeKey", e.target.value)}
-              >
-                {TRADE_KEYS.map((t) => (
-                  <option key={t} value={t}>
-                    {tradeLabel(t)}
-                  </option>
                 ))}
               </Select>
 

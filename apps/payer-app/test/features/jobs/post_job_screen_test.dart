@@ -456,14 +456,9 @@ void main() {
     Size size = const Size(1000, 4000),
   }) async {
     await GetIt.instance.reset();
-    // A company form is served the 16-trade catalogue (it cannot post without
-    // one, #2635); the agency default keeps its trade-less fallback.
-    api = spy ??
-        _SpyApi(
-          trades: role == PayerRole.company
-              ? _companyTrades
-              : const <PostingTradeForm>[],
-        );
+    // Both branches are served the 16-trade catalogue: company cannot post
+    // without one, and the agency form's single picker (#2718) lists it.
+    api = spy ?? _SpyApi(trades: _companyTrades);
     backs = 0;
     setupLocator(apiClient: api, secureStore: InMemoryKeyValueStore());
     locator<AppSessionCubit>().signIn(role);
@@ -662,10 +657,12 @@ void main() {
       expect(find.text('Trade (optional)'), findsNothing);
     });
 
-    testWidgets('agency form asks for the worker-card role illustration',
+    testWidgets('agency form asks for one catalogue role, never a separate trade',
         (WidgetTester tester) async {
       await pump(tester, PayerRole.agency);
-      expect(find.text('Role (card illustration)'), findsOneWidget);
+      expect(find.text('Role'), findsOneWidget);
+      expect(find.text('Role (card illustration)'), findsNothing);
+      expect(find.text('Trade'), findsNothing);
     });
 
     testWidgets('untouched company form posts nothing', (
@@ -768,7 +765,7 @@ void main() {
 
       await typeInto(tester, 'Job title', 'Lathe hand');
       // The trade is the card's own trade line — no longer defaulted.
-      await tapChip(tester, 'CNC / VMC Setter');
+      await pickTrade(tester);
       await fillCardContent(
         tester,
         neededBy: 'Immediate',
@@ -796,7 +793,7 @@ void main() {
       await pump(tester, PayerRole.agency);
 
       await typeInto(tester, 'Job title', 'Fitter');
-      await tapChip(tester, 'CNC / VMC Setter');
+      await pickTrade(tester);
       await typeInto(tester, 'City', 'Pune');
       await tapPost(tester);
 
@@ -811,7 +808,7 @@ void main() {
       await pump(tester, PayerRole.agency);
 
       await typeInto(tester, 'Job title', 'Fitter');
-      await tapChip(tester, 'CNC / VMC Setter');
+      await pickTrade(tester);
       await fillCardContent(
         tester,
         neededBy: 'Immediate',
@@ -831,27 +828,29 @@ void main() {
     });
 
     // #1960 — the picker is no longer company-only: an agency job's
-    // `match_skill_ids` is the field ADR-0050's twin is served on.
+    // `match_skill_ids` is the field ADR-0050's twin is served on. With the
+    // #2718 single catalogue picker it is the trade form's own pick.
     testWidgets('the demand-skill pick rides the agency create (V1 live)', (
       WidgetTester tester,
     ) async {
-      await pump(tester, PayerRole.agency, spy: _V1SpyApi());
+      await pump(
+        tester,
+        PayerRole.agency,
+        spy: _V1SpyApi(trades: _companyTrades),
+      );
 
       await typeInto(tester, 'Job title', 'Lathe hand');
-      await tapChip(tester, 'CNC / VMC Setter');
+      await pickTrade(tester);
       await fillCardContent(
         tester,
         neededBy: 'Immediate',
         description: 'Turning job work on Fanuc controls.',
       );
 
-      expect(find.text('Skills this role needs'), findsOneWidget);
-      await tester.tap(find.text('CNC operating'));
-      await tester.pumpAndSettle();
       await tapPost(tester);
 
       expect(api.createdAgency, hasLength(1));
-      expect(api.agencyMatchSkillIds, <String>['mskill_cnc_operate']);
+      expect(api.agencyMatchSkillIds, <String>['mskill_welder']);
     });
   });
 
@@ -980,7 +979,7 @@ void main() {
       await pump(tester, PayerRole.agency);
 
       await typeInto(tester, 'Job title', 'Fitter');
-      await tapChip(tester, 'CNC / VMC Setter');
+      await pickTrade(tester);
       await fillCardContent(tester, city: '', neededBy: 'Immediate');
       await tapPost(tester);
 
@@ -988,7 +987,7 @@ void main() {
       expect(find.text('Add the city'), findsOneWidget);
     });
 
-    testWidgets('agency — an unpicked trade is refused, never defaulted', (
+    testWidgets('agency — an unpicked role is refused, never defaulted', (
       WidgetTester tester,
     ) async {
       await pump(tester, PayerRole.agency);
@@ -1000,7 +999,7 @@ void main() {
       // It used to default to the FIRST trade, so an agency that never chose
       // one still advertised 'CNC Operator' on the worker's card.
       expect(api.createdAgency, isEmpty);
-      expect(find.text('Pick the trade'), findsOneWidget);
+      expect(find.text('Pick the role'), findsOneWidget);
     });
 
     testWidgets('company — an unpicked pay type is refused', (
@@ -1071,8 +1070,9 @@ void main() {
       await tapPost(tester);
 
       expect(api.createdAgency, isEmpty);
-      // Both are refused at their own chips (#2595).
-      expect(find.text('Pick the trade'), findsOneWidget);
+      // Both are refused at their own controls (#2595); the trade follows the
+      // one role pick (#2718).
+      expect(find.text('Pick the role'), findsOneWidget);
       expect(find.text('Pick needed by'), findsOneWidget);
     });
   });
@@ -1282,7 +1282,7 @@ void main() {
     // (`screenWorkerVisibleText`). Its 400 names each field.
     Future<void> fillAgencyPost(WidgetTester tester) async {
       await typeInto(tester, 'Job title', 'Lathe hand');
-      await tapChip(tester, 'CNC / VMC Setter');
+      await pickTrade(tester);
       await typeInto(tester, 'Area (optional)', 'Tata Motors Pvt Ltd');
       await fillCardContent(
         tester,

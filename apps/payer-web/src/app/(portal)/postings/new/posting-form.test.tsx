@@ -149,6 +149,9 @@ vi.mock("react", async () => {
     ...actual,
     useId: () => `:r${(ids += 1)}:`,
     useState: (initial: unknown) => useState(initial),
+    // The voice-description control holds its recogniser/status in refs; the
+    // plain-function walk has no React dispatcher, so answer it locally.
+    useRef: (initial: unknown) => ({ current: initial }),
     useTransition: () => useTransition(),
   };
 });

@@ -1039,6 +1039,16 @@ class MockPayerApiClient implements PayerApiClient {
       List<AgencyJobView>.unmodifiable(_agencyJobs);
 
   @override
+  Future<JobDescriptionDraft> draftJobDescription({
+    required String spokenText,
+    String? tradeLabel,
+    String? roleLabel,
+  }) async =>
+      // Mock posture: the server keeps the poster's own words (description is
+      // null) rather than inventing a draft. The form shows its retry state.
+      const JobDescriptionDraft(description: null, isMock: true);
+
+  @override
   Future<AgencyJobView?> getAgencyJob(String id) async {
     for (final AgencyJobView job in _agencyJobs) {
       if (job.id == id) return job;
