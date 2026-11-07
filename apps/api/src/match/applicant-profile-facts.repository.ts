@@ -42,14 +42,14 @@ export class ApplicantProfileFactsRepository {
         experience: unknown;
         availability: unknown;
       }>(dsql`
-        SELECT DISTINCT ON (wp.worker_id)
-          wp.worker_id,
-          wp.skills,
-          wp.experience,
-          wp.availability
-        FROM worker_profiles wp
-        WHERE wp.worker_id = ANY(${dsql.param([...ids])}::uuid[])
-        ORDER BY wp.worker_id, ${dsql.join([...CURRENT_PROFILE_ORDER], dsql`, `)}
+        SELECT DISTINCT ON (worker_profiles.worker_id)
+          worker_profiles.worker_id AS worker_id,
+          worker_profiles.skills AS skills,
+          worker_profiles.experience AS experience,
+          worker_profiles.availability AS availability
+        FROM worker_profiles
+        WHERE worker_profiles.worker_id = ANY(${dsql.param([...ids])}::uuid[])
+        ORDER BY worker_profiles.worker_id, ${dsql.join([...CURRENT_PROFILE_ORDER], dsql`, `)}
       `),
       this.db.execute<{ worker_id: string; credential: string | null }>(dsql`
         SELECT worker_id, credential
@@ -75,15 +75,15 @@ export class ApplicantProfileFactsRepository {
         trade_level: string | null;
         level_confirmed: boolean | null;
       }>(dsql`
-        SELECT DISTINCT ON (wp.worker_id, wps.skill_id)
-          wp.worker_id,
-          wps.skill_id,
-          wps.trade_level,
-          wps.level_confirmed
-        FROM worker_profile_skill wps
-        INNER JOIN worker_profiles wp ON wp.id = wps.worker_profile_id
-        WHERE wp.worker_id = ANY(${dsql.param([...ids])}::uuid[])
-        ORDER BY wp.worker_id, wps.skill_id, ${dsql.join([...CURRENT_PROFILE_ORDER], dsql`, `)}
+        SELECT DISTINCT ON (worker_profiles.worker_id, worker_profile_skill.skill_id)
+          worker_profiles.worker_id AS worker_id,
+          worker_profile_skill.skill_id AS skill_id,
+          worker_profile_skill.trade_level AS trade_level,
+          worker_profile_skill.level_confirmed AS level_confirmed
+        FROM worker_profile_skill
+        INNER JOIN worker_profiles ON worker_profiles.id = worker_profile_skill.worker_profile_id
+        WHERE worker_profiles.worker_id = ANY(${dsql.param([...ids])}::uuid[])
+        ORDER BY worker_profiles.worker_id, worker_profile_skill.skill_id, ${dsql.join([...CURRENT_PROFILE_ORDER], dsql`, `)}
       `),
       this.db.execute<{ worker_id: string; last_seen_at: Date | string | null }>(dsql`
         SELECT id AS worker_id, last_seen_at

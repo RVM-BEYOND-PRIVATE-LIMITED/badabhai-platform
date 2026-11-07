@@ -68,13 +68,16 @@ describe("listForWorkers — one batched read, faceless projection", () => {
   it("resolves the current profile per worker, never recency alone", async () => {
     const { repo, statements } = makeDb();
     await repo.listForWorkers([W1]);
-    const profile = statements.find((s) => s.sql.includes("FROM worker_profiles wp"))!;
+    const profile = statements.find((s) => s.sql.includes("FROM worker_profiles WHERE"))!;
     expect(profile, "a profile statement").toBeDefined();
     // DISTINCT ON per worker with the shared CURRENT_PROFILE_ORDER tail (profile_status
     // first — a placeholder row must never win — then recency), the same rule the live
-    // path and the reach signal read use.
+    // path and the reach signal read use. The ORDER BY fragments name the table
+    // outright, so the statement must NOT alias it away (an alias breaks the reference
+    // on real Postgres while every mock still passes).
     expect(profile.sql).toContain("DISTINCT ON");
     expect(profile.sql).toContain("profile_status");
+    expect(profile.sql).not.toMatch(/\bwp\b|\bwps\b/);
   });
 
   it("projects no identity, contact, employer or free-text column", async () => {
