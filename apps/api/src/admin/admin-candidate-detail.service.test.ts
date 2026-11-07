@@ -27,6 +27,13 @@ function build(
     core?: boolean;
     names?: Map<string, string | null> | null;
     emitFails?: boolean;
+    certs?: readonly {
+      name: string;
+      issuer: string | null;
+      year: number | null;
+      licence_number: string | null;
+      licence_expiry: string | null;
+    }[];
   } = {},
 ) {
   const fx = candidateInputs();
@@ -79,6 +86,17 @@ function build(
       return {};
     }),
   };
+  // #2728 — only the licence-prefill test opts into the gated decrypt; every other build leaves
+  // the optional db/correctionFacts out, so the mapper keeps the display rows with null licences.
+  const correctionFacts =
+    opts.certs === undefined
+      ? undefined
+      : {
+          readPrevious: vi.fn(async () => {
+            order.push("correctionFacts.readPrevious");
+            return opts.certs;
+          }),
+        };
 
   const service = new AdminCandidateDetailService(
     repo as never,
@@ -92,6 +110,9 @@ function build(
     entities as never,
     identity as never,
     events as never,
+    undefined,
+    opts.certs === undefined ? undefined : ({} as never),
+    correctionFacts as never,
   );
   const fakes = {
     repo,
@@ -105,7 +126,7 @@ function build(
     entities,
     identity,
   };
-  return { service, order, events, identity, entities, repo, fakes };
+  return { service, order, events, identity, entities, repo, correctionFacts, fakes };
 }
 
 describe("AdminCandidateDetailService.getCandidate", () => {
@@ -200,6 +221,41 @@ describe("AdminCandidateDetailService.getCandidate", () => {
       null,
       ADMIN_CANDIDATE_RECENT_APPLICATIONS,
     );
+  });
+
+  it("prefills certificate licence fields only for an edit_candidates role (#2728)", async () => {
+    const licence = {
+      name: "Welding safety",
+      issuer: "ITI",
+      year: 2020,
+      licence_number: "WB-1234",
+      licence_expiry: "2030-01-01",
+    };
+    const editor = build({ certs: [licence] });
+    const editorDetail = await editor.service.getCandidate(
+      admin("support"),
+      FIXTURE_WORKER_ID,
+      CTX,
+    );
+    expect(editor.correctionFacts!.readPrevious).toHaveBeenCalledWith(
+      expect.anything(),
+      FIXTURE_WORKER_ID,
+      "certifications",
+    );
+    expect(editorDetail.editable.certifications?.[0]?.licence_number).toBe("WB-1234");
+    expect(editorDetail.editable.certifications?.[0]?.licence_expiry).toBe("2030-01-01");
+
+    const analyst = build({ certs: [licence] });
+    const analystDetail = await analyst.service.getCandidate(
+      admin("analyst"),
+      FIXTURE_WORKER_ID,
+      CTX,
+    );
+    expect(analyst.correctionFacts!.readPrevious).not.toHaveBeenCalled();
+    // The base fixture has no certificates, so the analyst gets the empty display list — and
+    // crucially the decrypt seam was never called (the mapper test pins the null fields for a
+    // non-editor row).
+    expect(analystDetail.editable.certifications).toEqual([]);
   });
 
   it("the response carries no phone, WhatsApp, download link or storage key anywhere", async () => {

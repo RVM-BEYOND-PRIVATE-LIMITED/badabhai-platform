@@ -221,7 +221,9 @@ export function candidateRecord(over: Partial<CandidateDetail> = {}): CandidateD
           institute: "Govt. ITI, Faridabad",
         },
       ],
-      certifications: [{ name: "NCVT Welder", issuer: null, year: null }],
+      certifications: [
+        { name: "NCVT Welder", issuer: null, year: null, licence_number: null, licence_expiry: null },
+      ],
       training: [{ name: "Shop-floor safety", provider: null, year: null }],
       work_history: [
         {

@@ -419,7 +419,7 @@ describe("editable — the raw correction-shaped values for the admin forms", ()
     ]);
   });
 
-  it("education, certificate and training rows map verbatim, without licence data", () => {
+  it("education, certificate and training rows map verbatim, without licence data for a non-editor", () => {
     const d = toCandidateDetail(
       candidateInputs({
         qualifications: {
@@ -454,9 +454,41 @@ describe("editable — the raw correction-shaped values for the admin forms", ()
         institute: "Govt. ITI",
       },
     ]);
-    expect(d.editable.certifications).toEqual([{ name: "Welding safety", issuer: "ITI", year: 2020 }]);
+    expect(d.editable.certifications).toEqual([
+      {
+        name: "Welding safety",
+        issuer: "ITI",
+        year: 2020,
+        licence_number: null,
+        licence_expiry: null,
+      },
+    ]);
     expect(d.editable.training).toEqual([{ name: "MIG course", provider: null, year: 2019 }]);
-    expect(JSON.stringify(d.editable)).not.toMatch(/licence/i);
+  });
+
+  it("prefills the decrypted certificate licence fields for an editor (#2728)", () => {
+    const d = toCandidateDetail(
+      candidateInputs({
+        editableCertificates: [
+          {
+            name: "Welding safety",
+            issuer: "ITI",
+            year: 2020,
+            licence_number: "WB-1234",
+            licence_expiry: "2030-01-01",
+          },
+        ],
+      }),
+    );
+    expect(d.editable.certifications).toEqual([
+      {
+        name: "Welding safety",
+        issuer: "ITI",
+        year: 2020,
+        licence_number: "WB-1234",
+        licence_expiry: "2030-01-01",
+      },
+    ]);
   });
 
   it("work history maps without employer names, polish state or voice notes", () => {

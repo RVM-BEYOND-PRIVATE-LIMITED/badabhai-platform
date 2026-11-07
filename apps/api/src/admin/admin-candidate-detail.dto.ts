@@ -23,9 +23,13 @@ import { FIELD_SOURCES } from "../profiles/worker-field-precedence";
  *   - the PHONE or the WHATSAPP number, in any form — not on this surface at all;
  *   - a résumé DOWNLOAD link or PDF bytes — a résumé prints the worker's phone, and admin résumé
  *     download is a separate privacy decision;
- *   - EMPLOYER NAMES on work history and LICENCE NUMBERS on certificates — both are encrypted at
- *     rest, and decrypting them here would be a new admin decrypt site (the four-file allow-list
- *     in `admin-static-guards.test.ts`) that no review has approved;
+ *   - EMPLOYER NAMES on work history — encrypted at rest, and decrypting them here would be a
+ *     new admin decrypt site (the four-file allow-list in `admin-static-guards.test.ts`) that no
+ *     review has approved;
+ *   - LICENCE NUMBERS on certificates in the GENERAL record. The one exception is the `editable`
+ *     block's certificate rows, and only for an `edit_candidates` holder: the correction prefill
+ *     reads them through `AdminCorrectionFactsService.readPrevious` so saving a certificate edit
+ *     cannot clear them. An analyst gets null there.
  *   - push tokens, device hashes, IP hashes, the photo's storage key.
  *
  * NAMES follow the identity rules: `AdminIdentityService` on the `workers` surface (capability
@@ -347,10 +351,13 @@ const recentApplicationSchema = z
  * object is a REAL prefill (the worker stated nothing), not a missing one.
  *
  * WHAT IT NEVER CARRIES. The same backstops as the record: no phone, no employer names on
- * work history (the admin types the name the worker gives on the call — it is required by
- * the correction contract, so the form cannot prefill it), no licence numbers on
- * certificates (the form leaves them blank), no voice-note ids (admin corrections cannot
- * attach a worker voice note).
+ * work history (the admin types the name the worker gives on the call - it is required by
+ * the correction contract, so the form cannot prefill it), no voice-note ids (admin
+ * corrections cannot attach a worker voice note).
+ *
+ * LICENCE NUMBERS ARE THE ONE EXCEPTION, and only for `edit_candidates`: the mapper receives
+ * the decrypted certificate rows through the correction service, so the editor can round-trip
+ * them instead of submitting null and clearing them. An analyst gets null.
  */
 const editableLanguageSchema = z
   .object({
@@ -395,6 +402,14 @@ const editableCertificateSchema = z
     name: z.string(),
     issuer: nullableText,
     year: z.number().int().nullable(),
+    /**
+     * #2728 — the licence fields are present ONLY for an `edit_candidates` holder (the prefill
+     * reads them through the correction service, which decrypts them); an analyst gets null.
+     * Without this prefill the form would submit null and CLEAR an existing licence on save,
+     * because the correction replaces the whole certificate list.
+     */
+    licence_number: nullableText,
+    licence_expiry: nullableText,
   })
   .strict();
 
@@ -418,7 +433,7 @@ const editableSchema = z
     documents_ready: z.array(z.string()).nullable(),
     /** The stored education rows, in the correction's shape. */
     education: z.array(editableEducationSchema).nullable(),
-    /** The stored certificate rows, in the correction's shape (no licence data). */
+    /** The stored certificate rows, in the correction's shape (licence fields editors-only). */
     certifications: z.array(editableCertificateSchema).nullable(),
     /** The stored training rows, in the correction's shape. */
     training: z.array(editableTrainingSchema).nullable(),

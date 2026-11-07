@@ -127,6 +127,9 @@ const editableCertificateSchema = z
     name: z.string(),
     issuer: text,
     year: z.number().int().nullable(),
+    /** #2728 — prefilled only for an `edit_candidates` holder; null for an analyst. */
+    licence_number: text,
+    licence_expiry: text,
   })
   .strict();
 
