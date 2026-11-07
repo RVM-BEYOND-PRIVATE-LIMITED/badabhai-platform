@@ -252,6 +252,91 @@ void main() {
     });
   });
 
+  // #2720 — the worker-app Jobs-tab two-view behaviour on the Applicants feed:
+  // a header toggle switches between the list and a swipeable card deck. Both
+  // draw the SAME applicant rows (never the general candidate pool).
+  group('#2720 — Applicants swipe-card view', () {
+    setUp(() {
+      locator.unregister<FindCubit>();
+      locator.registerFactory<FindCubit>(
+        () => FindCubit(locator<PayerApiClient>(), useRealFeed: true),
+      );
+    });
+
+    testWidgets('the header toggle switches list <-> cards', (
+      WidgetTester tester,
+    ) async {
+      await pump(tester);
+
+      // Starts on the list (the existing applicants UX).
+      expect(find.byKey(const Key('applicants_card_view')), findsNothing);
+      expect(find.text(_BigFeedApi.labelFor(0)), findsOneWidget);
+
+      await tester.tap(
+        find.byKey(const Key('applicants_view_toggle')),
+        warnIfMissed: false,
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('applicants_card_view')), findsOneWidget);
+      expect(find.text('1 / $_total'), findsOneWidget);
+      expect(find.text(_BigFeedApi.labelFor(0)), findsOneWidget);
+
+      await tester.tap(
+        find.byKey(const Key('applicants_view_toggle')),
+        warnIfMissed: false,
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('applicants_card_view')), findsNothing);
+      expect(find.byType(ListView), findsOneWidget);
+    });
+
+    testWidgets('swiping left/right pages through the applicants', (
+      WidgetTester tester,
+    ) async {
+      await pump(tester);
+      await tester.tap(
+        find.byKey(const Key('applicants_view_toggle')),
+        warnIfMissed: false,
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('1 / $_total'), findsOneWidget);
+
+      await tester.drag(
+        find.byKey(const Key('applicants_card_view')),
+        const Offset(-500, 0),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('2 / $_total'), findsOneWidget);
+
+      await tester.drag(
+        find.byKey(const Key('applicants_card_view')),
+        const Offset(500, 0),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('1 / $_total'), findsOneWidget);
+    });
+
+    testWidgets('the toggle never appears on All candidates', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: FindScreen(
+              onReveal: (_) {},
+              initialView: FindView.allCandidates,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('applicants_view_toggle')), findsNothing);
+    });
+  });
+
   group('#364 — MOCK candidate feed', () {
     testWidgets('child delegate is lazy — not $_total materialized cards', (
       WidgetTester tester,
