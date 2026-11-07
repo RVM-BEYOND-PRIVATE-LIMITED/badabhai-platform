@@ -335,6 +335,98 @@ const recentApplicationSchema = z
   })
   .strict();
 
+/**
+ * The RAW correction-shaped values (A7 #2577, #2561) — what the admin edit forms pre-fill
+ * from, per fact key, in the exact shape `POST /admin/candidates/:id/corrections` takes.
+ * Plain values, deliberately NOT `{ value, source, correction }`: the drawer reads those
+ * shapes, and the Edit log walks them for corrections; this block is the form's starting
+ * point, keyed by fact key, and stays out of both.
+ *
+ * EVERY KEY IS NULLABLE. Null means "no safe prefill" — the form starts empty and the
+ * admin builds the value (e.g. a language list with no stored rows yet). An empty list or
+ * object is a REAL prefill (the worker stated nothing), not a missing one.
+ *
+ * WHAT IT NEVER CARRIES. The same backstops as the record: no phone, no employer names on
+ * work history (the admin types the name the worker gives on the call — it is required by
+ * the correction contract, so the form cannot prefill it), no licence numbers on
+ * certificates (the form leaves them blank), no voice-note ids (admin corrections cannot
+ * attach a worker voice note).
+ */
+const editableLanguageSchema = z
+  .object({
+    language: z.string(),
+    can_speak: z.boolean(),
+    can_read: z.boolean(),
+    can_write: z.boolean(),
+  })
+  .strict();
+
+const editableEmploymentRoleSchema = z
+  .object({
+    role_label: z.string(),
+    start_ym: nullableText,
+    end_ym: nullableText,
+    work_done: nullableText,
+  })
+  .strict();
+
+const editableEmploymentSchema = z
+  .object({
+    employer_city: nullableText,
+    employer_state: nullableText,
+    start_ym: nullableText,
+    end_ym: nullableText,
+    roles: z.array(editableEmploymentRoleSchema),
+  })
+  .strict();
+
+const editableEducationSchema = z
+  .object({
+    credential: nullableText,
+    field: nullableText,
+    council: nullableText,
+    year: z.number().int().nullable(),
+    institute: nullableText,
+  })
+  .strict();
+
+const editableCertificateSchema = z
+  .object({
+    name: z.string(),
+    issuer: nullableText,
+    year: z.number().int().nullable(),
+  })
+  .strict();
+
+const editableTrainingSchema = z
+  .object({
+    name: z.string(),
+    provider: nullableText,
+    year: z.number().int().nullable(),
+  })
+  .strict();
+
+const editableSchema = z
+  .object({
+    /** The stored skill values, verbatim — ids and free-text phrases alike. */
+    skills: z.array(z.string()).nullable(),
+    /** The stored language rows, in the correction's shape — null when there are no rows. */
+    languages: z.array(editableLanguageSchema).nullable(),
+    /** The resolved work-type codes (multi wins, else the single job type). */
+    work_types: z.array(z.string()).nullable(),
+    /** The stored document codes. */
+    documents_ready: z.array(z.string()).nullable(),
+    /** The stored education rows, in the correction's shape. */
+    education: z.array(editableEducationSchema).nullable(),
+    /** The stored certificate rows, in the correction's shape (no licence data). */
+    certifications: z.array(editableCertificateSchema).nullable(),
+    /** The stored training rows, in the correction's shape. */
+    training: z.array(editableTrainingSchema).nullable(),
+    /** The stored employments, in the correction's shape (no employer names, no voice notes). */
+    work_history: z.array(editableEmploymentSchema).nullable(),
+  })
+  .strict();
+
 const activitySchema = z
   .object({
     /** `applications` rows with `action = 'applied'`. */
@@ -363,6 +455,7 @@ export const AdminCandidateDetailSchema = z
     resume: resumeSchema,
     account: accountSchema,
     activity: activitySchema,
+    editable: editableSchema,
   })
   .strict();
 

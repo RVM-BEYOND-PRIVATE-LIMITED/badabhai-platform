@@ -444,7 +444,7 @@ function ProfilePanel({
         />
       </PanelSection>
 
-      <PanelSection title="Languages">
+      <PanelSection title="Languages" action={<SectionEdit section="languages" label="languages" />}>
         <DetailList items={[row("languages", d.languages, chips(d.languages.value))]} />
       </PanelSection>
 
@@ -525,7 +525,7 @@ function ProfilePanel({
         />
       </PanelSection>
 
-      <PanelSection title="Education">
+      <PanelSection title="Education" action={<SectionEdit section="schooling" label="schooling" />}>
         <DetailList
           items={[
             row("education.headline", d.education.headline, text(d.education.headline.value)),
@@ -611,7 +611,7 @@ function WorkHistoryPanel({ d }: { d: CandidateDetail }) {
         />
       </PanelSection>
 
-      <PanelSection title={fieldLabel("work_history")}>
+      <PanelSection title={fieldLabel("work_history")} action={<SectionEdit section="history" label="work history" />}>
         <p className="panel__sub cfield">
           <span>Where this came from:</span>
           <SourceTag source={d.work_history.source} />
@@ -681,7 +681,7 @@ function SkillsPanel({ d }: { d: CandidateDetail }) {
   const months = (n: number | null) => (n === null ? null : formatMonths(n));
   return (
     <>
-      <PanelSection title="On the profile">
+      <PanelSection title="On the profile" action={<SectionEdit section="skills" label="skills" />}>
         <DetailList
           items={[
             row("skills.skills", d.skills.skills, chips(d.skills.skills.value)),

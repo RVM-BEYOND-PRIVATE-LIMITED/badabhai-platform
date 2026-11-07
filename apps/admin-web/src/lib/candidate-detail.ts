@@ -84,6 +84,83 @@ const employmentSchema = z.object({
   roles: z.array(employmentRoleSchema),
 });
 
+const editableLanguageSchema = z
+  .object({
+    language: z.string(),
+    can_speak: z.boolean(),
+    can_read: z.boolean(),
+    can_write: z.boolean(),
+  })
+  .strict();
+
+const editableEmploymentRoleSchema = z
+  .object({
+    role_label: z.string(),
+    start_ym: text,
+    end_ym: text,
+    work_done: text,
+  })
+  .strict();
+
+const editableEmploymentSchema = z
+  .object({
+    employer_city: text,
+    employer_state: text,
+    start_ym: text,
+    end_ym: text,
+    roles: z.array(editableEmploymentRoleSchema),
+  })
+  .strict();
+
+const editableEducationSchema = z
+  .object({
+    credential: text,
+    field: text,
+    council: text,
+    year: z.number().int().nullable(),
+    institute: text,
+  })
+  .strict();
+
+const editableCertificateSchema = z
+  .object({
+    name: z.string(),
+    issuer: text,
+    year: z.number().int().nullable(),
+  })
+  .strict();
+
+const editableTrainingSchema = z
+  .object({
+    name: z.string(),
+    provider: text,
+    year: z.number().int().nullable(),
+  })
+  .strict();
+
+/**
+ * The raw correction-shaped values for the admin forms — what a section pre-fills from, in
+ * the exact shape `POST /admin/candidates/:id/corrections` takes. Plain values, deliberately
+ * NOT `{ value, source, correction }`: the drawer reads those shapes and the Edit log walks
+ * them for corrections, and this block is the form's starting point, keyed by fact.
+ *
+ * Null means "no safe prefill" — the form starts empty and the admin builds the value.
+ */
+export const editableSchema = z
+  .object({
+    skills: z.array(z.string()).nullable(),
+    languages: z.array(editableLanguageSchema).nullable(),
+    work_types: z.array(z.string()).nullable(),
+    documents_ready: z.array(z.string()).nullable(),
+    education: z.array(editableEducationSchema).nullable(),
+    certifications: z.array(editableCertificateSchema).nullable(),
+    training: z.array(editableTrainingSchema).nullable(),
+    work_history: z.array(editableEmploymentSchema).nullable(),
+  })
+  .strict();
+
+export type CandidateEditable = z.infer<typeof editableSchema>;
+
 export const candidateDetailSchema = z.object({
   worker_id: z.string(),
   identity: z.object({
@@ -235,6 +312,7 @@ export const candidateDetailSchema = z.object({
     ),
     unlock_count: z.number(),
   }),
+  editable: editableSchema,
 });
 
 export type CandidateDetail = z.infer<typeof candidateDetailSchema>;

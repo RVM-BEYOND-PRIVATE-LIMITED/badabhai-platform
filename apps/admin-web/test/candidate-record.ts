@@ -207,6 +207,39 @@ export function candidateRecord(over: Partial<CandidateDetail> = {}): CandidateD
       ],
       unlock_count: 2,
     },
+    editable: {
+      skills: ["skill_tig_welder", "skill_arc_welding"],
+      languages: [{ language: "hindi", can_speak: true, can_read: true, can_write: false }],
+      work_types: ["contract"],
+      documents_ready: ["aadhaar", "pan"],
+      education: [
+        {
+          credential: "iti",
+          field: "Welder",
+          council: "ncvt",
+          year: 2018,
+          institute: "Govt. ITI, Faridabad",
+        },
+      ],
+      certifications: [{ name: "NCVT Welder", issuer: null, year: null }],
+      training: [{ name: "Shop-floor safety", provider: null, year: null }],
+      work_history: [
+        {
+          employer_city: "Pune",
+          employer_state: "Maharashtra",
+          start_ym: "2021-04",
+          end_ym: null,
+          roles: [
+            {
+              role_label: "TIG Welder",
+              start_ym: "2021-04",
+              end_ym: null,
+              work_done: "Welded exhaust frames",
+            },
+          ],
+        },
+      ],
+    },
     ...over,
   };
 }

@@ -3,6 +3,7 @@ import { AdminCandidateDetailSchema } from "./admin-candidate-detail.dto";
 import { toCandidateDetail } from "./admin-candidate-detail.mapper";
 import {
   candidateInputs,
+  FIXTURE_ADMIN_ID,
   FIXTURE_WORKER_ID,
   profileFixture,
   prov,
@@ -388,5 +389,114 @@ describe("résumé, account, activity", () => {
   it("activity counts applied and skipped separately", () => {
     const d = toCandidateDetail(candidateInputs());
     expect(d.activity).toMatchObject({ application_count: 3, skipped_count: 5, unlock_count: 2 });
+  });
+});
+
+describe("editable — the raw correction-shaped values for the admin forms", () => {
+  it("prefills skills verbatim, work-type and document codes, and the stored rows", () => {
+    const d = toCandidateDetail(candidateInputs());
+    expect(d.editable.skills).toEqual(["MIG Welding", "Arc Welding"]);
+    expect(d.editable.work_types).toEqual(["contract"]);
+    expect(d.editable.documents_ready).toEqual(["aadhaar", "pan"]);
+    expect(d.editable.languages).toBeNull();
+    expect(d.editable.education).toEqual([]);
+    expect(d.editable.certifications).toEqual([]);
+    expect(d.editable.training).toEqual([]);
+  });
+
+  it("languages map the stored rows to the correction shape, or null with no rows", () => {
+    const d = toCandidateDetail(
+      candidateInputs({
+        languages: [
+          { language: "hindi", canSpeak: true, canRead: true, canWrite: false },
+          { language: "english", canSpeak: true, canRead: false, canWrite: false },
+        ],
+      }),
+    );
+    expect(d.editable.languages).toEqual([
+      { language: "hindi", can_speak: true, can_read: true, can_write: false },
+      { language: "english", can_speak: true, can_read: false, can_write: false },
+    ]);
+  });
+
+  it("education, certificate and training rows map verbatim, without licence data", () => {
+    const d = toCandidateDetail(
+      candidateInputs({
+        qualifications: {
+          certificates: [
+            {
+              name: "Welding safety",
+              issuer: "ITI",
+              year: 2020,
+              licenceNumberEnc: "enc",
+              licenceExpiry: "2030-01-01",
+            },
+          ],
+          educations: [
+            {
+              credential: "iti",
+              field: "Machinist",
+              council: "ncvt",
+              year: 2018,
+              institute: "Govt. ITI",
+            },
+          ],
+          trainings: [{ name: "MIG course", provider: null, year: 2019 }],
+        },
+      }),
+    );
+    expect(d.editable.education).toEqual([
+      {
+        credential: "iti",
+        field: "Machinist",
+        council: "ncvt",
+        year: 2018,
+        institute: "Govt. ITI",
+      },
+    ]);
+    expect(d.editable.certifications).toEqual([{ name: "Welding safety", issuer: "ITI", year: 2020 }]);
+    expect(d.editable.training).toEqual([{ name: "MIG course", provider: null, year: 2019 }]);
+    expect(JSON.stringify(d.editable)).not.toMatch(/licence/i);
+  });
+
+  it("work history maps without employer names, polish state or voice notes", () => {
+    const d = toCandidateDetail(candidateInputs());
+    expect(d.editable.work_history).toEqual([
+      {
+        employer_city: "Pune",
+        employer_state: "Maharashtra",
+        start_ym: "2021-04",
+        end_ym: null,
+        roles: [
+          {
+            role_label: "Welder",
+            start_ym: "2021-04",
+            end_ym: null,
+            work_done: "MIG welding of frames",
+          },
+        ],
+      },
+    ]);
+    expect(JSON.stringify(d.editable.work_history)).not.toMatch(
+      /employer_name|voice_note|polish|duration_stated/,
+    );
+  });
+
+  it("a live skills correction wins over the stored profile", () => {
+    const d = toCandidateDetail(
+      candidateInputs({
+        corrections: [
+          {
+            id: "c1c1c1c1-0000-4000-8000-000000000001",
+            factKey: "skills",
+            adminId: FIXTURE_ADMIN_ID,
+            reasonCode: "worker_request",
+            createdAt: new Date("2026-11-06T10:00:00Z"),
+            corrected: ["skill_tig_welding"],
+          },
+        ],
+      }),
+    );
+    expect(d.editable.skills).toEqual(["skill_tig_welding"]);
   });
 });
