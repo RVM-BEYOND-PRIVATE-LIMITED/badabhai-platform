@@ -53,13 +53,13 @@ export class ApplicantProfileFactsRepository {
       `),
       this.db.execute<{ worker_id: string; credential: string | null }>(dsql`
         SELECT worker_id, credential
-        FROM worker_educations
+        FROM worker_education
         WHERE worker_id = ANY(${dsql.param([...ids])}::uuid[])
         ORDER BY worker_id, sort_order
       `),
       this.db.execute<{ worker_id: string; count: string }>(dsql`
         SELECT worker_id, COUNT(*) AS count
-        FROM worker_certificates
+        FROM worker_certificate
         WHERE worker_id = ANY(${dsql.param([...ids])}::uuid[])
         GROUP BY worker_id
       `),

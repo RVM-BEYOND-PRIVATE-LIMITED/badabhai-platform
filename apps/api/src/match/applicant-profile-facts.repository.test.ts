@@ -1,7 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { PgDialect } from "drizzle-orm/pg-core";
+import { getTableName } from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
 import type { Database } from "@badabhai/db";
+import {
+  workerCertificates,
+  workerEducations,
+  workerIndustryTenure,
+  workerProfiles,
+  workerProfileSkills,
+  workers,
+} from "@badabhai/db";
 import { ApplicantProfileFactsRepository } from "./applicant-profile-facts.repository";
 
 /**
@@ -72,8 +81,8 @@ describe("listForWorkers — one batched read, faceless projection", () => {
     const { repo, statements } = makeDb();
     await repo.listForWorkers([W1]);
     const all = statements.map((s) => s.sql.toLowerCase()).join("\n");
-    // Table names (`worker_certificates`) are fine — the certificate read is a COUNT(*).
-    // What must never appear is a free-text or identity COLUMN.
+    // Table names are fine — the certificate read is a COUNT(*). What must never appear
+    // is a free-text or identity COLUMN.
     for (const forbidden of [
       "full_name",
       "phone",
@@ -92,10 +101,28 @@ describe("listForWorkers — one batched read, faceless projection", () => {
     }
   });
 
+  it("names every table exactly as the schema declares it — a rename breaks loudly, not silently", async () => {
+    const { repo, statements } = makeDb();
+    await repo.listForWorkers([W1]);
+    const all = statements.map((s) => s.sql).join("\n");
+    for (const table of [
+      workerProfiles,
+      workerEducations,
+      workerCertificates,
+      workerIndustryTenure,
+      workerProfileSkills,
+      workers,
+    ]) {
+      expect(all, `the statements must read ${getTableName(table)}`).toContain(
+        `FROM ${getTableName(table)}`,
+      );
+    }
+  });
+
   it("counts certificates and takes the max industry months — never the rows", async () => {
     const { repo, statements } = makeDb();
     await repo.listForWorkers([W1]);
-    const certs = statements.find((s) => s.sql.includes("worker_certificates"))!;
+    const certs = statements.find((s) => s.sql.includes("worker_certificate"))!;
     expect(certs.sql).toMatch(/count\(/i);
     const industry = statements.find((s) => s.sql.includes("worker_industry_tenure"))!;
     expect(industry.sql).toMatch(/max\(/i);
