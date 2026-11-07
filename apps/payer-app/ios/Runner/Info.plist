@@ -45,5 +45,9 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>BadaBhai uses the microphone so you can speak a short note about the job instead of typing its description.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>BadaBhai turns the job note you speak into text so it can draft an English description for you to review.</string>
 </dict>
 </plist>

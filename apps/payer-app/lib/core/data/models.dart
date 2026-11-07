@@ -1812,3 +1812,26 @@ PayerAccount accountFor(PayerRole role) => role.isAgency
         plan: 'Company account',
         initials: 'KI',
       );
+
+/// The draft returned by `POST /payer/job-postings/description/draft` (#2719).
+///
+/// [description] is the trade/role-filtered English description, or null when
+/// the server keeps the poster's own words (mock posture, deadline, blocked
+/// input, an all-irrelevant transcript, or an unreachable ai-service). The draft
+/// is NEVER stored by that call — the poster reviews it and the normal
+/// create/edit path persists it.
+class JobDescriptionDraft extends Equatable {
+  const JobDescriptionDraft({required this.description, required this.isMock});
+
+  factory JobDescriptionDraft.fromJson(Map<String, dynamic> json) =>
+      JobDescriptionDraft(
+        description: json['description'] as String?,
+        isMock: json['is_mock'] as bool? ?? true,
+      );
+
+  final String? description;
+  final bool isMock;
+
+  @override
+  List<Object?> get props => <Object?>[description, isMock];
+}

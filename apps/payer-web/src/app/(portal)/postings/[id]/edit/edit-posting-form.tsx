@@ -25,6 +25,7 @@ import {
   type PostingTradesProblem,
 } from "../../../../../lib/posting-trades";
 import { neededByLabel, payTypeLabel, shiftLabel } from "../../../../../lib/job-card-view";
+import { VoiceDescriptionButton } from "../../voice-description-button";
 import {
   CARD_NUMBER_FIELDS,
   cardIssueMessage,
@@ -834,6 +835,13 @@ export function EditPostingForm({
               hint="Workers read this when they open the posting. No phone number or email."
               onChange={(e) => set("description", e.target.value)}
               rows={4}
+            />
+            <VoiceDescriptionButton
+              onDraft={(description) => set("description", description)}
+              tradeLabel={
+                postingTrades.find((t) => t.role_kind === fields.roleKind)?.role_label
+              }
+              roleLabel={fields.roleTitle.trim() || undefined}
             />
           </div>
 

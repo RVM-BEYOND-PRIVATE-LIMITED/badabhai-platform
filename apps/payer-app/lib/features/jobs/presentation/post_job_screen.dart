@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/material.dart';
 
+import '../../../core/audio/speech_dictation.dart';
+import '../../../core/data/agency_trade_map.dart';
 import '../../../core/data/models.dart';
 import '../../../core/data/payer_api_client.dart';
 import '../../../core/di/locator.dart';
@@ -32,6 +34,7 @@ import 'widgets/job_content_input.dart';
 import 'widgets/job_form_rules.dart';
 import 'widgets/match_skill_picker.dart';
 import 'widgets/trade_posting_fields.dart';
+import 'widgets/voice_description_control.dart';
 
 /// Availability of the Matching-V1 demand-skill vocabulary, resolved once at
 /// load.
@@ -79,7 +82,12 @@ enum _MatchV1 { loading, available, unavailable }
 /// the four sections done; and leaving with anything entered asks first
 /// ([BbLeaveGuard] — the shell asks the same for the system Back).
 class PostJobScreen extends StatefulWidget {
-  const PostJobScreen({super.key, required this.onBack, this.onPosted});
+  const PostJobScreen({
+    super.key,
+    required this.onBack,
+    this.onPosted,
+    this.dictation,
+  });
 
   final VoidCallback onBack;
 
@@ -87,6 +95,10 @@ class PostJobScreen extends StatefulWidget {
   /// [onBack] — the shell lands on Jobs with that card highlighted (#2596).
   /// Null keeps the old hand-off: [onBack].
   final ValueChanged<String>? onPosted;
+
+  /// #2720 — the device recogniser behind the Description voice toggle. Null
+  /// uses the platform plugin; tests inject a fake.
+  final SpeechDictation? dictation;
 
   @override
   State<PostJobScreen> createState() => _PostJobScreenState();
@@ -394,6 +406,9 @@ class _PostJobScreenState extends State<PostJobScreen> {
         final PostingTradeForm? form = _formForKind(kind);
         setState(() {
           _roleKind = kind;
+          // #2718 — one picker. The agency wire's required trade_key is
+          // derived from the picked role here, never picked separately.
+          if (_isAgency) _tradeKey = agencyTradeKeyForRoleKind(kind);
           _skillCapError = null;
           _tradeLevel = '';
           _tradeAnswers = const <String, List<String>>{};
@@ -591,7 +606,6 @@ class _PostJobScreenState extends State<PostJobScreen> {
     return <JobFormField, String>{
       // Both are printed on the worker's card (agency) / name the posting's
       // org (company) — never defaulted, so they must be picked or typed.
-      if (agency && _tradeKey == null) JobFormField.tradeKey: 'Pick the trade',
       if (!agency && _org.text.trim().isEmpty)
         JobFormField.org: 'Add the company name',
       // #2635 — a company job matches only within the 16 trades, so it is
@@ -599,10 +613,9 @@ class _PostJobScreenState extends State<PostJobScreen> {
       // picker then says why and retries).
       if (!agency && _tradeForm == null)
         JobFormField.role: kPostingTradeRequiredMessage,
-      // Migration 0141 — the agency role is mandatory when the catalogue
-      // drives the form: it selects the trade fields.
-      if (agency && _postingTrades.isNotEmpty && _roleKind == null)
-        JobFormField.role: 'Pick the role',
+      // Migration 0141 — the agency role is mandatory: it is the single
+      // picker (#2718), and its trade_key is derived from it.
+      if (agency && _roleKind == null) JobFormField.role: 'Pick the role',
       if (_title.text.trim().isEmpty) JobFormField.title: 'Add the job title',
       ...jobContentErrors(
         city: _city.text,
@@ -653,7 +666,6 @@ class _PostJobScreenState extends State<PostJobScreen> {
 
   static const List<Set<JobFormField>> _agencySections = <Set<JobFormField>>[
     <JobFormField>{
-      JobFormField.tradeKey,
       JobFormField.role,
       JobFormField.title,
       JobFormField.city,
@@ -1110,8 +1122,9 @@ class _PostJobScreenState extends State<PostJobScreen> {
   Future<void> _submitAgency() async {
     final String title = _title.text.trim();
     final String city = _city.text.trim();
-    // [_submit] refused the post while no trade was picked.
-    final String tradeKey = _tradeKey!;
+    // [_validate] refused the post while no role was picked; the required
+    // trade_key is derived from that one pick (#2718).
+    final String tradeKey = agencyTradeKeyForRoleKind(_roleKind)!;
     final int? payMin = _intOrNull(_payMin.text);
     final int? payMax = _intOrNull(_payMax.text);
     final int? expMin = _intOrNull(_expMin.text);
@@ -1494,14 +1507,50 @@ class _PostJobScreenState extends State<PostJobScreen> {
 
   /// The worker-visible description, anchored with its inline error (the live
   /// screen of contact details / length shows there as the payer types).
-  Widget _descriptionField() => _anchored(
+  ///
+  /// [voice] adds the #2720 Hinglish voice toggle below the box. Only the
+  /// COMPANY branch passes true: the draft route is employer-only, and an
+  /// agency/agent session would get a 403.
+  Widget _descriptionField({bool voice = false}) => _anchored(
         JobFormField.description,
-        JobDescriptionField(
-          controller: _description,
-          label: 'Description',
-          errorText: _form[JobFormField.description],
+        ListBody(
+          children: <Widget>[
+            JobDescriptionField(
+              controller: _description,
+              label: 'Description',
+              errorText: _form[JobFormField.description],
+            ),
+            if (voice) ...<Widget>[
+              const SizedBox(height: AppSpacing.s2),
+              VoiceDescriptionControl(
+                dictation: widget.dictation,
+                onDraft: _draftDescription,
+                onFilled: _fillDescription,
+              ),
+            ],
+          ],
         ),
       );
+
+  /// POST the spoken note to the draft endpoint with the Step-1 trade and role
+  /// labels. The response never writes the posting — it only fills the box.
+  Future<JobDescriptionDraft> _draftDescription(String spokenText) {
+    final String title = _title.text.trim();
+    return locator<PayerApiClient>().draftJobDescription(
+      spokenText: spokenText,
+      tradeLabel: _tradeForm?.roleLabel,
+      roleLabel: title.isEmpty ? null : title,
+    );
+  }
+
+  /// Land a non-null draft in the EDITABLE Description box, like typing it.
+  void _fillDescription(String description) {
+    _description.value = TextEditingValue(
+      text: description,
+      selection: TextSelection.collapsed(offset: description.length),
+    );
+    _onInputChanged();
+  }
 
   /// The Benefits / Requirements chip rows, anchored with their inline errors.
   List<Widget> _benefitRequirementFields() => <Widget>[
@@ -1661,7 +1710,10 @@ class _PostJobScreenState extends State<PostJobScreen> {
           // input for one — `description` was COMPOSED from the trade + the
           // V1-off skill chips — so a company posting reached the worker with a
           // "Trade: CNC Setter" line where the work should have been.
-          _descriptionField(),
+          //
+          // #2720 — the company description also takes a Hinglish voice note
+          // that the server drafts into English (employer-only route).
+          _descriptionField(voice: true),
           const SizedBox(height: AppSpacing.s4),
           ..._benefitRequirementFields(),
         ]),
@@ -1844,36 +1896,12 @@ class _PostJobScreenState extends State<PostJobScreen> {
   /// rejects one typed into any free-text field.
   List<Widget> _agencyFields() => <Widget>[
         _sectionCard('Job details', <Widget>[
-          _chipField(
-            JobFormField.tradeKey,
-            label: 'Trade',
-            value: _tradeKey,
-            options: kAgencyTradeKeys,
-            labelOf: agencyTradeLabel,
-            onSelected: (String v) => setState(() => _tradeKey = v),
-          ),
+          // #2718 — ONE picker over the 16-trade catalogue. It drives
+          // role_kind; the required trade_key is derived from it.
+          _anchored(JobFormField.role, _roleField()),
           const SizedBox(height: AppSpacing.s4),
-          // Migration 0141 — the display role selects the trade-specific fields.
-          // An older server without the catalogue keeps the legacy trade-only form.
-          if (_postingTrades.isNotEmpty) ...<Widget>[
-            _anchored(JobFormField.role, _roleField()),
-            const SizedBox(height: AppSpacing.s4),
-          ],
           _titleField(),
           const SizedBox(height: AppSpacing.s4),
-          // The worker card's role illustration (`role_kind`). The trade
-          // catalogue's own role picker above already sets it when present.
-          if (_postingTrades.isEmpty) ...<Widget>[
-            BbSelect<String?>(
-              label: 'Role (card illustration)',
-              value: _roleKind,
-              items: <String?>[null, ...kJobRoleKinds],
-              labelOf: (String? v) =>
-                  v == null ? 'Not specified' : (jobRoleLabel(v) ?? v),
-              onChanged: (String? v) => setState(() => _roleKind = v),
-            ),
-            const SizedBox(height: AppSpacing.s4),
-          ],
           // #357 — was prefilled 'Pune' (and area 'Chakan'); the agency route is
           // just as real, so these start empty too.
           _cityAreaRow(),

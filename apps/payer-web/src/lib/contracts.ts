@@ -2134,3 +2134,27 @@ export const jobPostingChatMessageInputSchema = z.object({
     }),
 });
 export type JobPostingChatMessageInput = z.infer<typeof jobPostingChatMessageInputSchema>;
+
+/**
+ * Draft a posting description from a Hinglish voice transcript (#2719/#2720).
+ *
+ * The server filters the draft to the posting's trade/role and ALWAYS answers
+ * English. `description: null` means keep the poster's own text (mock posture,
+ * deadline, blocked input, all-irrelevant transcript, unreachable ai-service).
+ * The draft is never stored by this call.
+ */
+export const jobDescriptionDraftInputSchema = z.object({
+  spokenText: z.string().trim().min(1).max(2000),
+  tradeLabel: z.string().max(80).optional(),
+  roleLabel: z.string().max(200).optional(),
+});
+export type JobDescriptionDraftInput = z.infer<typeof jobDescriptionDraftInputSchema>;
+
+export const jobDescriptionDraftWireSchema = z.object({
+  description: z.string().max(2000).nullable(),
+  is_mock: z.boolean(),
+});
+export type JobDescriptionDraft = {
+  description: string | null;
+  isMock: boolean;
+};

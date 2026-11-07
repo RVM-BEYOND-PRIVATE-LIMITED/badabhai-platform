@@ -1038,6 +1038,27 @@ class HttpPayerApiClient implements PayerApiClient {
   }
 
   @override
+  Future<JobDescriptionDraft> draftJobDescription({
+    required String spokenText,
+    String? tradeLabel,
+    String? roleLabel,
+  }) async {
+    final Map<String, dynamic> body = <String, dynamic>{
+      'spoken_text': spokenText,
+      // `.optional()` on the route, not `.nullable()`: omit, never send null.
+      if (tradeLabel != null && tradeLabel.isNotEmpty) 'trade_label': tradeLabel,
+      if (roleLabel != null && roleLabel.isNotEmpty) 'role_label': roleLabel,
+    };
+    final PayerResponse res = await _http.send(
+      PayerMethod.post,
+      '/payer/job-postings/description/draft',
+      body: body,
+    );
+    if (!res.isSuccess) throw _jobWriteFailure(res);
+    return JobDescriptionDraft.fromJson(res.body);
+  }
+
+  @override
   Future<List<AgencyJobView>> fetchAgencyJobs() async {
     // The list route returns a BARE JSON array — PayerHttp._decode wraps it
     // under `items`.

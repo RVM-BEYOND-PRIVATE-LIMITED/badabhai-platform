@@ -48,6 +48,11 @@ dependencies:
   # clipboard history — so the token outlived the screen. Handing it to the
   # browser is a one-shot transfer with no persistent copy.
   url_launcher: ^6.3.1
+  # #2720 — the Description voice toggle records a Hinglish note with the
+  # platform's own recogniser (Android SpeechRecognizer / iOS Speech) and sends
+  # the transcript to the draft endpoint. No audio leaves through this plugin;
+  # only the recognised text is POSTed.
+  speech_to_text: ^7.4.0
 
 dev_dependencies:
   flutter_test:

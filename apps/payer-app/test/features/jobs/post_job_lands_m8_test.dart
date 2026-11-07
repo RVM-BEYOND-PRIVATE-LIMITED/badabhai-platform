@@ -17,8 +17,8 @@ import 'package:payer_app/features/jobs/presentation/post_job_screen.dart';
 ///
 /// Matching V1 off, as in `post_job_screen_test.dart`, so the form can be
 /// filled without a backend. A company form is served one of the 16 trades
-/// (#2635 — a company job cannot be posted without one); the agency form keeps
-/// its trade-less fallback.
+/// (#2635 — a company job cannot be posted without one; #2718 — the agency
+/// form's single picker lists it too).
 class _LegacyFormApi extends MockPayerApiClient {
   _LegacyFormApi({required this.trades});
 
@@ -50,9 +50,7 @@ void main() {
     await GetIt.instance.reset();
     setupLocator(
       apiClient: _LegacyFormApi(
-        trades: role == PayerRole.company
-            ? const <PostingTradeForm>[_welder]
-            : const <PostingTradeForm>[],
+        trades: const <PostingTradeForm>[_welder],
       ),
       secureStore: InMemoryKeyValueStore(),
     );
@@ -172,7 +170,7 @@ void main() {
       (WidgetTester tester) async {
     await pump(tester, PayerRole.agency);
     await typeInto(tester, 'Job title', 'Lathe hand');
-    await tapChip(tester, 'CNC / VMC Setter');
+    await pickTrade(tester);
     await fillCardContent(tester, neededBy: 'Immediate');
 
     await tapPost(tester);

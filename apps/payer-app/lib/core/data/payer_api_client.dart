@@ -368,6 +368,24 @@ abstract class PayerApiClient {
     List<String>? matchSkillIds,
   });
 
+  /// Draft the worker-visible description from a Hinglish voice transcript
+  /// (`POST /payer/job-postings/description/draft`, #2719).
+  ///
+  /// EMPLOYER SESSION ONLY — the route is `@PayerRoles("employer")`. The server
+  /// filters the draft to the posting's trade/role and ALWAYS answers English;
+  /// [JobDescriptionDraft.description] is null when the poster's own text should
+  /// stand (mock posture, deadline, blocked input, all-irrelevant transcript,
+  /// unreachable ai-service). NOTHING is stored here: the draft only fills the
+  /// editable box the normal create/edit path persists.
+  ///
+  /// [spokenText] is 1..2000 chars. [tradeLabel]/[roleLabel] are omitted when
+  /// unknown (the API schema is `.optional()`, never null).
+  Future<JobDescriptionDraft> draftJobDescription({
+    required String spokenText,
+    String? tradeLabel,
+    String? roleLabel,
+  });
+
   /// The agency's own job postings (`GET /payer/agency/jobs` — a BARE array
   /// wrapped under `items` by the transport). Newest-first.
   Future<List<AgencyJobView>> fetchAgencyJobs();

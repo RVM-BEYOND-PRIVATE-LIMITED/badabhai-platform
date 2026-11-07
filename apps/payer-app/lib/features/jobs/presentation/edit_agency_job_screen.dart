@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/material.dart';
 
+import '../../../core/data/agency_trade_map.dart';
 import '../../../core/data/models.dart';
 import '../../../core/data/payer_api_client.dart';
 import '../../../core/di/locator.dart';
@@ -294,7 +295,11 @@ class _EditAgencyJobScreenState extends State<EditAgencyJobScreen> {
   /// — the SAME rule the create form applies, because an edit can empty what a
   /// create had to fill.
   Map<JobFormField, String> _validate() => <JobFormField, String>{
-        if (_tradeKey == null) JobFormField.tradeKey: 'Pick the trade',
+        // #2718 — the single Role picker is the control. A legacy row that
+        // predates it may still hold a valid trade_key with no role, and stays
+        // saveable until a role is picked.
+        if (_roleKind == null && _tradeKey == null)
+          JobFormField.role: 'Pick the role',
         if (_title.text.trim().isEmpty) JobFormField.title: 'Add the job title',
         ...jobContentErrors(
           city: _city.text,
@@ -336,6 +341,8 @@ class _EditAgencyJobScreenState extends State<EditAgencyJobScreen> {
     final PostingTradeForm? form = _formForKind(kind);
     setState(() {
       _roleKind = kind;
+      // #2718 — the wire's required trade_key follows the one pick.
+      _tradeKey = agencyTradeKeyForRoleKind(kind);
       _skillCapError = null;
       _tradeLevel = '';
       _tradeAnswers = const <String, List<String>>{};
@@ -432,7 +439,8 @@ class _EditAgencyJobScreenState extends State<EditAgencyJobScreen> {
 
     final String title = _title.text.trim();
     final String city = _city.text.trim();
-    // [_validate] refused the save while no trade was picked.
+    // [_validate] guarantees a trade_key: picked with the role (#2718), or the
+    // one a legacy row already stored.
     final String tradeKey = _tradeKey!;
     final int? payMin = _intOrNull(_payMin.text);
     final int? payMax = _intOrNull(_payMax.text);
@@ -674,37 +682,23 @@ class _EditAgencyJobScreenState extends State<EditAgencyJobScreen> {
                   ),
                   const SizedBox(height: AppSpacing.s4),
                   if (_postingTrades.isNotEmpty) ...<Widget>[
-                    _chipField(
-                      label: 'Role',
-                      value: _roleKind,
-                      options: _postingTrades
-                          .map((PostingTradeForm t) => t.roleKind)
-                          .toList(growable: false),
-                      labelOf: (String kind) =>
-                          _formForKind(kind)?.roleLabel ?? kind,
-                      onSelected: _selectRole,
-                    ),
-                    const SizedBox(height: AppSpacing.s4),
-                  ] else ...<Widget>[
-                    BbSelect<String?>(
-                      label: 'Role (card illustration)',
-                      value: _roleKind,
-                      items: <String?>[null, ...kJobRoleKinds],
-                      labelOf: (String? v) =>
-                          v == null ? 'Not specified' : (jobRoleLabel(v) ?? v),
-                      onChanged: (String? v) => setState(() => _roleKind = v),
+                    // #2718 — ONE picker over the 16-trade catalogue. Its
+                    // trade_key is derived, never picked separately.
+                    _anchored(
+                      JobFormField.role,
+                      _chipField(
+                        label: 'Role',
+                        value: _roleKind,
+                        options: _postingTrades
+                            .map((PostingTradeForm t) => t.roleKind)
+                            .toList(growable: false),
+                        labelOf: (String kind) =>
+                            _formForKind(kind)?.roleLabel ?? kind,
+                        onSelected: _selectRole,
+                      ),
                     ),
                     const SizedBox(height: AppSpacing.s4),
                   ],
-                  _chipField(
-                    field: JobFormField.tradeKey,
-                    label: 'Trade',
-                    value: _tradeKey,
-                    options: kAgencyTradeKeys,
-                    labelOf: agencyTradeLabel,
-                    onSelected: (String v) => setState(() => _tradeKey = v),
-                  ),
-                  const SizedBox(height: AppSpacing.s4),
                   Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: <Widget>[

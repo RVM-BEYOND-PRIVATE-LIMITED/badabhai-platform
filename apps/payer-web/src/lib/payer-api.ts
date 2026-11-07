@@ -35,6 +35,7 @@ import {
   jobPostingChatSessionListWireSchema,
   jobPostingChatTranscriptWireSchema,
   jobPostingChatTurnWireSchema,
+  jobDescriptionDraftWireSchema,
   jobPostingListWireSchema,
   jobPostingWireSchema,
   matchSkillListWireSchema,
@@ -85,6 +86,8 @@ import {
   type InboxAgencyRowWire,
   type InboxCompanyRowWire,
   type JobPostingChatPublishResult,
+  type JobDescriptionDraft,
+  type JobDescriptionDraftInput,
   type JobPostingChatSessionSummary,
   type JobPostingChatTranscript,
   type JobPostingChatTurn,
@@ -1045,6 +1048,29 @@ export async function createAgencyJob(input: AgencyJobInput): Promise<AgencyJob>
     schema: agencyJobWireSchema,
   });
   return assertNoAgencyPII(wire, "payer/agency/jobs (create)");
+}
+
+/**
+ * POST /payer/job-postings/description/draft (#2719/#2720).
+ *
+ * EMPLOYER session only (the route is `@PayerRoles("employer")`). The server
+ * filters the draft to the posting's trade/role, always answers English, and
+ * stores NOTHING: `description: null` means keep the poster's own text. The
+ * transcript rides as `spoken_text`; labels are omitted when unknown.
+ */
+export async function draftJobDescription(
+  input: JobDescriptionDraftInput,
+): Promise<JobDescriptionDraft> {
+  const wire = await payerFetch("/payer/job-postings/description/draft", {
+    method: "POST",
+    body: {
+      spoken_text: input.spokenText,
+      ...(input.tradeLabel ? { trade_label: input.tradeLabel } : {}),
+      ...(input.roleLabel ? { role_label: input.roleLabel } : {}),
+    },
+    schema: jobDescriptionDraftWireSchema,
+  });
+  return { description: wire.description, isMock: wire.is_mock };
 }
 
 /** PATCH /payer/agency/jobs/:jobId — edit an OWNED job. Neutral 404 → null. */
