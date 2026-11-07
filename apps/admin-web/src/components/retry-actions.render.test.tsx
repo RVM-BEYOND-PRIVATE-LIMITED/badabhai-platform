@@ -84,9 +84,7 @@ function uses(fileName: string, source: string): { line: number; attrs: string[]
     if (el && RECOVERIES.has(el.tagName.getText(sf))) {
       found.push({
         line: sf.getLineAndCharacterOfPosition(el.getStart(sf)).line + 1,
-        attrs: el.attributes.properties
-          .filter(ts.isJsxAttribute)
-          .map((a) => a.name.getText(sf)),
+        attrs: el.attributes.properties.filter(ts.isJsxAttribute).map((a) => a.name.getText(sf)),
       });
     }
     ts.forEachChild(node, visit);
@@ -122,7 +120,8 @@ describe("every RetryActions carries the page's cursor", () => {
   it("is used by every paged list that can fail", () => {
     const files = new Set(ALL.map((u) => u.file));
     for (const f of [
-      "app/(portal)/candidates/page.tsx",
+      // Candidates is client-paged now (A7): its retry re-reads the POST in place, so it does
+      // not use the link-shaped RetryActions. `candidates-bank.tsx` owns that Retry.
       "app/(portal)/jobs/page.tsx",
       "app/(portal)/events/page.tsx",
       "app/(portal)/companies/page.tsx",

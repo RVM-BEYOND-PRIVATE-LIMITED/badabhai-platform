@@ -42,7 +42,6 @@ const { FilterPanel } = await import("./filter-panel");
 const { EventFilterBar } = await import("../app/(portal)/events/filter-bar");
 const { AiCallFilterBar } = await import("../app/(portal)/ai-calls/filter-bar");
 const { JobFilterBar } = await import("../app/(portal)/jobs/filter-bar");
-const { WorkerFilterBar } = await import("../app/(portal)/candidates/filter-bar");
 const { PayerFilterBar } = await import("./payer-filter-bar");
 const { SkillDiscoveryFilterBar } = await import("../app/(portal)/skills/discovery/filter-bar");
 
@@ -243,13 +242,6 @@ const BARS: Array<{
     before: { status: "", verificationStatus: "", payerId: "" },
     after: { status: "open", verificationStatus: "verified", payerId: "5eeded00-0002" },
     shows: (u) => [u.status, u.verificationStatus, u.payerId],
-  },
-  {
-    name: "workers",
-    render: (u) => WorkerFilterBar(u as Parameters<typeof WorkerFilterBar>[0]),
-    before: { status: "", pendingDeletion: false },
-    after: { status: "active", pendingDeletion: true },
-    shows: (u) => [u.status, u.pendingDeletion],
   },
   {
     name: "companies / agencies",

@@ -88,6 +88,7 @@ export function NumberedPager({
   pageSize,
   total,
   pageParam = "page",
+  onSelectPage,
 }: {
   basePath: string;
   /** The active filters (and page size), WITHOUT the page number. */
@@ -99,6 +100,12 @@ export function NumberedPager({
   total: number;
   /** The query parameter that carries the page number. */
   pageParam?: string;
+  /**
+   * Paging handled in place (A7, #2577's client data bank): every page becomes a button and the
+   * list re-reads in this browser, so a search term that is body-only stays in the query. Absent
+   * on a server-paged list, where each page is a link to the same query with a new number.
+   */
+  onSelectPage?: (page: number) => void;
 }) {
   if (!(total > 0)) return null;
   const last = lastPage(pageSize, total);
@@ -125,11 +132,22 @@ export function NumberedPager({
       <ol className="pager__pages">
         <li>
           {page > 1 ? (
-            <Link className="pager__step" href={href(Math.min(page - 1, last))}>
-              <Icon name="caret-left" />
-              <span className="sr-only">Previous page</span>
-              <NavPendingCue message="Loading the previous page…" />
-            </Link>
+            onSelectPage ? (
+              <button
+                type="button"
+                className="pager__step"
+                onClick={() => onSelectPage(Math.min(page - 1, last))}
+              >
+                <Icon name="caret-left" />
+                <span className="sr-only">Previous page</span>
+              </button>
+            ) : (
+              <Link className="pager__step" href={href(Math.min(page - 1, last))}>
+                <Icon name="caret-left" />
+                <span className="sr-only">Previous page</span>
+                <NavPendingCue message="Loading the previous page…" />
+              </Link>
+            )
           ) : (
             <span className="pager__step" aria-disabled="true">
               <Icon name="caret-left" />
@@ -148,6 +166,11 @@ export function NumberedPager({
                 <span className="pager__page" aria-current="page">
                   {formatCount(slot)}
                 </span>
+              ) : onSelectPage ? (
+                <button type="button" className="pager__page" onClick={() => onSelectPage(slot)}>
+                  <span className="sr-only">Page </span>
+                  {formatCount(slot)}
+                </button>
               ) : (
                 <Link className="pager__page" href={href(slot)}>
                   <span className="sr-only">Page </span>
@@ -160,11 +183,18 @@ export function NumberedPager({
         )}
         <li>
           {page < last ? (
-            <Link className="pager__step" href={href(page + 1)}>
-              <Icon name="caret-right" />
-              <span className="sr-only">Next page</span>
-              <NavPendingCue message="Loading the next page…" />
-            </Link>
+            onSelectPage ? (
+              <button type="button" className="pager__step" onClick={() => onSelectPage(page + 1)}>
+                <Icon name="caret-right" />
+                <span className="sr-only">Next page</span>
+              </button>
+            ) : (
+              <Link className="pager__step" href={href(page + 1)}>
+                <Icon name="caret-right" />
+                <span className="sr-only">Next page</span>
+                <NavPendingCue message="Loading the next page…" />
+              </Link>
+            )
           ) : (
             <span className="pager__step" aria-disabled="true">
               <Icon name="caret-right" />

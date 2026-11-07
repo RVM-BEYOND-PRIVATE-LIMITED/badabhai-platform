@@ -23,9 +23,8 @@ vi.mock("./phone-reveal", () => ({
   ),
 }));
 
-const { CANDIDATE_TABS, CandidateRecordPanels, SourceTag, recordSummary } = await import(
-  "./candidate-record-view"
-);
+const { CANDIDATE_TABS, CandidateRecordPanels, SourceTag, recordSummary } =
+  await import("./candidate-record-view");
 
 type Tab = (typeof CANDIDATE_TABS)[number]["id"];
 
@@ -93,7 +92,9 @@ describe("every field, with its value and where it came from", () => {
 
   it("a source tag beside each — one per field, plus each match skill and the profile's own", () => {
     const tags = html.match(/class="source-tag"/g) ?? [];
-    expect(tags.length).toBe(CANDIDATE_FIELDS.length + candidateRecord().skills.match_skills.length + 1);
+    expect(tags.length).toBe(
+      CANDIDATE_FIELDS.length + candidateRecord().skills.match_skills.length + 1,
+    );
   });
 
   it("the tags are humanised, and a raw source code never reaches the screen", () => {
@@ -135,19 +136,20 @@ describe("every field, with its value and where it came from", () => {
   });
 });
 
-describe("locked: name, phone and photo visibility", () => {
+describe("locked: name, phone, WhatsApp and photo visibility", () => {
   const html = panel(render(), "profile");
 
-  it("all three sit in the Locked group; name and photo visibility carry their reasons here", () => {
+  it("all four sit in the Locked group; name, WhatsApp and photo visibility carry their reasons here", () => {
     const locked = html.slice(html.indexOf(">Locked</h3>"), html.indexOf(">Identity</h3>"));
     expect(locked).toContain("Name</dt>");
     expect(locked).toContain("Phone</dt>");
+    expect(locked).toContain("WhatsApp</dt>");
     expect(locked).toContain("Photo on resume</dt>");
     // The phone's own lock is drawn by the reveal field (phone-reveal.render.test.tsx).
-    for (const why of [LOCK_REASONS.name, LOCK_REASONS.photo]) {
+    for (const why of [LOCK_REASONS.name, LOCK_REASONS.whatsapp, LOCK_REASONS.photo]) {
       expect(locked).toContain(why.replace(/'/g, "&#x27;"));
     }
-    expect(locked.match(/class="lock-tag" role="img" aria-label="Locked"/g)?.length).toBe(2);
+    expect(locked.match(/class="lock-tag" role="img" aria-label="Locked"/g)?.length).toBe(3);
   });
 
   it("the reason is the tag's description, in the console's shared tooltip, reachable by keyboard", () => {
@@ -175,13 +177,17 @@ describe("locked: name, phone and photo visibility", () => {
 
 describe("the name — never an empty string", () => {
   it("named: the name", () => {
-    expect(panel(render(), "profile")).toMatch(/Name<\/dt><dd class="kv__v"><span class="cfield"><span class="cfield__value">Ramesh Kumar<\/span>/);
+    expect(panel(render(), "profile")).toMatch(
+      /Name<\/dt><dd class="kv__v"><span class="cfield"><span class="cfield__value">Ramesh Kumar<\/span>/,
+    );
   });
 
   it("named, with none on record: the console's dash that says what a dash means", () => {
     const d = candidateRecord();
     d.identity.name = { value: null, source: "none", correction: null };
-    expect(panel(render(d), "profile")).toContain('title="No name on record for this account.">—</span>');
+    expect(panel(render(d), "profile")).toContain(
+      'title="No name on record for this account.">—</span>',
+    );
   });
 
   it("an analyst (no read_identity): hidden FOR THE ROLE, and no withheld banner", () => {
@@ -216,7 +222,7 @@ describe("the other tabs render exactly the groups the response carries", () => 
   it("Skills: the profile's, what matching reads (with each row's own source) and the employer card", () => {
     const p = panel(html, "skills");
     expect(p).toContain("TIG welding");
-    expect(p).toContain("<caption class=\"sr-only\">Match skills</caption>");
+    expect(p).toContain('<caption class="sr-only">Match skills</caption>');
     expect(p).toContain("Ops</span>");
     expect(p).toContain("This worker is in the employer search pool");
   });

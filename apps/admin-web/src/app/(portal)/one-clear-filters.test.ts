@@ -22,7 +22,7 @@ const clearLabels = (src: string): number =>
   (src.match(/(>\s*|")Clear filters?(\s*<|")/g) ?? []).length;
 
 const LIST_SCREENS = [
-  "candidates/page.tsx",
+  "candidates/candidates-bank.tsx",
   "jobs/page.tsx",
   "events/page.tsx",
   "companies/page.tsx",
@@ -33,8 +33,7 @@ const LIST_SCREENS = [
 ];
 
 /** "Clear the reason filter", "Clear the worker filter": a clear that removes ONE filter. */
-const clearOneLabels = (src: string): string[] =>
-  src.match(/Clear the [a-z]+ filter/g) ?? [];
+const clearOneLabels = (src: string): string[] => src.match(/Clear the [a-z]+ filter/g) ?? [];
 
 describe("the detector", () => {
   it("counts JSX text and string literals, singular and plural, and nothing else", () => {

@@ -58,7 +58,7 @@ export const NAV: NavSection[] = [
         href: "/candidates",
         label: "Candidates",
         icon: "users-three",
-        capability: "read_entities",
+        capability: "read_candidates",
       },
       // USER ACCOUNTS (#2578) — the payer logins an admin can create, recover or disable.
       // `manage_payer_credentials` mirrors `AdminPayerLoginsController`'s own guard (#2563);

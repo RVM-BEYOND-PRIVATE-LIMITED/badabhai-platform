@@ -5707,3 +5707,385 @@ a.pager__step:hover {
     transform: scaleX(0);
   }
 }
+
+/* ============================================================
+   CANDIDATES DATA BANK (A7, #2577)
+   The search row, the removable filter chips, the saved views disclosure, the skeleton and the
+   post-save flash. Brand tokens only; motion is opacity/transform and drops to zero under the
+   reduced-motion token block at the top of the file.
+   ============================================================ */
+
+/* The universal search: one box, the brand glyph, and a clear action that only appears when it
+   has something to clear. */
+.bank-search {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-3);
+  margin-block-end: var(--space-4);
+}
+.bank-search__field {
+  flex: 1 1 28rem;
+  max-inline-size: 52rem;
+}
+.bank-search__input {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.bank-search__icon {
+  position: absolute;
+  inset-inline-start: var(--space-3);
+  color: var(--icon-secondary);
+  font-size: var(--icon-size-sm);
+  pointer-events: none;
+}
+.bank-search__input > .field__input {
+  flex: 1;
+  padding-inline-start: calc(var(--space-3) + var(--icon-size-sm) + var(--space-2));
+}
+.bank-search__clear {
+  flex: none;
+}
+
+/* The filter panel holds the same grid as every list bar. "More filters" takes a full row, and
+   its own grid repeats the field layout under it. */
+.bank-filters {
+  margin-block-end: var(--space-4);
+}
+.bank-filters__more {
+  grid-column: 1 / -1;
+}
+.bank-filters__more > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--icon-gap);
+  cursor: pointer;
+  list-style: none;
+}
+.bank-filters__more > summary::-webkit-details-marker {
+  display: none;
+}
+.bank-filters__more[open] > summary {
+  margin-block-end: var(--space-3);
+}
+.bank-filters__more-grid {
+  margin-block-start: var(--space-3);
+}
+
+/* Removable filter chips: one per set value. The add motion is a 0.9 → 1 scale in 120ms; a
+   removal unmounts, so it simply goes. */
+.bank-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.bank-chip,
+.chip--action {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  border: var(--border-hairline) solid var(--border-control);
+  background: var(--surface-card);
+  color: var(--text-primary);
+  cursor: pointer;
+  font: inherit;
+  animation: bank-chip-in var(--duration-fast) var(--ease-enter);
+}
+.bank-chip:hover,
+.chip--action:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-sunken);
+}
+.bank-chip__x {
+  color: var(--text-muted);
+  font-size: var(--text-md);
+  line-height: 1;
+}
+@keyframes bank-chip-in {
+  from {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+}
+
+/* Saved views: a disclosure in the page actions, opening a small card under its summary. */
+.bank-views {
+  position: relative;
+}
+.bank-views > summary {
+  list-style: none;
+  cursor: pointer;
+}
+.bank-views > summary::-webkit-details-marker {
+  display: none;
+}
+.bank-views__panel {
+  position: absolute;
+  inset-block-start: calc(100% + var(--space-2));
+  inset-inline-end: 0;
+  z-index: 20;
+  inline-size: min(28rem, 92vw);
+  display: grid;
+  gap: var(--space-4);
+  padding: var(--space-4);
+  border: var(--border-hairline) solid var(--divider);
+  border-radius: var(--radius-lg);
+  background: var(--surface-card);
+  box-shadow: var(--shadow-lg);
+  animation: bank-panel-in var(--duration-fast) var(--ease-enter);
+}
+@keyframes bank-panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+.bank-views__actions {
+  display: grid;
+  gap: var(--space-2);
+}
+.bank-views__save {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-2);
+}
+.bank-views__save .field {
+  flex: 1;
+}
+.bank-views__list {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.bank-views__item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  border-block-start: var(--border-hairline) solid var(--divider);
+  padding-block: var(--space-2);
+}
+.bank-views__apply {
+  flex: 1;
+  display: grid;
+  gap: 2px;
+  border: 0;
+  background: none;
+  padding: 0;
+  text-align: start;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+.bank-views__apply:hover .bank-views__name {
+  color: var(--text-link);
+}
+.bank-views__name {
+  font-weight: var(--weight-semibold);
+  color: var(--text-heading);
+}
+
+/* The header's total: "Candidates · 24,310" — the count is the quiet half. */
+.bank-total {
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The footer pager's page-size choice sits beside the numbered pages. */
+.bank__pager {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-4);
+}
+.bank__pagesize {
+  display: grid;
+  gap: var(--space-1);
+}
+.bank__pagesize .field__input {
+  min-block-size: var(--control-sm);
+  padding-block: var(--space-1);
+}
+
+/* A later read dims the rows already there and runs a 2px progress line under the results head;
+   it never replaces them with a skeleton (only the first load does). */
+.bank__results {
+  position: relative;
+}
+.bank__results--busy .grid__table tbody {
+  opacity: 0.6;
+  transition: opacity var(--duration-fast) var(--ease-out);
+}
+.bank__progress {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline: 0;
+  z-index: 2;
+  block-size: 2px;
+  overflow: hidden;
+  background: var(--brand-tint);
+}
+.bank__progress::after {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 0;
+  inline-size: 40%;
+  background: var(--brand);
+  transform-origin: left center;
+  animation: bank-progress var(--duration-shimmer) var(--ease-in-out) infinite;
+}
+@keyframes bank-progress {
+  from {
+    transform: translateX(-100%) scaleX(0.6);
+  }
+  to {
+    transform: translateX(260%) scaleX(0.6);
+  }
+}
+
+/* The first-load skeleton: the same column rhythm as the grid, drawn as flex cells. */
+.bank__skeleton {
+  border-block-start: var(--border-hairline) solid var(--divider);
+}
+.bank__skeleton-head,
+.bank__skeleton-row {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+  min-block-size: var(--row-h);
+  padding-inline: var(--grid-pad-inline, var(--space-3));
+  border-block-end: var(--border-hairline) solid var(--divider);
+}
+.bank__skeleton-head > span,
+.bank__skeleton-row > span {
+  flex: 1 1 0;
+  min-inline-size: 0;
+}
+.bank__skeleton-row .skeleton {
+  block-size: var(--space-3);
+}
+
+/* "Edited by admin" (A7, #2561): a small state tag beside the field, with the reason on hover. */
+.edited-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-pill);
+  background: var(--brand-tint);
+  color: var(--text-accent);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  white-space: nowrap;
+  cursor: help;
+  animation: edited-badge-in var(--duration-fast) var(--ease-enter);
+}
+@keyframes edited-badge-in {
+  from {
+    opacity: 0;
+  }
+}
+.cfield__revert {
+  margin-inline-start: var(--space-1);
+}
+.cdrawer__edit {
+  margin-block-end: var(--space-2);
+}
+.cdrawer__reason {
+  max-inline-size: 34rem;
+  white-space: normal;
+}
+
+/* Account actions (#2562) under the Account group: a quiet row of controls, the danger one in
+   the console's danger tone; the confirm dialogs are A5's. */
+.cdrawer__account-actions {
+  display: grid;
+  gap: var(--space-2);
+  margin-block-start: var(--space-4);
+  padding-block-start: var(--space-4);
+  border-block-start: var(--border-hairline) solid var(--divider);
+}
+.cdrawer__account-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+/* The post-save flash: a 20% yellow tint over the field, faded out over 1.2s. Opacity only. */
+.cfield--flash {
+  position: relative;
+  border-radius: var(--radius-xs);
+}
+.cfield--flash::after {
+  content: "";
+  position: absolute;
+  inset: calc(-1 * var(--space-1));
+  pointer-events: none;
+  border-radius: var(--radius-xs);
+  background: var(--warning-tint);
+  opacity: 0;
+  animation: cfield-flash calc(var(--duration-count) * 2) var(--ease-out);
+}
+@keyframes cfield-flash {
+  0% {
+    opacity: 0.2;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+/* Buttons that replace links inside the shared grid header and pager (client-paged lists). */
+button.grid__sort,
+button.pager__page,
+button.pager__step {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  cursor: pointer;
+}
+button.grid__sort {
+  padding: 0;
+}
+button.pager__page,
+button.pager__step {
+  padding-inline: var(--space-2);
+}
+button.pager__page:hover,
+button.pager__step:hover {
+  background: var(--surface-sunken);
+}
+
+@media (max-width: 700px) {
+  .bank-search {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .bank-search__field {
+    max-inline-size: none;
+  }
+  .bank-views__panel {
+    inset-inline: 0 auto;
+    inline-size: min(24rem, 92vw);
+  }
+  .bank__skeleton-head,
+  .bank__skeleton-row {
+    min-block-size: var(--row-h-compact);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bank-chip,
+  .bank-views__panel,
+  .edited-badge,
+  .bank__progress::after,
+  .cfield--flash::after {
+    animation: none;
+  }
+}

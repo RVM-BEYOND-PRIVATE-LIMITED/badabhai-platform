@@ -138,8 +138,9 @@ export interface CandidateCorrectionEntry {
 }
 
 /**
- * The corrections on this record, newest first. EMPTY for every record until #2561 ships the
- * correction layer — the drawer then says so rather than inventing history.
+ * The corrections on this record, newest first, from the live `correction` metadata (#2561). The
+ * drawer's Edit log uses the API's history when the session may edit; this fallback is for a
+ * read-only role, which sees that a field changed but not the admin's reason text.
  */
 export function corrections(d: CandidateDetail): CandidateCorrectionEntry[] {
   const out: CandidateCorrectionEntry[] = [];
