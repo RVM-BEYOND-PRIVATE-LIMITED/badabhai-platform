@@ -6088,6 +6088,8 @@ button.pager__step:hover {
   .cfield--flash::after {
     animation: none;
   }
+}
+
 /* ---------------------------------------------------------------------------
    A9 (#2579) — the company record: summary facts, tabs, hidden posting rows and
    the overflow menu. Motion is --duration-base (220ms) or less and drops to zero
