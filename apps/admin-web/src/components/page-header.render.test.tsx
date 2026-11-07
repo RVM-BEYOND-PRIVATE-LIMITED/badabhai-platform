@@ -213,7 +213,8 @@ function declaredBackHrefs(fileName: string, source: string): string[] {
       hrefsIn(node.initializer);
     } else if (
       (ts.isJsxSelfClosingElement(node) || ts.isJsxOpeningElement(node)) &&
-      node.tagName.getText(sf) === "PayerDetailRoute"
+      (node.tagName.getText(sf) === "PayerDetailRoute" ||
+        node.tagName.getText(sf) === "CompanyDetailRoute")
     ) {
       out.push(CUSTOMERS_HREF);
     }
@@ -249,6 +250,7 @@ describe("header fences — the back-link reader", () => {
 
   it("resolves the customer route to the one customers section, whatever the kind", () => {
     expect(read("<PayerDetailRoute id={id} />")).toEqual(["/companies"]);
+    expect(read("<CompanyDetailRoute id={id} />")).toEqual(["/companies"]);
   });
 
   it("finds static first-level children as well as [param] ones", () => {

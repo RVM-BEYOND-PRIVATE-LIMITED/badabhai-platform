@@ -91,6 +91,7 @@ interface Mocks {
     suspendWorker: ReturnType<typeof vi.fn>;
     reinstateWorker: ReturnType<typeof vi.fn>;
     writeAuditReason: ReturnType<typeof vi.fn>;
+    writePayerAuditReason: ReturnType<typeof vi.fn>;
     withTransaction: ReturnType<typeof vi.fn>;
   };
   admins: {
@@ -139,6 +140,7 @@ function make(): Mocks {
     suspendWorker: vi.fn(),
     reinstateWorker: vi.fn(),
     writeAuditReason: vi.fn(async () => undefined),
+    writePayerAuditReason: vi.fn(async () => undefined),
     withTransaction: vi.fn(async (cb: (tx: unknown) => Promise<unknown>) => cb(FAKE_TX)),
   };
   const admins = {
@@ -304,6 +306,24 @@ describe("suspendPayer", () => {
       actionCode: "payer_suspended",
       subjectType: "payer",
       targetId: PAYER_ID,
+    });
+  });
+
+  it("#2579 stores the written reason on audit_logs in the SAME transaction", async () => {
+    m.actions.findPayerStatus.mockResolvedValue({ id: PAYER_ID, status: "active" });
+    m.actions.suspendPayer.mockResolvedValue({ status: "suspended", previousStatus: "active" });
+
+    await m.service.suspendPayer(ADMIN_ID, PAYER_ID, CTX, {
+      reason_code: "fraud",
+      reason_text: "This account is being used for fraudulent postings",
+    });
+
+    expect(m.actions.writePayerAuditReason).toHaveBeenCalledWith(FAKE_TX, {
+      adminId: ADMIN_ID,
+      payerId: PAYER_ID,
+      action: "payer_suspended",
+      reasonCode: "fraud",
+      reasonText: "This account is being used for fraudulent postings",
     });
   });
 

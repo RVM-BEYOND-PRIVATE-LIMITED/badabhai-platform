@@ -26,6 +26,7 @@ import type {
   AdminWorkerSignOutAllDto,
   AdminWorkerSuspendDto,
   AdminWorkerUnsuspendDto,
+  AdminPayerActionReasonDto,
 } from "./admin-actions.dto";
 
 import { ADMIN_ACTION_CODES, type AdminActionCode } from "./admin-action-codes";
@@ -118,7 +119,12 @@ export class AdminActionsService {
    * briefly survives, and the per-request lifecycle gate in `PayerAuthGuard` closes that
    * window on the very next request. A revoke failure is surfaced, never swallowed.
    */
-  async suspendPayer(adminId: string, payerId: string, ctx: RequestContext): Promise<AdminActionResult> {
+  async suspendPayer(
+    adminId: string,
+    payerId: string,
+    ctx: RequestContext,
+    reason?: AdminPayerActionReasonDto,
+  ): Promise<AdminActionResult> {
     const current = await this.actions.findPayerStatus(payerId);
     if (!current) throw new NotFoundException("Payer not found");
     // Idempotent: already suspended → no-op success, no event, no revoke.
@@ -153,6 +159,18 @@ export class AdminActionsService {
       // leaving a payer marked suspended while their postings keep taking applications.
       const inventory = await this.actions.suspendPayerInventory(payerId, tx);
       await this.emitInventory("payer.inventory_suspended", adminId, payerId, inventory, ctx, tx);
+      // #2579 — the written reason on the admin audit row, in the same transaction as the
+      // status move and the value-free event. Older callers send no body; the action is still
+      // recorded exactly as before.
+      if (reason) {
+        await this.actions.writePayerAuditReason(tx, {
+          adminId,
+          payerId,
+          action: ADMIN_ACTION_CODES.payer_suspended,
+          reasonCode: reason.reason_code,
+          reasonText: reason.reason_text,
+        });
+      }
     });
     if (conflict) throw new ConflictException("Payer status changed concurrently; retry");
     await this.revokeSessions(payerId);
@@ -166,7 +184,12 @@ export class AdminActionsService {
    * must still complete OTP verification. Hardcoding `active` here would let suspend +
    * reinstate be used as a backdoor activation.
    */
-  async reinstatePayer(adminId: string, payerId: string, ctx: RequestContext): Promise<AdminActionResult> {
+  async reinstatePayer(
+    adminId: string,
+    payerId: string,
+    ctx: RequestContext,
+    reason?: AdminPayerActionReasonDto,
+  ): Promise<AdminActionResult> {
     const current = await this.actions.findPayerStatus(payerId);
     if (!current) throw new NotFoundException("Payer not found");
     // Idempotent: not suspended → no-op success, no event.
@@ -199,6 +222,15 @@ export class AdminActionsService {
       // so leaving their inventory frozen would strand it with no way to recover it.
       const inventory = await this.actions.reinstatePayerInventory(payerId, tx);
       await this.emitInventory("payer.inventory_reinstated", adminId, payerId, inventory, ctx, tx);
+      if (reason) {
+        await this.actions.writePayerAuditReason(tx, {
+          adminId,
+          payerId,
+          action: ADMIN_ACTION_CODES.payer_reinstated,
+          reasonCode: reason.reason_code,
+          reasonText: reason.reason_text,
+        });
+      }
     });
     if (conflict) throw new ConflictException("Payer status changed concurrently; retry");
     return { target_id: payerId, changed: true };

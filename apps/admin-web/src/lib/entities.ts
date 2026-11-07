@@ -200,6 +200,15 @@ export const jobPostingListItemSchema = z.object({
   city: z.string().nullable(),
   status: z.string(),
   verification_status: z.string(),
+  /**
+   * #2566 — BadaBhai's hide state, separate from `status`. Optional so a fixture/older API
+   * without the field still parses; `hidden === true` is the only claim of hidden.
+   */
+  hidden: z.boolean().optional(),
+  hidden_at: z.string().nullable().optional(),
+  hidden_by: z.string().nullable().optional(),
+  hidden_reason_code: z.string().nullable().optional(),
+  hidden_reason_text: z.string().nullable().optional(),
   vacancy_band: z.string(),
   pay_min: z.number().nullable(),
   pay_max: z.number().nullable(),
@@ -243,12 +252,36 @@ export interface JobPostingFilters {
   status?: string;
   verificationStatus?: string;
   payerId?: string;
+  /** #2566 — `true` shows only hidden rows, `false` only visible ones. */
+  hidden?: boolean;
   cursor?: string;
   limit?: number;
 }
 
 export function listJobPostings(f: JobPostingFilters = {}) {
   return adminFetch(`/admin/job-postings${qs(f)}`, { schema: jobPostingsPageSchema });
+}
+
+/**
+ * A company's postings across the organisation. The admin list filters by ONE `payer_id`, and a
+ * team member's postings carry the member's own id under org tenancy — so the company record's
+ * Postings tab reads the founder and every member and merges the pages newest-first. Each read is
+ * bounded; the tab shows the newest 50 in total rather than pretending the merge paginates.
+ */
+export async function listCompanyJobPostings(
+  payerIds: readonly string[],
+  limit = 50,
+): Promise<JobPostingListItem[]> {
+  const unique = [...new Set(payerIds)].filter(Boolean);
+  const pages = await Promise.all(
+    unique.map((payerId) =>
+      listJobPostings({ payerId, limit: Math.min(Math.max(limit, 1), 50) }),
+    ),
+  );
+  return pages
+    .flatMap((p) => p.items)
+    .sort((a, b) => b.created_at.localeCompare(a.created_at) || b.id.localeCompare(a.id))
+    .slice(0, limit);
 }
 
 export function getJobPosting(id: string) {

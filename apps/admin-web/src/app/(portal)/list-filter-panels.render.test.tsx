@@ -27,7 +27,11 @@ vi.mock("../../lib/auth", () => ({
     capabilities: [capability, "read_entities", "read_events", "read_identity", "read_ai_traces"],
   }),
 }));
-vi.mock("../../lib/admin-http", () => ({ isAdminRequestError: () => false }));
+vi.mock("../../lib/admin-http", () => ({
+  isAdminRequestError: () => false,
+  isAdminForbidden: () => false,
+  isAdminUnauthorized: () => false,
+}));
 vi.mock("../../lib/events", () => ({
   listEvents: async () => ({ events: stub.events, nextCursor: null }),
   listRecentEventNames: async () => stub.names,
@@ -36,6 +40,17 @@ vi.mock("../../lib/entities", () => ({
   listPayers: async () => ({ items: [], nextCursor: null }),
   listJobPostings: async () => ({ items: [], nextCursor: null }),
   listWorkers: async () => ({ items: [], nextCursor: null }),
+}));
+vi.mock("../../lib/companies", () => ({
+  listCompanies: async () => ({
+    items: [],
+    page: 1,
+    page_size: 25,
+    total: 0,
+    total_pages: 1,
+    name_search_available: true,
+  }),
+  getCompanyMetricsFor: async () => new Map(),
 }));
 vi.mock("../../lib/ai-traces", () => ({
   listAiTraces: async () => ({ items: [], nextCursor: null }),

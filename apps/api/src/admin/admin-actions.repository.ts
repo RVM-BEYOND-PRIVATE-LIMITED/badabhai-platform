@@ -391,6 +391,30 @@ export class AdminActionsRepository {
     });
   }
 
+  /**
+   * #2579 — the written reason for a payer suspend/reinstate. Same store and PII rule as the
+   * worker reason above, with the payer as the entity.
+   */
+  async writePayerAuditReason(
+    tx: Database,
+    input: {
+      adminId: string;
+      payerId: string;
+      action: string;
+      reasonCode: string;
+      reasonText: string;
+    },
+  ): Promise<void> {
+    await tx.insert(auditLogs).values({
+      actorType: "admin",
+      actorId: input.adminId,
+      action: input.action,
+      entityType: "payer",
+      entityId: input.payerId,
+      metadata: { reason_code: input.reasonCode, reason_text: input.reasonText },
+    });
+  }
+
   // ----- worker_flags (flag / unflag) ---------------------------------------
 
   /** The worker's current OPEN flag (resolved_at IS NULL), or undefined. */
