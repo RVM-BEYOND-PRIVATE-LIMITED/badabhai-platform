@@ -179,6 +179,7 @@ describe("the schema is the API's contract, key for key", () => {
     ["resume", "resumeSchema"],
     ["account", "accountSchema"],
     ["activity", "activitySchema"],
+    ["editable", "editableSchema"],
   ] as const)("%s carries exactly the keys of %s", (group, constName) => {
     expect(shape(groups[group])).toEqual(dtoKeys(constName).sort());
   });

@@ -19,8 +19,17 @@ import {
 const record = candidateRecord();
 
 describe("the editable sections", () => {
-  it("cover location, trade, experience and pay/preferences", () => {
-    expect(EDIT_SECTIONS.map((s) => s.id)).toEqual(["location", "trade", "work", "pay"]);
+  it("cover location, trade, experience, pay, skills, languages, schooling and history", () => {
+    expect(EDIT_SECTIONS.map((s) => s.id)).toEqual([
+      "location",
+      "trade",
+      "work",
+      "pay",
+      "skills",
+      "languages",
+      "schooling",
+      "history",
+    ]);
   });
 
   it("never include a locked field, and never pretend to edit a fact the record cannot read back", () => {
@@ -175,5 +184,196 @@ describe("input validation", () => {
     expect(validateEditDraft(record, "location", { ...initial, current_city: "Mumbai" })).toEqual(
       {},
     );
+  });
+});
+
+describe("the structured sections", () => {
+  it("pre-fills skills, multi-selects and entry rows from the editable block", () => {
+    expect(initialEditDraft(record, "skills")).toEqual({
+      skills: "skill_tig_welder, skill_arc_welding",
+    });
+    const pay = initialEditDraft(record, "pay");
+    expect(pay.work_types).toBe("contract");
+    expect(pay.documents_ready).toBe("aadhaar, pan");
+    expect(JSON.parse(initialEditDraft(record, "languages").languages!)).toEqual([
+      { language: "hindi", can_speak: true, can_read: true, can_write: false },
+    ]);
+    expect(JSON.parse(initialEditDraft(record, "schooling").education!)).toEqual([
+      {
+        credential: "iti",
+        field: "Welder",
+        council: "ncvt",
+        year: "2018",
+        institute: "Govt. ITI, Faridabad",
+      },
+    ]);
+    const history = JSON.parse(initialEditDraft(record, "history").work_history!);
+    expect(history[0]).toMatchObject({
+      employer_name: "",
+      employer_city: "Pune",
+      roles: [
+        {
+          role_label: "TIG Welder",
+          start_ym: "2021-04",
+          end_ym: "",
+          work_done: "Welded exhaust frames",
+        },
+      ],
+    });
+    expect(history[0]).not.toHaveProperty("employer_name", "Tata");
+    expect(JSON.stringify(history)).not.toMatch(/polish|voice_note|duration_stated/);
+  });
+
+  it("builds the correction shapes from the drafts, including nested roles", () => {
+    expect(
+      draftFactValue("languages", {
+        languages: JSON.stringify([
+          { language: "hindi", can_speak: true, can_read: false, can_write: false },
+        ]),
+      }),
+    ).toEqual([{ language: "hindi", can_speak: true, can_read: false, can_write: false }]);
+    expect(draftFactValue("work_types", { work_types: "contract, daily_wage" })).toEqual([
+      "contract",
+      "daily_wage",
+    ]);
+    const history = draftFactValue("work_history", {
+      work_history: JSON.stringify([
+        {
+          employer_name: "Tata Motors",
+          employer_city: "Pune",
+          employer_state: "",
+          start_ym: "2021-04",
+          end_ym: "",
+          roles: [{ role_label: "Welder", start_ym: "", end_ym: "", work_done: "" }],
+        },
+      ]),
+    });
+    expect(history).toEqual([
+      {
+        employer_name: "Tata Motors",
+        employer_city: "Pune",
+        employer_state: null,
+        start_ym: "2021-04",
+        end_ym: null,
+        roles: [{ role_label: "Welder", start_ym: null, end_ym: null, work_done: null }],
+      },
+    ]);
+  });
+
+  it("diffs entries by value and names each changed fact once", () => {
+    const initial = initialEditDraft(record, "languages");
+    expect(editChanges(record, "languages", initial)).toEqual([]);
+    const changed = editChanges(record, "languages", {
+      languages: JSON.stringify([
+        { language: "hindi", can_speak: true, can_read: true, can_write: true },
+        { language: "english", can_speak: true, can_read: false, can_write: false },
+      ]),
+    });
+    expect(changed.map((c) => c.factKey)).toEqual(["languages"]);
+    expect(changed[0]!.before).toBe("Hindi (speaks, reads)");
+    expect(changed[0]!.after).toBe("Hindi (speaks, reads, writes); English (speaks)");
+  });
+
+  it("formats the structured values in words", () => {
+    expect(formatFactValue("skills", ["a", "b"])).toBe("a, b");
+    expect(formatFactValue("work_types", ["contract"])).toBe("Contract");
+    expect(formatFactValue("documents_ready", [])).toBe("—");
+    expect(
+      formatFactValue("work_history", [
+        { employer_city: "Pune", roles: [{ role_label: "Welder" }] },
+        { roles: [{}, {}] },
+      ]),
+    ).toBe("2 employments: Pune · Welder; 2 roles");
+  });
+});
+
+describe("structured validation", () => {
+  const draftFor = (section: "languages" | "schooling" | "history", formKey: string, rows: unknown[]) => ({
+    ...initialEditDraft(record, section),
+    [formKey]: JSON.stringify(rows),
+  });
+
+  it("refuses an unknown multi-select value and more than fifty skills", () => {
+    const pay = initialEditDraft(record, "pay");
+    expect(
+      validateEditDraft(record, "pay", { ...pay, work_types: "contract, moonlight" }).work_types,
+    ).toBeTruthy();
+    expect(
+      validateEditDraft(record, "skills", { skills: new Array(51).fill("skill_x").join(", ") })
+        .skills,
+    ).toBeTruthy();
+  });
+
+  it("refuses a language without abilities and a doubled language", () => {
+    expect(
+      validateEditDraft(
+        record,
+        "languages",
+        draftFor("languages", "languages", [{ language: "hindi" }]),
+      ).languages,
+    ).toMatch(/tick/);
+    expect(
+      validateEditDraft(
+        record,
+        "languages",
+        draftFor("languages", "languages", [
+          { language: "hindi", can_speak: true },
+          { language: "hindi", can_read: true },
+        ]),
+      ).languages,
+    ).toMatch(/already listed/);
+  });
+
+  it("refuses a nameless certificate and a year outside living memory", () => {
+    expect(
+      validateEditDraft(
+        record,
+        "schooling",
+        draftFor("schooling", "certifications", [{ name: "", issuer: "", year: "" }]),
+      ).certifications,
+    ).toMatch(/enter name/);
+    expect(
+      validateEditDraft(
+        record,
+        "schooling",
+        draftFor("schooling", "education", [
+          { credential: "iti", field: "", council: "", year: "1800", institute: "" },
+        ]),
+      ).education,
+    ).toMatch(/between 1950/);
+  });
+
+  it("refuses a work history without an employer name, without a role, or with a backwards span", () => {
+    const noName = draftFor("history", "work_history", [
+      { employer_name: "", roles: [{ role_label: "Welder" }] },
+    ]);
+    expect(validateEditDraft(record, "history", noName).work_history).toMatch(/employer name/);
+    const noRole = draftFor("history", "work_history", [
+      { employer_name: "Tata", roles: [] },
+    ]);
+    expect(validateEditDraft(record, "history", noRole).work_history).toMatch(/at least one/);
+    const backwards = draftFor("history", "work_history", [
+      {
+        employer_name: "Tata",
+        start_ym: "2023-01",
+        end_ym: "2022-01",
+        roles: [{ role_label: "Welder" }],
+      },
+    ]);
+    expect(validateEditDraft(record, "history", backwards).work_history).toMatch(
+      /must not come before/,
+    );
+  });
+
+  it("accepts untouched drafts, except history — the employer name is never shown, so it must be typed", () => {
+    for (const section of ["skills", "languages", "schooling"] as const) {
+      expect(validateEditDraft(record, section, initialEditDraft(record, section))).toEqual({});
+    }
+    // Untouched history flags only the unknown employer name: the API requires it, the
+    // record never carries it, and saving without it is impossible — so the form says so
+    // up front rather than failing at Save.
+    expect(validateEditDraft(record, "history", initialEditDraft(record, "history"))).toEqual({
+      work_history: "Row 1: enter employer name.",
+    });
   });
 });

@@ -552,7 +552,101 @@ export function toCandidateDetail(input: CandidateDetailInputs): AdminCandidateD
       })),
       unlock_count: input.account.unlockCount,
     },
+    editable: editableValues({
+      profileSkills: effectiveProfile?.skills,
+      skillsCorrection: correctedValue("skills"),
+      languageRows: input.languages.length > 0 ? input.languages : undefined,
+      workTypes: workTypes.value,
+      documentCodes: stringList(attributes.documents_ready),
+      qualifications: input.qualifications,
+      employment: input.employment,
+    }),
   };
+}
+
+/**
+ * The RAW correction-shaped values (A7 #2577) — what the admin edit forms pre-fill from.
+ * Every key mirrors its `POST .../corrections` value shape; a key is null when there is no
+ * safe prefill (the form starts empty and the admin builds the value).
+ *
+ * BUILT FROM THE SAME ROWS THE DISPLAY READS — no new repository call, no new decrypt:
+ * employer names stay out (the admin types the name the worker gives on the call), licence
+ * numbers stay out (the form leaves them blank), voice-note ids stay out (an admin
+ * correction cannot attach one).
+ */
+function editableValues(inputs: {
+  profileSkills: unknown;
+  skillsCorrection: unknown;
+  languageRows: readonly WorkerLanguageRecord[] | undefined;
+  workTypes: readonly string[];
+  documentCodes: string[];
+  qualifications: {
+    readonly educations: readonly WorkerEducationRecord[];
+    readonly certificates: readonly WorkerCertificateRecord[];
+    readonly trainings: readonly WorkerTrainingRecord[];
+  } | null;
+  employment: readonly CandidateEmploymentRow[];
+}): AdminCandidateDetail["editable"] {
+  const storedSkills = Array.isArray(inputs.skillsCorrection)
+    ? inputs.skillsCorrection
+    : inputs.profileSkills;
+  return {
+    skills: Array.isArray(storedSkills)
+      ? storedSkills.filter((v): v is string => typeof v === "string" && v.trim() !== "")
+      : null,
+    languages: inputs.languageRows
+      ? inputs.languageRows.map((r) => ({
+          language: r.language,
+          can_speak: r.canSpeak,
+          can_read: r.canRead,
+          can_write: r.canWrite,
+        }))
+      : null,
+    work_types: [...inputs.workTypes],
+    documents_ready: [...inputs.documentCodes],
+    education: inputs.qualifications
+      ? inputs.qualifications.educations.map((e) => ({
+          credential: e.credential,
+          field: e.field,
+          council: e.council,
+          year: e.year,
+          institute: e.institute,
+        }))
+      : null,
+    certifications: inputs.qualifications
+      ? inputs.qualifications.certificates.map((c) => ({
+          name: c.name,
+          issuer: c.issuer,
+          year: c.year,
+        }))
+      : null,
+    training: inputs.qualifications
+      ? inputs.qualifications.trainings.map((t) => ({
+          name: t.name,
+          provider: t.provider,
+          year: t.year,
+        }))
+      : null,
+    work_history: inputWorkHistory(inputs.employment),
+  };
+}
+
+/** Stored employments in the correction's shape — minus the employer name, which the admin types. */
+function inputWorkHistory(
+  rows: readonly CandidateEmploymentRow[],
+): AdminCandidateDetail["editable"]["work_history"] {
+  return rows.map((e) => ({
+    employer_city: e.employerCity,
+    employer_state: e.employerState,
+    start_ym: e.startYm,
+    end_ym: e.endYm,
+    roles: e.roles.map((r) => ({
+      role_label: r.roleLabel,
+      start_ym: r.startYm,
+      end_ym: r.endYm,
+      work_done: r.workDone,
+    })),
+  }));
 }
 
 /**
