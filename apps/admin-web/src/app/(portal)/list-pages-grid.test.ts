@@ -18,7 +18,7 @@ const code = (rel: string) => stripComments(readFileSync(join(src, rel), "utf8")
 const LISTS: Array<[list: string, rows: string]> = [
   ["app/(portal)/events/page.tsx", "components/event-table.tsx"],
   ["components/entity-timeline.tsx", "components/event-table.tsx"],
-  ["app/(portal)/candidates/page.tsx", "app/(portal)/candidates/page.tsx"],
+  ["app/(portal)/candidates/page.tsx", "app/(portal)/candidates/candidates-bank.tsx"],
   /* Every customer — Companies and Agencies are one list since A6 (#2576), with a Kind filter. */
   ["app/(portal)/companies/page.tsx", "components/payer-list.tsx"],
   ["app/(portal)/jobs/page.tsx", "app/(portal)/jobs/page.tsx"],
@@ -29,7 +29,10 @@ const LISTS: Array<[list: string, rows: string]> = [
   ["app/(portal)/transactions/page.tsx", "app/(portal)/transactions/page.tsx"],
   ["app/(portal)/admins/page.tsx", "app/(portal)/admins/page.tsx"],
   ["app/(portal)/skills/discovery/page.tsx", "app/(portal)/skills/discovery/page.tsx"],
-  ["app/(portal)/candidates/[id]/journey/page.tsx", "app/(portal)/candidates/[id]/journey/page.tsx"],
+  [
+    "app/(portal)/candidates/[id]/journey/page.tsx",
+    "app/(portal)/candidates/[id]/journey/page.tsx",
+  ],
 ];
 
 /**
@@ -70,8 +73,8 @@ describe("every list draws its rows on the data grid", () => {
     const pagers = LISTS.flatMap(([list, rows]) => [...new Set([list, rows])]).flatMap((file) =>
       [...code(file).matchAll(/<Pager\b([\s\S]*?)\/>/g)].map((m) => [file, m[1]!] as const),
     );
-    // Eleven since A6 (#2576) folded Agencies' list, and its pager, into Companies.
-    expect(pagers.length).toBeGreaterThanOrEqual(11);
+    // Ten keyset lists since A6 (#2576); Candidates uses the numbered pager (A7, #2577).
+    expect(pagers.length).toBeGreaterThanOrEqual(10);
     for (const [file, props] of pagers) expect(props, file).toMatch(/\bcursor=\{/);
   });
 });
@@ -94,7 +97,6 @@ describe("the filter bars (A4)", () => {
     expect(filterBars().sort()).toEqual([
       "app/(portal)/accounts/accounts-filter-bar.tsx",
       "app/(portal)/ai-calls/filter-bar.tsx",
-      "app/(portal)/candidates/filter-bar.tsx",
       "app/(portal)/events/filter-bar.tsx",
       "app/(portal)/jobs/filter-bar.tsx",
       "app/(portal)/skills/discovery/filter-bar.tsx",
@@ -114,9 +116,14 @@ describe("the filter bars (A4)", () => {
     // It read "e.g. worker.profile_confirmed", which no event is called: an operator who typed the
     // example got "No events match these filters". The registry is read as SOURCE (admin-web takes
     // no dependency on @badabhai/event-schema), like lib/list-filter-values.test.ts does.
-    const example = /placeholder="e\.g\. ([^"]+)"/.exec(code("app/(portal)/events/filter-bar.tsx"))?.[1];
+    const example = /placeholder="e\.g\. ([^"]+)"/.exec(
+      code("app/(portal)/events/filter-bar.tsx"),
+    )?.[1];
     expect(example).toBeTruthy();
-    const registry = readFileSync(join(src, "..", "..", "..", "packages", "event-schema", "src", "registry.ts"), "utf8");
+    const registry = readFileSync(
+      join(src, "..", "..", "..", "packages", "event-schema", "src", "registry.ts"),
+      "utf8",
+    );
     expect(registry).toContain(`"${example}": {`);
   });
 
@@ -128,8 +135,12 @@ describe("the filter bars (A4)", () => {
 
   it("a field with a fixed set of values is a select: the events' actor and subject types", () => {
     const events = code("app/(portal)/events/filter-bar.tsx");
-    expect(events).toMatch(/value=\{values\.actorType\}[^>]*>\s*\{typeOptions\(values\.actorType, EVENT_ACTOR_TYPES\)\}/);
-    expect(events).toMatch(/value=\{values\.subjectType\}[^>]*>\s*\{typeOptions\(values\.subjectType, EVENT_SUBJECT_TYPES\)\}/);
+    expect(events).toMatch(
+      /value=\{values\.actorType\}[^>]*>\s*\{typeOptions\(values\.actorType, EVENT_ACTOR_TYPES\)\}/,
+    );
+    expect(events).toMatch(
+      /value=\{values\.subjectType\}[^>]*>\s*\{typeOptions\(values\.subjectType, EVENT_SUBJECT_TYPES\)\}/,
+    );
     expect(events).toMatch(/<select className="field__input" value=\{values\.actorType\}/);
     expect(events).toMatch(/<select className="field__input" value=\{values\.subjectType\}/);
   });

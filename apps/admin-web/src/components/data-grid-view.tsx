@@ -330,7 +330,9 @@ export function openRowFromCell(event: ReactMouseEvent<HTMLElement>): void {
 
 /** A fixed column's header width, for the stylesheet to take the wider of it and the kind. */
 function headerWidth(column: GridColumnMeta): CSSProperties {
-  return { "--col-head": `${headerWidthRem(column.header, column.sort !== undefined)}rem` } as CSSProperties;
+  return {
+    "--col-head": `${headerWidthRem(column.header, column.sort !== undefined)}rem`,
+  } as CSSProperties;
 }
 
 /**
@@ -350,17 +352,30 @@ function HeaderCell({ column }: { column: GridColumnMeta }) {
     );
   return (
     <th scope="col" aria-sort={sort.direction} title={title}>
-      <Link
-        className="grid__sort"
-        href={sort.href}
-        data-direction={sort.direction ?? "none"}
-        scroll={false}
-      >
-        {label}
-        <span className="sr-only">, {sort.label}</span>
-        <Icon name="sort-descending" className="grid__sort-icon" />
-        <NavPendingCue message="Sorting the list…" />
-      </Link>
+      {sort.onSelect ? (
+        <button
+          type="button"
+          className="grid__sort"
+          data-direction={sort.direction ?? "none"}
+          onClick={sort.onSelect}
+        >
+          {label}
+          <span className="sr-only">, {sort.label}</span>
+          <Icon name="sort-descending" className="grid__sort-icon" />
+        </button>
+      ) : (
+        <Link
+          className="grid__sort"
+          href={sort.href}
+          data-direction={sort.direction ?? "none"}
+          scroll={false}
+        >
+          {label}
+          <span className="sr-only">, {sort.label}</span>
+          <Icon name="sort-descending" className="grid__sort-icon" />
+          <NavPendingCue message="Sorting the list…" />
+        </Link>
+      )}
     </th>
   );
 }

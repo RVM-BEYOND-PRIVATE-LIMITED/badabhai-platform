@@ -1,10 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import type { ReactNode } from "react";
-import type { CandidateDetail, CandidateField } from "../../../lib/candidate-detail";
+import { createContext, useContext, type ReactNode } from "react";
+import type {
+  CandidateCorrection,
+  CandidateDetail,
+  CandidateField,
+} from "../../../lib/candidate-detail";
 import {
   candidatePosture,
+  candidateTitle,
   consentLabel,
   corrections,
   fieldLabel,
@@ -19,6 +24,12 @@ import {
   sourceTag,
   type CandidateFieldKey,
 } from "../../../lib/candidate-view";
+import {
+  FACT_LABELS,
+  type CorrectionHistoryItem,
+  type CorrectionHistoryView,
+  type EditSectionId,
+} from "../../../lib/candidate-edit-model";
 import type { IdentityPosture } from "../../../lib/identity";
 import { formatCount, formatPayBand, matchTierLabel, shortId } from "../../../lib/format";
 import { WORKER_FLAG_REASON_LABELS } from "../../../lib/admin-action-vocabulary";
@@ -32,6 +43,7 @@ import { IdentityCapNotice } from "../../../components/identity-notice";
 import { Stat } from "../../../components/stat";
 import { LOCK_REASONS, LockedTag } from "./locked-tag";
 import { PhoneField } from "./phone-reveal";
+import { CandidateAccountActions } from "./candidate-account-actions";
 
 /**
  * ONE candidate's #2560 record, as the drawer's seven tabs (A7, #2577). Each tab renders exactly
@@ -39,8 +51,11 @@ import { PhoneField } from "./phone-reveal";
  * value came from (`source`, humanised by `sourceTag`). Nothing is derived here that the API did
  * not say; a value the record does not hold is a dash beside a "Not stored" tag.
  *
- * READ ONLY. Name, phone and photo visibility are shown LOCKED (ADR-0062 §3.4) and nothing on
- * this record has an edit control: admin corrections are #2561, account actions #2562.
+ * ── EDITING (A7, #2561) ────────────────────────────────────────────────────────────────
+ * A session holding `edit_candidates` gets an Edit control on the sections the record can read
+ * back in the correction's own shape; the drawer opens a T2 field diff and reason. Every field
+ * with a live `correction` shows the "Edited by admin" badge and a Revert. Name, phone, WhatsApp
+ * and photo visibility are shown LOCKED (ADR-0062 §3.4) and have no edit control.
  */
 export const CANDIDATE_TABS = [
   { id: "profile", label: "Profile" },
@@ -64,7 +79,44 @@ export interface CandidateRecordViewProps {
   active: CandidateTab;
   /** The id root the tab list and its panels name each other by. */
   idBase: string;
+  /** The session holds `edit_candidates` (A7, #2561): section Edit controls, badges and Reverts. */
+  canEdit?: boolean;
+  /** The correction history for this record (reason text is only available to editors). */
+  history?: CorrectionHistoryView;
+  /** Open the edit dialog for one section. */
+  onEditSection?: (section: EditSectionId) => void;
+  /** Open the T2 reason prompt for one live correction. */
+  onRevert?: (item: CorrectionHistoryItem) => void;
+  /** Detail field keys whose values just changed — the 1.2s yellow flash after a save. */
+  flashed?: ReadonlySet<string>;
+  /** Retry a failed correction-history read. */
+  onReloadHistory?: () => void;
+  /** The session holds `manage_worker_account` (A7, #2562). */
+  canManageAccount?: boolean;
+  /** Re-read the record after a correction, revert or account action. */
+  onRefresh?: () => void;
 }
+
+interface CandidateEditContextValue {
+  canEdit: boolean;
+  history: CorrectionHistoryView;
+  onEditSection?: (section: EditSectionId) => void;
+  onRevert?: (item: CorrectionHistoryItem) => void;
+  flashed: ReadonlySet<string>;
+  onReloadHistory?: () => void;
+  canManageAccount: boolean;
+  onRefresh?: () => void;
+}
+
+const NO_HISTORY: CorrectionHistoryView = { status: "idle", items: [] };
+const NO_FLASH: ReadonlySet<string> = new Set();
+
+const CandidateEditContext = createContext<CandidateEditContextValue>({
+  canEdit: false,
+  history: NO_HISTORY,
+  flashed: NO_FLASH,
+  canManageAccount: false,
+});
 
 /** The seven panels. Hidden ones stay in the DOM so their state (a revealed phone) is kept. */
 export function CandidateRecordPanels({
@@ -73,6 +125,14 @@ export function CandidateRecordPanels({
   canReveal,
   active,
   idBase,
+  canEdit = false,
+  history = NO_HISTORY,
+  onEditSection,
+  onRevert,
+  flashed = NO_FLASH,
+  onReloadHistory,
+  canManageAccount = false,
+  onRefresh,
 }: CandidateRecordViewProps) {
   const posture = candidatePosture(detail, entitled);
   const panels: Record<CandidateTab, ReactNode> = {
@@ -85,7 +145,18 @@ export function CandidateRecordPanels({
     edits: <EditLogPanel d={detail} />,
   };
   return (
-    <>
+    <CandidateEditContext.Provider
+      value={{
+        canEdit,
+        history,
+        onEditSection,
+        onRevert,
+        flashed,
+        onReloadHistory,
+        canManageAccount,
+        onRefresh,
+      }}
+    >
       {CANDIDATE_TABS.map((t) => (
         <section
           key={t.id}
@@ -99,7 +170,7 @@ export function CandidateRecordPanels({
           {panels[t.id]}
         </section>
       ))}
-    </>
+    </CandidateEditContext.Provider>
   );
 }
 
@@ -121,22 +192,91 @@ export function SourceTag({ source }: { source: string }) {
 /** A field's value cell. An empty value is a dash — its "Not stored" tag says why. */
 function FieldValue({
   field,
+  fieldKey,
   locked,
   children,
 }: {
-  field: { source: string };
+  field: { source: string; correction?: CandidateCorrection };
+  fieldKey?: string;
   locked?: string;
   children: ReactNode;
 }) {
   const empty = children === null || children === undefined || children === "";
+  const edit = useContext(CandidateEditContext);
+  const correction = field.correction ?? null;
+  const historyItem = correction
+    ? (edit.history.items.find((i) => i.override_id === correction.override_id) ?? null)
+    : null;
+  const flashed = fieldKey !== undefined && edit.flashed.has(fieldKey);
   return (
-    <span className="cfield">
+    <span className={flashed ? "cfield cfield--flash" : "cfield"}>
       <span className="cfield__value">
         {empty ? <span className="table__meta">—</span> : children}
       </span>
       {locked ? <LockedTag why={locked} /> : null}
+      {correction ? (
+        <CorrectionBadge
+          correction={correction}
+          item={historyItem}
+          canRevert={edit.canEdit}
+          onRevert={edit.onRevert}
+        />
+      ) : null}
       <SourceTag source={field.source} />
     </span>
+  );
+}
+
+/**
+ * "Edited by admin", with who/when/why on hover (A7, #2561): the reason code and timestamp ride
+ * on the detail; the full reason TEXT is only on the edit history, so it is added when that has
+ * loaded. A live correction also offers Revert to a session holding `edit_candidates`.
+ */
+function CorrectionBadge({
+  correction,
+  item,
+  canRevert,
+  onRevert,
+}: {
+  correction: NonNullable<CandidateCorrection>;
+  item: CorrectionHistoryItem | null;
+  canRevert: boolean;
+  onRevert?: (item: CorrectionHistoryItem) => void;
+}) {
+  const why = item?.reason_text ?? humanize(correction.reason_code);
+  const title = `${why} — ${humanize(item?.reason_code ?? correction.reason_code)}, by admin ${shortId(
+    correction.admin_id,
+  )}, ${correction.created_at}`;
+  return (
+    <>
+      <span className="edited-badge" title={title}>
+        Edited by admin
+      </span>
+      {canRevert && item?.live && onRevert ? (
+        <button
+          type="button"
+          className="btn btn--ghost btn--sm cfield__revert"
+          onClick={() => onRevert(item)}
+        >
+          Revert
+        </button>
+      ) : null}
+    </>
+  );
+}
+
+/** A section's Edit control, offered only to `edit_candidates` holders. */
+function SectionEdit({ section, label }: { section: EditSectionId; label: string }) {
+  const edit = useContext(CandidateEditContext);
+  if (!edit.canEdit || !edit.onEditSection) return null;
+  return (
+    <button
+      type="button"
+      className="btn btn--ghost btn--sm cdrawer__edit"
+      onClick={() => edit.onEditSection!(section)}
+    >
+      Edit {label}
+    </button>
   );
 }
 
@@ -150,7 +290,7 @@ function row(
   return {
     label: fieldLabel(key),
     value: (
-      <FieldValue field={field} locked={locked}>
+      <FieldValue field={field} fieldKey={key} locked={locked}>
         {value}
       </FieldValue>
     ),
@@ -195,19 +335,33 @@ function ProfilePanel({
     <>
       {posture === "capped" ? (
         <IdentityCapNotice>
-          Your role may see this worker&apos;s name, so the title shows their id: this admin
-          account has spent its hourly name budget.
+          Your role may see this worker&apos;s name, so the title shows their id: this admin account
+          has spent its hourly name budget.
         </IdentityCapNotice>
       ) : null}
 
       <PanelSection title="Locked">
-        <p className="panel__sub">
-          Only the worker can change these — an admin never edits them.
-        </p>
+        <p className="panel__sub">Only the worker can change these — an admin never edits them.</p>
         <DetailList
           items={[
-            row("identity.name", d.identity.name, <NameValue d={d} posture={posture} />, LOCK_REASONS.name),
+            row(
+              "identity.name",
+              d.identity.name,
+              <NameValue d={d} posture={posture} />,
+              LOCK_REASONS.name,
+            ),
             { label: "Phone", value: <PhoneField workerId={d.worker_id} canReveal={canReveal} /> },
+            {
+              label: "WhatsApp",
+              value: (
+                <span className="cfield">
+                  <span className="cfield__value">
+                    <span className="table__meta">Hidden</span>
+                  </span>
+                  <LockedTag why={LOCK_REASONS.whatsapp} />
+                </span>
+              ),
+            },
             row(
               "identity.resume_show_photo",
               d.identity.resume_show_photo,
@@ -230,30 +384,62 @@ function ProfilePanel({
                 </span>
               ),
             },
-            row("identity.has_photo", d.identity.has_photo, d.identity.has_photo.value ? "Uploaded" : "None"),
-            row("identity.preferred_language", d.identity.preferred_language, text(d.identity.preferred_language.value)),
+            row(
+              "identity.has_photo",
+              d.identity.has_photo,
+              d.identity.has_photo.value ? "Uploaded" : "None",
+            ),
+            row(
+              "identity.preferred_language",
+              d.identity.preferred_language,
+              text(d.identity.preferred_language.value),
+            ),
           ]}
         />
       </PanelSection>
 
-      <PanelSection title="Location">
+      <PanelSection title="Location" action={<SectionEdit section="location" label="location" />}>
         <DetailList
           items={[
-            row("location.current_city", d.location.current_city, text(d.location.current_city.value)),
-            row("location.current_state", d.location.current_state, text(d.location.current_state.value)),
-            row("location.preferred_locations", d.location.preferred_locations, chips(d.location.preferred_locations.value)),
+            row(
+              "location.current_city",
+              d.location.current_city,
+              text(d.location.current_city.value),
+            ),
+            row(
+              "location.current_state",
+              d.location.current_state,
+              text(d.location.current_state.value),
+            ),
+            row(
+              "location.preferred_locations",
+              d.location.preferred_locations,
+              chips(d.location.preferred_locations.value),
+            ),
           ]}
         />
       </PanelSection>
 
-      <PanelSection title="Trade">
+      <PanelSection title="Trade" action={<SectionEdit section="trade" label="trade" />}>
         <DetailList
           items={[
             row("trade.display_name", d.trade.display_name, text(d.trade.display_name.value)),
             row("trade.job_domain", d.trade.job_domain, d.trade.job_domain.value?.label ?? null),
-            row("trade.secondary_roles", d.trade.secondary_roles, chips(d.trade.secondary_roles.value.map((r) => r.label))),
-            row("trade.canonical_trade_id", d.trade.canonical_trade_id, mono(d.trade.canonical_trade_id.value)),
-            row("trade.canonical_role_id", d.trade.canonical_role_id, mono(d.trade.canonical_role_id.value)),
+            row(
+              "trade.secondary_roles",
+              d.trade.secondary_roles,
+              chips(d.trade.secondary_roles.value.map((r) => r.label)),
+            ),
+            row(
+              "trade.canonical_trade_id",
+              d.trade.canonical_trade_id,
+              mono(d.trade.canonical_trade_id.value),
+            ),
+            row(
+              "trade.canonical_role_id",
+              d.trade.canonical_role_id,
+              mono(d.trade.canonical_role_id.value),
+            ),
           ]}
         />
       </PanelSection>
@@ -262,7 +448,10 @@ function ProfilePanel({
         <DetailList items={[row("languages", d.languages, chips(d.languages.value))]} />
       </PanelSection>
 
-      <PanelSection title="Salary">
+      <PanelSection
+        title="Salary"
+        action={<SectionEdit section="pay" label="pay and availability" />}
+      >
         <DetailList
           items={[
             row(
@@ -282,23 +471,56 @@ function ProfilePanel({
         />
       </PanelSection>
 
-      <PanelSection title="Preferences">
+      <PanelSection
+        title="Preferences"
+        action={<SectionEdit section="pay" label="pay and availability" />}
+      >
         <DetailList
           items={[
-            row("preferences.availability", d.preferences.availability, formatAvailability(d.preferences.availability.value)),
+            row(
+              "preferences.availability",
+              d.preferences.availability,
+              formatAvailability(d.preferences.availability.value),
+            ),
             row("preferences.shift", d.preferences.shift, text(d.preferences.shift.value)),
-            row("preferences.night_shift_ready", d.preferences.night_shift_ready, answer(d.preferences.night_shift_ready.value)),
+            row(
+              "preferences.night_shift_ready",
+              d.preferences.night_shift_ready,
+              answer(d.preferences.night_shift_ready.value),
+            ),
             row("preferences.job_type", d.preferences.job_type, text(d.preferences.job_type.value)),
-            row("preferences.work_types", d.preferences.work_types, chips(d.preferences.work_types.value)),
-            row("preferences.relocation", d.preferences.relocation, answer(d.preferences.relocation.value)),
-            row("preferences.accommodation", d.preferences.accommodation, answer(d.preferences.accommodation.value)),
+            row(
+              "preferences.work_types",
+              d.preferences.work_types,
+              chips(d.preferences.work_types.value),
+            ),
+            row(
+              "preferences.relocation",
+              d.preferences.relocation,
+              answer(d.preferences.relocation.value),
+            ),
+            row(
+              "preferences.accommodation",
+              d.preferences.accommodation,
+              answer(d.preferences.accommodation.value),
+            ),
             row(
               "preferences.commute_max_km",
               d.preferences.commute_max_km,
-              d.preferences.commute_max_km.value === null ? null : `${d.preferences.commute_max_km.value} km`,
+              d.preferences.commute_max_km.value === null
+                ? null
+                : `${d.preferences.commute_max_km.value} km`,
             ),
-            row("preferences.willing_to_travel", d.preferences.willing_to_travel, answer(d.preferences.willing_to_travel.value)),
-            row("preferences.documents", d.preferences.documents, chips(d.preferences.documents.value)),
+            row(
+              "preferences.willing_to_travel",
+              d.preferences.willing_to_travel,
+              answer(d.preferences.willing_to_travel.value),
+            ),
+            row(
+              "preferences.documents",
+              d.preferences.documents,
+              chips(d.preferences.documents.value),
+            ),
           ]}
         />
       </PanelSection>
@@ -308,11 +530,31 @@ function ProfilePanel({
           items={[
             row("education.headline", d.education.headline, text(d.education.headline.value)),
             row("education.education", d.education.education, chips(d.education.education.value)),
-            row("education.education_level", d.education.education_level, text(d.education.education_level.value)),
-            row("education.education_field", d.education.education_field, text(d.education.education_field.value)),
-            row("education.education_credential", d.education.education_credential, text(d.education.education_credential.value)),
-            row("education.education_detail", d.education.education_detail, text(d.education.education_detail.value)),
-            row("education.certifications", d.education.certifications, chips(d.education.certifications.value)),
+            row(
+              "education.education_level",
+              d.education.education_level,
+              text(d.education.education_level.value),
+            ),
+            row(
+              "education.education_field",
+              d.education.education_field,
+              text(d.education.education_field.value),
+            ),
+            row(
+              "education.education_credential",
+              d.education.education_credential,
+              text(d.education.education_credential.value),
+            ),
+            row(
+              "education.education_detail",
+              d.education.education_detail,
+              text(d.education.education_detail.value),
+            ),
+            row(
+              "education.certifications",
+              d.education.certifications,
+              chips(d.education.certifications.value),
+            ),
             row("education.training", d.education.training, chips(d.education.training.value)),
           ]}
         />
@@ -328,7 +570,8 @@ function ProfilePanel({
  */
 function NameValue({ d, posture }: { d: CandidateDetail; posture: IdentityPosture }) {
   if (posture === "named") return <NameCell value={d.identity.name.value} />;
-  if (posture === "capped") return <span className="table__meta">Withheld — name budget spent</span>;
+  if (posture === "capped")
+    return <span className="table__meta">Withheld — name budget spent</span>;
   return <span className="table__meta">Hidden for your role</span>;
 }
 
@@ -347,14 +590,22 @@ function WorkHistoryPanel({ d }: { d: CandidateDetail }) {
   const years = d.experience.total_years.value;
   return (
     <>
-      <PanelSection title="Experience">
+      <PanelSection title="Experience" action={<SectionEdit section="work" label="experience" />}>
         <DetailList
           items={[
-            row("experience.total_years", d.experience.total_years, years === null ? null : formatYears(years)),
+            row(
+              "experience.total_years",
+              d.experience.total_years,
+              years === null ? null : formatYears(years),
+            ),
             row(
               "experience.industry_tenure",
               d.experience.industry_tenure,
-              chips(d.experience.industry_tenure.value.map((t) => `${t.industry.label} · ${formatMonths(t.calendar_months)}`)),
+              chips(
+                d.experience.industry_tenure.value.map(
+                  (t) => `${t.industry.label} · ${formatMonths(t.calendar_months)}`,
+                ),
+              ),
             ),
           ]}
         />
@@ -484,11 +735,23 @@ function SkillsPanel({ d }: { d: CandidateDetail }) {
           items={[
             row("employer_card.role", card.role, card.role.value?.label ?? null),
             row("employer_card.role_months", card.role_months, months(card.role_months.value)),
-            row("employer_card.other_roles", card.other_roles, chips(card.other_roles.value.map((r) => r.label))),
+            row(
+              "employer_card.other_roles",
+              card.other_roles,
+              chips(card.other_roles.value.map((r) => r.label)),
+            ),
             row("employer_card.industry", card.industry, card.industry.value?.label ?? null),
-            row("employer_card.industry_months", card.industry_months, months(card.industry_months.value)),
+            row(
+              "employer_card.industry_months",
+              card.industry_months,
+              months(card.industry_months.value),
+            ),
             row("employer_card.city", card.city, text(card.city.value)),
-            row("employer_card.trade_levels", card.trade_levels, chips(card.trade_levels.value.map(formatTradeLevel))),
+            row(
+              "employer_card.trade_levels",
+              card.trade_levels,
+              chips(card.trade_levels.value.map(formatTradeLevel)),
+            ),
           ]}
         />
       </PanelSection>
@@ -657,6 +920,7 @@ function when(iso: string | null): ReactNode {
 }
 
 function ActivityPanel({ d }: { d: CandidateDetail }) {
+  const edit = useContext(CandidateEditContext);
   const acc = d.account;
   return (
     <>
@@ -697,6 +961,14 @@ function ActivityPanel({ d }: { d: CandidateDetail }) {
             { label: "Contact unlocks", value: formatCount(d.activity.unlock_count) },
           ]}
         />
+        {edit.canManageAccount ? (
+          <CandidateAccountActions
+            workerId={d.worker_id}
+            status={acc.status}
+            targetName={candidateTitle(d)}
+            onChanged={() => edit.onRefresh?.()}
+          />
+        ) : null}
       </PanelSection>
 
       <PanelSection title="Profile">
@@ -779,50 +1051,169 @@ function ActivityPanel({ d }: { d: CandidateDetail }) {
 // Edit log — admin corrections, which do not exist until #2561
 // ---------------------------------------------------------------------------
 
+/**
+ * The Edit log (A7, #2561). For an editor it is the API's correction HISTORY: every override,
+ * the full reason text, the admin, and whether it is live or superseded, with Revert on the live
+ * one. For a role without `edit_candidates` the record's own `correction` metadata is all there
+ * is — the API deliberately never sends the reason text on that read.
+ *
+ * The correction events live on the candidate's timeline; this panel links to it. The history
+ * contract carries no event id, so the link is to the timeline, not one event.
+ */
 function EditLogPanel({ d }: { d: CandidateDetail }) {
+  const edit = useContext(CandidateEditContext);
+  const timelineHref = `/candidates/${d.worker_id}/timeline`;
+
+  if (edit.canEdit) {
+    if (edit.history.status === "loading" && edit.history.items.length === 0) {
+      return <p className="state__body">Loading the edit log…</p>;
+    }
+    if (edit.history.status === "failed") {
+      return (
+        <div className="state state--error">
+          <h3 className="state__title">The edit log did not load</h3>
+          <p className="state__body">{edit.history.error}</p>
+          {edit.onReloadHistory ? (
+            <div className="state__actions">
+              <button type="button" className="btn btn--ghost" onClick={edit.onReloadHistory}>
+                Retry
+              </button>
+            </div>
+          ) : null}
+        </div>
+      );
+    }
+    const items = edit.history.items;
+    if (items.length === 0) {
+      return (
+        <div className="state">
+          <h3 className="state__title">No admin edits</h3>
+          <p className="state__body">
+            No admin has corrected a field on this record. Each field&apos;s source tag says where
+            its value came from.
+          </p>
+        </div>
+      );
+    }
+    return (
+      <>
+        <p className="panel__sub">
+          Newest first. Every correction writes an event to the{" "}
+          <Link href={timelineHref}>candidate timeline</Link>.
+        </p>
+        <div className="tablewrap">
+          <table className="table">
+            <caption className="sr-only">Admin corrections, newest first</caption>
+            <thead>
+              <tr>
+                <th scope="col">When</th>
+                <th scope="col">Field</th>
+                <th scope="col">Reason</th>
+                <th scope="col">Admin</th>
+                <th scope="col">State</th>
+                <th scope="col">Timeline</th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((item) => (
+                <tr key={item.override_id}>
+                  <td>
+                    <Timestamp iso={item.created_at} />
+                  </td>
+                  <td>{FACT_LABELS[item.fact_key] ?? humanize(item.fact_key)}</td>
+                  <td className="cdrawer__reason">
+                    <span>{item.reason_text}</span>
+                    <span className="table__meta"> · {humanize(item.reason_code)}</span>
+                  </td>
+                  <td>
+                    <span className="mono" title={item.admin_id}>
+                      {shortId(item.admin_id)}
+                    </span>
+                    <CopyId id={item.admin_id} label="admin id" />
+                  </td>
+                  <td>
+                    {item.live ? (
+                      <>
+                        <span className="pill pill--ok">Live</span>
+                        {edit.onRevert ? (
+                          <button
+                            type="button"
+                            className="btn btn--ghost btn--sm"
+                            onClick={() => edit.onRevert!(item)}
+                          >
+                            Revert
+                          </button>
+                        ) : null}
+                      </>
+                    ) : (
+                      <span className="table__meta">
+                        Reverted{" "}
+                        {item.superseded_at ? <Timestamp iso={item.superseded_at} /> : null}
+                      </span>
+                    )}
+                  </td>
+                  <td>
+                    <Link className="link" href={timelineHref}>
+                      Open
+                    </Link>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </>
+    );
+  }
+
   const entries = corrections(d);
   if (entries.length === 0) {
     return (
       <div className="state">
         <h3 className="state__title">No admin edits</h3>
         <p className="state__body">
-          No admin has corrected a field on this record. Each field&apos;s source tag says where
-          its value came from.
+          No admin has corrected a field on this record. Each field&apos;s source tag says where its
+          value came from.
         </p>
       </div>
     );
   }
   return (
-    <div className="tablewrap">
-      <table className="table">
-        <caption className="sr-only">Admin corrections, newest first</caption>
-        <thead>
-          <tr>
-            <th scope="col">When</th>
-            <th scope="col">Field</th>
-            <th scope="col">Reason</th>
-            <th scope="col">Admin</th>
-          </tr>
-        </thead>
-        <tbody>
-          {entries.map((e) => (
-            <tr key={e.correction.override_id}>
-              <td>
-                <Timestamp iso={e.correction.created_at} />
-              </td>
-              <td>{e.label}</td>
-              <td>{humanize(e.correction.reason_code)}</td>
-              <td>
-                <span className="mono" title={e.correction.admin_id}>
-                  {shortId(e.correction.admin_id)}
-                </span>
-                <CopyId id={e.correction.admin_id} label="admin id" />
-              </td>
+    <>
+      <p className="panel__sub">
+        Your role can see that a field was corrected, not the reason text an editor recorded.
+      </p>
+      <div className="tablewrap">
+        <table className="table">
+          <caption className="sr-only">Admin corrections, newest first</caption>
+          <thead>
+            <tr>
+              <th scope="col">When</th>
+              <th scope="col">Field</th>
+              <th scope="col">Reason</th>
+              <th scope="col">Admin</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+          </thead>
+          <tbody>
+            {entries.map((e) => (
+              <tr key={e.correction.override_id}>
+                <td>
+                  <Timestamp iso={e.correction.created_at} />
+                </td>
+                <td>{e.label}</td>
+                <td>{humanize(e.correction.reason_code)}</td>
+                <td>
+                  <span className="mono" title={e.correction.admin_id}>
+                    {shortId(e.correction.admin_id)}
+                  </span>
+                  <CopyId id={e.correction.admin_id} label="admin id" />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
   );
 }
 

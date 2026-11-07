@@ -718,6 +718,8 @@ export const TASK_TYPE_LABELS = {
   tts_synthesis: "Text-to-speech",
   skill_embedding: "Skill embedding",
   job_posting_chat_turn: "Posting chat turn",
+  // #2722 / main drift — the employer voice-toggle's English posting-description draft.
+  job_description_draft: "Posting description draft",
 } as const satisfies Readonly<Record<string, string>>;
 
 /** A task type this build has a name for. */

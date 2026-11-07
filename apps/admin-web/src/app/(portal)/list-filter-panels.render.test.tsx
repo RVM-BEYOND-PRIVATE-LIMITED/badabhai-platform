@@ -45,7 +45,7 @@ const { default: EventsPage } = await import("./events/page");
 const { default: CompaniesPage } = await import("./companies/page");
 const { default: JobsPage } = await import("./jobs/page");
 const { default: AiCallsPage } = await import("./ai-calls/page");
-const { default: WorkersPage } = await import("./candidates/page");
+const { CandidateFilters } = await import("./candidates/candidate-filters");
 const { FilterPanel, filterSetKey } = await import("../../components/filter-panel");
 
 const CORRELATION = "5eeded00-00c0-4a00-8000-0000000000c0";
@@ -135,7 +135,6 @@ const PAGES: Array<[string, Page, Record<string, string>, number]> = [
     { taskType: "profiling_chat_turn", success: "false", workerId: UUID },
     3,
   ],
-  ["workers", WorkersPage as Page, { status: "active", pendingDeletion: "true" }, 2],
 ];
 
 describe("/events — following a row's correlation-id link (review M1)", () => {
@@ -203,7 +202,9 @@ describe("the fields show the URL's values (a fresh render)", () => {
   it("/events: the event name is a combobox over the names the spine recorded lately", async () => {
     stub.names = ["profile.confirmed", "worker.created"];
     const out = await html(EventsPage as Page, {});
-    const input = (out.match(/<input[^>]*>/g) ?? []).find((t) => t.includes('placeholder="e.g. profile.confirmed"'))!;
+    const input = (out.match(/<input[^>]*>/g) ?? []).find((t) =>
+      t.includes('placeholder="e.g. profile.confirmed"'),
+    )!;
     const list = /list="([^"]+)"/.exec(input)?.[1];
     expect(list).toBeTruthy();
     expect(out).toContain(
@@ -214,7 +215,9 @@ describe("the fields show the URL's values (a fresh render)", () => {
   it("/events: with no names to suggest, the same free-text field — no empty list", async () => {
     stub.names = [];
     const out = await html(EventsPage as Page, {});
-    const input = (out.match(/<input[^>]*>/g) ?? []).find((t) => t.includes('placeholder="e.g. profile.confirmed"'))!;
+    const input = (out.match(/<input[^>]*>/g) ?? []).find((t) =>
+      t.includes('placeholder="e.g. profile.confirmed"'),
+    )!;
     expect(input).not.toContain("list=");
     expect(out).not.toContain("<datalist");
   });
@@ -232,5 +235,48 @@ describe("the fields show the URL's values (a fresh render)", () => {
 
   it("/jobs: the customer id", async () => {
     expect(inputValue(await html(JobsPage as Page, { payerId: UUID }), UUID_EXAMPLE)).toBe(UUID);
+  });
+});
+
+describe("/candidates — the data-bank filter panel (A7, #2577)", () => {
+  const renderFilters = (filters: Record<string, unknown>) =>
+    renderToStaticMarkup(
+      <CandidateFilters
+        filters={filters as never}
+        counts={{
+          by_status: [{ value: "active", count: 2 }],
+          by_trade: [{ value: "dom_welder", count: 2 }],
+          by_city: [{ value: "Pune", count: 2 }],
+          by_profile_status: [{ value: "confirmed", count: 2 }],
+        }}
+        onApply={() => undefined}
+      />,
+    );
+
+  it("is closed with no filter, and shows them all as a server render", () => {
+    const out = renderFilters({});
+    expect(out).toContain('data-open="false"');
+    expect(out).toContain(">Filters</button>");
+    expect(out).toContain("Apply filters");
+  });
+
+  it("counts each set filter once, and opens when one is set", () => {
+    const out = renderFilters({
+      status: ["active"],
+      city: ["Pune"],
+      has_resume: true,
+      min_experience_years: 3,
+      deletion_scheduled: true,
+    });
+    expect(out).toContain('data-open="true"');
+    expect(out).toContain(">Filters (5)</button>");
+  });
+
+  it("renders one removable chip per array member", () => {
+    const out = renderFilters({ status: ["active", "pending"], city: ["Pune"] });
+    expect(out).toContain("Status: Active");
+    expect(out).toContain("Status: Pending");
+    expect(out).toContain("City: Pune");
+    expect(out.match(/class="chip chip--action bank-chip"/g)?.length).toBe(3);
   });
 });

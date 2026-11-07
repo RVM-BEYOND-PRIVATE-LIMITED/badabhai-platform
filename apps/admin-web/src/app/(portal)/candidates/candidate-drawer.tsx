@@ -1,12 +1,30 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useId, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import {
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from "react";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
+import { ConfirmDialog } from "../../../components/confirm-dialog";
 import { drawerRowLink } from "../../../components/data-grid-view";
 import { Drawer, useUrlDrawer } from "../../../components/drawer";
-import type { CandidateRecordResult } from "../../../lib/candidate-detail";
+import type { AdminActionOutcome } from "../../../lib/admin-action-result";
+import { CANDIDATE_FIELDS } from "../../../lib/candidate-view";
+import type { CandidateDetail, CandidateRecordResult } from "../../../lib/candidate-detail";
 import { candidateIdTitle, candidateTitle } from "../../../lib/candidate-view";
+import { fetchCorrectionHistory, postCandidateRevert } from "../../../lib/candidate-edit-client";
+import {
+  CORRECTION_REASON_CATEGORIES,
+  FACT_LABELS,
+  type CorrectionHistoryItem,
+  type CorrectionHistoryView,
+  type CorrectionReasonCode,
+  type EditSectionId,
+} from "../../../lib/candidate-edit-model";
 import { shortId } from "../../../lib/format";
 import {
   CANDIDATE_PARAM,
@@ -24,6 +42,7 @@ import {
   recordSummary,
   type CandidateTab,
 } from "./candidate-record-view";
+import { CandidateEditDialog } from "./candidate-edit-dialog";
 
 /** The record the PAGE read on the server, for the `?c=` it was rendered with (a reload, a link). */
 export interface InitialCandidateRecord {
@@ -39,6 +58,12 @@ export interface CandidateDrawerProps {
   entitled: boolean;
   /** The session holds `reveal_pii`. */
   canReveal: boolean;
+  /** The session holds `edit_candidates` (A7, #2561). */
+  canEdit?: boolean;
+  /** The session holds `manage_worker_account` (#2562). */
+  canManageAccount?: boolean;
+  /** The list behind the drawer changed (a save/revert/account action) — re-read it. */
+  onChanged?: () => void;
 }
 
 /**
@@ -57,10 +82,21 @@ export interface CandidateDrawerProps {
  *  - STATES: a skeleton while loading (announced by a status line that outlives the move), the
  *    record's seven tabs, not found, a role that may not read records, a session that ended, and
  *    an error with Retry.
+ *  - EDITING (A7, #2561/#2562): an `edit_candidates` holder edits a section through a T2 diff,
+ *    reverts a live correction, and sees each reason in the Edit log; a `manage_worker_account`
+ *    holder gets the four account actions. Both refresh the record in place after a success.
  *  - MOTION: A5's Drawer slides in over 220ms; a move cross-fades the content in over 140ms with
  *    no slide (the panel keeps its place). Zero under reduced motion.
  */
-export function CandidateDrawer({ rows, initial, entitled, canReveal }: CandidateDrawerProps) {
+export function CandidateDrawer({
+  rows,
+  initial,
+  entitled,
+  canReveal,
+  canEdit = false,
+  canManageAccount = false,
+  onChanged,
+}: CandidateDrawerProps) {
   const drawer = useUrlDrawer(CANDIDATE_PARAM);
   const id = drawer.isOpen ? drawer.value : null;
   const record = useCandidateRecord(id, initial);
@@ -68,6 +104,13 @@ export function CandidateDrawer({ rows, initial, entitled, canReveal }: Candidat
   const [tab, setTab] = useState<CandidateTab>("profile");
   const idBase = useId();
   const contentRef = useRef<HTMLDivElement>(null);
+  const history = useCorrectionHistory(id, canEdit);
+  const [editSection, setEditSection] = useState<EditSectionId | null>(null);
+  const [revertItem, setRevertItem] = useState<CorrectionHistoryItem | null>(null);
+  const [flashed, setFlashed] = useState<ReadonlySet<string>>(new Set());
+  const flashWanted = useRef(false);
+  const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastDetail = useRef<CandidateDetail | null>(null);
 
   // A fresh open starts on Profile; a move keeps the tab (scanning Skills down a list).
   const [wasOpen, setWasOpen] = useState(id !== null);
@@ -113,8 +156,68 @@ export function CandidateDrawer({ rows, initial, entitled, canReveal }: Candidat
   const result = record.result;
   const detail = result?.status === "ok" ? result.detail : null;
   const rowTitle = viewId ? rows.find((r) => r.id === viewId)?.title : undefined;
-  const title = detail ? candidateTitle(detail) : viewId ? (rowTitle ?? candidateIdTitle(viewId)) : "";
+  const title = detail
+    ? candidateTitle(detail)
+    : viewId
+      ? (rowTitle ?? candidateIdTitle(viewId))
+      : "";
   const summary = detail ? recordSummary(detail) : "";
+
+  // A move starts a new record: no flash from the previous one.
+  useEffect(() => {
+    setFlashed(new Set());
+    lastDetail.current = null;
+    if (flashTimer.current !== null) clearTimeout(flashTimer.current);
+  }, [viewId]);
+
+  // After a save/revert the record is re-read; the fields whose values actually changed flash
+  // yellow for 1.2s (the issue's "20% yellow tint that fades"). The comparison is against the
+  // record as it was before the refresh, so a no-op correction flashes nothing.
+  useEffect(() => {
+    if (detail === null) return;
+    const previous = lastDetail.current;
+    lastDetail.current = detail;
+    if (previous === null || !flashWanted.current || previous.worker_id !== detail.worker_id)
+      return;
+    flashWanted.current = false;
+    const changed = CANDIDATE_FIELDS.filter(
+      (field) => JSON.stringify(field.pick(previous)) !== JSON.stringify(field.pick(detail)),
+    ).map((field) => field.key);
+    if (changed.length === 0) return;
+    setFlashed(new Set(changed));
+    if (flashTimer.current !== null) clearTimeout(flashTimer.current);
+    flashTimer.current = setTimeout(() => setFlashed(new Set()), 1200);
+  }, [detail]);
+
+  useEffect(
+    () => () => {
+      if (flashTimer.current !== null) clearTimeout(flashTimer.current);
+    },
+    [],
+  );
+
+  function onSaved(factKeys: string[]) {
+    if (factKeys.length === 0) return;
+    flashWanted.current = true;
+    record.refresh();
+    history.reload();
+    // The list's row is a projection of the read table (A7): re-read it in place so the city,
+    // trade or status a save just changed is not left stale behind the drawer.
+    onChanged?.();
+  }
+
+  async function revert(reason: { category: string; text: string }): Promise<AdminActionOutcome> {
+    if (revertItem === null || detail === null) {
+      return { ok: false, error: "Nothing to revert." };
+    }
+    const outcome = await postCandidateRevert(detail.worker_id, revertItem.fact_key, {
+      reason_code: reason.category as CorrectionReasonCode,
+      reason_text: reason.text,
+    });
+    return outcome.ok
+      ? { ok: true, changed: true, message: "Correction reverted." }
+      : { ok: false, error: outcome.error };
+  }
 
   return (
     <Drawer
@@ -175,6 +278,17 @@ export function CandidateDrawer({ rows, initial, entitled, canReveal }: Candidat
               canReveal={canReveal}
               active={tab}
               idBase={idBase}
+              canEdit={canEdit}
+              history={history.state}
+              onEditSection={setEditSection}
+              onRevert={setRevertItem}
+              flashed={flashed}
+              onReloadHistory={history.reload}
+              canManageAccount={canManageAccount}
+              onRefresh={() => {
+                record.refresh();
+                onChanged?.();
+              }}
             />
           ) : (
             <RecordProblem status={result.status} onRetry={record.retry} />
@@ -186,6 +300,45 @@ export function CandidateDrawer({ rows, initial, entitled, canReveal }: Candidat
         <p className="sr-only" role="status">
           {result === null ? "Loading the candidate's record…" : ""}
         </p>
+
+        {/* The edit review and the revert prompt are dialogs OVER this drawer (A7, #2561). Both
+            reuse A5's T2 contract: a before/after diff and a required reason. They are portalled
+            to <body>, so sitting in the content div does not nest them inside the drawer panel. */}
+        {detail ? (
+          <CandidateEditDialog
+            open={editSection !== null}
+            sectionId={editSection ?? "location"}
+            detail={detail}
+            onClose={() => setEditSection(null)}
+            onSaved={onSaved}
+          />
+        ) : null}
+
+        <ConfirmDialog
+          open={revertItem !== null}
+          onClose={() => setRevertItem(null)}
+          tier="consequential"
+          title="Revert this correction"
+          description="The worker's previous value is written back and the correction is marked reverted. The revert is recorded with your reason."
+          icon={ACTION_ICON.retry}
+          changes={
+            revertItem
+              ? [
+                  {
+                    label: FACT_LABELS[revertItem.fact_key] ?? revertItem.fact_key,
+                    before: "Admin correction (live)",
+                    after: "The worker's previous value",
+                  },
+                ]
+              : []
+          }
+          confirmLabel="Revert correction"
+          categories={CORRECTION_REASON_CATEGORIES}
+          onConfirm={revert}
+          onSettled={(outcome) => {
+            if (outcome.ok && revertItem) onSaved([revertItem.fact_key]);
+          }}
+        />
       </div>
     </Drawer>
   );
@@ -213,6 +366,8 @@ interface Loaded {
   id: string;
   result: CandidateRecordResult;
   attempt: number;
+  /** How many in-place refreshes this read is for (see `refresh`). */
+  refresh: number;
 }
 
 /**
@@ -222,9 +377,10 @@ interface Loaded {
  */
 function useCandidateRecord(id: string | null, initial: InitialCandidateRecord | null) {
   const [loaded, setLoaded] = useState<Loaded | null>(() =>
-    initial ? { ...initial, attempt: 0 } : null,
+    initial ? { ...initial, attempt: 0, refresh: 0 } : null,
   );
   const [attempt, setAttempt] = useState(0);
+  const [refreshSeq, setRefreshSeq] = useState(0);
   const [lastId, setLastId] = useState(id);
   const settle = useRef(false);
 
@@ -240,21 +396,23 @@ function useCandidateRecord(id: string | null, initial: InitialCandidateRecord |
   const [seenInitial, setSeenInitial] = useState(initial);
   if (initial !== seenInitial) {
     setSeenInitial(initial);
-    if (initial && initial.id === id) setLoaded({ ...initial, attempt });
+    if (initial && initial.id === id) setLoaded({ ...initial, attempt, refresh: refreshSeq });
   }
 
   const viewId = id ?? lastId;
   const current =
     loaded !== null && loaded.id === viewId && (id === null || loaded.attempt === attempt);
+  // An in-place refresh keeps the old record on screen (no skeleton) until the new one lands.
+  const refreshed = current && loaded!.refresh === refreshSeq;
 
   useEffect(() => {
-    if (id === null || current) return;
+    if (id === null || refreshed) return;
     const controller = new AbortController();
     const wait = settle.current ? RECORD_SETTLE_MS : 0;
     settle.current = false;
     const timer = setTimeout(() => {
       fetchCandidateRecord(id, controller.signal).then(
-        (result) => setLoaded({ id, result, attempt }),
+        (result) => setLoaded({ id, result, attempt, refresh: refreshSeq }),
         () => {
           /* aborted: the drawer moved on, and nobody reads this answer */
         },
@@ -264,17 +422,57 @@ function useCandidateRecord(id: string | null, initial: InitialCandidateRecord |
       clearTimeout(timer);
       controller.abort();
     };
-  }, [id, attempt, current]);
+  }, [id, attempt, refreshSeq, refreshed]);
 
   return {
     viewId,
     result: current ? loaded!.result : null,
     retry: () => setAttempt((n) => n + 1),
+    /** Re-read the open record after a correction/revert, keeping it on screen meanwhile. */
+    refresh: () => setRefreshSeq((n) => n + 1),
     /** The next change of id is a MOVE: let a burst of presses settle before reading. */
     settleNext: () => {
       settle.current = true;
     },
   };
+}
+
+// ---------------------------------------------------------------------------
+// the correction history
+// ---------------------------------------------------------------------------
+
+/**
+ * The reason history for the open candidate (A7, #2561). Only `edit_candidates` holders may read
+ * it; for every other role this stays idle and the Edit log falls back to the record's own
+ * correction metadata. It is re-read after every save/revert and on Retry.
+ */
+function useCorrectionHistory(id: string | null, enabled: boolean) {
+  const [state, setState] = useState<CorrectionHistoryView>({ status: "idle", items: [] });
+  const [attempt, setAttempt] = useState(0);
+
+  useEffect(() => {
+    if (id === null || !enabled) {
+      setState({ status: "idle", items: [] });
+      return;
+    }
+    const controller = new AbortController();
+    setState({ status: "loading", items: [] });
+    fetchCorrectionHistory(id, controller.signal).then(
+      (result) => {
+        setState(
+          result.ok
+            ? { status: "ok", items: result.items }
+            : { status: "failed", items: [], error: result.error },
+        );
+      },
+      () => {
+        /* aborted: the drawer moved on */
+      },
+    );
+    return () => controller.abort();
+  }, [id, enabled, attempt]);
+
+  return { state, reload: () => setAttempt((n) => n + 1) };
 }
 
 // ---------------------------------------------------------------------------

@@ -42,6 +42,13 @@ export interface GridSort {
   direction?: "ascending" | "descending";
   /** What the click does, for assistive tech after the header's own words ("oldest first"). */
   label: string;
+  /**
+   * The click handled in place instead of by a navigation (A7, #2577's client data bank): the
+   * header becomes a button that re-reads the list in this browser, keeping a search term that
+   * deliberately never enters the URL. Absent on every server-paged list, where the header stays
+   * the link whose href carries the order.
+   */
+  onSelect?: () => void;
 }
 
 /** A column as the client view needs it: everything but the cell renderer. */
@@ -174,7 +181,8 @@ export function headerWidthRem(header: string, sortable = false): number {
 export function headerMayCut(column: Pick<GridColumnMeta, "width" | "header" | "sort">): boolean {
   return (
     column.width === "fill" &&
-    headerWidthRem(column.header, column.sort !== undefined) > GRID_WIDTH_REM.fill - GRID_CELL_PAD_REM
+    headerWidthRem(column.header, column.sort !== undefined) >
+      GRID_WIDTH_REM.fill - GRID_CELL_PAD_REM
   );
 }
 
@@ -190,5 +198,8 @@ export function gridMinWidthRem(
 /** One column's share of the minimum: its kind's width — or, for a fixed kind, its header's. */
 function columnMinRem(c: Pick<GridColumnMeta, "width" | "text" | "header" | "sort">): number {
   if (c.width === "fill") return c.text === "wrap" ? GRID_WRAP_MIN_REM : GRID_WIDTH_REM.fill;
-  return Math.max(GRID_WIDTH_REM[c.width], headerWidthRem(c.header, c.sort !== undefined) + GRID_CELL_PAD_REM);
+  return Math.max(
+    GRID_WIDTH_REM[c.width],
+    headerWidthRem(c.header, c.sort !== undefined) + GRID_CELL_PAD_REM,
+  );
 }

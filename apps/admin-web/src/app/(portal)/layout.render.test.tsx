@@ -47,7 +47,7 @@ beforeEach(() => {
 
 describe("the sidebar it hands the shell", () => {
   it("the read floor sees the Directory, Finance and most of Quality & AI — no admin doors", async () => {
-    stub.capabilities = ["read_entities", "read_events"];
+    stub.capabilities = ["read_entities", "read_candidates", "read_events"];
     await render();
     expect(stub.shell!.sections.map((s) => s.title)).toEqual([
       "Home",
@@ -76,6 +76,7 @@ describe("the sidebar it hands the shell", () => {
     stub.capabilities = [
       "read_events",
       "read_entities",
+      "read_candidates",
       "read_identity",
       "read_ai_traces",
       "manage_agency_match_skills",

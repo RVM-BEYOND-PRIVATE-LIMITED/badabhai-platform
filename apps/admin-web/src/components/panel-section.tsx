@@ -14,10 +14,13 @@ import type { ReactNode } from "react";
 export function PanelSection({
   title,
   titleId,
+  action,
   children,
 }: {
   title?: string;
   titleId?: string;
+  /** A section-level control (A7's per-section Edit) rendered directly after the heading. */
+  action?: ReactNode;
   children: ReactNode;
 }) {
   return (
@@ -27,6 +30,7 @@ export function PanelSection({
           {title}
         </h3>
       ) : null}
+      {action}
       {children}
     </section>
   );

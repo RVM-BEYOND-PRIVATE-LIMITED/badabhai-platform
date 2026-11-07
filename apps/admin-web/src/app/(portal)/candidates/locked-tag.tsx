@@ -12,6 +12,8 @@ import { useIconTipHandlers } from "@badabhai/icons/button";
 export const LOCK_REASONS = {
   name: "Locked: only the worker can change their name. Admins never edit it.",
   phone: "Locked: the phone is the worker's sign-in. Admins never edit it.",
+  whatsapp:
+    "Locked: the WhatsApp number is the worker's own contact detail and is never shown on a record read.",
   photo: "Locked: whether the resume shows the photo is the worker's own setting.",
 } as const;
 

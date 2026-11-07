@@ -105,7 +105,7 @@ describe("nav labels", () => {
 
   it("routes and capability gates did not move with the labels", () => {
     expect(byHref("/jobs")?.capability).toBe("read_entities");
-    expect(byHref("/candidates")?.capability).toBe("read_entities");
+    expect(byHref("/candidates")?.capability).toBe("read_candidates");
     expect(byHref("/companies")?.capability).toBe("read_entities");
     expect(byHref("/transactions")?.capability).toBe("read_entities");
     expect(byHref("/credits")?.capability).toBe("read_entities");

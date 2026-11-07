@@ -160,7 +160,10 @@ function libReads(): Map<string, Map<string, Read[]>> {
     const reads = new Map<string, Read[]>();
     fns.forEach((m, i) => {
       const body = src.slice(m.index, fns[i + 1]?.index ?? src.length);
-      const calls = [...body.matchAll(/adminFetch(?:<[^>]*>)?\(\s*(`[^`]*`|"[^"]*")\s*(,[^)]*)?/g)];
+      const calls = [...body.matchAll(/adminFetch(?:<[^>]*>)?\(\s*(`[^`]*`|"[^"]*")\s*(,[^)]*)?/g)]
+        // This rule maps READ paths to the API's GET routes. A governed write (`method: "POST"`)
+        // is deliberately not a read: its route is checked by the route's own authz tests.
+        .filter((c) => !/method:\s*"POST"/.test(c[2] ?? ""));
       if (calls.length === 0) return;
       reads.set(
         m[1]!,
@@ -294,7 +297,14 @@ describe("the source this test derives from is where it expects", () => {
     const calls = walk(join(SRC, "lib"))
       .filter((f) => /\.tsx?$/.test(f) && !f.includes(".test.") && !f.endsWith("admin-http.ts"))
       .filter((f) => !f.endsWith(join("auth", "session.ts"))) // `/admin/me`: the session read
-      .reduce((n, f) => n + (read(f).match(/\badminFetch(?:<[^>]*>)?\(/g) ?? []).length, 0);
+      .reduce(
+        (n, f) =>
+          n +
+          [...read(f).matchAll(/adminFetch(?:<[^>]*>)?\(\s*(`[^`]*`|"[^"]*")\s*(,[^)]*)?/g)].filter(
+            (m) => !/method:\s*"POST"/.test(m[2] ?? ""),
+          ).length,
+        0,
+      );
     expect(mapped).toBe(calls);
   });
 

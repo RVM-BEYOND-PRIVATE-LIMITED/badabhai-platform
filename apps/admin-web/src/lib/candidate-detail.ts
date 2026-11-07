@@ -16,8 +16,8 @@ import {
  * ── EVERY FIELD IS `{ value, source, correction }` ──────────────────────────────────────
  * `value` is what employers and the resume read; `source` is which writer supplied it (a
  * closed enum on the server — read here as a STRING, so a source added there degrades to its
- * de-snaked name instead of failing the whole record); `correction` is the admin correction on
- * it, which is ALWAYS null until #2561 ships the correction layer. Nothing here invents one.
+ * de-snaked name instead of failing the whole record); `correction` is the live admin correction
+ * on it (#2561), or null.
  *
  * ── WHAT IT NEVER CARRIES ───────────────────────────────────────────────────────────────
  * No phone or WhatsApp number in any form, no employer names, no licence numbers, no resume
@@ -36,7 +36,7 @@ import {
  * behind it (the rule `entities.identity.test.ts` holds for the entity reads).
  */
 
-/** The admin correction on a field — filled by #2561 (`worker_admin_override`); null until then. */
+/** The admin correction on a field — #2561's `worker_admin_override`; null when none is live. */
 const correctionSchema = z
   .object({
     override_id: z.string(),
