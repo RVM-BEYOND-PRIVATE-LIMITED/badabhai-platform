@@ -58,6 +58,24 @@ describe("suspendPayerAction", () => {
     });
   });
 
+  it("#2579 sends the written reason body the API stores on audit_logs", async () => {
+    adminFetch.mockResolvedValueOnce({ target_id: "p-1", changed: true });
+    await suspendPayerAction("p-1", {
+      category: "fraud",
+      text: "This account is being used for fraudulent postings",
+    });
+    expect(adminFetch).toHaveBeenCalledWith(
+      "/admin/payers/p-1/suspend",
+      expect.objectContaining({
+        method: "POST",
+        body: {
+          reason_code: "fraud",
+          reason_text: "This account is being used for fraudulent postings",
+        },
+      }),
+    );
+  });
+
   it("an idempotent no-op (already suspended) is SUCCESS, not an error", async () => {
     adminFetch.mockResolvedValueOnce({ target_id: "p-1", changed: false });
     const res = await suspendPayerAction("p-1");

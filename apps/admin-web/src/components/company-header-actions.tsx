@@ -167,7 +167,9 @@ export function CompanyHeaderActions({
         ]}
         categories={REASON_CATEGORIES}
         confirmLabel="Suspend"
-        onConfirm={async () => suspendPayerAction(company.id)}
+        onConfirm={async ({ category, text }) =>
+          suspendPayerAction(company.id, { category, text })
+        }
         onSettled={settled}
       />
 
@@ -180,7 +182,9 @@ export function CompanyHeaderActions({
         changes={[{ label: "Status", before: "Suspended", after: company.previous_status ?? "Previous status" }]}
         categories={REASON_CATEGORIES}
         confirmLabel="Reinstate"
-        onConfirm={async () => reinstatePayerAction(company.id)}
+        onConfirm={async ({ category, text }) =>
+          reinstatePayerAction(company.id, { category, text })
+        }
         onSettled={settled}
       />
 

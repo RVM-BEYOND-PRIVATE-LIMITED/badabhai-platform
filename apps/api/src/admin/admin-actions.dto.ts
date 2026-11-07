@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { AdminRole, WorkerFlagReasonCode } from "@badabhai/db";
 import { PasswordPolicySchema } from "../common/password-policy";
 import { containsHardIdentifier } from "../common/hard-identifier";
+import { AdminPayerReasonTextSchema } from "./admin-payer-logins.dto";
 
 /**
  * Zod DTOs for the ADMIN-3a governed entity actions (ADR-0025 Decision 3/5/6). Every body is
@@ -16,6 +17,40 @@ import { containsHardIdentifier } from "../common/hard-identifier";
 /** A uuid path param (`:id`) — the spoofing-proof target id (validated, never from the body). */
 export const AdminTargetParamsSchema = z.object({ id: z.string().uuid() }).strict();
 export type AdminTargetParamsDto = z.infer<typeof AdminTargetParamsSchema>;
+
+// ----- payer suspend / reinstate (#2579) -----------------------------------
+
+/**
+ * The closed reason codes the company header offers for a suspend/reinstate. They mirror the
+ * admin-web `REASON_CATEGORIES`; the written reason lives on `audit_logs` (payer erasure does not
+ * reach it), never on the value-free event.
+ */
+export const ADMIN_PAYER_ACTION_REASON_CODES = [
+  "policy",
+  "fraud",
+  "request",
+  "correction",
+  "security",
+  "other",
+] as const;
+export type AdminPayerActionReasonCode = (typeof ADMIN_PAYER_ACTION_REASON_CODES)[number];
+
+export const AdminPayerActionReasonSchema = z
+  .object({
+    reason_code: z.enum(ADMIN_PAYER_ACTION_REASON_CODES),
+    reason_text: AdminPayerReasonTextSchema,
+  })
+  .strict();
+export type AdminPayerActionReasonDto = z.infer<typeof AdminPayerActionReasonSchema>;
+
+/**
+ * The route keeps accepting a body-less call for older clients (the action is still recorded);
+ * the admin-web always sends the reason.
+ */
+export const AdminPayerActionReasonOrEmptySchema = z.union([
+  AdminPayerActionReasonSchema,
+  z.object({}).strict(),
+]);
 
 // ----- credit grant (amount bounded > 0 + a closed grant reason CODE) --------
 

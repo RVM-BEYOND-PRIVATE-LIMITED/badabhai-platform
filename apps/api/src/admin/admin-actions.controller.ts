@@ -17,6 +17,8 @@ import {
   AdminWorkerSignOutAllSchema,
   AdminWorkerSuspendSchema,
   AdminWorkerUnsuspendSchema,
+  AdminPayerActionReasonOrEmptySchema,
+  type AdminPayerActionReasonDto,
   type AdminChangeRoleDto,
   type AdminFlagWorkerDto,
   type AdminGrantCreditsDto,
@@ -63,9 +65,15 @@ export class AdminActionsController {
   suspendPayer(
     @CurrentAdmin() admin: AuthenticatedAdmin,
     @Param(new ZodValidationPipe(AdminTargetParamsSchema)) params: AdminTargetParamsDto,
+    @Body(new ZodValidationPipe(AdminPayerActionReasonOrEmptySchema)) body: Record<string, unknown>,
     @Ctx() ctx: RequestContext,
   ) {
-    return this.service.suspendPayer(admin.id, params.id, ctx);
+    return this.service.suspendPayer(
+      admin.id,
+      params.id,
+      ctx,
+      "reason_text" in body ? (body as AdminPayerActionReasonDto) : undefined,
+    );
   }
 
   @Post("payers/:id/reinstate")
@@ -74,9 +82,15 @@ export class AdminActionsController {
   reinstatePayer(
     @CurrentAdmin() admin: AuthenticatedAdmin,
     @Param(new ZodValidationPipe(AdminTargetParamsSchema)) params: AdminTargetParamsDto,
+    @Body(new ZodValidationPipe(AdminPayerActionReasonOrEmptySchema)) body: Record<string, unknown>,
     @Ctx() ctx: RequestContext,
   ) {
-    return this.service.reinstatePayer(admin.id, params.id, ctx);
+    return this.service.reinstatePayer(
+      admin.id,
+      params.id,
+      ctx,
+      "reason_text" in body ? (body as AdminPayerActionReasonDto) : undefined,
+    );
   }
 
   @Post("payers/:id/credits")

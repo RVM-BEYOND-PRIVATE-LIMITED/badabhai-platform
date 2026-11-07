@@ -9,6 +9,7 @@ import {
   type CreditGrantReason,
 } from "../lib/admin-action-vocabulary";
 import type { AdminActionOutcome } from "../lib/admin-action-result";
+import type { ConfirmReason } from "../lib/confirm-tiers";
 
 /**
  * Company/Agency (payer) governed actions — shared by both surfaces, exactly like
@@ -19,10 +20,38 @@ import type { AdminActionOutcome } from "../lib/admin-action-result";
 
 const resultSchema = z.object({ target_id: z.string(), changed: z.boolean() });
 
-export async function suspendPayerAction(payerId: string): Promise<AdminActionOutcome> {
+/**
+ * #2579 — the company header's T2 requires a written reason; it is stored on `audit_logs` by
+ * the backend. The legacy payer-detail header may still call these actions without one.
+ */
+const payerReasonSchema = z
+  .object({
+    reason_code: z.enum(["policy", "fraud", "request", "correction", "security", "other"]),
+    reason_text: z.string().trim().min(15).max(500),
+  })
+  .strict();
+
+function reasonBody(reason: ConfirmReason | undefined) {
+  if (!reason) return {};
+  const parsed = payerReasonSchema.safeParse({
+    reason_code: reason.category,
+    reason_text: reason.text,
+  });
+  return parsed.success ? { body: parsed.data } : { invalid: true as const };
+}
+
+export async function suspendPayerAction(
+  payerId: string,
+  reason?: ConfirmReason,
+): Promise<AdminActionOutcome> {
+  const body = reasonBody(reason);
+  if ("invalid" in body) {
+    return { ok: false, error: "Explain the reason in at least 15 characters." };
+  }
   try {
     const res = await adminFetch(`/admin/payers/${encodeURIComponent(payerId)}/suspend`, {
       method: "POST",
+      ...body,
       schema: resultSchema,
     });
     return {
@@ -37,10 +66,18 @@ export async function suspendPayerAction(payerId: string): Promise<AdminActionOu
   }
 }
 
-export async function reinstatePayerAction(payerId: string): Promise<AdminActionOutcome> {
+export async function reinstatePayerAction(
+  payerId: string,
+  reason?: ConfirmReason,
+): Promise<AdminActionOutcome> {
+  const body = reasonBody(reason);
+  if ("invalid" in body) {
+    return { ok: false, error: "Explain the reason in at least 15 characters." };
+  }
   try {
     const res = await adminFetch(`/admin/payers/${encodeURIComponent(payerId)}/reinstate`, {
       method: "POST",
+      ...body,
       schema: resultSchema,
     });
     return {
