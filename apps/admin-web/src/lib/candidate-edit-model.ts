@@ -1172,7 +1172,13 @@ export function validateEditDraft(
       if (unknown.length > 0) errors[field.formKey] = "Choose only the listed values.";
     }
     if (field.kind === "id-list" && field.formKey === "skills") {
-      if (cities(value).length > 50) errors[field.formKey] = "Enter at most fifty skill ids.";
+      const ids = cities(value);
+      if (ids.length > 50) errors[field.formKey] = "Enter at most fifty skill ids.";
+      const phrase = ids.find((id) => !/^skill_/.test(id));
+      if (phrase) {
+        errors[field.formKey] =
+          `Each skill is a skill_* id from the corpus - remove or fix "${phrase.slice(0, 40)}".`;
+      }
     }
     if (field.kind === "entries") {
       const problem = validateEntries(field, parseEntries(draft[field.formKey]));
