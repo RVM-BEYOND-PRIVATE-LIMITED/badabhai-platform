@@ -304,6 +304,12 @@ describe("structured validation", () => {
     ).toBeTruthy();
   });
 
+  it("refuses a stored phrase in the skills box, naming it", () => {
+    expect(
+      validateEditDraft(record, "skills", { skills: "skill_tig_welding, MIG Welding" }).skills,
+    ).toMatch(/skill_\* id.*MIG Welding/);
+  });
+
   it("refuses a language without abilities and a doubled language", () => {
     expect(
       validateEditDraft(
