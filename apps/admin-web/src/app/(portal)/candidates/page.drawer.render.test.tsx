@@ -3,28 +3,38 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { candidateRecord } from "../../../../test/candidate-record";
 
 /**
- * A7 (#2577) — the Candidates list opens the candidate drawer: for a session holding
+ * A7 (#2577) — the Candidates data-bank list opens the candidate drawer: for a session holding
  * `read_candidates` each row's link is THIS list with `?c=<id>` added (every filter and the page
- * cursor kept) and opens the drawer in place; the page reads the open record on the server BESIDE
- * the list; the drawer is handed the rows it moves through, titled as the list names them.
+ * kept) and opens the drawer in place; the page reads the open record on the server BESIDE the
+ * search; the drawer is handed the rows it moves through, titled as the list names them.
  * Without the capability nothing changes: rows open the worker's page and `?c=` is ignored.
  */
 const stub = vi.hoisted(() => ({
   capabilities: [] as string[],
-  page: { items: [] as unknown[], nextCursor: null as string | null },
+  candidates: [] as unknown[],
   order: [] as string[],
   read: vi.fn(),
   drawer: null as null | Record<string, unknown>,
 }));
 
+const SEARCH_RESPONSE = () => ({
+  candidates: stub.candidates,
+  page: 1,
+  page_size: 50,
+  total: stub.candidates.length,
+  total_pages: 1,
+  counts: { by_status: [], by_trade: [], by_city: [], by_profile_status: [] },
+  q_type: null,
+});
+
 vi.mock("../../../lib/auth", () => ({
   requireCapability: async () => ({ adminId: "a-1", role: "support", capabilities: stub.capabilities }),
 }));
 vi.mock("../../../lib/admin-http", () => ({ isAdminRequestError: () => false }));
-vi.mock("../../../lib/entities", () => ({
-  listWorkers: async () => {
-    stub.order.push("list");
-    return stub.page;
+vi.mock("../../../lib/candidate-search-server", () => ({
+  searchCandidates: async () => {
+    stub.order.push("search");
+    return SEARCH_RESPONSE();
   },
 }));
 vi.mock("../../../lib/candidate-detail", () => ({
@@ -33,7 +43,9 @@ vi.mock("../../../lib/candidate-detail", () => ({
     return stub.read(id);
   },
 }));
-vi.mock("./filter-bar", () => ({ WorkerFilterBar: () => null }));
+vi.mock("./filter-bar", () => ({ CandidateFilterBar: () => null }));
+vi.mock("./candidate-search-box", () => ({ CandidateSearchBox: () => null }));
+vi.mock("./saved-views", () => ({ CandidateSavedViews: () => null }));
 vi.mock("./candidate-drawer", () => ({
   CandidateDrawer: (p: Record<string, unknown>) => {
     stub.drawer = p;
@@ -46,21 +58,36 @@ const { default: CandidatesPage } = await import("./page");
 const W1 = "5eeded00-0001-4a00-8000-000000000001";
 const W2 = "5eeded00-0002-4a00-8000-000000000002";
 const row = (id: string, name?: string | null) => ({
-  id,
-  ...(name === undefined ? {} : { full_name: name }),
+  worker_id: id,
+  ...(name === undefined ? {} : { name }),
   status: "active",
-  preferred_language: "hi",
-  has_photo: false,
-  resume_show_photo: true,
-  resume_night_shift_ready: false,
+  flagged: false,
+  is_test_account: false,
   deletion_scheduled_at: null,
+  current_city: "Pune",
+  current_state: "Maharashtra",
+  trade_label: "Welder",
+  role_label: "TIG Welder",
+  domain_label: "Fabrication",
+  total_experience_years: "4",
+  role_experience_months: 30,
+  availability_status: "within_a_month",
+  shift_preference: "day",
+  form_level: "medium",
+  skills: ["skill_welding"],
+  languages: ["hi"],
+  education_level: "10th pass",
+  resume_count: 2,
+  latest_resume_status: "rendered",
+  profile_status: "confirmed",
+  last_active_at: "2026-11-01T09:00:00.000Z",
   created_at: "2026-08-19T09:00:00.000Z",
   updated_at: "2026-08-19T09:00:00.000Z",
 });
 
 beforeEach(() => {
-  stub.capabilities = ["read_entities", "read_identity", "read_candidates"];
-  stub.page = { items: [row(W1, "Ramesh Kumar"), row(W2, null)], nextCursor: null };
+  stub.capabilities = ["read_candidates", "read_identity"];
+  stub.candidates = [row(W1, "Ramesh Kumar"), row(W2, null)];
   stub.order = [];
   stub.read = vi.fn(async () => ({ status: "ok", detail: candidateRecord() }));
   stub.drawer = null;
@@ -76,11 +103,11 @@ const rowHrefs = (html: string) =>
   );
 
 describe("a session holding read_candidates", () => {
-  it("each row opens the drawer: this list's address with ?c=<id> — filters and cursor kept", async () => {
-    const out = await render({ status: "active", pendingDeletion: "true", cursor: "Y3Vy" });
+  it("each row opens the drawer: this list's address with ?c=<id> — filters and page kept", async () => {
+    const out = await render({ status: "active", page: "2" });
     expect(rowHrefs(out)).toEqual([
-      `/candidates?status=active&pendingDeletion=true&cursor=Y3Vy&c=${W1}`,
-      `/candidates?status=active&pendingDeletion=true&cursor=Y3Vy&c=${W2}`,
+      `/candidates?status=active&page=2&c=${W1}`,
+      `/candidates?status=active&page=2&c=${W2}`,
     ]);
   });
 
@@ -100,10 +127,10 @@ describe("a session holding read_candidates", () => {
     expect(out(stub.drawer).initial).toBeNull();
   });
 
-  it("with ?c= it reads that record on the server — BESIDE the list, not after it", async () => {
+  it("with ?c= it reads that record on the server — BESIDE the search, not after it", async () => {
     await render({ c: W2 });
     expect(stub.read).toHaveBeenCalledWith(W2);
-    expect(stub.order).toEqual([`record ${W2}`, "list"]);
+    expect(stub.order).toEqual([`record ${W2}`, "search"]);
     expect(out(stub.drawer).initial).toEqual({
       id: W2,
       result: { status: "ok", detail: candidateRecord() },
@@ -118,8 +145,8 @@ describe("a session holding read_candidates", () => {
   });
 
   it("an analyst's rows are titled by id (no names), and the drawer knows the role sees none", async () => {
-    stub.capabilities = ["read_entities", "read_candidates"];
-    stub.page = { items: [row(W1), row(W2)], nextCursor: null };
+    stub.capabilities = ["read_candidates"];
+    stub.candidates = [row(W1), row(W2)];
     await render();
     expect(out(stub.drawer).rows).toEqual([
       { id: W1, title: "Candidate 5eed…0001" },
@@ -139,7 +166,7 @@ describe("a session holding read_candidates", () => {
 
 describe("a session WITHOUT read_candidates — the drawer entry is hidden", () => {
   beforeEach(() => {
-    stub.capabilities = ["read_entities", "read_identity"];
+    stub.capabilities = ["read_identity"];
   });
 
   it("rows open the worker's page, exactly as before", async () => {

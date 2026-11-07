@@ -3,20 +3,14 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { columnHeaders } from "../../../../test/grid-markup";
 
 /**
- * What the Workers roster actually RENDERS after the 2026-08-18 name ruling.
+ * What the Candidates DATA BANK renders (A7, #2577) after the 2026-08-18 name ruling.
  *
- * ── WHY A RENDER TEST ───────────────────────────────────────────────────────────────────
- * The whole feature is a decision about MARKUP. `lib/identity.test.ts` proves the posture
- * function classifies correctly; nothing there would notice a page that computed `faceless` and
- * then rendered the Name column anyway, or one that rendered the header without the cells and
- * shunted every row one column to the left. Both are invisible to a schema test and obvious in
- * the emitted HTML.
- *
- * The three postures are three different screens, and each is asserted for what it SHOWS and for
- * what it must not: a capped page must not paint dashes (which mean "no name on record"), and an
- * analyst's page must not carry a Name heading at all.
+ * The list reads `POST /admin/candidates/search` (bare-filters body from the address; the
+ * universal term never touches a URL) and pages by number over its exact total. The name
+ * postures are the roster's three screens: a Name column only when names arrived, a withheld
+ * banner only for a capped entitled read, and the analyst's list exactly as the faceless
+ * roster — no column, no dashes, no header promising data they will never be shown.
  */
-
 const stub = vi.hoisted(() => {
   /** Stands in for `AdminRequestError`, whose `status` is what separates the two failures. */
   class RequestError extends Error {
@@ -26,9 +20,23 @@ const stub = vi.hoisted(() => {
   }
   return {
     RequestError,
-    capabilities: ["read_entities", "read_identity"] as string[],
-    page: null as { items: unknown[]; nextCursor: string | null } | null,
+    capabilities: ["read_candidates", "read_identity"] as string[],
+    response: null as null | {
+      candidates: unknown[];
+      page: number;
+      page_size: number;
+      total: number;
+      total_pages: number;
+      counts: {
+        by_status: Array<{ value: string; count: number }>;
+        by_trade: Array<{ value: string; count: number }>;
+        by_city: Array<{ value: string; count: number }>;
+        by_profile_status: Array<{ value: string; count: number }>;
+      };
+      q_type: null;
+    },
     failure: null as unknown,
+    searchBody: null as unknown,
   };
 });
 
@@ -44,48 +52,112 @@ vi.mock("../../../lib/admin-http", () => ({
   isAdminRequestError: (err: unknown) => err instanceof stub.RequestError,
 }));
 
-vi.mock("../../../lib/entities", () => ({
-  listWorkers: async () => {
+vi.mock("../../../lib/candidate-search-server", () => ({
+  searchCandidates: async (body: unknown) => {
+    stub.searchBody = body;
     if (stub.failure) throw stub.failure;
-    return stub.page;
+    return stub.response;
   },
 }));
 
-// `useRouter` needs an app-router context this renderer does not provide. The bar is not what
-// this file is about; it is stubbed so the page under test can render at all.
-vi.mock("./filter-bar", () => ({ WorkerFilterBar: () => null }));
+vi.mock("../../../lib/candidate-detail", () => ({
+  readCandidateRecord: async () => ({ status: "not_found" }),
+}));
 
-const { default: WorkersPage } = await import("./page");
+// `useSearchParams` needs an app-router context this renderer does not provide; the box is
+// covered by its own tests, so it renders nothing here.
+vi.mock("./candidate-search-box", () => ({ CandidateSearchBox: () => null }));
+vi.mock("./filter-bar", () => ({ CandidateFilterBar: () => null }));
+vi.mock("./saved-views", () => ({ CandidateSavedViews: () => null }));
+vi.mock("./candidate-drawer", () => ({ CandidateDrawer: () => null }));
+
+const { default: CandidatesPage } = await import("./page");
 
 const WORKER_ID = "5eeded00-0001-4a00-8000-000000000001";
 
 /** A faceless row: exactly what an analyst, or a capped read, gets back. */
 const FACELESS = {
-  id: WORKER_ID,
+  worker_id: WORKER_ID,
   status: "active",
-  preferred_language: "hi",
-  has_photo: false,
-  resume_show_photo: true,
-  resume_night_shift_ready: false,
+  flagged: false,
+  is_test_account: false,
   deletion_scheduled_at: null,
+  current_city: "Pune",
+  current_state: "Maharashtra",
+  trade_label: "Welder",
+  role_label: "TIG Welder",
+  domain_label: "Fabrication",
+  total_experience_years: "4",
+  role_experience_months: 30,
+  availability_status: "within_a_month",
+  shift_preference: "day",
+  form_level: "medium",
+  skills: ["skill_welding"],
+  languages: ["hi", "mr"],
+  education_level: "10th pass",
+  resume_count: 2,
+  latest_resume_status: "rendered",
+  profile_status: "confirmed",
+  last_active_at: "2026-11-01T09:00:00.000Z",
   created_at: "2026-08-19T09:00:00.000Z",
   updated_at: "2026-08-19T09:00:00.000Z",
 };
 
 /** The same row, named. A real Indian worker name, because that is what this column holds. */
-const NAMED = { ...FACELESS, full_name: "Ramesh Kumar" };
+const NAMED = { ...FACELESS, name: "Ramesh Kumar" };
 
 /** Disclosed, and nobody ever recorded a name — the row the dash belongs to. */
-const UNNAMED = { ...FACELESS, id: "5eeded00-0002-4a00-8000-000000000002", full_name: null };
+const UNNAMED = {
+  ...FACELESS,
+  worker_id: "5eeded00-0002-4a00-8000-000000000002",
+  name: null,
+};
+
+const EMPTY_RESPONSE: {
+  candidates: Record<string, unknown>[];
+  page: number;
+  page_size: number;
+  total: number;
+  total_pages: number;
+  counts: {
+    by_status: Array<{ value: string; count: number }>;
+    by_trade: Array<{ value: string; count: number }>;
+    by_city: Array<{ value: string; count: number }>;
+    by_profile_status: Array<{ value: string; count: number }>;
+  };
+  q_type: null;
+} = {
+  candidates: [],
+  page: 1,
+  page_size: 50,
+  total: 0,
+  total_pages: 1,
+  counts: { by_status: [], by_trade: [], by_city: [], by_profile_status: [] },
+  q_type: null,
+};
+
+const FULL_RESPONSE = {
+  ...EMPTY_RESPONSE,
+  candidates: [NAMED],
+  total: 24310,
+  total_pages: 487,
+  counts: {
+    by_status: [{ value: "active", count: 20000 }],
+    by_trade: [{ value: "dom_welding", count: 3200 }],
+    by_city: [{ value: "Pune", count: 4100 }],
+    by_profile_status: [{ value: "confirmed", count: 18000 }],
+  },
+};
 
 beforeEach(() => {
-  stub.capabilities = ["read_entities", "read_identity"];
-  stub.page = { items: [NAMED], nextCursor: null };
+  stub.capabilities = ["read_candidates", "read_identity"];
+  stub.response = { ...FULL_RESPONSE, candidates: [{ ...NAMED }] };
   stub.failure = null;
+  stub.searchBody = null;
 });
 
 const render = async (searchParams: Record<string, string | string[] | undefined> = {}) =>
-  renderToStaticMarkup(await WorkersPage({ searchParams: Promise.resolve(searchParams) }));
+  renderToStaticMarkup(await CandidatesPage({ searchParams: Promise.resolve(searchParams) }));
 
 /**
  * The DATA cells of the first body row, in order — the row link's end chevron (an aria-hidden
@@ -105,47 +177,83 @@ describe("an admin who holds read_identity", () => {
     const out = await render();
     expect(columnHeaders(out)[0]).toBe("Name");
     expect(out).toContain("Ramesh Kumar");
-    // Order matters: the name is the label an operator scans, the id is the handle.
     expect(out.indexOf("Ramesh Kumar")).toBeLessThan(out.indexOf(`title="${WORKER_ID}"`));
   });
 
-  it("links the row through the NAME, and KEEPS the opaque id beside it — the join key", async () => {
-    // The id is the `actor_id`/`subject_id` on the spine and the value an operator copies into
-    // a query. A name is not unique enough to be either. Since A4 the row's one link is its
-    // name (stretched over the row); the id stays a cell of its own, its full value in its
-    // title and one click from the clipboard.
+  it("heads the results with the search's exact total — never the page size", async () => {
     const out = await render();
-    expect(out).toMatch(
-      new RegExp(`<a class="grid__link" href="/candidates/${WORKER_ID}"><span class="grid__link-text" title="Ramesh Kumar">`),
+    expect(out).toContain("Candidates · 24,310");
+  });
+
+  it("pages by number over that total, with the row count on the page", async () => {
+    const out = await render();
+    expect(out).toContain("of 24,310");
+    expect(out).toContain("1 on this page");
+    expect(out).toContain("page 1 of 487");
+  });
+
+  it("links the row through the NAME into the drawer, filters and page kept", async () => {
+    const out = await render({ status: "active", page: "3" });
+    expect(out).toContain(
+      `/candidates?status=active&amp;page=3&amp;c=${WORKER_ID}`,
     );
     expect(out).toContain(`<span class="mono" title="${WORKER_ID}">5eed…0001</span>`);
     expect(out).toContain('aria-label="Copy worker id"');
   });
 
   it("renders a NULL name as a dash that says what a dash means", async () => {
-    stub.page = { items: [UNNAMED], nextCursor: null };
+    stub.response = { ...FULL_RESPONSE, candidates: [{ ...UNNAMED }] };
     const out = await render();
     expect(out).toContain('<span class="table__meta" title="No name on record for this account.">—</span>');
   });
 
   it("renders a BLANK name as the same dash, never as an empty cell", async () => {
-    // The layout-collapse case. `full_name` is worker-entered, so "   " is a value the column
-    // can really hold, and printing it verbatim leaves a row that looks broken.
-    stub.page = { items: [{ ...FACELESS, full_name: "   " }], nextCursor: null };
+    stub.response = { ...FULL_RESPONSE, candidates: [{ ...NAMED, name: "   " }] };
     const out = await render();
     expect(out).toContain('title="No name on record for this account.">—</span>');
   });
 
   it("keeps every row the same width as the header", async () => {
-    // The structural failure: a header rendered under one condition and its cell under another
-    // shifts every subsequent value one column left, so Status reads as Language and nothing
-    // about the page looks wrong.
-    stub.page = { items: [NAMED, UNNAMED], nextCursor: null };
+    stub.response = { ...FULL_RESPONSE, candidates: [{ ...NAMED }, { ...UNNAMED }] };
     const out = await render();
     const headers = columnHeaders(out).length;
-    // 6 faceless columns + Name.
-    expect(headers).toBe(7);
+    // 10 default columns with the Name column.
+    expect(headers).toBe(10);
     expect(firstRowCells(out)).toHaveLength(headers);
+  });
+
+  it("draws the #2577 defaults with the Identity / Work / Activity / Account chooser", async () => {
+    const out = await render();
+    expect(columnHeaders(out)).toEqual([
+      "Name",
+      "ID",
+      "Trade",
+      "Experience",
+      "City",
+      "Status",
+      "Profile",
+      "Resume",
+      "Last active",
+      "Registered",
+    ]);
+    // The chooser groups (Identity / Work / Activity / Account) travel with the columns.
+    expect(out).toContain("Identity");
+    expect(out).toContain("Work");
+    expect(out).toContain("Activity");
+    expect(out).toContain("Account");
+  });
+
+  it("reads the work columns off the row, never inventing one", async () => {
+    const out = await render();
+    expect(out).toContain("Welder");
+    expect(out).toContain("4 years");
+    expect(out).toContain("Pune");
+    expect(out).toContain("2 · Rendered");
+  });
+
+  it("sorts by the allow-listed columns, keeping every filter and restarting at page one", async () => {
+    const out = await render({ status: "active", page: "3" });
+    expect(out).toContain("/candidates?status=active&amp;sort=trade_label");
   });
 
   it("says names are shown and audited, and posts NO withheld banner", async () => {
@@ -159,40 +267,29 @@ describe("an admin who holds read_identity", () => {
     const out = await render();
     const info = out.slice(out.indexOf('<details class="infopop">'));
     expect(out.indexOf('<details class="infopop">')).toBeGreaterThan(out.indexOf('class="page__sub"'));
-    expect(info).toContain("revealing one worker&#x27;s contact is a separate, reason-gated action");
-  });
-
-  it("still offers no search box of any kind", async () => {
-    // The ruling reversed "the roster is anonymous". It did not reverse "the roster is not a
-    // lookup tool" — a field that turns a name into a row is what makes this bulk queryable by
-    // identity. (The filter bar is stubbed out; this asserts the PAGE adds none of its own.)
-    const out = await render();
-    // The grid's column chooser draws checkboxes; nothing here takes text.
-    expect(out).not.toMatch(/<input(?![^>]*type="checkbox")/);
-    expect(out).not.toContain('role="search"');
+    expect(info).toContain("reason-gated action");
   });
 });
 
 describe("an analyst, who will never hold read_identity", () => {
   beforeEach(() => {
+    // No read_candidates either: rows open the worker's page and `?c=` is ignored.
     stub.capabilities = ["read_entities"];
-    stub.page = { items: [FACELESS], nextCursor: null };
+    stub.response = { ...FULL_RESPONSE, candidates: [{ ...FACELESS }] };
   });
 
   it("gets NO Name column — not a column of dashes", async () => {
-    // The requirement in one assertion: never render a heading promising data this operator
-    // cannot be shown. A dash under it would also be a lie, since a dash means "no name on
-    // record" everywhere else on this console.
     const out = await render();
     expect(columnHeaders(out)).not.toContain("Name");
     expect(out).not.toContain("No name on record");
   });
 
-  it("gets the pre-ruling roster, intact", async () => {
+  it("gets the numbered list intact, rows opening the worker's page", async () => {
     const out = await render();
     expect(out).toContain(`href="/candidates/${WORKER_ID}"`);
-    expect(columnHeaders(out)).toHaveLength(6);
-    expect(firstRowCells(out)).toHaveLength(6);
+    expect(out).toContain("Candidates · 24,310");
+    expect(columnHeaders(out)).toHaveLength(9);
+    expect(firstRowCells(out)).toHaveLength(9);
   });
 
   it("is told plainly that this is a property of their ROLE, not of these workers", async () => {
@@ -200,36 +297,19 @@ describe("an analyst, who will never hold read_identity", () => {
     expect(out).toContain("your role does not include name access");
     expect(out).not.toContain("Names are shown to your role");
   });
-
-  it("is NOT shown the withheld banner — nothing is being withheld from this response", async () => {
-    // A warning on every page load is noise that teaches operators to ignore the banner on the
-    // day it means something.
-    const out = await render();
-    expect(out).not.toContain("Names are withheld on this page");
-  });
 });
 
 describe("an entitled admin whose name budget is spent", () => {
   beforeEach(() => {
-    stub.capabilities = ["read_entities", "read_identity"];
-    stub.page = { items: [FACELESS], nextCursor: null };
+    stub.capabilities = ["read_candidates", "read_identity"];
+    stub.response = { ...FULL_RESPONSE, candidates: [{ ...FACELESS }] };
   });
 
   it("says the names are withheld, and that the ROLE is not the reason", async () => {
-    // Same bytes on the wire as the analyst's response; a different screen, because only the
-    // client knows the capability. Without this banner the console looks like it regressed.
     const out = await render();
     expect(out).toContain("Names are withheld on this page");
     expect(out).toContain("hourly name budget");
     expect(out).not.toContain("your role does not include name access");
-  });
-
-  it("does NOT describe names as shown, directly above the notice saying they are withheld", async () => {
-    // The description was two-valued while the detail panels were three-valued (sweep AW-21):
-    // "Names are shown to your role" sat over "Names are withheld on this page".
-    const out = await render();
-    expect(out).not.toContain("Names are shown to your role");
-    expect(out).toContain("identified by id while names are withheld (see below)");
   });
 
   it("hides the Name column rather than filling it with dashes", async () => {
@@ -237,28 +317,17 @@ describe("an entitled admin whose name budget is spent", () => {
     expect(columnHeaders(out)).not.toContain("Name");
     expect(out).not.toContain("No name on record");
   });
-
-  it("leaves every other field on the row untouched", async () => {
-    const out = await render();
-    expect(out).toContain(`href="/candidates/${WORKER_ID}"`);
-    expect(out).toContain("no photo");
-    expect(firstRowCells(out)).toHaveLength(6);
-  });
 });
 
 describe("the states where there is nothing to be named", () => {
   it("an EMPTY page from an entitled admin posts no withheld banner", async () => {
-    // Nothing was withheld — there was nothing to withhold. A banner here would be a warning
-    // about a table with no rows in it.
-    stub.page = { items: [], nextCursor: null };
+    stub.response = { ...EMPTY_RESPONSE, candidates: [] };
     const out = await render();
     expect(out).not.toContain("Names are withheld on this page");
-    expect(out).toContain("No workers registered yet");
+    expect(out).toContain("No candidates registered yet");
   });
 
   it("a REJECTED filter posts no withheld banner either", async () => {
-    // `page` is null, so there is no evidence about names one way or the other, and the honest
-    // screen is the filter error alone.
     stub.failure = new stub.RequestError(400);
     const out = await render({ status: "nonsense" });
     expect(out).toContain("The server rejected these filters");
@@ -266,110 +335,70 @@ describe("the states where there is nothing to be named", () => {
   });
 });
 
-describe("the posture is measured, not predicted", () => {
-  it("renders names that ARRIVED even if /admin/me reported no capability", async () => {
-    // A server that disclosed to a role the session says is not entitled is a server bug — but
-    // the names are already over the wire, hiding the column would not un-disclose them, and
-    // the failure worth preventing is claiming in copy that nothing was shown while showing it.
-    stub.capabilities = ["read_entities"];
-    stub.page = { items: [NAMED], nextCursor: null };
-    const out = await render();
-    expect(out).toContain("Ramesh Kumar");
-    expect(out).not.toContain("your role does not include name access");
-  });
-});
-
 describe("the empty roster's events link follows read_events (owner brief 2026-10-01)", () => {
   it("is offered to a session that may open /events", async () => {
-    stub.capabilities = ["read_entities", "read_events"];
-    stub.page = { items: [], nextCursor: null };
+    stub.capabilities = ["read_candidates", "read_identity", "read_events"];
+    stub.response = { ...EMPTY_RESPONSE, candidates: [] };
     const out = await render();
-    expect(out).toContain("No workers registered yet");
+    expect(out).toContain("No candidates registered yet");
     expect(out).toMatch(/href="\/events">(<i [^>]*><\/i>)?View events<\/a>/);
   });
 
   it("is withheld from one that may not — the route would only redirect them", async () => {
-    stub.capabilities = ["read_entities"];
-    stub.page = { items: [], nextCursor: null };
+    stub.capabilities = ["read_candidates", "read_identity"];
+    stub.response = { ...EMPTY_RESPONSE, candidates: [] };
     const out = await render();
-    expect(out).toContain("No workers registered yet");
+    expect(out).toContain("No candidates registered yet");
     expect(out).not.toContain('href="/events"');
     expect(out).not.toContain("View events");
   });
 });
 
-describe("a failed read: Retry repeats the query, Back to the first page drops the cursor", () => {
-  it("keeps the cursor on Retry, and offers the first page as its own action", async () => {
-    stub.failure = new Error("boom");
-    const out = await render({ cursor: "Y3Vyc29y" });
-    expect(out).toMatch(/href="\/candidates\?cursor=Y3Vyc29y">(<i [^>]*><\/i>)?Retry<\/a>/);
-    expect(out).toMatch(/href="\/candidates">(<i [^>]*><\/i>)?Back to the first page<\/a>/);
+describe("what the page asks the search for", () => {
+  it("a bare list is a bare-filters body — the term never rides the address", async () => {
+    await render();
+    expect(stub.searchBody).toEqual({
+      sort: "last_active_at",
+      dir: "desc",
+      page: 1,
+      page_size: 50,
+    });
   });
 
-  it("without a cursor, Retry is the whole recovery", async () => {
-    stub.failure = new Error("boom");
-    const out = await render();
-    expect(out).toMatch(/href="\/candidates">(<i [^>]*><\/i>)?Retry<\/a>/);
-    expect(out).not.toContain("Back to the first page");
+  it("filters, sort, direction, page and page size travel in the body", async () => {
+    await render({ status: "active,suspended", city: "Pune", sort: "trade_label", dir: "asc", page: "3", page_size: "25" });
+    expect(stub.searchBody).toEqual({
+      filters: { status: ["active", "suspended"], city: ["Pune"] },
+      sort: "trade_label",
+      dir: "asc",
+      page: 3,
+      page_size: 25,
+    });
   });
 
-  it("with a filter set, Retry KEEPS it, and Clear filters stays in the results head — once", async () => {
-    stub.failure = new Error("boom");
-    const out = await render({ status: "active" });
-    expect(out.split(">Clear filters<").length - 1).toBe(1);
-    expect(out).toMatch(/href="\/candidates\?status=active">(<i [^>]*><\/i>)?Retry<\/a>/);
-  });
-
-  it("filtered AND past page one: both recoveries, both keeping every filter (sweep AW-06)", async () => {
-    // `/candidates?status=active&cursor=c2` with a 500 rendered no Retry and no first page — the
-    // only exit was the head's Clear filters, which drops the filter it was paging.
-    stub.failure = new Error("boom");
-    const out = await render({ status: "active", pendingDeletion: "true", cursor: "c2" });
-    expect(out).toMatch(
-      /href="\/candidates\?status=active&amp;pendingDeletion=true&amp;cursor=c2">(<i [^>]*><\/i>)?Retry<\/a>/,
-    );
-    expect(out).toMatch(
-      /href="\/candidates\?status=active&amp;pendingDeletion=true">(<i [^>]*><\/i>)?Back to the first page<\/a>/,
-    );
-    expect(out.split(">Clear filters<").length - 1).toBe(1);
+  it("an unparseable page is page one, not a 400", async () => {
+    await render({ page: "nonsense" });
+    expect(stub.searchBody).toMatchObject({ page: 1 });
   });
 });
 
-/**
- * A REFUSED read and an UNAVAILABLE one are different screens (sweep AW-05): a 500 with no
- * filter in the address read "The server rejected these filters" and "That filter combination
- * was rejected." — sending the operator to fix filters that did not exist.
- */
-describe("a failed read is told apart by its cause", () => {
-  it("an outage with no filter says the roster is unavailable — not that filters were rejected", async () => {
-    stub.failure = new TypeError("fetch failed");
-    const out = await render();
-    expect(out).toContain("Workers are unavailable");
-    expect(out).toContain("a fault on our side");
-    expect(out).toContain("Nothing was fetched.");
-    expect(out).not.toContain("rejected");
-  });
-
-  it("a 500 from the API is an outage too, even with a filter set", async () => {
-    stub.failure = new stub.RequestError(500);
-    const out = await render({ status: "active" });
-    expect(out).toContain("Workers are unavailable");
-    expect(out).not.toContain("rejected");
+describe("a failed search: Retry repeats the query, the refusal names the filters", () => {
+  it("keeps every filter on Retry, and offers Clear filters once in the head", async () => {
+    stub.failure = new Error("boom");
+    const out = await render({ status: "active", page: "2" });
+    expect(out.split(">Clear filters<").length - 1).toBe(1);
+    expect(out).toMatch(/href="\/candidates\?status=active&amp;page=2">(<i [^>]*><\/i>)?Retry<\/a>/);
   });
 
   it("a 400 with a filter set is the refusal, and offers no Retry — it could only repeat it", async () => {
     stub.failure = new stub.RequestError(400);
     const out = await render({ status: "nonsense" });
     expect(out).toContain("The server rejected these filters");
-    expect(out).toContain("That filter combination was rejected.");
-    expect(out).not.toContain("Workers are unavailable");
+    expect(out).not.toContain("Candidates are unavailable");
     expect(out).not.toContain(">Retry<");
-    expect(out).not.toContain("Back to the first page");
   });
 
-  it("a 400 with a filter offers Clear filters IN the refusal — once on the screen", async () => {
-    // The API refuses a page cursor only when it is longer than any it issues, so a 400 with a
-    // filter set is the filter's — and the way out is clearing it, right where the refusal is.
+  it("a 400 offers Clear filters IN the refusal — once on the screen", async () => {
     stub.failure = new stub.RequestError(400);
     const out = await render({ status: "nonsense" });
     const state = out.slice(out.indexOf('class="state state--error"'));
@@ -377,55 +406,29 @@ describe("a failed read is told apart by its cause", () => {
     expect(out.split(">Clear filters<").length - 1).toBe(1);
   });
 
-  it("a 400 with a filter past page one: Clear filters — not a first page that keeps the refused filter", async () => {
-    stub.failure = new stub.RequestError(400);
-    // A status the API refuses — a valid one beside a cursor leaves the CURSOR refused.
-    const out = await render({ status: "nonsense", cursor: "c2" });
-    expect(out).not.toContain("Back to the first page");
-    expect(out).not.toContain(">Retry<");
-    expect(out.split(">Clear filters<").length - 1).toBe(1);
-  });
-
-  it("a 400 with NOTHING in the address cannot be the operator's: it is an outage, with Retry", async () => {
-    stub.failure = new stub.RequestError(400);
-    const out = await render();
-    expect(out).toContain("Workers are unavailable");
+  it("an outage with a filter is an outage, with Retry keeping the query", async () => {
+    stub.failure = new stub.RequestError(500);
+    const out = await render({ status: "active" });
+    expect(out).toContain("Candidates are unavailable");
     expect(out).not.toContain("rejected");
-    expect(out).toMatch(/href="\/candidates">(<i [^>]*><\/i>)?Retry<\/a>/);
+    expect(out).toMatch(/href="\/candidates\?status=active">(<i [^>]*><\/i>)?Retry<\/a>/);
   });
 
-  it("a 400 on a cursor ALONE names the cursor — there are no filters to blame", async () => {
-    stub.failure = new stub.RequestError(400);
-    const out = await render({ cursor: "stale" });
-    expect(out).toContain("The server rejected this page");
-    expect(out).not.toContain("rejected these filters");
-    expect(out).not.toContain("filter combination");
-    expect(out).toMatch(/href="\/candidates">(<i [^>]*><\/i>)?Back to the first page<\/a>/);
+  it("a filtered EMPTY result names the head's Clear filters instead of repeating it", async () => {
+    stub.response = { ...EMPTY_RESPONSE, candidates: [] };
+    const out = await render({ status: "active" });
+    expect(out).toContain("No candidates match these filters");
+    expect(out).toContain("clear them");
+    expect(out.split(">Clear filters<").length - 1).toBe(1);
   });
 });
 
 /** PAGE HEIGHT (final sweep AW-08): the filter panel folds behind a toggle on a phone. */
 describe("the filter panel (AW-08)", () => {
-  it("is closed with no filter; the status and the deletion checkbox each count as one", async () => {
+  it("is closed with no filter; each filter counts as one", async () => {
     expect(await render()).toContain('data-open="false"');
-    const out = await render({ status: "active", pendingDeletion: "true" });
+    const out = await render({ status: "active", city: "Pune" });
     expect(out).toContain('data-open="true"');
     expect(out).toContain(">Filters (2)</button>");
-  });
-});
-
-/** A worker status the filter offers is never the refused part (delta review of #2095). */
-describe("a valid filter with a refused cursor gets the cursor's copy", () => {
-  it("a real status and the deletion flag beside an over-long cursor: the page was refused", async () => {
-    stub.failure = new stub.RequestError(400);
-    const out = await render({ status: "active", pendingDeletion: "true", cursor: "x".repeat(300) });
-    expect(out).toContain("The server rejected this page");
-    expect(out).not.toContain("The server rejected these filters");
-    const state = out.slice(out.indexOf('class="state state--error"'));
-    const first = /href="([^"]*)"><i [^>]*><\/i>Back to the first page<\/a>/.exec(state)?.[1] ?? "";
-    expect(first).toContain("status=active");
-    expect(first).toContain("pendingDeletion=true");
-    expect(first).not.toContain("cursor=");
-    expect(state).not.toContain(">Clear filters<");
   });
 });

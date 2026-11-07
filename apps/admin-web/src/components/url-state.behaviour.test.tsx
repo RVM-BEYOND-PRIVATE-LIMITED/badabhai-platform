@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type * as ReactModule from "react";
 import { isValidElement, type ReactElement, type ReactNode } from "react";
 import { createHookHarness, type HookHarness } from "../../test/hook-harness";
+import type { CandidateListFilter, CandidateSearchParams } from "../lib/candidate-search";
 
 /**
  * Filter state that follows the URL WITHOUT REMOUNTING (review of #2046).
@@ -42,7 +43,7 @@ const { FilterPanel } = await import("./filter-panel");
 const { EventFilterBar } = await import("../app/(portal)/events/filter-bar");
 const { AiCallFilterBar } = await import("../app/(portal)/ai-calls/filter-bar");
 const { JobFilterBar } = await import("../app/(portal)/jobs/filter-bar");
-const { WorkerFilterBar } = await import("../app/(portal)/candidates/filter-bar");
+const { CandidateFilterBar } = await import("../app/(portal)/candidates/filter-bar");
 const { PayerFilterBar } = await import("./payer-filter-bar");
 const { SkillDiscoveryFilterBar } = await import("../app/(portal)/skills/discovery/filter-bar");
 
@@ -245,11 +246,55 @@ const BARS: Array<{
     shows: (u) => [u.status, u.verificationStatus, u.payerId],
   },
   {
-    name: "workers",
-    render: (u) => WorkerFilterBar(u as Parameters<typeof WorkerFilterBar>[0]),
-    before: { status: "", pendingDeletion: false },
-    after: { status: "active", pendingDeletion: true },
-    shows: (u) => [u.status, u.pendingDeletion],
+    name: "candidates",
+    render: (u) => CandidateFilterBar({ params: u as unknown as CandidateSearchParams }),
+    before: {
+      filters: {},
+      sort: "last_active_at",
+      dir: "desc",
+      page: 1,
+      pageSize: 50,
+    },
+    after: {
+      filters: { status: ["active"], trade_id: ["dom_welding"] },
+      sort: "last_active_at",
+      dir: "desc",
+      page: 1,
+      pageSize: 50,
+    },
+    // Every field, in the bar's order — the harness compares the whole row of controls.
+    shows: (u) => {
+      const p = u as unknown as CandidateSearchParams;
+      const list = (key: CandidateListFilter) =>
+        (p.filters[key] as string[] | undefined)?.join(",") ?? "";
+      const single = (key: keyof CandidateSearchParams["filters"]) =>
+        typeof p.filters[key] === "string" ? (p.filters[key] as string) : "";
+      return [
+        list("status"),
+        list("trade_id"),
+        list("role_id"),
+        list("state"),
+        list("city"),
+        list("language"),
+        list("profile_status"),
+        list("form_level"),
+        single("min_experience_years"),
+        single("max_experience_years"),
+        single("role_experience_months_min"),
+        single("role_experience_months_max"),
+        single("has_resume"),
+        single("last_active_from"),
+        single("last_active_to"),
+        single("registered_from"),
+        single("registered_to"),
+        single("deletion_scheduled"),
+        single("flagged"),
+        single("is_test_account"),
+        p.sort,
+        p.dir,
+        String(p.pageSize),
+      ];
+    },
   },
   {
     name: "companies / agencies",

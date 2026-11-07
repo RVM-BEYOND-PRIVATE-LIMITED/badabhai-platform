@@ -65,6 +65,16 @@ const walk = (dir: string): string[] =>
 /** GET routes that are authenticated but deliberately carry no capability (the session itself). */
 const SESSION_ONLY_ROUTES = ["admin/me"];
 
+/**
+ * POST routes the portal reads through `lib/` — DELIBERATELY POST, not GET. `POST
+ * /admin/candidates/search` carries the free-text term in the body ONLY (ADR-0062 §3.6: the
+ * term must never reach a log line, and access logs record URLs), so the list page reads
+ * through it instead of a GET. One entry per route: `segments` as for the GET routes above.
+ */
+const POST_READ_ROUTES: ApiRoute[] = [
+  { segments: ["admin", "candidates", "search"], capability: "read_candidates" },
+];
+
 interface ApiRoute {
   segments: string[];
   /** `null` = authenticated but not capability-gated (e.g. `GET /admin/me`). */
@@ -265,7 +275,7 @@ function analysePage(pageFile: string, lib: Map<string, Map<string, Read[]>>): P
 
 // ── the rule ────────────────────────────────────────────────────────────────────────────────
 
-const routes = apiGetRoutes();
+const routes = [...apiGetRoutes(), ...POST_READ_ROUTES];
 const lib = libReads();
 const pages = walk(PORTAL).filter((f) => f.endsWith("page.tsx"));
 

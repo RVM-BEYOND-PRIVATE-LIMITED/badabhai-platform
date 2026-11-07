@@ -35,11 +35,25 @@ vi.mock("../../lib/events", () => ({
 vi.mock("../../lib/entities", () => ({
   listPayers: async () => ({ items: [], nextCursor: null }),
   listJobPostings: async () => ({ items: [], nextCursor: null }),
-  listWorkers: async () => ({ items: [], nextCursor: null }),
+}));
+vi.mock("../../lib/candidate-search-server", () => ({
+  searchCandidates: async () => ({
+    candidates: [],
+    page: 1,
+    page_size: 50,
+    total: 0,
+    total_pages: 1,
+    counts: { by_status: [], by_trade: [], by_city: [], by_profile_status: [] },
+    q_type: null,
+  }),
 }));
 vi.mock("../../lib/ai-traces", () => ({
   listAiTraces: async () => ({ items: [], nextCursor: null }),
 }));
+
+// The universal search box reads its filters from the browser's address (useSearchParams),
+// which this renderer does not provide — and it is not what the panel contract is about.
+vi.mock("./candidates/candidate-search-box", () => ({ CandidateSearchBox: () => null }));
 
 const { default: EventsPage } = await import("./events/page");
 const { default: CompaniesPage } = await import("./companies/page");
@@ -135,7 +149,7 @@ const PAGES: Array<[string, Page, Record<string, string>, number]> = [
     { taskType: "profiling_chat_turn", success: "false", workerId: UUID },
     3,
   ],
-  ["workers", WorkersPage as Page, { status: "active", pendingDeletion: "true" }, 2],
+  ["workers", WorkersPage as Page, { status: "active", city: "Pune" }, 2],
 ];
 
 describe("/events — following a row's correlation-id link (review M1)", () => {

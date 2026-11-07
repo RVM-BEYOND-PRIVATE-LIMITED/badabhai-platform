@@ -63,7 +63,7 @@ const { SubmitPendingCue } = await import("./nav-pending");
 const { EventFilterBar } = await import("../app/(portal)/events/filter-bar");
 const { AiCallFilterBar } = await import("../app/(portal)/ai-calls/filter-bar");
 const { JobFilterBar } = await import("../app/(portal)/jobs/filter-bar");
-const { WorkerFilterBar } = await import("../app/(portal)/candidates/filter-bar");
+const { CandidateFilterBar } = await import("../app/(portal)/candidates/filter-bar");
 const { PayerFilterBar } = await import("./payer-filter-bar");
 const { SkillDiscoveryFilterBar } = await import("../app/(portal)/skills/discovery/filter-bar");
 
@@ -87,6 +87,16 @@ function elements(node: ReactNode): ReactElement[] {
   const props = node.props as { children?: ReactNode };
   return [node, ...elements(props.children)];
 }
+
+import type { CandidateSearchParams } from "../lib/candidate-search";
+
+const EMPTY_CANDIDATE_PARAMS: CandidateSearchParams = {
+  filters: {},
+  sort: "last_active_at",
+  dir: "desc",
+  page: 1,
+  pageSize: 50,
+};
 
 const SKILLS_EMPTY = {
   band: "",
@@ -116,7 +126,7 @@ const BARS: Array<[string, () => ReactNode]> = [
   ],
   ["ai-calls", () => AiCallFilterBar({ taskType: "", success: "", workerId: "" })],
   ["jobs", () => JobFilterBar({ status: "", verificationStatus: "", payerId: "" })],
-  ["workers", () => WorkerFilterBar({ status: "", pendingDeletion: false })],
+  ["candidates", () => CandidateFilterBar({ params: EMPTY_CANDIDATE_PARAMS })],
   ["companies / agencies", () => PayerFilterBar({ basePath: "/companies", status: "" })],
   [
     "skill discovery",

@@ -70,8 +70,9 @@ describe("every list draws its rows on the data grid", () => {
     const pagers = LISTS.flatMap(([list, rows]) => [...new Set([list, rows])]).flatMap((file) =>
       [...code(file).matchAll(/<Pager\b([\s\S]*?)\/>/g)].map((m) => [file, m[1]!] as const),
     );
-    // Eleven since A6 (#2576) folded Agencies' list, and its pager, into Companies.
-    expect(pagers.length).toBeGreaterThanOrEqual(11);
+    // Ten since A7 (#2577) rebuilt Candidates on the data bank's numbered pages; eleven
+    // before that, since A6 (#2576) had folded Agencies' list, and its pager, into Companies.
+    expect(pagers.length).toBeGreaterThanOrEqual(10);
     for (const [file, props] of pagers) expect(props, file).toMatch(/\bcursor=\{/);
   });
 });
