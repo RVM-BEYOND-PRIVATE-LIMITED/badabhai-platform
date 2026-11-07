@@ -95,6 +95,13 @@ function candidates(postingId: string): MatchCandidateListDto {
         engineVersion: null,
         tradeLevels: [],
         levelFit: null,
+        skills: null,
+        totalExperienceBand: null,
+        industryExperienceBand: null,
+        educationLabel: null,
+        certificationCount: null,
+        availabilityLabel: null,
+        lastActiveBand: null,
       },
     ],
   };
