@@ -24,6 +24,11 @@ import type {
   FeedJobRowDto,
   WorkerFeedResponseDto,
 } from "./reach.dto";
+import {
+  graftLegacyApplicantFacts,
+  toApplicantProfileFacts,
+} from "../match/applicant-profile-facts";
+import { ApplicantProfileFactsRepository } from "../match/applicant-profile-facts.repository";
 
 /**
  * Reach serving (ADR-0011) — the first consumer of the deterministic RANK core.
@@ -45,6 +50,9 @@ export class ReachService {
     private readonly repo: ReachRepository,
     private readonly events: EventsService,
     @Inject(JOB_SOURCE) private readonly jobs: JobSource,
+    // #2736 — the non-contact card facts. Optional only so hand-built unit instances keep
+    // compiling; Nest always injects it (MatchModule is @Global and provides it).
+    private readonly profileFacts?: ApplicantProfileFactsRepository,
   ) {}
 
   /**
@@ -130,7 +138,9 @@ export class ReachService {
     // #1898: ONLY the workers who applied to this job — read by the job id the ownership read
     // returned, never the route value. Signal columns only, as the pool read.
     const rows = await this.repo.listApplicantSignalRowsForJob(ownedRow.jobId);
-    const applicants = ReachService.rankAppliers(ownedRow, rows, new Date());
+    const ranked = ReachService.rankAppliers(ownedRow, rows, new Date());
+    // #2736 — the non-contact card facts, grafted after the rank (never a rank input).
+    const applicants = await this.withProfileFacts(ranked);
 
     // One feed.shown per row, UNKEYED (D7), with the PAYER as the actor (actor_id is the
     // verified session login — never the route/body, never the tenant). payer_id stays opaque
@@ -142,6 +152,22 @@ export class ReachService {
     );
 
     return { jobId: ownedRow.jobId, applicants };
+  }
+
+  /**
+   * #2736 — graft the card facts onto faceless rows, keyed by worker id. One batched read
+   * for the page, however many jobs it spans; a worker with no stored signal keeps the
+   * all-empty facts instead of dropping (count in == count out — sort-never-block).
+   */
+  private async withProfileFacts(
+    rows: ApplicantRowDto[],
+  ): Promise<ApplicantRowDto[]> {
+    if (this.profileFacts === undefined || rows.length === 0) {
+      return graftLegacyApplicantFacts(rows, new Map());
+    }
+    const facts = await this.profileFacts.listForWorkers(rows.map((r) => r.workerId));
+    const byWorker = new Map(facts.map((r) => [r.workerId, toApplicantProfileFacts(r)]));
+    return graftLegacyApplicantFacts(rows, byWorker);
   }
 
   /**
@@ -172,10 +198,19 @@ export class ReachService {
     }
 
     const now = new Date();
+    const perJob = owned.map(
+      (job) =>
+        [job.jobId, ReachService.rankAppliers(job, rowsByJob.get(job.jobId) ?? [], now)] as const,
+    );
+    // #2736 — one batched facts read for every job's appliers together, then grafted per
+    // job (same rows `tryApplicantsForOwnedJob` renders for one job).
+    const all = perJob.flatMap(([, applicants]) => applicants);
+    const grafted = await this.withProfileFacts(all);
+    const byWorker = new Map(grafted.map((row) => [row.workerId, row]));
     return new Map(
-      owned.map((job) => [
-        job.jobId,
-        ReachService.rankAppliers(job, rowsByJob.get(job.jobId) ?? [], now),
+      perJob.map(([jobId, applicants]) => [
+        jobId,
+        applicants.map((row) => byWorker.get(row.workerId)!),
       ]),
     );
   }

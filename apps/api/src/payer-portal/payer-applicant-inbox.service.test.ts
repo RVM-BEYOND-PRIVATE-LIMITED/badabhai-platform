@@ -732,6 +732,13 @@ describe("PayerApplicantInboxService — faceless (no name, phone or other ident
     "experienceBand",
     "tradeLabel",
     "cityLabel",
+    // #2736 — non-contact card facts (labels, bands, a count, closed ids).
+    "skills",
+    "industryExperienceBand",
+    "educationLabel",
+    "certificationCount",
+    "availabilityLabel",
+    "lastActiveBand",
     // MatchCandidateRowDto
     "applicationId",
     "matchTier",
@@ -741,6 +748,8 @@ describe("PayerApplicantInboxService — faceless (no name, phone or other ident
     "lastWorkedAt",
     "matchedSkillLabel",
     "engineVersion",
+    // #2736 — same card facts, plus V1's own total-experience band.
+    "totalExperienceBand",
     // Middle Way P5 — the level badge. Closed vocabularies + booleans, faceless
     // like the E18 badge: a rung is a trade fact, never an identifier.
     "tradeLevels",

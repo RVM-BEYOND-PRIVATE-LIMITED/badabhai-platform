@@ -12,6 +12,12 @@ import {
 } from "@badabhai/taxonomy";
 import { MatchConfigService } from "./match-config.service";
 import { MatchFeedRepository, type CandidateRow, type LevelSorts } from "./match-feed.repository";
+import {
+  industryBandFromMonths,
+  toApplicantProfileFacts,
+  type ApplicantProfileFacts,
+} from "./applicant-profile-facts";
+import { ApplicantProfileFactsRepository } from "./applicant-profile-facts.repository";
 import { levelNeededSortEnabled, type LevelNeededSortConfig } from "./level-needed-sort.flag";
 import { OPS_LIST_CAP } from "../common/pagination";
 import { SERVER_CONFIG } from "../config/config.module";
@@ -64,6 +70,30 @@ export interface MatchCandidateRowDto {
    * schemas, always present (possibly null) on this one.
    */
   levelFit: LevelFit | null;
+  /**
+   * #2736 — non-contact profile facts for the payer-app Applicants card. Every field is a
+   * label, a band or a count — nothing that names, contacts or locates a person. All
+   * nullable: a sparse profile renders, never drops. Response-only, like every other
+   * row field (never in `feed.shown`, never a rank input). ADDITIVE like `levelFit`.
+   *
+   * `industryExperienceBand` is banded from the FROZEN snapshot months (the rank input),
+   * not the live tenure — the card labels what the order used. `tradeLevels` carries
+   * the same frozen-vs-live contract it always had.
+   */
+  /** Skill labels, taxonomy-resolved, capped — for the card's skill chips. */
+  skills: string[] | null;
+  /** Total-experience band ("1-2 yrs" …). */
+  totalExperienceBand: string | null;
+  /** Industry-experience band over the frozen snapshot months. */
+  industryExperienceBand: string | null;
+  /** Highest closed education credential ("ITI", "Graduate", …). */
+  educationLabel: string | null;
+  /** How many certificates are on record — a count, never names or issuers. */
+  certificationCount: number | null;
+  /** Availability in words ("Within a week"), or null when unstated. */
+  availabilityLabel: string | null;
+  /** Coarse recency bucket ("today" | "this week" | "this month" | "earlier"). */
+  lastActiveBand: string | null;
 }
 
 /** One rung on the candidate's card — closed vocabularies, both resolved server-side. */
@@ -114,7 +144,22 @@ export class MatchCandidatesService {
     // Engine v1.1 — `LEVEL_NEEDED_SORT_ENABLED`. Optional only so a hand-built instance (a unit
     // test) without it fails closed to today's list; Nest always injects the global config.
     @Inject(SERVER_CONFIG) private readonly serverConfig?: LevelNeededSortConfig,
+    // #2736 — the non-contact card facts. Optional in the ctor only so hand-built unit
+    // instances keep compiling; Nest always injects it (MatchModule provides it).
+    private readonly profileFacts?: ApplicantProfileFactsRepository,
   ) {}
+
+  /**
+   * The card facts for a page of workers — one batched read, keyed by worker id. Rows with
+   * no stored signal get the all-empty facts downstream (never dropped, never invented).
+   */
+  private async loadProfileFacts(
+    workerIds: readonly string[],
+  ): Promise<Map<string, ApplicantProfileFacts>> {
+    if (this.profileFacts === undefined || workerIds.length === 0) return new Map();
+    const rows = await this.profileFacts.listForWorkers(workerIds);
+    return new Map(rows.map((r) => [r.workerId, toApplicantProfileFacts(r)]));
+  }
 
   async listForPosting(jobPostingId: string): Promise<MatchCandidateListDto> {
     const cfg = await this.config.get();
@@ -128,11 +173,12 @@ export class MatchCandidatesService {
       OPS_LIST_CAP,
       levelSorts,
     );
+    const facts = await this.loadProfileFacts(rows.map((r) => r.workerId));
 
     return {
       jobId: jobPostingId,
       applicants: rows.map((row, index) =>
-        toMatchCandidateRowDto(row, index + 1, cfg.tierFloorMonths, spec),
+        toMatchCandidateRowDto(row, index + 1, cfg.tierFloorMonths, spec, facts.get(row.workerId) ?? null),
       ),
     };
   }
@@ -183,6 +229,7 @@ export class MatchCandidatesService {
       cfg.tierFloorMonths,
       levelSorts,
     );
+    const facts = await this.loadProfileFacts(rows.map((r) => r.workerId));
     return new Map(
       rows.map((row) => [
         row.applicationId,
@@ -191,6 +238,7 @@ export class MatchCandidatesService {
           row.rank,
           cfg.tierFloorMonths,
           levelSorts.get(row.jobPostingId) ?? null,
+          facts.get(row.workerId) ?? null,
         ),
       ]),
     );
@@ -242,6 +290,7 @@ export function toMatchCandidateRowDto(
   rank: number,
   tierFloorMonths: number,
   levelSpec: LevelNeededSpec | null = null,
+  facts: ApplicantProfileFacts | null = null,
 ): MatchCandidateRowDto {
   return {
     workerId: row.workerId,
@@ -263,6 +312,13 @@ export function toMatchCandidateRowDto(
       levelSpec === null
         ? null
         : levelFitFor(levelSpec, row.frozenTradeLevel, row.frozenLevelConfirmed),
+    skills: facts?.skills ?? null,
+    totalExperienceBand: facts?.totalExperienceBand ?? null,
+    industryExperienceBand: industryBandFromMonths(row.industryMonths),
+    educationLabel: facts?.educationLabel ?? null,
+    certificationCount: facts?.certificationCount ?? null,
+    availabilityLabel: facts?.availabilityLabel ?? null,
+    lastActiveBand: facts?.lastActiveBand ?? null,
   };
 }
 
