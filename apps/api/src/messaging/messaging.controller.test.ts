@@ -22,7 +22,7 @@ function make() {
   };
   const reengagement = { sendReengagement: vi.fn(async () => ({ ok: true })) };
   const ipRateLimit = { assertWithinHourlyIpCap: vi.fn().mockResolvedValue(undefined) };
-  const config = { REFERRAL_CLICK_MAX_PER_IP_PER_HOUR: 600 } as unknown as ServerConfig;
+  const config = { REFERRAL_CLICK_MAX_PER_IP_PER_HOUR: 120 } as unknown as ServerConfig;
   return {
     controller: new MessagingController(
       invites as unknown as InviteService,
@@ -77,7 +77,7 @@ describe("MessagingController.recordClick — per-IP cap (B4; QR at factory gate
   it("checks the cap BEFORE touching either table", async () => {
     const { controller, ipRateLimit } = make();
     await controller.recordClick({ code: CODE }, IP);
-    expect(ipRateLimit.assertWithinHourlyIpCap).toHaveBeenCalledWith("invite_click", IP, 600);
+    expect(ipRateLimit.assertWithinHourlyIpCap).toHaveBeenCalledWith("invite_click", IP, 120);
   });
 
   it("SHEDS the work over cap — no DB round-trip, and the SAME neutral body (no 429 oracle)", async () => {
@@ -102,7 +102,7 @@ describe("MessagingController.recordClick — per-IP cap (B4; QR at factory gate
     expect(ipRateLimit.assertWithinHourlyIpCap).toHaveBeenCalledWith(
       "invite_click",
       "unknown",
-      600,
+      120,
     );
   });
 });

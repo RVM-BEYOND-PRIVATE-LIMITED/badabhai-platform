@@ -283,10 +283,11 @@ describe("payments config (ADR-0010 §D5 / F-6 — mock credits in alpha)", () =
     expect(() => loadServerConfig({ ADMIN_ENGINE_VIEW_ALLOW_PHONES: "+1 555 0100" })).toThrow();
   });
 
-  it("the admin sign-in IP cap defaults to 200/hour (R73) and stays overridable", () => {
-    // ONE shared bucket for every admin sign-in while the API cannot see visitor addresses; the
-    // per-account lockouts (ADR-0060) carry brute force, so 20 only locked honest admins out.
-    expect(loadServerConfig({}).ADMIN_AUTH_MAX_PER_IP_PER_HOUR).toBe(200);
+  it("the admin sign-in IP cap defaults to 20/hour after the visitor-IP turn-on (R73/#2542)", () => {
+    // The one-hop topology is armed: direct `/admin/*` hits get per-visitor buckets and
+    // admin-web's tunnel-only calls share only the admins' own bucket. 20 covers 1–3 calls per
+    // admin; the per-account lockouts (ADR-0060) carry brute force.
+    expect(loadServerConfig({}).ADMIN_AUTH_MAX_PER_IP_PER_HOUR).toBe(20);
     expect(loadServerConfig({ ADMIN_AUTH_MAX_PER_IP_PER_HOUR: "40" }).ADMIN_AUTH_MAX_PER_IP_PER_HOUR).toBe(40);
     expect(() => loadServerConfig({ ADMIN_AUTH_MAX_PER_IP_PER_HOUR: "0" })).toThrow();
   });
