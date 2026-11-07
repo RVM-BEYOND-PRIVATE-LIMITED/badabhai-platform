@@ -6088,4 +6088,148 @@ button.pager__step:hover {
   .cfield--flash::after {
     animation: none;
   }
+/* ---------------------------------------------------------------------------
+   A9 (#2579) — the company record: summary facts, tabs, hidden posting rows and
+   the overflow menu. Motion is --duration-base (220ms) or less and drops to zero
+   under reduced motion through the shared duration tokens.
+   --------------------------------------------------------------------------- */
+
+.company-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  align-items: center;
+  margin-block-end: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border: var(--border-hairline) solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--surface-sunken);
+}
+.company-facts__item {
+  display: inline-flex;
+  gap: var(--space-2);
+  align-items: center;
+  min-block-size: var(--control-sm);
+}
+.company-facts__label {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+}
+
+.tabs {
+  position: relative;
+  display: flex;
+  gap: var(--space-1);
+  margin-block: var(--space-4) var(--space-3);
+  border-block-end: var(--border-hairline) solid var(--border-subtle);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.tabs::-webkit-scrollbar {
+  display: none;
+}
+.tabs__link {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  min-block-size: var(--control-md);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.tabs__link:hover {
+  background: var(--surface-hover);
+  color: var(--text-heading);
+}
+.tabs__link[aria-selected="true"] {
+  color: var(--text-heading);
+}
+.tabs__indicator {
+  position: absolute;
+  inset-block-end: -1px;
+  inset-inline-start: 0;
+  block-size: 2px;
+  border-radius: var(--radius-pill);
+  background: var(--brand);
+  transition:
+    transform var(--duration-base) var(--ease-glide),
+    width var(--duration-base) var(--ease-glide);
+  pointer-events: none;
+}
+
+.company-tabpanel {
+  margin-block-start: 0;
+}
+.company-overview .panel__title,
+.company-payments .panel__title,
+.company-credits .panel__title,
+.company-users .panel__title,
+.company-timeline .panel__title,
+.company-postings .panel__title {
+  margin-block-end: var(--space-2);
+}
+
+.posting-row {
+  transition: opacity var(--duration-fast) var(--ease-out);
+}
+.posting-row--hidden {
+  opacity: 0.6;
+  transition: opacity var(--duration-fast) var(--ease-out);
+}
+.visibility {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+.posting-row .switch__thumb {
+  transition: transform var(--duration-fast) var(--ease-out);
+}
+
+.menu {
+  position: relative;
+}
+.menu > summary {
+  list-style: none;
+  cursor: pointer;
+}
+.menu > summary::-webkit-details-marker {
+  display: none;
+}
+.menu__list {
+  position: absolute;
+  inset-block-start: calc(100% + var(--space-1));
+  inset-inline-end: 0;
+  z-index: 20;
+  min-inline-size: 14rem;
+  padding: var(--space-1);
+  border: var(--border-hairline) solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-md);
+}
+.menu__item {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  inline-size: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-heading);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+.menu__item:hover {
+  background: var(--surface-hover);
+}
+.menu__item--danger {
+  color: var(--danger-text, var(--text-heading));
 }

@@ -19,8 +19,9 @@ const LISTS: Array<[list: string, rows: string]> = [
   ["app/(portal)/events/page.tsx", "components/event-table.tsx"],
   ["components/entity-timeline.tsx", "components/event-table.tsx"],
   ["app/(portal)/candidates/page.tsx", "app/(portal)/candidates/candidates-bank.tsx"],
-  /* Every customer — Companies and Agencies are one list since A6 (#2576), with a Kind filter. */
-  ["app/(portal)/companies/page.tsx", "components/payer-list.tsx"],
+  /* Every customer — Companies and Agencies are one list since A6 (#2576), with a Kind filter.
+     A9 (#2579) moved Companies' rows onto the grid in the page itself. */
+  ["app/(portal)/companies/page.tsx", "app/(portal)/companies/page.tsx"],
   ["app/(portal)/jobs/page.tsx", "app/(portal)/jobs/page.tsx"],
   ["app/(portal)/jobs/agency/page.tsx", "app/(portal)/jobs/agency/page.tsx"],
   ["app/(portal)/feedback/page.tsx", "app/(portal)/feedback/page.tsx"],
@@ -73,8 +74,9 @@ describe("every list draws its rows on the data grid", () => {
     const pagers = LISTS.flatMap(([list, rows]) => [...new Set([list, rows])]).flatMap((file) =>
       [...code(file).matchAll(/<Pager\b([\s\S]*?)\/>/g)].map((m) => [file, m[1]!] as const),
     );
-    // Ten keyset lists since A6 (#2576); Candidates uses the numbered pager (A7, #2577).
-    expect(pagers.length).toBeGreaterThanOrEqual(10);
+    // Nine keyset lists after A9 (#2579) moved Companies onto numbered pages (Candidates uses
+    // the numbered pager too, A7 #2577); every remaining keyset list still passes its own cursor.
+    expect(pagers.length).toBeGreaterThanOrEqual(9);
     for (const [file, props] of pagers) expect(props, file).toMatch(/\bcursor=\{/);
   });
 });
@@ -97,6 +99,7 @@ describe("the filter bars (A4)", () => {
     expect(filterBars().sort()).toEqual([
       "app/(portal)/accounts/accounts-filter-bar.tsx",
       "app/(portal)/ai-calls/filter-bar.tsx",
+      "app/(portal)/companies/company-filter-bar.tsx",
       "app/(portal)/events/filter-bar.tsx",
       "app/(portal)/jobs/filter-bar.tsx",
       "app/(portal)/skills/discovery/filter-bar.tsx",

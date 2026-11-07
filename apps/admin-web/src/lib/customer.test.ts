@@ -61,7 +61,9 @@ describe("the Kind filter", () => {
  * their own rows (`href="/companies"`, `${basePath}/${p.id}`) end in no such prefix and pass.
  */
 const srcRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
-const SECTION_PREFIX = /\/(companies|agencies)\/$/;
+// A UI address, never the admin API's `/admin/companies/…` path (the `/admin` prefix is not a
+// customer address and must stay outside this fence).
+const SECTION_PREFIX = /(?<!\/admin)\/(companies|agencies)\/$/;
 
 function handBuiltCustomerHrefs(fileName: string, source: string): string[] {
   const sf = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
