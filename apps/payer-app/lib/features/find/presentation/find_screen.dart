@@ -15,6 +15,7 @@ import '../../../core/widgets/bb_badge.dart';
 import '../../../core/widgets/bb_button.dart';
 import '../../../core/widgets/bb_card.dart';
 import '../../../core/widgets/bb_chip.dart';
+import '../../../core/widgets/bb_icon_button.dart';
 import '../../../core/widgets/bb_refresh.dart';
 import '../../../core/widgets/bb_shake.dart';
 import '../../../core/widgets/bb_skeleton.dart';
@@ -212,7 +213,14 @@ class _FindScreenState extends State<FindScreen>
   }
 }
 
-class _FindView extends StatelessWidget {
+/// Which layout the Applicants feed draws (#2720, mirroring the worker app's
+/// Jobs tab): the scrolling list (default) or one card at a time that the payer
+/// swipes left/right through. This widget is the Applicants view ONLY — the
+/// All-candidates view is [CandidateSearchView] — so the toggle never touches
+/// the general candidate pool.
+enum _ApplicantsView { list, card }
+
+class _FindView extends StatefulWidget {
   const _FindView({required this.onReveal});
 
   final ValueChanged<RevealArgs> onReveal;
@@ -221,6 +229,26 @@ class _FindView extends StatelessWidget {
   /// tab: the rows stay on screen, and a failure says why in a toast.
   static Future<void> refreshQuietly(BuildContext context) =>
       refreshWithToast(context, context.read<FindCubit>().refresh);
+
+  @override
+  State<_FindView> createState() => _FindViewState();
+}
+
+class _FindViewState extends State<_FindView> {
+  /// The list is the default (an employer scans rows); the card view is the
+  /// swipe alternative the header toggle switches to.
+  _ApplicantsView _viewMode = _ApplicantsView.list;
+
+  /// The card the PageView is showing, for the "1 / N" indicator.
+  int _cardPage = 0;
+
+  void _toggleViewMode() {
+    setState(() {
+      _viewMode = _viewMode == _ApplicantsView.list
+          ? _ApplicantsView.card
+          : _ApplicantsView.list;
+    });
+  }
 
   /// The credits-after preview for the unlock dialog. An error-state / unknown
   /// balance is `null` (rendered '—') — NEVER a fabricated 0 (#189 fast-follow).
@@ -244,7 +272,7 @@ class _FindView extends StatelessWidget {
     context.read<FindCubit>().markUnlocked(candidate.id);
     // #2596 — no "Unlocked!" toast: the reveal's one-shot stamp is the
     // confirmation, and a toast on top of it said the same thing twice.
-    onReveal(RevealArgs.mock(
+    widget.onReveal(RevealArgs.mock(
       candidate.copyWith(unlocked: true),
       justUnlocked: true,
     ));
@@ -312,7 +340,7 @@ class _FindView extends StatelessWidget {
     await credits.load();
     if (!context.mounted) return UnlockOutcome.granted;
     // #2596 — the reveal's stamp confirms the unlock; no duplicate toast.
-    onReveal(RevealArgs.real(
+    widget.onReveal(RevealArgs.real(
       applicant: applicant.copyWith(unlocked: true, unlockId: result.unlockId),
       unlockId: result.unlockId!,
       jobId: jobId,
@@ -351,7 +379,7 @@ class _FindView extends StatelessWidget {
           // #2592 — pullable too: a payer whose first job just went live
           // pulls its applicants in without leaving the tab.
           return BbPullableFill(
-            onRefresh: () => refreshQuietly(context),
+            onRefresh: () => _FindView.refreshQuietly(context),
             child: const BbStatusView(
               icon: Icons.work_rounded,
               title: 'No matched candidates yet',
@@ -389,66 +417,21 @@ class _FindView extends StatelessWidget {
         // #2592 — a job switch keeps these rows on screen, dimmed under a thin
         // progress bar, until the new job's applicants replace them.
         final bool switching = state.switchingJobId != null;
-        final Widget list = ListView.builder(
-          // Over-scrolls even when short, so pull-to-refresh always works.
-          physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.fromLTRB(
-            AppSpacing.gutter,
-            0,
-            AppSpacing.gutter,
-            AppSpacing.s6,
-          ),
-          itemCount: rowCount,
-          itemBuilder: (BuildContext context, int row) {
-            if (real) {
-              if (state.applicants.isEmpty) {
-                return Padding(
-                  padding: const EdgeInsets.only(top: AppSpacing.s6),
-                  child: BbDim(
-                    dimmed: switching,
-                    child: Text(
-                      'No applicants for this job yet.',
-                      textAlign: TextAlign.center,
-                      style: AppTypography.body(color: AppColors.textSecondary),
-                    ),
-                  ),
-                );
-              }
-              final Applicant a = state.applicants[row];
-              return Padding(
-                // Keyed by worker, so a card's unlock lock never passes to
-                // another row as the lazy list recycles.
-                key: ValueKey<String>(a.workerId),
-                padding: const EdgeInsets.only(bottom: AppSpacing.s3),
-                child: BbDim(
-                  dimmed: switching,
-                  child: _ApplicantCard(
-                    applicant: a,
-                    unlocking: state.isUnlocking(a.workerId),
-                    onUnlock: () => _unlockApplicant(context, a,
-                        jobId: state.selectedJob?.id),
-                    onView: () => onReveal(RevealArgs.real(
-                      applicant: a,
-                      unlockId: a.unlockId ?? '',
-                      jobId: state.selectedJob?.id,
-                    )),
-                  ),
+        final Widget list = _viewMode == _ApplicantsView.card
+            ? _cardView(context, state, rowCount, real, switching)
+            : ListView.builder(
+                // Over-scrolls even when short, so pull-to-refresh always works.
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.gutter,
+                  0,
+                  AppSpacing.gutter,
+                  AppSpacing.s6,
                 ),
+                itemCount: rowCount,
+                itemBuilder: (BuildContext context, int row) =>
+                    _row(context, state, row, real, switching),
               );
-            }
-            final Candidate c = state.candidates[row];
-            return Padding(
-              key: ValueKey<int>(c.id),
-              padding: const EdgeInsets.only(bottom: AppSpacing.s3),
-              child: _CandidateCard(
-                candidate: c,
-                onUnlock: () => _unlockCandidate(context, c),
-                onView: () =>
-                    onReveal(RevealArgs.mock(c.copyWith(unlocked: true))),
-              ),
-            );
-          },
-        );
 
         // #2593 — the job, its selector and the count stay PINNED above the
         // list; they used to scroll away as its first row.
@@ -465,12 +448,116 @@ class _FindView extends StatelessWidget {
           list: BbStaleFrame(
             busy: switching,
             child: BbRefreshIndicator(
-              onRefresh: () => refreshQuietly(context),
+              onRefresh: () => _FindView.refreshQuietly(context),
               child: list,
             ),
           ),
         );
       },
+    );
+  }
+
+  /// One row of the Applicants feed — an applicant, a mock candidate, or the
+  /// real feed's single "no applicants" message. Shared by the list and the
+  /// swipe-card view so both draw exactly the same rows from the same source.
+  Widget _row(
+    BuildContext context,
+    FindState state,
+    int row,
+    bool real,
+    bool switching,
+  ) {
+    if (real) {
+      if (state.applicants.isEmpty) {
+        return Padding(
+          padding: const EdgeInsets.only(top: AppSpacing.s6),
+          child: BbDim(
+            dimmed: switching,
+            child: Text(
+              'No applicants for this job yet.',
+              textAlign: TextAlign.center,
+              style: AppTypography.body(color: AppColors.textSecondary),
+            ),
+          ),
+        );
+      }
+      final Applicant a = state.applicants[row];
+      return Padding(
+        // Keyed by worker, so a card's unlock lock never passes to another
+        // row as the lazy list recycles.
+        key: ValueKey<String>(a.workerId),
+        padding: const EdgeInsets.only(bottom: AppSpacing.s3),
+        child: BbDim(
+          dimmed: switching,
+          child: _ApplicantCard(
+            applicant: a,
+            unlocking: state.isUnlocking(a.workerId),
+            onUnlock: () =>
+                _unlockApplicant(context, a, jobId: state.selectedJob?.id),
+            onView: () => widget.onReveal(RevealArgs.real(
+              applicant: a,
+              unlockId: a.unlockId ?? '',
+              jobId: state.selectedJob?.id,
+            )),
+          ),
+        ),
+      );
+    }
+    final Candidate c = state.candidates[row];
+    return Padding(
+      key: ValueKey<int>(c.id),
+      padding: const EdgeInsets.only(bottom: AppSpacing.s3),
+      child: _CandidateCard(
+        candidate: c,
+        onUnlock: () => _unlockCandidate(context, c),
+        onView: () =>
+            widget.onReveal(RevealArgs.mock(c.copyWith(unlocked: true))),
+      ),
+    );
+  }
+
+  /// Swipe-card view of the SAME rows (worker-app Jobs tab's deck layout): one
+  /// applicant per page, dragged left/right, with a "1 / N" indicator. The
+  /// vertical card is scrollable so a tall card still fits a short phone.
+  Widget _cardView(
+    BuildContext context,
+    FindState state,
+    int rowCount,
+    bool real,
+    bool switching,
+  ) {
+    final int page = rowCount == 0 ? 0 : _cardPage.clamp(0, rowCount - 1);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        Expanded(
+          child: KeyedSubtree(
+            // Resets the pager to the first card when the job (or its row
+            // count) changes under it.
+            key: ValueKey<String>(
+              '${state.selectedJob?.id ?? 'mock'}:$rowCount',
+            ),
+            child: PageView.builder(
+              // The constant key finds the view in tests.
+              key: const Key('applicants_card_view'),
+              itemCount: rowCount,
+              onPageChanged: (int index) => setState(() => _cardPage = index),
+              itemBuilder: (BuildContext context, int row) => Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.gutter,
+                  0,
+                  AppSpacing.gutter,
+                  AppSpacing.s3,
+                ),
+                child: SingleChildScrollView(
+                  child: _row(context, state, row, real, switching),
+                ),
+              ),
+            ),
+          ),
+        ),
+        _ApplicantPager(page: page, total: rowCount),
+      ],
     );
   }
 
@@ -487,9 +574,28 @@ class _FindView extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        Text(
-          'CANDIDATES FOR ${role.toUpperCase()}',
-          style: AppTypography.eyebrow(color: AppColors.textMuted),
+        Row(
+          children: <Widget>[
+            Expanded(
+              child: Text(
+                'CANDIDATES FOR ${role.toUpperCase()}',
+                style: AppTypography.eyebrow(color: AppColors.textMuted),
+              ),
+            ),
+            const SizedBox(width: AppSpacing.s2),
+            // #2720 — the worker-app Jobs-tab toggle: the icon shows the OTHER
+            // mode (what tapping switches TO), the label names the CURRENT one.
+            BbIconButton(
+              key: const Key('applicants_view_toggle'),
+              icon: _viewMode == _ApplicantsView.card
+                  ? Icons.view_agenda_rounded
+                  : Icons.style_rounded,
+              semanticLabel: _viewMode == _ApplicantsView.card
+                  ? 'Card view'
+                  : 'List view',
+              onPressed: _toggleViewMode,
+            ),
+          ],
         ),
         // #358 — the search field and the "filter" chips that used to sit here
         // are GONE, not hidden. Neither was ever wired: the BbField had no
@@ -566,6 +672,32 @@ class _JobSelector extends StatelessWidget {
             const SizedBox(width: AppSpacing.s2),
           ],
         ],
+      ),
+    );
+  }
+}
+
+/// "1 / N" under the swipe-card view of the Applicants feed (#2720).
+class _ApplicantPager extends StatelessWidget {
+  const _ApplicantPager({required this.page, required this.total});
+
+  final int page;
+  final int total;
+
+  @override
+  Widget build(BuildContext context) {
+    if (total <= 1) return const SizedBox(height: AppSpacing.s2);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppSpacing.s2),
+      child: Text(
+        '${page + 1} / $total',
+        key: const Key('applicants_card_indicator'),
+        textAlign: TextAlign.center,
+        style: AppTypography.body(
+          size: AppTypography.sizeSm,
+          weight: FontWeight.w600,
+          color: AppColors.textMuted,
+        ),
       ),
     );
   }
