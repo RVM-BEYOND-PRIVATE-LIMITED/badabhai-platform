@@ -66,6 +66,10 @@ async function seed(client: DbClient): Promise<void> {
     VALUES (${RICH}::uuid, 'ind_industrial_manufacturing', 30)
   `;
   await sql`
+    INSERT INTO worker_devices (worker_id, device_hash, platform, last_seen_at)
+    VALUES (${RICH}::uuid, 'dev-rich', 'android', now())
+  `;
+  await sql`
     INSERT INTO worker_profile_skill (worker_profile_id, skill_id, trade_level, level_confirmed)
     VALUES (${confirmed[0]!.id}::uuid, 'mskill_tig_welder', 'setter', true)
   `;
@@ -78,6 +82,7 @@ async function clean(client: DbClient): Promise<void> {
     await sql`DELETE FROM worker_industry_tenure WHERE worker_id = ${id}::uuid`;
     await sql`DELETE FROM worker_certificates WHERE worker_id = ${id}::uuid`;
     await sql`DELETE FROM worker_educations WHERE worker_id = ${id}::uuid`;
+    await sql`DELETE FROM worker_devices WHERE worker_id = ${id}::uuid`;
     await sql`DELETE FROM worker_profiles WHERE worker_id = ${id}::uuid`;
     await sql`DELETE FROM workers WHERE id = ${id}::uuid`;
   }
@@ -131,7 +136,8 @@ describe.skipIf(!RUN)("applicant-profile-facts — against real Postgres", () =>
     expect(facts.educationLabel).toBeNull();
     expect(facts.certificationCount).toBe(0);
     expect(facts.availabilityLabel).toBeNull();
-    expect(facts.lastActiveBand).toBe("today");
+    // No device row either: never seen, not "today".
+    expect(facts.lastActiveBand).toBeNull();
     expect(facts.tradeLevels).toEqual([]);
   });
 

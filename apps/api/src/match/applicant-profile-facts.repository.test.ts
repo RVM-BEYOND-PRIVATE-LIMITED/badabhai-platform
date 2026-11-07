@@ -5,11 +5,11 @@ import type { SQL } from "drizzle-orm";
 import type { Database } from "@badabhai/db";
 import {
   workerCertificates,
+  workerDevices,
   workerEducations,
   workerIndustryTenure,
   workerProfiles,
   workerProfileSkills,
-  workers,
 } from "@badabhai/db";
 import { ApplicantProfileFactsRepository } from "./applicant-profile-facts.repository";
 
@@ -114,7 +114,7 @@ describe("listForWorkers — one batched read, faceless projection", () => {
       workerCertificates,
       workerIndustryTenure,
       workerProfileSkills,
-      workers,
+      workerDevices,
     ]) {
       expect(all, `the statements must read ${getTableName(table)}`).toContain(
         `FROM ${getTableName(table)}`,

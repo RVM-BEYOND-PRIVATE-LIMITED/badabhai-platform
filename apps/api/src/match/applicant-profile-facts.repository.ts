@@ -86,9 +86,10 @@ export class ApplicantProfileFactsRepository {
         ORDER BY worker_profiles.worker_id, worker_profile_skill.skill_id, ${dsql.join([...CURRENT_PROFILE_ORDER], dsql`, `)}
       `),
       this.db.execute<{ worker_id: string; last_seen_at: Date | string | null }>(dsql`
-        SELECT id AS worker_id, last_seen_at
-        FROM workers
-        WHERE id = ANY(${dsql.param([...ids])}::uuid[])
+        SELECT worker_id, MAX(last_seen_at) AS last_seen_at
+        FROM worker_devices
+        WHERE worker_id = ANY(${dsql.param([...ids])}::uuid[])
+        GROUP BY worker_id
       `),
     ]);
 
