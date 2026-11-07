@@ -14,6 +14,7 @@ import { MatchFeedRepository } from "./match-feed.repository";
 import { MatchFeedService } from "./match-feed.service";
 import { MatchApplyService } from "./match-apply.service";
 import { MatchCandidatesService } from "./match-candidates.service";
+import { ApplicantProfileFactsRepository } from "./applicant-profile-facts.repository";
 import { FreeTierService } from "./free-tier.service";
 import { MatchConfigRepository } from "./match-config.repository";
 
@@ -81,6 +82,7 @@ describe("MatchModule — the @Global matching layer's wiring", () => {
       PublishReachService,
       MatchFeedRepository,
       MatchFeedService,
+      ApplicantProfileFactsRepository,
       MatchApplyService,
       MatchCandidatesService,
       FreeTierService,
@@ -100,6 +102,7 @@ describe("MatchModule — the @Global matching layer's wiring", () => {
       PublishReachService,
       MatchFeedRepository,
       MatchFeedService,
+      ApplicantProfileFactsRepository,
       MatchApplyService,
       MatchCandidatesService,
       FreeTierService,

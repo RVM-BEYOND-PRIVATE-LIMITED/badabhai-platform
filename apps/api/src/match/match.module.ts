@@ -15,6 +15,7 @@ import { ReachWidenRepository } from "./reach-widen.repository";
 import { ReachWidenExpirySweepProcessor } from "./reach-widen-expiry-sweep.processor";
 import { MatchFeedRepository } from "./match-feed.repository";
 import { MatchFeedService } from "./match-feed.service";
+import { ApplicantProfileFactsRepository } from "./applicant-profile-facts.repository";
 import { MatchApplyService } from "./match-apply.service";
 import { MatchCandidatesService } from "./match-candidates.service";
 import { FreeTierService } from "./free-tier.service";
@@ -61,6 +62,7 @@ import { FreeTierService } from "./free-tier.service";
     ReachWidenExpirySweepProcessor,
     MatchFeedRepository,
     MatchFeedService,
+    ApplicantProfileFactsRepository,
     MatchApplyService,
     MatchCandidatesService,
     FreeTierService,
@@ -73,6 +75,7 @@ import { FreeTierService } from "./free-tier.service";
     PublishReachService,
     MatchFeedRepository,
     MatchFeedService,
+    ApplicantProfileFactsRepository,
     MatchApplyService,
     MatchCandidatesService,
     FreeTierService,

@@ -256,7 +256,7 @@ describe("ReachService — Payer-self View A (tryApplicantsForOwnedJob, ADR-0019
     expect(emitMany).not.toHaveBeenCalled();
   });
 
-  it("count in == count out over the APPLIERS + faceless rows, identical to the ops View A shape", async () => {
+  it("count in == count out over the APPLIERS; payer rows graft the card facts onto the ops View A shape", async () => {
     const appliers = [row(1), blankRow(2), offTradeRow(3), row(4)];
     const { svc, emitted, repo } = make(appliers, []);
     repo.findOwnedJobSignalRowById.mockResolvedValue(ownedRow(JOB_A));
@@ -269,14 +269,21 @@ describe("ReachService — Payer-self View A (tryApplicantsForOwnedJob, ADR-0019
     for (const a of res.applicants) {
       expect(Object.keys(a).sort()).toEqual(
         [
+          "availabilityLabel",
+          "certificationCount",
           "cityLabel",
           "components",
+          "educationLabel",
           "experienceBand",
           "hot",
+          "industryExperienceBand",
+          "lastActiveBand",
           "pushEligible",
           "rank",
           "score",
+          "skills",
           "tradeLabel",
+          "tradeLevels",
           "workerId",
         ].sort(),
       );
