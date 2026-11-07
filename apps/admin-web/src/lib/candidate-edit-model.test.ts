@@ -349,6 +349,50 @@ describe("structured validation", () => {
     ).toMatch(/between 1950/);
   });
 
+  it("round-trips the certificate licence fields and validates their shape (#2728)", () => {
+    const draft = initialEditDraft(record, "schooling");
+    const rows = JSON.parse(draft.certifications ?? "[]") as Record<string, string>[];
+    expect(rows[0]).toMatchObject({
+      name: "NCVT Welder",
+      licence_number: "",
+      licence_expiry: "",
+    });
+
+    const licensed = {
+      ...draft,
+      certifications: JSON.stringify([
+        { ...rows[0], licence_number: "WB-1234", licence_expiry: "2030-01-01" },
+      ]),
+    };
+    expect(validateEditDraft(record, "schooling", licensed).certifications).toBeUndefined();
+    expect(draftFactValue("certifications", licensed)).toEqual([
+      {
+        name: "NCVT Welder",
+        issuer: null,
+        year: null,
+        licence_number: "WB-1234",
+        licence_expiry: "2030-01-01",
+      },
+    ]);
+
+    expect(
+      validateEditDraft(record, "schooling", {
+        ...licensed,
+        certifications: JSON.stringify([
+          { ...rows[0], licence_number: "WB 1234!", licence_expiry: "" },
+        ]),
+      }).certifications,
+    ).toMatch(/licence number/);
+    expect(
+      validateEditDraft(record, "schooling", {
+        ...licensed,
+        certifications: JSON.stringify([
+          { ...rows[0], licence_number: "", licence_expiry: "1800-01-01" },
+        ]),
+      }).certifications,
+    ).toMatch(/between 1950/);
+  });
+
   it("refuses a work history without an employer name, without a role, or with a backwards span", () => {
     const noName = draftFor("history", "work_history", [
       { employer_name: "", roles: [{ role_label: "Welder" }] },

@@ -1,6 +1,10 @@
-import { Injectable, NotFoundException, Optional } from "@nestjs/common";
+import { Inject, Injectable, NotFoundException, Optional } from "@nestjs/common";
 import type { PayloadInputOf } from "@badabhai/event-schema";
+import type { Database } from "@badabhai/db";
 import type { RequestContext } from "../common/request-context";
+import { DATABASE } from "../database/database.module";
+import { can } from "./admin-capabilities";
+import { AdminCorrectionFactsService } from "./corrections/admin-correction-facts.service";
 import { EventsService } from "../events/events.service";
 import { CandidateSearchRepository } from "../candidates/candidate-search.repository";
 import { WorkerSkillsRepository } from "../match/worker-skills.repository";
@@ -60,6 +64,10 @@ export class AdminCandidateDetailService {
     private readonly events: EventsService,
     // #2561 — the live admin corrections, applied above the display precedence (ADR-0062 §3.2).
     @Optional() private readonly effectiveFacts?: EffectiveFactsService,
+    // #2728 — the certificate licence prefill. Read through the correction service ONLY for an
+    // `edit_candidates` holder; without it the form would submit null and clear a licence.
+    @Optional() @Inject(DATABASE) private readonly db?: Database,
+    @Optional() private readonly correctionFacts?: AdminCorrectionFactsService,
   ) {}
 
   async getCandidate(
@@ -72,6 +80,13 @@ export class AdminCandidateDetailService {
 
     // AUDIT BEFORE THE READ AND BEFORE ANY DECRYPT — see the class header.
     await this.auditView(admin.id, workerId, ctx);
+
+    // #2728 — licence numbers are the one decrypted value in the editable prefill. Only an
+    // `edit_candidates` holder triggers the read; an analyst gets null licence fields.
+    const wantsEditableCertificates =
+      can(admin.role, "edit_candidates") &&
+      this.db !== undefined &&
+      this.correctionFacts !== undefined;
 
     const [
       names,
@@ -91,6 +106,7 @@ export class AdminCandidateDetailService {
       resumes,
       account,
       recentApplications,
+      editableCertificates,
     ] = await Promise.all([
       this.identity.resolve(admin, "workers", [workerId], workerId, ctx),
       this.workers.latestProfile(workerId),
@@ -113,6 +129,9 @@ export class AdminCandidateDetailService {
         null,
         ADMIN_CANDIDATE_RECENT_APPLICATIONS,
       ),
+      wantsEditableCertificates
+        ? this.loadEditableCertificates(workerId)
+        : Promise.resolve(null),
     ]);
 
     const corrections = this.effectiveFacts
@@ -140,9 +159,26 @@ export class AdminCandidateDetailService {
       resumes,
       account,
       recentApplications,
+      editableCertificates,
     });
     // The contract is the boundary: anything it does not name fails closed here.
     return AdminCandidateDetailSchema.parse(detail);
+  }
+
+  /**
+   * #2728 — the certificate rows with their decrypted licence number/expiry, in the correction's
+   * own shape. `readPrevious` owns the decrypt (and its fail-closed conflict); the final
+   * `AdminCandidateDetailSchema.parse` validates the rows before they leave.
+   */
+  private async loadEditableCertificates(
+    workerId: string,
+  ): Promise<AdminCandidateDetail["editable"]["certifications"]> {
+    if (this.db === undefined || this.correctionFacts === undefined) return null;
+    return (await this.correctionFacts.readPrevious(
+      this.db,
+      workerId,
+      "certifications",
+    )) as AdminCandidateDetail["editable"]["certifications"];
   }
 
   /**

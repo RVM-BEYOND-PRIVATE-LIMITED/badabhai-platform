@@ -1957,6 +1957,7 @@ describe("#2560 candidate full-detail route — guarded, read-only, audited firs
         "attributes.loadTradeSheet",
         "candidateSearch.findCardRow",
         "candidateSearch.listWantedRoles",
+        "correctionFacts.readPrevious",
         "effectiveFacts.liveFor",
         "entities.listApplications",
         "events.emit",
@@ -1994,8 +1995,16 @@ describe("#2560 candidate full-detail route — guarded, read-only, audited firs
     }
   });
 
-  it("the DTO names no phone, WhatsApp, download link, PDF key or reason text", () => {
+  it("the GENERAL DTO names no phone, WhatsApp, download link, PDF key, employer name or reason text", () => {
     const src = code("admin-candidate-detail.dto.ts");
+    // #2728 — the `editable.certifications` prefill is the ONE reviewed place that may carry a
+    // licence field, for `edit_candidates` only. Strip that schema before scanning the general
+    // record; every other part of the contract must stay licence-free.
+    const editableCertificate =
+      /const editableCertificateSchema = z[\s\S]*?\.strict\(\);/.exec(src)?.[0] ?? "";
+    expect(editableCertificate).toContain("licence_number");
+    expect(editableCertificate).toContain("licence_expiry");
+    const general = src.replace(editableCertificate, "");
     for (const forbidden of [
       "phone",
       "whatsapp",
@@ -2006,9 +2015,10 @@ describe("#2560 candidate full-detail route — guarded, read-only, audited firs
       "employer_name",
       "licence_number",
     ]) {
-      expect(src.toLowerCase(), `the candidate contract must not declare ${forbidden}`).not.toContain(
-        forbidden,
-      );
+      expect(
+        general.toLowerCase(),
+        `the general candidate contract must not declare ${forbidden}`,
+      ).not.toContain(forbidden);
     }
   });
 });

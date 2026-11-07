@@ -110,7 +110,17 @@ export interface CandidateDetailInputs {
   readonly resumes: { readonly rows: readonly CandidateResumeVersionRow[]; readonly total: number };
   readonly account: CandidateAccountRow;
   readonly recentApplications: readonly AdminApplicationListItem[];
+  /**
+   * #2728 — the decrypted certificate rows for the `edit_candidates` prefill. Present only for
+   * an editor (the service reads them through the correction service); otherwise absent, and the
+   * mapper emits null licence fields for the non-editor `editable` block.
+   */
+  readonly editableCertificates?: readonly EditableCertificate[] | null;
 }
+
+type EditableCertificate = NonNullable<
+  AdminCandidateDetail["editable"]["certifications"]
+>[number];
 
 type Json = Record<string, unknown>;
 
@@ -559,6 +569,7 @@ export function toCandidateDetail(input: CandidateDetailInputs): AdminCandidateD
       workTypes: workTypes.value,
       documentCodes: stringList(attributes.documents_ready),
       qualifications: input.qualifications,
+      certificates: input.editableCertificates,
       employment: input.employment,
     }),
   };
@@ -569,10 +580,14 @@ export function toCandidateDetail(input: CandidateDetailInputs): AdminCandidateD
  * Every key mirrors its `POST .../corrections` value shape; a key is null when there is no
  * safe prefill (the form starts empty and the admin builds the value).
  *
- * BUILT FROM THE SAME ROWS THE DISPLAY READS — no new repository call, no new decrypt:
- * employer names stay out (the admin types the name the worker gives on the call), licence
- * numbers stay out (the form leaves them blank), voice-note ids stay out (an admin
+ * BUILT FROM THE SAME ROWS THE DISPLAY READS — no new repository call. Employer names stay out
+ * (the admin types the name the worker gives on the call), voice-note ids stay out (an admin
  * correction cannot attach one).
+ *
+ * LICENCE NUMBERS ARE THE ONE DECRYPTED VALUE: `certificates` is supplied only for an
+ * `edit_candidates` holder (the service reads it through `AdminCorrectionFactsService`); an
+ * analyst/absent reader gets the display rows with null licence fields. That makes the editor
+ * round-trip a licence instead of submitting null and clearing it.
  */
 function editableValues(inputs: {
   profileSkills: unknown;
@@ -585,6 +600,7 @@ function editableValues(inputs: {
     readonly certificates: readonly WorkerCertificateRecord[];
     readonly trainings: readonly WorkerTrainingRecord[];
   } | null;
+  certificates: readonly EditableCertificate[] | null | undefined;
   employment: readonly CandidateEmploymentRow[];
 }): AdminCandidateDetail["editable"] {
   const storedSkills = Array.isArray(inputs.skillsCorrection)
@@ -613,13 +629,24 @@ function editableValues(inputs: {
           institute: e.institute,
         }))
       : null,
-    certifications: inputs.qualifications
-      ? inputs.qualifications.certificates.map((c) => ({
-          name: c.name,
-          issuer: c.issuer,
-          year: c.year,
-        }))
-      : null,
+    certifications:
+      inputs.certificates !== undefined && inputs.certificates !== null
+        ? inputs.certificates.map((c) => ({
+            name: c.name,
+            issuer: c.issuer,
+            year: c.year,
+            licence_number: c.licence_number,
+            licence_expiry: c.licence_expiry,
+          }))
+        : inputs.qualifications
+          ? inputs.qualifications.certificates.map((c) => ({
+              name: c.name,
+              issuer: c.issuer,
+              year: c.year,
+              licence_number: null,
+              licence_expiry: null,
+            }))
+          : null,
     training: inputs.qualifications
       ? inputs.qualifications.trainings.map((t) => ({
           name: t.name,

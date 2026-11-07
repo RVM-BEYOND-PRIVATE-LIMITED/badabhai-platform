@@ -534,11 +534,31 @@ export const EDIT_SECTIONS: readonly EditSection[] = [
         label: "Certifications",
         kind: "entries",
         maxRows: EDIT_CERTIFICATES_MAX,
-        emptyRow: { name: "", issuer: "", year: "" },
+        emptyRow: {
+          name: "",
+          issuer: "",
+          year: "",
+          licence_number: "",
+          licence_expiry: "",
+        },
         columns: [
           { key: "name", label: "Name", kind: "text", required: true, maxLength: 120 },
           { key: "issuer", label: "Issuer", kind: "text", maxLength: 120 },
           { key: "year", label: "Year", kind: "int", min: EDIT_YEAR_MIN },
+          {
+            key: "licence_number",
+            label: "Licence number",
+            kind: "text",
+            maxLength: 64,
+            help: "Only for a licence; prefilled from the record.",
+          },
+          {
+            key: "licence_expiry",
+            label: "Licence expiry",
+            kind: "date",
+            maxLength: 10,
+            help: "YYYY-MM-DD, only for a licence.",
+          },
         ],
       },
       {
@@ -721,7 +741,12 @@ export function initialEditDraft(detail: CandidateDetail, sectionId: EditSection
       case "certifications":
         draft[field.formKey] = serializeEntries(
           (detail.editable.certifications ?? []).map((c) => ({
-            ...entryRow(c as unknown as Record<string, unknown>, ["name", "issuer"]),
+            ...entryRow(c as unknown as Record<string, unknown>, [
+              "name",
+              "issuer",
+              "licence_number",
+              "licence_expiry",
+            ]),
             year: entryYear(c.year),
           })),
         );
@@ -881,6 +906,8 @@ export function draftFactValue(factKey: string, draft: EditDraft): unknown {
         name: asText(row.name).trim(),
         issuer: textOrNull(asText(row.issuer)),
         year: entryInt(row.year),
+        licence_number: textOrNull(asText(row.licence_number)),
+        licence_expiry: textOrNull(asText(row.licence_expiry)),
       }));
     case "training":
       return parseEntries(draft.training).map((row) => ({
@@ -1183,6 +1210,10 @@ export function validateEditDraft(
     if (field.kind === "entries") {
       const problem = validateEntries(field, parseEntries(draft[field.formKey]));
       if (problem) errors[field.formKey] = problem;
+      if (field.formKey === "certifications" && !problem) {
+        const licenceProblem = validateCertificateLicences(parseEntries(draft[field.formKey]));
+        if (licenceProblem) errors[field.formKey] = licenceProblem;
+      }
     }
   }
 
@@ -1282,6 +1313,19 @@ function validateEntries(field: EditFieldSpec, rows: EntryRow[]): string | null 
   return null;
 }
 
+/** #2728 — the API's licence-expiry era bound, checked beside the YYYY-MM-DD shape. */
+function validateCertificateLicences(rows: EntryRow[]): string | null {
+  for (let i = 0; i < rows.length; i++) {
+    const expiry = asText(rows[i]!.licence_expiry).trim();
+    if (expiry === "") continue;
+    const year = Number(expiry.slice(0, 4));
+    if (year < 1950 || year > 2100) {
+      return `Row ${i + 1}: licence expiry year must be between 1950 and 2100.`;
+    }
+  }
+  return null;
+}
+
 /** One entries row's first problem, or null. */
 function validateEntryRow(
   columns: ReadonlyArray<EntryColumnSpec>,
@@ -1310,6 +1354,12 @@ function validateEntryRow(
     }
     if (col.key.endsWith("_ym") && !YEAR_MONTH_RE.test(text)) {
       return `${at}: use YYYY-MM for ${col.label.toLowerCase()}.`;
+    }
+    if (col.kind === "date" && !/^\d{4}-\d{2}-\d{2}$/.test(text)) {
+      return `${at}: use YYYY-MM-DD for ${col.label.toLowerCase()}.`;
+    }
+    if (col.key === "licence_number" && !/^[A-Za-z0-9/\- ]+$/.test(text)) {
+      return `${at}: licence number may contain letters, digits, /, - and spaces only.`;
     }
     if (col.maxLength !== undefined && text.length > col.maxLength) {
       return `${at}: keep ${col.label.toLowerCase()} under ${col.maxLength} characters.`;
