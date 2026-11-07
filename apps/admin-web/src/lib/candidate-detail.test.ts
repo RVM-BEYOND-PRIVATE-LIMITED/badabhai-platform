@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
-import { candidateRecord, RECORD_WORKER_ID } from "../../test/candidate-record";
+import {
+  candidateCorrectionValues,
+  candidateRecord,
+  RECORD_WORKER_ID,
+} from "../../test/candidate-record";
 
 /**
  * A7 (#2577) — the portal's read of `GET /admin/candidates/:id` (#2560): the request it makes,
@@ -54,13 +58,18 @@ describe("readCandidateRecord — the request", () => {
    * name budget spent, audit rows written for a view nobody asked for) and `?c=..` for `/admin/`.
    * Not a uuid: nothing is sent.
    */
-  it.each([".", "..", "Ramesh Kumar", "", "%2e%2e", `${RECORD_WORKER_ID}/..`, `${RECORD_WORKER_ID} `])(
-    "%j is no such candidate, and nothing is asked of the API",
-    async (id) => {
-      expect(await readCandidateRecord(id)).toEqual({ status: "not_found" });
-      expect(http.adminFetch).not.toHaveBeenCalled();
-    },
-  );
+  it.each([
+    ".",
+    "..",
+    "Ramesh Kumar",
+    "",
+    "%2e%2e",
+    `${RECORD_WORKER_ID}/..`,
+    `${RECORD_WORKER_ID} `,
+  ])("%j is no such candidate, and nothing is asked of the API", async (id) => {
+    expect(await readCandidateRecord(id)).toEqual({ status: "not_found" });
+    expect(http.adminFetch).not.toHaveBeenCalled();
+  });
 
   it("is NEVER cached: no `revalidate`, so adminFetch stays on no-store (the body may carry a name)", async () => {
     http.adminFetch.mockResolvedValue(candidateRecord());
@@ -129,6 +138,32 @@ describe("the record schema", () => {
     expect(parsed.location.current_city.correction?.reason_code).toBe("worker_request");
   });
 
+  it("#2728 — parses the nullable correction_values block with its exact strict shapes", () => {
+    const detail = candidateRecord({ correction_values: candidateCorrectionValues() });
+    const parsed = candidateDetailSchema.parse(detail);
+    expect(parsed.correction_values).toEqual(candidateCorrectionValues());
+    expect(parsed.correction_values?.work_history.employments[0]?.employer_name).toBe(
+      "Tata Motors",
+    );
+  });
+
+  it("#2728 — an absent block (an older API) parses to null, exactly like an explicit null", () => {
+    const raw = structuredClone(candidateRecord()) as unknown as Record<string, unknown>;
+    delete raw.correction_values;
+    expect(candidateDetailSchema.parse(raw).correction_values).toBeNull();
+    expect(candidateDetailSchema.parse(candidateRecord()).correction_values).toBeNull();
+  });
+
+  it("#2728 — the block is STRICT: an unknown field is refused, not carried to the editor", () => {
+    const raw = candidateRecord({
+      correction_values: {
+        ...candidateCorrectionValues(),
+        employer_name: "must not live at the top level",
+      } as never,
+    });
+    expect(candidateDetailSchema.safeParse(raw).success).toBe(false);
+  });
+
   it("refuses a record that lost a group — an honest error state, not a blank tab", () => {
     const { skills: _skills, ...rest } = candidateRecord();
     expect(candidateDetailSchema.safeParse(rest).success).toBe(false);
@@ -158,8 +193,7 @@ describe("the schema is the API's contract, key for key", () => {
     const body = DTO.slice(at, DTO.indexOf("\n  .strict();", at));
     return [...body.matchAll(/^ {4}(\w+):/gm)].map((m) => m[1]!);
   }
-  const shape = (s: unknown) =>
-    Object.keys((s as { shape: Record<string, unknown> }).shape).sort();
+  const shape = (s: unknown) => Object.keys((s as { shape: Record<string, unknown> }).shape).sort();
   const groups = candidateDetailSchema.shape;
 
   it("the root: every group", () => {

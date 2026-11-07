@@ -92,6 +92,13 @@ describe("#2560 authz — the candidate record sits on `read_candidates`", () =>
     expect(can("analyst", "read_candidates")).toBe(true);
     expect(can("analyst", "read_identity")).toBe(false);
   });
+
+  it("#2728 — correction_values is gated on edit_candidates: analyst null, the other three get it", () => {
+    expect(can("analyst", "edit_candidates")).toBe(false);
+    for (const role of ["super_admin", "ops_admin", "support"] as const) {
+      expect(can(role, "edit_candidates"), role).toBe(true);
+    }
+  });
 });
 
 describe("#2560 controller — HTTP only", () => {

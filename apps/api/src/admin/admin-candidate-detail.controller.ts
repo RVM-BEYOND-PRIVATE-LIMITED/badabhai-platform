@@ -18,8 +18,10 @@ import {
  * response is additive and gated inside `AdminIdentityService` on `read_identity`, so an analyst
  * gets the same record with `name: null` rather than a 403.
  *
- * `Cache-Control: no-store` UNCONDITIONALLY: the body may carry a decrypted name, and a header
- * that varied with the caller's capability would leak whether they hold `read_identity`.
+ * `Cache-Control: no-store` UNCONDITIONALLY: the body may carry a decrypted name and, for an
+ * `edit_candidates` holder, the gated `correction_values` prefill (which may carry an employer
+ * name or a certificate licence number). A header that varied with the caller's capabilities
+ * would leak whether they hold those grants.
  *
  * HTTP only: the worker id comes from the validated path, the admin from the session the guard
  * resolved, and everything else is the service's.

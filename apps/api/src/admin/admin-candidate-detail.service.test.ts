@@ -1,9 +1,10 @@
 import "reflect-metadata";
-import { NotFoundException } from "@nestjs/common";
+import { BadRequestException, NotFoundException } from "@nestjs/common";
 import { describe, expect, it, vi } from "vitest";
 import type { AdminRole } from "@badabhai/db";
 import type { RequestContext } from "../common/request-context";
 import type { AuthenticatedAdmin } from "./admin-auth.guard";
+import type { LiveCorrection } from "../profiles/effective-facts.service";
 import { AdminCandidateDetailService } from "./admin-candidate-detail.service";
 import {
   ADMIN_CANDIDATE_RECENT_APPLICATIONS,
@@ -18,6 +19,27 @@ import {
 const CTX: RequestContext = { correlationId: "corr-1", requestId: "req-1" };
 const admin = (role: AdminRole): AuthenticatedAdmin => ({ id: FIXTURE_ADMIN_ID, role, sid: "s" });
 
+type CorrectionFactKey =
+  | "skills"
+  | "work_history"
+  | "education"
+  | "certifications"
+  | "training"
+  | "languages"
+  | "work_types"
+  | "documents_ready";
+
+const STORED_CORRECTION_VALUES: Record<CorrectionFactKey, unknown> = {
+  skills: ["skill_mig_welding"],
+  work_history: { employments: [] },
+  education: [],
+  certifications: [],
+  training: [],
+  languages: [],
+  work_types: ["contract"],
+  documents_ready: ["aadhaar"],
+};
+
 /**
  * A service over recording fakes. Every dependency call is appended to `order`, so a test can
  * assert WHAT happened and in WHICH order — the audit-before-read property is an ordering claim.
@@ -27,6 +49,9 @@ function build(
     core?: boolean;
     names?: Map<string, string | null> | null;
     emitFails?: boolean;
+    corrections?: LiveCorrection[];
+    stored?: Partial<Record<CorrectionFactKey, unknown>>;
+    skillsThrow?: boolean;
   } = {},
 ) {
   const fx = candidateInputs();
@@ -79,6 +104,21 @@ function build(
       return {};
     }),
   };
+  const db = { marker: "database" };
+  const correctionFacts = {
+    readPrevious: vi.fn(
+      async (_db: unknown, _workerId: string, factKey: CorrectionFactKey): Promise<unknown> => {
+        order.push(`correctionFacts.readPrevious.${factKey}`);
+        if (factKey === "skills" && opts.skillsThrow) {
+          throw new BadRequestException("Worker has no profile to correct yet");
+        }
+        return opts.stored?.[factKey] ?? STORED_CORRECTION_VALUES[factKey];
+      },
+    ),
+  };
+  const effectiveFacts = {
+    liveFor: rec("effectiveFacts.liveFor", opts.corrections ?? []),
+  };
 
   const service = new AdminCandidateDetailService(
     repo as never,
@@ -92,6 +132,9 @@ function build(
     entities as never,
     identity as never,
     events as never,
+    effectiveFacts as never,
+    db as never,
+    correctionFacts as never,
   );
   const fakes = {
     repo,
@@ -105,7 +148,18 @@ function build(
     entities,
     identity,
   };
-  return { service, order, events, identity, entities, repo, fakes };
+  return {
+    service,
+    order,
+    events,
+    identity,
+    entities,
+    repo,
+    fakes,
+    correctionFacts,
+    effectiveFacts,
+    db,
+  };
 }
 
 describe("AdminCandidateDetailService.getCandidate", () => {
@@ -174,6 +228,82 @@ describe("AdminCandidateDetailService.getCandidate", () => {
     expect(d.identity.name_disclosed).toBe(false);
     expect(d.location.current_city.value).toBe("Pune");
     expect(d.employer_card.in_search_pool).toBe(true);
+  });
+
+  it("#2728 — an ANALYST gets correction_values: null and triggers NO correction read", async () => {
+    const { service, correctionFacts } = build({ names: null });
+    const d = await service.getCandidate(admin("analyst"), FIXTURE_WORKER_ID, CTX);
+    expect(d.correction_values).toBeNull();
+    expect(correctionFacts.readPrevious).not.toHaveBeenCalled();
+  });
+
+  it("#2728 — the roles holding edit_candidates get the eight stored values, read in ONE wave", async () => {
+    for (const role of ["super_admin", "ops_admin", "support"] as const) {
+      const { service, correctionFacts, db } = build();
+      const d = await service.getCandidate(admin(role), FIXTURE_WORKER_ID, CTX);
+      expect(d.correction_values, role).toEqual({
+        skills: ["skill_mig_welding"],
+        work_history: { employments: [] },
+        education: [],
+        certifications: [],
+        training: [],
+        languages: [],
+        work_types: ["contract"],
+        documents_ready: ["aadhaar"],
+      });
+      expect(correctionFacts.readPrevious, role).toHaveBeenCalledTimes(8);
+      expect(new Set(correctionFacts.readPrevious.mock.calls.map((c) => c[2]))).toEqual(
+        new Set([
+          "skills",
+          "work_history",
+          "education",
+          "certifications",
+          "training",
+          "languages",
+          "work_types",
+          "documents_ready",
+        ]),
+      );
+      for (const call of correctionFacts.readPrevious.mock.calls) {
+        expect(call[0]).toBe(db);
+        expect(call[1]).toBe(FIXTURE_WORKER_ID);
+      }
+    }
+  });
+
+  it("#2728 — a live correction overrides the stored value in the prefill block", async () => {
+    const corrections: LiveCorrection[] = [
+      {
+        id: "f0f0f0f0-0000-4000-8000-000000000001",
+        factKey: "skills",
+        adminId: FIXTURE_ADMIN_ID,
+        reasonCode: "worker_request",
+        reasonText: "worker asked",
+        createdAt: new Date("2026-11-01T10:00:00.000Z"),
+        corrected: ["skill_new"],
+      },
+      {
+        id: "f0f0f0f0-0000-4000-8000-000000000002",
+        factKey: "work_types",
+        adminId: FIXTURE_ADMIN_ID,
+        reasonCode: "profile_correction",
+        reasonText: "correcting the profile",
+        createdAt: new Date("2026-11-01T10:00:00.000Z"),
+        corrected: ["permanent"],
+      },
+    ];
+    const { service } = build({ corrections });
+    const d = await service.getCandidate(admin("support"), FIXTURE_WORKER_ID, CTX);
+    expect(d.correction_values?.skills).toEqual(["skill_new"]);
+    expect(d.correction_values?.work_types).toEqual(["permanent"]);
+    expect(d.correction_values?.documents_ready).toEqual(["aadhaar"]);
+  });
+
+  it("#2728 — a worker with no profile yet gets an empty skills prefill, not a refused record", async () => {
+    const { service } = build({ skillsThrow: true });
+    const d = await service.getCandidate(admin("support"), FIXTURE_WORKER_ID, CTX);
+    expect(d.correction_values?.skills).toEqual([]);
+    expect(d.correction_values?.work_types).toEqual(["contract"]);
   });
 
   it("every dependency is read EXACTLY ONCE — a fixed number of statements per worker, never per row", async () => {

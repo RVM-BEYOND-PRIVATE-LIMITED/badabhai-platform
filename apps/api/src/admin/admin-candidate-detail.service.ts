@@ -1,6 +1,14 @@
-import { Injectable, NotFoundException, Optional } from "@nestjs/common";
+import {
+  BadRequestException,
+  Inject,
+  Injectable,
+  NotFoundException,
+  Optional,
+} from "@nestjs/common";
 import type { PayloadInputOf } from "@badabhai/event-schema";
+import type { Database, WorkerAdminOverrideFactKey } from "@badabhai/db";
 import type { RequestContext } from "../common/request-context";
+import { DATABASE } from "../database/database.module";
 import { EventsService } from "../events/events.service";
 import { CandidateSearchRepository } from "../candidates/candidate-search.repository";
 import { WorkerSkillsRepository } from "../match/worker-skills.repository";
@@ -11,15 +19,18 @@ import { WorkerQualificationsRepository } from "../profiles/worker-qualification
 import { WorkersRepository } from "../workers/workers.repository";
 import { EffectiveFactsService } from "../profiles/effective-facts.service";
 import type { AuthenticatedAdmin } from "./admin-auth.guard";
+import { can } from "./admin-capabilities";
 import { AdminEntitiesRepository } from "./admin-entities.repository";
 import { AdminIdentityService } from "./admin-identity.service";
 import { AdminCandidateDetailRepository } from "./admin-candidate-detail.repository";
+import { AdminCorrectionFactsService } from "./corrections/admin-correction-facts.service";
 import { toCandidateDetail } from "./admin-candidate-detail.mapper";
 import {
   ADMIN_CANDIDATE_RECENT_APPLICATIONS,
   ADMIN_CANDIDATE_RESUME_VERSIONS_MAX,
   AdminCandidateDetailSchema,
   type AdminCandidateDetail,
+  type EffectiveCandidateCorrectionValues,
 } from "./admin-candidate-detail.dto";
 
 /**
@@ -39,10 +50,15 @@ import {
  *     credential/language/occupation loaders, the payer search's own statement, the stated-rung
  *     read, the admin application list), and this surface's own select-only repository for the
  *     rest. A fixed set of statements per request, all in one parallel wave — never one per row.
+ *     For an `edit_candidates` holder, one more member of that wave loads the eight structured
+ *     facts through `AdminCorrectionFactsService.readPrevious` — the correction prefill, and the
+ *     deliberate capability-gated decrypt site described in the DTO header.
  *  5. The pure mapper, then a `.strict()` parse of the whole response: a field the contract does
  *     not name fails the request closed rather than leaving.
  *
- * ANY READ FAILURE PROPAGATES (a 5xx) — never a partial record.
+ * ANY READ FAILURE PROPAGATES (a 5xx) — never a partial record. The one exception is a worker
+ * with no profile yet: there are no skills to prefill, so that read answers `[]` rather than
+ * refusing the record for the very role allowed to correct it.
  */
 @Injectable()
 export class AdminCandidateDetailService {
@@ -60,6 +76,12 @@ export class AdminCandidateDetailService {
     private readonly events: EventsService,
     // #2561 — the live admin corrections, applied above the display precedence (ADR-0062 §3.2).
     @Optional() private readonly effectiveFacts?: EffectiveFactsService,
+    // #2728 — the correction prefill. `readPrevious` supplies each structured fact's stored value
+    // (and decrypts the employer name / licence number for it), and `liveFor` above supplies the
+    // live override the mapper overlays. Both are optional so a hand-built service still serves
+    // the record; when either is absent an editor gets `correction_values: null`.
+    @Optional() @Inject(DATABASE) private readonly db?: Database,
+    @Optional() private readonly correctionFacts?: AdminCorrectionFactsService,
   ) {}
 
   async getCandidate(
@@ -72,6 +94,13 @@ export class AdminCandidateDetailService {
 
     // AUDIT BEFORE THE READ AND BEFORE ANY DECRYPT — see the class header.
     await this.auditView(admin.id, workerId, ctx);
+
+    // #2728 — the correction prefill is a capability-gated decrypt site. An analyst (or any role
+    // without `edit_candidates`) never triggers those reads, and gets `null` below.
+    const wantsCorrectionValues =
+      can(admin.role, "edit_candidates") &&
+      this.correctionFacts !== undefined &&
+      this.db !== undefined;
 
     const [
       names,
@@ -91,6 +120,7 @@ export class AdminCandidateDetailService {
       resumes,
       account,
       recentApplications,
+      correctionValues,
     ] = await Promise.all([
       this.identity.resolve(admin, "workers", [workerId], workerId, ctx),
       this.workers.latestProfile(workerId),
@@ -113,6 +143,8 @@ export class AdminCandidateDetailService {
         null,
         ADMIN_CANDIDATE_RECENT_APPLICATIONS,
       ),
+      // The eight structured facts, read in ONE parallel wave beside the record (never per row).
+      wantsCorrectionValues ? this.loadCorrectionValues(workerId) : Promise.resolve(null),
     ]);
 
     const corrections = this.effectiveFacts
@@ -140,9 +172,69 @@ export class AdminCandidateDetailService {
       resumes,
       account,
       recentApplications,
+      correctionValues,
     });
     // The contract is the boundary: anything it does not name fails closed here.
     return AdminCandidateDetailSchema.parse(detail);
+  }
+
+  /**
+   * #2728 — the eight structured facts' STORED values, in the correction API's own shapes.
+   *
+   * Every read reuses {@link AdminCorrectionFactsService.readPrevious}, which is also what a
+   * correction write stores as `previous`: it decrypts the employer name and the certificate
+   * licence number, and it is the ONE place that knows each fact's stored shape. This is the
+   * deliberate `edit_candidates`-gated decrypt site described at the top of the DTO.
+   *
+   * ALL EIGHT RUN IN PARALLEL. Each is a fixed read of the worker's own rows/tables; none of them
+   * loops over a list to issue another statement.
+   */
+  private async loadCorrectionValues(
+    workerId: string,
+  ): Promise<EffectiveCandidateCorrectionValues> {
+    const read = (factKey: WorkerAdminOverrideFactKey) => this.correctionFact(workerId, factKey);
+    const [
+      skills,
+      work_history,
+      education,
+      certifications,
+      training,
+      languages,
+      work_types,
+      documents_ready,
+    ] = await Promise.all([
+      // A worker with no profile yet has no skills to prefill. That is an empty value, not a
+      // reason to refuse the whole record for the only role allowed to correct it.
+      read("skills").catch((error: unknown) => {
+        if (error instanceof BadRequestException) return [];
+        throw error;
+      }),
+      read("work_history"),
+      read("education"),
+      read("certifications"),
+      read("training"),
+      read("languages"),
+      read("work_types"),
+      read("documents_ready"),
+    ]);
+    return {
+      skills,
+      work_history,
+      education,
+      certifications,
+      training,
+      languages,
+      work_types,
+      documents_ready,
+    } as EffectiveCandidateCorrectionValues;
+  }
+
+  /** The cross-transaction read seam, kept in one place so the static allow-list can see it. */
+  private correctionFact(workerId: string, factKey: WorkerAdminOverrideFactKey): Promise<unknown> {
+    if (this.correctionFacts === undefined || this.db === undefined) {
+      return Promise.reject(new Error("correction prefill is not configured"));
+    }
+    return this.correctionFacts.readPrevious(this.db, workerId, factKey);
   }
 
   /**

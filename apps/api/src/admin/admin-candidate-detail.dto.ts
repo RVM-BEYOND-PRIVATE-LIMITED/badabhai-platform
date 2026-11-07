@@ -1,5 +1,17 @@
 import { z } from "zod";
 import { FIELD_SOURCES } from "../profiles/worker-field-precedence";
+import { SetMyEmploymentSchema } from "../profiles/worker-employment.dto";
+import { SetMyLanguagesSchema } from "../profiles/worker-languages.dto";
+import {
+  CERTIFICATES_MAX,
+  CertificateEntrySchema,
+  EDUCATIONS_MAX,
+  EducationEntrySchema,
+  TRAININGS_MAX,
+  TrainingEntrySchema,
+  optionsOf,
+} from "../profiles/worker-qualifications.dto";
+import { DOCUMENTS_READY, WORK_TYPES } from "../profiles/worker-preferences.vocabulary";
 
 /**
  * `GET /admin/candidates/:id` — ONE candidate's full record (ADR-0062 §2 / §3.8 / §3.9, #2560).
@@ -23,10 +35,16 @@ import { FIELD_SOURCES } from "../profiles/worker-field-precedence";
  *   - the PHONE or the WHATSAPP number, in any form — not on this surface at all;
  *   - a résumé DOWNLOAD link or PDF bytes — a résumé prints the worker's phone, and admin résumé
  *     download is a separate privacy decision;
- *   - EMPLOYER NAMES on work history and LICENCE NUMBERS on certificates — both are encrypted at
- *     rest, and decrypting them here would be a new admin decrypt site (the four-file allow-list
- *     in `admin-static-guards.test.ts`) that no review has approved;
  *   - push tokens, device hashes, IP hashes, the photo's storage key.
+ *
+ * THE ONE DELIBERATE DECRYPT SITE — `correction_values` (#2728). The GENERAL fields above still
+ * never carry employer names or certificate licence numbers. The nullable `correction_values`
+ * block is different on purpose: it exists to PREFILL the #2561 correction editors, where an
+ * admin must see the effective current value before replacing it. It is therefore present ONLY
+ * when the session admin holds `edit_candidates` (`analyst` gets `null`) and it reuses
+ * `AdminCorrectionFactsService.readPrevious`, which decrypts the employer name and the licence
+ * number. That makes this a reviewed, capability-gated decrypt site for correction prefill —
+ * not a widening of the general record, which stays employer-name-free and licence-free.
  *
  * NAMES follow the identity rules: `AdminIdentityService` on the `workers` surface (capability
  * `read_identity`, the existing budget, `admin.identity_viewed` before the decrypt). Without it —
@@ -346,6 +364,33 @@ const activitySchema = z
   })
   .strict();
 
+/**
+ * #2728 — the EFFECTIVE current value of the eight structured facts, in the correction API's OWN
+ * value shapes (`corrections/admin-corrections.dto.ts`). Present only for an admin holding
+ * `edit_candidates`; `null` for everyone else. Every entry schema here is the same one a
+ * correction write validates against, so the edit form can round-trip a value the API accepts.
+ *
+ * THIS BLOCK MAY CARRY THE DECRYPTED EMPLOYER NAME (work history) AND CERTIFICATE LICENCE NUMBER
+ * (certifications) — see the file header. It is the reviewed, capability-gated correction-prefill
+ * decrypt site, never a field of the general record.
+ */
+export const AdminCandidateCorrectionValuesSchema = z
+  .object({
+    /** `skill_*` ids, bounded exactly as a skills correction is. */
+    skills: z.array(z.string().trim().min(1).max(80)).max(50),
+    work_history: SetMyEmploymentSchema.pick({ employments: true }),
+    education: z.array(EducationEntrySchema).max(EDUCATIONS_MAX),
+    certifications: z.array(CertificateEntrySchema).max(CERTIFICATES_MAX),
+    training: z.array(TrainingEntrySchema).max(TRAININGS_MAX),
+    languages: SetMyLanguagesSchema.shape.languages,
+    work_types: z.array(z.enum(optionsOf(WORK_TYPES))).max(4),
+    documents_ready: z.array(z.enum(optionsOf(DOCUMENTS_READY))).max(8),
+  })
+  .strict()
+  .nullable();
+export type AdminCandidateCorrectionValues = z.infer<typeof AdminCandidateCorrectionValuesSchema>;
+export type EffectiveCandidateCorrectionValues = NonNullable<AdminCandidateCorrectionValues>;
+
 export const AdminCandidateDetailSchema = z
   .object({
     worker_id: z.string().uuid(),
@@ -363,6 +408,8 @@ export const AdminCandidateDetailSchema = z
     resume: resumeSchema,
     account: accountSchema,
     activity: activitySchema,
+    // #2728 — only for `edit_candidates` holders; null for an analyst (and for an older reader).
+    correction_values: AdminCandidateCorrectionValuesSchema,
   })
   .strict();
 

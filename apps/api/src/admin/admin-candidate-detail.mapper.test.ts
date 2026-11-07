@@ -3,6 +3,7 @@ import { AdminCandidateDetailSchema } from "./admin-candidate-detail.dto";
 import { toCandidateDetail } from "./admin-candidate-detail.mapper";
 import {
   candidateInputs,
+  FIXTURE_ADMIN_ID,
   FIXTURE_WORKER_ID,
   profileFixture,
   prov,
@@ -34,6 +35,82 @@ describe("toCandidateDetail — the contract", () => {
       }),
     );
     expect(() => AdminCandidateDetailSchema.parse(empty)).not.toThrow();
+  });
+
+  it("#2728 — correction_values is null unless the service loaded it", () => {
+    expect(toCandidateDetail(candidateInputs()).correction_values).toBeNull();
+    expect(
+      toCandidateDetail(candidateInputs({ correctionValues: null })).correction_values,
+    ).toBeNull();
+  });
+
+  it("#2728 — the gated block round-trips the correction shapes, with a live correction on top", () => {
+    const block = {
+      skills: ["skill_mig_welding"],
+      work_history: {
+        employments: [
+          {
+            employer_name: "Tata Motors",
+            employer_city: "Pune",
+            employer_state: "Maharashtra",
+            start_ym: "2021-04",
+            end_ym: null,
+            work_done: null,
+            work_done_voice_note_id: null,
+            role_label: "Welder",
+          },
+        ],
+      },
+      education: [
+        {
+          credential: "iti",
+          field: "Machinist",
+          council: "ncvt",
+          year: 2018,
+          institute: "Govt. ITI",
+        },
+      ],
+      certifications: [
+        {
+          name: "NCVT Welder",
+          issuer: null,
+          year: 2018,
+          licence_number: "MH-123",
+          licence_expiry: null,
+        },
+      ],
+      training: [{ name: "MIG course", provider: null, year: 2019 }],
+      languages: [{ language: "hindi", can_speak: true, can_read: true, can_write: false }],
+      work_types: ["contract"],
+      documents_ready: ["aadhaar"],
+    };
+    const d = toCandidateDetail(
+      candidateInputs({
+        correctionValues: block,
+        corrections: [
+          {
+            id: "f0f0f0f0-0000-4000-8000-000000000001",
+            factKey: "skills",
+            adminId: FIXTURE_ADMIN_ID,
+            reasonCode: "worker_request",
+            createdAt: new Date("2026-11-01T10:00:00.000Z"),
+            corrected: ["skill_new"],
+          },
+        ],
+      }),
+    );
+    expect(d.correction_values).toEqual({ ...block, skills: ["skill_new"] });
+    expect(() => AdminCandidateDetailSchema.parse(d)).not.toThrow();
+  });
+
+  it("#2728 — the correction block itself is strict: an unknown fact key fails closed", () => {
+    const d = toCandidateDetail(candidateInputs());
+    expect(
+      AdminCandidateDetailSchema.safeParse({
+        ...d,
+        correction_values: { skills: [], unexpected: [] },
+      }).success,
+    ).toBe(false);
   });
 
   it("every field's correction is null until #2561", () => {

@@ -20,9 +20,18 @@ import {
  * on it (#2561), or null.
  *
  * ── WHAT IT NEVER CARRIES ───────────────────────────────────────────────────────────────
- * No phone or WhatsApp number in any form, no employer names, no licence numbers, no resume
- * download link — the server does not send them. A phone is reached only through the separate,
- * reason-gated `POST /admin/workers/:id/reveal-contact`.
+ * No phone or WhatsApp number in any form, no resume download link — the server does not send
+ * them. A phone is reached only through the separate, reason-gated
+ * `POST /admin/workers/:id/reveal-contact`.
+ *
+ * ── `correction_values` (#2728) ─────────────────────────────────────────────────────────
+ * The optional nullable block carries the EFFECTIVE current value of the eight structured facts,
+ * in the correction API's own shapes, so the admin editors can prefill. It is present only when
+ * the session holds `edit_candidates`; an analyst gets `null`, and an older API may omit it
+ * entirely — both parse to `null`. Unlike the general fields, this deliberately gated block may
+ * carry a decrypted employer name and certificate licence number, and only for correction
+ * prefill. Its shapes are held to `.strict()` here so a drifted contract is refused, not rendered
+ * half-right.
  *
  * ── THE NAME ────────────────────────────────────────────────────────────────────────────
  * `identity.name.value` is null and `name_disclosed` false for a role without `read_identity`
@@ -83,6 +92,105 @@ const employmentSchema = z.object({
   duration_stated: z.boolean(),
   roles: z.array(employmentRoleSchema),
 });
+
+/**
+ * The correction-prefill shapes (#2728), mirroring `admin-corrections.dto.ts` exactly. Every
+ * object is `.strict()`: this is a boundary, and a value the correction API would not accept must
+ * not be offered as a starting point. `work_done_voice_note_id` is optional at both levels
+ * because a stored row may carry one; the edit model always emits `null`.
+ */
+const correctionEmploymentRoleSchema = z
+  .object({
+    role_label: z.string(),
+    start_ym: text,
+    end_ym: text,
+    work_done: text,
+    work_done_voice_note_id: z
+      .string()
+      .nullable()
+      .optional()
+      .transform((v) => v ?? null),
+  })
+  .strict();
+
+const correctionEmploymentSchema = z
+  .object({
+    employer_name: z.string(),
+    employer_city: text,
+    employer_state: text,
+    start_ym: text,
+    end_ym: text,
+    /** The single-role shorthand; the API takes exactly one of this and `roles`. */
+    role_label: z.string().optional(),
+    work_done: text.optional().transform((v) => v ?? null),
+    work_done_voice_note_id: z
+      .string()
+      .nullable()
+      .optional()
+      .transform((v) => v ?? null),
+    roles: z.array(correctionEmploymentRoleSchema).optional(),
+  })
+  .strict();
+
+const correctionEducationSchema = z
+  .object({
+    credential: text,
+    field: text,
+    council: text,
+    year: z.number().int().nullable(),
+    institute: text,
+  })
+  .strict();
+
+const correctionCertificateSchema = z
+  .object({
+    name: z.string(),
+    issuer: text,
+    year: z.number().int().nullable(),
+    licence_number: text,
+    licence_expiry: text,
+  })
+  .strict();
+
+const correctionTrainingSchema = z
+  .object({
+    name: z.string(),
+    provider: text,
+    year: z.number().int().nullable(),
+  })
+  .strict();
+
+const correctionLanguageSchema = z
+  .object({
+    language: z.string(),
+    can_speak: z.boolean(),
+    can_read: z.boolean(),
+    can_write: z.boolean(),
+  })
+  .strict();
+
+export const candidateCorrectionValuesSchema = z
+  .object({
+    skills: z.array(z.string()),
+    work_history: z.object({ employments: z.array(correctionEmploymentSchema) }).strict(),
+    education: z.array(correctionEducationSchema),
+    certifications: z.array(correctionCertificateSchema),
+    training: z.array(correctionTrainingSchema),
+    languages: z.array(correctionLanguageSchema),
+    work_types: z.array(z.string()),
+    documents_ready: z.array(z.string()),
+  })
+  .strict()
+  .nullable()
+  .optional()
+  /** Tolerate an older API that does not send the block at all. */
+  .transform((v) => v ?? null);
+
+export type CandidateCorrectionValues = NonNullable<
+  z.infer<typeof candidateCorrectionValuesSchema>
+>;
+export type CandidateCorrectionEmployment =
+  CandidateCorrectionValues["work_history"]["employments"][number];
 
 export const candidateDetailSchema = z.object({
   worker_id: z.string(),
@@ -235,6 +343,7 @@ export const candidateDetailSchema = z.object({
     ),
     unlock_count: z.number(),
   }),
+  correction_values: candidateCorrectionValuesSchema,
 });
 
 export type CandidateDetail = z.infer<typeof candidateDetailSchema>;

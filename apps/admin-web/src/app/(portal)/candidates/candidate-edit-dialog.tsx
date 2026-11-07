@@ -12,12 +12,14 @@ import {
   editChanges,
   editSection,
   initialEditDraft,
+  isStructuredEditKind,
   validateEditDraft,
   type CorrectionReasonCode,
   type EditDraft,
   type EditSectionId,
 } from "../../../lib/candidate-edit-model";
 import { REASON_MIN_CHARS, reasonLongEnough } from "../../../lib/confirm-tiers";
+import { StructuredFieldEditor } from "./candidate-structured-editors";
 
 /**
  * EDIT ONE SECTION (A7, #2577) — the two-step T2 the issue asks for.
@@ -49,6 +51,11 @@ export function CandidateEditDialog({
 }) {
   const id = useId();
   const section = editSection(sectionId);
+  // #2728 — a structured section exists only when the API sent the gated correction-prefill
+  // block. An older API (or a role without `edit_candidates`) simply gets the simple fields.
+  const sectionFields = section.fields.filter(
+    (field) => !isStructuredEditKind(field.kind) || detail.correction_values !== null,
+  );
   const [stage, setStage] = useState<"form" | "review">("form");
   const [draft, setDraft] = useState<EditDraft>(() => initialEditDraft(detail, sectionId));
   const [reasonCode, setReasonCode] = useState<CorrectionReasonCode | "">("");
@@ -200,58 +207,72 @@ export function CandidateEditDialog({
             if (!hasErrors && changes.length > 0) setStage("review");
           }}
         >
-          {section.fields.map((field) => (
-            <label className="field" key={field.formKey}>
-              <span className="field__label">{field.label}</span>
-              {field.kind === "select" || field.kind === "tri" ? (
-                <select
-                  className="field__input"
+          {sectionFields.map((field) =>
+            isStructuredEditKind(field.kind) ? (
+              <div className="field" key={field.formKey}>
+                <span className="field__label">{field.label}</span>
+                <StructuredFieldEditor
+                  field={field}
                   value={draft[field.formKey] ?? ""}
-                  onChange={(e) => set(field.formKey, e.target.value)}
-                  aria-invalid={errors[field.formKey] ? true : undefined}
-                  aria-describedby={
-                    errors[field.formKey] ? `${id}-${field.formKey}-error` : undefined
-                  }
-                >
-                  <option value="">
-                    {field.kind === "tri" ? "Not answered" : "Not answered / clear"}
-                  </option>
-                  {field.options?.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
-              ) : (
-                <input
-                  className="field__input"
-                  type={
-                    field.kind === "number" || field.kind === "int"
-                      ? "number"
-                      : field.kind === "date"
-                        ? "date"
-                        : "text"
-                  }
-                  inputMode={
-                    field.kind === "number" || field.kind === "int" ? "decimal" : undefined
-                  }
-                  min={field.formKey === "experience" ? 0 : field.kind === "int" ? 0 : undefined}
-                  max={field.formKey === "experience" ? 60 : undefined}
-                  value={draft[field.formKey] ?? ""}
-                  onChange={(e) => set(field.formKey, e.target.value)}
-                  placeholder={field.placeholder}
-                  autoComplete="off"
-                  spellCheck={false}
-                  aria-invalid={errors[field.formKey] ? true : undefined}
-                  aria-describedby={
-                    errors[field.formKey] ? `${id}-${field.formKey}-error` : undefined
-                  }
+                  detail={detail}
+                  onChange={(value) => set(field.formKey, value)}
                 />
-              )}
-              {field.help ? <span className="field__help">{field.help}</span> : null}
-              <FieldError id={`${id}-${field.formKey}-error`}>{errors[field.formKey]}</FieldError>
-            </label>
-          ))}
+                {field.help ? <span className="field__help">{field.help}</span> : null}
+                <FieldError id={`${id}-${field.formKey}-error`}>{errors[field.formKey]}</FieldError>
+              </div>
+            ) : (
+              <label className="field" key={field.formKey}>
+                <span className="field__label">{field.label}</span>
+                {field.kind === "select" || field.kind === "tri" ? (
+                  <select
+                    className="field__input"
+                    value={draft[field.formKey] ?? ""}
+                    onChange={(e) => set(field.formKey, e.target.value)}
+                    aria-invalid={errors[field.formKey] ? true : undefined}
+                    aria-describedby={
+                      errors[field.formKey] ? `${id}-${field.formKey}-error` : undefined
+                    }
+                  >
+                    <option value="">
+                      {field.kind === "tri" ? "Not answered" : "Not answered / clear"}
+                    </option>
+                    {field.options?.map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    className="field__input"
+                    type={
+                      field.kind === "number" || field.kind === "int"
+                        ? "number"
+                        : field.kind === "date"
+                          ? "date"
+                          : "text"
+                    }
+                    inputMode={
+                      field.kind === "number" || field.kind === "int" ? "decimal" : undefined
+                    }
+                    min={field.formKey === "experience" ? 0 : field.kind === "int" ? 0 : undefined}
+                    max={field.formKey === "experience" ? 60 : undefined}
+                    value={draft[field.formKey] ?? ""}
+                    onChange={(e) => set(field.formKey, e.target.value)}
+                    placeholder={field.placeholder}
+                    autoComplete="off"
+                    spellCheck={false}
+                    aria-invalid={errors[field.formKey] ? true : undefined}
+                    aria-describedby={
+                      errors[field.formKey] ? `${id}-${field.formKey}-error` : undefined
+                    }
+                  />
+                )}
+                {field.help ? <span className="field__help">{field.help}</span> : null}
+                <FieldError id={`${id}-${field.formKey}-error`}>{errors[field.formKey]}</FieldError>
+              </label>
+            ),
+          )}
           {changes.length > 0 ? (
             <p className="field__help">
               {changes.length} field{changes.length === 1 ? "" : "s"} will change:{" "}

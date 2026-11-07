@@ -162,18 +162,19 @@ describe("AdminModule wiring (DI regression guard)", () => {
   });
 
   it("declares the #2560 candidate full-detail controller + EVERY provider its service injects", () => {
-    // `AdminCandidateDetailService` takes eleven constructor dependencies. Four come from imported
-    // modules (`WorkersRepository` from WorkersModule, `WorkerSkillsRepository` from MatchModule,
-    // `EventsService` from EventsModule) or are already provided here (`AdminEntitiesRepository`,
-    // `AdminIdentityService`); the other six must be registered HERE — five of them are non-admin
-    // repositories provided directly (the `ResumeDisclosureModule` pattern) rather than imported
-    // with their modules. A dropped one is a BOOT failure that typecheck and every hand-built unit
-    // test miss.
+    // `AdminCandidateDetailService` takes more constructor dependencies than this list names:
+    // several come from imported modules (`WorkersRepository` from WorkersModule,
+    // `WorkerSkillsRepository` from MatchModule, `EventsService` from EventsModule,
+    // `DATABASE` from DatabaseModule) or were already provided here. The non-admin repositories
+    // and #2728's `AdminCorrectionFactsService` must be registered HERE — most are provided
+    // directly (the `ResumeDisclosureModule` pattern) rather than imported with their modules. A
+    // dropped one is a BOOT failure that typecheck and every hand-built unit test miss.
     expect(getMeta("controllers", AdminModule)).toContain(AdminCandidateDetailController);
     const tokens = providerTokens();
     for (const name of [
       "AdminCandidateDetailService",
       "AdminCandidateDetailRepository",
+      "AdminCorrectionFactsService",
       "WorkerAttributesRepository",
       "WorkerQualificationsRepository",
       "WorkerLanguagesRepository",

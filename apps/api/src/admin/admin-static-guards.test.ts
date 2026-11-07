@@ -695,6 +695,8 @@ describe("identity reads — one reader, one decrypter, and no name search", () 
         "admin/corrections/admin-corrections.service.ts",
         // #2561 PR 2 — the previous-value capture decrypts employer names and licence numbers
         // so a revert can restore them; the plaintext stays inside the encrypted envelope.
+        // #2728's candidate-detail prefill calls THIS service's readPrevious, never a decrypt
+        // itself, so the gated correction-prefill site stays this one reviewed entry.
         "admin/corrections/admin-correction-facts.service.ts",
         "admin/admin-identity.service.ts",
         "admin/admin-mfa.store.ts",
@@ -1957,6 +1959,8 @@ describe("#2560 candidate full-detail route — guarded, read-only, audited firs
         "attributes.loadTradeSheet",
         "candidateSearch.findCardRow",
         "candidateSearch.listWantedRoles",
+        // #2728 — the eight structured facts' stored values for the gated correction prefill.
+        "correctionFacts.readPrevious",
         "effectiveFacts.liveFor",
         "entities.listApplications",
         "events.emit",

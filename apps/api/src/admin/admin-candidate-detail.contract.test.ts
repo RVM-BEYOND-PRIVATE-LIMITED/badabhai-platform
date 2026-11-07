@@ -131,6 +131,14 @@ describe("#2560 contract — the admin record equals the employer-facing project
     });
   }
 
+  it("#2728 — correction_values is absent (null) unless the service loaded the gated block", () => {
+    // The pure mapper never invents a prefill block: the service decides whether this admin may
+    // receive it, and an analyst's response is byte-identical in this group to every non-editor's.
+    for (const input of Object.values(CASES)) {
+      expect(toCandidateDetail(input).correction_values).toBeNull();
+    }
+  });
+
   it("the matrix really exercises the branches it names (not vacuous)", () => {
     const cities = Object.values(CASES).map((c) => summaryOf(c).city);
     expect(new Set(cities)).toEqual(new Set(["Pune", "Chakan", "Nashik", null]));

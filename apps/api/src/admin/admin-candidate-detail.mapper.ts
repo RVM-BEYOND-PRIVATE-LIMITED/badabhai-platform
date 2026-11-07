@@ -39,7 +39,11 @@ import {
 import { readProfileFormFacts } from "../workers/profile-form-facts";
 import { toProfileSummary } from "../workers/profile-summary.mapper";
 import type { AdminApplicationListItem } from "./admin-entities.dto";
-import type { AdminCandidateDetail, AdminCandidateField } from "./admin-candidate-detail.dto";
+import type {
+  AdminCandidateDetail,
+  AdminCandidateField,
+  EffectiveCandidateCorrectionValues,
+} from "./admin-candidate-detail.dto";
 import type {
   CandidateAccountRow,
   CandidateCoreRow,
@@ -110,6 +114,12 @@ export interface CandidateDetailInputs {
   readonly resumes: { readonly rows: readonly CandidateResumeVersionRow[]; readonly total: number };
   readonly account: CandidateAccountRow;
   readonly recentApplications: readonly AdminApplicationListItem[];
+  /**
+   * #2728 — the STORED current value of the eight structured facts, loaded only for an
+   * `edit_candidates` holder. The mapper overlays a live correction below and returns `null`
+   * when this is absent, so a reader without the capability never sees the block.
+   */
+  readonly correctionValues?: EffectiveCandidateCorrectionValues | null;
 }
 
 type Json = Record<string, unknown>;
@@ -293,6 +303,30 @@ export function toCandidateDetail(input: CandidateDetailInputs): AdminCandidateD
     { workTypes: attr("work_types"), jobType: attr("job_type") },
   );
   const languageRows = qualifications?.languages;
+
+  // #2728 — the correction prefill: the stored value `readPrevious` produced, overlaid with the
+  // live correction of the same fact exactly as the display fields above are. Null when the
+  // service did not load the block (the session lacks `edit_candidates`).
+  const correctionValues = (): EffectiveCandidateCorrectionValues | null => {
+    const stored = input.correctionValues;
+    if (!stored) return null;
+    const effective = <K extends keyof EffectiveCandidateCorrectionValues>(
+      key: K,
+    ): EffectiveCandidateCorrectionValues[K] => {
+      const live = correctionOf(key);
+      return (live ? live.corrected : stored[key]) as EffectiveCandidateCorrectionValues[K];
+    };
+    return {
+      skills: effective("skills"),
+      work_history: effective("work_history"),
+      education: effective("education"),
+      certifications: effective("certifications"),
+      training: effective("training"),
+      languages: effective("languages"),
+      work_types: effective("work_types"),
+      documents_ready: effective("documents_ready"),
+    };
+  };
 
   return {
     worker_id: input.workerId,
@@ -552,6 +586,7 @@ export function toCandidateDetail(input: CandidateDetailInputs): AdminCandidateD
       })),
       unlock_count: input.account.unlockCount,
     },
+    correction_values: correctionValues(),
   };
 }
 

@@ -94,6 +94,11 @@ describe.skipIf(!RUN)("GET /admin/candidates/:id — against Postgres", () => {
       new AdminEntitiesRepository(db),
       { resolve: async () => null } as never,
       new EventsService(new EventsRepository(db), { NODE_ENV: "test" } as never),
+      // #2728 — the analyst path never reaches the correction prefill, so these fakes are
+      // deliberately inert; the block's own reads are unit-tested in the service test.
+      { liveFor: async () => [] } as never,
+      db,
+      { readPrevious: async () => null } as never,
     );
     await ensureSkills(client);
     await seed(client);
@@ -212,6 +217,8 @@ describe.skipIf(!RUN)("GET /admin/candidates/:id — against Postgres", () => {
     // Faceless for the analyst path, never an error.
     expect(d.identity.name).toEqual({ value: null, source: "unknown", correction: null });
     expect(d.identity.name_disclosed).toBe(false);
+    // #2728 — the correction-prefill block is an editor's read only.
+    expect(d.correction_values).toBeNull();
   });
 
   it("a worker OUTSIDE the pool (no consent) has no employer card at all", async () => {

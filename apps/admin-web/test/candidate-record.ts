@@ -3,12 +3,55 @@
  * `GET /admin/candidates/:id` answers it (`AdminCandidateDetailSchema`, apps/api). Synthetic
  * values only: no real person, and — like the real response — no phone anywhere.
  */
-import type { CandidateDetail } from "../src/lib/candidate-detail";
+import type { CandidateCorrectionValues, CandidateDetail } from "../src/lib/candidate-detail";
 
 export const RECORD_WORKER_ID = "0b7f1a52-4a0e-4c41-9d61-2f1f3c1e9a01";
 export const RECORD_POSTING_ID = "7a7a7a7a-0000-4000-8000-000000000007";
 
 const f = <T>(value: T, source: string) => ({ value, source, correction: null });
+
+/** The #2728 correction-prefill block, in the correction API's own shapes. */
+export function candidateCorrectionValues(): CandidateCorrectionValues {
+  return {
+    skills: ["skill_mig_welding", "skill_arc_welding"],
+    work_history: {
+      employments: [
+        {
+          employer_name: "Tata Motors",
+          employer_city: "Pune",
+          employer_state: "Maharashtra",
+          start_ym: "2021-04",
+          end_ym: null,
+          work_done: null,
+          work_done_voice_note_id: null,
+          role_label: "TIG Welder",
+        },
+      ],
+    },
+    education: [
+      {
+        credential: "iti",
+        field: "Machinist",
+        council: "ncvt",
+        year: 2018,
+        institute: "Govt. ITI",
+      },
+    ],
+    certifications: [
+      {
+        name: "NCVT Welder",
+        issuer: "Govt. ITI",
+        year: 2018,
+        licence_number: "MH-123",
+        licence_expiry: null,
+      },
+    ],
+    training: [{ name: "MIG course", provider: "Govt. ITI", year: 2019 }],
+    languages: [{ language: "hindi", can_speak: true, can_read: true, can_write: false }],
+    work_types: ["contract"],
+    documents_ready: ["aadhaar", "pan"],
+  };
+}
 
 export function candidateRecord(over: Partial<CandidateDetail> = {}): CandidateDetail {
   return {
@@ -126,7 +169,10 @@ export function candidateRecord(over: Partial<CandidateDetail> = {}): CandidateD
     },
     languages: f(["Hindi", "Marathi"], "interview"),
     salary: {
-      band: f<{ low: number; high: number | null } | null>({ low: 18000, high: 22000 }, "worker_edit"),
+      band: f<{ low: number; high: number | null } | null>(
+        { low: 18000, high: 22000 },
+        "worker_edit",
+      ),
       period: f("month", "worker_edit"),
       open_top_chip: false,
     },
@@ -207,6 +253,9 @@ export function candidateRecord(over: Partial<CandidateDetail> = {}): CandidateD
       ],
       unlock_count: 2,
     },
+    // #2728 — null for a role without `edit_candidates` (and for an older API). Tests that
+    // exercise the structured editors pass `candidateCorrectionValues()`.
+    correction_values: null,
     ...over,
   };
 }

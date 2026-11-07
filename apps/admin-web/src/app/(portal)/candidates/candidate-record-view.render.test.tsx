@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
+  candidateCorrectionValues,
   candidateRecord,
   facelessRecord,
   RECORD_POSTING_ID,
@@ -30,7 +31,7 @@ type Tab = (typeof CANDIDATE_TABS)[number]["id"];
 
 const render = (
   detail: CandidateDetail = candidateRecord(),
-  opts: { entitled?: boolean; canReveal?: boolean; active?: Tab } = {},
+  opts: { entitled?: boolean; canReveal?: boolean; active?: Tab; canEdit?: boolean } = {},
 ) =>
   renderToStaticMarkup(
     <CandidateRecordPanels
@@ -39,6 +40,8 @@ const render = (
       canReveal={opts.canReveal ?? true}
       active={opts.active ?? "profile"}
       idBase="t"
+      canEdit={opts.canEdit ?? false}
+      onEditSection={() => undefined}
     />,
   );
 
@@ -290,6 +293,45 @@ describe("the Edit log", () => {
     expect(p).toContain("<td>Current city</td>");
     expect(p).toContain("<td>Worker request</td>");
     expect(p).toContain('title="a1a1a1a1-0000-4000-8000-000000000001">a1a1…0001</span>');
+  });
+});
+
+describe("#2728 — structured edit controls", () => {
+  const STRUCTURED = [
+    "skills",
+    "work history",
+    "education",
+    "certifications",
+    "training",
+    "languages",
+    "work types",
+    "documents ready",
+  ] as const;
+
+  it("with no correction_values block, only the simple section controls are drawn", () => {
+    const html = render(candidateRecord(), { canEdit: true });
+    for (const label of STRUCTURED) expect(html, label).not.toContain(`Edit ${label}`);
+    for (const label of ["location", "trade", "experience", "pay and availability"]) {
+      expect(html, label).toContain(`Edit ${label}`);
+    }
+  });
+
+  it("with the block, all eight structured controls sit beside the simple ones", () => {
+    const html = render(candidateRecord({ correction_values: candidateCorrectionValues() }), {
+      canEdit: true,
+    });
+    for (const label of STRUCTURED) expect(html, label).toContain(`Edit ${label}`);
+    // 5 simple controls (pay appears on Salary and Preferences) + the eight structured ones.
+    expect((html.match(/>Edit /g) ?? []).length).toBe(13);
+  });
+
+  it("never offers an edit for name, phone, WhatsApp or photo visibility", () => {
+    const html = render(candidateRecord({ correction_values: candidateCorrectionValues() }), {
+      canEdit: true,
+    });
+    for (const label of ["name", "phone", "WhatsApp", "photo"]) {
+      expect(html, label).not.toContain(`Edit ${label}`);
+    }
   });
 });
 

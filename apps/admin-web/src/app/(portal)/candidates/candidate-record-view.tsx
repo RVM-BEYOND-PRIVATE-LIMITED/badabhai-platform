@@ -99,6 +99,8 @@ export interface CandidateRecordViewProps {
 
 interface CandidateEditContextValue {
   canEdit: boolean;
+  /** #2728 — the API sent the gated correction-prefill block; structured sections may open. */
+  hasCorrectionValues: boolean;
   history: CorrectionHistoryView;
   onEditSection?: (section: EditSectionId) => void;
   onRevert?: (item: CorrectionHistoryItem) => void;
@@ -113,6 +115,7 @@ const NO_FLASH: ReadonlySet<string> = new Set();
 
 const CandidateEditContext = createContext<CandidateEditContextValue>({
   canEdit: false,
+  hasCorrectionValues: false,
   history: NO_HISTORY,
   flashed: NO_FLASH,
   canManageAccount: false,
@@ -148,6 +151,7 @@ export function CandidateRecordPanels({
     <CandidateEditContext.Provider
       value={{
         canEdit,
+        hasCorrectionValues: detail.correction_values !== null,
         history,
         onEditSection,
         onRevert,
@@ -265,10 +269,23 @@ function CorrectionBadge({
   );
 }
 
-/** A section's Edit control, offered only to `edit_candidates` holders. */
-function SectionEdit({ section, label }: { section: EditSectionId; label: string }) {
+/**
+ * A section's Edit control, offered only to `edit_candidates` holders. A STRUCTURED section
+ * (#2728) additionally requires the gated `correction_values` block: without it there is no
+ * prefilled draft to edit, so the control is not drawn at all.
+ */
+function SectionEdit({
+  section,
+  label,
+  structured = false,
+}: {
+  section: EditSectionId;
+  label: string;
+  structured?: boolean;
+}) {
   const edit = useContext(CandidateEditContext);
   if (!edit.canEdit || !edit.onEditSection) return null;
+  if (structured && !edit.hasCorrectionValues) return null;
   return (
     <button
       type="button"
@@ -444,7 +461,10 @@ function ProfilePanel({
         />
       </PanelSection>
 
-      <PanelSection title="Languages">
+      <PanelSection
+        title="Languages"
+        action={<SectionEdit section="languages" label="languages" structured />}
+      >
         <DetailList items={[row("languages", d.languages, chips(d.languages.value))]} />
       </PanelSection>
 
@@ -473,7 +493,13 @@ function ProfilePanel({
 
       <PanelSection
         title="Preferences"
-        action={<SectionEdit section="pay" label="pay and availability" />}
+        action={
+          <>
+            <SectionEdit section="work-types" label="work types" structured />
+            <SectionEdit section="documents" label="documents ready" structured />
+            <SectionEdit section="pay" label="pay and availability" />
+          </>
+        }
       >
         <DetailList
           items={[
@@ -525,7 +551,16 @@ function ProfilePanel({
         />
       </PanelSection>
 
-      <PanelSection title="Education">
+      <PanelSection
+        title="Education"
+        action={
+          <>
+            <SectionEdit section="education" label="education" structured />
+            <SectionEdit section="certifications" label="certifications" structured />
+            <SectionEdit section="training" label="training" structured />
+          </>
+        }
+      >
         <DetailList
           items={[
             row("education.headline", d.education.headline, text(d.education.headline.value)),
@@ -611,7 +646,10 @@ function WorkHistoryPanel({ d }: { d: CandidateDetail }) {
         />
       </PanelSection>
 
-      <PanelSection title={fieldLabel("work_history")}>
+      <PanelSection
+        title={fieldLabel("work_history")}
+        action={<SectionEdit section="work-history" label="work history" structured />}
+      >
         <p className="panel__sub cfield">
           <span>Where this came from:</span>
           <SourceTag source={d.work_history.source} />
@@ -681,7 +719,10 @@ function SkillsPanel({ d }: { d: CandidateDetail }) {
   const months = (n: number | null) => (n === null ? null : formatMonths(n));
   return (
     <>
-      <PanelSection title="On the profile">
+      <PanelSection
+        title="On the profile"
+        action={<SectionEdit section="skills" label="skills" structured />}
+      >
         <DetailList
           items={[
             row("skills.skills", d.skills.skills, chips(d.skills.skills.value)),
