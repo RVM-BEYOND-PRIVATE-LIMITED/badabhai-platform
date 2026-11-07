@@ -8,6 +8,22 @@ boundary moved).
 
 ---
 
+## 2026-11-07 — Visitor-IP rate limits armed (#2542 / TD25)
+
+- **The turn-on.** Production `TRUST_PROXY_HOP_COUNT=1`. The api trusts exactly one
+  `X-Forwarded-For` hop — the nginx edge that appends the visitor. payer-web forwards the
+  validated visitor address on its server-side calls; admin-web stays tunnel-only and shares
+  only the admins' own bucket.
+- **Verification.** Three `/r/` probes and two payer-web `/i/` probes from one external runner
+  produced ONE `ratelimit:ip:invite_click` key at 5, so payer-web's forwarding works. Ten
+  forged-header probes (`X-Forwarded-For: 198.51.100.7` / `.8`) added 10 to that same key and
+  created NO new key; `/health` stayed 200. Runbook:
+  [visitor-ip-turn-on-runbook](../ops/visitor-ip-turn-on-runbook.md).
+- **Cap resize.** `ADMIN_AUTH_MAX_PER_IP_PER_HOUR` 200 → 20;
+  `REFERRAL_CLICK_MAX_PER_IP_PER_HOUR` 600 → 120; production
+  `PAYER_AUTH_MAX_PER_IP_PER_HOUR` 1000 → 100. The old values were sized for one shared bucket;
+  the new ones are per visitor, with CGNAT as the reason they are not tighter.
+
 ## 2026-09-30 — ADR-0047: the PII restriction is lifted; model-prompt masking becomes one switch
 
 - **The decision.** Owner, 2026-09-30 (relayed by Divyanshu, Backend Platform; merged directly on
