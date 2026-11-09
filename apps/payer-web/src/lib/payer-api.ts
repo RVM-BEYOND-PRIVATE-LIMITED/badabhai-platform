@@ -341,11 +341,16 @@ function savedStage(a: { stage?: ApplicantStage }): { stage?: ApplicantStage } {
  * flag off it returns the weighted reach engine's scored pool. The wire schema is a
  * union of both and the mapper branches on shape, so flipping the flag — and rolling it
  * back — is invisible here. PII-free either way (XB-C).
+ *
+ * `?stage=all` (#2737): the API's default feed is now `new` only — a rejected/selected
+ * applicant is gone on the next read. payer-web's board draws all three tabs from ONE
+ * feed, so it asks for the full labelled board; while the flag is off the API ignores the
+ * query and this is the feed it always was.
  */
 export async function getApplicantFeed(jobId: string): Promise<ApplicantFeed | null> {
   let wire: ReturnType<typeof reachApplicantListWireSchema.parse>;
   try {
-    wire = await payerFetch(`/payer/reach/jobs/${jobId}/applicants`, {
+    wire = await payerFetch(`/payer/reach/jobs/${jobId}/applicants?stage=all`, {
       schema: reachApplicantListWireSchema,
     });
   } catch (e) {

@@ -409,8 +409,9 @@ describe("the four Phase-9 flags, as they reach the box", () => {
     ["FEED_POSTINGS_UNION_ENABLED", "false"],
     // ADR-0050 — off is the kill switch (twins paused); none exist until it is armed.
     ["AGENCY_TWIN_SYNC_ENABLED", "false"],
-    // Owner ruling 2026-10-07 — off is today's applicant feeds and no stage route, byte for byte.
-    ["PAYER_APPLICANT_STAGES_ENABLED", "false"],
+    // Owner ruling 2026-10-07; ON by default since #2737 — the saved board writes and filters
+    // without a client opt-in. The secret still kills it (`false`) with no code change.
+    ["PAYER_APPLICANT_STAGES_ENABLED", "true"],
     // ADR-0061 — off is today's applicant list: the v1.0 ORDER BY, no level read, levelFit null.
     ["LEVEL_NEEDED_SORT_ENABLED", "false"],
     // ADR-0053 — off keys every payer read to the login: the pre-ADR behaviour, byte for byte.

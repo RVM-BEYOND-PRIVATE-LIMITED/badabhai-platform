@@ -46,6 +46,7 @@ import { PayerApplicantStagesService } from "./payer-applicant-stages.service";
 import { PayerApplicantStagesRepository } from "./payer-applicant-stages.repository";
 import { PayerApplicantStagesEnabledGuard } from "./payer-applicant-stages.flag";
 import { PayerApplicantInboxQueryPipe } from "./payer-applicant-inbox-query.pipe";
+import { PayerApplicantFeedQueryPipe } from "./payer-applicant-feed-query.pipe";
 import {
   MEMBER_INVITE_MAILER,
   MockMemberInviteMailer,
@@ -142,6 +143,7 @@ import {
     // per-posting list and the inbox read it; nothing outside this module does.
     PayerApplicantStagesEnabledGuard,
     PayerApplicantInboxQueryPipe,
+    PayerApplicantFeedQueryPipe,
     PayerApplicantStagesService,
     PayerApplicantStagesRepository,
     PayerOtpService,

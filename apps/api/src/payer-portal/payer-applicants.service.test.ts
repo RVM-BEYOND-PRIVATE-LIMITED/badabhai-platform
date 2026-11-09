@@ -499,7 +499,7 @@ describe("PayerApplicantsService — the saved pipeline board (owner ruling 2026
     };
   }
 
-  it("agency job: every applier carries his stage from the AGENCY board (`new` if none)", async () => {
+  it("agency job: every applier carries his stage from the AGENCY board (`new` if none) — the `all` view", async () => {
     const s = stagesOn();
     await s.svc.setStage(PAYER_A, JOB_A, APPLIER.workerId, "shortlist", CTX);
     // A company-posting row for the same worker must not leak onto the agency list.
@@ -512,15 +512,48 @@ describe("PayerApplicantsService — the saved pipeline board (owner ruling 2026
       updatedAt: new Date(),
     });
     const d = make({ stages: s.svc });
-    const out = (await d.svc.listForOwned(JOB_A, PAYER_A, CTX)) as ApplicantListResponseDto & {
-      applicants: { stage: string }[];
-    };
+    const out = (await d.svc.listForOwned(JOB_A, PAYER_A, CTX, "all")) as
+      | ApplicantListResponseDto
+      | (ApplicantListResponseDto & { applicants: { stage: string }[] });
     expect(out.applicants).toHaveLength(1);
-    expect(out.applicants[0]!.stage).toBe("shortlist");
+    expect((out.applicants[0] as { stage: string }).stage).toBe("shortlist");
     expect(out.applicants[0]).toHaveProperty("score"); // still the agency row
   });
 
-  it("company posting: each applicant carries his stage; nobody-moved reads `new`", async () => {
+  it("agency job: the default feed is `new` — a shortlisted or passed applicant is gone (#2737)", async () => {
+    const s = stagesOn();
+    await s.svc.setStage(PAYER_A, JOB_A, APPLIER.workerId, "shortlist", CTX);
+    const d = make({ stages: s.svc });
+
+    const shortlisted = (await d.svc.listForOwned(JOB_A, PAYER_A, CTX)) as {
+      applicants: unknown[];
+    };
+    expect(shortlisted.applicants).toEqual([]);
+    // A hidden row is not an impression: the agency list writes one feed.shown per RENDERED row.
+    expect(d.feedShown()).toEqual([]);
+
+    await s.svc.setStage(PAYER_A, JOB_A, APPLIER.workerId, "passed", CTX);
+    const passed = (await d.svc.listForOwned(JOB_A, PAYER_A, CTX)) as { applicants: unknown[] };
+    expect(passed.applicants).toEqual([]);
+
+    // `?stage=` is that tab; `all` is the saved board (every row, each labelled).
+    const onlyPassed = (await d.svc.listForOwned(JOB_A, PAYER_A, CTX, "passed")) as {
+      applicants: { stage: string }[];
+    };
+    expect(onlyPassed.applicants.map((a) => a.stage)).toEqual(["passed"]);
+    const board = (await d.svc.listForOwned(JOB_A, PAYER_A, CTX, "all")) as {
+      applicants: { stage: string }[];
+    };
+    expect(board.applicants.map((a) => a.stage)).toEqual(["passed"]);
+
+    // A DIFFERENT posting the payer owns is unaffected: TWIN's board is still empty → `new`.
+    const twin = (await d.svc.listForOwned(TWIN, PAYER_A, CTX)) as {
+      applicants: { workerId: string }[];
+    };
+    expect(twin.applicants.map((a) => a.workerId)).toEqual([APPLIER.workerId]);
+  });
+
+  it("company posting: each applicant carries his stage; a passed one is absent by default (#2737)", async () => {
     const s = stagesOn();
     const d = make({ stages: s.svc });
     const before = (await d.svc.listForOwned(POSTING_A, PAYER_A, CTX)) as unknown as {
@@ -528,12 +561,20 @@ describe("PayerApplicantsService — the saved pipeline board (owner ruling 2026
     };
     expect(before.applicants.map((a) => a.stage)).toEqual(["new"]);
     await s.svc.setStage(PAYER_A, POSTING_A, worker(9).workerId, "passed", CTX);
-    const after = (await d.svc.listForOwned(POSTING_A, PAYER_A, CTX)) as unknown as {
+    const afterDefault = (await d.svc.listForOwned(POSTING_A, PAYER_A, CTX)) as unknown as {
       applicants: { stage: string }[];
     };
-    expect(after.applicants.map((a) => a.stage)).toEqual(["passed"]);
-    // A PASSED applicant is still listed — the board labels, it never filters or reorders.
-    expect(after.applicants).toHaveLength(before.applicants.length);
+    expect(afterDefault.applicants).toEqual([]);
+    const afterAll = (await d.svc.listForOwned(POSTING_A, PAYER_A, CTX, "all")) as unknown as {
+      applicants: { stage: string }[];
+    };
+    expect(afterAll.applicants.map((a) => a.stage)).toEqual(["passed"]);
+    // Moving him back to New puts him on the actionable feed again — the board's own rule.
+    await s.svc.setStage(PAYER_A, POSTING_A, worker(9).workerId, "new", CTX);
+    const back = (await d.svc.listForOwned(POSTING_A, PAYER_A, CTX)) as unknown as {
+      applicants: { stage: string }[];
+    };
+    expect(back.applicants.map((a) => a.stage)).toEqual(["new"]);
   });
 
   it("the row is the base row + `stage`, appended — every other key and value unchanged", async () => {
@@ -542,6 +583,7 @@ describe("PayerApplicantsService — the saved pipeline board (owner ruling 2026
       POSTING_A,
       PAYER_A,
       CTX,
+      "all",
     )) as unknown as {
       jobId: string;
       applicants: Record<string, unknown>[];

@@ -1652,7 +1652,19 @@ jobs:
     # still built only on a push to main), and no app was removed from it. A matrix job's
     # aggregate `result` is `failure` if ANY leg failed, so one app's broken Dockerfile still
     # fails this check.
-    needs: [changes, node, ai-service, image-gate, e2e, worker-app, payer-app, sast, deps-audit, cost-regression]
+    needs:
+      [
+        changes,
+        node,
+        ai-service,
+        image-gate,
+        e2e,
+        worker-app,
+        payer-app,
+        sast,
+        deps-audit,
+        cost-regression,
+      ]
     runs-on: ubuntu-latest
     steps:
       - name: Check for CI failures
@@ -2168,9 +2180,10 @@ jobs:
           # on the live agency jobs (step c). Values: lowercase true/false/1/0/empty only.
           AGENCY_TWIN_SYNC_ENABLED: ${{ secrets.AGENCY_TWIN_SYNC_ENABLED }}
           # The payer applicant pipeline board, saved server-side (owner ruling 2026-10-07).
-          # Unset/empty resolves to off through compose's `:-false`, which is today's API (no
-          # `stage` on the feeds, the stage route a 404). Needs migration 0134 applied BEFORE it is
-          # set: on without the table, both payer applicant feeds 500. true/false/1/0/empty only.
+          # ON by default since #2737: unset/empty resolves to true through compose's `:-true`, so
+          # the stage route writes and the per-posting feed filters handled applicants server-side.
+          # Set this secret to `false` for the kill switch (no `stage` on the feeds, the stage
+          # route a 404). Migration 0134 is applied in production. true/false/1/0/empty only.
           PAYER_APPLICANT_STAGES_ENABLED: ${{ secrets.PAYER_APPLICANT_STAGES_ENABLED }}
           # #2541 — the sign-up age gate. Unset/empty resolves to off through compose's `:-false`,
           # which is today's POST /consent/accept (a missing 18+ answer still passes; an explicit

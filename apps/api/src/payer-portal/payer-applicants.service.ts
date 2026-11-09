@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
-import type { ApplicantStage } from "@badabhai/types";
+import { DEFAULT_APPLICANT_STAGE, type ApplicantStage } from "@badabhai/types";
 import type { RequestContext } from "../common/request-context";
 import { ReachService } from "../reach/reach.service";
 import type { ApplicantListResponseDto, ApplicantRowDto } from "../reach/reach.dto";
@@ -13,6 +13,7 @@ import { PayerTenantScopeService } from "../payers/payer-tenant-scope.service";
 import type { PayerTenantScope } from "../payers/payer-tenant-scope";
 import { PayerApplicantStagesService, withStages } from "./payer-applicant-stages.service";
 import { APPLICANT_NOT_FOUND } from "./payer-applicant-stage.dto";
+import type { ApplicantFeedStage } from "./payer-applicant-feed-query.dto";
 
 /** A feed row with its pipeline stage — only while `PAYER_APPLICANT_STAGES_ENABLED` is on. */
 export type StagedRow<R> = R & { stage: ApplicantStage };
@@ -77,11 +78,15 @@ const NOT_FOUND = APPLICANT_NOT_FOUND;
  * `ReachRepository.listApplicantSignalRowsForJob` and `MatchFeedRepository.listCandidates` both
  * exclude him in the SQL.
  *
- * STAGES (owner ruling 2026-10-07): with `PAYER_APPLICANT_STAGES_ENABLED` on, each row also
- * carries its `stage` on the payer's saved New / Shortlist / Passed board (`new` when nobody has
- * moved him), read from `payer_applicant_stages` for the resolved posting kind. The board never
- * filters or reorders the list — a passed applicant is still listed, labelled `passed`; what to
- * show under which tab is the client's call. Off, the rows are exactly the base shapes.
+ * STAGES (owner ruling 2026-10-07; server-side filter #2737): with
+ * `PAYER_APPLICANT_STAGES_ENABLED` on, each row also carries its `stage` on the payer's saved
+ * New / Shortlist / Passed board (`new` when nobody has moved him), read from
+ * `payer_applicant_stages` for the resolved posting kind. The feed then keeps only the rows on
+ * the requested stage — `new` when the caller names none, which is the actionable feed and why a
+ * rejected/selected applicant does not come back on the next read. `stage=all` is the saved
+ * board's own view: every applicant, each labelled (payer-web asks for it); a named stage is that
+ * tab. The filter never changes a row's shape or values. Off, the rows are exactly the base
+ * shapes and the query is ignored.
  */
 @Injectable()
 export class PayerApplicantsService {
@@ -100,6 +105,7 @@ export class PayerApplicantsService {
     jobId: string,
     actorPayerId: string,
     ctx: RequestContext,
+    stage?: ApplicantFeedStage,
   ): Promise<PayerApplicantListDto> {
     const scope = await this.tenancy.resolve(actorPayerId);
     // THE BOARD IS READ FIRST, and only while PAYER_APPLICANT_STAGES_ENABLED is on (`null`, no
@@ -109,19 +115,33 @@ export class PayerApplicantsService {
     // (`findOwnedJobRef`, ADR-0053 §4), so for an unknown or foreign id it reads no board at all
     // and is empty, and the 404 below is unchanged.
     const stages = await this.stages.stagesForOwnedPosting(jobId, scope.tenantKey);
+    // `new` is the default only while the board is on; off, `stage` is ignored and the list is
+    // exactly the base one (the pipe never even validates a query while off).
+    const onStage = stage ?? DEFAULT_APPLICANT_STAGE;
+    // The agency branch filters BEFORE it ranks and emits `feed.shown`: an applicant hidden by
+    // the filter was not rendered, so he must not write an impression either. The predicate reads
+    // only this posting's AGENCY board, so a company-posting row for the same worker cannot leak.
+    const visibleToAgency =
+      stages && onStage !== "all"
+        ? (workerId: string) =>
+            (stages.agency_job.get(workerId) ?? DEFAULT_APPLICANT_STAGE) === onStage
+        : undefined;
     // ONE ownership read decides the source, whatever MATCH_V1_ENABLED says (#1898): an owned
     // `jobs` row lists its appliers; a miss (unknown or another tenant's job) falls through to
     // the posting seam.
-    const jobList = await this.reach.tryApplicantsForOwnedJob(jobId, scope, ctx);
+    const jobList = await this.reach.tryApplicantsForOwnedJob(jobId, scope, ctx, visibleToAgency);
     if (jobList) {
       return stages
         ? { ...jobList, applicants: withStages(jobList.applicants, stages.agency_job) }
         : jobList;
     }
     const postingList = await this.listForOwnedPosting(jobId, scope);
-    return stages
-      ? { ...postingList, applicants: withStages(postingList.applicants, stages.company_posting) }
-      : postingList;
+    if (!stages) return postingList;
+    const annotated = withStages(postingList.applicants, stages.company_posting);
+    return {
+      ...postingList,
+      applicants: onStage === "all" ? annotated : annotated.filter((row) => row.stage === onStage),
+    };
   }
 
   private async listForOwnedPosting(

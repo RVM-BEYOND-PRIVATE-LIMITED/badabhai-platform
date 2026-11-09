@@ -411,10 +411,13 @@ services:
       # badabhai.ai `/r/*` 302 rule points at this api. `:-false` because this bool rejects "".
       RESUME_QR_SCAN_ENABLED: ${RESUME_QR_SCAN_ENABLED:-false}
 
-      # THE PAYER APPLICANT PIPELINE BOARD (owner ruling 2026-10-07). Off is today's API exactly:
-      # no `stage` on either applicant feed, the stage route a 404, and nothing reads migration
-      # 0134's table. Turn on only after 0134 is applied. `:-false` because this bool rejects "".
-      PAYER_APPLICANT_STAGES_ENABLED: ${PAYER_APPLICANT_STAGES_ENABLED:-false}
+      # THE PAYER APPLICANT PIPELINE BOARD (owner ruling 2026-10-07; ON by default since #2737).
+      # The stage route writes and the per-posting feed filters `shortlist`/`passed` server-side,
+      # so a handled applicant never comes back on a reload. Migration 0134 is applied in
+      # production. OFF is still the kill switch: no `stage` on either feed, the stage route a 404,
+      # nothing reads the table. `:-true` because this bool rejects "" and an absent/empty secret
+      # must resolve to ON; set the secret to `false` to disable.
+      PAYER_APPLICANT_STAGES_ENABLED: ${PAYER_APPLICANT_STAGES_ENABLED:-true}
 
       # THE SIGN-UP AGE GATE (#2541, CEO pack v1 A4 #9). Off is today's POST /consent/accept: a
       # missing 18+ answer still passes (an explicit under-18 answer is refused either way). On,

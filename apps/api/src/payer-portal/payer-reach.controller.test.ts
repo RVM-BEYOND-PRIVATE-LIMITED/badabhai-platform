@@ -40,16 +40,21 @@ describe("PayerReachController — identity from the session, rate-limited (ADR-
   });
 
   it("delegates the :jobId with the SESSION payer (never a body/route payer_id)", async () => {
-    await d.ctrl.applicants({ jobId: JOB }, PAYER_A, CTX);
-    expect(d.applicantsService.listForOwned).toHaveBeenCalledWith(JOB, PAYER_A.id, CTX);
+    await d.ctrl.applicants({ jobId: JOB }, {}, PAYER_A, CTX);
+    expect(d.applicantsService.listForOwned).toHaveBeenCalledWith(JOB, PAYER_A.id, CTX, undefined);
+  });
+
+  it("passes the pipe's stage through as the fourth argument (#2737)", async () => {
+    await d.ctrl.applicants({ jobId: JOB }, { stage: "all" }, PAYER_A, CTX);
+    expect(d.applicantsService.listForOwned).toHaveBeenCalledWith(JOB, PAYER_A.id, CTX, "all");
   });
 
   it("returns the service's list verbatim (no reshaping in the controller)", async () => {
-    await expect(d.ctrl.applicants({ jobId: JOB }, PAYER_A, CTX)).resolves.toBe(d.list);
+    await expect(d.ctrl.applicants({ jobId: JOB }, {}, PAYER_A, CTX)).resolves.toBe(d.list);
   });
 
   it("enforces the per-payer reach cap on the payer_reach bucket BEFORE the read", async () => {
-    await d.ctrl.applicants({ jobId: JOB }, PAYER_A, CTX);
+    await d.ctrl.applicants({ jobId: JOB }, {}, PAYER_A, CTX);
     expect(d.rateLimit.assertWithinHourlyCap).toHaveBeenCalledWith(PAYER_A.id, {
       scope: "payer_reach",
       cap: 60,
@@ -61,20 +66,20 @@ describe("PayerReachController — identity from the session, rate-limited (ADR-
 
   it("a tripped reach cap blocks the read (listForOwned never runs)", async () => {
     d.rateLimit.assertWithinHourlyCap.mockRejectedValueOnce(new Error("429"));
-    await expect(d.ctrl.applicants({ jobId: JOB }, PAYER_A, CTX)).rejects.toThrow();
+    await expect(d.ctrl.applicants({ jobId: JOB }, {}, PAYER_A, CTX)).rejects.toThrow();
     expect(d.applicantsService.listForOwned).not.toHaveBeenCalled();
   });
 
   it("passes the neutral 404 through untouched", async () => {
     d.applicantsService.listForOwned.mockRejectedValueOnce(new NotFoundException("Job not found"));
-    await expect(d.ctrl.applicants({ jobId: JOB }, PAYER_A, CTX)).rejects.toBeInstanceOf(
+    await expect(d.ctrl.applicants({ jobId: JOB }, {}, PAYER_A, CTX)).rejects.toBeInstanceOf(
       NotFoundException,
     );
   });
 
   it("never converts a server error into a 404 (fail closed)", async () => {
     d.applicantsService.listForOwned.mockRejectedValueOnce(new InternalServerErrorException());
-    await expect(d.ctrl.applicants({ jobId: JOB }, PAYER_A, CTX)).rejects.toBeInstanceOf(
+    await expect(d.ctrl.applicants({ jobId: JOB }, {}, PAYER_A, CTX)).rejects.toBeInstanceOf(
       InternalServerErrorException,
     );
   });

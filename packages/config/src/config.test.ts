@@ -288,7 +288,9 @@ describe("payments config (ADR-0010 §D5 / F-6 — mock credits in alpha)", () =
     // admin-web's tunnel-only calls share only the admins' own bucket. 20 covers 1–3 calls per
     // admin; the per-account lockouts (ADR-0060) carry brute force.
     expect(loadServerConfig({}).ADMIN_AUTH_MAX_PER_IP_PER_HOUR).toBe(20);
-    expect(loadServerConfig({ ADMIN_AUTH_MAX_PER_IP_PER_HOUR: "40" }).ADMIN_AUTH_MAX_PER_IP_PER_HOUR).toBe(40);
+    expect(
+      loadServerConfig({ ADMIN_AUTH_MAX_PER_IP_PER_HOUR: "40" }).ADMIN_AUTH_MAX_PER_IP_PER_HOUR,
+    ).toBe(40);
     expect(() => loadServerConfig({ ADMIN_AUTH_MAX_PER_IP_PER_HOUR: "0" })).toThrow();
   });
 
@@ -764,8 +766,12 @@ describe("loadServerConfig", () => {
     // merge, owner ruling 2026-10-06); only an explicit true restores the pre-ADR-0051 chat.
     expect(loadServerConfig({}).CHAT_FREE_CHAT_DISABLED).toBe(false);
     expect(loadServerConfig({ CHAT_FREE_CHAT_DISABLED: "" }).CHAT_FREE_CHAT_DISABLED).toBe(false);
-    expect(loadServerConfig({ CHAT_FREE_CHAT_DISABLED: "false" }).CHAT_FREE_CHAT_DISABLED).toBe(false);
-    expect(loadServerConfig({ CHAT_FREE_CHAT_DISABLED: "true" }).CHAT_FREE_CHAT_DISABLED).toBe(true);
+    expect(loadServerConfig({ CHAT_FREE_CHAT_DISABLED: "false" }).CHAT_FREE_CHAT_DISABLED).toBe(
+      false,
+    );
+    expect(loadServerConfig({ CHAT_FREE_CHAT_DISABLED: "true" }).CHAT_FREE_CHAT_DISABLED).toBe(
+      true,
+    );
   });
 
   it("CHAT_TRADE_OFFER_BEFORE_MODEL_ENABLED (fix F3) is OFF by default and for the empty string", () => {
@@ -813,10 +819,11 @@ describe("loadServerConfig", () => {
     expect(loadServerConfig({ RESUME_SKINS_ENABLED: "true" }).RESUME_SKINS_ENABLED).toBe(true);
   });
 
-  it("PAYER_APPLICANT_STAGES_ENABLED (owner ruling 2026-10-07) is OFF by default and for the empty string", () => {
-    // Off means nothing touches `payer_applicant_stages` (migration 0134), which is what makes a
-    // deploy ahead of that migration safe — so the default is load-bearing, not cosmetic.
-    expect(loadServerConfig({}).PAYER_APPLICANT_STAGES_ENABLED).toBe(false);
+  it("PAYER_APPLICANT_STAGES_ENABLED is ON by default (#2737); an explicit false/blank is the kill switch", () => {
+    // On since #2737: the saved board must write and filter without a client opt-in. Migration
+    // 0134 is applied in production. An explicit blank (`VAR=`) reads as OFF, and the deployed
+    // compose file uses `${VAR:-true}` so an absent/empty secret still resolves to ON.
+    expect(loadServerConfig({}).PAYER_APPLICANT_STAGES_ENABLED).toBe(true);
     expect(
       loadServerConfig({ PAYER_APPLICANT_STAGES_ENABLED: "" }).PAYER_APPLICANT_STAGES_ENABLED,
     ).toBe(false);
@@ -826,13 +833,23 @@ describe("loadServerConfig", () => {
     expect(
       loadServerConfig({ PAYER_APPLICANT_STAGES_ENABLED: "true" }).PAYER_APPLICANT_STAGES_ENABLED,
     ).toBe(true);
+    expect(
+      loadServerConfig({ PAYER_APPLICANT_STAGES_ENABLED: "0" }).PAYER_APPLICANT_STAGES_ENABLED,
+    ).toBe(false);
+    expect(
+      loadServerConfig({ PAYER_APPLICANT_STAGES_ENABLED: "1" }).PAYER_APPLICANT_STAGES_ENABLED,
+    ).toBe(true);
   });
 
   it("LEVEL_NEEDED_SORT_ENABLED (engine v1.1, ADR-0061) is OFF by default and for the empty string", () => {
     // Off is today's applicant list exactly; the CEO turns it on (30 Oct ruling Q4).
     expect(loadServerConfig({}).LEVEL_NEEDED_SORT_ENABLED).toBe(false);
-    expect(loadServerConfig({ LEVEL_NEEDED_SORT_ENABLED: "" }).LEVEL_NEEDED_SORT_ENABLED).toBe(false);
-    expect(loadServerConfig({ LEVEL_NEEDED_SORT_ENABLED: "0" }).LEVEL_NEEDED_SORT_ENABLED).toBe(false);
+    expect(loadServerConfig({ LEVEL_NEEDED_SORT_ENABLED: "" }).LEVEL_NEEDED_SORT_ENABLED).toBe(
+      false,
+    );
+    expect(loadServerConfig({ LEVEL_NEEDED_SORT_ENABLED: "0" }).LEVEL_NEEDED_SORT_ENABLED).toBe(
+      false,
+    );
     expect(loadServerConfig({ LEVEL_NEEDED_SORT_ENABLED: "true" }).LEVEL_NEEDED_SORT_ENABLED).toBe(
       true,
     );

@@ -134,6 +134,7 @@ describe("PayerPortalModule wiring (cross-module DI regression guard)", () => {
       "PayerApplicantStagesRepository",
       "PayerApplicantStagesEnabledGuard",
       "PayerApplicantInboxQueryPipe",
+      "PayerApplicantFeedQueryPipe",
     ]) {
       expect(providerTokens()).toContain(token);
     }

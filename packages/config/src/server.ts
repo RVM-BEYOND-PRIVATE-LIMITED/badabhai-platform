@@ -1232,12 +1232,18 @@ export const serverEnvSchema = z.object({
   // New / Shortlist / Passed stages in `payer_applicant_stages` (migration 0134), set through
   // `PUT /payer/reach/jobs/:jobId/applicants/:workerId/stage`.
   //
-  // DEFAULT OFF, AND OFF IS TODAY'S API EXACTLY. With it off the stage route is a 404, the two
-  // applicant feeds carry no `stage` field, `GET /payer/reach/applicants?stage=` is the 400 it has
-  // always been, and NOTHING reads or writes `payer_applicant_stages` — so migration 0134 is
-  // apply-before-FLAG-ON, not apply-before-deploy. Turn it on only after 0134 is applied: on
-  // against a database without the table, both applicant feeds 500.
-  PAYER_APPLICANT_STAGES_ENABLED: booleanFromString,
+  // DEFAULT ON SINCE #2737 (9 Nov 2026). Migration 0134 is applied in production, and the saved
+  // board is what makes "rejected/selected never comes back" true across a reload: the stage route
+  // writes, and the per-posting feed filters server-side. OFF REMAINS THE KILL SWITCH: with it off
+  // the stage route is a 404, neither applicant feed carries `stage`, the inbox `?stage=` is the
+  // 400 it has always been, and NOTHING reads or writes
+  // `payer_applicant_stages`. An explicit blank (`VAR=`) reads as off; the deployed compose file
+  // uses `${VAR:-true}`, so an absent/empty secret resolves to ON. Do not point this at a database
+  // without 0134: on, both applicant feeds 500.
+  PAYER_APPLICANT_STAGES_ENABLED: z
+    .union([z.boolean(), z.enum(["true", "false", "1", "0", ""])])
+    .transform((v) => v === true || v === "true" || v === "1")
+    .default(true),
   // Per-PAYER hourly cap on the stage WRITE route (the invite-mint analogue of XB-G). Every real
   // change writes a row and an event, so an uncapped account could flood the spine by toggling one
   // applicant back and forth. Its own bucket (scope "payer_applicant_stage") — never the

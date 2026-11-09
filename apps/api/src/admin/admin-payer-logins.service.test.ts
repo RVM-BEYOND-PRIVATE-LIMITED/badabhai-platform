@@ -542,7 +542,10 @@ describe("AdminPayerLoginsService — accounts list (#2563)", () => {
           status: "active",
           createdAt: new Date("2026-11-01T00:00:00Z"),
           lastLoginAt: null,
-          passwordSetAt: new Date("2026-11-02T00:00:00Z"),
+          // A temp password is PENDING only inside PAYER_TEMP_PASSWORD_TTL_HOURS (default 168).
+          // A fixed 2026-11-02 date expired on 2026-11-09 and turned this case into a calendar
+          // time bomb; the assertion is about the STATE, not the wall clock.
+          passwordSetAt: new Date(Date.now() - 60 * 60 * 1000),
           passwordRevokedAt: null,
           mustChangePassword: true,
           hasPassword: true,

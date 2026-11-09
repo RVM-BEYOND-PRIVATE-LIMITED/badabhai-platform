@@ -32,8 +32,9 @@ import {
  * delegation to {@link PayerApplicantStagesService}, which owns ownership, membership,
  * idempotency and the event.
  *  - `payer_id` is the verified SESSION payer (XB-A); the route and body have no slot for one.
- *  - FLAG OFF (`PAYER_APPLICANT_STAGES_ENABLED`, the default): a neutral 404 from
- *    {@link PayerApplicantStagesEnabledGuard}, after the 401 and before anything else.
+ *  - FLAG OFF (`PAYER_APPLICANT_STAGES_ENABLED`, the kill switch; ON by default since #2737): a
+ *    neutral 404 from {@link PayerApplicantStagesEnabledGuard}, after the 401 and before anything
+ *    else.
  *  - WRITE CAP: its own per-payer hourly bucket (`payer_applicant_stage`,
  *    `PAYER_APPLICANT_STAGE_MAX_PER_HOUR`), charged BEFORE the service so a capped payer touches
  *    no data; one unit per request, including a no-op or a 404 (probing is not free). Fails

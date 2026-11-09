@@ -111,6 +111,17 @@ describe("getApplicantFeed — the row's saved stage (flag on) and its absence (
     const { getApplicantFeed } = await import("./payer-api");
     await expect(getApplicantFeed(P1)).rejects.toThrow();
   });
+
+  it("asks for the full labelled board with ?stage=all (#2737)", async () => {
+    // The API's default feed is `new` only. payer-web's three tabs read ONE feed, so it
+    // explicitly asks for every stage; while the flag is off the API ignores the query.
+    fetchMock.mockResolvedValue(jsonResponse({ jobId: P1, applicants: [] }));
+    const { getApplicantFeed } = await import("./payer-api");
+    await getApplicantFeed(P1);
+    const url = new URL(lastCall()[0]);
+    expect(url.pathname).toBe(`/payer/reach/jobs/${P1}/applicants`);
+    expect(url.searchParams.get("stage")).toBe("all");
+  });
 });
 
 describe("getCandidateInbox — the saved stage on its rows, and the ?stage= filter", () => {

@@ -122,6 +122,10 @@ export class ReachService {
    *      only in the ownership WHERE and NEVER enters the JobSpec/response/event.
    *  (2) ACTOR: each `feed.shown` carries `{actor_type:"payer", actor_id: scope.actorPayerId}`
    *      (the verified session login — never the body), vs the ops path's `system` actor.
+   *  (3) STAGE FILTER (#2737): the optional `visible` predicate runs on the APPLIERS before the
+   *      rank, so an applicant hidden by the payer's saved board is neither listed nor given a
+   *      `feed.shown` impression, and the visible rows stay contiguously ranked. Absent, the
+   *      result is exactly the unfiltered list.
    *
    * `scope` is the caller's ONE resolution of the session payer (ADR-0053 §5.2 rule 1).
    * (The 404-throwing wrapper `applicantsForOwnedJob` had no production caller and was removed
@@ -131,6 +135,7 @@ export class ReachService {
     jobId: string,
     scope: PayerTenantScope,
     ctx: RequestContext,
+    visible?: (workerId: string) => boolean,
   ): Promise<ApplicantListResponseDto | undefined> {
     const ownedRow = await this.repo.findOwnedJobSignalRowById(jobId, scope.tenantKey);
     if (!ownedRow) return undefined;
@@ -138,8 +143,9 @@ export class ReachService {
     // #1898: ONLY the workers who applied to this job — read by the job id the ownership read
     // returned, never the route value. Signal columns only, as the pool read.
     const rows = await this.repo.listApplicantSignalRowsForJob(ownedRow.jobId);
-    const ranked = ReachService.rankAppliers(ownedRow, rows, new Date());
-    // #2736 — the non-contact card facts, grafted after the rank (never a rank input).
+    const visibleRows = visible ? rows.filter((row) => visible(row.workerId)) : rows;
+    const ranked = ReachService.rankAppliers(ownedRow, visibleRows, new Date());
+    // #2736 - the non-contact card facts, grafted after the rank (never a rank input).
     const applicants = await this.withProfileFacts(ranked);
 
     // One feed.shown per row, UNKEYED (D7), with the PAYER as the actor (actor_id is the
