@@ -15,7 +15,7 @@ import { AdminRowActions } from "./admin-row-actions";
 import { PageHeader } from "../../../components/page-header";
 import { DataGrid, type GridColumn } from "../../../components/data-grid";
 import { NavPendingCue } from "../../../components/nav-pending";
-import { ALL_ADMIN_ACTIONS_LINK } from "../../../components/admin-action-result-banner";
+import { ALL_ADMIN_ACTIONS_LINK } from "../../../lib/admin-links";
 import { FilterChip } from "../../../components/filter-chip-link";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 

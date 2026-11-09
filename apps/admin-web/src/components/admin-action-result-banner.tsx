@@ -2,36 +2,26 @@
 
 import { useEffect, useRef } from "react";
 import type { AdminActionOutcome, AdminActionSuccess } from "../lib/admin-action-result";
+import {
+  ALL_ADMIN_ACTIONS_LINK,
+  type ResultEventsLink,
+} from "../lib/admin-links";
 import { InlineNotice } from "./inline-notice";
 import { useToast } from "./toast";
 import type { ToastOptions } from "./toast-store";
 
-/** Where a success sends the operator to see the audit event it wrote, and what that is called. */
-export interface ResultEventsLink {
-  href: string;
-  /**
-   * "View event timeline" for ONE record's timeline; "View all admin actions" for the admin
-   * directory, whose actions have no per-admin timeline and land on the filtered /events.
-   */
-  label: string;
-}
+/**
+ * Re-exported for the client components that already import it from this module. Server
+ * components must import from `lib/admin-links` instead — a `"use client"` module hands a
+ * server importer a client reference, not the object, which made `href` undefined.
+ */
+export { ALL_ADMIN_ACTIONS_LINK };
+export type { ResultEventsLink };
 
 /** One record's event timeline as a result link, or none when the reader may not open it. */
 export function timelineLink(href: string | null): ResultEventsLink | null {
   return href ? { href, label: "View event timeline" } : null;
 }
-
-/**
- * Every governed admin action on the audit spine — the ONE way the admin directory links into
- * the log, under one name: the page header, the invite result and every row action's result.
- * Each of those emits an `admin.action_performed`; there is no per-admin slice to offer instead
- * (`admin_session` has no timeline route, and `/events?subjectType=admin_session` is every
- * admin's sessions, not the action just taken).
- */
-export const ALL_ADMIN_ACTIONS_LINK: ResultEventsLink = {
-  href: "/events?eventName=admin.action_performed",
-  label: "View all admin actions",
-};
 
 /** The quiet success toast this action raises, with its one optional View action. */
 export function successToast(

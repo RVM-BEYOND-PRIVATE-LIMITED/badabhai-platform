@@ -25,9 +25,7 @@ import { FilterPanel } from "../../../components/filter-panel";
 import { DataGrid, type GridColumn } from "../../../components/data-grid";
 import { Pager } from "../../../components/pager";
 import { StatusPill } from "../../../components/status-pill";
-import {
-  ALL_ADMIN_ACTIONS_LINK,
-} from "../../../components/admin-action-result-banner";
+import { ALL_ADMIN_ACTIONS_LINK } from "../../../lib/admin-links";
 import {
   CURSOR_REFUSAL,
   FirstPageAction,
