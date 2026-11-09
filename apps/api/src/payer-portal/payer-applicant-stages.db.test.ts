@@ -64,10 +64,19 @@ const POST_A = id(); // company posting, A
 const POST_B = id(); // company posting, B
 
 const W = Object.fromEntries(
-  ["w1", "w2", "w3", "w4", "w5", "skipper", "leaver", "suspended", "noprof", "stranger", "erased"].map((k) => [
-    k,
-    id(),
-  ]),
+  [
+    "w1",
+    "w2",
+    "w3",
+    "w4",
+    "w5",
+    "skipper",
+    "leaver",
+    "suspended",
+    "noprof",
+    "stranger",
+    "erased",
+  ].map((k) => [k, id()]),
 ) as Record<string, string>;
 
 interface Fixture {
@@ -328,10 +337,29 @@ describe.skipIf(!RUN)("payer applicant pipeline board — against Postgres (flag
     expect(unknown!.company_posting.size + unknown!.agency_job.size).toBe(0);
   });
 
-  it("per-posting feeds carry each applicant's stage — agency and company — and keep everyone listed", async () => {
+  it("the default per-posting feed is `new` - shortlisted/passed applicants are gone (#2737)", async () => {
     const c = ctx();
     correlations.push(c.correlationId);
     const agency = (await perPosting.listForOwned(JOB_A, PAYER_A, c)) as {
+      applicants: { workerId: string; stage: string }[];
+    };
+    const agencyIds = agency.applicants.map((a) => a.workerId);
+    expect(agencyIds).toContain(W.w1); // stored `new`
+    expect(agencyIds).toContain(W.w4); // no row = `new`
+    expect(agencyIds).not.toContain(W.w3); // passed
+    expect(agencyIds).not.toContain(W.w2); // shortlist or passed (the concurrency case)
+
+    const company = (await perPosting.listForOwned(POST_A, PAYER_A, c)) as {
+      applicants: { workerId: string; stage: string }[];
+    };
+    expect(company.applicants.map((a) => a.workerId).sort()).toEqual([W.w1!, W.erased!].sort());
+    expect(company.applicants.every((a) => a.stage === "new")).toBe(true);
+  });
+
+  it("`?stage=all` carries each applicant's stage - agency and company - and keeps everyone listed", async () => {
+    const c = ctx();
+    correlations.push(c.correlationId);
+    const agency = (await perPosting.listForOwned(JOB_A, PAYER_A, c, "all")) as {
       applicants: { workerId: string; stage: string; score: number }[];
     };
     const w2 = (await rowsFor(JOB_A)).find((r) => r.worker_id === W.w2)!.stage;
@@ -343,7 +371,7 @@ describe.skipIf(!RUN)("payer applicant pipeline board — against Postgres (flag
     });
     expect(agency.applicants.every((a) => typeof a.score === "number")).toBe(true);
 
-    const company = (await perPosting.listForOwned(POST_A, PAYER_A, c)) as {
+    const company = (await perPosting.listForOwned(POST_A, PAYER_A, c, "all")) as {
       applicants: { workerId: string; stage: string; applicationId: string }[];
     };
     expect(Object.fromEntries(company.applicants.map((a) => [a.workerId, a.stage]))).toEqual({
@@ -386,7 +414,9 @@ describe.skipIf(!RUN)("payer applicant pipeline board — against Postgres (flag
       const { posting, ...rest } = row;
       const c = ctx();
       correlations.push(c.correlationId);
-      const list = await perPosting.listForOwned(posting.id, PAYER_A, c);
+      // The inbox spans every stage; compare against the per-posting `all` board view, not the
+      // actionable `new` feed (which would omit the shortlisted/passed rows by design, #2737).
+      const list = await perPosting.listForOwned(posting.id, PAYER_A, c, "all");
       const twin = (list.applicants as unknown as Record<string, unknown>[]).find(
         (a) => a.workerId === rest.workerId,
       );

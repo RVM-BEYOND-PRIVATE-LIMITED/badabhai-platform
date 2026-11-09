@@ -1032,14 +1032,19 @@ describe.skipIf(!RUN)(
         expect(row).toEqual({ stage: "shortlist", actor_payer_id: ids.B });
         const [evt] = await eventsOf(W1, "payer.applicant_stage_changed");
         expect(evt!.actor_id).toBe(ids.B);
-        const seenByA = (await on.applicants.listForOwned(PA, ids.A, P2A_CTX)) as {
+        // The default feed is `new`, so the shortlisted applicant is gone from it (#2737).
+        const actionable = (await on.applicants.listForOwned(PA, ids.A, P2A_CTX)) as {
+          applicants: unknown[];
+        };
+        expect(actionable.applicants).toEqual([]);
+        // `?stage=all` is the saved board: one board per org, read back by the teammate too.
+        const seenByA = (await on.applicants.listForOwned(PA, ids.A, P2A_CTX, "all")) as {
           applicants: { workerId: string; stage: string }[];
         };
         expect(seenByA.applicants).toEqual([
           expect.objectContaining({ workerId: W1, stage: "shortlist" }),
         ]);
-        // One board per org: the teammate's own list reads it back, and so does the inbox.
-        expect(await on.applicants.listForOwned(PA, ids.B, P2A_CTX)).toEqual(seenByA);
+        expect(await on.applicants.listForOwned(PA, ids.B, P2A_CTX, "all")).toEqual(seenByA);
         const inboxB = await on.inbox.list(ids.B, { limit: 50 }, P2A_CTX);
         expect(inboxB.applicants).toEqual([
           expect.objectContaining({ workerId: W1, stage: "shortlist" }),
