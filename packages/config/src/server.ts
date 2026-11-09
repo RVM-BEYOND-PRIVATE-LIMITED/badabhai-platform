@@ -1238,12 +1238,11 @@ export const serverEnvSchema = z.object({
   // the stage route is a 404, neither applicant feed carries `stage`, the inbox `?stage=` is the
   // 400 it has always been, and NOTHING reads or writes
   // `payer_applicant_stages`. An explicit blank (`VAR=`) reads as off; the deployed compose file
-  // uses `${VAR:-true}`, so an absent/empty secret resolves to ON. Do not point this at a database
-  // without 0134: on, both applicant feeds 500.
-  PAYER_APPLICANT_STAGES_ENABLED: z
-    .union([z.boolean(), z.enum(["true", "false", "1", "0", ""])])
-    .transform((v) => v === true || v === "true" || v === "1")
-    .default(true),
+  // uses `${VAR:-true}`, so an absent/empty secret resolves to ON. `.default(true)` wraps
+  // `booleanFromString` (never replaces it), so the deploy preflight still checks the exact
+  // true/false/1/0/empty grammar. Do not point this at a database without 0134: on, both
+  // applicant feeds 500.
+  PAYER_APPLICANT_STAGES_ENABLED: booleanFromString.default(true),
   // Per-PAYER hourly cap on the stage WRITE route (the invite-mint analogue of XB-G). Every real
   // change writes a row and an event, so an uncapped account could flood the spine by toggling one
   // applicant back and forth. Its own bucket (scope "payer_applicant_stage") — never the
