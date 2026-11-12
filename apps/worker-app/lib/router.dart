@@ -965,13 +965,21 @@ class _ShellScaffoldState extends State<_ShellScaffold>
   /// switch (off by default). Same rules as the prompt above: the gate answers
   /// at most once per launch and fails quiet, and the sheet opens only while
   /// the shell itself is on top.
+  ///
+  /// A "not now" is remembered for this worker on this device, so it is asked
+  /// once. A sheet that closed because the shell itself left the navigator (a
+  /// logout, a deep link) was never answered, so that is not remembered.
   Future<void> _maybePromptAvailability() async {
     if (!locator.isRegistered<AvailabilityPromptGate>()) return;
-    final AvailabilityPrompt? prompt =
-        await locator<AvailabilityPromptGate>().claim();
+    final AvailabilityPromptGate gate = locator<AvailabilityPromptGate>();
+    final AvailabilityPrompt? prompt = await gate.claim();
     if (prompt == null || !mounted) return;
     if (ModalRoute.isCurrentOf(context) == false) return;
-    await showAvailabilityPromptSheet(context, prompt: prompt);
+    final bool saved =
+        await showAvailabilityPromptSheet(context, prompt: prompt);
+    if (saved || !mounted) return;
+    if (ModalRoute.of(context)?.isActive != true) return;
+    await gate.recordDismissal();
   }
 
   @override

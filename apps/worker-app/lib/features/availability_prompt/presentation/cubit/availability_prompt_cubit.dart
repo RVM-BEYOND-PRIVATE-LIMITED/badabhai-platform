@@ -36,8 +36,8 @@ class AvailabilityPromptState extends Equatable {
 /// The availability prompt's one decision: which of the served choices the
 /// worker picks, saved with a single `PUT /workers/me/work-preferences`.
 ///
-/// "Abhi nahi" needs nothing from here — the sheet just closes, and the gate
-/// has already used up this launch's check.
+/// "Abhi nahi" needs nothing from here — the sheet just closes, and the shell
+/// records the "not now" through the gate.
 class AvailabilityPromptCubit extends Cubit<AvailabilityPromptState> {
   AvailabilityPromptCubit({
     required ProfileEditRepository repository,

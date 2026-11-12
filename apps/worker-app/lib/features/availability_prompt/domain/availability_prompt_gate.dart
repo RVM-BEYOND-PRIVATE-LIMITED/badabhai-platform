@@ -10,6 +10,7 @@ import '../../../core/config/remote_config.dart';
 import '../../profile_edit/domain/profile_edit_models.dart'
     show AvailabilityDraft;
 import '../../profile_edit/domain/profile_edit_repository.dart';
+import 'availability_prompt_store.dart';
 
 /// The `availability` wire key, as `GET`/`PUT /workers/me/work-preferences`
 /// name it (and as `partial` reports a withheld value).
@@ -88,24 +89,28 @@ class AvailabilityPrompt extends Equatable {
 ///
 /// Both onboarding paths already ask it (the trade form's preferences page and
 /// the chat's tail); this catches a worker who skipped it. WHERE it is asked is
-/// the caller's job (the home shell, past onboarding); this owns WHETHER.
+/// the caller's job (the home shell, past onboarding); this owns WHETHER, and
+/// records "not now" so it is asked once.
 ///
 /// App-scoped singleton: [claim] answers with a prompt at most once per worker
-/// per app launch, so a dismissed prompt is not asked again in the same
-/// session, and a saved answer leaves nothing empty to ask about. Advisory
-/// only — the server validates every value written.
+/// per app launch, and never again on this device once that worker said "not
+/// now" ([recordDismissal]); a saved answer leaves nothing empty to ask about.
+/// Advisory only — the server validates every value written.
 class AvailabilityPromptGate {
   AvailabilityPromptGate({
     required ProfileEditRepository repository,
+    required AvailabilityPromptStore store,
     required bool Function() isSignedIn,
     required String? Function() workerId,
     bool Function()? isEnabled,
   }) : _repository = repository,
+       _store = store,
        _isSignedIn = isSignedIn,
        _workerId = workerId,
        _isEnabled = isEnabled ?? _remoteSwitch;
 
   final ProfileEditRepository _repository;
+  final AvailabilityPromptStore _store;
   final bool Function() _isSignedIn;
   final String? Function() _workerId;
   final bool Function() _isEnabled;
@@ -125,7 +130,10 @@ class AvailabilityPromptGate {
       if (!_isEnabled()) return null;
       if (!_isSignedIn()) return null;
       if (!_claimedThisLaunch.add(_workerId() ?? '')) return null;
-      // The stored answer first: a worker who has one never costs the
+      // The device first: a worker who already said "not now" here is not
+      // asked again, and never costs a read.
+      if (await _store.isDismissed(workerId: _workerId())) return null;
+      // Then the stored answer: a worker who has one never costs the
       // options read.
       final WorkPreferencesDto prefs = await _repository.loadWorkPreferences();
       if (!availabilityPromptDue(prefs)) return null;
@@ -137,6 +145,16 @@ class AvailabilityPromptGate {
       );
     } catch (_) {
       return null;
+    }
+  }
+
+  /// Remembers "not now" for the signed-in worker on this device, so [claim]
+  /// does not ask them again, on this launch or a later one. NEVER throws.
+  Future<void> recordDismissal() async {
+    try {
+      await _store.markDismissed(workerId: _workerId());
+    } catch (_) {
+      // Best-effort: a lost mark only costs one more prompt next launch.
     }
   }
 }

@@ -14,6 +14,7 @@ import 'package:badabhai_worker_app/core/api/mock_api_client.dart';
 import 'package:badabhai_worker_app/core/config/remote_config.dart';
 import 'package:badabhai_worker_app/core/di/locator.dart';
 import 'package:badabhai_worker_app/core/theme/app_theme.dart';
+import 'package:badabhai_worker_app/features/availability_prompt/data/availability_prompt_store.dart';
 import 'package:badabhai_worker_app/features/availability_prompt/domain/availability_prompt_gate.dart';
 import 'package:badabhai_worker_app/features/availability_prompt/presentation/availability_prompt_sheet.dart';
 import 'package:badabhai_worker_app/features/consent/data/employer_sharing_prompt_store.dart';
@@ -58,22 +59,30 @@ Future<void> _settleFrames(WidgetTester tester, [int frames = 20]) async {
 
 void main() {
   late _MockProfileEditRepository prefs;
+  late InMemoryAvailabilityPromptStore store;
 
   final Finder sheet = find.text(kAvailabilityPromptTitle);
 
-  /// Swaps the app's work-preferences repository and the gate for ones over
-  /// [prefs], signed in as `w1`. The gate keeps its REAL Remote Config switch.
-  void installAvailabilityGate() {
-    locator.unregister<ProfileEditRepository>();
-    locator.registerLazySingleton<ProfileEditRepository>(() => prefs);
+  /// A gate over [prefs] and the device [store], signed in as `w1`, with its
+  /// REAL Remote Config switch. A fresh gate is a fresh app launch: new
+  /// once-per-launch memory, the same device.
+  void installFreshGate() {
     locator.unregister<AvailabilityPromptGate>();
     locator.registerLazySingleton<AvailabilityPromptGate>(
       () => AvailabilityPromptGate(
         repository: prefs,
+        store: store,
         isSignedIn: () => true,
         workerId: () => 'w1',
       ),
     );
+  }
+
+  /// Swaps the app's work-preferences repository for [prefs], and the gate.
+  void installAvailabilityGate() {
+    locator.unregister<ProfileEditRepository>();
+    locator.registerLazySingleton<ProfileEditRepository>(() => prefs);
+    installFreshGate();
   }
 
   void switchOn() => BbRemoteConfig.instance.debugSetSnapshot(<String, Object>{
@@ -92,6 +101,7 @@ void main() {
     await locator.reset();
     setupLocator(apiClient: MockApiClient());
     prefs = _MockProfileEditRepository();
+    store = InMemoryAvailabilityPromptStore();
     when(() => prefs.loadWorkPreferenceOptions()).thenAnswer(
       (_) async => const WorkPrefOptionsDto(
         languages: <String, String>{},
@@ -129,8 +139,8 @@ void main() {
   }
 
   testWidgets(
-    'switched on: an empty availability is asked once on shell entry, and '
-    'not again this session after "Abhi nahi"',
+    'switched on: an empty availability is asked once on shell entry; after '
+    '"Abhi nahi" it is not asked again, this launch or the next',
     (WidgetTester tester) async {
       switchOn();
       storedAvailability(null);
@@ -144,6 +154,11 @@ void main() {
       await _settleFrames(tester);
       expect(sheet, findsNothing);
       expect(find.byType(ProfileTabScreen), findsOneWidget);
+      expect(
+        await store.isDismissed(workerId: 'w1'),
+        isTrue,
+        reason: 'the "not now" is remembered on the device',
+      );
 
       // Leave the shell and come back: the shell remounts, the gate does not
       // ask the server again this launch.
@@ -152,6 +167,17 @@ void main() {
       router.go(Routes.profile);
       await _settleFrames(tester);
       expect(sheet, findsNothing);
+
+      // The next launch: a fresh gate over the same device. Still not asked,
+      // and the server is not even read.
+      await tester.pumpWidget(const SizedBox.shrink());
+      installFreshGate();
+      final GoRouter relaunched = await pumpApp(tester);
+      relaunched.go(Routes.profile);
+      await _pumpUntil(tester, find.byType(ProfileTabScreen));
+      await _settleFrames(tester);
+      expect(sheet, findsNothing);
+
       verify(() => prefs.loadWorkPreferences()).called(1);
       verifyNever(() => prefs.saveWorkPreferences(any()));
     },
@@ -183,7 +209,39 @@ void main() {
     ).called(1);
     expect(sheet, findsNothing);
     expect(find.text(kAvailabilityPromptSavedMessage), findsOneWidget);
+    expect(
+      await store.isDismissed(workerId: 'w1'),
+      isFalse,
+      reason: 'an answer is not a "not now"',
+    );
   });
+
+  testWidgets(
+    'a sheet closed because the shell left the screen is no answer: not '
+    'remembered, so the next launch asks again',
+    (WidgetTester tester) async {
+      switchOn();
+      storedAvailability(null);
+      final GoRouter router = await pumpApp(tester);
+
+      router.go(Routes.profile);
+      await _pumpUntil(tester, sheet);
+
+      // A deep link (or a logout) takes the worker out of the shell while the
+      // sheet is still open.
+      router.go(Routes.invite);
+      await _settleFrames(tester);
+      expect(sheet, findsNothing);
+      expect(await store.isDismissed(workerId: 'w1'), isFalse);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      installFreshGate();
+      final GoRouter relaunched = await pumpApp(tester);
+      relaunched.go(Routes.profile);
+      await _pumpUntil(tester, sheet);
+      expect(sheet, findsOneWidget);
+    },
+  );
 
   testWidgets('switched off (the default): never asks, and reads nothing', (
     WidgetTester tester,

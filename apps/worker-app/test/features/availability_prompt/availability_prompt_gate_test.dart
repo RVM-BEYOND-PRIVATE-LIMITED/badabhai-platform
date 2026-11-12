@@ -9,11 +9,24 @@ import 'package:badabhai_worker_app/core/api/api_client.dart'
         kAvailabilityStatusLabels;
 import 'package:badabhai_worker_app/core/config/remote_config.dart';
 import 'package:badabhai_worker_app/core/error/failure.dart';
+import 'package:badabhai_worker_app/features/availability_prompt/data/availability_prompt_store.dart';
 import 'package:badabhai_worker_app/features/availability_prompt/domain/availability_prompt_gate.dart';
+import 'package:badabhai_worker_app/features/availability_prompt/domain/availability_prompt_store.dart';
 import 'package:badabhai_worker_app/features/profile_edit/domain/profile_edit_repository.dart';
 
 class _MockProfileEditRepository extends Mock
     implements ProfileEditRepository {}
+
+/// A store whose platform channel is gone: every call throws.
+class _BrokenStore implements AvailabilityPromptStore {
+  @override
+  Future<bool> isDismissed({String? workerId}) =>
+      Future<bool>.error(StateError('no plugin'));
+
+  @override
+  Future<void> markDismissed({String? workerId}) =>
+      Future<void>.error(StateError('no plugin'));
+}
 
 /// `availability.status`'s closed set ON THE SERVER TODAY
 /// (`AVAILABILITY_STATUSES` in apps/api/src/profiles/worker-preferences.vocabulary.ts,
@@ -200,12 +213,16 @@ void main() {
 
   group('AvailabilityPromptGate.claim', () {
     late _MockProfileEditRepository repo;
+    late InMemoryAvailabilityPromptStore store;
     late bool enabled;
     late bool signedIn;
     late String? workerId;
 
+    /// A gate is one app launch: a fresh one has a fresh launch memory, over
+    /// the same device [store].
     AvailabilityPromptGate gate() => AvailabilityPromptGate(
       repository: repo,
+      store: store,
       isSignedIn: () => signedIn,
       workerId: () => workerId,
       isEnabled: () => enabled,
@@ -216,6 +233,7 @@ void main() {
 
     setUp(() {
       repo = _MockProfileEditRepository();
+      store = InMemoryAvailabilityPromptStore();
       enabled = true;
       signedIn = true;
       workerId = 'w1';
@@ -287,6 +305,7 @@ void main() {
 
       final AvailabilityPromptGate defaultGate = AvailabilityPromptGate(
         repository: repo,
+        store: store,
         isSignedIn: () => true,
         workerId: () => 'w1',
       );
@@ -322,14 +341,77 @@ void main() {
       expect(await gate().claim(), isNull);
     });
 
-    test('at most once per launch for the same worker — a dismissed prompt '
-        'is not asked again this session', () async {
+    test('at most once per launch for the same worker', () async {
       stored(_prefs());
       final AvailabilityPromptGate g = gate();
 
       expect(await g.claim(), isNotNull);
       expect(await g.claim(), isNull);
       verify(() => repo.loadWorkPreferences()).called(1);
+    });
+
+    test('a "not now" is remembered: the next launch asks nothing and reads '
+        'nothing', () async {
+      stored(_prefs());
+      final AvailabilityPromptGate firstLaunch = gate();
+      expect(await firstLaunch.claim(), isNotNull);
+      await firstLaunch.recordDismissal();
+
+      expect(await store.isDismissed(workerId: 'w1'), isTrue);
+      expect(await gate().claim(), isNull, reason: 'the next launch');
+      verify(() => repo.loadWorkPreferences()).called(1);
+      verify(() => repo.loadWorkPreferenceOptions()).called(1);
+    });
+
+    test('a launch with no "not now" on record still asks — only a dismissal '
+        'is remembered', () async {
+      stored(_prefs());
+      expect(await gate().claim(), isNotNull);
+      expect(await gate().claim(), isNotNull, reason: 'the next launch');
+    });
+
+    test(
+      'the "not now" is per worker: the next worker on the phone is asked',
+      () async {
+        stored(_prefs());
+        final AvailabilityPromptGate g = gate();
+        expect(await g.claim(), isNotNull);
+        await g.recordDismissal();
+
+        workerId = 'w2';
+        expect(await gate().claim(), isNotNull, reason: 'w2 never answered');
+        workerId = 'w1';
+        expect(await gate().claim(), isNull, reason: 'w1 said not now');
+      },
+    );
+
+    test('a store that cannot be read or written fails quiet', () async {
+      stored(_prefs());
+      final AvailabilityPromptGate g = AvailabilityPromptGate(
+        repository: repo,
+        store: _BrokenStore(),
+        isSignedIn: () => true,
+        workerId: () => 'w1',
+        isEnabled: () => true,
+      );
+
+      expect(await g.claim(), isNull, reason: 'any failure means no prompt');
+      await g.recordDismissal();
+    });
+
+    test('the dismissal key carries the worker, or one device slot', () {
+      expect(
+        availabilityPromptDismissKey(workerId: 'w1'),
+        'bb_availability_prompt_dismissed_w1',
+      );
+      expect(
+        availabilityPromptDismissKey(workerId: null),
+        'bb_availability_prompt_dismissed_device',
+      );
+      expect(
+        availabilityPromptDismissKey(workerId: ''),
+        'bb_availability_prompt_dismissed_device',
+      );
     });
 
     test('the next worker on the same phone gets their own check', () async {

@@ -31,7 +31,9 @@ import '../push/push_token_service.dart';
 import '../../features/applications/data/applications_repository_impl.dart';
 import '../../features/applications/domain/applications_repository.dart';
 import '../../features/applications/presentation/cubit/applications_cubit.dart';
+import '../../features/availability_prompt/data/availability_prompt_store.dart';
 import '../../features/availability_prompt/domain/availability_prompt_gate.dart';
+import '../../features/availability_prompt/domain/availability_prompt_store.dart';
 import '../../features/auth/domain/auth_session_manager.dart';
 import '../../features/auth/presentation/cubit/devices_cubit.dart';
 import '../../features/auth/presentation/cubit/enter_pin_cubit.dart';
@@ -419,10 +421,15 @@ void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
   // #2748 item 1d — the home shell's ask for an EMPTY availability, through
   // the same work-preferences reads/write as the profile editor. App-scoped,
   // like the employer-sharing gate: its once-per-launch memory must outlive
-  // the shell. A graph without the auth manager never asks.
+  // the shell. Lazy, so the persisted "not now" store (initAuthLocator) is
+  // resolved on first use; a graph without it remembers dismissals in memory,
+  // and a graph without the auth manager never asks.
   locator.registerLazySingleton<AvailabilityPromptGate>(
     () => AvailabilityPromptGate(
       repository: locator<ProfileEditRepository>(),
+      store: locator.isRegistered<AvailabilityPromptStore>()
+          ? locator<AvailabilityPromptStore>()
+          : InMemoryAvailabilityPromptStore(),
       isSignedIn: _workerSignedIn,
       workerId: () => locator<SessionRepository>().workerId,
     ),
@@ -882,6 +889,15 @@ Future<void> initAuthLocator({
     locator.registerSingleton<EmployerSharingPromptStore>(
       employerSharingPromptStore ??
           const SharedPrefsEmployerSharingPromptStore(),
+    );
+  }
+
+  // "Not now" on the availability prompt (#2748 item 1d), per worker. Same
+  // lazy prefs registration and the same posture: NOT cleared on logout, as
+  // the key is per worker and the next worker on a shared phone is still asked.
+  if (!locator.isRegistered<AvailabilityPromptStore>()) {
+    locator.registerSingleton<AvailabilityPromptStore>(
+      const SharedPrefsAvailabilityPromptStore(),
     );
   }
 

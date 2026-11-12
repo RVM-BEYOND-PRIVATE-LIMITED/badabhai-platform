@@ -39,7 +39,8 @@ const Key kAvailabilityPromptSaveKey = ValueKey<String>(
 ///
 /// Resolves `true` once the server accepted the answer, and then confirms it
 /// with a snackbar. Resolves `false` for "Abhi nahi", a swipe down, a tap on
-/// the scrim or system back — each of them a "not now", which writes nothing.
+/// the scrim or system back — each of them a "not now", which writes nothing
+/// to the server (the caller decides whether to remember it).
 ///
 /// [repository] is a seam for tests; the app passes none and gets the shared
 /// [ProfileEditRepository].
