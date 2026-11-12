@@ -54,6 +54,7 @@ class ShippedPack {
     required this.active,
     required this.tierTagged,
     required this.questionKeys,
+    this.items = const <Map<String, dynamic>>[],
   });
 
   final String packId;
@@ -65,6 +66,18 @@ class ShippedPack {
 
   /// The items' `question_key`s, in pack order.
   final List<String> questionKeys;
+
+  /// The items themselves, as shipped (pack order), for a test that has to
+  /// read more than the key — a tier tag, a gate, an option's value.
+  final List<Map<String, dynamic>> items;
+
+  /// The item asking [questionKey], or null when this pack does not ask it.
+  Map<String, dynamic>? item(String questionKey) {
+    for (final Map<String, dynamic> i in items) {
+      if (i['question_key'] == questionKey) return i;
+    }
+    return null;
+  }
 }
 
 /// Every pack file under [kQuestionPackDir]. Fails loudly (never an empty
@@ -101,6 +114,7 @@ ShippedPack _parse(File file) {
       for (final Map<String, dynamic> item in items)
         item['question_key'] as String,
     ],
+    items: items,
   );
 }
 
