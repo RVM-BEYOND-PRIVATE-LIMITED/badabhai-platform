@@ -205,3 +205,48 @@ describe("/credits — no mock wording, in either payment posture", () => {
     }
   });
 });
+
+/**
+ * #2744 — /credits frames no pack as a better buy and prints no per-unlock price: not on a tile,
+ * not in the description, not in the balance hero. Rendered WITH the real panel, at list price and
+ * under an offer the catalogue reports. The fence names the page's old wording, never a figure.
+ */
+describe("/credits — no value framing and no per-unlock price (#2744)", () => {
+  /** pack_50 charged below its list price under a named offer (synthetic figures). */
+  const OFFER_PRICES = [
+    {
+      productCode: "contact_unlock",
+      tierCode: "pack_50",
+      basePriceInr: 1500,
+      priceInr: 1234,
+      discountInr: 266,
+      offer: { code: "SYNTHETIC", endsAt: "2030-01-01T00:00:00.000Z" },
+    },
+  ];
+  const BANNED = [
+    /best value/i,
+    /volume discount/i,
+    /save\s*\d+\s*%/i,
+    /per (contact )?unlock/i,
+    /\/ unlock/i,
+    /standard rate/i,
+    /rate paid/i,
+    /unlock value/i,
+    /1 credit = 1/i,
+  ];
+
+  it("shows none of it in either posture, at list price or under an offer", async () => {
+    for (const real of POSTURES) {
+      for (const prices of [null, OFFER_PRICES]) {
+        setPosture(real);
+        getLiveCatalog.mockResolvedValue({ products: DEFAULT_CATALOG.products, prices, live: true });
+        const out = await creditsMarkup();
+        const label = `real=${real} offer=${prices !== null}`;
+        expect(out, label).toContain("cred-pack"); // the tiles are in the fence
+        const text = out.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+        for (const banned of BANNED) expect(text, `${label} ${banned}`).not.toMatch(banned);
+        expect(out, label).not.toMatch(/<s[\s>]/); // no struck-through list price
+      }
+    }
+  });
+});

@@ -1,11 +1,7 @@
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 import { getCreditTopUps, getDashboard } from "../../../lib/payer-api";
 import { requirePayer } from "../../../lib/auth";
-import {
-  lowBalanceThreshold,
-  offeredCreditPacks,
-  unlockUnitPriceInr,
-} from "../../../lib/pricing-config";
+import { lowBalanceThreshold, offeredCreditPacks } from "../../../lib/pricing-config";
 import { buildTransactionHistory } from "../../../lib/credit-history";
 import { getLiveCatalog } from "../../../lib/live-catalog";
 import { payerServerConfig } from "../../../lib/server-config";
@@ -31,11 +27,12 @@ function day(ts: string): string {
  * onto the UI-1 page spine (`page-head` / `stat-row` / `section` / `panel--table` / `alert` /
  * `state`). PRESENTATION ONLY: data + config + RBAC + copy semantics are unchanged.
  *
- * Packs and the per-unlock unit price are read from the LIVE catalog (D-6:
- * `getLiveCatalog` → GET /payer/pricing/catalog via pricing-config), never hardcoded —
- * an ops price edit shows here without a rebuild. On a catalog fetch failure the page
- * degrades to the compile-time defaults with the subtle cached-pricing note (fail-open
- * is safe: the server re-resolves the real price at purchase, XT5).
+ * Packs are read from the LIVE catalog (D-6: `getLiveCatalog` → GET /payer/pricing/catalog via
+ * pricing-config), never hardcoded — an ops price edit shows here without a rebuild. No
+ * per-unlock price shows anywhere on the page: not in the description, the balance hero or a
+ * tile (#2744). On a catalog fetch failure the page degrades to the compile-time defaults with
+ * the subtle cached-pricing note (fail-open is safe: the server re-resolves the real price at
+ * purchase, XT5).
  * All ₹ / counts render in mono tabular.
  *
  * MOCK vs REAL is decided SERVER-SIDE by `payerServerConfig().paymentsEnableReal` and
@@ -60,7 +57,6 @@ export default async function CreditsPage() {
   const catalog = await getLiveCatalog();
   const { live } = catalog;
   const packs = offeredCreditPacks(catalog);
-  const unit = unlockUnitPriceInr(catalog);
   const threshold = lowBalanceThreshold();
 
   let dashboard: Dashboard | null = null;
@@ -87,15 +83,11 @@ export default async function CreditsPage() {
   const balance = dashboard?.credits.balance ?? null;
   const lowBalance = balance !== null && balance < threshold;
 
-  const balanceValue = dashboard?.credits.balance ?? null;
-  const unlockValue =
-    balanceValue !== null && unit !== null ? balanceValue * unit : null;
-
   return (
     <>
       <PageHeader
         title="Credits"
-        description={`1 credit = 1 verified contact unlock${unit !== null ? ` · Standard rate: ${formatInr(unit)} per unlock` : ""}${realPayments ? " — pay securely via Razorpay; credits are added as soon as the payment is confirmed." : ""}`}
+        description={`Your credit balance, the packs on sale, and every credit you have bought or spent${realPayments ? " — pay securely via Razorpay; credits are added as soon as the payment is confirmed." : "."}`}
         actionsSlot={
           <span className="cred-info">
             <Icon name="info" />
@@ -150,20 +142,9 @@ export default async function CreditsPage() {
                 <span className="cred-hero__num bb-mono">{dashboard.credits.balance}</span>
                 <span className="cred-hero__unit">available unlocks</span>
               </p>
-              <p className="cred-hero__sub">
-                Equivalent candidate unlock value:{" "}
-                <span className="bb-mono">
-                  {unlockValue !== null ? formatInr(unlockValue) : "—"}
-                </span>
-              </p>
             </div>
-            {/* No credit validity / expiry here: the server applies none yet (BB-D-04, #2741). */}
-            <div className="cred-hero__stats cred-hero__stats--one">
-              <div>
-                <span>AVG RATE PAID</span>
-                <strong>{unit !== null ? `${formatInr(unit)} / unlock` : "—"}</strong>
-              </div>
-            </div>
+            {/* The balance only. No per-unlock value or rate (#2744), and no credit validity /
+                expiry: the server applies none yet (BB-D-04, #2741). */}
           </section>
 
           <section className="cred-buy">

@@ -1,20 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReactElement, ReactNode } from "react";
 import { DEFAULT_CATALOG } from "@badabhai/pricing";
-import {
-  lowBalanceThreshold,
-  offeredCreditPacks,
-  unlockUnitPriceInr,
-} from "../../../lib/pricing-config";
+import { lowBalanceThreshold, offeredCreditPacks } from "../../../lib/pricing-config";
 import type { CreditTopUp, Dashboard, UnlockHistoryItem } from "../../../lib/contracts";
 
 /**
  * CREDITS PAGE render tests — assert the page actually surfaces the nudge / history (and no
- * credit expiry or invoice, which the server does not apply yet — #2741)
- * and that packs + unit price + the nudge threshold are PROVABLY config-sourced (not literals).
+ * credit expiry or invoice, which the server does not apply yet — #2741, and no per-unlock
+ * price — #2744) and that packs + the nudge threshold are PROVABLY config-sourced (not literals).
  *
  * The data seam (`payer-api`) is mocked so we control the balance + unlock/top-up ledger; but
- * `pricing-config` is REAL — so the rendered packs/unit-price/threshold come from the
+ * `pricing-config` is REAL — so the rendered packs/threshold come from the
  * @badabhai/pricing catalog + the config functions, and the tests assert the rendered values
  * EQUAL those config outputs (drift-proof, i.e. not hardcoded). Env is node (no DOM): the async
  * server component is awaited to an element tree and walked. PII guard: no worker id / phone /
@@ -249,7 +245,8 @@ describe("credits page — (b) history renders unlock + top-up rows", () => {
     expect(joined).toContain("+50");
     // ...with a dash for the amount, and NO invented ₹ figure anywhere.
     expect(joined).toContain("—");
-    expect(joined.match(/₹2,000/g) ?? []).toHaveLength(1); // the hero only — the row stays a dash
+    // The row stays a dash — and the hero prints no unlock value to repeat the figure (#2744).
+    expect(joined).not.toContain("₹2,000");
     expect(joined).not.toMatch(/₹0\b/); // never a fake zero either
   });
 });
@@ -285,16 +282,15 @@ describe("credits page — (d) zero PII in any row (ids/amounts only)", () => {
   });
 });
 
-describe("credits page — (e) packs + unit price resolve from the live catalog (not literals)", () => {
-  it("passes the catalog packs to the panel and shows the config unit price", async () => {
-    const { joined, panelPacks } = await render({ balance: 50 });
+describe("credits page — (e) packs resolve from the live catalog (not literals); no per-unlock price", () => {
+  it("passes the catalog packs to the panel and shows no per-unlock price (#2744)", async () => {
+    const { flat, panelPacks } = await render({ balance: 50 });
     // The rendered packs are EXACTLY the catalog-derived set — not a hardcoded 50/200/1000 list.
     expect(panelPacks).toEqual(offeredCreditPacks({ products: DEFAULT_CATALOG.products }));
     expect((panelPacks as unknown[]).length).toBeGreaterThan(0);
-    // Unit price is the config-derived per-unlock price (₹40 from the catalog), not a literal.
-    const unit = unlockUnitPriceInr({ products: DEFAULT_CATALOG.products });
-    expect(unit).not.toBeNull();
-    expect(joined).toContain(`₹${unit} per unlock`);
+    // No rate per unlock anywhere on the page — the description, the hero, a stat.
+    expect(flat).not.toMatch(/per (contact )?unlock|\/ unlock|standard rate|rate paid/i);
+    expect(flat).not.toMatch(/1 credit = 1/i);
   });
 
   it("the default (mock) posture shows no mock / staging-preview copy (owner ruling 2026-10-07, F35)", async () => {
@@ -303,9 +299,9 @@ describe("credits page — (e) packs + unit price resolve from the live catalog 
     expect(joined).not.toMatch(/staging preview/i);
     expect(joined).not.toMatch(/no real payment is taken/i);
     expect(joined).not.toMatch(/no money moves/i);
-    // The description still says what a credit buys and its config price — and stops there.
+    // The description says what the page holds — and stops there.
     expect(joined).toContain(
-      `1 credit = 1 verified contact unlock · Standard rate: ₹${unlockUnitPriceInr({ products: DEFAULT_CATALOG.products })} per unlock`,
+      "Your credit balance, the packs on sale, and every credit you have bought or spent.",
     );
   });
 });
@@ -359,20 +355,19 @@ describe("credits page — real vs mock payment mode (server-decided)", () => {
 });
 
 describe("credits page — (f) D-6: the LIVE catalog drives the render; fallback shows the note", () => {
-  // An ops-EDITED live catalog: every unlock pack re-priced +₹500 (so the smallest pack's
-  // ₹/credit unit price changes too) — a compile-time DEFAULT_CATALOG read could not show it.
+  // An ops-EDITED live catalog: every unlock pack re-priced +₹500 — a compile-time
+  // DEFAULT_CATALOG read could not show it.
   const EDITED = DEFAULT_CATALOG.products.map((p) =>
     p.kind === "credit_pack" && p.code === "contact_unlock"
       ? { ...p, tiers: p.tiers.map((t) => ({ ...t, priceInr: t.priceInr + 500 })) }
       : p,
   );
 
-  it("renders the ops-edited LIVE prices (no rebuild): packs + unit price change with the wire", async () => {
+  it("renders the ops-edited LIVE prices (no rebuild): the packs change with the wire", async () => {
     getLiveCatalog.mockResolvedValue({ products: EDITED, live: true });
     const { joined, panelPacks } = await render({ balance: 50 });
     expect(panelPacks).toEqual(offeredCreditPacks({ products: EDITED }));
     expect(panelPacks).not.toEqual(offeredCreditPacks({ products: DEFAULT_CATALOG.products }));
-    expect(joined).toContain(`₹${unlockUnitPriceInr({ products: EDITED })} per unlock`);
     // And the live render carries NO cached-pricing note.
     expect(joined).not.toMatch(/cached pricing/i);
   });
@@ -383,7 +378,6 @@ describe("credits page — (f) D-6: the LIVE catalog drives the render; fallback
     const { joined, panelPacks } = await render({ balance: 50 });
     expect(joined).toMatch(/cached pricing/i); // the subtle disclosure
     expect(panelPacks).toEqual(offeredCreditPacks({ products: DEFAULT_CATALOG.products })); // defaults, not blank
-    expect(joined).toContain(`₹${unlockUnitPriceInr({ products: DEFAULT_CATALOG.products })} per unlock`);
   });
 });
 
@@ -492,6 +486,18 @@ describe("credits page — (h) PR-D2 wallet hero + scrollable ledgers", () => {
     const { classes } = await render({ balance: 50 });
     expect(classes).toContain("cred-hero");
     expect(classes.some((c) => c.includes("cred-hero__num"))).toBe(true);
+  });
+
+  it("#2744: the hero holds the balance only — no unlock value, no average rate paid", async () => {
+    setData({ balance: 50 });
+    const tree = (await CreditsPage()) as ReactElement;
+    const [hero] = byClass(tree, "cred-hero");
+    expect(hero).toBeDefined();
+    const text = collect(hero!).text.join(" ").replace(/\s+/g, " ");
+    expect(text).toContain("50");
+    expect(text).not.toMatch(/₹|unlock value|rate paid|\/ unlock/i);
+    expect(byClass(hero!, "cred-hero__sub")).toHaveLength(0);
+    expect(byClass(hero!, "cred-hero__stats")).toHaveLength(0);
   });
 
   it("the ledger is a focusable, labelled region wrapping a no-wrap table", async () => {

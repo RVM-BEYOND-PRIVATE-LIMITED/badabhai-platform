@@ -329,6 +329,12 @@ describe("DS0.2 · MaskedCandidate never leaks a passed real name while masked",
     expect(out).not.toContain("ZZSENTINELNAME");
   });
 
+  it("#2744: no built-in price — without one, the unlock button reads 'Unlock'", () => {
+    const out = html(<MaskedCandidate masked name="Asha R" trade="CNC" />);
+    expect(out).toContain("<span>Unlock</span>");
+    expect(out).not.toContain("₹");
+  });
+
   it("unmasked: shows the supplied label + the unlocked state, no price button", () => {
     const out = html(<MaskedCandidate masked={false} name="Asha R" trade="CNC" />);
     expect(out).toContain("Asha R");

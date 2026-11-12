@@ -102,17 +102,6 @@ export function findCreditPack(catalog: PricedCatalog, code: string): CreditPack
 }
 
 /**
- * The §3A per-unlock unit price, derived from the smallest offered pack's
- * ₹/credit ratio (config-derived, not hardcoded). Used only for display copy.
- */
-export function unlockUnitPriceInr(catalog: PricedCatalog): number | null {
-  const packs = offeredCreditPacks(catalog);
-  if (packs.length === 0) return null;
-  const smallest = packs.reduce((a, b) => (a.credits <= b.credits ? a : b));
-  return Math.round(smallest.priceInr / smallest.credits);
-}
-
-/**
  * Base job posting "free-through-launch" (§3A / ADR-0013 ESCALATION).
  *
  * The catalog cannot model ₹0 — `priceInrSchema = min(1)` rejects it — so "free"
