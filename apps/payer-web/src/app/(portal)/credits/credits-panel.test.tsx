@@ -406,11 +406,11 @@ describe("credits panel — fence: the purchase dialog never says it charges (re
 
 /**
  * #2085 — SHOWN == SENT. The purchase sends back `expectedPriceInr` equal to the exact number the
- * payer saw: the confirm's price (mock), or the tile's (real, which has no confirm of its own). Under
- * an active offer the tile shows only the price charged — no struck list price (#2744) — and that
- * charged price is the one shown on the confirm and sent. A refused price (409 `price_mismatch`) is a neutral notice naming
- * the new price, the page is refreshed so it shows, the purchase key is retired, and nothing is
- * retried on its own.
+ * payer saw: the confirm's price (mock), or the tile's (real, which has no confirm of its own).
+ * Under an active offer the tile shows only the price charged — no struck list price (#2744) —
+ * and that charged price is the one shown on the confirm and sent. A refused price (409
+ * `price_mismatch`) is a neutral notice naming the new price, the page is refreshed so it shows,
+ * the purchase key is retired, and nothing is retried on its own.
  */
 describe("credits panel — #2085: the price shown is the price sent; a refused price is said, never retried", () => {
   /** A pack under an active offer: charged ₹6,000, list ₹8,000. */
@@ -574,7 +574,7 @@ describe("credits panel — #2085 L2: a held key is never sent under a different
  * actions.ts (the payments owner's review) are unchanged.
  */
 describe("credits panel — #2744: real mode says 'paid' only after the server confirms", () => {
-  /** The server's order: its amount is deliberately unlike the tile's price, to prove whose it is. */
+  /** The server's order: its amount is unlike the tile's price on purpose, to prove whose it is. */
   const ORDER = {
     ok: true,
     orderId: "order_synthetic",

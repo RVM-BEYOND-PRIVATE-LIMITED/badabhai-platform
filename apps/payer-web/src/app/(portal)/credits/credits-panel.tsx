@@ -37,12 +37,11 @@ import { loadCheckoutScript, openCheckout } from "./razorpay-checkout";
  *
  * SHOWN == CHARGED (#2085). A pack's `priceInr` is the price it is charged (the catalog's
  * `prices[]`), and it is the ONE price its tile shows (#2744: catalogue values only — no struck
- * list price, no per-unlock rate, no "best value"). The purchase
- * sends back the exact number the payer saw — the confirm's price (mock) or the tile's (real,
- * which has no confirm of its own) — as `expected_price_inr`. A changed price is refused by the
- * API with nothing bought: the panel says so in the neutral notice, refreshes the page so the new
- * price shows, and retires the purchase key (the next confirm is a new purchase). It never
- * retries on its own.
+ * list price, no per-unlock rate, no "best value"). The purchase sends back the exact number the
+ * payer saw — the confirm's price (mock) or the tile's (real, which has no confirm of its own) —
+ * as `expected_price_inr`. A changed price is refused by the API with nothing bought: the panel
+ * says so in the neutral notice, refreshes the page so the new price shows, and retires the
+ * purchase key (the next confirm is a new purchase). It never retries on its own.
  *
  * ONE SUCCESS PATTERN (#2583): a completed purchase is announced as a toast from the portal's
  * ToastProvider — once, dismissing itself — with the new balance counting up from the old one.
