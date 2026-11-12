@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
@@ -6,6 +8,7 @@ import 'package:badabhai_worker_app/core/api/api_client.dart'
     show WorkAvailabilityDto;
 import 'package:badabhai_worker_app/core/error/failure.dart';
 import 'package:badabhai_worker_app/core/theme/app_theme.dart';
+import 'package:badabhai_worker_app/core/widgets/bb_bottom_sheet.dart';
 import 'package:badabhai_worker_app/core/widgets/kit/kit_select_chip.dart';
 import 'package:badabhai_worker_app/features/availability_prompt/domain/availability_prompt_gate.dart';
 import 'package:badabhai_worker_app/features/availability_prompt/presentation/availability_prompt_sheet.dart';
@@ -179,6 +182,111 @@ void main() {
     expect(find.text(kAvailabilityPromptTitle), findsNothing);
     expect(results, <bool>[false]);
     verifyNever(() => repo.saveWorkPreferences(any()));
+  });
+
+  testWidgets('a swipe down is a "not now" too', (WidgetTester tester) async {
+    await open(tester);
+
+    await tester.fling(find.byType(BbSheetGrip), const Offset(0, 400), 2000);
+    await tester.pumpAndSettle();
+
+    expect(find.text(kAvailabilityPromptTitle), findsNothing);
+    expect(results, <bool>[false]);
+  });
+
+  testWidgets('system back is a "not now" too', (WidgetTester tester) async {
+    await open(tester);
+
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+
+    expect(find.text(kAvailabilityPromptTitle), findsNothing);
+    expect(results, <bool>[false]);
+  });
+
+  // The save's PUT is in flight: closing now would let it land behind a sheet
+  // the worker already dismissed. Every way out waits for the answer.
+  group('while the save is in flight, nothing closes the sheet', () {
+    late Completer<void> inFlight;
+
+    /// Picks a choice and taps save, leaving the PUT unanswered. No
+    /// pumpAndSettle while it is in flight: the save CTA shows a spinner.
+    ///
+    /// The completer is made HERE, inside the test's fake-async zone: one made
+    /// in setUp would resume the save outside it, and the test would never
+    /// see the answer land.
+    Future<void> startSave(WidgetTester tester) async {
+      inFlight = Completer<void>();
+      when(
+        () => repo.saveWorkPreferences(any()),
+      ).thenAnswer((_) => inFlight.future);
+      await open(tester);
+      await tester.tap(find.text('Within a week'));
+      await tester.pump();
+      await tester.tap(find.byKey(kAvailabilityPromptSaveKey));
+      await tester.pump();
+    }
+
+    Future<void> settleFrames(WidgetTester tester) async {
+      for (int i = 0; i < 10; i++) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+    }
+
+    /// Still open and unanswered; then the server answers and it closes as a
+    /// save.
+    Future<void> expectHeldUntilTheAnswer(WidgetTester tester) async {
+      expect(find.text(kAvailabilityPromptTitle), findsOneWidget);
+      expect(results, isEmpty);
+
+      inFlight.complete();
+      await tester.pumpAndSettle();
+      expect(find.text(kAvailabilityPromptTitle), findsNothing);
+      expect(results, <bool>[true]);
+      expect(find.text(kAvailabilityPromptSavedMessage), findsOneWidget);
+    }
+
+    testWidgets('not system back', (WidgetTester tester) async {
+      await startSave(tester);
+
+      await tester.binding.handlePopRoute();
+      await settleFrames(tester);
+
+      await expectHeldUntilTheAnswer(tester);
+    });
+
+    testWidgets('not a tap on the scrim', (WidgetTester tester) async {
+      await startSave(tester);
+
+      await tester.tapAt(const Offset(10, 10));
+      await settleFrames(tester);
+
+      await expectHeldUntilTheAnswer(tester);
+    });
+
+    testWidgets('not a swipe down', (WidgetTester tester) async {
+      await startSave(tester);
+
+      await tester.fling(find.byType(BbSheetGrip), const Offset(0, 400), 2000);
+      await settleFrames(tester);
+
+      await expectHeldUntilTheAnswer(tester);
+    });
+
+    testWidgets('a failed save lets go again: back is a "not now"', (
+      WidgetTester tester,
+    ) async {
+      await startSave(tester);
+      inFlight.completeError(const NetworkFailure());
+      await tester.pumpAndSettle();
+      expect(find.text(kAvailabilityPromptTitle), findsOneWidget);
+
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+
+      expect(find.text(kAvailabilityPromptTitle), findsNothing);
+      expect(results, <bool>[false]);
+    });
   });
 
   // Every device size and system font the kit pins: nothing overflows and the

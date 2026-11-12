@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
@@ -42,6 +44,10 @@ const Key kAvailabilityPromptSaveKey = ValueKey<String>(
 /// the scrim or system back — each of them a "not now", which writes nothing
 /// to the server (the caller decides whether to remember it).
 ///
+/// While a save is in flight none of those closes it: the sheet waits for the
+/// server's answer, then closes on a save or stays open with the reason on a
+/// failure. So a `PUT` never lands behind a sheet the worker already closed.
+///
 /// [repository] is a seam for tests; the app passes none and gets the shared
 /// [ProfileEditRepository].
 Future<bool> showAvailabilityPromptSheet(
@@ -53,11 +59,16 @@ Future<bool> showAvailabilityPromptSheet(
     repository: repository ?? locator<ProfileEditRepository>(),
     prompt: prompt,
   );
+  final ValueNotifier<bool> dismissible = ValueNotifier<bool>(true);
+  final StreamSubscription<AvailabilityPromptState> holdWhileSaving = cubit
+      .stream
+      .listen((AvailabilityPromptState s) => dismissible.value = !s.isSaving);
   final bool saved;
   try {
     saved =
         await showBbBottomSheet<bool>(
           context: context,
+          dismissible: dismissible,
           builder: (_) => BlocProvider<AvailabilityPromptCubit>.value(
             value: cubit,
             child: const AvailabilityPromptBody(),
@@ -69,7 +80,10 @@ Future<bool> showAvailabilityPromptSheet(
         ) ??
         false;
   } finally {
+    // The listener is gone once cancel() returns; nothing to wait for.
+    unawaited(holdWhileSaving.cancel());
     await cubit.close();
+    dismissible.dispose();
   }
   if (saved && context.mounted) {
     ScaffoldMessenger.of(context)
