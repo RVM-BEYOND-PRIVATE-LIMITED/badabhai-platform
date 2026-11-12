@@ -93,7 +93,7 @@ export default async function CreditsPage() {
     <>
       <PageHeader
         title="Credits"
-        description={`Your credit balance, the packs on sale, and every credit you have bought or spent${realPayments ? " — pay securely via Razorpay; credits are added as soon as the payment is confirmed." : "."}`}
+        description={`Your credit balance, the packs on sale, and your recent credit purchases and spends${realPayments ? " — pay securely via Razorpay; credits are added as soon as the payment is confirmed." : "."}`}
         actionsSlot={
           <span className="cred-info">
             <Icon name="info" />

@@ -301,7 +301,7 @@ describe("credits page — (e) packs resolve from the live catalog (not literals
     expect(joined).not.toMatch(/no money moves/i);
     // The description says what the page holds — and stops there.
     expect(joined).toContain(
-      "Your credit balance, the packs on sale, and every credit you have bought or spent.",
+      "Your credit balance, the packs on sale, and your recent credit purchases and spends.",
     );
   });
 });
