@@ -17,10 +17,13 @@
 // so the two nets read the source the same way: comments stripped, literals
 // extracted with line numbers, a `//` inside a url never mistaken for a comment.
 //
-// AMOUNTS VS WAGES. A rupee sign is a price unless it is the worker's OWN pay:
-// the band a job offers, the salary he expects, the pay filter. Those few files
-// are allowlisted BY FILE below, each with its reason; a ₹ anywhere else fails.
-// The payment WORDS have no file exemption at all.
+// AMOUNTS VS WAGES. An amount is a price unless it is the worker's OWN pay: the
+// band a job offers, the salary he expects, the pay filter. Those few files are
+// allowlisted below, each with its reason AND the one shape its pay takes
+// there. Only a literal that IS that shape (a band, a floor, a salary) is
+// exempt, so an amount inside a sentence fails even in a wage file, and an
+// amount anywhere else fails outright. The payment WORDS have no exemption by
+// file at all.
 //
 // SCOPE. Static only. A price the server sent at runtime is not in the source;
 // this net guards what the app itself can show and do.
@@ -69,10 +72,13 @@ final List<RegExp> kPaymentPatterns = <RegExp>[
   RegExp(r'\bkh(a|aa)r(i|ee)d(ein|e|na|o)\b', caseSensitive: false),
 ];
 
-/// An amount of money: the rupee sign, or `Rs` / `INR` before a number or an
-/// interpolated value.
+/// An amount of money: the rupee sign; `Rs` / `INR` before a number or an
+/// interpolated value; or a number or an interpolated value followed by the
+/// word for rupees ("1 rupaye", "1 rupees").
 final RegExp kAmountPattern = RegExp(
-  r'₹|\b(rs\.?|inr)\s*(\d|\$)',
+  r'₹'
+  r'|\b(rs\.?|inr)\s*(\d|\$)'
+  r'|(\d|\$\w+|\})\s*(rupaye|rupay|rupees|rupee)\b',
   caseSensitive: false,
 );
 
@@ -89,20 +95,46 @@ final RegExp kEscapedRupeePattern = RegExp(
 // something ("no stale allowlist entry" below): an entry that matches nothing is
 // a hole waiting for the wrong string. Keep both lists short.
 
-/// Files whose ₹ is the WORKER'S OWN PAY — never a price. Path → reason.
-const Map<String, String> kWageAmountFiles = <String, String>{
-  'lib/core/util/pay_format.dart':
-      "a job's monthly pay band, on job cards and job details",
-  'lib/features/finishing/presentation/finishing_screen.dart':
-      'the expected-salary bands the worker picks from',
+/// One amount as the wage files write it: digits (Indian grouping allowed) or
+/// a single interpolated value.
+const String _amount = r'(?:\d+(?:,\d+)*|\$\w+|\$\{[^}]+\})';
+
+/// The expected-salary bands the worker picks from ("₹N–M hazaar").
+const String _salaryBand = r'₹\d+(?:–\d+)? hazaar(?: se upar)?';
+
+/// A wage shape is matched against the WHOLE literal, so an amount inside a
+/// sentence never passes as pay.
+RegExp _wholeLiteral(String shape) => RegExp('^(?:$shape)\$');
+
+/// Files whose ₹ is the WORKER'S OWN PAY — never a price — each with the one
+/// shape that pay takes there. Path → (shape, reason).
+final Map<String, ({RegExp shape, String reason})>
+kWageAmounts = <String, ({RegExp shape, String reason})>{
+  'lib/core/util/pay_format.dart': (
+    shape: _wholeLiteral('(?:Up to )?₹$_amount(?:–$_amount)?\\+?(?:/mah)?'),
+    reason: "a job's monthly pay band, on job cards and job details",
+  ),
+  'lib/features/finishing/presentation/finishing_screen.dart': (
+    shape: _wholeLiteral(_salaryBand),
+    reason: 'the expected-salary bands the worker picks from',
+  ),
   'lib/features/trade_form/presentation/widgets/trade_form_preferences_page.dart':
-      'the expected-salary bands the worker picks from',
-  'lib/features/resume/presentation/widgets/resume_card_slots.dart':
-      "the worker's own salary, printed on his résumé card",
-  'lib/features/swipe/domain/job_filter.dart':
-      'the minimum-pay filter chips over the job feed',
-  'lib/features/swipe/presentation/widgets/filters_sheet.dart':
-      'the minimum-pay filter label over the job feed',
+      (
+        shape: _wholeLiteral(_salaryBand),
+        reason: 'the expected-salary bands the worker picks from',
+      ),
+  'lib/features/resume/presentation/widgets/resume_card_slots.dart': (
+    shape: _wholeLiteral('₹$_amount(?: / month)?'),
+    reason: "the worker's own salary, printed on his résumé card",
+  ),
+  'lib/features/swipe/domain/job_filter.dart': (
+    shape: _wholeLiteral('₹$_amount\\+'),
+    reason: 'the minimum-pay filter chips over the job feed',
+  ),
+  'lib/features/swipe/presentation/widgets/filters_sheet.dart': (
+    shape: _wholeLiteral('₹$_amount\\+'),
+    reason: 'the minimum-pay filter label over the job feed',
+  ),
 };
 
 /// Exact literals that use a payment word without being a price or a payment
@@ -136,16 +168,19 @@ const Set<String> kPaymentSdkNameParts = <String>{
 
 // --- Detector ------------------------------------------------------------------
 
-/// Why [literal] reads as a price or a payment step, or `[]`. [wageFile] says
-/// whether its file may show the worker's own pay.
-List<String> priceViolations(String literal, {bool wageFile = false}) {
+/// Why [literal] reads as a price or a payment step, or `[]`. [wageShape] is
+/// the one shape the worker's own pay takes in the literal's file, when that
+/// file shows pay at all: an amount passes only when the whole literal is that
+/// shape.
+List<String> priceViolations(String literal, {RegExp? wageShape}) {
   if (kNonPriceLiterals.containsKey(literal)) return const <String>[];
   final List<String> hits = <String>[
     for (final RegExp p in kPaymentPatterns)
       if (p.hasMatch(literal)) 'payment word "${p.firstMatch(literal)![0]}"',
   ];
-  if (!wageFile && kAmountPattern.hasMatch(literal)) {
-    hits.add('amount "${kAmountPattern.firstMatch(literal)![0]}"');
+  final RegExpMatch? amount = kAmountPattern.firstMatch(literal);
+  if (amount != null && !(wageShape?.hasMatch(literal) ?? false)) {
+    hits.add('amount "${amount[0]}"');
   }
   return hits;
 }
@@ -207,9 +242,9 @@ void main() {
         for (final PersonaLiteral literal in _allLibLiterals())
           if (priceViolations(
             literal.value,
-            wageFile: kWageAmountFiles.containsKey(literal.file),
+            wageShape: kWageAmounts[literal.file]?.shape,
           ).isNotEmpty)
-            '$literal\n    → ${priceViolations(literal.value, wageFile: kWageAmountFiles.containsKey(literal.file)).join('; ')}',
+            '$literal\n    → ${priceViolations(literal.value, wageShape: kWageAmounts[literal.file]?.shape).join('; ')}',
       ];
       expect(
         failures,
@@ -217,18 +252,20 @@ void main() {
         reason:
             'Workers never pay, so no worker screen may show a price or '
             'a payment step (CLAUDE.md §12). A ₹ that is the worker\'s OWN pay '
-            'belongs in a file listed in kWageAmountFiles, with its reason.\n\n'
+            'must be exactly its file\'s wage shape in kWageAmounts.\n\n'
             '${failures.join('\n')}',
       );
     });
 
-    test('no escaped rupee sign hides outside a wage file', () {
+    test('no escaped rupee sign anywhere under lib/', () {
+      // The literal scanner turns `\u20b9` into plain letters, so neither the
+      // amount check nor a wage shape could see it. A wage figure writes the
+      // ₹ glyph itself, so no file is exempt.
       final List<String> failures = <String>[
         for (final File file in _libFiles('.dart'))
-          if (!kWageAmountFiles.containsKey(_path(file)) &&
-              kEscapedRupeePattern.hasMatch(
-                stripComments(file.readAsStringSync()),
-              ))
+          if (kEscapedRupeePattern.hasMatch(
+            stripComments(file.readAsStringSync()),
+          ))
             _path(file),
       ];
       expect(failures, isEmpty);
@@ -262,14 +299,19 @@ void main() {
 
     test('no stale allowlist entry', () {
       final List<PersonaLiteral> literals = _allLibLiterals();
-      for (final String file in kWageAmountFiles.keys) {
+      for (final MapEntry<String, ({RegExp shape, String reason})> wage
+          in kWageAmounts.entries) {
         expect(
           literals.any(
             (PersonaLiteral l) =>
-                l.file == file && kAmountPattern.hasMatch(l.value),
+                l.file == wage.key &&
+                kAmountPattern.hasMatch(l.value) &&
+                wage.value.shape.hasMatch(l.value),
           ),
           isTrue,
-          reason: '$file shows no ₹ any more — drop it from kWageAmountFiles',
+          reason:
+              '${wage.key} shows no ₹ in its wage shape any more — update or '
+              'drop its kWageAmounts entry',
         );
       }
       for (final String allowed in kNonPriceLiterals.keys) {
@@ -323,6 +365,15 @@ void main() {
         'Rs 1',
         r'Rs. $price',
         'INR 1',
+        // A number followed by the word for rupees.
+        '1 rupaye',
+        'Sirf 1 Rupaye mein',
+        '1 rupay',
+        '1 rupee',
+        '1 rupees',
+        '1rupees',
+        r'$amount rupaye',
+        r'${amount} rupees',
       ]) {
         expect(priceViolations(s), isNotEmpty, reason: s);
       }
@@ -330,10 +381,54 @@ void main() {
       expect(kEscapedRupeePattern.hasMatch(r"'\u{20B9}1'"), isTrue);
     });
 
-    test("a wage file may show the worker's pay, never a payment word", () {
-      expect(priceViolations('₹1+', wageFile: true), isEmpty);
-      expect(priceViolations('₹1–2 hazaar', wageFile: true), isEmpty);
-      expect(priceViolations('₹1 payment karein', wageFile: true), isNotEmpty);
+    test("a wage file may show the worker's pay in its own shape, nothing "
+        'more', () {
+      RegExp shapeOf(String file) => kWageAmounts[file]!.shape;
+      final RegExp bands = shapeOf(
+        'lib/features/finishing/presentation/finishing_screen.dart',
+      );
+      final RegExp floor = shapeOf('lib/features/swipe/domain/job_filter.dart');
+      final RegExp payBand = shapeOf('lib/core/util/pay_format.dart');
+      final RegExp salary = shapeOf(
+        'lib/features/resume/presentation/widgets/resume_card_slots.dart',
+      );
+
+      // The pay itself, in the file's own shape.
+      expect(priceViolations('₹1–2 hazaar', wageShape: bands), isEmpty);
+      expect(priceViolations('₹1 hazaar se upar', wageShape: bands), isEmpty);
+      expect(priceViolations('₹1+', wageShape: floor), isEmpty);
+      expect(priceViolations(r'₹$payMin+', wageShape: floor), isEmpty);
+      expect(
+        priceViolations(r'Up to ₹${format(max)}/mah', wageShape: payBand),
+        isEmpty,
+      );
+      expect(
+        priceViolations(r'₹${format(min)}–${format(max)}', wageShape: payBand),
+        isEmpty,
+      );
+      expect(
+        priceViolations(r'₹${format(salary)} / month', wageShape: salary),
+        isEmpty,
+      );
+
+      // An amount inside a sentence is a price, even in a wage file.
+      for (final String s in <String>[
+        'Sirf ₹1 mein',
+        '₹1 jama karein',
+        'Registration ₹1',
+        '₹1 hazaar se upar dein',
+        '1 rupaye',
+        r'Sirf ₹${amount} mein',
+        '₹1 payment karein',
+      ]) {
+        expect(priceViolations(s, wageShape: bands), isNotEmpty, reason: s);
+        expect(priceViolations(s, wageShape: floor), isNotEmpty, reason: s);
+        expect(priceViolations(s, wageShape: payBand), isNotEmpty, reason: s);
+        expect(priceViolations(s, wageShape: salary), isNotEmpty, reason: s);
+      }
+
+      // And the shape is the file's own: a filter chip is not a salary band.
+      expect(priceViolations('₹1+', wageShape: bands), isNotEmpty);
     });
 
     test('does NOT fire on ordinary worker copy', () {
@@ -348,6 +443,7 @@ void main() {
         'Payer',
         'Status',
         'Check out these jobs',
+        'Salary rupaye mein batayein',
       ]) {
         expect(priceViolations(s), isEmpty, reason: s);
       }
