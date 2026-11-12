@@ -195,7 +195,7 @@ describe("/credits — no mock wording, in either payment posture", () => {
       const out = await creditsMarkup();
       const labels = Array.from(
         out.matchAll(
-          // Primary (the best-value pack) or secondary (the rest) — one primary per screen (#2583).
+          // Primary (the first pack) or secondary (the rest) — one primary per screen (#2583).
           /<button[^>]*class="bb-btn bb-btn--(?:primary|secondary) bb-btn--block"[^>]*>([\s\S]*?)<\/button>/g,
         ),
         (m) => m[1]!.replace(/<[^>]+>/g, "").trim(),
