@@ -4,6 +4,7 @@ import type * as ReactModule from "react";
 import { Button, Card, Dialog } from "../../../components/ds";
 import type { CreditPack } from "../../../lib/contracts";
 import { formatInr } from "../../../lib/format";
+import { creditsErrorMessage } from "../../../lib/credits-messages";
 
 /**
  * CREDITS PANEL — the per-purchase Idempotency-Key LIFECYCLE (#1165 / #1046).
@@ -65,15 +66,16 @@ vi.mock("../../../components/ds/toast-provider", () => ({
 const routerRefresh = vi.fn();
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: routerRefresh }) }));
 
-// Observe the Server Actions (and the checkout, for the real-mode #2085 case).
+// Observe the Server Actions (and the checkout, for the real-mode cases).
 const topUpAction = vi.fn();
 const createOrderAction = vi.fn();
+const verifyPaymentAction = vi.fn();
 const loadCheckoutScript = vi.fn();
 const openCheckout = vi.fn();
 vi.mock("./actions", () => ({
   topUpAction: (i: unknown) => topUpAction(i),
   createOrderAction: (i: unknown) => createOrderAction(i),
-  verifyPaymentAction: vi.fn(),
+  verifyPaymentAction: (i: unknown) => verifyPaymentAction(i),
 }));
 vi.mock("./razorpay-checkout", () => ({
   loadCheckoutScript: () => loadCheckoutScript(),
@@ -137,6 +139,7 @@ beforeEach(() => {
   stateSetters = [];
   topUpAction.mockReset();
   createOrderAction.mockReset();
+  verifyPaymentAction.mockReset();
   loadCheckoutScript.mockReset();
   openCheckout.mockReset();
   routerRefresh.mockReset();
@@ -560,4 +563,136 @@ describe("credits panel — #2085 L2: a held key is never sent under a different
       expect(sentKeys()).toEqual(["key-1", "key-1"]);
     });
   }
+});
+
+/**
+ * #2744 items 4 + 10 — in REAL mode "paid" comes from the SERVER, never from the checkout callback
+ * alone. Checkout opens with the server's order (its amount, not one the panel works out). A failed
+ * or dismissed callback verifies nothing and announces nothing. A successful callback is only a
+ * claim until `verifyPaymentAction` answers: `ok:false` or a throw shows no success toast, and the
+ * toast follows `ok:true` only, at the server's balance. Tests only — razorpay-checkout.ts and
+ * actions.ts (the payments owner's review) are unchanged.
+ */
+describe("credits panel — #2744: real mode says 'paid' only after the server confirms", () => {
+  /** The server's order: its amount is deliberately unlike the tile's price, to prove whose it is. */
+  const ORDER = {
+    ok: true,
+    orderId: "order_synthetic",
+    keyId: "key_synthetic",
+    amount: 123456,
+    currency: "INR",
+    packCode: PACK_A.code,
+  } as const;
+  /** What the checkout callback hands back on a completed payment — still unverified. */
+  const CALLBACK_PAID = {
+    outcome: "success",
+    orderId: ORDER.orderId,
+    paymentId: "pay_synthetic",
+    signature: "sig_synthetic",
+  } as const;
+  const PAID = /payment successful/i;
+
+  /** Tap PACK_A's Buy in real mode and let the order → checkout → verify chain settle. */
+  async function buyReal(): Promise<void> {
+    stateQueue = [null, null, null, null];
+    stateCursor = 0;
+    const tree = CreditsPanel({ packs: [PACK_A, PACK_B], real: true }) as ReactElement;
+    const tile = findAll(tree, Card).find((c) => c.key === PACK_A.code)!;
+    (findAll(tile, Button)[0]!.props as { onClick: () => void }).onClick();
+    await new Promise((r) => setTimeout(r, 0));
+  }
+
+  beforeEach(() => {
+    createOrderAction.mockResolvedValue(ORDER);
+    loadCheckoutScript.mockResolvedValue(true);
+  });
+
+  it("checkout opens with the SERVER's order and amount", async () => {
+    openCheckout.mockResolvedValue({ outcome: "dismissed" });
+    await buyReal();
+    expect(openCheckout).toHaveBeenCalledTimes(1);
+    expect(openCheckout).toHaveBeenCalledWith(
+      expect.objectContaining({
+        orderId: ORDER.orderId,
+        keyId: ORDER.keyId,
+        amount: ORDER.amount,
+        currency: ORDER.currency,
+      }),
+    );
+  });
+
+  it("a FAILED checkout callback: nothing verified, no success toast, the failure said", async () => {
+    openCheckout.mockResolvedValue({ outcome: "failed" });
+    await buyReal();
+    expect(verifyPaymentAction).not.toHaveBeenCalled();
+    expect(toastShow).not.toHaveBeenCalled();
+    expect(argsOf(stateSetters[ERROR_IDX]!)).toContain(
+      "Payment failed. No credits were added — you can try again.",
+    );
+    expect(routerRefresh).not.toHaveBeenCalled();
+  });
+
+  it("a DISMISSED checkout: nothing verified, no success toast, a neutral notice", async () => {
+    openCheckout.mockResolvedValue({ outcome: "dismissed" });
+    await buyReal();
+    expect(verifyPaymentAction).not.toHaveBeenCalled();
+    expect(toastShow).not.toHaveBeenCalled();
+    expect(argsOf(stateSetters[NOTICE_IDX]!)).toContain(
+      "Payment cancelled. You haven't been charged.",
+    );
+    expect(argsOf(stateSetters[ERROR_IDX]!)).toEqual([null]);
+  });
+
+  it("a successful callback is only a claim: verification ok:false shows no success toast", async () => {
+    openCheckout.mockResolvedValue(CALLBACK_PAID);
+    verifyPaymentAction.mockResolvedValue({ ok: false, error: "payment_unconfirmed" });
+    await buyReal();
+    // The callback's ids went to the server…
+    expect(verifyPaymentAction).toHaveBeenCalledTimes(1);
+    expect(verifyPaymentAction).toHaveBeenCalledWith({
+      orderId: CALLBACK_PAID.orderId,
+      paymentId: CALLBACK_PAID.paymentId,
+      signature: CALLBACK_PAID.signature,
+    });
+    // …and its refusal is what the payer sees: no "paid", no refresh.
+    expect(toastShow).not.toHaveBeenCalled();
+    expect(argsOf(stateSetters[ERROR_IDX]!)).toContain(creditsErrorMessage("payment_unconfirmed"));
+    expect(routerRefresh).not.toHaveBeenCalled();
+  });
+
+  it("a verification that throws shows no success toast either", async () => {
+    openCheckout.mockResolvedValue(CALLBACK_PAID);
+    verifyPaymentAction.mockRejectedValue(new Error("network down"));
+    await buyReal();
+    expect(toastShow).not.toHaveBeenCalled();
+    const errors = argsOf(stateSetters[ERROR_IDX]!);
+    expect(errors).toContainEqual(expect.stringContaining("If money left your account"));
+    expect(errors.join(" ")).not.toMatch(PAID);
+  });
+
+  it("only verification ok:true shows the success toast: once, after the server answered, at its balance", async () => {
+    openCheckout.mockResolvedValue(CALLBACK_PAID);
+    verifyPaymentAction.mockResolvedValue({ ok: true, balance: 73, creditsAdded: 30 });
+    await buyReal();
+    expect(toastShow).toHaveBeenCalledTimes(1);
+    // The toast follows the server's answer, never the callback alone.
+    expect(verifyPaymentAction.mock.invocationCallOrder[0]!).toBeLessThan(
+      toastShow.mock.invocationCallOrder[0]!,
+    );
+    const shown = toastShow.mock.calls[0]![0] as { tone: string; message: ReactNode };
+    expect(shown.tone).toBe("success");
+    expect(textOf(shown.message)).toMatch(PAID);
+    expect(findAll(shown.message, CountUp)[0]!.props).toMatchObject({ from: 43, to: 73 });
+    expect(argsOf(stateSetters[ERROR_IDX]!)).toEqual([null]);
+    expect(routerRefresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("while an order is in flight every Buy is disabled, so a second tap starts no second order", () => {
+    stateQueue = [PACK_A.code, null, null, null]; // a purchase of PACK_A is running
+    stateCursor = 0;
+    const tree = CreditsPanel({ packs: [PACK_A, PACK_B], real: true }) as ReactElement;
+    const buys = findAll(tree, Button).filter((b) => (b.props as { block?: boolean }).block === true);
+    expect(buys).toHaveLength(2);
+    for (const b of buys) expect((b.props as { disabled?: boolean }).disabled).toBe(true);
+  });
 });
