@@ -691,7 +691,9 @@ describe("credits panel — #2744: real mode says 'paid' only after the server c
     stateQueue = [PACK_A.code, null, null, null]; // a purchase of PACK_A is running
     stateCursor = 0;
     const tree = CreditsPanel({ packs: [PACK_A, PACK_B], real: true }) as ReactElement;
-    const buys = findAll(tree, Button).filter((b) => (b.props as { block?: boolean }).block === true);
+    const buys = findAll(tree, Button).filter(
+      (b) => (b.props as { block?: boolean }).block === true,
+    );
     expect(buys).toHaveLength(2);
     for (const b of buys) expect((b.props as { disabled?: boolean }).disabled).toBe(true);
   });

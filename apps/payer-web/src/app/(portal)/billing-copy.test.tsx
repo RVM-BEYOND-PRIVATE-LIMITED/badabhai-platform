@@ -245,7 +245,11 @@ describe("/credits — no value framing and no per-unlock price (#2744)", () => 
     for (const real of POSTURES) {
       for (const prices of [null, OFFER_PRICES]) {
         setPosture(real);
-        getLiveCatalog.mockResolvedValue({ products: DEFAULT_CATALOG.products, prices, live: true });
+        getLiveCatalog.mockResolvedValue({
+          products: DEFAULT_CATALOG.products,
+          prices,
+          live: true,
+        });
         const out = await creditsMarkup();
         const label = `real=${real} offer=${prices !== null}`;
         expect(out, label).toContain("cred-pack"); // the tiles are in the fence
