@@ -76,9 +76,9 @@ class BbRemoteConfig {
   /// own phase flags decide what it sends. Defaults to HIDDEN.
   static const String kKeyChatCompanionV2Enabled = 'worker_chat_companion_v2_enabled';
 
-  /// #2748 item 1d — may the home shell ask, once per launch, for the
-  /// availability of a worker whose stored availability is still empty? It
-  /// decides only whether the app ASKS: the answer is written through the same
+  /// #2748 item 1d — may the home shell ask, once, for the availability of a
+  /// worker whose stored availability is still empty? It decides only whether
+  /// the app ASKS: the answer is written through the same
   /// `PUT /workers/me/work-preferences` the profile editor uses, validated by
   /// the server's own enum. Defaults to OFF.
   static const String kKeyAvailabilityPromptEnabled =
