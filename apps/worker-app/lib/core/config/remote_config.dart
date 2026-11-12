@@ -76,6 +76,21 @@ class BbRemoteConfig {
   /// own phase flags decide what it sends. Defaults to HIDDEN.
   static const String kKeyChatCompanionV2Enabled = 'worker_chat_companion_v2_enabled';
 
+  /// #2748 item 1d — may the home shell ask, once per launch, for the
+  /// availability of a worker whose stored availability is still empty? It
+  /// decides only whether the app ASKS: the answer is written through the same
+  /// `PUT /workers/me/work-preferences` the profile editor uses, validated by
+  /// the server's own enum. Defaults to OFF.
+  static const String kKeyAvailabilityPromptEnabled =
+      'worker_availability_prompt_enabled';
+
+  /// #2748 item 7a — show the "free for workers" line on the sign-up (consent)
+  /// screen and in Settings. Copy only, drawn OUTSIDE the versioned notice
+  /// cards, so it changes no consent text and no consent version. Defaults to
+  /// HIDDEN.
+  static const String kKeyFreeForWorkersLineVisible =
+      'worker_free_for_workers_line_visible';
+
   // ---- Compiled-in defaults == today's behaviour ----
 
   /// The mic is VISIBLE today.
@@ -105,6 +120,12 @@ class BbRemoteConfig {
   /// Flipped on staging-first, with the server's Phase 1 flags.
   static const bool kDefaultChatCompanionV2Enabled = false;
 
+  /// The shell asks nothing about availability today — the prompt ships dark.
+  static const bool kDefaultAvailabilityPromptEnabled = false;
+
+  /// No "free for workers" line is shown today — it ships dark.
+  static const bool kDefaultFreeForWorkersLineVisible = false;
+
   /// EVERY remote key with the default its getter falls back to — the single
   /// source for `setDefaults` AND for the activated snapshot.
   ///
@@ -122,6 +143,8 @@ class BbRemoteConfig {
     kKeyFreeQuotaCopy: kDefaultFreeQuotaCopy,
     kKeyChatCompanionEnabled: kDefaultChatCompanionEnabled,
     kKeyChatCompanionV2Enabled: kDefaultChatCompanionV2Enabled,
+    kKeyAvailabilityPromptEnabled: kDefaultAvailabilityPromptEnabled,
+    kKeyFreeForWorkersLineVisible: kDefaultFreeForWorkersLineVisible,
   };
 
   /// The activated snapshot, or null until a fetch has succeeded. Read
@@ -182,6 +205,14 @@ class BbRemoteConfig {
   /// [chatCompanionEnabled], which is ADR-0044's recap.
   bool get chatCompanionV2Enabled =>
       _bool(kKeyChatCompanionV2Enabled, kDefaultChatCompanionV2Enabled);
+
+  /// #2748 item 1d — whether the home shell may ask for an empty availability.
+  bool get availabilityPromptEnabled =>
+      _bool(kKeyAvailabilityPromptEnabled, kDefaultAvailabilityPromptEnabled);
+
+  /// #2748 item 7a — whether the "free for workers" line is shown.
+  bool get freeForWorkersLineVisible =>
+      _bool(kKeyFreeForWorkersLineVisible, kDefaultFreeForWorkersLineVisible);
 
   bool _bool(String key, bool fallback) {
     // DEMO MODE SHOWS THE DEMO. `USE_MOCKS=true` exists so the whole UI is

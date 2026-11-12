@@ -31,6 +31,7 @@ import '../push/push_token_service.dart';
 import '../../features/applications/data/applications_repository_impl.dart';
 import '../../features/applications/domain/applications_repository.dart';
 import '../../features/applications/presentation/cubit/applications_cubit.dart';
+import '../../features/availability_prompt/domain/availability_prompt_gate.dart';
 import '../../features/auth/domain/auth_session_manager.dart';
 import '../../features/auth/presentation/cubit/devices_cubit.dart';
 import '../../features/auth/presentation/cubit/enter_pin_cubit.dart';
@@ -414,6 +415,17 @@ void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
           locator<SessionRepository>(),
           feedInvalidation: locator<JobFeedInvalidation>(),
         ),
+  );
+  // #2748 item 1d — the home shell's ask for an EMPTY availability, through
+  // the same work-preferences reads/write as the profile editor. App-scoped,
+  // like the employer-sharing gate: its once-per-launch memory must outlive
+  // the shell. A graph without the auth manager never asks.
+  locator.registerLazySingleton<AvailabilityPromptGate>(
+    () => AvailabilityPromptGate(
+      repository: locator<ProfileEditRepository>(),
+      isSignedIn: _workerSignedIn,
+      workerId: () => locator<SessionRepository>().workerId,
+    ),
   );
   // Extracted-profile review + correction surface (issue #1595, §8.4).
   locator.registerLazySingleton<ExtractedReviewRepository>(
