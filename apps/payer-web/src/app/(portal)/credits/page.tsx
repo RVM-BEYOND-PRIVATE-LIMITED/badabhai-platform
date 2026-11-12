@@ -15,6 +15,9 @@ import { CreditsPanel } from "./credits-panel";
 
 export const dynamic = "force-dynamic";
 
+/** The Buy Credits section's id — what the out-of-credits notice links to (#2744). */
+const PACKS_ANCHOR = "packs";
+
 /** ISO → yyyy-mm-dd for display; echoes the input on a parse failure. */
 function day(ts: string): string {
   const d = new Date(ts);
@@ -81,6 +84,9 @@ export default async function CreditsPage() {
   const unlocks: UnlockHistoryItem[] = dashboard?.unlocks ?? [];
   const history = buildTransactionHistory({ unlocks, topUps });
   const balance = dashboard?.credits.balance ?? null;
+  // Out of credits outranks "running low" (the dashboard's rule too): one notice, never both. An
+  // unread balance (null) is neither.
+  const outOfCredits = balance !== null && balance <= 0;
   const lowBalance = balance !== null && balance < threshold;
 
   return (
@@ -96,7 +102,24 @@ export default async function CreditsPage() {
         }
       />
 
-      {lowBalance ? (
+      {outOfCredits ? (
+        <div className="alert alert--danger">
+          <Icon name="warning-octagon" className="alert__icon" />
+          <div className="alert__text">
+            <p className="alert__title">You are out of unlock credits</p>
+            <p className="alert__body">
+              Applicants stay masked until you buy credits. Existing unlocks are unaffected.
+            </p>
+          </div>
+          <div className="alert__actions">
+            {/* Same-page link to the packs below (#2744 item 6). */}
+            <a className="bb-btn bb-btn--secondary bb-btn--sm" href={`#${PACKS_ANCHOR}`}>
+              <Icon name={ACTION_ICON.credits} />
+              <span>Buy credits</span>
+            </a>
+          </div>
+        </div>
+      ) : lowBalance ? (
         <div className="alert alert--warning">
           <Icon name="warning" className="alert__icon" />
           <div className="alert__text">
@@ -145,7 +168,8 @@ export default async function CreditsPage() {
                 expiry: the server applies none yet (BB-D-04, #2741). */}
           </section>
 
-          <section className="cred-buy">
+          {/* `anchor-target`: the notice's link lands this below the sticky header. */}
+          <section className="cred-buy anchor-target" id={PACKS_ANCHOR}>
             <div className="cred-buy__head">
               <div>
                 <h2 className="cred-section__title">Buy Credits</h2>

@@ -584,3 +584,69 @@ describe("credits page — #2085: the panel's packs are priced from prices[]", (
     ]);
   });
 });
+
+/**
+ * #2744 item 6 — when the credits have run out, a notice says so and links to the packs. It reads
+ * the balance the page already has (GET /payer/credits, via the dashboard read), it REPLACES the
+ * "running low" nudge rather than stacking beside it, and an unread balance raises neither.
+ */
+describe("credits page — (i) #2744: an out-of-credits notice links to the packs", () => {
+  /** Every element in the tree, in order (function components are not expanded). */
+  function elements(
+    node: ReactNode,
+    acc: ReactElement<Record<string, unknown>>[] = [],
+  ): ReactElement<Record<string, unknown>>[] {
+    if (node === null || node === undefined || typeof node !== "object") return acc;
+    if (Array.isArray(node)) {
+      node.forEach((n) => elements(n, acc));
+      return acc;
+    }
+    const el = node as ReactElement<Record<string, unknown> & { children?: ReactNode }>;
+    acc.push(el);
+    if (el.props && "children" in el.props) elements(el.props.children as ReactNode, acc);
+    return acc;
+  }
+  async function page(balance: number) {
+    setData({ balance });
+    const tree = (await CreditsPage()) as ReactElement;
+    const c = collect(tree);
+    return { tree, flat: c.text.join(" ").replace(/\s+/g, " "), classes: c.classes };
+  }
+
+  it("zero credits: the notice, whose link lands on the packs section — and no 'running low'", async () => {
+    const { tree, flat, classes } = await page(0);
+    expect(flat).toContain("You are out of unlock credits");
+    expect(classes).toContain("alert alert--danger");
+    expect(flat).not.toMatch(/running low/i); // one notice, never both
+
+    const all = elements(tree);
+    const links = all.filter((e) => e.type === "a" && String(e.props.href).startsWith("#"));
+    expect(links).toHaveLength(1);
+    expect(collect(links[0]!).text.join(" ")).toContain("Buy credits");
+    const targets = all.filter((e) => e.props.id === String(links[0]!.props.href).slice(1));
+    expect(targets).toHaveLength(1);
+    expect(targets[0]!.type).toBe("section");
+    // The packs section, and it clears the sticky header when the link scrolls to it.
+    expect(String(targets[0]!.props.className).split(/\s+/)).toEqual(
+      expect.arrayContaining(["cred-buy", "anchor-target"]),
+    );
+    expect(elements(targets[0]!).some((e) => "packs" in e.props)).toBe(true);
+  });
+
+  it("any credits left: no out-of-credits notice (a low balance keeps its own nudge)", async () => {
+    process.env.PAYER_LOW_BALANCE_THRESHOLD = "8";
+    for (const balance of [1, 7, 50]) {
+      const { flat, classes } = await page(balance);
+      expect(flat, String(balance)).not.toContain("out of unlock credits");
+      expect(classes, String(balance)).not.toContain("alert alert--danger");
+    }
+    expect((await page(7)).flat).toMatch(/running low/i);
+  });
+
+  it("an unread balance is not an empty one: no notice", async () => {
+    getDashboard.mockRejectedValueOnce(new Error("balance down"));
+    getCreditTopUps.mockResolvedValue([]);
+    const { text } = collect((await CreditsPage()) as ReactElement);
+    expect(text.join(" ")).not.toContain("out of unlock credits");
+  });
+});
