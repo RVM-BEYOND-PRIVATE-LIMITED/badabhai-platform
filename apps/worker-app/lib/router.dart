@@ -969,6 +969,9 @@ class _ShellScaffoldState extends State<_ShellScaffold>
   /// A "not now" is remembered for this worker on this device, so it is asked
   /// once. A sheet that closed because the shell itself left the navigator (a
   /// logout, a deep link) was never answered, so that is not remembered.
+  ///
+  /// A save refreshes the Profile tab, which prints the availability, when it
+  /// is the tab on screen; off screen it refetches on its way back into view.
   Future<void> _maybePromptAvailability() async {
     if (!locator.isRegistered<AvailabilityPromptGate>()) return;
     final AvailabilityPromptGate gate = locator<AvailabilityPromptGate>();
@@ -977,7 +980,11 @@ class _ShellScaffoldState extends State<_ShellScaffold>
     if (ModalRoute.isCurrentOf(context) == false) return;
     final bool saved =
         await showAvailabilityPromptSheet(context, prompt: prompt);
-    if (saved || !mounted) return;
+    if (!mounted) return;
+    if (saved) {
+      if (_tabFocus.value == TabIndex.profile) _tabFocus.refocus();
+      return;
+    }
     if (ModalRoute.of(context)?.isActive != true) return;
     await gate.recordDismissal();
   }

@@ -24,11 +24,16 @@ import 'package:badabhai_worker_app/features/consent/domain/employer_sharing_pro
 import 'package:badabhai_worker_app/features/consent/presentation/consent_screen.dart';
 import 'package:badabhai_worker_app/features/consent/presentation/employer_sharing_prompt_screen.dart';
 import 'package:badabhai_worker_app/features/profile_edit/domain/profile_edit_repository.dart';
+import 'package:badabhai_worker_app/features/profile_tab/domain/profile_summary.dart';
+import 'package:badabhai_worker_app/features/profile_tab/domain/profile_summary_repository.dart';
 import 'package:badabhai_worker_app/features/profile_tab/presentation/profile_tab_screen.dart';
 import 'package:badabhai_worker_app/router.dart';
 
 class _MockProfileEditRepository extends Mock
     implements ProfileEditRepository {}
+
+class _MockProfileSummaryRepository extends Mock
+    implements ProfileSummaryRepository {}
 
 class _MockConsentRepository extends Mock implements ConsentRepository {}
 
@@ -215,6 +220,50 @@ void main() {
       reason: 'an answer is not a "not now"',
     );
   });
+
+  testWidgets(
+    'a save over the Profile tab shows the new availability there at once, '
+    'with no tab switch',
+    (WidgetTester tester) async {
+      // The server's profile summary: no availability until the PUT lands.
+      bool savedOnServer = false;
+      when(() => prefs.saveWorkPreferences(any())).thenAnswer((_) async {
+        savedOnServer = true;
+      });
+      final _MockProfileSummaryRepository summaries =
+          _MockProfileSummaryRepository();
+      when(() => summaries.summary(includeDisplayExtras: true)).thenAnswer(
+        (_) async => ProfileSummary(
+          strengthSignals: 0,
+          availabilityStatus: savedOnServer ? 'Ek mahine mein' : null,
+        ),
+      );
+      locator.unregister<ProfileSummaryRepository>();
+      locator.registerLazySingleton<ProfileSummaryRepository>(() => summaries);
+      // The tab's "Kaam ki jaankari" icon shows only when there is work info
+      // behind it; its sheet prints the availability row.
+      final Finder workInfo = find.byKey(const Key('profile-fact-work-info'));
+      switchOn();
+      storedAvailability(null);
+      final GoRouter router = await pumpApp(tester);
+
+      router.go(Routes.profile);
+      await _pumpUntil(tester, sheet);
+      expect(workInfo, findsNothing);
+
+      await tester.tap(find.text('Within a month'));
+      await tester.pump();
+      await tester.tap(find.byKey(kAvailabilityPromptSaveKey));
+      await _settleFrames(tester);
+
+      expect(sheet, findsNothing);
+      expect(find.byType(ProfileTabScreen), findsOneWidget);
+      expect(workInfo, findsOneWidget);
+      await tester.tap(workInfo);
+      await _settleFrames(tester);
+      expect(find.text('Uplabdhata: Ek mahine mein'), findsOneWidget);
+    },
+  );
 
   testWidgets(
     'a sheet closed because the shell left the screen is no answer: not '
