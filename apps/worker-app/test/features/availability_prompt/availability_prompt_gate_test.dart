@@ -54,10 +54,21 @@ void main() {
       expect(availabilityPromptDue(_prefs()), isTrue);
     });
 
-    test('a row with no status -> due, even with a stored notice', () {
+    test('a row with every part blank -> due', () {
       expect(
         availabilityPromptDue(
-          _prefs(availability: const WorkAvailabilityDto(noticeDays: 30)),
+          _prefs(availability: const WorkAvailabilityDto()),
+        ),
+        isTrue,
+      );
+      expect(
+        availabilityPromptDue(
+          _prefs(
+            availability: const WorkAvailabilityDto(
+              status: '  ',
+              availableFrom: ' ',
+            ),
+          ),
         ),
         isTrue,
       );
@@ -69,6 +80,39 @@ void main() {
           _prefs(availability: const WorkAvailabilityDto(status: '  ')),
         ),
         isTrue,
+      );
+    });
+
+    // The Profile tab prints each part on its own ("Kab se: …", "Notice: …
+    // din"), so a worker with any of them stored is never told it is empty.
+    test('a stored date without a status -> not due', () {
+      expect(
+        availabilityPromptDue(
+          _prefs(
+            availability: const WorkAvailabilityDto(
+              availableFrom: '2026-12-01',
+            ),
+          ),
+        ),
+        isFalse,
+      );
+    });
+
+    test('a stored notice without a status -> not due', () {
+      expect(
+        availabilityPromptDue(
+          _prefs(availability: const WorkAvailabilityDto(noticeDays: 30)),
+        ),
+        isFalse,
+      );
+    });
+
+    test('a notice of 0 days is stored, not empty -> not due', () {
+      expect(
+        availabilityPromptDue(
+          _prefs(availability: const WorkAvailabilityDto(noticeDays: 0)),
+        ),
+        isFalse,
       );
     });
 
@@ -183,13 +227,13 @@ void main() {
     test(
       'an empty availability -> the prompt, with the served choices',
       () async {
-        stored(_prefs(availability: const WorkAvailabilityDto(noticeDays: 30)));
+        stored(_prefs(availability: const WorkAvailabilityDto()));
 
         expect(
           await gate().claim(),
           const AvailabilityPrompt(
             options: _kServed,
-            stored: WorkAvailabilityDto(noticeDays: 30),
+            stored: WorkAvailabilityDto(),
           ),
         );
       },
@@ -201,6 +245,24 @@ void main() {
         stored(
           _prefs(
             availability: const WorkAvailabilityDto(status: 'within_month'),
+          ),
+        );
+
+        expect(await gate().claim(), isNull);
+        verifyNever(() => repo.loadWorkPreferenceOptions());
+      },
+    );
+
+    test(
+      'a stored date or notice without a status -> no prompt, and the options '
+      'are never read',
+      () async {
+        stored(
+          _prefs(
+            availability: const WorkAvailabilityDto(
+              availableFrom: '2026-12-01',
+              noticeDays: 30,
+            ),
           ),
         );
 

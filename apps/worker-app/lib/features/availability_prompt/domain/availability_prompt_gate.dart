@@ -18,15 +18,25 @@ const String kAvailabilityWireKey = 'availability';
 /// Whether [prefs] leaves the worker's availability EMPTY — the only case the
 /// shell asks (#2748 item 1d).
 ///
-/// Empty means no stored status. A value the server WITHHELD (`partial`) is
-/// not empty: it is stored, it just failed today's schema on the read, and the
-/// `PUT` replaces the whole object, so asking would overwrite an answer the
-/// worker already gave.
+/// Empty means ALL of it: no status, no `available_from` date and no
+/// `notice_period_days`, the three parts the Profile tab prints. A worker with
+/// a date or a notice but no status has already said when they can join; the
+/// sheet would tell them their profile is empty while the Profile tab shows
+/// "Kab se" or "Notice".
+///
+/// A value the server WITHHELD (`partial`) is not empty: it is stored, it just
+/// failed today's schema on the read, and the `PUT` replaces the whole object,
+/// so asking would overwrite an answer the worker already gave.
 bool availabilityPromptDue(WorkPreferencesDto prefs) {
   if (prefs.partial.contains(kAvailabilityWireKey)) return false;
-  final String status = prefs.availability?.status?.trim() ?? '';
-  return status.isEmpty;
+  final WorkAvailabilityDto? stored = prefs.availability;
+  if (stored == null) return true;
+  return _isBlank(stored.status) &&
+      _isBlank(stored.availableFrom) &&
+      stored.noticeDays == null;
 }
+
+bool _isBlank(String? value) => value == null || value.trim().isEmpty;
 
 /// The choices the prompt offers, `slug → label`, in chip order.
 ///
@@ -66,7 +76,8 @@ class AvailabilityPrompt extends Equatable {
   /// `slug → label`, in chip order — see [availabilityPromptOptions].
   final Map<String, String> options;
 
-  /// The stored availability (its status empty), or null when no row exists.
+  /// The stored availability (empty, see [availabilityPromptDue]), or null
+  /// when no row exists.
   final WorkAvailabilityDto? stored;
 
   @override
