@@ -445,6 +445,15 @@ describe("credits panel — #2085: the price shown is the price sent; a refused 
     expect(findAll(plain, "s")).toEqual([]);
   });
 
+  it("#2741: no tile carries a savings label, even under an offer", () => {
+    stateQueue = [null, null, null, null];
+    stateCursor = 0;
+    const tree = CreditsPanel({ packs: PACKS, real: false }) as ReactElement;
+    for (const tile of findAll(tree, Card)) {
+      expect(textOf(tile)).not.toMatch(/save\s*\d+\s*%/i);
+    }
+  });
+
   it("a refused price: a neutral notice with the new price, the page refreshed, ONE call, no retry", async () => {
     topUpAction.mockResolvedValueOnce({ ok: false, priceChanged: true, currentPriceInr: 2400 });
     await confirmBuy(PACK_A);
