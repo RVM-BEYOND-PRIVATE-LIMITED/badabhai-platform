@@ -9,7 +9,6 @@ import { formatInr } from "../../../lib/format";
 import { opaqueId } from "../../../lib/masking";
 import type { CreditTopUp, Dashboard, UnlockHistoryItem } from "../../../lib/contracts";
 import { Badge, Card } from "../../../components/ds";
-import { CachedPricingNote } from "../../../components/cached-pricing-note";
 import { PageHeader } from "../../../components/page-header";
 import { RetryButton } from "../../../components/retry-button";
 import { CreditsPanel } from "./credits-panel";
@@ -30,9 +29,10 @@ function day(ts: string): string {
  * Packs are read from the LIVE catalog (D-6: `getLiveCatalog` → GET /payer/pricing/catalog via
  * pricing-config), never hardcoded — an ops price edit shows here without a rebuild. No
  * per-unlock price shows anywhere on the page: not in the description, the balance hero or a
- * tile (#2744). On a catalog fetch failure the page degrades to the compile-time defaults with
- * the subtle cached-pricing note (fail-open is safe: the server re-resolves the real price at
- * purchase, XT5).
+ * tile (#2744). Pack tiles come from the catalogue API ONLY (#2744): on a catalog fetch failure
+ * the page renders no packs — an error state with a retry — and never the compile-time default
+ * packs. That reverses D-6's fail-open (defaults + a cached-pricing note) for this page only; the
+ * balance and the history still render.
  * All ₹ / counts render in mono tabular.
  *
  * MOCK vs REAL is decided SERVER-SIDE by `payerServerConfig().paymentsEnableReal` and
@@ -53,10 +53,10 @@ export default async function CreditsPage() {
 
   // Server-resolved payment mode. Fail-closed: anything but an explicit "true" is MOCK.
   const realPayments = payerServerConfig().paymentsEnableReal;
-  // Priced at what each pack is charged (#2085 — the catalog's `prices[]`).
+  // Priced at what each pack is charged (#2085 — the catalog's `prices[]`). Only a LIVE read
+  // yields packs (#2744): a failed one (`live:false`) is null, never the compile-time defaults.
   const catalog = await getLiveCatalog();
-  const { live } = catalog;
-  const packs = offeredCreditPacks(catalog);
+  const packs = catalog.live ? offeredCreditPacks(catalog) : null;
   const threshold = lowBalanceThreshold();
 
   let dashboard: Dashboard | null = null;
@@ -95,8 +95,6 @@ export default async function CreditsPage() {
           </span>
         }
       />
-
-      {!live ? <CachedPricingNote /> : null}
 
       {lowBalance ? (
         <div className="alert alert--warning">
@@ -157,7 +155,23 @@ export default async function CreditsPage() {
                 </p>
               </div>
             </div>
-            <CreditsPanel packs={packs} real={realPayments} />
+            {packs !== null ? (
+              <CreditsPanel packs={packs} real={realPayments} />
+            ) : (
+              <div className="state state--error">
+                <span className="state__icon">
+                  <Icon name="warning-circle" />
+                </span>
+                <h3 className="state__title">Packs unavailable</h3>
+                <p className="state__body">
+                  We couldn&rsquo;t load the packs on sale right now. Your balance is unaffected —
+                  please retry.
+                </p>
+                <div className="state__actions">
+                  <RetryButton />
+                </div>
+              </div>
+            )}
           </section>
         </>
       ) : null}

@@ -354,7 +354,7 @@ describe("credits page — real vs mock payment mode (server-decided)", () => {
   });
 });
 
-describe("credits page — (f) D-6: the LIVE catalog drives the render; fallback shows the note", () => {
+describe("credits page — (f) D-6: the LIVE catalog drives the packs; a failed read shows none (#2744)", () => {
   // An ops-EDITED live catalog: every unlock pack re-priced +₹500 — a compile-time
   // DEFAULT_CATALOG read could not show it.
   const EDITED = DEFAULT_CATALOG.products.map((p) =>
@@ -372,12 +372,18 @@ describe("credits page — (f) D-6: the LIVE catalog drives the render; fallback
     expect(joined).not.toMatch(/cached pricing/i);
   });
 
-  it("a catalog fetch FAILURE falls back to the defaults + the subtle cached-pricing note (never blank)", async () => {
-    // getLiveCatalog itself fails OPEN (live:false) — the page must still render packs.
+  it("a catalog fetch FAILURE renders no packs — an error state with a retry, never the defaults", async () => {
+    // getLiveCatalog fails OPEN (live:false, the compile-time products) — the page must not.
     getLiveCatalog.mockResolvedValue({ products: DEFAULT_CATALOG.products, live: false });
-    const { joined, panelPacks } = await render({ balance: 50 });
-    expect(joined).toMatch(/cached pricing/i); // the subtle disclosure
-    expect(panelPacks).toEqual(offeredCreditPacks({ products: DEFAULT_CATALOG.products })); // defaults, not blank
+    const { flat, classes, panelPacks } = await render({ balance: 50 });
+    expect(panelPacks).toBeUndefined(); // no panel, so no default pack can be bought
+    expect(flat).toContain("Packs unavailable");
+    expect(flat).toContain("We couldn’t load the packs on sale right now.");
+    expect(classes).toContain("state state--error");
+    expect(flat).not.toMatch(/cached pricing/i); // nothing cached is shown, so nothing to disclose
+    // The balance and the history still render beside it.
+    expect(classes).toContain("cred-hero");
+    expect(flat).toContain("Credit Movement & History");
   });
 });
 

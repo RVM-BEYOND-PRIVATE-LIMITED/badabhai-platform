@@ -168,8 +168,14 @@ describe("/credits — no mock wording, in either payment posture", () => {
         getLiveCatalog.mockResolvedValue({ products: DEFAULT_CATALOG.products, live });
         const out = await creditsMarkup();
         const label = `real=${real} live=${live}`;
-        // The credits panel really rendered (its pack cards), so its buttons are in the fence.
-        expect(out, label).toContain("cred-pack");
+        if (live) {
+          // The credits panel really rendered (its pack cards), so its buttons are in the fence.
+          expect(out, label).toContain("cred-pack");
+        } else {
+          // #2744: packs come from the catalogue API only — a failed read renders none.
+          expect(out, label).not.toContain("cred-pack");
+          expect(out, label).toContain("state--error");
+        }
         expect(out, label).not.toMatch(/\bmock\b/i);
         expect(out, label).not.toMatch(/staging preview/i);
       }
