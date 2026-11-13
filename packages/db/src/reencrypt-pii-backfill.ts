@@ -55,6 +55,7 @@ import {
   agencyKyc,
   agencyProfiles,
   aiCallTraces,
+  campusDriveRequests,
   workerAdminOverrides,
   employerProfiles,
   payerMemberInvites,
@@ -392,6 +393,24 @@ function buildTargets(db: Database): PiiTarget[] {
       "worker_admin_override",
       "value_enc",
       "valueEnc",
+    ),
+    // #2746 — a campus-drive request's contact person (migration 0161). Added WITH the
+    // migration, while the table is empty, for the same reason as the entry above.
+    target(
+      campusDriveRequests,
+      campusDriveRequests.id,
+      campusDriveRequests.contactNameEnc,
+      "campus_drive_requests",
+      "contact_name_enc",
+      "contactNameEnc",
+    ),
+    target(
+      campusDriveRequests,
+      campusDriveRequests.id,
+      campusDriveRequests.contactPhoneEnc,
+      "campus_drive_requests",
+      "contact_phone_enc",
+      "contactPhoneEnc",
     ),
   ];
 }

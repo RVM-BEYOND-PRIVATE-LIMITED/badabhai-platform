@@ -157,12 +157,16 @@ export const CampusPostingPageSchema = z.object({
 
 // ─── PUT job-postings/:id/review ─────────────────────────────────────────────
 
-/** A narrowed branch or course list replaces the posting's own, for RVM students only. */
+/**
+ * A narrowed branch or course list replaces the posting's own, for RVM students only. Non-empty
+ * when sent: an empty list means "every branch", so it would widen, not narrow (the database's
+ * `jpir_narrowing_chk` holds the same line).
+ */
 export const CampusReviewBodySchema = z.strictObject({
   state: z.enum(["approved", "rejected"]),
   reviewer_ref: StaffRefSchema,
-  branch_ids: z.array(BranchIdSchema).max(50).optional(),
-  course_ids: z.array(CourseIdSchema).max(100).optional(),
+  branch_ids: z.array(BranchIdSchema).min(1).max(50).optional(),
+  course_ids: z.array(CourseIdSchema).min(1).max(100).optional(),
   reason: z.string().trim().min(1).max(500).optional(),
 });
 

@@ -147,6 +147,13 @@ export const payers = pgTable(
       .notNull()
       .default(sql`'{}'::text[]`),
     orgNameTokenKeyId: text("org_name_token_key_id"),
+    /**
+     * #2746 — test-traffic marker for a COMPANY (the `workers.is_test_account` twin). Set only
+     * by an explicit ops act; rows a test company creates copy it (`campus_drive_requests.is_test`,
+     * #2749's credit lots) so reports can split real from test. Default FALSE keeps every
+     * existing company on today's behaviour.
+     */
+    isTestAccount: boolean("is_test_account").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },

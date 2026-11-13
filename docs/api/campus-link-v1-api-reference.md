@@ -119,9 +119,11 @@ only once `review_state` is `approved`.
 ```
 
 Optional `course_ids` and `reason` (≤ 500 characters). A narrowed `branch_ids` or `course_ids`
-replaces the posting's own for RVM students. Answers
-`{ "posting_id", "review_state", "reviewed_at" }`. A material edit by the company later (title, pay,
-location, audience) returns the posting to `pending`.
+replaces the posting's own for RVM students; when sent it must be non-empty (an empty list would
+mean every branch) and within the posting's own targeting. Answers
+`{ "posting_id", "review_state", "reviewed_at" }`. Any later edit by the company to a field RVM
+students see (title, description, requirements, benefits, pay, location, shift, experience,
+vacancy, audience or targeting) returns the posting to `pending`.
 
 ### POST job-postings
 

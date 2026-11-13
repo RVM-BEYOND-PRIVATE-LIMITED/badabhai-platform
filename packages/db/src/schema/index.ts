@@ -109,6 +109,9 @@ import { profileCompletionLedger } from "./cost-ledger";
 import { workerFeedback } from "./feedback";
 import { aiCallTraces } from "./ai-trace";
 import { deleteForensics } from "./delete-forensics";
+import { jobPostingInstituteReviews, rvmTargetingOptions } from "./job-audience";
+import { campusDriveRequests } from "./campus-drive";
+import { featurePilotPayers } from "./feature-pilot";
 
 export * from "./worker";
 export * from "./skill";
@@ -147,6 +150,10 @@ export * from "./admin-candidate-index";
 export * from "./admin-override";
 // #2752 — the institute (Campus) student link and where a worker came from.
 export * from "./institute-link";
+// #2746 — job audience review, RVM targeting options, campus-drive requests, the pilot list.
+export * from "./job-audience";
+export * from "./campus-drive";
+export * from "./feature-pilot";
 
 // ---------------------------------------------------------------------------
 // Inferred row types (select / insert) for use across services.
@@ -436,7 +443,13 @@ export const schema = {
   profileCompletionLedger,
   // #2561 / ADR-0062 §3.1 - the admin correction layer (migration 0160).
   workerAdminOverrides,
-  // #2752 - the institute student link and the worker's origin (migration 0161).
+  // #2752 - the institute student link and the worker's origin (migration 0162).
   workerInstituteLinks,
   workerOrigins,
+  // #2746 - job audience review, RVM targeting options, campus-drive requests and the
+  // pilot list (migration 0162).
+  jobPostingInstituteReviews,
+  rvmTargetingOptions,
+  campusDriveRequests,
+  featurePilotPayers,
 };

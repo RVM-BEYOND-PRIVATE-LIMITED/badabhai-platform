@@ -228,6 +228,16 @@ const LOCKED_TABLES = [
   // in 0161.
   "worker_institute_links",
   "worker_origins",
+  // 0162 (#2746): the placement team's review of a posting's RVM part (opaque posting id +
+  // closed state + a Campus staff ref) - the gate that keeps unreviewed jobs from RVM students.
+  "job_posting_institute_reviews",
+  // 0162 (#2746): branch and course labels companies may target (reference data, PII-free).
+  "rvm_targeting_options",
+  // 0162 (#2746): campus-drive requests - the contact person as AES ciphertext plus each
+  // company's hiring plan; payer FK cascade as the erasure coverage.
+  "campus_drive_requests",
+  // 0162 (#2746): the pilot list behind each off/pilot/on switch (opaque payer ids).
+  "feature_pilot_payers",
 ] as const;
 
 // The three network-reachable PostgREST roles Supabase ships.

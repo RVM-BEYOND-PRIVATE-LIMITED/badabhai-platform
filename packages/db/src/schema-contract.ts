@@ -1081,6 +1081,94 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "SILENT. Every PostgREST role could read where each worker came from (institute, partner " +
       "or referrer codes) and rewrite it, which feeds the partner and referrer counts of #2753",
   },
+  // 0162 (#2746): who sees a job, and the company test marker. Both columns are named by bare
+  // `select()` / `.returning()` on hot paths with no flag, so APPLY-BEFORE-MERGE (production
+  // deploys on every push to main). The four new tables are named only behind the #2746
+  // switches, so they are listed for their locks, as 0134's table is.
+  {
+    id: "0162-job-postings-audience",
+    migration: "0162_job_audience_campus_drives",
+    kind: "column",
+    table: "job_postings",
+    object: "audience",
+    requiredBy:
+      "JobPostingsRepository's, AgencyJobsRepository's and ApplicationsRepository.findJobById's " +
+      "bare `select()` / `.returning()` on job_postings. `rvm_branch_ids` / `rvm_course_ids` and " +
+      "the three CHECKs ride the same migration and fail together",
+    failureMode:
+      "every payer and ops posting route, the agency twin sync and the legacy apply path 500 " +
+      "(column does not exist). The OLD build on a migrated database is fine (a superset)",
+  },
+  {
+    id: "0162-job-postings-twin-audience-chk",
+    migration: "0162_job_audience_campus_drives",
+    kind: "constraint",
+    table: "job_postings",
+    object: "job_postings_twin_audience_chk",
+    requiredBy:
+      "no read - the guarantee that an agency twin is a BadaBhai-worker job. The twin sync " +
+      "never writes `audience`, so only this CHECK stops a hand edit or a future writer from " +
+      "moving a twin off the worker paths",
+    failureMode:
+      "SILENT: a twin with an RVM audience leaves every BadaBhai worker path while its agency " +
+      "job stays open, and nothing reports it",
+  },
+  {
+    id: "0162-payers-is-test-account",
+    migration: "0162_job_audience_campus_drives",
+    kind: "column",
+    table: "payers",
+    object: "is_test_account",
+    requiredBy:
+      "PayersRepository's bare `select()` / `.returning()` (findById, findByEmail, findByPhone, " +
+      "update, createOrGet) on every authenticated payer request",
+    failureMode:
+      "every payer auth route and every guarded /payer/* request 500s (column does not exist). " +
+      "Old builds on a migrated database are fine (a superset)",
+  },
+  {
+    id: "0162-job-posting-institute-reviews-rls",
+    migration: "0162_job_audience_campus_drives",
+    kind: "rls",
+    table: "job_posting_institute_reviews",
+    requiredBy:
+      "no code path - the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices",
+    failureMode:
+      "SILENT. A writable grant lets any PostgREST role approve a posting for RVM students, " +
+      "which is the gate that keeps an unreviewed job away from them",
+  },
+  {
+    id: "0162-rvm-targeting-options-rls",
+    migration: "0162_job_audience_campus_drives",
+    kind: "rls",
+    table: "rvm_targeting_options",
+    requiredBy: "no code path - FORCE + four REVOKEs HAND-APPENDED, as the entry above",
+    failureMode:
+      "SILENT. Reference data, but a writable grant lets any PostgREST role relabel or add the " +
+      "branches and courses companies target",
+  },
+  {
+    id: "0162-campus-drive-requests-rls",
+    migration: "0162_job_audience_campus_drives",
+    kind: "rls",
+    table: "campus_drive_requests",
+    requiredBy: "no code path - FORCE + four REVOKEs HAND-APPENDED, as the entries above",
+    failureMode:
+      "SILENT. The table holds each company's drive contact (ciphertext) and its hiring plans; " +
+      "an open grant exposes every company's requests to every PostgREST role",
+  },
+  {
+    id: "0162-feature-pilot-payers-rls",
+    migration: "0162_job_audience_campus_drives",
+    kind: "rls",
+    table: "feature_pilot_payers",
+    requiredBy: "no code path - FORCE + four REVOKEs HAND-APPENDED, as the entries above",
+    failureMode:
+      "SILENT. A writable grant lets any PostgREST role put a company on a pilot, switching on " +
+      "features (real payments, from #2749) that are meant for the pilot list only",
+  },
   // 0134: THE API names `payer_applicant_stages` only while PAYER_APPLICANT_STAGES_ENABLED is on
   // (owner ruling 2026-10-07, the payer pipeline board), so a deploy ahead of the migration breaks
   // no request and the table is NOT a `table` entry. It is listed for its lock, exactly as 0128's
