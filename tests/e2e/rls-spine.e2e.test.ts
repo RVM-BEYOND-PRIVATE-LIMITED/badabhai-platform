@@ -223,6 +223,11 @@ const LOCKED_TABLES = [
   // {corrected, previous} envelope plus the written reason, keyed by worker with cascade as the
   // DSAR coverage. RLS+FORCE+REVOKE in 0160.
   "worker_admin_override",
+  // 0161 (#2752 part B): which workers are institute students (course, branch, status, score,
+  // consent) and where each worker came from. Both cascade on worker deletion. RLS+FORCE+REVOKE
+  // in 0161.
+  "worker_institute_links",
+  "worker_origins",
 ] as const;
 
 // The three network-reachable PostgREST roles Supabase ships.
