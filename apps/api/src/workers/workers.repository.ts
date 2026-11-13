@@ -251,6 +251,20 @@ export class WorkersRepository {
    * the table). Idempotent: only flips false → true. Returns the updated row,
    * or undefined if no worker matched.
    */
+  /**
+   * #2752 — a `pending` row (the Campus link made it; he has never signed in) becomes `active` at
+   * his first sign-in. Only a pending row moves, so a race or a repeat is a no-op. Returns the
+   * updated row, or undefined when nothing moved.
+   */
+  async activatePending(id: string, tx: Database = this.db): Promise<Worker | undefined> {
+    const rows = await tx
+      .update(workers)
+      .set({ status: "active", updatedAt: new Date() })
+      .where(and(eq(workers.id, id), eq(workers.status, "pending")))
+      .returning();
+    return rows[0];
+  }
+
   async markTestAccount(id: string): Promise<Worker | undefined> {
     const rows = await this.db
       .update(workers)

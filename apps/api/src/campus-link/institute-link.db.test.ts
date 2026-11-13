@@ -348,6 +348,23 @@ describe.skipIf(!RUN)("#2752 institute link — against Postgres", () => {
     expect(await manualCases(suspended.id, INSTITUTE_LINK_AUDIT_ACTIONS.refused)).toHaveLength(1);
   });
 
+  it("his first sign-in reaches the same row, which activates once (pending → active)", async () => {
+    const ref = randomUUID();
+    const s = student();
+    answers.set(ref, { kind: "available", student: s });
+    const linked = track(await service.linkStudent(ref, CTX));
+
+    // The sign-in path finds the worker by the same hashed +91 phone.
+    expect((await workersRepo.findByPhoneHash(hashOf(s.phone)))?.id).toBe(linked.workerId);
+
+    const first = await workersRepo.activatePending(linked.workerId);
+    const again = await workersRepo.activatePending(linked.workerId);
+
+    expect(first?.status).toBe("active");
+    expect(again).toBeUndefined();
+    expect((await linkOf(linked.workerId))?.status).toBe("active");
+  });
+
   it("erases the link and the origin with the worker (DPDP cascade)", async () => {
     const ref = randomUUID();
     answers.set(ref, { kind: "available", student: student() });

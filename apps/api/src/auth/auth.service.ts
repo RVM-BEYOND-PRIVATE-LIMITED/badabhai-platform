@@ -410,6 +410,30 @@ export class AuthService {
       }
     }
 
+    // #2752 — a row the Campus link created for an RVM student is `pending`: he has never signed
+    // in, so `worker.created` never fired. His first sign-in makes him active and emits it, once,
+    // in one transaction, so the funnel and the journey count him from today. The consent gate is
+    // untouched: no `worker_consents` row exists for him, so BadaBhai's own notice still shows.
+    if (!isNew && worker.status === "pending") {
+      const pendingId = worker.id;
+      const activated = await this.workers.withTransaction(async (tx) => {
+        const row = await this.workers.activatePending(pendingId, tx);
+        if (!row) return undefined;
+        await this.events.emit({
+          event_name: "worker.created",
+          actor: { actor_type: "worker", actor_id: row.id },
+          subject: { subject_type: "worker", subject_id: row.id },
+          payload: { worker_id: row.id, phone_hash: phoneHash, status: "active" },
+          idempotencyKey: `worker.created:${row.id}`,
+          correlationId: ctx.correlationId,
+          requestId: ctx.requestId,
+          tx,
+        });
+        return row;
+      });
+      if (activated) worker = activated;
+    }
+
     // A5 — lazy marking for rows created before the flag existed: a reserved-range
     // number logging into an unmarked row marks it. Skipped on the call that just
     // inserted the row (the flag rode the insert). Write-only when needed, and a
