@@ -429,6 +429,14 @@ services:
       # posting that names a rung sorts its applicants meets → not confirmed → below inside each
       # trade group. Nobody is hidden. `:-false` because this bool rejects "".
       LEVEL_NEEDED_SORT_ENABLED: ${LEVEL_NEEDED_SORT_ENABLED:-false}
+      # THE CAMPUS LINK (#2752). Off: every /internal/campus/v1 route is a neutral 404 and nothing
+      # else runs. `:-false` because this bool rejects "". The two lists are empty when unset, and
+      # empty refuses every caller (fail closed): token HASHES (sha256 hex, two during a rotation)
+      # and the Campus server's addresses as `req.ip` sees them behind the box nginx.
+      CAMPUS_LINK_ENABLED: ${CAMPUS_LINK_ENABLED:-false}
+      CAMPUS_SERVICE_TOKEN_SHA256S: ${CAMPUS_SERVICE_TOKEN_SHA256S:-}
+      CAMPUS_SERVICE_ALLOWED_IPS: ${CAMPUS_SERVICE_ALLOWED_IPS:-}
+      CAMPUS_SERVICE_MAX_PER_MINUTE: ${CAMPUS_SERVICE_MAX_PER_MINUTE:-}
 
       # ---- THE REFERRAL RESOLVER'S DESTINATION (#1800).
       #

@@ -36,6 +36,7 @@ import { ResumeDisclosureModule } from "./disclosures/resume-disclosure.module";
 import { PayersModule } from "./payers/payers.module";
 import { PayerPortalModule } from "./payer-portal/payer-portal.module";
 import { CandidatesModule } from "./candidates/candidates.module";
+import { CampusLinkModule } from "./campus-link/campus-link.module";
 import { AgencyModule } from "./agency/agency.module";
 import { AgencyTwinModule } from "./agency-twin/agency-twin.module";
 import { ReferralAttributionModule } from "./referrals/referral-attribution.module";
@@ -128,6 +129,9 @@ import { RequestIdMiddleware } from "./common/middleware/request-id.middleware";
     // ADR-0040 / E2 (owner rulings 2026-11-03) — the payer ALL-CANDIDATES search:
     // `POST /payer/candidates/search` + `GET /payer/candidates/filters`. A leaf module.
     CandidatesModule,
+    // #2752 — BadaBhai Campus's service API under /internal/campus/v1, behind its own
+    // CampusServiceGuard. INERT until CAMPUS_LINK_ENABLED is on: every route is a neutral 404.
+    CampusLinkModule,
     // Agency Supply Portal demand slice (ADR-0022): agent-only `/payer/agency/*` routes
     // (jobs CRUD + invites + referrals summary) + the consent-gated attribution seam.
     AgencyModule,

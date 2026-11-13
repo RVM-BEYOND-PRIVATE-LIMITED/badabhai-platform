@@ -856,6 +856,56 @@ describe("loadServerConfig", () => {
     expect(() => loadServerConfig({ LEVEL_NEEDED_SORT_ENABLED: "yes" })).toThrow();
   });
 
+  describe("the Campus link (#2752)", () => {
+    const HASH_A = "a".repeat(64);
+    const HASH_B = "B".repeat(64);
+
+    it("CAMPUS_LINK_ENABLED is OFF by default and for the empty string", () => {
+      expect(loadServerConfig({}).CAMPUS_LINK_ENABLED).toBe(false);
+      expect(loadServerConfig({ CAMPUS_LINK_ENABLED: "" }).CAMPUS_LINK_ENABLED).toBe(false);
+      expect(loadServerConfig({ CAMPUS_LINK_ENABLED: "true" }).CAMPUS_LINK_ENABLED).toBe(true);
+      expect(() => loadServerConfig({ CAMPUS_LINK_ENABLED: "yes" })).toThrow();
+    });
+
+    it("CAMPUS_SERVICE_TOKEN_SHA256S reads absent and empty as no hashes, so nobody authenticates", () => {
+      expect(loadServerConfig({}).CAMPUS_SERVICE_TOKEN_SHA256S).toEqual([]);
+      expect(
+        loadServerConfig({ CAMPUS_SERVICE_TOKEN_SHA256S: "" }).CAMPUS_SERVICE_TOKEN_SHA256S,
+      ).toEqual([]);
+    });
+
+    it("CAMPUS_SERVICE_TOKEN_SHA256S keeps two hashes for a rotation, lower-cased and trimmed", () => {
+      expect(
+        loadServerConfig({ CAMPUS_SERVICE_TOKEN_SHA256S: ` ${HASH_A} , ${HASH_B} ` })
+          .CAMPUS_SERVICE_TOKEN_SHA256S,
+      ).toEqual([HASH_A, HASH_B.toLowerCase()]);
+    });
+
+    it("CAMPUS_SERVICE_TOKEN_SHA256S fails boot on a malformed entry or a third hash", () => {
+      expect(() => loadServerConfig({ CAMPUS_SERVICE_TOKEN_SHA256S: "not-a-hash" })).toThrow();
+      expect(() =>
+        loadServerConfig({ CAMPUS_SERVICE_TOKEN_SHA256S: `${HASH_A},${HASH_A},${HASH_A}` }),
+      ).toThrow();
+    });
+
+    it("CAMPUS_SERVICE_ALLOWED_IPS reads empty as no address, and fails boot on a non-address", () => {
+      expect(loadServerConfig({}).CAMPUS_SERVICE_ALLOWED_IPS).toEqual([]);
+      expect(
+        loadServerConfig({ CAMPUS_SERVICE_ALLOWED_IPS: "203.0.113.7, ::1" })
+          .CAMPUS_SERVICE_ALLOWED_IPS,
+      ).toEqual(["203.0.113.7", "::1"]);
+      expect(() => loadServerConfig({ CAMPUS_SERVICE_ALLOWED_IPS: "campus.rvmcad.org" })).toThrow();
+    });
+
+    it("CAMPUS_SERVICE_MAX_PER_MINUTE defaults to 600, also for the empty string", () => {
+      expect(loadServerConfig({}).CAMPUS_SERVICE_MAX_PER_MINUTE).toBe(600);
+      expect(
+        loadServerConfig({ CAMPUS_SERVICE_MAX_PER_MINUTE: "" }).CAMPUS_SERVICE_MAX_PER_MINUTE,
+      ).toBe(600);
+      expect(() => loadServerConfig({ CAMPUS_SERVICE_MAX_PER_MINUTE: "0" })).toThrow();
+    });
+  });
+
   it("PAYER_APPLICANT_STAGE_MAX_PER_HOUR defaults to 600 and refuses a non-positive cap", () => {
     expect(loadServerConfig({}).PAYER_APPLICANT_STAGE_MAX_PER_HOUR).toBe(600);
     expect(

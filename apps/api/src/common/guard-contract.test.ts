@@ -62,6 +62,7 @@ import { NotificationPrefsController } from "../notifications/notification-prefs
 import { PayerRelayController } from "../relay/payer-relay.controller";
 import { WorkerRelayController } from "../relay/worker-relay.controller";
 import { SkillsController } from "../skills/skills.controller";
+import { CampusLinkController } from "../campus-link/campus-link.controller";
 import { ReferralAttributionController } from "../referrals/referral-attribution.controller";
 import { ReferralBonusController } from "../referrals/referral-bonus.controller";
 // BL-3 — 17 controllers independently found missing from this contract (11 platform-wide
@@ -134,6 +135,7 @@ const A = "AdminAuthGuard";
 const AR = "AdminRolesGuard";
 const CNR = "ConsentNotRevokedGuard";
 const SI = "SkillsInternalGuard";
+const CS = "CampusServiceGuard";
 const TL = "TestLoginGuard";
 const PTL = "PayerTestLoginGuard";
 const PE = "AgencyPayoutsEnabledGuard";
@@ -656,6 +658,14 @@ const CONTRACT: ControllerContract[] = [
     name: "Skills",
     ctor: SkillsController,
     routes: { nearestAliases: [SI], recordUnresolved: [SI] },
+  },
+  // #2752 — BadaBhai Campus's ONLY credential. CampusServiceGuard (its own hashed token, an
+  // address allow-list, a per-minute cap, an audit row per call) and never InternalServiceGuard,
+  // whose shared secret opens the ops routes that return personal data.
+  {
+    name: "CampusLink",
+    ctor: CampusLinkController,
+    routes: { ping: [CS] },
   },
   // Referral attribution (ADR-0020/0022): the invited_worker_id is the SESSION worker, so
   // a caller can only ever attribute THEMSELVES to a code (XB-A). B4 added an OPTIONAL

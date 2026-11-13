@@ -414,6 +414,8 @@ describe("the four Phase-9 flags, as they reach the box", () => {
     ["PAYER_APPLICANT_STAGES_ENABLED", "true"],
     // ADR-0061 — off is today's applicant list: the v1.0 ORDER BY, no level read, levelFit null.
     ["LEVEL_NEEDED_SORT_ENABLED", "false"],
+    // #2752 — off is no Campus route at all: a neutral 404 before any token, address or audit.
+    ["CAMPUS_LINK_ENABLED", "false"],
     // ADR-0053 — off keys every payer read to the login: the pre-ADR behaviour, byte for byte.
     ["PAYER_ORG_TENANCY_MODE", "off"],
     // #2509 — the zod default: 20/hour/IP until the secret (or a box export) says otherwise.
