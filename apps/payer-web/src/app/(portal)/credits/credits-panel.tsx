@@ -300,7 +300,6 @@ export function CreditsPanel({ packs, real = false }: { packs: CreditPack[]; rea
                     <s className="price-was">{formatInr(p.listPriceInr)}</s>
                   ) : null}
                   <strong className="bb-mono">{formatInr(p.priceInr)}</strong>
-                  <span className="cred-pack__gst">+ GST</span>
                 </div>
                 <p className="cred-pack__line">
                   <Icon name="check" /> <span className="bb-mono">{p.credits}</span> unlock credits
