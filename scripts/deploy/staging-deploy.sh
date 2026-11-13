@@ -139,6 +139,25 @@ case "${PAYER_ORG_TENANCY_MODE-}" in
     ;;
 esac
 
+# #2746: the rollout switches (off | pilot | on). The api's config is a z.enum that throws at boot
+# on anything else (empty reads as unset, and compose's `${VAR:-off}` resolves it to off). The api
+# `up` has no automatic rollback and a secret cannot be read back, so a typo ("ON", "true") would
+# take the api down. Checked here, before any prune, pull or recreate. The value is never echoed.
+case "${JOB_AUDIENCE_ROLLOUT-}" in
+  "" | off | pilot | on) ;;
+  *)
+    echo "::error::JOB_AUDIENCE_ROLLOUT must be exactly off, pilot, on or empty (lowercase; empty means off). Fix the production secret (gh secret set JOB_AUDIENCE_ROLLOUT --env production --body off) and re-run. Nothing was deployed."
+    exit 1
+    ;;
+esac
+case "${CAMPUS_DRIVE_REQUESTS_ROLLOUT-}" in
+  "" | off | pilot | on) ;;
+  *)
+    echo "::error::CAMPUS_DRIVE_REQUESTS_ROLLOUT must be exactly off, pilot, on or empty (lowercase; empty means off). Fix the production secret (gh secret set CAMPUS_DRIVE_REQUESTS_ROLLOUT --env production --body off) and re-run. Nothing was deployed."
+    exit 1
+    ;;
+esac
+
 # #2542 / TD25: TRUST_PROXY_HOP_COUNT — how many X-Forwarded-For hops the api trusts for `req.ip`.
 # The box has exactly ONE appending nginx in front of the api, so the only correct values are 0
 # (dormant: socket peer) and 1 (armed). 2 or more is not "more permissive", it is a spoof: Express

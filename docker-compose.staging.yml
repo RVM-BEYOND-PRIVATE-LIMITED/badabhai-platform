@@ -653,6 +653,12 @@ services:
       # preflight rejects anything but off|shadow|on|empty before a container moves. Arming it
       # is owner decision O-8, after the plan §5 census.
       PAYER_ORG_TENANCY_MODE: ${PAYER_ORG_TENANCY_MODE:-off}
+      # #2746 — rollout switches, off | pilot | on (pilot = the companies listed for that feature
+      # in feature_pilot_payers). `:-off` so an unset or empty secret is off. Bridged from the
+      # `production` secrets of the same names; staging-deploy.sh's preflight rejects anything but
+      # off|pilot|on|empty before a container moves.
+      JOB_AUDIENCE_ROLLOUT: ${JOB_AUDIENCE_ROLLOUT:-off}
+      CAMPUS_DRIVE_REQUESTS_ROLLOUT: ${CAMPUS_DRIVE_REQUESTS_ROLLOUT:-off}
       CAPACITY_ENFORCEMENT_ENABLED: ${CAPACITY_ENFORCEMENT_ENABLED:-false}
       PACE_ENABLED: ${PACE_ENABLED:-false}
       TEST_LOGIN_ENABLED: ${TEST_LOGIN_ENABLED:-false}

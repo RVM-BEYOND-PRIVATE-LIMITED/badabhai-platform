@@ -6,6 +6,20 @@ export const booleanFromString = z
   .transform((v) => v === true || v === "true" || v === "1")
   .default(false);
 
+/**
+ * A feature's rollout switch (#2746 item 1): `off` (nobody), `pilot` (the companies on
+ * `feature_pilot_payers` for that feature) or `on` (everyone). Empty or unset means `off`, for
+ * the `${VAR:-off}` compose idiom and a blank secret alike; any other value fails boot, and the
+ * deploy preflight refuses it before a container moves. Read only by `FeatureRolloutService`.
+ */
+export const FEATURE_ROLLOUT_MODES = ["off", "pilot", "on"] as const;
+export type FeatureRolloutMode = (typeof FEATURE_ROLLOUT_MODES)[number];
+export const featureRolloutMode = z.preprocess(
+  (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+  // `.default()` on the INNER schema, for the reason written out on `positiveIntFromString`.
+  z.enum(FEATURE_ROLLOUT_MODES).default("off"),
+);
+
 /** Coerce a string/number into a positive integer port. */
 export const portSchema = z.coerce.number().int().min(1).max(65535);
 

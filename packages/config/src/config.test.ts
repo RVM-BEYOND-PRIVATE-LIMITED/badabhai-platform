@@ -1040,6 +1040,22 @@ describe("loadServerConfig", () => {
     }
   });
 
+  it.each(["JOB_AUDIENCE_ROLLOUT", "CAMPUS_DRIVE_REQUESTS_ROLLOUT"] as const)(
+    "%s (#2746) is 'off' when unset, empty or blank, and refuses anything but off/pilot/on",
+    (name) => {
+      const mode = (value?: string) =>
+        loadServerConfig(value === undefined ? {} : { [name]: value })[name];
+      expect(mode()).toBe("off");
+      expect(mode("")).toBe("off");
+      expect(mode("  ")).toBe("off");
+      for (const value of ["off", "pilot", "on"] as const) expect(mode(value)).toBe(value);
+      // Case and boolean spellings are refused, not coerced: a typo must not arm the switch.
+      for (const bad of ["ON", "Pilot", "true", "1", "enabled", " on"]) {
+        expect(() => loadServerConfig({ [name]: bad }), bad).toThrow();
+      }
+    },
+  );
+
   it("REFERRAL_SHORT_LINK_BASE accepts the interim payer-web origin and refuses a non-https one", () => {
     // #1800: staging now declares the origin that SERVES `/i/<code>`. The default stays the old
     // value only so a bare local boot validates; the refinement keeps a redirect off plain http.
