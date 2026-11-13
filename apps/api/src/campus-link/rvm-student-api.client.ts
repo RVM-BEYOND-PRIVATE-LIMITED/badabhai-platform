@@ -3,7 +3,7 @@ import { z } from "zod";
 import type { ServerConfig } from "@badabhai/config";
 import { INSTITUTE_STUDENT_STATUSES } from "@badabhai/db";
 import { SERVER_CONFIG } from "../config/config.module";
-import { CAMPUS_SERVICE_TOKEN_HEADER } from "./campus-link.contract";
+import { CAMPUS_SERVICE_TOKEN_HEADER, StudentRefSchema } from "./campus-link.contract";
 
 /** Injection token for the `fetch` the client calls; tests substitute a stub. */
 export const RVM_STUDENT_API_FETCH = Symbol("RVM_STUDENT_API_FETCH");
@@ -59,6 +59,17 @@ export class RvmStudentApiUnavailableError extends Error {
 
 const NotAvailableBodySchema = z.object({ code: z.literal("NOT_AVAILABLE") });
 
+/** Six short fields fit in well under this; anything longer is not the agreed reply. */
+const MAX_BODY_CHARS = 16_384;
+
+function parseJson(text: string): unknown {
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * Reads a student's agreed fields from RVM's Student API (#2752 item 7). Campus sends BadaBhai
  * only the student's reference; everything about him comes from here, under his RVM consent.
@@ -78,24 +89,32 @@ export class RvmStudentApiClient {
   }
 
   async readStudent(studentRef: string): Promise<RvmStudentLookup> {
+    // Checked here as well as by callers: the ref goes into the URL path, and a value such as
+    // `..` survives encodeURIComponent and would point the token at another route.
+    const ref = StudentRefSchema.parse(studentRef);
     const base = this.config.RVM_STUDENT_API_BASE_URL;
     const token = this.config.RVM_STUDENT_API_TOKEN;
     if (!base || !token) throw new RvmStudentApiUnavailableError("not_configured");
 
-    const url = `${base.replace(/\/+$/, "")}/internal/campus/students/${encodeURIComponent(studentRef)}`;
+    const url = `${base.replace(/\/+$/, "")}/internal/campus/students/${encodeURIComponent(ref)}`;
     let res: Response;
+    let text: string;
     try {
       res = await this.fetchImpl(url, {
         method: "GET",
         headers: { [CAMPUS_SERVICE_TOKEN_HEADER]: token, accept: "application/json" },
+        // Never follow a redirect: `X-Service-Token` would ride along to wherever it points.
+        redirect: "error",
         signal: AbortSignal.timeout(this.config.RVM_STUDENT_API_TIMEOUT_MS),
       });
+      text = await res.text();
     } catch (err) {
       const timedOut = err instanceof Error && err.name === "TimeoutError";
       throw new RvmStudentApiUnavailableError(timedOut ? "timeout" : "network");
     }
+    if (text.length > MAX_BODY_CHARS) throw new RvmStudentApiUnavailableError("contract");
 
-    const body = await res.json().catch(() => undefined);
+    const body = parseJson(text);
 
     if (res.status === 404) {
       // Only RVM's own refusal counts as one. A bare 404 (a wrong base URL, a missing route)

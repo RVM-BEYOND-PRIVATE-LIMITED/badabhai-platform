@@ -417,7 +417,7 @@ export class AuthService {
     if (!isNew && worker.status === "pending") {
       const pendingId = worker.id;
       const activated = await this.workers.withTransaction(async (tx) => {
-        const row = await this.workers.activatePending(pendingId, tx);
+        const row = await this.workers.activatePending(pendingId, phoneHash, tx);
         if (!row) return undefined;
         await this.events.emit({
           event_name: "worker.created",

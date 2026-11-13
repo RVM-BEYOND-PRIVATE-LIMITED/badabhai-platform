@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, exists, sql } from "drizzle-orm";
 import {
   auditLogs,
   workerInstituteLinks,
@@ -39,6 +39,20 @@ export class InstituteLinkRepository {
 
   withTransaction<T>(work: (tx: Database) => Promise<T>): Promise<T> {
     return this.db.transaction(work as (tx: unknown) => Promise<T>);
+  }
+
+  /**
+   * Serialises every link of one institute student for the rest of this transaction, so two
+   * concurrent calls for the same reference cannot both create a worker row (the second waits and
+   * then finds the first one's link).
+   */
+  async lockStudentRef(
+    tx: Database,
+    instituteCode: InstituteCode,
+    studentRef: string,
+  ): Promise<void> {
+    const key = `institute_link:${instituteCode}:${studentRef}`;
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${key}, 0))`);
   }
 
   /** The link for one institute student, locked for this transaction. */
@@ -101,6 +115,19 @@ export class InstituteLinkRepository {
       .where(eq(workerInstituteLinks.workerId, workerId));
   }
 
+  /** The two worker facts that decide whether a link may stand: suspended, or being deleted. */
+  async workerStanding(
+    tx: Database,
+    workerId: string,
+  ): Promise<{ status: string; deletionScheduledAt: Date | null } | undefined> {
+    const rows = await tx
+      .select({ status: workers.status, deletionScheduledAt: workers.deletionScheduledAt })
+      .from(workers)
+      .where(eq(workers.id, workerId))
+      .limit(1);
+    return rows[0];
+  }
+
   /** First touch wins: an origin already recorded is never overwritten. */
   async recordOrigin(
     tx: Database,
@@ -111,28 +138,39 @@ export class InstituteLinkRepository {
     await tx.insert(workerOrigins).values({ workerId, kind, ref }).onConflictDoNothing();
   }
 
-  /** Sets the encrypted name only where the worker has none: his own name is never replaced. */
-  async setNameIfMissing(tx: Database, workerId: string, fullNameEnc: string): Promise<void> {
-    await tx
-      .update(workers)
-      .set({ fullName: fullNameEnc, updatedAt: new Date() })
-      .where(and(eq(workers.id, workerId), isNull(workers.fullName)));
-  }
-
   /**
-   * Moves a link-created row to a new phone. Only a `pending` row (no sign-in yet) moves: the
-   * phone of a worker who signs in himself is his login and is never changed from here.
-   * Returns false when the row is not pending.
+   * Moves a row THIS INSTITUTE'S LINK CREATED to a new phone. Both conditions are required: the
+   * row is still `pending` (its first sign-in activates it) AND its origin is this institute (the
+   * link made it). A legacy `pending` row, or any row a person signs in to himself, never moves:
+   * its phone is a login. Returns false when nothing moved.
    */
-  async movePendingWorkerPhone(
+  async moveLinkCreatedWorkerPhone(
     tx: Database,
     workerId: string,
+    instituteCode: InstituteCode,
     phone: { phoneE164Enc: string; phoneHash: string },
   ): Promise<boolean> {
     const rows = await tx
       .update(workers)
       .set({ phoneE164: phone.phoneE164Enc, phoneHash: phone.phoneHash, updatedAt: new Date() })
-      .where(and(eq(workers.id, workerId), eq(workers.status, "pending")))
+      .where(
+        and(
+          eq(workers.id, workerId),
+          eq(workers.status, "pending"),
+          exists(
+            tx
+              .select({ one: sql`1` })
+              .from(workerOrigins)
+              .where(
+                and(
+                  eq(workerOrigins.workerId, workerId),
+                  eq(workerOrigins.kind, "institute"),
+                  eq(workerOrigins.ref, instituteCode),
+                ),
+              ),
+          ),
+        ),
+      )
       .returning({ id: workers.id });
     return rows.length > 0;
   }

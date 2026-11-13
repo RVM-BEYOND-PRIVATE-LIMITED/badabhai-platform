@@ -253,14 +253,21 @@ export class WorkersRepository {
    */
   /**
    * #2752 — a `pending` row (the Campus link made it; he has never signed in) becomes `active` at
-   * his first sign-in. Only a pending row moves, so a race or a repeat is a no-op. Returns the
-   * updated row, or undefined when nothing moved.
+   * his first sign-in. Only a pending row that STILL HOLDS the phone being signed in with moves,
+   * so a race with the link moving his phone, or a repeat, is a no-op. Returns the updated row, or
+   * undefined when nothing moved.
    */
-  async activatePending(id: string, tx: Database = this.db): Promise<Worker | undefined> {
+  async activatePending(
+    id: string,
+    phoneHash: string,
+    tx: Database = this.db,
+  ): Promise<Worker | undefined> {
     const rows = await tx
       .update(workers)
       .set({ status: "active", updatedAt: new Date() })
-      .where(and(eq(workers.id, id), eq(workers.status, "pending")))
+      .where(
+        and(eq(workers.id, id), eq(workers.status, "pending"), eq(workers.phoneHash, phoneHash)),
+      )
       .returning();
     return rows[0];
   }

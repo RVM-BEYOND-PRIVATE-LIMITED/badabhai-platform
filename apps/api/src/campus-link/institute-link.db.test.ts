@@ -71,8 +71,8 @@ describe.skipIf(!RUN)("#2752 institute link — against Postgres", () => {
   let pii!: PiiCryptoService;
   let workersRepo!: WorkersRepository;
   let service!: InstituteLinkService;
-  /** What the fake Student API answers next, per reference. */
-  const answers = new Map<string, RvmStudentLookup | Error>();
+  /** What the fake Student API answers next, per reference (a queue answers one item per call). */
+  const answers = new Map<string, RvmStudentLookup | Error | RvmStudentLookup[]>();
 
   beforeAll(() => {
     assertLocalDatabase(DATABASE_URL);
@@ -88,7 +88,8 @@ describe.skipIf(!RUN)("#2752 institute link — against Postgres", () => {
     workersRepo = new WorkersRepository(client.db);
     const rvm = {
       readStudent: async (ref: string) => {
-        const answer = answers.get(ref);
+        const stored = answers.get(ref);
+        const answer = Array.isArray(stored) ? stored.shift() : stored;
         if (answer === undefined) throw new Error(`no fake answer for ${ref}`);
         if (answer instanceof Error) throw answer;
         return answer;
@@ -348,6 +349,107 @@ describe.skipIf(!RUN)("#2752 institute link — against Postgres", () => {
     expect(await manualCases(suspended.id, INSTITUTE_LINK_AUDIT_ACTIONS.refused)).toHaveLength(1);
   });
 
+  it("refuses, rather than refreshes, an existing link whose worker is now suspended", async () => {
+    const ref = randomUUID();
+    answers.set(ref, { kind: "available", student: student({ course: "Before" }) });
+    const linked = track(await service.linkStudent(ref, CTX));
+    await client.db
+      .update(workers)
+      .set({ status: "suspended" })
+      .where(eq(workers.id, linked.workerId));
+
+    answers.set(ref, { kind: "available", student: student({ course: "After" }) });
+    await expect(service.linkStudent(ref, CTX)).rejects.toBeInstanceOf(StudentNotAvailableError);
+
+    expect((await linkOf(linked.workerId))?.course).toBe("Before");
+    const cases = await manualCases(linked.workerId, INSTITUTE_LINK_AUDIT_ACTIONS.refused);
+    expect(cases.map((c) => (c.metadata as Record<string, string>).reason)).toEqual([
+      "worker_suspended",
+    ]);
+  });
+
+  it("refuses to link a worker whose deletion is scheduled, as a manual case", async () => {
+    const s = student();
+    const deleting = track(
+      await workersRepo.create({
+        phoneE164: pii.encrypt(`+91${s.phone}`),
+        phoneHash: hashOf(s.phone),
+        status: "active",
+        deletionScheduledAt: new Date(),
+      }),
+    );
+    const ref = randomUUID();
+    answers.set(ref, { kind: "available", student: s });
+
+    await expect(service.linkStudent(ref, CTX)).rejects.toBeInstanceOf(StudentNotAvailableError);
+
+    expect(await linkOf(deleting.id)).toBeUndefined();
+    const cases = await manualCases(deleting.id, INSTITUTE_LINK_AUDIT_ACTIONS.refused);
+    expect(cases.map((c) => (c.metadata as Record<string, string>).reason)).toEqual([
+      "worker_deletion_scheduled",
+    ]);
+  });
+
+  it("never moves the phone of a pending row the link did not create", async () => {
+    // A `pending` row with no institute origin is not one the link made: its phone is a login.
+    const s = student();
+    const legacy = track(
+      await workersRepo.create({
+        phoneE164: pii.encrypt(`+91${s.phone}`),
+        phoneHash: hashOf(s.phone),
+        status: "pending",
+      }),
+    );
+    const ref = randomUUID();
+    answers.set(ref, { kind: "available", student: s });
+    await service.linkStudent(ref, CTX);
+
+    answers.set(ref, { kind: "available", student: student({ phone: phone10() }) });
+    await service.linkStudent(ref, CTX);
+
+    expect((await workerOf(legacy.id)).phoneHash).toBe(hashOf(s.phone));
+    expect(await manualCases(legacy.id, INSTITUTE_LINK_AUDIT_ACTIONS.phoneMismatch)).toHaveLength(
+      1,
+    );
+  });
+
+  it("re-activates a withdrawn link with a fresh event", async () => {
+    const ref = randomUUID();
+    answers.set(ref, { kind: "available", student: student() });
+    const linked = track(await service.linkStudent(ref, CTX));
+    await client.db
+      .update(workerInstituteLinks)
+      .set({ status: "withdrawn", withdrawnAt: new Date() })
+      .where(eq(workerInstituteLinks.workerId, linked.workerId));
+
+    await service.linkStudent(ref, CTX);
+
+    expect(await linkOf(linked.workerId)).toMatchObject({ status: "active", withdrawnAt: null });
+    expect(await eventsOf(linked.workerId, "worker.institute_linked")).toHaveLength(2);
+  });
+
+  it("two concurrent links of one student leave one worker and no orphan row", async () => {
+    const ref = randomUUID();
+    const [p1, p2] = [phone10(), phone10()];
+    answers.set(ref, [
+      { kind: "available", student: student({ phone: p1 }) },
+      { kind: "available", student: student({ phone: p2 }) },
+    ]);
+
+    const results = await Promise.all([
+      service.linkStudent(ref, CTX),
+      service.linkStudent(ref, CTX),
+    ]);
+    results.forEach(track);
+
+    expect(results[0]!.workerId).toBe(results[1]!.workerId);
+    const holders = [
+      await workersRepo.findByPhoneHash(hashOf(p1)),
+      await workersRepo.findByPhoneHash(hashOf(p2)),
+    ].filter((w) => w !== undefined);
+    expect(holders.map((w) => w.id)).toEqual([results[0]!.workerId]);
+  });
+
   it("his first sign-in reaches the same row, which activates once (pending → active)", async () => {
     const ref = randomUUID();
     const s = student();
@@ -357,8 +459,12 @@ describe.skipIf(!RUN)("#2752 institute link — against Postgres", () => {
     // The sign-in path finds the worker by the same hashed +91 phone.
     expect((await workersRepo.findByPhoneHash(hashOf(s.phone)))?.id).toBe(linked.workerId);
 
-    const first = await workersRepo.activatePending(linked.workerId);
-    const again = await workersRepo.activatePending(linked.workerId);
+    const moved = await workersRepo.activatePending(linked.workerId, hashOf(phone10()));
+    const first = await workersRepo.activatePending(linked.workerId, hashOf(s.phone));
+    const again = await workersRepo.activatePending(linked.workerId, hashOf(s.phone));
+
+    // A sign-in with a phone the row no longer holds activates nothing.
+    expect(moved).toBeUndefined();
 
     expect(first?.status).toBe("active");
     expect(again).toBeUndefined();

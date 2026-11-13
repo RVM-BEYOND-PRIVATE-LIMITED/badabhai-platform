@@ -634,7 +634,18 @@ export const serverEnvSchema = z.object({
   // fields from, under his consent. Base URL of the Scheduler's student process and the token it
   // issued BadaBhai (sent in `X-Service-Token`). Unset = every read fails closed: no student is
   // linked. `optionalSecret`, because compose passes an unset variable as "".
-  RVM_STUDENT_API_BASE_URL: optionalSecret(z.string().url()),
+  // https only (plain http is allowed for a loopback host, for local work): the reply carries a
+  // student's name and phone, and the request carries the token.
+  RVM_STUDENT_API_BASE_URL: optionalSecret(
+    z
+      .string()
+      .url()
+      .refine((raw) => {
+        const url = new URL(raw);
+        const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
+        return url.protocol === "https:" || (url.protocol === "http:" && loopback);
+      }, "must be https (plain http only for a loopback host)"),
+  ),
   RVM_STUDENT_API_TOKEN: optionalSecret(z.string().min(16)),
   // A read slower than this counts as RVM being down: retryable, and nothing is created.
   RVM_STUDENT_API_TIMEOUT_MS: positiveIntFromString(5_000),

@@ -51,6 +51,19 @@ describe("RvmStudentApiClient.readStudent", () => {
     const [url, init] = fetchImpl.mock.calls[0]!;
     expect(url).toBe(`http://127.0.0.1:4000/internal/campus/students/${REF}`);
     expect((init.headers as Record<string, string>)["x-service-token"]).toBe(TOKEN);
+    // A redirect is an error, never followed: the token would ride along to wherever it points.
+    expect(init.redirect).toBe("error");
+  });
+
+  it("refuses a ref that is not a uuid before anything leaves the process", async () => {
+    const { api, fetchImpl } = client(() => json(200, STUDENT));
+    await expect(api.readStudent("..")).rejects.toThrow();
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("fails closed on a reply far larger than six short fields", async () => {
+    const { api } = client(() => json(200, { ...STUDENT, name: "x".repeat(20_000) }));
+    expect((await failureOf(api.readStudent(REF))).failure).toBe("contract");
   });
 
   it("answers not_available only for RVM's own refusal body", async () => {

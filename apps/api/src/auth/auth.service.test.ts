@@ -936,7 +936,7 @@ describe("AuthService — first sign-in of a Campus-linked worker (#2752)", () =
     const res = await svc.verifyOtp(PHONE, "123456", ctx);
 
     expect(res.worker_id).toBe("w-pending");
-    expect(workers.activatePending).toHaveBeenCalledWith("w-pending", tx);
+    expect(workers.activatePending).toHaveBeenCalledWith("w-pending", "hmac:13", tx);
     const created = emit.mock.calls.filter(([p]) => p.event_name === "worker.created");
     expect(created).toHaveLength(1);
     expect(created[0]![0]).toMatchObject({
