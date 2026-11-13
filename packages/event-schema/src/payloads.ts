@@ -6265,3 +6265,21 @@ export const WorkerAdminCorrectionSupersededPayload = z
 export type WorkerAdminCorrectionSupersededPayload = z.infer<
   typeof WorkerAdminCorrectionSupersededPayload
 >;
+
+// ---------------------------------------------------------------------------
+// #2752 — the Campus link: a worker linked as an institute's student. IDS ONLY: never his
+// name, phone, phone hash, student reference, course or branch. `worker_created` says whether
+// the link created his BadaBhai row (no sign-in yet, status `pending`) or found one he made
+// himself. `worker.created` is NOT emitted for a link-created row; it fires once, at his first
+// worker-app sign-in.
+// ---------------------------------------------------------------------------
+export const InstituteCodeEnum = z.enum(["rvm"]);
+
+export const WorkerInstituteLinkedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    institute_code: InstituteCodeEnum,
+    worker_created: z.boolean(),
+  })
+  .strict();
+export type WorkerInstituteLinkedPayload = z.infer<typeof WorkerInstituteLinkedPayload>;

@@ -630,6 +630,14 @@ export const serverEnvSchema = z.object({
   // two feeds and drains an outbox once a minute; 600 leaves room for a backlog without letting a
   // stolen token page through everything in seconds. Fail closed when Redis is down.
   CAMPUS_SERVICE_MAX_PER_MINUTE: positiveIntFromString(600),
+  // RVM's Student API (Scheduler_Backend#162), which BadaBhai reads a linked student's six agreed
+  // fields from, under his consent. Base URL of the Scheduler's student process and the token it
+  // issued BadaBhai (sent in `X-Service-Token`). Unset = every read fails closed: no student is
+  // linked. `optionalSecret`, because compose passes an unset variable as "".
+  RVM_STUDENT_API_BASE_URL: optionalSecret(z.string().url()),
+  RVM_STUDENT_API_TOKEN: optionalSecret(z.string().min(16)),
+  // A read slower than this counts as RVM being down: retryable, and nothing is created.
+  RVM_STUDENT_API_TIMEOUT_MS: positiveIntFromString(5_000),
 
   // PII protection (BACKEND ONLY). Pepper for the keyed HMAC of phone/IP; AES-256
   // key (base64 of 32 bytes) for encrypting phone_e164 at rest. The key NEVER

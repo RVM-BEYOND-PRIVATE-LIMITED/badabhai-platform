@@ -226,6 +226,26 @@ account of his own. Answers `{ "student_ref", "state": "unlinked" }`.
 7. **Courses:** `{id, name}`. Campus matches on the name today; ask the Student API
    (Scheduler_Backend#162) for `course_id` next to `branch_id`, then match on ids.
 
+## Inside BadaBhai: how a student becomes a worker row (#2752 part B)
+
+Not a route. `InstituteLinkService.linkStudent(student_ref)` runs inside the routes that need a
+linked student (apply, grant):
+
+1. Reads his six agreed fields from RVM's Student API (`RvmStudentApiClient`, Scheduler_Backend#162),
+   before any write. RVM's refusal → `STUDENT_NOT_AVAILABLE`, nothing created. RVM down, slow or
+   off-contract → `RVM_UNAVAILABLE`, retryable, nothing created, never read as a withdrawal.
+2. In one transaction: finds or creates the `workers` row by the hashed +91 phone (a new row is
+   `pending`, name and phone encrypted), writes `worker_institute_links` and, for a new row, a
+   `worker_origins` row (`institute` / `rvm`), and emits `worker.institute_linked` v1
+   (`worker_id`, `institute_code`, `worker_created`; ids only). No `worker_consents` row, no
+   `worker.created`.
+3. A worker who already uses BadaBhai keeps his own row, name and origin. RVM's phone change moves
+   only a row that has never signed in.
+
+Manual list (`audit_logs`, ids and a reason code): `institute_link.phone_mismatch`
+(`phone_held_by_another_worker`, `worker_signs_in_himself`) and `institute_link.refused`
+(`worker_linked_to_another_ref`, `worker_suspended`, `worker_deletion_scheduled`).
+
 ## Open decisions (owner, before the route is built)
 
 1. **Posting in an existing company's name.** As written (issue item 5), `POST job-postings` finds

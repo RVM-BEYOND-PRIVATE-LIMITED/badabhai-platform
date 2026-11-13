@@ -897,6 +897,22 @@ describe("loadServerConfig", () => {
       expect(() => loadServerConfig({ CAMPUS_SERVICE_ALLOWED_IPS: "campus.rvmcad.org" })).toThrow();
     });
 
+    it("RVM_STUDENT_API_* read absent and empty as unset, so every Student API read fails closed", () => {
+      for (const env of [{}, { RVM_STUDENT_API_BASE_URL: "", RVM_STUDENT_API_TOKEN: "" }]) {
+        const cfg = loadServerConfig(env);
+        expect(cfg.RVM_STUDENT_API_BASE_URL).toBeUndefined();
+        expect(cfg.RVM_STUDENT_API_TOKEN).toBeUndefined();
+      }
+      expect(loadServerConfig({ RVM_STUDENT_API_TIMEOUT_MS: "" }).RVM_STUDENT_API_TIMEOUT_MS).toBe(
+        5_000,
+      );
+    });
+
+    it("RVM_STUDENT_API_* refuse a non-URL base and a short token at boot", () => {
+      expect(() => loadServerConfig({ RVM_STUDENT_API_BASE_URL: "scheduler" })).toThrow();
+      expect(() => loadServerConfig({ RVM_STUDENT_API_TOKEN: "short" })).toThrow();
+    });
+
     it("CAMPUS_SERVICE_MAX_PER_MINUTE defaults to 600, also for the empty string", () => {
       expect(loadServerConfig({}).CAMPUS_SERVICE_MAX_PER_MINUTE).toBe(600);
       expect(

@@ -195,8 +195,11 @@ export class WorkersRepository {
     return rows.map((r) => r.id);
   }
 
-  async findByPhoneHash(phoneHash: string): Promise<Worker | undefined> {
-    const rows = await this.db
+  async findByPhoneHash(
+    phoneHash: string,
+    executor: Database = this.db,
+  ): Promise<Worker | undefined> {
+    const rows = await executor
       .select()
       .from(workers)
       .where(eq(workers.phoneHash, phoneHash))
@@ -221,9 +224,15 @@ export class WorkersRepository {
    *
    * `created` is true only when THIS call inserted the row — the caller uses it
    * to gate the one-time `worker.created` event so a race can't double-emit it.
+   *
+   * `executor` (#2752): a transaction, so the Campus link writes the worker row, its link row and
+   * the link event together. Omitted, it is the standalone insert every sign-in uses.
    */
-  async createOrGetByPhoneHash(input: NewWorker): Promise<{ worker: Worker; created: boolean }> {
-    const inserted = await this.db
+  async createOrGetByPhoneHash(
+    input: NewWorker,
+    executor: Database = this.db,
+  ): Promise<{ worker: Worker; created: boolean }> {
+    const inserted = await executor
       .insert(workers)
       .values(input)
       .onConflictDoNothing({ target: workers.phoneHash })
@@ -231,7 +240,7 @@ export class WorkersRepository {
     if (inserted[0]) return { worker: inserted[0], created: true };
 
     // Lost the insert race — the concurrent winner's row is now committed.
-    const existing = await this.findByPhoneHash(input.phoneHash);
+    const existing = await this.findByPhoneHash(input.phoneHash, executor);
     if (!existing) throw new Error("worker insert hit a conflict but no row was found");
     return { worker: existing, created: false };
   }
