@@ -1,3 +1,4 @@
+import { isIP } from "node:net";
 import { z } from "zod";
 import {
   booleanFromString,
@@ -590,6 +591,45 @@ export const serverEnvSchema = z.object({
   // validated exactly as before, and `SkillsInternalGuard` still DENIES every request
   // while it is unset.
   SKILLS_INTERNAL_TOKEN: optionalSecret(z.string().min(1)),
+
+  // THE CAMPUS LINK (#2752): BadaBhai Campus's service API under /internal/campus/v1,
+  // behind `CampusServiceGuard`. Its OWN credential, never INTERNAL_SERVICE_TOKEN: that shared
+  // secret opens 17 ops controllers that return personal data and mint signed URLs.
+  //
+  // CAMPUS_LINK_ENABLED, default off: every Campus route answers a neutral 404 and nothing else
+  // runs, no audit row, no token check. `booleanFromString`, so compose uses `:-false`.
+  CAMPUS_LINK_ENABLED: booleanFromString,
+  // sha256 hex of each token Campus may present in `X-Service-Token`, comma-separated: one
+  // normally, two while one is rotated. Hashes, not tokens, so a leaked env cannot call the API.
+  // Empty = no caller can authenticate (fail closed). A malformed entry FAILS BOOT rather than
+  // being dropped, because a silently dropped hash is a rotation that locks Campus out.
+  CAMPUS_SERVICE_TOKEN_SHA256S: z
+    .string()
+    .default("")
+    .transform((v) =>
+      v
+        .split(",")
+        .map((h) => h.trim().toLowerCase())
+        .filter((h) => h.length > 0),
+    )
+    .pipe(z.array(z.string().regex(/^[0-9a-f]{64}$/, "must be 64 hex characters")).max(2)),
+  // The addresses Campus may call from, comma-separated, matched against `req.ip` (so
+  // TRUST_PROXY_HOP_COUNT must match the proxy in front of the api). Empty = every address is
+  // refused (fail closed). A malformed entry fails boot.
+  CAMPUS_SERVICE_ALLOWED_IPS: z
+    .string()
+    .default("")
+    .transform((v) =>
+      v
+        .split(",")
+        .map((a) => a.trim())
+        .filter((a) => a.length > 0),
+    )
+    .pipe(z.array(z.string().refine((a) => isIP(a) !== 0, "must be an IP address")).max(20)),
+  // Calls per UTC minute for the one Campus caller, counted after the token check. Campus polls
+  // two feeds and drains an outbox once a minute; 600 leaves room for a backlog without letting a
+  // stolen token page through everything in seconds. Fail closed when Redis is down.
+  CAMPUS_SERVICE_MAX_PER_MINUTE: positiveIntFromString(600),
 
   // PII protection (BACKEND ONLY). Pepper for the keyed HMAC of phone/IP; AES-256
   // key (base64 of 32 bytes) for encrypting phone_e164 at rest. The key NEVER

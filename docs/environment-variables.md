@@ -331,6 +331,23 @@ NestJS boot assertion).
   `scripts/deploy/staging-deploy.sh`; the bridge shipped in #2613, after #2552). Arming is the
   secret set to `true` plus a redeploy, on the CEO's go-ahead; values lowercase
   `true`/`false`/`1`/`0`/empty only.
+- **The Campus link (#2752)** — api only, four variables, all read by `CampusServiceGuard` on
+  `/internal/campus/v1` (contract: `docs/api/campus-link-v1-api-reference.md`).
+  - `CAMPUS_LINK_ENABLED` (`booleanFromString`, default off): off, every Campus route is a neutral
+    404 and nothing else runs (no token check, no audit row).
+  - `CAMPUS_SERVICE_TOKEN_SHA256S`: the sha256 hex of each token Campus sends in `X-Service-Token`,
+    comma-separated, at most two (the live one and its replacement during a rotation). Hashes,
+    never the tokens, so the env alone cannot call the API. Empty refuses every token; a malformed
+    entry fails boot. Its own credential: Campus never holds `INTERNAL_SERVICE_TOKEN`.
+  - `CAMPUS_SERVICE_ALLOWED_IPS`: the Campus server's addresses as `req.ip` sees them, so
+    `TRUST_PROXY_HOP_COUNT` must match the proxy in front of the api. Empty refuses every address;
+    a refused call logs its address (at most once a minute), which is how the real egress address
+    is found at set-up. Outside development a loopback, private or link-local peer is always
+    refused, even when listed: behind an untrusted hop it is the proxy's address, not Campus's.
+  - `CAMPUS_SERVICE_MAX_PER_MINUTE` (default 600): calls per UTC minute after the token check,
+    fail-closed on a Redis outage.
+  Declared in compose (`${CAMPUS_LINK_ENABLED:-false}` and `${…:-}` for the other three) but NOT yet
+  bridged in `ci.yml`: the bridge lands with the pilot, so production stays off until then.
 - **Payer all-candidates search cap (ADR-0040 / E2, owner rulings 2026-11-03)** —
   `PAYER_CANDIDATE_SEARCH_MAX_PER_HOUR`, api only (default 120 pages per payer login per UTC hour,
   its own Redis bucket `payer_candidate_search`, fail-closed). Bounds how fast one login can page
