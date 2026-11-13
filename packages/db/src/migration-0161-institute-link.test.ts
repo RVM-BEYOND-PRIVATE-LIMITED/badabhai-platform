@@ -38,13 +38,17 @@ const JOURNAL = JSON.parse(
 
 const TABLES = ["worker_institute_links", "worker_origins"] as const;
 
-/** The values a CHECK `IN (...)` admits, in order. */
+/** The values a CHECK `IN (...)` admits, in order. Plain string search, no built regex. */
 function checkValues(constraint: string, column: string, table: string): string[] {
-  const match = new RegExp(
-    `CONSTRAINT "${constraint}" CHECK \\([^)]*"${table}"\\."${column}" IN \\(([^)]*)\\)`,
-  ).exec(FLAT);
-  expect(match, constraint).not.toBeNull();
-  return match![1]!.split(",").map((v) => v.trim().replace(/^'|'$/g, ""));
+  const start = FLAT.indexOf(`CONSTRAINT "${constraint}" CHECK (`);
+  expect(start, constraint).toBeGreaterThanOrEqual(0);
+  const marker = `"${table}"."${column}" IN (`;
+  const open = FLAT.indexOf(marker, start);
+  expect(open, `${constraint} names ${column}`).toBeGreaterThan(start);
+  const from = open + marker.length;
+  return FLAT.slice(from, FLAT.indexOf(")", from))
+    .split(",")
+    .map((v) => v.trim().replace(/^'|'$/g, ""));
 }
 
 describe("the fixture is real (no assertion below is vacuous)", () => {
@@ -206,10 +210,8 @@ describe("the tables are locked (RLS tail is hand-appended)", () => {
   });
 
   it.each(TABLES)("%s keys one row per worker and cascades on worker delete", (table) => {
-    expect(FLAT).toMatch(
-      new RegExp(
-        `ALTER TABLE "${table}" ADD CONSTRAINT "[a-z_]+" FOREIGN KEY \\("worker_id"\\) REFERENCES "public"\\."workers"\\("id"\\) ON DELETE cascade`,
-      ),
+    expect(FLAT).toContain(
+      `ALTER TABLE "${table}" ADD CONSTRAINT "${table}_worker_id_workers_id_fk" FOREIGN KEY ("worker_id") REFERENCES "public"."workers"("id") ON DELETE cascade`,
     );
   });
 });
