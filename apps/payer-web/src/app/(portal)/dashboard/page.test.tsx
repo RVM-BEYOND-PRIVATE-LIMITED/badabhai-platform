@@ -3,13 +3,12 @@ import type { ReactElement, ReactNode } from "react";
 import { DEFAULT_CATALOG } from "@badabhai/pricing";
 import { Icon } from "@badabhai/icons";
 import { Badge, MaskedCandidate, StatTile } from "../../../components/ds";
-import { unlockUnitPriceInr } from "../../../lib/pricing-config";
 import { linkCues } from "../../../../test/link-cues";
 
 /**
  * DASHBOARD (DS1.2) — server component rendered to an element tree in the node env and
- * walked. Asserts: three StatTiles whose counts come from the LIVE read, the ₹ price in
- * mono tabular, the recent-unlock rows (posting · dates · Unlocked/Expired status) kept
+ * walked. Asserts: three StatTiles whose counts come from the LIVE read, no per-unlock
+ * price (#2744), the recent-unlock rows (posting · dates · Unlocked/Expired status) kept
  * FACELESS (no worker name/phone/opaque id in the DOM or props), and the DS Card
  * empty/error states. requirePayer + the three reads (credits, unlocks, postings) are mocked —
  * each on its own, because the page reads them independently (F29: one failed read must not
@@ -30,7 +29,7 @@ vi.mock("../../../lib/payer-api", () => ({
   getUnlocks: () => getUnlocks(),
   getPostings: () => getPostings(),
 }));
-// The per-unlock price is the LIVE catalog's (the same source as Credits).
+// Observed only to prove the page never reads it: it shows no per-unlock price (#2744).
 vi.mock("../../../lib/live-catalog", () => ({ getLiveCatalog: () => getLiveCatalog() }));
 vi.mock("next/link", () => ({
   default: ({ children, href }: { children: ReactNode; href: string }) => ({
@@ -197,37 +196,16 @@ describe("DS1.2 · StatTiles read live counts (mono tabular)", () => {
     expect(p(byLabel("Contacts unlocked")!).value).toBe(2);
   });
 
-  it("shows the ₹ unlock price in mono tabular (.bb-mono) inside the balance tile caption", async () => {
+  it("#2744: the balance tile shows no per-unlock price, and the page reads no price list", async () => {
     const tree = await render();
     const balance = findAll(tree, StatTile).find((t) => p(t).label === "Credit balance")!;
-    const monos = findByClass(p(balance).caption as ReactNode, "bb-mono");
-    expect(monos.length).toBeGreaterThan(0);
-    const unit = unlockUnitPriceInr({ products: DEFAULT_CATALOG.products })!;
-    expect(monos.map((m) => textOf(p(m).children as ReactNode)).join("")).toContain(`₹${unit}`);
-  });
-
-  it("the unlock price is DERIVED from the live catalog (an ops edit shows), never a literal", async () => {
-    // Double every unlock pack's price (as Credits' own test edits it): the figure must follow.
-    const EDITED = DEFAULT_CATALOG.products.map((x) =>
-      x.kind === "credit_pack" && x.code === "contact_unlock"
-        ? { ...x, tiers: x.tiers.map((t) => ({ ...t, priceInr: t.priceInr * 2 })) }
-        : x,
-    );
-    const before = unlockUnitPriceInr({ products: DEFAULT_CATALOG.products })!;
-    const after = unlockUnitPriceInr({ products: EDITED })!;
-    expect(after).not.toBe(before);
-    getLiveCatalog.mockResolvedValue({ products: EDITED, live: true });
-    const tree = await render();
-    const balance = findAll(tree, StatTile).find((t) => p(t).label === "Credit balance")!;
-    expect(textOf(p(balance).caption as ReactNode)).toContain(`₹${after}`);
-    expect(textOf(p(balance).caption as ReactNode)).not.toContain(`₹${before} `);
-  });
-
-  it("no unlock price on offer → no caption (never a made-up figure)", async () => {
-    getLiveCatalog.mockResolvedValue({ products: [], live: true });
-    const tree = await render();
-    const balance = findAll(tree, StatTile).find((t) => p(t).label === "Credit balance")!;
+    // A read balance has no caption at all (an unread one says so — the F29 block pins that).
     expect(p(balance).caption).toBeUndefined();
+    expect(textOf(tree)).not.toMatch(/per (contact )?unlock/i);
+    // An agency's balance tile lives in AgentSections, which is handed no price to print either.
+    const [agent] = findAll(await render(undefined, "agent"), AgentSectionsStub);
+    expect(Object.keys(p(agent!)).sort()).toEqual(["credits", "unlocks"]);
+    expect(getLiveCatalog).not.toHaveBeenCalled();
   });
 
   it("an agency session never asks for the company postings list", async () => {

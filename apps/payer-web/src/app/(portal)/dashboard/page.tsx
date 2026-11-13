@@ -1,15 +1,13 @@
 import { ACTION_ICON, Icon, type IconName } from "@badabhai/icons";
 import { getCredits, getPostings, getUnlocks } from "../../../lib/payer-api";
 import { requirePayer } from "../../../lib/auth";
-import { getLiveCatalog } from "../../../lib/live-catalog";
-import { lowBalanceThreshold, unlockUnitPriceInr } from "../../../lib/pricing-config";
+import { lowBalanceThreshold } from "../../../lib/pricing-config";
 import { postingRoutes } from "../../../lib/posting-routes";
 import { recentUnlockRows } from "../../../lib/unlock-history";
 import { Badge, Card, StatTile } from "../../../components/ds";
 import { PortalLink } from "../../../components/portal-link";
 import { PageHeader } from "../../../components/page-header";
 import { RetryButton } from "../../../components/retry-button";
-import { formatInr } from "../../../lib/format";
 import { AgentSections } from "./agent-sections";
 import { buildAttentionItems } from "./attention";
 
@@ -66,8 +64,8 @@ export const dynamic = "force-dynamic";
  * needs-you item (an unread balance is not an empty wallet). The head always renders.
  *
  * READS: an agency session never asks for the company postings list — it shows none, and the
- * backend gate for it is #1885. The per-unlock price comes from the live catalog (the same source
- * as Credits), never a literal.
+ * backend gate for it is #1885. The page reads no price list: it shows no per-unlock price
+ * (#2744), so the balance tile's caption is only the unread-state line.
  */
 type PostingFilter = "all" | "drafts" | "closed";
 
@@ -89,9 +87,6 @@ export default async function DashboardPage({
   const rawFilter = Array.isArray(params.posting) ? params.posting[0] : params.posting;
   const postingFilter: PostingFilter =
     rawFilter === "drafts" || rawFilter === "closed" ? rawFilter : "all";
-  // The per-unlock price (the same source as Credits), read BESIDE the three reads. It never
-  // rejects (a failed read is the compile-time catalog).
-  const catalog = getLiveCatalog();
 
   // Three independent reads (F29): one failing never takes the others — or the page — with it.
   // An agency never reads the company postings list (it shows none).
@@ -104,8 +99,6 @@ export default async function DashboardPage({
   const unlocks = readValue(unlocksRead);
   const postings = readValue(postingsRead);
 
-  // No caption when the catalog offers no unlock price.
-  const unitPrice = unlockUnitPriceInr(await catalog);
   // Newest first by the day each row prints (a re-grant moves it; the API's order does not).
   // An unread list renders the panel's error state instead (below), never these rows. A row
   // names a posting only from the postings list this page already read (no read of its own): an
@@ -179,7 +172,7 @@ export default async function DashboardPage({
             </ul>
           </section>
         ) : null}
-        <AgentSections credits={credits} unlocks={unlocks} unitPriceInr={unitPrice} />
+        <AgentSections credits={credits} unlocks={unlocks} />
       </>
     );
   }
@@ -254,15 +247,7 @@ export default async function DashboardPage({
               </span>
             )
           }
-          caption={
-            credits === null ? (
-              UNREAD_CAPTION
-            ) : unitPrice !== null ? (
-              <>
-                <span className="bb-mono">{formatInr(unitPrice)}</span> per contact unlock
-              </>
-            ) : undefined
-          }
+          caption={credits === null ? UNREAD_CAPTION : undefined}
           foot={
             <PortalLink className="dash-kpi__link" href="/credits" pendingLabel="Credits">
               Top-up <Icon name={ACTION_ICON.next} />
