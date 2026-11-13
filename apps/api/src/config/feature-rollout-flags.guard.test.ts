@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { featureRolloutMode } from "@badabhai/config";
+import { featureRolloutMode, serverEnvSchema } from "@badabhai/config";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -25,6 +25,16 @@ import { FEATURE_ROLLOUT_CONFIG } from "../feature-rollout/feature-rollout.keys"
  * container moves. Comments are stripped so prose cannot satisfy these.
  */
 const NAMES = Object.values(FEATURE_ROLLOUT_CONFIG);
+
+describe("every rollout switch in the config is in the map (so every guard below covers it)", () => {
+  it("the schema's featureRolloutMode fields are exactly FEATURE_ROLLOUT_CONFIG's", () => {
+    // A switch declared with `featureRolloutMode` but left out of the map would escape the
+    // single-reader, compose, preflight and taxonomy guards alike (security review, L2).
+    const shape = serverEnvSchema.shape as Record<string, unknown>;
+    const switches = Object.keys(shape).filter((key) => shape[key] === featureRolloutMode);
+    expect(switches.sort()).toEqual([...NAMES].sort());
+  });
+});
 
 const SCRIPT = readFileSync(join(__dirname, "../../../../scripts/deploy/staging-deploy.sh"), "utf8")
   .split("\n")

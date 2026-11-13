@@ -640,7 +640,9 @@ export const serverEnvSchema = z.object({
   //     branch and course targeting, and the placement team's review of RVM jobs.
   //   CAMPUS_DRIVE_REQUESTS_ROLLOUT — a company asks RVM for a campus drive.
   // Off, the new payer fields are ignored and the new routes answer 404. Campus's own routes
-  // additionally need CAMPUS_LINK_ENABLED.
+  // additionally need CAMPUS_LINK_ENABLED. A switch gates CAPABILITIES only: stored state (the
+  // worker-path audience filter, the RVM review gate) is honoured whatever it says, so switching
+  // back to off can never expose an RVM-only job to BadaBhai workers.
   JOB_AUDIENCE_ROLLOUT: featureRolloutMode,
   CAMPUS_DRIVE_REQUESTS_ROLLOUT: featureRolloutMode,
 

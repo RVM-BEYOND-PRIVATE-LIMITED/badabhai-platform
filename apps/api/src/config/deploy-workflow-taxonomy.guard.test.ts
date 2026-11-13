@@ -430,7 +430,8 @@ describe("the four Phase-9 flags, as they reach the box", () => {
     ["CAMPUS_LINK_ENABLED", "false"],
     // ADR-0053 — off keys every payer read to the login: the pre-ADR behaviour, byte for byte.
     ["PAYER_ORG_TENANCY_MODE", "off"],
-    // #2746 — off is today's product exactly: no audience field, no drive route, no pilot read.
+    // #2746 — off accepts no new field and mounts no new route; stored audience and review state
+    // are honoured whatever the switch says (a switch gates capabilities, never restrictions).
     ["JOB_AUDIENCE_ROLLOUT", "off"],
     ["CAMPUS_DRIVE_REQUESTS_ROLLOUT", "off"],
     // #2509 — the zod default: 20/hour/IP until the secret (or a box export) says otherwise.

@@ -83,6 +83,9 @@ const TENANT_TABLES: Record<string, string> = {
   payerJobPostingChatSessions: "payer_job_posting_chat_sessions",
   payerJobPostingChatMessages: "payer_job_posting_chat_messages",
   payerFormDrafts: "payer_form_drafts",
+  // #2746 (migration 0162) — keyed by the tenant key, as the census (C5) already counts them.
+  campusDriveRequests: "campus_drive_requests",
+  featurePilotPayers: "feature_pilot_payers",
 };
 const SQL_TABLE = new RegExp(
   `\\b(?:from|join|into|update)\\s+(?:public\\.)?(${Object.values(TENANT_TABLES).join("|")})\\b`,
