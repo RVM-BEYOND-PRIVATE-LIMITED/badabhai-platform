@@ -443,7 +443,7 @@ export const schema = {
   profileCompletionLedger,
   // #2561 / ADR-0062 §3.1 - the admin correction layer (migration 0160).
   workerAdminOverrides,
-  // #2752 - the institute student link and the worker's origin (migration 0162).
+  // #2752 - the institute student link and the worker's origin (migration 0161).
   workerInstituteLinks,
   workerOrigins,
   // #2746 - job audience review, RVM targeting options, campus-drive requests and the

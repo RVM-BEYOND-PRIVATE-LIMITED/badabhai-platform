@@ -70,7 +70,10 @@ export const jobPostingInstituteReviews = pgTable(
       name: "job_posting_institute_reviews_pk",
       columns: [t.jobPostingId, t.instituteCode],
     }),
-    // Campus's posting feed (`changed_since` + cursor), driven from these rows.
+    // Campus's posting feed (`changed_since` + cursor), driven from these rows. The feed's
+    // `changed_at` is GREATEST(review.updated_at, job_postings.updated_at), for the filter AND the
+    // cursor: hide, suspend, close and reinstate write only the posting, and must still reach
+    // Campus (as `closed` / `open`).
     index("jpir_feed_idx").on(t.instituteCode, t.updatedAt, t.jobPostingId),
     // Mirrors `INSTITUTE_CODES`; a second institute widens this with that list.
     check("jpir_institute_code_chk", sql`${t.instituteCode} IN ('rvm')`),

@@ -161,6 +161,8 @@ describe("the review findings are pinned (migration-reviewer + security-reviewer
   it("every pilot entry records who added it and why", () => {
     expect(pilots).toContain('"added_by" text NOT NULL');
     expect(pilots).toContain('"reason" text NOT NULL');
+    // An id or a fixed token, never a person's name.
+    expect(pilots).toContain(`"feature_pilot_payers"."added_by" ~ '^[A-Za-z0-9._:-]{1,128}$'`);
   });
 
   it("Campus's feed index is on the review rows, and job_postings gains no index", () => {

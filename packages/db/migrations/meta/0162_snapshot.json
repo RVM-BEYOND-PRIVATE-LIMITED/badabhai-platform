@@ -17747,7 +17747,7 @@
         },
         "fpp_added_by_chk": {
           "name": "fpp_added_by_chk",
-          "value": "char_length(\"feature_pilot_payers\".\"added_by\") BETWEEN 1 AND 128"
+          "value": "\"feature_pilot_payers\".\"added_by\" ~ '^[A-Za-z0-9._:-]{1,128}$'"
         },
         "fpp_reason_chk": {
           "name": "fpp_reason_chk",

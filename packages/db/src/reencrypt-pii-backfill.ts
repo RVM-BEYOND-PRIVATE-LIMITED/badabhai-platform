@@ -394,7 +394,7 @@ function buildTargets(db: Database): PiiTarget[] {
       "value_enc",
       "valueEnc",
     ),
-    // #2746 — a campus-drive request's contact person (migration 0161). Added WITH the
+    // #2746 — a campus-drive request's contact person (migration 0162). Added WITH the
     // migration, while the table is empty, for the same reason as the entry above.
     target(
       campusDriveRequests,

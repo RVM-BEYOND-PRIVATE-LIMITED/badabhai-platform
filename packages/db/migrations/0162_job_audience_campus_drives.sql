@@ -47,8 +47,8 @@
 --   3. Apply this file by hand in one transaction; probe each object.
 --   4. Adopt the ledger row from THIS branch's tree (main has no 0162 entry yet), the file
 --      byte-identical to the PR head: `npx tsx adopt-migrations.ts --only
---      0162_job_audience_campus_drives --apply`. From then on the file is frozen; a change is a
---      new migration.
+--      0162_job_audience_campus_drives --apply --expect-host <HOST>` (--apply refuses without
+--      --expect-host). From then on the file is frozen; a change is a new migration.
 --   5. `pnpm db:audit:schema-contract`, then merge AT ONCE (an abandoned PR leaves a ledger row
 --      that matches no file on main).
 -- Registered as the seven 0162-* entries in schema-contract.ts (two columns, the twin CHECK and
@@ -184,7 +184,7 @@ CREATE TABLE "feature_pilot_payers" (
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	CONSTRAINT "feature_pilot_payers_pk" PRIMARY KEY("feature","payer_id"),
 	CONSTRAINT "fpp_feature_chk" CHECK ("feature_pilot_payers"."feature" ~ '^[a-z][a-z0-9_]{1,63}$'),
-	CONSTRAINT "fpp_added_by_chk" CHECK (char_length("feature_pilot_payers"."added_by") BETWEEN 1 AND 128),
+	CONSTRAINT "fpp_added_by_chk" CHECK ("feature_pilot_payers"."added_by" ~ '^[A-Za-z0-9._:-]{1,128}$'),
 	CONSTRAINT "fpp_reason_chk" CHECK (char_length("feature_pilot_payers"."reason") BETWEEN 1 AND 500)
 );
 --> statement-breakpoint

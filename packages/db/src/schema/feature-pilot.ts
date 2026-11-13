@@ -20,7 +20,10 @@ export const featurePilotPayers = pgTable(
     payerId: uuid("payer_id")
       .notNull()
       .references(() => payers.id, { onDelete: "cascade" }),
-    /** Who put the company on the pilot: an admin id or the owner's name, opaque here. */
+    /**
+     * Who put the company on the pilot: an admin id or a fixed token such as `owner_sql`, never
+     * a person's name (`fpp_added_by_chk` admits the id charset only).
+     */
     addedBy: text("added_by").notNull(),
     reason: text("reason").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -28,7 +31,7 @@ export const featurePilotPayers = pgTable(
   (t) => [
     primaryKey({ name: "feature_pilot_payers_pk", columns: [t.feature, t.payerId] }),
     check("fpp_feature_chk", sql`${t.feature} ~ '^[a-z][a-z0-9_]{1,63}$'`),
-    check("fpp_added_by_chk", sql`char_length(${t.addedBy}) BETWEEN 1 AND 128`),
+    check("fpp_added_by_chk", sql`${t.addedBy} ~ '^[A-Za-z0-9._:-]{1,128}$'`),
     check("fpp_reason_chk", sql`char_length(${t.reason}) BETWEEN 1 AND 500`),
   ],
 ).enableRLS();
