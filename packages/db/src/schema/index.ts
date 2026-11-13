@@ -41,6 +41,7 @@ import { workerCertificates, workerEducations, workerTrainings } from "./qualifi
 import { profileCorrections } from "./profile-correction";
 import { adminCandidateIndex, adminCandidateIndexCursor } from "./admin-candidate-index";
 import { workerAdminOverrides } from "./admin-override";
+import { workerInstituteLinks, workerOrigins } from "./institute-link";
 import { workerProfilingTiers } from "./worker-profiling-tier";
 import { workerResumeSkins } from "./worker-resume-skin";
 import { payerApplicantStages } from "./payer-applicant-stage";
@@ -144,6 +145,8 @@ export * from "./learn";
 export * from "./admin-candidate-index";
 // #2561 / ADR-0062 §3.1 — the admin correction layer.
 export * from "./admin-override";
+// #2752 — the institute (Campus) student link and where a worker came from.
+export * from "./institute-link";
 
 // ---------------------------------------------------------------------------
 // Inferred row types (select / insert) for use across services.
@@ -433,4 +436,7 @@ export const schema = {
   profileCompletionLedger,
   // #2561 / ADR-0062 §3.1 - the admin correction layer (migration 0160).
   workerAdminOverrides,
+  // #2752 - the institute student link and the worker's origin (migration 0161).
+  workerInstituteLinks,
+  workerOrigins,
 };

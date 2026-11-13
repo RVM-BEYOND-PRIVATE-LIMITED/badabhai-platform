@@ -1051,6 +1051,35 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "by the worker FK cascade, so the linkage does not outlive the worker - but the values do " +
       "until then",
   },
+  // 0161 (#2752 part B): the institute student link and the worker's origin. The API names these
+  // tables only while CAMPUS_LINK_ENABLED is on, so a deploy ahead of the migration breaks no
+  // request and they are NOT `table` entries (the 0134 rule). Listed for their locks. APPLY BEFORE
+  // THE FLAG (migration header).
+  {
+    id: "0161-worker-institute-links-rls",
+    migration: "0161_institute_link",
+    kind: "rls",
+    table: "worker_institute_links",
+    requiredBy:
+      "no code path - the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices",
+    failureMode:
+      "SILENT. This table says which workers are institute students, with their course, branch, " +
+      "status, test score and consent; without FORCE + REVOKE every PostgREST role could read it " +
+      "and could write a link that changes who a company may open",
+  },
+  {
+    id: "0161-worker-origins-rls",
+    migration: "0161_institute_link",
+    kind: "rls",
+    table: "worker_origins",
+    requiredBy:
+      "no code path - the FORCE + four REVOKEs are HAND-APPENDED to the migration, as above",
+    failureMode:
+      "SILENT. Every PostgREST role could read where each worker came from (institute, partner " +
+      "or referrer codes) and rewrite it, which feeds the partner and referrer counts of #2753",
+  },
   // 0134: THE API names `payer_applicant_stages` only while PAYER_APPLICANT_STAGES_ENABLED is on
   // (owner ruling 2026-10-07, the payer pipeline board), so a deploy ahead of the migration breaks
   // no request and the table is NOT a `table` entry. It is listed for its lock, exactly as 0128's
