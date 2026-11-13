@@ -1,5 +1,5 @@
 {
-  "id": "ed67b9c1-0451-4d2c-837a-d376897f9d46",
+  "id": "a8ba2d52-cf78-460a-aa58-8b02c0c96990",
   "prevId": "10185a35-92e6-48a8-a959-01bdbc014d43",
   "version": "7",
   "dialect": "postgresql",
@@ -16993,6 +16993,10 @@
           "name": "worker_institute_links_withdrawn_pair_chk",
           "value": "(\"worker_institute_links\".\"status\" = 'withdrawn') = (\"worker_institute_links\".\"withdrawn_at\" IS NOT NULL)"
         },
+        "worker_institute_links_active_confirmed_chk": {
+          "name": "worker_institute_links_active_confirmed_chk",
+          "value": "\"worker_institute_links\".\"status\" <> 'active' OR \"worker_institute_links\".\"synced_at\" IS NOT NULL"
+        },
         "worker_institute_links_student_status_chk": {
           "name": "worker_institute_links_student_status_chk",
           "value": "\"worker_institute_links\".\"student_status\" IS NULL OR \"worker_institute_links\".\"student_status\" IN ('current_student', 'alumnus')"
@@ -17064,7 +17068,7 @@
         },
         "worker_origins_ref_chk": {
           "name": "worker_origins_ref_chk",
-          "value": "\"worker_origins\".\"ref\" IS NULL OR char_length(\"worker_origins\".\"ref\") BETWEEN 1 AND 200"
+          "value": "\"worker_origins\".\"ref\" IS NULL OR \"worker_origins\".\"ref\" ~ '^[A-Za-z0-9._:-]{1,200}$'"
         }
       },
       "isRLSEnabled": true

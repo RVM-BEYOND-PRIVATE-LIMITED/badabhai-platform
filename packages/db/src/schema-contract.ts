@@ -1054,7 +1054,8 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
   // 0161 (#2752 part B): the institute student link and the worker's origin. The API names these
   // tables only while CAMPUS_LINK_ENABLED is on, so a deploy ahead of the migration breaks no
   // request and they are NOT `table` entries (the 0134 rule). Listed for their locks. APPLY BEFORE
-  // THE FLAG (migration header).
+  // THE FLAG (migration header). PROMOTE `worker_institute_links` TO A `table` ENTRY WITH #2752
+  // PART C: its company-search exclusion must hold with the flag off, so that read is unflagged.
   {
     id: "0161-worker-institute-links-rls",
     migration: "0161_institute_link",

@@ -60,13 +60,19 @@ export const workerInstituteLinks = pgTable(
     branch: text("branch"),
     /** The course average the institute reports; null until it reports one. */
     testScore: numeric("test_score", { precision: 5, scale: 2 }),
-    /** Text version and time of the institute's consent line, as the student accepted it. */
+    /**
+     * Text version and time of the institute's consent line as the student accepted it, once the
+     * Student API reports them (its six-field read does not yet; open point on #162).
+     */
     consentVersion: text("consent_version"),
     consentAt: timestamp("consent_at", { withTimezone: true }),
     /** False until he signs in to the worker app: the in-app relay cannot reach him before. */
     appReachable: boolean("app_reachable").notNull().default(false),
     linkedAt: timestamp("linked_at", { withTimezone: true }).notNull().defaultNow(),
-    /** The last successful read from the institute's Student API. */
+    /**
+     * The last successful read from the institute's Student API. The API answers only while his
+     * consent is in force, so this is also when that consent was last confirmed.
+     */
     syncedAt: timestamp("synced_at", { withTimezone: true }),
     withdrawnAt: timestamp("withdrawn_at", { withTimezone: true }),
   },
@@ -78,6 +84,11 @@ export const workerInstituteLinks = pgTable(
     check(
       "worker_institute_links_withdrawn_pair_chk",
       sql`(${t.status} = 'withdrawn') = (${t.withdrawnAt} IS NOT NULL)`,
+    ),
+    // No active link without a consent confirmed by the Student API (a successful read).
+    check(
+      "worker_institute_links_active_confirmed_chk",
+      sql`${t.status} <> 'active' OR ${t.syncedAt} IS NOT NULL`,
     ),
     check(
       "worker_institute_links_student_status_chk",
@@ -122,7 +133,10 @@ export const workerOrigins = pgTable(
       .primaryKey()
       .references(() => workers.id, { onDelete: "cascade" }),
     kind: text("kind").$type<WorkerOriginKind>().notNull(),
-    /** The code or id that brought him (the institute code, a partner or referrer code). */
+    /**
+     * The code that brought him (the institute code, a partner or referrer code). A code, never
+     * free text: the CHECK keeps a name or a phone number from landing here in plain text.
+     */
     ref: text("ref"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -131,9 +145,6 @@ export const workerOrigins = pgTable(
       "worker_origins_kind_chk",
       sql`${t.kind} IN ('organic', 'institute', 'partner', 'referrer', 'agency', 'import')`,
     ),
-    check(
-      "worker_origins_ref_chk",
-      sql`${t.ref} IS NULL OR char_length(${t.ref}) BETWEEN 1 AND 200`,
-    ),
+    check("worker_origins_ref_chk", sql`${t.ref} IS NULL OR ${t.ref} ~ '^[A-Za-z0-9._:-]{1,200}$'`),
   ],
 ).enableRLS();

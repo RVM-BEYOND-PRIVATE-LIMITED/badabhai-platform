@@ -139,6 +139,26 @@ describe("the vocabularies match the code", () => {
       'CREATE UNIQUE INDEX "worker_institute_links_ref_uq" ON "worker_institute_links" USING btree ("institute_code","student_ref")',
     );
   });
+
+  it("no active link without a successful Student API read (consent confirmed)", () => {
+    expect(FLAT).toContain(
+      `CONSTRAINT "worker_institute_links_active_confirmed_chk" CHECK ("worker_institute_links"."status" <> 'active' OR "worker_institute_links"."synced_at" IS NOT NULL)`,
+    );
+  });
+
+  it("an origin ref is a code, never free text", () => {
+    expect(FLAT).toContain(
+      `CONSTRAINT "worker_origins_ref_chk" CHECK ("worker_origins"."ref" IS NULL OR "worker_origins"."ref" ~ '^[A-Za-z0-9._:-]{1,200}$')`,
+    );
+  });
+});
+
+describe("the rollback is guarded", () => {
+  it("refuses on tables that hold rows and names the entries to remove", () => {
+    expect(RAW).toContain("0161 rollback refused: the tables hold rows");
+    expect(RAW).toContain("LOCKED_TABLES");
+    expect(RAW).toContain("ACCESS EXCLUSIVE");
+  });
 });
 
 describe("no institute record beyond the agreed fields (brief 4D.6, 4D.7)", () => {
