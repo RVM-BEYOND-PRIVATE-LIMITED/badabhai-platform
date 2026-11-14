@@ -59,3 +59,32 @@ export function isDroppedFromNote(ch: string): boolean {
   if (ALWAYS_FORBIDDEN.test(ch)) return true;
   return FORMAT.test(ch) && !INDIC_JOINERS.has(ch);
 }
+
+const CARRIAGE_RETURN = String.fromCharCode(0x0d);
+const TAB = String.fromCharCode(0x09);
+
+/**
+ * #2752 Part E — the layout of a MULTI-LINE text companies and students read (a job description):
+ * a Windows line end (CR LF) or a lone CR becomes a newline, and a tab a space. Run before
+ * {@link hasForbiddenTextCharacter}, so pasted text is not refused for its line ends.
+ */
+export function normaliseTextLayout(text: string): string {
+  return text
+    .split(CARRIAGE_RETURN + NEWLINE)
+    .join(NEWLINE)
+    .split(CARRIAGE_RETURN)
+    .join(NEWLINE)
+    .split(TAB)
+    .join(SPACE);
+}
+
+/**
+ * Whether a multi-line text holds a character the note rule drops ({@link isDroppedFromNote}). A
+ * text is REFUSED for it, never silently cleaned: what a student reads is what the sender sent.
+ */
+export function hasForbiddenTextCharacter(text: string): boolean {
+  for (const ch of text) {
+    if (isDroppedFromNote(ch)) return true;
+  }
+  return false;
+}

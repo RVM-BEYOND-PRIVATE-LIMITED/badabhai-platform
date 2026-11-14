@@ -9,6 +9,7 @@ import { JobPostingsService } from "../job-postings/job-postings.service";
 import { PayerCreateJobPostingSchema } from "../job-postings/job-postings.dto";
 import { PayersRepository } from "../payers/payers.repository";
 import { isBarredPayerStatus } from "../payers/payer-barred-status";
+import type { PayerTenantScope } from "../payers/payer-tenant-scope";
 import { PayerTenantScopeService } from "../payers/payer-tenant-scope.service";
 import { CampusRefusal } from "./campus-errors";
 import type { CampusPostForCompanyBodySchema } from "./campus-link.contract";
@@ -159,7 +160,7 @@ export class CampusPostingsService {
 
     const phone = `+91${body.company.phone}`;
     const { companyId, created } = await this.campusCompanyFor(phone, body, ctx);
-    const scope = await this.tenancy.resolve(companyId);
+    const scope = await this.ownerScope(companyId);
     // The posting is owned by the TENANT key. A company Campus created that has since joined
     // another employer's org would make that employer the owner: refused, so a Campus token never
     // publishes for a company it did not create.
@@ -174,6 +175,19 @@ export class CampusPostingsService {
       this.repo.approveAsCreated(tx, posting.id, body.staff_ref),
     );
     return { posting_id: posting.id, company_id: companyId, company_created: created };
+  }
+
+  /**
+   * The tenant scope the new posting is owned under. READ-ONLY FIRST (`resolveReadOnly`, #2746
+   * PR 5): a Campus call is not the company's own, so it writes no shadow line. Only under tenancy
+   * `on` can that come back empty: a company with no org yet (Campus created it and it has not
+   * signed in) or one tenancy denies. The posting needs an owner, so `resolve` then gives the first
+   * its solo org once, exactly as its first sign-in would, and refuses the second (403).
+   */
+  private async ownerScope(companyId: string): Promise<PayerTenantScope> {
+    return (
+      (await this.tenancy.resolveReadOnly(companyId)) ?? (await this.tenancy.resolve(companyId))
+    );
   }
 
   /** The company Campus created with this phone, or null. Never a company Campus did not create. */

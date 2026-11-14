@@ -1,4 +1,4 @@
-import { HttpException, Injectable } from "@nestjs/common";
+import { Injectable } from "@nestjs/common";
 import type { Database, InstituteCode, InstituteSearchGrantRow } from "@badabhai/db";
 import type { PayloadInputOf } from "@badabhai/event-schema";
 import { instituteCourseMatchSkill } from "@badabhai/taxonomy";
@@ -173,16 +173,14 @@ export class InstituteSearchGrantsService {
   }
 
   /**
-   * The company's tenant key. The resolver's own refusal (a company it cannot place in an org) is
-   * the same neutral not-found as an unknown company; anything else propagates (fail closed).
+   * The company's tenant key, READ-ONLY (`resolveReadOnly`, #2746 PR 5): a Campus call is not the
+   * company's own, so it heals no org and writes no shadow line. No key (no membership, a denial)
+   * is the same neutral not-found as an unknown company; a read error propagates (fail closed).
    */
   private async tenantOf(companyId: string): Promise<TenantKey> {
-    try {
-      return (await this.tenancy.resolve(companyId)).tenantKey;
-    } catch (err) {
-      if (err instanceof HttpException) throw new GrantCompanyNotFoundError();
-      throw err;
-    }
+    const scope = await this.tenancy.resolveReadOnly(companyId);
+    if (scope === null) throw new GrantCompanyNotFoundError();
+    return scope.tenantKey;
   }
 
   private sameGrantOrConflict(

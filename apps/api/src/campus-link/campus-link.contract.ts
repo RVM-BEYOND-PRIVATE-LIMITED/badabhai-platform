@@ -2,7 +2,12 @@ import { z } from "zod";
 import { VACANCY_BANDS } from "@badabhai/types";
 import type { JobPayType, JobShift } from "@badabhai/db";
 import { isCanonicalUuid } from "../common/uuid";
-import { hasForbiddenIdCharacter, hasForbiddenLabelCharacter } from "./campus-characters";
+import {
+  hasForbiddenIdCharacter,
+  hasForbiddenLabelCharacter,
+  hasForbiddenTextCharacter,
+  normaliseTextLayout,
+} from "./campus-characters";
 
 /**
  * THE CAMPUS LINK CONTRACT, v1 (#2752 item 1): every route BadaBhai Campus calls under
@@ -275,15 +280,20 @@ export const CAMPUS_TARGETING_LIMITS = {
  * separator character, except ZWNJ / ZWJ, which Indic spellings need (`hasForbiddenLabelCharacter`).
  * Spaces are allowed.
  */
-const TargetingLabelSchema = z
-  .string()
-  .trim()
-  .min(1)
-  .max(CAMPUS_TARGETING_LIMITS.labelLength)
-  .refine(
-    (label) => !hasForbiddenLabelCharacter(label),
-    "no control, format (but ZWNJ/ZWJ), surrogate, private-use, unassigned or line-separator characters",
-  );
+const TargetingLabelSchema = campusLabel(CAMPUS_TARGETING_LIMITS.labelLength);
+
+/** A one-line text a company or a student reads, under the label rule above. */
+function campusLabel(max: number) {
+  return z
+    .string()
+    .trim()
+    .min(1)
+    .max(max)
+    .refine(
+      (label) => !hasForbiddenLabelCharacter(label),
+      "no control, format (but ZWNJ/ZWJ), surrogate, private-use, unassigned or line-separator characters",
+    );
+}
 
 const TargetingBranchSchema = z.strictObject({
   id: BranchIdSchema.max(CAMPUS_TARGETING_LIMITS.maxBranchId),
@@ -345,6 +355,8 @@ export const CampusTargetingOptionsResponseSchema = z.object({
 
 // ─── POST job-postings (the placement team posts for a company) ──────────────
 
+// The texts companies and students read follow `./campus-characters` (#2746 PR 5's rules): a name
+// or a title cannot hide a bidi override or a zero-width character.
 export const CampusPostForCompanyBodySchema = z.strictObject({
   /**
    * A company Campus created with this phone, or a new pending one its owner activates by code.
@@ -354,13 +366,22 @@ export const CampusPostForCompanyBodySchema = z.strictObject({
    */
   company: z.strictObject({
     phone: Phone10Schema,
-    name: z.string().trim().min(1).max(200),
+    name: campusLabel(200),
   }),
-  title: z.string().trim().min(1).max(200),
-  description: z.string().trim().max(20_000),
-  city: z.string().trim().min(1).max(100),
-  state: z.string().trim().min(1).max(100).optional(),
-  location_label: z.string().trim().min(1).max(300).optional(),
+  title: campusLabel(200),
+  /** Several lines; a CR LF or a tab is normalised, any other hidden character refused. */
+  description: z
+    .string()
+    .trim()
+    .max(20_000)
+    .transform(normaliseTextLayout)
+    .refine(
+      (text) => !hasForbiddenTextCharacter(text),
+      "no control (but a line end or tab), format (but ZWNJ/ZWJ), surrogate, private-use, unassigned or line-separator characters",
+    ),
+  city: campusLabel(100),
+  state: campusLabel(100).optional(),
+  location_label: campusLabel(300).optional(),
   /** Stored as the matching `vacancy_band`. */
   openings: z.number().int().min(1).max(1000),
   pay: z

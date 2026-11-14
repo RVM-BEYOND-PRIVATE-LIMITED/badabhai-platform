@@ -374,3 +374,37 @@ describe("Campus contract v1 — targeting labels and the body's size", () => {
     expect(Buffer.byteLength(JSON.stringify(body), "utf8")).toBeLessThanOrEqual(100 * 1024);
   });
 });
+
+describe("Campus contract v1 — POST job-postings texts follow the shared character rules (#2752 Part E)", () => {
+  const body = examples.POST_FOR_COMPANY_BODY_EXAMPLE;
+  const accepts = (patch: Record<string, unknown>) =>
+    CampusPostForCompanyBodySchema.safeParse({ ...body, ...patch }).success;
+  const CR = cp(0x0d);
+  const TAB = cp(0x09);
+
+  it("refuses a company name, title or place that hides a bidi override, an isolate or a zero-width space", () => {
+    expect(accepts({ company: { ...body.company, name: "Sharma" + RLO + "Works" } })).toBe(false);
+    expect(accepts({ title: "CNC" + ZWSP_L + " Operator" })).toBe(false);
+    expect(accepts({ city: "Fari" + NEWLINE + "dabad" })).toBe(false);
+    expect(accepts({ state: "Har" + LRI + "yana" })).toBe(false);
+    expect(accepts({ location_label: "Plot 7" + NUL + " Sector 24" })).toBe(false);
+    // ZWNJ / ZWJ stay, as in every Campus label; so do ordinary spaces and any script.
+    expect(accepts({ title: "x" + ZWNJ + "y" + ZWJ + "z" })).toBe(true);
+    expect(accepts({ title: KA.repeat(10) + " Operator" })).toBe(true);
+  });
+
+  it("keeps a description's lines, turns CR LF into a newline and a tab into a space", () => {
+    const parsed = CampusPostForCompanyBodySchema.parse({
+      ...body,
+      description: "Day shift" + CR + NEWLINE + "3-axis" + TAB + "lathe" + CR + "Faridabad",
+    });
+    expect(parsed.description).toBe("Day shift" + NEWLINE + "3-axis lathe" + NEWLINE + "Faridabad");
+  });
+
+  it("refuses any other hidden character in a description, never cleaning it silently", () => {
+    expect(accepts({ description: "Day" + RLO + " shift" })).toBe(false);
+    expect(accepts({ description: "Day" + NUL + " shift" })).toBe(false);
+    expect(accepts({ description: "Day" + LINE_SEP + "shift" })).toBe(false);
+    expect(accepts({ description: "Day" + ZWNJ + " shift" })).toBe(true);
+  });
+});

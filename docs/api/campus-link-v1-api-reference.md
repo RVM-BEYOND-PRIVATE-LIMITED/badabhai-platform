@@ -288,6 +288,12 @@ Answers `201 { "posting_id", "company_id", "company_created", "review_state": "a
 `Idempotency-Key` is held for minutes: a retry inside that window answers the first result (or
 `REQUEST_IN_PROGRESS` while it still runs), never a second posting.
 
+The texts companies and students read follow the targeting labels' rule. `company.name`, `title`,
+`city`, `state` and `location_label` hold no control, format (ZWNJ and ZWJ excepted), surrogate,
+private-use, unassigned, line or paragraph separator character. `description` may hold several
+lines: a CR LF or a lone CR is stored as a newline and a tab as a space, and any other of those
+characters is a 400 `VALIDATION_FAILED`. BadaBhai never removes one silently.
+
 ### GET companies?phone=
 
 `200 { "company": { "id", "name", "status": "active" | "pending" } }` for a company Campus created,
