@@ -3,6 +3,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
 import 'package:http/http.dart' as http;
+import 'package:uuid/uuid.dart';
 
 import '../../features/job_search/domain/job_search_item.dart';
 import '../../features/swipe/domain/job_detail.dart';
@@ -1064,6 +1065,8 @@ class ApiClient {
       '/workers/me/work-preferences',
       fields,
       authToken: authToken,
+      // Nov 2026 rule: every data-changing call carries an Idempotency-Key.
+      idempotencyKey: const Uuid().v4(),
     );
   }
 
@@ -2373,13 +2376,18 @@ class ApiClient {
     String path,
     Map<String, dynamic> body, {
     String? authToken,
+    String? idempotencyKey,
   }) {
     final Uri uri = Uri.parse('$baseUrl$path');
     final String encoded = jsonEncode(body);
     return _send(
       (String? token) => _client.put(
         uri,
-        headers: _headers(contentType: true, authToken: token),
+        headers: _headers(
+          contentType: true,
+          authToken: token,
+          idempotencyKey: idempotencyKey,
+        ),
         body: encoded,
       ),
       authToken,
@@ -2426,12 +2434,17 @@ class ApiClient {
   /// its logs and a client-side bug can be tied to a build without asking the
   /// tester to dig. This is the single choke-point for outbound headers, so the
   /// stamp rides uniformly on every call.
-  Map<String, String> _headers({required bool contentType, String? authToken}) {
+  Map<String, String> _headers({
+    required bool contentType,
+    String? authToken,
+    String? idempotencyKey,
+  }) {
     final Map<String, String> headers = <String, String>{
       'accept': 'application/json',
       'x-app-build': kAppBuild,
     };
     if (contentType) headers['content-type'] = 'application/json';
+    if (idempotencyKey != null) headers['Idempotency-Key'] = idempotencyKey;
     if (authToken != null && authToken.isNotEmpty) {
       headers['authorization'] = 'Bearer $authToken';
     }
