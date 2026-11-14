@@ -1699,6 +1699,17 @@ export const EVENT_REGISTRY = {
     domain: "worker",
     payload: p.WorkerInstituteUnlinkedPayload,
   },
+  // #2752 item 10 — a named-company search grant stored, and revoked. Ids only; see the payload.
+  "worker.institute_search_granted": {
+    version: 1,
+    domain: "worker",
+    payload: p.WorkerInstituteSearchGrantPayload,
+  },
+  "worker.institute_search_revoked": {
+    version: 1,
+    domain: "worker",
+    payload: p.WorkerInstituteSearchGrantPayload,
+  },
 } as const satisfies Record<string, EventDefinition>;
 
 /** Union of all known event names. */

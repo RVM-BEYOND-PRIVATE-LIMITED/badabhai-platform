@@ -10,17 +10,27 @@ import { InternalServiceGuard } from "../common/guards/internal-service.guard";
 import { SubjectRateLimit } from "../common/rate-limit/subject-rate-limit.service";
 import { SERVER_CONFIG } from "../config/config.module";
 import { CampusCallAuditRepository, type CampusCallAudit } from "./campus-call-audit.repository";
+import { CampusGrantsController } from "./campus-grants.controller";
 import { CampusLinkController } from "./campus-link.controller";
 import { CampusLinkModule } from "./campus-link.module";
 import { CampusServiceGuard } from "./campus-service.guard";
-import { InstituteLinkService } from "./institute-link.service";
+import { InstituteLinkService, StudentNotAvailableError } from "./institute-link.service";
+import {
+  GrantNotFoundError,
+  GrantRefConflictError,
+  InstituteSearchGrantsService,
+} from "./institute-search-grants.service";
+import { RvmStudentApiUnavailableError } from "./rvm-student-api.client";
 
 const getMeta = (key: string, target: unknown): unknown[] =>
   (Reflect.getMetadata(key, target as object) as unknown[] | undefined) ?? [];
 
 describe("CampusLinkModule wiring", () => {
   it("declares the controller, the guard and the audit repository", () => {
-    expect(getMeta("controllers", CampusLinkModule)).toEqual([CampusLinkController]);
+    expect(getMeta("controllers", CampusLinkModule)).toEqual([
+      CampusLinkController,
+      CampusGrantsController,
+    ]);
     expect(getMeta("providers", CampusLinkModule)).toEqual(
       expect.arrayContaining([CampusServiceGuard, CampusCallAuditRepository]),
     );
@@ -53,6 +63,9 @@ describe("the Campus routes over HTTP", () => {
     app = undefined;
   });
 
+  /** What the grant service stand-in does next: answer a grant, or throw a domain error. */
+  let grantOutcome: Error | null = null;
+
   async function boot(overrides: Partial<ServerConfig>) {
     const audits: CampusCallAudit[] = [];
     const config = {
@@ -76,6 +89,22 @@ describe("the Campus routes over HTTP", () => {
         unlinks.push([ref, reason]);
       },
     } as unknown as InstituteLinkService;
+    const grantCalls: string[] = [];
+    const answerGrant = async (grantRef: string) => {
+      grantCalls.push(grantRef);
+      if (grantOutcome) throw grantOutcome;
+      return {
+        grantRef,
+        companyId: "7d3f2a10-5b8e-4c1d-9a6f-0e2b4c6d8f10",
+        studentRef: "3c9e7b21-4f6a-4d8e-b1c2-a3d4e5f60718",
+        state: "active" as const,
+        changedAt: new Date("2026-11-14T09:30:00.000Z"),
+      };
+    };
+    const grants = {
+      grant: answerGrant,
+      revoke: answerGrant,
+    } as unknown as InstituteSearchGrantsService;
 
     Reflect.defineMetadata(
       "design:paramtypes",
@@ -83,14 +112,20 @@ describe("the Campus routes over HTTP", () => {
       CampusServiceGuard,
     );
     Reflect.defineMetadata("design:paramtypes", [InstituteLinkService], CampusLinkController);
+    Reflect.defineMetadata(
+      "design:paramtypes",
+      [InstituteSearchGrantsService],
+      CampusGrantsController,
+    );
 
     @Module({
-      controllers: [CampusLinkController],
+      controllers: [CampusLinkController, CampusGrantsController],
       providers: [
         { provide: SERVER_CONFIG, useValue: config },
         { provide: CampusCallAuditRepository, useValue: audit },
         { provide: SubjectRateLimit, useValue: rateLimit },
         { provide: InstituteLinkService, useValue: links },
+        { provide: InstituteSearchGrantsService, useValue: grants },
       ],
     })
     class HarnessModule {}
@@ -99,7 +134,7 @@ describe("the Campus routes over HTTP", () => {
     app.useGlobalFilters(new AllExceptionsFilter());
     await app.listen(0, "127.0.0.1");
     const { port } = app.getHttpServer().address() as AddressInfo;
-    return { base: `http://127.0.0.1:${port}/internal/campus/v1`, audits, unlinks };
+    return { base: `http://127.0.0.1:${port}/internal/campus/v1`, audits, unlinks, grantCalls };
   }
 
   it("answers 200 with the audit row's id in both the header and the body", async () => {
@@ -227,6 +262,76 @@ describe("the Campus routes over HTTP", () => {
 
       expect(res.status).toBe(404);
       expect(unlinks).toEqual([]);
+    });
+  });
+
+  describe("search-grants/:grant_ref", () => {
+    const GRANT = "grant-000000001";
+    const BODY = {
+      company_id: "7d3f2a10-5b8e-4c1d-9a6f-0e2b4c6d8f10",
+      student_ref: "3c9e7b21-4f6a-4d8e-b1c2-a3d4e5f60718",
+      consent_ref: "consent-req-000456",
+    };
+    const put = (base: string, body: unknown, headers: Record<string, string> = {}) =>
+      fetch(`${base}/search-grants/${GRANT}`, {
+        method: "PUT",
+        headers: {
+          "x-service-token": TOKEN,
+          "idempotency-key": "grant-key-0001",
+          "content-type": "application/json",
+          ...headers,
+        },
+        body: JSON.stringify(body),
+      });
+
+    afterEach(() => {
+      grantOutcome = null;
+    });
+
+    it("answers the stored grant in the contract's shape", async () => {
+      const { base } = await boot({});
+      const res = await put(base, BODY);
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({
+        grant_ref: GRANT,
+        company_id: BODY.company_id,
+        student_ref: BODY.student_ref,
+        state: "active",
+        changed_at: "2026-11-14T09:30:00.000Z",
+      });
+    });
+
+    it("refuses an unknown body key before the service runs", async () => {
+      const { base, grantCalls } = await boot({});
+      const res = await put(base, { ...BODY, name: "x" });
+      const body = (await res.json()) as { error: { code?: string } };
+      expect(res.status).toBe(400);
+      expect(body.error.code).toBe("VALIDATION_FAILED");
+      expect(grantCalls).toEqual([]);
+    });
+
+    it.each([
+      [new StudentNotAvailableError(), 409, "STUDENT_NOT_AVAILABLE"],
+      [new RvmStudentApiUnavailableError("timeout"), 503, "RVM_UNAVAILABLE"],
+      [new GrantRefConflictError(), 409, "EXTERNAL_REF_CONFLICT"],
+      [new GrantNotFoundError(), 404, undefined],
+    ])("answers %s as %i %s", async (err, status, code) => {
+      grantOutcome = err as Error;
+      const { base } = await boot({});
+      const res = await put(base, BODY);
+      const body = (await res.json()) as { error: { code?: string } };
+      expect(res.status).toBe(status);
+      expect(body.error.code).toBe(code);
+    });
+
+    it("revokes by DELETE, with the key", async () => {
+      const { base, grantCalls } = await boot({});
+      const res = await fetch(`${base}/search-grants/${GRANT}`, {
+        method: "DELETE",
+        headers: { "x-service-token": TOKEN, "idempotency-key": "grant-key-0002" },
+      });
+      expect(res.status).toBe(200);
+      expect(grantCalls).toEqual([GRANT]);
     });
   });
 });

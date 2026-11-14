@@ -83,6 +83,8 @@ const TENANT_TABLES: Record<string, string> = {
   payerJobPostingChatSessions: "payer_job_posting_chat_sessions",
   payerJobPostingChatMessages: "payer_job_posting_chat_messages",
   payerFormDrafts: "payer_form_drafts",
+  // #2752 item 10 — a named-company search grant is keyed by the company's tenant key.
+  instituteSearchGrants: "institute_search_grants",
 };
 const SQL_TABLE = new RegExp(
   `\\b(?:from|join|into|update)\\s+(?:public\\.)?(${Object.values(TENANT_TABLES).join("|")})\\b`,

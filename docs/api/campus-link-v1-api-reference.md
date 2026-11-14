@@ -34,20 +34,20 @@ RVMBeyond_jobportal#155 and #154.
 
 Every error uses the api's envelope: `{ statusCode, error: { code, message? }, requestId, path, timestamp }`.
 
-| Status | `error.code`               | When                                                                            | Retry?             |
-| ------ | -------------------------- | ------------------------------------------------------------------------------- | ------------------ |
-| 400    | `VALIDATION_FAILED`        | Body or query fails the schema (including an unknown key)                       | No                 |
-| 400    | `IDEMPOTENCY_KEY_REQUIRED` | A write without a valid key                                                     | No                 |
-| 401    | `UNAUTHENTICATED`          | Missing or wrong token, or none configured                                      | No                 |
-| 403    | `ADDRESS_NOT_ALLOWED`      | Caller address is not on the allow-list                                         | No                 |
-| 404    | none                       | Flag off, unknown route, or an id that does not exist                           | No                 |
-| 409    | `EXTERNAL_REF_CONFLICT`    | The same `external_ref` with a different posting or student                     | No                 |
-| 409    | `POSTING_NOT_OPEN`         | Posting closed, paused or hidden, including one that closed at the same moment  | No                 |
-| 409    | `POSTING_NOT_APPROVED`     | Posting's RVM review is pending or rejected                                     | No                 |
-| 409    | `AUDIENCE_EXCLUDES_RVM`    | Posting is for BadaBhai workers only                                            | No                 |
-| 409    | `STUDENT_NOT_AVAILABLE`    | RVM refuses the student (no consent, not linked, any reason); no row is created | No                 |
-| 429    | `RATE_LIMITED`             | Over the per-minute cap                                                         | Yes, after a pause |
-| 503    | `RVM_UNAVAILABLE`          | RVM's Student API did not answer; nothing was created                           | Yes, same key      |
+| Status | `error.code`               | When                                                                                  | Retry?             |
+| ------ | -------------------------- | ------------------------------------------------------------------------------------- | ------------------ |
+| 400    | `VALIDATION_FAILED`        | Body or query fails the schema (including an unknown key)                             | No                 |
+| 400    | `IDEMPOTENCY_KEY_REQUIRED` | A write without a valid key                                                           | No                 |
+| 401    | `UNAUTHENTICATED`          | Missing or wrong token, or none configured                                            | No                 |
+| 403    | `ADDRESS_NOT_ALLOWED`      | Caller address is not on the allow-list                                               | No                 |
+| 404    | none                       | Flag off, unknown route, or an id that does not exist                                 | No                 |
+| 409    | `EXTERNAL_REF_CONFLICT`    | The same `external_ref` (or `grant_ref`) with a different posting, company or student | No                 |
+| 409    | `POSTING_NOT_OPEN`         | Posting closed, paused or hidden, including one that closed at the same moment        | No                 |
+| 409    | `POSTING_NOT_APPROVED`     | Posting's RVM review is pending or rejected                                           | No                 |
+| 409    | `AUDIENCE_EXCLUDES_RVM`    | Posting is for BadaBhai workers only                                                  | No                 |
+| 409    | `STUDENT_NOT_AVAILABLE`    | RVM refuses the student (no consent, not linked, any reason); no row is created       | No                 |
+| 429    | `RATE_LIMITED`             | Over the per-minute cap                                                               | Yes, after a pause |
+| 503    | `RVM_UNAVAILABLE`          | RVM's Student API did not answer; nothing was created                                 | Yes, same key      |
 
 ## Routes
 
@@ -61,8 +61,8 @@ Every error uses the api's envelope: `{ statusCode, error: { code, message? }, r
 | `POST applications`                 | A student applies                                       | #2752 + #2746 |
 | `GET applications`                  | Status feed Campus polls                                | #2752         |
 | `DELETE applications/:external_ref` | Student withdraws                                       | #2752         |
-| `PUT search-grants/:grant_ref`      | Named-company search grant, after the student's own yes | #2752         |
-| `DELETE search-grants/:grant_ref`   | Revoke a grant                                          | #2752         |
+| `PUT search-grants/:grant_ref`      | Named-company search grant, after the student's own yes | **live**      |
+| `DELETE search-grants/:grant_ref`   | Revoke a grant                                          | **live**      |
 | `DELETE students/:student_ref`      | Unlink a student (consent withdrawn or deleted)         | **live**      |
 
 Mounted behind the same guard by their own issues: campus-drive requests and decisions (#2746),
@@ -203,12 +203,20 @@ Withdraws. Idempotent. Answers the application with `stage: "withdrawn"`.
 }
 ```
 
-BadaBhai reads the student's own yes from RVM by `consent_ref` before storing the grant. The consent
-RVM returns must name this same student and this same company: a mismatch, like a student who said
-no, gets `STUDENT_NOT_AVAILABLE` and no row, so one consent cannot be replayed for another company.
-Answers
-`{ "grant_ref", "company_id", "student_ref", "state": "active", "changed_at" }`.
-`DELETE search-grants/:grant_ref` answers the same with `state: "revoked"`.
+BadaBhai reads the student's own yes from RVM by `consent_ref` (RVM's consent-request `request_id`,
+`GET /internal/campus/consent-requests/{id}`) before storing the grant. The reply must carry
+`company.ref` equal to `company_id` (asked of RVM on Scheduler_Backend#162, 14 Nov 2026) and this
+student's entry with `state: "yes"`. A mismatch, a missing company, or a student who said no gets
+`STUDENT_NOT_AVAILABLE` and no row, and no BadaBhai worker row is created for him: one consent cannot
+be replayed for another company. An unknown or barred `company_id` is a neutral 404. RVM down →
+`RVM_UNAVAILABLE`, retryable. Answers
+`{ "grant_ref", "company_id", "student_ref", "state": "active", "changed_at" }`; the same
+`grant_ref` again answers the same grant, for good, and the same ref for another company or student
+is `EXTERNAL_REF_CONFLICT`, as is a second live grant for one company and student.
+`DELETE search-grants/:grant_ref` answers the same with `state: "revoked"` (idempotent; an unknown
+ref is a 404). While a grant is live, the student appears in that company's candidate search only,
+on the one skill his course maps to, and that company may open him (it pays as for an applicant,
+#2750).
 
 ### DELETE students/:student_ref
 
@@ -260,9 +268,11 @@ Not routes. These rules hold with `CAMPUS_LINK_ENABLED` off too, because a link 
 
 1. **Search.** An actively linked student never appears in a company's candidate search, even if
    he also accepted BadaBhai's own consent in the worker app (issue question 2: hidden while the
-   link is active).
+   link is active). The one exception: the company that holds his live named-company search grant
+   sees him in its own search.
 2. **Opening** (`InstituteOpenGate`, asked by unlock, reveal and résumé disclosure). A company opens
-   him only if he applied to one of its jobs, through Campus or the worker app. His own BadaBhai
+   him only if he applied to one of its jobs (through Campus or the worker app) or it holds his live
+   search grant. His own BadaBhai
    consent does not widen that while the link is active. Every refusal is the same neutral body a
    company gets for anyone it may not open.
 3. **Consent re-read before an open.** A confirmation older than `RVM_CONSENT_RECHECK_SECONDS`

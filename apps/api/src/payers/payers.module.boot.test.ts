@@ -120,6 +120,10 @@ describe("PayersModule — the tenant resolver is wired wherever it is injected 
       // services take the scope their route's owner gate resolved and inject no resolver.
       "AgencyService",
       "AgencyWorkersService",
+      // #2752 item 10: the company search reads that company's named-company search grants, and
+      // a grant is stored under the company's tenant key.
+      "CandidateSearchService",
+      "InstituteSearchGrantsService",
       "JobPostingChatService",
       "JobPostingsService",
       "PayerAccountService",

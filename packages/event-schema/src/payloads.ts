@@ -6301,3 +6301,17 @@ export const WorkerInstituteUnlinkedPayload = z
   })
   .strict();
 export type WorkerInstituteUnlinkedPayload = z.infer<typeof WorkerInstituteUnlinkedPayload>;
+
+// #2752 item 10 — a named-company search grant: a company may find (and open) an institute
+// student in its own search after BadaBhai read his own yes from the institute. IDS ONLY: never
+// his name, phone, student reference, course, the consent ref or the Campus grant ref. One
+// payload for both facts (granted, revoked); each is its own event name.
+export const WorkerInstituteSearchGrantPayload = z
+  .object({
+    grant_id: uuidSchema,
+    worker_id: uuidSchema,
+    payer_id: uuidSchema,
+    institute_code: InstituteCodeEnum,
+  })
+  .strict();
+export type WorkerInstituteSearchGrantPayload = z.infer<typeof WorkerInstituteSearchGrantPayload>;
