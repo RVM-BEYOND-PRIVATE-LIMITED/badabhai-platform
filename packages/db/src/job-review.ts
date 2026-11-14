@@ -32,6 +32,11 @@ import {
  * fetch and the decision would be approved unseen. So the decision also carries the
  * `content_hash` the reviewer saw (owner ruling 2026-11-14), and it is applied only when that
  * equals {@link postingReviewContentHash} under the lock (409 `POSTING_CHANGED` otherwise).
+ *
+ * PR 5 takes that posting lock `FOR SHARE` (`CampusPostingReviewRepository`), so decisions share
+ * it and serialise on the review row. Because Campus echoes the hash, a bump of
+ * {@link POSTING_REVIEW_CONTENT_VERSION} also refuses every review in flight until Campus reads
+ * the feed again.
  */
 
 /** The institute an RVM audience is reviewed by (`INSTITUTE_CODES`); the review row's key half. */

@@ -13,6 +13,7 @@ import {
   CampusPostingsQuerySchema,
   CampusReviewBodySchema,
   CampusSearchGrantBodySchema,
+  CampusTargetingOptionsBodySchema,
   StudentRefSchema,
   type CampusErrorCode,
 } from "../campus-link.contract";
@@ -109,10 +110,25 @@ export function createCampusLinkMock(options: { token: string }) {
         const body = parseBody(req.body, CampusReviewBodySchema, url.pathname);
         if ("status" in body) return body;
         if (segments[1] !== KNOWN_POSTING_ID) return notFound(url.pathname);
+        // The posting "changed" unless the body echoes the hash the example feed shows.
+        if (body.data.content_hash !== examples.POSTING_EXAMPLE.content_hash) {
+          return error(409, "POSTING_CHANGED", url.pathname);
+        }
         return ok({
           posting_id: KNOWN_POSTING_ID,
           review_state: body.data.state,
           reviewed_at: now,
+        });
+      }
+
+      case "PUT targeting-options": {
+        const body = parseBody(req.body, CampusTargetingOptionsBodySchema, url.pathname);
+        if ("status" in body) return body;
+        // No stored list here: every option reads as new, and nothing is retired.
+        const counts = (listed: number) => ({ listed, added: listed, updated: 0, deactivated: 0 });
+        return ok({
+          branches: counts(body.data.branches.length),
+          courses: counts(body.data.courses.length),
         });
       }
 

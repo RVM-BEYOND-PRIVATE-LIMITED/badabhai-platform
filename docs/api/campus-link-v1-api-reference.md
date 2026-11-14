@@ -46,6 +46,7 @@ Every error uses the api's envelope: `{ statusCode, error: { code, message? }, r
 | 409    | `POSTING_NOT_APPROVED`     | Posting's RVM review is pending or rejected                                     | No                 |
 | 409    | `AUDIENCE_EXCLUDES_RVM`    | Posting is for BadaBhai workers only                                            | No                 |
 | 409    | `STUDENT_NOT_AVAILABLE`    | RVM refuses the student (no consent, not linked, any reason); no row is created | No                 |
+| 409    | `POSTING_CHANGED`          | The posting changed after the reviewer saw it; fetch it again                   | No, not same body  |
 | 429    | `RATE_LIMITED`             | Over the per-minute cap                                                         | Yes, after a pause |
 | 503    | `RVM_UNAVAILABLE`          | RVM's Student API did not answer; nothing was created                           | Yes, same key      |
 
@@ -55,7 +56,8 @@ Every error uses the api's envelope: `{ statusCode, error: { code, message? }, r
 | ----------------------------------- | ------------------------------------------------------- | ------------- |
 | `GET ping`                          | Proves flag, address and token                          | **live**      |
 | `GET job-postings`                  | Postings whose audience includes RVM students           | #2752 + #2746 |
-| `PUT job-postings/:id/review`       | Placement team approves or rejects                      | #2752 + #2746 |
+| `PUT job-postings/:id/review`       | Placement team approves or rejects                      | #2746         |
+| `PUT targeting-options`             | Branches and courses a company may target               | #2746         |
 | `POST job-postings`                 | Placement team posts for a company                      | #2752 + #2746 |
 | `GET companies?phone=`              | Find a company by exact phone                           | #2752         |
 | `POST applications`                 | A student applies                                       | #2752 + #2746 |
@@ -103,7 +105,8 @@ closed since are included with `status: "closed"`, so Campus learns about a clos
       "branch_ids": [1],
       "courses": [{ "id": "cnc-programming", "name": "CNC Programming" }],
       "review_state": "approved",
-      "changed_at": "2026-11-13T09:30:00.000+05:30"
+      "changed_at": "2026-11-13T09:30:00.000+05:30",
+      "content_hash": "dae961f775f42c5205c320f1bc9eed1046f92b7856b4f97b1e3a1eed94300fc9"
     }
   ],
   "next_cursor": null
@@ -111,23 +114,95 @@ closed since are included with `status: "closed"`, so Campus learns about a clos
 ```
 
 Empty `branch_ids` or `courses` means every branch or course. `status: "open"` takes applications
-only once `review_state` is `approved`.
+only once `review_state` is `approved`. `content_hash` identifies the content shown above (every
+field a student sees): keep it with what the reviewer is shown and send it back on the review. It
+is opaque; BadaBhai computes it, and it changes whenever that content changes.
 
 ### PUT job-postings/:id/review
 
 ```json
-{ "state": "approved", "reviewer_ref": "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d", "branch_ids": [1] }
+{
+  "state": "approved",
+  "reviewer_ref": "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d",
+  "branch_ids": [1],
+  "content_hash": "dae961f775f42c5205c320f1bc9eed1046f92b7856b4f97b1e3a1eed94300fc9"
+}
 ```
 
+`content_hash` is **required**: the posting's `content_hash` from the `GET job-postings` read the
+reviewer decided on. BadaBhai compares it with the posting's hash under a row lock; if the posting
+changed since, the answer is `409 POSTING_CHANGED` and nothing is stored (no decision, no event).
+Fetch the posting again, show the reviewer the new content, and send the decision with the new
+hash.
+
 Optional `course_ids` and `reason` (≤ 500 characters). The company sees `reason` as written, so
-write it for them. A narrowed `branch_ids` or `course_ids`
-replaces the posting's own for RVM students; when sent it must be non-empty (an empty list would
-mean every branch) and within the posting's own targeting. Answers
-`{ "posting_id", "review_state", "reviewed_at" }`. Any later edit by the company to a field RVM
-students see (company name, title, description, requirements, benefits, pay, location, shift,
-experience, vacancy, audience or targeting) returns the posting to `pending`. A decision counts only
-for the content it saw: BadaBhai stores a hash of those fields with it and compares it on every
-read, so a posting edited after approval reads `pending` even before anything resets it.
+write it for them. BadaBhai drops control characters (newlines are kept) and invisible format
+characters (bidi overrides, zero-width spaces) from it before storing; a reason of nothing else
+counts as no reason. A narrowed `branch_ids` or `course_ids` replaces the posting's own for RVM
+students; when sent it must be non-empty (an empty list would mean every branch) and within the
+posting's own targeting: each id must be in the posting's own list, or, when that list is empty
+(every branch or course), an active targeting option (`PUT targeting-options`). Otherwise 400
+`VALIDATION_FAILED`, naming the ids. A rejection may carry a narrowing too; it is checked and
+stored the same way, and has no effect while the posting is rejected.
+
+Answers `200 { "posting_id", "review_state", "reviewed_at" }`. A new decision replaces the earlier
+one. Sending the decision the posting already holds, for the same content, changes nothing and
+answers the stored decision (same `reviewed_at`), so a retry is safe with any key.
+
+Which postings can be reviewed:
+
+| Answer                      | When                                                                                                                                                                                   |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 404 (no code)               | The id is not a posting, or the posting is a draft, is hidden by BadaBhai, has no owning company, or the company is not in the RVM-audience rollout; `CAMPUS_LINK_ENABLED` off as well |
+| 409 `AUDIENCE_EXCLUDES_RVM` | The posting is for BadaBhai workers only                                                                                                                                               |
+| 409 `POSTING_NOT_OPEN`      | The posting is closed. Closing is final, so a decision could never reach a student. A paused or suspended posting can be reviewed: it opens again with the same content                |
+| 409 `POSTING_CHANGED`       | `content_hash` is not the posting's hash now                                                                                                                                           |
+
+Any later edit by the company to a field RVM students see (company name, title, description,
+requirements, benefits, pay, location, shift, experience, vacancy, audience or targeting) returns
+the posting to `pending`. A decision counts only for the content it saw: BadaBhai stores its hash
+with it and compares it on every read, so a posting edited after approval reads `pending` even
+before anything resets it. The review never changes which BadaBhai workers see the posting.
+
+### PUT targeting-options
+
+The whole current list of branches and courses a company may target. Send every option Campus
+offers, each time; the position in the list is the order companies see.
+
+```json
+{
+  "branches": [
+    { "id": 1, "name": "Faridabad" },
+    { "id": 2, "name": "Pune" },
+    { "id": 3, "name": "Ahmedabad" },
+    { "id": 4, "name": "Lucknow" }
+  ],
+  "courses": [
+    { "id": "cnc-programming", "name": "CNC Programming" },
+    { "id": "cad-design", "name": "CAD Design" }
+  ]
+}
+```
+
+Both lists are required (an empty list retires every option of that kind). Branch `id` is the RVM
+location id (1 to 9,999,999,999), course `id` a Scheduler course id (1 to 64 characters); each id at
+most once per list (up to 200 branches and 500 courses). `name` is 1 to 200 characters after
+trimming. Neither may contain a control or invisible format character. An option BadaBhai holds
+that is not in the list is marked inactive, never deleted: postings that already target it keep
+it, and new targeting cannot pick it. An option that returns is active again.
+
+Answers `200` with what changed, per kind:
+
+```json
+{
+  "branches": { "listed": 4, "added": 0, "updated": 1, "deactivated": 0 },
+  "courses": { "listed": 2, "added": 1, "updated": 0, "deactivated": 1 }
+}
+```
+
+`updated` counts a changed name or position, or an option that came back. The same list again
+changes nothing, so a retry is safe. No `job_audience` rollout gate: the options are global, and
+companies see them only where their own rollout is on.
 
 ### POST job-postings
 
@@ -236,6 +311,8 @@ next application.
    and posts a decision carrying the date), mounted behind this guard.
 7. **Courses:** `{id, name}`. Campus matches on the name today; ask the Student API
    (Scheduler_Backend#162) for `course_id` next to `branch_id`, then match on ids.
+8. **Review carries the `content_hash` the reviewer saw** (owner, 14 Nov 2026), so an approval
+   never lands on content nobody saw.
 
 ## Inside BadaBhai: how a student becomes a worker row (#2752 part B)
 

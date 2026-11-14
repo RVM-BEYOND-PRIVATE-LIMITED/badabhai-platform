@@ -63,6 +63,7 @@ import { PayerRelayController } from "../relay/payer-relay.controller";
 import { WorkerRelayController } from "../relay/worker-relay.controller";
 import { SkillsController } from "../skills/skills.controller";
 import { CampusLinkController } from "../campus-link/campus-link.controller";
+import { CampusReviewController } from "../campus-link/campus-review.controller";
 import { ReferralAttributionController } from "../referrals/referral-attribution.controller";
 import { ReferralBonusController } from "../referrals/referral-bonus.controller";
 // BL-3 — 17 controllers independently found missing from this contract (11 platform-wide
@@ -659,6 +660,13 @@ const CONTRACT: ControllerContract[] = [
     ctor: SkillsController,
     routes: { nearestAliases: [SI], recordUnresolved: [SI] },
   },
+  // #2746 PR 5 — Campus's RVM review and targeting-options writes: the same CampusServiceGuard
+  // (and so the same flag, token, allow-list, cap and per-call audit row) and nothing else.
+  {
+    name: "CampusReview",
+    ctor: CampusReviewController,
+    routes: { reviewPosting: [CS], setTargetingOptions: [CS] },
+  },
   // #2752 — BadaBhai Campus's ONLY credential. CampusServiceGuard (its own hashed token, an
   // address allow-list, a per-minute cap, an audit row per call) and never InternalServiceGuard,
   // whose shared secret opens the ops routes that return personal data.
@@ -898,6 +906,9 @@ describe("API authz contract — guards on every controller route", () => {
       // ADR-0040 / E2 — pages the whole consented pool to any payer; a third route must not
       // join this class unpinned.
       CandidateSearchController,
+      // #2746 PR 5 — a service credential's write surface (review, targeting); a third route
+      // must not join this class unpinned.
+      CampusReviewController,
     ] as Ctor[]) {
       it(`${ctor.name} lists every route it serves`, () => {
         const proto = ctor.prototype as Record<string, unknown>;

@@ -43,6 +43,8 @@ export const CAMPUS_ERROR_CODES = [
   "AUDIENCE_EXCLUDES_RVM",
   "STUDENT_NOT_AVAILABLE",
   "RVM_UNAVAILABLE",
+  /** #2746: the posting changed after the reviewer saw it (its `content_hash` moved). */
+  "POSTING_CHANGED",
 ] as const;
 export type CampusErrorCode = (typeof CAMPUS_ERROR_CODES)[number];
 
@@ -79,6 +81,14 @@ export const CourseIdSchema = z.string().min(1).max(64);
 
 const IsoDateTime = z.string().datetime({ offset: true });
 const Id = z.string().uuid();
+
+/**
+ * #2746 — what a review decision is FOR: the sha256 (lower-case hex) of every field an RVM student
+ * sees, computed by BadaBhai (`postingReviewContentHash`). The feed exposes it, the review echoes
+ * it; Campus never computes it. Opaque: it changes whenever the posting's student-visible content
+ * does, and when BadaBhai changes what the hash covers.
+ */
+export const ContentHashSchema = z.string().regex(/^[0-9a-f]{64}$/);
 
 export const POSTING_AUDIENCES = ["rvm_students", "both"] as const;
 export const REVIEW_STATES = ["pending", "approved", "rejected"] as const;
@@ -153,6 +163,12 @@ export const CampusPostingSchema = z.object({
   courses: z.array(z.object({ id: CourseIdSchema, name: z.string() })),
   review_state: z.enum(REVIEW_STATES),
   changed_at: IsoDateTime,
+  /**
+   * The hash of the content above, as of this read (#2746, owner decision 2026-11-14). Send it back
+   * unchanged on `PUT job-postings/:id/review`: a decision counts only for the content its reviewer
+   * saw, and a posting that changed since answers 409 `POSTING_CHANGED`.
+   */
+  content_hash: ContentHashSchema,
 });
 
 export const CampusPostingPageSchema = z.object({
@@ -173,12 +189,86 @@ export const CampusReviewBodySchema = z.strictObject({
   branch_ids: z.array(BranchIdSchema).min(1).max(50).optional(),
   course_ids: z.array(CourseIdSchema).min(1).max(100).optional(),
   reason: z.string().trim().min(1).max(500).optional(),
+  /**
+   * REQUIRED (owner decision 2026-11-14): the posting's `content_hash` from the feed read the
+   * reviewer decided on. BadaBhai compares it with the posting's hash under a row lock; a mismatch
+   * is 409 `POSTING_CHANGED` and stores nothing, so an approval never lands on content nobody saw.
+   */
+  content_hash: ContentHashSchema,
 });
 
 export const CampusReviewResponseSchema = z.object({
   posting_id: Id,
   review_state: z.enum(REVIEW_STATES),
   reviewed_at: IsoDateTime,
+});
+
+// ─── PUT targeting-options (#2746) ───────────────────────────────────────────
+
+/**
+ * No control or invisible format character (`\p{Cc}`, `\p{Cf}`): an option's id is matched and its
+ * label is shown to companies, so neither may hide a character (posting targeting refuses a
+ * newline in a course id, `job_postings_rvm_targeting_chk`).
+ */
+const NO_HIDDEN_CHARACTERS = /^[^\p{Cc}\p{Cf}]*$/u;
+
+/**
+ * The largest branch id BadaBhai stores: `rvm_targeting_options.ref` holds it as at most ten
+ * digits (`rto_branch_ref_chk`).
+ */
+const MAX_TARGETING_BRANCH_ID = 9_999_999_999;
+
+/** A place or course name as companies see it: reference data, never personal data (`rto_label_chk`). */
+const TargetingLabelSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(200)
+  .regex(NO_HIDDEN_CHARACTERS, "no control or format characters");
+
+const TargetingBranchSchema = z.strictObject({
+  id: BranchIdSchema.max(MAX_TARGETING_BRANCH_ID),
+  name: TargetingLabelSchema,
+});
+
+const TargetingCourseSchema = z.strictObject({
+  id: CourseIdSchema.regex(NO_HIDDEN_CHARACTERS, "no control or format characters"),
+  name: TargetingLabelSchema,
+});
+
+/** True when no two entries share an id. */
+function idsUnique(entries: readonly { id: number | string }[]): boolean {
+  return new Set(entries.map((e) => e.id)).size === entries.length;
+}
+
+/**
+ * THE WHOLE CURRENT LIST of branches and courses a company may target. Campus sends every option
+ * it offers, each time; the position in its list is the order companies see. An option BadaBhai
+ * holds that is not in the list is marked inactive, never deleted, because postings hold the refs.
+ * Both lists are required (an empty one retires every option of that kind); an id appears at most
+ * once in its list.
+ */
+export const CampusTargetingOptionsBodySchema = z.strictObject({
+  branches: z
+    .array(TargetingBranchSchema)
+    .max(200)
+    .refine(idsUnique, "each branch id at most once"),
+  courses: z.array(TargetingCourseSchema).max(500).refine(idsUnique, "each course id at most once"),
+});
+
+/** What one kind's replacement did. `listed` is the number now active. */
+export const CampusTargetingOptionCountsSchema = z.object({
+  listed: z.number().int().min(0),
+  added: z.number().int().min(0),
+  /** Label or order changed, or the option came back after being inactive. */
+  updated: z.number().int().min(0),
+  /** Left the list: inactive now, kept for the postings that target it. */
+  deactivated: z.number().int().min(0),
+});
+
+export const CampusTargetingOptionsResponseSchema = z.object({
+  branches: CampusTargetingOptionCountsSchema,
+  courses: CampusTargetingOptionCountsSchema,
 });
 
 // ─── POST job-postings (the placement team posts for a company) ──────────────
