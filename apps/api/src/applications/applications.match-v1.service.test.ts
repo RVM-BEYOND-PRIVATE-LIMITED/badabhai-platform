@@ -379,6 +379,25 @@ describe("ADR-0050 — apply/skip on an agency twin resolve to the SOURCE job's 
     },
   );
 
+  it("a HIDDEN twin (source open and visible) is refused by the gate before the source path runs (#2566)", async () => {
+    // The twin's own hide is enforced by `findReachRow` on the twin id, which `buildSnapshot`
+    // runs BEFORE `applyJob` / `skipJob`. Reordering those lines would let a hidden twin's
+    // applicant reach the source job's applicant list; this pins the order.
+    for (const act of ["apply", "skip"] as const) {
+      const { svc, repo, events, matchApply } = setup({ twin });
+      matchApply.buildSnapshot.mockRejectedValueOnce(new NotFoundException("Job not found"));
+      const call =
+        act === "apply"
+          ? svc.apply(WORKER, POSTING, { source_surface: "feed", rank: 1 } as never, CTX)
+          : svc.skip(WORKER, POSTING, { reason: "too_far" } as never, CTX);
+      await expect(call, act).rejects.toThrow("Job not found");
+      expect(repo.findDecision).not.toHaveBeenCalled();
+      expect(repo.upsertDecision).not.toHaveBeenCalled();
+      expect(repo.incrementApplicantsReceived).not.toHaveBeenCalled();
+      expect(events.emit).not.toHaveBeenCalled();
+    }
+  });
+
   it("a twin whose OPEN source an admin HID is the same neutral 404 (#2566) — no gate read, no write, no event", async () => {
     for (const act of ["apply", "skip"] as const) {
       const { svc, repo, events, matchApply } = setup({

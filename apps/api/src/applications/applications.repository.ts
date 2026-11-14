@@ -312,10 +312,10 @@ export class ApplicationsRepository {
       .limit(limit);
   }
 
-  /** A single OPEN job by id, or undefined (used to 404 unknown/closed jobs — no oracle). */
   /**
-   * ADR-0050 §4.5 — when `jobPostingId` is a system-owned agency TWIN, its SOURCE job id and that
-   * job's status; otherwise undefined (a native posting, a D4 conversion, or no such posting).
+   * ADR-0050 §4.5 — when `jobPostingId` is a system-owned agency TWIN, its SOURCE job id, that
+   * job's status and its admin hide (`hidden_at`, #2566); otherwise undefined (a native posting,
+   * a D4 conversion, or no such posting).
    * One PK probe joined to one PK probe. The V1 apply/skip resolves a twin id here BEFORE it
    * chooses a code path, so the twin's own id never becomes an application key (C5).
    */
@@ -333,6 +333,7 @@ export class ApplicationsRepository {
     return rows[0];
   }
 
+  /** A single OPEN job by id, or undefined (used to 404 unknown/closed jobs — no oracle). */
   async findJobById(id: string): Promise<Job | undefined> {
     const rows = await this.db
       .select()
