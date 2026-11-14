@@ -4,8 +4,9 @@ import { payers } from "./payer";
 
 /**
  * The pilot list (#2746 item 1): which companies may use a feature whose switch reads `pilot`.
- * One row per (feature, company). `payer_id` is the TENANT key (`PayerTenantScopeService`), so a
- * team member inherits the company's pilot place. Feature names are a closed list in the API
+ * One row per (feature, company). `payer_id` is the TENANT key (`PayerTenantScopeService`): with
+ * `PAYER_ORG_TENANCY_MODE=on` the company's anchor, so a team member inherits its pilot place; in
+ * `off` / `shadow` the login itself, so list each login. Feature names are a closed list in the API
  * (`FEATURE_ROLLOUT_KEYS`), not here: #2747–#2750 add theirs without a migration, and the shape
  * CHECK keeps a typo from passing as a new name.
  *

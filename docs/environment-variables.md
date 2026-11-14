@@ -83,6 +83,24 @@ NestJS boot assertion).
   refuses, before a container moves, both an unknown method and `email_otp` with any of the four
   empty (names only in the error). Locally, the base compose `api` carries dummy ZeptoMail values
   so it boots; with no `ZEPTOMAIL_API_URL` it sends nothing (use `mailpit` for a readable code).
+- **Rollout switches (#2746)** — `JOB_AUDIENCE_ROLLOUT` (job audience, RVM targeting and the
+  placement team's review) and `CAMPUS_DRIVE_REQUESTS_ROLLOUT` (campus-drive requests), each
+  `off` | `pilot` | `on`. `off` (the default, and what an empty value reads as) is today's product:
+  the new payer fields are ignored and the new routes answer 404. A switch gates capabilities only:
+  stored audience and review state are honoured whatever it says, so `off` is a safe rollback and
+  never exposes an RVM-only job to BadaBhai workers. `pilot` opens the feature only to
+  the companies listed for it in `feature_pilot_payers` (keyed by the tenant key; rows are added
+  by the owner with `added_by` and `reason`). The tenant key is the company's anchor only with
+  `PAYER_ORG_TENANCY_MODE=on`; in `off` / `shadow` it is the login, so list every login that should
+  see the pilot (those per-login rows stop matching a team member once tenancy goes `on`, and the
+  org-tenancy census C5 counts them). `on` opens it to everyone. Their one reader is
+  `apps/api/src/feature-rollout/feature-rollout.service.ts` (a static test pins it), and a
+  pilot-list read error answers "not enabled". Declared on the `api` service only, as
+  `${NAME:-off}` in `docker-compose.staging.yml`, and bridged from the GitHub `production` secrets
+  of the same names (`ci.yml` `env:` + `envs:`); **absent = `off`**.
+  `scripts/deploy/staging-deploy.sh` accepts exactly `off`, `pilot`, `on` and empty, and refuses
+  anything else before a container moves. Arm: `gh secret set JOB_AUDIENCE_ROLLOUT --env
+  production --body pilot`, then redeploy.
 - **Payer org tenancy** — `PAYER_ORG_TENANCY_MODE` (`off` | `shadow` | `on`; ADR-0053,
   PAY-DB-01). `off` (the default, and what an empty value reads as) keys every payer read to the
   login, the pre-ADR behaviour; `shadow` serves `off` and logs what `on` would decide

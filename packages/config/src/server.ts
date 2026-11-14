@@ -2,6 +2,7 @@ import { isIP } from "node:net";
 import { z } from "zod";
 import {
   booleanFromString,
+  featureRolloutMode,
   fractionFromString,
   portSchema,
   positiveIntFromString,
@@ -657,6 +658,20 @@ export const serverEnvSchema = z.object({
     (seconds) => seconds <= 86_400,
     "must be at most 86400 (a day)",
   ),
+
+  // #2746 — ROLLOUT SWITCHES, one per feature: off (nobody) | pilot (the companies listed for
+  // that feature in `feature_pilot_payers`) | on (everyone). Default off; empty reads as off.
+  // Read ONLY by `FeatureRolloutService` (a static test pins that), so every caller asks one
+  // question — "is this on for this company?" — and a pilot-list read error answers no.
+  //   JOB_AUDIENCE_ROLLOUT — who-sees-this-job (BadaBhai workers / RVM students / both),
+  //     branch and course targeting, and the placement team's review of RVM jobs.
+  //   CAMPUS_DRIVE_REQUESTS_ROLLOUT — a company asks RVM for a campus drive.
+  // Off, the new payer fields are ignored and the new routes answer 404. Campus's own routes
+  // additionally need CAMPUS_LINK_ENABLED. A switch gates CAPABILITIES only: stored state (the
+  // worker-path audience filter, the RVM review gate) is honoured whatever it says, so switching
+  // back to off can never expose an RVM-only job to BadaBhai workers.
+  JOB_AUDIENCE_ROLLOUT: featureRolloutMode,
+  CAMPUS_DRIVE_REQUESTS_ROLLOUT: featureRolloutMode,
 
   // PII protection (BACKEND ONLY). Pepper for the keyed HMAC of phone/IP; AES-256
   // key (base64 of 32 bytes) for encrypting phone_e164 at rest. The key NEVER

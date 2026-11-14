@@ -322,6 +322,18 @@ describe("the four Phase-9 flags, as they reach the box", () => {
       /PAYER_ORG_TENANCY_MODE:\s*\$\{\{\s*secrets\.PAYER_ORG_TENANCY_MODE\s*\}\}/,
       /envs:[^\n]*\bPAYER_ORG_TENANCY_MODE\b/,
     ],
+    // #2746 — the rollout switches (off | pilot | on), api only. The environment secret is each
+    // one's arming path; absent, the bridge holds it off.
+    [
+      "JOB_AUDIENCE_ROLLOUT",
+      /JOB_AUDIENCE_ROLLOUT:\s*\$\{\{\s*secrets\.JOB_AUDIENCE_ROLLOUT\s*\}\}/,
+      /envs:[^\n]*\bJOB_AUDIENCE_ROLLOUT\b/,
+    ],
+    [
+      "CAMPUS_DRIVE_REQUESTS_ROLLOUT",
+      /CAMPUS_DRIVE_REQUESTS_ROLLOUT:\s*\$\{\{\s*secrets\.CAMPUS_DRIVE_REQUESTS_ROLLOUT\s*\}\}/,
+      /envs:[^\n]*\bCAMPUS_DRIVE_REQUESTS_ROLLOUT\b/,
+    ],
     // #2509 — the per-IP hourly cap on public payer auth. A plain tuning number, not a
     // secret in the confidentiality sense, but bridged through `secrets.*` like the other
     // numbers so a deploy does not depend on the box's shell state; absent, compose holds
@@ -418,6 +430,10 @@ describe("the four Phase-9 flags, as they reach the box", () => {
     ["CAMPUS_LINK_ENABLED", "false"],
     // ADR-0053 — off keys every payer read to the login: the pre-ADR behaviour, byte for byte.
     ["PAYER_ORG_TENANCY_MODE", "off"],
+    // #2746 — off accepts no new field and mounts no new route; stored audience and review state
+    // are honoured whatever the switch says (a switch gates capabilities, never restrictions).
+    ["JOB_AUDIENCE_ROLLOUT", "off"],
+    ["CAMPUS_DRIVE_REQUESTS_ROLLOUT", "off"],
     // #2509 — the zod default: 20/hour/IP until the secret (or a box export) says otherwise.
     ["PAYER_AUTH_MAX_PER_IP_PER_HOUR", "20"],
     // #1800 — not a flag but the resolver's redirect destination: the origin serving payer-web's
