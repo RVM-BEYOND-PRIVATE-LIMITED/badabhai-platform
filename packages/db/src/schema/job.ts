@@ -277,6 +277,18 @@ export const jobPostings = pgTable(
     // `job_postings_sync_source_chk`; `job_postings_twin_owner_chk` pins C2 (a twin is never
     // payer-owned and never unlinked). PII-free: a closed enum.
     syncSource: text("sync_source").$type<JobPostingSyncSource>(),
+    // ── #2746 (migration 0162): who sees this job ──
+    // `badabhai_workers` (every row before 0162, and every agency twin by
+    // `job_postings_twin_audience_chk`), `rvm_students` (never on a BadaBhai worker path) or
+    // `both`. The RVM part of a posting is gated by its row in `job_posting_institute_reviews`;
+    // the BadaBhai part never waits for that review.
+    audience: text("audience").$type<JobPostingAudience>().notNull().default("badabhai_workers"),
+    // RVM targeting, empty = every branch / every course. Branch ids are RVM location ids
+    // (Campus's `allowed_location_ids`), course ids are Scheduler course ids; labels live in
+    // `rvm_targeting_options`. Only an RVM audience may carry targeting
+    // (`job_postings_rvm_targeting_chk`). A review's narrowed lists replace these for students.
+    rvmBranchIds: jsonb("rvm_branch_ids").$type<number[]>().notNull().default(jsonArray),
+    rvmCourseIds: jsonb("rvm_course_ids").$type<string[]>().notNull().default(jsonArray),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     closedAt: timestamp("closed_at", { withTimezone: true }),
@@ -460,8 +472,38 @@ export const jobPostings = pgTable(
       "job_postings_trade_answers_object_chk",
       sql`${t.tradeAnswers} IS NULL OR jsonb_typeof(${t.tradeAnswers}) = 'object'`,
     ),
+    // Migration 0162 (#2746) — the closed audience set (mirrors JOB_POSTING_AUDIENCES).
+    check(
+      "job_postings_audience_chk",
+      sql`${t.audience} IN ('badabhai_workers', 'rvm_students', 'both')`,
+    ),
+    // Migration 0162 — an agency twin is a BadaBhai-worker job, whatever its source says.
+    check(
+      "job_postings_twin_audience_chk",
+      sql`${t.syncSource} IS NULL OR ${t.audience} = 'badabhai_workers'`,
+    ),
+    // Migration 0162 — targeting lists are arrays of the contract's shapes (branch: a positive
+    // integer RVM location id, at most 50; course: a 1–64 character Scheduler id, at most 100),
+    // and only an RVM audience carries any, so a BadaBhai-only row never holds stale targeting
+    // that a later audience change would revive. A `["1"]` would silently never match `@> '[1]'`.
+    check(
+      "job_postings_rvm_targeting_chk",
+      sql`jsonb_typeof(${t.rvmBranchIds}) = 'array' AND jsonb_array_length(${t.rvmBranchIds}) <= 50
+        AND NOT jsonb_path_exists(${t.rvmBranchIds}, '$[*] ? (@.type() != "number" || @ < 1 || @.floor() != @)')
+        AND jsonb_typeof(${t.rvmCourseIds}) = 'array' AND jsonb_array_length(${t.rvmCourseIds}) <= 100
+        AND NOT jsonb_path_exists(${t.rvmCourseIds}, '$[*] ? (@.type() != "string" || !(@ like_regex "^.{1,64}$"))')
+        AND (${t.audience} <> 'badabhai_workers' OR (${t.rvmBranchIds} = '[]'::jsonb AND ${t.rvmCourseIds} = '[]'::jsonb))`,
+    ),
   ],
 ).enableRLS(); // RLS tracked in the model; carried by the migration (BL-26 parity fix)
+
+/**
+ * Who sees a posting (#2746). `badabhai_workers` is every posting before migration 0162 and
+ * every agency twin; `rvm_students` never reaches a BadaBhai worker path; `both` reaches
+ * BadaBhai workers at once and RVM students once the placement team approves it.
+ */
+export const JOB_POSTING_AUDIENCES = ["badabhai_workers", "rvm_students", "both"] as const;
+export type JobPostingAudience = (typeof JOB_POSTING_AUDIENCES)[number];
 
 /**
  * Provenance of a DERIVED `job_postings` row (ADR-0050 §4.1). `agency_job` = the system-owned
