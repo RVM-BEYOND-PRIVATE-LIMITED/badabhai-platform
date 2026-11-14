@@ -8,8 +8,12 @@ import {
   payers,
   type CampusDriveRequestStatus,
   type Database,
+  type PayerProfileVerificationStatus,
+  type PayerRole,
+  type PayerStatus,
 } from "@badabhai/db";
 import { CAMPUS_STAFF_ACTOR_TYPE } from "../campus-link/campus-posting-review.repository";
+import { redactQueryParams } from "../common/db-error";
 import { DATABASE } from "../database/database.module";
 import type { TenantKey } from "../payers/payer-tenant-scope";
 import type { DriveCursor } from "./campus-drive-cursor";
@@ -62,6 +66,37 @@ const ROW_COLUMNS = {
   cancelledKey: microsecondText(campusDriveRequests.cancelledAt),
 };
 
+/**
+ * The company's standing, read in the SAME statement as the request (`payers` inner-joined,
+ * `employer_profiles` left-joined): the create check's facts plus the account status, so Campus's
+ * routes judge "withdrawn" (owner ruling R2) on exactly what the create check reads.
+ */
+const COMPANY_STANDING = {
+  companyStatus: payers.status,
+  companyRole: payers.role,
+  companyVerification: employerProfiles.verificationStatus,
+  companyHasGst: sql<boolean>`(${employerProfiles.gstNumberEnc} IS NOT NULL)`,
+};
+
+/** The standing columns as a row carries them (`companyVerification` is NULL with no record). */
+export interface DriveCompanyColumns {
+  companyStatus: PayerStatus;
+  companyRole: PayerRole;
+  companyVerification: PayerProfileVerificationStatus | null;
+  companyHasGst: boolean;
+}
+
+/**
+ * When a feed item last changed: the request, its company's account, or its company record. An
+ * admin's withdrawal (verification, GSTIN, suspension, archive) stamps `payers.updated_at` or
+ * `employer_profiles.updated_at` and not the request, so the feed's order, filter and cursor read
+ * the GREATEST of the three (NULL-safe: a missing company record is ignored), and Campus pulls the
+ * request again, stripped or restored. The same shape as PR 4's posting feed
+ * (`GREATEST(review.updated_at, job_postings.updated_at)`). Not served by an index: the table is
+ * small (a request per company drive), and the expression must be the cursor's key.
+ */
+const FEED_CHANGED = sql`GREATEST(${campusDriveRequests.updatedAt}, ${payers.updatedAt}, ${employerProfiles.updatedAt})`;
+
 /** One request as stored (contact as ciphertext), with its microsecond cursor keys. */
 export interface DriveRequestRow {
   id: string;
@@ -96,9 +131,11 @@ export interface DriveRequestRow {
   cancelledKey: string | null;
 }
 
-/** A row of Campus's feed: the request and its company's name (ciphertext). */
-export interface DriveFeedRow extends DriveRequestRow {
+/** A row of Campus's feed: the request, its company's name (ciphertext) and standing. */
+export interface DriveFeedRow extends DriveRequestRow, DriveCompanyColumns {
   companyNameEnc: string;
+  /** {@link FEED_CHANGED}, microsecond UTC text: the item's `changed_at` and the cursor key. */
+  feedChangedKey: string;
 }
 
 /** The columns a create writes. The contact arrives ALREADY ENCRYPTED. */
@@ -118,7 +155,7 @@ export interface DriveRequestInsert {
 }
 
 /** The row under the decision's lock, with `decided_at` compared to the body's in SQL. */
-export interface LockedForDecision extends DriveRequestRow {
+export interface LockedForDecision extends DriveRequestRow, DriveCompanyColumns {
   timing: DecisionTiming;
 }
 
@@ -158,8 +195,13 @@ export const CAMPUS_DRIVE_DECISION_AUDIT_ACTION = "campus_link.drive_request_dec
  * the one place that decides who may see them.
  *
  * ONE ROW LOCK. The decision and the company's cancel each take the request row `FOR UPDATE` first
- * and touch no other row lock (the event and audit inserts take none), so the two serialise on that
- * row and cannot deadlock.
+ * (the decision's read joins the company, locking ONLY the request: `FOR UPDATE OF`) and touch no
+ * other row lock (the event and audit inserts take none), so the two serialise on that row and
+ * cannot deadlock.
+ *
+ * REDACTED ERRORS (security review M2). Every statement that binds the roles note, the contact
+ * ciphertext or the placement team's reason rethrows a database error through `redactQueryParams`,
+ * so a failure log carries the SQL text and the code, never the bound values.
  */
 @Injectable()
 export class CampusDriveRequestsRepository {
@@ -211,14 +253,18 @@ export class CampusDriveRequestsRepository {
    * under the same key waits for that one to commit first), and the caller reads the row it made.
    */
   async insert(tx: Database, row: DriveRequestInsert): Promise<DriveRequestRow | undefined> {
-    const rows = await tx
-      .insert(campusDriveRequests)
-      .values({ ...row, status: "requested", updatedAt: WRITE_STAMP })
-      .onConflictDoNothing({
-        target: [campusDriveRequests.payerId, campusDriveRequests.idempotencyKey],
-      })
-      .returning(ROW_COLUMNS);
-    return rows[0];
+    try {
+      const rows = await tx
+        .insert(campusDriveRequests)
+        .values({ ...row, status: "requested", updatedAt: WRITE_STAMP })
+        .onConflictDoNothing({
+          target: [campusDriveRequests.payerId, campusDriveRequests.idempotencyKey],
+        })
+        .returning(ROW_COLUMNS);
+      return rows[0];
+    } catch (err) {
+      throw redactQueryParams(err, "campus drive request insert");
+    }
   }
 
   /** The tenant's request made under `idempotencyKey`, if any. */
@@ -273,13 +319,17 @@ export class CampusDriveRequestsRepository {
 
   /** The tenant's request under `SELECT … FOR UPDATE`, on the cancel's transaction. */
   async lockOwn(tx: Database, tenant: TenantKey, id: string): Promise<DriveRequestRow | undefined> {
-    const rows = await tx
-      .select(ROW_COLUMNS)
-      .from(campusDriveRequests)
-      .where(and(eq(campusDriveRequests.id, id), eq(campusDriveRequests.payerId, tenant)))
-      .limit(1)
-      .for("update");
-    return rows[0];
+    try {
+      const rows = await tx
+        .select(ROW_COLUMNS)
+        .from(campusDriveRequests)
+        .where(and(eq(campusDriveRequests.id, id), eq(campusDriveRequests.payerId, tenant)))
+        .limit(1)
+        .for("update");
+      return rows[0];
+    } catch (err) {
+      throw redactQueryParams(err, "campus drive request cancel lock");
+    }
   }
 
   /**
@@ -287,54 +337,54 @@ export class CampusDriveRequestsRepository {
    * else moves: the last decision's columns stay as history.
    */
   async markCancelled(tx: Database, id: string): Promise<DriveRequestRow | undefined> {
-    const rows = await tx
-      .update(campusDriveRequests)
-      .set({ status: "cancelled", cancelledAt: WRITE_STAMP, updatedAt: WRITE_STAMP })
-      .where(
-        and(
-          eq(campusDriveRequests.id, id),
-          inArray(campusDriveRequests.status, ["requested", "scheduled"]),
-        ),
-      )
-      .returning(ROW_COLUMNS);
-    return rows[0];
+    try {
+      const rows = await tx
+        .update(campusDriveRequests)
+        .set({ status: "cancelled", cancelledAt: WRITE_STAMP, updatedAt: WRITE_STAMP })
+        .where(
+          and(
+            eq(campusDriveRequests.id, id),
+            inArray(campusDriveRequests.status, ["requested", "scheduled"]),
+          ),
+        )
+        .returning(ROW_COLUMNS);
+      return rows[0];
+    } catch (err) {
+      throw redactQueryParams(err, "campus drive request cancel");
+    }
   }
 
   /**
-   * Campus's feed, in change order (`updated_at ASC, id ASC`, served by
-   * `campus_drive_requests_changed_idx`), with each company's name as ciphertext. Reads `limit + 1`.
-   * Every request is read; which companies Campus may see is the service's (the rollout switch).
+   * Campus's feed: EVERY request (owner ruling R1: no switch filter, so nothing is skipped), in
+   * change order ({@link FEED_CHANGED} ASC, id ASC), with each company's name as ciphertext and its
+   * standing. Reads `limit + 1`.
    */
   async listFeed(filter: DriveFeedFilter, limit: number): Promise<DriveFeedRow[]> {
     const keyset =
       filter.after === undefined
         ? undefined
-        : sql`(${campusDriveRequests.updatedAt}, ${campusDriveRequests.id}) > (${filter.after.at}::timestamptz, ${filter.after.id}::uuid)`;
+        : sql`(${FEED_CHANGED}, ${campusDriveRequests.id}) > (${filter.after.at}::timestamptz, ${filter.after.id}::uuid)`;
     return this.db
-      .select({ ...ROW_COLUMNS, companyNameEnc: payers.orgNameEnc })
+      .select({
+        ...ROW_COLUMNS,
+        ...COMPANY_STANDING,
+        companyNameEnc: payers.orgNameEnc,
+        feedChangedKey: microsecondText(FEED_CHANGED),
+      })
       .from(campusDriveRequests)
       .innerJoin(payers, eq(payers.id, campusDriveRequests.payerId))
+      .leftJoin(employerProfiles, eq(employerProfiles.payerId, campusDriveRequests.payerId))
       .where(
         and(
           filter.status === undefined ? undefined : eq(campusDriveRequests.status, filter.status),
           filter.changedSince === undefined
             ? undefined
-            : gte(campusDriveRequests.updatedAt, sql`${filter.changedSince}::timestamptz`),
+            : gte(FEED_CHANGED, sql`${filter.changedSince}::timestamptz`),
           keyset,
         ),
       )
-      .orderBy(asc(campusDriveRequests.updatedAt), asc(campusDriveRequests.id))
+      .orderBy(asc(FEED_CHANGED), asc(campusDriveRequests.id))
       .limit(limit + 1);
-  }
-
-  /** The request's owning tenant, unlocked: the decision's pre-check before any transaction. */
-  async findOwner(id: string): Promise<{ payerId: string } | undefined> {
-    const rows = await this.db
-      .select({ payerId: campusDriveRequests.payerId })
-      .from(campusDriveRequests)
-      .where(eq(campusDriveRequests.id, id))
-      .limit(1);
-    return rows[0];
   }
 
   /**
@@ -347,20 +397,28 @@ export class CampusDriveRequestsRepository {
     decidedAt: string,
   ): Promise<LockedForDecision | undefined> {
     const at = sql`${decidedAt}::timestamptz`;
-    const rows = await tx
-      .select({
-        ...ROW_COLUMNS,
-        timing: sql<DecisionTiming>`CASE
-          WHEN ${campusDriveRequests.decidedAt} IS NULL THEN 'none'
-          WHEN ${at} < ${campusDriveRequests.decidedAt} THEN 'older'
-          WHEN ${at} = ${campusDriveRequests.decidedAt} THEN 'same'
-          ELSE 'newer' END`,
-      })
-      .from(campusDriveRequests)
-      .where(eq(campusDriveRequests.id, id))
-      .limit(1)
-      .for("update");
-    return rows[0];
+    try {
+      const rows = await tx
+        .select({
+          ...ROW_COLUMNS,
+          ...COMPANY_STANDING,
+          timing: sql<DecisionTiming>`CASE
+            WHEN ${campusDriveRequests.decidedAt} IS NULL THEN 'none'
+            WHEN ${at} < ${campusDriveRequests.decidedAt} THEN 'older'
+            WHEN ${at} = ${campusDriveRequests.decidedAt} THEN 'same'
+            ELSE 'newer' END`,
+        })
+        .from(campusDriveRequests)
+        .innerJoin(payers, eq(payers.id, campusDriveRequests.payerId))
+        .leftJoin(employerProfiles, eq(employerProfiles.payerId, campusDriveRequests.payerId))
+        .where(eq(campusDriveRequests.id, id))
+        .limit(1)
+        .for("update", { of: campusDriveRequests });
+      const row = rows[0];
+      return row && { ...row, companyHasGst: row.companyHasGst === true };
+    } catch (err) {
+      throw redactQueryParams(err, "campus drive decision lock");
+    }
   }
 
   /** The decision, on the transaction that locked the row. */
@@ -369,22 +427,26 @@ export class CampusDriveRequestsRepository {
     id: string,
     write: DecisionStore,
   ): Promise<DriveRequestRow | undefined> {
-    const rows = await tx
-      .update(campusDriveRequests)
-      .set({
-        status: write.status,
-        scheduledOn: write.scheduledOn,
-        campusDriveRef: write.campusDriveRef,
-        decidedAt: sql`${write.decidedAt}::timestamptz`,
-        decidedByRef: write.decidedByRef,
-        decisionReason: write.decisionReason,
-        updatedAt: WRITE_STAMP,
-      })
-      .where(
-        and(eq(campusDriveRequests.id, id), eq(campusDriveRequests.status, write.previousStatus)),
-      )
-      .returning(ROW_COLUMNS);
-    return rows[0];
+    try {
+      const rows = await tx
+        .update(campusDriveRequests)
+        .set({
+          status: write.status,
+          scheduledOn: write.scheduledOn,
+          campusDriveRef: write.campusDriveRef,
+          decidedAt: sql`${write.decidedAt}::timestamptz`,
+          decidedByRef: write.decidedByRef,
+          decisionReason: write.decisionReason,
+          updatedAt: WRITE_STAMP,
+        })
+        .where(
+          and(eq(campusDriveRequests.id, id), eq(campusDriveRequests.status, write.previousStatus)),
+        )
+        .returning(ROW_COLUMNS);
+      return rows[0];
+    } catch (err) {
+      throw redactQueryParams(err, "campus drive decision write");
+    }
   }
 
   /**

@@ -165,6 +165,7 @@ export const UNLINK_RESPONSE_EXAMPLE: z.input<typeof CampusUnlinkResponseSchema>
 export const DRIVE_REQUEST_EXAMPLE: z.input<typeof CampusDriveRequestSchema> = {
   id: "5a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
   company: { id: COMPANY_ID, name: "Sharma Precision Works" },
+  company_withdrawn: false,
   job_posting_id: POSTING_EXAMPLE.id,
   branch_ids: [1],
   preferred_from: "2026-12-01",

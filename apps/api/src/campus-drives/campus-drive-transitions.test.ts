@@ -34,6 +34,8 @@ function input(
     reason: null,
     scheduledOn: decision === "scheduled" ? "2026-12-05" : null,
     campusDriveRef: decision === "scheduled" ? "campus-drive:000417" : null,
+    // After every drive day used below, unless a test says otherwise.
+    decidedOn: "2026-12-31",
     ...over,
   };
 }
@@ -130,6 +132,36 @@ describe("what a write stores", () => {
         campusDriveRef: "campus-drive:000417",
       },
     });
+  });
+});
+
+describe("a drive cannot be completed before its day (security review L1)", () => {
+  const scheduled = held({
+    status: "scheduled",
+    timing: "newer",
+    scheduledOn: "2026-12-05",
+    campusDriveRef: "campus-drive:000417",
+  });
+
+  it("a completion dated before scheduled_on is not allowed, and says why", () => {
+    expect(judgeDriveDecision(scheduled, input("completed", { decidedOn: "2026-12-04" }))).toEqual({
+      kind: "not_allowed",
+      why: "before_scheduled_on",
+    });
+  });
+
+  it("on the day itself, or after, it is written", () => {
+    for (const day of ["2026-12-05", "2026-12-06"]) {
+      expect(judgeDriveDecision(scheduled, input("completed", { decidedOn: day })).kind, day).toBe(
+        "write",
+      );
+    }
+  });
+
+  it("a decline is not dated against the drive's day", () => {
+    expect(judgeDriveDecision(scheduled, input("declined", { decidedOn: "2026-11-20" })).kind).toBe(
+      "write",
+    );
   });
 });
 

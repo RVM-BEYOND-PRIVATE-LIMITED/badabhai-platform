@@ -11,6 +11,7 @@ import type { DriveRequesterFacts } from "./campus-drive-eligibility";
 import type {
   CampusDriveRequestsRepository,
   DecisionStore,
+  DriveCompanyColumns,
   DriveFeedFilter,
   DriveFeedRow,
   DriveRequestInsert,
@@ -94,6 +95,11 @@ export class MemoryDriveRequests {
   readonly postings = new Map<string, string>();
   /** tenant → company name ciphertext (Campus's feed). */
   readonly companyNames = new Map<string, string>();
+  /**
+   * tenant → the company's standing as Campus's routes read it (joined in the real statements).
+   * A company not listed is an active, verified employer with a GSTIN.
+   */
+  readonly standing = new Map<string, DriveCompanyColumns>();
   readonly audits: { driveRequestId: string; decidedByRef: string; metadata: unknown }[] = [];
   transactions = 0;
   private clock = Date.parse("2026-11-14T06:00:00.000Z");
@@ -101,6 +107,31 @@ export class MemoryDriveRequests {
   private tick(): Date {
     this.clock += 1;
     return new Date(this.clock);
+  }
+
+  private standingOf(payerId: string): DriveCompanyColumns {
+    return (
+      this.standing.get(payerId) ?? {
+        companyStatus: "active",
+        companyRole: "employer",
+        companyVerification: "verified",
+        companyHasGst: true,
+      }
+    );
+  }
+
+  /** Test helper: what the account deletion's erasure does to one row (contact gone, re-stamped). */
+  eraseContact(id: string): void {
+    const row = this.rows.find((r) => r.id === id);
+    if (row === undefined) throw new Error("no such row");
+    const at = this.tick();
+    Object.assign(row, {
+      contactNameEnc: null,
+      contactPhoneEnc: null,
+      contactErasedAt: at,
+      updatedAt: at,
+      changedKey: micros(at),
+    });
   }
 
   asRepository(): CampusDriveRequestsRepository {
@@ -222,12 +253,7 @@ export class MemoryDriveRequests {
           (r.changedKey === filter.after.at && r.id > filter.after.id),
       )
       .slice(0, limit + 1)
-      .map((r) => ({ ...r }));
-  }
-
-  async findOwner(id: string) {
-    const row = this.rows.find((r) => r.id === id);
-    return row && { payerId: row.payerId };
+      .map((r) => ({ ...r, ...this.standingOf(r.payerId), feedChangedKey: r.changedKey }));
   }
 
   async lockForDecision(
@@ -241,7 +267,7 @@ export class MemoryDriveRequests {
     const stored = row.decidedAt?.getTime();
     const timing: DecisionTiming =
       stored === undefined ? "none" : body < stored ? "older" : body === stored ? "same" : "newer";
-    return { ...row, timing };
+    return { ...row, ...this.standingOf(row.payerId), timing };
   }
 
   async writeDecision(_tx: unknown, id: string, write: DecisionStore) {

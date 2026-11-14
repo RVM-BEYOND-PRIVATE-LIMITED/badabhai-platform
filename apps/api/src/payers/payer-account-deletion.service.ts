@@ -29,11 +29,12 @@ import { PayerSessionService } from "./payer-session.service";
  *      org (no other linked payer member) is removed with its member rows; an
  *      org with ANY other linked payer member 409s — a test tap must never
  *      destroy a team's shared org;
- *   3. in ONE transaction: erase the campus-drive contacts this login ENTERED (#2746:
- *      `created_by`; under org tenancy `on` a team member's requests belong to the company and
- *      outlive the login), then hard-delete the `payers` row; the requests of the login's own
- *      tenant go with it (`campus_drive_requests.payer_id` ON DELETE CASCADE). A delete that fails
- *      rolls the erasure back with it, so a refused deletion erases nothing; Billing rails (`credit_ledger`,
+ *   3. in ONE transaction: hard-delete the `payers` row (the requests of the login's own tenant
+ *      go with it: `campus_drive_requests.payer_id` ON DELETE CASCADE), then erase the campus-drive
+ *      contacts this login ENTERED on the requests that survive (#2746: `created_by`; under org
+ *      tenancy `on` a team member's requests belong to the company and outlive the login). A
+ *      delete that fails rolls the transaction back before the erasure runs, so a refused deletion
+ *      erases nothing; Billing rails (`credit_ledger`,
  *      `payment_orders`, plans, `unlocks`, disclosures) are opaque payer_id
  *      rails with NO FK to `payers` — they intentionally SURVIVE (B2: the cost
  *      ledger survives account deletion) as PII-free orphans, exactly like the
@@ -104,14 +105,14 @@ export class PayerAccountDeletionService {
     // other orgs SET NULL (schema posture) — the audit trail survives without
     // the identity. Faceless billing rails have no FK and survive by design.
     //
-    // #2746 — with it, in the SAME transaction, the campus-drive contacts this login typed on
-    // requests that outlive it (a team member's, kept by the company). The erasure commits only
-    // if the row delete does: a delete that fails (a foreign key still holding the row) rolls it
-    // back, and the login is left exactly as it was, to retry.
+    // #2746 — then, in the SAME transaction, the campus-drive contacts this login typed on
+    // requests that outlive it (a team member's, kept by the company). The row delete goes FIRST:
+    // a delete that fails (a foreign key still holding the row) aborts the transaction before any
+    // contact is touched, and the erasure's `updated_at` stamp lands just before the commit.
     await this.db.transaction(async (tx: unknown) => {
       const executor = tx as Database;
-      await this.driveContacts.eraseEnteredBy(payerId, executor);
       await executor.delete(payers).where(eq(payers.id, payerId));
+      await this.driveContacts.eraseEnteredBy(payerId, executor);
     });
 
     // 4. Durable PII-free record — the payer row itself is gone.

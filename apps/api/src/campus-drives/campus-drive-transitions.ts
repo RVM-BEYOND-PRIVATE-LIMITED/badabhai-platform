@@ -23,7 +23,10 @@ import type { CampusDriveRequestStatus } from "@badabhai/db";
  *      date and drive id) while the row still holds that decision → a replay: 200 with the row as
  *      it is, nothing written, no event;
  *   3. the same instant with anything different → 409 `DECISION_SUPERSEDED`;
- *   4. newer (or the row holds no decision yet) → the transition rules above.
+ *   4. newer (or the row holds no decision yet) → the transition rules above;
+ *   5. a `completed` dated (its `decided_at`, as a day in India) before the drive's `scheduled_on`
+ *      → 409 `DECISION_NOT_ALLOWED`: a drive cannot have happened before its day (security review
+ *      L1).
  * A row the company cancelled after a decision still holds that decision's time: an older decision
  * is SUPERSEDED, and any other is NOT ALLOWED (cancelled is final), so a late retry of the decision
  * the company cancelled answers a 409 that names the status.
@@ -77,6 +80,8 @@ export interface DriveDecisionInput {
   scheduledOn: string | null;
   /** Set for `scheduled` only. */
   campusDriveRef: string | null;
+  /** The calendar day in India of the decision's `decided_at` (`YYYY-MM-DD`). */
+  decidedOn: string;
 }
 
 /** The decision columns a write stores, besides who and when. */
@@ -90,7 +95,7 @@ export interface DriveDecisionWrite {
 export type DriveDecisionOutcome =
   | { kind: "replay" }
   | { kind: "superseded" }
-  | { kind: "not_allowed" }
+  | { kind: "not_allowed"; why?: "before_scheduled_on" }
   | { kind: "write"; write: DriveDecisionWrite };
 
 /** What a decision does to the row it was locked with. Pure. */
@@ -126,7 +131,11 @@ export function judgeDriveDecision(
         write: { status: "declined", previousStatus, scheduledOn: null, campusDriveRef: null },
       };
     case "completed":
-      // Only from `scheduled`: the drive that happened keeps its date and Campus's id.
+      // Only from `scheduled`, and not before its day: the drive that happened keeps its date and
+      // Campus's id.
+      if (held.scheduledOn !== null && input.decidedOn < held.scheduledOn) {
+        return { kind: "not_allowed", why: "before_scheduled_on" };
+      }
       return {
         kind: "write",
         write: {

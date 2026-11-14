@@ -11,8 +11,9 @@ RVMBeyond_jobportal#155 and #154.
   Same paths, headers, schemas and errors; examples plus in-memory state; no database.
 - **Status:** `GET ping` and `DELETE students/:student_ref` are live behind the flag. The other
   routes are the contract Campus builds against; each lands as the rest of #2752 (and #2746 for
-  postings and review) is built. The drive-request routes (#2746) are built; they also need
-  `CAMPUS_DRIVE_REQUESTS_ROLLOUT` at `pilot` or `on`.
+  postings and review) is built. The drive-request routes (#2746) are built. Companies can make new
+  requests only where `CAMPUS_DRIVE_REQUESTS_ROLLOUT` is `pilot` (for them) or `on`; the two
+  Campus routes answer for every existing request whatever the switch says.
 
 ## Rules for every call
 
@@ -53,9 +54,10 @@ Every error uses the api's envelope: `{ statusCode, error: { code, message? }, r
 | 409    | `STUDENT_NOT_AVAILABLE`    | RVM refuses the student (no consent, not linked, any reason); no row is created | No                 |
 | 409    | `POSTING_CHANGED`          | Changed (or its review reset) since the reviewer saw it; re-fetch, re-review    | No, not same body  |
 | 409    | `DECISION_SUPERSEDED`      | A newer decision or list is held, or a differing one at the same time           | No                 |
+| 409    | `DECISION_NOT_ALLOWED`     | The drive request's `status` (in the body) allows no such decision              | No                 |
+| 409    | `COMPANY_WITHDRAWN`        | The request's company is no longer verified, or is suspended or archived        | Once reinstated    |
 | 429    | `RATE_LIMITED`             | Over the per-minute cap                                                         | Yes, after a pause |
 | 503    | `RVM_UNAVAILABLE`          | RVM's Student API did not answer; nothing was created                           | Yes, same key      |
-| 409    | `DECISION_NOT_ALLOWED`     | The drive request's `status` (in the body) allows no such decision              | No                 |
 
 ## Routes
 
@@ -361,23 +363,31 @@ next application.
 ### GET drive-requests
 
 The placement team's queue (#2746). PULL, NOT PUSH: Campus reads the requests here and posts each
-decision back; BadaBhai never calls Campus about a drive. With `CAMPUS_DRIVE_REQUESTS_ROLLOUT` off
-this is the neutral 404. In `pilot`, only requests of companies on the pilot list are listed.
+decision back; BadaBhai never calls Campus about a drive.
+
+**No rollout switch here** (owner ruling R1, 14 Nov 2026). `CAMPUS_DRIVE_REQUESTS_ROLLOUT` gates a
+company making a NEW request, nothing else. Every request that exists is listed and can be decided,
+whether its company was removed from the pilot or the switch is off everywhere, and its
+cancellation and an erasure of its contact reach the feed. Nothing is skipped, so a page holds
+`limit` items unless it is the last.
 
 Only a verified employer can make a request: admin approval plus a GSTIN on file, and nothing else
 (owner ruling 14 Nov 2026; the phone route can be added later). Agency accounts cannot.
 
 Query: `status` (`requested`|`scheduled`|`declined`|`completed`|`cancelled`), `changed_since`
 (ISO 8601 with offset), `cursor`, `limit` (1–200, default 100). Ordered by `changed_at`, then
-`id`; `changed_since` returns requests changed at or after the instant.
+`id`; `changed_since` returns requests changed at or after the instant. A `changed_since` before
+`2026-01-01T00:00:00Z` (a first sync sending the epoch) is read as that date, never refused.
+
+`changed_at` is when BadaBhai last changed the ITEM: the request itself, or its company's account or
+company record. A company withdrawn or reinstated by an admin therefore comes back in the feed
+although the request did not change.
 
 - **Overlap window: two minutes.** A write is stamped a moment before it commits, so a poll can miss
   a request stamped just before the last one it saw. Poll with `changed_since` = the largest
   `changed_at` you processed **minus two minutes**, and process items by (`id`, `changed_at`):
   the same pair again is the same state.
-- **Short pages.** A page may hold fewer than `limit` items, even none, and still carry a
-  `next_cursor` (requests of companies not in the rollout are skipped after the read). Follow
-  `next_cursor` until it is `null`.
+- **Paging.** Follow `next_cursor` until it is `null`. An item may come back unchanged.
 
 ```json
 {
@@ -385,6 +395,7 @@ Query: `status` (`requested`|`scheduled`|`declined`|`completed`|`cancelled`), `c
     {
       "id": "5a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
       "company": { "id": "7d3f2a10-5b8e-4c1d-9a6f-0e2b4c6d8f10", "name": "Sharma Precision Works" },
+      "company_withdrawn": false,
       "job_posting_id": "b2c4e6f8-1a3b-4c5d-8e7f-90a1b2c3d4e5",
       "branch_ids": [1],
       "preferred_from": "2026-12-01",
@@ -417,6 +428,16 @@ Query: `status` (`requested`|`scheduled`|`declined`|`completed`|`cancelled`), `c
   drive's own record. It becomes `null` when BadaBhai erases it (a DPDP request, or the login that
   entered it was deleted); the request then comes back in the feed with `contact: null`, and
   Campus should drop its own copy.
+- **`company_withdrawn: true`** (owner ruling R2): the company is no longer verified (its admin
+  approval or its GSTIN was removed) or its account is suspended or archived. The item then keeps
+  its status and dates only: `contact` and `roles_note` are `null`, and a decision is 409
+  `COMPANY_WITHDRAWN`. Drop the contact you hold. When the company is reinstated the full item
+  comes back (`company_withdrawn: false`) and decisions work again.
+- **Campus's copy of the contact** (owner, 14 Nov 2026). BadaBhai's erasure reaches the copy Campus
+  holds only through the feed's `contact: null`, which needs the request row to exist. A
+  whole-company delete removes the rows (`ON DELETE CASCADE`) and sends Campus no signal, so that
+  copy would stay. **#2811's fix must not go live until a company delete sends Campus an erasure
+  signal (a tombstone) for each of its drive requests.**
 - `is_test: true` marks a test company's request. Test requests are listed like any other, so a
   pilot can be proved end to end in production: filter or label them on Campus's side.
 - `decided_at`, `decided_by_ref` and `reason` are the latest decision, as Campus sent them.
@@ -437,8 +458,10 @@ Query: `status` (`requested`|`scheduled`|`declined`|`completed`|`cancelled`), `c
 - `decided_by_ref` (required): the staff member, a uuid. Stored as a reference, never resolved.
 - `decided_at` (required): when the staff member decided, by Campus's clock. The review's rule:
   before `2026-01-01T00:00:00Z` or more than 60 seconds ahead of BadaBhai's clock is 400
-  `VALIDATION_FAILED`.
+  `VALIDATION_FAILED`. A `completed` dated (as a day in India) before the drive's
+  `scheduled_on` is 409 `DECISION_NOT_ALLOWED`: a drive cannot have happened before its day.
 - `scheduled_on` and `campus_drive_ref`: required with `scheduled`, refused with the others.
+  `scheduled_on` runs from today in India to a year after it; otherwise 400 `VALIDATION_FAILED`.
   `campus_drive_ref` is Campus's id for its drive record (1–200 characters of
   `A-Z a-z 0-9 . _ : -`), stored as sent.
 - `reason` (optional, ≤ 500 characters): the company sees it as written, so write it for them.
@@ -482,9 +505,10 @@ so the two run one after the other. A decision that arrives after a cancel, incl
 of the decision the company then cancelled, is 409 `DECISION_NOT_ALLOWED` (`status: "cancelled"`).
 Cancelling never touches Campus's drive record: read it in the feed.
 
-Which requests can be decided: 404 (no code) for an id that is not a request, and for every request
-while `CAMPUS_DRIVE_REQUESTS_ROLLOUT` is off, its company is not in the pilot, or tenancy gives the
-company no key. That check is read-only: a Campus call never writes a tenancy row.
+Which requests can be decided: every request that exists, whatever the rollout switch says (404, no
+code, for an id that is not a request). A request whose company is withdrawn is 409
+`COMPANY_WITHDRAWN`, nothing stored, until the company is reinstated. No tenancy is read or
+written.
 
 A decision that changed the request writes, in one transaction, the request, the event
 `campus_drive.decided` v1 (ids, enums and dates: never the reason text) and an `audit_logs` row

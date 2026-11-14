@@ -62,9 +62,16 @@ export const CAMPUS_ERROR_CODES = [
   "DECISION_SUPERSEDED",
   /**
    * #2746: the drive request's status does not allow this decision (declined, completed and
-   * cancelled are final; `completed` needs `scheduled` first). The body carries the `status`.
+   * cancelled are final; `completed` needs `scheduled` first and its day). The body carries the
+   * `status`.
    */
   "DECISION_NOT_ALLOWED",
+  /**
+   * #2746 (owner ruling R2, 14 Nov 2026): the drive request's company is withdrawn from Campus: its
+   * verification or GSTIN was removed, or its account is suspended or archived. Nothing stored;
+   * the request can be decided again once the company is reinstated.
+   */
+  "COMPANY_WITHDRAWN",
 ] as const;
 export type CampusErrorCode = (typeof CAMPUS_ERROR_CODES)[number];
 
@@ -543,11 +550,12 @@ export const CampusDateSchema = z
 export const CampusDriveRefSchema = z.string().regex(/^[A-Za-z0-9._:-]{1,200}$/);
 
 /**
- * The drive-request feed. Ordered by `changed_at`, then id. `changed_since` returns requests
- * changed at or after the instant; poll with the largest `changed_at` you processed MINUS TWO
- * MINUTES and process items by (`id`, `changed_at`), because a write commits a moment after it is
- * stamped. A page may hold fewer than `limit` items (even none) and still carry a `next_cursor`:
- * follow it until it is `null`.
+ * The drive-request feed: EVERY request (no rollout filter, owner ruling R1). Ordered by
+ * `changed_at`, then id. `changed_since` returns requests changed at or after the instant; an
+ * instant before `CAMPUS_EARLIEST_DECISION_TIME` (the epoch, year 0000) is read as that floor, not
+ * refused. Poll with the largest `changed_at` you processed MINUS TWO MINUTES and process items by
+ * (`id`, `changed_at`), because a write commits a moment after it is stamped; an item may come back
+ * unchanged. Follow `next_cursor` until it is `null`.
  */
 export const CampusDriveRequestsQuerySchema = z.strictObject({
   status: z.enum(CAMPUS_DRIVE_REQUEST_STATUSES).optional(),
@@ -560,6 +568,13 @@ export const CampusDriveRequestSchema = z.object({
   id: Id,
   /** `name` is the company's display name, so the placement team knows who is asking. */
   company: z.object({ id: Id, name: z.string() }),
+  /**
+   * Owner ruling R2: the company is withdrawn from Campus (verification or GSTIN removed, account
+   * suspended or archived). The item then carries status and dates only: `contact` and
+   * `roles_note` are `null`, and a decision is 409 `COMPANY_WITHDRAWN`. Back to `false`, with
+   * the full item, once the company is reinstated.
+   */
+  company_withdrawn: z.boolean(),
   /** One of the company's own postings, as context for the roles. Not necessarily for RVM. */
   job_posting_id: Id.nullable(),
   /** RVM location ids the company prefers. Empty means any branch. */
@@ -589,7 +604,10 @@ export const CampusDriveRequestSchema = z.object({
   is_test: z.boolean(),
   requested_at: IsoDateTime,
   cancelled_at: IsoDateTime.nullable(),
-  /** When BadaBhai last changed the request, microsecond UTC. The feed's order and filter. */
+  /**
+   * When BadaBhai last changed the item, microsecond UTC: the request, or its company's account or
+   * company record (a withdrawal or a reinstatement moves it). The feed's order, filter and cursor.
+   */
   changed_at: IsoDateTime,
 });
 
@@ -624,6 +642,7 @@ export const CampusDriveDecisionBodySchema = z.discriminatedUnion("decision", [
   z.strictObject({
     decision: z.literal("scheduled"),
     ...driveDecisionShared,
+    /** From today in India to a year after it (400 `VALIDATION_FAILED` otherwise). */
     scheduled_on: CampusDateSchema,
     campus_drive_ref: CampusDriveRefSchema,
   }),

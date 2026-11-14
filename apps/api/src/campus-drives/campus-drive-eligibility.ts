@@ -1,4 +1,4 @@
-import type { PayerProfileVerificationStatus, PayerRole } from "@badabhai/db";
+import type { PayerProfileVerificationStatus, PayerRole, PayerStatus } from "@badabhai/db";
 
 /**
  * #2746 PR 6 — WHO MAY ASK FOR A CAMPUS DRIVE: only a VERIFIED employer. OWNER RULING 14 NOV 2026:
@@ -53,4 +53,26 @@ export function driveRequesterStanding(facts: DriveRequesterFacts): DriveRequest
   if (facts.verificationStatus !== "verified") missing.push("admin_approval");
   if (!facts.hasGstNumber) missing.push("gst_number");
   return missing.length === 0 ? { eligible: true } : { eligible: false, missing };
+}
+
+/** The company's standing as Campus's routes read it: the create check's facts plus the status. */
+export interface DriveCompanyStanding extends DriveRequesterFacts {
+  /** `payers.status` of the request's company; `null` when there is no such row. */
+  status: PayerStatus | null;
+}
+
+/**
+ * OWNER RULING R2, 14 NOV 2026 — is this company WITHDRAWN from Campus? Withdrawn = it would not
+ * pass the create check today (not an employer, no admin approval, no GSTIN: the SAME reads as
+ * {@link driveRequesterStanding}), or its account is not `active` (suspended or archived by an
+ * admin). Campus's feed then shows its requests with status and dates only (no contact, no roles
+ * note), and a decision on them is 409 `COMPANY_WITHDRAWN`. Read live on every call, so the full
+ * item comes back as soon as the company is verified or reinstated again.
+ */
+export function driveCompanyWithdrawn(standing: DriveCompanyStanding): boolean {
+  return (
+    standing.role !== "employer" ||
+    standing.status !== "active" ||
+    !driveRequesterStanding(standing).eligible
+  );
 }

@@ -11,22 +11,24 @@ import type { z } from "zod";
 import { PiiCryptoService } from "../common/pii-crypto.service";
 import { isCanonicalUuid } from "../common/uuid";
 import { EventsService } from "../events/events.service";
-import { FeatureRolloutService } from "../feature-rollout/feature-rollout.service";
-import { PayerTenantScopeService } from "../payers/payer-tenant-scope.service";
 import type { CampusCall } from "../campus-link/campus-call";
 import { assertCampusTime } from "../campus-link/campus-clock";
 import { cleanReviewReason } from "../campus-link/campus-review-reason";
-import type {
-  CampusDriveDecisionBodySchema,
-  CampusDriveDecisionResponseSchema,
-  CampusDriveRequestPageSchema,
-  CampusDriveRequestSchema,
-  CampusDriveRequestsQuerySchema,
-  CampusErrorCode,
+import {
+  CAMPUS_EARLIEST_DECISION_TIME,
+  type CampusDriveDecisionBodySchema,
+  type CampusDriveDecisionResponseSchema,
+  type CampusDriveRequestPageSchema,
+  type CampusDriveRequestSchema,
+  type CampusDriveRequestsQuerySchema,
+  type CampusErrorCode,
 } from "../campus-link/campus-link.contract";
 import { decodeDriveCursor, encodeDriveCursor } from "./campus-drive-cursor";
+import { indiaDay, latestDriveDay } from "./campus-drive-dates";
+import { driveCompanyWithdrawn } from "./campus-drive-eligibility";
 import {
   CampusDriveRequestsRepository,
+  type DriveCompanyColumns,
   type DriveFeedRow,
   type DriveRequestRow,
 } from "./campus-drive-requests.repository";
@@ -41,6 +43,8 @@ export type CampusDriveRequestPage = z.input<typeof CampusDriveRequestPageSchema
 /** The answer to `POST drive-requests/:id/decision`. */
 export type CampusDriveDecisionResult = z.input<typeof CampusDriveDecisionResponseSchema>;
 type CampusDriveRequestItem = z.input<typeof CampusDriveRequestSchema>;
+
+const EARLIEST_MS = Date.parse(CAMPUS_EARLIEST_DECISION_TIME);
 
 /** The house neutral 404: nothing in it says whether the request exists. */
 function neutralNotFound(): NotFoundException {
@@ -61,6 +65,28 @@ function campusInvalid(path: string, message: string): BadRequestException {
   });
 }
 
+/** The standing columns as the shared withdrawn rule reads them. */
+function withdrawn(row: DriveCompanyColumns): boolean {
+  return driveCompanyWithdrawn({
+    role: row.companyRole,
+    status: row.companyStatus,
+    verificationStatus: row.companyVerification,
+    hasGstNumber: row.companyHasGst,
+  });
+}
+
+/**
+ * `changed_since` as the feed's SQL reads it: an instant before the earliest Campus time
+ * (`CAMPUS_EARLIEST_DECISION_TIME`) is CLAMPED up to it, never refused, because a first sync may
+ * send the epoch and nothing is older. A year-0000 time parses in JavaScript but fails Postgres's
+ * `timestamptz` cast (22008), so it must never reach SQL as sent.
+ */
+function feedSince(changedSince: string | undefined): string | undefined {
+  if (changedSince === undefined) return undefined;
+  const at = Date.parse(changedSince);
+  return Number.isFinite(at) && at >= EARLIEST_MS ? changedSince : CAMPUS_EARLIEST_DECISION_TIME;
+}
+
 /**
  * #2746 PR 6 — RVM'S PLACEMENT TEAM WORKS THE CAMPUS-DRIVE REQUESTS, from BadaBhai Campus. PULL,
  * NOT PUSH: Campus reads `GET drive-requests` and posts each decision back
@@ -68,22 +94,31 @@ function campusInvalid(path: string, message: string): BadRequestException {
  * nothing. Mounted only behind `CampusServiceGuard` (its own token, address allow-list, per-minute
  * cap, audit row per call, and the neutral 404 while `CAMPUS_LINK_ENABLED` is off).
  *
- * THE SWITCH (capabilities only, R81). `campus_drive_requests` off everywhere → both routes are the
- * neutral 404 before any read (`isLiveForServiceCaller`). In `pilot` that check is true for every
- * company, so each request's OWNER is then checked with `isEnabledFor` and the owner's tenant key
- * (`PayerTenantScopeService.resolveReadOnly`: the same decision a request by that company makes,
- * but never a heal or any other write, so a Campus call writes no tenancy row): the feed leaves
- * out, and a decision 404s for, every company not live — a company off the pilot list, or one
- * tenancy gives no key (no membership, a denial).
+ * NO ROLLOUT SWITCH HERE (owner ruling R1, 14 Nov 2026). `campus_drive_requests` gates a company
+ * making a NEW request, and nothing else: once a request exists, Campus lists it and decides it
+ * whatever the switch says (pilot removal, global off), and its cancellation and an erasure reach
+ * the feed. That is R81: a switch gates capabilities, never stored state. So the feed skips
+ * nothing, and the cursor never moves past a row Campus has not been shown. No tenancy read
+ * either: a stored request names its company (`payer_id`), and nothing here writes tenancy.
+ *
+ * WITHDRAWN FROM CAMPUS (owner ruling R2). A company that would not pass the create check today
+ * (verification withdrawn, GSTIN removed), or whose account an admin suspended or archived, is
+ * WITHDRAWN (`driveCompanyWithdrawn`, read in the same statement as the request). Its requests stay
+ * in the feed with status and dates only, flagged `company_withdrawn`: no contact and no roles
+ * note. A decision on one is 409 `COMPANY_WITHDRAWN`, nothing stored. The full item comes back as
+ * soon as the company is verified or reinstated: the standing is read live, and the feed's
+ * `changed_at` follows the company record, so Campus pulls the request again either way.
  *
  * THE FEED discloses each listed request's CONTACT (name and phone, decrypted) and the company's
  * display name to RVM's placement team, which calls the company to arrange the drive: the purpose
  * the contact was collected for. Test companies' requests are listed with `is_test: true`.
  *
  * A DECISION: `decided_at` checked by the shared Campus clock rule (`assertCampusTime`: not before
- * `CAMPUS_EARLIEST_DECISION_TIME`, not more than `CAMPUS_MAX_CLOCK_SKEW_MS` ahead; 400 before any
- * read), the request row `FOR UPDATE`, then `judgeDriveDecision` (ordering by `decided_at`, then
- * the transitions; `campus-drive-transitions.ts`). A write stores Campus's `decided_at`, emits
+ * `CAMPUS_EARLIEST_DECISION_TIME`, not more than `CAMPUS_MAX_CLOCK_SKEW_MS` ahead), and a
+ * `scheduled_on` from today in India to a year ahead (400, before any read); the request row
+ * `FOR UPDATE`; then withdrawn → 409 `COMPANY_WITHDRAWN`; then `judgeDriveDecision` (ordering by
+ * `decided_at`, then the transitions, then a completion no earlier than the drive's date;
+ * `campus-drive-transitions.ts`). A write stores Campus's `decided_at`, emits
  * `campus_drive.decided` v1 and writes the staff member's `audit_logs` row (actor = the
  * `decided_by_ref`, `CAMPUS_STAFF_ACTOR_TYPE`) in the same transaction. A replay writes nothing and
  * answers the held decision, only while it is still the request's current state (a request the
@@ -108,15 +143,12 @@ export class CampusDriveDecisionsService {
 
   constructor(
     private readonly repo: CampusDriveRequestsRepository,
-    private readonly rollout: FeatureRolloutService,
-    private readonly tenancy: PayerTenantScopeService,
     private readonly pii: PiiCryptoService,
     private readonly events: EventsService,
   ) {}
 
-  /** `GET drive-requests`: every request of a company live on the switch, in change order. */
+  /** `GET drive-requests`: every request, in change order. */
   async list(query: CampusDriveRequestsQuery): Promise<CampusDriveRequestPage> {
-    if (!this.rollout.isLiveForServiceCaller("campus_drive_requests")) throw neutralNotFound();
     let after: { at: string; id: string } | undefined;
     if (query.cursor !== undefined) {
       const decoded = decodeDriveCursor("campus", query.cursor);
@@ -125,19 +157,16 @@ export class CampusDriveDecisionsService {
     }
 
     const rows = await this.repo.listFeed(
-      { status: query.status, changedSince: query.changed_since, after },
+      { status: query.status, changedSince: feedSince(query.changed_since), after },
       query.limit,
     );
     const page = rows.slice(0, query.limit);
-    const live = await this.liveOwners(page.map((row) => row.payerId));
     const last = page[page.length - 1];
     return {
-      drive_requests: page.filter((row) => live.has(row.payerId)).map((row) => this.item(row)),
-      // The cursor is the last row READ, listed or not, so a page of requests the switch leaves
-      // out still moves Campus forward.
+      drive_requests: page.map((row) => this.item(row)),
       next_cursor:
         rows.length > query.limit && last !== undefined
-          ? encodeDriveCursor("campus", { at: last.changedKey, id: last.id })
+          ? encodeDriveCursor("campus", { at: last.feedChangedKey, id: last.id })
           : null,
     };
   }
@@ -150,29 +179,30 @@ export class CampusDriveDecisionsService {
   ): Promise<CampusDriveDecisionResult> {
     // The body first: a time before the floor or from BadaBhai's future is 400, before any read.
     assertCampusTime("decided_at", body.decided_at);
+    if (body.decision === "scheduled") assertDriveDay(body.scheduled_on);
     // A malformed id cannot name a request: the same 404 as an unknown one, before any read.
     if (!isCanonicalUuid(requestId)) throw neutralNotFound();
-    if (!this.rollout.isLiveForServiceCaller("campus_drive_requests")) throw neutralNotFound();
 
     const id = requestId.toLowerCase();
-    const owner = await this.repo.findOwner(id);
-    if (owner === undefined) throw neutralNotFound();
-    // Before the transaction: the tenancy and pilot reads use their own connections, and a
-    // transaction holding a pool connection while waiting for another can starve the pool.
-    if (!(await this.liveForOwner(owner.payerId))) throw neutralNotFound();
-
     const input: DriveDecisionInput = {
       decision: body.decision,
       decidedByRef: body.decided_by_ref.toLowerCase(),
       reason: cleanReviewReason(body.reason) ?? null,
       scheduledOn: body.decision === "scheduled" ? body.scheduled_on : null,
       campusDriveRef: body.decision === "scheduled" ? body.campus_drive_ref : null,
+      decidedOn: indiaDay(new Date(body.decided_at)),
     };
 
     return this.repo.withTransaction(async (tx) => {
       const held = await this.repo.lockForDecision(tx, id, body.decided_at);
-      // Gone since the pre-check (its company was deleted): the same 404.
-      if (held === undefined || held.payerId !== owner.payerId) throw neutralNotFound();
+      if (held === undefined) throw neutralNotFound();
+      if (withdrawn(held)) {
+        this.logOutcome(id, input.decision, "company_withdrawn");
+        throw campusConflict("COMPANY_WITHDRAWN", {
+          message:
+            "The company is not verified or its account is suspended or archived; this request cannot be decided until it is reinstated",
+        });
+      }
 
       const outcome = judgeDriveDecision(held, input);
       switch (outcome.kind) {
@@ -184,7 +214,12 @@ export class CampusDriveDecisionsService {
           throw campusConflict("DECISION_SUPERSEDED");
         case "not_allowed":
           this.logOutcome(id, input.decision, `not_allowed_from_${held.status}`);
-          throw campusConflict("DECISION_NOT_ALLOWED", { status: held.status });
+          throw campusConflict(
+            "DECISION_NOT_ALLOWED",
+            outcome.why === "before_scheduled_on"
+              ? { status: held.status, message: "completed before the drive's scheduled_on" }
+              : { status: held.status },
+          );
         case "write": {
           const written = await this.repo.writeDecision(tx, id, {
             ...outcome.write,
@@ -205,27 +240,6 @@ export class CampusDriveDecisionsService {
   }
 
   // ─── helpers ───────────────────────────────────────────────────────────────
-
-  /**
-   * Is `campus_drive_requests` live for this request's OWNER? The tenant key comes from
-   * `PayerTenantScopeService.resolveReadOnly`: the same decision a request by that company makes,
-   * but it never heals or creates a solo org, so a Campus call writes no tenancy row. No key (no
-   * membership, a denial) fails closed as "not live": the neutral 404, or left out of the feed.
-   */
-  private async liveForOwner(owner: string): Promise<boolean> {
-    const scope = await this.tenancy.resolveReadOnly(owner);
-    if (scope === null) return false;
-    return this.rollout.isEnabledFor("campus_drive_requests", scope.tenantKey);
-  }
-
-  /** The owners in a page that are live, each company read once however many requests it has. */
-  private async liveOwners(owners: readonly string[]): Promise<Set<string>> {
-    const live = new Set<string>();
-    for (const owner of new Set(owners)) {
-      if (await this.liveForOwner(owner)) live.add(owner);
-    }
-    return live;
-  }
 
   /** The event and the staff member's audit row, on the decision's transaction. */
   private async record(
@@ -287,10 +301,14 @@ export class CampusDriveDecisionsService {
     };
   }
 
-  /** One feed item: the contact and the company name decrypted for the placement team. */
+  /**
+   * One feed item: the contact and the company name decrypted for the placement team. A withdrawn
+   * company's request keeps its status and dates only: no contact, no roles note (owner ruling R2).
+   */
   private item(row: DriveFeedRow): CampusDriveRequestItem {
+    const companyWithdrawn = withdrawn(row);
     const contact =
-      row.contactNameEnc === null || row.contactPhoneEnc === null
+      companyWithdrawn || row.contactNameEnc === null || row.contactPhoneEnc === null
         ? null
         : {
             name: this.pii.decrypt(row.contactNameEnc),
@@ -299,12 +317,13 @@ export class CampusDriveDecisionsService {
     return {
       id: row.id,
       company: { id: row.payerId, name: this.pii.decrypt(row.companyNameEnc).trim() },
+      company_withdrawn: companyWithdrawn,
       job_posting_id: row.jobPostingId,
       branch_ids: [...row.branchIds],
       preferred_from: row.preferredFrom,
       preferred_to: row.preferredTo,
       openings: row.openings,
-      roles_note: row.rolesNote,
+      roles_note: companyWithdrawn ? null : row.rolesNote,
       contact,
       status: row.status,
       scheduled_on: row.scheduledOn,
@@ -315,12 +334,25 @@ export class CampusDriveDecisionsService {
       is_test: row.isTest,
       requested_at: row.createdKey,
       cancelled_at: row.cancelledKey,
-      changed_at: row.changedKey,
+      changed_at: row.feedChangedKey,
     };
   }
 
   /** Ids and enums only. */
   private logOutcome(id: string, decision: string, outcome: string): void {
     this.logger.log(`campus drive decision: request=${id} decision=${decision} outcome=${outcome}`);
+  }
+}
+
+/**
+ * SECURITY REVIEW L1 — a drive is scheduled for a day from today in India to a year ahead. A date
+ * in the past cannot be a drive the company can still attend, and one years out is a typo; 400
+ * `VALIDATION_FAILED` naming `scheduled_on`, before any read.
+ */
+function assertDriveDay(scheduledOn: string, now: Date = new Date()): void {
+  const today = indiaDay(now);
+  if (scheduledOn < today) throw campusInvalid("scheduled_on", "before today in India");
+  if (scheduledOn > latestDriveDay(now)) {
+    throw campusInvalid("scheduled_on", "more than a year after today in India");
   }
 }

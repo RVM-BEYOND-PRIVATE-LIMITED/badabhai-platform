@@ -33,7 +33,8 @@ import {
   type DriveRequestRow,
 } from "./campus-drive-requests.repository";
 import { cleanReviewReason } from "../campus-link/campus-review-reason";
-import { cleanDriveLine } from "./campus-drive-text";
+import { indiaDay, latestDriveDay } from "./campus-drive-dates";
+import { cleanDriveLine, screeningCopyOf } from "./campus-drive-text";
 import { DRIVE_CANCELLABLE_STATUSES } from "./campus-drive-transitions";
 
 /** Machine-readable `reason`s on this service's 4xx; the company app branches on these. */
@@ -42,6 +43,8 @@ export const DRIVE_REQUEST_REFUSAL_REASONS = {
   notVerified: DRIVE_REQUESTER_NOT_VERIFIED,
   /** 400: `preferred_from` is before today in India. */
   datesInPast: "preferred_dates_in_past",
+  /** 400: `preferred_to` is more than a year after today in India. */
+  datesTooFar: "preferred_dates_too_far",
   /** 400: `roles_note` holds a phone, an email or another hard identifier (`identifier` says which). */
   rolesNoteIdentifier: "roles_note_has_identifier",
   /** 400: `contact_name` held nothing visible. */
@@ -98,18 +101,6 @@ function refused(
   return new ConflictException(body);
 }
 
-/** Today's calendar day in India (`Asia/Kolkata`), as `YYYY-MM-DD`: the company's "today". */
-export function indiaToday(at: Date = new Date()): string {
-  const parts = new Intl.DateTimeFormat("en-GB", {
-    timeZone: "Asia/Kolkata",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(at);
-  const part = (type: "year" | "month" | "day") => parts.find((p) => p.type === type)?.value ?? "";
-  return `${part("year")}-${part("month")}-${part("day")}`;
-}
-
 /** Sorted and de-duplicated: the stored order is canonical, so a repeat compares equal. */
 function canonical(ids: readonly number[]): number[] {
   return [...new Set(ids)].sort((a, b) => a - b);
@@ -143,15 +134,18 @@ function shape(dto: PayerCreateCampusDriveRequestDto): NormalisedRequest {
  * WHO. Employer accounts only: the routes carry `@PayerRoles("employer")` (the house 403 for an
  * agency), and this service re-checks the tenant's role. Every read and write is TENANT-SCOPED in
  * the query (ADR-0053; `PayerTenantScopeService.resolve`, once per request): a foreign or unknown id
- * is the house neutral 404. Every route is that same 404 while `campus_drive_requests` is not live
- * for the company (the rollout switch gates the capability, R81). Creating needs a VERIFIED
- * employer (`campus-drive-eligibility.ts`): otherwise 403 `company_not_verified` with `missing`.
+ * is the house neutral 404. THE SWITCH GATES NEW REQUESTS ONLY (owner ruling R1, 14 Nov 2026):
+ * while `campus_drive_requests` is not live for the company (pilot removal, global off), CREATE is
+ * that same 404, and the company's list, read and cancel of requests it already made keep working
+ * (R81: a switch gates capabilities, never stored state). Creating needs a VERIFIED employer
+ * (`campus-drive-eligibility.ts`): otherwise 403 `company_not_verified` with `missing`.
  *
  * CREATE, IN ORDER: the body (zod, strict), the key (required), tenancy, the switch, the contact
  * name, then the Redis reservation. Under it, a key this company has already used answers FIRST
  * (the stored request, or 409 for a different body), so a retry the next day still gets its
  * request. Only a new request then meets the rest: the employer check, the dates (from ≥ today in
- * India), the roles note (hidden characters removed, refused with a hard identifier in it), the
+ * India, to ≤ a year after it), the roles note (hidden characters removed; a NORMALISED copy
+ * screened for a hard identifier, the cleaned original stored), the
  * posting (the company's own, checked in the query), the branches (active options). Then ONE
  * transaction: the row (contact as AES ciphertext, `is_test` from `payers.is_test_account`) and
  * `campus_drive.requested` v1. A refused attempt writes no row, so the key stays free for a
@@ -222,7 +216,7 @@ export class CampusDriveRequestsService {
     actorPayerId: string,
     query: PayerListCampusDriveRequestsQueryDto,
   ): Promise<PayerCampusDriveRequestPage> {
-    const scope = await this.liveScope(actorPayerId);
+    const scope = await this.tenancy.resolve(actorPayerId);
     const rows = await this.repo.listOwn(scope.tenantKey, query.cursor, query.limit);
     const page = rows.slice(0, query.limit);
     const last = page[page.length - 1];
@@ -237,7 +231,7 @@ export class CampusDriveRequestsService {
 
   /** `GET /payer/campus-drive-requests/:id`: one of the company's own; anything else is 404. */
   async getOne(actorPayerId: string, id: string): Promise<PayerCampusDriveRequestView> {
-    const scope = await this.liveScope(actorPayerId);
+    const scope = await this.tenancy.resolve(actorPayerId);
     const row = await this.repo.findOwn(scope.tenantKey, id.toLowerCase());
     if (row === undefined) throw new NotFoundException();
     return this.view(row);
@@ -249,7 +243,8 @@ export class CampusDriveRequestsService {
     id: string,
     ctx: RequestContext,
   ): Promise<PayerCampusDriveRequestView> {
-    const scope = await this.liveScope(actorPayerId);
+    // No switch read: a company cancels a request it already made, live or not (owner ruling R1).
+    const scope = await this.tenancy.resolve(actorPayerId);
     const requestId = id.toLowerCase();
     const row = await this.repo.withTransaction(async (tx) => {
       const held = await this.repo.lockOwn(tx, scope.tenantKey, requestId);
@@ -290,7 +285,10 @@ export class CampusDriveRequestsService {
 
   // ─── helpers ───────────────────────────────────────────────────────────────
 
-  /** The caller's tenant scope, or the house 404 while the switch is not live for the company. */
+  /**
+   * The caller's tenant scope, or the house 404 while the switch is not live for the company. For
+   * CREATE only (owner ruling R1): the switch gates a new request, never the ones already made.
+   */
   private async liveScope(actorPayerId: string): Promise<PayerTenantScope> {
     const scope = await this.tenancy.resolve(actorPayerId);
     if (!(await this.rollout.isEnabledFor("campus_drive_requests", scope.tenantKey))) {
@@ -323,7 +321,7 @@ export class CampusDriveRequestsService {
       );
     }
 
-    if (request.preferredFrom < indiaToday()) {
+    if (request.preferredFrom < indiaDay()) {
       throw refused(
         400,
         DRIVE_REQUEST_REFUSAL_REASONS.datesInPast,
@@ -331,8 +329,17 @@ export class CampusDriveRequestsService {
       );
     }
 
+    if (request.preferredTo > latestDriveDay()) {
+      throw refused(
+        400,
+        DRIVE_REQUEST_REFUSAL_REASONS.datesTooFar,
+        "preferred_to cannot be more than a year after today",
+      );
+    }
+
     if (request.rolesNote !== null) {
-      const identifier = containsHardIdentifier(request.rolesNote);
+      // The NORMALISED copy is screened (security review M1); the cleaned original is stored.
+      const identifier = containsHardIdentifier(screeningCopyOf(request.rolesNote));
       if (identifier !== null) {
         // The class only (`phone`, `email`, …), never the text that matched.
         throw refused(

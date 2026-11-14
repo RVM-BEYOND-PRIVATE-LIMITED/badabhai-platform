@@ -7,13 +7,10 @@ import {
   Logger,
   NotFoundException,
 } from "@nestjs/common";
-import { loadServerConfig } from "@badabhai/config";
 import { validateEvent } from "@badabhai/event-schema";
 import type { RequestContext } from "../common/request-context";
 import type { EventsService } from "../events/events.service";
-import { defaultModeResolver, resolverOver } from "../payers/payer-tenant-scope.test-support";
-import type { PayerOrgsRepository } from "../payers/payer-orgs.repository";
-import { PayerTenantScopeService } from "../payers/payer-tenant-scope.service";
+import type { TenantKey } from "../payers/payer-tenant-scope";
 import {
   CAMPUS_EARLIEST_DECISION_TIME,
   CAMPUS_MAX_CLOCK_SKEW_MS,
@@ -22,38 +19,34 @@ import {
   CampusDriveRequestsQuerySchema,
 } from "../campus-link/campus-link.contract";
 import { CampusDriveDecisionsService } from "./campus-drive-decisions.service";
+import type { DriveCompanyColumns, DriveRequestInsert } from "./campus-drive-requests.repository";
 import {
   MemoryDriveRequests,
   capturingEvents,
-  rolloutWith,
   testPii,
   uuid,
 } from "./campus-drive-requests.test-support";
-import type { DriveRequestInsert } from "./campus-drive-requests.repository";
-import type { TenantKey } from "../payers/payer-tenant-scope";
 
 const CTX: RequestContext = { correlationId: uuid(0x27460d01), requestId: "drive-decision-unit" };
 const CALL = { ctx: CTX, callId: uuid(0x27460d02) };
 const COMPANY = uuid(0x27460d03);
-const PILOT_COMPANY = uuid(0x27460d04);
+const OTHER_COMPANY = uuid(0x27460d04);
 const STAFF = "9A8B7C6D-5E4F-4A3B-8C2D-1E0F9A8B7C6D";
-const ON = { CAMPUS_DRIVE_REQUESTS_ROLLOUT: "on" };
 
 const CONTACT_NAME = "Ravi Sharma";
 const CONTACT_PHONE = "+919812345678";
 const NOTE = "CNC operators and setters";
 const REASON = "No campus slot this month, sorry";
 
-function world(options: { settings?: Record<string, string>; pilot?: string[] } = {}) {
+/** The service has no rollout switch and no tenancy: only the table, crypto and events. */
+function world() {
   const table = new MemoryDriveRequests();
   const pii = testPii();
   table.companyNames.set(COMPANY, pii.encrypt(" Sharma Precision Works "));
-  table.companyNames.set(PILOT_COMPANY, pii.encrypt("Pilot Fabricators"));
+  table.companyNames.set(OTHER_COMPANY, pii.encrypt("Other Fabricators"));
   const events = capturingEvents();
   const service = new CampusDriveDecisionsService(
     table.asRepository(),
-    rolloutWith(options.settings ?? ON, options.pilot ?? []),
-    defaultModeResolver(),
     pii,
     events.service as unknown as EventsService,
   );
@@ -97,6 +90,8 @@ const decisionAt = (decision: "declined" | "completed", decidedAt: string, over 
     ...over,
   });
 
+const feed = (query: Record<string, string> = {}) => CampusDriveRequestsQuerySchema.parse(query);
+
 async function refusal(run: () => Promise<unknown>): Promise<HttpException> {
   try {
     await run();
@@ -108,6 +103,7 @@ async function refusal(run: () => Promise<unknown>): Promise<HttpException> {
 }
 
 beforeEach(() => {
+  // 06:00 UTC = 11:30 IST on 20 Nov 2026.
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(new Date("2026-11-20T06:00:00.000Z"));
 });
@@ -116,58 +112,42 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-describe("the switch (capabilities only)", () => {
-  it("off everywhere: the feed and a decision are the neutral 404, before any read", async () => {
-    const { service, seed, table } = world({ settings: { CAMPUS_DRIVE_REQUESTS_ROLLOUT: "off" } });
-    const id = await seed(COMPANY);
-    const listFeed = vi.spyOn(table, "listFeed");
-    const findOwner = vi.spyOn(table, "findOwner");
-    await expect(service.list(CampusDriveRequestsQuerySchema.parse({}))).rejects.toBeInstanceOf(
-      NotFoundException,
-    );
+describe("no rollout switch on Campus's routes (owner ruling R1: the switch gates NEW requests only)", () => {
+  it("the service takes no switch and no tenancy: whatever the switch says, existing requests are listed and decided", async () => {
+    // Its constructor is (repository, crypto, events): there is nothing to turn off here.
+    expect(CampusDriveDecisionsService.length).toBe(3);
+    const { service, seed } = world();
+    const a = await seed(COMPANY);
+    const b = await seed(OTHER_COMPANY);
+    const page = await service.list(feed());
+    expect(page.drive_requests.map((r) => r.id)).toEqual([a, b]);
     await expect(
-      service.decide(id, scheduleAt("2026-11-20T05:00:00Z"), CALL),
-    ).rejects.toBeInstanceOf(NotFoundException);
-    expect(listFeed).not.toHaveBeenCalled();
-    expect(findOwner).not.toHaveBeenCalled();
-  });
-
-  it("pilot: the feed lists only pilot companies' requests, and a decision on another is 404", async () => {
-    const { service, seed, table, events } = world({
-      settings: { CAMPUS_DRIVE_REQUESTS_ROLLOUT: "pilot" },
-      pilot: [PILOT_COMPANY],
-    });
-    const hidden = await seed(COMPANY);
-    const listed = await seed(PILOT_COMPANY);
-    const page = await service.list(CampusDriveRequestsQuerySchema.parse({}));
-    expect(page.drive_requests.map((r) => r.id)).toEqual([listed]);
-    const before = table.digest();
-    await expect(
-      service.decide(hidden, scheduleAt("2026-11-20T05:00:00Z"), CALL),
-    ).rejects.toBeInstanceOf(NotFoundException);
-    expect(table.digest()).toBe(before);
-    expect(events.emitted).toEqual([]);
-    await expect(
-      service.decide(listed, scheduleAt("2026-11-20T05:00:00Z"), CALL),
+      service.decide(b, scheduleAt("2026-11-20T05:00:00Z"), CALL),
     ).resolves.toMatchObject({ status: "scheduled" });
   });
 
-  it("a page whose every request is left out still moves Campus forward", async () => {
-    const { service, seed } = world({
-      settings: { CAMPUS_DRIVE_REQUESTS_ROLLOUT: "pilot" },
-      pilot: [PILOT_COMPANY],
-    });
-    await seed(COMPANY);
-    await seed(COMPANY);
-    const listed = await seed(PILOT_COMPANY);
-    const first = await service.list(CampusDriveRequestsQuerySchema.parse({ limit: "2" }));
-    expect(first.drive_requests).toEqual([]);
-    expect(first.next_cursor).not.toBeNull();
-    const second = await service.list(
-      CampusDriveRequestsQuerySchema.parse({ limit: "2", cursor: first.next_cursor }),
-    );
-    expect(second.drive_requests.map((r) => r.id)).toEqual([listed]);
+  it("the feed skips nothing, so the cursor never moves past a row Campus has not been shown", async () => {
+    const { service, seed } = world();
+    const ids = [await seed(COMPANY), await seed(OTHER_COMPANY), await seed(COMPANY)];
+    const first = await service.list(feed({ limit: "2" }));
+    expect(first.drive_requests.map((r) => r.id)).toEqual(ids.slice(0, 2));
+    const second = await service.list(feed({ limit: "2", cursor: first.next_cursor! }));
+    expect(second.drive_requests.map((r) => r.id)).toEqual(ids.slice(2));
     expect(second.next_cursor).toBeNull();
+  });
+
+  it("a cancellation and an erasure reach the feed", async () => {
+    const { service, seed, table } = world();
+    const cancelled = await seed(COMPANY);
+    const erased = await seed(COMPANY);
+    const before = await service.list(feed());
+    const since = before.drive_requests.at(-1)!.changed_at;
+    await table.markCancelled(undefined, cancelled);
+    table.eraseContact(erased);
+    const after = await service.list(feed({ changed_since: since }));
+    const byId = new Map(after.drive_requests.map((r) => [r.id, r]));
+    expect(byId.get(cancelled)?.status).toBe("cancelled");
+    expect(byId.get(erased)?.contact).toBeNull();
   });
 });
 
@@ -175,11 +155,12 @@ describe("GET drive-requests", () => {
   it("each item parses against the contract and carries the contact, decrypted, for the placement team", async () => {
     const { service, seed } = world();
     const id = await seed(COMPANY, { isTest: true });
-    const page = await service.list(CampusDriveRequestsQuerySchema.parse({}));
+    const page = await service.list(feed());
     expect(CampusDriveRequestPageSchema.safeParse(page).success).toBe(true);
     expect(page.drive_requests[0]).toMatchObject({
       id,
       company: { id: COMPANY, name: "Sharma Precision Works" },
+      company_withdrawn: false,
       branch_ids: [1],
       preferred_from: "2026-12-01",
       preferred_to: "2026-12-15",
@@ -192,36 +173,107 @@ describe("GET drive-requests", () => {
     });
   });
 
-  it("an erased contact is listed as null; the request stays", async () => {
-    const { service, seed, table } = world();
-    await seed(COMPANY);
-    Object.assign(table.rows[0]!, {
-      contactNameEnc: null,
-      contactPhoneEnc: null,
-      contactErasedAt: new Date(),
-    });
-    const page = await service.list(CampusDriveRequestsQuerySchema.parse({}));
-    expect(page.drive_requests[0]!.contact).toBeNull();
-  });
-
   it("filters by status and changed_since, and refuses a cursor it did not mint", async () => {
     const { service, seed } = world();
     const a = await seed(COMPANY);
     await seed(COMPANY);
     await service.decide(a, scheduleAt("2026-11-20T05:00:00Z"), CALL);
-    const scheduled = await service.list(
-      CampusDriveRequestsQuerySchema.parse({ status: "scheduled" }),
-    );
+    const scheduled = await service.list(feed({ status: "scheduled" }));
     expect(scheduled.drive_requests.map((r) => r.id)).toEqual([a]);
-    const since = await service.list(
-      CampusDriveRequestsQuerySchema.parse({ changed_since: "2099-01-01T00:00:00Z" }),
-    );
+    const since = await service.list(feed({ changed_since: "2099-01-01T00:00:00Z" }));
     expect(since.drive_requests).toEqual([]);
-    const err = await refusal(() =>
-      service.list(CampusDriveRequestsQuerySchema.parse({ cursor: "not-a-cursor" })),
-    );
+    const err = await refusal(() => service.list(feed({ cursor: "not-a-cursor" })));
     expect(err).toBeInstanceOf(BadRequestException);
     expect(err.getResponse()).toMatchObject({ code: "VALIDATION_FAILED" });
+  });
+
+  it.each([["0000-01-01T00:00:00Z"], ["1970-01-01T00:00:00Z"], ["2025-12-31T23:59:59Z"]])(
+    "a changed_since of %s is CLAMPED to the 2026-01-01 floor before SQL, never refused",
+    async (early) => {
+      const { service, seed, table } = world();
+      const id = await seed(COMPANY);
+      const listFeed = vi.spyOn(table, "listFeed");
+      const page = await service.list(feed({ changed_since: early }));
+      expect(page.drive_requests.map((r) => r.id)).toEqual([id]);
+      expect(listFeed.mock.calls[0]![0].changedSince).toBe(CAMPUS_EARLIEST_DECISION_TIME);
+    },
+  );
+
+  it("a changed_since at or after the floor reaches SQL as sent", async () => {
+    const { service, table } = world();
+    const listFeed = vi.spyOn(table, "listFeed");
+    await service.list(feed({ changed_since: "2026-11-01T00:00:00+05:30" }));
+    expect(listFeed.mock.calls[0]![0].changedSince).toBe("2026-11-01T00:00:00+05:30");
+  });
+});
+
+describe("withdrawn from Campus (owner ruling R2)", () => {
+  const ACTIVE_VERIFIED: DriveCompanyColumns = {
+    companyStatus: "active",
+    companyRole: "employer",
+    companyVerification: "verified",
+    companyHasGst: true,
+  };
+  const WITHDRAWALS: [string, Partial<DriveCompanyColumns>][] = [
+    ["verification withdrawn (pending)", { companyVerification: "pending" }],
+    ["verification rejected", { companyVerification: "rejected" }],
+    ["no company record", { companyVerification: null, companyHasGst: false }],
+    ["GSTIN removed", { companyHasGst: false }],
+    ["account suspended", { companyStatus: "suspended" }],
+    ["account archived", { companyStatus: "archived" }],
+  ];
+
+  it.each(WITHDRAWALS)(
+    "%s: the feed keeps status and dates only, a decision is 409 COMPANY_WITHDRAWN; reinstated, both come back",
+    async (_name, change) => {
+      const { service, seed, table, events } = world();
+      const id = await seed(COMPANY);
+      table.standing.set(COMPANY, { ...ACTIVE_VERIFIED, ...change });
+
+      const stripped = (await service.list(feed())).drive_requests[0]!;
+      expect(
+        CampusDriveRequestPageSchema.safeParse({ drive_requests: [stripped], next_cursor: null })
+          .success,
+      ).toBe(true);
+      expect(stripped).toMatchObject({
+        id,
+        company_withdrawn: true,
+        contact: null,
+        roles_note: null,
+        status: "requested",
+        preferred_from: "2026-12-01",
+        preferred_to: "2026-12-15",
+      });
+      // Nothing withdrawn reaches the wire, encrypted or not.
+      expect(JSON.stringify(stripped)).not.toContain(CONTACT_NAME);
+      expect(JSON.stringify(stripped)).not.toContain(NOTE);
+
+      const before = table.digest();
+      const err = await refusal(() => service.decide(id, scheduleAt("2026-11-20T05:00:00Z"), CALL));
+      expect(err).toBeInstanceOf(ConflictException);
+      expect(err.getResponse()).toMatchObject({ code: "COMPANY_WITHDRAWN" });
+      expect(table.digest()).toBe(before);
+      expect(events.emitted).toEqual([]);
+
+      // Reinstated: the full item, and the decision goes through.
+      table.standing.set(COMPANY, ACTIVE_VERIFIED);
+      const restored = (await service.list(feed())).drive_requests[0]!;
+      expect(restored).toMatchObject({
+        company_withdrawn: false,
+        contact: { name: CONTACT_NAME, phone: CONTACT_PHONE },
+        roles_note: NOTE,
+      });
+      await expect(
+        service.decide(id, scheduleAt("2026-11-20T05:00:00Z"), CALL),
+      ).resolves.toMatchObject({ status: "scheduled" });
+    },
+  );
+
+  it("an agency (not an employer) is withdrawn too", async () => {
+    const { service, seed, table } = world();
+    await seed(COMPANY);
+    table.standing.set(COMPANY, { ...ACTIVE_VERIFIED, companyRole: "agent" });
+    expect((await service.list(feed())).drive_requests[0]!.company_withdrawn).toBe(true);
   });
 });
 
@@ -310,7 +362,7 @@ describe("POST drive-requests/:id/decision", () => {
         decisionAt("declined", "2026-11-20T05:00:00Z", { reason: `${RLO}${REASON}` }),
         CALL,
       );
-      await service.list(CampusDriveRequestsQuerySchema.parse({}));
+      await service.list(feed());
     } finally {
       for (const spy of spies) spy.mockRestore();
     }
@@ -339,7 +391,7 @@ describe("POST drive-requests/:id/decision", () => {
     expect(CAMPUS_MAX_CLOCK_SKEW_MS).toBe(60_000);
     const { service, seed, table } = world();
     const id = await seed(COMPANY);
-    const findOwner = vi.spyOn(table, "findOwner");
+    const lock = vi.spyOn(table, "lockForDecision");
     for (const early of ["2025-12-31T23:59:59.999Z", "0001-01-01T00:00:00Z"]) {
       const err = await refusal(() => service.decide(id, scheduleAt(early), CALL));
       expect(err.getResponse(), early).toMatchObject({
@@ -347,12 +399,12 @@ describe("POST drive-requests/:id/decision", () => {
         issues: [{ path: "decided_at" }],
       });
     }
-    expect(findOwner).not.toHaveBeenCalled();
+    expect(lock).not.toHaveBeenCalled();
     // The floor itself is accepted (and reads the request, as any decision does).
     await expect(
       service.decide(id, scheduleAt(CAMPUS_EARLIEST_DECISION_TIME), CALL),
     ).resolves.toMatchObject({ status: "scheduled" });
-    findOwner.mockClear();
+    lock.mockClear();
     const ahead = new Date(Date.now() + CAMPUS_MAX_CLOCK_SKEW_MS + 1000).toISOString();
     const err = await refusal(() => service.decide(id, scheduleAt(ahead), CALL));
     expect(err).toBeInstanceOf(BadRequestException);
@@ -360,12 +412,35 @@ describe("POST drive-requests/:id/decision", () => {
       code: "VALIDATION_FAILED",
       issues: [{ path: "decided_at" }],
     });
-    expect(findOwner).not.toHaveBeenCalled();
+    expect(lock).not.toHaveBeenCalled();
     // Within the skew is accepted (a newer reschedule of the request scheduled at the floor).
     const nearly = new Date(Date.now() + CAMPUS_MAX_CLOCK_SKEW_MS - 1000).toISOString();
     await expect(service.decide(id, scheduleAt(nearly), CALL)).resolves.toMatchObject({
       status: "scheduled",
     });
+  });
+
+  it("scheduled_on runs from today in India to a year after it; anything else is 400 before any read", async () => {
+    const { service, seed, table } = world();
+    const id = await seed(COMPANY);
+    const lock = vi.spyOn(table, "lockForDecision");
+    for (const day of ["2026-11-19", "2027-11-21", "2099-12-05"]) {
+      const err = await refusal(() =>
+        service.decide(id, scheduleAt("2026-11-20T05:00:00Z", { scheduled_on: day }), CALL),
+      );
+      expect(err.getResponse(), day).toMatchObject({
+        code: "VALIDATION_FAILED",
+        issues: [{ path: "scheduled_on" }],
+      });
+    }
+    expect(lock).not.toHaveBeenCalled();
+    // Today and a year ahead are both fine.
+    await expect(
+      service.decide(id, scheduleAt("2026-11-20T05:00:00Z", { scheduled_on: "2026-11-20" }), CALL),
+    ).resolves.toMatchObject({ scheduled_on: "2026-11-20" });
+    await expect(
+      service.decide(id, scheduleAt("2026-11-20T05:01:00Z", { scheduled_on: "2027-11-20" }), CALL),
+    ).resolves.toMatchObject({ scheduled_on: "2027-11-20" });
   });
 
   it("an unknown or malformed id is the neutral 404", async () => {
@@ -420,7 +495,7 @@ describe("POST drive-requests/:id/decision", () => {
       }
     });
 
-    it("a newer reschedule replaces the date; then completion keeps it", async () => {
+    it("a newer reschedule replaces the date; completion, on or after that day, keeps it", async () => {
       const { service, seed, table, events } = world();
       const id = await seed(COMPANY);
       await service.decide(id, scheduleAt("2026-11-20T05:00:00Z"), CALL);
@@ -430,7 +505,9 @@ describe("POST drive-requests/:id/decision", () => {
         CALL,
       );
       expect(table.rows[0]).toMatchObject({ scheduledOn: "2026-12-09", campusDriveRef: "d:2" });
-      await service.decide(id, decisionAt("completed", "2026-11-20T05:20:00Z"), CALL);
+      // Time passes: the drive happens on 9 Dec.
+      vi.setSystemTime(new Date("2026-12-09T12:00:00.000Z"));
+      await service.decide(id, decisionAt("completed", "2026-12-09T11:00:00Z"), CALL);
       expect(table.rows[0]).toMatchObject({
         status: "completed",
         scheduledOn: "2026-12-09",
@@ -455,12 +532,34 @@ describe("POST drive-requests/:id/decision", () => {
       expect(table.digest()).toBe(before);
     });
 
+    it("completed dated before the drive's day is 409 DECISION_NOT_ALLOWED and stores nothing", async () => {
+      const { service, seed, table, events } = world();
+      const id = await seed(COMPANY);
+      await service.decide(id, scheduleAt("2026-11-20T05:00:00Z"), CALL); // the drive is on 5 Dec
+      const before = table.digest();
+      const err = await refusal(() =>
+        service.decide(id, decisionAt("completed", "2026-11-20T05:30:00Z"), CALL),
+      );
+      expect(err.getResponse()).toMatchObject({
+        code: "DECISION_NOT_ALLOWED",
+        status: "scheduled",
+        message: "completed before the drive's scheduled_on",
+      });
+      expect(table.digest()).toBe(before);
+      expect(events.emitted).toHaveLength(1);
+    });
+
     it.each([["declined"], ["completed"], ["cancelled"]] as const)(
       "nothing leaves %s",
       async (final) => {
         const { service, seed, table, events } = world();
         const id = await seed(COMPANY);
-        await service.decide(id, scheduleAt("2026-11-20T05:00:00Z"), CALL);
+        // A drive dated today, so it can be completed today.
+        await service.decide(
+          id,
+          scheduleAt("2026-11-20T05:00:00Z", { scheduled_on: "2026-11-20" }),
+          CALL,
+        );
         if (final === "declined") {
           await service.decide(id, decisionAt("declined", "2026-11-20T05:01:00Z"), CALL);
         } else if (final === "completed") {
@@ -489,85 +588,5 @@ describe("POST drive-requests/:id/decision", () => {
       const err = await refusal(() => service.decide(id, scheduleAt("2026-11-20T05:00:00Z"), CALL));
       expect(err.getResponse()).toEqual({ code: "DECISION_NOT_ALLOWED", status: "cancelled" });
     });
-  });
-
-  it("an owner with no tenant key (org tenancy `on`, no membership) is not live: 404, and nothing is written to tenancy", async () => {
-    const table = new MemoryDriveRequests();
-    const pii = testPii();
-    // The REAL resolver in mode `on` over a company with no membership at all: `resolve` would
-    // heal it with a solo org (a write); a Campus call must not.
-    const orgs = {
-      listActiveMembershipsWithAnchor: vi.fn(async () => []),
-      ensureSoloOrg: vi.fn(async () => null),
-    };
-    const tenancy = new PayerTenantScopeService(
-      loadServerConfig({ NODE_ENV: "test", PAYER_ORG_TENANCY_MODE: "on" }),
-      orgs as unknown as PayerOrgsRepository,
-    );
-    const resolve = vi.spyOn(tenancy, "resolve");
-    const service = new CampusDriveDecisionsService(
-      table.asRepository(),
-      rolloutWith({ CAMPUS_DRIVE_REQUESTS_ROLLOUT: "pilot" }, [COMPANY]),
-      tenancy,
-      pii,
-      capturingEvents().service as unknown as EventsService,
-    );
-    const row = await table.insert(undefined, {
-      payerId: COMPANY as TenantKey,
-      createdBy: COMPANY,
-      jobPostingId: null,
-      branchIds: [],
-      preferredFrom: "2026-12-01",
-      preferredTo: "2026-12-02",
-      openings: 1,
-      rolesNote: null,
-      contactNameEnc: pii.encrypt(CONTACT_NAME),
-      contactPhoneEnc: pii.encrypt(CONTACT_PHONE),
-      isTest: false,
-      idempotencyKey: "seed-key-0001",
-    });
-    await expect(
-      service.decide(row!.id, scheduleAt("2026-11-20T05:00:00Z"), CALL),
-    ).rejects.toBeInstanceOf(NotFoundException);
-    expect((await service.list(CampusDriveRequestsQuerySchema.parse({}))).drive_requests).toEqual(
-      [],
-    );
-    expect(orgs.listActiveMembershipsWithAnchor).toHaveBeenCalled();
-    expect(orgs.ensureSoloOrg).not.toHaveBeenCalled();
-    expect(resolve).not.toHaveBeenCalled();
-  });
-
-  it("under org tenancy `on` a company is live by its anchor's pilot place", async () => {
-    const MEMBER = uuid(0x27460d09);
-    const table = new MemoryDriveRequests();
-    const pii = testPii();
-    table.companyNames.set(MEMBER, pii.encrypt("Member Login"));
-    const service = new CampusDriveDecisionsService(
-      table.asRepository(),
-      rolloutWith({ CAMPUS_DRIVE_REQUESTS_ROLLOUT: "pilot" }, [COMPANY]),
-      resolverOver(loadServerConfig({ NODE_ENV: "test", PAYER_ORG_TENANCY_MODE: "on" }), [
-        { anchor: COMPANY, members: [MEMBER] },
-      ]),
-      pii,
-      capturingEvents().service as unknown as EventsService,
-    );
-    // A row stored under the member's own id (written while tenancy was `off`).
-    await table.insert(undefined, {
-      payerId: MEMBER as TenantKey,
-      createdBy: MEMBER,
-      jobPostingId: null,
-      branchIds: [],
-      preferredFrom: "2026-12-01",
-      preferredTo: "2026-12-02",
-      openings: 1,
-      rolesNote: null,
-      contactNameEnc: pii.encrypt(CONTACT_NAME),
-      contactPhoneEnc: pii.encrypt(CONTACT_PHONE),
-      isTest: false,
-      idempotencyKey: "seed-key-0001",
-    });
-    expect(
-      (await service.list(CampusDriveRequestsQuerySchema.parse({}))).drive_requests,
-    ).toHaveLength(1);
   });
 });

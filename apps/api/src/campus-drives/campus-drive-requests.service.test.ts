@@ -15,8 +15,11 @@ import type { EventsService } from "../events/events.service";
 import type { PostingAudienceRepository } from "../job-postings/posting-audience.repository";
 import type { PayerTenantScopeService } from "../payers/payer-tenant-scope.service";
 import { defaultModeResolver, resolverOver } from "../payers/payer-tenant-scope.test-support";
+import { CampusDriveRequestsQuerySchema } from "../campus-link/campus-link.contract";
 import { PayerCreateCampusDriveRequestSchema } from "./campus-drive-requests.dto";
-import { CampusDriveRequestsService, indiaToday } from "./campus-drive-requests.service";
+import { CampusDriveDecisionsService } from "./campus-drive-decisions.service";
+import { indiaDay } from "./campus-drive-dates";
+import { CampusDriveRequestsService } from "./campus-drive-requests.service";
 import {
   MemoryDriveRequests,
   capturingEvents,
@@ -34,6 +37,15 @@ const MEMBER = uuid(0x27460c05);
 const OWN_POSTING = uuid(0x27460c06);
 const FOREIGN_POSTING = uuid(0x27460c07);
 const ON = { CAMPUS_DRIVE_REQUESTS_ROLLOUT: "on" };
+
+/** The reviewer's probe numbers (security review M1), built from code points. */
+const DEVANAGARI_PHONE = String.fromCodePoint(
+  ...[9, 8, 7, 6, 5, 4, 3, 2, 1, 0].map((d) => 0x966 + d),
+);
+const FULLWIDTH_PHONE = String.fromCodePoint(
+  ...[9, 8, 7, 6, 5, 4, 3, 2, 1, 0].map((d) => 0xff10 + d),
+);
+const COMBINING_PHONE = "9876543210".split("").join(String.fromCharCode(0x301));
 
 const CONTACT_NAME = "Ravi Sharma";
 const CONTACT_PHONE = "+919812345678";
@@ -80,6 +92,9 @@ function world(
   };
   const events = capturingEvents();
   const pii = testPii();
+  // Campus's feed decrypts each company's display name.
+  table.companyNames.set(COMPANY, pii.encrypt("Fixture Works"));
+  table.companyNames.set(OTHER_COMPANY, pii.encrypt("Other Works"));
   const idempotency = memoryIdempotency(pii);
   const service = new CampusDriveRequestsService(
     table.asRepository(),
@@ -90,7 +105,24 @@ function world(
     pii,
     events.service as unknown as EventsService,
   );
-  return { table, events, service, idempotency, pii, options: options_ };
+  // Campus's side of the same table: no switch, no tenancy (owner ruling R1).
+  const campus = new CampusDriveDecisionsService(
+    table.asRepository(),
+    pii,
+    events.service as unknown as EventsService,
+  );
+  /** The same table, with the switch at other settings (a pilot removal, a global off). */
+  const withSettings = (settings: Record<string, string>, pilot: string[] = []) =>
+    new CampusDriveRequestsService(
+      table.asRepository(),
+      options_ as unknown as PostingAudienceRepository,
+      rolloutWith(settings, pilot),
+      options.tenancy ?? defaultModeResolver(),
+      idempotency.seam,
+      pii,
+      events.service as unknown as EventsService,
+    );
+  return { table, events, service, idempotency, pii, options: options_, campus, withSettings };
 }
 
 /** Every log line written while `run` runs, at every level. */
@@ -129,9 +161,9 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-describe("the switch gates every route (a plain 404 while it is not live for the company)", () => {
+describe("the switch gates NEW requests only (owner ruling R1, 14 Nov 2026)", () => {
   it.each([["off"], ["pilot"]])(
-    "%s, company not listed: create, list, read, cancel are 404",
+    "%s, company not listed: create is 404 and writes nothing",
     async (mode) => {
       const { service, table, events } = world({
         settings: { CAMPUS_DRIVE_REQUESTS_ROLLOUT: mode },
@@ -139,13 +171,54 @@ describe("the switch gates every route (a plain 404 while it is not live for the
       await expect(service.create(COMPANY, body(), "key-0000001", CTX)).rejects.toBeInstanceOf(
         NotFoundException,
       );
-      await expect(service.list(COMPANY, { limit: 20 })).rejects.toBeInstanceOf(NotFoundException);
-      await expect(service.getOne(COMPANY, uuid(1))).rejects.toBeInstanceOf(NotFoundException);
-      await expect(service.cancel(COMPANY, uuid(1), CTX)).rejects.toBeInstanceOf(NotFoundException);
       expect(table.rows).toEqual([]);
       expect(events.emitted).toEqual([]);
     },
   );
+
+  it("removed from the pilot: the company still lists, reads and cancels, and the cancel reaches Campus's feed", async () => {
+    const { withSettings, campus } = world();
+    const pilot = { CAMPUS_DRIVE_REQUESTS_ROLLOUT: "pilot" };
+    const made = await withSettings(pilot, [COMPANY]).create(COMPANY, body(), "key-0000001", CTX);
+    const removed = withSettings(pilot, []);
+    await expect(removed.create(COMPANY, body(), "key-0000002", CTX)).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+    expect((await removed.list(COMPANY, { limit: 20 })).drive_requests.map((r) => r.id)).toEqual([
+      made.id,
+    ]);
+    await expect(removed.getOne(COMPANY, made.id)).resolves.toMatchObject({ id: made.id });
+    await expect(removed.cancel(COMPANY, made.id, CTX)).resolves.toMatchObject({
+      status: "cancelled",
+    });
+    const item = (await campus.list(CampusDriveRequestsQuerySchema.parse({}))).drive_requests[0]!;
+    expect(item).toMatchObject({ id: made.id, status: "cancelled" });
+  });
+
+  it("switched off everywhere: create is 404, and Campus's feed still carries the existing requests", async () => {
+    const { withSettings, campus } = world();
+    const made = await withSettings(ON).create(COMPANY, body(), "key-0000001", CTX);
+    const off = withSettings({ CAMPUS_DRIVE_REQUESTS_ROLLOUT: "off" });
+    await expect(off.create(COMPANY, body(), "key-0000002", CTX)).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+    const page = await campus.list(CampusDriveRequestsQuerySchema.parse({}));
+    expect(page.drive_requests.map((r) => r.id)).toEqual([made.id]);
+    expect(page.drive_requests[0]!.contact).toEqual({ name: CONTACT_NAME, phone: CONTACT_PHONE });
+  });
+
+  it("an erasure while the switch is off reaches Campus's feed as contact: null", async () => {
+    const { withSettings, campus, table } = world();
+    const made = await withSettings(ON).create(COMPANY, body(), "key-0000001", CTX);
+    const since = (await campus.list(CampusDriveRequestsQuerySchema.parse({}))).drive_requests[0]!
+      .changed_at;
+    table.eraseContact(made.id); // what the account deletion's erasure writes
+    const later = await campus.list(CampusDriveRequestsQuerySchema.parse({ changed_since: since }));
+    expect(later.drive_requests.find((r) => r.id === made.id)?.contact).toBeNull();
+    await expect(
+      withSettings({ CAMPUS_DRIVE_REQUESTS_ROLLOUT: "off" }).getOne(COMPANY, made.id),
+    ).resolves.toMatchObject({ contact: null });
+  });
 
   it("pilot admits exactly the listed company", async () => {
     const { service } = world({
@@ -327,10 +400,22 @@ describe("the body's rules", () => {
     expect(err.getResponse()).toMatchObject({ reason: "preferred_dates_in_past" });
   });
 
+  it("preferred_to may be at most a year after today in India (security review L2)", async () => {
+    const { service } = world();
+    await expect(
+      service.create(COMPANY, body({ preferred_to: "2027-11-14" }), "key-0000001", CTX),
+    ).resolves.toBeDefined();
+    const err = await refusal(() =>
+      service.create(COMPANY, body({ preferred_to: "2027-11-15" }), "key-0000002", CTX),
+    );
+    expect(err).toBeInstanceOf(BadRequestException);
+    expect(err.getResponse()).toMatchObject({ reason: "preferred_dates_too_far" });
+  });
+
   it("today is India's: just after midnight IST, yesterday's UTC date is already the past", async () => {
     // 2026-11-13T19:00Z is 00:30 IST on the 14th.
     vi.setSystemTime(new Date("2026-11-13T19:00:00.000Z"));
-    expect(indiaToday()).toBe("2026-11-14");
+    expect(indiaDay()).toBe("2026-11-14");
     const { service } = world();
     const err = await refusal(() =>
       service.create(
@@ -368,6 +453,17 @@ describe("the body's rules", () => {
     ["a phone number", "Call 98123 45678 for details", "phone"],
     ["an email", "Mail hr@sharma-works.example", "email"],
     ["a salary range in digits (reads as a phone)", "Pay 15000-18000", "phone"],
+    // Security review M1: the reviewer's probe cases (p6/probe.mts), every one a phone or an email
+    // the shared detector missed on the raw note. Built from code points.
+    ["Devanagari digits", `call ${DEVANAGARI_PHONE}`, "phone"],
+    ["full-width digits", `call ${FULLWIDTH_PHONE}`, "phone"],
+    ["a slash inside the number", "call 98765/43210", "phone"],
+    ["a backslash inside the number", `call 98765${String.fromCharCode(0x5c)}43210`, "phone"],
+    ["a combining mark after each digit", `call ${COMBINING_PHONE}`, "phone"],
+    ["a ZWJ inside the number", `call 98765${String.fromCharCode(0x200d)}43210`, "phone"],
+    ["a Mongolian vowel separator", `call 98765${String.fromCharCode(0x180e)}43210`, "phone"],
+    ["a full-width at sign", `mail ravi${String.fromCharCode(0xff20)}example.com`, "email"],
+    ["ASCII and Devanagari digits mixed", `call 98765${DEVANAGARI_PHONE.slice(5)}`, "phone"],
   ])("roles_note with %s → 400 roles_note_has_identifier", async (_n, note, identifier) => {
     const { service, table } = world();
     const err = await refusal(() =>
@@ -378,6 +474,15 @@ describe("the body's rules", () => {
     // The 400 never repeats the text that matched.
     expect(JSON.stringify(err.getResponse())).not.toContain(note);
     expect(table.rows).toEqual([]);
+  });
+
+  it("the screen reads a NORMALISED copy; the stored note is the cleaned ORIGINAL", async () => {
+    const { service, table } = world();
+    // Full-width letters NFKC-fold to ASCII for the screen, and stay full-width in storage.
+    const fullwidthCnc = String.fromCodePoint(0xff23, 0xff2e, 0xff23);
+    const note = `${fullwidthCnc} operators, ${String.fromCodePoint(0x967, 0x968)} shifts, 9/5 duty`;
+    await service.create(COMPANY, body({ roles_note: note }), "key-0000001", CTX);
+    expect(table.rows[0]!.rolesNote).toBe(note);
   });
 
   it("a note with numbers in words is accepted; hidden characters go, the Indic joiners stay (PR 5's note rule)", async () => {

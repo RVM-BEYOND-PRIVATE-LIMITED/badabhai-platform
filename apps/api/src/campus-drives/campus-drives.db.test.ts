@@ -7,7 +7,6 @@ import {
   type ExecutionContext,
 } from "@nestjs/common";
 import { Reflector } from "@nestjs/core";
-import { loadServerConfig } from "@badabhai/config";
 import { createDbClient, type DbClient } from "@badabhai/db";
 import {
   CampusDriveDecisionBodySchema,
@@ -22,12 +21,14 @@ import { PayerAccountDeletionService } from "../payers/payer-account-deletion.se
 import { PayerRoleGuard } from "../payers/payer-role.guard";
 import { PayersRepository } from "../payers/payers.repository";
 import { defaultModeResolver } from "../payers/payer-tenant-scope.test-support";
-import { PayerOrgsRepository } from "../payers/payer-orgs.repository";
-import { PayerTenantScopeService } from "../payers/payer-tenant-scope.service";
 import { CampusDriveContactErasureRepository } from "./campus-drive-contact-erasure.repository";
+import { addDays, indiaDay } from "./campus-drive-dates";
 import { CampusDriveDecisionsService } from "./campus-drive-decisions.service";
 import { PayerCreateCampusDriveRequestSchema } from "./campus-drive-requests.dto";
-import { CampusDriveRequestsRepository } from "./campus-drive-requests.repository";
+import {
+  CampusDriveRequestsRepository,
+  type DriveRequestRow,
+} from "./campus-drive-requests.repository";
 import { CampusDriveRequestsService } from "./campus-drive-requests.service";
 import { memoryIdempotency, rolloutWith, testPii } from "./campus-drive-requests.test-support";
 import { PayerCampusDriveRequestsController } from "./payer-campus-drive-requests.controller";
@@ -41,12 +42,18 @@ import { PayerCampusDriveRequestsController } from "./payer-campus-drive-request
  *   - the issue's checks: a company submits a drive request; it appears in the service list for
  *     Campus (contact decrypted for the placement team); after the decision call the company sees
  *     the scheduled date. Repeating the create with the same Idempotency-Key creates ONE request,
- *     after Redis has forgotten it and when two creates race on two connections (the unique
- *     `(payer_id, idempotency_key)` is the lasting guard). An agency account cannot ask;
+ *     after Redis has forgotten it and when two creates race on two connections (the second's
+ *     insert waits on the first's key, then `ON CONFLICT DO NOTHING` returns no row). An agency
+ *     account cannot ask;
  *   - tenancy in the query: another company's request and posting are the same 404 as unknown;
  *   - ordering in SQL: `decided_at` compared by Postgres, microsecond exact, whatever the offset;
- *   - tenancy read-only: under `PAYER_ORG_TENANCY_MODE=on` a company with no membership is not live
- *     for Campus (404, left out of the feed) and a Campus call writes no tenancy row;
+ *     a `changed_since` before 2026-01-01 (year 0000, the epoch) clamped, never refused;
+ *   - owner ruling R1: the switch gates NEW requests only — off or removed from the pilot, a
+ *     company still cancels, and Campus still lists and decides, cancellations and erasures
+ *     included;
+ *   - owner ruling R2: a company whose verification is withdrawn or whose account is suspended is
+ *     shown to Campus with status and dates only and cannot be decided, and the withdrawal and the
+ *     reinstatement both reach the feed (its `changed_at` follows the company record);
  *   - THE RACE: a Campus decision and the company's cancel on two connections serialise on the
  *     request row's `FOR UPDATE` (the second waits — seen in `pg_stat_activity` — then decides
  *     against the committed row), never a 40P01, and one wins cleanly either way round;
@@ -85,6 +92,10 @@ const UNVERIFIED = uuid(0x2746d0012);
 const AGENCY = uuid(0x2746d0013);
 /** A login that typed a contact on COMPANY's request and then deleted its account. */
 const LEAVER = uuid(0x2746d0014);
+/** A verified employer an admin later withdraws and reinstates (owner ruling R2). */
+const WITHDRAWN = uuid(0x2746d0015);
+/** A login (no `payers` row) whose typed contacts are erased while the switch is off. */
+const ERASED_LOGIN = uuid(0x2746d0016);
 const COMPANY_POSTING = uuid(0x2746d0020);
 const OTHER_POSTING = uuid(0x2746d0021);
 const STAFF = "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d";
@@ -92,12 +103,20 @@ const STAFF = "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d";
 const BRANCH_A = 2746401;
 const BRANCH_B = 2746402;
 const BRANCH_RETIRED = 2746409;
-const COMPANIES = [COMPANY, OTHER, UNVERIFIED, AGENCY, LEAVER];
+const COMPANIES = [COMPANY, OTHER, UNVERIFIED, AGENCY, LEAVER, WITHDRAWN];
 
 /** Synthetic contact: no real person or number. */
 const CONTACT_NAME = "Fixture Contact t2746d";
 const CONTACT_PHONE = "+919000027460";
+const ROLES_NOTE = "CNC operators and setters t2746d";
 
+/** Dates relative to today in India, inside the one-year caps (security review L1, L2). */
+const TODAY = indiaDay();
+const PREFERRED_FROM = addDays(TODAY, 30);
+const PREFERRED_TO = addDays(TODAY, 44);
+const DRIVE_DAY = addDays(TODAY, 34);
+
+const ON = { CAMPUS_DRIVE_REQUESTS_ROLLOUT: "on" };
 const pii = testPii();
 
 describe.skipIf(!RUN)("#2746 PR 6 — campus-drive requests (Postgres)", () => {
@@ -105,11 +124,17 @@ describe.skipIf(!RUN)("#2746 PR 6 — campus-drive requests (Postgres)", () => {
   let raceClient!: DbClient;
   let events!: EventsService;
 
-  function company(db = client.db) {
+  /** The company side over `repo` (and `db` for its other reads), with the switch at `settings`. */
+  function companyOver(
+    repo: CampusDriveRequestsRepository,
+    db: DbClient["db"],
+    settings: Record<string, string> = ON,
+    pilot: string[] = [],
+  ) {
     return new CampusDriveRequestsService(
-      new CampusDriveRequestsRepository(db),
+      repo,
       new PostingAudienceRepository(db),
-      rolloutWith({ CAMPUS_DRIVE_REQUESTS_ROLLOUT: "on" }),
+      rolloutWith(settings, pilot),
       defaultModeResolver(),
       memoryIdempotency(pii).seam,
       pii,
@@ -117,23 +142,22 @@ describe.skipIf(!RUN)("#2746 PR 6 — campus-drive requests (Postgres)", () => {
     );
   }
 
+  function company(db = client.db, settings: Record<string, string> = ON, pilot: string[] = []) {
+    return companyOver(new CampusDriveRequestsRepository(db), db, settings, pilot);
+  }
+
+  /** Campus's side: no switch and no tenancy (owner ruling R1). */
   function campus(repo = new CampusDriveRequestsRepository(client.db)) {
-    return new CampusDriveDecisionsService(
-      repo,
-      rolloutWith({ CAMPUS_DRIVE_REQUESTS_ROLLOUT: "on" }),
-      defaultModeResolver(),
-      pii,
-      events,
-    );
+    return new CampusDriveDecisionsService(repo, pii, events);
   }
 
   const body = (over: Record<string, unknown> = {}) =>
     PayerCreateCampusDriveRequestSchema.parse({
       branch_ids: [BRANCH_B, BRANCH_A],
-      preferred_from: "2099-12-01",
-      preferred_to: "2099-12-15",
+      preferred_from: PREFERRED_FROM,
+      preferred_to: PREFERRED_TO,
       openings: 12,
-      roles_note: "CNC operators and setters t2746d",
+      roles_note: ROLES_NOTE,
       contact_name: CONTACT_NAME,
       contact_phone: CONTACT_PHONE,
       ...over,
@@ -144,10 +168,13 @@ describe.skipIf(!RUN)("#2746 PR 6 — campus-drive requests (Postgres)", () => {
       decision: "scheduled",
       decided_by_ref: STAFF,
       decided_at: new Date(Date.now() - 60_000).toISOString(),
-      scheduled_on: "2099-12-05",
+      scheduled_on: DRIVE_DAY,
       campus_drive_ref: "campus-drive:t2746d",
       ...over,
     });
+
+  const feedOf = async (query: Record<string, string> = {}) =>
+    campus().list(CampusDriveRequestsQuerySchema.parse({ limit: "200", ...query }));
 
   type Stored = {
     id: string;
@@ -200,11 +227,13 @@ describe.skipIf(!RUN)("#2746 PR 6 — campus-drive requests (Postgres)", () => {
   }, 60_000);
 
   afterAll(async () => {
+    // The race connections first, so no transaction a failed race left open holds a row the
+    // cleanup must delete.
+    if (raceClient !== undefined) await raceClient.sql.end({ timeout: 5 });
     if (client !== undefined) {
       await cleanup(client);
       await client.sql.end({ timeout: 5 });
     }
-    if (raceClient !== undefined) await raceClient.sql.end({ timeout: 5 });
   }, 60_000);
 
   // ── The issue's checks ──────────────────────────────────────────────────────
@@ -245,12 +274,13 @@ describe.skipIf(!RUN)("#2746 PR 6 — campus-drive requests (Postgres)", () => {
     expect(JSON.stringify(requested)).not.toContain(CONTACT_NAME);
 
     // Campus's feed: the request, its company name and its contact, decrypted for the team.
-    const page = await campus().list(CampusDriveRequestsQuerySchema.parse({ limit: "200" }));
-    const item = page.drive_requests.find((r) => r.id === made.id);
+    const item = (await feedOf()).drive_requests.find((r) => r.id === made.id);
     expect(item).toMatchObject({
       company: { id: COMPANY, name: "Fixture Works t2746d" },
+      company_withdrawn: false,
       job_posting_id: COMPANY_POSTING,
       contact: { name: CONTACT_NAME, phone: CONTACT_PHONE },
+      roles_note: ROLES_NOTE,
       status: "requested",
       is_test: true,
     });
@@ -258,7 +288,7 @@ describe.skipIf(!RUN)("#2746 PR 6 — campus-drive requests (Postgres)", () => {
 
     // The decision.
     const decided = await campus().decide(made.id, decision(), CALL);
-    expect(decided).toMatchObject({ status: "scheduled", scheduled_on: "2099-12-05" });
+    expect(decided).toMatchObject({ status: "scheduled", scheduled_on: DRIVE_DAY });
     expect(
       (await eventsNamed("campus_drive.decided")).filter(
         (p) => p.campus_drive_request_id === made.id,
@@ -279,7 +309,7 @@ describe.skipIf(!RUN)("#2746 PR 6 — campus-drive requests (Postgres)", () => {
     // The company sees the date.
     await expect(svc.getOne(COMPANY, made.id)).resolves.toMatchObject({
       status: "scheduled",
-      scheduled_on: "2099-12-05",
+      scheduled_on: DRIVE_DAY,
       campus_drive_ref: "campus-drive:t2746d",
     });
   }, 30_000);
@@ -303,17 +333,68 @@ describe.skipIf(!RUN)("#2746 PR 6 — campus-drive requests (Postgres)", () => {
     });
   }, 30_000);
 
-  it("two creates with one key racing on two connections: one row, one event, both answer it", async () => {
+  it("two creates with one key racing: B's insert waits on A's key, then ON CONFLICT returns no row and B answers A's request", async () => {
     const before = (await eventsNamed("campus_drive.requested")).length;
-    const [a, b] = await Promise.all([
-      company(client.db).create(COMPANY, body({ openings: 7 }), "t2746d-key-0003", CTX),
-      company(raceClient.db).create(COMPANY, body({ openings: 7 }), "t2746d-key-0003", CTX),
-    ]);
-    expect(a.id).toBe(b.id);
-    expect(
-      (await stored({ payerId: COMPANY })).filter((r) => r.idempotency_key === "t2746d-key-0003"),
-    ).toHaveLength(1);
-    expect(await eventsNamed("campus_drive.requested")).toHaveLength(before + 1);
+    const inserts: { who: "A" | "B"; row: DriveRequestRow | undefined }[] = [];
+
+    // A parks INSIDE its transaction right after its insert, holding the key uncommitted.
+    const repoA = new CampusDriveRequestsRepository(client.db);
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    let inserted!: () => void;
+    const holding = new Promise<void>((r) => (inserted = r));
+    const insertA = repoA.insert.bind(repoA);
+    repoA.insert = async (...args) => {
+      const row = await insertA(...args);
+      inserts.push({ who: "A", row });
+      inserted();
+      await gate;
+      return row;
+    };
+    const repoB = new CampusDriveRequestsRepository(raceClient.db);
+    const insertB = repoB.insert.bind(repoB);
+    repoB.insert = async (...args) => {
+      const row = await insertB(...args);
+      inserts.push({ who: "B", row });
+      return row;
+    };
+
+    const creatingA = companyOver(repoA, client.db).create(
+      COMPANY,
+      body({ openings: 7 }),
+      "t2746d-key-0003",
+      CTX,
+    );
+    let creatingB: Promise<unknown> | undefined;
+    try {
+      await holding;
+      creatingB = companyOver(repoB, raceClient.db).create(
+        COMPANY,
+        body({ openings: 7 }),
+        "t2746d-key-0003",
+        CTX,
+      );
+      // B's insert is a lock waiter on A's uncommitted key.
+      await waitForLockWaiter();
+      release();
+      const [a, b] = await Promise.allSettled([creatingA, creatingB]);
+      expect(a.status).toBe("fulfilled");
+      expect(b.status).toBe("fulfilled");
+      const idA = (a as PromiseFulfilledResult<{ id: string }>).value.id;
+      expect((b as PromiseFulfilledResult<{ id: string }>).value.id).toBe(idA);
+      // A's insert wrote the row; B's, released after A's commit, returned NO row.
+      expect(inserts.map((i) => [i.who, i.row?.id ?? null])).toEqual([
+        ["A", idA],
+        ["B", null],
+      ]);
+      expect(
+        (await stored({ payerId: COMPANY })).filter((r) => r.idempotency_key === "t2746d-key-0003"),
+      ).toHaveLength(1);
+      expect(await eventsNamed("campus_drive.requested")).toHaveLength(before + 1);
+    } finally {
+      release();
+      await Promise.allSettled([creatingA, creatingB ?? Promise.resolve()]);
+    }
   }, 30_000);
 
   it("an agency account cannot ask for a drive: the route's 403, and the service refuses it too", async () => {
@@ -442,42 +523,141 @@ describe.skipIf(!RUN)("#2746 PR 6 — campus-drive requests (Postgres)", () => {
       cursor = page.next_cursor;
     } while (cursor);
     // No duplicates, nothing skipped: the same set as one big page.
-    const whole = await feed.list(CampusDriveRequestsQuerySchema.parse({ limit: "200" }));
+    const whole = await feedOf();
     expect(new Set(all).size).toBe(all.length);
     expect(all).toEqual(whole.drive_requests.map((r) => r.id));
     const last = whole.drive_requests.at(-1)!;
-    const since = await feed.list(
-      CampusDriveRequestsQuerySchema.parse({ changed_since: last.changed_at, limit: "200" }),
-    );
+    const since = await feedOf({ changed_since: last.changed_at });
     expect(since.drive_requests.map((r) => r.id)).toContain(last.id);
   }, 30_000);
 
-  it("tenancy `on`: a Campus call resolves the owner read-only — no membership is the 404, and no tenancy row is written", async () => {
-    const made = await company().create(COMPANY, body({ openings: 15 }), "t2746d-key-0015", CTX);
-    const orgRows = async () =>
-      (
-        await client.sql<{ n: number }[]>`
-          SELECT (SELECT count(*)::int FROM payer_orgs WHERE root_payer_id = ${COMPANY}::uuid)
-               + (SELECT count(*)::int FROM payer_members WHERE member_payer_id = ${COMPANY}::uuid) AS n`
-      )[0]!.n;
-    expect(await orgRows()).toBe(0);
-    const onMode = new CampusDriveDecisionsService(
-      new CampusDriveRequestsRepository(client.db),
-      rolloutWith({ CAMPUS_DRIVE_REQUESTS_ROLLOUT: "pilot" }, [COMPANY]),
-      new PayerTenantScopeService(
-        loadServerConfig({ NODE_ENV: "test", PAYER_ORG_TENANCY_MODE: "on" }),
-        new PayerOrgsRepository(client.db),
-      ),
-      pii,
-      events,
+  it.each([["0000-01-01T00:00:00Z"], ["1970-01-01T00:00:00Z"]])(
+    "a changed_since of %s is clamped to the 2026-01-01 floor before SQL: no 22008, every request listed",
+    async (early) => {
+      const whole = await feedOf();
+      const clamped = await feedOf({ changed_since: early });
+      expect(clamped.drive_requests.map((r) => r.id)).toEqual(
+        whole.drive_requests.map((r) => r.id),
+      );
+    },
+    30_000,
+  );
+
+  // ── Owner ruling R1: the switch gates NEW requests only ─────────────────────
+
+  it("R1: removed from the pilot, then switched off — the company still reads and cancels, Campus still lists and decides, and every change reaches the feed", async () => {
+    const pilot = { CAMPUS_DRIVE_REQUESTS_ROLLOUT: "pilot" };
+    const made = await company(client.db, pilot, [COMPANY]).create(
+      COMPANY,
+      body({ openings: 61 }),
+      "t2746d-key-0061",
+      CTX,
     );
-    const err = await caught(() => onMode.decide(made.id, decision(), CALL));
-    expect(err).toBeInstanceOf(NotFoundException);
-    const feed = await onMode.list(CampusDriveRequestsQuerySchema.parse({ limit: "200" }));
-    expect(feed.drive_requests.map((r) => r.id)).not.toContain(made.id);
-    // `resolve` would have healed the company with a solo org and an owner membership.
-    expect(await orgRows()).toBe(0);
+    // Removed from the pilot: no new request…
+    const removed = company(client.db, pilot, []);
+    await expect(
+      removed.create(COMPANY, body({ openings: 62 }), "t2746d-key-0062", CTX),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    // …but the one it made is still its own to read, and Campus still decides it.
+    await expect(removed.getOne(COMPANY, made.id)).resolves.toMatchObject({ id: made.id });
+    await expect(campus().decide(made.id, decision(), CALL)).resolves.toMatchObject({
+      status: "scheduled",
+    });
+    const since = (await feedOf()).drive_requests.find((r) => r.id === made.id)!.changed_at;
+
+    // Switched off everywhere: create is 404, cancel works, and the cancel reaches the feed.
+    const off = company(client.db, { CAMPUS_DRIVE_REQUESTS_ROLLOUT: "off" });
+    await expect(
+      off.create(COMPANY, body({ openings: 63 }), "t2746d-key-0063", CTX),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    await expect(off.cancel(COMPANY, made.id, CTX)).resolves.toMatchObject({
+      status: "cancelled",
+    });
+    const after = await feedOf({ changed_since: since });
+    expect(after.drive_requests.find((r) => r.id === made.id)).toMatchObject({
+      status: "cancelled",
+    });
+    // The feed still carries every existing request.
+    expect((await feedOf()).drive_requests.map((r) => r.id)).toContain(made.id);
+  }, 30_000);
+
+  it("R1: an erasure while the switch is off reaches the feed as contact: null", async () => {
+    const [row] = await client.sql<{ id: string }[]>`
+      INSERT INTO campus_drive_requests (payer_id, created_by, branch_ids, preferred_from,
+             preferred_to, openings, contact_name_enc, contact_phone_enc, idempotency_key)
+      VALUES (${COMPANY}::uuid, ${ERASED_LOGIN}::uuid, '[]'::jsonb, ${PREFERRED_FROM}::date,
+              ${PREFERRED_TO}::date, 4, ${pii.encrypt(CONTACT_NAME)}, ${pii.encrypt(CONTACT_PHONE)},
+              't2746d-key-0064')
+      RETURNING id`;
+    const since = (await feedOf()).drive_requests.find((r) => r.id === row!.id)!.changed_at;
+    expect(
+      await new CampusDriveContactErasureRepository(client.db).eraseEnteredBy(ERASED_LOGIN),
+    ).toBe(1);
+    const after = await feedOf({ changed_since: since });
+    expect(after.drive_requests.find((r) => r.id === row!.id)).toMatchObject({ contact: null });
+  }, 30_000);
+
+  // ── Owner ruling R2: withdrawn from Campus ──────────────────────────────────
+
+  it("R2: verification withdrawn, then the account suspended — the feed strips the item and a decision is 409; reinstated, both come back, and every change reaches the feed", async () => {
+    const made = await company().create(WITHDRAWN, body({ openings: 71 }), "t2746d-key-0071", CTX);
+    const itemOf = async (since?: string) =>
+      (await feedOf(since === undefined ? {} : { changed_since: since })).drive_requests.find(
+        (r) => r.id === made.id,
+      );
+    const full = (await itemOf())!;
+    expect(full).toMatchObject({ company_withdrawn: false, roles_note: ROLES_NOTE });
+    expect(full.contact).toEqual({ name: CONTACT_NAME, phone: CONTACT_PHONE });
+
+    // An admin withdraws the verification (the company-record writer stamps updated_at).
+    await client.sql`
+      UPDATE employer_profiles SET verification_status = 'pending', updated_at = clock_timestamp()
+       WHERE payer_id = ${WITHDRAWN}::uuid`;
+    const stripped = await itemOf(full.changed_at);
+    expect(stripped).toMatchObject({
+      company_withdrawn: true,
+      contact: null,
+      roles_note: null,
+      status: "requested",
+      preferred_from: PREFERRED_FROM,
+      preferred_to: PREFERRED_TO,
+    });
+    expect(Date.parse(stripped!.changed_at)).toBeGreaterThan(Date.parse(full.changed_at));
+    const refused = await caught(() => campus().decide(made.id, decision(), CALL));
+    expect((refused as ConflictException).getResponse()).toMatchObject({
+      code: "COMPANY_WITHDRAWN",
+    });
     expect((await stored({ id: made.id }))[0]!.status).toBe("requested");
+
+    // Reinstated: the full item comes back in the feed, and the decision goes through.
+    await client.sql`
+      UPDATE employer_profiles SET verification_status = 'verified', updated_at = clock_timestamp()
+       WHERE payer_id = ${WITHDRAWN}::uuid`;
+    const back = await itemOf(stripped!.changed_at);
+    expect(back).toMatchObject({ company_withdrawn: false, roles_note: ROLES_NOTE });
+    expect(back!.contact).toEqual({ name: CONTACT_NAME, phone: CONTACT_PHONE });
+    await expect(campus().decide(made.id, decision(), CALL)).resolves.toMatchObject({
+      status: "scheduled",
+    });
+
+    // The account suspended (the admin writer stamps payers.updated_at): withdrawn again.
+    const beforeSuspend = (await itemOf())!.changed_at;
+    await client.sql`
+      UPDATE payers SET status = 'suspended', previous_status = 'active', updated_at = clock_timestamp()
+       WHERE id = ${WITHDRAWN}::uuid`;
+    expect(await itemOf(beforeSuspend)).toMatchObject({ company_withdrawn: true, contact: null });
+    const reschedule = decision({
+      decided_at: new Date(Date.now() - 1_000).toISOString(),
+      scheduled_on: addDays(DRIVE_DAY, 1),
+    });
+    const suspended = await caught(() => campus().decide(made.id, reschedule, CALL));
+    expect((suspended as ConflictException).getResponse()).toMatchObject({
+      code: "COMPANY_WITHDRAWN",
+    });
+    await client.sql`
+      UPDATE payers SET status = 'active', previous_status = NULL, updated_at = clock_timestamp()
+       WHERE id = ${WITHDRAWN}::uuid`;
+    expect(await itemOf()).toMatchObject({ company_withdrawn: false });
   }, 30_000);
 
   // ── The race ────────────────────────────────────────────────────────────────
@@ -525,57 +705,60 @@ describe.skipIf(!RUN)("#2746 PR 6 — campus-drive requests (Postgres)", () => {
     const made = await company().create(COMPANY, body({ openings: 21 }), "t2746d-key-0021", CTX);
     const parked = parkedAfterLock(raceClient.db);
     const deciding = campus(parked.repo).decide(made.id, decision(), CALL);
-    await parked.holding;
-    const cancelling = company().cancel(COMPANY, made.id, CTX);
-    await waitForLockWaiter();
-    parked.release();
-    const [decided, cancelled] = await Promise.allSettled([deciding, cancelling]);
-    for (const r of [decided, cancelled]) {
-      if (r.status === "rejected") expect(sqlStateOf(r.reason)).not.toBe("40P01");
+    let cancelling: Promise<unknown> | undefined;
+    try {
+      await parked.holding;
+      cancelling = company().cancel(COMPANY, made.id, CTX);
+      await waitForLockWaiter();
+      parked.release();
+      const [decided, cancelled] = await Promise.allSettled([deciding, cancelling]);
+      for (const r of [decided, cancelled]) {
+        if (r.status === "rejected") expect(sqlStateOf(r.reason)).not.toBe("40P01");
+      }
+      expect(decided).toMatchObject({ status: "fulfilled", value: { status: "scheduled" } });
+      expect(cancelled).toMatchObject({ status: "fulfilled", value: { status: "cancelled" } });
+      const cancels = (await eventsNamed("campus_drive.cancelled")).filter(
+        (p) => p.campus_drive_request_id === made.id,
+      );
+      expect(cancels).toEqual([
+        { campus_drive_request_id: made.id, payer_id: COMPANY, previous_status: "scheduled" },
+      ]);
+    } finally {
+      parked.release();
+      await Promise.allSettled([deciding, cancelling ?? Promise.resolve()]);
     }
-    expect(decided).toMatchObject({ status: "fulfilled", value: { status: "scheduled" } });
-    expect(cancelled).toMatchObject({ status: "fulfilled", value: { status: "cancelled" } });
-    const cancels = (await eventsNamed("campus_drive.cancelled")).filter(
-      (p) => p.campus_drive_request_id === made.id,
-    );
-    expect(cancels).toEqual([
-      { campus_drive_request_id: made.id, payer_id: COMPANY, previous_status: "scheduled" },
-    ]);
   }, 30_000);
 
   it("cancel first, decision waits: cancelled stands, the decision is DECISION_NOT_ALLOWED and stores nothing; no 40P01", async () => {
     const made = await company().create(COMPANY, body({ openings: 22 }), "t2746d-key-0022", CTX);
     const parked = parkedAfterLock(raceClient.db);
-    const companySide = new CampusDriveRequestsService(
-      parked.repo,
-      new PostingAudienceRepository(raceClient.db),
-      rolloutWith({ CAMPUS_DRIVE_REQUESTS_ROLLOUT: "on" }),
-      defaultModeResolver(),
-      memoryIdempotency(pii).seam,
-      pii,
-      new EventsService(new EventsRepository(raceClient.db), { NODE_ENV: "test" } as never),
-    );
-    const cancelling = companySide.cancel(COMPANY, made.id, CTX);
-    await parked.holding;
-    const deciding = campus().decide(made.id, decision(), CALL);
-    await waitForLockWaiter();
-    parked.release();
-    const [cancelled, decided] = await Promise.allSettled([cancelling, deciding]);
-    expect(cancelled).toMatchObject({ status: "fulfilled", value: { status: "cancelled" } });
-    expect(decided.status).toBe("rejected");
-    const reason = (decided as PromiseRejectedResult).reason;
-    expect(sqlStateOf(reason)).not.toBe("40P01");
-    expect(reason).toBeInstanceOf(ConflictException);
-    expect((reason as ConflictException).getResponse()).toEqual({
-      code: "DECISION_NOT_ALLOWED",
-      status: "cancelled",
-    });
-    const [row] = await stored({ id: made.id });
-    expect(row).toMatchObject({ status: "cancelled", scheduled_on: null });
-    const decidedEvents = (await eventsNamed("campus_drive.decided")).filter(
-      (p) => p.campus_drive_request_id === made.id,
-    );
-    expect(decidedEvents).toEqual([]);
+    const cancelling = companyOver(parked.repo, raceClient.db).cancel(COMPANY, made.id, CTX);
+    let deciding: Promise<unknown> | undefined;
+    try {
+      await parked.holding;
+      deciding = campus().decide(made.id, decision(), CALL);
+      await waitForLockWaiter();
+      parked.release();
+      const [cancelled, decided] = await Promise.allSettled([cancelling, deciding]);
+      expect(cancelled).toMatchObject({ status: "fulfilled", value: { status: "cancelled" } });
+      expect(decided.status).toBe("rejected");
+      const reason = (decided as PromiseRejectedResult).reason;
+      expect(sqlStateOf(reason)).not.toBe("40P01");
+      expect(reason).toBeInstanceOf(ConflictException);
+      expect((reason as ConflictException).getResponse()).toEqual({
+        code: "DECISION_NOT_ALLOWED",
+        status: "cancelled",
+      });
+      const [row] = await stored({ id: made.id });
+      expect(row).toMatchObject({ status: "cancelled", scheduled_on: null });
+      const decidedEvents = (await eventsNamed("campus_drive.decided")).filter(
+        (p) => p.campus_drive_request_id === made.id,
+      );
+      expect(decidedEvents).toEqual([]);
+    } finally {
+      parked.release();
+      await Promise.allSettled([cancelling, deciding ?? Promise.resolve()]);
+    }
   }, 30_000);
 
   // ── DPDP erasure ────────────────────────────────────────────────────────────
@@ -595,13 +778,21 @@ describe.skipIf(!RUN)("#2746 PR 6 — campus-drive requests (Postgres)", () => {
     expect(sqlStateOf(undated)).toBe("23514");
   }, 30_000);
 
+  /**
+   * MUST CHANGE WHEN #2811 LANDS. This proves a delete that fails erases nothing, and today the
+   * QA delete fails for every verified company because `employer_profiles_payer_id_fkey` is
+   * NO ACTION. Once #2811 makes that delete succeed, this test needs another way to make the row
+   * delete fail (for example a fixture row holding a RESTRICT foreign key), or it starts proving
+   * the opposite.
+   */
   it("a QA delete that FAILS (the employer_profiles FK holds a verified company) erases no contact", async () => {
     // A request OTHER owns that COMPANY's login typed: erased if the erasure ever committed alone.
     const [row] = await client.sql<{ id: string }[]>`
       INSERT INTO campus_drive_requests (payer_id, created_by, branch_ids, preferred_from,
              preferred_to, openings, contact_name_enc, contact_phone_enc, idempotency_key)
-      VALUES (${OTHER}::uuid, ${COMPANY}::uuid, '[]'::jsonb, '2099-12-01', '2099-12-02', 2,
-              ${pii.encrypt(CONTACT_NAME)}, ${pii.encrypt(CONTACT_PHONE)}, 't2746d-key-0039')
+      VALUES (${OTHER}::uuid, ${COMPANY}::uuid, '[]'::jsonb, ${PREFERRED_FROM}::date,
+              ${PREFERRED_TO}::date, 2, ${pii.encrypt(CONTACT_NAME)}, ${pii.encrypt(CONTACT_PHONE)},
+              't2746d-key-0039')
       RETURNING id`;
     const deletion = new PayerAccountDeletionService(
       client.db,
@@ -621,8 +812,9 @@ describe.skipIf(!RUN)("#2746 PR 6 — campus-drive requests (Postgres)", () => {
     expect(after!.contact_erased_at).toBeNull();
     expect(after!.contact_name_enc).toMatch(/^v1\./);
     expect(after!.contact_phone_enc).toMatch(/^v1\./);
-    // COMPANY's own requests are intact too, contacts and all.
-    const own = await stored({ payerId: COMPANY });
+    // COMPANY's own requests are intact too, contacts and all (the R1 erasure test's row aside:
+    // a different login typed it).
+    const own = (await stored({ payerId: COMPANY })).filter((r) => r.created_by === COMPANY);
     expect(own.length).toBeGreaterThan(0);
     expect(own.every((r) => r.contact_erased_at === null && r.contact_name_enc !== null)).toBe(
       true,
@@ -634,8 +826,9 @@ describe.skipIf(!RUN)("#2746 PR 6 — campus-drive requests (Postgres)", () => {
     const [row] = await client.sql<{ id: string; updated_at: string }[]>`
       INSERT INTO campus_drive_requests (payer_id, created_by, branch_ids, preferred_from,
              preferred_to, openings, contact_name_enc, contact_phone_enc, idempotency_key)
-      VALUES (${COMPANY}::uuid, ${LEAVER}::uuid, '[]'::jsonb, '2099-12-01', '2099-12-02', 3,
-              ${pii.encrypt(CONTACT_NAME)}, ${pii.encrypt(CONTACT_PHONE)}, 't2746d-key-0041')
+      VALUES (${COMPANY}::uuid, ${LEAVER}::uuid, '[]'::jsonb, ${PREFERRED_FROM}::date,
+              ${PREFERRED_TO}::date, 3, ${pii.encrypt(CONTACT_NAME)}, ${pii.encrypt(CONTACT_PHONE)},
+              't2746d-key-0041')
       RETURNING id, updated_at::text AS updated_at`;
     const deletion = new PayerAccountDeletionService(
       client.db,
@@ -657,9 +850,7 @@ describe.skipIf(!RUN)("#2746 PR 6 — campus-drive requests (Postgres)", () => {
     expect(after!.contact_erased_at).not.toBeNull();
     expect(Date.parse(after!.updated_at)).toBeGreaterThan(Date.parse(row!.updated_at));
 
-    const item = (
-      await campus().list(CampusDriveRequestsQuerySchema.parse({ limit: "200" }))
-    ).drive_requests.find((r) => r.id === row!.id);
+    const item = (await feedOf()).drive_requests.find((r) => r.id === row!.id);
     expect(item?.contact).toBeNull();
     await expect(company().getOne(COMPANY, row!.id)).resolves.toMatchObject({ contact: null });
     // Erasing again changes nothing.
@@ -686,7 +877,8 @@ async function seed(client: DbClient): Promise<void> {
   await payer(UNVERIFIED, "employer", "Unverified Works t2746d");
   await payer(AGENCY, "agent", "Fixture Agency t2746d");
   await payer(LEAVER, "employer", "Leaver Login t2746d");
-  for (const id of [COMPANY, OTHER]) {
+  await payer(WITHDRAWN, "employer", "Withdrawn Works t2746d");
+  for (const id of [COMPANY, OTHER, WITHDRAWN]) {
     await sql`
       INSERT INTO employer_profiles (payer_id, verification_status, gst_number_enc)
       VALUES (${id}::uuid, 'verified', ${pii.encrypt("27ABCDE1234F1Z5")})`;

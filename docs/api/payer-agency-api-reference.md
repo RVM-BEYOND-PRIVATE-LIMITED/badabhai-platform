@@ -766,11 +766,11 @@ Owner rulings 2026-11-03: payer-web's **Candidates** opens on **All candidates**
 
 A company asks RVM's placement team for a campus drive; the team schedules it in BadaBhai Campus and the company sees the date here. The drive itself is a Campus record; BadaBhai keeps the request, the decision and Campus's reference (`campus_drive_ref`).
 
-Behind the `campus_drive_requests` switch (`CAMPUS_DRIVE_REQUESTS_ROLLOUT`: `off` | `pilot` | `on`, read per company by its tenant key). **Default `off`.** While it is not live for the company, **every route below is a plain `404`** (no body detail).
+Behind the `campus_drive_requests` switch (`CAMPUS_DRIVE_REQUESTS_ROLLOUT`: `off` | `pilot` | `on`, read per company by its tenant key). **Default `off`.** The switch gates NEW requests only (owner ruling R1, 14 Nov 2026): while it is not live for the company (removed from the pilot, or off everywhere), **`POST /payer/campus-drive-requests` is a plain `404`** (no body detail), and the list, read and cancel of requests the company already made keep working.
 
 - **Auth (every route):** `PayerAuthGuard` + `PayerRoleGuard` role=`employer`. An `agent` session gets the house `403` (`"Payer role is not permitted for this resource"`) on every route, reads included. The company is the session's: no body or path carries a company id. Every read and write is tenant-scoped in the query; another company's request is the same `404` as an unknown one.
 - **Who may ask (create only):** a **verified** employer: the company record's admin review is `verified` (`PATCH /admin/companies/:id`, `verification_status`) **and** a GSTIN is on file, and nothing else (owner ruling 14 Nov 2026; the phone route can be added later). A phone-verified owner does not count. Otherwise `403` with `error.reason: "company_not_verified"` and `error.missing: ("admin_approval" | "gst_number")[]`, in that order, for the app to list. Under org tenancy `on` a team member is judged by the company's record; in `off`, only the company's own login is.
-- **Not built here:** a cap on open requests (#2768) and an email when a drive is decided (#2767).
+- **Not built here:** a per-company cap on requests (#2768; risk R85: it must land before the switch goes `on`) and an email when a drive is decided (#2767).
 
 #### `POST /payer/campus-drive-requests`
 
@@ -778,13 +778,13 @@ Behind the `campus_drive_requests` switch (`CAMPUS_DRIVE_REQUESTS_ROLLOUT`: `off
 - **Body (strict: an unknown key is a `400`):**
   - `job_posting_id?: uuid`: one of the company's **own** postings, any audience (it is context for the roles). A foreign or unknown id → `404`.
   - `branch_ids?: int[]` (≤ 50): RVM location ids, each an **active** branch option (`GET /payer/job-postings/audience-options` lists them). `[]` or omitted = any branch. Stored sorted and de-duplicated.
-  - `preferred_from`, `preferred_to`: `YYYY-MM-DD`, real dates, `from ≤ to`, `from` not before **today in India**.
+  - `preferred_from`, `preferred_to`: `YYYY-MM-DD`, real dates, `from ≤ to`, `from` not before **today in India**, `to` at most a year after it.
   - `openings: int` (1–1000).
-  - `roles_note?: string` (1–1000): free text for the placement team. Hidden characters (control, invisible format, bidi, lone surrogates) are removed; ZWNJ and ZWJ, which Indic spellings need, are kept. **Refused** when it holds a phone number, an email or another ID (the house hard-identifier check): put the contact person in the contact fields. A digit run like `15000-18000` reads as a phone: write `15,000 to 18,000`.
+  - `roles_note?: string` (1–1000): free text for the placement team. Hidden characters (control, invisible format, bidi, lone surrogates) are removed; ZWNJ and ZWJ, which Indic spellings need, are kept. **Refused** when it holds a phone number, an email or another ID (the house hard-identifier check, run on a normalised copy: digits of any script read as ASCII, full-width characters folded, combining marks dropped, `/` and `\` read as spaces; the note is stored as written): put the contact person in the contact fields. A digit run like `15000-18000` reads as a phone: write `15,000 to 18,000`.
   - `contact_name: string` (1–120) and `contact_phone: string` (E.164, `+919876543210`): the person the placement team calls. Stored only as AES ciphertext.
 - **Response `201`:** the request (shape below), `status: "requested"`.
 - **Repeats:** the same key with the same body answers the **first** request (`201`, same `id`), for as long as the request exists: the key is stored on the row and unique per company. The same key with a **different** body → `409` `error.reason: "idempotency_key_reused"`. A duplicate that arrives while the first is still running → `409` `error.reason: "in_flight"`: re-read the list, do not re-post. A refused attempt stores nothing, so the same key works for the corrected body.
-- **Errors (`error.reason`):** `400` `preferred_dates_in_past`, `roles_note_has_identifier` (`error.identifier`: `phone` | `email` | …; the text is never echoed), `contact_name_required`, `targeting_option_not_offered` (names the branch ids); `403` `company_not_verified`; `404` posting not the company's; `409` as above.
+- **Errors (`error.reason`):** `400` `preferred_dates_in_past`, `preferred_dates_too_far`, `roles_note_has_identifier` (`error.identifier`: `phone` | `email` | …; the text is never echoed), `contact_name_required`, `targeting_option_not_offered` (names the branch ids); `403` `company_not_verified`; `404` posting not the company's; `409` as above.
 - **Events:** `campus_drive.requested` v1 in the same transaction (ids, enums and dates only: `campus_drive_request_id`, `payer_id`, `job_posting_id`, `branch_ids`, `preferred_from`, `preferred_to`, `openings`, `has_roles_note`, `is_test`). Never the contact or the note.
 
 #### `GET /payer/campus-drive-requests`

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { PAYER_PROFILE_VERIFICATION_STATUSES } from "@badabhai/db";
-import { driveRequesterStanding } from "./campus-drive-eligibility";
+import { driveCompanyWithdrawn, driveRequesterStanding } from "./campus-drive-eligibility";
 
 describe("who may ask for a campus drive: a verified employer", () => {
   it("admin approval AND a GST number on file is verified", () => {
@@ -40,5 +40,32 @@ describe("who may ask for a campus drive: a verified employer", () => {
         hasGstNumber: false,
       }),
     ).toEqual({ eligible: false, missing: ["gst_number"] });
+  });
+});
+
+describe("withdrawn from Campus (owner ruling R2): the create check's reads, plus the account status", () => {
+  const ok = {
+    role: "employer" as const,
+    status: "active" as const,
+    verificationStatus: "verified" as const,
+    hasGstNumber: true,
+  };
+
+  it("an active, verified employer with a GSTIN is not withdrawn", () => {
+    expect(driveCompanyWithdrawn(ok)).toBe(false);
+  });
+
+  it.each([
+    ["verification withdrawn", { verificationStatus: "pending" as const }],
+    ["verification suspended", { verificationStatus: "suspended" as const }],
+    ["no company record", { verificationStatus: null }],
+    ["GSTIN removed", { hasGstNumber: false }],
+    ["account suspended", { status: "suspended" as const }],
+    ["account archived", { status: "archived" as const }],
+    ["account never activated", { status: "pending" as const }],
+    ["no account row", { status: null, role: null }],
+    ["an agency", { role: "agent" as const }],
+  ])("%s is withdrawn", (_name, change) => {
+    expect(driveCompanyWithdrawn({ ...ok, ...change })).toBe(true);
   });
 });

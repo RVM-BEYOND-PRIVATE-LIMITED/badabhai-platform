@@ -33,3 +33,49 @@ export function cleanDriveLine(raw: string): string | undefined {
   const cleaned = kept.trim();
   return cleaned.length > 0 ? cleaned : undefined;
 }
+
+const DECIMAL_DIGIT = /\p{Nd}/u;
+const COMBINING_MARK = /\p{M}/u;
+/** `/` and `\`: read as separators, like a space, so `98765/43210` screens as a phone. */
+const SLASHES: ReadonlySet<string> = new Set([
+  String.fromCharCode(0x2f),
+  String.fromCharCode(0x5c),
+]);
+
+/**
+ * The ASCII digit a decimal digit (`\p{Nd}`) stands for. Unicode keeps every script's digits as a
+ * contiguous run of ten in order (0 to 9), and a run of several such tens stays aligned, so the
+ * value is the offset from the start of the run, modulo ten.
+ */
+function asciiDigit(ch: string): string {
+  const cp = ch.codePointAt(0) ?? 0;
+  let start = cp;
+  while (start > 0 && cp - start < 200 && DECIMAL_DIGIT.test(String.fromCodePoint(start - 1))) {
+    start -= 1;
+  }
+  return String((cp - start) % 10);
+}
+
+/**
+ * SECURITY REVIEW M1 (#2746 PR 6) — the copy of a `roles_note` the hard-identifier screen reads.
+ * NEVER STORED: the note is stored as cleaned (`cleanReviewReason`), and only this copy is screened.
+ *
+ * The shared detector (`common/hard-identifier.ts`, unchanged here) reads ASCII digits and `@`, so
+ * a phone in Devanagari or full-width digits, one with a combining mark after each digit, one split
+ * by `/`, and an email with a full-width at sign (U+FF20) all passed. The copy closes those:
+ *   1. NFKC: full-width digits and letters become ASCII, the full-width at sign becomes `@`;
+ *   2. every decimal digit of any script (`\p{Nd}`) becomes its ASCII digit;
+ *   3. combining marks (`\p{M}`) are dropped;
+ *   4. `/` and `\` become a space, which the detector already treats as a separator.
+ * ZWJ / ZWNJ, which the note keeps, are stripped by the detector itself before it matches.
+ */
+export function screeningCopyOf(note: string): string {
+  let out = "";
+  for (const ch of note.normalize("NFKC")) {
+    if (COMBINING_MARK.test(ch)) continue;
+    if (SLASHES.has(ch)) out += SPACE;
+    else if (DECIMAL_DIGIT.test(ch)) out += asciiDigit(ch);
+    else out += ch;
+  }
+  return out;
+}

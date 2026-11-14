@@ -179,17 +179,19 @@ describe("PayerAccountDeletionService.execute (QA immediate seam)", () => {
     // On the transaction's handle, not the pool: it commits only with the delete.
     expect(driveContacts.eraseEnteredBy).toHaveBeenCalledWith(PAYER, TX);
     expect(executors.at(-1)).toBe(TX);
-    expect(order).toEqual(["tx:begin", "erase:drive_contacts", "delete:payers", "tx:commit"]);
+    // The row delete first: the erasure's stamp lands just before the commit.
+    expect(order).toEqual(["tx:begin", "delete:payers", "erase:drive_contacts", "tx:commit"]);
   });
 
-  it("#2746: a payer row delete that fails rolls the erasure back with it and emits nothing", async () => {
+  it("#2746: a payer row delete that fails aborts the transaction before the erasure, and emits nothing", async () => {
     const { svc, events, order } = makeService({
       rowFound: true,
       orgRows: [],
       payerDeleteFails: true,
     });
     await expect(svc.execute(PAYER, { ...CTX })).rejects.toMatchObject({ code: "23503" });
-    expect(order).toEqual(["tx:begin", "erase:drive_contacts", "delete:payers", "tx:rollback"]);
+    // The failing delete aborts the transaction before any contact is touched.
+    expect(order).toEqual(["tx:begin", "delete:payers", "tx:rollback"]);
     expect(events.emit).not.toHaveBeenCalled();
   });
 

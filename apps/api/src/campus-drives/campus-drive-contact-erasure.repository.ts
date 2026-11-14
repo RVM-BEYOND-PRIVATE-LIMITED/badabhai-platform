@@ -22,11 +22,12 @@ const ERASED = {
  *
  * WHERE IT RUNS TODAY. `PayerAccountDeletionService` (the only payer erasure that exists, the
  * QA-only `POST /payer/me/delete/immediate`) calls {@link eraseEnteredBy} on the SAME transaction
- * as the login's row delete, so the erasure commits only if the delete does: the requests of the
- * login's OWN tenant go with the `payers` row (`ON DELETE CASCADE`), but under
- * `PAYER_ORG_TENANCY_MODE=on` a team member's requests belong to the company's tenant key and
- * would otherwise keep the contact that member typed. {@link eraseOne} is for an ops
- * erasure of one request on the contact person's own request; no route calls it yet.
+ * as the login's row delete, right AFTER it, so the erasure commits only if the delete does and its
+ * `updated_at` stamp lands just before the commit: the requests of the login's OWN tenant go with
+ * the `payers` row (`ON DELETE CASCADE`), but under `PAYER_ORG_TENANCY_MODE=on` a team member's
+ * requests belong to the company's tenant key and would otherwise keep the contact that member
+ * typed. An ops erasure of one request, on the contact person's own request, has no route yet
+ * (filed separately); it would erase the same two columns the same way.
  *
  * Provided by `PayersModule` (the deletion service's module) rather than imported from
  * `CampusDrivesModule`: its only dependency is the @Global DATABASE, and importing the feature
@@ -49,15 +50,5 @@ export class CampusDriveContactErasureRepository {
       )
       .returning({ id: campusDriveRequests.id });
     return rows.length;
-  }
-
-  /** Erase one request's contact. `false` when there is no such request or it was erased already. */
-  async eraseOne(id: string, executor: Database = this.db): Promise<boolean> {
-    const rows = await executor
-      .update(campusDriveRequests)
-      .set(ERASED)
-      .where(and(eq(campusDriveRequests.id, id), isNull(campusDriveRequests.contactErasedAt)))
-      .returning({ id: campusDriveRequests.id });
-    return rows.length > 0;
   }
 }

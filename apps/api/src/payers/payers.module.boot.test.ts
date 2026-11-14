@@ -120,9 +120,7 @@ describe("PayersModule — the tenant resolver is wired wherever it is injected 
       // services take the scope their route's owner gate resolved and inject no resolver.
       "AgencyService",
       "AgencyWorkersService",
-      // #2746 PR 6: the company's drive requests resolve its tenant; Campus's decisions resolve the
-      // request OWNER's tenant key for the pilot check.
-      "CampusDriveDecisionsService",
+      // #2746 PR 6: the company's drive requests resolve its tenant (Campus's routes read none).
       "CampusDriveRequestsService",
       // #2746 PR 5: Campus's review resolves the posting OWNER's tenant key for the pilot check.
       "CampusPostingReviewService",
