@@ -231,11 +231,12 @@ describe("Campus review routes over HTTP", () => {
       "x-service-token": TOKEN,
     });
     const duplicate = await put(`${base}/targeting-options`, {
+      as_of: TARGETING_OPTIONS_BODY_EXAMPLE.as_of,
       branches: [
         { id: 1, name: "Faridabad" },
         { id: 1, name: "Faridabad" },
       ],
-      courses: [],
+      courses: TARGETING_OPTIONS_BODY_EXAMPLE.courses,
     });
     expect(noKey.code).toBe("IDEMPOTENCY_KEY_REQUIRED");
     expect(duplicate.res.status).toBe(400);
@@ -278,7 +279,7 @@ describe("Campus review routes over HTTP", () => {
     const low = String.fromCharCode(0xdc00);
     const { res, code } = await put(base + "/targeting-options", {
       as_of: TARGETING_OPTIONS_BODY_EXAMPLE.as_of,
-      branches: [],
+      branches: [{ id: 1, name: "Faridabad" }],
       courses: [
         { id: "c" + high, name: "One" },
         { id: "c" + low, name: "Two" },

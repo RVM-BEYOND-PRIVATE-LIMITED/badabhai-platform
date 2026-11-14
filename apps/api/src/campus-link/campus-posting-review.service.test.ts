@@ -110,7 +110,9 @@ function make(opts: Setup = {}) {
     findTarget: vi.fn(async () => unlocked),
     withTransaction: vi.fn(async <T>(work: (t: Database) => Promise<T>) => work(tx)),
     lockTarget: vi.fn(async () => locked),
-    lockReview: vi.fn(async (_tx: Database, _write: DecisionWrite) => opts.held ?? PENDING),
+    lockReview: vi.fn(
+      async (_tx: Database, _write: DecisionWrite, _pendingFloorMs: number) => opts.held ?? PENDING,
+    ),
     reviewStateNow: vi.fn(async () => opts.stateNow ?? ("pending" as InstituteReviewState)),
     writeDecision: vi.fn(
       async (_tx: Database, _input: DecisionWrite): Promise<DecisionWriteResult> =>
@@ -189,9 +191,20 @@ describe("CampusPostingReviewService — decided_at may not be from BadaBhai's f
 
   it("accepts a decided_at inside the bound (a clock a little ahead)", async () => {
     const m = make();
-    const ahead = new Date(Date.now() + CAMPUS_MAX_CLOCK_SKEW_MS - 60_000).toISOString();
+    const ahead = new Date(Date.now() + CAMPUS_MAX_CLOCK_SKEW_MS - 10_000).toISOString();
     await m.service.review(POSTING, decision({ decided_at: ahead }), CALL);
     expect(m.repo.writeDecision).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses a decided_at before the floor (year 0000 included) with 400, before any read", async () => {
+    for (const decidedAt of ["0000-01-01T00:00:00.000Z", "2025-12-31T23:59:59.000Z"]) {
+      const m = make();
+      const err = await refusal(
+        m.service.review(POSTING, decision({ decided_at: decidedAt }), CALL),
+      );
+      expect(codeOf(err)).toBe("VALIDATION_FAILED");
+      expect(m.repo.findTarget).not.toHaveBeenCalled();
+    }
   });
 });
 
@@ -294,6 +307,25 @@ describe("CampusPostingReviewService — the newest decision wins (decided_at), 
       review_state: "approved",
       reviewed_at: DECIDED_AT,
     });
+    expectNothingStored(m);
+  });
+
+  it("a replay whose stored hash is no longer the posting's (an edit that skipped the reset): 409 POSTING_CHANGED, nothing written", async () => {
+    const m = make({
+      locked: target({ contentHash: OTHER_HASH }),
+      held: { state: "approved", timing: "same", sameDecision: true },
+    });
+    expect(codeOf(await refusal(m.service.review(POSTING, decision(), CALL)))).toBe(
+      "POSTING_CHANGED",
+    );
+    expectNothingStored(m);
+  });
+
+  it("a pending row that went pending after decided_at (beyond the skew): 409 DECISION_SUPERSEDED, nothing written", async () => {
+    const m = make({ held: { state: "pending", timing: "before_reset", sameDecision: false } });
+    expect(codeOf(await refusal(m.service.review(POSTING, decision(), CALL)))).toBe(
+      "DECISION_SUPERSEDED",
+    );
     expectNothingStored(m);
   });
 
@@ -463,7 +495,8 @@ describe("CampusPostingReviewService — the write, its event and its audit row"
       expectedContentHash: HASH,
       decidedAt: DECIDED_AT,
     };
-    expect(repo.lockReview).toHaveBeenCalledWith(tx, expected);
+    // The skew bound is the pending-row floor's tolerance.
+    expect(repo.lockReview).toHaveBeenCalledWith(tx, expected, CAMPUS_MAX_CLOCK_SKEW_MS);
     expect(repo.writeDecision).toHaveBeenCalledWith(tx, expected);
   });
 

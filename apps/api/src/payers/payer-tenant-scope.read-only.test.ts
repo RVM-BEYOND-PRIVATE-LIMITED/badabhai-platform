@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from "vitest";
+import { Logger } from "@nestjs/common";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { loadServerConfig } from "@badabhai/config";
 import type { ActiveMembershipFacts } from "./payer-tenant-scope";
 import type { PayerOrgsRepository } from "./payer-orgs.repository";
@@ -86,4 +87,22 @@ describe("PayerTenantScopeService.resolveReadOnly (#2746 PR 5)", () => {
       expect(orgs.ensureSoloOrg).not.toHaveBeenCalled();
     },
   );
+
+  it("mode shadow: no comparison line for a read-only resolution (resolve still writes it)", async () => {
+    const lines: string[] = [];
+    vi.spyOn(Logger.prototype, "log").mockImplementation((...args: unknown[]) => {
+      lines.push(args.map(String).join(" "));
+    });
+    const { svc } = make("shadow", [membership(MEMBER, MEMBER)]);
+
+    await svc.resolveReadOnly(MEMBER);
+    expect(lines.filter((l) => l.includes("payer tenancy shadow"))).toEqual([]);
+
+    await svc.resolve(MEMBER);
+    expect(lines.filter((l) => l.includes("payer tenancy shadow"))).toHaveLength(1);
+  });
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
 });

@@ -9,7 +9,7 @@ import type {
   CampusTargetingOptionsResponseSchema,
 } from "./campus-link.contract";
 import type { CampusCall } from "./campus-call";
-import { assertNotAheadOfBadaBhai } from "./campus-clock";
+import { assertCampusTime } from "./campus-clock";
 import {
   CampusTargetingOptionsRepository,
   type StoredTargetingOption,
@@ -117,7 +117,7 @@ export class CampusTargetingOptionsService {
     list: CampusTargetingOptionsList,
     call: CampusCall,
   ): Promise<CampusTargetingOptionsResult> {
-    assertNotAheadOfBadaBhai("as_of", list.as_of);
+    assertCampusTime("as_of", list.as_of);
     return this.repo.withTransaction(async (tx) => {
       await this.repo.lockForReplace(tx);
       const timing = await this.repo.listTiming(tx, list.as_of);

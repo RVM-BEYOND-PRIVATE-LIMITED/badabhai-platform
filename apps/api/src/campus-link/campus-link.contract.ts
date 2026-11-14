@@ -2,6 +2,7 @@ import { z } from "zod";
 import { VACANCY_BANDS } from "@badabhai/types";
 import type { JobPayType, JobShift } from "@badabhai/db";
 import { isCanonicalUuid } from "../common/uuid";
+import { hasForbiddenIdCharacter, hasForbiddenLabelCharacter } from "./campus-characters";
 
 /**
  * THE CAMPUS LINK CONTRACT, v1 (#2752 item 1): every route BadaBhai Campus calls under
@@ -55,9 +56,19 @@ export type CampusErrorCode = (typeof CAMPUS_ERROR_CODES)[number];
 
 /**
  * #2746 — how far ahead of BadaBhai's clock a Campus `decided_at` / `as_of` may be. Further ahead
- * is 400 `VALIDATION_FAILED`: a time from the future would outrank every later decision.
+ * is 400 `VALIDATION_FAILED`: a time from the future would outrank every later decision, and a
+ * Campus clock that far ahead would lock out corrections for that long. The same bound is the
+ * tolerance for a decision made just before a company edit reset the review (see the review
+ * service's pending-row floor).
  */
-export const CAMPUS_MAX_CLOCK_SKEW_MS = 5 * 60 * 1000;
+export const CAMPUS_MAX_CLOCK_SKEW_MS = 60 * 1000;
+
+/**
+ * #2746 — the earliest `decided_at` / `as_of` BadaBhai accepts: before the link existed, so no
+ * real decision is older. Earlier is 400 `VALIDATION_FAILED` (a year-0000 time parses in
+ * JavaScript but not as a Postgres `timestamptz`).
+ */
+export const CAMPUS_EARLIEST_DECISION_TIME = "2026-01-01T00:00:00.000Z";
 
 // ─── Primitives ──────────────────────────────────────────────────────────────
 
@@ -88,17 +99,12 @@ export const Phone10Schema = z.string().regex(/^[6-9]\d{9}$/);
 export const BranchIdSchema = z.number().int().positive();
 
 /**
- * Characters no id may hold: control (`Cc`), format (`Cf`: bidi overrides, zero-width), lone
- * surrogates (`Cs`), private use (`Co`), unassigned (`Cn`) and every separator (`Z`: spaces, line
- * and paragraph separators). A NUL would reach Postgres and fail the row (22021); a lone surrogate
- * is rewritten to U+FFFD by the driver, so two distinct ids would collapse into one key.
- */
-const ID_FORBIDDEN_CHARACTERS = /[\p{Cc}\p{Cf}\p{Cs}\p{Co}\p{Cn}\p{Z}]/u;
-
-/**
  * A Scheduler course id. Matching happens on the id once the Student API returns one. Trimmed;
- * no hidden or separator character (`ID_FORBIDDEN_CHARACTERS`). Deliberately no charset beyond
- * that: the Scheduler's id format is not confirmed.
+ * no control, format, surrogate, private-use, unassigned or separator character, except a plain
+ * ASCII space inside the id (`hasForbiddenIdCharacter`, `./campus-characters`). A NUL would reach
+ * Postgres and fail the row (22021); a lone surrogate is rewritten to U+FFFD by the driver, so two
+ * distinct ids would collapse into one key. Deliberately no charset beyond that: the Scheduler's
+ * id format is not confirmed.
  */
 export const CourseIdSchema = z
   .string()
@@ -106,8 +112,8 @@ export const CourseIdSchema = z
   .min(1)
   .max(64)
   .refine(
-    (id) => !ID_FORBIDDEN_CHARACTERS.test(id),
-    "no control, format, separator, surrogate, private-use or unassigned characters",
+    (id) => !hasForbiddenIdCharacter(id),
+    "no control, format, separator (but a plain space), surrogate, private-use or unassigned characters",
   );
 
 const IsoDateTime = z.string().datetime({ offset: true });
@@ -245,14 +251,6 @@ export const CampusReviewResponseSchema = z.object({
 // ─── PUT targeting-options (#2746) ───────────────────────────────────────────
 
 /**
- * Characters a targeting label may not hold: control (`Cc`), format (`Cf`), lone surrogates
- * (`Cs`), private use (`Co`), unassigned (`Cn`), and line or paragraph separators (`Zl`, `Zp`).
- * A label is shown to companies verbatim, so nothing in it may be invisible or rewritten by the
- * driver. Ordinary spaces are allowed.
- */
-const LABEL_FORBIDDEN_CHARACTERS = /[\p{Cc}\p{Cf}\p{Cs}\p{Co}\p{Cn}\p{Zl}\p{Zp}]/u;
-
-/**
  * The bounds of one targeting list. Chosen so the LARGEST valid body, in plain UTF-8, fits the
  * api's 100 kB JSON limit (Express's default): 50 branches (the most a posting may target) and
  * 100 courses (likewise), each label up to 150 characters, each course id up to 64. Every Indian
@@ -267,15 +265,20 @@ export const CAMPUS_TARGETING_LIMITS = {
   maxBranchId: 9_999_999_999,
 } as const;
 
-/** A place or course name as companies see it: reference data, never personal data (`rto_label_chk`). */
+/**
+ * A place or course name as companies see it: reference data, never personal data (`rto_label_chk`).
+ * Shown verbatim, so no control, format, surrogate, private-use, unassigned, line or paragraph
+ * separator character, except ZWNJ / ZWJ, which Indic spellings need (`hasForbiddenLabelCharacter`).
+ * Spaces are allowed.
+ */
 const TargetingLabelSchema = z
   .string()
   .trim()
   .min(1)
   .max(CAMPUS_TARGETING_LIMITS.labelLength)
   .refine(
-    (label) => !LABEL_FORBIDDEN_CHARACTERS.test(label),
-    "no control, format, surrogate, private-use, unassigned or line-separator characters",
+    (label) => !hasForbiddenLabelCharacter(label),
+    "no control, format (but ZWNJ/ZWJ), surrogate, private-use, unassigned or line-separator characters",
   );
 
 const TargetingBranchSchema = z.strictObject({
@@ -298,8 +301,9 @@ function idsUnique(entries: readonly { id: number | string }[]): boolean {
  * THE WHOLE CURRENT LIST of branches and courses a company may target. Campus sends every option
  * it offers, each time; the position in its list is the order companies see. An option BadaBhai
  * holds that is not in the list is marked inactive, never deleted, because postings hold the refs.
- * Both lists are required (an empty one retires every option of that kind); an id appears at most
- * once in its list.
+ * Both lists are required and NON-EMPTY (an applied list must stamp at least one row, the
+ * high-water mark below; to retire an option, leave it out of a list that still names another);
+ * an id appears at most once in its list.
  *
  * `as_of` (REQUIRED): when Campus read this list, by its clock. A list is applied only when it is
  * newer than the last one applied; an older or same-instant list that differs from what is held is
@@ -309,10 +313,12 @@ function idsUnique(entries: readonly { id: number | string }[]): boolean {
 export const CampusTargetingOptionsBodySchema = z.strictObject({
   branches: z
     .array(TargetingBranchSchema)
+    .min(1)
     .max(CAMPUS_TARGETING_LIMITS.branches)
     .refine(idsUnique, "each branch id at most once"),
   courses: z
     .array(TargetingCourseSchema)
+    .min(1)
     .max(CAMPUS_TARGETING_LIMITS.courses)
     .refine(idsUnique, "each course id at most once"),
   as_of: IsoDateTime,

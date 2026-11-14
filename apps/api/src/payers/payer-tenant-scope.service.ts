@@ -68,17 +68,7 @@ export class PayerTenantScopeService {
   /** The tenant scope for one request. Resolve once at the service entry point; pass it down. */
   async resolve(actorPayerId: string): Promise<PayerTenantScope> {
     const mode = this.mode();
-    if (mode !== "on") {
-      try {
-        return await this.servedWithoutTenancy(actorPayerId, mode);
-      } catch {
-        // `off` never fails a request: the key is the actor whatever the membership read did.
-        this.logger.warn(
-          `payer tenancy: membership read failed (mode=${mode} actor=${actorPayerId})`,
-        );
-        return this.expectResolved(chooseActingOrg([], actorPayerId, mode));
-      }
-    }
+    if (mode !== "on") return this.servedOffOrShadow(actorPayerId, mode, true);
 
     let choice: ActingOrgChoice;
     try {
@@ -132,7 +122,9 @@ export class PayerTenantScopeService {
    * decision as {@link resolve}, with ONE difference: it NEVER WRITES. No heal and no solo org, in
    * any mode, because a call that is not the payer's own must not create tenancy rows for them.
    *
-   *   - `off` / `shadow`: as {@link resolve} (those modes never heal; the key is the payer itself).
+   *   - `off` / `shadow`: as {@link resolve} (those modes never heal; the key is the payer itself),
+   *     but `shadow` writes NO comparison line: that line is the evidence for arming `on` and must
+   *     count the payer's own resolutions only, never a service caller reading their stored id.
    *   - `on`: `null` when the payer has no membership to act in (where {@link resolve} would heal)
    *     or tenancy denies them (logged as every denial is). A read error propagates.
    *
@@ -140,7 +132,7 @@ export class PayerTenantScopeService {
    */
   async resolveReadOnly(payerId: string): Promise<PayerTenantScope | null> {
     const mode = this.mode();
-    if (mode !== "on") return this.resolve(payerId);
+    if (mode !== "on") return this.servedOffOrShadow(payerId, mode, false);
     const choice = chooseActingOrg(
       await this.orgs.listActiveMembershipsWithAnchor(payerId),
       payerId,
@@ -169,12 +161,30 @@ export class PayerTenantScopeService {
   private async servedWithoutTenancy(
     actorPayerId: string,
     mode: Exclude<PayerOrgTenancyMode, "on">,
+    logShadow = true,
   ): Promise<PayerTenantScope> {
     const startedAt = Date.now();
     const memberships = await this.orgs.listActiveMembershipsWithAnchor(actorPayerId);
     const served = this.expectResolved(chooseActingOrg(memberships, actorPayerId, mode));
-    if (mode === "shadow") this.logShadow(actorPayerId, memberships, startedAt);
+    if (mode === "shadow" && logShadow) this.logShadow(actorPayerId, memberships, startedAt);
     return served;
+  }
+
+  /**
+   * `off` / `shadow` for {@link resolve} and {@link resolveReadOnly}: never fails a request (the key
+   * is the payer whatever the membership read did). `logShadow` is false for a read-only resolution.
+   */
+  private async servedOffOrShadow(
+    payerId: string,
+    mode: Exclude<PayerOrgTenancyMode, "on">,
+    logShadow: boolean,
+  ): Promise<PayerTenantScope> {
+    try {
+      return await this.servedWithoutTenancy(payerId, mode, logShadow);
+    } catch {
+      this.logger.warn(`payer tenancy: membership read failed (mode=${mode} actor=${payerId})`);
+      return this.expectResolved(chooseActingOrg([], payerId, mode));
+    }
   }
 
   /** `on`: decide; with no membership at all, heal the solo org once (R4) and decide again. */

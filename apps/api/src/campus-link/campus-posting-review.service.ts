@@ -19,11 +19,12 @@ import { FeatureRolloutService } from "../feature-rollout/feature-rollout.servic
 import { PostingAudienceRepository } from "../job-postings/posting-audience.repository";
 import { PayerTenantScopeService } from "../payers/payer-tenant-scope.service";
 import type { CampusCall } from "./campus-call";
-import { assertNotAheadOfBadaBhai } from "./campus-clock";
-import type {
-  CampusErrorCode,
-  CampusReviewBodySchema,
-  CampusReviewResponseSchema,
+import { assertCampusTime } from "./campus-clock";
+import {
+  CAMPUS_MAX_CLOCK_SKEW_MS,
+  type CampusErrorCode,
+  type CampusReviewBodySchema,
+  type CampusReviewResponseSchema,
 } from "./campus-link.contract";
 import {
   CampusPostingReviewRepository,
@@ -62,8 +63,9 @@ function reviewable(target: ReviewTarget): target is ReviewTarget & { ownerPayer
  * #2746 PR 5 — THE PLACEMENT TEAM REVIEWS THE RVM PART OF A POSTING (`PUT job-postings/:id/review`,
  * mounted only behind `CampusServiceGuard`).
  *
- * WHICH POSTINGS. A `decided_at` more than `CAMPUS_MAX_CLOCK_SKEW_MS` ahead of BadaBhai's clock is
- * 400 `VALIDATION_FAILED` before anything is read. Neutral 404 (no `code`, no hint that the posting
+ * WHICH POSTINGS. A `decided_at` before `CAMPUS_EARLIEST_DECISION_TIME` or more than
+ * `CAMPUS_MAX_CLOCK_SKEW_MS` ahead of BadaBhai's clock is 400 `VALIDATION_FAILED` before anything
+ * is read. Neutral 404 (no `code`, no hint that the posting
  * exists): an id that is not a posting, a draft, a hidden posting, a posting with no owning company
  * (ops postings, agency twins), and every posting while `job_audience` is not live for its owner —
  * globally off, in `pilot` with the owner off the list, or tenancy not resolving the owner without
@@ -78,14 +80,19 @@ function reviewable(target: ReviewTarget): target is ReviewTarget & { ownerPayer
  * THE NEWEST DECISION WINS, BY `decided_at` (owner decision 2026-11-14), checked on the review row
  * under its lock, BEFORE the content hash:
  *   1. the same `decided_at` and the same decision (state, reviewer, reason, narrowing, hash) as
- *      the row holds: a replay — 200 with the stored decision, nothing written;
- *   2. the same `decided_at` with anything different, or an older one: 409 `DECISION_SUPERSEDED`;
+ *      the row holds: a replay — 200 with the stored decision, nothing written; but only while
+ *      that decision still holds (its hash is the posting's hash now), else 409 `POSTING_CHANGED`;
+ *   2. the same `decided_at` with anything different, an older one, or — on a row that was
+ *      ALREADY pending — one older than when it became pending (`updated_at`) by more than
+ *      `CAMPUS_MAX_CLOCK_SKEW_MS`: 409 `DECISION_SUPERSEDED`. That last floor is what stops a lost
+ *      decision landing after a company edit reset the row and then restored the content
+ *      (A→B→A, risk R84, closed); a row this call creates is exempt, so a first decision applies;
  *   3. the body's `content_hash` not the posting's hash now: 409 `POSTING_CHANGED`.
  * Time first: a decision older than the one held is obsolete whatever the content did, and saying
  * so stops Campus re-reviewing it; a current decision on changed content is then `POSTING_CHANGED`.
  * A write needs both to pass, and the write statement re-checks both, so neither can let the
- * other's stale case through. A pending row (no decision, or one a company edit reset) accepts any
- * time: the hash is then the only guard (risk register R84).
+ * other's stale case through. Inside the floor's 60 s tolerance a pending row's only guard is the
+ * hash: the window R84's closure records.
  *
  * NARROWING. A narrowed `branch_ids` / `course_ids` replaces the posting's own for RVM students.
  * Each id must be within the posting's own list; when that list is `[]` (every branch / course),
@@ -121,7 +128,7 @@ export class CampusPostingReviewService {
     call: CampusCall,
   ): Promise<CampusReviewResult> {
     // The body first: a time from BadaBhai's future would outrank every later decision.
-    assertNotAheadOfBadaBhai("decided_at", decision.decided_at);
+    assertCampusTime("decided_at", decision.decided_at);
     // A malformed id cannot name a posting: the same 404 as an unknown one, before any read.
     if (!isCanonicalUuid(postingId)) throw neutralNotFound();
     // Off everywhere: no read at all. In `pilot` this is true for every company; the owner check
@@ -163,13 +170,22 @@ export class CampusPostingReviewService {
       if (locked.status === "closed") throw campusConflict("POSTING_NOT_OPEN");
 
       // The review row, AFTER the posting (the house lock order), created pending if missing.
-      const held = await this.repo.lockReview(tx, write);
+      // The skew bound is also the floor's tolerance for a decision made just before a reset.
+      const held = await this.repo.lockReview(tx, write, CAMPUS_MAX_CLOCK_SKEW_MS);
       // 1–2. Time first (see the class note).
       if (held.timing === "same" && held.sameDecision) {
+        // The replay answers the held decision only while it still holds: its stored hash (the
+        // body's, by `sameDecision`) is the posting's hash NOW. A writer that changed the content
+        // without a reset (an ops edit, a hand edit, a hash version bump) leaves a decision that
+        // reads pending; the replay then says so the way any stale body is told: POSTING_CHANGED.
+        if (locked.contentHash !== write.expectedContentHash) {
+          this.logOutcome(id, write.state, "posting_changed");
+          throw campusConflict("POSTING_CHANGED");
+        }
         this.logOutcome(id, write.state, "unchanged");
         return { posting_id: id, review_state: held.state, reviewed_at: write.decidedAt };
       }
-      if (held.timing === "same" || held.timing === "older") {
+      if (held.timing === "same" || held.timing === "older" || held.timing === "before_reset") {
         this.logOutcome(id, write.state, "superseded");
         throw campusConflict("DECISION_SUPERSEDED");
       }

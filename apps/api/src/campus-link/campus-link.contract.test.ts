@@ -185,11 +185,12 @@ describe("Campus contract v1 — PUT targeting-options (#2746)", () => {
   const parse = (over: Record<string, unknown>) =>
     CampusTargetingOptionsBodySchema.safeParse({ ...list, ...over }).success;
 
-  it("needs both lists, and an empty list is a valid answer (it retires every option of the kind)", () => {
+  it("needs both lists, each NON-EMPTY (an applied list must stamp a row: the as_of mark)", () => {
     expect(CampusTargetingOptionsBodySchema.safeParse({ branches: list.branches }).success).toBe(
       false,
     );
-    expect(parse({ courses: [] })).toBe(true);
+    expect(parse({ courses: [] })).toBe(false);
+    expect(parse({ branches: [] })).toBe(false);
   });
 
   it("refuses an id listed twice", () => {
@@ -218,7 +219,7 @@ describe("Campus contract v1 — PUT targeting-options (#2746)", () => {
     const trimmed = CampusTargetingOptionsBodySchema.parse({
       as_of: list.as_of,
       branches: [{ id: 1, name: "  Faridabad  " }],
-      courses: [],
+      courses: [{ id: "cnc", name: "CNC" }],
     });
     expect(trimmed.branches[0]!.name).toBe("Faridabad");
   });
@@ -240,6 +241,10 @@ const HIGH_SURROGATE = cp(0xd800);
 const LOW_SURROGATE = cp(0xdc00);
 const NBSP = cp(0x00a0);
 const KA = cp(0x0915); // Devanagari letter KA: 3 bytes in UTF-8
+const ZWNJ = cp(0x200c); // zero-width non-joiner (Cf, allowed in text)
+const ZWJ = cp(0x200d); // zero-width joiner (Cf, allowed in text)
+const ZWSP_L = cp(0x200b); // zero-width space (Cf, refused)
+const LRI = cp(0x2066); // left-to-right isolate (Cf, refused)
 
 describe("Campus contract v1 — every decision carries its time (#2746, owner 14 Nov 2026)", () => {
   it("requires decided_at on the review, an ISO time with an offset", () => {
@@ -279,7 +284,10 @@ describe("Campus contract v1 — CourseIdSchema, shared by the review, the optio
 
   it("refuses control (a NUL would be a 22021 in Postgres), format and separator characters", () => {
     expect(ok("cnc" + NUL)).toBe(false);
-    expect(ok("cnc programming")).toBe(false);
+    // A plain ASCII space inside the id is allowed (the Scheduler's format is unconfirmed); the ends
+    // are trimmed. Every other separator is refused.
+    expect(ok("cnc programming")).toBe(true);
+    expect(CourseIdSchema.parse(" cnc programming ")).toBe("cnc programming");
     expect(ok("cnc" + NBSP + "x")).toBe(false);
     expect(ok("cnc" + LINE_SEP + "x")).toBe(false);
     expect(ok("cnc" + PARA_SEP + "x")).toBe(false);
@@ -292,7 +300,7 @@ describe("Campus contract v1 — CourseIdSchema, shared by the review, the optio
     expect(
       CampusTargetingOptionsBodySchema.safeParse({
         as_of: examples.TARGETING_OPTIONS_BODY_EXAMPLE.as_of,
-        branches: [],
+        branches: [{ id: 1, name: "Faridabad" }],
         courses: [
           { id: "c" + HIGH_SURROGATE, name: "One" },
           { id: "c" + LOW_SURROGATE, name: "Two" },
@@ -302,6 +310,7 @@ describe("Campus contract v1 — CourseIdSchema, shared by the review, the optio
   });
 
   it("refuses private-use and unassigned code points, and imposes no charset beyond that", () => {
+    expect(ok("cnc" + ZWJ)).toBe(false);
     expect(ok("cnc" + PRIVATE_USE)).toBe(false);
     expect(ok("cnc" + UNASSIGNED)).toBe(false);
     expect(ok("CNC_101.v2:a/b")).toBe(true);
@@ -331,6 +340,10 @@ describe("Campus contract v1 — targeting labels and the body's size", () => {
     expect(label("Fari" + HIGH_SURROGATE + "dabad")).toBe(false);
     // Ordinary spaces and any script stay.
     expect(label("Faridabad Sector 24")).toBe(true);
+    // ZWNJ and ZWJ, which Indic spellings need, are the only format characters a label keeps.
+    expect(label("x" + ZWNJ + "y" + ZWJ + "z")).toBe(true);
+    expect(label("Fari" + ZWSP_L + "dabad")).toBe(false);
+    expect(label("Fari" + LRI + "dabad")).toBe(false);
     expect(label(KA.repeat(20))).toBe(true);
   });
 
@@ -346,8 +359,8 @@ describe("Campus contract v1 — targeting labels and the body's size", () => {
       }).success;
     expect(CAMPUS_TARGETING_LIMITS).toMatchObject({ branches: 50, courses: 100, labelLength: 150 });
     expect(parse(50, 100)).toBe(true);
-    expect(parse(51, 0)).toBe(false);
-    expect(parse(0, 101)).toBe(false);
+    expect(parse(51, 1)).toBe(false);
+    expect(parse(1, 101)).toBe(false);
   });
 
   it("the LARGEST valid body, in plain UTF-8, fits the api's 100 kB JSON limit", () => {

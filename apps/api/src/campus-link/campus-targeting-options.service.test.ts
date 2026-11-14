@@ -105,10 +105,15 @@ describe("planTargetingReplacement", () => {
     expect(plan.retire).toEqual({ branch: [], course: [] });
   });
 
-  it("an empty list retires every active option of the kind and leaves inactive ones alone", () => {
-    const plan = planTargetingReplacement(STORED, { as_of: AS_OF, branches: [], courses: [] });
+  it("a list naming only new options retires every active option it leaves out, and leaves inactive ones alone", () => {
+    // Lists are never empty (the contract's min(1)); one that names only new refs retires the rest.
+    const plan = planTargetingReplacement(STORED, {
+      as_of: AS_OF,
+      branches: [{ id: 4, name: "Lucknow" }],
+      courses: [{ id: "cad", name: "CAD Design" }],
+    });
     expect(plan.retire).toEqual({ branch: ["1", "2", "3"], course: ["cnc"] });
-    expect(plan.counts.branches.deactivated).toBe(3);
+    expect(plan.counts.branches).toEqual({ listed: 1, added: 1, updated: 0, deactivated: 3 });
   });
 
   it("keys a branch by its id as text, the form rvm_targeting_options.ref stores", () => {
@@ -269,6 +274,17 @@ describe("CampusTargetingOptionsService.replace", () => {
     );
     expect(err).toBeInstanceOf(BadRequestException);
     expect(JSON.stringify((err as BadRequestException).getResponse())).toContain("as_of");
+    expect(repo.withTransaction).not.toHaveBeenCalled();
+  });
+
+  it("refuses an as_of before the floor (year 0000 included) with 400, before the transaction", async () => {
+    const { service, repo } = make();
+    const err = await service.replace({ ...LIST, as_of: "0000-01-01T00:00:00.000Z" }, CALL).then(
+      () => undefined,
+      (e: unknown) => e,
+    );
+    expect(err).toBeInstanceOf(BadRequestException);
+    expect((err as BadRequestException).getResponse()).toMatchObject({ code: "VALIDATION_FAILED" });
     expect(repo.withTransaction).not.toHaveBeenCalled();
   });
 });

@@ -40,9 +40,17 @@ describe("cleanReviewReason", () => {
     expect(cleanReviewReason(`${LRI}note${PDI}`)).toBe("note");
   });
 
-  it("strips zero-width and other invisible format characters", () => {
-    const dirty = `pa${ZWSP}y${ZWJ} lo${WORD_JOINER}w${SOFT_HYPHEN}${BOM}`;
+  it("strips zero-width space and the other invisible format characters", () => {
+    const dirty = `pa${ZWSP}y lo${WORD_JOINER}w${SOFT_HYPHEN}${BOM}`;
     expect(cleanReviewReason(dirty)).toBe("pay low");
+  });
+
+  it("keeps ZWNJ and ZWJ, which Indic spellings need, and still strips a bidi override beside them", () => {
+    const ZWNJ = ch(0x200c);
+    // Devanagari KA + VIRAMA + ZWJ + SSA: a half-form conjunct written with a joiner.
+    const conjunct = ch(0x0915) + ch(0x094d) + ZWJ + ch(0x0937);
+    expect(cleanReviewReason(`${conjunct} ${ZWNJ}ok`)).toBe(`${conjunct} ${ZWNJ}ok`);
+    expect(cleanReviewReason(`${RLO}${conjunct}`)).toBe(conjunct);
   });
 
   it("trims after stripping, so hidden characters cannot shield whitespace", () => {

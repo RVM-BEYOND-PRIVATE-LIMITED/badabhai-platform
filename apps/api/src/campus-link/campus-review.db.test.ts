@@ -124,6 +124,16 @@ function decidedNow(): string {
 }
 
 /**
+ * A decision made NOW by real time (strictly increasing): for a decision that must come after a
+ * company edit reset the review, which stamps the row at the database's real clock.
+ */
+let realClock = 0;
+function decidedRealNow(): string {
+  realClock = Math.max(Date.now(), realClock + 1);
+  return new Date(realClock).toISOString();
+}
+
+/**
  * `EventsService` that can HOLD its next emit: the caller's transaction then stays open, holding
  * every row lock it took, until released. Both write paths emit inside their transaction after
  * their row writes, so this freezes a real company edit or a real review at its most-locked point.
@@ -224,7 +234,12 @@ describe.skipIf(!RUN)("#2746 PR 5 — Campus records the RVM review (Postgres)",
     };
   }
 
-  /** A published posting for `owner` with an RVM audience. */
+  /**
+   * A published posting for `owner` with an RVM audience. Its pending review row is backdated two
+   * hours: the suite's Campus clock (`decidedNow`) runs an hour behind real time, and a posting
+   * must have gone pending BEFORE a decision on it (the pending-row floor refuses a decision older
+   * than that by more than the skew bound).
+   */
   async function openPosting(
     over: Partial<PayerCreateJobPostingWithAudienceDto> = {},
     owner = COMPANY,
@@ -236,6 +251,9 @@ describe.skipIf(!RUN)("#2746 PR 5 — Campus records the RVM review (Postgres)",
       CTX,
     );
     await svc.updateForPayer(created.id, owner, { status: "open" }, CTX);
+    await client.sql`
+      UPDATE job_posting_institute_reviews SET updated_at = now() - interval '2 hours'
+       WHERE job_posting_id = ${created.id}::uuid`;
     return created.id;
   }
 
@@ -474,7 +492,11 @@ describe.skipIf(!RUN)("#2746 PR 5 — Campus records the RVM review (Postgres)",
     const seen = await hashOf(id);
     await companyService().updateForPayer(id, COMPANY, { description: "Night shift too." }, CTX);
 
-    expect(await refusal(reviewService().review(id, decision(seen), CALL))).toEqual({
+    expect(
+      await refusal(
+        reviewService().review(id, decision(seen, { decided_at: decidedRealNow() }), CALL),
+      ),
+    ).toEqual({
       status: 409,
       code: "POSTING_CHANGED",
     });
@@ -482,7 +504,7 @@ describe.skipIf(!RUN)("#2746 PR 5 — Campus records the RVM review (Postgres)",
 
     const fresh = await hashOf(id);
     expect(fresh).not.toBe(seen);
-    await reviewService().review(id, decision(fresh), CALL);
+    await reviewService().review(id, decision(fresh, { decided_at: decidedRealNow() }), CALL);
     expect(await approved(id)).toBe(true);
   }, 60_000);
 
@@ -497,7 +519,11 @@ describe.skipIf(!RUN)("#2746 PR 5 — Campus records the RVM review (Postgres)",
     expect(await approved(id)).toBe(false);
 
     // And a writer that resets nothing cannot leak an edit: the read compares the hash live.
-    await reviewService().review(id, decision(await hashOf(id)), CALL);
+    await reviewService().review(
+      id,
+      decision(await hashOf(id), { decided_at: decidedRealNow() }),
+      CALL,
+    );
     expect(await approved(id)).toBe(true);
     await client.sql`UPDATE job_postings SET pay_min = 9000 WHERE id = ${id}::uuid`;
     expect((await review(id))?.state).toBe("approved");
@@ -584,7 +610,7 @@ describe.skipIf(!RUN)("#2746 PR 5 — Campus records the RVM review (Postgres)",
     expect(await reviewedEvents(id)).toHaveLength(1);
   }, 60_000);
 
-  it("a decided_at from BadaBhai's future is refused with 400, nothing stored", async () => {
+  it("a decided_at from BadaBhai's future, or before the floor, is refused with 400, nothing stored", async () => {
     const id = await openPosting();
     const before = await review(id);
     const ahead = new Date(Date.now() + CAMPUS_MAX_CLOCK_SKEW_MS + 60_000).toISOString();
@@ -594,8 +620,64 @@ describe.skipIf(!RUN)("#2746 PR 5 — Campus records the RVM review (Postgres)",
         reviewService().review(id, decision(await hashOf(id), { decided_at: ahead }), CALL),
       ),
     ).toEqual({ status: 400, code: "VALIDATION_FAILED" });
+    expect(
+      await refusal(
+        reviewService().review(
+          id,
+          decision(await hashOf(id), { decided_at: "0000-01-01T00:00:00.000Z" }),
+          CALL,
+        ),
+      ),
+    ).toEqual({ status: 400, code: "VALIDATION_FAILED" });
     expect(await review(id)).toEqual(before);
     expect(await reviewedEvents(id)).toEqual([]);
+  }, 60_000);
+
+  it("a replay after an edit that skipped the reset is 409 POSTING_CHANGED, never the stale approval", async () => {
+    const id = await openPosting();
+    const body = decision(await hashOf(id));
+    await reviewService().review(id, body, CALL);
+    // A BadaBhai-side write that does not reset the review (an ops or hand edit).
+    await client.sql`UPDATE job_postings SET pay_max = 31000 WHERE id = ${id}::uuid`;
+    const stored = await review(id);
+
+    expect(await refusal(reviewService().review(id, body, CALL))).toEqual({
+      status: 409,
+      code: "POSTING_CHANGED",
+    });
+    expect(await review(id)).toEqual(stored); // still `approved` as stored, nothing written
+    expect(await approved(id)).toBe(false); // and reads pending, by the live hash
+    expect(await reviewedEvents(id)).toHaveLength(1);
+  }, 60_000);
+
+  it("A→B→A: a lost approve(t1) arriving after reject(t2) and a company edit away and back is 409, the row stays pending", async () => {
+    const id = await openPosting({ description: "Version A of the posting." });
+    const contentA = await hashOf(id);
+    const svc = reviewService();
+    const approveT1 = decision(contentA);
+    await svc.review(id, approveT1, CALL);
+    await svc.review(id, decision(contentA, { state: "rejected" }), CALL); // t2
+
+    // The company edits to B (its reset stamps the row now, t3), then back to A.
+    const company = companyService();
+    await company.updateForPayer(id, COMPANY, { description: "Version B of the posting." }, CTX);
+    await company.updateForPayer(id, COMPANY, { description: "Version A of the posting." }, CTX);
+    expect(await hashOf(id)).toBe(contentA); // the exact content the lost approval saw
+    const pending = await review(id);
+    expect(pending).toMatchObject({ state: "pending", reviewed_at: null });
+
+    // The lost approve(t1) finally arrives: older than the reset by more than the skew bound.
+    expect(await refusal(svc.review(id, approveT1, CALL))).toEqual({
+      status: 409,
+      code: "DECISION_SUPERSEDED",
+    });
+    expect(await review(id)).toEqual(pending);
+    expect(await approved(id)).toBe(false);
+    expect(await reviewedEvents(id)).toHaveLength(2);
+
+    // A decision made now, after the reset, still applies.
+    await svc.review(id, decision(contentA, { decided_at: decidedRealNow() }), CALL);
+    expect(await approved(id)).toBe(true);
   }, 60_000);
 
   // ── Narrowing, and which postings ───────────────────────────────────────────
@@ -739,7 +821,7 @@ describe.skipIf(!RUN)("#2746 PR 5 — Campus records the RVM review (Postgres)",
 
     let settled = false;
     const reviewing = reviewService(ON, eventsService)
-      .review(id, decision(seen, { reviewer_ref: REVIEWER_2 }), CALL)
+      .review(id, decision(seen, { reviewer_ref: REVIEWER_2, decided_at: decidedRealNow() }), CALL)
       .then(
         () => null,
         (e: unknown) => e,
@@ -1025,7 +1107,11 @@ describe.skipIf(!RUN)("#2746 PR 5 — Campus records the RVM review (Postgres)",
         const before = await rows();
         const late = await svc
           .replace(
-            { ...list1, as_of: new Date(Date.parse(asOf1) - 60_000).toISOString(), courses: [] },
+            {
+              ...list1,
+              as_of: new Date(Date.parse(asOf1) - 60_000).toISOString(),
+              courses: [{ id: COURSE_A, name: "Fixture CNC course" }],
+            },
             CALL,
           )
           .then(
@@ -1035,18 +1121,24 @@ describe.skipIf(!RUN)("#2746 PR 5 — Campus records the RVM review (Postgres)",
         expect(late).toBeInstanceOf(ConflictException);
         expect((late as ConflictException).getResponse()).toEqual({ code: "DECISION_SUPERSEDED" });
         // The same instant with a different list: refused too.
-        const clash = await svc.replace({ ...list1, courses: [] }, CALL).then(
-          () => undefined,
-          (e: unknown) => e,
-        );
+        const clash = await svc
+          .replace({ ...list1, courses: [{ id: COURSE_A, name: "Fixture CNC course" }] }, CALL)
+          .then(
+            () => undefined,
+            (e: unknown) => e,
+          );
         expect((clash as ConflictException).getResponse()).toEqual({ code: "DECISION_SUPERSEDED" });
         expect(await rows()).toEqual(before);
         expect(Date.parse((await highWater()).hw)).toBe(Date.parse(asOf1));
 
         // A newer list applies and moves the mark.
         const asOf2 = new Date(Date.parse(asOf1) + 1000).toISOString();
-        await svc.replace({ ...list1, as_of: asOf2, courses: [] }, CALL);
+        await svc.replace(
+          { ...list1, as_of: asOf2, courses: [{ id: COURSE_A, name: "Fixture CNC course" }] },
+          CALL,
+        );
         expect((await rows()).find((r) => r.ref === "t2746r-new")?.active).toBe(false);
+        expect((await rows()).find((r) => r.ref === COURSE_A)?.active).toBe(true);
         expect(Date.parse((await highWater()).hw)).toBe(Date.parse(asOf2));
         throw ROLLBACK;
       })

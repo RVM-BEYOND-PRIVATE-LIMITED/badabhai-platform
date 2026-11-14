@@ -851,6 +851,9 @@ const CONTRACT: ControllerContract[] = [
       buyPlan: [P, R],
       buyBoost: [P, R],
       topUpQuota: [P, R],
+      // #2746 PR 4 — GET audience-options: the class pair, employer accounts only
+      // (@PayerRoles('employer')); a neutral 404 while job_audience is off for the company.
+      audienceOptions: [P, R],
     },
   },
   { name: "PayerOrgInvites", ctor: PayerOrgInvitesController, routes: { accept: [P] } },

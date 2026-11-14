@@ -51,12 +51,17 @@ export interface DecisionWrite {
 }
 
 /**
- * Where a decision's `decided_at` stands against the decision the row holds:
- *   - `none`: the row holds no decision (`pending`), so any time applies;
- *   - `newer` / `same` / `older`: compared with the held `reviewed_at`, in Postgres, to the
- *     microsecond.
+ * Where a decision's `decided_at` stands against the row, compared in Postgres to the microsecond:
+ *   - `none`: the row holds no decision (`pending`) and the decision is not older than that pending
+ *     state (or the row was created by this very call), so it may apply;
+ *   - `before_reset`: the row is `pending` from BEFORE this call, and `decided_at` is earlier than
+ *     the row's `updated_at` (when it became pending: a company edit's reset, an audience change,
+ *     the posting's creation) minus the skew bound. The decision predates the state it would
+ *     replace, so it is refused (this closes risk R84: a lost decision cannot land after a
+ *     company edit A→B→A);
+ *   - `newer` / `same` / `older`: against the held decision's `reviewed_at`.
  */
-export type DecisionTiming = "none" | "newer" | "same" | "older";
+export type DecisionTiming = "none" | "before_reset" | "newer" | "same" | "older";
 
 /** The posting's RVM review row, locked `FOR UPDATE` by {@link CampusPostingReviewRepository.lockReview}. */
 export interface LockedReview {
@@ -165,12 +170,20 @@ export class CampusPostingReviewRepository {
    * does `INSERT … ON CONFLICT DO NOTHING` run (a concurrent first insert makes it wait for that
    * transaction), followed by the same `SELECT … FOR UPDATE`. The statement reads plain columns
    * only: a subquery here would see the statement's snapshot, not the row version the lock granted.
+   *
+   * `pendingFloorMs` is the tolerance of the pending-row floor (`before_reset`): a pending row that
+   * existed before this call refuses a decision older than its `updated_at` by more than this. The
+   * row this call inserts is exempt: a first decision on it must apply.
    */
-  async lockReview(tx: Database, decision: DecisionWrite): Promise<LockedReview> {
+  async lockReview(
+    tx: Database,
+    decision: DecisionWrite,
+    pendingFloorMs: number,
+  ): Promise<LockedReview> {
     try {
-      const held = await this.selectReviewForUpdate(tx, decision);
+      const held = await this.selectReviewForUpdate(tx, decision, pendingFloorMs, false);
       if (held !== undefined) return held;
-      await tx
+      const inserted = await tx
         .insert(jobPostingInstituteReviews)
         .values({
           jobPostingId: decision.jobPostingId,
@@ -178,8 +191,16 @@ export class CampusPostingReviewRepository {
           state: "pending",
           updatedAt: sql`clock_timestamp()`,
         })
-        .onConflictDoNothing();
-      const created = await this.selectReviewForUpdate(tx, decision);
+        .onConflictDoNothing()
+        .returning({ jobPostingId: jobPostingInstituteReviews.jobPostingId });
+      // Exempt from the floor only when THIS call created the row (a concurrent first insert that
+      // won is a row like any other).
+      const created = await this.selectReviewForUpdate(
+        tx,
+        decision,
+        pendingFloorMs,
+        inserted.length === 1,
+      );
       // The posting is locked FOR SHARE, so nothing can cascade the row away in between.
       if (created === undefined) throw new Error("campus review: review row missing after insert");
       return created;
@@ -281,10 +302,17 @@ export class CampusPostingReviewRepository {
   private async selectReviewForUpdate(
     tx: Database,
     decision: DecisionWrite,
+    pendingFloorMs: number,
+    insertedByThisCall: boolean,
   ): Promise<LockedReview | undefined> {
     const rows = (await tx.execute(sql`
       SELECT "r"."state" AS "state",
-             CASE WHEN "r"."state" = 'pending' OR "r"."reviewed_at" IS NULL THEN 'none'
+             CASE WHEN "r"."state" = 'pending' OR "r"."reviewed_at" IS NULL THEN
+                    CASE WHEN ${insertedByThisCall}::boolean THEN 'none'
+                         WHEN ${decision.decidedAt}::timestamptz
+                              >= "r"."updated_at" - ${pendingFloorMs}::int * interval '1 millisecond'
+                           THEN 'none'
+                         ELSE 'before_reset' END
                   WHEN ${decision.decidedAt}::timestamptz > "r"."reviewed_at" THEN 'newer'
                   WHEN ${decision.decidedAt}::timestamptz = "r"."reviewed_at" THEN 'same'
                   ELSE 'older' END AS "timing",
