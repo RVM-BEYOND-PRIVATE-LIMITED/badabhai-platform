@@ -34,7 +34,7 @@ import { PayerOrgsRepository } from "../payers/payer-orgs.repository";
 import { PayerTenantScopeService } from "../payers/payer-tenant-scope.service";
 import { defaultModeResolver } from "../payers/payer-tenant-scope.test-support";
 import type { CampusCall } from "./campus-call";
-import { CAMPUS_MAX_CLOCK_SKEW_MS } from "./campus-link.contract";
+import { CAMPUS_MAX_CLOCK_SKEW_MS, CAMPUS_RESET_FLOOR_TOLERANCE_MS } from "./campus-link.contract";
 import { CampusPostingReviewRepository } from "./campus-posting-review.repository";
 import {
   CampusPostingReviewService,
@@ -121,16 +121,6 @@ let campusClock = Date.now() - 60 * 60_000;
 function decidedNow(): string {
   campusClock += 1000;
   return new Date(campusClock).toISOString();
-}
-
-/**
- * A decision made NOW by real time (strictly increasing): for a decision that must come after a
- * company edit reset the review, which stamps the row at the database's real clock.
- */
-let realClock = 0;
-function decidedRealNow(): string {
-  realClock = Math.max(Date.now(), realClock + 1);
-  return new Date(realClock).toISOString();
 }
 
 /**
@@ -236,13 +226,14 @@ describe.skipIf(!RUN)("#2746 PR 5 — Campus records the RVM review (Postgres)",
 
   /**
    * A published posting for `owner` with an RVM audience. Its pending review row is backdated two
-   * hours: the suite's Campus clock (`decidedNow`) runs an hour behind real time, and a posting
-   * must have gone pending BEFORE a decision on it (the pending-row floor refuses a decision older
-   * than that by more than the skew bound).
+   * hours unless `backdate` is false: the suite's Campus clock (`decidedNow`) runs an hour behind
+   * real time, and the reset floor refuses a decision older than the row's pending stamp by more
+   * than `CAMPUS_RESET_FLOOR_TOLERANCE_MS`.
    */
   async function openPosting(
     over: Partial<PayerCreateJobPostingWithAudienceDto> = {},
     owner = COMPANY,
+    { backdate = true }: { backdate?: boolean } = {},
   ): Promise<string> {
     const svc = companyService();
     const created = await svc.createForPayer(
@@ -251,10 +242,29 @@ describe.skipIf(!RUN)("#2746 PR 5 — Campus records the RVM review (Postgres)",
       CTX,
     );
     await svc.updateForPayer(created.id, owner, { status: "open" }, CTX);
-    await client.sql`
-      UPDATE job_posting_institute_reviews SET updated_at = now() - interval '2 hours'
-       WHERE job_posting_id = ${created.id}::uuid`;
+    if (backdate) {
+      await client.sql`
+        UPDATE job_posting_institute_reviews SET updated_at = now() - interval '2 hours'
+         WHERE job_posting_id = ${created.id}::uuid`;
+    }
     return created.id;
+  }
+
+  /** NOW by the DATABASE's clock (`clock_timestamp()`), to the microsecond, as an ISO time. */
+  async function decidedDbNow(): Promise<string> {
+    const [row] = await client.sql<{ at: string }[]>`
+      SELECT to_char(clock_timestamp() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS at`;
+    return row!.at;
+  }
+
+  /** The review row's `updated_at` moved by `offsetMs`, as an ISO time to the microsecond. */
+  async function pendingStampPlus(id: string, offsetMs: number): Promise<string> {
+    const [row] = await client.sql<{ at: string }[]>`
+      SELECT to_char((updated_at + ${offsetMs}::int * interval '1 millisecond') AT TIME ZONE 'UTC',
+                     'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS at
+        FROM job_posting_institute_reviews
+       WHERE job_posting_id = ${id}::uuid AND institute_code = 'rvm'`;
+    return row!.at;
   }
 
   async function hashOf(id: string): Promise<string> {
@@ -456,16 +466,20 @@ describe.skipIf(!RUN)("#2746 PR 5 — Campus records the RVM review (Postgres)",
     const repo = new CampusPostingReviewRepository(client.db);
     const write = (expectedContentHash: string, decidedAt: string, jobPostingId = id) =>
       repo.withTransaction((tx) =>
-        repo.writeDecision(tx, {
-          jobPostingId,
-          state: "approved",
-          reviewerRef: REVIEWER,
-          reason: null,
-          branchIds: null,
-          courseIds: null,
-          expectedContentHash,
-          decidedAt,
-        }),
+        repo.writeDecision(
+          tx,
+          {
+            jobPostingId,
+            state: "approved",
+            reviewerRef: REVIEWER,
+            reason: null,
+            branchIds: null,
+            courseIds: null,
+            expectedContentHash,
+            decidedAt,
+          },
+          { toleranceMs: CAMPUS_RESET_FLOOR_TOLERANCE_MS, insertedByThisCall: false },
+        ),
       );
     const before = await review(id);
     const hash = await hashOf(id);
@@ -494,7 +508,7 @@ describe.skipIf(!RUN)("#2746 PR 5 — Campus records the RVM review (Postgres)",
 
     expect(
       await refusal(
-        reviewService().review(id, decision(seen, { decided_at: decidedRealNow() }), CALL),
+        reviewService().review(id, decision(seen, { decided_at: await decidedDbNow() }), CALL),
       ),
     ).toEqual({
       status: 409,
@@ -504,7 +518,7 @@ describe.skipIf(!RUN)("#2746 PR 5 — Campus records the RVM review (Postgres)",
 
     const fresh = await hashOf(id);
     expect(fresh).not.toBe(seen);
-    await reviewService().review(id, decision(fresh, { decided_at: decidedRealNow() }), CALL);
+    await reviewService().review(id, decision(fresh, { decided_at: await decidedDbNow() }), CALL);
     expect(await approved(id)).toBe(true);
   }, 60_000);
 
@@ -521,7 +535,7 @@ describe.skipIf(!RUN)("#2746 PR 5 — Campus records the RVM review (Postgres)",
     // And a writer that resets nothing cannot leak an edit: the read compares the hash live.
     await reviewService().review(
       id,
-      decision(await hashOf(id), { decided_at: decidedRealNow() }),
+      decision(await hashOf(id), { decided_at: await decidedDbNow() }),
       CALL,
     );
     expect(await approved(id)).toBe(true);
@@ -650,7 +664,7 @@ describe.skipIf(!RUN)("#2746 PR 5 — Campus records the RVM review (Postgres)",
     expect(await reviewedEvents(id)).toHaveLength(1);
   }, 60_000);
 
-  it("A→B→A: a lost approve(t1) arriving after reject(t2) and a company edit away and back is 409, the row stays pending", async () => {
+  it("A→B→A: a lost approve(t1) arriving after reject(t2) and a company edit away and back is 409 POSTING_CHANGED, the row stays pending", async () => {
     const id = await openPosting({ description: "Version A of the posting." });
     const contentA = await hashOf(id);
     const svc = reviewService();
@@ -666,17 +680,139 @@ describe.skipIf(!RUN)("#2746 PR 5 — Campus records the RVM review (Postgres)",
     const pending = await review(id);
     expect(pending).toMatchObject({ state: "pending", reviewed_at: null });
 
-    // The lost approve(t1) finally arrives: older than the reset by more than the skew bound.
+    // The lost approve(t1) finally arrives: older than the reset by more than the floor's
+    // tolerance. The posting needs a fresh review, so it is POSTING_CHANGED, not superseded.
     expect(await refusal(svc.review(id, approveT1, CALL))).toEqual({
       status: 409,
-      code: "DECISION_SUPERSEDED",
+      code: "POSTING_CHANGED",
     });
     expect(await review(id)).toEqual(pending);
     expect(await approved(id)).toBe(false);
     expect(await reviewedEvents(id)).toHaveLength(2);
 
     // A decision made now, after the reset, still applies.
-    await svc.review(id, decision(contentA, { decided_at: decidedRealNow() }), CALL);
+    await svc.review(id, decision(contentA, { decided_at: await decidedDbNow() }), CALL);
+    expect(await approved(id)).toBe(true);
+  }, 60_000);
+
+  it("(a) a decided row reset by a company edit refuses a decision dated more than the tolerance before the reset: 409 POSTING_CHANGED", async () => {
+    const id = await openPosting();
+    await reviewService().review(id, decision(await hashOf(id)), CALL);
+    await companyService().updateForPayer(
+      id,
+      COMPANY,
+      { description: "Edited after approval." },
+      CTX,
+    );
+    const pending = await review(id);
+    expect(pending?.state).toBe("pending");
+    // The CURRENT hash, so only the floor can refuse it.
+    const now = await hashOf(id);
+    const tooOld = await pendingStampPlus(id, -(CAMPUS_RESET_FLOOR_TOLERANCE_MS + 1000));
+
+    expect(
+      await refusal(reviewService().review(id, decision(now, { decided_at: tooOld }), CALL)),
+    ).toEqual({
+      status: 409,
+      code: "POSTING_CHANGED",
+    });
+    expect(await review(id)).toEqual(pending);
+    expect(await reviewedEvents(id)).toHaveLength(1);
+  }, 60_000);
+
+  it("(b) a company-created posting (no backdate) takes a decision dated 2 minutes before its creation", async () => {
+    const id = await openPosting({}, COMPANY, { backdate: false });
+    // Campus's clock 2 minutes behind ours: inside the floor's tolerance.
+    const decidedAt = await pendingStampPlus(id, -2 * 60_000);
+    const answer = await reviewService().review(
+      id,
+      decision(await hashOf(id), { decided_at: decidedAt }),
+      CALL,
+    );
+    expect(answer.review_state).toBe("approved");
+    expect(await approved(id)).toBe(true);
+  }, 60_000);
+
+  it("(c) the edges: the floor's tolerance to the microsecond, and the 60 s skew", async () => {
+    // The floor: exactly the tolerance before the pending stamp applies; one microsecond earlier
+    // does not. The refused one first, so the row is still pending for the second.
+    const id = await openPosting({}, COMPANY, { backdate: false });
+    const hash = await hashOf(id);
+    const exact = await pendingStampPlus(id, -CAMPUS_RESET_FLOOR_TOLERANCE_MS);
+    const [edge] = await client.sql<{ justBefore: string }[]>`
+      SELECT to_char((${exact}::timestamptz - interval '1 microsecond') AT TIME ZONE 'UTC',
+                     'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS "justBefore"`;
+    expect(
+      await refusal(
+        reviewService().review(id, decision(hash, { decided_at: edge!.justBefore }), CALL),
+      ),
+    ).toEqual({
+      status: 409,
+      code: "POSTING_CHANGED",
+    });
+    expect((await review(id))?.state).toBe("pending");
+    await reviewService().review(id, decision(hash, { decided_at: exact }), CALL);
+    expect(await approved(id)).toBe(true);
+
+    // The skew: just inside the 60 s bound ahead of BadaBhai's clock applies, just past it is 400.
+    const ahead = await openPosting();
+    const aheadHash = await hashOf(ahead);
+    const inside = new Date(Date.now() + CAMPUS_MAX_CLOCK_SKEW_MS - 5000).toISOString();
+    const outside = new Date(Date.now() + CAMPUS_MAX_CLOCK_SKEW_MS + 5000).toISOString();
+    expect(
+      await refusal(
+        reviewService().review(ahead, decision(aheadHash, { decided_at: outside }), CALL),
+      ),
+    ).toEqual({ status: 400, code: "VALIDATION_FAILED" });
+    await reviewService().review(ahead, decision(aheadHash, { decided_at: inside }), CALL);
+    expect(await approved(ahead)).toBe(true);
+  }, 60_000);
+
+  it("the write statement alone holds the reset floor (and its first-decision exemption)", async () => {
+    // A pending row stamped two hours ago (openPosting's backdate); a decision three hours ago.
+    const id = await openPosting();
+    const repo = new CampusPostingReviewRepository(client.db);
+    const threeHoursAgo = await pendingStampPlus(id, -60 * 60_000);
+    const write = (insertedByThisCall: boolean) =>
+      repo.withTransaction((tx) =>
+        repo.writeDecision(
+          tx,
+          {
+            jobPostingId: id,
+            state: "approved",
+            reviewerRef: REVIEWER,
+            reason: null,
+            branchIds: null,
+            courseIds: null,
+            expectedContentHash: "",
+            decidedAt: threeHoursAgo,
+          },
+          { toleranceMs: CAMPUS_RESET_FLOOR_TOLERANCE_MS, insertedByThisCall },
+        ),
+      );
+    const hash = await hashOf(id);
+    const withHash = (insertedByThisCall: boolean) =>
+      repo.withTransaction((tx) =>
+        repo.writeDecision(
+          tx,
+          {
+            jobPostingId: id,
+            state: "approved",
+            reviewerRef: REVIEWER,
+            reason: null,
+            branchIds: null,
+            courseIds: null,
+            expectedContentHash: hash,
+            decidedAt: threeHoursAgo,
+          },
+          { toleranceMs: CAMPUS_RESET_FLOOR_TOLERANCE_MS, insertedByThisCall },
+        ),
+      );
+    expect((await write(false)).outcome).toBe("posting_changed"); // the hash guard, first
+    expect(await withHash(false)).toEqual({ outcome: "not_applied", contentHash: hash });
+    expect((await review(id))?.state).toBe("pending");
+    // The same decision on a row this call created is exempt and applies.
+    expect(await withHash(true)).toEqual({ outcome: "written", contentHash: hash });
     expect(await approved(id)).toBe(true);
   }, 60_000);
 
@@ -821,7 +957,11 @@ describe.skipIf(!RUN)("#2746 PR 5 — Campus records the RVM review (Postgres)",
 
     let settled = false;
     const reviewing = reviewService(ON, eventsService)
-      .review(id, decision(seen, { reviewer_ref: REVIEWER_2, decided_at: decidedRealNow() }), CALL)
+      .review(
+        id,
+        decision(seen, { reviewer_ref: REVIEWER_2, decided_at: await decidedDbNow() }),
+        CALL,
+      )
       .then(
         () => null,
         (e: unknown) => e,

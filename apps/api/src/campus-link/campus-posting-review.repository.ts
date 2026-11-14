@@ -56,8 +56,9 @@ export interface DecisionWrite {
  *     state (or the row was created by this very call), so it may apply;
  *   - `before_reset`: the row is `pending` from BEFORE this call, and `decided_at` is earlier than
  *     the row's `updated_at` (when it became pending: a company edit's reset, an audience change,
- *     the posting's creation) minus the skew bound. The decision predates the state it would
- *     replace, so it is refused (this closes risk R84: a lost decision cannot land after a
+ *     the posting's creation) minus the reset floor's tolerance (`CAMPUS_RESET_FLOOR_TOLERANCE_MS`).
+ *     The decision predates the state it would replace, so it is refused, as `POSTING_CHANGED` (the
+ *     posting needs a fresh review; this closes risk R84: a lost decision cannot land after a
  *     company edit A→B→A);
  *   - `newer` / `same` / `older`: against the held decision's `reviewed_at`.
  */
@@ -69,6 +70,14 @@ export interface LockedReview {
   timing: DecisionTiming;
   /** Every decision column equal to the incoming decision's (state, reviewer, reason, narrowing, hash). */
   sameDecision: boolean;
+  /** The row was created `pending` by this call: exempt from the reset floor (a first decision). */
+  insertedByThisCall: boolean;
+}
+
+/** The reset floor as one write applies it (see {@link DecisionTiming}'s `before_reset`). */
+export interface ResetFloor {
+  toleranceMs: number;
+  insertedByThisCall: boolean;
 }
 
 /** What {@link CampusPostingReviewRepository.writeDecision}'s one statement did. */
@@ -76,7 +85,10 @@ export type DecisionWriteResult =
   | { outcome: "written"; contentHash: string }
   /** The posting's hash is not `expectedContentHash`: nothing was written. */
   | { outcome: "posting_changed"; contentHash: string }
-  /** The row holds a decision at or after `decidedAt`: nothing was written. */
+  /**
+   * The time rule refused it: the row holds a decision at or after `decidedAt`, or it is a pending
+   * row the reset floor refuses. Nothing was written.
+   */
   | { outcome: "not_applied"; contentHash: string }
   | { outcome: "missing" };
 
@@ -171,9 +183,9 @@ export class CampusPostingReviewRepository {
    * transaction), followed by the same `SELECT … FOR UPDATE`. The statement reads plain columns
    * only: a subquery here would see the statement's snapshot, not the row version the lock granted.
    *
-   * `pendingFloorMs` is the tolerance of the pending-row floor (`before_reset`): a pending row that
+   * `pendingFloorMs` is the tolerance of the reset floor (`before_reset`): a pending row that
    * existed before this call refuses a decision older than its `updated_at` by more than this. The
-   * row this call inserts is exempt: a first decision on it must apply.
+   * row this call inserts is exempt (`insertedByThisCall`): a first decision on it must apply.
    */
   async lockReview(
     tx: Database,
@@ -234,11 +246,17 @@ export class CampusPostingReviewRepository {
   /**
    * THE DECISION, ONE STATEMENT. `target` computes the posting's hash; the upsert replaces every
    * decision column only when that hash equals `expectedContentHash` (storing the hash it
-   * computed) AND the row holds no decision or an older one (`reviewed_at < decided_at`). The
-   * service has already decided both under the same locks; this statement holds the same line on
-   * its own, so no caller can store a stale decision by skipping a check.
+   * computed) AND the time rule holds: on a `pending` row, the reset floor (`decided_at` at or
+   * after `updated_at` minus `floor.toleranceMs`, unless this call created the row); on a decided
+   * row, `reviewed_at < decided_at`. The service has already decided all three under the same
+   * locks; this statement holds the same line on its own, so no caller can store a stale decision
+   * by skipping a check.
    */
-  async writeDecision(tx: Database, input: DecisionWrite): Promise<DecisionWriteResult> {
+  async writeDecision(
+    tx: Database,
+    input: DecisionWrite,
+    floor: ResetFloor,
+  ): Promise<DecisionWriteResult> {
     let rows: { content_hash: string; written: boolean }[];
     try {
       rows = (await tx.execute(sql`
@@ -265,7 +283,11 @@ export class CampusPostingReviewRepository {
             "course_ids" = EXCLUDED."course_ids",
             "content_hash" = EXCLUDED."content_hash",
             "updated_at" = EXCLUDED."updated_at"
-          WHERE "r"."state" = 'pending' OR "r"."reviewed_at" < EXCLUDED."reviewed_at"
+          WHERE CASE WHEN "r"."state" = 'pending'
+                     THEN ${floor.insertedByThisCall}::boolean
+                          OR EXCLUDED."reviewed_at"
+                             >= "r"."updated_at" - ${floor.toleranceMs}::int * interval '1 millisecond'
+                     ELSE "r"."reviewed_at" < EXCLUDED."reviewed_at" END
           RETURNING "r"."job_posting_id"
         )
         SELECT "t"."content_hash" AS "content_hash",
@@ -333,7 +355,12 @@ export class CampusPostingReviewRepository {
     const row = rows[0];
     return row === undefined
       ? undefined
-      : { state: row.state, timing: row.timing, sameDecision: row.same_decision };
+      : {
+          state: row.state,
+          timing: row.timing,
+          sameDecision: row.same_decision,
+          insertedByThisCall,
+        };
   }
 
   private targetColumns() {

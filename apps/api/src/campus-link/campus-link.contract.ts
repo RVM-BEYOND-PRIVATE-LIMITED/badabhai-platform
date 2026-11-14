@@ -2,7 +2,11 @@ import { z } from "zod";
 import { VACANCY_BANDS } from "@badabhai/types";
 import type { JobPayType, JobShift } from "@badabhai/db";
 import { isCanonicalUuid } from "../common/uuid";
-import { hasForbiddenIdCharacter, hasForbiddenLabelCharacter } from "./campus-characters";
+import {
+  hasForbiddenIdCharacter,
+  hasForbiddenLabelCharacter,
+  hasVisibleCharacter,
+} from "./campus-characters";
 
 /**
  * THE CAMPUS LINK CONTRACT, v1 (#2752 item 1): every route BadaBhai Campus calls under
@@ -44,24 +48,36 @@ export const CAMPUS_ERROR_CODES = [
   "AUDIENCE_EXCLUDES_RVM",
   "STUDENT_NOT_AVAILABLE",
   "RVM_UNAVAILABLE",
-  /** #2746: the posting changed after the reviewer saw it (its `content_hash` moved). */
+  /**
+   * #2746: the posting changed after the reviewer saw it: its `content_hash` moved, or its review
+   * went back to pending (a company edit) after the decision was made. Nothing was stored;
+   * re-fetch the posting and re-review it.
+   */
   "POSTING_CHANGED",
   /**
    * #2746: a newer decision (`decided_at`) or list (`as_of`) is already held, or one at the same
-   * instant that differs. Nothing was stored; do not retry this body.
+   * instant that differs. Nothing was stored; do not retry this body, and do not re-review: the
+   * newer decision stands.
    */
   "DECISION_SUPERSEDED",
 ] as const;
 export type CampusErrorCode = (typeof CAMPUS_ERROR_CODES)[number];
 
 /**
- * #2746 — how far ahead of BadaBhai's clock a Campus `decided_at` / `as_of` may be. Further ahead
+ * #2746 — how far AHEAD of BadaBhai's clock a Campus `decided_at` / `as_of` may be. Further ahead
  * is 400 `VALIDATION_FAILED`: a time from the future would outrank every later decision, and a
- * Campus clock that far ahead would lock out corrections for that long. The same bound is the
- * tolerance for a decision made just before a company edit reset the review (see the review
- * service's pending-row floor).
+ * Campus clock that far ahead would lock out corrections for that long.
  */
 export const CAMPUS_MAX_CLOCK_SKEW_MS = 60 * 1000;
+
+/**
+ * #2746 — the tolerance of the review's RESET FLOOR: a review row that went back to pending (a
+ * company edit's reset) refuses a decision dated more than this before it went back, with 409
+ * `POSTING_CHANGED` (re-fetch and re-review). It covers Campus's clock running BEHIND BadaBhai's
+ * plus the decision's delivery delay, so a Campus clock a few minutes slow cannot lock a posting
+ * out of review. Separate from {@link CAMPUS_MAX_CLOCK_SKEW_MS}, which bounds running ahead.
+ */
+export const CAMPUS_RESET_FLOOR_TOLERANCE_MS = 10 * 60 * 1000;
 
 /**
  * #2746 — the earliest `decided_at` / `as_of` BadaBhai accepts: before the link existed, so no
@@ -116,7 +132,28 @@ export const CourseIdSchema = z
     "no control, format, separator (but a plain space), surrogate, private-use or unassigned characters",
   );
 
-const IsoDateTime = z.string().datetime({ offset: true });
+/**
+ * The largest UTC offset a Campus time may carry: ±14:00, the widest real one (UTC+14, Line
+ * Islands). zod and V8 accept up to ±23:59, but Postgres refuses past ±15:59 (22009, a 500), so a
+ * wider offset is a 400 here, on every Campus time field (`decided_at`, `as_of`, `changed_since`,
+ * `applied_at` and every `changed_at`).
+ */
+const MAX_OFFSET_MINUTES = 14 * 60;
+
+/** The offset of an ISO 8601 time, in minutes: `Z` is 0; `±HH`, `±HHMM` and `±HH:MM` are read. */
+function offsetMinutes(value: string): number {
+  const match = /([+-])(\d{2})(?::?(\d{2}))?$/.exec(value);
+  if (match === null) return 0;
+  return Number(match[2]) * 60 + Number(match[3] ?? "0");
+}
+
+const IsoDateTime = z
+  .string()
+  .datetime({ offset: true })
+  .refine(
+    (value) => offsetMinutes(value) <= MAX_OFFSET_MINUTES,
+    "the UTC offset must be within +14:00 and -14:00",
+  );
 const Id = z.string().uuid();
 
 /**
@@ -235,8 +272,11 @@ export const CampusReviewBodySchema = z.strictObject({
   /**
    * REQUIRED (owner decision 2026-11-14): when the reviewer decided, by Campus's clock. The row
    * keeps the newest decision only: a decision older than the one held, or one at the same
-   * instant that differs, is 409 `DECISION_SUPERSEDED`; the same decision again is a replay.
-   * More than `CAMPUS_MAX_CLOCK_SKEW_MS` ahead of BadaBhai's clock is 400 `VALIDATION_FAILED`.
+   * instant that differs, is 409 `DECISION_SUPERSEDED`; the same decision again is a replay. On a
+   * review that went back to pending (a company edit), one dated more than
+   * `CAMPUS_RESET_FLOOR_TOLERANCE_MS` before it went back is 409 `POSTING_CHANGED`. Before
+   * `CAMPUS_EARLIEST_DECISION_TIME`, or more than `CAMPUS_MAX_CLOCK_SKEW_MS` ahead of BadaBhai's
+   * clock, is 400 `VALIDATION_FAILED`.
    */
   decided_at: IsoDateTime,
 });
@@ -279,7 +319,8 @@ const TargetingLabelSchema = z
   .refine(
     (label) => !hasForbiddenLabelCharacter(label),
     "no control, format (but ZWNJ/ZWJ), surrogate, private-use, unassigned or line-separator characters",
-  );
+  )
+  .refine(hasVisibleCharacter, "at least one visible character");
 
 const TargetingBranchSchema = z.strictObject({
   id: BranchIdSchema.max(CAMPUS_TARGETING_LIMITS.maxBranchId),
@@ -308,7 +349,8 @@ function idsUnique(entries: readonly { id: number | string }[]): boolean {
  * `as_of` (REQUIRED): when Campus read this list, by its clock. A list is applied only when it is
  * newer than the last one applied; an older or same-instant list that differs from what is held is
  * 409 `DECISION_SUPERSEDED`, so a late retry never puts back an option Campus has since removed.
- * More than `CAMPUS_MAX_CLOCK_SKEW_MS` ahead of BadaBhai's clock is 400 `VALIDATION_FAILED`.
+ * Before `CAMPUS_EARLIEST_DECISION_TIME`, or more than `CAMPUS_MAX_CLOCK_SKEW_MS` ahead of
+ * BadaBhai's clock, is 400 `VALIDATION_FAILED`.
  */
 export const CampusTargetingOptionsBodySchema = z.strictObject({
   branches: z

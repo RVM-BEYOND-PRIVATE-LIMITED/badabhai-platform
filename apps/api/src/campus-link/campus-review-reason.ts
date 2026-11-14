@@ -1,4 +1,4 @@
-import { isDroppedFromNote } from "./campus-characters";
+import { hasVisibleCharacter, isDroppedFromNote } from "./campus-characters";
 
 /**
  * #2746 PR 5 — the placement team's note on a review decision, made safe to store and to show.
@@ -14,7 +14,8 @@ import { isDroppedFromNote } from "./campus-characters";
  *   - private-use (`\p{Co}`) and unassigned (`\p{Cn}`) code points, which render as nothing or as
  *     anything;
  *   - lone surrogates (`\p{Cs}`), which the driver rewrites to U+FFFD.
- * What is left is trimmed; a note that was only such characters is no note at all.
+ * What is left is trimmed; a note with no VISIBLE character left (only spaces, newlines or ZWNJ/ZWJ)
+ * is no note at all, so it is never stored or reported as `has_reason`.
  *
  * Applied after the contract's zod parse (`CampusReviewBodySchema.reason`: trimmed, 1 to 500), so
  * the result is at most 500 characters and fits `jpir_reason_chk`. The contract is not changed:
@@ -27,5 +28,5 @@ export function cleanReviewReason(raw: string | undefined): string | undefined {
     if (!isDroppedFromNote(ch)) kept += ch;
   }
   const cleaned = kept.trim();
-  return cleaned.length > 0 ? cleaned : undefined;
+  return hasVisibleCharacter(cleaned) ? cleaned : undefined;
 }

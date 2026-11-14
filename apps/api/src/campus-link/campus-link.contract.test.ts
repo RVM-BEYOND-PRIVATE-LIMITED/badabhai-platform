@@ -6,6 +6,7 @@ import {
   CourseIdSchema,
   CampusApplicationPageSchema,
   CampusApplicationSchema,
+  CampusApplicationsQuerySchema,
   CampusApplyBodySchema,
   CampusCompanyResponseSchema,
   CampusIdempotencyKeySchema,
@@ -367,5 +368,75 @@ describe("Campus contract v1 — targeting labels and the body's size", () => {
     const body = largestTargetingBody();
     expect(CampusTargetingOptionsBodySchema.safeParse(body).success).toBe(true);
     expect(Buffer.byteLength(JSON.stringify(body), "utf8")).toBeLessThanOrEqual(100 * 1024);
+  });
+});
+
+describe("Campus contract v1 — every Campus time is within ±14:00 of UTC (Postgres refuses past ±15:59)", () => {
+  // Each REQUEST field that carries a time, with a parse of a valid request around it.
+  const requests: [string, (time: string) => boolean][] = [
+    [
+      "review decided_at",
+      (t) =>
+        CampusReviewBodySchema.safeParse({ ...examples.REVIEW_BODY_EXAMPLE, decided_at: t })
+          .success,
+    ],
+    [
+      "targeting as_of",
+      (t) =>
+        CampusTargetingOptionsBodySchema.safeParse({
+          ...examples.TARGETING_OPTIONS_BODY_EXAMPLE,
+          as_of: t,
+        }).success,
+    ],
+    [
+      "postings changed_since",
+      (t) => CampusPostingsQuerySchema.safeParse({ changed_since: t }).success,
+    ],
+    [
+      "applications changed_since",
+      (t) => CampusApplicationsQuerySchema.safeParse({ changed_since: t }).success,
+    ],
+    [
+      "apply applied_at",
+      (t) =>
+        CampusApplyBodySchema.safeParse({ ...examples.APPLY_BODY_EXAMPLE, applied_at: t }).success,
+    ],
+  ];
+
+  it.each(requests)("%s: accepts Z, IST and the widest real offsets (+14:00, -12:00)", (_n, ok) => {
+    expect(ok("2026-11-14T10:00:00.000Z")).toBe(true);
+    expect(ok("2026-11-14T15:30:00.000+05:30")).toBe(true);
+    expect(ok("2026-11-15T00:00:00.000+14:00")).toBe(true);
+    expect(ok("2026-11-13T22:00:00.000-12:00")).toBe(true);
+    expect(ok("2026-11-13T20:00:00.000-14:00")).toBe(true);
+  });
+
+  it.each(requests)(
+    "%s: refuses an offset past ±14:00 (zod and V8 take up to ±23:59)",
+    (_n, ok) => {
+      expect(ok("2026-11-15T00:01:00.000+14:01")).toBe(false);
+      expect(ok("2026-11-15T02:00:00.000+16:00")).toBe(false);
+      expect(ok("2026-11-15T09:59:00.000+23:59")).toBe(false);
+      expect(ok("2026-11-13T18:00:00.000-16:00")).toBe(false);
+    },
+  );
+});
+
+describe("Campus contract v1 — a targeting label must show something", () => {
+  const label = (name: string) =>
+    CampusTargetingOptionsBodySchema.safeParse({
+      ...examples.TARGETING_OPTIONS_BODY_EXAMPLE,
+      branches: [{ id: 1, name }],
+    }).success;
+  const ZWJ_V = String.fromCharCode(0x200d);
+  const ZWNJ_V = String.fromCharCode(0x200c);
+
+  it("refuses a label of joiners (and spaces) only, which passes the character rules but renders blank", () => {
+    expect(label(ZWJ_V + ZWNJ_V)).toBe(false);
+    expect(label(ZWJ_V + " " + ZWNJ_V)).toBe(false);
+  });
+
+  it("accepts joiners beside a visible character", () => {
+    expect(label("x" + ZWJ_V)).toBe(true);
   });
 });

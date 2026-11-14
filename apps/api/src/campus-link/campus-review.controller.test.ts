@@ -300,4 +300,20 @@ describe("Campus review routes over HTTP", () => {
     expect(code).toBe("VALIDATION_FAILED");
     expect(reviews.review).not.toHaveBeenCalled();
   });
+
+  it("a time with an offset past ±14:00 is a 400 VALIDATION_FAILED on both routes (never a 22009 500)", async () => {
+    const { base, reviews, targeting } = await boot();
+    const review = await put(base + "/job-postings/" + POSTING + "/review", {
+      ...REVIEW_BODY_EXAMPLE,
+      decided_at: "2026-11-14T02:00:00.000+16:00",
+    });
+    const options = await put(base + "/targeting-options", {
+      ...TARGETING_OPTIONS_BODY_EXAMPLE,
+      as_of: "2026-11-14T02:00:00.000-16:00",
+    });
+    expect([review.res.status, review.code]).toEqual([400, "VALIDATION_FAILED"]);
+    expect([options.res.status, options.code]).toEqual([400, "VALIDATION_FAILED"]);
+    expect(reviews.review).not.toHaveBeenCalled();
+    expect(targeting.replace).not.toHaveBeenCalled();
+  });
 });

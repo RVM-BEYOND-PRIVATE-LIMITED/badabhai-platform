@@ -89,8 +89,9 @@ function changed(counts: CampusTargetingOptionsResult): boolean {
  * mounted only behind `CampusServiceGuard`; no other gate: the options are global, and the company
  * side, `GET /payer/job-postings/audience-options`, is switched per company already).
  *
- * Campus sends the WHOLE current list, with the `as_of` it read it at. An `as_of` more than
- * `CAMPUS_MAX_CLOCK_SKEW_MS` ahead of BadaBhai's clock is 400 `VALIDATION_FAILED`. One
+ * Campus sends the WHOLE current list, with the `as_of` it read it at. An `as_of` before
+ * `CAMPUS_EARLIEST_DECISION_TIME` or more than `CAMPUS_MAX_CLOCK_SKEW_MS` ahead of BadaBhai's clock
+ * is 400 `VALIDATION_FAILED` (`assertCampusTime`). One
  * transaction, serialised by an advisory lock:
  *   - `as_of` NEWER than the last applied list (or nothing applied yet): upsert the listed options
  *     (label, order = list position, active), retire every active option not listed, stamp every
