@@ -908,7 +908,7 @@ describe("loadServerConfig", () => {
       );
     });
 
-    it("RVM_CONSENT_RECHECK_SECONDS defaults to 300 when absent or empty, and refuses zero", () => {
+    it("RVM_CONSENT_RECHECK_SECONDS defaults to 300 when absent or empty, and refuses zero or over a day", () => {
       for (const env of [{}, { RVM_CONSENT_RECHECK_SECONDS: "" }]) {
         expect(loadServerConfig(env).RVM_CONSENT_RECHECK_SECONDS).toBe(300);
       }
@@ -916,6 +916,7 @@ describe("loadServerConfig", () => {
         loadServerConfig({ RVM_CONSENT_RECHECK_SECONDS: "60" }).RVM_CONSENT_RECHECK_SECONDS,
       ).toBe(60);
       expect(() => loadServerConfig({ RVM_CONSENT_RECHECK_SECONDS: "0" })).toThrow();
+      expect(() => loadServerConfig({ RVM_CONSENT_RECHECK_SECONDS: "86401" })).toThrow();
     });
 
     it("RVM_STUDENT_API_* refuse a non-URL base and a short token at boot", () => {

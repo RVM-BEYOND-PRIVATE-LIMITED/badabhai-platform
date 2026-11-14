@@ -1,5 +1,6 @@
 import { Injectable, Logger } from "@nestjs/common";
 import type { RequestContext } from "../common/request-context";
+import type { TenantKey } from "../payers/payer-tenant-scope";
 import { InstituteLinkRepository } from "./institute-link.repository";
 import { InstituteLinkService } from "./institute-link.service";
 
@@ -14,6 +15,12 @@ import { InstituteLinkService } from "./institute-link.service";
  *   its one neutral body, so a company cannot tell a student from anyone else it may not open.
  */
 export type InstituteOpenVerdict = "not_linked" | "open" | "closed";
+
+/**
+ * The company asking to open him: the resolved tenant on a request (unlock, résumé disclosure),
+ * or the unlock being revealed, whose holder is that company (the ops reveal names no payer).
+ */
+export type InstituteOpener = { readonly tenant: TenantKey } | { readonly unlockId: string };
 
 /**
  * The institute rule for opening a worker (#2752 item 9): a linked student opens only for a
@@ -38,20 +45,20 @@ export class InstituteOpenGate {
     private readonly links: InstituteLinkService,
   ) {}
 
-  /**
-   * @param ownerPayerId the company asking, as the tenant key its jobs carry in `payer_id`: the
-   *   resolved `TenantKey` on a request, or the `payer_id` of the unlock being revealed.
-   */
   async decide(
     workerId: string,
-    ownerPayerId: string,
+    opener: InstituteOpener,
     ctx: RequestContext,
   ): Promise<InstituteOpenVerdict> {
     try {
       const link = await this.repo.findActiveByWorker(workerId);
       if (!link) return "not_linked";
       // Cheap and local first: a company he never applied to is refused without asking RVM.
-      if (!(await this.repo.hasAppliedToOwner(workerId, ownerPayerId))) return "closed";
+      const applied =
+        "tenant" in opener
+          ? await this.repo.hasAppliedToTenant(workerId, opener.tenant)
+          : await this.repo.hasAppliedToUnlockHolder(workerId, opener.unlockId);
+      if (!applied) return "closed";
       return (await this.links.confirmConsent(link, ctx)) ? "open" : "closed";
     } catch (err) {
       this.logger.warn(

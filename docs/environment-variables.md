@@ -350,10 +350,11 @@ NestJS boot assertion).
     (default 5000): RVM's Student API (Scheduler_Backend#162), read by `RvmStudentApiClient` for
     a linked student's six agreed fields, token in `X-Service-Token`. Unset, every read fails
     closed and no student is linked; a slow or failed read is retryable and creates nothing.
-  - `RVM_CONSENT_RECHECK_SECONDS` (default 300): how long a confirmed RVM consent stands before a
-    company's open (unlock, reveal, résumé disclosure) of a linked student re-reads it. RVM's
-    refusal on that read ends the link; an outage refuses the open and ends nothing. Read with the
-    flag off too, because a link outlives the flag.
+  - `RVM_CONSENT_RECHECK_SECONDS` (default 300, at most 86400): how long a confirmed RVM consent
+    stands before a company's open (unlock, reveal, résumé disclosure) of a linked student re-reads
+    it. RVM's refusal on that read withdraws the link and erases the copied facts (it never deletes
+    a row); an outage refuses the open and ends nothing. Read with the flag off too, because a link
+    outlives the flag.
   Declared in compose (`${CAMPUS_LINK_ENABLED:-false}` and `${…:-}` for the others) but NOT yet
   bridged in `ci.yml`: the bridge lands with the pilot, so production stays off until then.
 - **Payer all-candidates search cap (ADR-0040 / E2, owner rulings 2026-11-03)** —

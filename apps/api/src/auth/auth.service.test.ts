@@ -955,13 +955,47 @@ describe("AuthService — first sign-in of a Campus-linked worker (#2752)", () =
     expect(emit.mock.calls.some(([p]) => p.event_name === "worker.created")).toBe(false);
   });
 
-  it("emits nothing when a concurrent sign-in already activated the row", async () => {
+  it("emits nothing when a concurrent sign-in already activated the row, and reads it again", async () => {
     const { svc, emit, workers } = build({ id: "w-raced", status: "pending" });
     workers.activatePending.mockResolvedValue(undefined);
+    workers.findByPhoneHash
+      .mockResolvedValueOnce({ id: "w-raced", status: "pending", isTestAccount: false })
+      .mockResolvedValueOnce({ id: "w-raced", status: "active", isTestAccount: false });
 
     const res = await svc.verifyOtp(PHONE, "123456", ctx);
 
     expect(res.worker_id).toBe("w-raced");
+    expect(workers.findByPhoneHash).toHaveBeenCalledTimes(2);
+    expect(emit.mock.calls.some(([p]) => p.event_name === "worker.created")).toBe(false);
+  });
+
+  it("never signs the caller in to a row the link moved to another phone: this phone gets its own row", async () => {
+    // The pending row held this phone when it was read, then RVM's phone change moved it to the
+    // student's new number, so the activation (keyed on this phone) misses.
+    const { svc, emit, workers } = build({ id: "w-moved", status: "pending" });
+    workers.activatePending.mockResolvedValue(undefined);
+    workers.findByPhoneHash
+      .mockResolvedValueOnce({ id: "w-moved", status: "pending", isTestAccount: false })
+      .mockResolvedValueOnce(undefined);
+    workers.createOrGetByPhoneHash.mockResolvedValue({
+      worker: { id: "w-fresh", status: "active", isTestAccount: false },
+      created: true,
+    });
+
+    const res = await svc.verifyOtp(PHONE, "123456", ctx);
+
+    expect(res.worker_id).toBe("w-fresh");
+    const created = emit.mock.calls.filter(([p]) => p.event_name === "worker.created");
+    expect(created.map(([p]) => p.payload.worker_id)).toEqual(["w-fresh"]);
+  });
+
+  it("refuses the sign-in when the row is still pending after a second read and a second miss", async () => {
+    const { svc, workers, emit } = build({ id: "w-churn", status: "pending" });
+    workers.activatePending.mockResolvedValue(undefined);
+
+    await expect(svc.verifyOtp(PHONE, "123456", ctx)).rejects.toThrow(
+      "sign-in could not be completed",
+    );
     expect(emit.mock.calls.some(([p]) => p.event_name === "worker.created")).toBe(false);
   });
 });

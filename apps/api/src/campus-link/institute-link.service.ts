@@ -112,38 +112,55 @@ export class InstituteLinkService {
   /**
    * Whether his RVM consent still stands, for a company's open (#2752 item 14). A confirmation
    * younger than `RVM_CONSENT_RECHECK_SECONDS` stands as it is; an older one is re-read. RVM's
-   * refusal ends the link (the same unlink Campus asks for), so a withdrawal Campus never sent
-   * cannot leave him open; the open is refused either way.
+   * refusal withdraws the link, so a withdrawal Campus never sent cannot leave him open; the open
+   * is refused either way.
+   *
+   * A REFUSAL HERE NEVER DELETES. RVM answers `NOT_AVAILABLE` for any reason, an account that is
+   * only inactive for now included, so on this signal the link is withdrawn and the copied facts
+   * erased, and nothing irreversible happens. Deleting his BadaBhai row is for Campus's explicit
+   * `DELETE students/:student_ref`, sent when he withdraws his consent or asks to be deleted.
    *
    * @throws RvmStudentApiUnavailableError — RVM did not answer usably. The caller refuses the
    *   open; nothing changes, because an outage is never read as a withdrawal.
    */
   async confirmConsent(link: InstituteLinkRow, ctx: RequestContext): Promise<boolean> {
-    const now = new Date();
+    const askedAt = new Date();
     const windowMs = this.config.RVM_CONSENT_RECHECK_SECONDS * 1000;
-    if (link.syncedAt !== null && now.getTime() - link.syncedAt.getTime() < windowMs) return true;
+    if (link.syncedAt !== null && askedAt.getTime() - link.syncedAt.getTime() < windowMs) {
+      return true;
+    }
 
     const lookup = await this.rvm.readStudent(link.studentRef);
     if (lookup.kind === "not_available") {
-      await this.unlinkStudent(link.studentRef, "consent_not_confirmed", ctx);
+      // A link confirmed after this read began (he applied again meanwhile) is newer news than
+      // this refusal, so the unlink stands down for it.
+      await this.unlinkStudent(link.studentRef, "consent_not_confirmed", ctx, askedAt);
       return false;
     }
-    await this.repo.confirmActive(link.workerId, toFacts(lookup.student), now);
-    return true;
+    // False when the link was withdrawn while RVM answered: no open on a confirmation that did
+    // not land.
+    return this.repo.confirmActive(link.workerId, toFacts(lookup.student), new Date());
   }
 
   /**
-   * Ends a student's link (#2752 item 14): no company opens him from now on, everything copied
-   * from RVM is erased, and the BadaBhai row the link created is deleted when he has never signed
-   * in to it. A worker with a BadaBhai account of his own keeps his row, his name and his profile.
+   * Ends a student's link (#2752 item 14): no company opens him from now on and everything copied
+   * from RVM is erased. A worker with a BadaBhai account of his own keeps his row, his name and his
+   * profile.
+   *
+   * Only Campus's request (`campus_request`) also deletes the row the link created, and only when
+   * he never used it as a BadaBhai account (see `deleteLinkCreatedPendingWorker`). A re-read
+   * refusal (`consent_not_confirmed`) withdraws and erases, never deletes.
    *
    * Idempotent: an unknown reference, or a link already ended, changes nothing and emits nothing.
-   * Contacts companies opened before stay with them (issue question 3, default yes).
+   * With `signalAt`, a link confirmed after that moment is left alone: the signal is older than
+   * the consent RVM gave since. Contacts companies opened before stay with them (issue question
+   * 3, default yes).
    */
   async unlinkStudent(
     studentRef: string,
     reason: InstituteUnlinkReason,
     ctx: RequestContext,
+    signalAt?: Date,
   ): Promise<void> {
     const ref = StudentRefSchema.parse(studentRef);
     await this.repo.withTransaction(async (tx) => {
@@ -151,9 +168,12 @@ export class InstituteLinkService {
       await this.repo.lockStudentRef(tx, RVM, ref);
       const link = await this.repo.findByRefForUpdate(tx, RVM, ref);
       if (!link || link.status === "withdrawn") return;
+      if (signalAt !== undefined && link.syncedAt !== null && link.syncedAt > signalAt) return;
 
       const now = new Date();
-      const workerDeleted = await this.repo.deleteLinkCreatedPendingWorker(tx, link.workerId, RVM);
+      const workerDeleted =
+        reason === "campus_request" &&
+        (await this.repo.deleteLinkCreatedPendingWorker(tx, link.workerId, RVM));
       if (!workerDeleted) await this.repo.withdrawAndErase(tx, link.workerId, now);
       await this.emitUnlinked(tx, link.workerId, reason, workerDeleted, now, ctx);
     });

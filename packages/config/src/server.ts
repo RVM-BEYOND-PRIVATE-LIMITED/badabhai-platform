@@ -652,7 +652,11 @@ export const serverEnvSchema = z.object({
   // How long a confirmed RVM consent stands before a company's open re-reads it (#2752 part C).
   // A linked student opens only while RVM still answers for him, so this bounds how long a
   // withdrawal RVM has not told Campus about can go unnoticed. Seconds.
-  RVM_CONSENT_RECHECK_SECONDS: positiveIntFromString(300),
+  // At most a day, so a typo cannot switch the re-read off.
+  RVM_CONSENT_RECHECK_SECONDS: positiveIntFromString(300).refine(
+    (seconds) => seconds <= 86_400,
+    "must be at most 86400 (a day)",
+  ),
 
   // PII protection (BACKEND ONLY). Pepper for the keyed HMAC of phone/IP; AES-256
   // key (base64 of 32 bytes) for encrypting phone_e164 at rest. The key NEVER

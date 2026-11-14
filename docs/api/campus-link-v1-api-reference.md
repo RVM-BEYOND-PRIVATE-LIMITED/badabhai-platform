@@ -264,15 +264,19 @@ Not routes. These rules hold with `CAMPUS_LINK_ENABLED` off too, because a link 
    consent does not widen that while the link is active. Every refusal is the same neutral body a
    company gets for anyone it may not open.
 3. **Consent re-read before an open.** A confirmation older than `RVM_CONSENT_RECHECK_SECONDS`
-   (default 300) is read again from RVM's Student API. RVM's `NOT_AVAILABLE` ends the link exactly
-   as `DELETE students/:student_ref` does (`worker.institute_unlinked`, reason
-   `consent_not_confirmed`), so a missed unlink call cannot leave him open. An outage refuses the
-   open and ends nothing.
-4. **Unlink** (the route, or a refused re-read). The link is withdrawn and its course, branch,
-   status and score are erased. A row the link created and he never signed in to is deleted, with
-   his applications; a worker with his own BadaBhai account keeps his row, name and profile. Event
-   `worker.institute_unlinked` v1: `worker_id`, `institute_code`, `reason` (`campus_request` |
-   `consent_not_confirmed`), `worker_deleted`; ids only.
+   (default 300) is read again from RVM's Student API. RVM's `NOT_AVAILABLE` withdraws the link
+   and erases the copied facts (`worker.institute_unlinked`, reason `consent_not_confirmed`), so a
+   missed unlink call cannot leave him open. It never deletes a row: RVM gives that answer for any
+   reason, an inactive account included. An outage refuses the open and ends nothing.
+4. **Unlink** (`DELETE students/:student_ref`, reason `campus_request`). The link is withdrawn and
+   its course, branch, status and score are erased. A row the link created is deleted with his
+   applications when he never used it as a BadaBhai account (no BadaBhai consent, PIN or device);
+   anyone else keeps his row, name and profile. Event `worker.institute_unlinked` v1: `worker_id`,
+   `institute_code`, `reason` (`campus_request` | `consent_not_confirmed`), `worker_deleted`; ids
+   only. Audit rows record the route template, never the reference in the path.
+5. **Send `DELETE students/:student_ref` only for a withdrawal or a deletion request.** A retried
+   DELETE that arrives after he consented again still unlinks him; his next application links him
+   again.
 
 ## Open decisions (owner, before the route is built)
 

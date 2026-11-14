@@ -1,10 +1,14 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, eq, exists, or, sql } from "drizzle-orm";
+import { and, eq, exists, notExists, or, sql } from "drizzle-orm";
 import {
   applications,
   auditLogs,
   jobPostings,
   jobs,
+  unlocks,
+  workerConsents,
+  workerCredentials,
+  workerDevices,
   workerInstituteLinks,
   workerOrigins,
   workers,
@@ -14,6 +18,7 @@ import {
   type WorkerOriginKind,
 } from "@badabhai/db";
 import { DATABASE } from "../database/database.module";
+import type { TenantKey } from "../payers/payer-tenant-scope";
 
 export type InstituteLinkRow = typeof workerInstituteLinks.$inferSelect;
 
@@ -134,12 +139,11 @@ export class InstituteLinkRepository {
   }
 
   /**
-   * Whether he applied to a posting or a legacy job `ownerPayerId` owns: the institute rule's "a
-   * company he applied to". `ownerPayerId` is the tenant key (the `payer_id` its jobs carry, as
-   * `findOwnedJobRef` reads it). Any apply counts, through Campus or the worker app, whatever its
-   * stage since.
+   * Whether he applied to a posting or a legacy job this tenant owns: the institute rule's "a
+   * company he applied to". Ownership is `payer_id` = the tenant key, as `findOwnedJobRef` reads
+   * it. Any apply counts, through Campus or the worker app, whatever its stage since.
    */
-  async hasAppliedToOwner(workerId: string, ownerPayerId: string): Promise<boolean> {
+  async hasAppliedToTenant(workerId: string, tenant: TenantKey): Promise<boolean> {
     const rows = await this.db
       .select({ id: applications.id })
       .from(applications)
@@ -149,7 +153,31 @@ export class InstituteLinkRepository {
         and(
           eq(applications.workerId, workerId),
           eq(applications.action, "applied"),
-          or(eq(jobPostings.payerId, ownerPayerId), eq(jobs.payerId, ownerPayerId)),
+          or(eq(jobPostings.payerId, tenant), eq(jobs.payerId, tenant)),
+        ),
+      )
+      .limit(1);
+    return rows.length > 0;
+  }
+
+  /**
+   * The same question for the company that HOLDS an unlock: the reveal's subject, on the payer
+   * route and the ops route alike. The holder is `unlocks.payer_id` (the tenant key the grant was
+   * made under), joined here in SQL, so no raw payer id is passed around (ADR-0053 T5).
+   */
+  async hasAppliedToUnlockHolder(workerId: string, unlockId: string): Promise<boolean> {
+    const rows = await this.db
+      .select({ id: applications.id })
+      .from(unlocks)
+      .innerJoin(applications, eq(applications.workerId, unlocks.workerId))
+      .leftJoin(jobPostings, eq(jobPostings.id, applications.jobPostingId))
+      .leftJoin(jobs, eq(jobs.id, applications.jobId))
+      .where(
+        and(
+          eq(unlocks.id, unlockId),
+          eq(unlocks.workerId, workerId),
+          eq(applications.action, "applied"),
+          or(eq(jobPostings.payerId, unlocks.payerId), eq(jobs.payerId, unlocks.payerId)),
         ),
       )
       .limit(1);
@@ -158,23 +186,31 @@ export class InstituteLinkRepository {
 
   /**
    * RVM confirmed his consent again: refresh the facts and the confirmation time. Only an active
-   * link moves; one withdrawn since the read stays withdrawn.
+   * link moves; one withdrawn since the read stays withdrawn, and the answer is then false, so a
+   * caller never opens on a confirmation that did not land.
    */
-  async confirmActive(workerId: string, facts: InstituteLinkFacts, now: Date): Promise<void> {
-    await this.db
+  async confirmActive(workerId: string, facts: InstituteLinkFacts, now: Date): Promise<boolean> {
+    const rows = await this.db
       .update(workerInstituteLinks)
       .set({ ...facts, syncedAt: now })
       .where(
         and(eq(workerInstituteLinks.workerId, workerId), eq(workerInstituteLinks.status, "active")),
-      );
+      )
+      .returning({ workerId: workerInstituteLinks.workerId });
+    return rows.length > 0;
   }
 
   /**
-   * Deletes the worker row THIS INSTITUTE'S LINK CREATED, when he has never signed in to it: still
-   * `pending` and its origin this institute, the two conditions `moveLinkCreatedWorkerPhone`
-   * uses. One conditional statement, so a sign-in that activates the row first keeps it. Postgres
+   * Deletes the worker row THIS INSTITUTE'S LINK CREATED, when he has never used it as a BadaBhai
+   * account. `pending` alone does not prove that (a PIN reset mints a session without activating
+   * the row), so every trace of an account must be absent too:
+   *   - still `pending`, and its origin this institute (the link made it);
+   *   - no `worker_consents` row: he never accepted BadaBhai's notice, so he never used the app;
+   *   - no `worker_credentials` row (no PIN) and no `worker_devices` row (no trusted device).
+   * One conditional statement, so a sign-in that leaves any of those first keeps the row. Postgres
    * cascades his link, origin and applications and sets his billing rows' worker to null, as the
-   * DPDP erasure's own delete does. False when nothing was deleted: he has a BadaBhai account.
+   * DPDP erasure's own delete does; with no account there are no sessions, files or transcripts
+   * for `AccountDeletionService` to sweep. False when nothing was deleted.
    */
   async deleteLinkCreatedPendingWorker(
     tx: Database,
@@ -198,6 +234,24 @@ export class InstituteLinkRepository {
                   eq(workerOrigins.ref, instituteCode),
                 ),
               ),
+          ),
+          notExists(
+            tx
+              .select({ one: sql`1` })
+              .from(workerConsents)
+              .where(eq(workerConsents.workerId, workerId)),
+          ),
+          notExists(
+            tx
+              .select({ one: sql`1` })
+              .from(workerCredentials)
+              .where(eq(workerCredentials.workerId, workerId)),
+          ),
+          notExists(
+            tx
+              .select({ one: sql`1` })
+              .from(workerDevices)
+              .where(eq(workerDevices.workerId, workerId)),
           ),
         ),
       )

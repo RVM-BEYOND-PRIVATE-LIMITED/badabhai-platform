@@ -401,7 +401,7 @@ describe("UnlockService — #2752 institute rule for a linked student", () => {
     const out = await svc.requestUnlock({ payerId: PAYER, workerId: WORKER, jobId: null }, CTX);
     expect(out).toEqual({ status: "unavailable" });
     // Asked about THIS company (the tenant key: the caller itself in mode off).
-    expect(instituteGate.decide).toHaveBeenCalledWith(WORKER, PAYER, CTX);
+    expect(instituteGate.decide).toHaveBeenCalledWith(WORKER, { tenant: PAYER }, CTX);
     expect(txMethods.tryDebit).not.toHaveBeenCalled();
     const deny = events.emit.mock.calls.find(
       (c) => (c[0] as { event_name: string }).event_name === "unlock.denied",
@@ -439,7 +439,7 @@ describe("UnlockService — #2752 institute rule for a linked student", () => {
       },
     });
     expect(await svc.reveal("unlock-1", CTX)).toEqual({ status: "unavailable" });
-    expect(instituteGate.decide).toHaveBeenCalledWith(WORKER, PAYER, CTX);
+    expect(instituteGate.decide).toHaveBeenCalledWith(WORKER, { unlockId: "unlock-1" }, CTX);
     expect(pii.decrypt).not.toHaveBeenCalled();
   });
 });

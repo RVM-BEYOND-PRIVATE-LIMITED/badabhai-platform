@@ -162,6 +162,19 @@ describe("the Campus routes over HTTP", () => {
       expect(unlinks).toEqual([[REF, "campus_request"]]);
     });
 
+    it("audits the route template, never the student reference in the path", async () => {
+      const { base, audits } = await boot({});
+
+      const res = await fetch(`${base}/students/${REF}`, {
+        method: "DELETE",
+        headers: { "x-service-token": TOKEN, "idempotency-key": KEY },
+      });
+      await res.arrayBuffer();
+
+      expect(audits.map((a) => a.path)).toEqual(["/internal/campus/v1/students/:student_ref"]);
+      expect(JSON.stringify(audits)).not.toContain(REF);
+    });
+
     it("answers 400 IDEMPOTENCY_KEY_REQUIRED without a key, and unlinks nothing", async () => {
       const { base, unlinks } = await boot({});
 

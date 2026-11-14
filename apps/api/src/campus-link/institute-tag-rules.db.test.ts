@@ -8,12 +8,16 @@ import {
   jobPostings,
   payers,
   workerConsents,
+  workerCredentials,
   workerInstituteLinks,
   workerSkills,
   workers,
   type DbClient,
 } from "@badabhai/db";
 import type { RequestContext } from "../common/request-context";
+import type { PayerOrgsRepository } from "../payers/payer-orgs.repository";
+import type { TenantKey } from "../payers/payer-tenant-scope";
+import { PayerTenantScopeService } from "../payers/payer-tenant-scope.service";
 import { PiiCryptoService } from "../common/pii-crypto.service";
 import { CandidateSearchRepository } from "../candidates/candidate-search.repository";
 import { EventsRepository } from "../events/events.repository";
@@ -32,11 +36,13 @@ import {
 /**
  * #2752 part C — the tag rules' POSTGRES contract:
  *   - the open gate: not linked → the caller's own rule; linked → open only for a company he
- *     applied to, with his RVM consent fresh or re-read; an RVM refusal ends the link, an outage
- *     ends nothing; both refuse the open;
- *   - unlink: a link-created row he never signed in to is deleted (his applications with it);
- *     a worker with a BadaBhai account keeps his row and loses only the copied facts; a repeat or
- *     an unknown reference does nothing; one ids-only `worker.institute_unlinked` per unlink;
+ *     applied to, with his RVM consent fresh or re-read; an RVM refusal withdraws the link and
+ *     never deletes, an outage ends nothing; both refuse the open; a refusal older than a newer
+ *     confirmation stands down;
+ *   - unlink (Campus's request): a link-created row he never used as an account (no consent,
+ *     PIN or device) is deleted with his applications; anyone else keeps his row and loses only the
+ *     copied facts; a repeat or an unknown reference does nothing; one ids-only
+ *     `worker.institute_unlinked` per unlink;
  *   - company search leaves out an actively linked student even when he holds BadaBhai's own
  *     consent and a wanted skill, and lets him back once the link is withdrawn.
  */
@@ -71,6 +77,12 @@ function student(overrides: Partial<RvmStudentRead> = {}): RvmStudentRead {
   };
 }
 
+interface Company {
+  payerId: string;
+  postingId: string;
+  tenant: TenantKey;
+}
+
 describe.skipIf(!RUN)("#2752 tag rules — against Postgres", () => {
   let client!: DbClient;
   let pii!: PiiCryptoService;
@@ -84,10 +96,18 @@ describe.skipIf(!RUN)("#2752 tag rules — against Postgres", () => {
   const touchedWorkers = new Set<string>();
   const touchedPayers: string[] = [];
   /** A company that owns one open posting, and one that owns another. */
-  let companyA!: { payerId: string; postingId: string };
-  let companyB!: { payerId: string; postingId: string };
+  let companyA!: Company;
+  let companyB!: Company;
+  /** The real resolver in mode `off` (no memberships), so a tenant key is never minted by hand. */
+  const tenancy = new PayerTenantScopeService(
+    { PAYER_ORG_TENANCY_MODE: "off" } as never,
+    {
+      listActiveMembershipsWithAnchor: async () => [],
+      ensureSoloOrg: async () => null,
+    } as unknown as PayerOrgsRepository,
+  );
 
-  async function company(label: string): Promise<{ payerId: string; postingId: string }> {
+  async function company(label: string): Promise<Company> {
     const [payer] = await client.db
       .insert(payers)
       .values({
@@ -110,7 +130,8 @@ describe.skipIf(!RUN)("#2752 tag rules — against Postgres", () => {
         status: "open",
       })
       .returning({ id: jobPostings.id });
-    return { payerId: payer!.id, postingId: posting!.id };
+    const { tenantKey } = await tenancy.resolve(payer!.id);
+    return { payerId: payer!.id, postingId: posting!.id, tenant: tenantKey };
   }
 
   beforeAll(async () => {
@@ -153,6 +174,7 @@ describe.skipIf(!RUN)("#2752 tag rules — against Postgres", () => {
         await client.sql`DELETE FROM workers WHERE id = ${id}::uuid`;
       }
       for (const id of touchedPayers) {
+        await client.sql`DELETE FROM unlocks WHERE payer_id = ${id}::uuid`;
         await client.sql`DELETE FROM job_postings WHERE payer_id = ${id}::uuid`;
         await client.sql`DELETE FROM payers WHERE id = ${id}::uuid`;
       }
@@ -213,7 +235,7 @@ describe.skipIf(!RUN)("#2752 tag rules — against Postgres", () => {
     it("leaves a worker who is not linked to the caller's own rule", async () => {
       const own = await ownWorker(phone10());
 
-      expect(await gate.decide(own.id, companyA.payerId, CTX)).toBe("not_linked");
+      expect(await gate.decide(own.id, { tenant: companyA.tenant }, CTX)).toBe("not_linked");
     });
 
     it("is closed to a company he never applied to, without asking RVM", async () => {
@@ -221,7 +243,7 @@ describe.skipIf(!RUN)("#2752 tag rules — against Postgres", () => {
       await applyTo(workerId, companyA.postingId);
       await ageConfirmation(workerId);
 
-      expect(await gate.decide(workerId, companyB.payerId, CTX)).toBe("closed");
+      expect(await gate.decide(workerId, { tenant: companyB.tenant }, CTX)).toBe("closed");
       expect(reads.filter((r) => r === ref)).toHaveLength(1); // the link's own read only
     });
 
@@ -229,8 +251,21 @@ describe.skipIf(!RUN)("#2752 tag rules — against Postgres", () => {
       const { workerId, ref } = await linkedStudent();
       await applyTo(workerId, companyA.postingId);
 
-      expect(await gate.decide(workerId, companyA.payerId, CTX)).toBe("open");
+      expect(await gate.decide(workerId, { tenant: companyA.tenant }, CTX)).toBe("open");
       expect(reads.filter((r) => r === ref)).toHaveLength(1);
+    });
+
+    it("on a reveal, opens only for the company that holds the unlock, read from the unlock row", async () => {
+      const { workerId } = await linkedStudent();
+      await applyTo(workerId, companyA.postingId);
+      const [held, other] = await client.sql<{ id: string }[]>`
+        INSERT INTO unlocks (payer_id, worker_id, status, granted_at, expires_at) VALUES
+          (${companyA.payerId}::uuid, ${workerId}::uuid, 'granted', now(), now() + interval '14 days'),
+          (${companyB.payerId}::uuid, ${workerId}::uuid, 'granted', now(), now() + interval '14 days')
+        RETURNING id`;
+
+      expect(await gate.decide(workerId, { unlockId: held!.id }, CTX)).toBe("open");
+      expect(await gate.decide(workerId, { unlockId: other!.id }, CTX)).toBe("closed");
     });
 
     it("re-reads a stale confirmation and opens when RVM still answers for him", async () => {
@@ -239,30 +274,49 @@ describe.skipIf(!RUN)("#2752 tag rules — against Postgres", () => {
       await ageConfirmation(workerId);
       answers.set(ref, { kind: "available", student: student({ course: "Refreshed" }) });
 
-      expect(await gate.decide(workerId, companyA.payerId, CTX)).toBe("open");
+      expect(await gate.decide(workerId, { tenant: companyA.tenant }, CTX)).toBe("open");
       const link = await linkOf(workerId);
       expect(link?.course).toBe("Refreshed");
       expect(Date.now() - link!.syncedAt!.getTime()).toBeLessThan(60_000);
     });
 
-    it("ends the link when RVM no longer answers for him, and refuses the open", async () => {
+    it("withdraws the link when RVM no longer answers for him, refuses the open, and deletes nothing", async () => {
       const { workerId, ref } = await linkedStudent();
       await applyTo(workerId, companyA.postingId);
       await ageConfirmation(workerId);
       answers.set(ref, { kind: "not_available" });
 
-      expect(await gate.decide(workerId, companyA.payerId, CTX)).toBe("closed");
-      // He never signed in: his BadaBhai row went with the link.
-      expect(await workerOf(workerId)).toBeUndefined();
+      expect(await gate.decide(workerId, { tenant: companyA.tenant }, CTX)).toBe("closed");
+      // RVM says NOT_AVAILABLE for any reason, so this signal never deletes: the row and his
+      // application stay; the link is withdrawn and the copied facts are gone.
+      expect((await workerOf(workerId))?.status).toBe("pending");
+      expect(await linkOf(workerId)).toMatchObject({ status: "withdrawn", course: null });
+      const kept = await client.db
+        .select()
+        .from(applications)
+        .where(eq(applications.workerId, workerId));
+      expect(kept).toHaveLength(1);
       const ended = await unlinkedEvents(workerId);
       expect(ended.map((e) => e.payload)).toEqual([
         {
           worker_id: workerId,
           institute_code: "rvm",
           reason: "consent_not_confirmed",
-          worker_deleted: true,
+          worker_deleted: false,
         },
       ]);
+      // Withdrawn, he is no longer linked; with no BadaBhai consent his own rule refuses him too.
+      expect(await gate.decide(workerId, { tenant: companyA.tenant }, CTX)).toBe("not_linked");
+    });
+
+    it("lets a refusal older than a newer confirmation stand down", async () => {
+      const { workerId, ref } = await linkedStudent();
+      const before = new Date(Date.now() - 60_000);
+
+      await links.unlinkStudent(ref, "consent_not_confirmed", CTX, before);
+
+      expect((await linkOf(workerId))?.status).toBe("active");
+      expect(await unlinkedEvents(workerId)).toHaveLength(0);
     });
 
     it("ends nothing when RVM is down, and still refuses the open", async () => {
@@ -271,7 +325,7 @@ describe.skipIf(!RUN)("#2752 tag rules — against Postgres", () => {
       await ageConfirmation(workerId);
       answers.set(ref, new RvmStudentApiUnavailableError("timeout"));
 
-      expect(await gate.decide(workerId, companyA.payerId, CTX)).toBe("closed");
+      expect(await gate.decide(workerId, { tenant: companyA.tenant }, CTX)).toBe("closed");
       expect((await linkOf(workerId))?.status).toBe("active");
       expect(await unlinkedEvents(workerId)).toHaveLength(0);
     });
@@ -331,6 +385,34 @@ describe.skipIf(!RUN)("#2752 tag rules — against Postgres", () => {
           worker_deleted: false,
         },
       ]);
+    });
+
+    it("keeps a pending link-created row that holds a PIN (a PIN reset leaves it pending)", async () => {
+      const { workerId, ref } = await linkedStudent();
+      await client.db
+        .insert(workerCredentials)
+        .values({ workerId, pinHash: "scrypt-v1.test.test" });
+
+      await links.unlinkStudent(ref, "campus_request", CTX);
+
+      expect((await workerOf(workerId))?.status).toBe("pending");
+      expect((await linkOf(workerId))?.status).toBe("withdrawn");
+      expect((await unlinkedEvents(workerId))[0]!.payload).toMatchObject({ worker_deleted: false });
+    });
+
+    it("keeps a pending link-created row that has accepted BadaBhai's consent", async () => {
+      const { workerId, ref } = await linkedStudent();
+      await client.db.insert(workerConsents).values({
+        workerId,
+        consentVersion: "test-2752c",
+        purposes: ["profiling"],
+        acceptedAt: new Date(),
+      });
+
+      await links.unlinkStudent(ref, "campus_request", CTX);
+
+      expect(await workerOf(workerId)).toBeDefined();
+      expect((await linkOf(workerId))?.status).toBe("withdrawn");
     });
 
     it("keeps a link-created row once he has signed in to it himself", async () => {

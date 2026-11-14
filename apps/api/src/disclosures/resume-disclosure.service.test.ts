@@ -649,7 +649,7 @@ describe("#2752 — the institute rule for a linked student", () => {
       CTX,
     );
     expect(res).toEqual(NEUTRAL);
-    expect(t.instituteGate.decide).toHaveBeenCalledWith(WORKER, PAYER, CTX);
+    expect(t.instituteGate.decide).toHaveBeenCalledWith(WORKER, { tenant: PAYER }, CTX);
     expect(t.renderer.renderPdf).not.toHaveBeenCalled();
   });
 

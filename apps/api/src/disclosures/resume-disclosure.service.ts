@@ -754,7 +754,7 @@ export class ResumeDisclosureService {
     tenant: TenantKey,
     ctx: RequestContext,
   ): Promise<boolean> {
-    const institute = await this.instituteGate.decide(workerId, tenant, ctx);
+    const institute = await this.instituteGate.decide(workerId, { tenant }, ctx);
     if (institute === "not_linked") return this.isConsentedForSharing(workerId);
     return institute === "open";
   }

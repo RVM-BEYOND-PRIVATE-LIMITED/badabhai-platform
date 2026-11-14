@@ -9,6 +9,9 @@ import { RvmStudentApiUnavailableError } from "./rvm-student-api.client";
 const CTX: RequestContext = { correlationId: "corr-1", requestId: "req-1" };
 const WORKER = "22222222-2222-4222-8222-222222222222";
 const COMPANY = "11111111-1111-4111-8111-111111111111";
+const UNLOCK = "33333333-3333-4333-8333-333333333333";
+/** A test stands in for the resolver: a tenant key is a string at run time. */
+const OPENER = { tenant: COMPANY as never };
 const LINK = { workerId: WORKER, studentRef: "3c9e7b21-4f6a-4d8e-b1c2-a3d4e5f60718" };
 
 function gate(opts: {
@@ -22,7 +25,8 @@ function gate(opts: {
       if (opts.linkRead) throw opts.linkRead;
       return opts.link;
     }),
-    hasAppliedToOwner: vi.fn(async () => opts.applied ?? false),
+    hasAppliedToTenant: vi.fn(async () => opts.applied ?? false),
+    hasAppliedToUnlockHolder: vi.fn(async () => opts.applied ?? false),
   };
   const links = {
     confirmConsent: vi.fn(async () => {
@@ -40,27 +44,34 @@ function gate(opts: {
 describe("InstituteOpenGate.decide", () => {
   it("says not_linked for a worker with no active link, and asks nothing else", async () => {
     const { subject, repo, links } = gate({ link: undefined });
-    expect(await subject.decide(WORKER, COMPANY, CTX)).toBe("not_linked");
-    expect(repo.hasAppliedToOwner).not.toHaveBeenCalled();
+    expect(await subject.decide(WORKER, OPENER, CTX)).toBe("not_linked");
+    expect(repo.hasAppliedToTenant).not.toHaveBeenCalled();
     expect(links.confirmConsent).not.toHaveBeenCalled();
   });
 
   it("is closed to a company he did not apply to, without re-reading his consent", async () => {
     const { subject, repo, links } = gate({ link: LINK, applied: false });
-    expect(await subject.decide(WORKER, COMPANY, CTX)).toBe("closed");
-    expect(repo.hasAppliedToOwner).toHaveBeenCalledWith(WORKER, COMPANY);
+    expect(await subject.decide(WORKER, OPENER, CTX)).toBe("closed");
+    expect(repo.hasAppliedToTenant).toHaveBeenCalledWith(WORKER, COMPANY);
     expect(links.confirmConsent).not.toHaveBeenCalled();
   });
 
   it("opens for a company he applied to while his consent stands", async () => {
     const { subject, links } = gate({ link: LINK, applied: true, consent: true });
-    expect(await subject.decide(WORKER, COMPANY, CTX)).toBe("open");
+    expect(await subject.decide(WORKER, OPENER, CTX)).toBe("open");
     expect(links.confirmConsent).toHaveBeenCalledWith(LINK, CTX);
+  });
+
+  it("asks about the holder of the unlock being revealed, by the unlock's id", async () => {
+    const { subject, repo } = gate({ link: LINK, applied: true, consent: true });
+    expect(await subject.decide(WORKER, { unlockId: UNLOCK }, CTX)).toBe("open");
+    expect(repo.hasAppliedToUnlockHolder).toHaveBeenCalledWith(WORKER, UNLOCK);
+    expect(repo.hasAppliedToTenant).not.toHaveBeenCalled();
   });
 
   it("is closed when his consent no longer stands", async () => {
     const { subject } = gate({ link: LINK, applied: true, consent: false });
-    expect(await subject.decide(WORKER, COMPANY, CTX)).toBe("closed");
+    expect(await subject.decide(WORKER, OPENER, CTX)).toBe("closed");
   });
 
   it("fails closed when RVM is down", async () => {
@@ -69,11 +80,11 @@ describe("InstituteOpenGate.decide", () => {
       applied: true,
       consent: new RvmStudentApiUnavailableError("timeout"),
     });
-    expect(await subject.decide(WORKER, COMPANY, CTX)).toBe("closed");
+    expect(await subject.decide(WORKER, OPENER, CTX)).toBe("closed");
   });
 
   it("fails closed, never not_linked, when the link read itself fails", async () => {
     const { subject } = gate({ linkRead: new Error("connection reset") });
-    expect(await subject.decide(WORKER, COMPANY, CTX)).toBe("closed");
+    expect(await subject.decide(WORKER, OPENER, CTX)).toBe("closed");
   });
 });
