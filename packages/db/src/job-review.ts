@@ -32,6 +32,18 @@ import {
  * fetch and the decision would be approved unseen. So the decision also carries the
  * `content_hash` the reviewer saw (owner ruling 2026-11-14), and it is applied only when that
  * equals {@link postingReviewContentHash} under the lock (409 `POSTING_CHANGED` otherwise).
+ *
+ * PR 5 takes that posting lock `FOR SHARE` (`CampusPostingReviewRepository`), so decisions share
+ * it and serialise on the review row. Because Campus echoes the hash, a bump of
+ * {@link POSTING_REVIEW_CONTENT_VERSION} also refuses every review in flight until Campus reads
+ * the feed again.
+ *
+ * ONE CLOCK FOR THE FEED CURSOR. Every review-row write stamps `updated_at = clock_timestamp()`
+ * (PR 4's company writes and PR 5's decision alike), never the app clock or the transaction start
+ * (`now()`). A row still commits AFTER its stamp, so a slower transaction can commit a stamp older
+ * than one already read: Campus's feed (#2752 Part E) must read `changed_since` with an OVERLAP
+ * window (re-read a margin before the last cursor and de-duplicate), or it can skip a change.
+ * `reviewed_at` is Campus's own `decided_at` and orders decisions; it is not a cursor.
  */
 
 /** The institute an RVM audience is reviewed by (`INSTITUTE_CODES`); the review row's key half. */

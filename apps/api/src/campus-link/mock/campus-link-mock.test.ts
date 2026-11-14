@@ -4,8 +4,15 @@ import {
   CampusApplicationSchema,
   CampusErrorBodySchema,
   CampusPostingPageSchema,
+  CampusReviewResponseSchema,
+  CampusTargetingOptionsResponseSchema,
 } from "../campus-link.contract";
-import { APPLY_BODY_EXAMPLE, POSTING_EXAMPLE } from "../campus-link.examples";
+import {
+  APPLY_BODY_EXAMPLE,
+  POSTING_EXAMPLE,
+  REVIEW_BODY_EXAMPLE,
+  TARGETING_OPTIONS_BODY_EXAMPLE,
+} from "../campus-link.examples";
 import { createCampusLinkMock, type MockRequest } from "./campus-link-mock";
 
 const TOKEN = "mock-token-for-tests";
@@ -102,5 +109,73 @@ describe("Campus contract mock", () => {
     const res = createCampusLinkMock({ token: TOKEN })(request("GET", "students"));
     expect(res.status).toBe(404);
     expect(CampusErrorBodySchema.parse(res.body).error.code).toBeUndefined();
+  });
+
+  it("records a review that echoes the feed's content_hash, and 409s a stale one (#2746)", () => {
+    const handle = createCampusLinkMock({ token: TOKEN });
+    const path = `job-postings/${POSTING_EXAMPLE.id}/review`;
+
+    const fresh = handle(request("PUT", path, { body: REVIEW_BODY_EXAMPLE }));
+    const stale = handle(
+      request("PUT", path, {
+        body: {
+          ...REVIEW_BODY_EXAMPLE,
+          content_hash: "0".repeat(64),
+          decided_at: "2026-11-13T11:00:00.000+05:30",
+        },
+      }),
+    );
+    const noHash = handle(
+      request("PUT", path, {
+        body: { state: "approved", reviewer_ref: REVIEW_BODY_EXAMPLE.reviewer_ref },
+      }),
+    );
+
+    expect(fresh.status).toBe(200);
+    expect(CampusReviewResponseSchema.parse(fresh.body).review_state).toBe("approved");
+    expect(stale.status).toBe(409);
+    expect(CampusErrorBodySchema.parse(stale.body).error.code).toBe("POSTING_CHANGED");
+    expect(noHash.status).toBe(400);
+    expect(CampusErrorBodySchema.parse(noHash.body).error.code).toBe("VALIDATION_FAILED");
+  });
+
+  it("keeps the newest decision by decided_at: a replay answers it, an older or clashing one is DECISION_SUPERSEDED (#2746)", () => {
+    const handle = createCampusLinkMock({ token: TOKEN });
+    const path = "job-postings/" + POSTING_EXAMPLE.id + "/review";
+    const approve = { ...REVIEW_BODY_EXAMPLE, decided_at: "2026-11-13T10:00:00.000+05:30" };
+    const reject = { ...approve, state: "rejected", decided_at: "2026-11-13T10:05:00.000+05:30" };
+
+    expect(handle(request("PUT", path, { body: approve })).status).toBe(200);
+    expect(handle(request("PUT", path, { body: reject })).status).toBe(200);
+    const late = handle(request("PUT", path, { body: approve }));
+    const clash = handle(request("PUT", path, { body: { ...reject, state: "approved" } }));
+    const replay = handle(request("PUT", path, { body: reject }));
+
+    expect(late.status).toBe(409);
+    expect(CampusErrorBodySchema.parse(late.body).error.code).toBe("DECISION_SUPERSEDED");
+    expect(clash.status).toBe(409);
+    expect(replay.status).toBe(200);
+    expect(CampusReviewResponseSchema.parse(replay.body)).toMatchObject({
+      review_state: "rejected",
+      reviewed_at: reject.decided_at,
+    });
+  });
+
+  it("takes a targeting-options list and answers counts that parse against the contract (#2746)", () => {
+    const handle = createCampusLinkMock({ token: TOKEN });
+
+    const res = handle(
+      request("PUT", "targeting-options", { body: TARGETING_OPTIONS_BODY_EXAMPLE }),
+    );
+    const noKey = handle(
+      request("PUT", "targeting-options", { body: TARGETING_OPTIONS_BODY_EXAMPLE, key: null }),
+    );
+
+    expect(res.status).toBe(200);
+    expect(CampusTargetingOptionsResponseSchema.parse(res.body).branches.listed).toBe(
+      TARGETING_OPTIONS_BODY_EXAMPLE.branches.length,
+    );
+    expect(noKey.status).toBe(400);
+    expect(CampusErrorBodySchema.parse(noKey.body).error.code).toBe("IDEMPOTENCY_KEY_REQUIRED");
   });
 });

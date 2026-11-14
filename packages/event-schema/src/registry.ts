@@ -859,6 +859,19 @@ export const EVENT_REGISTRY = {
     domain: "job_posting",
     payload: p.JobPostingAudienceSetPayload,
   },
+  // #2746 PR 5 — the placement team (BadaBhai Campus) approved or rejected the RVM part of a
+  // posting, for the content whose hash it stores. IDS AND ENUMS ONLY; never the reason text. v1.
+  "job_posting.rvm_reviewed": {
+    version: 1,
+    domain: "job_posting",
+    payload: p.JobPostingRvmReviewedPayload,
+  },
+  // #2746 PR 5 — Campus replaced the RVM branches and courses a company may target. COUNTS ONLY. v1.
+  "job_posting.rvm_targeting_options_set": {
+    version: 1,
+    domain: "job_posting",
+    payload: p.JobPostingRvmTargetingOptionsSetPayload,
+  },
   // POLICY 27 — an ops human WIDENED a reach set. Narrowing is structurally
   // impossible on that path (the service appends, never removes). v1.
   "job_posting.reach_widened": {
