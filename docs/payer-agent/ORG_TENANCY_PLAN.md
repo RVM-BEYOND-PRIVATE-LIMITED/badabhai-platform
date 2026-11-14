@@ -459,7 +459,7 @@ when a T5 `NAMED_EXCEPTIONS` entry sits in a file the table does not name (P3).
 | `apps/api/src/admin/admin-actions.repository.ts` (`suspendPayerInventory` `:159`, `reinstatePayerInventory` `:203`, `grantCredits` `:244`) · `apps/api/src/admin/admin-entities.repository.ts` · `apps/api/src/admin/admin-finance.repository.ts` | ops address an account literally. Suspending an anchor already cascades the org's inventory because rows carry the anchor; R5 blocks the org (O-6). |
 | `apps/api/src/agency/agency-kyc.repository.ts` (`markVerified`, `markRejected` only) | ops verify or reject the queue row they name; its `payer_id` already is the tenant key (P2d, §3.4) |
 | `apps/api/src/payers/payer-disclosure-rate-limit.service.ts` and other rate limiters | abuse controls are per principal |
-| `apps/api/src/payers/payers.repository.ts` · `apps/api/src/payers/payer-account.service.ts` | the person, not the tenant. (`GET /payer/me` `postingOrgName`, P3, reads the TENANT's org name through the resolver — §5 item 10.) |
+| `apps/api/src/payers/payers.repository.ts` · `apps/api/src/payers/payer-account.service.ts` · `apps/api/src/campus-drives/campus-drive-contact-erasure.repository.ts` (`eraseEnteredBy` only) | the person, not the tenant. (`GET /payer/me` `postingOrgName`, P3, reads the TENANT's org name through the resolver — §5 item 10.) The drive-contact erasure (#2746 PR 6, ADR-0063 §3.6, proposed) erases what the deleted login typed, in whichever company's request it sits. |
 
 ---
 

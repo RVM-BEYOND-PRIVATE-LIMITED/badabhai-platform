@@ -762,6 +762,75 @@ Owner rulings 2026-11-03: payer-web's **Candidates** opens on **All candidates**
 - **Auth:** `PayerAuthGuard` (Bearer), either role. Its own per-payer bucket (`payer_candidate_filters`, the same `PAYER_CANDIDATE_SEARCH_MAX_PER_HOUR` cap), never the search's. The city list is cached per process for a minute.
 - **Response:** `{ roles: [{id,label,industryId}], industries: [{id,label}], experienceBuckets: [{id,label}], cities: string[], maxRoles: 5 }`. `roles` is one option per label; `cities` are the gazetteer-canonical cities the eligible pool actually records (A→Z).
 
+### 4.9 Campus-drive requests (#2746)
+
+A company asks RVM's placement team for a campus drive; the team schedules it in BadaBhai Campus and the company sees the date here. The drive itself is a Campus record; BadaBhai keeps the request, the decision and Campus's reference (`campus_drive_ref`).
+
+Behind the `campus_drive_requests` switch (`CAMPUS_DRIVE_REQUESTS_ROLLOUT`: `off` | `pilot` | `on`, read per company by its tenant key). **Default `off`.** While it is not live for the company, **every route below is a plain `404`** (no body detail).
+
+- **Auth (every route):** `PayerAuthGuard` + `PayerRoleGuard` role=`employer`. An `agent` session gets the house `403` (`"Payer role is not permitted for this resource"`) on every route, reads included. The company is the session's: no body or path carries a company id. Every read and write is tenant-scoped in the query; another company's request is the same `404` as an unknown one.
+- **Who may ask (create only):** a **verified** employer: the company record's admin review is `verified` (`PATCH /admin/companies/:id`, `verification_status`) **and** a GST number is on file. Otherwise `403` with `error.reason: "company_not_verified"` and `error.missing: ("admin_approval" | "gst_number")[]`, in that order, for the app to list. (The brief's alternative, "a phone-verified owner", is not built: no such state exists in BadaBhai yet.) Under org tenancy `on` a team member is judged by the company's record; in `off`, only the company's own login is.
+- **Not built here:** a cap on open requests (#2768) and an email when a drive is decided (#2767).
+
+#### `POST /payer/campus-drive-requests`
+
+- **Headers:** `Idempotency-Key` **required**: 8–200 characters of `A-Z a-z 0-9 . _ : -`. Missing or malformed → `400` `error.reason: "idempotency_key_required"`. Mint one key per request the user means to make and reuse it on every retry of that request.
+- **Body (strict: an unknown key is a `400`):**
+  - `job_posting_id?: uuid`: one of the company's **own** postings, any audience (it is context for the roles). A foreign or unknown id → `404`.
+  - `branch_ids?: int[]` (≤ 50): RVM location ids, each an **active** branch option (`GET /payer/job-postings/audience-options` lists them). `[]` or omitted = any branch. Stored sorted and de-duplicated.
+  - `preferred_from`, `preferred_to`: `YYYY-MM-DD`, real dates, `from ≤ to`, `from` not before **today in India**.
+  - `openings: int` (1–1000).
+  - `roles_note?: string` (1–1000): free text for the placement team. Hidden characters (control, invisible format, bidi, lone surrogates) are removed. **Refused** when it holds a phone number, an email or another ID (the house hard-identifier check): put the contact person in the contact fields. A digit run like `15000-18000` reads as a phone: write `15,000 to 18,000`.
+  - `contact_name: string` (1–120) and `contact_phone: string` (E.164, `+919876543210`): the person the placement team calls. Stored only as AES ciphertext.
+- **Response `201`:** the request (shape below), `status: "requested"`.
+- **Repeats:** the same key with the same body answers the **first** request (`201`, same `id`), for as long as the request exists: the key is stored on the row and unique per company. The same key with a **different** body → `409` `error.reason: "idempotency_key_reused"`. A duplicate that arrives while the first is still running → `409` `error.reason: "in_flight"`: re-read the list, do not re-post. A refused attempt stores nothing, so the same key works for the corrected body.
+- **Errors (`error.reason`):** `400` `preferred_dates_in_past`, `roles_note_has_identifier` (`error.identifier`: `phone` | `email` | …; the text is never echoed), `contact_name_required`, `targeting_option_not_offered` (names the branch ids); `403` `company_not_verified`; `404` posting not the company's; `409` as above.
+- **Events:** `campus_drive.requested` v1 in the same transaction (ids, enums and dates only: `campus_drive_request_id`, `payer_id`, `job_posting_id`, `branch_ids`, `preferred_from`, `preferred_to`, `openings`, `has_roles_note`, `is_test`). Never the contact or the note.
+
+#### `GET /payer/campus-drive-requests`
+
+- **Query:** `limit` (1–100, default 20), `cursor` (the previous page's `next_cursor`, untouched; anything else → `400`). Unknown keys → `400`.
+- **Response:** `{ drive_requests: Request[], next_cursor: string | null }`, newest first.
+
+#### `GET /payer/campus-drive-requests/:id`
+
+- One of the company's own requests. Unknown or foreign → `404`; a malformed id → `400`.
+
+#### `POST /payer/campus-drive-requests/:id/cancel`
+
+- **Body:** empty. Allowed from `requested` **and `scheduled`** (a company may call off a scheduled drive; Campus reads the cancellation in its feed and handles its own drive record). A repeat cancel → `200` with the request unchanged.
+- **Errors:** `409` `error.reason: "drive_request_not_cancellable"` (`error.status`: `declined` | `completed`); `404` unknown or foreign.
+- **Concurrency:** the cancel and the placement team's decision take the same row lock and run one after the other. Whichever commits first stands: a decision that arrives after a cancel is refused.
+- **Events:** `campus_drive.cancelled` v1 (`campus_drive_request_id`, `payer_id`, `previous_status`), once.
+
+#### The request, as the company reads it
+
+```json
+{
+  "id": "5a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
+  "job_posting_id": "b2c4e6f8-1a3b-4c5d-8e7f-90a1b2c3d4e5",
+  "branch_ids": [1],
+  "preferred_from": "2026-12-01",
+  "preferred_to": "2026-12-15",
+  "openings": 12,
+  "roles_note": "CNC operators and setters for two shifts.",
+  "contact": { "name": "Ravi Sharma", "phone_last4": "0001" },
+  "status": "scheduled",
+  "scheduled_on": "2026-12-05",
+  "campus_drive_ref": "campus-drive:000417",
+  "decision_reason": null,
+  "decided_at": "2026-11-20T03:30:00.000Z",
+  "cancelled_at": null,
+  "created_at": "2026-11-14T06:15:00.000Z",
+  "updated_at": "2026-11-20T03:30:00.412Z"
+}
+```
+
+- `status`: `requested` → `scheduled` | `declined` (the placement team); `scheduled` → `scheduled` (a reschedule: new date) | `declined` | `completed`; `requested` | `scheduled` → `cancelled` (the company). `declined`, `completed` and `cancelled` are final.
+- `scheduled_on` and `campus_drive_ref`: set while `scheduled`, kept on `completed`, cleared on `declined`.
+- `decision_reason`: the placement team's note on its latest decision (a decline's reason), shown as written.
+- `contact`: what the company entered, the phone only as its last four digits (the `GET /payer/me` rule). `null` once erased (a DPDP request, or the login that entered it deleted its account); the request stays.
+
 ## 5. Role Model
 
 | Concept      | Value      | Meaning                                                                                                                                                                                                                                    |

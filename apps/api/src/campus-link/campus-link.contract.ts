@@ -60,6 +60,11 @@ export const CAMPUS_ERROR_CODES = [
    * newer decision stands.
    */
   "DECISION_SUPERSEDED",
+  /**
+   * #2746: the drive request's status does not allow this decision (declined, completed and
+   * cancelled are final; `completed` needs `scheduled` first). The body carries the `status`.
+   */
+  "DECISION_NOT_ALLOWED",
 ] as const;
 export type CampusErrorCode = (typeof CAMPUS_ERROR_CODES)[number];
 
@@ -495,6 +500,136 @@ export const CampusSearchGrantSchema = z.object({
 export const CampusUnlinkResponseSchema = z.object({
   student_ref: StudentRefSchema,
   state: z.literal("unlinked"),
+});
+
+// ─── GET drive-requests, POST drive-requests/:id/decision (#2746) ───────────
+
+/**
+ * A campus-drive request's status (`campus_drive_requests.status`, `cdr_status_chk`). `requested`
+ * is open; `scheduled` is open and dated; `declined`, `completed` and `cancelled` are final.
+ */
+export const CAMPUS_DRIVE_REQUEST_STATUSES = [
+  "requested",
+  "scheduled",
+  "declined",
+  "completed",
+  "cancelled",
+] as const;
+
+/** What the placement team may decide. `cancelled` is the company's alone. */
+export const CAMPUS_DRIVE_DECISIONS = ["scheduled", "declined", "completed"] as const;
+
+/** True when `s` (already `YYYY-MM-DD`) names a day that exists, in year 1 or later. */
+function isRealCalendarDate(s: string): boolean {
+  const ms = Date.parse(`${s}T00:00:00.000Z`);
+  if (Number.isNaN(ms) || Number(s.slice(0, 4)) < 1) return false;
+  return new Date(ms).toISOString().slice(0, 10) === s;
+}
+
+/**
+ * A calendar date as Postgres `date` stores it: `YYYY-MM-DD`, a day that exists (2026-02-30 is
+ * refused, never rolled over), year 1 or later (Postgres has no year 0).
+ */
+export const CampusDateSchema = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, "must be YYYY-MM-DD")
+  .refine(isRealCalendarDate, "not a valid date");
+
+/** Campus's id for the drive it created: `cdr_refs_chk`'s charset, so never a name or an email. */
+export const CampusDriveRefSchema = z.string().regex(/^[A-Za-z0-9._:-]{1,200}$/);
+
+/**
+ * The drive-request feed. Ordered by `changed_at`, then id. `changed_since` returns requests
+ * changed at or after the instant; poll with the largest `changed_at` you processed MINUS TWO
+ * MINUTES and process items by (`id`, `changed_at`), because a write commits a moment after it is
+ * stamped. A page may hold fewer than `limit` items (even none) and still carry a `next_cursor`:
+ * follow it until it is `null`.
+ */
+export const CampusDriveRequestsQuerySchema = z.strictObject({
+  status: z.enum(CAMPUS_DRIVE_REQUEST_STATUSES).optional(),
+  changed_since: IsoDateTime.optional(),
+  cursor: Cursor.optional(),
+  limit: PageLimit,
+});
+
+export const CampusDriveRequestSchema = z.object({
+  id: Id,
+  /** `name` is the company's display name, so the placement team knows who is asking. */
+  company: z.object({ id: Id, name: z.string() }),
+  /** One of the company's own postings, as context for the roles. Not necessarily for RVM. */
+  job_posting_id: Id.nullable(),
+  /** RVM location ids the company prefers. Empty means any branch. */
+  branch_ids: z.array(BranchIdSchema),
+  preferred_from: CampusDateSchema,
+  preferred_to: CampusDateSchema,
+  openings: z.number().int(),
+  /** The company's own words about the roles, as written (hidden characters removed). */
+  roles_note: z.string().nullable(),
+  /**
+   * The company's contact person for the drive, decrypted for the placement team to call. `phone`
+   * is E.164 (`+919876543210`). `null` once erased (DPDP request, or the login that entered it was
+   * deleted); the request itself stays.
+   */
+  contact: z.object({ name: z.string(), phone: z.string() }).nullable(),
+  status: z.enum(CAMPUS_DRIVE_REQUEST_STATUSES),
+  /** The drive's date: set while `scheduled` and kept on `completed`. */
+  scheduled_on: CampusDateSchema.nullable(),
+  /** Campus's drive id, as sent with `scheduled`. */
+  campus_drive_ref: CampusDriveRefSchema.nullable(),
+  /** The latest decision's time, by Campus's clock: the instant Campus sent, in UTC. */
+  decided_at: IsoDateTime.nullable(),
+  decided_by_ref: StaffRefSchema.nullable(),
+  /** The latest decision's note, as BadaBhai stored it (and the company sees it). */
+  reason: z.string().nullable(),
+  /** A test company's request (`payers.is_test_account`). Listed like any other: filter on it. */
+  is_test: z.boolean(),
+  requested_at: IsoDateTime,
+  cancelled_at: IsoDateTime.nullable(),
+  /** When BadaBhai last changed the request, microsecond UTC. The feed's order and filter. */
+  changed_at: IsoDateTime,
+});
+
+export const CampusDriveRequestPageSchema = z.object({
+  drive_requests: z.array(CampusDriveRequestSchema),
+  next_cursor: Cursor.nullable(),
+});
+
+/** The fields every decision carries. */
+const driveDecisionShared = {
+  decided_by_ref: StaffRefSchema,
+  /**
+   * When the placement team decided, by Campus's clock. The NEWEST decision wins: an older one, or
+   * one at the same instant with any other field different, is 409 `DECISION_SUPERSEDED`; the same
+   * decision again is a replay (200, nothing written). More than five minutes ahead of BadaBhai's
+   * clock is 400 `VALIDATION_FAILED`.
+   */
+  decided_at: IsoDateTime,
+  /** Shown to the company as written: write it for them. Hidden characters are removed. */
+  reason: z.string().trim().min(1).max(500).optional(),
+};
+
+/**
+ * The placement team's decision on a drive request. `scheduled` carries the date and Campus's drive
+ * id (a later `scheduled` reschedules); `declined` and `completed` carry neither.
+ */
+export const CampusDriveDecisionBodySchema = z.discriminatedUnion("decision", [
+  z.strictObject({
+    decision: z.literal("scheduled"),
+    ...driveDecisionShared,
+    scheduled_on: CampusDateSchema,
+    campus_drive_ref: CampusDriveRefSchema,
+  }),
+  z.strictObject({ decision: z.literal("declined"), ...driveDecisionShared }),
+  z.strictObject({ decision: z.literal("completed"), ...driveDecisionShared }),
+]);
+
+export const CampusDriveDecisionResponseSchema = z.object({
+  drive_request_id: Id,
+  status: z.enum(CAMPUS_DRIVE_REQUEST_STATUSES),
+  scheduled_on: CampusDateSchema.nullable(),
+  campus_drive_ref: CampusDriveRefSchema.nullable(),
+  decided_at: IsoDateTime,
+  changed_at: IsoDateTime,
 });
 
 // ─── Errors ──────────────────────────────────────────────────────────────────

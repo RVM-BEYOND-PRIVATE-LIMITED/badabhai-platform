@@ -126,6 +126,10 @@ const NAMED_EXCEPTIONS: readonly string[] = [
   // Ops verify / reject the KYC of the account they name (plan §3.4, agency-kyc-ops: literal).
   "agency/agency-kyc.repository.ts AgencyKycRepository.markRejected",
   "agency/agency-kyc.repository.ts AgencyKycRepository.markVerified",
+  // #2746 PR 6 — the person, not the tenant (plan §4, beside payers.repository.ts): the account
+  // deletion erases the campus-drive contacts the deleted LOGIN typed (`created_by`), in whichever
+  // company's request they sit. Proposed in ADR-0063 §3.6, pending the owner's ruling.
+  "campus-drives/campus-drive-contact-erasure.repository.ts CampusDriveContactErasureRepository.eraseEnteredBy",
 ];
 
 // THE OLD `UNCONVERTED` ALLOWLIST IS GONE (Phase 3). Phase 2 emptied it, one domain per PR:

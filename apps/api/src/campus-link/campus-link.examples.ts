@@ -4,6 +4,10 @@ import type {
   CampusApplicationSchema,
   CampusApplyBodySchema,
   CampusCompanyResponseSchema,
+  CampusDriveDecisionBodySchema,
+  CampusDriveDecisionResponseSchema,
+  CampusDriveRequestPageSchema,
+  CampusDriveRequestSchema,
   CampusPostForCompanyBodySchema,
   CampusPostForCompanyResponseSchema,
   CampusPostingPageSchema,
@@ -155,4 +159,49 @@ export const SEARCH_GRANT_EXAMPLE: z.input<typeof CampusSearchGrantSchema> = {
 export const UNLINK_RESPONSE_EXAMPLE: z.input<typeof CampusUnlinkResponseSchema> = {
   student_ref: STUDENT_REF,
   state: "unlinked",
+};
+
+/** #2746 — a company's campus-drive request, as the placement team's feed shows it. */
+export const DRIVE_REQUEST_EXAMPLE: z.input<typeof CampusDriveRequestSchema> = {
+  id: "5a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
+  company: { id: COMPANY_ID, name: "Sharma Precision Works" },
+  job_posting_id: POSTING_EXAMPLE.id,
+  branch_ids: [1],
+  preferred_from: "2026-12-01",
+  preferred_to: "2026-12-15",
+  openings: 12,
+  roles_note: "CNC operators and setters for two shifts. Fanuc experience a plus.",
+  contact: { name: "Ravi Sharma", phone: "+919000000001" },
+  status: "scheduled",
+  scheduled_on: "2026-12-05",
+  campus_drive_ref: "campus-drive:000417",
+  decided_at: "2026-11-20T03:30:00.000Z",
+  decided_by_ref: STAFF_REF,
+  reason: null,
+  is_test: false,
+  requested_at: "2026-11-14T06:15:00.000Z",
+  cancelled_at: null,
+  changed_at: "2026-11-20T03:30:00.412851Z",
+};
+
+export const DRIVE_REQUEST_PAGE_EXAMPLE: z.input<typeof CampusDriveRequestPageSchema> = {
+  drive_requests: [DRIVE_REQUEST_EXAMPLE],
+  next_cursor: null,
+};
+
+export const DRIVE_DECISION_BODY_EXAMPLE: z.input<typeof CampusDriveDecisionBodySchema> = {
+  decision: "scheduled",
+  decided_by_ref: STAFF_REF,
+  decided_at: "2026-11-20T09:00:00.000+05:30",
+  scheduled_on: "2026-12-05",
+  campus_drive_ref: "campus-drive:000417",
+};
+
+export const DRIVE_DECISION_RESPONSE_EXAMPLE: z.input<typeof CampusDriveDecisionResponseSchema> = {
+  drive_request_id: DRIVE_REQUEST_EXAMPLE.id,
+  status: "scheduled",
+  scheduled_on: "2026-12-05",
+  campus_drive_ref: "campus-drive:000417",
+  decided_at: "2026-11-20T09:00:00.000+05:30",
+  changed_at: "2026-11-20T03:30:00.412851Z",
 };

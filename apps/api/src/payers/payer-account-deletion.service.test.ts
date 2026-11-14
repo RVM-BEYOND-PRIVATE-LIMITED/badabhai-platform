@@ -1,7 +1,7 @@
 import "reflect-metadata";
 import { describe, it, expect, vi } from "vitest";
 import { ConflictException } from "@nestjs/common";
-import { payerOrgs } from "@badabhai/db";
+import { payerOrgs, payers } from "@badabhai/db";
 import { PayerAccountDeletionService } from "./payer-account-deletion.service";
 
 const CTX = { requestId: "req-1", correlationId: "corr-1" } as const;
@@ -9,7 +9,7 @@ const PAYER = "11111111-1111-4111-8111-111111111111";
 const ORG = "33333333-3333-4333-8333-333333333333";
 
 /** Chainable drizzle-select stub branching on the FROM table. */
-function mockDb(orgRows: Array<{ id: string }>, memberRows: Array<unknown>) {
+function mockDb(orgRows: Array<{ id: string }>, memberRows: Array<unknown>, order: string[]) {
   const deletedTables: unknown[] = [];
   return {
     deletedTables,
@@ -21,6 +21,7 @@ function mockDb(orgRows: Array<{ id: string }>, memberRows: Array<unknown>) {
       })),
       delete: vi.fn((table: unknown) => {
         deletedTables.push(table);
+        order.push(table === payers ? "delete:payers" : "delete:other");
         return { where: vi.fn(async () => undefined) };
       }),
     },
@@ -34,7 +35,8 @@ function makeService(opts: {
   sessionsRevoked?: number;
   revokeThrows?: boolean;
 }) {
-  const { deletedTables, db } = mockDb(opts.orgRows ?? [], opts.memberRows ?? []);
+  const order: string[] = [];
+  const { deletedTables, db } = mockDb(opts.orgRows ?? [], opts.memberRows ?? [], order);
   const payersRepo = {
     findById: vi.fn(async () => (opts.rowFound ? ({ id: PAYER } as never) : undefined)),
   };
@@ -46,13 +48,21 @@ function makeService(opts: {
       : vi.fn(async () => opts.sessionsRevoked ?? 0),
   };
   const events = { emit: vi.fn(async () => undefined) };
+  // #2746 PR 6 — the campus-drive contacts the login entered.
+  const driveContacts = {
+    eraseEnteredBy: vi.fn(async () => {
+      order.push("erase:drive_contacts");
+      return 1;
+    }),
+  };
   const svc = new PayerAccountDeletionService(
     db as never,
     payersRepo as never,
     sessions as never,
     events as never,
+    driveContacts as never,
   );
-  return { svc, payersRepo, sessions, events, deletedTables, db };
+  return { svc, payersRepo, sessions, events, deletedTables, db, driveContacts, order };
 }
 
 describe("PayerAccountDeletionService.execute (QA immediate seam)", () => {
@@ -112,6 +122,33 @@ describe("PayerAccountDeletionService.execute (QA immediate seam)", () => {
     expect(events.emit).not.toHaveBeenCalled();
     const deleteCalls = (db.delete as ReturnType<typeof vi.fn>).mock.calls;
     expect(deleteCalls).toHaveLength(0);
+  });
+
+  it("#2746: erases the campus-drive contacts the login entered, before the login goes", async () => {
+    const { svc, driveContacts, order } = makeService({ rowFound: true, orgRows: [] });
+    await svc.execute(PAYER, { ...CTX });
+    expect(driveContacts.eraseEnteredBy).toHaveBeenCalledWith(PAYER);
+    expect(order.indexOf("erase:drive_contacts")).toBeGreaterThanOrEqual(0);
+    expect(order.indexOf("erase:drive_contacts")).toBeLessThan(order.indexOf("delete:payers"));
+  });
+
+  it("#2746: a refused deletion (shared org, already gone, revoke failure) erases no contact", async () => {
+    const OTHER = "22222222-2222-4222-8222-222222222222";
+    const shared = makeService({
+      rowFound: true,
+      orgRows: [{ id: ORG }],
+      memberRows: [{ memberPayerId: OTHER, status: "active" }],
+    });
+    await expect(shared.svc.execute(PAYER, { ...CTX })).rejects.toBeInstanceOf(ConflictException);
+    expect(shared.driveContacts.eraseEnteredBy).not.toHaveBeenCalled();
+
+    const gone = makeService({ rowFound: false });
+    await gone.svc.execute(PAYER, { ...CTX });
+    expect(gone.driveContacts.eraseEnteredBy).not.toHaveBeenCalled();
+
+    const redisDown = makeService({ rowFound: true, revokeThrows: true });
+    await expect(redisDown.svc.execute(PAYER, { ...CTX })).rejects.toThrow("redis down");
+    expect(redisDown.driveContacts.eraseEnteredBy).not.toHaveBeenCalled();
   });
 
   it("fails CLOSED when session revocation throws (no partial erasure)", async () => {

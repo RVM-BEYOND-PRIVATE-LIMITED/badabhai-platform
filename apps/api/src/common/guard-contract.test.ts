@@ -66,6 +66,9 @@ import { CampusLinkController } from "../campus-link/campus-link.controller";
 import { CampusReviewController } from "../campus-link/campus-review.controller";
 import { ReferralAttributionController } from "../referrals/referral-attribution.controller";
 import { ReferralBonusController } from "../referrals/referral-bonus.controller";
+// #2746 PR 6 — campus-drive requests: one controller per principal.
+import { PayerCampusDriveRequestsController } from "../campus-drives/payer-campus-drive-requests.controller";
+import { CampusDriveRequestsController } from "../campus-drives/campus-drive-requests.controller";
 // BL-3 — 17 controllers independently found missing from this contract (11 platform-wide
 // beyond PAY-SEC-06's 6 payer/agency ones, incl. 4 admin controllers). Every guard below was
 // read directly from each controller's current @UseGuards, not assumed from the audit.
@@ -867,6 +870,20 @@ const CONTRACT: ControllerContract[] = [
     ctor: PayerAccountController,
     routes: { me: [P], updateMe: [P] },
   },
+  // #2746 PR 6 — a company's campus-drive requests: employer-only on every route (the PayerRoleGuard
+  // 403 for an agency), tenant-scoped in the service.
+  {
+    name: "PayerCampusDriveRequests",
+    ctor: PayerCampusDriveRequestsController,
+    routes: { create: [P, R], list: [P, R], getOne: [P, R], cancel: [P, R] },
+  },
+  // #2746 PR 6 — Campus's drive-request feed and decision: CampusServiceGuard (its own token,
+  // allow-list, cap and per-call audit row) and never InternalServiceGuard.
+  {
+    name: "CampusDriveRequests",
+    ctor: CampusDriveRequestsController,
+    routes: { listDriveRequests: [CS], decideDriveRequest: [CS] },
+  },
 ];
 
 describe("API authz contract — guards on every controller route", () => {
@@ -898,6 +915,10 @@ describe("API authz contract — guards on every controller route", () => {
   describe("every routed method is in the contract (exists → listed)", () => {
     const PATH_METADATA = "path";
     for (const ctor of [
+      // #2746 PR 6 — a service credential that reads contact details, and the company surface it
+      // serves; a route must not join either unpinned.
+      CampusDriveRequestsController,
+      PayerCampusDriveRequestsController,
       WorkerEmploymentController,
       WorkerPreferencesController,
       WorkerQualificationsController,

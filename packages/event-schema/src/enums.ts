@@ -145,6 +145,12 @@ export const EVENT_DOMAINS = [
   // own AI interview. PII-FREE: opaque unlock/message ids + a direction enum + counts ONLY
   // — never the body, never a phone, never a name, never an employer identity.
   "relay",
+  // #2746 — a company's request for a campus drive at RVM (`campus_drive_requests`): requested
+  // by the company, decided by RVM's placement team in BadaBhai Campus, cancelled by the company.
+  // A DISTINCT domain from `job_posting`: a drive request is its own row with its own lifecycle,
+  // and its posting link is optional. IDS, ENUMS AND DATES ONLY: the contact person, the roles
+  // note and the placement team's reason live on the row alone, never on the spine.
+  "campus_drive",
 ] as const;
 export const EventDomain = z.enum(EVENT_DOMAINS);
 export type EventDomain = z.infer<typeof EventDomain>;

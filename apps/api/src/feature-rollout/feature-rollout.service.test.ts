@@ -161,6 +161,10 @@ describe("isLiveForServiceCaller is a SERVICE-caller check, used only where it w
     // any read. NOT the company check: the posting owner's pilot place is then read with
     // `isEnabledFor` and the owner's tenant key (`PayerTenantScopeService`).
     "campus-link/campus-posting-review.service.ts",
+    // #2746 PR 6 — Campus's drive-request feed and decision: `campus_drive_requests` off everywhere
+    // → the neutral 404 before any read. NOT the company check: each request owner's pilot place
+    // is then read with `isEnabledFor` and the owner's tenant key (`PayerTenantScopeService`).
+    "campus-drives/campus-drive-decisions.service.ts",
   ];
 
   it("its call sites are exactly the allow-list", () => {

@@ -9,6 +9,10 @@ import {
   CampusApplicationsQuerySchema,
   CampusApplyBodySchema,
   CampusCompanyResponseSchema,
+  CampusDriveDecisionBodySchema,
+  CampusDriveDecisionResponseSchema,
+  CampusDriveRequestPageSchema,
+  CampusDriveRequestSchema,
   CampusIdempotencyKeySchema,
   CampusPostForCompanyBodySchema,
   CampusPostForCompanyResponseSchema,
@@ -56,6 +60,14 @@ const PAIRS: ReadonlyArray<[string, z.ZodType, unknown]> = [
   ["search-grant body", CampusSearchGrantBodySchema, examples.SEARCH_GRANT_BODY_EXAMPLE],
   ["search grant", CampusSearchGrantSchema, examples.SEARCH_GRANT_EXAMPLE],
   ["unlink response", CampusUnlinkResponseSchema, examples.UNLINK_RESPONSE_EXAMPLE],
+  ["drive request", CampusDriveRequestSchema, examples.DRIVE_REQUEST_EXAMPLE],
+  ["drive request page", CampusDriveRequestPageSchema, examples.DRIVE_REQUEST_PAGE_EXAMPLE],
+  ["drive decision body", CampusDriveDecisionBodySchema, examples.DRIVE_DECISION_BODY_EXAMPLE],
+  [
+    "drive decision response",
+    CampusDriveDecisionResponseSchema,
+    examples.DRIVE_DECISION_RESPONSE_EXAMPLE,
+  ],
 ];
 
 describe("Campus contract v1 — every published example parses against its schema", () => {

@@ -6417,3 +6417,92 @@ export const WorkerInstituteUnlinkedPayload = z
   })
   .strict();
 export type WorkerInstituteUnlinkedPayload = z.infer<typeof WorkerInstituteUnlinkedPayload>;
+
+// ---------------------------------------------------------------------------
+// #2746 — CAMPUS-DRIVE REQUESTS (`campus_drive_requests`). A company asks RVM's placement team for
+// a campus drive; the team decides in BadaBhai Campus, which pulls the requests and posts each
+// decision back; the company may cancel while the request is open. Each event is written in the
+// same transaction as the row it describes.
+//
+// IDS, ENUMS AND DATES ONLY. The contact person's name and phone (encrypted on the row), the
+// company's roles note and the placement team's reason are free text or personal data and never
+// ride the spine: `has_roles_note` / `has_reason` say only whether one exists. `payer_id` is the
+// company's tenant key (`PayerTenantScopeService`), `decided_by_ref` an opaque Campus staff uuid
+// never resolved here, `campus_drive_ref` Campus's own id for its drive record.
+// ---------------------------------------------------------------------------
+
+/** A calendar date as Postgres `date` renders it (`YYYY-MM-DD`). */
+const CampusDriveDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+
+/**
+ * A Campus staff reference as `cdr_refs_chk` stores it: the 8-4-4-4-12 hex LAYOUT, lower-cased by
+ * the api, any version. Not `uuidSchema`, which checks RFC version bits and would refuse a staff id
+ * Campus mints in another layout-valid form AFTER the row was written.
+ */
+const CampusDriveStaffRefSchema = z
+  .string()
+  .regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+
+/** Campus's drive id, in the charset `cdr_refs_chk` allows: it cannot hold a name or an email. */
+const CampusDriveRefSchema = z.string().regex(/^[A-Za-z0-9._:-]{1,200}$/);
+
+/** The states a request can be decided or cancelled FROM (`requested`, `scheduled`). */
+const CampusDriveOpenStatusEnum = z.enum(["requested", "scheduled"]);
+
+/**
+ * #2746 — a company asked for a campus drive (`POST /payer/campus-drive-requests`). Emitted once
+ * per row, in the create's transaction; a replay under the same `Idempotency-Key` writes no row and
+ * emits nothing. `branch_ids` are RVM location ids (`[]` = any branch); `is_test` is the company's
+ * `payers.is_test_account` as copied onto the row.
+ */
+export const CampusDriveRequestedPayload = z
+  .object({
+    campus_drive_request_id: uuidSchema,
+    payer_id: uuidSchema,
+    job_posting_id: uuidSchema.nullable(),
+    branch_ids: z.array(z.number().int().positive()).max(50),
+    preferred_from: CampusDriveDateSchema,
+    preferred_to: CampusDriveDateSchema,
+    openings: z.number().int().min(1).max(1000),
+    has_roles_note: z.boolean(),
+    is_test: z.boolean(),
+  })
+  .strict();
+export type CampusDriveRequestedPayload = z.infer<typeof CampusDriveRequestedPayload>;
+
+/**
+ * #2746 — RVM's placement team decided a request (`POST drive-requests/:id/decision`, BadaBhai
+ * Campus). Emitted once per decision that changed the row; a replay of the decision the row holds
+ * changes nothing and emits nothing. `decided_at` is Campus's clock (the ordering key);
+ * `scheduled_on` and `campus_drive_ref` are the drive's date and Campus's id for it after the
+ * decision (both `null` on a decline, kept on a completion). A reschedule is `scheduled` from
+ * `scheduled`.
+ */
+export const CampusDriveDecidedPayload = z
+  .object({
+    campus_drive_request_id: uuidSchema,
+    payer_id: uuidSchema,
+    decision: z.enum(["scheduled", "declined", "completed"]),
+    previous_status: CampusDriveOpenStatusEnum,
+    decided_by_ref: CampusDriveStaffRefSchema,
+    decided_at: isoDateTimeSchema,
+    scheduled_on: CampusDriveDateSchema.nullable(),
+    campus_drive_ref: CampusDriveRefSchema.nullable(),
+    has_reason: z.boolean(),
+  })
+  .strict();
+export type CampusDriveDecidedPayload = z.infer<typeof CampusDriveDecidedPayload>;
+
+/**
+ * #2746 — the company cancelled its request (`POST /payer/campus-drive-requests/:id/cancel`), from
+ * `requested` or `scheduled`. A repeat cancel changes nothing and emits nothing. Cancelling a
+ * scheduled drive does not touch Campus's drive record: Campus reads the cancellation in its feed.
+ */
+export const CampusDriveCancelledPayload = z
+  .object({
+    campus_drive_request_id: uuidSchema,
+    payer_id: uuidSchema,
+    previous_status: CampusDriveOpenStatusEnum,
+  })
+  .strict();
+export type CampusDriveCancelledPayload = z.infer<typeof CampusDriveCancelledPayload>;

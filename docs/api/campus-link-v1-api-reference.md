@@ -11,7 +11,8 @@ RVMBeyond_jobportal#155 and #154.
   Same paths, headers, schemas and errors; examples plus in-memory state; no database.
 - **Status:** `GET ping` and `DELETE students/:student_ref` are live behind the flag. The other
   routes are the contract Campus builds against; each lands as the rest of #2752 (and #2746 for
-  postings and review) is built.
+  postings and review) is built. The drive-request routes (#2746) are built; they also need
+  `CAMPUS_DRIVE_REQUESTS_ROLLOUT` at `pilot` or `on`.
 
 ## Rules for every call
 
@@ -54,6 +55,8 @@ Every error uses the api's envelope: `{ statusCode, error: { code, message? }, r
 | 409    | `DECISION_SUPERSEDED`      | A newer decision or list is held, or a differing one at the same time           | No                 |
 | 429    | `RATE_LIMITED`             | Over the per-minute cap                                                         | Yes, after a pause |
 | 503    | `RVM_UNAVAILABLE`          | RVM's Student API did not answer; nothing was created                           | Yes, same key      |
+| 409    | `DECISION_SUPERSEDED`      | A newer decision is held, or one at the same `decided_at` that differs          | No                 |
+| 409    | `DECISION_NOT_ALLOWED`     | The drive request's `status` (in the body) allows no such decision              | No                 |
 
 ## Routes
 
@@ -71,9 +74,10 @@ Every error uses the api's envelope: `{ statusCode, error: { code, message? }, r
 | `PUT search-grants/:grant_ref`      | Named-company search grant, after the student's own yes | #2752         |
 | `DELETE search-grants/:grant_ref`   | Revoke a grant                                          | #2752         |
 | `DELETE students/:student_ref`      | Unlink a student (consent withdrawn or deleted)         | **live**      |
+| `GET drive-requests`                | Companies' campus-drive requests, with contacts         | #2746         |
+| `POST drive-requests/:id/decision`  | Schedule, decline or complete a drive request           | #2746         |
 
-Mounted behind the same guard by their own issues: campus-drive requests and decisions (#2746),
-credit waivers (#2750).
+Mounted behind the same guard by its own issue: credit waivers (#2750).
 
 ### GET ping
 
@@ -354,6 +358,130 @@ Call it when the student withdraws his RVM consent or asks RVM to delete him. Id
 reference BadaBhai never linked, or one already unlinked, answers the same and changes nothing.
 Contacts companies opened before the unlink stay with them. A later consent links him again on his
 next application.
+
+### GET drive-requests
+
+The placement team's queue (#2746). PULL, NOT PUSH: Campus reads the requests here and posts each
+decision back; BadaBhai never calls Campus about a drive. With `CAMPUS_DRIVE_REQUESTS_ROLLOUT` off
+this is the neutral 404. In `pilot`, only requests of companies on the pilot list are listed.
+
+Query: `status` (`requested`|`scheduled`|`declined`|`completed`|`cancelled`), `changed_since`
+(ISO 8601 with offset), `cursor`, `limit` (1–200, default 100). Ordered by `changed_at`, then
+`id`; `changed_since` returns requests changed at or after the instant.
+
+- **Overlap window: two minutes.** A write is stamped a moment before it commits, so a poll can miss
+  a request stamped just before the last one it saw. Poll with `changed_since` = the largest
+  `changed_at` you processed **minus two minutes**, and process items by (`id`, `changed_at`):
+  the same pair again is the same state.
+- **Short pages.** A page may hold fewer than `limit` items, even none, and still carry a
+  `next_cursor` (requests of companies not in the rollout are skipped after the read). Follow
+  `next_cursor` until it is `null`.
+
+```json
+{
+  "drive_requests": [
+    {
+      "id": "5a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
+      "company": { "id": "7d3f2a10-5b8e-4c1d-9a6f-0e2b4c6d8f10", "name": "Sharma Precision Works" },
+      "job_posting_id": "b2c4e6f8-1a3b-4c5d-8e7f-90a1b2c3d4e5",
+      "branch_ids": [1],
+      "preferred_from": "2026-12-01",
+      "preferred_to": "2026-12-15",
+      "openings": 12,
+      "roles_note": "CNC operators and setters for two shifts. Fanuc experience a plus.",
+      "contact": { "name": "Ravi Sharma", "phone": "+919000000001" },
+      "status": "scheduled",
+      "scheduled_on": "2026-12-05",
+      "campus_drive_ref": "campus-drive:000417",
+      "decided_at": "2026-11-20T03:30:00.000Z",
+      "decided_by_ref": "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d",
+      "reason": null,
+      "is_test": false,
+      "requested_at": "2026-11-14T06:15:00.000Z",
+      "cancelled_at": null,
+      "changed_at": "2026-11-20T03:30:00.412851Z"
+    }
+  ],
+  "next_cursor": null
+}
+```
+
+- `company.name` is the company's display name; `job_posting_id` (optional) is one of its own
+  postings, as context for the roles. It may be a BadaBhai-only posting that `GET job-postings`
+  never lists.
+- `branch_ids`: preferred RVM location ids; empty means any branch.
+- **`contact` is personal data**: the company's contact person for the drive, decrypted for the
+  placement team to call and for nothing else. `phone` is E.164. Do not copy it beyond the
+  drive's own record. It becomes `null` when BadaBhai erases it (a DPDP request, or the login that
+  entered it was deleted); the request then comes back in the feed with `contact: null`, and
+  Campus should drop its own copy.
+- `is_test: true` marks a test company's request. Test requests are listed like any other, so a
+  pilot can be proved end to end in production: filter or label them on Campus's side.
+- `decided_at`, `decided_by_ref` and `reason` are the latest decision, as Campus sent them.
+
+### POST drive-requests/:id/decision
+
+```json
+{
+  "decision": "scheduled",
+  "decided_by_ref": "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d",
+  "decided_at": "2026-11-20T09:00:00.000+05:30",
+  "scheduled_on": "2026-12-05",
+  "campus_drive_ref": "campus-drive:000417"
+}
+```
+
+- `decision`: `scheduled` | `declined` | `completed`. Cancelling is the company's alone.
+- `decided_by_ref` (required): the staff member, a uuid. Stored as a reference, never resolved.
+- `decided_at` (required): when the staff member decided, by Campus's clock. More than five
+  minutes ahead of BadaBhai's clock is 400 `VALIDATION_FAILED`.
+- `scheduled_on` and `campus_drive_ref`: required with `scheduled`, refused with the others.
+  `campus_drive_ref` is Campus's id for its drive record (1–200 characters of
+  `A-Z a-z 0-9 . _ : -`), stored as sent.
+- `reason` (optional, ≤ 500 characters): the company sees it as written, so write it for them.
+  Control and invisible format characters are removed (newlines kept); a reason of nothing else
+  counts as no reason.
+
+Answers `200 { "drive_request_id", "status", "scheduled_on", "campus_drive_ref", "decided_at",
+"changed_at" }`: the request as it now stands. The `Idempotency-Key` is required and checked, not
+stored: the decision is idempotent by content.
+
+**The newest decision wins, by `decided_at`** (the owner's rule for Campus decisions, 14 Nov 2026),
+checked under the request's row lock before anything else:
+
+| Body's `decided_at` against the held decision | Answer                                                    |
+| --------------------------------------------- | --------------------------------------------------------- |
+| Older                                         | 409 `DECISION_SUPERSEDED`, nothing stored                 |
+| The same instant, the same decision           | 200, the request unchanged (a replay: no write, no event) |
+| The same instant, any field different         | 409 `DECISION_SUPERSEDED`, nothing stored                 |
+| Newer, or no decision held yet                | The transition rules below                                |
+
+"The same decision" is the same `decision`, `decided_by_ref` and `reason`, and for `scheduled` the
+same `scheduled_on` and `campus_drive_ref`. The same instant in another offset is the same instant.
+
+**Transitions.** Anything not listed is 409 `DECISION_NOT_ALLOWED` with the current `status` in the
+body, and stores nothing:
+
+| From        | `scheduled`                | `declined`                 | `completed`                  |
+| ----------- | -------------------------- | -------------------------- | ---------------------------- |
+| `requested` | yes                        | yes                        | no (never scheduled)         |
+| `scheduled` | yes (reschedule: new date) | yes (date and drive id go) | yes (date and drive id kept) |
+| `declined`  | no                         | no                         | no                           |
+| `completed` | no                         | no                         | no                           |
+| `cancelled` | no                         | no                         | no                           |
+
+The company may cancel from `requested` or `scheduled`; it takes the same row lock as a decision,
+so the two run one after the other. A decision that arrives after a cancel, including a late retry
+of the decision the company then cancelled, is 409 `DECISION_NOT_ALLOWED` (`status: "cancelled"`).
+Cancelling never touches Campus's drive record: read it in the feed.
+
+Which requests can be decided: 404 (no code) for an id that is not a request, and for every request
+while `CAMPUS_DRIVE_REQUESTS_ROLLOUT` is off or its company is not in the pilot.
+
+A decision that changed the request writes, in one transaction, the request, the event
+`campus_drive.decided` v1 (ids, enums and dates: never the reason text) and an `audit_logs` row
+whose actor is `decided_by_ref` (`actor_type` `campus_staff`) and which names this call's
+`X-Campus-Call-Id`.
 
 ## Decisions behind this shape (answers to Campus's points of 13 Nov 2026)
 

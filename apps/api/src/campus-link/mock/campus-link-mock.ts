@@ -7,6 +7,8 @@ import {
   CampusApplicationsQuerySchema,
   CampusApplyBodySchema,
   CampusCompanyQuerySchema,
+  CampusDriveDecisionBodySchema,
+  CampusDriveRequestsQuerySchema,
   CampusExternalRefSchema,
   CampusIdempotencyKeySchema,
   CampusPostForCompanyBodySchema,
@@ -51,6 +53,7 @@ type Application = z.input<typeof CampusApplyBodySchema> & {
 const BASE = `/${CAMPUS_LINK_BASE_PATH}/`;
 const KNOWN_POSTING_ID = examples.POSTING_EXAMPLE.id;
 const KNOWN_COMPANY_PHONE = examples.POST_FOR_COMPANY_BODY_EXAMPLE.company.phone;
+const KNOWN_DRIVE_REQUEST_ID = examples.DRIVE_REQUEST_EXAMPLE.id;
 
 export function createCampusLinkMock(options: { token: string }) {
   const applications = new Map<string, Application>();
@@ -246,6 +249,31 @@ export function createCampusLinkMock(options: { token: string }) {
         const ref = StudentRefSchema.safeParse(segments[1]);
         if (!ref.success) return invalid(url.pathname, ref.error);
         return ok({ student_ref: ref.data, state: "unlinked" });
+      }
+
+      // #2746 — the example request only; the status filter applies, nothing else is stored.
+      case "GET drive-requests": {
+        const q = CampusDriveRequestsQuerySchema.safeParse(query);
+        if (!q.success) return invalid(url.pathname, q.error);
+        const r = examples.DRIVE_REQUEST_EXAMPLE;
+        const matches = !q.data.status || q.data.status === r.status;
+        return ok({ drive_requests: matches ? [r] : [], next_cursor: null });
+      }
+
+      // #2746 — answers the decision as sent for the example request; no ordering or transitions.
+      case "POST drive-requests/:id/decision": {
+        const body = parseBody(req.body, CampusDriveDecisionBodySchema, url.pathname);
+        if ("status" in body) return body;
+        if (segments[1] !== KNOWN_DRIVE_REQUEST_ID) return notFound(url.pathname);
+        const scheduled = body.data.decision === "scheduled" ? body.data : null;
+        return ok({
+          drive_request_id: KNOWN_DRIVE_REQUEST_ID,
+          status: body.data.decision,
+          scheduled_on: scheduled?.scheduled_on ?? null,
+          campus_drive_ref: scheduled?.campus_drive_ref ?? null,
+          decided_at: body.data.decided_at,
+          changed_at: now,
+        });
       }
 
       default:
