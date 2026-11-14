@@ -1,9 +1,11 @@
-import { Injectable } from "@nestjs/common";
+import { Inject, Injectable } from "@nestjs/common";
+import type { ServerConfig } from "@badabhai/config";
 import type { Database, InstituteCode } from "@badabhai/db";
 import type { PayloadInputOf } from "@badabhai/event-schema";
 import { isSyntheticTestPhone } from "../auth/auth.dto";
 import { PiiCryptoService } from "../common/pii-crypto.service";
 import type { RequestContext } from "../common/request-context";
+import { SERVER_CONFIG } from "../config/config.module";
 import { EventsService } from "../events/events.service";
 import { WorkersRepository } from "../workers/workers.repository";
 import { StudentRefSchema } from "./campus-link.contract";
@@ -11,6 +13,7 @@ import {
   INSTITUTE_LINK_AUDIT_ACTIONS,
   InstituteLinkRepository,
   type InstituteLinkFacts,
+  type InstituteLinkRow,
 } from "./institute-link.repository";
 import { RvmStudentApiClient, type RvmStudentRead } from "./rvm-student-api.client";
 
@@ -39,6 +42,9 @@ export interface LinkedStudent {
 }
 
 type LinkOutcome = { kind: "linked"; student: LinkedStudent } | { kind: "refused" };
+
+/** Why a link ended: the `worker.institute_unlinked` reason. */
+export type InstituteUnlinkReason = PayloadInputOf<"worker.institute_unlinked">["reason"];
 
 /** Why a worker row may not carry a link, or null when it may. */
 function unfitReason(worker: {
@@ -75,6 +81,7 @@ export class InstituteLinkService {
     private readonly rvm: RvmStudentApiClient,
     private readonly pii: PiiCryptoService,
     private readonly events: EventsService,
+    @Inject(SERVER_CONFIG) private readonly config: ServerConfig,
   ) {}
 
   /**
@@ -100,6 +107,56 @@ export class InstituteLinkService {
     // Thrown only after the transaction committed, so a manual-list row it wrote is kept.
     if (outcome.kind === "refused") throw new StudentNotAvailableError();
     return outcome.student;
+  }
+
+  /**
+   * Whether his RVM consent still stands, for a company's open (#2752 item 14). A confirmation
+   * younger than `RVM_CONSENT_RECHECK_SECONDS` stands as it is; an older one is re-read. RVM's
+   * refusal ends the link (the same unlink Campus asks for), so a withdrawal Campus never sent
+   * cannot leave him open; the open is refused either way.
+   *
+   * @throws RvmStudentApiUnavailableError — RVM did not answer usably. The caller refuses the
+   *   open; nothing changes, because an outage is never read as a withdrawal.
+   */
+  async confirmConsent(link: InstituteLinkRow, ctx: RequestContext): Promise<boolean> {
+    const now = new Date();
+    const windowMs = this.config.RVM_CONSENT_RECHECK_SECONDS * 1000;
+    if (link.syncedAt !== null && now.getTime() - link.syncedAt.getTime() < windowMs) return true;
+
+    const lookup = await this.rvm.readStudent(link.studentRef);
+    if (lookup.kind === "not_available") {
+      await this.unlinkStudent(link.studentRef, "consent_not_confirmed", ctx);
+      return false;
+    }
+    await this.repo.confirmActive(link.workerId, toFacts(lookup.student), now);
+    return true;
+  }
+
+  /**
+   * Ends a student's link (#2752 item 14): no company opens him from now on, everything copied
+   * from RVM is erased, and the BadaBhai row the link created is deleted when he has never signed
+   * in to it. A worker with a BadaBhai account of his own keeps his row, his name and his profile.
+   *
+   * Idempotent: an unknown reference, or a link already ended, changes nothing and emits nothing.
+   * Contacts companies opened before stay with them (issue question 3, default yes).
+   */
+  async unlinkStudent(
+    studentRef: string,
+    reason: InstituteUnlinkReason,
+    ctx: RequestContext,
+  ): Promise<void> {
+    const ref = StudentRefSchema.parse(studentRef);
+    await this.repo.withTransaction(async (tx) => {
+      // The same per-reference lock as linking, so an unlink and a link never interleave.
+      await this.repo.lockStudentRef(tx, RVM, ref);
+      const link = await this.repo.findByRefForUpdate(tx, RVM, ref);
+      if (!link || link.status === "withdrawn") return;
+
+      const now = new Date();
+      const workerDeleted = await this.repo.deleteLinkCreatedPendingWorker(tx, link.workerId, RVM);
+      if (!workerDeleted) await this.repo.withdrawAndErase(tx, link.workerId, now);
+      await this.emitUnlinked(tx, link.workerId, reason, workerDeleted, now, ctx);
+    });
   }
 
   private async linkInTransaction(
@@ -205,6 +262,32 @@ export class InstituteLinkService {
       payload,
       // One per link made (or re-made). Keyed on ids BadaBhai owns, never on RVM's reference.
       idempotencyKey: `worker.institute_linked:${workerId}:${at.toISOString()}`,
+      correlationId: ctx.correlationId,
+      requestId: ctx.requestId,
+      tx,
+    });
+  }
+
+  private async emitUnlinked(
+    tx: Database,
+    workerId: string,
+    reason: InstituteUnlinkReason,
+    workerDeleted: boolean,
+    at: Date,
+    ctx: RequestContext,
+  ): Promise<void> {
+    const payload: PayloadInputOf<"worker.institute_unlinked"> = {
+      worker_id: workerId,
+      institute_code: RVM,
+      reason,
+      worker_deleted: workerDeleted,
+    };
+    await this.events.emit({
+      event_name: "worker.institute_unlinked",
+      actor: { actor_type: "system", actor_id: null },
+      subject: { subject_type: "worker", subject_id: workerId },
+      payload,
+      idempotencyKey: `worker.institute_unlinked:${workerId}:${at.toISOString()}`,
       correlationId: ctx.correlationId,
       requestId: ctx.requestId,
       tx,

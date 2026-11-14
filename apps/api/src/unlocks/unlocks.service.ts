@@ -22,6 +22,7 @@ import { EventsService } from "../events/events.service";
 import { ConsentRepository } from "../consent/consent.repository";
 import { WorkersRepository } from "../workers/workers.repository";
 import { PiiCryptoService } from "../common/pii-crypto.service";
+import { InstituteOpenGate } from "../campus-link/institute-open-gate.service";
 import { MatchConfigService } from "../match/match-config.service";
 import { PayersRepository } from "../payers/payers.repository";
 import { isBarredPayerStatus } from "../payers/payer-barred-status";
@@ -142,7 +143,9 @@ function rowOwnerParty(rowPayerId: string): EventParty {
  *   [F-1] credit precondition (worker-state INDEPENDENT) FIRST — a zero-credit payer
  *         gets the SAME neutral body regardless of any worker's state (closes the
  *         payment_required consent oracle, BC-1).
- *   [1]   employer_sharing CONSENT gate (fail closed; no/revoked → neutral).
+ *   [1]   employer_sharing CONSENT gate (fail closed; no/revoked → neutral). An actively linked
+ *         institute student is judged by {@link InstituteOpenGate} instead (#2752): only a company
+ *         he applied to, with his RVM consent re-confirmed, passes; the deny is the same neutral.
  *   [1b]  ADR-0031 pending-deletion FREEZE (ruling (b)): a worker inside the deletion
  *         grace window is denied like [1] (same neutral body; re-checked in-tx).
  *   [2]   worker CAPS — atomic check-and-write under an advisory lock on worker_id
@@ -204,6 +207,8 @@ export class UnlockService {
     private readonly payers: PayersRepository,
     // ADR-0053 — the ONE tenant resolver (exported by PayersModule, already imported above).
     private readonly tenancy: PayerTenantScopeService,
+    // #2752 — the institute rule for a linked student (CampusLinkModule, one-way edge).
+    private readonly instituteGate: InstituteOpenGate,
   ) {}
 
   // ===========================================================================
@@ -273,7 +278,7 @@ export class UnlockService {
       // contact even if consent is revoked between here and the grant (the grant is not the
       // disclosure). unknown_worker vs no_consent both return the IDENTICAL neutral body;
       // workerExists only picks the internal audit reason (consented ⇒ worker exists).
-      const consented = await this.isConsentedForSharing(workerId);
+      const consented = await this.isOpenableBy(workerId, tenant, ctx);
       const workerPresent = consented || (await this.workerExists(workerId));
 
     // ---- ADR-0031 payer-surface freeze (ruling (b)) — pending-deletion gate -----
@@ -519,7 +524,13 @@ export class UnlockService {
     // below re-checks beside its own SET-NULL guards.
     if (pre && pre.worker_id !== null && (await this.isPayerSurfaceFrozen(pre.worker_id)))
       return neutralUnavailable();
-    if (pre && pre.worker_id !== null && !(await this.isConsentedForSharing(pre.worker_id)))
+    // #2752 — the unlock row's owner is the tenant key it was granted under, so the institute
+    // rule is asked about the company that holds it (the ops route included).
+    if (
+      pre &&
+      pre.worker_id !== null &&
+      !(await this.isOpenableBy(pre.worker_id, pre.payer_id, ctx))
+    )
       return neutralUnavailable();
 
     // F-3: unknown/expired/over-cap/revoked all return the NEUTRAL body (not a 404).
@@ -1080,6 +1091,22 @@ export class UnlockService {
   private async isConsentedForSharing(workerId: string): Promise<boolean> {
     const purposes = await this.latestConsentPurposes(workerId);
     return purposes !== null && purposes.includes(EMPLOYER_SHARING);
+  }
+
+  /**
+   * Whether `ownerPayerId` (the tenant key) may open this worker (#2752 item 9). An actively
+   * linked institute student is decided by the institute rule alone, whatever his own BadaBhai
+   * consent says (issue question 2: the tag rule wins while the link is active); every other
+   * worker by his own `employer_sharing` consent, exactly as before. Both fail closed.
+   */
+  private async isOpenableBy(
+    workerId: string,
+    ownerPayerId: string,
+    ctx: RequestContext,
+  ): Promise<boolean> {
+    const institute = await this.instituteGate.decide(workerId, ownerPayerId, ctx);
+    if (institute === "not_linked") return this.isConsentedForSharing(workerId);
+    return institute === "open";
   }
 
   /**

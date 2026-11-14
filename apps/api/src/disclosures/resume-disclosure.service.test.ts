@@ -137,6 +137,8 @@ interface SetupOpts {
    * which is the only state the clients ever offered the résumé in.
    */
   liveUnlock?: boolean;
+  /** #2752: what the institute open gate answers (default: not a linked student). */
+  institute?: "not_linked" | "open" | "closed";
 }
 
 function setup(opts: SetupOpts = {}) {
@@ -203,6 +205,7 @@ function setup(opts: SetupOpts = {}) {
     ...txMethods,
   };
 
+  const instituteGate = { decide: vi.fn(async () => opts.institute ?? "not_linked") };
   const consents = {
     findLatestByWorker: vi.fn(async () =>
       consentPurposes === null
@@ -311,6 +314,7 @@ function setup(opts: SetupOpts = {}) {
     events as unknown as EventsService,
     CONFIG,
     opts.tenancy ?? tenancyService("off"),
+    instituteGate as never,
     // `tierScopes` — absent here; its own suite covers it.
     undefined,
     generalRoads as never,
@@ -329,6 +333,7 @@ function setup(opts: SetupOpts = {}) {
     events,
     emitted,
     generalRoads,
+    instituteGate,
     getRenderInput: () => renderInput,
   };
 }
@@ -633,6 +638,29 @@ describe("B-A — employer_sharing consent gate (fail closed, no oracle)", () =>
     );
     expect(res).toEqual(NEUTRAL);
     expect(t.txMethods.insertRow).not.toHaveBeenCalled();
+  });
+});
+
+describe("#2752 — the institute rule for a linked student", () => {
+  it("a closed verdict → neutral even with employer_sharing; no render, asked about this tenant", async () => {
+    const t = setup({ consentPurposes: ["employer_sharing"], institute: "closed" });
+    const res = await t.service.requestDisclosure(
+      { payerId: PAYER, workerId: WORKER, jobPostingId: null },
+      CTX,
+    );
+    expect(res).toEqual(NEUTRAL);
+    expect(t.instituteGate.decide).toHaveBeenCalledWith(WORKER, PAYER, CTX);
+    expect(t.renderer.renderPdf).not.toHaveBeenCalled();
+  });
+
+  it("an open verdict discloses without his BadaBhai consent, which the rule replaces", async () => {
+    const t = setup({ consentPurposes: null, institute: "open" });
+    await t.service.requestDisclosure(
+      { payerId: PAYER, workerId: WORKER, jobPostingId: null },
+      CTX,
+    );
+    expect(t.renderer.renderPdf).toHaveBeenCalledTimes(1);
+    expect(t.consents.findLatestByWorker).not.toHaveBeenCalled();
   });
 });
 

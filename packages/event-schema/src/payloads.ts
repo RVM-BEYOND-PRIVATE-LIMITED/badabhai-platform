@@ -6283,3 +6283,20 @@ export const WorkerInstituteLinkedPayload = z
   })
   .strict();
 export type WorkerInstituteLinkedPayload = z.infer<typeof WorkerInstituteLinkedPayload>;
+
+// #2752 part C — the link ended: the institute told BadaBhai his consent is withdrawn or he asked
+// to be deleted (`campus_request`), or a company's open re-read his consent and the institute no
+// longer answered for him (`consent_not_confirmed`). IDS ONLY, like the linked event.
+// `worker_deleted` says whether the link-created row (no BadaBhai sign-in ever) was erased with
+// it; a worker with a BadaBhai account of his own keeps his row, and only the copied facts go.
+export const InstituteUnlinkReasonEnum = z.enum(["campus_request", "consent_not_confirmed"]);
+
+export const WorkerInstituteUnlinkedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    institute_code: InstituteCodeEnum,
+    reason: InstituteUnlinkReasonEnum,
+    worker_deleted: z.boolean(),
+  })
+  .strict();
+export type WorkerInstituteUnlinkedPayload = z.infer<typeof WorkerInstituteUnlinkedPayload>;

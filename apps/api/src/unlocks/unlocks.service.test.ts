@@ -84,6 +84,8 @@ interface SetupOpts {
   twins?: Record<string, string>;
   /** ADR-0053: the tenant resolver the service is built with (default: mode `off`). */
   tenancy?: PayerTenantScopeService;
+  /** #2752: what the institute open gate answers (default: not a linked student). */
+  institute?: "not_linked" | "open" | "closed";
 }
 
 function setup(opts: SetupOpts = {}) {
@@ -174,6 +176,7 @@ function setup(opts: SetupOpts = {}) {
     ...txMethods,
   };
 
+  const instituteGate = { decide: vi.fn(async () => opts.institute ?? "not_linked") };
   const consents = {
     findLatestByWorker: vi.fn(async () =>
       consentPurposes === null
@@ -247,8 +250,19 @@ function setup(opts: SetupOpts = {}) {
     // an undefined dependency would be silently swallowed by its catch.
     { findAuthFacts: vi.fn(async () => ({ role: "employer", status: "active" })) } as never,
     opts.tenancy ?? tenancyService("off"),
+    instituteGate as never,
   );
-  return { svc, repo, txMethods, consents, workers, pii, events, referralBonusQueue };
+  return {
+    svc,
+    repo,
+    txMethods,
+    consents,
+    workers,
+    pii,
+    events,
+    referralBonusQueue,
+    instituteGate,
+  };
 }
 
 function emitted(events: { emit: { mock: { calls: unknown[][] } } }): string[] {
@@ -375,6 +389,58 @@ describe("UnlockService — consent gate", () => {
     expect(ev.payload.reason).toBe("unknown_worker");
     expect(ev.payload.unlock_id).toBeNull();
     expect(ev.subject.subject_type).toBe("worker");
+  });
+});
+
+describe("UnlockService — #2752 institute rule for a linked student", () => {
+  it("refuses a closed verdict with the neutral body even when he holds employer_sharing", async () => {
+    const { svc, events, txMethods, instituteGate } = setup({
+      consentPurposes: ["employer_sharing"],
+      institute: "closed",
+    });
+    const out = await svc.requestUnlock({ payerId: PAYER, workerId: WORKER, jobId: null }, CTX);
+    expect(out).toEqual({ status: "unavailable" });
+    // Asked about THIS company (the tenant key: the caller itself in mode off).
+    expect(instituteGate.decide).toHaveBeenCalledWith(WORKER, PAYER, CTX);
+    expect(txMethods.tryDebit).not.toHaveBeenCalled();
+    const deny = events.emit.mock.calls.find(
+      (c) => (c[0] as { event_name: string }).event_name === "unlock.denied",
+    );
+    expect((deny![0] as { payload: { reason: string } }).payload.reason).toBe("no_consent");
+  });
+
+  it("grants on an open verdict without his BadaBhai consent, which the rule replaces", async () => {
+    const { svc, txMethods, consents } = setup({ consentPurposes: null, institute: "open" });
+    const out = await svc.requestUnlock({ payerId: PAYER, workerId: WORKER, jobId: null }, CTX);
+    expect(out).toMatchObject({ status: "granted" });
+    expect(txMethods.tryDebit).toHaveBeenCalledTimes(1);
+    expect(consents.findLatestByWorker).not.toHaveBeenCalled();
+  });
+
+  it("leaves a worker who is not linked to his own consent, unchanged", async () => {
+    const { svc, consents } = setup({ consentPurposes: null, institute: "not_linked" });
+    const out = await svc.requestUnlock({ payerId: PAYER, workerId: WORKER, jobId: null }, CTX);
+    expect(out).toEqual({ status: "unavailable" });
+    expect(consents.findLatestByWorker).toHaveBeenCalled();
+  });
+
+  it("refuses a reveal on a closed verdict, asked about the company that holds the unlock, before any decrypt", async () => {
+    const { svc, pii, instituteGate } = setup({
+      consentPurposes: ["employer_sharing"],
+      institute: "closed",
+      existingUnlock: {
+        id: "unlock-1",
+        payerId: PAYER,
+        workerId: WORKER,
+        status: "granted",
+        routingTokenRef: "44444444-4444-4444-4444-444444444444",
+        revealCount: 0,
+        expiresAt: new Date(Date.now() + 60_000),
+      },
+    });
+    expect(await svc.reveal("unlock-1", CTX)).toEqual({ status: "unavailable" });
+    expect(instituteGate.decide).toHaveBeenCalledWith(WORKER, PAYER, CTX);
+    expect(pii.decrypt).not.toHaveBeenCalled();
   });
 });
 

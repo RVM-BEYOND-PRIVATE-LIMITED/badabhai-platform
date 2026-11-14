@@ -1051,11 +1051,24 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "by the worker FK cascade, so the linkage does not outlive the worker - but the values do " +
       "until then",
   },
-  // 0161 (#2752 part B): the institute student link and the worker's origin. The API names these
-  // tables only while CAMPUS_LINK_ENABLED is on, so a deploy ahead of the migration breaks no
-  // request and they are NOT `table` entries (the 0134 rule). Listed for their locks. APPLY BEFORE
-  // THE FLAG (migration header). PROMOTE `worker_institute_links` TO A `table` ENTRY WITH #2752
-  // PART C: its company-search exclusion must hold with the flag off, so that read is unflagged.
+  // 0161 (#2752): the institute student link and the worker's origin. `worker_origins` is named
+  // only while CAMPUS_LINK_ENABLED is on, so it is listed for its lock alone (the 0134 rule).
+  // `worker_institute_links` became a `table` entry with #2752 part C: the tag rules read it with
+  // the flag OFF too (a link outlives the flag), so it is APPLY-BEFORE-DEPLOY from that build on.
+  {
+    id: "0161-worker-institute-links-table",
+    migration: "0161_institute_link",
+    kind: "table",
+    table: "worker_institute_links",
+    requiredBy:
+      "CandidateSearchRepository's pool (consentingWorkers: the active-link exclusion) on every " +
+      "company search and city facet, and InstituteOpenGate.decide on every unlock, reveal and " +
+      "resume disclosure - all name the table unconditionally, flag on or off",
+    failureMode:
+      "every company candidate search 500s (relation does not exist), and every unlock, reveal " +
+      "and resume disclosure is refused with the neutral body (the gate fails closed), so no " +
+      "company can open any worker. Old builds on a migrated database are fine (a superset)",
+  },
   {
     id: "0161-worker-institute-links-rls",
     migration: "0161_institute_link",

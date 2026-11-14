@@ -1,7 +1,10 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, eq, exists, sql } from "drizzle-orm";
+import { and, eq, exists, or, sql } from "drizzle-orm";
 import {
+  applications,
   auditLogs,
+  jobPostings,
+  jobs,
   workerInstituteLinks,
   workerOrigins,
   workers,
@@ -112,6 +115,113 @@ export class InstituteLinkRepository {
     await tx
       .update(workerInstituteLinks)
       .set({ ...facts, status: "active", withdrawnAt: null, syncedAt: now })
+      .where(eq(workerInstituteLinks.workerId, workerId));
+  }
+
+  /**
+   * His live link, or undefined. On the global pool: the open gate reads it before the unlock's
+   * advisory lock, beside the consent read it stands in for (the pool-vs-lock deadlock rule).
+   */
+  async findActiveByWorker(workerId: string): Promise<InstituteLinkRow | undefined> {
+    const rows = await this.db
+      .select()
+      .from(workerInstituteLinks)
+      .where(
+        and(eq(workerInstituteLinks.workerId, workerId), eq(workerInstituteLinks.status, "active")),
+      )
+      .limit(1);
+    return rows[0];
+  }
+
+  /**
+   * Whether he applied to a posting or a legacy job `ownerPayerId` owns: the institute rule's "a
+   * company he applied to". `ownerPayerId` is the tenant key (the `payer_id` its jobs carry, as
+   * `findOwnedJobRef` reads it). Any apply counts, through Campus or the worker app, whatever its
+   * stage since.
+   */
+  async hasAppliedToOwner(workerId: string, ownerPayerId: string): Promise<boolean> {
+    const rows = await this.db
+      .select({ id: applications.id })
+      .from(applications)
+      .leftJoin(jobPostings, eq(jobPostings.id, applications.jobPostingId))
+      .leftJoin(jobs, eq(jobs.id, applications.jobId))
+      .where(
+        and(
+          eq(applications.workerId, workerId),
+          eq(applications.action, "applied"),
+          or(eq(jobPostings.payerId, ownerPayerId), eq(jobs.payerId, ownerPayerId)),
+        ),
+      )
+      .limit(1);
+    return rows.length > 0;
+  }
+
+  /**
+   * RVM confirmed his consent again: refresh the facts and the confirmation time. Only an active
+   * link moves; one withdrawn since the read stays withdrawn.
+   */
+  async confirmActive(workerId: string, facts: InstituteLinkFacts, now: Date): Promise<void> {
+    await this.db
+      .update(workerInstituteLinks)
+      .set({ ...facts, syncedAt: now })
+      .where(
+        and(eq(workerInstituteLinks.workerId, workerId), eq(workerInstituteLinks.status, "active")),
+      );
+  }
+
+  /**
+   * Deletes the worker row THIS INSTITUTE'S LINK CREATED, when he has never signed in to it: still
+   * `pending` and its origin this institute, the two conditions `moveLinkCreatedWorkerPhone`
+   * uses. One conditional statement, so a sign-in that activates the row first keeps it. Postgres
+   * cascades his link, origin and applications and sets his billing rows' worker to null, as the
+   * DPDP erasure's own delete does. False when nothing was deleted: he has a BadaBhai account.
+   */
+  async deleteLinkCreatedPendingWorker(
+    tx: Database,
+    workerId: string,
+    instituteCode: InstituteCode,
+  ): Promise<boolean> {
+    const rows = await tx
+      .delete(workers)
+      .where(
+        and(
+          eq(workers.id, workerId),
+          eq(workers.status, "pending"),
+          exists(
+            tx
+              .select({ one: sql`1` })
+              .from(workerOrigins)
+              .where(
+                and(
+                  eq(workerOrigins.workerId, workerId),
+                  eq(workerOrigins.kind, "institute"),
+                  eq(workerOrigins.ref, instituteCode),
+                ),
+              ),
+          ),
+        ),
+      )
+      .returning({ id: workers.id });
+    return rows.length > 0;
+  }
+
+  /**
+   * Withdraws the link and erases everything copied from the institute. The reference stays, so a
+   * repeated unlink finds the link already withdrawn and a re-link (he consents again) reuses it.
+   */
+  async withdrawAndErase(tx: Database, workerId: string, now: Date): Promise<void> {
+    await tx
+      .update(workerInstituteLinks)
+      .set({
+        status: "withdrawn",
+        withdrawnAt: now,
+        studentStatus: null,
+        course: null,
+        branch: null,
+        testScore: null,
+        consentVersion: null,
+        consentAt: null,
+      })
       .where(eq(workerInstituteLinks.workerId, workerId));
   }
 
