@@ -87,12 +87,18 @@ Query: `review_state` (`pending`|`approved`|`rejected`), `branch_id`, `course_id
 closed since are included with `status: "closed"`, so Campus learns about a close.
 
 **Building `changed_since`.** Take it from the `changed_at` of the last feed page you read, minus a
-margin (a minute is plenty), and drop the postings you have already seen by `id` and `changed_at`.
-Never from a review PUT's `reviewed_at` (that is your own `decided_at`, Campus's clock) and never
-from Campus's own clock. `changed_at` is the later of the posting's and its review's change times:
-the posting's is stamped by the api host's clock, the review's by the database's
-(`clock_timestamp()`), and a change can commit after a later stamp is already visible. Re-reading
-a margin is what keeps a slow commit from being skipped.
+margin (a minute is plenty). Never from a review PUT's `reviewed_at` (that is your own `decided_at`,
+Campus's clock) and never from Campus's own clock.
+
+**Apply every posting you read, upserting by `id`**, including one whose `id` and `changed_at` you
+have seen before: the same pair can carry a newer state. `changed_at` is the later of the posting's
+and its review's change times, and they come from two clocks: the posting's is stamped by the api
+host's clock, the review's by the database's (`clock_timestamp()`). So a change made just after a
+review can leave `changed_at` where it was, and a change can commit after a later stamp is already
+visible. Both clocks are NTP-synced, far inside the two-minute overlap BadaBhai adds to your margin,
+so re-reading that window and upserting by `id` always reaches the newest state. A card you have
+not refreshed yet can never take an application it should refuse: `POST applications` checks the
+posting's status and approval live.
 
 ```json
 {
@@ -344,8 +350,10 @@ sees him in its applicant list labelled as an RVM student. Answers `201` with th
 
 Query: `changed_since`, `cursor`, `limit`. Answers `{ "applications": [ …as above… ], "next_cursor" }`,
 in `changed_at` order. `changed_since` reaches back two minutes further than asked, so a change
-committed late is never skipped: de-duplicate by `application_id`. The same holds for
-`GET job-postings`. A `changed_since` before 2026-01-01T00:00:00Z reads from that time: nothing the
+committed late is never skipped. Apply every item, upserting by `application_id`: as on
+`GET job-postings`, a repeated `application_id` and `changed_at` can carry a newer state, because
+`changed_at` is the later of the Campus record's and the company's stage change times, stamped by
+different clocks. A `changed_since` before 2026-01-01T00:00:00Z reads from that time: nothing the
 link records is older.
 `stage` is one of `new`, `shortlist`, `selected`, `hired`, `passed`, `withdrawn`. `new`, `shortlist`
 and `passed` exist today; `selected` and `hired` arrive with #2747. Campus maps `passed` to its own

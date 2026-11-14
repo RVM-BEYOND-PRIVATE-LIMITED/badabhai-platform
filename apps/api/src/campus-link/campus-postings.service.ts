@@ -22,9 +22,13 @@ import type { z } from "zod";
 const RVM: InstituteCode = "rvm";
 
 /**
- * How far a `changed_since` read reaches back. `changed_at` is stamped by the application clock
- * before COMMIT, so a slower transaction can commit with an older stamp than one Campus already
- * read; re-reading this overlap (Campus de-duplicates by id) means no change is ever skipped.
+ * How far a `changed_since` read reaches back. Each feed's `changed_at` is the GREATEST of stamps
+ * from two clocks (the api host's `new Date()` and the database's `clock_timestamp()` / `now()`),
+ * taken before COMMIT. So a slower transaction can commit with an older stamp than one Campus
+ * already read, and a change made just after another can leave `changed_at` where it was. Campus
+ * upserts EVERY item by id (never skipping a repeated id and `changed_at`), so re-reading this
+ * overlap reaches the newest state while the two NTP-synced clocks agree to well within it. The
+ * feeds are advisory: apply re-checks the posting live.
  */
 export const CAMPUS_FEED_OVERLAP_MS = 120_000;
 

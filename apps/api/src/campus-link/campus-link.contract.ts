@@ -242,6 +242,7 @@ export const CampusPostingSchema = z.object({
   /** Empty means every course. The name is for display and for matching until ids are shared. */
   courses: z.array(z.object({ id: CourseIdSchema, name: z.string() })),
   review_state: z.enum(REVIEW_STATES),
+  /** A feed position, not a version: upsert by `id`, as a repeated value can carry a newer state. */
   changed_at: IsoDateTime,
   /**
    * The hash of the content above, as of this read (#2746, owner decision 2026-11-14). Send it back
@@ -485,6 +486,7 @@ export const CampusApplicationSchema = z.object({
   posting_id: Id,
   student_ref: StudentRefSchema,
   stage: z.enum(CAMPUS_APPLICATION_STAGES),
+  /** A feed position, not a version: upsert by `application_id`, as with the posting feed. */
   changed_at: IsoDateTime,
 });
 
