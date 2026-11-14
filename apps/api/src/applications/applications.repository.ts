@@ -321,9 +321,11 @@ export class ApplicationsRepository {
    */
   async findAgencyTwinSource(
     jobPostingId: string,
-  ): Promise<{ sourceJobId: string; sourceStatus: Job["status"] } | undefined> {
+  ): Promise<
+    { sourceJobId: string; sourceStatus: Job["status"]; sourceHiddenAt: Date | null } | undefined
+  > {
     const rows = await this.db
-      .select({ sourceJobId: jobs.id, sourceStatus: jobs.status })
+      .select({ sourceJobId: jobs.id, sourceStatus: jobs.status, sourceHiddenAt: jobs.hiddenAt })
       .from(jobPostings)
       .innerJoin(jobs, eq(jobs.id, jobPostings.sourceJobId))
       .where(and(eq(jobPostings.id, jobPostingId), isNotNull(jobPostings.syncSource)))
