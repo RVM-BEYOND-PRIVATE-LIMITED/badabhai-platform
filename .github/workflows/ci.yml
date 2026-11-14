@@ -1369,6 +1369,10 @@ jobs:
       #                    each reported by their own check, the flip gate fails, and the real
       #                    CLI exits 1. A census query that silently counted nothing would wave a
       #                    breach through the flip; only a database evaluating it can show it does not.
+      #   * institute-link.db + institute-tag-rules.db + admin-institute-scope.db — #2752, the
+      #                    Campus student link: one phone one worker, the search exclusion, the
+      #                    open gate, unlink (never deleting a real account), the AI gate, and the
+      #                    admin scope. Each is a privacy rule only a database can show holding.
       #   * admin-empty-feed.db — #2569, the admin empty-feed list: the acceptance criterion, plus
       #                    PARITY per mode (jobs / union / V1) — every seeded worker is listed ⇔
       #                    the real `ApplicationsService.getFeed` serves him zero cards. The list
@@ -1387,7 +1391,7 @@ jobs:
       # with no database and must keep skipping these files (TD126).
       # No --coverage on purpose: the thresholds are a whole-suite gate owned by the
       # `node` job, and a six-file run cannot meet them.
-      - name: DB-backed gates (rank parity + boost fences + apply freeze + current profile + ai cost totals + jobs search + admin dashboard + applied subtitle + turner reach + form-onboarding reach + unique violations + feed union + job-posting chat publish race + feed order + engine view + demo matching seed + generic-pack chat reach + feed cursor + agency twin + payer applicant inbox + candidate search + payer org tenancy + org tenancy census + free-chat probe + companion history + deletion event tx + admin candidate detail + admin funnel parity + admin empty-feed parity + payer login management + worker account actions + PIN-reset gate + admin posting control + admin cost ledger + admin company records + admin candidates search + admin candidate corrections)
+      - name: DB-backed gates (rank parity + boost fences + apply freeze + current profile + ai cost totals + jobs search + admin dashboard + applied subtitle + turner reach + form-onboarding reach + unique violations + feed union + job-posting chat publish race + feed order + engine view + demo matching seed + generic-pack chat reach + feed cursor + agency twin + payer applicant inbox + candidate search + payer org tenancy + org tenancy census + free-chat probe + companion history + deletion event tx + admin candidate detail + admin funnel parity + admin empty-feed parity + payer login management + worker account actions + PIN-reset gate + admin posting control + admin cost ledger + admin company records + admin candidates search + admin candidate corrections + Campus student link, tag rules and admin scope)
         env:
           RUN_DB_TESTS: "1"
         run: |
@@ -1415,7 +1419,7 @@ jobs:
           # Serialising costs nothing here (the whole step runs in ~4s) and is scoped to
           # THIS step on purpose: `apps/api/vitest.config.ts` stays parallel, because the
           # 2820-test `node` suite is database-free and has no shared state to race on.
-          pnpm --filter @badabhai/api run test --no-file-parallelism rank-parity boost-fences apply-freeze current-profile-order ai-cost-totals.db jobs-search-sql admin-dashboard.db applied-subtitle.db turner-reach.db form-onboarding-reach.db unique-violation.db feed-union.db job-posting-chat.repository.db match-feed-order.db admin-match-engine.db demo-matching-seed.db generic-pack-chat-reach.db feed-cursor.db agency-twin-sync.db payer-applicant-inbox.db payer-applicant-stages.db candidate-search.db payer-org-tenancy.db org-tenancy-census.db free-chat-probe.db companion-history.db hard-delete-event-tx.db admin-candidate-detail.db payer-login-management.db admin-funnel.parity.db admin-empty-feed.db admin-worker-account.db pin-reset-gate.db admin-postings.db admin-cost-ledger.db admin-companies.db admin-candidates.db admin-corrections.db 2>&1 | tee db-gates-raw.log
+          pnpm --filter @badabhai/api run test --no-file-parallelism rank-parity boost-fences apply-freeze current-profile-order ai-cost-totals.db jobs-search-sql admin-dashboard.db applied-subtitle.db turner-reach.db form-onboarding-reach.db unique-violation.db feed-union.db job-posting-chat.repository.db match-feed-order.db admin-match-engine.db demo-matching-seed.db generic-pack-chat-reach.db feed-cursor.db agency-twin-sync.db payer-applicant-inbox.db payer-applicant-stages.db candidate-search.db payer-org-tenancy.db org-tenancy-census.db free-chat-probe.db companion-history.db hard-delete-event-tx.db admin-candidate-detail.db payer-login-management.db admin-funnel.parity.db admin-empty-feed.db admin-worker-account.db pin-reset-gate.db admin-postings.db admin-cost-ledger.db admin-companies.db admin-candidates.db admin-corrections.db institute-link.db institute-tag-rules.db admin-institute-scope.db 2>&1 | tee db-gates-raw.log
           sed -e 's/\x1b\[[0-9;]*m//g' db-gates-raw.log > db-gates.log
 
           # (1) EACH GATE MUST HAVE EXECUTED. `describe.skipIf` makes an unarmed run
@@ -1438,8 +1442,8 @@ jobs:
           # missing any one of them
           # this loop reports "did not run at all" on a perfectly good run. Widen it whenever a
           # gate lands in a new directory.
-          for f in rank-parity boost-fences apply-freeze current-profile-order ai-cost-totals.db jobs-search-sql admin-dashboard.db applied-subtitle.db turner-reach.db form-onboarding-reach.db unique-violation.db feed-union.db job-posting-chat.repository.db match-feed-order.db admin-match-engine.db demo-matching-seed.db generic-pack-chat-reach.db feed-cursor.db agency-twin-sync.db payer-applicant-inbox.db payer-applicant-stages.db candidate-search.db payer-org-tenancy.db org-tenancy-census.db free-chat-probe.db companion-history.db hard-delete-event-tx.db admin-candidate-detail.db payer-login-management.db admin-funnel.parity.db admin-empty-feed.db admin-worker-account.db pin-reset-gate.db admin-postings.db admin-cost-ledger.db admin-companies.db admin-candidates.db admin-corrections.db; do
-            line=$(grep -E "src/(ai|admin|admin/companies|admin/corrections|admin-postings|agency-twin|applications|auth|candidates|chat-companion|common|match|profiles|jobs|resume|payers|payer-portal|payer-portal/job-posting-chat|profiling/free-chat|workers)/${f}\.test\.ts" db-gates.log | head -1 || true)
+          for f in rank-parity boost-fences apply-freeze current-profile-order ai-cost-totals.db jobs-search-sql admin-dashboard.db applied-subtitle.db turner-reach.db form-onboarding-reach.db unique-violation.db feed-union.db job-posting-chat.repository.db match-feed-order.db admin-match-engine.db demo-matching-seed.db generic-pack-chat-reach.db feed-cursor.db agency-twin-sync.db payer-applicant-inbox.db payer-applicant-stages.db candidate-search.db payer-org-tenancy.db org-tenancy-census.db free-chat-probe.db companion-history.db hard-delete-event-tx.db admin-candidate-detail.db payer-login-management.db admin-funnel.parity.db admin-empty-feed.db admin-worker-account.db pin-reset-gate.db admin-postings.db admin-cost-ledger.db admin-companies.db admin-candidates.db admin-corrections.db institute-link.db institute-tag-rules.db admin-institute-scope.db; do
+            line=$(grep -E "src/(ai|admin|admin/companies|admin/corrections|admin-postings|agency-twin|applications|auth|campus-link|candidates|chat-companion|common|match|profiles|jobs|resume|payers|payer-portal|payer-portal/job-posting-chat|profiling/free-chat|workers)/${f}\.test\.ts" db-gates.log | head -1 || true)
             if [ -z "$line" ]; then
               echo "::error::${f}.test.ts did not run at all — the vitest file filter matched nothing."
               exit 1
@@ -1456,8 +1460,8 @@ jobs:
           #     stops reaching vitest, this step silently becomes a slow duplicate of the
           #     `node` job (and check (1) starts passing on unrelated tests). Update the
           #     expected count when adding a gate file to the command above.
-          if ! grep -qE 'Test Files +38 passed \(38\)' db-gates.log; then
-            echo "::error::Expected exactly the 38 gate files to run - the vitest file filter is not reaching vitest."
+          if ! grep -qE 'Test Files +41 passed \(41\)' db-gates.log; then
+            echo "::error::Expected exactly the 41 gate files to run - the vitest file filter is not reaching vitest."
             grep -E 'Test Files|      Tests ' db-gates.log || true
             exit 1
           fi
